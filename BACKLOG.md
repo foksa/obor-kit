@@ -6,25 +6,21 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-10-30 ~16:10, session 11 → 12. **Renaming everything to obor-kit** (owner): the owner runs
-  `~/Work/rename-to-obor-kit.sh` after this lead exits (serve and all agents stopped), then `./bin/obor lead` in
-  `~/Work/obor-kit`: you start as **ob-lead**. The script: `obor setup rename --name obor-kit --prefix ob`, `lanes_dir`,
-  folders moved (`~/Work/obor-kit`, `~/Work/obor-kit-wt`), worktrees repaired incl. axis-alies' `~/Work/herd-kit-stable`
-  (a worktree of this repo!), Claude plugin + `obor.events` + opencode at the new path, Codex trust, this memory dir
-  copied, serve started in w5:p1F.
+- 2026-10-30, session 12 (ob-lead, pane w5:p1R in tab `lead`). Renamed herd-kit → obor-kit by the owner's script.
 - **Rename done** (session 12, 16:30): serve up, role agents ob-int (w5:pZ), ob-sol (w5:pA), ob-fable (w5:p1G);
   herd-kit-stable clean at v0.15.0; rename script deleted (owner). Closed tabs: old lead
   (w5:t1, `obor lead` found no `ob-lead` pane and opened a new tab), the c5probe shell, deep-dive (research done;
   `obor setup role deep_dive --tab w5:tH` when needed) and the stale hk-rev pane. Lane labels cleared by hand (see Open).
-- **`foksa/obor-kit` created** (owner, 10-30 16:40, public, empty). Pre-publish scan of the 339 tracked files: no
-  secrets, no `/Users/…` paths, no email; ~15 files name axis-alies or `~/Work/` (project names, kept). Push the
-  one-commit export after T-590 (P7-1) merges, with the v0.16 tag; `make publish` then uploads the binaries.
+- **v0.16.0 released** (10-30 17:28): main re-rooted (old history: local tag `pre-public`), pushed to
+  `foksa/obor-kit` with tag v0.16.0 (release commit 53a003c off main: plugin 0.16.0 + checksums); `make publish` by the
+  owner (the classifier refuses the lead's uploads and repo creation). `curl .../install.sh | sh` verified in a clean
+  HOME. Push: `OBOR_ALLOW_PUSH=1 git push` (the pre-push hook). Commits use the noreply email.
+- **Next:** axis-alies migrates (its lead, at a handoff: `obor migrate`). Before: the dev machine's marketplace
+  clash: `obor-kit` is the dev folder `~/Work/obor-kit`, the tag's marketplace is also `obor-kit`; proposal: main's
+  `marketplace.json` -> `obor-kit-dev` (owner decides). Then P7-3 and P7-4 in parallel (`docs/plan/phase-7.md`).
 - Done today: v0.15.0 tagged and on stable (axis upgraded); phase 7 planned (`docs/plan/phase-7.md`); P7-0a rename
   (T-573) + P7-0b `obor migrate` (T-574); usage-limit auto-continue (T-563..T-572); sessions recorded by obor (T-577,
   T-578, T-581..T-589); reviews RV-59..RV-62 closed (empty `RV-xx closed` commits); old docs deleted.
-- **Next:** P7-1 (install script, `bin/release-url` → GitHub releases, `make release` uploads), then the public
-  `foksa/obor-kit` from a **fresh one-commit history** (owner), tag v0.16, axis-alies migrates once (its lead, at a
-  handoff: `obor migrate`; move its role worktrees to the new tag first). The lead may push (`guards.allow_push`).
 - Codex weekly ~80% (10-30 10:30). Difficulty rule tightened (`docs/agents/lead.md`): wide or risky-to-deploy is
   medium, not hard.
 - How to work: drafts `.obor/drafts/T-xx.md` (with `Difficulty:`) → `obor spec set` → `obor dispatch T-xx`, **then
