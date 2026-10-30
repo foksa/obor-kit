@@ -15,6 +15,10 @@ tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
 plugin=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
   sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || plugin=
 [ "$plugin" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$plugin', want $v"
+# T-592: the release tag ships the marketplace name users install (main's obor-kit-dev names the dev checkout).
+market=$(git show "$tag:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\n' |
+  sed -n 's/^[^"]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || market=
+[ "$market" = obor-kit ] || fail ".claude-plugin/marketplace.json name at $tag is '$market', want obor-kit"
 catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
 
 set --

@@ -7,7 +7,9 @@ curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
 1. Update `VERSION` and `.claude-plugin/plugin.json`'s `version` (the plugin version keys Claude's cache dir, so the two
-   must match) and review the changes. Write the release's `docs/UPGRADE-v<x.y>.md` at tag time from
+   must match) and set `.claude-plugin/marketplace.json`'s `name` to `obor-kit` (main's is `obor-kit-dev`, the dev
+   checkout's; the release tag ships the name users install, and `make publish` refuses a tag that does not say
+   `obor-kit`) and review the changes. Write the release's `docs/UPGRADE-v<x.y>.md` at tag time from
    `git log v<prev>..` (every merge's spec is in its message), not task by task: a guide written mid-milestone misses
    the last merges (DD-v0.14 U1).
 2. Run `make release`. It creates four files in `dist/` and updates `bin/checksums.txt`. The checksum file is cumulative: each release replaces that version's four entries and keeps entries for every other version.
