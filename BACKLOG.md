@@ -15,9 +15,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   `foksa/obor-kit` with tag v0.16.0 (release commit 53a003c off main: plugin 0.16.0 + checksums); `make publish` by the
   owner (the classifier refuses the lead's uploads and repo creation). `curl .../install.sh | sh` verified in a clean
   HOME. Push: `OBOR_ALLOW_PUSH=1 git push` (the pre-push hook). Commits use the noreply email.
-- **Next:** axis-alies migrates (its lead, at a handoff: `obor migrate`). Before: the dev machine's marketplace
-  clash: `obor-kit` is the dev folder `~/Work/obor-kit`, the tag's marketplace is also `obor-kit`; proposal: main's
-  `marketplace.json` -> `obor-kit-dev` (owner decides). Then P7-3 and P7-4 in parallel (`docs/plan/phase-7.md`).
+- Marketplace (owner): main is `obor-kit-dev` (T-592), tags `obor-kit`; this machine re-registered (obor@obor-kit-dev,
+  ob-int/ob-fable restarted on it). **The pre-tag Codex smoke on C-01 was skipped for v0.16.0** (lead's slip): run it
+  before axis-alies migrates. LICENSE: none yet (owner to pick).
+- **Next:** Codex smoke; axis-alies migrates (its lead, at a handoff: `obor migrate`, kit `~/.obor/kit` via
+  install.sh); then P7-3 and P7-4 in parallel (`docs/plan/phase-7.md`).
 - Done today: v0.15.0 tagged and on stable (axis upgraded); phase 7 planned (`docs/plan/phase-7.md`); P7-0a rename
   (T-573) + P7-0b `obor migrate` (T-574); usage-limit auto-continue (T-563..T-572); sessions recorded by obor (T-577,
   T-578, T-581..T-589); reviews RV-59..RV-62 closed (empty `RV-xx closed` commits); old docs deleted.

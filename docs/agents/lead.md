@@ -56,18 +56,17 @@ Review files stay in the review worktree (`~/Work/obor-kit-wt/review/docs/review
 2026-10-30); delete them there when the cycle closes, by file name (an `rm -rf <review>/docs` once deleted tracked
 docs there).
 
-## Stable channel and releases (user)
-- Adopting projects run `~/Work/herd-kit-stable` (detached at a tag), never this checkout. Promote (tag +
-  `git -C ~/Work/herd-kit-stable checkout -q --detach <tag>`) only after the merges since the last tag are reviewed
-  and verified; then `obor send <project> "<what changed>"` to the adopting leads.
-- Main's `.claude-plugin/marketplace.json` is named `obor-kit`; a release tag ships `obor-kit-stable`, so tag a
-  release commit, not main: `git checkout -q -b release/<tag> main` → set `"name": "obor-kit-stable"` → bump
-  `.claude-plugin/plugin.json` `version` to the tag without the `v` → commit → `git tag -a <tag>` →
-  `git checkout -q main` (delete the release branch; the tag keeps the commit). Adopters:
-  `claude plugin marketplace add ~/Work/herd-kit-stable` + `claude plugin install obor@obor-kit-stable --scope
-  project`; panes need `OBOR_ROLE` + `OBOR_AGENT` (+ `OBOR_LANE` for workers).
+## Releases (owner 2026-10-30, v0.16)
+- Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace
+  `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
+  axis-alies still runs `~/Work/herd-kit-stable` (v0.15.0) until it migrates to `~/.obor/kit`.
+- Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
+  (`RELEASING.md`): on main `VERSION` + `docs/UPGRADE-v<x.y>.md`; in a scratch worktree at main set plugin `version`
+  and marketplace `name` `obor-kit`, `make release`, commit with `bin/checksums.txt`, `git tag -a v<x.y.z>`; copy
+  `bin/checksums.txt` to main; `OBOR_ALLOW_PUSH=1 git push origin main v<x.y.z>`; the owner runs `make publish` in the
+  scratch worktree (the classifier refuses the lead's upload); check `install.sh` in a scratch HOME. A pushed tag
+  never moves. Then `obor send <project> "<what changed>"` to the adopting leads.
 - Before each tag: a Codex smoke on C-01 with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --types luna
   --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
   like T-461; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
-  socket binds denied, 2026-10-27). After moving the stable checkout: `make -C ~/Work/herd-kit-stable build` (adopters get `<kit>/dist/obor`);
-  check `obor version` in an adopting project names `~/Work/herd-kit-stable/dist/obor`.
+  socket binds denied, 2026-10-27).
