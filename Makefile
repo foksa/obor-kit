@@ -8,7 +8,8 @@ VERSION := $(shell cat $(VERSION_FILE))
 # The version stamped into the binary (-X): the tag when HEAD is exactly at one (v0.14.0 at a release), else the newest
 # release tag by version order plus -dev+<short sha> (v0.14.0-dev+abc1234, -dirty when the tree is modified) — release
 # tags sit on release commits off main, so `git describe` on main names an older tag (T-559). Else the VERSION file's
-# bare number with a v (v0.14.0) when this is not a git checkout or has no release tag.
+# bare number with a v (v0.14.0) when this is not a git checkout or has no release tag. `make release` always stamps
+# v$(VERSION): its binaries are built before the release commit (with their catalog) is tagged.
 BUILD_VERSION := $(shell dirty=; [ -z "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || dirty=-dirty; \
 	tag=$$(git describe --tags --exact-match 2>/dev/null) || tag=; \
 	if [ -n "$$tag" ]; then printf '%s%s\n' "$$tag" "$$dirty"; exit 0; fi; \
@@ -80,7 +81,7 @@ release:
 	for goos in $(GOOS_LIST); do \
 	  for goarch in $(GOARCH_LIST); do \
 	    name="obor-$(VERSION)-$$goos-$$goarch"; \
-	    CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o "dist/$$name" ./cmd/obor || exit $$?; \
+	    CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=v$(VERSION)" -o "dist/$$name" ./cmd/obor || exit $$?; \
 	    shasum -a 256 "dist/$$name" >> dist/checksums.tmp || exit $$?; \
 	  done; \
 	done
