@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "OBOR_NO_SELF_HOST=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/obor\" hook user-prompt-submit", "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "OBOR_NO_SELF_HOST=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/obor\" hook pre-tool-use", "timeout": 10 }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "OBOR_NO_SELF_HOST=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/obor\" hook stop", "timeout": 15 }] }
+    ],
+    "StopFailure": [
+      { "hooks": [{ "type": "command", "command": "OBOR_NO_SELF_HOST=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/obor\" hook stop-failure", "timeout": 15 }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "OBOR_NO_SELF_HOST=1 bash \"${CLAUDE_PLUGIN_ROOT}/bin/obor\" hook session-start", "timeout": 10 }] }
+    ]
+  }
+}

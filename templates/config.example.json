@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "axis-alies",
+  "prefix": "aa",
+  "lanes_dir": "../axis-alies-wt",
+  "branches": { "main": "main", "task": "task/{id}" },
+  "task_id_pattern": "T-[0-9]+[a-z]?",
+  "paths": {
+    "reviews": "docs/reviews"
+  },
+  "done_file_sections": ["Summary", "Self-check", "Skipped", "Open questions"],
+  "commands": {
+    "lane_setup": "bun install --frozen-lockfile",
+    "lane_ready": "test -d node_modules",
+    "check": { "cmd": "bun run check", "timeout": 900 },
+    "baseline": { "cmd": "bun run baseline diff \"$OBOR_BASELINE\"", "dir": "../axis-alies-baseline/m8", "timeout": 600 },
+    "gate": { "cmd": "bun run gate", "timeout": 900, "paths": ["src/ai/**"] },
+    "check_fast": "bun run check:fast",
+    "e2e": "bun run e2e"
+  },
+  "lane_links": ["reference", "public/assets"],
+  "protected_files": ["src/engine/types.ts"],
+  "lane_types": {
+    "opus": { "kind": "claude", "args": ["--model", "opus", "--effort", "medium", "--permission-mode", "auto"], "max": 4 },
+    "sonnet": { "kind": "claude", "args": ["--model", "sonnet", "--effort", "medium", "--permission-mode", "auto"] },
+    "haiku": { "kind": "claude", "args": ["--model", "haiku", "--permission-mode", "auto"] },
+    "luna": {
+      "kind": "codex",
+      "args": ["-m", "gpt-6-luna", "-c", "model_reasoning_effort=high", "-s", "workspace-write", "-a", "never"],
+      "prompt_extra": "Network is unavailable; deps are installed."
+    },
+    "sol": {
+      "kind": "codex",
+      "args": ["-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high", "-s", "workspace-write", "-a", "never"]
+    }
+  },
+  "lanes": { "O-01": "opus", "S-01": "sonnet", "T-01": "luna" },
+  "roles": { "integrator": { "type": "opus" }, "reviewer": { "type": "sol", "worktree": "review" } },
+  "merge": {
+    "scratch_dir": null,
+    "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>",
+    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+    "fail_grep": "error|FAIL|Expected|Received"
+  }
+}

@@ -1,0 +1,299 @@
+package main
+
+import (
+	"context"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"obor/internal/agents"
+	"obor/internal/app"
+	"obor/internal/herdr/herdrtest"
+	"obor/internal/project"
+	"obor/internal/testkit"
+)
+
+// T-466, T-522: obor send <project> "<text>" is one send request, as the caller, to the target's serve: the target by
+// a path into it; its serve on <target root>/.obor/state/serve.sock. Usage, the own project, a name and a path outside
+// an obor project send nothing (FAIL, exit 1); serve's refusal is FAIL.
+func TestSendRequest(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	q := testkit.New(t)
+	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
+	q.Write("sub/x.txt", "x\n")
+	_, own := startFakeServe(t, p.Root, app.Status{}, "SENT (to the own project's serve)", "")
+	home, err := os.MkdirTemp("", "hs") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"send"}, `FAIL usage: obor send <project> "<text>"`},
+		{[]string{"send", "other"}, `FAIL usage: obor send <project> "<text>"`},
+		{[]string{"send", "other", " "}, `FAIL usage: obor send <project> "<text>"`},
+		{[]string{"send", p.Root, "hi"}, "FAIL obor send goes to another project's lead, not this one"},
+		{[]string{"send", "other", "hi"}, "FAIL other is not a directory: obor send takes a path into the target project"},
+		{[]string{"send", p.Base, "hi"}, "FAIL " + p.Base + " is not in an obor project (no .obor/config.json)"},
+	} {
+		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || strings.TrimRight(stdout, "\n") != c.want {
+			t.Errorf("obor %q: exit %d, %q; want 1, %q", c.args, rc, stdout, c.want)
+		}
+	}
+	if calls, _ := own.requests(); len(calls) != 0 {
+		t.Fatalf("a refused send sent %+v", calls)
+	}
+
+	// The target's own serve socket: the request goes there, with the text as it is.
+	if _, err := os.Stat(app.SocketPath(q.Root)); err == nil {
+		t.Fatal("precondition: the target has no serve socket")
+	}
+	_, target := startFakeServe(t, q.Root, app.Status{}, "SENT to ot-lead in other (posted to its session)", "")
+	if rc, stdout, _ := run(t, p.Root, env, "send", filepath.Join(q.Root, "sub"), "v0.12 is out"); rc != 0 ||
+		stdout != "SENT to ot-lead in other (posted to its session)\n" {
+		t.Errorf("send to a path in the target: exit %d, %q", rc, stdout)
+	}
+	calls, _ := target.requests()
+	if len(calls) != 1 {
+		t.Fatalf("%d requests to the target's serve, want 1", len(calls))
+	}
+	if c := calls[0]; target.methods[0] != app.MethodSend || c.Root != q.Root || c.From != "proj" || c.Note != "v0.12 is out" ||
+		c.Role != "lead" || c.Agent != "pj-lead" || c.CallID == "" {
+		t.Errorf("request: %s %+v", target.methods[0], c)
+	}
+	if calls, _ := own.requests(); len(calls) != 0 {
+		t.Errorf("the own project's serve got %+v", calls)
+	}
+
+	startFakeServe(t, q.Root, app.Status{}, "", "send: a lead or the owner sends, not pj-o1 (role worker)")
+	if rc, stdout, _ := run(t, p.Root, env, "send", q.Root, "x"); rc != 1 ||
+		stdout != "FAIL send: a lead or the owner sends, not pj-o1 (role worker)\n" {
+		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
+	}
+}
+
+// T-466: obor brief <role-agent> "<text>" is one brief request with the text; not a role agent (the lead, the
+// integrator, a worker, nobody) or no text sends nothing.
+func TestBriefRequest(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Lane("O-01", "")
+	p.Config(testkit.Set("roles.reviewer", map[string]any{}))
+	home, serve := startFakeServe(t, p.Root, app.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"brief", "pj-rev"}, `FAIL usage: obor brief <role-agent> "<text>"`},
+		{[]string{"brief", "pj-rev", ""}, `FAIL usage: obor brief <role-agent> "<text>"`},
+		{[]string{"brief", "pj-lead", "x"}, "FAIL pj-lead is no role agent"},
+		{[]string{"brief", "pj-int", "x"}, "FAIL pj-int is no role agent"},
+		{[]string{"brief", "pj-o-01", "x"}, "FAIL pj-o-01 is no role agent"},
+		{[]string{"brief", "nobody", "x"}, "FAIL nobody is no role agent"},
+	} {
+		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || !strings.HasPrefix(stdout, c.want) {
+			t.Errorf("obor %q: exit %d, %q; want 1, %q", c.args, rc, stdout, c.want)
+		}
+	}
+	if calls, _ := serve.requests(); len(calls) != 0 {
+		t.Fatalf("a refused brief sent %+v", calls)
+	}
+	if rc, stdout, _ := run(t, p.Root, env, "brief", "pj-rev", "verify finding 3"); rc != 0 || !strings.HasPrefix(stdout, "BRIEFED pj-rev") {
+		t.Errorf("brief: exit %d, %q", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if len(calls) != 1 || serve.methods[0] != app.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != "verify finding 3" ||
+		calls[0].Root != p.Root || calls[0].Role != "lead" {
+		t.Errorf("requests %v %+v", serve.methods, calls)
+	}
+}
+
+// T-466: obor restart <role-agent> --fresh --prompt "<brief>" records the brief (a brief request without a text)
+// once the restart succeeded; a worker's fresh start with a prompt records none; serve down is a note, not a failure.
+func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "")
+	p.Config(testkit.Set("roles.reviewer", map[string]any{"worktree": ""}))
+	f := p.Herdr()
+	f.Shell("w1:p3", "pj-rev", p.Root)
+	f.Shell("w1:p1", "pj-o-01", o1)
+	srv := herdrtest.Serve(t, f)
+	home, serve := startFakeServe(t, p.Root, app.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+		"OBOR_STATE_HOME=" + home, "OBOR_RESTART_WAIT=1", "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+
+	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-rev", "--fresh", "--prompt", "review the module map")
+	if lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n"); rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-rev") {
+		t.Fatalf("restart: exit %d\n%s", rc, stdout)
+	}
+	got, _ := serve.requests()
+	if len(got) != 1 || serve.methods[0] != app.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" || got[0].Role != "lead" {
+		t.Errorf("requests %v %+v, want one brief of pj-rev without a text", serve.methods, got)
+	}
+	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--fresh", "--prompt", "work"); rc != 0 {
+		t.Fatalf("worker restart: exit %d\n%s", rc, stdout)
+	}
+	if got, _ := serve.requests(); len(got) != 1 {
+		t.Errorf("a worker's fresh start recorded a brief: %+v", got)
+	}
+	serve.stop()
+	down := append(env[:len(env):len(env)], "OBOR_STATE_HOME="+p.Base+"/none")
+	rc, stdout, _ = run(t, p.Root, down, "restart", "pj-rev", "--fresh", "--prompt", "again")
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	if rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-rev") ||
+		!strings.Contains(stdout, "note: brief not recorded (the lead hears nothing when pj-rev finishes): obor serve is not running") {
+		t.Errorf("serve down: exit %d\n%s", rc, stdout)
+	}
+}
+
+// T-485: the poster reads the lead's <agent>.inbox, dials its socket and writes the auth line (the record's token)
+// then the user line with the text as it is, and the session reads both before the connection ends; no record, or a
+// record whose socket is gone (a dial refused), posts nothing (began false); inboxed is true only for a record whose
+// socket is there.
+func TestPosterPostsToTheInbox(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": filepath.Join(dir, "state")})
+	sock := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		b, _ := io.ReadAll(c) // to the poster's half-close
+		c.Close()
+		got <- string(b)
+	}()
+	p := poster{env}
+	ctx := context.Background()
+
+	if began, err := p.Post(ctx, agents.Default, "pj-lead", "x"); began || err == nil || !strings.Contains(err.Error(), "no session recorded for pj-lead") {
+		t.Errorf("no record: began %v, %v; want refused before a byte", began, err)
+	}
+	if _, ok := inboxed(env)("pj-lead"); ok {
+		t.Error("inboxed with no record")
+	}
+	if err := project.WriteInbox("pj-lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := inboxed(env)("pj-lead"); !ok || s != "s1" {
+		t.Errorf("inboxed = %q, %v; want the recording session s1 with a record whose socket is there", s, ok)
+	}
+	const line = `[obor other] release "v0.12" is out`
+	if began, err := p.Post(ctx, agents.Default, "pj-lead", line); !began || err != nil {
+		t.Fatalf("post: began %v, %v", began, err)
+	}
+	want := `{"type":"auth","token":"tok-1"}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"[obor other] release \"v0.12\" is out"}}` + "\n"
+	select {
+	case b := <-got:
+		if b != want {
+			t.Errorf("the session read %q, want %q", b, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session read nothing")
+	}
+
+	if err := project.WriteInbox("pj-lead", project.Inbox{Socket: filepath.Join(dir, "gone.sock")}, env); err != nil {
+		t.Fatal(err)
+	}
+	if began, err := p.Post(ctx, agents.Default, "pj-lead", line); began || err == nil {
+		t.Errorf("a dead socket: began %v, %v; want refused before a byte", began, err)
+	}
+	if _, ok := inboxed(env)("pj-lead"); ok {
+		t.Error("inboxed with a record whose socket is gone")
+	}
+}
+
+// DD-v0.13 B1: poster.Post posts with the kind it is given (the pane's), not the first kind with an inbox: the same record
+// is posted for a kind with an inbox, and refused before a byte (nothing dialled) for a kind without one or a kind
+// obor has no bridge for. The refusals name no kind's product ("no session recorded").
+func TestPosterUsesTheGivenKind(t *testing.T) {
+	t.Parallel()
+	var withInbox, without string
+	for _, name := range agents.Names() {
+		k, _ := agents.Lookup(name)
+		if k.Caps().Inbox && withInbox == "" {
+			withInbox = name
+		} else if !k.Caps().Inbox && without == "" {
+			without = name
+		}
+	}
+	if withInbox == "" || without == "" {
+		t.Fatalf("kinds %v: want one with an inbox and one without", agents.Names())
+	}
+	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": filepath.Join(dir, "state")})
+	sock := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	dials := make(chan struct{}, 4)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			dials <- struct{}{}
+			_, _ = io.Copy(io.Discard, c) // read to the poster's half-close: closing first races its write (EPIPE)
+			c.Close()
+		}
+	}()
+	p := poster{env}
+	ctx := context.Background()
+
+	if began, err := p.Post(ctx, withInbox, "pj-o-01", "x"); began || err == nil ||
+		!strings.Contains(err.Error(), "no session recorded for pj-o-01") || strings.Contains(err.Error(), "Claude") {
+		t.Errorf("no record: began %v, %v; want refused, \"no session recorded\" naming no product", began, err)
+	}
+	if err := project.WriteInbox("pj-o-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{without, "pi"} {
+		if began, err := p.Post(ctx, kind, "pj-o-01", "x"); began || err == nil {
+			t.Errorf("kind %s: began %v, %v; want refused before a byte", kind, began, err)
+		}
+	}
+	select {
+	case <-dials:
+		t.Fatal("a kind without an inbox dialled the record's socket")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if began, err := p.Post(ctx, withInbox, "pj-o-01", "x"); !began || err != nil {
+		t.Fatalf("kind %s: began %v, %v; want posted", withInbox, began, err)
+	}
+	select {
+	case <-dials:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the kind with an inbox dialled nothing")
+	}
+}

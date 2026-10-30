@@ -1,0 +1,268 @@
+// Package agents is the bridge layer (docs/module-map.md): what differs per agent CLI obor drives, as data and pure
+// functions over strings and bytes. No herdr, no sockets, no exec, no file I/O: the adapters (launch, setup, guard,
+// herdr, inbox) do that and ask the kind what differs. A kind is one package (agents/claude, agents/codex,
+// agents/opencode) that registers itself from its init; cmd/obor and testkit import all of them. Adding a kind = one
+// package implementing Kind + a config entry.
+package agents
+
+import (
+	"regexp"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Kind is one agent CLI as obor drives it.
+type Kind interface {
+	Name() string // herdr's --kind and lane_types.<t>.kind
+
+	// Start is the argv after the binary: the type's args, the kind's settings and MCP registration (none without a
+	// kit), then the resume form or the first prompt (never both).
+	Start(in Start) []string
+	// NotReady is why a just-started agent cannot take a prompt yet, from its screen ("": nothing of this kind's).
+	NotReady(screen string) string
+
+	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
+	Stop() Stop
+
+	// Headless are the argv forms of this CLI the guard denies (an accident guard: forms agents type).
+	Headless() Headless
+
+	// Install is what setup registers for this kind and where (env: the user's HOME, XDG_CONFIG_HOME); setup does the
+	// file operations.
+	Install(kit string, env func(string) string) Install
+
+	// Transcript is the path (a glob) of session sid's transcript (env: HOME and the kind's own config dir variable);
+	// with cwd, only the file of a session started in cwd, "" when this kind's transcripts do not record their cwd.
+	// "" when the kind keeps none obor can find.
+	Transcript(env func(string) string, cwd, sid string) string
+	// LastTurn is the last turn a part of a session's transcript records, whole lines only (a partial last line is
+	// not read); ok false: none in it. The adapter passes the transcript's end, then earlier parts while none is found.
+	// A kind whose hooks report a stop reads none (Caps.Turns false).
+	LastTurn(tail []byte) (t Turn, ok bool)
+	// Session is the session a transcript's first line names (T-577: launch finds a new session's transcript by it);
+	// ok false: this kind's transcripts name none there, or the line is not such a record.
+	Session(first []byte) (s Session, ok bool)
+	// Reset reads an API error a turn ended on (errText as the CLI names it, details its message, seen at at):
+	// limited, the error is a usage or rate limit, so the turn can go on once it resets (T-568); reset, when the
+	// message says it does (zero: it names no time).
+	Reset(errText, details string, at time.Time) (reset time.Time, limited bool)
+
+	// Deliver is how text reaches a running session of this kind: Typed (herdr agent.prompt), or an inbox post built
+	// from the session's SessionStart record (ok false: the record names no inbox; keep the line queued).
+	Deliver(text string, record []byte) (Delivery, bool)
+	// InboxRecord is the inbox record of the session the SessionStart hook runs in, from that session's environment
+	// (env), in the format Deliver reads; nil: the session has no inbox of this kind.
+	InboxRecord(env func(string) string) []byte
+
+	Caps() Caps
+}
+
+// Start is one start of an agent.
+type Start struct {
+	Kit      string         // this kit's root ("": no kit to name; no MCP registration on the command line)
+	Args     []string       // the type's args as given
+	Settings map[string]any // the settings to start with (config.LaneType.LaunchArgs); nil: none
+	Resume   string         // the session id to resume ("": fresh)
+	Prompt   string         // the first prompt of a fresh start, one line ("": none)
+	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
+}
+
+// ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
+type ReadFile func(path string) ([]byte, error)
+
+// Stop is a kind's quit recipe.
+type Stop struct {
+	Quit        string   // typed with Enter ("/exit", "/quit")
+	SecondEnter bool     // the slash-command popup takes the first Enter; a second one, a poll later, runs the quit
+	ClearInput  []string // the keys that clear the quit (and its popup) from the input when it did not exit
+	AfterEscape []string // the keys after a forced Escape, before the quit (the interrupted prompt is put back)
+	Program     string   // the leader's program when it is not Name() ("": Name())
+	Dialog      *Dialog  // the dialog the quit opens while the agent has background tasks; nil: none
+}
+
+// Dialog is a quit's dialog: without force it is closed (Escape) and the stop refused; force picks Option.
+type Dialog struct {
+	Option string         // the option force picks; on the screen while the dialog is open
+	Key    *regexp.Regexp // Option's key on the screen: its first submatch (no match: the dialog shows no key for it)
+}
+
+// Headless are the argv forms of a CLI that run it headless.
+type Headless struct {
+	Programs    []string // the executables the forms are denied for (nil: Name()): the command word's base name
+	Subcommands []string // denied as the first positional word
+	Anywhere    []string // also denied as any later positional word before `--`
+	ValueOpts   []string // global options that take the next word as their value (so it is no subcommand)
+	PrintFlag   bool     // -p / --print, also inside a short-flag cluster, before `--`
+}
+
+// Install is what setup registers for a kind.
+type Install struct {
+	MCP    MCPRegistration
+	Plugin *Link // a user-global plugin file to link; nil: none
+}
+
+// Where obor's MCP server reaches a CLI.
+const (
+	Manifest = "manifest" // the kit's plugin manifest (Path)
+	PerStart = "start"    // launch args on every start: nothing to install
+	Config   = "config"   // the obor entry of the CLI's user config (Path), which obor setup agents writes
+)
+
+// MCPRegistration is how obor's MCP server reaches a CLI.
+type MCPRegistration struct {
+	Where    string         // Manifest, PerStart or Config
+	Path     string         // the manifest, or the user config file ("" for PerStart)
+	AltPath  string         // Config: the other spelling of the file, read and edited when it is the only one there
+	Key      []string       // Manifest, Config: the obor entry's place in the file's JSON, outermost first
+	Entry    map[string]any // Manifest, Config: the obor entry
+	Unpinned map[string]any // Manifest, Config: the entry as written before the pin (T-420): registered, with a warning
+	// Lane is how a start with the type's args gets the server (obor setup mcp --lane): static true when the Where
+	// registration serves it (setup checks that file), else registered per start or not, how saying which.
+	Lane func(args []string, read ReadFile) (how string, registered, static bool)
+}
+
+// Session is a session as its transcript's first line names it: its id, the cwd it started in and when.
+type Session struct {
+	ID, Cwd string
+	Started time.Time
+}
+
+// Turn is one turn of a session as its transcript records it: its id, whether the event read is its end (Ended;
+// false: its start, the turn still running, T-571) and, when it ended on an error (a usage limit), the error as the
+// CLI names it and its message (Error "": it did not, or has not ended yet), and when the limit it hit resets as the
+// transcript records it (zero: unknown; T-568).
+type Turn struct {
+	ID, Error, Details string
+	Ended              bool
+	Reset              time.Time
+}
+
+// Link is a plugin link: From in the kit, To the user-global path.
+type Link struct{ From, To string }
+
+// Delivery is how one text reaches a running session.
+type Delivery struct {
+	Typed  bool     // herdr agent.prompt with the text as it is
+	Socket string   // inbox: the unix socket to dial
+	Lines  []string // inbox: the JSON lines to write, in order
+}
+
+// HookTransport is how a kind runs obor's hooks.
+type HookTransport int
+
+const (
+	HooksNone   HookTransport = iota // no hooks
+	HooksNative                      // the CLI's own hooks (the plugin's hooks/hooks.json)
+	HooksPlugin                      // obor's plugin for the CLI: it leaves a marker obor status checks (T-307)
+)
+
+// Caps are a kind's capabilities.
+type Caps struct {
+	Hooks      HookTransport
+	Inbox      bool // Deliver posts over the session's inbox socket
+	Resume     bool // Start honours Resume
+	Transcript bool // Transcript finds the session file
+	Turns      bool // LastTurn reads the session's turns from its transcript (T-563)
+	Sessions   bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
+	VersionVar string
+}
+
+// Default is the kind of an agent with no type that herdr reports no kind for.
+const Default = "claude"
+
+// Pin is the variable every kit-owned `obor mcp` start sets, as hooks do: bin/obor then runs this kit, not the main
+// checkout of the obor checkout the agent happens to sit in (T-420).
+const Pin = "OBOR_NO_SELF_HOST"
+
+// EnvVars are the variables `obor mcp` reads from the agent's session (internal/mcp); a CLI that starts MCP servers
+// with a stripped environment forwards them.
+var EnvVars = []string{"OBOR_ROLE", "OBOR_AGENT", "OBOR_LANE", "HERDR_PANE_ID", "OBOR_STATE_HOME"}
+
+var kinds = map[string]Kind{}
+
+// Register adds k (a kind package's init); a second kind of one name panics.
+func Register(k Kind) {
+	if _, dup := kinds[k.Name()]; dup {
+		panic("agents: kind " + k.Name() + " registered twice")
+	}
+	kinds[k.Name()] = k
+}
+
+// Lookup is the kind of name; ok false: no such kind.
+func Lookup(name string) (Kind, bool) {
+	k, ok := kinds[name]
+	return k, ok
+}
+
+// ByProgram is the kind whose Headless.Programs (default: its Name()) holds program, an executable's base name; ok
+// false: no kind runs as program.
+func ByProgram(program string) (Kind, bool) {
+	for _, n := range Names() {
+		if slices.Contains(Programs(kinds[n]), program) {
+			return kinds[n], true
+		}
+	}
+	return nil, false
+}
+
+// Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not (T-581); an unknown kind
+// does not either.
+func Resumes(name string) bool {
+	k, ok := kinds[name]
+	return ok && k.Caps().Resume
+}
+
+// Programs are k's executables: Headless.Programs, else its Name().
+func Programs(k Kind) []string {
+	if p := k.Headless().Programs; len(p) > 0 {
+		return p
+	}
+	return []string{k.Name()}
+}
+
+// Names are the registered kinds, sorted.
+func Names() []string {
+	out := make([]string, 0, len(kinds))
+	for n := range kinds {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// resetEpoch is a limit message's reset as Unix seconds after a '|' (Claude Code's "… usage limit reached|<epoch>").
+var resetEpoch = regexp.MustCompile(`\|(\d{10})\b`)
+
+// resetClock is a limit message's reset as a clock time: "resets 6pm", "resets at 6:30 PM", "try again at 6:30 PM".
+var resetClock = regexp.MustCompile(`(?i)\b(?:resets|try again)(?: at)? (\d{1,2})(?::(\d{2}))? ?([ap])\.?m\b`)
+
+// ResetIn is the reset time a limit message names (T-568): an epoch after a '|', else a clock time's next occurrence
+// after at, in at's location (the clock of the machine the agent runs on). Zero: it names none.
+func ResetIn(text string, at time.Time) time.Time {
+	if m := resetEpoch.FindStringSubmatch(text); m != nil {
+		sec, _ := strconv.ParseInt(m[1], 10, 64) // ten digits: cannot fail
+		return time.Unix(sec, 0)
+	}
+	m := resetClock.FindStringSubmatch(text)
+	if m == nil {
+		return time.Time{}
+	}
+	h, _ := strconv.Atoi(m[1]) // digits: cannot fail
+	mins, _ := strconv.Atoi(m[2])
+	if h < 1 || h > 12 || mins > 59 {
+		return time.Time{}
+	}
+	h %= 12
+	if strings.EqualFold(m[3], "p") {
+		h += 12
+	}
+	t := time.Date(at.Year(), at.Month(), at.Day(), h, mins, 0, 0, at.Location())
+	if t.Before(at) {
+		t = t.AddDate(0, 0, 1)
+	}
+	return t
+}

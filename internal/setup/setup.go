@@ -1,0 +1,270 @@
+// Package setup is `obor setup`: make a project obor-ready. Every subcommand is idempotent, prints what it did and
+// ends with OK … / FAIL … (exit 1).
+//
+//	init [--name N] [--prefix P]  .obor/config.json from templates/config.example.json (name, prefix, lanes_dir filled;
+//	        no lanes; the example's commands, lane_links and protected_files cleared); .gitignore lines (obor state,
+//	        obor run's .task-run, lane_links); BACKLOG.md and docs/decisions.md from templates/ (T-470); templates/
+//	        task-spec.md and templates/agents/roster.md into paths.agents (default docs/agents), and per role text in
+//	        templates/agents a short project stub there (its title, a pointer to the kit text, its "This project"
+//	        section; T-204), placeholders filled. Never overwrites a file, commits nothing. Then the obor.events report
+//	        (herdr-plugin without linking).
+//	lane <LANE> <type>  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
+//	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout).
+//	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
+//	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default the tab of
+//	        $HERDR_PANE_ID), or a new tab in the caller's workspace, or an existing shell pane; cwd the lane, env
+//	        OBOR_ROLE / OBOR_AGENT / OBOR_LANE; then the pane label (= the agent, R-28 §2: refused when another pane
+//	        holds it or --pane is labelled otherwise) and herdr agent start with the lane type's kind and args (+ Claude
+//	        --settings), both through launch.Start (the one start, shared with obor restart). Refuses a full tab
+//	        (limits.max_panes_per_tab, default 4) and a type at its max (lane_types.<type>.max: running agents in lanes
+//	        of that type and role agents of that type). A failed start with a trust dialog or a Codex self-update in the
+//	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
+//	role <role> [same placement]  the same for a role of the roles table (not worker): agent and type from
+//	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root, or for a
+//	        role-worktree role (reviewer, deep_dive; T-179) a detached worktree <lanes_dir>/<roles.<role>.worktree>,
+//	        never a lane. triage also copies templates/BUGS.md to docs/BUGS.md if missing.
+//	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
+//	        pre-push); refuses when it is set to something else. --remove unsets it (only when it is ours).
+//	herdr-plugin  the obor.events herdr plugin (R-28 §3; user-global, once per user): link <kit>/herdr-plugin in
+//	        herdr, or re-link it when herdr runs another kit's copy (herdr stores the resolved path, so a kit at a new
+//	        path needs this); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
+//	        false` (never edited, T-159).
+//	agents [--remove]  what each kind's bridge says to install (user-global, once per user; alias opencode-plugin):
+//	        its plugin link (OpenCode: <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js,
+//	        T-306; another kit's copy re-linked, anything else there left alone) and the obor entry of its user config
+//	        (OpenCode: mcp.servers.obor). --remove deletes those.
+//
+//	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
+//	        workspace): see rename.go.
+//
+// migrate (obor migrate, P7-0b): see migrate.go.
+//
+// Pane and role refuse names that collide between lanes and roles (T-189) before any herdr call or worktree.
+package setup
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"obor/internal/app"
+	"obor/internal/config"
+	"obor/internal/herdr"
+	"obor/internal/project"
+	"obor/internal/roles"
+)
+
+// Herdr is what setup asks of herdr: the pane operations launch needs (app.PaneControl) and the ones setup makes
+// itself, the agents, a new tab, a tab's layout, a split, and the plugin registry; the herdr socket client is it.
+type Herdr interface {
+	app.PaneControl
+	Agents(ctx context.Context) ([]herdr.Agent, error)
+	Layout(ctx context.Context, pane string) ([]herdr.Rect, error)
+	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
+	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
+	Plugins(ctx context.Context) ([]herdr.Plugin, error)
+	LinkPlugin(ctx context.Context, dir string) error
+	UnlinkPlugin(ctx context.Context, id string) error
+}
+
+var _ Herdr = (*herdr.Socket)(nil)
+
+// Setup runs `obor setup` subcommands for the project around Dir.
+type Setup struct {
+	Kit string // the obor kit: templates/, githooks/, herdr-plugin/
+	Dir string // the caller's cwd
+	Env project.Env
+	H   Herdr
+	Out io.Writer
+	// McpCheck is `obor mcp --check` (the doctor's handshake against the server itself; internal/mcp is an adapter,
+	// so cmd/obor passes it in).
+	McpCheck func(project.Env) (string, error)
+	// Rollout is how long a fresh start looks for its new session's transcript (launch.Launcher.Rollout; 0: its default).
+	Rollout time.Duration
+	// Open is the files processes hold open (launch.Launcher.Open; nil: its default).
+	Open func(pids []int) []string
+
+	root    string // the main checkout, once found
+	cfg     *config.Config
+	changed bool // migrate: a step did something
+}
+
+// Usage is the one usage line.
+func Usage() string {
+	var names []string
+	for _, r := range roles.All() {
+		if r.Name != "worker" {
+			names = append(names, r.Name)
+		}
+	}
+	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
+	return "usage: obor setup init [--name N] [--prefix P] | lane <LANE> <type> | pane <LANE> " + where +
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | rename --name N --prefix P"
+}
+
+var errUsage = errors.New("usage")
+
+// Run runs one subcommand: 0, or 1 after the FAIL line.
+func (s *Setup) Run(ctx context.Context, args []string) int {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	var err error
+	switch sub {
+	case "init":
+		err = s.initCmd(ctx, args)
+	case "lane":
+		err = s.lane(ctx, args)
+	case "pane":
+		err = s.pane(ctx, args)
+	case "role":
+		err = s.role(ctx, args)
+	case "githooks":
+		err = s.githooks(args)
+	case "herdr-plugin":
+		err = s.herdrPlugin(ctx, args)
+	case "agents", "opencode-plugin": // opencode-plugin: its name before DD-v0.13 B1
+		err = s.agentsCmd(args)
+	case "mcp":
+		err = s.mcpCmd(ctx, args)
+	case "rename":
+		err = s.renameCmd(ctx, args)
+	case "migrate": // `obor migrate` (migrate.go); not in Usage: it is no setup subcommand to type
+		err = s.migrate(ctx, args)
+	default:
+		err = errUsage
+	}
+	if errors.Is(err, errUsage) {
+		err = project.Fail(Usage())
+	}
+	if err != nil {
+		s.say("FAIL %s", err)
+		return 1
+	}
+	return 0
+}
+
+func (s *Setup) say(format string, a ...any) { fmt.Fprintf(s.Out, format+"\n", a...) }
+
+// findRoot sets the main checkout of the project around Dir.
+func (s *Setup) findRoot() error {
+	repo, err := project.Find(s.Dir)
+	if err != nil {
+		return project.Failf("not in a git repository")
+	}
+	s.root = repo.Root
+	return nil
+}
+
+// load finds the project and loads its effective config.
+func (s *Setup) load() error {
+	if err := s.findRoot(); err != nil {
+		return err
+	}
+	cfg, err := config.Load(s.root)
+	if err != nil {
+		return project.Failf("no usable .obor/config.json (obor setup init, then obor config validate)")
+	}
+	s.cfg = cfg
+	return nil
+}
+
+// warnPlugin: the project's .claude/settings.json enables no obor@… plugin (T-137), so its agents would run without
+// obor's hooks. One WARN line; obor never installs it.
+func (s *Setup) warnPlugin() {
+	var settings struct {
+		Enabled map[string]any `json:"enabledPlugins"`
+	}
+	if b, err := os.ReadFile(filepath.Join(s.root, ".claude", "settings.json")); err == nil && json.Unmarshal(b, &settings) == nil {
+		for k, v := range settings.Enabled {
+			if strings.HasPrefix(k, "obor@") && v == true {
+				return
+			}
+		}
+	}
+	s.say("WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit-stable --scope project " +
+		"(or obor@obor-kit for obor-kit itself)")
+}
+
+// ensureWorktree makes dir a detached worktree at the root's current branch, unless it already is one of this repo.
+func (s *Setup) ensureWorktree(dir string) error {
+	if _, err := os.Stat(dir); err == nil {
+		repo, err := project.Find(dir)
+		if err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
+			return project.Failf("%s exists and is not a worktree of %s", dir, s.root)
+		}
+		s.say("skip worktree %s (exists)", dir)
+		return nil
+	}
+	out, _ := project.Git(s.root, "branch", "--show-current")
+	branch := strings.TrimSpace(out)
+	if branch == "" {
+		return project.Failf("the main checkout %s is not on a branch", s.root)
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return project.Failf("cannot create %s", filepath.Dir(dir))
+	}
+	if _, err := project.Git(s.root, "worktree", "add", "-q", "--detach", dir, branch); err != nil {
+		return project.Failf("git worktree add --detach %s %s", dir, branch)
+	}
+	s.say("worktree %s (detached at %s)", dir, branch)
+	return nil
+}
+
+// roleAgents is the agent name of every role that counts (a table role but the worker, an optional one only when
+// configured).
+func roleAgents(cfg *config.Config) []string {
+	var out []string
+	for _, r := range roles.All() {
+		if rc, _ := cfg.Role(r.Name); r.Name != "worker" && (!r.Optional || rc.Configured) {
+			out = append(out, cfg.AgentName(r.Name, ""))
+		}
+	}
+	return out
+}
+
+// refuseLaneCollisions keeps a new lane's name and agent names out of the roles' (T-189: one runtime namespace).
+func refuseLaneCollisions(cfg *config.Config, lane string) error {
+	for _, wt := range cfg.RoleWorktrees() {
+		if wt == lane {
+			return project.Failf("lane %s collides with a role worktree", lane)
+		}
+	}
+	taken := roleAgents(cfg)
+	for _, a := range cfg.LaneAgentAliases(lane, project.LaneAgent(cfg.Root, lane)) {
+		for _, r := range taken {
+			if a == r {
+				return project.Failf("lane %s agent %s collides with a role agent", lane, a)
+			}
+		}
+	}
+	// T-302: the bare lane name (o-01) is no alias any more, but a role agent so named still reads like the lane.
+	for _, r := range taken {
+		if r == strings.ToLower(lane) {
+			return project.Failf("lane %s is named like role agent %s", lane, r)
+		}
+	}
+	return nil
+}
+
+// refuseRoleCollisions keeps a role's worktree and agent out of the lanes' names (T-189).
+func refuseRoleCollisions(cfg *config.Config, role, worktree, agent string) error {
+	if worktree != "" && cfg.HasLane(worktree) {
+		return project.Failf("role %s worktree %s collides with a configured lane", role, worktree)
+	}
+	for _, l := range cfg.Lanes() {
+		for _, a := range cfg.LaneAgentAliases(l.Name, project.LaneAgent(cfg.Root, l.Name)) {
+			if a == agent {
+				return project.Failf("role %s agent %s collides with a configured lane agent", role, agent)
+			}
+		}
+	}
+	return nil
+}

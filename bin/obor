@@ -1,0 +1,220 @@
+#!/bin/bash
+# obor <subcommand> [args…] — the kit's one bash file: finds the obor Go binary (the dev build dist/obor, else the
+# pinned release in ~/.obor/bin, fetched and checksum-verified on first use) and execs it with the subcommand. Hooks
+# (`obor hook <name>`, hooks/hooks.json) never fetch: without a usable binary the no-binary rule below applies.
+set -euo pipefail
+
+# Plugin root = parent of this file's directory (following symlinks to this file).
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in
+    /*) self=$link ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+OBOR_PLUGIN_ROOT=$(cd "$(dirname "$self")/.." && pwd -P)
+export OBOR_PLUGIN_ROOT
+
+# main_checkout [<dir>]: the main checkout of the repository at <dir> (default: cwd); fails outside a repository.
+main_checkout() {
+  local dir=${1:-.} common
+  common=$(git -C "$dir" rev-parse --git-common-dir 2> /dev/null) || return 1
+  common=$(cd "$dir" && cd "$common" 2> /dev/null && pwd -P) || return 1
+  dirname "$common"
+}
+
+is_herd_checkout() {
+  [ -f "$1/bin/obor" ] && [ -f "$1/.claude-plugin/plugin.json" ] &&
+    [ "$(jq -r '.name // empty' "$1/.claude-plugin/plugin.json" 2> /dev/null)" = obor ]
+}
+
+# Self-hosting: inside an obor checkout (main or a lane worktree) `obor` runs the MAIN checkout's shim and binary,
+# never a lane's own build (lane builds go stale after merges). To run a lane's own code:
+# OBOR_NO_SELF_HOST=1 ./bin/obor …. Kit-owned callers (mods, hooks) pin OBOR_NO_SELF_HOST=1; self-hosting is for
+# commands typed in a checkout.
+self_host() {
+  local root
+  [ -z "${OBOR_SELF_HOSTED:-}" ] && [ -z "${OBOR_NO_SELF_HOST:-}" ] || return 0
+  root=$(main_checkout) || return 0
+  is_herd_checkout "$root" || return 0
+  [ "$root" != "$OBOR_PLUGIN_ROOT" ] || return 0
+  OBOR_SELF_HOSTED=1 exec "$BASH" "$root/bin/obor" "$@"
+}
+
+usage() {
+  local command
+  echo "usage: obor <subcommand> [args…]"
+  echo "plugin root: $OBOR_PLUGIN_ROOT"
+  echo "subcommands:"
+  while IFS= read -r command; do [ -z "$command" ] || echo "  $command"; done < "$OBOR_PLUGIN_ROOT/bin/go-commands"
+}
+
+is_command() {
+  local command
+  while IFS= read -r command; do [ "$command" != "$1" ] || return 0; done < "$OBOR_PLUGIN_ROOT/bin/go-commands"
+  return 1
+}
+
+fail() { echo "FAIL $*" >&2; exit 1; }
+
+# platform: sets os, arch, ver (the project's obor.version pin, else the kit's VERSION), source and asset.
+platform() {
+  local project pin
+  os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  case "$os" in darwin|linux) ;; *) return 1 ;; esac
+  arch=$(uname -m)
+  case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) return 1 ;; esac
+  ver=$(cat "$OBOR_PLUGIN_ROOT/VERSION")
+  source="kit default"
+  if project=$(main_checkout) && [ -f "$project/.obor/config.json" ]; then
+    pin=$(jq -r '.obor.version // empty' "$project/.obor/config.json" 2> /dev/null || true)
+    if [ -n "$pin" ]; then ver=$pin; source=pinned; fi
+  fi
+  asset="obor-$ver-$os-$arch"
+}
+
+# run <binary> <source> <args…>: exec the binary.
+run() {
+  local binary=$1 src=$2
+  shift 2
+  OBOR_VERSION_SOURCE="$src" exec "$binary" "$@"
+}
+
+# fetch: the release binary for this platform into ~/.obor/bin (curl, then its line in bin/checksums.txt must match).
+fetch() {
+  local root=$OBOR_PLUGIN_ROOT url expected actual tmp
+  # OBOR_NO_FETCH=1 (git hooks: no network) turns a missing binary into a failure.
+  [ -z "${OBOR_NO_FETCH:-}" ] || fail "no obor binary: make -C $root build"
+  [ -f "$root/bin/release-url" ] || fail "missing release URL"
+  [ -f "$root/bin/checksums.txt" ] || fail "missing checksums"
+  command -v curl > /dev/null 2>&1 || fail "curl not found: install it or put the binary at $binary"
+  url=$(sed -e "s/%VERSION%/$ver/g" -e "s/%OS%/$os/g" -e "s/%ARCH%/$arch/g" "$root/bin/release-url")
+  mkdir -p "$(dirname "$binary")" || fail "cannot create binary directory"
+  tmp="$binary.tmp.$$"
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  curl -fsSL "$url" -o "$tmp" || fail "cannot fetch $asset from $url"
+  expected=$(awk -v name="$asset" '$2 == name || $2 == "dist/" name { print $1; exit }' "$root/bin/checksums.txt")
+  [ -n "$expected" ] || fail "no checksum for $asset"
+  if command -v shasum > /dev/null 2>&1; then actual=$(shasum -a 256 "$tmp" | awk '{print $1}')
+  else actual=$(sha256sum "$tmp" | awk '{print $1}'); fi
+  [ "$actual" = "$expected" ] || fail "checksum mismatch for $asset"
+  chmod 755 "$tmp"
+  mv "$tmp" "$binary"
+  trap - EXIT HUP INT TERM
+}
+
+# has_hook <binary> <name>: `<binary> has hook <name>` exits 0 within 2 s (T-195: a stale dist/obor broke every hook;
+# RV-22 #1: a hanging one must not hang them). On expiry the watchdog kills it. No job control (T-279: where setpgid is
+# refused, `set -m` printed to stderr and the group kill missed): a simple background command is the binary's own pid.
+# The watchdog sleeps in the background and waits, so a TERM ends it at once, its sleep with it.
+has_hook() {
+  local pid watchdog rc=0
+  "$1" has hook "$2" < /dev/null > /dev/null 2>&1 &
+  pid=$!
+  (
+    s=
+    trap 'kill "$s"; exit 0' TERM
+    sleep 2 &
+    s=$!
+    wait "$s"
+    kill -KILL "$pid"
+  ) > /dev/null 2>&1 &
+  watchdog=$!
+  wait "$pid" 2> /dev/null || rc=$?
+  kill -TERM "$watchdog" 2> /dev/null || :
+  wait "$watchdog" 2> /dev/null || :
+  return "$rc"
+}
+
+# in_project <event json>: the event's cwd is in an obor project (.obor/config.json in its main checkout).
+in_project() {
+  local cwd root
+  cwd=$(jq -r '.cwd // empty' <<< "$1" 2> /dev/null) || return 1
+  [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
+  root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ]
+}
+
+# unmigrated_root <event json>: the event's cwd is in a herd-era project (.herd/config.json and no .obor/ in its main
+# checkout); sets $unmigrated to that root. # until v0.17 (P7-0a fallback)
+unmigrated_root() {
+  local cwd
+  cwd=$(jq -r '.cwd // empty' <<< "$1" 2> /dev/null) || return 1
+  [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
+  unmigrated=$(main_checkout "$cwd") && [ -f "$unmigrated/.herd/config.json" ] && [ ! -e "$unmigrated/.obor" ]
+}
+
+# hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; user decision T-201:
+# fail visibly) in an obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the repair
+# hint, except the command that repairs it (exactly `make -C <kit> build`, or `make build` with cwd = the kit); the
+# other hooks allow with the hint on stderr. Outside an obor project: allow, silent.
+hook() {
+  local name=${1:-} binary input tool cmd cwd hint
+  # Kit-owned caller: every obor the binary runs uses this plugin root, not the cwd's checkout (T-221).
+  export OBOR_NO_SELF_HOST=1
+  if [ -x "$OBOR_PLUGIN_ROOT/dist/obor" ] && has_hook "$OBOR_PLUGIN_ROOT/dist/obor" "$name"; then
+    run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" hook "$@"
+  fi
+  if platform; then
+    binary="${HOME:-}/.obor/bin/$asset"
+    if [ -x "$binary" ] && has_hook "$binary" "$name"; then run "$binary" "$source" hook "$@"; fi
+  fi
+  input=$(cat) || exit 0
+  if in_project "$input"; then
+    hint="obor: no usable Go binary in $OBOR_PLUGIN_ROOT — run: make -C $OBOR_PLUGIN_ROOT build"
+  elif unmigrated_root "$input"; then # until v0.17 (P7-0a fallback)
+    # The Go loader's line (config.ErrUnmigrated): only pre-tool-use fails closed on it.
+    [ "$name" = pre-tool-use ] || exit 0
+    hint="obor: $unmigrated/.herd/config.json and no .obor/: run obor migrate"
+  else
+    exit 0
+  fi
+  if [ "$name" != pre-tool-use ]; then
+    echo "$hint" >&2
+    exit 0
+  fi
+  tool=$(jq -r '.tool_name // ""' <<< "$input" 2> /dev/null) || tool=
+  case "$tool" in
+    Bash)
+      cmd=$(jq -r '.tool_input.command // ""' <<< "$input" 2> /dev/null) || cmd=
+      cmd=${cmd#"${cmd%%[![:space:]]*}"}
+      cmd=${cmd%"${cmd##*[![:space:]]}"}
+      [ "$cmd" = "make -C $OBOR_PLUGIN_ROOT build" ] && exit 0
+      if [ "$cmd" = "make build" ]; then
+        cwd=$(jq -r '.cwd // ""' <<< "$input" 2> /dev/null) || cwd=
+        [ "$(cd "$cwd" 2> /dev/null && pwd -P)" = "$OBOR_PLUGIN_ROOT" ] && exit 0
+      fi
+      ;;
+    Edit|Write|MultiEdit|NotebookEdit) ;;
+    *) exit 0 ;;
+  esac
+  echo "$hint" >&2
+  exit 2
+}
+
+self_host "$@"
+
+sub=${1:-}
+case "$sub" in
+  help|-h|--help)
+    usage
+    exit 0
+    ;;
+  ''|*[!a-z0-9-]*|-*)
+    usage >&2
+    exit 2
+    ;;
+esac
+shift
+if ! is_command "$sub"; then
+  echo "obor: unknown subcommand: $sub" >&2
+  usage >&2
+  exit 2
+fi
+[ "$sub" != hook ] || hook "$@"
+# A stale dev build (without this command) says so: `make build` refreshes it.
+[ ! -x "$OBOR_PLUGIN_ROOT/dist/obor" ] || run "$OBOR_PLUGIN_ROOT/dist/obor" "dev build" "$sub" "$@"
+platform || fail "unsupported platform: $(uname -s) $(uname -m)"
+binary="${HOME:-}/.obor/bin/$asset"
+[ -x "$binary" ] || fetch
+run "$binary" "$source" "$sub" "$@"

@@ -1,0 +1,31 @@
+#!/bin/sh
+# publish <version>: upload the four release binaries of v<version> to its GitHub release (`make publish`). The four
+# paths are a literal list, not GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
+# bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. POSIX sh.
+set -eu
+
+v=${1:?usage: publish <version>}
+tag="v$v"
+
+fail() { echo "FAIL $*" >&2; exit 1; }
+
+git rev-parse -q --verify "refs/tags/$tag" > /dev/null || fail "no tag $tag: commit the release, tag it, then publish"
+tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
+[ "$tagver" = "$v" ] || fail "VERSION at $tag is '$tagver', want $v"
+plugin=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || plugin=
+[ "$plugin" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$plugin', want $v"
+catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
+
+set --
+for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+  f="dist/obor-$v-$platform"
+  [ -f "$f" ] || fail "missing $f: run make release first"
+  want=$(printf '%s\n' "$catalog" | awk -v f="$f" '$2 == f { print $1; exit }')
+  [ -n "$want" ] || fail "no line for $f in bin/checksums.txt at $tag"
+  got=$(shasum -a 256 "$f" | awk '{ print $1 }')
+  [ "$got" = "$want" ] || fail "$f sha256 $got differs from the $tag catalog's $want: rebuild at $tag (a pushed tag never moves: a changed release is a new version)"
+  set -- "$@" "$f"
+done
+
+exec gh release create "$tag" --verify-tag "$@"

@@ -1,0 +1,291 @@
+package app
+
+import (
+	"cmp"
+	"context"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// A worker stopped on a usage limit continues by itself (T-568). Its stop (stopped.go: fact stopped, a worker's
+// needs-you of cause stopped) carries Limit and, when the agent's kind read one, its Reset (FactData). Each merge-loop
+// pass (stopWakes):
+//   - wake: wakeAfter past the reset, or, a reset unknown, every wakeEvery since the stop, the worker gets a continue
+//     wake for its open job, delivered as a job's wake is (prompt.go: its session's inbox, else typed; never into a
+//     pane herdr reports blocked), under the key continue.<the wake's time, Unix seconds>: one per wake time, a replay
+//     finds it done, and a time passed while serve was down wakes once at the next pass;
+//   - alarm: still stopped wakeAlarm after the stop's first wake, needs-you{<the stop>; still stopped 30m after the
+//     reset wake} (cause stopped) once, the owner notified and the lead told as for any needs-you.
+//
+// The stop ends with the worker's next turn as before (turnCall, turnStop); a limit hit again is a new stop with its
+// own reset. A stop that is no limit (billing, unknown) gets no wake: the needs-you it is.
+//
+// A role agent (not the lead) stopped on a usage limit with its brief open (T-569; stopped.go roleStop: the brief
+// stays open, the stop on it) gets the same, from deliver's pass (roleWakes): the wake, a line to the agent under the
+// key continue.<the wake's time>.<agent> of the project's lines, sent as the worker's is; the alarm, still stopped
+// wakeAlarm after the first wake: the lead's line "<the stop's line>; still stopped 30m after the reset wake" (fact
+// message, its Stop the stop's seq) and the owner's notification under alarm.<the stop's seq>, each once. A Codex
+// role agent's stop, its next turn's start and that turn's end are read from its rollout (roleTurns, T-571). With no
+// brief open there is nothing to continue: the stopped line only. The lead is never woken.
+
+const (
+	wakeAfter    = 2 * time.Minute  // a known reset: the wake this long after it
+	wakeEvery    = 30 * time.Minute // a reset unknown: a wake each period since the stop
+	wakeAlarm    = 30 * time.Minute // still stopped this long after the stop's first wake: the alarm
+	stepContinue = "continue."      // prompt intent (P) continue.<Unix seconds>: a stopped worker's wake at that time
+	stillStopped = "; still stopped 30m after the reset wake"
+	continueText = "Your usage limit has reset: continue where your turn stopped (" + wakeText + " for your job)."
+	roleContinue = "[obor] Your usage limit has reset: continue your brief where your turn stopped."
+	stepAlarm    = "alarm." // notification intent (F) alarm.<the stop's seq>: the owner told a role agent is still stopped
+)
+
+// wakeDue is the time the stop f's latest wake is due at, as of now (ok false: none is due yet). Its Reset known:
+// wakeAfter past it. Unknown: the last whole wakeEvery since the stop.
+func wakeDue(f Record, now time.Time) (time.Time, bool) {
+	return wakeAt(f.Fact().Reset, recordTime(f), now)
+}
+
+// wakeAt is wakeDue for a stop at since with reset (Unix seconds; 0: unknown).
+func wakeAt(reset int64, since, now time.Time) (time.Time, bool) {
+	if reset > 0 {
+		due := time.Unix(reset, 0).Add(wakeAfter)
+		return due, !now.Before(due)
+	}
+	n := now.Sub(since) / wakeEvery
+	if n < 1 {
+		return time.Time{}, false
+	}
+	return since.Add(n * wakeEvery), true
+}
+
+// continueKey is the key of task's wake due at due.
+func continueKey(task string, due time.Time) Key {
+	return Key{Task: task, Step: stepContinue + strconv.FormatInt(due.Unix(), 10)}
+}
+
+// wakeTo is one wake to send: the task ("": a role agent's), the job named, the agent, the key and the line.
+type wakeTo struct {
+	task, job, agent string
+	key              Key
+	line             string
+}
+
+// stopWakes is one pass of the stopped workers' wakes and alarms (see above): the alarms due are recorded, then the
+// wakes due are sent, each outside mu.
+func (a *App) stopWakes(ctx context.Context, p *proj, fx *Loop) {
+	now := a.opt.Now()
+	var wakes []wakeTo
+	a.mu.Lock()
+	for _, task := range p.openTasks() {
+		f, ok := p.stop(task)
+		if !ok || !f.Fact().Limit || p.ended[task] {
+			continue
+		}
+		w := p.tasks[task]
+		if woke := p.woke[task]; !woke.IsZero() && !woke.Before(recordTime(f)) && now.Sub(woke) >= wakeAlarm &&
+			!p.alarmed(task) {
+			a.fact(p, task, w, verdict{step: StepNeedsYou, reason: f.Fact().Reason + stillStopped, cause: causeStopped,
+				pane: w.agent})
+		}
+		due, ok := wakeDue(f, now)
+		mt := p.loop[task]
+		if !ok || mt == nil {
+			continue
+		}
+		job, open := mt.workerJob()
+		key := continueKey(task, due)
+		if !open || p.log.Done(key) {
+			continue
+		}
+		wakes = append(wakes, wakeTo{task: task, job: JobID(job), agent: cmp.Or(w.lane.Agent, mt.agent), key: key,
+			line: jobLine(JobID(job), continueText)})
+	}
+	a.mu.Unlock()
+	for _, wk := range wakes {
+		if ctx.Err() != nil {
+			return
+		}
+		a.sendWake(ctx, p, fx, wk)
+	}
+}
+
+// sendWake sends the continue wake wk to its agent's pane as whereIs resolves it, as a job's wake goes (send): not
+// identified, or its pane blocked (a dialog would take the text), nothing is sent and a later pass tries again; an
+// error before a byte went out leaves the intent pending, sent again by a later pass.
+func (a *App) sendWake(ctx context.Context, p *proj, fx *Loop, wk wakeTo) {
+	a.mu.Lock()
+	w := a.whereIs(p, wk.agent)
+	post, inboxed := a.via(fx, w, wk.agent)
+	a.mu.Unlock()
+	if w.State != Identified || w.Pane.Status == "blocked" {
+		return
+	}
+	target := w.Pane.ID
+	switch {
+	case post != "" && inboxed:
+		target = wk.agent
+	case fx.Typer == nil:
+		return
+	default:
+		post = ""
+	}
+	if _, err := a.do(ctx, p, Intent{Key: wk.key, Class: ClassPrompt, Data: promptData{Agent: wk.agent, Job: wk.job}},
+		func(ctx context.Context) (any, error) {
+			return sentResult(fx.transmit(ctx, post, target, wk.line, true))
+		}); err == nil {
+		a.logf("%s %s %s: the stopped agent %s woken", p.name, wk.key.Task, wk.key.Step, wk.agent)
+	}
+}
+
+// foldWake keeps the time of task's first wake since its stops last ended, or of a role agent's stop's first wake (a
+// continue result; under mu, folded).
+func (p *proj) foldWake(r Record) {
+	if r.Kind != KindResult || !strings.HasPrefix(r.Step, stepContinue) {
+		return
+	}
+	if r.Task == MsgTask {
+		_, agent, _ := strings.Cut(strings.TrimPrefix(r.Step, stepContinue), ".")
+		if b := p.briefs[agent]; b != nil && b.stop != nil && b.stop.woke.IsZero() && !recordTime(r).Before(b.stop.at) {
+			b.stop.woke = recordTime(r)
+		}
+		return
+	}
+	if p.woke[r.Task].IsZero() {
+		p.woke[r.Task] = recordTime(r)
+	}
+}
+
+// alarmed: task's stop in force has had its alarm.
+func (p *proj) alarmed(task string) bool {
+	for _, f := range p.active[task] {
+		if isStop(f) && strings.HasSuffix(f.Fact().Reason, stillStopped) {
+			return true
+		}
+	}
+	return false
+}
+
+// roleTurns reads the transcripts of p's briefed role agents whose turns are read (Codex) and decides by turnDecide
+// (stopped.go), as turnStop does a worker's (each read outside mu, the facts recorded after). Read: a stop in force
+// read from the transcript, a turn followed since (until its end is read), or the brief's work seen with the pane
+// idle. The stopped turn itself decides nothing; a later turn's start ends the stop (fact turned, the brief open, no
+// finish armed: RV-60 #1), its end finishes the brief (fact turned, worked); an end on an error with the pane idle,
+// not recorded for that turn, is a new stop (fact stopped, call id "turn.<id>"), as the StopFailure hook's for a
+// Claude role agent (roleStop).
+func (a *App) roleTurns(ctx context.Context, p *proj) {
+	type read struct {
+		agent      string
+		pane       Pane
+		transcript string // its recorded transcript (sessions.go)
+	}
+	var reads []read
+	a.mu.Lock()
+	for agent, b := range p.briefs {
+		w := a.whereIs(p, agent)
+		if agent == p.lead || w.State != Identified || !turnsRead(w.Pane.Agent) {
+			continue
+		}
+		if (b.stop != nil && b.stop.turn != "") || (b.stop == nil && (b.followed || (b.worked && Ready(w.Pane.Status)))) {
+			reads = append(reads, read{agent, w.Pane, a.transcript(p, w.Pane)})
+		}
+	}
+	a.mu.Unlock()
+	sort.Slice(reads, func(i, j int) bool { return reads[i].agent < reads[j].agent })
+	for _, rd := range reads {
+		t, ok := a.panes.Turn(ctx, rd.pane.ID, rd.transcript)
+		if !ok {
+			continue
+		}
+		a.mu.Lock()
+		b := p.briefs[rd.agent]
+		var fact any
+		step := StepStopped
+		_, done := p.calls[verdictStep(MethodStopped, "turn."+t.ID)]
+		act := turnNone
+		if b != nil && (b.stop == nil || (b.stop.turn != "" && b.stop.turn != t.ID)) && counts(t, rd.pane.Status, done) {
+			act = turnDecide(turnCase{stopped: b.stop != nil, followed: b.followed, worked: b.worked, ended: t.Ended,
+				failed: t.Error != ""})
+		}
+		switch act {
+		case turnResume, turnFinish:
+			step, fact = StepTurned, turnedData{To: rd.agent, Brief: b.seq, Worked: act == turnFinish}
+		case turnStop:
+			d, said := newStop(rd.agent, t.Error, t.Details, "turn."+t.ID)
+			a.roleStop(p, &d, said, rd.pane.Agent, t.Reset)
+			d.Turn = t.ID
+			fact = d
+		}
+		a.mu.Unlock()
+		if fact != nil && a.record(p, Record{Task: MsgTask, Step: step, Kind: KindFact}, fact) {
+			a.logf("%s %s %s (turn %s)", p.name, step, rd.agent, t.ID)
+		}
+	}
+}
+
+// roleWakes is one pass of the stopped role agents' wakes and alarms (see above): the alarm lines due recorded, the
+// owner's notifications not shown yet sent, then the wakes due sent (sendWake), each outside mu.
+func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
+	now := a.opt.Now()
+	var wakes []wakeTo
+	var alarms []Message
+	var shows []*roleStop
+	a.mu.Lock()
+	for agent, b := range p.briefs {
+		s := b.stop
+		if s == nil || agent == p.lead {
+			continue
+		}
+		if !s.woke.IsZero() && now.Sub(s.woke) >= wakeAlarm && !s.alarmed {
+			alarms = append(alarms, Message{To: p.lead, From: "obor", Line: s.line + stillStopped, Stop: s.seq})
+		}
+		if s.alarmed && !p.log.Done(alarmKey(s.seq)) {
+			shows = append(shows, &roleStop{seq: s.seq, line: s.line})
+		}
+		if due, ok := wakeAt(s.reset, s.at, now); ok {
+			key := Key{Task: MsgTask, Step: stepContinue + strconv.FormatInt(due.Unix(), 10) + "." + agent}
+			if !p.log.Done(key) {
+				wakes = append(wakes, wakeTo{agent: agent, key: key, line: roleContinue})
+			}
+		}
+	}
+	a.mu.Unlock()
+	sort.Slice(alarms, func(i, j int) bool { return alarms[i].Stop < alarms[j].Stop })
+	sort.Slice(shows, func(i, j int) bool { return shows[i].seq < shows[j].seq })
+	sort.Slice(wakes, func(i, j int) bool { return wakes[i].agent < wakes[j].agent })
+	for _, m := range alarms {
+		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
+			shows = append(shows, &roleStop{seq: m.Stop, line: strings.TrimSuffix(m.Line, stillStopped)})
+		}
+	}
+	for _, s := range shows {
+		body := strings.TrimPrefix(s.line, "[obor] ") + stillStopped
+		_, _ = p.log.Do(ctx, Intent{Key: alarmKey(s.seq), Class: ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
+			if err := a.panes.Notify(ctx, "obor: "+p.name+" needs you", body); err != nil {
+				return nil, err
+			}
+			return "shown", nil
+		})
+	}
+	for _, wk := range wakes {
+		if ctx.Err() != nil {
+			return
+		}
+		a.sendWake(ctx, p, fx, wk)
+	}
+}
+
+// alarmKey is the key of the owner's notification of the role agent's stop seq still in force after its wake.
+func alarmKey(seq int64) Key {
+	return Key{Task: MsgTask, Step: stepAlarm + strconv.FormatInt(seq, 10)}
+}
+
+// roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).
+func (p *proj) roleAlarmed(seq int64) {
+	for _, b := range p.briefs {
+		if b.stop != nil && b.stop.seq == seq {
+			b.stop.alarmed = true
+		}
+	}
+}

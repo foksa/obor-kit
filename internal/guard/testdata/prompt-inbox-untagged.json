@@ -1,0 +1,10 @@
+{
+  "session_id": "SID",
+  "transcript_path": "/HOME/.claude/projects/P/SID.jsonl",
+  "cwd": "/LANE",
+  "scratchpad_dir": "/TMP/scratchpad",
+  "prompt_id": "ecf15e47-aa52-486c-8898-87a2bd07180a",
+  "permission_mode": "auto",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "hello from another session"
+}

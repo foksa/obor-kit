@@ -1,0 +1,140 @@
+package config
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
+// left by the merge is unset in the effective config: a derived default, or absent).
+func TestOverlayMatchesJq(t *testing.T) {
+	cfg := `{"prefix":"pj","done_file":"done.md","merge":{"scratch_dir":"../custom-scratch","trailer":"T"},
+		"lane_types":{"opus":{"kind":"claude","args":["a","b"],"max":4,
+			"settings":{"permissions":{"allow":["Bash(ls)"],"deny":["Bash(rm)"]},"model":"opus"}}},
+		"notify":{"slack":{"url":"u","channel":"c"},"mail":"m"},
+		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
+	local := `{"prefix":"qq","merge":{"scratch_dir":null},
+		"lane_types":{"opus":{"args":["c"],"max":null,"settings":{"permissions":{"allow":["Bash(cat)"]}}}},
+		"notify":{"slack":{"channel":"d"}},"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
+	c := load(t, cfg, local)
+	for _, tc := range []struct{ name, path, want string }{
+		{"null scratch_dir resets to the derived default", ".merge.scratch_dir", `"../proj-wt/merge"`},
+		{"a sibling of a null key is kept", ".merge.trailer", `"T"`},
+		{"nested settings.permissions keep deny", ".lane_types.opus.settings",
+			`{"permissions":{"allow":["Bash(cat)"],"deny":["Bash(rm)"]},"model":"opus"}`},
+		{"nested notify keeps its sibling", ".notify", `{"slack":{"url":"u","channel":"d"},"mail":"m"}`},
+		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
+		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},
+		{"null lane type max clears it", ".lane_types.opus.max", ``},
+		{"a list is replaced", ".lane_types.opus.args", `["c"]`},
+		{"flat overlay", ".prefix", `"qq"`},
+		{"an untouched key stays", ".done_file", `"done.md"`},
+	} {
+		got, ok := c.Get(tc.path)
+		if tc.want == "" {
+			if ok {
+				t.Errorf("%s: %s = %s, want absent", tc.name, tc.path, got)
+			}
+			continue
+		}
+		var g, w any
+		if !ok || json.Unmarshal(got, &g) != nil || json.Unmarshal([]byte(tc.want), &w) != nil || !reflect.DeepEqual(g, w) {
+			t.Errorf("%s: %s = %s (exists %v), want %s", tc.name, tc.path, got, ok, tc.want)
+		}
+	}
+	if cmd, ok := c.Command("check"); !ok || cmd.Heavy || cmd.Timeout != 5 {
+		t.Errorf("typed command after a null heavy: %+v", cmd)
+	}
+	if lt, _ := c.LaneType("opus"); lt.Max != 0 || lt.Kind != "claude" {
+		t.Errorf("typed lane type after a null max: %+v", lt)
+	}
+	if c.Data.Slots == nil || c.Data.Slots.Max != nil || c.Data.Slots.Dir != "/s" {
+		t.Errorf("typed slots after a null max: %+v", c.Data.Slots)
+	}
+}
+
+func TestOverlayUnknownKeyInLocalFails(t *testing.T) {
+	for _, local := range []string{`{"typo":1}`, `{"commands":{"check":{"tmeout":5}}}`, `{"lane_types":{"opus":{"modle":"x"}}}`} {
+		_, err := Load(writeProject(t, `{"prefix":"pj","lane_types":{"opus":{"kind":"claude"}},"commands":{"check":"x"}}`, local))
+		if err == nil || !strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), "local.json") {
+			t.Errorf("%s: %v, want an unknown field error naming local.json", local, err)
+		}
+	}
+	_, err := Load(writeProject(t, `{"prefix":"pj","typo":1}`, `{"prefix":"qq"}`))
+	if err == nil || !strings.Contains(err.Error(), "config.json") {
+		t.Errorf("config.json unknown key with a local.json: %v, want an error naming config.json", err)
+	}
+}
+
+func TestOverlayOrderedMapsKeepOrder(t *testing.T) {
+	c := load(t, `{"prefix":"pj","lane_types":{"z":{"kind":"codex"},"a":{"kind":"codex"}},
+		"lanes":{"Z-01":"z","A-01":{"type":"a","agent":"x"},"M-01":"z"},"commands":{"zz":"z","mm":{"cmd":"m"}}}`,
+		`{"lanes":{"B-01":"a","A-01":{"agent":"y"},"Z-01":"a"},"lane_types":{"b":{"kind":"codex"},"z":{"max":2}},
+		"commands":{"aa":"a","zz":{"timeout":3}}}`)
+	got, _ := c.Get(".lanes")
+	if want := `{"Z-01":"a","A-01":{"type":"a","agent":"y"},"M-01":"z","B-01":"a"}`; string(got) != want {
+		t.Errorf(".lanes = %s, want %s (a known key keeps its place and merges, a new one is appended)", got, want)
+	}
+	for _, k := range []struct{ got, want []string }{
+		{c.Data.LaneTypes.Keys, []string{"z", "a", "b"}}, {c.Data.Commands.Keys, []string{"zz", "mm", "aa"}}} {
+		if !reflect.DeepEqual(k.got, k.want) {
+			t.Errorf("keys = %q, want %q", k.got, k.want)
+		}
+	}
+	if cmd, ok := c.Command("zz"); ok || cmd.Timeout != 3 {
+		t.Errorf("an object replaces a string command (jq: no merge, so no cmd): %+v", cmd)
+	}
+}
+
+func TestMerge(t *testing.T) {
+	for _, tc := range []struct{ a, b, want string }{
+		{`{"a":1,"b":{"c":1,"d":2}}`, `{"b":{"d":3,"e":4},"f":5}`, `{"a":1,"b":{"c":1,"d":3,"e":4},"f":5}`},
+		{`{"a":{"b":1}}`, `{"a":null}`, `{"a":null}`},
+		{`{"a":[1,2]}`, `{"a":[3]}`, `{"a":[3]}`},
+		{`{"a":"s"}`, `{"a":{"b":1}}`, `{"a":{"b":1}}`},
+		{`{"a":1,"a":2}`, `{}`, `{"a":2}`},
+	} {
+		if got := string(merge([]byte(tc.a), []byte(tc.b))); got != tc.want {
+			t.Errorf("%s * %s = %s, want %s", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// DD-v0.13 A1: LoadHook ignores unknown keys (both files) and returns them, writing nothing on Warn; every other error
+// is Load's; Fallback is the defaults with the derived lanes_dir.
+func TestLoadHook(t *testing.T) {
+	var warn strings.Builder
+	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
+	Warn = &warn
+	for _, tc := range []struct {
+		name, cfg, local string
+		unknown          []string
+		err              string
+	}{
+		{name: "clean", cfg: `{"prefix":"pj"}`},
+		{name: "unknown keys", cfg: `{"prefix":"pj","keep_warm":{"x":1}}`, local: `{"merge":{"future":1}}`,
+			unknown: []string{"keep_warm", "merge.future"}},
+		{name: "unknown key and a type error", cfg: `{"keep_warm":1,"merge":{"receipt_max_age":"soon"}}`, err: "receipt_max_age"},
+		{name: "syntax error", cfg: `{"prefix":`, err: "not valid JSON"},
+		{name: "syntax error in local.json", cfg: `{"keep_warm":1}`, local: `{`, err: "local.json is not valid JSON"},
+		{name: "no config", err: "no "},
+	} {
+		c, unknown, err := LoadHook(writeProject(t, tc.cfg, tc.local))
+		switch {
+		case tc.err == "" && (err != nil || c == nil || c.Data.Prefix != "pj"):
+			t.Errorf("%s: %+v, %v; want the config", tc.name, c, err)
+		case tc.err != "" && (err == nil || c != nil || !strings.Contains(err.Error(), tc.err)):
+			t.Errorf("%s: %v, %v; want error %q and no config", tc.name, c, err, tc.err)
+		case !reflect.DeepEqual(unknown, tc.unknown):
+			t.Errorf("%s: unknown = %q, want %q", tc.name, unknown, tc.unknown)
+		}
+	}
+	if warn.Len() != 0 {
+		t.Errorf("Warn got %q, want nothing (the hooks report unknown keys)", warn.String())
+	}
+	if c := Fallback("/x/proj"); c.LanesDir() != "/x/proj-wt" || c.Data.Branches.Main != "main" {
+		t.Errorf("Fallback = %+v", c.Data)
+	}
+}

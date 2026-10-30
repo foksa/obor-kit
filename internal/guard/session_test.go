@@ -1,0 +1,458 @@
+package guard
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
+	"obor/internal/project"
+	"obor/internal/testkit"
+)
+
+// sessionFx: lane O-01 (task/T-05) whose lane row names T-05 on base main, whose stored spec unlocks one protected
+// file; armed = false: no lane row.
+func sessionFx(t *testing.T, armed bool) (f hfx, o1 string) {
+	t.Helper()
+	f = newHfx(t)
+	o1 = f.Lane("O-01", "task/T-05")
+	f.Config()
+	if armed {
+		f.Spec("T-05", "# T-05\n\n## Protected files this task may edit\n`docs/design.md`\n") // the store's (T-440)
+		f.State("O-01", `{"lane":"O-01","task":"T-05","branch":"task/T-05","base":"main"}`)
+	}
+	return f, o1
+}
+
+// session runs the SessionStart hook on an event in cwd (with session_id sid when not ""); env adds VAR=value.
+func (f hfx) session(t *testing.T, cwd, sid string, env ...string) string {
+	t.Helper()
+	ev := map[string]any{"hook_event_name": "SessionStart", "source": "startup", "cwd": cwd}
+	if sid != "" {
+		ev["session_id"] = sid
+	}
+	b, _ := json.Marshal(ev)
+	var out bytes.Buffer
+	e := f.Env(env...)
+	SessionStart(b, e, &out, herdrLabel(e))
+	return out.String()
+}
+
+// herdrLabel is cmd/obor's pane label lookup in env: one bounded herdr pane get over its socket.
+func herdrLabel(env project.Env) func(string) string {
+	return func(pane string) string {
+		c := &herdr.Socket{Path: herdr.SocketPath(env), Timeout: 3 * time.Second}
+		p, err := c.Pane(context.Background(), pane)
+		if err != nil {
+			return ""
+		}
+		return p.Label
+	}
+}
+
+// serve puts the project's fake herdr behind a socket and its path as env for a session run; its requests say what
+// the hook asked herdr.
+func (f hfx) serve(t *testing.T) (*herdrtest.Server, string) {
+	t.Helper()
+	srv := herdrtest.Serve(t, f.Herdr())
+	return srv, "HERDR_SOCKET_PATH=" + srv.Path
+}
+
+// label sets pane's label in the fake herdr, adding a shell pane when it has none ("" = no label).
+func (f hfx) label(pane, label string) {
+	if p := f.Herdr().Pane(pane); p != nil {
+		p.Label = label
+		return
+	}
+	f.Herdr().Shell(pane, label, "")
+}
+
+// panes is how many pane.get requests srv got for pane so far.
+func panes(srv *herdrtest.Server, pane string) int {
+	n := 0
+	for _, r := range srv.Requests() {
+		if strings.HasPrefix(r.String(), "pane.get pane_id="+pane) {
+			n++
+		}
+	}
+	return n
+}
+
+func contains(t *testing.T, out, what string, needles ...string) {
+	t.Helper()
+	for _, n := range needles {
+		if !strings.Contains(out, n) {
+			t.Errorf("%s: no %q in\n%s", what, n, out)
+		}
+	}
+}
+
+func lacks(t *testing.T, out, what string, needles ...string) {
+	t.Helper()
+	for _, n := range needles {
+		if strings.Contains(out, n) {
+			t.Errorf("%s: %q in\n%s", what, n, out)
+		}
+	}
+}
+
+// bash plugin case_session_worker_armed
+func TestSessionWorkerArmed(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	out := f.session(t, o1, "")
+	contains(t, out, "armed worker", "obor: role worker, lane O-01, task T-05 (cwd)",
+		"Protected files this task may edit: docs/design.md (from T-05's spec, rev 1 in obor serve's store).",
+		"edits outside your lane (other lanes, the main checkout, other obor projects) are denied", "task_done", "[obor",
+		"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied")
+	lacks(t, out, "armed worker", "No lane row", "you may edit only", "allowed files")
+	f.State("O-01", `{"lane":"O-01","task":"T-09","branch":"task/T-09","base":"main"}`)
+	out = f.session(t, o1, "")
+	contains(t, out, "no stored spec", "obor: role worker, lane O-01, task T-09 (cwd)", "edits outside your lane")
+	lacks(t, out, "no stored spec", "Protected files this task may edit:", "every edit in the lane is denied")
+}
+
+// bash plugin case_session_worker_unarmed
+func TestSessionWorkerUnarmed(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, false)
+	contains(t, f.session(t, o1, ""), "no lane row", "role worker, lane O-01", "No lane row (not dispatched).")
+}
+
+// bash plugin case_session_lead_and_integrator; T-465: no Stop hook line (they stop freely), no heartbeat.
+func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
+	t.Parallel()
+	f, _ := sessionFx(t, true)
+	for _, role := range []string{"lead", "integrator"} {
+		out := f.session(t, f.Root, "", "OBOR_ROLE="+role)
+		contains(t, out, role, "obor: role "+role, "Hooks: git push, pkill/killall by pattern and headless agent runs (claude -p, codex exec, opencode run, x-agent -p) are denied",
+			"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied")
+		lacks(t, out, role, "[obor", "cannot stop", "Stop hook", "heartbeat", "obor ack")
+	}
+}
+
+// T-204: worker, integrator and reviewer get the line naming the kit's role text (absolute path) and, when the
+// worktree has one, the project's doc under paths.agents; the lead gets /obor:lead; a role without a kit text none.
+func TestSessionRoleTextLine(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	kit := f.Base + "/kit"
+	for _, r := range []string{"worker", "integrator", "reviewer"} {
+		f.Write(kit+"/templates/agents/"+r+".md", "# Role: "+r+"\n")
+	}
+	env := func(kv ...string) []string { return append([]string{"OBOR_PLUGIN_ROOT=" + kit}, kv...) }
+	want := func(role string) string { return "obor: role text: " + kit + "/templates/agents/" + role + ".md" }
+
+	out := f.session(t, o1, "", env()...)
+	contains(t, out, "worker, no project doc", "obor: role worker", want("worker")+" — read it before acting")
+	lacks(t, out, "worker, no project doc", ", project:")
+	if err := os.MkdirAll(o1+"/docs/agents", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(o1+"/docs/agents/worker.md", []byte("# worker here\n"), 0o644)
+	contains(t, f.session(t, o1, "", env()...), "worker with a project doc",
+		want("worker")+", project: docs/agents/worker.md — read it before acting")
+
+	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=integrator")...), "integrator", "obor: role integrator",
+		want("integrator")+" — read it before acting")
+	f.Write("doc/roles/reviewer.md", "# reviewer here\n")
+	f.Config(testkit.Set("paths.agents", "doc/roles"))
+	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=reviewer")...), "reviewer, paths.agents", "obor: role reviewer",
+		want("reviewer")+", project: doc/roles/reviewer.md — read it before acting")
+
+	out = f.session(t, f.Root, "", env("OBOR_ROLE=lead")...)
+	contains(t, out, "lead", "obor: role lead", "obor: role text: run /obor:lead — read it before acting")
+	lacks(t, out, "lead", "templates/agents/lead.md")
+	lacks(t, f.session(t, f.Root, "", env("OBOR_ROLE=deep_dive")...), "a role without a kit text", "obor: role text")
+}
+
+// bash plugin case_session_no_config, case_session_bad_stdin
+func TestSessionNoConfigOrBadInputSilent(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	if f.session(t, o1, "") == "" {
+		t.Fatal("precondition: output with a config")
+	}
+	os.Remove(f.Path(".obor/config.json"))
+	if out := f.session(t, o1, ""); out != "" {
+		t.Errorf("no config: %q", out)
+	}
+	for _, in := range []string{"not json", "", `{"cwd": "` + f.Base + `/nowhere"}`} {
+		var out bytes.Buffer
+		SessionStart([]byte(in), f.Env(), &out, herdrLabel(f.Env()))
+		if out.Len() != 0 {
+			t.Errorf("input %q: %q", in, out.String())
+		}
+	}
+}
+
+// bash plugin case_session_records_sid (T-113)
+func TestSessionRecordsTheSessionID(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	state := f.Base + "/state"
+	sid := state + "/agents/pj-o1.sid"
+	contains(t, f.session(t, o1, "sid-123", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state), "hook ran", "obor: role worker")
+	if got := f.Read(sid); got != "sid-123\n" {
+		t.Errorf("sid recorded: %q", got)
+	}
+	os.RemoveAll(state)
+	contains(t, f.session(t, o1, "sid-123", "OBOR_STATE_HOME="+state), "hook ran without OBOR_AGENT", "obor: role worker")
+	if f.Exists(state + "/agents") {
+		t.Error("no OBOR_AGENT → something written")
+	}
+	contains(t, f.session(t, o1, "", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state), "hook ran without session_id", "obor: role worker")
+	if f.Exists(sid) {
+		t.Error("no session_id → something written")
+	}
+	f.session(t, o1, "sid-456", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state)
+	if got := f.Read(sid); got != "sid-456\n" {
+		t.Errorf("a newer session replaces the record: %q", got)
+	}
+}
+
+// T-581: an OpenCode lane's session-start (its plugin's shared process carries no OBOR_AGENT) records the session
+// under the lane's agent, but writes no .sid: obor never resumes an OpenCode session. A stale one goes when the
+// environment does name the agent. The control: a Claude lane still records its .sid (T-113).
+func TestSessionOpencodeRecordsNoSid(t *testing.T) {
+	f, o1 := sessionFx(t, true)
+	f.Config(testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
+	state := f.Base + "/state"
+	start := func(cwd string, env ...string) (Began, bool) {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-o",
+			"transcript_path": "/data/opencode/opencode.db", "source": "startup"})
+		var out bytes.Buffer
+		return SessionStart(b, f.Env(append([]string{"OBOR_STATE_HOME=" + state}, env...)...), &out, herdrLabel(f.Env()))
+	}
+
+	began, ok := start(o1)
+	if !ok || began.Agent != "pj-o-01" || began.Kind != "opencode" || began.ID != "sid-o" ||
+		began.Transcript != "/data/opencode/opencode.db" || began.Lane != "O-01" || began.Task != "T-05" {
+		t.Errorf("no OBOR_AGENT: began %+v, %v; want the lane's agent and its session", began, ok)
+	}
+	if f.Exists(state + "/agents/pj-o-01.sid") {
+		t.Error("no OBOR_AGENT: a .sid written")
+	}
+
+	f.Write(state+"/agents/pj-o-01.sid", "old\n") // an older kit's record (or a kind that does resume)
+	began, ok = start(o1, "OBOR_AGENT=pj-o-01")
+	if !ok || began.Agent != "pj-o-01" || began.Kind != "opencode" || began.ID != "sid-o" {
+		t.Errorf("OBOR_AGENT: began %+v, %v", began, ok)
+	}
+	if f.Exists(state + "/agents/pj-o-01.sid") {
+		t.Error("an OpenCode session kept a .sid")
+	}
+
+	g, g1 := sessionFx(t, true)
+	gState := g.Base + "/state"
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": g1, "session_id": "sid-c"})
+	var out bytes.Buffer
+	if began, ok := SessionStart(b, g.Env("OBOR_AGENT=pj-o-01", "OBOR_STATE_HOME="+gState), &out, herdrLabel(g.Env())); !ok ||
+		began.Kind != "claude" {
+		t.Fatalf("control (claude): began %+v, %v", began, ok)
+	}
+	if got := g.Read(gState + "/agents/pj-o-01.sid"); got != "sid-c\n" {
+		t.Errorf("control (claude): .sid %q, want sid-c", got)
+	}
+}
+
+// bash plugin case_session_no_identity_fallback (T-159; its pre-tool-use part: guard TestNoIdentityFromTheSessionID)
+func TestSessionNoIdentityFromRecords(t *testing.T) {
+	f, o1 := sessionFx(t, true)
+	_, sock := f.serve(t)
+	home := f.Base + "/state-home"
+	f.Write(home+"/agents/pj-lead.sid", "sid-lead\n")
+	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
+	f.Write(home+"/agents/pj-o-01.sid", "sid-o1\n")
+	f.label("w9:p1", "pj-lead")
+	envFile := f.Base + "/claude-env"
+	out := f.session(t, f.Root, "sid-lead", "HERDR_PANE_ID=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
+	contains(t, out, "a recorded sid gives no identity", "obor: role none",
+		"obor: WARNING: this pane is labelled obor agent pj-lead but OBOR_AGENT is unset (herdr restore?) — run obor restart pj-lead from another pane")
+	if n := strings.Count(out, "pj-lead"); n != 2 { // the label line names it twice
+		t.Errorf("the label line is the only mention: %d in\n%s", n, out)
+	}
+	if f.Exists(envFile) || f.Exists(home+"/sessions") || f.Read(home+"/agents/pj-lead.sid") != "sid-lead\n" {
+		t.Error("something exported or recorded")
+	}
+	os.Remove(home + "/agents/pj-lead.pane")
+	contains(t, f.session(t, o1, "sid-o1-new", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p2", sock), "hook ran", "obor: role worker")
+	if f.Read(home+"/agents/pj-o-01.sid") != "sid-o1-new\n" {
+		t.Error("sid file not kept")
+	}
+	entries, _ := os.ReadDir(home + "/agents")
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".pane") {
+			t.Errorf("a .pane file: %s", e.Name())
+		}
+	}
+}
+
+// T-310: the session-start hook of an opencode lane writes the plugin marker into the main checkout's state dir,
+// <root>/.obor/state/lanes/<LANE>.plugin (what obor dispatch waits for and obor status reads), never the lane worktree,
+// so the lane reads clean. Another kind, or the main checkout, writes none.
+func TestSessionWritesOpencodePluginMarker(t *testing.T) {
+	t.Parallel()
+	marker := func(root string) (kind, version string, at int64, ok bool) {
+		b, err := os.ReadFile(root + "/.obor/state/lanes/O-01.plugin")
+		if err != nil {
+			return "", "", 0, false
+		}
+		var m struct {
+			Kind    string `json:"kind"`
+			Version string `json:"version"`
+			At      int64  `json:"at"`
+		}
+		if json.Unmarshal(b, &m) != nil {
+			return "", "", 0, false
+		}
+		return m.Kind, m.Version, m.At, true
+	}
+
+	f, o1 := sessionFx(t, true)
+	f.Config(testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
+	before := time.Now().Unix()
+	f.session(t, o1, "sid-1")
+	kind, version, mAt, ok := marker(f.Root)
+	if !ok || kind != "opencode" || version != "" || mAt < before {
+		t.Errorf("opencode lane: kind %q version %q at %d ok %v (before %d)", kind, version, mAt, ok, before)
+	}
+	if f.Exists(o1 + "/.obor-plugin") {
+		t.Error("the lane worktree holds a marker")
+	}
+	if st := f.Git(o1, "status", "--porcelain"); st != "" {
+		t.Errorf("session-start dirtied the lane worktree:\n%s", st)
+	}
+	// The version, when the environment knows one.
+	contains(t, f.session(t, o1, "sid-2", "OPENCODE_VERSION=1.2.3"), "hook ran", "obor: role worker")
+	if _, version, _, _ = marker(f.Root); version != "1.2.3" {
+		t.Errorf("version: %q", version)
+	}
+
+	// A free opencode lane (no state file) still proves the plugin loaded: the state dir is created for the marker.
+	g, g1 := sessionFx(t, false)
+	g.Config(testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
+	g.session(t, g1, "sid-1")
+	if _, _, _, ok := marker(g.Root); !ok {
+		t.Error("no state file: no marker")
+	}
+
+	// A claude-kind lane, and the main checkout: none.
+	h, h1 := sessionFx(t, true)
+	h.session(t, h1, "sid-1")
+	if h.Exists(".obor/state/lanes/O-01.plugin") {
+		t.Error("a claude-kind lane: a marker")
+	}
+	h.session(t, h.Root, "sid-1")
+	if h.Exists(".obor/state/lanes/O-01.plugin") {
+		t.Error("the main checkout: a marker")
+	}
+}
+
+// bash plugin case_session_env_unchanged
+func TestSessionWithHerdAgentIgnoresOtherRecords(t *testing.T) {
+	f, o1 := sessionFx(t, true)
+	srv, sock := f.serve(t)
+	f.label("w9:p1", "pj-o-01")
+	plain := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p1", sock)
+	contains(t, plain, "hook ran", "obor: role worker, lane O-01, task T-05 (cwd)")
+	home := f.Base + "/state-home"
+	f.Write(home+"/agents/pj-lead.sid", "sid-o1\n")
+	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
+	before := panes(srv, "w9:p1")
+	if out := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p1", sock); out != plain {
+		t.Errorf("env set: output changed by another agent's records:\n%s\nwas\n%s", out, plain)
+	}
+	if f.Exists(home+"/sessions") || panes(srv, "w9:p1") != before {
+		t.Errorf("env set: a session record or a herdr pane get: %d before, %d after", before, panes(srv, "w9:p1"))
+	}
+}
+
+// bash plugin case_session_label_check (R-28 §2)
+func TestSessionPaneLabelledHerdAgentWithoutHerdAgent(t *testing.T) {
+	f, o1 := sessionFx(t, true)
+	srv, sock := f.serve(t)
+	warn := "obor: WARNING: this pane is labelled obor agent pj-o-01 but OBOR_AGENT is unset (herdr restore?) — run obor restart pj-o-01 from another pane"
+	f.label("w9:p1", "pj-o-01")
+	out := f.session(t, o1, "sid-zzz", "HERDR_PANE_ID=w9:p1", sock)
+	contains(t, out, "label of a lane agent", "obor: role worker", warn)
+	if got := panes(srv, "w9:p1"); got != 1 {
+		t.Errorf("exactly one pane get: %d", got)
+	}
+	f.label("w9:p1", "pj-lead")
+	contains(t, f.session(t, f.Root, "", "HERDR_PANE_ID=w9:p1", sock), "label of a lead", "labelled obor agent pj-lead but OBOR_AGENT is unset")
+	f.label("w9:p1", "someone-else")
+	out = f.session(t, f.Root, "", "HERDR_PANE_ID=w9:p1", sock)
+	contains(t, out, "precondition: the main checkout", "obor: role none")
+	lacks(t, out, "label of no obor agent", "WARNING")
+	f.label("w9:p1", "")
+	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", sock), "no label (lane cwd only)", "WARNING")
+	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p2", sock), "herdr pane get failing", "WARNING")
+	before := len(srv.Requests())
+	lacks(t, f.session(t, o1, "", sock), "no herdr pane", "WARNING")
+	if n := len(srv.Requests()) - before; n != 0 {
+		t.Errorf("no pane id → %d herdr requests", n)
+	}
+	f.label("w9:p1", "pj-o-01")
+	plain := f.session(t, o1, "", "OBOR_AGENT=pj-o-01", sock)
+	before = len(srv.Requests())
+	if out := f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", "OBOR_AGENT=pj-o-01", sock); out != plain || len(srv.Requests()) != before {
+		t.Errorf("OBOR_AGENT set → as without a pane, no herdr request: %d", len(srv.Requests())-before)
+	}
+	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", sock, "HERDR_SOCKET_PATH="+f.Base+"/no-such.sock"),
+		"herdr missing", "WARNING")
+	contains(t, plain, "precondition: the hook ran with herdr", "obor: role worker")
+}
+
+// RV-48 #3: a database read error is said, and the other bookkeeping (the session id) still runs.
+func TestSessionUnreadableDatabase(t *testing.T) {
+	f, o1 := sessionFx(t, true)
+	if out := f.session(t, o1, "sid-ok"); !strings.Contains(out, "Protected files this task may edit:") {
+		t.Fatalf("precondition: a readable database shows the spec's unlocks:\n%s", out)
+	}
+	f.Write(".obor/state/obor.db", "not a database\n")
+	out := f.session(t, o1, "sid-bad", "OBOR_AGENT=wk")
+	contains(t, out, "unreadable database", "could not read this lane or its spec", "obor: role worker, lane O-01")
+	lacks(t, out, "unreadable database", "No lane row", "Protected files this task may edit:")
+	if b, err := os.ReadFile(project.SidFile("wk", f.Env())); err != nil || strings.TrimSpace(string(b)) != "sid-bad" {
+		t.Errorf("session id file = %q, %v; want sid-bad (the bookkeeping still runs)", b, err)
+	}
+}
+
+// T-485: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox beside <agent>.sid, mode 0600, with the
+// socket, the token and the session id, whatever the role; a later session without one removes it; no OBOR_AGENT
+// writes none.
+func TestSessionRecordsTheInbox(t *testing.T) {
+	t.Parallel()
+	f, o1 := sessionFx(t, true)
+	state := f.Base + "/state"
+	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": state})
+	inbox := project.InboxFile("pj-o1", env)
+	if inbox != state+"/agents/pj-o1.inbox" {
+		t.Fatalf("inbox record at %s, want beside the .sid", inbox)
+	}
+	f.session(t, o1, "sid-1", "OBOR_STATE_HOME="+state, "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
+	if f.Exists(state + "/agents") {
+		t.Error("no OBOR_AGENT → something written")
+	}
+	for _, role := range []string{"", "lead"} {
+		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-o1", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state,
+			"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1")
+		got, err := project.ReadInbox("pj-o1", env)
+		if err != nil || got != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
+			t.Fatalf("role %q: inbox %+v, %v", role, got, err)
+		}
+		if fi, err := os.Stat(inbox); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("role %q: inbox mode %v, %v; want 0600", role, fi.Mode(), err)
+		}
+		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-o1", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state)
+		if f.Exists(inbox) {
+			t.Errorf("role %q: a session without a messaging socket kept the inbox record", role)
+		}
+	}
+}

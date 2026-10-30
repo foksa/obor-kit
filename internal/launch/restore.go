@@ -1,0 +1,215 @@
+package launch
+
+// The obor.events herdr plugin's restore (`obor plugin restore`; design "herdr integration"; T-470: package plugin
+// moved here). herdr runs the manifest's command from the plugin directory; the command backgrounds the work at once
+// (cmd/obor), so herdr never waits on it. It acts only on panes whose label is an agent of an obor project (R-28 §2:
+// obor setup and obor restart label the pane): the main checkout of the pane cwd's repository, when its config knows
+// the label. Anything else (no label, no git, no .obor/config.json, a label the project has no agent for) is silent.
+//
+// After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
+// each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
+// OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
+// (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A worker with no recorded
+// session (serve's store first, then its .sid: T-583) restarts --fresh (RV-18 #3). Log: ~/.obor/restore.log (last 200).
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"obor/internal/agents"
+	"obor/internal/app"
+	"obor/internal/config"
+	"obor/internal/project"
+	"obor/internal/store"
+)
+
+// restoreKeep is how many lines restore.log keeps.
+const restoreKeep = 200
+
+// panesTimeout bounds the hook's one pane list.
+const panesTimeout = 5 * time.Second
+
+// Restorer is the restore hook's world: the environment, the panes and the clock.
+type Restorer struct {
+	Env project.Env
+	H   app.PaneControl  // only its Panes
+	Now func() time.Time // nil: time.Now
+	// Restart is `obor restart` in the loaded project: the result line, or the error (project.Fail) it failed with.
+	Restart func(ctx context.Context, cfg *config.Config, req Request, out io.Writer) (string, error)
+	// LaneState is the lane's state as the lane table says (free, dirty-free, working, …).
+	LaneState func(cfg *config.Config, l config.Lane) string
+}
+
+func (p *Restorer) stamp() string {
+	now := time.Now
+	if p.Now != nil {
+		now = p.Now
+	}
+	return now().Format("2006-01-02 15:04:05")
+}
+
+// paneProject is the loaded config of the obor project a pane labelled agent with cwd belongs to: the main checkout
+// of cwd's repository, when its .obor/config.json knows agent (project.AgentLookup; the cwd is no fallback). ok false
+// otherwise.
+func paneProject(agent, cwd string) (cfg *config.Config, ok bool) {
+	if agent == "" || cwd == "" {
+		return nil, false
+	}
+	repo, err := project.Find(cwd)
+	if err != nil {
+		return nil, false
+	}
+	if cfg, err = config.Load(repo.Root); err != nil {
+		return nil, false
+	}
+	if _, ok = project.AgentLookup(cfg, agent, ""); !ok {
+		return nil, false
+	}
+	return cfg, true
+}
+
+// RestoreLog is ${OBOR_STATE_HOME:-$HOME/.obor}/restore.log.
+func RestoreLog(env project.Env) string {
+	return filepath.Join(project.StateHome(env), "restore.log")
+}
+
+// Restore restarts the labelled obor panes herdr's pane list shows without an agent, in its order.
+func (p *Restorer) Restore(ctx context.Context) {
+	hctx, cancel := context.WithTimeout(ctx, panesTimeout)
+	panes, err := p.H.Panes(hctx)
+	cancel()
+	if err != nil {
+		return
+	}
+	limit := 120 * time.Second
+	if n, err := strconv.Atoi(p.Env.Get("OBOR_RESTORE_TIMEOUT")); err == nil && n > 0 {
+		limit = time.Duration(n) * time.Second
+	}
+	log := RestoreLog(p.Env)
+	for _, pane := range panes {
+		cfg, ok := paneProject(pane.Label, pane.Cwd)
+		if !ok {
+			continue
+		}
+		appendLog(log, func(w io.Writer) {
+			p.restoreOne(ctx, cfg, pane, limit, w)
+		})
+	}
+}
+
+func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane app.PaneInfo, limit time.Duration, w io.Writer) {
+	now, agent := p.stamp(), pane.Label
+	if pane.Kind != "" {
+		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, agent, pane.ID, pane.Kind)
+		return
+	}
+	info, _ := project.AgentLookup(cfg, agent, "")
+	if lane := p.freeLane(cfg, info); lane != "" {
+		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
+		return
+	}
+	// A worker with no session it can resume starts fresh (RV-18 #3, T-583): none recorded store-first (a Codex lane
+	// keeps no .sid), or a kind that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway.
+	// Others without one fail in obor restart (a lead keeps its context).
+	req := Request{Agent: agent, Pane: pane.ID}
+	note := ""
+	if info.Role == "worker" {
+		sid, held := recordedSession(cfg, agent, p.Env)
+		switch kind := agentKind(cfg, info); {
+		case !agents.Resumes(kind):
+			req.Fresh, note = true, " (worker, kind "+kind+" resumes nothing: --fresh)"
+		case sid == "" && held == "": // held: the restart fails naming both agents, never a silent fresh start
+			req.Fresh, note = true, " (worker, no recorded session: --fresh)"
+		}
+	}
+	fmt.Fprintf(w, "%s restore %s (pane %s) in %s%s\n", now, agent, pane.ID, cfg.Root, note)
+	rctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	line, err := p.Restart(rctx, cfg, req, w)
+	if ev := Evidence(err); ev != "" {
+		fmt.Fprintln(w, ev)
+	}
+	if err != nil {
+		fmt.Fprintf(w, "obor restart %s: FAIL %v\n", agent, err)
+		return
+	}
+	fmt.Fprintln(w, line)
+}
+
+// freeLane is the lane of a worker whose lane is free or dirty-free (no task in flight), "" otherwise or with
+// stop_idle_workers false. Role panes (reviewer, deep-dive) are no lanes, so never skipped (T-179).
+func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
+	if s := cfg.Data.StopIdleWorkers; info.Role != "worker" || s != nil && !*s {
+		return ""
+	}
+	for _, l := range cfg.Lanes() {
+		if l.Name != info.Lane {
+			continue
+		}
+		switch p.LaneState(cfg, l) {
+		case "free", "dirty-free":
+			return l.Name
+		}
+	}
+	return ""
+}
+
+// recordedSession is agent's recorded session id store-first (T-577, as obor restart reads it), "" when none; and the
+// other agent holding the id its .sid names (T-589): a worker then does not start fresh, the restart fails naming both.
+func recordedSession(cfg *config.Config, agent string, env project.Env) (id, holder string) {
+	s, ok := store.CurrentAt(cfg.Root, agent)
+	return recordedSid(s, ok, RecordedSid(agent, env), agent, env, cfg)
+}
+
+// agentKind is agent's kind as the config starts it: its type's kind, else agents.Default (a restore pane runs no
+// agent, so herdr names no kind).
+func agentKind(cfg *config.Config, info config.AgentInfo) string {
+	if lt, ok := cfg.LaneType(info.Type); ok && lt.Kind != "" {
+		return lt.Kind
+	}
+	return agents.Default
+}
+
+// appendLog runs write against the log file (created with its directory), then cuts the log to its last keep lines.
+// A log that cannot be opened: nothing runs (the hooks have nowhere to say anything).
+func appendLog(path string, write func(w io.Writer)) {
+	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	write(f)
+	f.Close()
+	trim(path, restoreKeep)
+}
+
+// trim keeps the last n lines of the file (rewritten by rename), when it has more.
+func trim(path string, n int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	var lines []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	f.Close()
+	if sc.Err() != nil || len(lines) <= n {
+		return
+	}
+	tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
+	if os.WriteFile(tmp, []byte(strings.Join(lines[len(lines)-n:], "\n")+"\n"), 0o644) == nil {
+		os.Rename(tmp, path)
+	}
+}

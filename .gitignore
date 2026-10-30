@@ -1,0 +1,9 @@
+.task-done.md
+.obor/pause
+.obor/state/
+.obor/local.json
+.DS_Store
+dist/
+.gocache/
+.task-run
+.obor/drafts/

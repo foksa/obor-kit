@@ -1,0 +1,11 @@
+{
+  "session_id": "SID",
+  "transcript_path": "/HOME/.claude/projects/P/SID.jsonl",
+  "cwd": "/LANE",
+  "scratchpad_dir": "/TMP/scratchpad",
+  "prompt_id": "74accf7f-68e6-4fd9-af5f-1aae7ef3ab9d",
+  "permission_mode": "auto",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "<cross-session-message from=\"uds:/tmp/cc-socks/PID.sock\" from-name=\"o-03-8a\" from-mode=\"prompting\">\nprobe message from another session, no action needed: reply OK.\n</cross-session-message>",
+  "session_title": "probe"
+}

@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "name": "obor-kit",
+  "prefix": "ob",
+  "lanes_dir": "../obor-kit-wt",
+  "done_file_sections": [
+    "Summary",
+    "Self-check",
+    "Skipped",
+    "Open questions"
+  ],
+  "paths": {
+    "reviews": "docs/reviews"
+  },
+  "commands": {
+    "after_merge": {
+      "cmd": "make build",
+      "timeout": 300,
+      "when": [
+        "cmd/**",
+        "internal/**",
+        "go.mod",
+        "go.sum",
+        "Makefile"
+      ]
+    },
+    "check": {
+      "cmd": "make -s check",
+      "timeout": 1200,
+      "heavy": true
+    },
+    "check_affected": {
+      "cmd": "make -s check-affected",
+      "timeout": 1200,
+      "heavy": true
+    },
+    "guard": {
+      "cmd": "set -e; n=0; while IFS= read -r f; do case \"$f\" in *.sh|bin/obor|githooks/*) if [ -f \"$f\" ]; then /bin/bash -n \"$f\"; n=$((n + 1)); fi ;; esac; done < \"$OBOR_CHANGED_FILES\"; /bin/bash bin/obor config validate; jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null; echo \"guard OK: bash -n on $n changed script(s), obor config validate, plugin JSON\"",
+      "timeout": 120
+    },
+    "check_milestone": {
+      "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...",
+      "timeout": 600
+    }
+  },
+  "protected_files": [
+    "docs/design.md"
+  ],
+  "lane_types": {
+    "opus": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "opus",
+        "--effort",
+        "medium",
+        "--permission-mode",
+        "auto"
+      ],
+      "max": 4
+    },
+    "sonnet": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "sonnet",
+        "--effort",
+        "medium",
+        "--permission-mode",
+        "auto"
+      ]
+    },
+    "haiku": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "haiku",
+        "--permission-mode",
+        "auto"
+      ]
+    },
+    "luna": {
+      "kind": "codex",
+      "args": [
+        "-m",
+        "gpt-6-luna",
+        "-c",
+        "model_reasoning_effort=high",
+        "-s",
+        "workspace-write",
+        "-a",
+        "never"
+      ]
+    },
+    "fable": {
+      "kind": "claude",
+      "args": [
+        "--model",
+        "fable",
+        "--permission-mode",
+        "auto"
+      ]
+    },
+    "luna-xh": {
+      "kind": "codex",
+      "args": [
+        "-m",
+        "gpt-6-luna",
+        "-c",
+        "model_reasoning_effort=xhigh",
+        "-s",
+        "workspace-write",
+        "-a",
+        "never"
+      ]
+    },
+    "sol": {
+      "kind": "codex",
+      "args": [
+        "-m",
+        "gpt-6.1-sol",
+        "-c",
+        "model_reasoning_effort=high",
+        "-s",
+        "workspace-write",
+        "-a",
+        "never"
+      ]
+    },
+    "deepseek": {
+      "kind": "opencode",
+      "args": [
+        "--auto",
+        "--standalone"
+      ],
+      "max": 1,
+      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
+    }
+  },
+  "lanes": {
+    "O-01": "opus",
+    "O-02": "opus",
+    "O-03": "opus",
+    "S-01": "sonnet",
+    "H-01": "haiku",
+    "C-01": "luna",
+    "O-04": "opus",
+    "D-01": "deepseek"
+  },
+  "roles": {
+    "reviewer": {
+      "type": "sol",
+      "worktree": "review",
+      "agent": "ob-sol"
+    },
+    "lead": {
+      "agent": "ob-lead",
+      "type": "opus",
+      "handoff_tokens": 500000
+    },
+    "deep_dive": {
+      "type": "opus",
+      "worktree": "deep-dive"
+    },
+    "integrator": {
+      "type": "opus"
+    }
+  },
+  "merge": {
+    "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+    "guard": "guard",
+    "nightly_at": "02:00",
+    "classes": [
+      {
+        "name": "go",
+        "paths": [
+          "cmd/**",
+          "internal/**"
+        ],
+        "checks": [
+          "check_affected"
+        ]
+      }
+    ],
+    "neutral": [
+      "docs/**",
+      "ADOPTION-*.md",
+      "AGENTS.md",
+      "BRIEF.md",
+      "CLAUDE.md",
+      "QUESTIONS.md",
+      "STATUS.md",
+      ".gitignore"
+    ],
+    "affected_full": [
+      "Makefile",
+      "internal/testkit/**",
+      "internal/herdrtest/**",
+      "internal/herdr/herdrtest/**"
+    ],
+    "fail_grep": "^--- FAIL|^FAIL\\s"
+  },
+  "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
+  "agents": {
+    "hk-fable": {
+      "type": "fable"
+    }
+  },
+  "guards": {
+    "allow_push": [
+      "ob-lead"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "obor-kit",
+  "description": "obor: a lead / integrator / worker / reviewer agent swarm for Claude Code, run in herdr panes.",
+  "owner": { "name": "Djordje Radakovic" },
+  "plugins": [
+    {
+      "name": "obor",
+      "source": "./",
+      "description": "Lead / integrator / worker / reviewer agent swarm in herdr panes."
+    }
+  ]
+}

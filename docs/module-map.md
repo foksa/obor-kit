@@ -1,0 +1,101 @@
+# Module map
+
+obor is one app per project (`obor serve`): a **core** that owns task state and reacts to events, and **adapters**
+that each talk to one outside system. Agents never message each other; the app reacts.
+
+**Addressing.** The core addresses everything as (machine, workspace, pane). A project is a herdr workspace, and obor
+never touches panes in other workspaces. Only the `herdr` and `checks` adapters know how to reach a machine;
+multi-machine itself is later, but no interface may assume local.
+
+## Layers and import rules
+
+The layers are base, bridge, core, adapter, entry, test helpers and tools (probes under `tests/`). The enforced table
+(which package is in which layer, and who may import whom) is `layerOf` in `internal/checks/boundary_test.go`; the merge
+gate runs it. Adapters never import each other: one that needs another goes through an interface the core defines
+(e.g. `launch` gets panes via `app.PaneControl`, not `herdr`). A package with no layer fails the test: add it to
+`layerOf`.
+
+## Packages
+
+**base** — shared leaves, no obor state of their own.
+- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; a per-lane
+  restart lock (`lock.go`: `RestartLock`, T-500), the sid files and the opencode plugin marker (`plugin.go`).
+- `config`: effective config. `config.Load(root) (*Config, error)`; `Validate` (removed keys WARN), `TaskIDOK` /
+  `TaskFromBranch`.
+- `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
+- `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
+- `version`: build version line.
+- `store`: the project's SQLite database (`.obor/state/obor.db`) and the rules of one writer: `store.OpenRW` for
+  serve (WAL, `synchronous=FULL`, one connection, schema version in `meta`), `store.OpenRO` for hooks and CLIs
+  (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`). Tables: `events` (T-435),
+  `lanes` (T-439: each lane's dispatched task, serve's projection of the log; readers use `store.ReadLaneAt` /
+  `ReadLanesAt`), `specs` (T-440: each task's spec and rev; `obor spec set` is a serve request, readers use
+  `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521). The agents'
+  sessions (T-577) are `events` facts on task key `session` (`sessions.go`: `store.Session`, readers
+  `ReadSessionsAt` / `CurrentAt` / `TranscriptAt` for launch and the hooks).
+
+**bridge** — `agents` and one package per agent kind (`agents/claude`, `agents/codex`, `agents/opencode`; phase 5,
+T-495): **what** differs per agent CLI, as data and pure functions; standard library only,
+imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `Start(Start) []string`
+(fresh/resume argv, MCP registration, first prompt; `Start.Read` is the adapter's file read, a `--mcp-config` path),
+`NotReady(screen)`, `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
+Install` (MCP registration, plugin link), `Transcript(env, cwd, sid)`, `Session(first line)` (the session a
+transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
+vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
+transcript). `Install` and `Transcript` take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`), `Transcript` a cwd (Claude's per-cwd check of a recorded sid). Registry: `agents.Lookup`, `Names`,
+`Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
+`config.LaneType.LaunchArgs`, which asks the kind to render them. No kind name outside the bridges (boundary test).
+Adding a kind = one package + a config entry.
+
+**core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
+  run, the serve flock), `project.go` (load, log, fold), `log.go`, `panes.go` (herdr events to projects),
+  `watchdog.go`, `notify.go`, `status.go`; the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
+  `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
+  unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
+  project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
+  `lanerows.go` (the `lanes` table projection), `specs.go`, `dispatch.go`, `messages.go`, `mergewatch.go`,
+  `stopped.go`, `stopwake.go`, `nightly.go`, `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
+  `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
+  `effects.go`: one concern each.
+- Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
+  result after).
+- Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap
+  yet).
+- Watchdogs: idle with a task, working without activity, blocked, pane exited.
+- Interfaces it drives adapters through: `Panes` (subscribe, busy, activity, notify), `Lanes` (a project's lanes), and,
+  on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Typer`
+  (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs` and `Nightly`.
+  API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`.
+
+**adapters** — one outside system each.
+- `herdr`: herdr socket client (events.subscribe, session.snapshot, agent.prompt, pane.*). Implements `app.Panes`
+  and `app.Typer`; `herdr/herdrtest` is its fake (test helper).
+- `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
+  gate, resolved, publish, after_merge over pins under `refs/obor/`), nightly/milestone checks in their own worktree,
+  flakes, receipts, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence).
+  Implements `app.Scratch`.
+- `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
+  `app.PaneControl`; implements `app.Agents`); the herdr plugin's restore (`Restorer`); `session.go`: a fresh start's session from the
+  transcript its process holds open (a Codex rollout, T-588), reported to serve.
+- `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
+  integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
+- `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
+  SessionStart, UserPromptSubmit, whoami.
+- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report); `obor migrate` (herd → obor, `migrate.go`, until v0.17).
+- `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
+
+**test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
+socket: scripted panes and plugins, and every request a test's client sent).
+
+**entry** — `cmd/obor`: flags and wiring only; `obor status` rendering; the thin `app.Specs`, `Lanes`, `Poster`
+adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`, `answer`, `resume`, `sendback`,
+`drop`, `spec`, `watch`, `pause`, `send`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
+`nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`, `migrate`).
+
+## Open boundary violations
+
+1. **`project` (base) holds runtime state**: the locks, a per-lane restart lock among them. That is core state living
+   in a leaf package; it moves to the `app` store.
+2. **`setup` reaches into other adapters** (`setup -> herdr`, `setup -> launch`; `boundaryAllowlist`): `obor setup
+   pane` and `role` label panes and start agents themselves. It should ask the core (or run through `cmd/obor` wiring) instead.

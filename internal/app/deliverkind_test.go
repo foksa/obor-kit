@@ -1,0 +1,209 @@
+package app_test
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"obor/internal/app"
+	"obor/internal/herdr/herdrtest"
+)
+
+// T-499 (P5-4): serve's lines and job wakes reach a running agent as its kind takes them (agents.Kind.Deliver): a
+// Claude session gets them posted to its inbox (nothing typed into its pane, no ctrl+u), Codex and OpenCode panes get
+// them typed as before. A Claude session with no inbox record: a line stays queued, a job wake is typed (the fallback).
+
+// keysTo is the agent.send_keys requests to agent.
+func (r *loopRig) keysTo(agent string) int {
+	n := 0
+	for _, req := range r.srv.Requests() {
+		var p struct{ Target string }
+		_ = json.Unmarshal(req.Params, &p)
+		if req.Method == "agent.send_keys" && p.Target == agent {
+			n++
+		}
+	}
+	return n
+}
+
+// retryWake is the fetch rig with T-1 dispatched to pj-o1, running as kind with an inbox record or not, working and
+// undelivered for 5 minutes: its retry.work wake goes out.
+func retryWake(t *testing.T, kind string, recorded bool) *loopRig {
+	t.Helper()
+	r := fetchRig(t)
+	if recorded {
+		r.inbox.record("pj-o1")
+	}
+	r.start()
+	r.mustDispatch("d1")
+	r.waitStep("1 result work")
+	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = kind })
+	r.workerIs("working")
+	r.waitFor("pj-o1 seen as "+kind, func() bool {
+		for _, a := range r.app.Status().Project.Agents {
+			if a.Name == "pj-o1" && a.Agent == kind {
+				return true
+			}
+		}
+		r.push()
+		return false
+	})
+	if len(r.promptsTo("pj-o1")) != 0 || r.inbox.tries("pj-o1", wake("T-1/1/work")) != 0 {
+		t.Fatalf("precondition: the work job's wake went with the start, nothing sent since: %q", r.steps())
+	}
+	r.later(5 * time.Minute)
+	return r
+}
+
+// A worker's retry wake: posted to a Claude session with an inbox record (none typed, no keys); typed to a Claude
+// session with none (the fallback), and to Codex and OpenCode whatever an inbox record says.
+func TestWakeByKind(t *testing.T) {
+	for _, c := range []struct {
+		kind     string
+		recorded bool
+		posted   bool
+	}{
+		{"claude", true, true},
+		{"claude", false, false},
+		{"codex", true, false},
+		{"opencode", true, false},
+	} {
+		name := c.kind
+		if !c.recorded {
+			name += " without a record"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := retryWake(t, c.kind, c.recorded)
+			r.waitStep("1 result retry.work")
+			same(t, r.result("retry.work"), `"sent"`, "retry.work result")
+			w := wake("T-1/1/work")
+			if c.posted {
+				if n := r.inbox.count("pj-o1", w); n != 1 {
+					t.Errorf("posted %d wakes to pj-o1, want 1", n)
+				}
+				eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
+				if n := r.keysTo("pj-o1"); n != 0 {
+					t.Errorf("%d send_keys to pj-o1, want none (no ctrl+u for a post)", n)
+				}
+				return
+			}
+			eq(t, r.promptsTo("pj-o1"), []string{w}, "typed to pj-o1")
+			if n := r.inbox.count("pj-o1", w); n != 0 {
+				t.Errorf("posted %d wakes to pj-o1, want none", n)
+			}
+		})
+	}
+}
+
+// A posted wake refused before a byte went out (a dead socket's dial) is a counted refusal, posted again on a later
+// pass under the same key and only once; after a restart (replay) it is not posted again. The refusal is the next post
+// alone (failOnce): how many passes run before the test looks is the loop's business, not the test's (T-565).
+func TestWakePostRefusedThenReplayed(t *testing.T) {
+	r := fetchRig(t)
+	r.inbox.record("pj-o1")
+	r.inbox.failOnce(false)
+	r.start()
+	r.mustDispatch("d1")
+	r.waitStep("1 result work")
+	r.workerIs("working")
+	r.later(5 * time.Minute)
+	w := wake("T-1/1/work")
+	r.waitStep("1 result retry.work") // the pass after the refusal posts it: wait on the record, not on the test's look
+	if n := r.countPrefix("1 fact failed{retry.work: "); n != 1 {
+		t.Fatalf("refused posts %d, want 1: %q", n, r.steps())
+	}
+	if tried, posted := r.inbox.tries("pj-o1", w), r.inbox.count("pj-o1", w); tried != 2 || posted != 1 {
+		t.Fatalf("tried %d, posted %d wakes, want 2 and 1 (one refusal, then the post)", tried, posted)
+	}
+	if r.count("1 intent retry.work") != 1 {
+		t.Errorf("the post's retry wrote a second intent: %q", r.steps())
+	}
+	r.stop()
+	r.start()
+	r.passes()
+	if n := r.inbox.count("pj-o1", w); n != 1 {
+		t.Errorf("posted %d wakes, want 1 (once after the refusal, not again on replay)", n)
+	}
+	eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
+}
+
+// A posted wake that broke after a byte went out is sent (with the error): never posted again under its key, not after
+// a restart either.
+func TestWakePostPartialNotRepeated(t *testing.T) {
+	r := fetchRig(t)
+	r.inbox.record("pj-o1")
+	r.inbox.fail(true)
+	r.start()
+	r.mustDispatch("d1")
+	r.waitStep("1 result work")
+	r.workerIs("working")
+	r.later(5 * time.Minute)
+	r.waitStep("1 result retry.work")
+	same(t, r.result("retry.work"), `"sent: broken pipe"`, "retry.work result")
+	r.inbox.ok()
+	r.stop()
+	r.start()
+	r.passes()
+	if n := r.inbox.tries("pj-o1", wake("T-1/1/work")); n != 1 {
+		t.Errorf("tried %d posts of the wake, want 1", n)
+	}
+	eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
+}
+
+// A brief to a Claude role agent is posted to its session (none typed); to Codex and OpenCode it is typed (none
+// posted); its work and idle end it as before.
+func TestBriefByKind(t *testing.T) {
+	for _, kind := range []string{"claude", "codex", "opencode"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			r := lineRig(t, "idle", "idle")
+			r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = kind })
+			r.start()
+			const line = "[obor pj-lead] verify"
+			if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify"}); err != nil {
+				t.Fatal(err)
+			}
+			r.waitFor("the brief delivered", func() bool {
+				return r.inbox.count("pj-rev", line)+r.typedTo("pj-rev", line) == 1
+			})
+			r.passes()
+			posted, typed := r.inbox.tries("pj-rev", line), r.typedTo("pj-rev", line)
+			if kind == "claude" && (posted != 1 || typed != 0) || kind != "claude" && (posted != 0 || typed != 1) {
+				t.Errorf("%s: posted %d, typed %d", kind, posted, typed)
+			}
+			r.agentIs("w1:p6", "pj-rev", "working")
+			r.agentIs("w1:p6", "pj-rev", "idle")
+			r.waitFor("the finished line posted", func() bool {
+				return r.inbox.count("pj-lead", "[obor] pj-rev finished (briefed 0s ago)") == 1
+			})
+		})
+	}
+}
+
+// A brief to a Claude role agent whose session has no inbox record stays queued, untried and not typed; once the
+// record is there it is posted, once.
+func TestBriefQueuedWithoutAnInboxRecord(t *testing.T) {
+	r := lineRig(t, "idle", "idle")
+	r.inbox.unrecord("pj-rev")
+	r.start()
+	const line = "[obor pj-lead] verify"
+	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify"}); err != nil {
+		t.Fatal(err)
+	}
+	r.passes()
+	r.passes()
+	if w := r.waiting(); len(w) != 1 || w[0].To != "pj-rev" {
+		t.Fatalf("lines waiting %+v, want pj-rev's", w)
+	}
+	if n := r.inbox.tries("pj-rev", line) + r.typedTo("pj-rev", line); n != 0 {
+		t.Errorf("the brief tried %d times without a record, want none (queued)", n)
+	}
+	r.inbox.record("pj-rev")
+	r.waitFor("the brief posted", func() bool { r.passes(); return r.inbox.count("pj-rev", line) == 1 })
+	r.passes()
+	if n := r.inbox.tries("pj-rev", line); n != 1 || len(r.waiting()) != 0 || r.typedTo("pj-rev", line) != 0 {
+		t.Errorf("posted %d, waiting %+v, typed %d; want posted once, none waiting, none typed", n, r.waiting(),
+			r.typedTo("pj-rev", line))
+	}
+}

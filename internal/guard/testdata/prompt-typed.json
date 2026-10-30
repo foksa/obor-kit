@@ -1,0 +1,10 @@
+{
+  "session_id": "SID",
+  "transcript_path": "/HOME/.claude/projects/P/SID.jsonl",
+  "cwd": "/LANE",
+  "scratchpad_dir": "/TMP/scratchpad",
+  "prompt_id": "edd5d96a-b2d6-440b-9ed7-27c9ef0a718f",
+  "permission_mode": "auto",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Use the Agent tool once to spawn a general-purpose subagent with the prompt: reply with exactly the word PONG and nothing else. Then wait for its report."
+}

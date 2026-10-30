@@ -1,0 +1,514 @@
+package app_test
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"obor/internal/app"
+	"obor/internal/herdr/herdrtest"
+)
+
+// The integrator's jobs (T-339): their delivery and stall timers on the app's clock, obor hold and obor resume.
+
+// integratorIs sets pj-int's status in the fake herdr and waits until the app sees it.
+func (r *loopRig) integratorIs(status string) {
+	r.t.Helper()
+	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Status = status })
+	r.waitFor("pj-int "+status, func() bool {
+		for _, a := range r.app.Status().Project.Agents {
+			if a.Name == "pj-int" && a.Status == status {
+				return true
+			}
+		}
+		r.push()
+		return false
+	})
+}
+
+// integratorGone makes pj-int's agent exit and waits until the merge loop has seen it gone for T-1's open job, job
+// (its Gone grace counts from that pass, on the fake clock).
+func (r *loopRig) integratorGone(job string) {
+	r.t.Helper()
+	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
+	r.waitFor("pj-int gone", func() bool {
+		for _, a := range r.app.Status().Project.Agents {
+			if a.Name == "pj-int" {
+				r.push()
+				return false
+			}
+		}
+		return true
+	})
+	r.waitTimer("pj-int seen gone with "+job, func(j string, gone, _ time.Time) bool { return j == job && !gone.IsZero() })
+}
+
+// waitTimer waits until T-1's job timer is as ok says (the merge loop has taken the sample a test step depends on).
+func (r *loopRig) waitTimer(what string, ok func(job string, gone, quiet time.Time) bool) {
+	r.t.Helper()
+	r.waitFor(what, func() bool { return ok(app.JobTimer(r.app, r.p.Root, "T-1")) })
+}
+
+// quietBaseline waits for the stall timer's first quiet sample of T-1's job.
+func (r *loopRig) quietBaseline(job string) {
+	r.t.Helper()
+	r.waitTimer("the quiet baseline of "+job, func(j string, _, quiet time.Time) bool { return j == job && !quiet.IsZero() })
+}
+
+// push makes the app read a new snapshot.
+func (r *loopRig) push() {
+	r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
+		"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+}
+
+// passes waits for two more passes of the merge loop: the second one started after the call, so it saw the clock and
+// the state the test set before it.
+func (r *loopRig) passes() {
+	r.t.Helper()
+	_, n := app.Counts(r.app)
+	r.waitFor("two more passes", func() bool { _, passes := app.Counts(r.app); return passes >= n+2 })
+}
+
+// later moves the app's clock on by d, then waits for a few passes.
+func (r *loopRig) later(d time.Duration) {
+	r.clock.Add(d)
+	r.passes()
+}
+
+// jobPrompts is how many prompts pj-int got for job.
+func (r *loopRig) jobPrompts(job string) int {
+	n := 0
+	for _, p := range r.prompts() {
+		if p.to == "pj-int" && strings.HasPrefix(p.text, "[obor job "+job+"] ") {
+			n++
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, l := range r.launches { // a start's first prompt: the job's wake
+		if l.Agent == "pj-int" && l.Prompt == "[obor job "+job+"] call the obor job_next tool" {
+			n++
+		}
+	}
+	return n
+}
+
+// candidatePatch is the patch hash of the attempt's last green candidate (the gate's result), what a review job names.
+func (r *loopRig) candidatePatch() string {
+	r.t.Helper()
+	var patch string
+	for _, rec := range r.records() {
+		if rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "gate") {
+			var g struct{ Candidate struct{ Patch string } }
+			_ = json.Unmarshal(rec.Data, &g)
+			patch = g.Candidate.Patch
+		}
+	}
+	if patch == "" {
+		r.t.Fatalf("no green candidate: %q", r.steps())
+	}
+	return patch
+}
+
+// hasPrefix: a record's "<attempt> <kind> <step>{reason}" line starts with s.
+func (r *loopRig) hasPrefix(s string) bool {
+	for _, line := range r.steps() {
+		if strings.HasPrefix(line, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *loopRig) waitPrefix(s string) {
+	r.t.Helper()
+	r.waitFor("a record "+s+"…", func() bool { return r.hasPrefix(s) })
+}
+
+// resume is the lead's obor resume of T-1 (to "": the cause's default).
+func (r *loopRig) resume(callID, to string) (string, error) {
+	return app.Verdict(context.Background(), r.sock, app.MethodResume, app.Call{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: callID, Task: "T-1", To: to})
+}
+
+// mustResume is resume with the reply it must give.
+func (r *loopRig) mustResume(callID, to, want string) {
+	r.t.Helper()
+	if reply, err := r.resume(callID, to); err != nil || reply != want {
+		r.t.Fatalf("resume %s: %q, %v; want %q", to, reply, err, want)
+	}
+}
+
+// facts is how many facts are in force for the project.
+func (r *loopRig) facts() int { return len(r.app.Status().Project.Facts) }
+
+// reviewed is the rig at T-1's first review job fetched (delivered; the integrator idle, the clock where the job went
+// out): the job's text.
+func reviewed(t *testing.T) (*loopRig, string) {
+	r := woke(t)
+	return r, r.waitJob("pj-int", "T-1/1/review")
+}
+
+// woke is the rig at T-1's first review job sent, its wake carried by the integrator's start, not fetched.
+func woke(t *testing.T) *loopRig {
+	r := newLoopRig(t, "echo 1 pass")
+	r.work("feature.txt", "feature\n")
+	r.start()
+	r.submit()
+	r.waitWake("pj-int", "T-1/1/review")
+	return r
+}
+
+// Delivery (rows 7–8): no job_next within 5 min of the job's wake → one retry; none 5 min after it → the owner; the
+// fetch, or the verdict, is delivery and stops the timer.
+func TestJobDelivery(t *testing.T) {
+	t.Run("undelivered: retry, then needs-you", func(t *testing.T) {
+		t.Parallel()
+		r := woke(t)
+		r.later(4*time.Minute + 59*time.Second)
+		if r.has("1 intent retry.review") || r.jobPrompts("T-1/1/review") != 1 {
+			t.Fatalf("a retry before 5 min: %q", r.steps())
+		}
+		r.later(time.Second)
+		r.waitStep("1 result retry.review")
+		if n := r.jobPrompts("T-1/1/review"); n != 2 {
+			t.Errorf("review job prompted %d times, want 2 (the job and its retry)", n)
+		}
+		if got := r.cleared("pj-int"); len(got) != 1 || !got[0] {
+			t.Errorf("input line cleared before prompts %v, want [true] (the retry, the one typed, clears)", got)
+		}
+		r.later(4*time.Minute + 59*time.Second)
+		if r.hasPrefix("1 fact needs-you") {
+			t.Fatalf("a needs-you before 5 min after the retry: %q", r.steps())
+		}
+		r.later(time.Second)
+		r.waitStep("1 fact needs-you{job not delivered: T-1/1/review prompted twice to pj-int}")
+		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		r.later(10 * time.Minute)
+		if n := r.jobPrompts("T-1/1/review"); n != 2 || r.count("1 intent retry.review") != 1 {
+			t.Errorf("after the needs-you: %d prompts, %d retries; want 2, 1", n, r.count("1 intent retry.review"))
+		}
+		if st := r.app.Status().Project; st.Tasks[0].State != "needs-you" || len(st.Facts) != 1 {
+			t.Errorf("status: %+v", st)
+		}
+	})
+	t.Run("fetched at 3 min: delivered, no timer", func(t *testing.T) {
+		t.Parallel()
+		r := woke(t)
+		r.later(3 * time.Minute)
+		r.waitJob("pj-int", "T-1/1/review")
+		r.waitStep("1 fact delivered")
+		r.integratorIs("working")
+		r.later(10 * time.Minute)
+		r.later(10 * time.Minute)
+		if r.has("1 intent retry.review") || r.has("1 intent nudge.review") || r.hasPrefix("1 fact needs-you") ||
+			r.jobPrompts("T-1/1/review") != 1 {
+			t.Errorf("a timer fired for a delivered job of a working integrator: %q", r.steps())
+		}
+	})
+	t.Run("verdict without a fetch: delivered", func(t *testing.T) {
+		t.Parallel()
+		r := woke(t)
+		r.later(3 * time.Minute)
+		r.accept("c1", r.candidatePatch())
+		r.merged(1)
+		r.later(10 * time.Minute)
+		if r.has("1 fact delivered") || r.has("1 intent retry.review") || r.hasPrefix("1 fact needs-you") ||
+			r.jobPrompts("T-1/1/review") != 1 {
+			t.Errorf("want merged, no delivered fact needed, no retry: %q", r.steps())
+		}
+	})
+}
+
+// A delivered job, then the integrator ready and quiet with it for 10 min (the stall timer's quiet time) → one nudge
+// (the same job id), then 10 more → the owner. The integrator exiting with a job open → started again and the job
+// sent anew under a new key (the old job id refused); exiting again → the owner.
+func TestJobStalled(t *testing.T) {
+	t.Run("idle: nudge, then needs-you", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		r.integratorIs("idle")
+		r.quietBaseline("T-1/1/review")
+		r.later(9 * time.Minute)
+		if r.has("1 intent nudge.review") {
+			t.Fatalf("a nudge before 10 min quiet: %q", r.steps())
+		}
+		r.later(time.Minute)
+		r.waitStep("1 result nudge.review")
+		var nudge string
+		for _, p := range r.prompts() {
+			if strings.HasPrefix(p.text, "[obor job T-1/1/review] Reminder:") {
+				nudge = p.text
+			}
+		}
+		if nudge == "" || r.jobPrompts("T-1/1/review") != 2 || !strings.Contains(nudge, "open for T-1; answer it with one obor tool (hold") {
+			t.Errorf("want the job again with a reminder naming the hold tool: %d prompts, %q", r.jobPrompts("T-1/1/review"), nudge)
+		}
+		r.later(9 * time.Minute)
+		if r.hasPrefix("1 fact needs-you") {
+			t.Fatalf("a needs-you before 10 min after the nudge: %q", r.steps())
+		}
+		r.later(time.Minute)
+		r.waitStep("1 fact needs-you{job stalled: pj-int idle with job T-1/1/review for 10m0s after a nudge}")
+		if r.count("1 intent nudge.review") != 1 || r.has("1 intent retry.review") {
+			t.Errorf("want one nudge, no retry: %q", r.steps())
+		}
+	})
+	t.Run("pane exits: one start, one re-send, then needs-you", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		r.integratorGone("T-1/1/review")
+		r.later(30 * time.Second)
+		if r.has("1 fact job.lost{integrator exited}") || r.starts.Load() != 1 {
+			t.Fatalf("lost before Gone (1 min): %q", r.steps())
+		}
+		r.later(30 * time.Second)
+		job := r.waitJob("pj-int", "T-1/1/review.2")
+		if r.starts.Load() != 2 || r.count("1 fact job.lost{integrator exited}") != 1 || !r.has("1 result start.review.2") ||
+			r.jobPrompts("T-1/1/review") != 1 || r.jobPrompts("T-1/1/review.2") != 1 {
+			t.Errorf("starts %d: want one start and one re-send under review.2: %q", r.starts.Load(), r.steps())
+		}
+		stale := app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
+			Job: "T-1/1/review", Patch: r.patch(job)}
+		if _, err := app.Verdict(context.Background(), r.sock, app.MethodAccept, stale); err == nil ||
+			!strings.Contains(err.Error(), "stale job T-1/1/review (T-1's job is T-1/1/review.2)") {
+			t.Errorf("accept of the lost job: %v", err)
+		}
+		r.integratorGone("T-1/1/review.2")
+		r.later(time.Minute)
+		r.waitStep("1 fact needs-you{job stalled: pj-int exited again with job T-1/1/review.2 open}")
+		r.later(time.Minute)
+		if r.starts.Load() != 2 || r.count("1 fact job.lost{integrator exited}") != 1 {
+			t.Errorf("starts %d after the second exit, want 2 (the owner decides): %q", r.starts.Load(), r.steps())
+		}
+		r.mustResume("r1", "", "RESUMED T-1: reprompt (job stalled)")
+		r.accept("c2", r.patch(r.waitJob("pj-int", "T-1/1/review.3")))
+		r.merged(1)
+		if r.starts.Load() != 3 {
+			t.Errorf("starts %d, want 3", r.starts.Load())
+		}
+	})
+}
+
+// obor hold: the job stays open, needs-you{held: why}, the owner told once; only the integrator holds, with a why;
+// a repeated call id gets the stored reply. obor resume (the lead's): its default for held is reprompt, a new job,
+// the old job id refused; a repeated call id gets the stored reply, a resume with no needs-you is refused.
+func TestHoldAndResume(t *testing.T) {
+	t.Run("resume reprompts", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		hold := func(agent, role, callID, note string) (string, error) {
+			return app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: agent,
+				Role: role, CallID: callID, Task: "T-1", Note: note})
+		}
+		if _, err := hold("pj-o1", "worker", "h0", "why"); err == nil ||
+			!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-o1 (role worker)") {
+			t.Errorf("hold by the worker: %v", err)
+		}
+		if _, err := hold("pj-int", "integrator", "h0", " "); err == nil || !strings.Contains(err.Error(), "hold: say why") {
+			t.Errorf("hold without a why: %v", err)
+		}
+		if r.hasPrefix("1 fact needs-you") {
+			t.Fatalf("a refused hold was recorded: %q", r.steps())
+		}
+		const reply = "HOLD T-1 (job T-1/1/review): the owner is told"
+		for _, id := range []string{"h1", "h1"} {
+			if got, err := hold("pj-int", "integrator", id, "spec deviation: the owner decides"); err != nil || got != reply {
+				t.Errorf("hold %s: %q, %v; want %q", id, got, err, reply)
+			}
+		}
+		if got, err := hold("pj-int", "integrator", "h2", "again"); err == nil || !strings.Contains(err.Error(), "held already") {
+			t.Errorf("a second hold: %q, %v; want refused as held already (the job is open)", got, err)
+		}
+		r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+		if r.count("1 fact needs-you{held: spec deviation: the owner decides}") != 1 ||
+			r.app.Status().Project.Tasks[0].State != "needs-you" {
+			t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
+		}
+
+		worker := app.Call{Root: r.p.Root, Agent: "pj-o1", Role: "worker", CallID: "r0", Task: "T-1"}
+		if _, err := app.Verdict(context.Background(), r.sock, app.MethodResume, worker); err == nil ||
+			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-o1 (role worker)") {
+			t.Errorf("resume by the worker: %v", err)
+		}
+		for _, id := range []string{"r1", "r1"} {
+			r.mustResume(id, "", "RESUMED T-1: reprompt (held)")
+		}
+		if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "T-1 has no needs-you of the merge loop") {
+			t.Errorf("resume with no needs-you: %v", err)
+		}
+		job := r.waitJob("pj-int", "T-1/1/review.2")
+		stale := app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
+			Job: "T-1/1/review", Patch: r.patch(job)}
+		if _, err := app.Verdict(context.Background(), r.sock, app.MethodAccept, stale); err == nil ||
+			!strings.Contains(err.Error(), "stale job T-1/1/review") {
+			t.Errorf("accept of the held job after the resume: %v", err)
+		}
+		r.accept("c2", r.patch(job))
+		r.merged(1)
+		if r.count("1 fact unblocked{reprompt}") != 1 || r.facts() != 0 || r.jobPrompts("T-1/1/review") != 1 {
+			t.Errorf("want one unblocked, no fact in force, the held job not sent again: %q", r.steps())
+		}
+	})
+	t.Run("a verdict on the held job ends the hold", func(t *testing.T) {
+		t.Parallel()
+		r, job := reviewed(t)
+		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
+			Role: "integrator", CallID: "h1", Task: "T-1", Note: "asking the owner"}); err != nil {
+			t.Fatal(err)
+		}
+		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
+		r.accept("c1", r.patch(job))
+		r.merged(1)
+		if r.facts() != 0 || r.has("1 fact unblocked") {
+			t.Errorf("want the hold ended by the accept: %q", r.steps())
+		}
+	})
+}
+
+// obor resume's regate for the causes whose default it is: red past K submits and gates the lane again; a held
+// publish is published again; after_merge: TestLoopAfterMergeFailure. A reprompt with no integrator job in the
+// attempt is refused.
+func TestResumeRegate(t *testing.T) {
+	t.Run("red past K", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass")
+		r.work("feature.txt", "feature\n")
+		r.submit()
+		if err := app.WriteLog(r.p.Root, time.Now(), []app.Record{
+			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: app.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindIntent, Class: app.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: app.KindFact,
+				Data: []byte(`{"lane":"O-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
+		}...); err != nil {
+			t.Fatal(err)
+		}
+		r.start()
+		r.passes()
+		if r.scratch.gates.Load() != 0 || r.app.Status().Project.Tasks[0].State != "needs-you" {
+			t.Fatalf("precondition: the task waits for the owner: %q", r.steps())
+		}
+		if _, err := r.resume("r0", "reprompt"); err == nil || !strings.Contains(err.Error(),
+			"T-1 has no integrator job to re-prompt (gate red after 2 sendbacks: RED T-1): regate") {
+			t.Errorf("reprompt with no job: %v", err)
+		}
+		r.mustResume("r1", "", "RESUMED T-1: regate (red)")
+		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
+		r.merged(1)
+		if !r.has("1 result gate.2") || r.scratch.gates.Load() != 1 || r.mainMerges() != 1 {
+			t.Errorf("want gate.2 (a lane gate), merged: %q", r.steps())
+		}
+	})
+	t.Run("publish held", func(t *testing.T) {
+		t.Parallel()
+		r, job := reviewed(t)
+		r.p.Write("feature.txt", "in the main checkout's way\n") // untracked: the fast-forward would overwrite it
+		r.accept("c1", r.patch(job))
+		r.waitPrefix("1 fact needs-you{publish: ")
+		r.later(time.Minute)
+		if r.scratch.publishes.Load() != 1 || r.mainMerges() != 0 {
+			t.Fatalf("publishes %d, merges %d: want the one refused publish: %q", r.scratch.publishes.Load(), r.mainMerges(), r.steps())
+		}
+		if err := os.Remove(filepath.Join(r.p.Root, "feature.txt")); err != nil {
+			t.Fatal(err)
+		}
+		r.mustResume("r1", "", "RESUMED T-1: regate (publish)")
+		r.merged(1)
+		if !r.has("1 result publish.2") || r.mainMerges() != 1 || r.jobPrompts("T-1/1/review") != 1 {
+			t.Errorf("want publish.2, merged, no second job: %q", r.steps())
+		}
+	})
+}
+
+// Crash rows (T-338's table) of the timers and resume: the retry and the re-sent job are prompts (T-524: a pending one
+// reaches the integrator once more on replay, the timers go on), unblocked a fact (refused: the resume is given again).
+func TestJobRecovery(t *testing.T) {
+	for _, before := range []bool{true, false} {
+		point := "result lost"
+		kind := app.KindResult
+		if before {
+			point, kind = "before the effect", app.KindIntent
+		}
+		t.Run("retry/"+point, func(t *testing.T) {
+			t.Parallel()
+			r := woke(t)
+			crashed := r.crashAt(kind, "retry.review")
+			r.clock.Add(5 * time.Minute)
+			r.waitFor("the crash", crashed.Load)
+			r.stop()
+			if before {
+				r.appendIntent("retry.review", app.ClassPrompt)
+			}
+			sent := r.jobPrompts("T-1/1/review")
+			r.start()
+			r.waitTimer("the timer started afresh", func(j string, _, _ time.Time) bool { return j == "T-1/1/review" })
+			r.later(4 * time.Minute)
+			if r.jobPrompts("T-1/1/review") != sent+1 || r.count("1 intent retry.review") != 1 || len(r.open()) != 0 {
+				t.Errorf("the retry was not sent once more on replay, or left open: %q", r.steps())
+			}
+			r.later(time.Minute)
+			r.waitPrefix("1 fact needs-you{job not delivered")
+		})
+		t.Run("re-sent job/"+point, func(t *testing.T) {
+			t.Parallel()
+			r, job := reviewed(t)
+			r.integratorGone("T-1/1/review")
+			crashed := r.crashAt(kind, "review.2")
+			r.clock.Add(time.Minute)
+			r.waitFor("the crash", crashed.Load)
+			r.stop()
+			if before { // the intent as the loop writes it: the patch the job's verdict must name
+				if err := app.WriteLog(r.p.Root, time.Now(), app.Record{Task: "T-1", Attempt: 1, Step: "review.2",
+					Kind: app.KindIntent, Class: app.ClassPrompt, Data: []byte(`{"patch":"` + r.patch(job) + `"}`)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sent, starts := r.jobPrompts("T-1/1/review.2"), r.starts.Load()
+			r.start()
+			r.passes()
+			// The job reaches the integrator once more: typed, or as the first prompt of the start a crash before the
+			// effect left to run.
+			restarts := int32(0)
+			if before {
+				restarts = 1
+			}
+			if r.jobPrompts("T-1/1/review.2") != sent+1 || r.starts.Load() != starts+restarts ||
+				r.count("1 intent review.2") != 1 || r.count("1 fact job.lost{integrator exited}") != 1 || len(r.open()) != 0 {
+				t.Errorf("job prompts %d (was %d), starts %d (was %d); want the job once more, %d start: %q",
+					r.jobPrompts("T-1/1/review.2"), sent, r.starts.Load(), starts, restarts, r.steps())
+			}
+			r.accept("c1", r.patch(job))
+			r.merged(1)
+		})
+	}
+	t.Run("unblocked refused", func(t *testing.T) {
+		t.Parallel()
+		r, _ := reviewed(t)
+		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
+			Role: "integrator", CallID: "h1", Task: "T-1", Note: "owner"}); err != nil {
+			t.Fatal(err)
+		}
+		crashed := r.crashAt(app.KindFact, "unblocked")
+		if _, err := r.resume("r1", ""); err == nil {
+			t.Error("the resume whose fact was refused answered ok")
+		}
+		r.waitFor("the crash", crashed.Load)
+		r.stop()
+		r.start()
+		r.passes()
+		if r.app.Status().Project.Tasks[0].State != "needs-you" || r.jobPrompts("T-1/1/review.2") != 0 {
+			t.Fatalf("after the replay: %q", r.steps())
+		}
+		r.mustResume("r1", "", "RESUMED T-1: reprompt (held)")
+		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review.2")))
+		r.merged(1)
+		if r.count("1 fact unblocked{reprompt}") != 1 || r.jobPrompts("T-1/1/review.2") != 1 {
+			t.Errorf("want one unblocked, one review.2: %q", r.steps())
+		}
+	})
+}

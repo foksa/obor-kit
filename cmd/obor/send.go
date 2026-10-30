@@ -1,0 +1,158 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"obor/internal/agents"
+	"obor/internal/app"
+	"obor/internal/config"
+	"obor/internal/project"
+)
+
+// sendCmd is `obor send <project> "<text>"`, a lead's or the owner's: a request to the target project's serve
+// (app.MethodSend), which posts "[obor <this project>] <text>" to that project's lead's Claude session (T-485). <project>
+// is a path into an obor project. Serve's reply (SENT to …), or FAIL: the own project, not an obor project, serve down or
+// its refusal (exit 1).
+func sendCmd(args []string) int {
+	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
+		fmt.Fprintln(out, `FAIL usage: obor send <project> "<text>"`)
+		return 1
+	}
+	ctx := context.Background()
+	return request(ctx, project.OSEnv, app.MethodSend, func(cfg *config.Config, c *app.Call) error {
+		root, err := sendTarget(args[0])
+		if err != nil {
+			return err
+		}
+		if project.Physical(root) == project.Physical(cfg.Root) {
+			return errors.New("obor send goes to another project's lead, not this one")
+		}
+		c.Root, c.Note, c.From = root, args[1], cfg.Data.Name
+		if c.From == "" {
+			c.From = filepath.Base(cfg.Root)
+		}
+		return nil
+	})
+}
+
+// sendTarget is the root of the project arg names: a path inside an obor project (its main checkout).
+func sendTarget(arg string) (string, error) {
+	if st, err := os.Stat(arg); err != nil || !st.IsDir() {
+		return "", fmt.Errorf("%s is not a directory: obor send takes a path into the target project", arg)
+	}
+	repo, err := project.Find(arg)
+	if err != nil || !configured(repo.Root) {
+		return "", fmt.Errorf("%s is not in an obor project (no .obor/config.json)", arg)
+	}
+	return repo.Root, nil
+}
+
+// briefCmd is `obor brief <role-agent> "<text>"`, the lead's or the owner's: a request to obor serve (app.MethodBrief)
+// that types "[obor <caller>] <text>" into the role agent's pane once it is idle (a verify into the running session);
+// once that agent has worked on it and is idle again, serve posts "[obor] <agent> finished (briefed <age> ago)" to
+// the lead's session. A fresh brief goes by obor restart <role-agent> --fresh --prompt "<brief>", which records the same
+// brief. Serve's reply (BRIEFED …), or FAIL: not a role agent, serve down or its refusal (exit 1).
+func briefCmd(args []string) int {
+	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
+		fmt.Fprintln(out, `FAIL usage: obor brief <role-agent> "<text>"`)
+		return 1
+	}
+	_, cfg, rc := load()
+	if rc != 0 {
+		fmt.Fprintln(out, noConfig)
+		return 1
+	}
+	reply, err := brief(context.Background(), cfg, args[0], args[1], project.OSEnv)
+	if err != nil {
+		fmt.Fprintf(out, "FAIL %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(out, reply)
+	return 0
+}
+
+// brief is the brief request for agent (text "": a fresh start carried it); agent must be a role's agent other than
+// the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor, an agents entry …).
+func brief(ctx context.Context, cfg *config.Config, agent, text string, env project.Env) (string, error) {
+	if !roleAgent(cfg, agent) {
+		return "", fmt.Errorf("%s is no role agent of this project (reviewer, deep_dive, advisor …; not the lead, the integrator or a worker)", agent)
+	}
+	cwd, _ := os.Getwd()
+	c := caller(env, cwd, cfg)
+	c.To, c.Note = agent, text
+	return app.Verdict(ctx, app.SocketPath(cfg.Root), app.MethodBrief, c)
+}
+
+// roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the
+// integrator or a worker.
+func roleAgent(cfg *config.Config, agent string) bool {
+	info, ok := project.AgentLookup(cfg, agent, "")
+	return ok && info.Role != "lead" && info.Role != "integrator" && info.Role != "worker"
+}
+
+// poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster, T-485, T-499):
+// the session's inbox socket as its SessionStart hook recorded it (<agent>.inbox), the kind's lines
+// (agents.Kind.Deliver). Nothing is typed into a pane.
+type poster struct{ env project.Env }
+
+// postWait bounds one post: the dial, the write, and the wait for the session to close its end after reading.
+const postWait = 3 * time.Second
+
+// Post posts line to agent's session as kind posts it (the pane's kind, DD-v0.13 B1): the record read, the kind's
+// lines from it, one dial, the lines written, then close. began: a byte of it went out (a refusal before is safe to
+// retry). No ack comes back.
+func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool, err error) {
+	k, ok := agents.Lookup(kind)
+	if !ok || !k.Caps().Inbox {
+		return false, fmt.Errorf("%s: kind %s posts through no inbox", agent, kind)
+	}
+	rec, err := os.ReadFile(project.InboxFile(agent, p.env))
+	if err != nil {
+		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
+	}
+	d, ok := k.Deliver(line, rec)
+	if !ok || d.Typed {
+		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, project.InboxFile(agent, p.env))
+	}
+	ctx, cancel := context.WithTimeout(ctx, postWait)
+	defer cancel()
+	var dialer net.Dialer
+	c, err := dialer.DialContext(ctx, "unix", d.Socket)
+	if err != nil {
+		return false, err
+	}
+	defer c.Close()
+	deadline, _ := ctx.Deadline()
+	_ = c.SetDeadline(deadline)
+	if n, err := c.Write([]byte(strings.Join(d.Lines, "\n") + "\n")); err != nil {
+		return n > 0, err
+	}
+	// Half-close and let the session read to the end before the connection goes: it closes its end once read (a
+	// silent session: the deadline ends the wait; the lines are written either way).
+	if uc, ok := c.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+		_, _ = io.Copy(io.Discard, c)
+	}
+	return true, nil
+}
+
+// inboxed is app.Options.Inboxed: agent's inbox record names a socket that is there (a session that ended removed it;
+// a crashed one's is refused at the dial and retried), and the session that wrote it.
+func inboxed(env project.Env) func(agent string) (string, bool) {
+	return func(agent string) (string, bool) {
+		in, err := project.ReadInbox(agent, env)
+		if err != nil {
+			return "", false
+		}
+		_, err = os.Stat(in.Socket)
+		return in.Session, err == nil
+	}
+}

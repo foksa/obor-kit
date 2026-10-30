@@ -1,0 +1,645 @@
+// Package launch starts, stops and restarts an obor agent in its labelled herdr pane (`obor restart`, and serve's
+// start of a worker): the one launch path.
+//
+//	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
+//	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
+//	         lane worktree as cwd (that lane's agent), or any agent with a recorded session id (<agent>.sid). Env
+//	         OBOR_AGENT, OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE
+//	         (no lane: unset) and the cwd as obor setup gives them; an unknown agent gets OBOR_AGENT only, in the pane's
+//	         cwd. Kind and args from the lane / role / lead / agents entry type (lane_types: args, then --settings for
+//	         claude); no type: the kind herdr reports for the pane, else claude, no args.
+//	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
+//	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
+//	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
+//	Session  the recorded sid, else the one herdr reports for the pane; --sid <id>; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
+//	         recorded Claude sid must have its transcript under the start cwd.
+//	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
+//	         anything is stopped or typed: no fg resume.
+//	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
+//	         obor setup): the pane labelled <agent>, the name cleared from the pane if herdr still holds it, herdr agent
+//	         start (agent_name_taken: cleared and retried once), a look for a startup dialog. The start ends when its
+//	         agent runs in the pane and is named, not at herdr's own bound for an agent ready for input (T-404).
+//	Self     the caller's own pane (HERDR_PANE_ID): scheduled, see self.go.
+//
+// Every operation registers one op record (kind restart) for its whole run.
+package launch
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"obor/internal/agents"
+	"obor/internal/app"
+	"obor/internal/config"
+	"obor/internal/project"
+	"obor/internal/roles"
+	"obor/internal/store"
+)
+
+// Launcher runs launches in one project (Cfg nil: none, every agent is unknown). Zero durations mean the defaults.
+type Launcher struct {
+	Cfg  *config.Config
+	Env  project.Env
+	Kit  string // the obor kit (Codex's MCP registration points at <Kit>/bin/obor); "": project.KitRoot(Env)
+	H    app.PaneControl
+	Out  io.Writer     // progress lines
+	Wait time.Duration // for an agent to exit after /exit, the shell to run the env line (default OBOR_RESTART_WAIT, else 20 s)
+	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
+	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default 30 s)
+	Poll time.Duration // how often it looks (default 1 s)
+	// Alive says whether process pid runs (an agent's exit is its leader gone); nil: project.PIDAlive.
+	Alive func(pid int) bool
+	// Kill sends sig to process group pgid (an exited agent's leftover MCP servers, or with force an agent that ignored
+	// /exit); nil: kill(2) on -pgid.
+	Kill func(pgid int, sig syscall.Signal) error
+	// PS runs ps with args (a suspended agent: the shell's stopped child); nil: the ps on PATH.
+	PS func(args ...string) ([]byte, error)
+	// Sched is how long a scheduled restart of the caller's own pane waits for the agent to go idle (default 10 min).
+	Sched time.Duration
+	// Spawn starts `obor <args>` detached (own session) in dir, its output appended to the file out, with the env
+	// marking it the scheduled run; nil: this binary.
+	Spawn func(dir string, args []string, out string) error
+	// Sessions is agent's current recorded session (T-577); nil: serve's store at Cfg.Root (store.CurrentAt).
+	Sessions func(agent string) (store.Session, bool)
+	// Report records a session a start found (a Codex rollout, T-577); nil: the session request to Cfg.Root's serve.
+	Report func(ctx context.Context, s store.Session) error
+	// Rollout is how long a fresh start looks for its new session's transcript (default 10 s).
+	Rollout time.Duration
+	// Background runs the search for a fresh start's new session transcript after the start returned (obor serve: a
+	// goroutine, as its starts run one at a time and must not wait for it); nil: before the start returns (a CLI
+	// restart, which exits after).
+	Background func(search func())
+	// Log is where a background search says what it found (none, or several open, T-582); nil: nowhere.
+	Log io.Writer
+	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open, T-588);
+	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
+	Open func(pids []int) []string
+}
+
+// Request is one `obor restart` (the core's app.Launch: Launcher is an app.Agents).
+type Request = app.Launch
+
+var _ app.Agents = (*Launcher)(nil)
+
+// Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
+// ParseRequest reads that back. The pair owns the whole mapping, so a new Request field cannot be carried on one
+// side only (T-303: a handoff flag once was, and the scheduled run lost it).
+func Args(r Request) []string {
+	args := []string{r.Agent}
+	if r.Pane != "" {
+		args = append(args, "--pane", r.Pane)
+	}
+	switch {
+	case r.Fresh:
+		args = append(args, "--fresh")
+	case r.Sid != "":
+		args = append(args, "--sid", r.Sid)
+	}
+	if r.Force {
+		args = append(args, "--force")
+	}
+	if r.Prompt != "" {
+		args = append(args, "--prompt", r.Prompt)
+	}
+	return args
+}
+
+// ParseRequest reads an `obor restart` argument list (after the subcommand) back into the Request Args wrote; the
+// other half of that pair. Flags restart owns but a Request does not carry (--stop) are not its business and
+// are an error.
+func ParseRequest(args []string) (Request, error) {
+	var r Request
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		value := func() (string, bool) {
+			if i+1 >= len(args) || args[i+1] == "" {
+				return "", false
+			}
+			i++
+			return args[i], true
+		}
+		switch a {
+		case "--pane":
+			v, ok := value()
+			if !ok {
+				return Request{}, fmt.Errorf("--pane needs a value")
+			}
+			r.Pane = v
+		case "--sid":
+			v, ok := value()
+			if !ok {
+				return Request{}, fmt.Errorf("--sid needs a value")
+			}
+			r.Sid = v
+		case "--fresh":
+			r.Fresh = true
+		case "--force":
+			r.Force = true
+		case "--prompt":
+			v, ok := value()
+			if !ok {
+				return Request{}, fmt.Errorf("--prompt needs a value")
+			}
+			r.Prompt = v
+		default:
+			if strings.HasPrefix(a, "-") || r.Agent != "" {
+				return Request{}, fmt.Errorf("unexpected argument %q", a)
+			}
+			r.Agent = a
+		}
+	}
+	return r, nil
+}
+
+// AgentName is what a herdr agent name obor starts must match.
+var AgentName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+func (l *Launcher) say(format string, a ...any) { fmt.Fprintf(l.Out, format+"\n", a...) }
+
+func (l *Launcher) wait() time.Duration {
+	if l.Wait > 0 {
+		return l.Wait
+	}
+	var s int
+	if _, err := fmt.Sscan(l.Env.Get("OBOR_RESTART_WAIT"), &s); err == nil && s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 20 * time.Second
+}
+
+func (l *Launcher) upWait() time.Duration {
+	if l.Up > 0 {
+		return l.Up
+	}
+	return 30 * time.Second
+}
+
+func (l *Launcher) poll() time.Duration {
+	if l.Poll > 0 {
+		return l.Poll
+	}
+	return time.Second
+}
+
+// until polls cond every Poll for at most d; true once cond holds.
+func (l *Launcher) until(ctx context.Context, d time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if cond() {
+			return true
+		}
+		if !time.Now().Before(deadline) || ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(min(l.poll(), time.Until(deadline)))
+	}
+}
+
+// target is the agent being launched: who it is and where it runs.
+type target struct {
+	agent string
+	known bool // the config knows it (lane, role, agents entry, lane cwd)
+	info  config.AgentInfo
+	sid   string // recorded session id
+	held  string // the other agent that holds the session id its .sid file names (T-589)
+	pane  string
+	entry app.PaneInfo // the pane as pane list shows it
+	panes []app.PaneInfo
+	kind  string
+}
+
+// resolve is who and where (shared by Restart and Stop); nothing is typed.
+func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, error) {
+	t := &target{agent: agent}
+	if l.Cfg != nil {
+		t.info, t.known = project.AgentLookup(l.Cfg, agent, "")
+		if !t.known {
+			// An agent whose pane (--pane, else its labelled one) has a lane worktree as cwd: that lane's agent.
+			p := pane
+			if p == "" {
+				p, _ = l.PaneOf(ctx, agent, "")
+			}
+			if cwd := l.paneCwd(ctx, p); cwd != "" {
+				if info, ok := project.AgentLookup(l.Cfg, agent, cwd); ok {
+					t.info, t.known = info, true
+					l.say("lane %s (pane %s cwd)", info.Lane, p)
+				}
+			}
+		}
+	}
+	t.sid, t.held = l.recorded(agent)
+	if !t.known && t.sid == "" && pane == "" {
+		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
+	}
+	panes, err := l.H.Panes(ctx)
+	if err != nil {
+		return nil, project.Failf("herdr pane list failed (is herdr running?)")
+	}
+	t.panes = panes
+	src := "--pane"
+	if pane == "" {
+		if pane, err = l.paneIn(panes, agent, ""); err != nil {
+			return nil, project.Failf("no pane labelled %s (pass --pane)", agent)
+		}
+		src = "label"
+	}
+	t.pane = pane
+	for _, p := range panes {
+		if p.ID == pane {
+			t.entry = p
+		}
+	}
+	l.say("pane %s (from %s)", pane, src)
+	// The label is the pane's identity (R-28 §2): never take a pane labelled for another agent, never label a second pane.
+	if t.entry.Label != "" && t.entry.Label != agent {
+		return nil, project.Failf("pane %s is labelled %s, not %s", pane, t.entry.Label, agent)
+	}
+	for _, p := range panes {
+		if p.Label == agent && p.ID != pane {
+			return nil, project.Failf("pane %s is already labelled %s (obor restart %s there)", p.ID, agent, agent)
+		}
+	}
+	if err := l.inProject(ctx, t); err != nil {
+		return nil, err
+	}
+	if t.info.Type != "" {
+		lt, ok := l.Cfg.LaneType(t.info.Type)
+		if !ok || lt.Kind == "" {
+			return nil, project.Failf("unknown lane type %s (not in lane_types with a kind)", t.info.Type)
+		}
+		t.kind = lt.Kind
+	}
+	if t.kind == "" {
+		t.kind = t.entry.Kind
+	}
+	if t.kind == "" {
+		t.kind = agents.Default
+	}
+	if pi, err := l.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
+		// herdr's process info lists only the foreground group: a stopped child of the shell (Ctrl+Z) is not in it.
+		out, err := l.ps("-A", "-o", "ppid=,stat=,pid=,comm=")
+		if err != nil {
+			l.say("warning: cannot check pane %s for a suspended agent (ps: %v)", pane, err)
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if f := strings.Fields(line); len(f) >= 4 && f[0] == strconv.Itoa(pi.ShellPID) && strings.HasPrefix(f[1], "T") {
+				l.say("pane %s: %s (pid %s) is stopped", pane, strings.Join(f[3:], " "), f[2])
+				return nil, project.Failf("%s is suspended in pane %s (Ctrl+Z): fg it and /exit, or close the pane", agent, pane)
+			}
+		}
+	}
+	return t, nil
+}
+
+func (l *Launcher) ps(args ...string) ([]byte, error) {
+	if l.PS != nil {
+		return l.PS(args...)
+	}
+	return exec.Command("ps", args...).Output()
+}
+
+// inProject: the pane of an agent this config knows (it is started with a cd into this project) is this project's
+// (T-301: labels and agent names are machine-wide, so a run that loaded another project's config took axis's
+// integrator pane for the kit's lane of the same name and started it in the kit's lane worktree). Its herdr cwd is in
+// the main checkout, a lanes_dir worktree, the agent's configured cwd or another worktree of this repository. No cwd
+// known, or an unknown agent (started where its pane is): not checked. Else FAIL with evidence, before anything is
+// stopped or typed.
+func (l *Launcher) inProject(ctx context.Context, t *target) error {
+	cwd := t.entry.Cwd
+	if !t.known || cwd == "" || LabelOurs(l.Cfg, t.agent, cwd, "") ||
+		t.info.Cwd != "" && LabelOurs(l.Cfg, t.agent, cwd, t.info.Cwd) {
+		return nil
+	}
+	if r, err := project.Find(cwd); err == nil && r.Root == project.Physical(l.Cfg.Root) {
+		return nil
+	}
+	return l.giveUp(ctx, t,
+		"pane %s is not this project's: its cwd %s is outside %s (another project's agent? run obor restart %s in its own project)",
+		t.pane, cwd, l.Cfg.Root, t.agent)
+}
+
+func (l *Launcher) paneCwd(ctx context.Context, pane string) string {
+	if pane == "" {
+		return ""
+	}
+	panes, err := l.H.Panes(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, p := range panes {
+		if p.ID == pane {
+			return p.Cwd
+		}
+	}
+	return ""
+}
+
+// begin takes the lane's restart lock (project.RestartLock; no lane: the agent's) for the whole stop and start; a
+// restart of the lane already running is waited for. No project: nothing to lock.
+func (l *Launcher) begin(ctx context.Context, agent, lane string) (func(), error) {
+	if l.Cfg == nil {
+		return func() {}, nil
+	}
+	lock := project.RestartLock(l.Cfg.Root, lane, agent)
+	lock.Output = l.Out
+	ok, err := lock.Try()
+	if err == nil && !ok {
+		l.say("waiting for the restart of %s (pid %s)", restartOf(lane, agent), lock.Holder())
+		err = lock.Wait(ctx, -1)
+	}
+	if err != nil {
+		return nil, project.Failf("cannot take the restart lock of %s: %v", restartOf(lane, agent), err)
+	}
+	return func() { _ = lock.Unlock() }, nil
+}
+
+// restartOf names whose restart lock it is: the lane, else the agent (on no lane).
+func restartOf(lane, agent string) string {
+	if lane == "" {
+		return agent
+	}
+	return "lane " + lane
+}
+
+// Restart brings req.Agent (back) up in its pane; the last line it means is RESTARTED (the caller prints it).
+func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
+	s, err := l.Launch(ctx, req)
+	return s.Line, err
+}
+
+// Launch is Restart (app.Agents): its line, and the agent it started there with the session id herdr reported for it
+// (the identity serve records for a later rename, T-418; none for a scheduled restart of the caller's own pane).
+func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error) {
+	if !AgentName.MatchString(req.Agent) {
+		return app.Started{}, project.Failf("bad agent name %q", req.Agent)
+	}
+	if req.Sid != "" && req.Fresh {
+		return app.Started{}, project.Failf("pass --sid or --fresh, not both")
+	}
+	waited, err := l.waitScheduled(ctx, req.Agent, req.Pane)
+	if err != nil {
+		return app.Started{}, err
+	}
+	t, err := l.resolve(ctx, req.Agent, req.Pane)
+	if err != nil {
+		return app.Started{}, err
+	}
+	if waited {
+		if err := l.sameAgent(ctx, t); err != nil {
+			return app.Started{}, err
+		}
+	}
+	end, err := l.begin(ctx, t.agent, t.info.Lane)
+	if err != nil {
+		return app.Started{}, err
+	}
+	defer end()
+
+	// Another pane holds the herdr name: herdr would refuse the start. No moves: FAIL before anything is stopped.
+	if a, err := l.H.Agent(ctx, t.agent); err == nil && a.Pane != "" && a.Pane != t.pane {
+		return app.Started{}, project.Failf("pane %s holds the name %s: restart it there (obor restart %s)",
+			a.Pane, t.agent, t.agent)
+	}
+
+	// The session, checked before anything is stopped (T-124): none and no --fresh → FAIL.
+	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode, T-581) always starts fresh: serve records its
+	// session, but there is nothing obor resumes. The recorded session wins (T-577): herdr's live one for the pane is a
+	// cross-check, said when it differs, and resumed only when none is recorded.
+	sid, src := t.sid, "record"
+	if !agents.Resumes(t.kind) {
+		sid, src = "", ""
+		if t.sid != "" || req.Sid != "" {
+			l.say("warning: no resume for kind %s: new session", t.kind)
+		}
+	} else {
+		if t.held != "" && req.Sid == "" && !req.Fresh {
+			return app.Started{}, project.Failf("%s's .sid file names a session %s holds: not resumed (pass --fresh to start a new one, or --sid)",
+				t.agent, t.held)
+		}
+		if live := t.entry.Session; live != "" && !sameSid(live, sid) {
+			switch {
+			case sid == "":
+				sid, src = live, "herdr"
+			case req.Sid == "" && !req.Fresh:
+				l.say("warning: herdr reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
+					sid, sid)
+			}
+		}
+		if req.Sid != "" {
+			sid, src = req.Sid, "--sid"
+		}
+		if req.Fresh {
+			sid = ""
+		}
+		if sid == "" && !req.Fresh {
+			return app.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
+		}
+		if sid != "" && src == "record" {
+			if err := l.checkTranscript(t, sid); err != nil {
+				return app.Started{}, err
+			}
+		}
+	}
+	// The caller's own pane (T-264): schedule a detached run; that run waited for the agent to go idle (waitScheduled).
+	if l.ownPane(t) && !waited {
+		line, err := l.schedule(t, req, false)
+		return app.Started{Line: line}, err
+	}
+
+	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
+		return app.Started{}, err
+	}
+	// Env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
+	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
+		prog := pi.Foreground()
+		if prog == "" {
+			prog = "unknown"
+		}
+		return app.Started{}, project.Failf("%s runs another program (%s)", t.pane, prog)
+	}
+	mark := envMark()
+	if err := l.H.Type(ctx, t.pane, envLine(t)+`; echo `+mark.typed); err != nil {
+		return app.Started{}, project.Failf("herdr pane run %s (env) failed", t.pane)
+	}
+	if !l.until(ctx, l.wait(), func() bool {
+		screen, err := l.H.Screen(ctx, t.pane, 30)
+		return err == nil && mark.done(screen)
+	}) {
+		return app.Started{}, l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started)", t.pane, l.wait())
+	}
+
+	args, err := l.args(t)
+	if err != nil {
+		return app.Started{}, err
+	}
+	if sid != "" {
+		l.say("resuming %s (from %s)", sid, src)
+	}
+	prompt := req.Prompt
+	if sid != "" {
+		prompt = "" // a resume carries no first prompt
+	}
+	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
+		Resume: sid, Prompt: prompt, Lane: t.info.Lane})
+	var se *StartError
+	switch {
+	case errors.As(err, &se) && se.NotReady:
+		return app.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+	case errors.As(err, &se):
+		return app.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
+			t.pane, t.agent, t.pane)
+	case err != nil:
+		return app.Started{}, err
+	}
+	if sid == "" {
+		sid = "new"
+	}
+	return app.Started{Line: fmt.Sprintf("RESTARTED %s (pane %s, session %s)", t.agent, t.pane, sid), Pane: t.pane,
+		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
+}
+
+// checkTranscript: a recorded sid must be from the start cwd (T-137: another project's run may have left it), for a
+// kind whose transcripts record their cwd (agents.Kind.Transcript: Claude's projects/<cwd as a slug>).
+func (l *Launcher) checkTranscript(t *target, sid string) error {
+	cwd := t.info.Cwd
+	if cwd == "" {
+		cwd = t.entry.Cwd
+	}
+	k, ok := agents.Lookup(t.kind)
+	switch {
+	case !ok || k.Transcript(l.Env.Get, "/", sid) == "": // any cwd tells whether its transcripts record one
+		l.say("recorded session %s not checked (%s keeps no transcript per cwd)", sid, t.kind)
+	case cwd == "":
+		l.say("warning: pane %s has no known cwd: recorded session %s not checked", t.pane, sid)
+	default:
+		if _, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid)); err != nil {
+			return project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
+		}
+	}
+	return nil
+}
+
+// envLine is the shell line that sets the agent's env (and cwd) as obor setup does.
+func envLine(t *target) string {
+	line := "export OBOR_AGENT=" + shellQuote(t.agent)
+	role := t.info.Role
+	if r, ok := roles.Lookup(role); ok {
+		role = r.EnvValue
+	}
+	if role != "" {
+		line += " OBOR_ROLE=" + shellQuote(role)
+	}
+	if t.info.Lane != "" {
+		line += " OBOR_LANE=" + shellQuote(t.info.Lane)
+	} else {
+		line += " && unset OBOR_LANE"
+	}
+	if t.known && role == "" {
+		line += " OBOR_ROLE"
+	}
+	if t.info.Cwd != "" {
+		line = "cd " + shellQuote(t.info.Cwd) + " && " + line
+	}
+	return line
+}
+
+// mark is the word the env line echoes last (T-544): the shell's prompt drawn after it is the shell back at its line
+// editor. Before that, zsh runs the line with the tty in cooked mode, where a start's command typed at once is echoed
+// raw and cut at the tty's line limit (~1 KB on macOS: a long --prompt left the shell at an open quote, live
+// 2026-10-29), while herdr already counts the pane an available shell. typed is the word as typed, quoted in its
+// middle so no wrap of the typed line on the screen reads as the echoed word.
+type mark struct{ typed, echoed string }
+
+var markSeq atomic.Int64
+
+func envMark() mark {
+	n := strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(markSeq.Add(1), 36)
+	return mark{typed: `obor-env-"` + n + `"`, echoed: "obor-env-" + n}
+}
+
+// done: screen shows the echoed word on a line of its own with a non-empty line (the shell's next prompt) below it.
+func (m mark) done(screen string) bool {
+	var lines []string
+	for _, ln := range strings.Split(screen, "\n") {
+		if ln = strings.TrimSpace(ln); ln != "" {
+			lines = append(lines, ln)
+		}
+	}
+	for i := len(lines) - 2; i >= 0; i-- {
+		if lines[i] == m.echoed {
+			return true
+		}
+	}
+	return false
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+
+// shellQuote is s as one shell word.
+func shellQuote(s string) string {
+	if shellSafe.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// args are the type's launch args (config.LaneType.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280).
+func (l *Launcher) args(t *target) ([]string, error) {
+	lt := config.LaneType{Kind: t.kind}
+	switch {
+	case t.info.Type != "":
+		lt, _ = l.Cfg.LaneType(t.info.Type)
+	case t.info.Role == "":
+		return nil, nil
+	}
+	return lt.LaunchArgs(t.info.Role == "lead"), nil
+}
+
+// holds: pane holds agent's herdr name.
+func (l *Launcher) holds(ctx context.Context, agent, pane string) bool {
+	if a, err := l.H.Agent(ctx, agent); err == nil && a.Pane == pane {
+		return true
+	}
+	a, err := l.H.Agent(ctx, pane)
+	return err == nil && a.Name == agent
+}
+
+// release clears agent's name from pane (T-124, T-137): right after a stop herdr may not have noticed yet (a clear
+// then failed, Codex): with wait, wait (≤ 10 s) until herdr sees no agent in the pane; then clear unless herdr
+// already did, retrying once by name.
+func (l *Launcher) release(ctx context.Context, agent, pane string, wait bool) {
+	if wait {
+		l.until(ctx, min(l.wait(), 10*time.Second), func() bool {
+			_, err := l.H.Agent(ctx, pane)
+			return err != nil
+		})
+	}
+	if !l.holds(ctx, agent, pane) {
+		return
+	}
+	if l.H.RenameAgent(ctx, pane, "") == nil {
+		return
+	}
+	time.Sleep(l.poll())
+	if l.H.RenameAgent(ctx, agent, "") == nil {
+		return
+	}
+	l.say("warning: herdr kept the name %s in pane %s", agent, pane)
+}
+
+func (l *Launcher) kill(pgid int, sig syscall.Signal) error {
+	if l.Kill != nil {
+		return l.Kill(pgid, sig)
+	}
+	return syscall.Kill(-pgid, sig)
+}
