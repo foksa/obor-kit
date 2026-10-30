@@ -6,32 +6,28 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-10-30, session 12 (ob-lead, pane w5:p1R in tab `lead`). Renamed herd-kit → obor-kit by the owner's script.
-- **Rename done** (session 12, 16:30): serve up, role agents ob-int (w5:pZ), ob-sol (w5:pA), ob-fable (w5:p1G);
-  herd-kit-stable clean at v0.15.0; rename script deleted (owner). Closed tabs: old lead
-  (w5:t1, `obor lead` found no `ob-lead` pane and opened a new tab), the c5probe shell, deep-dive (research done;
-  `obor setup role deep_dive --tab w5:tH` when needed) and the stale hk-rev pane. Lane labels cleared by hand (see Open).
-- **v0.16.0 released** (10-30 17:28): main re-rooted (old history: local tag `pre-public`), pushed to
-  `foksa/obor-kit` with tag v0.16.0 (release commit 53a003c off main: plugin 0.16.0 + checksums); `make publish` by the
-  owner (the classifier refuses the lead's uploads and repo creation). `curl .../install.sh | sh` verified in a clean
-  HOME. Push: `OBOR_ALLOW_PUSH=1 git push` (the pre-push hook). Commits use the noreply email.
-- Marketplace (owner): main is `obor-kit-dev` (T-592), tags `obor-kit`; this machine re-registered (obor@obor-kit-dev,
-  ob-int/ob-fable restarted on it). The pre-tag Codex smoke was skipped for v0.16.0 (lead's slip); run after as T-593:
-  passed (job over MCP, whoami, task_done). **Codex weekly: 10% left** (10-30 17:40). LICENSE: none yet (owner to pick).
-- **Next:** axis-alies migrates (its lead, at a handoff: `obor migrate`, kit `~/.obor/kit` via
-  install.sh); then P7-3 and P7-4 in parallel (`docs/plan/phase-7.md`).
-- Done today: v0.15.0 tagged and on stable (axis upgraded); phase 7 planned (`docs/plan/phase-7.md`); P7-0a rename
-  (T-573) + P7-0b `obor migrate` (T-574); usage-limit auto-continue (T-563..T-572); sessions recorded by obor (T-577,
-  T-578, T-581..T-589); reviews RV-59..RV-62 closed (empty `RV-xx closed` commits); old docs deleted.
-- Codex weekly ~80% (10-30 10:30). Difficulty rule tightened (`docs/agents/lead.md`): wide or risky-to-deploy is
-  medium, not hard.
-- How to work: drafts `.obor/drafts/T-xx.md` (with `Difficulty:`) → `obor spec set` → `obor dispatch T-xx`, **then
-  `obor watch` the wave** and check `obor status` after every brief (undelivered lines show there). After every code
-  merge: `make build`, restart serve in w5:p1F (`timeout 20 herdr pane send-keys w5:p1F C-c`; `herdr pane run w5:p1F
-  "./dist/obor serve"`). Reviews stay in the reviewer's worktree. Release: build the release branch in a scratch
-  worktree, cherry-pick VERSION/UPGRADE to main.
+- 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
+  Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
+  free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
+- **Done this session:** rename verified (old tabs closed; role agents restarted with their `ob-*` env; lane labels
+  cleared). **v0.16.0 released**: P7-1 (T-590, T-591, RV-63 closed, #4 by rule: a pushed tag never moves); main
+  re-rooted onto a fresh public history (old history: local tag `pre-public`), pushed to `foksa/obor-kit`, release
+  published by the owner, `install.sh` checked in a clean HOME; README added; dev marketplace `obor-kit-dev`
+  (T-592, re-registered here); Codex smoke T-593 passed (after the tag, see `docs/agents/lead.md` Releases).
+- **How to work now:** push with `OBOR_ALLOW_PUSH=1 git push` (pre-push hook); main is public: every commit is
+  published, author email is the noreply. After the re-root, old `task/*` lane branches looked `done` (not reachable
+  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, restart
+  serve in w5:p1F (`timeout 20 herdr pane send-keys w5:p1F C-c`; `herdr pane run w5:p1F "./dist/obor serve"`).
+- **Owner decisions pending:** LICENSE (none yet: MIT, Apache-2.0 or none); S5a (when a herdr restart is OK).
+- **Next:** (1) axis-alies migrates once, by its lead at a handoff: `install.sh` (kit `~/.obor/kit`), then
+  `obor migrate` (installs `obor@obor-kit`); move its role worktrees first; send it the steps with `obor send
+  axis-alies`. (2) P7-3 (`obor serve install`, launchd) and P7-4 (delete `herd.version`) in parallel, then P7-2
+  `obor init` (`docs/plan/phase-7.md`). (3) Rename gaps in Open (setup role env, serve's stale labels, setup rename
+  relabel): small fixes or accept, before the next adopter.
+- Difficulty rule (`docs/agents/lead.md`): wide or risky-to-deploy is medium, not hard.
 
 ## Owner decisions pending
+- LICENSE for the public repo (10-30).
 - S5a: when a herdr restart is OK (resume spike).
 
 ## Later candidates
