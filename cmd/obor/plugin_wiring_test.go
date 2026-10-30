@@ -102,9 +102,10 @@ func TestPluginManifests(t *testing.T) {
 	if plugin.Name != "obor" || plugin.Version != "0.1.0" {
 		t.Errorf("plugin.json: name %q version %q; want obor 0.1.0", plugin.Name, plugin.Version)
 	}
-	if market.Name != "obor-kit" || len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" ||
+	// T-592: main is the dev checkout, so its marketplace is obor-kit-dev; a release tag renames it to obor-kit.
+	if market.Name != "obor-kit-dev" || len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" ||
 		market.Plugins[0].Source != "./" {
-		t.Errorf("marketplace.json: %+v; want obor-kit listing obor with source ./", market)
+		t.Errorf("marketplace.json: %+v; want obor-kit-dev listing obor with source ./", market)
 	}
 }
 

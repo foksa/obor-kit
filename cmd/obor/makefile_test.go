@@ -252,6 +252,9 @@ func TestMakeReleaseVersionMismatch(t *testing.T) {
 
 var publishPlatforms = []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"}
 
+// releaseMarketplace is the marketplace name a release tag ships (T-592; main says obor-kit-dev).
+const releaseMarketplace = `{"name":"obor-kit","owner":{"name":"x"},"plugins":[{"name":"obor","source":"./"}]}`
+
 // publishFixture is a repo shaped like a finished release of 1.2.3: the four dist files, bin/checksums.txt listing them,
 // VERSION and plugin.json at 1.2.3, all committed and tagged v1.2.3; a logging gh stub is first on PATH.
 type publishFixture struct {
@@ -267,6 +270,7 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	writeExec(t, filepath.Join(dir, "scripts", "publish"), string(treeFile(t, "scripts/publish")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
+	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
 	var catalog string
 	for _, pl := range publishPlatforms {
 		writeFile(t, filepath.Join(dir, "dist", "obor-1.2.3-"+pl), "binary "+pl)
@@ -416,6 +420,17 @@ func TestMakePublish(t *testing.T) {
 		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
 		out, failed, gh := f.publish(t)
 		wantPublishFail(t, out, failed, gh, "plugin.json")
+	})
+	t.Run("the tag's marketplace name differs", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		// main's name: the dev checkout's marketplace, which a release tag must rename before publishing.
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), `{"name":"obor-kit-dev","plugins":[{"name":"obor","source":"./"}]}`+"\n")
+		f.commitAll(t)
+		f.Git(f.Root, "tag", "-f", "v1.2.3")
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
+		out, failed, gh := f.publish(t)
+		wantPublishFail(t, out, failed, gh, "marketplace.json")
 	})
 	t.Run("the tag's VERSION differs", func(t *testing.T) {
 		t.Parallel()

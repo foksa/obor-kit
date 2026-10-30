@@ -953,15 +953,15 @@ func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 // bash setup.test.sh case_warns_when_herd_plugin_not_enabled, case_pane_warns_when_herd_plugin_not_enabled
 func TestWarnsWhenHerdPluginNotEnabled(t *testing.T) {
 	t.Parallel()
-	const warn = "WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit-stable --scope project (or obor@obor-kit for obor-kit itself)"
+	const warn = "WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit --scope project (or obor@obor-kit-dev for obor-kit itself)"
 	x := bare(t)
 	out := x.ok(t, "init", "--prefix", "pj")
 	if count(out, warn) != 1 || !strings.HasPrefix(last(out), "OK init ") {
 		t.Errorf("init, no settings → WARN once, goes on:\n%s", out)
 	}
-	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-stable":false,"other@x":true}}`)
+	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-dev":false,"other@x":true}}`)
 	has(t, x.ok(t, "init"), warn, "obor@ disabled → WARN")
-	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-stable":true}}`)
+	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-dev":true}}`)
 	hasNot(t, x.ok(t, "init"), "WARN", "obor@ enabled → no WARN")
 
 	y := newFx(t)

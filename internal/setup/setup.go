@@ -189,8 +189,8 @@ func (s *Setup) warnPlugin() {
 			}
 		}
 	}
-	s.say("WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit-stable --scope project " +
-		"(or obor@obor-kit for obor-kit itself)")
+	s.say("WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit --scope project " +
+		"(or obor@obor-kit-dev for obor-kit itself)")
 }
 
 // ensureWorktree makes dir a detached worktree at the root's current branch, unless it already is one of this repo.
