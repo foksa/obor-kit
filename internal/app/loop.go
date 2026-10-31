@@ -167,6 +167,8 @@ type mtask struct {
 	fixed             bool           // stWorking: the fix job of this attempt is out
 	answer            bool           // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
 	decision          string         // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
+	openDecision      string         // the lead's decision on this task's open questions, kept across attempts (T-611)
+	openAt            int            // the attempt whose open questions openDecision answers
 	heldQuestions     bool           // this attempt's review job was held for the lead's open questions (T-604)
 	fixes             int            // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	report            string         // the last submission's report (task_done's)
