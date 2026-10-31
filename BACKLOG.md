@@ -12,7 +12,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   in flight; all lanes free. Config since 10-31: simple = deepseek, sonnet; slots max 1, cpus 4. Lead rule: never
   end a turn with work in flight unless the next task is `--after`-queued or the wave is under `obor watch`.
   Next: owner picks the next milestone; candidates: `obor plugin restore` resumes a Codex worker (check first),
-  LICENSE (owner), S5a.
+  S5a.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
   free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
@@ -25,7 +25,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   published, author email is the noreply. After the re-root, old `task/*` lane branches looked `done` (not reachable
   from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, then
   `./bin/obor serve restart` (serve runs under launchd since 10-31, `obor.serve.obor-kit`; log `.obor/state/logs/serve.log`).
-- **Owner decisions pending:** LICENSE (none yet: MIT, Apache-2.0 or none); S5a (when a herdr restart is OK).
+- **Owner decisions pending:** S5a (when a herdr restart is OK).
 - **Next (owner 10-31: start from the architectural review**, `~/Work/obor-kit-wt/review/docs/reviews/architectural-review.md`): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
   `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in
   parallel with P7-3 (`obor serve install`); (3) #4 split `proj` in three hard, sequential, reviewed steps:
@@ -35,7 +35,6 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - Difficulty rule (`docs/agents/lead.md`): wide or risky-to-deploy is medium, not hard.
 
 ## Owner decisions pending
-- LICENSE for the public repo (10-30).
 - S5a: when a herdr restart is OK (resume spike).
 
 ## Later candidates

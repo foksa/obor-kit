@@ -99,3 +99,7 @@ files, kept in the open.
 ## Releasing
 
 See [`RELEASING.md`](RELEASING.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE).

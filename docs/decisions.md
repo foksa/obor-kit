@@ -4,6 +4,7 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-10-31 (owner): LICENSE is MIT.
 - (owner 2026-10-31, architectural review Part 3) **Token cuts:** the integrator starts fresh per job, still Opus,
   and its review job carries the diff when it is ≤ 15 KB (T-602); workers get their role text inside the job and do not
   repeat the report after `task_done` (T-603); a report with open questions goes to the lead before the integrator's
