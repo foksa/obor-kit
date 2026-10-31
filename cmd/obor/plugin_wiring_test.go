@@ -99,14 +99,13 @@ func TestPluginManifests(t *testing.T) {
 	readJSON(t, filepath.Join(root, ".claude-plugin/plugin.json"), &plugin)
 	readJSON(t, filepath.Join(root, ".claude-plugin/marketplace.json"), &market)
 	readJSON(t, filepath.Join(root, "hooks/hooks.json"), &hooksFile{})
-	// The plugin's version keys Claude's cache dir, so it is the release's: make release refuses a mismatch with VERSION.
-	// Read from VERSION (never a literal here, which reds the suite at every release bump: T-628).
-	ver, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	// RELEASING.md step 1: the plugin version (it keys Claude's cache dir) equals VERSION.
+	want, err := os.ReadFile(filepath.Join(root, "VERSION"))
 	if err != nil {
-		t.Fatalf("VERSION: %v", err)
+		t.Fatal(err)
 	}
-	if want := strings.TrimSpace(string(ver)); plugin.Name != "obor" || plugin.Version != want {
-		t.Errorf("plugin.json: name %q version %q; want obor %q (VERSION)", plugin.Name, plugin.Version, want)
+	if v := strings.TrimSpace(string(want)); v == "" || plugin.Name != "obor" || plugin.Version != v {
+		t.Errorf("plugin.json: name %q version %q; want obor and VERSION %q", plugin.Name, plugin.Version, v)
 	}
 	// T-592: main is the dev checkout, so its marketplace is obor-kit-dev; a release tag renames it to obor-kit.
 	if market.Name != "obor-kit-dev" || len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" ||
