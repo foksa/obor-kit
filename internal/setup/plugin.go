@@ -155,10 +155,16 @@ func (s *Setup) resumeHint() {
 		}
 		f.Close()
 	}
-	if value != "false" {
-		s.say("hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false under [session] in " +
-			path + " (user-global: affects every herdr pane, not only obor's; those come back as shells)")
+	if value == "false" {
+		return
 	}
+	line := "hint: obor restarts its panes after a herdr restart: set resume_agents_on_restore = false under [session] in " +
+		path + " (user-global: affects every herdr pane, not only obor's; those come back as shells)"
+	if s.hints != nil {
+		*s.hints = append(*s.hints, line)
+		return
+	}
+	s.say("%s", line)
 }
 
 // agentsCmd is `obor setup agents [--remove]` (alias opencode-plugin; user-global, once per user): for every kind,

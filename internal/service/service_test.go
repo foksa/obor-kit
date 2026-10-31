@@ -237,3 +237,35 @@ func TestElsewhere(t *testing.T) {
 		t.Errorf("plist written on linux: %v", err)
 	}
 }
+
+// Current: only after an install of this very plist that launchd has loaded; a changed plist (another PATH), an
+// unloaded label and off darwin are not current.
+func TestCurrent(t *testing.T) {
+	_, state := fakeLaunchctl(t)
+	s := darwin(t)
+	ctx := context.Background()
+	if s.Current(ctx) {
+		t.Fatal("current before an install")
+	}
+	if _, err := s.Install(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Current(ctx) {
+		t.Error("not current after the install")
+	}
+	moved := s
+	moved.Path = "/opt/bin:/usr/bin"
+	if moved.Current(ctx) {
+		t.Error("current with another PATH than the plist's")
+	}
+	if err := os.Remove(state); err != nil {
+		t.Fatal(err)
+	}
+	if s.Current(ctx) {
+		t.Error("current while launchd has it unloaded")
+	}
+	s.GOOS = "linux"
+	if s.Current(ctx) {
+		t.Error("current off darwin")
+	}
+}

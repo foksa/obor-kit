@@ -13,10 +13,28 @@ import (
 )
 
 func (s *Setup) initCmd(ctx context.Context, args []string) error {
-	name, prefix := "", ""
+	name, prefix, err := initArgs(args)
+	if err != nil {
+		return err
+	}
+	if err := s.findRoot(); err != nil {
+		return err
+	}
+	if err := s.initProject(name, prefix); err != nil {
+		return err
+	}
+	_ = s.events(ctx, false)
+	s.warnPlugin()
+	s.say("OK init %s (prefix %s); nothing committed: review, then commit .obor/config.json, .gitignore, "+
+		"BACKLOG.md, docs/decisions.md, %s/", s.cfg.Data.Name, s.cfg.Data.Prefix, s.agentsDir())
+	return nil
+}
+
+// initArgs parses [--name N] [--prefix P].
+func initArgs(args []string) (name, prefix string, err error) {
 	for len(args) > 0 {
 		if len(args) < 2 || args[1] == "" {
-			return errUsage
+			return "", "", errUsage
 		}
 		switch args[0] {
 		case "--name":
@@ -24,13 +42,24 @@ func (s *Setup) initCmd(ctx context.Context, args []string) error {
 		case "--prefix":
 			prefix = args[1]
 		default:
-			return errUsage
+			return "", "", errUsage
 		}
 		args = args[2:]
 	}
-	if err := s.findRoot(); err != nil {
-		return err
+	return name, prefix, nil
+}
+
+// agentsDir is paths.agents (default docs/agents).
+func (s *Setup) agentsDir() string {
+	if a := s.cfg.Paths().Get("agents"); a != "" {
+		return a
 	}
+	return "docs/agents"
+}
+
+// initProject writes what init writes (config, .gitignore lines, the docs; each only when missing) and loads the
+// config. name "": the root's base; prefix "": defaultPrefix of the name.
+func (s *Setup) initProject(name, prefix string) error {
 	if name == "" {
 		name = filepath.Base(s.root)
 	}
@@ -49,11 +78,7 @@ func (s *Setup) initCmd(ctx context.Context, args []string) error {
 	if err := s.gitignore(); err != nil {
 		return err
 	}
-	paths := s.cfg.Paths()
-	agents := paths.Get("agents")
-	if agents == "" {
-		agents = "docs/agents"
-	}
+	agents := s.agentsDir()
 	tpl := filepath.Join(s.Kit, "templates")
 	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
 		{"task-spec.md", agents + "/task-spec.md"}, {"agents/roster.md", agents + "/roster.md"}} {
@@ -70,10 +95,6 @@ func (s *Setup) initCmd(ctx context.Context, args []string) error {
 			}
 		}
 	}
-	_ = s.events(ctx, false)
-	s.warnPlugin()
-	s.say("OK init %s (prefix %s); nothing committed: review, then commit .obor/config.json, .gitignore, "+
-		"BACKLOG.md, docs/decisions.md, %s/", s.cfg.Data.Name, s.cfg.Data.Prefix, agents)
 	return nil
 }
 
@@ -122,6 +143,7 @@ func (s *Setup) writeConfig(name, prefix string) error {
 	if err := writeJSON(path, example); err != nil {
 		return project.Failf("cannot write %s", path)
 	}
+	s.wrote = true
 	s.say("created .obor/config.json (name %s, prefix %s, no lanes)", name, prefix)
 	return nil
 }
@@ -154,6 +176,7 @@ func (s *Setup) gitignore() error {
 	if err := os.WriteFile(path, text, 0o644); err != nil {
 		return project.Failf("cannot write %s", path)
 	}
+	s.wrote = true
 	for _, l := range add {
 		s.say(".gitignore += %s", l)
 	}
@@ -187,6 +210,7 @@ func (s *Setup) copyTemplate(src, rel string, stub bool) error {
 	if err := os.WriteFile(dest, []byte(strings.TrimRight(text, "\n")+"\n"), 0o644); err != nil {
 		return project.Failf("cannot write %s", dest)
 	}
+	s.wrote = true
 	s.say("created %s", rel)
 	return nil
 }

@@ -123,6 +123,8 @@ func main() {
 		exit(pluginCmd(args))
 	case "setup":
 		exit(setupCmd(args))
+	case "init":
+		exit(initCmd(args))
 	case "migrate":
 		exit(migrateCmd(args))
 	case "serve":
@@ -167,6 +169,7 @@ func load() (*project.Repo, *config.Config, int) {
 var commands = map[string][]string{
 	"whoami":          nil,
 	"migrate":         nil,
+	"init":            nil,
 	"status":          nil,
 	"config":          {"get", "validate"},
 	"hook":            {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},

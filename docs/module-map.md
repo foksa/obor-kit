@@ -84,7 +84,9 @@ Adding a kind = one package + a config entry.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it starts
-  agents through an `app.Starter` that `cmd/obor` injects); `obor migrate` (herd → obor, `migrate.go`, until v0.17).
+  agents through an `app.Starter` that `cmd/obor` injects); `obor migrate` (herd → obor, `migrate.go`, until v0.17);
+  `obor init` (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which
+  `cmd/obor` wires to `service`).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print

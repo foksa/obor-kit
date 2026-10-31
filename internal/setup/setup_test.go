@@ -43,6 +43,8 @@ type fx struct {
 	rollout  time.Duration // a fresh Codex start's rollout search (0: 20 ms)
 	// open is the files processes hold open (launch.Launcher.Open; nil: none)
 	open func(pids []int) []string
+	// serve is Setup.Serve (obor init's serve install; nil: none)
+	serve func(context.Context, *config.Config) (string, string, error)
 }
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, lane types opus: claude --model opus, luna:
@@ -102,7 +104,7 @@ func (x *fx) run(t *testing.T, args ...string) (string, int) {
 	s := &Setup{Kit: k, Dir: x.Root, Env: env, H: h, Out: &out, McpCheck: check,
 		Starter: func(cfg *config.Config) app.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
-		}}
+		}, Serve: x.serve}
 	rc := s.Run(context.Background(), args)
 	return out.String(), rc
 }

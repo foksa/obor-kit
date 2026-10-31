@@ -171,8 +171,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err != nil {
 		return project.Failf("herdr agent list failed (is herdr running?)")
 	}
+	s.placed, s.running = "", false
 	for _, r := range running {
 		if r.Name == a.name || (a.lane != "" && r.Cwd == a.cwd) {
+			s.placed, s.running = r.Pane, true
 			s.say("skip agent start: %s already running (pane %s)", r.Name, r.Pane)
 			s.say("OK %s: %s already running", what, r.Name)
 			return nil
@@ -251,6 +253,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
+	s.placed = pane
 	args := lt.LaunchArgs(a.role.Name == "lead")
 	l := s.Starter(s.cfg)
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
