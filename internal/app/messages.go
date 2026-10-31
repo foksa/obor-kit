@@ -141,13 +141,14 @@ type queued struct {
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
 // pane worked since (its line delivered; since its stop, when it had one), whether that work is in the log (fact
-// worked), its agent's stop on a usage limit in force (nil: none; T-569), and whether a turn that ended that stop is
-// followed (its start seen, its end not yet: T-571, stopped.go turnDecide).
+// worked; logging: being recorded), its agent's stop on a usage limit in force (nil: none; T-569), and whether a turn
+// that ended that stop is followed (its start seen, its end not yet: T-571, stopped.go turnDecide).
 type brief struct {
 	seq      int64
 	at       time.Time
 	worked   bool
 	logged   bool
+	logging  bool // logWorked records its fact worked now (its claim, not folded)
 	stop     *roleStop
 	followed bool
 }
@@ -304,18 +305,28 @@ type Poster interface {
 }
 
 // logWorked records fact worked for each open brief of p whose work was seen and is not in the log yet (not under mu).
+// Each brief is claimed under mu (logging) while its fact is recorded: two passes at once (the merge loop's and the
+// watchdog's) never both record it; a refused record leaves it for the next pass (logged is the fact's fold's).
 func (a *App) logWorked(p *proj) {
+	type claim struct {
+		w workedData
+		b *brief
+	}
 	a.mu.Lock()
-	var worked []workedData
+	var worked []claim
 	for agent, b := range p.out.briefs {
-		if b.worked && !b.logged {
-			worked = append(worked, workedData{To: agent, Brief: b.seq})
+		if b.worked && !b.logged && !b.logging {
+			b.logging = true
+			worked = append(worked, claim{workedData{To: agent, Brief: b.seq}, b})
 		}
 	}
 	a.mu.Unlock()
-	sort.Slice(worked, func(i, j int) bool { return worked[i].To < worked[j].To })
-	for _, w := range worked {
-		a.record(p, Record{Task: MsgTask, Step: StepWorked, Kind: KindFact}, w)
+	sort.Slice(worked, func(i, j int) bool { return worked[i].w.To < worked[j].w.To })
+	for _, c := range worked {
+		a.record(p, Record{Task: MsgTask, Step: StepWorked, Kind: KindFact}, c.w)
+		a.mu.Lock()
+		c.b.logging = false
+		a.mu.Unlock()
 	}
 }
 
