@@ -82,6 +82,11 @@ func TestLeadSendback(t *testing.T) {
 			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Lane: "O-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
 		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
+		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
+			r.add("pq", "T-6", StepWaiting, KindFact, dispatchData{After: []string{"T-7"}})
+			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeAfter,
+				Reason: "after: T-6 waits for T-7, which is dropped"})
+		}, stNeedsYou, "", "sendback: T-6 has no lane yet: obor resume or obor drop it", 1},
 		{"accepted", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)

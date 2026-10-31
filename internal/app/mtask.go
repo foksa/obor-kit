@@ -310,11 +310,15 @@ func gateState(kind string) string {
 }
 
 // unsendable is why the lead cannot send mt back now ("": it can): a green candidate, an open job
-// (awaiting-accept, resolving) or a needs-you of any merge-loop cause (T-619) goes back to the worker. A state the loop
-// leaves by itself settles first.
+// (awaiting-accept, resolving) or a needs-you of any merge-loop cause (T-619). A state the loop leaves by itself
+// settles first; a needs-you whose task has no lane yet (a waiting one), or whose lane names no worker agent, has no
+// worker to send it to: resume or drop it.
 func (mt *mtask) unsendable() string {
 	switch states[mt.state].send {
 	case sendYes:
+		if mt.state == stNeedsYou && (mt.lane == "" || mt.agent == "") {
+			return fmt.Sprintf("%s has no lane yet: obor resume or obor drop it", mt.task)
+		}
 		return ""
 	case sendSettles:
 		return fmt.Sprintf("%s is %s; retry when it settles", mt.task, mt.state)
