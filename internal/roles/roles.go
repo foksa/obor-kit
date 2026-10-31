@@ -2,6 +2,7 @@
 package roles
 
 import (
+	"obor/internal/agents"
 	"regexp"
 	"strings"
 )
@@ -32,11 +33,12 @@ type Role struct {
 	Write        WriteProfile
 	Stoppable    bool
 	Dispatchable bool
-	Optional     bool // counts (known agents, collisions) only when roles.<name> is configured
+	Prompt       string // the first prompt of a fresh start of a Claude agent in this role ("": none)
+	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
 }
 
 var table = []Role{
-	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll},
+	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
 	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdProject, Write: WriteNone},
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
 	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Worktree: "review", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly},
@@ -107,4 +109,13 @@ func LaneAgentAliases(lane, prefix, stateAgent, configuredAgent string) []string
 		}
 	}
 	return unique
+}
+
+// StartPrompt is the first prompt of a fresh start of kind in this role: only a kind that takes a plugin's slash
+// command as its first prompt (agents.Caps.Skills) gets the role's Prompt; another kind starts without one.
+func (r Role) StartPrompt(kind string) string {
+	if !agents.Skills(kind) {
+		return ""
+	}
+	return r.Prompt
 }

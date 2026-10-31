@@ -164,6 +164,7 @@ type Caps struct {
 	Hooks      HookTransport
 	Inbox      bool // Deliver posts over the session's inbox socket
 	Resume     bool // Start honours Resume
+	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
 	Transcript bool // Transcript finds the session file
 	Turns      bool // LastTurn reads the session's turns from its transcript (T-563)
 	Sessions   bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
@@ -207,6 +208,13 @@ func ByProgram(program string) (Kind, bool) {
 		}
 	}
 	return nil, false
+}
+
+// Skills: the kind named name takes a plugin's slash command as its first prompt (its Caps.Skills); an unknown kind
+// does not.
+func Skills(name string) bool {
+	k, ok := kinds[name]
+	return ok && k.Caps().Skills
 }
 
 // Resumes: the kind named name resumes a session (its Caps.Resume), as OpenCode's does not (T-581); an unknown kind

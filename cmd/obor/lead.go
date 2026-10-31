@@ -11,6 +11,7 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/roles"
 	"obor/internal/setup"
 )
 
@@ -80,7 +81,13 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		r.tune(l)
 	}
 	if pane, err := l.PaneOf(ctx, agent, ""); err == nil {
-		line, err := l.Restart(ctx, launch.Request{Agent: agent, Pane: pane, Fresh: fresh})
+		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
+		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // T-594: a fresh Claude lead loads its skill itself
+			lt, _ := cfg.LaneType(rc.Type)
+			lead, _ := roles.Lookup("lead")
+			req.Prompt = lead.StartPrompt(lt.Kind)
+		}
+		line, err := l.Restart(ctx, req)
 		if err == nil && strings.HasPrefix(line, "SCHEDULED ") {
 			line = fmt.Sprintf("STARTING %s in this pane (%s) once obor lead exits", agent, pane)
 		}
