@@ -366,10 +366,10 @@ stages 0+1 against). The lead promotes stable only to a commit whose code change
   re-execs the main checkout's `bin/obor`, so a lane never runs its own stale build; `OBOR_NO_SELF_HOST=1 ./bin/obor`
   runs a lane's own; kit-owned callers (hooks, mods) pin `OBOR_NO_SELF_HOST=1`.
 - **Binary:** the kit's dev build `dist/obor` when present (run as is: a stale one says `unknown subcommand`, `make
-  build` fixes it), else `~/.obor/bin/obor-<version>-<os>-<arch>`, version = the project's `obor.version` pin, else the
-  kit's `VERSION`; missing → fetched from `bin/release-url` with curl and checked against `bin/checksums.txt` (`make
-  release` keeps that catalog cumulative). It exports `OBOR_PLUGIN_ROOT` and `OBOR_VERSION_SOURCE` (dev build / pinned
-  / kit default) and execs `<binary> <subcommand> …` for the subcommands in `bin/go-commands`; others → usage, exit 2.
+  build` fixes it), else `~/.obor/bin/obor-<version>-<os>-<arch>`, version = the kit's `VERSION` (no
+  per-project pin since T-597); missing → fetched from `bin/release-url` with curl and checked against `bin/checksums.txt` (`make
+  release` keeps that catalog cumulative). It exports `OBOR_PLUGIN_ROOT` and `OBOR_VERSION_SOURCE` (dev build /
+  kit default) and execs `<binary> <subcommand> …` for the subcommands in `bin/go-commands`; others → usage, exit 2.
 - Hooks: the `has` check and the no-binary rule ("Hooks").
 
 ## herdr integration (2026-10-09 — user direction)
