@@ -32,9 +32,8 @@ type sendRule int
 
 const (
 	sendNo      sendRule = iota // never: "<T> is <state>"
-	sendYes                     // a green candidate or an open job
+	sendYes                     // a green candidate, an open job or a needs-you (any merge-loop cause, T-619)
 	sendSettles                 // a state the loop leaves by itself: "retry when it settles"
-	sendByCause                 // a needs-you: after a red gate or a hold only
 )
 
 // resumeRule is what obor resume may do with a needs-you that left a state (App.resume).
@@ -109,8 +108,9 @@ func init() {
 				}
 				return resumeRule{}
 			}},
-		// row 40: the owner decides; the state it left is kept (mtask.kept)
-		stNeedsYou: {send: sendByCause, landed: true},
+		// row 40: the owner decides; the state it left is kept (mtask.kept). The lead may send it back too, whatever its
+		// cause (T-619)
+		stNeedsYou: {send: sendYes, landed: true},
 	}
 }
 

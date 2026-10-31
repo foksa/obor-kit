@@ -167,8 +167,8 @@ func answerPath(r Record, mt mtask) string {
 		return "its pane, or " + drop
 	}
 	var cmds []string
-	if mt.unsendable() == "" {
-		cmds = append(cmds, `obor sendback `+cmp.Or(d.Lane, "<LANE>")+` "<why>"`)
+	if mt.unsendable() == "" && d.Lane != "" { // obor sendback takes a lane: a waiting task's needs-you has none
+		cmds = append(cmds, `obor sendback `+d.Lane+` "<why>"`)
 	}
 	resume := "obor resume " + r.Task
 	if _, err := mt.resumeTo(r.Task, ""); err == nil && (d.Cause == causeHeld || d.Cause == causeOpen) { // the decision goes to the integrator's next job (T-511)

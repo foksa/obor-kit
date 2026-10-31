@@ -73,31 +73,33 @@ func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
 
 // RV-54 #2 (T-515): each cause's suggested commands are the ones its verdicts take in the state the needs-you leaves
 // (resumeTo, unsendable, droppable): explicit modes where there is no default (sendbacks, resolve rejected, fix job
-// not sent), no drop for a merged task (after-merge failures), none but drop for a reject. Each command, run on a
-// fresh seed through obor resume's parser, is accepted.
+// not sent), no drop for a merged task (after-merge failures), none but drop for a reject; a merge-loop needs-you of a
+// task with a lane takes the lead's sendback (T-619). Each command, run on a fresh seed through obor resume's parser,
+// is accepted.
 func TestAnswerPathEveryCause(t *testing.T) {
 	const drop, resume = ` | obor drop O-01 "<why>"`, "obor resume T-1"
+	const sb = `obor sendback O-01 "<why>" | ` // a merge-loop needs-you's advice starts with it (T-619)
 	for _, row := range []struct {
 		cause, state, job string
 		watch             bool
 		want              string
 	}{
-		{causeHeld, stAwaiting, StepReview, false, `obor sendback O-01 "<why>" | obor resume T-1 ["<decision>"]` + drop},
-		{causeOpen, stGreen, "", false, `obor sendback O-01 "<why>" | obor resume T-1 ["<decision>"]` + drop},
-		{causeRed, stRed, "", false, `obor sendback O-01 "<why>" | ` + resume + drop},
-		{causeUndelivered, stAwaiting, StepReview, false, resume + drop},
-		{causeStalled, stAwaiting, StepReview, false, resume + drop},
-		{causeGate, stFail, "", false, resume + drop},
-		{causePublish, stFail, "", false, resume + drop},
-		{causeSendbacks, stFail, StepReview, false, resume + " regate | " + resume + " reprompt" + drop},
-		{causeResolveRejected, stFail, StepResolve, false, resume + " regate | " + resume + " reprompt" + drop},
-		{causeFix, stWorking, "", false, resume + " regate" + drop},
-		{causeLane, stDispatched, "", false, resume + drop},
-		{causeStart, stDispatched, "", false, resume + drop},
-		{causeNoPane, stDispatched, "", false, resume + drop},
-		{causeAfter, stWaiting, "", false, resume + ` | obor drop T-1 "<why>"`},
-		{"submit" + failedSuffix, stSubmitted, "", false, resume + drop},
-		{"review" + failedSuffix, stAwaiting, StepReview, false, resume + drop},
+		{causeHeld, stAwaiting, StepReview, false, sb + `obor resume T-1 ["<decision>"]` + drop},
+		{causeOpen, stGreen, "", false, sb + `obor resume T-1 ["<decision>"]` + drop},
+		{causeRed, stRed, "", false, sb + resume + drop},
+		{causeUndelivered, stAwaiting, StepReview, false, sb + resume + drop},
+		{causeStalled, stAwaiting, StepReview, false, sb + resume + drop},
+		{causeGate, stFail, "", false, sb + resume + drop},
+		{causePublish, stFail, "", false, sb + resume + drop},
+		{causeSendbacks, stFail, StepReview, false, sb + resume + " regate | " + resume + " reprompt" + drop},
+		{causeResolveRejected, stFail, StepResolve, false, sb + resume + " regate | " + resume + " reprompt" + drop},
+		{causeFix, stWorking, "", false, sb + resume + " regate" + drop},
+		{causeLane, stDispatched, "", false, sb + resume + drop},
+		{causeStart, stDispatched, "", false, sb + resume + drop},
+		{causeNoPane, stDispatched, "", false, sb + resume + drop},
+		{causeAfter, stWaiting, "", false, resume + ` | obor drop T-1 "<why>"`}, // no lane: no obor sendback
+		{"submit" + failedSuffix, stSubmitted, "", false, sb + resume + drop},
+		{"review" + failedSuffix, stAwaiting, StepReview, false, sb + resume + drop},
 		{StepAfterMerge + failedSuffix, stMerged, "", false, resume},
 		{StepStop + failedSuffix, stMerged, "", false, resume},
 		{causeRejected, stRejected, "", false, `obor drop O-01 "<why>"`},

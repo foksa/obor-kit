@@ -232,9 +232,14 @@ func TestStateWorkingRow24(t *testing.T) {
 
 func TestStateNeedsYouRow40(t *testing.T) {
 	// the state it left is kept: a resolve job held stays open, in the scratch
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, job: "resolve", needs: needsOf(causeHeld)},
-		waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true, cause: causeHeld})
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane")}, waits: true,
-		name: "a step (needs-you)", send: "T-1 is needs-you (lane: why): obor resume or obor drop it", landed: true,
+	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, job: "resolve", needs: needsOf(causeHeld),
+		lane: "O-01", agent: "o-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,
+		cause: causeHeld})
+	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "O-01",
+		agent: "o-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+	// T-619: a needs-you whose task has no lane (a waiting one) has no worker to send it to: resume or drop it
+	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
+		name: "a step (needs-you)", send: "T-1 has no lane yet: obor resume or obor drop it", landed: true,
+		cause: causeAfter, resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
 }
