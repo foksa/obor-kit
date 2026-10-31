@@ -9,8 +9,9 @@ package launch
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
-// (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A worker with no recorded
-// session (serve's store, T-583) restarts --fresh (RV-18 #3). Log: ~/.obor/restore.log (last 200).
+// (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A pane with no recorded
+// session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
+// fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log (last 200).
 
 import (
 	"bufio"
@@ -115,18 +116,22 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane app.
 		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
 		return
 	}
-	// A worker with no session it can resume starts fresh (RV-18 #3, T-583): none in serve's store, or a kind that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway.
-	// Others without one fail in obor restart (a lead keeps its context).
+	// A pane with no session it can resume starts fresh (RV-18 #3, T-583, T-627): none in serve's store, or a kind
+	// that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway; a role pane started fresh
+	// with no prompt has no transcript either (Claude writes none before its first message), so no restart could
+	// resume it.
 	req := Request{Agent: agent, Pane: pane.ID}
 	note := ""
-	if info.Role == "worker" {
-		s, _ := store.CurrentAt(cfg.Root, agent)
-		switch kind := agentKind(cfg, info); {
-		case !agents.Resumes(kind):
-			req.Fresh, note = true, " (worker, kind "+kind+" resumes nothing: --fresh)"
-		case s.ID == "":
-			req.Fresh, note = true, " (worker, no recorded session: --fresh)"
-		}
+	role := info.Role
+	if role == "" {
+		role = "agent"
+	}
+	s, _ := store.CurrentAt(cfg.Root, agent)
+	switch kind := agentKind(cfg, info); {
+	case !agents.Resumes(kind):
+		req.Fresh, note = true, " ("+role+", kind "+kind+" resumes nothing: --fresh)"
+	case s.ID == "":
+		req.Fresh, note = true, " ("+role+", no recorded session: --fresh)"
 	}
 	fmt.Fprintf(w, "%s restore %s (pane %s) in %s%s\n", now, agent, pane.ID, cfg.Root, note)
 	rctx, cancel := context.WithTimeout(ctx, limit)

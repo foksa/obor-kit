@@ -12,7 +12,8 @@
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
 //	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
 //	Session  the recorded sid, else the one herdr reports for the pane; --sid <id>; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
-//	         recorded Claude sid must have its transcript under the start cwd.
+//	         recorded Claude sid must have its transcript under the start cwd; none anywhere (never prompted, T-627):
+//	         starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
@@ -31,6 +32,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -433,13 +435,18 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 		if req.Fresh {
 			sid = ""
 		}
-		if sid == "" && !req.Fresh {
-			return app.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
-		}
+		fresh := false
 		if sid != "" && src == "record" {
-			if err := l.checkTranscript(t, sid); err != nil {
+			var err error
+			if fresh, err = l.checkTranscript(t, sid); err != nil {
 				return app.Started{}, err
 			}
+			if fresh {
+				sid = ""
+			}
+		}
+		if sid == "" && !req.Fresh && !fresh {
+			return app.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
 		}
 	}
 	// The caller's own pane (T-264): schedule a detached run; that run waited for the agent to go idle (waitScheduled).
@@ -486,8 +493,10 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 }
 
 // checkTranscript: a recorded sid must be from the start cwd (T-137: another project's run may have left it), for a
-// kind whose transcripts record their cwd (agents.Kind.Transcript: Claude's projects/<cwd as a slug>).
-func (l *Launcher) checkTranscript(t *target, sid string) error {
+// kind whose transcripts record their cwd (agents.Kind.Transcript: Claude's projects/<cwd as a slug>). A session with
+// no transcript anywhere was never prompted (Claude writes none before its first message, T-627): it is no session to
+// resume, so the restart starts fresh, said; fresh is true then.
+func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error) {
 	cwd := t.info.Cwd
 	if cwd == "" {
 		cwd = t.entry.Cwd
@@ -499,11 +508,17 @@ func (l *Launcher) checkTranscript(t *target, sid string) error {
 	case cwd == "":
 		l.say("warning: pane %s has no known cwd: recorded session %s not checked", t.pane, sid)
 	default:
-		if _, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid)); err != nil {
-			return project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
+		if _, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid)); err == nil {
+			return false, nil
 		}
+		// Under any cwd ("" asks for the kind's whole transcript dir): another project's, refuse as before.
+		if m, _ := filepath.Glob(k.Transcript(l.Env.Get, "", sid)); len(m) > 0 {
+			return false, project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
+		}
+		l.say("recorded session %s has no transcript (never prompted): starting fresh", sid)
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // AgentEnv is app.AgentEnv.

@@ -195,7 +195,7 @@ func (l *Launcher) done(ctx context.Context, s Start, a app.AgentInfo) (app.Agen
 	if k, ok := agents.Lookup(s.Kind); err != nil || s.Resume != "" || !ok || !k.Caps().Sessions {
 		return a, err
 	}
-	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane)
+	l.searchRollout(ctx, s.Agent, s.Pane, s.Kind, s.Lane, s.Prompt != "")
 	return a, nil
 }
 

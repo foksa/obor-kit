@@ -99,10 +99,12 @@ func TestRestoreLabelledOborPanes(t *testing.T) {
 	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root).Label = "pj-int"
 	recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-01", Kind: "claude", ID: "sid-o-01", Started: time.Now().Unix()})
 	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2")
+	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2 --fresh")
 	log := f.restoreLog()
 	has(t, log, " restore pj-o-01 (pane w1:p1) in "+f.p.Root+"\nstub restart ran: pj-o-01\nRESTARTED pj-o-01\n",
 		"the restore line, the restart's output and result")
+	has(t, log, " restore pj-lead (pane w1:p2) in "+f.p.Root+" (lead, no recorded session: --fresh)\n",
+		"a role with no recorded session starts fresh (T-627)")
 	has(t, log, " skip pj-int (pane w1:p6): runs claude", "busy pane: skipped, logged")
 	if n := strings.Count(log, " restore ") + strings.Count(log, " skip "); n != 3 {
 		t.Errorf("%d restore/skip lines, want 3 (unlabelled, non-obor and foreign-label panes: none):\n%s", n, log)
@@ -135,7 +137,7 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	}
 	f.srv.Clear("pane.list")
 	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4") // precondition: the obor pane restarts once herdr answers
+	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4 --fresh") // precondition: the obor pane restarts once herdr answers
 }
 
 // bash restore.test.sh case_backgrounded_and_failure_logged (the return at once is cmd/obor's detach)
@@ -149,7 +151,7 @@ func TestRestoreFailureLoggedNextPaneRestarts(t *testing.T) {
 	f.fail["pj-lead"] = true
 	f.pl.Restore(context.Background())
 	has(t, f.restoreLog(), "obor restart pj-lead: FAIL no session", "a failed restart is logged")
-	f.wantCalls(f.p.Root+" restart pj-lead --pane w1:p1", f.p.Root+" restart pj-o-01 --pane w1:p2 --fresh")
+	f.wantCalls(f.p.Root+" restart pj-lead --pane w1:p1 --fresh", f.p.Root+" restart pj-o-01 --pane w1:p2 --fresh")
 }
 
 // bash restore.test.sh case_worker_without_session_fresh
@@ -166,12 +168,14 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	recordSessions(t, f.p.Root, store.Session{Agent: "o-02", Kind: "claude", ID: "sid-o-02", Started: time.Now().Unix()})
 	f.pl.Restore(context.Background())
 	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1 --fresh", f.p.Root+" restart o-02 --pane w1:p2",
-		f.p.Root+" restart pj-lead --pane w1:p3")
+		f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
 	log := f.restoreLog()
 	has(t, log, " restore pj-o-01 (pane w1:p1) in "+f.p.Root+" (worker, no recorded session: --fresh)",
 		"the fresh start is logged")
-	if n := strings.Count(log, "no recorded session"); n != 1 {
-		t.Errorf("%d 'no recorded session' lines, want 1", n)
+	has(t, log, " restore pj-lead (pane w1:p3) in "+f.p.Root+" (lead, no recorded session: --fresh)",
+		"a role with no recorded session starts fresh too (T-627)")
+	if n := strings.Count(log, "no recorded session"); n != 2 {
+		t.Errorf("%d 'no recorded session' lines, want 2 (the worker and the lead)", n)
 	}
 }
 
@@ -225,7 +229,7 @@ func TestRestoreFreeLaneWorkerNotStarted(t *testing.T) {
 	f.shell("w1:p2", o2, "pj-o-02")
 	f.shell("w1:p3", f.p.Root, "pj-lead")
 	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-o-02 --pane w1:p2 --fresh", f.p.Root+" restart pj-lead --pane w1:p3")
+	f.wantCalls(f.p.Root+" restart pj-o-02 --pane w1:p2 --fresh", f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
 	has(t, f.restoreLog(), " skip pj-o-01 (pane w1:p1): lane O-01 is free (dispatch starts its worker)",
 		"the skip is logged")
 
@@ -233,7 +237,7 @@ func TestRestoreFreeLaneWorkerNotStarted(t *testing.T) {
 	f.calls = nil
 	f.pl.Restore(context.Background())
 	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-o-02 --pane w1:p2 --fresh",
-		f.p.Root+" restart pj-lead --pane w1:p3")
+		f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
 }
 
 // bash restore.test.sh case_role_panes_restored_not_skipped
@@ -246,9 +250,13 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f.shell("w1:p7", rev, "pj-rev")
 	f.shell("w1:p8", dd, "pj-deep-dive")
 	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-rev --pane w1:p7", f.p.Root+" restart pj-deep-dive --pane w1:p8")
+	f.wantCalls(f.p.Root+" restart pj-rev --pane w1:p7 --fresh", f.p.Root+" restart pj-deep-dive --pane w1:p8 --fresh")
 	log := f.restoreLog()
 	has(t, log, " skip pj-o-01 (pane w1:p1): lane O-01 is free", "the free lane skipped")
+	has(t, log, " restore pj-rev (pane w1:p7) in "+f.p.Root+" (reviewer, no recorded session: --fresh)",
+		"a role pane with no recorded session starts fresh (T-627)")
+	has(t, log, " restore pj-deep-dive (pane w1:p8) in "+f.p.Root+" (deep_dive, no recorded session: --fresh)",
+		"and so does the other role (§T-627)")
 	if strings.Contains(log, "skip pj-rev") || strings.Contains(log, "skip pj-deep-dive") {
 		t.Errorf("a role pane skipped:\n%s", log)
 	}
