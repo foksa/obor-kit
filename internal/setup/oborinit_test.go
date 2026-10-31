@@ -867,3 +867,37 @@ func TestDetectCommands(t *testing.T) {
 		}
 	}
 }
+
+// T-634: on a rerun O-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
+// tab for S-01, which goes to a new tab of the project's workspace; nothing is split.
+func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	x.init(t)
+	o, s := x.paneOf("proj-o-01"), x.paneOf("proj-s-01")
+	if o == "" || s == "" {
+		t.Fatalf("precondition: O-01 %q and S-01 %q placed", o, s)
+	}
+	otab, ows := x.h.Pane(o).Tab, x.h.Pane(o).Workspace
+	if x.h.Pane(s).Tab != otab || ows == "" {
+		t.Fatalf("precondition: S-01 beside O-01 in %s of a workspace (%q)", otab, ows)
+	}
+	x.h.Remove(s)
+	x.h.Tab(otab, 200, 50, ows+":zz") // a pane with an unknown cwd in O-01's tab
+	x.h.Pane(ows + ":zz").Workspace = ows
+	if x.h.Pane(ows+":zz").Cwd != "" || x.paneOf("proj-s-01") != "" {
+		t.Fatal("precondition: an unknown-cwd pane in O-01's tab, S-01 gone")
+	}
+	x.reset()
+	out := x.init(t)
+	calls := strings.Join(x.reqs(), "\n")
+	hasNot(t, calls, "pane.split", "the mixed tab is not split")
+	has(t, calls, "label=workers workspace_id="+ows, "a new tab in the project's workspace")
+	ns := x.paneOf("proj-s-01")
+	if ns == "" || x.h.Pane(ns).Tab == otab {
+		t.Errorf("S-01 in pane %q, want one in a new tab (not %s)", ns, otab)
+	}
+	if stateOf(out, "S-01") != "done" || stateOf(out, "O-01") != "already" {
+		t.Errorf("O-01 %q, S-01 %q; want already, done", summary(out, "O-01"), summary(out, "S-01"))
+	}
+}
