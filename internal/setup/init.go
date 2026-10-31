@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"obor/internal/config"
@@ -62,24 +65,37 @@ func (s *Setup) initProject(name, prefix string) error {
 	if err := s.gitignore(); err != nil {
 		return err
 	}
-	agents := s.agentsDir()
-	tpl := filepath.Join(s.Kit, "templates")
-	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
-		{"task-spec.md", agents + "/task-spec.md"}, {"agents/roster.md", agents + "/roster.md"}} {
-		if err := s.copyTemplate(filepath.Join(tpl, c[0]), c[1], false); err != nil {
+	for _, t := range s.initTemplates() {
+		if err := s.copyTemplate(t.src, t.rel, t.stub); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// initTemplate is one doc init copies: the kit's template src to rel under the root, stub as copyTemplate's.
+type initTemplate struct {
+	src, rel string
+	stub     bool
+}
+
+// initTemplates are the docs init copies: BACKLOG.md, docs/decisions.md and the agents dir's (README.md is the kit's
+// overview, read in place; roster.md is the project's own table, copied whole).
+func (s *Setup) initTemplates() []initTemplate {
+	agents := s.agentsDir()
+	tpl := filepath.Join(s.Kit, "templates")
+	var out []initTemplate
+	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
+		{"task-spec.md", agents + "/task-spec.md"}, {"agents/roster.md", agents + "/roster.md"}} {
+		out = append(out, initTemplate{filepath.Join(tpl, c[0]), c[1], false})
+	}
 	entries, _ := os.ReadDir(filepath.Join(tpl, "agents"))
 	for _, e := range entries {
-		// README.md is the kit's overview, read in place; roster.md (copied above) is the project's own table.
 		if n := e.Name(); strings.HasSuffix(n, ".md") && n != "README.md" && n != "roster.md" {
-			if err := s.copyTemplate(filepath.Join(tpl, "agents", n), agents+"/"+n, true); err != nil {
-				return err
-			}
+			out = append(out, initTemplate{filepath.Join(tpl, "agents", n), agents + "/" + n, true})
 		}
 	}
-	return nil
+	return out
 }
 
 // defaultPrefix is the name lower-cased, letters and digits only, no leading digits, at most 4 characters; else obor.
@@ -103,9 +119,27 @@ func (s *Setup) writeConfig(name, prefix string) error {
 		s.say("skip .obor/config.json (exists)")
 		return nil
 	}
+	doc, err := s.configJSON(name, prefix)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return project.Failf("cannot create %s", filepath.Dir(path))
+	}
+	if err := project.WriteAtomic(path, doc); err != nil {
+		return project.Failf("cannot write %s", path)
+	}
+	s.wrote = true
+	s.say("created .obor/config.json (name %s, prefix %s, no lanes)", name, prefix)
+	return nil
+}
+
+// configJSON is the .obor/config.json init writes: the kit's example with name, prefix, the lanes dir beside the root
+// and no lanes, commands, lane links or protected files.
+func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
-		return project.Failf("cannot read %s", filepath.Join(s.Kit, "templates", "config.example.json"))
+		return nil, project.Failf("cannot read %s", filepath.Join(s.Kit, "templates", "config.example.json"))
 	}
 	str := func(v string) json.RawMessage { b, _ := json.Marshal(v); return b }
 	for _, kv := range []struct {
@@ -118,18 +152,14 @@ func (s *Setup) writeConfig(name, prefix string) error {
 		{"lane_links", json.RawMessage(`[]`)}, {"protected_files", json.RawMessage(`[]`)},
 	} {
 		if example, err = config.EditJSON(example, []string{kv.key}, kv.val); err != nil {
-			return project.Failf("cannot read templates/config.example.json: %v", err)
+			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return project.Failf("cannot create %s", filepath.Dir(path))
+	doc, err := indentJSON(example)
+	if err != nil {
+		return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 	}
-	if err := writeJSON(path, example); err != nil {
-		return project.Failf("cannot write %s", path)
-	}
-	s.wrote = true
-	s.say("created .obor/config.json (name %s, prefix %s, no lanes)", name, prefix)
-	return nil
+	return doc, nil
 }
 
 // gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts, T-440). lane_links too:
@@ -141,10 +171,8 @@ func (s *Setup) gitignore() error {
 	for _, l := range strings.Split(string(text), "\n") {
 		have[l] = true
 	}
-	lines := append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run"},
-		s.cfg.Data.LaneLinks...)
 	var add []string
-	for _, l := range lines {
+	for _, l := range s.gitignoreLines() {
 		if l != "" && !have[l] {
 			have[l] = true
 			add = append(add, l)
@@ -167,13 +195,23 @@ func (s *Setup) gitignore() error {
 	return nil
 }
 
+// gitignoreLines are the lines init puts in .gitignore.
+func (s *Setup) gitignoreLines() []string {
+	return append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run"}, s.cfg.Data.LaneLinks...)
+}
+
+// initBranch is the branch gitInit makes: branches.main from a config in dir, else main.
+func (s *Setup) initBranch() string {
+	if cfg, err := config.Load(s.Dir); err == nil && cfg.Data.Branches.Main != "" {
+		return cfg.Data.Branches.Main
+	}
+	return "main"
+}
+
 // gitInit makes dir a repository when it is in none: branch is branches.main from a config already there, else main
 // (T-629).
 func (s *Setup) gitInit() error {
-	branch := "main"
-	if cfg, err := config.Load(s.Dir); err == nil && cfg.Data.Branches.Main != "" {
-		branch = cfg.Data.Branches.Main
-	}
+	branch := s.initBranch()
 	if _, err := project.Git(s.Dir, "init", "-q", "-b", branch); err != nil {
 		return project.Failf("git init -b %s in %s", branch, s.Dir)
 	}
@@ -181,41 +219,116 @@ func (s *Setup) gitInit() error {
 	return nil
 }
 
-// initCommit commits a repository with no commit yet: init's own files as "obor init", the commit the lanes branch from
-// (T-629). A repository with a commit is left as it is. Untracked files init did not write: FAIL, init never commits
-// the user's files. committed is what it committed, nil when it made no commit.
-func (s *Setup) initCommit() (committed []string, err error) {
-	if _, err := project.Git(s.root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
+// autoCommit reports whether this init makes the "obor init" commit (T-631): root's branch has no commit and root
+// holds nothing but .git, or only files init writes, each byte-equal to init's text (a rerun after an interrupted
+// init). No commit and anything else in root: FAIL, before init writes anything (init never commits or touches the
+// user's files). A repository with a commit: false. repo: root is a git repository (else a plain directory).
+func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
+	if repo {
+		if _, err := project.Git(root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
+			return false, nil
+		}
+	}
+	s.root = root
+	want, err := s.initFiles()
+	if err != nil {
+		return false, err
+	}
+	if !onlyFiles(root, want) {
+		branch := s.initBranch()
+		if repo {
+			if b, err := project.Git(root, "symbolic-ref", "--short", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
+				branch = strings.TrimSpace(b)
+			}
+		}
+		return false, project.Failf("%s has no commit yet and %s has files: commit what belongs in the project, then "+
+			"obor init again", branch, root)
+	}
+	return true, nil
+}
+
+// initFiles is what init writes into an empty root, by path relative to it, for the config there (.obor/config.json,
+// .gitignore, the docs); empty when root has no config yet (init writes it first). It loads that config into s.cfg.
+// It must follow configJSON's inputs (today name, prefix, the root's base name): a config needing more changes it.
+func (s *Setup) initFiles() (map[string][]byte, error) {
+	want := map[string][]byte{}
+	if !s.configExists() {
+		return want, nil
+	}
+	cfg, err := config.Load(s.root)
+	if err != nil {
+		return want, nil // not init's config: a user's file
+	}
+	s.cfg = cfg
+	if want[".obor/config.json"], err = s.configJSON(cfg.Data.Name, cfg.Data.Prefix); err != nil {
+		return nil, err
+	}
+	want[".gitignore"] = []byte(strings.Join(s.gitignoreLines(), "\n") + "\n")
+	for _, t := range s.initTemplates() {
+		if want[t.rel], err = s.renderTemplate(t.src, t.stub); err != nil {
+			return nil, err
+		}
+	}
+	return want, nil
+}
+
+// onlyFiles reports whether root holds nothing but .git, the directories of want's paths and want's files with
+// exactly want's bytes (each optional).
+func onlyFiles(root string, want map[string][]byte) bool {
+	errStray := errors.New("stray")
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		switch {
+		case rel == ".":
+			return nil
+		case rel == ".git":
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		case d.IsDir():
+			for w := range want {
+				if strings.HasPrefix(w, rel+"/") {
+					return nil
+				}
+			}
+			return errStray
+		}
+		b, ok := want[rel]
+		if !ok || !d.Type().IsRegular() {
+			return errStray
+		}
+		if got, err := os.ReadFile(p); err != nil || !bytes.Equal(got, b) {
+			return errStray
+		}
+		return nil
+	})
+	return err == nil
+}
+
+// initCommit makes the "obor init" commit when auto (autoCommit): init's own files, the commit the lanes branch from
+// (T-629). committed is what it committed, nil when it made no commit.
+func (s *Setup) initCommit(auto bool) (committed []string, err error) {
+	if !auto {
 		return nil, nil
 	}
-	status, err := project.Git(s.root, "status", "--porcelain", "-z", "--untracked-files=all")
+	want, err := s.initFiles()
 	if err != nil {
-		return nil, project.Failf("cannot read git status in %s", s.root)
+		return nil, err
 	}
-	var other []string
-	for _, e := range strings.Split(status, "\x00") {
-		p, ok := strings.CutPrefix(e, "?? ")
-		if !ok {
-			continue
+	for rel := range want {
+		if _, err := os.Stat(filepath.Join(s.root, rel)); err == nil {
+			committed = append(committed, rel)
 		}
-		if s.initFile(p) {
-			committed = append(committed, p)
-		} else {
-			other = append(other, p)
-		}
-	}
-	if len(other) > 0 {
-		branch, _ := project.Git(s.root, "symbolic-ref", "--short", "HEAD")
-		branch = strings.TrimSpace(branch)
-		if branch == "" {
-			branch = "main"
-		}
-		return nil, project.Failf("%s has no commit yet and %s has files obor did not write: commit what belongs in the "+
-			"project, then obor init again", branch, s.root)
 	}
 	if len(committed) == 0 {
 		return nil, nil
 	}
+	sort.Strings(committed)
 	if _, err := project.Git(s.root, append([]string{"add", "--"}, committed...)...); err != nil {
 		return nil, project.Failf("git add %s", strings.Join(committed, " "))
 	}
@@ -231,15 +344,6 @@ func (s *Setup) initCommit() (committed []string, err error) {
 	return committed, nil
 }
 
-// initFile reports whether p (relative to the root) is a file init writes: its config and .gitignore, its docs.
-func (s *Setup) initFile(p string) bool {
-	switch p {
-	case ".obor/config.json", ".gitignore", "BACKLOG.md", "docs/decisions.md":
-		return true
-	}
-	return strings.HasPrefix(p, s.agentsDir()+"/")
-}
-
 // lastLine is the last non-empty line of out, else err.
 func lastLine(out string, err error) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -251,17 +355,35 @@ func lastLine(out string, err error) string {
 	return err.Error()
 }
 
-// copyTemplate writes the template file to rel under the root, placeholders filled, unless rel exists. stub: only the
-// project's short role doc (T-204): the kit text's title, a pointer line to it and its "## This project" section.
+// copyTemplate writes the template file to rel under the root (renderTemplate), unless rel exists.
 func (s *Setup) copyTemplate(src, rel string, stub bool) error {
 	dest := filepath.Join(s.root, rel)
 	if _, err := os.Stat(dest); err == nil {
 		s.say("skip %s (exists)", rel)
 		return nil
 	}
+	text, err := s.renderTemplate(src, stub)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return project.Failf("cannot create %s", filepath.Dir(dest))
+	}
+	if err := os.WriteFile(dest, text, 0o644); err != nil {
+		return project.Failf("cannot write %s", dest)
+	}
+	s.wrote = true
+	s.say("created %s", rel)
+	return nil
+}
+
+// renderTemplate is the text copyTemplate writes for the template src: placeholders filled from the loaded config;
+// stub: only the project's short role doc (T-204): the kit text's title, a pointer line to it and its "## This
+// project" section.
+func (s *Setup) renderTemplate(src string, stub bool) ([]byte, error) {
 	b, err := os.ReadFile(src)
 	if err != nil {
-		return project.Failf("cannot read %s", src)
+		return nil, project.Failf("cannot read %s", src)
 	}
 	text := string(b)
 	if stub {
@@ -272,15 +394,7 @@ func (s *Setup) copyTemplate(src, rel string, stub bool) error {
 	}
 	d := s.cfg.Data
 	text = strings.NewReplacer("{{project}}", d.Name, "{{prefix}}", d.Prefix, "{{lanes_dir}}", d.LanesDir).Replace(text)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return project.Failf("cannot create %s", filepath.Dir(dest))
-	}
-	if err := os.WriteFile(dest, []byte(strings.TrimRight(text, "\n")+"\n"), 0o644); err != nil {
-		return project.Failf("cannot write %s", dest)
-	}
-	s.wrote = true
-	s.say("created %s", rel)
-	return nil
+	return []byte(strings.TrimRight(text, "\n") + "\n"), nil
 }
 
 // section is the markdown section starting at the line heading, up to the next "## " heading.
@@ -298,12 +412,21 @@ func section(text, heading string) string {
 	return strings.Join(out, "\n")
 }
 
-// writeJSON writes the JSON document indented by 2 (as jq --indent 2), atomically.
-func writeJSON(path string, doc []byte) error {
+// indentJSON is the JSON document indented by 2 (as jq --indent 2), with a final newline.
+func indentJSON(doc []byte) ([]byte, error) {
 	var b bytes.Buffer
 	if err := json.Indent(&b, doc, "", "  "); err != nil {
-		return err
+		return nil, err
 	}
 	b.WriteByte('\n')
-	return project.WriteAtomic(path, b.Bytes())
+	return b.Bytes(), nil
+}
+
+// writeJSON writes the JSON document indented by 2 (indentJSON), atomically.
+func writeJSON(path string, doc []byte) error {
+	b, err := indentJSON(doc)
+	if err != nil {
+		return err
+	}
+	return project.WriteAtomic(path, b)
 }
