@@ -25,7 +25,14 @@ import (
 	"obor/internal/testkit"
 )
 
-func TestMain(m *testing.M) { testkit.Main(m) }
+func TestMain(m *testing.M) {
+	// obor init commits a fresh repository's files (T-629): git needs an identity in the tests' config-less environment.
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "obor test", "GIT_AUTHOR_EMAIL": "obor-test@example.invalid",
+		"GIT_COMMITTER_NAME": "obor test", "GIT_COMMITTER_EMAIL": "obor-test@example.invalid"} {
+		os.Setenv(k, v)
+	}
+	testkit.Main(m)
+}
 
 // kit is this checkout: the templates, githooks and herdr-plugin setup reads.
 var kit = func() string { d, _ := filepath.Abs("../.."); return d }()
@@ -85,6 +92,12 @@ func bare(t *testing.T) *fx {
 // run is `obor setup <args>` in the main checkout: its output and exit code.
 func (x *fx) run(t *testing.T, args ...string) (string, int) {
 	t.Helper()
+	return x.runIn(t, x.Root, args...)
+}
+
+// runIn is `obor setup <args>` with dir as the caller's cwd: its output and exit code.
+func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
+	t.Helper()
 	var out bytes.Buffer
 	k := kit
 	if x.kit != "" {
@@ -103,7 +116,7 @@ func (x *fx) run(t *testing.T, args ...string) (string, int) {
 		open = func([]int) []string { return nil }
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
-	s := &Setup{Kit: k, Dir: x.Root, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
+	s := &Setup{Kit: k, Dir: dir, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) app.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
 		}, Serve: x.serve}

@@ -63,9 +63,6 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.findRoot(); err != nil {
-		return err
-	}
 	running, err := s.H.Agents(ctx)
 	if err != nil {
 		return project.Failf("herdr is not reachable (%v): start herdr, then obor init again", err)
@@ -73,6 +70,16 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	claude, err := lookPath(s.Env.Get("PATH"), agents.Default)
 	if err != nil {
 		return project.Failf("%s is not on PATH (the lead runs it): install it, then obor init again", agents.Default)
+	}
+	// git: a directory in no repository gets one (T-629); a repository without a commit gets its first below, from
+	// init's own files (the lanes branch from it).
+	if _, err := project.Find(s.Dir); errors.Is(err, project.ErrNotGit) {
+		if err := s.gitInit(); err != nil {
+			return err
+		}
+	}
+	if err := s.findRoot(); err != nil {
+		return err
 	}
 	var hints []string
 	s.hints = &hints
@@ -93,6 +100,12 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Data.Name, s.cfg.Data.Prefix)
 
+	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it).
+	committed, err := s.initCommit()
+	if err != nil {
+		return err
+	}
+
 	// githooks
 	hooksChanged, err := s.githooksStep(nil)
 	if err != nil {
@@ -105,10 +118,12 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var skippedCommands bool
 	switch {
 	case len(set) > 0:
 		add("commands", "done", "%s", strings.Join(set, "; "))
 	case !s.anyCommand():
+		skippedCommands = true
 		add("commands", "skipped", "none detected (no Makefile check:, go.mod or package.json): set commands.check, "+
 			"lane_setup, lane_ready and lane_links in .obor/config.json")
 	default:
@@ -201,10 +216,36 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	for _, h := range hints {
 		s.say("%s", h)
 	}
-	s.say("nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, %s/",
-		s.agentsDir())
-	s.say("OK init %s (prefix %s); next: obor lead", s.cfg.Data.Name, s.cfg.Data.Prefix)
+	if len(committed) > 0 {
+		s.say("committed obor init: %s", s.commitLine(committed))
+	} else {
+		s.say("nothing committed: review, then commit .obor/config.json, .gitignore, BACKLOG.md, docs/decisions.md, %s/",
+			s.agentsDir())
+	}
+	next := "obor lead"
+	if skippedCommands {
+		next = "first task for the lead: set up the stack and `commands.check` (lane_setup, lane_ready); until then " +
+			"every gate stops on \"missing command\""
+	}
+	s.say("OK init %s (prefix %s); next: %s", s.cfg.Data.Name, s.cfg.Data.Prefix, next)
 	return nil
+}
+
+// commitLine names the files init committed, its agents dir as one entry.
+func (s *Setup) commitLine(files []string) string {
+	var parts []string
+	agents := false
+	for _, f := range files {
+		if strings.HasPrefix(f, s.agentsDir()+"/") {
+			agents = true
+			continue
+		}
+		parts = append(parts, f)
+	}
+	if agents {
+		parts = append(parts, s.agentsDir()+"/")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func doneOr(done bool) string {

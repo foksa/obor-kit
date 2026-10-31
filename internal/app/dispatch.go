@@ -148,6 +148,7 @@ type noLaneError struct {
 	task, level string
 	types       []string
 	ls          []Lane
+	note        string // the level's fallback, when it has no lane of its own (T-629)
 }
 
 func (e noLaneError) Error() string {
@@ -160,23 +161,27 @@ func (e noLaneError) laneWait() string {
 }
 
 // resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types) when it names neither a lane
-// nor types (--types), else leaves it (a waiting task's request carries its level and types). Why not: no level in the
-// spec, or none of its types in the project.
-func resolveLevel(cfg *config.Config, c *Call, text string) error {
+// nor types (--types), else leaves it (a waiting task's request carries its level and types): the types a lane has,
+// and note the level's fallback when none of its own types has one (T-629). Why not: no level in the spec, or none of
+// its types in the project.
+func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err error) {
 	if c.Lane != "" || len(c.Types) > 0 {
-		return nil
+		return "", nil
 	}
 	level, ok := spec.Difficulty(text)
 	if !ok {
-		return fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
+		return "", fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
 			"with --types a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
 	types, _ := cfg.DifficultyTypes(level)
 	if len(types) == 0 {
-		return fmt.Errorf("no lane type of level %s in this project (obor config get difficulty): dispatch with --types a,b", level)
+		return "", fmt.Errorf("no lane type of level %s in this project (obor config get difficulty): dispatch with --types a,b", level)
 	}
 	c.Level, c.Types = level, types
-	return nil
+	if len(cfg.DifficultyLevelTypes(level)) == 0 {
+		note = fmt.Sprintf(" (level %s has no lane: using %s)", level, strings.Join(types, ", "))
+	}
+	return note, nil
 }
 
 // waitLane records fact waiting for c.Task's request (under a.verdicts) when no lane of its level is free (nl): the
@@ -189,7 +194,7 @@ func (a *App) waitLane(p *proj, c Call, nl noLaneError) (string, error) {
 			c.Task, mt.state)
 	}
 	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
-		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + idleNote(nl.ls, "", held)}
+		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + idleNote(nl.ls, "", held) + nl.note}
 	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepWaiting, Kind: KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
@@ -234,7 +239,8 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := resolveLevel(cfg, &c, row.Text); err != nil {
+	note, err := resolveLevel(cfg, &c, row.Text)
+	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
 	ls, err := a.lanes.Lanes(p.root)
@@ -249,7 +255,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	mt, held := a.held(p, c.Task)
 	l, why := pickLane(ls, c, held)
 	if why != "" && c.Level != "" {
-		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls}
+		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, note: note}
 	}
 	if why != "" {
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
@@ -293,7 +299,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	caller := callerOf(c)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + idleNote(ls, l.Name, held)}
+		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + idleNote(ls, l.Name, held) + note}
 	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepDispatched, Kind: KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}

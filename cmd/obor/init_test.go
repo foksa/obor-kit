@@ -36,7 +36,8 @@ func TestInitEndToEnd(t *testing.T) {
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + home,
 		"OBOR_PLUGIN_ROOT=" + kit, "OBOR_STATE_HOME=" + t.TempDir(), "HERDR_PANE_ID=", "HERDR_CONFIG_PATH="}
 	rc, stdout, stderr := run(t, p.Root, env, "init")
-	if rc != 0 || !strings.HasSuffix(stdout, "OK init proj (prefix proj); next: obor lead\n") {
+	if rc != 0 || !strings.HasSuffix(stdout, "OK init proj (prefix proj); next: first task for the lead: set up the stack "+
+		"and `commands.check` (lane_setup, lane_ready); until then every gate stops on \"missing command\"\n") {
 		t.Fatalf("obor init: exit %d\n%s%s", rc, stdout, stderr)
 	}
 	calls, _ := os.ReadFile(log)
