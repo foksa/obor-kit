@@ -1,0 +1,4 @@
+#!/bin/bash
+# obor reference-transaction (design "Git hooks layer"): chains the project's own reference-transaction, then obor's rule (none: T-620).
+. "$(dirname "$0")/_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"

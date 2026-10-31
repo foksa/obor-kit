@@ -16,9 +16,9 @@ import (
 // hangBound is headroom for a loaded merge machine; only the injected watchdog bound is timed below.
 const hangBound = 15 * time.Second
 
-// The git hooks (githooks/pre-commit, githooks/pre-push: bash, run by git through core.hooksPath; design "Git hooks
-// layer (v2.3)") driven by real git commit / git push. The kit is a throwaway copy of this checkout's bin/, VERSION
-// and githooks/ with a fresh build as dist/obor, so the hooks' `bin/obor whoami` runs this code.
+// The git hooks (githooks/*: bash, run by git through core.hooksPath; design "Git hooks layer") driven by real git
+// commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
+// as dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
 // hx is a project (prefix pj, lane O-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`.
 type hx struct {
@@ -79,7 +79,16 @@ func copyFile(t *testing.T, from, to string) {
 	}
 }
 
+// hooks is the kit's githooks dir; the project's own hooksPath is a dir of the main checkout, recorded for it.
 func (x *hx) hooks() string { return filepath.Join(x.kit, "githooks") }
+
+// chain makes dir (relative to the main checkout) hold hook with script, executable, and records it as obor.hooksChain.
+func (x *hx) chain(dir, hook, script string) {
+	x.t.Helper()
+	os.MkdirAll(filepath.Join(x.Root, dir), 0o755)
+	os.Chmod(x.Write(filepath.Join(dir, hook), script), 0o755)
+	x.Git(x.Root, "config", "obor.hooksChain", dir)
+}
 
 // gitEnv is the environment of a git command: HOME under Base, the fake herdr first on PATH, plus kv ("VAR=value").
 func (x *hx) gitEnv(kv ...string) []string {
@@ -255,23 +264,116 @@ func TestGithooks(t *testing.T) {
 			}
 		}},
 		// bash case_no_config_is_a_noop
-		{"no .obor/config.json: hooks are no-ops", func(t *testing.T, x *hx) {
+		{"no .obor/config.json: hooks chain only", func(t *testing.T, x *hx) {
 			x.Git(x.Root, "rm", "-q", ".obor/config.json")
 			x.Git(x.Root, "commit", "-q", "-m", "no config")
 			if x.Exists(".obor/config.json") {
 				t.Fatal("precondition: no config")
 			}
+			calls := filepath.Join(x.Base, "own.calls")
+			x.chain(".githooks", "pre-commit", fmt.Sprintf("#!/bin/sh\necho ran >> %q\n", calls))
 			x.commits(t, x.lane, x.gitEnv(), 0, "", "lane commit without a config")
+			if got := x.Read(calls); got != "ran\n" {
+				t.Errorf("a lane commit without a config chains the project's pre-commit: %q", got)
+			}
 		}},
-		// bash case_only_pre_commit_and_pre_push_ship
-		{"only pre-commit and pre-push ship", func(t *testing.T, x *hx) {
+		// T-620: the project's own hooksPath (recorded by `obor setup githooks`) is chained by every hook, and a
+		// chained failure is the hook's result. The lane runs it from the main checkout, not from the lane.
+		{"a chained pre-commit's failure blocks the commit, before obor's rule", func(t *testing.T, x *hx) {
+			calls := filepath.Join(x.Base, "own.calls")
+			own := x.Write(".githooks/pre-commit", fmt.Sprintf("#!/bin/sh\necho chained >> %q\nexit 3\n", calls))
+			os.Chmod(own, 0o755)
+			dotgit := x.Write(".git/hooks/pre-commit", fmt.Sprintf("#!/bin/sh\necho dotgit >> %q\n", calls))
+			os.Chmod(dotgit, 0o755)
+			x.Git(x.Root, "config", "core.hooksPath", ".githooks")
+			has(t, x.ok(t, "githooks"), "chaining .githooks", "setup records the project's own hooksPath")
+			before := x.head(x.lane)
+			rc, errOut := x.commit(x.lane, x.gitEnv("OBOR_MERGE=1")...)
+			if rc == 0 {
+				t.Errorf("a failing chained pre-commit blocks the commit (OBOR_MERGE=1 skips only obor's rule)\n%s", errOut)
+			}
+			if x.head(x.lane) != before {
+				t.Error("HEAD must not move")
+			}
+			if got := x.Read(calls); got != "chained\n" {
+				t.Errorf("the chained hook runs once, .git/hooks not at all: %q", got)
+			}
+		}},
+		{"a chained post-merge runs; its failure is not the merge's", func(t *testing.T, x *hx) {
+			calls := filepath.Join(x.Base, "own.calls")
+			x.chain(".githooks", "post-merge", fmt.Sprintf("#!/bin/sh\necho post-merge >> %q\nexit 3\n", calls))
+			x.Git(x.Root, "checkout", "-q", "-b", "side")
+			x.Write(filepath.Join(x.Root, "side.txt"), "side\n")
+			x.Git(x.Root, "add", "side.txt")
+			x.Git(x.Root, "commit", "-q", "-m", "side")
+			x.Git(x.Root, "checkout", "-q", "main")
+			if rc, errOut := x.git(x.gitEnv(), x.Root, "merge", "--no-ff", "-m", "merge side", "side"); rc != 0 {
+				t.Fatalf("a chained post-merge's exit does not fail the merge: exit %d\n%s", rc, errOut)
+			}
+			if got := x.Read(calls); got != "post-merge\n" {
+				t.Errorf("the chained post-merge ran once: %q", got)
+			}
+		}},
+		{"pre-push stdin reaches the chained hook", func(t *testing.T, x *hx) {
+			remote := filepath.Join(x.Base, "remote.git")
+			x.Git(x.Base, "init", "-q", "--bare", remote)
+			x.Git(x.Root, "remote", "add", "origin", remote)
+			in := filepath.Join(x.Base, "chain-stdin")
+			x.chain(".githooks", "pre-push", fmt.Sprintf("#!/bin/sh\ncat > %q\n", in))
+			if rc, errOut := x.git(x.gitEnv("OBOR_ALLOW_PUSH=1"), x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Fatalf("push with OBOR_ALLOW_PUSH=1: exit %d\n%s", rc, errOut)
+			}
+			if got := x.Read(in); !strings.Contains(got, "refs/heads/main") {
+				t.Errorf("stdin reached the chained pre-push: %q", got)
+			}
+			if x.Git(remote, "rev-parse", "main") != x.head(x.Root) {
+				t.Error("pushed")
+			}
+		}},
+		// bash case_pre_push_refuses_after_a_passing_chain
+		{"obor's pre-push rule still refuses after a passing chained hook", func(t *testing.T, x *hx) {
+			remote := filepath.Join(x.Base, "remote.git")
+			x.Git(x.Base, "init", "-q", "--bare", remote)
+			x.Git(x.Root, "remote", "add", "origin", remote)
+			calls := filepath.Join(x.Base, "own.calls")
+			x.chain(".githooks", "pre-push", fmt.Sprintf("#!/bin/sh\necho passed >> %q\n", calls))
+			rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main")
+			if rc != 1 || !strings.Contains(errOut, "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand") {
+				t.Errorf("push refused after the chain passed: exit %d\n%s", rc, errOut)
+			}
+			if got := x.Read(calls); got != "passed\n" {
+				t.Errorf("the chained hook ran first: %q", got)
+			}
+			if got := x.Git(remote, "branch", "--list", "main"); got != "" {
+				t.Errorf("nothing pushed: %q", got)
+			}
+		}},
+		// bash case_no_chain_no_dotgit_hooks_only_obors_rule
+		{"no chain and no .git/hooks: only obor's rule", func(t *testing.T, x *hx) {
+			if got, _ := gitIn(x.Root, "config", "--get", "obor.hooksChain"); got != "" {
+				t.Fatalf("precondition: no chain: %q", got)
+			}
+			if _, err := os.Stat(filepath.Join(x.Root, ".git/hooks/pre-commit")); err == nil {
+				t.Fatal("precondition: no .git/hooks/pre-commit")
+			}
+			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
+			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
+		}},
+		// T-620: one file per client-side hook git runs, all through the shared runner.
+		{"one file per client-side hook plus the shared runner", func(t *testing.T, x *hx) {
 			entries, _ := os.ReadDir(filepath.Join(kit, "githooks"))
 			var names []string
 			for _, e := range entries {
 				names = append(names, e.Name())
+				if fi, err := e.Info(); err == nil && e.Name() != "_hook" && fi.Mode()&0o111 == 0 {
+					t.Errorf("%s is not executable", e.Name())
+				}
 			}
-			if got := strings.Join(names, " "); got != "pre-commit pre-push" {
-				t.Errorf("only the two hooks (no _common.sh, post-merge, post-commit, _post.sh): %q", got)
+			want := "_hook applypatch-msg commit-msg post-applypatch post-checkout post-commit post-index-change " +
+				"post-merge post-rewrite pre-applypatch pre-auto-gc pre-commit pre-merge-commit pre-push pre-rebase " +
+				"prepare-commit-msg push-to-checkout reference-transaction"
+			if got := strings.Join(names, " "); got != want {
+				t.Errorf("hooks shipped:\n got %q\nwant %q", got, want)
 			}
 		}},
 	} {

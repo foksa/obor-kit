@@ -1,0 +1,4 @@
+#!/bin/bash
+# obor pre-rebase (design "Git hooks layer"): chains the project's own pre-rebase, then obor's rule (none: T-620).
+. "$(dirname "$0")/_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"

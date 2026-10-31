@@ -1,54 +1,5 @@
 #!/bin/bash
-# obor pre-commit (design "Git hooks layer (v2.3)"): after the project's own pre-commit, refuse a commit in a lane
-# worktree unless OBOR_MERGE=1 (obor serve sets it). The main checkout is not checked (the agent guard covers
-# commit -a there). No-op without .obor/config.json. Runs through core.hooksPath (obor setup githooks): $0 is
-# <plugin root>/githooks/pre-commit. Fails closed: in a linked worktree of an obor project, a classifier that can't
-# answer (no binary, stale, hanging, past the timeout) refuses the commit; the hook never fetches a binary (no network).
-common=$(git rev-parse --git-common-dir 2> /dev/null) || exit 0
-common=$(cd "$common" && pwd -P) || exit 0
-if [ -x "$common/hooks/pre-commit" ] && [ -f "$common/hooks/pre-commit" ]; then
-  "$common/hooks/pre-commit" "$@" || exit $?
-fi
-[ -f "$(dirname "$common")/.obor/config.json" ] || exit 0
-[ "${OBOR_MERGE:-}" = 1 ] && exit 0
-# The main checkout is not a lane: only a linked worktree (own git dir) needs the classifier.
-gitdir=$(git rev-parse --git-dir 2> /dev/null) && gitdir=$(cd "$gitdir" && pwd -P) || exit 0
-[ "$gitdir" != "$common" ] || exit 0
-
-# whoami's source is cwd or env+cwd in a lane worktree.
-kit=$(cd "$(dirname "$0")/.." && pwd -P)
-out=$(mktemp "${TMPDIR:-/tmp}/obor-precommit.XXXXXX") || out=
-rc=1
-if [ -n "$out" ]; then
-  # No job control (T-279: where setpgid is refused, `set -m` printed to git's stderr and the group kill missed): a
-  # simple background command is the binary's own pid. The watchdog sleeps in the background and waits, so a TERM
-  # ends it at once, its sleep with it.
-  OBOR_NO_SELF_HOST=1 OBOR_NO_FETCH=1 "$kit/bin/obor" whoami < /dev/null > "$out" 2> /dev/null &
-  pid=$!
-  (
-    s=
-    trap 'kill "$s"; exit 0' TERM
-    sleep "${OBOR_PRE_COMMIT_WHOAMI_TIMEOUT:-2}" &
-    s=$!
-    wait "$s"
-    kill -KILL "$pid"
-  ) > /dev/null 2>&1 &
-  watchdog=$!
-  wait "$pid" 2> /dev/null && rc=0
-  kill -TERM "$watchdog" 2> /dev/null || :
-  wait "$watchdog" 2> /dev/null || :
-  source_line=$(grep -m1 '^source: ' "$out") || source_line=
-  rm -f "$out"
-fi
-case "${source_line:-}" in
-  'source: env' | 'source: none') [ "$rc" = 0 ] && exit 0 ;;
-  'source: cwd' | 'source: env+cwd')
-    if [ "$rc" = 0 ]; then
-      echo "obor: no commits in a lane: obor serve commits it (OBOR_MERGE=1 to commit by hand)" >&2
-      exit 1
-    fi
-    ;;
-esac
-# No answer, or one that is not a known source (empty, unknown): can't classify, so refuse.
-echo "obor: cannot tell whether this is a lane (no usable obor binary): make -C $kit build (OBOR_MERGE=1 to commit by hand)" >&2
-exit 1
+# obor pre-commit (design "Git hooks layer"): chains the project's own pre-commit, then obor's rule: a commit in a lane
+# worktree is refused (OBOR_MERGE=1 to commit by hand).
+. "$(dirname "$0")/_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"
