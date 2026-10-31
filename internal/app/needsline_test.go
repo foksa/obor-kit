@@ -261,3 +261,61 @@ func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
 		t.Errorf("at 100 min: line %q, want (again, 1h)", got)
 	}
 }
+
+// undeliveredRig is the refused-lane rig with no inbox record for the lead: T-1's needs-you line is queued, not
+// delivered. It returns the needs-you's seq.
+func undeliveredRig(t *testing.T) (*loopRig, int64) {
+	t.Helper()
+	r := newDispatchRig(t)
+	r.inbox.unrecord("pj-lead")
+	r.disp.set(func(d *dispatchFakes) {
+		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+	})
+	r.start()
+	r.mustDispatch("d1")
+	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 && len(r.needsLineFacts()) == 1 })
+	return r, r.needsYou().Seq
+}
+
+// T-624: while the lead has no inbox record the first line waits undelivered; two repeat intervals later still only
+// that line is queued. Once it is delivered at t, the first repeat is due at t + 30 and the next at t + 30 + 60.
+func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
+	r, seq := undeliveredRig(t)
+	r.later(2 * time.Hour) // two repeat intervals and more, nothing delivered
+	if n, w := len(r.needsLineFacts()), r.waiting(); n != 1 || len(w) != 1 {
+		t.Fatalf("after 2 h undelivered: %d lines recorded, waiting %+v; want exactly the first line", n, w)
+	}
+	r.inbox.record("pj-lead") // delivered at t = 2 h
+	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
+	r.later(29 * time.Minute)
+	if got := r.againLines(seq); len(got) != 0 {
+		t.Fatalf("29 min after the delivery: again lines %q, want none", got)
+	}
+	r.later(time.Minute) // t + 30
+	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.waitFor("the repeat posted", func() bool { return len(r.waiting()) == 0 })
+	r.later(59 * time.Minute) // t + 89
+	if got := r.againLines(seq); len(got) != 1 {
+		t.Fatalf("89 min after the delivery: again lines %q, want one", got)
+	}
+	r.later(time.Minute) // t + 90
+	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
+}
+
+// T-624: a repeat waiting undelivered blocks the next one too (the deadline counts from delivery, not queuing), and a
+// restart keeps both facts: no line is queued behind a waiting one after the replay.
+func TestNeedsYouLineRepeatReplayKeepsTheWait(t *testing.T) {
+	r, seq := undeliveredRig(t)
+	r.inbox.record("pj-lead")
+	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
+	r.inbox.unrecord("pj-lead")
+	r.later(30 * time.Minute)
+	r.waitFor("the first repeat queued", func() bool { return len(r.againLines(seq)) == 1 })
+	r.later(5 * time.Hour)
+	r.stop()
+	r.start()
+	r.passes()
+	if got, w := r.againLines(seq), r.waiting(); len(got) != 1 || len(w) != 1 {
+		t.Errorf("after 5 h and a restart: again lines %q, waiting %+v; want the one repeat, still waiting", got, w)
+	}
+}
