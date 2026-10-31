@@ -29,10 +29,6 @@ func loadAt(dir string) (repo *project.Repo, cfg *config.Config, unknown []strin
 
 // unreadable is the line a hook gives for a config that does not load (err, not config.ErrNoConfig), without "obor: ".
 func unreadable(err error) string {
-	fix := "run obor config validate and fix it"
-	if errors.Is(err, config.ErrUnmigrated) { // until v0.17 (P7-0a fallback)
-		fix = "the project is not migrated"
-	}
 	return "config unreadable: " + strings.TrimPrefix(err.Error(), "obor: ") +
-		" — " + fix + "; until then hooks deny repo writes, git writes and pkill for every role but the lead"
+		" — run obor config validate and fix it; until then hooks deny repo writes, git writes and pkill for every role but the lead"
 }

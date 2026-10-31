@@ -530,46 +530,6 @@ func fields2(line string) string {
 	return ""
 }
 
-// P7-0a: bin/herd is a shim for bin/obor (old plugin copies, herdr's resolved path, an old core.hooksPath): the same
-// kit's bin/obor runs, with every argument. // until v0.17 (P7-0a fallback)
-func TestHerdShimExecsObor(t *testing.T) {
-	t.Parallel()
-	f := newShimFixture(t)
-	herd := filepath.Join(f.stable, "bin", "herd")
-	writeExec(t, herd, string(treeFile(t, "bin/herd")))
-	rc, stdout, stderr := f.shim(t, f.Base, nil, herd, "help")
-	if rc != 0 || !strings.Contains(stdout, "  whoami") || !strings.Contains(stdout, "plugin root: "+f.stable) {
-		t.Errorf("bin/herd help: exit %d, stdout %q, stderr %q; want bin/obor's help for %s", rc, stdout, stderr, f.stable)
-	}
-	rc, stdout, stderr = f.shim(t, f.Base, nil, herd, "no-such-sub", "x y")
-	if rc != 2 || stdout != "" || !strings.Contains(stderr, "unknown subcommand: no-such-sub") ||
-		!strings.Contains(stderr, "usage: obor") {
-		t.Errorf("bin/herd no-such-sub: exit %d, stdout %q, stderr %q; want bin/obor's usage, exit 2", rc, stdout, stderr)
-	}
-}
-
-// A `herd` on PATH is a symlink to the kit's bin/herd (the /opt/homebrew/bin/herd of the owner's machine): the shim
-// follows it, as bin/obor does, and runs the bin/obor next to the file, not one next to the link. // until v0.17
-func TestHerdShimFollowsASymlink(t *testing.T) {
-	t.Parallel()
-	f := newShimFixture(t)
-	writeExec(t, filepath.Join(f.stable, "bin", "herd"), string(treeFile(t, "bin/herd")))
-	link := filepath.Join(f.Base, "onpath", "herd")
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(f.stable, "bin", "herd"), link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(link), "obor")); err == nil {
-		t.Fatal("precondition: no obor next to the link")
-	}
-	rc, stdout, stderr := f.shim(t, f.Base, nil, link, "help")
-	if rc != 0 || !strings.Contains(stdout, "plugin root: "+f.stable) {
-		t.Errorf("herd via a symlink: exit %d, stdout %q, stderr %q; want bin/obor of %s", rc, stdout, stderr, f.stable)
-	}
-}
-
 // hookEvent runs `<shim> hook <name>` in dir with the event JSON on stdin: exit code and stderr.
 func (f *shimFixture) hookEvent(t *testing.T, shim, name, tool, cwd string) (int, string) {
 	t.Helper()
@@ -587,53 +547,14 @@ func (f *shimFixture) hookEvent(t *testing.T, shim, name, tool, cwd string) (int
 	return rc, stderr.String()
 }
 
-// RV-61 #1 (T-579): with no usable binary, a herd-era project (.herd/config.json, no .obor/) fails closed on
-// pre-tool-use with the loader's migrate line, from the main checkout and a linked worktree, for bin/obor and bin/herd,
-// and when the dev build is stale with no cached release; other hooks and other repositories stay allowed. // until v0.17 (P7-0a fallback)
-func TestShimUnmigratedProjectNoBinary(t *testing.T) {
-	t.Parallel()
-	f := newShimFixture(t)
-	writeExec(t, filepath.Join(f.Root, "bin", "herd"), string(treeFile(t, "bin/herd")))
-	writeFile(t, filepath.Join(f.Root, ".herd", "config.json"), "{}\n")
-	os.Remove(filepath.Join(f.Root, "dist", "obor"))
-	hint := "obor: " + f.Root + "/.herd/config.json and no .obor/: run obor migrate\n"
-	shims := map[string]string{"obor": filepath.Join(f.Root, "bin", "obor"), "herd": filepath.Join(f.Root, "bin", "herd")}
-
-	for name, shim := range shims {
-		for _, tool := range []string{"Edit", "Write", "Bash"} {
-			for where, dir := range map[string]string{"main checkout": f.Root, "linked worktree": f.lane} {
-				if rc, stderr := f.hookEvent(t, shim, "pre-tool-use", tool, dir); rc != 2 || stderr != hint {
-					t.Errorf("bin/%s %s in the %s: exit %d, %q; want 2, %q", name, tool, where, rc, stderr, hint)
-				}
-			}
-		}
-	}
-	if rc, stderr := f.hookEvent(t, shims["obor"], "pre-tool-use", "Read", f.Root); rc != 0 || stderr != "" {
-		t.Errorf("a read-only tool is allowed: exit %d, %q", rc, stderr)
-	}
-	if rc, stderr := f.hookEvent(t, shims["obor"], "session-start", "Edit", f.Root); rc != 0 || stderr != "" {
-		t.Errorf("another hook is unchanged: exit %d, %q", rc, stderr)
-	}
-	if rc, stderr := f.hookEvent(t, shims["obor"], "pre-tool-use", "Edit", f.other); rc != 0 || stderr != "" {
-		t.Errorf("outside the project: allowed, silent: exit %d, %q", rc, stderr)
-	}
-
-	// A stale dev build, no cached release: the same denial.
-	staleGo(t, filepath.Join(f.Root, "dist", "obor"))
-	if rc, stderr := f.hookEvent(t, shims["obor"], "pre-tool-use", "Edit", f.Root); rc != 2 || stderr != hint {
-		t.Errorf("stale binary, none cached: exit %d, %q; want 2, %q", rc, stderr, hint)
-	}
-}
-
-// A migrated project (.obor/config.json) with no binary keeps its no-binary denial, not the migrate line.
-func TestShimMigratedProjectNoBinaryControl(t *testing.T) {
+// An obor project with no usable binary: pre-tool-use denies with the repair hint.
+func TestShimProjectNoBinary(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
 	f.Config()
-	writeFile(t, filepath.Join(f.Root, ".herd", "config.json"), "{}\n")
 	os.Remove(filepath.Join(f.Root, "dist", "obor"))
 	want := "obor: no usable Go binary in " + f.Root + " — run: make -C " + f.Root + " build\n"
 	if rc, stderr := f.hookEvent(t, filepath.Join(f.Root, "bin", "obor"), "pre-tool-use", "Edit", f.Root); rc != 2 || stderr != want {
-		t.Errorf("migrated project: exit %d, %q; want 2, %q", rc, stderr, want)
+		t.Errorf("obor project: exit %d, %q; want 2, %q", rc, stderr, want)
 	}
 }

@@ -84,9 +84,8 @@ Adding a kind = one package + a config entry.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it starts
-  agents through an `app.Starter` that `cmd/obor` injects); `obor migrate` (herd → obor, `migrate.go`, until v0.17);
-  `obor init` (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which
-  `cmd/obor` wires to `service`).
+  agents through an `app.Starter` that `cmd/obor` injects); `obor init` (`oborinit.go`, P7-2: the steps chained with no
+  questions; serve install through `Setup.Serve`, which `cmd/obor` wires to `service`).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
@@ -98,4 +97,4 @@ socket: scripted panes and plugins, and every request a test's client sent).
 **entry** — `cmd/obor`: flags and wiring only; `obor status` rendering; the thin `app.Specs`, `Lanes`, `Poster`
 adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`, `answer`, `resume`, `sendback`,
 `drop`, `spec`, `watch`, `pause`, `send`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
-`nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`, `migrate`).
+`nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`).

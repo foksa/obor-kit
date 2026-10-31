@@ -60,7 +60,3 @@ func launcherFor(env project.Env, kit string, h app.PaneControl, w io.Writer, tu
 		return l
 	}
 }
-
-// migrateCmd is `obor migrate` (P7-0b; until v0.17): the herd → obor move of this project and machine, step by step
-// (internal/setup/migrate.go). It never loads the config: a herd-era project does not load.
-func migrateCmd(args []string) int { return setupCmd(append([]string{"migrate"}, args...)) }

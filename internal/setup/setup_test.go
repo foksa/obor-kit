@@ -1747,3 +1747,41 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 		})
 	}
 }
+
+// A githooks path of another obor kit (a checkout whose plugin.json names obor, or one that is gone) is re-pointed at
+// this kit's; anyone else's hooks dir is the project's own: chained, not refused (T-620), so obor's full set runs
+// (T-623).
+func TestGithooksRepointsAnotherOborKitsHooksAndChainsOthers(t *testing.T) {
+	x := newFx(t)
+	mine := filepath.Join(kit, "githooks")
+	chain := filepath.Join(mine, "chain")
+	// an obor kit's githooks (its plugin.json names obor): re-pointed
+	old := filepath.Join(x.Base, "obor-kit-stable")
+	x.Write(old+"/.claude-plugin/plugin.json", `{"name": "obor"}`)
+	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks")
+	out := x.ok(t, "githooks")
+	has(t, out, "core.hooksPath = "+mine, "output")
+	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
+		t.Errorf("core.hooksPath = %s, want %s", got, mine)
+	}
+	// an obor kit's chain set is re-pointed too (T-623)
+	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks/chain")
+	has(t, x.ok(t, "githooks"), "core.hooksPath = "+mine, "a kit's chain set re-pointed")
+	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
+		t.Errorf("a kit's chain set: core.hooksPath = %s, want %s", got, mine)
+	}
+	// a kit that is gone, named like one: re-pointed
+	x.Git(x.Root, "config", "--local", "core.hooksPath", "/nowhere/obor-kit/githooks")
+	x.ok(t, "githooks")
+	// anyone else's hooks dir is the project's own: chained, not refused
+	for _, other := range []string{"/nowhere/husky/githooks", "/usr/local/hooks", x.Base + "/githooks"} {
+		x.Git(x.Root, "config", "--local", "core.hooksPath", other)
+		has(t, x.ok(t, "githooks"), "chaining "+other, "chained hooks "+other)
+		if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != other {
+			t.Errorf("obor.hooksChain = %s, want %s", got, other)
+		}
+		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != chain {
+			t.Errorf("core.hooksPath %s changed to %s, want %s", other, got, chain)
+		}
+	}
+}

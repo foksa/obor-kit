@@ -27,11 +27,6 @@ var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // ErrNoConfig: the project has no .obor/config.json (exit 3; hooks no-op).
 var ErrNoConfig = errors.New("no config")
 
-// ErrUnmigrated: the project has a .herd/config.json and no .obor/ (renamed in P7-0a): it does not load, so every
-// command fails and the hooks fail closed, until `obor migrate` moves it. No read fallback for .herd/.
-// until v0.17 (P7-0a fallback)
-var ErrUnmigrated = errors.New("run obor migrate")
-
 // Data is the config file's shape, and its field comments are the reference for each key. A key it does not name
 // fails the load.
 type Data struct {
@@ -307,8 +302,6 @@ func read(root string) (*Config, []string, error) {
 		path := filepath.Join(root, ".obor", name)
 		b, err := os.ReadFile(path)
 		switch {
-		case errors.Is(err, os.ErrNotExist) && i == 0 && unmigrated(root): // until v0.17 (P7-0a fallback)
-			return nil, nil, fmt.Errorf("obor: %s and no .obor/: %w", filepath.Join(root, ".herd", "config.json"), ErrUnmigrated)
 		case errors.Is(err, os.ErrNotExist) && i == 0:
 			return nil, nil, fmt.Errorf("obor: no %s: %w", path, ErrNoConfig)
 		case errors.Is(err, os.ErrNotExist):
@@ -756,13 +749,4 @@ func (c *Config) DifficultyTypes(level string) (types []string, ok bool) {
 		}
 	}
 	return types, true
-}
-
-// unmigrated: root has .herd/config.json and no .obor/ (a herd-era project). // until v0.17 (P7-0a fallback)
-func unmigrated(root string) bool {
-	if _, err := os.Stat(filepath.Join(root, ".obor")); !errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(root, ".herd", "config.json"))
-	return err == nil
 }

@@ -12,7 +12,7 @@ package setup
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
 //	3 files    ~/.obor/agents/<old>.inbox copied to <new>.… (no overwrite); each lane worktree's opencode.json
-//	           with a path to another kit's bin/obor or bin/herd (an MCP server) pointing at this kit's bin/obor
+//	           with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
 //	5 finish   the old → new agent table, the lanes dir moves when its path has the old name, what to do next
@@ -317,13 +317,12 @@ func (r *renamer) files(context.Context) error {
 	return nil
 }
 
-// kitPath matches a quoted path to a kit's shim (bin/obor, or the old bin/herd): where an OpenCode lane's MCP server
-// command points.
-var kitPath = regexp.MustCompile(`"((?:[^"\\]|\\.)*/bin/(?:obor|herd))"`)
+// kitPath matches a quoted path to a kit's shim (bin/obor): where an OpenCode lane's MCP server command points.
+var kitPath = regexp.MustCompile(`"((?:[^"\\]|\\.)*/bin/obor)"`)
 
 // kitPaths points each lane worktree's opencode.json (per-worktree config, git-excluded: setup does not write it, so
-// it keeps the kit it was written for, which may be gone: D-01's named the deleted herd-kit/bin/herd) at this kit's
-// bin/obor. It returns the opencode.json it changed, as "<lane>/opencode.json"; a lane without one is skipped.
+// it keeps the kit it was written for, which may be gone) at this kit's bin/obor. It returns the opencode.json it
+// changed, as "<lane>/opencode.json"; a lane without one is skipped.
 func (r *renamer) kitPaths() ([]string, error) {
 	shim := filepath.Join(r.Kit, "bin", "obor")
 	var moved []string

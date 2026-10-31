@@ -409,19 +409,3 @@ func TestTaskFromBranch(t *testing.T) {
 		t.Error("a pattern that does not compile matches nothing")
 	}
 }
-
-// P7-0a: .herd/config.json without .obor/ does not load (ErrUnmigrated, `run obor migrate`), not ErrNoConfig: the
-// hooks fail closed on it instead of no-op. With .obor/ there, .herd/ is not read. // until v0.17 (P7-0a fallback)
-func TestHerdConfigWithoutOborIsUnmigrated(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "proj")
-	os.MkdirAll(filepath.Join(root, ".herd"), 0o755)
-	os.WriteFile(filepath.Join(root, ".herd", "config.json"), []byte(`{"prefix":"pj"}`), 0o644)
-	_, err := Load(root)
-	if !errors.Is(err, ErrUnmigrated) || errors.Is(err, ErrNoConfig) || !strings.Contains(err.Error(), "run obor migrate") {
-		t.Errorf(".herd only: %v, want ErrUnmigrated with the migrate hint", err)
-	}
-	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	if _, err := Load(root); !errors.Is(err, ErrNoConfig) {
-		t.Errorf(".herd and an empty .obor/: %v, want ErrNoConfig", err)
-	}
-}

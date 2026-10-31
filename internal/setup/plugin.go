@@ -14,10 +14,9 @@ import (
 	"obor/internal/project"
 )
 
-// herdKitHooks: path is the githooks dir of a herd or obor kit (a checkout whose plugin.json names herd or obor, or
-// one that is gone: its path then still names the kit), or that dir's chain/ set (T-623), which `obor setup githooks`
-// may re-point.
-func herdKitHooks(path string) bool {
+// kitHooks: path is the githooks dir of an obor kit (a checkout whose plugin.json names obor, or one that is gone: its
+// path then still names the kit), or that dir's chain/ set (T-623), which `obor setup githooks` may re-point.
+func kitHooks(path string) bool {
 	if filepath.Base(path) == "chain" {
 		path = filepath.Dir(path)
 	}
@@ -28,12 +27,12 @@ func herdKitHooks(path string) bool {
 	b, err := os.ReadFile(filepath.Join(kit, ".claude-plugin", "plugin.json"))
 	if err != nil {
 		_, serr := os.Stat(kit)
-		return os.IsNotExist(serr) && (strings.Contains(kit, "herd") || strings.Contains(kit, "obor"))
+		return os.IsNotExist(serr) && strings.Contains(kit, "obor")
 	}
 	var m struct {
 		Name string `json:"name"`
 	}
-	return json.Unmarshal(b, &m) == nil && (m.Name == "herd" || m.Name == "obor")
+	return json.Unmarshal(b, &m) == nil && m.Name == "obor"
 }
 
 // githooks points core.hooksPath at <kit>/githooks, or at its chain/ set when there is something to chain (T-623: a
@@ -85,7 +84,7 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 		return true, nil
 	}
 	// The project's own hooks dir is chained, rather than make it choose (T-620).
-	own := cur != "" && cur != dir && cur != chainDir && !herdKitHooks(cur)
+	own := cur != "" && cur != dir && cur != chainDir && !kitHooks(cur)
 	if own {
 		if _, err := project.Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
 			return false, project.Failf("cannot set obor.hooksChain in %s", s.root)
@@ -108,8 +107,8 @@ func (s *Setup) githooksStep(args []string) (changed bool, err error) {
 	switch {
 	case own:
 		s.say("OK githooks: core.hooksPath = %s, chaining %s", target, cur)
-	case cur != "" && herdKitHooks(cur):
-		s.say("OK githooks: core.hooksPath = %s (was %s, a herd or obor kit's)", target, cur)
+	case cur != "" && kitHooks(cur):
+		s.say("OK githooks: core.hooksPath = %s (was %s, an obor kit's)", target, cur)
 	case chain != "":
 		s.say("OK githooks: core.hooksPath = %s, chaining %s", target, chain)
 	default:
