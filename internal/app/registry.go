@@ -5,6 +5,7 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -47,6 +48,45 @@ func rank(src string) int {
 	return 1
 }
 
+// registry is one project's identity table (proj.reg): starts, serve's own starts by agent (folded, recordStart);
+// owners, by terminal key the agent its pane runs, and agents its inverse; ambiguous, the agents two or more panes
+// claim with equal proof (their pane ids); strays, the labels logged as not their agent's pane; herdrSession, the
+// herdr session last logged as differing from an agent's recorded one, by agent (logged once). All but starts and
+// herdrSession are rebuilt by reconcile. It has no lock of its own: like the rest of proj it is under App.mu. Only this
+// file names its maps.
+type registry struct {
+	starts       map[string]startRow
+	owners       map[string]owner
+	agents       map[string]string
+	ambiguous    map[string][]string
+	strays       map[string]bool
+	herdrSession map[string]string
+}
+
+func newRegistry() registry {
+	return registry{starts: map[string]startRow{}, herdrSession: map[string]string{}}
+}
+
+// recordStart records serve's start of agent in row's pane (foldStart): a row without a terminal keeps the one known
+// for the same pane; another agent's row on the same pane or terminal goes (the start replaced what ran there).
+func (r *registry) recordStart(agent string, row startRow) {
+	if old := r.starts[agent]; row.Terminal == "" && old.Pane == row.Pane {
+		row.Terminal = old.Terminal
+	}
+	for other, old := range r.starts {
+		if other != agent && (old.Pane == row.Pane || old.Terminal != "" && old.Terminal == row.Terminal) {
+			delete(r.starts, other)
+		}
+	}
+	r.starts[agent] = row
+}
+
+// start is serve's own start row of agent (ok false: none).
+func (r *registry) start(agent string) (startRow, bool) {
+	row, ok := r.starts[agent]
+	return row, ok
+}
+
 // startRow is serve's own start of an agent (agent.start's or start.<job>'s result, foldStart): the pane it placed the
 // agent in, that pane's terminal id ("": a result from before T-504, until its pane is seen), the kind and session.
 type startRow struct {
@@ -74,11 +114,11 @@ func (a *App) whereIs(p *proj, agent string) Where {
 	if !a.connected {
 		return Where{State: Unavailable, Why: notConnected}
 	}
-	if ids := p.ambiguous[agent]; len(ids) > 0 {
+	if ids := p.reg.ambiguous[agent]; len(ids) > 0 {
 		return Where{State: Ambiguous, Panes: ids}
 	}
-	if t, ok := p.agents[agent]; ok {
-		ow := p.owners[t]
+	if t, ok := p.reg.agents[agent]; ok {
+		ow := p.reg.owners[t]
 		if o := a.terminal(p, t, ow.pane); o != nil && o.pane.Agent != "" {
 			return Where{State: Identified, Pane: o.pane, Source: ow.source}
 		}
@@ -86,19 +126,19 @@ func (a *App) whereIs(p *proj, agent string) Where {
 	return Where{State: Unavailable, Why: a.why(p, agent)}
 }
 
-// whoIs is the agent pane runs by p's table (under mu): the only pane → agent lookup.
-func (a *App) whoIs(p *proj, pane Pane) (string, bool) {
-	ow, ok := p.owners[termOf(pane)]
+// whoIs is the agent pane runs by the table (under mu): the only pane → agent lookup.
+func (r *registry) whoIs(pane Pane) (string, bool) {
+	ow, ok := r.owners[termOf(pane)]
 	return ow.agent, ok
 }
 
 // shownAs is the name obor status and the watchdog facts give pane: its agent, else its label (" (not identified)"
 // when two panes claim that agent), for a pane no proof holds (under mu).
 func (a *App) shownAs(p *proj, pane Pane) string {
-	if agent, ok := a.whoIs(p, pane); ok {
+	if agent, ok := p.reg.whoIs(pane); ok {
 		return agent
 	}
-	if pane.Label != "" && len(p.ambiguous[pane.Label]) > 0 {
+	if pane.Label != "" && len(p.reg.ambiguous[pane.Label]) > 0 {
 		return pane.Label + " (not identified)"
 	}
 	return pane.Label
@@ -125,7 +165,7 @@ func (a *App) terminal(p *proj, t, id string) *seen {
 // why is why no pane proves agent (under mu): its start's pane, or a pane labelled agent, is at its shell; its start's
 // pane is gone; or nothing proves it.
 func (a *App) why(p *proj, agent string) string {
-	if row, ok := p.starts[agent]; ok {
+	if row, ok := p.reg.start(agent); ok {
 		o := a.obs[row.Pane]
 		if row.Terminal != "" {
 			o = a.terminal(p, row.Terminal, row.Pane)
@@ -151,13 +191,8 @@ type claim struct {
 	pane             Pane
 }
 
-// reconcile rebuilds p's table from the proofs that hold now (under mu): every
-// candidate agent × agent pane of p, each pair's strongest proof, accepted strongest first. A claim is accepted when
-// neither its agent nor its terminal is taken; an agent whose strongest free claims name two or more terminals is
-// ambiguous and takes none; two agents with equal proof of one terminal take it neither, and no weaker claim takes it
-// in this pass (RV-53-verify V1: it is owned again once the tie ends). The result does
-// not depend on any iteration order. A start row whose terminal another agent now owns is retired. Each change is
-// logged once.
+// reconcile rebuilds p's table from the proofs that hold now (under mu): every candidate agent × agent pane of p, each
+// pair's strongest proof (registry.reconcile accepts them).
 func (a *App) reconcile(p *proj) {
 	if !a.connected {
 		return
@@ -168,18 +203,19 @@ func (a *App) reconcile(p *proj) {
 			mine = append(mine, o.pane)
 		}
 	}
-	for agent, row := range p.starts { // a start from before T-504: its pane's terminal, once seen
+	for agent, row := range p.reg.starts { // a start from before T-504: its pane's terminal, once seen
 		if o := a.obs[row.Pane]; row.Terminal == "" && o != nil && o.pane.Terminal != "" && a.projectOf(o.pane) == p {
 			row.Terminal = o.pane.Terminal
-			p.starts[agent] = row
+			p.reg.starts[agent] = row
 		}
 	}
+	logp := func(line string) { a.logf("%s: %s", p.name, line) }
 	best := map[[2]string]claim{} // by agent and terminal: the strongest proof
 	for _, agent := range a.candidates(p, mine) {
 		sid := a.recordedSid(p, agent) // read once per candidate, not per pane (DD-v0.13 A6)
 		for _, pane := range mine {
-			p.crossCheck(a, agent, sid, pane)
-			if src := p.proof(agent, sid, pane); src != "" {
+			p.reg.crossCheck(agent, sid, pane, logp)
+			if src := p.reg.proof(agent, sid, pane); src != "" {
 				k := [2]string{agent, termOf(pane)}
 				if c, ok := best[k]; !ok || rank(src) > rank(c.src) {
 					best[k] = claim{agent: agent, term: k[1], src: src, pane: pane}
@@ -187,6 +223,17 @@ func (a *App) reconcile(p *proj) {
 			}
 		}
 	}
+	p.reg.reconcile(best, logp)
+}
+
+// reconcile rebuilds the table from best, the strongest proof of each agent and terminal, accepted strongest first;
+// log takes each line it logs. A claim is accepted when
+// neither its agent nor its terminal is taken; an agent whose strongest free claims name two or more terminals is
+// ambiguous and takes none; two agents with equal proof of one terminal take it neither, and no weaker claim takes it
+// in this pass (RV-53-verify V1: it is owned again once the tie ends). The result does
+// not depend on any iteration order. A start row whose terminal another agent now owns is retired. Each change is
+// logged once.
+func (r *registry) reconcile(best map[[2]string]claim, log func(string)) {
 	owners, agents, ambiguous := map[string]owner{}, map[string]string{}, map[string][]string{}
 	done, contested := map[string]bool{}, map[string]bool{} // contested: equal proofs tied on it, unowned this pass
 	for r := 3; r >= 1; r-- {
@@ -218,38 +265,38 @@ func (a *App) reconcile(p *proj) {
 			agents[cs[0].agent], done[cs[0].agent] = t, true
 		}
 	}
-	a.logOwners(p, owners, agents, ambiguous, best)
-	p.owners, p.agents, p.ambiguous = owners, agents, ambiguous
-	for agent, row := range p.starts {
+	r.logOwners(owners, agents, ambiguous, best, log)
+	r.owners, r.agents, r.ambiguous = owners, agents, ambiguous
+	for agent, row := range r.starts {
 		t := row.Terminal
 		if t == "" {
 			t = "pane " + row.Pane
 		}
 		if ow, ok := owners[t]; ok && ow.agent != agent {
-			delete(p.starts, agent)
-			a.logf("%s: %s's start row retired: pane %s runs %s now (%s)", p.name, agent, ow.pane, ow.agent, ow.source)
+			delete(r.starts, agent)
+			log(fmt.Sprintf("%s's start row retired: pane %s runs %s now (%s)", agent, ow.pane, ow.agent, ow.source))
 		}
 	}
 }
 
-// logOwners logs what changed in p's table: an agent identified (or at another pane), no longer identified, an
-// ambiguity begun, and a label on a pane its agent is not proven in (each once).
-func (a *App) logOwners(p *proj, owners map[string]owner, agents map[string]string, ambiguous map[string][]string,
-	best map[[2]string]claim) {
+// logOwners logs (to log) what changed in the table: an agent identified (or at another pane), no longer identified,
+// an ambiguity begun, and a label on a pane its agent is not proven in (each once).
+func (r *registry) logOwners(owners map[string]owner, agents map[string]string, ambiguous map[string][]string,
+	best map[[2]string]claim, log func(string)) {
 	var lines []string
 	for agent, t := range agents {
 		ow := owners[t]
-		if old, ok := p.agents[agent]; !ok || old != t || p.owners[old].pane != ow.pane {
+		if old, ok := r.agents[agent]; !ok || old != t || r.owners[old].pane != ow.pane {
 			lines = append(lines, "agent "+agent+" identified at pane "+ow.pane+" ("+ow.source+")")
 		}
 	}
-	for agent := range p.agents {
+	for agent := range r.agents {
 		if _, ok := agents[agent]; !ok && len(ambiguous[agent]) == 0 {
 			lines = append(lines, "agent "+agent+" no longer identified")
 		}
 	}
 	for agent, ids := range ambiguous {
-		if !slices.Equal(p.ambiguous[agent], ids) {
+		if !slices.Equal(r.ambiguous[agent], ids) {
 			lines = append(lines, "agent "+agent+" "+notIdentified(agent, Where{Panes: ids}))
 		}
 	}
@@ -258,15 +305,15 @@ func (a *App) logOwners(p *proj, owners map[string]owner, agents map[string]stri
 		if t, ok := agents[c.agent]; ok && c.src == srcLabel && t != c.term {
 			k := c.pane.ID + " " + c.agent
 			strays[k] = true
-			if !p.strays[k] {
+			if !r.strays[k] {
 				lines = append(lines, "pane "+c.pane.ID+" labelled "+c.agent+" too, not its "+owners[t].source)
 			}
 		}
 	}
-	p.strays = strays
+	r.strays = strays
 	sort.Strings(lines)
 	for _, l := range lines {
-		a.logf("%s: %s", p.name, l)
+		log(l)
 	}
 }
 
@@ -277,21 +324,22 @@ func (a *App) recordedSid(p *proj, agent string) string {
 }
 
 // crossCheck logs, once per value, that herdr reports another session than agent's recorded sid for pane, the pane
-// agent's start or label names (under mu): herdr's agent_session is a cross-check only (T-577), never adopted.
-func (p *proj) crossCheck(a *App, agent, sid string, pane Pane) {
-	row, started := p.starts[agent]
+// agent's start or label names (under mu; log takes the line): herdr's agent_session is a cross-check only (T-577),
+// never adopted.
+func (r *registry) crossCheck(agent, sid string, pane Pane, log func(string)) {
+	row, started := r.start(agent)
 	ours := pane.Label == agent || started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Pane == pane.ID)
-	if sid == "" || pane.Session == "" || !ours || sameSession(pane.Session, sid) || p.herdrSession[agent] == pane.Session {
+	if sid == "" || pane.Session == "" || !ours || sameSession(pane.Session, sid) || r.herdrSession[agent] == pane.Session {
 		return
 	}
-	p.herdrSession[agent] = pane.Session
-	a.logf("%s: herdr reports session %s for %s at pane %s; its recorded session is %s (kept)", p.name, pane.Session,
-		agent, pane.ID, sid)
+	r.herdrSession[agent] = pane.Session
+	log(fmt.Sprintf("herdr reports session %s for %s at pane %s; its recorded session is %s (kept)", pane.Session,
+		agent, pane.ID, sid))
 }
 
 // proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session.
-func (p *proj) proof(agent, sid string, pane Pane) string {
-	row, started := p.starts[agent]
+func (r *registry) proof(agent, sid string, pane Pane) string {
+	row, started := r.start(agent)
 	switch {
 	case sameSession(pane.Session, sid),
 		started && sameSession(pane.Session, row.Session):
@@ -314,7 +362,7 @@ func (a *App) candidates(p *proj, mine []Pane) []string {
 	for _, mt := range p.loop {
 		set[mt.agent] = true
 	}
-	for agent := range p.starts {
+	for agent := range p.reg.starts {
 		set[agent] = true
 	}
 	for agent := range p.briefs {

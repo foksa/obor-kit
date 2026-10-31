@@ -97,7 +97,7 @@ func (a *App) Status() Status {
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task
 			}
-			if agent, ok := a.whoIs(p, o.pane); ok {
+			if agent, ok := p.reg.whoIs(o.pane); ok {
 				if s, ok := p.session(agent); ok {
 					as.Session, as.Transcript, as.Started = s.ID, s.Transcript, s.Started
 				}

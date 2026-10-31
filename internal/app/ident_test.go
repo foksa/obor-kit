@@ -91,8 +91,25 @@ func (h *harness) who(id string) string {
 	if o == nil {
 		return ""
 	}
-	agent, _ := h.a.whoIs(h.proj(), o.pane)
+	agent, _ := h.proj().reg.whoIs(o.pane)
 	return agent
+}
+
+// table is the identity table as its lookups give it: whoIs of each pane of h.snap (by id) and whereIs of each agent.
+func (h *harness) table(agents ...string) string {
+	ids := make([]string, 0, len(h.snap.Panes))
+	for _, pane := range h.snap.Panes {
+		ids = append(ids, pane.ID)
+	}
+	slices.Sort(ids)
+	var b strings.Builder
+	for _, id := range ids {
+		fmt.Fprintf(&b, "%s=%s; ", id, h.who(id))
+	}
+	for _, agent := range agents {
+		fmt.Fprintf(&b, "%s: %s; ", agent, h.where(agent))
+	}
+	return b.String()
 }
 
 // move replaces pane id in h.snap by pane to (its terminal kept, as herdr's pane.move) and connects again (herdr's
@@ -433,11 +450,14 @@ func TestIdentSessionBeatsLabel(t *testing.T) {
 	eqs(t, h.where("pj-lead"), "identified w1:p1 session", "the lead")
 	eqs(t, h.where("pj-other"), "unavailable no proof", "the label")
 	eqs(t, h.who("w1:p1"), "pj-lead", "whoIs(w1:p1)")
-	h.a.mu.Lock()
-	n := len(h.proj().owners)
-	h.a.mu.Unlock()
-	if n != 1 {
-		t.Errorf("%d owners, want one (t1)", n)
+	var owned []string
+	for _, pane := range h.snap.Panes {
+		if h.who(pane.ID) != "" {
+			owned = append(owned, pane.ID)
+		}
+	}
+	if len(owned) != 1 {
+		t.Errorf("owned panes %q, want one (t1)", owned)
 	}
 }
 
@@ -645,10 +665,7 @@ func TestIdentOrderIndependent(t *testing.T) {
 			h.snap.Panes[a], h.snap.Panes[b] = h.snap.Panes[b], h.snap.Panes[a]
 		})
 		h.connect()
-		h.a.mu.Lock()
-		p := h.proj()
-		got := fmt.Sprint(p.owners, p.agents, p.ambiguous)
-		h.a.mu.Unlock()
+		got := h.table("pj-lead", "pj-int", "pj-o-01", "pj-o-02", "pj-other")
 		if i == 0 {
 			first = got
 			eqs(t, h.where("pj-lead"), "identified w1:p1 session", "the lead")
@@ -941,11 +958,11 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	eqs(t, h.who("w1:p1"), "", "precondition: the tie")
 	// pj-other's start row (foldStart's) after the tie: one folded before it is retired by the lead's session.
 	h.a.mu.Lock()
-	h.proj().starts["pj-other"] = startRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"}
+	h.proj().reg.recordStart("pj-other", startRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"})
 	h.a.mu.Unlock()
 	h.connect()
 	h.a.mu.Lock()
-	_, kept := h.proj().starts["pj-other"]
+	_, kept := h.proj().reg.start("pj-other")
 	h.a.mu.Unlock()
 	if !kept {
 		t.Fatal("precondition: pj-other's start row")

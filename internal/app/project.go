@@ -36,7 +36,7 @@ func (a *App) load(root string) (*proj, error) {
 		loop: map[string]*mtask{}, timers: map[string]*jobTimer{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[Key]json.RawMessage{}, scratch: make(chan struct{}, 1), held: map[string]string{}, ended: map[string]bool{},
-		delivered: map[string]bool{}, starts: map[string]startRow{}, herdrSession: map[string]string{},
+		delivered: map[string]bool{}, reg: newRegistry(),
 		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 	for _, r := range recs {
 		p.foldRecord(r)
