@@ -6,11 +6,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-10-31 session 13, 14:45: all of T-595..T-611 merged. RV-66 (Terra, over T-604/605/608..611) written; fixes in
-  flight: T-612 resume needs a decision (D-01), T-613 init retry + plugin list error (D-02), T-614 serve.log rotation
-  (S-01); T-615 split 3/3 (folded vs live + p.loop order) waits on T-612. Then: RV-66 verify, deep dive over
-  v0.16..HEAD, v0.17 (drops the four rename fallbacks: axis-alies must have migrated first). Rule for the lead: always
-  keep the next task queued (`--after`) so the lanes never run dry. After a code merge: `make build && ./bin/obor serve restart`.
+- 2026-10-31 session 13, evening: **v0.17.0 released** (tag pushed, GitHub release published, `~/.obor/kit` at
+  v0.17.0). Merged today T-595..T-626; RV-64..66 closed; DD-v0.17 + verify approved (V2 → T-626, V1/V3 docs done).
+  axis-alies migrated (54543f08) and was told to follow UPGRADE-v0.17 (githooks, serve install, restarts). Nothing
+  in flight; all lanes free. Config since 10-31: simple = deepseek, sonnet; slots max 1, cpus 4. Lead rule: never
+  end a turn with work in flight unless the next task is `--after`-queued or the wave is under `obor watch`.
+  Next: owner picks the next milestone; candidates: `obor plugin restore` resumes a Codex worker (check first),
+  LICENSE (owner), S5a.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
   free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
