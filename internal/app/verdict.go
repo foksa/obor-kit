@@ -486,11 +486,15 @@ func (mt mtask) resumeTo(task, to string) (string, error) {
 		return "", fmt.Errorf("resume: %s left its dispatch (%s): retry it", task, d.Reason)
 	case to == ResumeRetry && !strings.HasSuffix(d.Cause, failedSuffix) && !rule.retry:
 		return "", fmt.Errorf("resume: %s has no failed step to retry (%s): regate or reprompt", task, d.Reason)
-	case to == ResumeReprompt && (mt.job == "" || rule.noReprompt):
+	case to == ResumeReprompt && (rule.noReprompt || !mt.repromptable()):
 		return "", fmt.Errorf("resume: %s has no integrator job to re-prompt (%s): regate", task, d.Reason)
 	}
 	return to, nil
 }
+
+// repromptable: the attempt has an integrator job to send anew: its last one, or the review job of a green candidate a
+// needs-you held for the lead before it was sent (T-604).
+func (mt mtask) repromptable() bool { return mt.job != "" || mt.kept() == stGreen }
 
 func dropReply(task string) string { return "DROPPED " + task }
 

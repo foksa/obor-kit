@@ -83,6 +83,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		want              string
 	}{
 		{causeHeld, stAwaiting, StepReview, false, `obor sendback O-01 "<why>" | obor resume T-1 ["<decision>"]` + drop},
+		{causeOpen, stGreen, "", false, `obor sendback O-01 "<why>" | obor resume T-1 ["<decision>"]` + drop},
 		{causeRed, stRed, "", false, `obor sendback O-01 "<why>" | ` + resume + drop},
 		{causeUndelivered, stAwaiting, StepReview, false, resume + drop},
 		{causeStalled, stAwaiting, StepReview, false, resume + drop},

@@ -75,6 +75,9 @@ func (p *proj) foldLoop(r Record) {
 		case StepNeedsYou:
 			if r.Fact().Merge {
 				mt.needs = r
+				if r.Fact().Cause == causeOpen {
+					mt.heldQuestions = true
+				}
 				if mt.state != stNeedsYou {
 					mt.left = mt.state
 				}
@@ -211,7 +214,7 @@ func (mt *mtask) sendback(note string) {
 func (mt *mtask) next(note string, answer bool) {
 	mt.attempt++
 	mt.state, mt.line, mt.fixed, mt.fixes, mt.fails, mt.work = stWorking, note, false, 0, nil, ""
-	mt.answer, mt.decision = answer, ""
+	mt.answer, mt.decision, mt.heldQuestions = answer, "", false
 	mt.gates, mt.reviews, mt.resolves, mt.pubs, mt.submits, mt.input = 0, 0, 0, 0, 0, ""
 	mt.cand, mt.gateRev, mt.accepted, mt.kind, mt.job, mt.patch, mt.delivered, mt.lost = Candidate{}, 0, "", "", "", "", false, 0
 }
@@ -255,8 +258,11 @@ func (mt *mtask) unblock(d FactData) {
 	mt.needs, mt.fails, mt.lost = Record{}, nil, 0
 	if d.Note != "" { // the integrator's next job carries it (decisionText)
 		mt.decision = "Lead's decision (obor resume, " + Dash(d.Cause) + "): " + d.Note
-		if d.Cause == causeHeld {
+		switch d.Cause {
+		case causeHeld:
 			mt.decision = "Lead's decision on your hold: " + d.Note
+		case causeOpen:
+			mt.decision = "Lead's decision on your open questions: " + d.Note
 		}
 	}
 	switch {
@@ -305,7 +311,7 @@ func (mt *mtask) unsendable() string {
 	case sendYes:
 		return ""
 	case sendByCause:
-		if c := mt.needs.Fact().Cause; c == causeRed || c == causeHeld {
+		if c := mt.needs.Fact().Cause; c == causeRed || c == causeHeld || c == causeOpen {
 			return ""
 		}
 		return fmt.Sprintf("%s is %s (%s): obor resume or obor drop it", mt.task, stNeedsYou, mt.needs.Fact().Reason)
