@@ -57,6 +57,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (10-31, axis-alies migrated 54543f08) v0.17: delete `obor migrate` with the rename fallbacks (no herd project left;
+  it missed lane types' herd `--mcp-config` and project scripts' `HERD_CHANGED_FILES`). Until v0.17 is tagged the global
+  `obor.events` herdr plugin runs v0.16's `plugin restore` (expects `.sid`): a herdr restart may not resume obor-kit panes.
 - (T-615, 10-31) An open-questions hold whose answer needs a code change has no clean path: `obor resume` sends the
   old patch to review with the decision, the integrator's sendback then counts toward K and can hit the cap; a lead
   `sendback` is refused while needs-you. Lead typed the change into the worker pane. Candidate: allow `obor sendback`
