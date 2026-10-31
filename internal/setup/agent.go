@@ -239,7 +239,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	pane := w.pane
 	switch {
 	case pane != "":
-		s.say("pane %s (existing; cwd and env as that shell has them)", pane)
+		s.say("pane %s (existing)", pane)
 	case w.newTab != "":
 		// In the caller's workspace (T-137): without --workspace herdr uses its active one, maybe another project's.
 		if pane, err = s.H.NewTab(ctx, s.Env.Get("HERDR_WORKSPACE_ID"), w.newTab, a.cwd, env...); err != nil {
@@ -254,6 +254,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 
 	args := lt.LaunchArgs(a.role.Name == "lead")
 	l := &launch.Launcher{Cfg: s.cfg, Env: s.Env, Kit: s.Kit, H: s.H, Out: s.Out, Rollout: s.Rollout, Open: s.Open}
+	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
+		if err := l.SetEnv(ctx, pane, launch.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd}); err != nil {
+			return err
+		}
+	}
 	err = l.Start(ctx, launch.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
 		Prompt: a.role.StartPrompt(lt.Kind)})
 	var se *launch.StartError

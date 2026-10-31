@@ -893,10 +893,65 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
 		t.Errorf("last line %q", last(out))
 	}
-	want := []string{"agent.list", "pane.list", "pane.rename label=pj-int pane_id=w1:p3", "agent.get target=pj-int", "agent.get target=w1:p3",
-		"agent.get target=w1:p3", "agent.start args=[--model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p3"}
-	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
+		"pane.read lines=30 pane_id=w1:p3 source=visible strip_ansi=true", "pane.rename label=pj-int pane_id=w1:p3",
+		"agent.get target=pj-int", "agent.get target=w1:p3", "agent.get target=w1:p3",
+		"agent.start args=[--model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p3"}
+	got := x.reqs()
+	for i, r := range got {
+		if strings.HasPrefix(r, "pane.send_input") {
+			got[i] = "<env line>"
+		}
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// envLines is the text typed at a shell since reset (pane.send_input), one per line.
+func (x *fx) envLines() []string {
+	var out []string
+	for _, r := range x.reqs() {
+		if _, text, ok := strings.Cut(r, " text="); ok && strings.HasPrefix(r, "pane.send_input") {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+// A reused pane (--pane) gets the env line a restart types, so a shell that holds the env of the agent that ran there
+// before (a stale OBOR_AGENT, OBOR_LANE) starts the new agent with its own: cd, exports and unsets, before the start.
+func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+	x.ok(t, "lane", "O-01", "opus")
+	x.reset()
+	x.ok(t, "role", "integrator", "--pane", "w1:p1")
+	lines := x.envLines()
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE; echo obor-env-") {
+		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE", lines)
+	}
+	calls := strings.Join(x.reqs(), "\n")
+	if strings.Index(calls, "pane.send_input") > strings.Index(calls, "agent.start") || !strings.Contains(calls, "agent.start") {
+		t.Errorf("the env line comes before the start:\n%s", calls)
+	}
+
+	x.noAgents()
+	x.h.Pane("w1:p1").Label = ""
+	x.reset()
+	x.ok(t, "pane", "O-01", "--pane", "w1:p1")
+	lines = x.envLines()
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01; echo obor-env-") {
+		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
+	}
+
+	// a new pane gets its env from herdr at creation: nothing typed
+	x.noAgents()
+	x.h.Pane("w1:p1").Label = ""
+	x.reset()
+	x.ok(t, "pane", "O-01", "--tab", "w1:t2")
+	if lines := x.envLines(); len(lines) != 0 {
+		t.Errorf("a new pane got a typed env line: %q", lines)
 	}
 }
 

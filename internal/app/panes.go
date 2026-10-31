@@ -113,9 +113,6 @@ func (a *App) event(ctx context.Context, ev Event) {
 			pane = old.pane
 			pane.Status, pane.Agent = ev.Status, ev.Agent
 		}
-		if pane.Label == "" && old != nil { // a status event reads the agent entry, which has no label
-			pane.Label = old.pane.Label
-		}
 		if pane.Terminal == "" && old != nil {
 			pane.Terminal = old.pane.Terminal
 		}

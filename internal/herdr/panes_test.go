@@ -139,7 +139,7 @@ func TestPanesSubscribe(t *testing.T) {
 	srv.Push("pane_exited", map[string]any{"pane_id": "w1:p2"})
 	// Status and lifecycle events come on separate subscriptions: their order is not defined.
 	working := want
-	working.Status, working.Label = "working", "" // a status event reads the agent entry: no label (the app keeps it)
+	working.Status = "working" // a status event carries the pane's label too
 	want2 := map[app.Event]bool{
 		{Kind: app.EventStatus, Pane: "w1:p1", Status: "working", Agent: "claude", New: working}: true,
 		{Kind: app.EventExited, Pane: "w1:p2"}:                                                   true,
@@ -150,6 +150,15 @@ func TestPanesSubscribe(t *testing.T) {
 		} else {
 			delete(want2, ev)
 		}
+	}
+	// pane.rename emits no event of its own: the next update of the pane rereads it, and the relabel is delivered
+	f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "pj-renamed" })
+	srv.Push("pane_updated", map[string]any{"type": "pane_updated", "pane": map[string]any{"pane_id": "w1:p1",
+		"label": "pj-renamed", "cwd": "/proj-wt/O-01"}})
+	relabelled := working
+	relabelled.Label = "pj-renamed"
+	if ev := nextApp(t, st); ev.Kind != app.EventStatus || ev.New != relabelled {
+		t.Errorf("relabel event = %+v, want a status event for %+v", ev, relabelled)
 	}
 	// a new pane carries its label (herdr may drop an agent's name; the label is obor's agent name too)
 	f.Shell("w1:p4", "pj-sol", "/tmp")

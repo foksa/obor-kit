@@ -1153,3 +1153,22 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 			h.lines())
 	}
 }
+
+// A relabelled pane is identified by its new label without a serve restart: herdr emits nothing for pane.rename, so
+// the stream delivers the label with the next event it rereads the pane for (a status event with the pane in New),
+// and the app takes it as it takes the rest of the pane.
+func TestIdentRelabelledPane(t *testing.T) {
+	h, _ := newIdentHarness(t)
+	h.pane("w1:p1").Label, h.pane("w1:p1").Session = "notes", ""
+	h.connect()
+	eqs(t, h.where("pj-o-01"), "unavailable no proof", "before the relabel: the label is notes")
+	relabelled := *h.pane("w1:p1")
+	relabelled.Label = "pj-o-01"
+	h.a.event(context.Background(), Event{Kind: EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "after the relabel")
+	eqs(t, h.who("w1:p1"), "pj-o-01", "whoIs(w1:p1)")
+	// and a label cleared by the relabel is gone: the event's pane replaces what was known
+	relabelled.Label = ""
+	h.a.event(context.Background(), Event{Kind: EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1) after --clear")
+}

@@ -36,7 +36,7 @@ func renameProject(t *testing.T) *fx {
 }
 
 // stubHerdr puts a `herdr` first on the runs' PATH: one workspace w9 whose label is <dir>/label; `workspace rename`
-// writes it. Every call is logged to <dir>/herdr.log. Only shell builtins. Returns the dir.
+// writes it; `pane list` answers the one line of <dir>/panes (none: no panes). Every call is logged to <dir>/herdr.log. Only shell builtins. Returns the dir.
 func (x *fx) stubHerdr(t *testing.T, label string) string {
 	t.Helper()
 	dir := filepath.Join(x.Base, "stubbin")
@@ -46,6 +46,7 @@ echo "$*" >> "$d/herdr.log"
 case "$1 $2" in
 "workspace list") read -r label < "$d/label"; echo '{"result":{"workspaces":[{"workspace_id":"w9","label":"'$label'"}]}}' ;;
 "workspace rename") echo "$4" > "$d/label" ;;
+"pane list") if [ -f "$d/panes" ]; then read -r panes < "$d/panes"; echo "$panes"; else echo '{"result":{"panes":[]}}'; fi ;;
 esac
 `
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -191,5 +192,59 @@ func TestRenameUsage(t *testing.T) {
 		if out, rc := x.run(t, args...); rc != 1 || !strings.HasPrefix(last(out), "FAIL ") {
 			t.Errorf("%v: exit %d, last %q", args, rc, last(out))
 		}
+	}
+}
+
+// The panes of the project's workspace whose label follows the old prefix are relabelled; a pane with another label,
+// and a pane of another workspace, are left alone.
+func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
+	x := renameProject(t)
+	dir := x.stubHerdr(t, "proj")
+	panes := `{"result":{"panes":[` +
+		`{"pane_id":"w9:p1","workspace_id":"w9","label":"pj-int"},` +
+		`{"pane_id":"w9:p2","workspace_id":"w9","label":"proj-lead"},` +
+		`{"pane_id":"w9:p3","workspace_id":"w9","label":"advisor"},` +
+		`{"pane_id":"w9:p4","workspace_id":"w9"},` +
+		`{"pane_id":"w3:p1","workspace_id":"w3","label":"pj-o-01"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "panes"), []byte(panes+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := x.rename(t)
+	b, _ := os.ReadFile(filepath.Join(dir, "herdr.log"))
+	log := string(b)
+	for _, want := range []string{"pane rename w9:p1 ob-int\n", "pane rename w9:p2 ob-lead\n"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("herdr calls lack %q:\n%s", want, log)
+		}
+	}
+	if n := strings.Count(log, "pane rename"); n != 2 {
+		t.Errorf("%d pane renames, want 2 (advisor, the unlabelled pane and another workspace's pane stay):\n%s", n, log)
+	}
+	if !strings.Contains(out, "OK 4 herdr: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 proj-lead → ob-lead") {
+		t.Errorf("step 4 line missing:\n%s", out)
+	}
+}
+
+// A lane worktree's opencode.json that names another kit's shim (the deleted herd-kit/bin/herd) is pointed at this
+// kit's bin/obor; its other members and a lane without one stay.
+func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
+	x := renameProject(t)
+	x.stubHerdr(t, "proj")
+	path := filepath.Join(x.LaneDir("L-01"), "opencode.json")
+	x.Write(path, `{"$schema": "https://opencode.ai/config.json", "model": "m/x", "mcp": {"servers": {"herd": {"type": "local", "command": ["/gone/herd-kit/bin/herd", "mcp"]}}}}`+"\n")
+	shim := filepath.Join(kit, "bin", "obor")
+	out := x.rename(t)
+	got := x.Read(path)
+	if !strings.Contains(got, `"command": ["`+shim+`", "mcp"]`) || strings.Contains(got, "herd-kit") {
+		t.Errorf("opencode.json = %s, want the command at %s", got, shim)
+	}
+	if !strings.Contains(got, `"model": "m/x"`) || !strings.Contains(got, `"$schema"`) {
+		t.Errorf("opencode.json = %s, want its other members as they were", got)
+	}
+	if !strings.Contains(out, "; kit path in L-01/opencode.json") {
+		t.Errorf("step 3 line missing:\n%s", out)
+	}
+	if again := x.rename(t); !strings.Contains(again, "OK 3 files: no agent file left to copy, no kit path to correct (already)") {
+		t.Errorf("a rerun changes nothing:\n%s", again)
 	}
 }
