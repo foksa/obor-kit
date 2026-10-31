@@ -160,3 +160,142 @@ func TestOpenQuestionsSendbackStartsNextAttempt(t *testing.T) {
 			mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq)
 	}
 }
+
+// fixStep runs the step pickWorking selects for T-1 (the fix job of the attempt): fatal when there is none or it fails.
+func fixStep(t *testing.T, h *harness, f *schedScratch) {
+	t.Helper()
+	p := h.a.p
+	h.a.mu.Lock()
+	s := h.a.pickWorking(p, *p.loop["T-1"])
+	h.a.mu.Unlock()
+	if s == nil || !s(context.Background(), &Loop{Scratch: f, Agents: f, Typer: f}) {
+		t.Fatal("pickWorking: no step, or it failed")
+	}
+}
+
+// fixJob is the text of T-1's worker's open job (its job_next call).
+func fixJob(t *testing.T, h *harness) JobReply {
+	t.Helper()
+	raw, err := h.a.jobNext(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jr JobReply
+	if err := json.Unmarshal([]byte(raw), &jr); err != nil {
+		t.Fatal(err)
+	}
+	return jr
+}
+
+// T-611: the lead's decision on the worker's open questions reaches the worker too: after the integrator's sendback,
+// the fix job carries it, live and after a replay of the log (the crash between the resume and the fix job).
+func TestOpenQuestionsDecisionReachesTheFixJob(t *testing.T) {
+	for _, replay := range []bool{false, true} {
+		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
+			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\n"+
+				"Open questions: should it use sqlite?")
+			if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
+				t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
+			}
+			const decision = "use sqlite, it is cgo-free"
+			if reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+				Note: decision}); err != nil || reply != "RESUMED T-1: reprompt (open questions)" {
+				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
+			}
+			if replay {
+				reloadProj(t, h) // the crash between the resume and the fix job
+			}
+			if mt := pickGreenStep(t, h, f, replay); mt.job != StepReview || mt.state != stAwaiting {
+				t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
+			}
+			if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+				Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
+				t.Fatal(err)
+			}
+			fixStep(t, h, f)
+			jr := fixJob(t, h)
+			want := "Lead's decision on your open questions (attempt 1): " + decision +
+				" — do not list these again under Open questions."
+			if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, want) {
+				t.Errorf("the fix job %s does not carry %q:\n%s", jr.Job, want, jr.Text)
+			}
+		})
+	}
+}
+
+// T-611: a task the lead never answered has no such line in its fix job.
+func TestFixJobWithoutADecisionHasNoLine(t *testing.T) {
+	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.")
+	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview || mt.state != stAwaiting {
+		t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
+	}
+	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+		Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
+		t.Fatal(err)
+	}
+	fixStep(t, h, f)
+	jr := fixJob(t, h)
+	if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "the report is missing the test") {
+		t.Fatalf("the fix job %s does not carry the sendback's why:\n%s", jr.Job, jr.Text)
+	}
+	if strings.Contains(jr.Text, "Lead's decision") {
+		t.Errorf("a task never held carries a lead's decision:\n%s", jr.Text)
+	}
+}
+
+// addAttempt is addRecord for a record of another attempt (the worker's next submission).
+func addAttempt(t *testing.T, h *harness, attempt int, step, kind string, d any) {
+	t.Helper()
+	p := h.a.p
+	raw, _ := json.Marshal(d)
+	r, err := p.log.Append(Record{Task: "T-1", Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.foldRecord(r)
+}
+
+// T-611: a new attempt does not clear the decision: the worker's next submission (another attempt) keeps it, and the
+// fix job after the next sendback carries it still.
+func TestOpenQuestionsDecisionOutlivesANewAttempt(t *testing.T) {
+	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: should it use sqlite?")
+	if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
+		t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
+	}
+	const decision = "use sqlite, it is cgo-free"
+	if _, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+		Note: decision}); err != nil {
+		t.Fatal(err)
+	}
+	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview {
+		t.Fatalf("precondition: T-1 job %q; want the review job out", mt.job)
+	}
+	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+		Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
+		t.Fatal(err)
+	}
+	// attempt 2's task_done: the worker fixed it, its report leaving no open questions.
+	addAttempt(t, h, 2, StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
+		Report: "Summary: done.\nSelf-check: ok.\nSkipped: none."})
+	addAttempt(t, h, 2, StepSubmit, KindResult, submitOut{SHA: "s2"})
+	addAttempt(t, h, 2, StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s2"})
+	addAttempt(t, h, 2, StepGate, KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
+		Candidate: Candidate{Task: "T-1", Lane: "O-01", SHA: "c2", Target: "base1", Patch: "patch2"}})
+	if mt := h.a.p.loop["T-1"]; mt.attempt != 2 || mt.state != stGreen || mt.openDecision != decision {
+		t.Fatalf("after the second submission: T-1 attempt %d, %s, decision %q; want attempt 2 green with the decision",
+			mt.attempt, mt.state, mt.openDecision)
+	}
+	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview || mt.state != stAwaiting {
+		t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
+	}
+	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+		Role: "integrator", CallID: "sb2", Task: "T-1", Note: "the test still fails"}); err != nil {
+		t.Fatal(err)
+	}
+	fixStep(t, h, f)
+	jr := fixJob(t, h)
+	want := "Lead's decision on your open questions (attempt 1): " + decision
+	if jr.Job != "T-1/3/fix" || !strings.Contains(jr.Text, want) {
+		t.Errorf("the fix job %s does not carry %q:\n%s", jr.Job, want, jr.Text)
+	}
+}

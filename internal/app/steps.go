@@ -294,15 +294,19 @@ func (a *App) sendFix(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job
 		fmt.Sprintf("fix job %s not sent", JobID(job)))
 }
 
-// fixText is mt's fix job: what to fix, and to call task_done again; the role texts' paths for a worker started fresh
-// (read, T-603); with the spec (row) when its rev is not the one the worker's last job carried (the lead changed it
-// since).
+// fixText is mt's fix job: what to fix, and to call task_done again; the lead's decision on the task's open questions
+// when it has one (T-611); the role texts' paths for a worker started fresh (read, T-603); with the spec (row) when its
+// rev is not the one the worker's last job carried (the lead changed it since).
 func fixText(mt mtask, row store.SpecRow, read string) string {
 	text := fmt.Sprintf("%s is sent back to you (attempt %d): %s\nFix it and run the tests; when finished, call "+
 		"task_done again with your new report (obor serve takes it as your next attempt).", mt.task, mt.attempt, mt.line)
 	if mt.answer {
 		text = fmt.Sprintf("The answer to your question on %s (attempt %d): %s\nGo on with the task; when finished, "+
 			"call task_done with your report (obor serve takes it as your next attempt).", mt.task, mt.attempt, mt.line)
+	}
+	if mt.openDecision != "" { // the lead already answered them: the hold did not (T-611)
+		text += fmt.Sprintf("\nLead's decision on your open questions (attempt %d): %s — do not list these again "+
+			"under Open questions.", mt.openAt, mt.openDecision)
 	}
 	text += "\n" + read
 	if row.Rev > 0 && row.Rev != mt.specRev {

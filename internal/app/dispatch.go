@@ -424,6 +424,7 @@ func (p *proj) foldDispatch(r Record) {
 	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at}
 	if mt := p.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
+		next.openDecision, next.openAt = mt.openDecision, mt.openAt // the lead's decision outlives the dispatch (T-611)
 	}
 	p.loop[r.Task] = next
 	delete(p.waitLine, r.Task) // the wait ended: a later wait's refusals start afresh
