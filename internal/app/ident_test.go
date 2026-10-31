@@ -183,7 +183,7 @@ func (h *harness) brief(agent, line string) {
 func (h *harness) worked(agent string) bool {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	b := h.proj().briefs[agent]
+	b := h.proj().out.brief(agent)
 	return b != nil && b.worked
 }
 

@@ -164,7 +164,6 @@ type App struct {
 	loopMu    sync.Mutex         // loopStatus's decision and its record are one step (the merge loop and the check both call it)
 	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
 	sessions  sync.Mutex         // a session report's check and its record are one step (sessions.go)
-	claimMu   sync.Mutex         // a line's delivery claim and a brief's supersede of it exclude each other (messages.go)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
@@ -216,15 +215,9 @@ type proj struct {
 	reg registry
 	// lr: the lanes table's projection (lanerows.go, T-439).
 	lr laneRows
-	// The lines to the project's agents (messages.go, T-466): lead, the lead's agent (roles.lead.agent); msgs, the lines
-	// not delivered yet by their fact's seq; briefs, the open briefs by role agent.
-	lead     string
-	leadKind string // the lead's kind as configured (its role's type, else agents.Default): its lines' inbox
-	msgs     map[int64]*queued
-	lined    map[int64]bool // needs-you facts (by seq) whose line to the lead is recorded
-	lining   map[int64]bool // needs-you facts whose line a pass is recording now (needsLines' claim, not folded)
-	briefs   map[string]*brief
-	watches  map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go)
+	// out: the lines to the project's agents (messages.go, T-466, T-610).
+	out     outbox
+	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go)
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 }

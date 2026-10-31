@@ -65,7 +65,7 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 		t.Fatal(err)
 	}
 	r.deliver()
-	if b := r.p.briefs["pj-rev"]; b == nil || b.stop == nil || r.stops() != 1 || r.finished() != 0 {
+	if b := r.p.out.brief("pj-rev"); b == nil || b.stop == nil || r.stops() != 1 || r.finished() != 0 {
 		t.Fatalf("precondition: one stop on an open brief, no finished line: %+v, %d stops, %d finished",
 			b, r.stops(), r.finished())
 	}
@@ -118,7 +118,7 @@ func (r *turnRig) finished() int { return r.facts(StepMessage, "pj-rev finished"
 
 // state is pj-rev's brief as the folds hold it: open, stopped (its turn), followed, worked.
 func (r *turnRig) state() string {
-	b := r.p.briefs["pj-rev"]
+	b := r.p.out.brief("pj-rev")
 	if b == nil {
 		return "closed"
 	}
@@ -246,7 +246,7 @@ func TestTurnClaudeMissedStart(t *testing.T) {
 	if reply := r.hook(true); reply != "TURN pj-rev (its brief's turn ended)" {
 		t.Fatalf("Stop hook: %q", reply)
 	}
-	if r.p.briefs["pj-rev"].stop != nil {
+	if r.p.out.brief("pj-rev").stop != nil {
 		t.Fatal("the stop still in force after the Stop hook")
 	}
 	r.status("idle")
@@ -326,9 +326,9 @@ func TestTurnWorkerPhases(t *testing.T) {
 				t.Fatal("precondition: T-1 stopped")
 			}
 			reply, err := h.a.turnCall(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", Ended: ended})
-			if err != nil || reply != "TURN pj-o-01 (the stop of T-1 ended)" || p.stops("T-1") || len(p.briefs) != 0 {
+			if err != nil || reply != "TURN pj-o-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
 				t.Errorf("%s hook: %q, %v, stopped %v, %d briefs; want the stop ended, none", name, reply, err,
-					p.stops("T-1"), len(p.briefs))
+					p.stops("T-1"), p.briefCount())
 			}
 		})
 		t.Run("rollout "+name, func(t *testing.T) {
@@ -352,9 +352,9 @@ func TestTurnWorkerPhases(t *testing.T) {
 			if turn(agents.Turn{ID: "t1", Ended: true, Error: "usage_limit_exceeded", Details: "limit"}) {
 				t.Fatal("the stopped turn read again decided something")
 			}
-			if !turn(agents.Turn{ID: "t2", Ended: ended}) || p.stops("T-1") || len(p.briefs) != 0 {
+			if !turn(agents.Turn{ID: "t2", Ended: ended}) || p.stops("T-1") || p.briefCount() != 0 {
 				t.Errorf("the next turn's %s: stopped %v, %d briefs; want the stop ended, none", name, p.stops("T-1"),
-					len(p.briefs))
+					p.briefCount())
 			}
 		})
 	}

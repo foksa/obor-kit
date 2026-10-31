@@ -30,8 +30,8 @@ func (a *App) load(root string) (*proj, error) {
 	}
 	rc, _ := cfg.Role("integrator")
 	p := &proj{root: root, name: name, log: log, active: map[string][]Record{}, woke: map[string]time.Time{}, tasks: map[string]*watch{},
-		retry: map[Key]retry{}, integrator: cfg.AgentName("integrator", ""), lead: cfg.AgentName("lead", ""), leadKind: roleKind(cfg, "lead"),
-		msgs: map[int64]*queued{}, lined: map[int64]bool{}, lining: map[int64]bool{}, briefs: map[string]*brief{}, watches: map[string]*mergeWatch{},
+		retry: map[Key]retry{}, integrator: cfg.AgentName("integrator", ""),
+		out: newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")), watches: map[string]*mergeWatch{},
 		calls: map[string]string{}, merging: a.opt.Loop != nil && rc.Configured,
 		loop: map[string]*mtask{}, timers: map[string]*jobTimer{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},

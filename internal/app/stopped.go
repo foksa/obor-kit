@@ -110,7 +110,7 @@ func (a *App) stoppedCall(c Call) (string, error) {
 	if c.Role == "worker" {
 		task, w = p.stoppedTask(c)
 	}
-	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.lead
+	role := c.Role != "worker" && c.Role != "lead" && c.Role != "none" && c.Role != "" && c.Agent != p.out.lead()
 	if role {
 		kind := ""
 		if w := a.whereIs(p, c.Agent); w.State == Identified {
@@ -161,9 +161,9 @@ func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, p
 // transcript read turn (zero: none): the lead's line; with a brief open, a usage limit stops the brief (Brief, Reset:
 // it stays open, its agent woken after the reset), any other error ends it (no finished line for it). Under mu.
 func (a *App) roleStop(p *proj, d *stoppedData, said, kind string, turn time.Time) {
-	d.To, d.Line = p.lead, "[obor] "+said
+	d.To, d.Line = p.out.lead(), "[obor] "+said
 	d.Reply = "STOPPED " + d.Agent + " (the lead is told)"
-	b := p.briefs[d.Agent]
+	b := p.out.brief(d.Agent)
 	if b == nil {
 		return
 	}
@@ -332,7 +332,7 @@ func (a *App) turnCall(c Call) (string, error) {
 // the turn's end or its work), the turn's end finishes it (fact turned, worked: the finished line when idle), also when
 // the start was missed (RV-60 #3). Neither: nothing.
 func (a *App) roleTurn(p *proj, c Call) (string, error) {
-	b := p.briefs[c.Agent]
+	b := p.out.brief(c.Agent)
 	if b == nil {
 		return "TURN " + c.Agent + " (no stop)", nil
 	}
