@@ -530,15 +530,34 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		}
 		return project.Failf("%s runs another program (%s)", t.pane, prog)
 	}
-	mark := envMark()
-	if err := l.H.Type(ctx, t.pane, envLine(t)+`; echo `+mark.typed); err != nil {
+	// The line echoes one of two words (T-601): the success word only when the whole line (its cd, its exports)
+	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
+	// the old env (RV-64 #3) — and its failure word when it failed, so a visible failure ends the wait at once instead
+	// of at the timeout.
+	okMark, badMark := envMark(), envMark()
+	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
 		return project.Failf("herdr pane run %s (env) failed", t.pane)
 	}
+	failed := false
 	if !l.until(ctx, l.wait(), func() bool {
 		screen, err := l.H.Screen(ctx, t.pane, 30)
-		return err == nil && mark.done(screen)
+		if err != nil {
+			return false
+		}
+		switch {
+		case badMark.done(screen):
+			failed = true
+			return true
+		case okMark.done(screen):
+			return true
+		}
+		return false
 	}) {
-		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started)", t.pane, l.wait())
+		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started; the env line may have failed: check the pane)",
+			t.pane, l.wait())
+	}
+	if failed {
+		return l.giveUp(ctx, t, "the env line in %s failed (nothing started; check the pane)", t.pane)
 	}
 	return nil
 }
@@ -567,11 +586,12 @@ func envLine(t *target) string {
 	return line
 }
 
-// mark is the word the env line echoes last (T-544): the shell's prompt drawn after it is the shell back at its line
-// editor. Before that, zsh runs the line with the tty in cooked mode, where a start's command typed at once is echoed
-// raw and cut at the tty's line limit (~1 KB on macOS: a long --prompt left the shell at an open quote, live
-// 2026-10-29), while herdr already counts the pane an available shell. typed is the word as typed, quoted in its
-// middle so no wrap of the typed line on the screen reads as the echoed word.
+// mark is a word the env line echoes (T-544, T-601: its success word, or its failure word when the line failed): the
+// shell's prompt drawn after it is the shell back at its line editor. Before that, zsh runs the line with the tty in
+// cooked mode, where a start's command typed at once is echoed raw and cut at the tty's line limit (~1 KB on macOS: a
+// long --prompt left the shell at an open quote, live 2026-10-29), while herdr already counts the pane an available
+// shell. typed is the word as typed, quoted in its middle so no wrap of the typed line on the screen reads as the
+// echoed word.
 type mark struct{ typed, echoed string }
 
 var markSeq atomic.Int64

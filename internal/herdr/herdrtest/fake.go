@@ -52,9 +52,10 @@ type Pane struct {
 	// status OnStart (T-387). "never": herdr answers agent_started (launch_pending, as protocol 22 does at once) but no
 	// agent ever comes up: the pane stays at its shell (T-544: the command typed while the shell was busy, cut off).
 	OnStart string
-	// OnRun is what the pane's shell does with a command line typed at it (pane.send_input with Enter): "" it runs it
-	// at once, printing what a trailing "; echo <word>" echoes (quotes removed) and a new prompt "% " on the Screen;
-	// "hang": it never finishes (no output, no prompt).
+	// OnRun is what the pane's shell does with a command line typed at it (pane.send_input with Enter): "" it succeeds,
+	// printing the word its "&& echo <word>" clause echoes (quotes removed) and a new prompt "% " on the Screen; "fail"
+	// it fails before that clause (a cd into a missing dir), printing its "|| echo <word>" word instead; "hang": it
+	// never finishes (no output, no prompt).
 	OnRun string
 	Draft string   // the input box's text (`agent read` shows it on a "❯ " line after Screen)
 	Keys  []string // send-keys received
@@ -239,11 +240,32 @@ func (p *Pane) run(text string) {
 		default:
 			p.exit()
 		}
-	} else if p.atShell() && p.OnRun == "" {
-		if i := strings.LastIndex(text, "; echo "); i >= 0 {
-			p.Screen += strings.ReplaceAll(text[i+len("; echo "):], `"`, "") + "\n% \n"
+	} else if p.atShell() {
+		switch p.OnRun {
+		case "":
+			if w := echoWord(text, "&& echo "); w != "" {
+				p.Screen += w + "\n% \n"
+			}
+		case "fail":
+			if w := echoWord(text, "|| echo "); w != "" {
+				p.Screen += w + "\n% \n"
+			}
 		}
 	}
+}
+
+// echoWord is the word line echoes after sep ("&& echo " when it succeeded, "|| echo " when it failed), quotes
+// removed: the env line's recipe of T-601. "" when line has no such clause.
+func echoWord(line, sep string) string {
+	i := strings.LastIndex(line, sep)
+	if i < 0 {
+		return ""
+	}
+	w := line[i+len(sep):]
+	if j := strings.IndexByte(w, ' '); j >= 0 {
+		w = w[:j]
+	}
+	return strings.ReplaceAll(w, `"`, "")
 }
 
 // sendKeys is keys sent to the pane (pane send-keys, pane.send_keys): the exit dialog's 1 and esc, esc on a working
