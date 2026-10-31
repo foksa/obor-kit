@@ -8,3 +8,4 @@ dist/
 .task-run
 .obor/drafts/
 docs/reviews/
+.obor/cache/
