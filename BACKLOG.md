@@ -56,6 +56,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (10-31, axis-alies v0.17) `obor restart aa-rev --fresh` (Codex, no prompt) warns "holds no codex transcript open
+  within 10s (its session is not recorded)". Guess, unverified: Codex writes its rollout only at the first prompt.
+  Check at axis' next review brief; if so, the warning should not fire for a fresh role start without a prompt.
 - (v0.17 release) Until `~/.obor/kit` moves to v0.17, the global `obor.events` herdr plugin runs v0.16's `plugin
   restore` (expects `.sid`): a herdr restart may not resume obor-kit panes. Machine leftovers to retire with
   herd-kit-stable: `~/.obor/herdr-plugin` (symlink into it) and herdr's `herd.events` plugin.
