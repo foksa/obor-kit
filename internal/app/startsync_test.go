@@ -134,16 +134,16 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 }
 
 // The reviewer's TestRV44IntegratorStartOwnership, fixed: two tasks whose jobs need the integrator, which does not
-// run: one pass starts it once (the second task's step waits for the first's start), and the second job is typed
-// to the agent the first start brought up.
+// run: one pass starts it once (the second task's step waits for the first's start); the second job then waits for
+// the first job's verdict (T-602: nothing typed into the session the first job runs in, no second start).
 func TestIntegratorStartsOneAtATime(t *testing.T) {
 	for _, c := range []struct{ name, first, second, job string }{
-		{"review + review", outGreen, outGreen, "T-5/1/review"},
-		{"review + resolve", outGreen, outConflict, "T-5/1/resolve"},
-		{"resolve + review", outConflict, outGreen, "T-5/1/review"},
+		{"review + review", outGreen, outGreen, "review"},
+		{"review + resolve", outGreen, outConflict, "resolve"},
+		{"resolve + review", outConflict, outGreen, "review"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			r, _, f := heldRig(t, "")
+			r, p, f := heldRig(t, "")
 			gateDone(r, "T-1", c.first)
 			gateDone(r, "T-5", c.second)
 			r.a.mu.Lock()
@@ -178,8 +178,11 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 			if f.starts != 1 || f.most != 1 {
 				t.Errorf("integrator starts %d (at once: %d); want 1", f.starts, f.most)
 			}
-			if len(f.typed) != 1 || f.typed[0] != "w1:p9 "+c.job { // its pane, by the registry
-				t.Errorf("typed %q; want %s's wake to the started integrator", f.typed, c.job)
+			if len(f.typed) != 0 {
+				t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
+			}
+			if p.log.Open(Key{"T-5", 1, c.job}) || p.log.Done(Key{"T-5", 1, c.job}) {
+				t.Errorf("T-5's %s recorded while T-1's job is out", c.job)
 			}
 		})
 	}

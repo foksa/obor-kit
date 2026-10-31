@@ -10,26 +10,34 @@ import (
 	"unicode/utf8"
 )
 
-// job sends the integrator a review or resolve job (rows 25, 36): started first when the snapshot shows it does not
-// run, through the one start sequence (startJob: the start runs under the job's intent and carries its wake). The
-// start's key is start.<job step>, start.<job step>.2 … once a start of that job is done and the integrator is gone
-// again; a start a crash or a failure left open is run with its recorded data (it no-ops when the integrator runs:
-// "running"). An integrator that runs, or a start that did not carry the wake, gets the job's wake typed (send); a job
-// whose prompt failed is sent again under its key.
+// job sends the integrator a review or resolve job (rows 25, 36) through the one start sequence (startJob: the start
+// runs under the job's intent and carries its wake). Each job's first start (start.<job step>) is a fresh session of
+// the integrator (T-602), also when one runs: it waits (false, nothing recorded) while another task's job is out or
+// the integrator's pane is not idle, so a job being answered is never cut off. A later start of the job
+// (start.<job step>.2 … once its start is done and the integrator is gone again) runs when the snapshot shows it does
+// not run, as before. A start a crash or a failure left open is run with its recorded data (it no-ops when the
+// integrator runs: "running"; no second start of the job). An integrator that runs, or a start that did not carry
+// the wake, gets the job's wake typed (send); a job whose prompt failed is sent again under its key.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
 	key := Key{mt.task, mt.attempt, jobStep}
 	a.mu.Lock()
 	w := a.whereIs(p, p.integrator)
+	busy := a.integratorBusy(p, mt.task, w)
 	a.mu.Unlock()
 	start := Key{mt.task, mt.attempt, stepStart + jobStep}
 	for n := 2; p.log.Done(start); n++ {
 		start.Step = nth(stepStart+jobStep, n)
 	}
-	if w.State == Ambiguous && !p.log.Open(start) { // no third pane started, nothing sent
+	replay := p.log.Open(start)
+	fresh := start.Step == stepStart+jobStep // the job's first start: a new session
+	if w.State == Ambiguous && !replay {     // no third pane started, nothing sent
 		return a.heldJob(ctx, p, fx, mt, key, w)
 	}
+	if fresh && !replay && busy {
+		return false // the running session answers another job: the next pass starts this one
+	}
 	data := promptData{Agent: p.integrator, Patch: mt.cand.Patch}
-	if w.State != Identified || p.log.Open(start) {
+	if fresh || w.State != Identified || replay {
 		d := startData{Agent: p.integrator}
 		if r, ok := p.log.Intent(start); ok { // a pending start: its recorded data
 			d = startData{}
@@ -37,7 +45,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 		}
 		if !a.startJob(ctx, p, mt, Intent{Key: start, Class: ClassStart, Data: d}, key, data,
 			func(ctx context.Context, first string) (any, error) {
-				s, err := a.startIntegrator(ctx, fx.Agents, p.root, first)
+				s, err := a.startIntegrator(ctx, fx.Agents, p.root, first, fresh && !replay)
 				switch {
 				case err != nil:
 					return nil, fmt.Errorf("integrator %s not started: %w", p.integrator, err)
@@ -62,6 +70,21 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	p.timers[mt.task] = &jobTimer{job: JobID(key), sent: at}
 	a.mu.Unlock()
 	return true
+}
+
+// integratorBusy: a fresh start of p's integrator (w) for task's next job would cut off a job it answers now (under
+// mu, T-602): another task's integrator job is out (awaiting-accept, resolving; one a needs-you left is the owner's,
+// it waits for no one), or the integrator's pane is identified and not idle (it ends its turn after a verdict).
+func (a *App) integratorBusy(p *proj, task string, w Where) bool {
+	if w.State == Identified && !Ready(w.Pane.Status) {
+		return true
+	}
+	for _, mt := range p.loop {
+		if mt.task != task && mt.openJob() && mt.state != stNeedsYou {
+			return true
+		}
+	}
+	return false
 }
 
 // errNoCarry is a start's outcome that did not carry its job's wake (refused, "running", a replay's stored result):
@@ -129,11 +152,21 @@ func (a *App) reviewText(p *proj, mt mtask) (string, error) {
 		spec = fmt.Sprintf("The gate merged no spec; the current one:%s\n", specText(row))
 	}
 	return fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
-		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; read it with "+
-		"git diff %s %s.\n%s\nPatch hash: %s\nThe worker's report:\n%s\n"+
+		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
+		"The worker's report:\n%s\n"+
 		"%sAnswer with one obor tool: accept (patch %s, a note optional) | sendback (why: what to fix) | reject (why).",
-		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task,
-		c.Target, c.SHA, c.Stat, c.Patch, mt.report, decisionText(mt), c.Patch), nil
+		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
+		decisionText(mt), c.Patch), nil
+}
+
+// diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
+// InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with.
+func diffText(c Candidate) string {
+	if c.Diff == "" {
+		return fmt.Sprintf("read it with git diff %s %s.\n%s\n", c.Target, c.SHA, c.Stat)
+	}
+	return fmt.Sprintf("its stat, then its whole diff (git diff %s %s, as the gate made it: no need to run it):\n%s\n"+
+		"%s\n(end of the whole diff)\n", c.Target, c.SHA, c.Stat, strings.TrimRight(c.Diff, "\n"))
 }
 
 // decisionText is the line of the lead's decision on mt's last obor resume of the attempt ("": none), for the

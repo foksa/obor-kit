@@ -264,7 +264,7 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-// The integrator's jobs go through the same helper: a resolve job to an integrator whose box may hold another
+// The integrator's typed wakes go through the same helper: a resolve job (its start done) to an integrator whose box may hold another
 // task's unsent job is cleared first; its result lost, it is not typed again. The job goes to its pane (the registry's).
 func TestPromptIntegratorJob(t *testing.T) {
 	h, s := seedSched(t, true)
@@ -278,6 +278,18 @@ func TestPromptIntegratorJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.foldRecord(r)
+	// T-602: a job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
+	for _, rec := range []Record{
+		{Task: "T-1", Attempt: 1, Step: stepStart + StepResolve, Kind: KindIntent, Class: ClassStart,
+			Data: mustJSON(startData{Agent: "pj-int"})},
+		{Task: "T-1", Attempt: 1, Step: stepStart + StepResolve, Kind: KindResult, Data: mustJSON("running")},
+	} {
+		r, err := p.log.Append(rec, h.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.foldRecord(r)
+	}
 	refuseOnce(p, StepResolve)
 	ctx := context.Background()
 	s.Launch(ctx, Launch{})

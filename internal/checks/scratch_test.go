@@ -865,3 +865,27 @@ func TestLandedReturnsGitError(t *testing.T) {
 		t.Errorf("Landed after the publish: %v %v; want true", landed, err)
 	}
 }
+
+// T-602: the gate keeps the candidate's whole diff (git diff target sha, as the patch hash reads it) for the review
+// job when it is at most app.InlineDiff bytes; a larger one is not kept.
+func TestScratchGateKeepsSmallDiff(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	c := y.green(lane(y.submit()))
+	want := y.Git(y.Root, "diff", c.Target, c.SHA)
+	if !strings.Contains(want, "+feature") {
+		t.Fatalf("precondition: the candidate's diff %q has no feature line", want)
+	}
+	y.eq(c.Diff, want, "a small candidate's diff kept")
+
+	big := newSx(t, cmd("check", "echo 1 pass"))
+	big.Write(filepath.Join(big.lane, "big.txt"), strings.Repeat("a line of the big file\n", app.InlineDiff/20))
+	c = big.green(lane(big.submit()))
+	if n := len(big.Git(big.Root, "diff", c.Target, c.SHA)); n <= app.InlineDiff {
+		t.Fatalf("precondition: the big diff is %d bytes, not over %d", n, app.InlineDiff)
+	}
+	y.eq(c.Diff, "", "a diff over InlineDiff not kept")
+	if c.Patch == "" || c.Stat == "" {
+		t.Errorf("the big candidate lost its patch %q or stat %q", c.Patch, c.Stat)
+	}
+}

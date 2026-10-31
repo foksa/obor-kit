@@ -133,11 +133,11 @@ var dropStartCases = []struct {
 	{"submit", "pq", "T-6", "submit", func(r *concRig) {
 		r.add("pq", "T-6", StepSubmitted, KindFact, submitData{Lane: "O-06"})
 	}},
-	{"review", "pq", "T-3", "prompt", func(r *concRig) {
+	{"review", "pq", "T-3", "restart", func(r *concRig) {
 		r.add("pq", "T-3", StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
-	{"resolve", "pq", "T-3", "prompt", func(r *concRig) {
+	{"resolve", "pq", "T-3", "restart", func(r *concRig) {
 		r.add("pq", "T-3", StepGate, KindResult, gateOut{Outcome: outConflict, Candidate: Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
@@ -275,7 +275,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		i    int
-	}{{"gate", 0}, {"publish", 1}, {"start", 9}, {"prompt (review)", 6}} {
+	}{{"gate", 0}, {"publish", 1}, {"start", 9}, {"start (review)", 6}} {
 		c := dropStartCases[c.i]
 		t.Run(c.name, func(t *testing.T) {
 			r := newConcRig(t)

@@ -148,16 +148,9 @@ var failRows = map[string]failRow{
 			r.t.Fatalf("want 3 starts and no prompt: starts %d, %q", r.starts.Load(), r.steps())
 		}
 	}},
-	"review (agent_blocked)": {step: "review", arm: func(r *loopRig, _ *answers) func() {
-		in := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root) // it runs: the review job's wake is typed
-		in.Workspace, in.Label = "w1", "pj-int"
-		r.srv.Fail("agent.prompt", "agent_blocked", "pj-int is blocked")
-		return func() { r.srv.Reply("agent.prompt", prompted) }
-	}, pending: func(r *loopRig) {
-		if r.mainMerges() != 0 || r.starts.Load() != 0 {
-			r.t.Fatalf("merges %d, starts %d: want the job only retried: %q", r.mainMerges(), r.starts.Load(), r.steps())
-		}
-	}},
+	// T-602: no "review (agent_blocked)" row: a review job's first start is a fresh session (its wake the first
+	// prompt), never typed into a running integrator; its failure is the start's (the row above), and a typed
+	// integrator wake that fails is TestRV37V2ResumeRetryKeepsTheJob's (retry, nudge).
 	"fix (agent_blocked)": {step: "fix", attempt: 2, check: `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
 		arm: func(r *loopRig, _ *answers) func() {
 			r.work("red.txt", "red\n")

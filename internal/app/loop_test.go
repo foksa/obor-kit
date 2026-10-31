@@ -615,8 +615,8 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 			t.Errorf("no record %q: %q", s, r.steps())
 		}
 	}
-	if r.starts.Load() != 1 {
-		t.Errorf("integrator starts = %d, want 1", r.starts.Load())
+	if r.starts.Load() != 2 {
+		t.Errorf("integrator starts = %d, want 2 (a fresh one per job: resolve, review; T-602)", r.starts.Load())
 	}
 	r.noLead()
 }
