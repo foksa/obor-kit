@@ -1875,7 +1875,7 @@ func TestOneRestartLock(t *testing.T) {
 	x.sid("pj-o-01", "sid-1")
 	x.agent("w1:p3", "pj-o-01", "claude", "idle")
 	var seen []string
-	lane, agent := project.RestartLock(x.p.Root, "O-01", ""), project.RestartLock(x.p.Root, "", "pj-int")
+	lane, agent := launch.RestartLock(x.p.Root, "O-01", ""), launch.RestartLock(x.p.Root, "", "pj-int")
 	x.wrap = func(h app.PaneControl) app.PaneControl { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
 	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
 	if !ok {
@@ -1906,7 +1906,7 @@ func TestConcurrentRestartWaits(t *testing.T) {
 	x := setup(t)
 	x.sid("pj-o-01", "sid-1")
 	x.agent("w1:p3", "pj-o-01", "claude", "idle")
-	first := project.RestartLock(x.p.Root, "O-01", "") // the restart already running (another obor process)
+	first := launch.RestartLock(x.p.Root, "O-01", "") // the restart already running (another obor process)
 	if ok, err := first.Try(); !ok || err != nil {
 		t.Fatalf("precondition: the first restart holds the lock: %v, %v", ok, err)
 	}
@@ -2885,5 +2885,37 @@ func TestUntypedRoleLaunchDefaults(t *testing.T) {
 				t.Errorf("memory off = %v in %s", got, x.startCall())
 			}
 		})
+	}
+}
+
+// T-500: the restart lock is <state>/restart-<lane>.lock (no lane: the agent's); Held probes it without taking it.
+func TestRestartLockHeld(t *testing.T) {
+	root := t.TempDir()
+	lock := launch.RestartLock(root, "O-01", "pj-o-01")
+	if want := filepath.Join(project.StateDir(root), "restart-O-01.lock"); lock.Path != want {
+		t.Errorf("path = %q, want %q", lock.Path, want)
+	}
+	if got := launch.RestartLock(root, "", "pj-int").Path; got != filepath.Join(project.StateDir(root), "restart-pj-int.lock") {
+		t.Errorf("no lane: path = %q, want the agent's", got)
+	}
+	probe := launch.RestartLock(root, "O-01", "")
+	if probe.Held() {
+		t.Fatal("held before anyone took it")
+	}
+	if _, err := os.Stat(lock.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the probe created the file: %v", err)
+	}
+	if ok, err := lock.Try(); !ok || err != nil {
+		t.Fatalf("Try = %v, %v", ok, err)
+	}
+	if !lock.Held() || !probe.Held() {
+		t.Errorf("Held = %v (holder) / %v (probe), want true / true", lock.Held(), probe.Held())
+	}
+	if launch.RestartLock(root, "O-02", "").Held() {
+		t.Error("another lane's lock is held")
+	}
+	lock.Unlock()
+	if probe.Held() {
+		t.Error("held after Unlock")
 	}
 }

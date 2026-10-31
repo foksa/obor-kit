@@ -16,31 +16,11 @@ import (
 	"obor/internal/store"
 )
 
-// Start is one agent start in its pane (obor setup pane / role, obor restart): the agent's env and cwd are the
-// pane shell's already.
-type Start struct {
-	Agent, Kind, Pane string
-	Label             string   // the pane's label now: renamed to Agent when it differs
-	Args              []string // the type's launch args (config.LaneType.LaunchArgs)
-	Resume            string   // the session id to resume; "" for a new one
-	Prompt            string   // the CLI's first prompt (a job's wake); "" for none
-	Lane              string   // the agent's lane: a session a fresh start reports is recorded with it
-}
-
-// StartError is a failed start (herdr's error, or the startup dialog seen in the pane). NotReady: the agent runs but
-// waits at a startup dialog; Hint says what to do.
-type StartError struct {
-	Err      error
-	NotReady bool
-	Hint     string
-}
-
-func (e *StartError) Error() string {
-	if e.NotReady {
-		return e.Hint
-	}
-	return e.Err.Error()
-}
+// Start, StartError and AgentEnv are the core's types (app.Starter), so setup starts agents without importing launch.
+type (
+	Start      = app.Start
+	StartError = app.StartError
+)
 
 // Start labels the pane, clears the agent's herdr name from it if herdr still holds it there, prints the launch line
 // (T-145: a wrong model or permission mode is visible before the agent starts) and runs herdr agent start

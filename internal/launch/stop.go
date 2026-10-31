@@ -9,6 +9,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -18,7 +19,7 @@ import (
 // (the kind's Stop.Dialog option when the dialog asks); an agent that ignores the exit is terminated (terminate). No session
 // check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
-	if !AgentName.MatchString(agent) {
+	if !config.AgentNameRE.MatchString(agent) {
 		return "", project.Failf("bad agent name %q", agent)
 	}
 	waited, err := l.waitScheduled(ctx, agent, pane)

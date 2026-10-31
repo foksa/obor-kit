@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"obor/internal/app"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/roles"
 )
@@ -161,7 +160,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if lt.Kind == "" {
 		return project.Failf("unknown lane type %s (not in lane_types with a kind)", a.typ)
 	}
-	if !launch.AgentName.MatchString(a.name) {
+	if !config.AgentNameRE.MatchString(a.name) {
 		return project.Failf("bad herdr agent name %s", a.name)
 	}
 	what := a.lane
@@ -253,15 +252,15 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	args := lt.LaunchArgs(a.role.Name == "lead")
-	l := &launch.Launcher{Cfg: s.cfg, Env: s.Env, Kit: s.Kit, H: s.H, Out: s.Out, Rollout: s.Rollout, Open: s.Open}
+	l := s.Starter(s.cfg)
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
-		if err := l.SetEnv(ctx, pane, launch.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd}); err != nil {
+		if err := l.SetEnv(ctx, pane, app.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd}); err != nil {
 			return err
 		}
 	}
-	err = l.Start(ctx, launch.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
+	err = l.Start(ctx, app.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
 		Prompt: a.role.StartPrompt(lt.Kind)})
-	var se *launch.StartError
+	var se *app.StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
@@ -277,7 +276,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 
 // split splits the largest pane of tab (default: the caller's) for a new pane with cwd and env: to the right when it
 // is wider than tall on screen (a cell is about twice as tall as wide), else down.
-func (s *Setup) split(ctx context.Context, panes []herdr.Pane, tab, cwd string, env []string) (string, error) {
+func (s *Setup) split(ctx context.Context, panes []app.PaneInfo, tab, cwd string, env []string) (string, error) {
 	if tab == "" {
 		self := s.Env.Get("HERDR_PANE_ID")
 		if self == "" {

@@ -74,6 +74,58 @@ func NotFound(err error) bool {
 	return errors.As(err, &e) && e.NotFound()
 }
 
+// NotRunning: err says the multiplexer is not running or not reachable (an error in the chain with Unavailable() true).
+func NotRunning(err error) bool {
+	var e interface{ Unavailable() bool }
+	return errors.As(err, &e) && e.Unavailable()
+}
+
+// Rect is a pane's size on screen in cells (pane.layout).
+type Rect struct {
+	Pane string
+	W, H int
+}
+
+// Plugin is one linked multiplexer plugin (plugin.list): its id and the directory it runs from.
+type Plugin struct{ ID, Root string }
+
+// AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
+// lane ("" for none) and the directory it works in ("" keeps the shell's).
+type AgentEnv struct{ Agent, Role, Lane, Cwd string }
+
+// Start is one agent start in its pane (obor setup pane / role, obor restart): the agent's env and cwd are the
+// pane shell's already.
+type Start struct {
+	Agent, Kind, Pane string
+	Label             string   // the pane's label now: renamed to Agent when it differs
+	Args              []string // the type's launch args (config.LaneType.LaunchArgs)
+	Resume            string   // the session id to resume; "" for a new one
+	Prompt            string   // the CLI's first prompt (a job's wake); "" for none
+	Lane              string   // the agent's lane: a session a fresh start reports is recorded with it
+}
+
+// StartError is a failed start (the multiplexer's error, or the startup dialog seen in the pane). NotReady: the agent
+// runs but waits at a startup dialog; Hint says what to do.
+type StartError struct {
+	Err      error
+	NotReady bool
+	Hint     string
+}
+
+func (e *StartError) Error() string {
+	if e.NotReady {
+		return e.Hint
+	}
+	return e.Err.Error()
+}
+
+// Starter starts an agent in a pane the caller placed (launch.Launcher implements it; `obor setup pane` and `role`
+// are its callers): SetEnv types the agent's env line at the pane's shell, Start runs the agent.
+type Starter interface {
+	SetEnv(ctx context.Context, pane string, e AgentEnv) error
+	Start(ctx context.Context, s Start) error
+}
+
 // ErrorCode is the adapter's error code in err (herdr's agent_name_taken, agent_not_ready, …), "" when none.
 func ErrorCode(err error) string {
 	var e interface{ ErrorCode() string }

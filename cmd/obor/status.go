@@ -15,6 +15,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/launch"
 	"obor/internal/project"
 )
 
@@ -182,7 +183,7 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 	}
 	for _, s := range p.States() {
 		l := laneJSON{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task),
-			State: s.State, DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning), Op: s.Op,
+			State: s.State, DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning), Op: restartOp(p.Root, s.Lane),
 			Agent: p.Rows()[s.Lane].Agent}
 		if l.Warning == nil && s.State == "working" && pluginMissing(p, s) {
 			w := "no-plugin"
@@ -398,4 +399,12 @@ func waitingOn(t app.TaskStatus) string {
 		return t.State
 	}
 	return fmt.Sprintf("waiting for a %s lane (%s)", t.Level, strings.Join(t.Types, ", "))
+}
+
+// restartOp is "restart" while a restart of lane holds its restart lock (T-192, T-500), else "".
+func restartOp(root, lane string) string {
+	if launch.RestartLock(root, lane, "").Held() {
+		return "restart"
+	}
+	return ""
 }

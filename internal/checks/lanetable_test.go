@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -242,61 +241,6 @@ func TestSpecMatchGlobs(t *testing.T) {
 		if got := spec.Match(c.path, c.glob); got != c.want {
 			t.Errorf("spec.Match(%q, %q) = %v, GlobMatch said %v", c.path, c.glob, got, c.want)
 		}
-	}
-}
-
-// holdRestart holds lane's restart lock as a restart does (launch.begin), until the test's end.
-func holdRestart(t *testing.T, root, lane string) {
-	t.Helper()
-	lock := project.RestartLock(root, lane, "")
-	if ok, err := lock.Try(); !ok || err != nil {
-		t.Fatalf("Try = %v, %v", ok, err)
-	}
-	t.Cleanup(func() { lock.Unlock() })
-}
-
-// staleRestart leaves lane's restart lock file as a killed restart does: no process holds it.
-func staleRestart(t *testing.T, root, lane string) string {
-	t.Helper()
-	path := project.RestartLock(root, lane, "").Path
-	os.MkdirAll(filepath.Dir(path), 0o755)
-	if err := os.WriteFile(path, []byte(strconv.Itoa(deadPID(t))+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func deadPID(t *testing.T) int {
-	t.Helper()
-	cmd := exec.Command("true")
-	if err := cmd.Run(); err != nil {
-		t.Fatal(err)
-	}
-	return cmd.Process.Pid
-}
-
-// T-192, T-500: a lane whose restart lock is held has Op restart (obor status: op); a lock file nobody holds (its
-// restart was killed) is no op.
-func TestStatusShowsRunningRestart(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"O-01": "T-01", "O-02": "T-02"})
-	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
-	ltCommit(t, dir("O-01"))
-	ltSubmit(t, p.Root, "O-01", "T-01", true, 0)
-	ltCommit(t, dir("O-02"))
-	ltSubmit(t, p.Root, "O-02", "T-02", true, 0)
-	holdRestart(t, p.Root, "O-01")
-	stale := staleRestart(t, p.Root, "O-02")
-
-	// By name: the fixture's lane order follows a Go map (random).
-	s1, s2 := stateOf(p, "O-01"), stateOf(p, "O-02")
-	if s1.State != "done" || s2.State != "done" {
-		t.Fatalf("precondition: both lanes done, got %+v / %+v", s1, s2)
-	}
-	if _, err := os.Stat(stale); err != nil {
-		t.Fatalf("precondition: the stale lock file is there: %v", err)
-	}
-	if s1.Op != "restart" || s2.Op != "" {
-		t.Errorf("Op = %q / %q, want restart / empty", s1.Op, s2.Op)
 	}
 }
 

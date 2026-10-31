@@ -58,13 +58,6 @@ var layerPrefixes = []struct{ prefix, layer string }{
 	{"spikes/", tool},
 }
 
-// boundaryAllowlist is today's violations ("<from> -> <to>", paths without "obor/"). It may only shrink: an entry
-// that no longer occurs fails the test until it is removed.
-var boundaryAllowlist = map[string]bool{
-	"internal/setup -> internal/herdr":  true, // pane labels and plugin registration; through core (phase 1)
-	"internal/setup -> internal/launch": true, // `obor setup agent` starts an agent; through core (phase 2)
-}
-
 func layer(pkg string) string {
 	if l, ok := layerOf[pkg]; ok {
 		return l
@@ -118,6 +111,8 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/launch", "internal/herdr", false},
 		{"internal/herdr", "internal/herdr/herdrtest", true},
 		{"internal/guard", "internal/launch", false},
+		{"internal/setup", "internal/herdr", false},
+		{"internal/setup", "internal/launch", false},
 		{"internal/config", "internal/app", false},
 		{"internal/project", "internal/herdr", false},
 		{"cmd/obor", "internal/guard", true},
@@ -144,7 +139,6 @@ func TestImportBoundaries(t *testing.T) {
 			t.Fatalf("go list did not report obor/%s (got %d obor packages)", want, len(pkgs))
 		}
 	}
-	seen := map[string]bool{}
 	var names []string
 	for p := range pkgs {
 		names = append(names, p)
@@ -161,15 +155,7 @@ func TestImportBoundaries(t *testing.T) {
 			if allowed(from, fl, to, layer(to)) {
 				continue
 			}
-			seen[edge] = true
-			if !boundaryAllowlist[edge] {
-				t.Errorf("forbidden import %s (%s may not import %s; docs/module-map.md)", edge, fl, layerName(to))
-			}
-		}
-	}
-	for edge := range boundaryAllowlist {
-		if !seen[edge] {
-			t.Errorf("allowlisted %s no longer occurs: remove it from boundaryAllowlist (it may only shrink)", edge)
+			t.Errorf("forbidden import %s (%s may not import %s; docs/module-map.md)", edge, fl, layerName(to))
 		}
 	}
 }

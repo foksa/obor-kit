@@ -318,57 +318,6 @@ func TestProjectLockWaitContextAndHolderLine(t *testing.T) {
 	waiter.Unlock()
 }
 
-// T-500: the restart lock is <state>/restart-<lane>.lock (no lane: the agent's); Held probes it without taking it.
-func TestRestartLockHeld(t *testing.T) {
-	root := t.TempDir()
-	lock := RestartLock(root, "O-01", "pj-o-01")
-	if want := filepath.Join(StateDir(root), "restart-O-01.lock"); lock.Path != want {
-		t.Errorf("path = %q, want %q", lock.Path, want)
-	}
-	if got := RestartLock(root, "", "pj-int").Path; got != filepath.Join(StateDir(root), "restart-pj-int.lock") {
-		t.Errorf("no lane: path = %q, want the agent's", got)
-	}
-	probe := RestartLock(root, "O-01", "")
-	if probe.Held() {
-		t.Fatal("held before anyone took it")
-	}
-	if _, err := os.Stat(lock.Path); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the probe created the file: %v", err)
-	}
-	if ok, err := lock.Try(); !ok || err != nil {
-		t.Fatalf("Try = %v, %v", ok, err)
-	}
-	if !lock.Held() || !probe.Held() {
-		t.Errorf("Held = %v (holder) / %v (probe), want true / true", lock.Held(), probe.Held())
-	}
-	if RestartLock(root, "O-02", "").Held() {
-		t.Error("another lane's lock is held")
-	}
-	lock.Unlock()
-	if probe.Held() {
-		t.Error("held after Unlock")
-	}
-}
-
-// A restart lock held by a process killed with SIGKILL is free at once.
-func TestRestartLockKilledHolderFree(t *testing.T) {
-	root := t.TempDir()
-	lock := RestartLock(root, "O-01", "")
-	child := startChild(t, "lock", lock.Path)
-	if !lock.Held() {
-		t.Fatal("precondition: the child holds the lock")
-	}
-	child.Process.Kill()
-	child.Wait()
-	if lock.Held() {
-		t.Error("held after its holder died")
-	}
-	if ok, err := lock.Try(); !ok || err != nil {
-		t.Errorf("Try after the holder died = %v, %v", ok, err)
-	}
-	lock.Unlock()
-}
-
 func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
 	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":{"type":"opus"},"deep_dive":{"type":"opus"}}}`)
 	cfg, err := config.Load(root)

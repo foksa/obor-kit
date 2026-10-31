@@ -14,6 +14,7 @@ import (
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/launch"
 	"obor/internal/testkit"
 )
 
@@ -352,5 +353,25 @@ func TestStatusServeLine(t *testing.T) {
 		if got := strings.SplitN(b.String(), "\n", 2)[0]; got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// T-192, T-500: a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
+// was killed) is no op.
+func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
+	root := t.TempDir()
+	lock := launch.RestartLock(root, "O-01", "")
+	if ok, err := lock.Try(); !ok || err != nil {
+		t.Fatalf("Try = %v, %v", ok, err)
+	}
+	if got := restartOp(root, "O-01"); got != "restart" {
+		t.Errorf("held: op = %q, want restart", got)
+	}
+	if got := restartOp(root, "O-02"); got != "" {
+		t.Errorf("another lane's lock: op = %q, want none", got)
+	}
+	lock.Unlock()
+	if got := restartOp(root, "O-01"); got != "" {
+		t.Errorf("freed: op = %q, want none", got)
 	}
 }

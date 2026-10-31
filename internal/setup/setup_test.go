@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/app"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -96,8 +98,11 @@ func (x *fx) run(t *testing.T, args ...string) (string, int) {
 	if open == nil {
 		open = func([]int) []string { return nil }
 	}
-	s := &Setup{Kit: k, Dir: x.Root, Env: x.Env(x.env...), H: x.srv.Client(), Out: &out, McpCheck: check, Rollout: rollout,
-		Open: open}
+	env, h := x.Env(x.env...), x.srv.Client()
+	s := &Setup{Kit: k, Dir: x.Root, Env: env, H: h, Out: &out, McpCheck: check,
+		Starter: func(cfg *config.Config) app.Starter {
+			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
+		}}
 	rc := s.Run(context.Background(), args)
 	return out.String(), rc
 }

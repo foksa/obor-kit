@@ -37,9 +37,8 @@ import (
 	"strings"
 
 	"obor/internal/agents"
+	"obor/internal/app"
 	"obor/internal/config"
-	"obor/internal/herdr"
-	"obor/internal/launch"
 	"obor/internal/project"
 )
 
@@ -94,9 +93,8 @@ func (s *Setup) migrateStop(ctx context.Context) error {
 		return project.Failf("%s has neither .herd/config.json nor .obor/config.json: not a herd or obor project", s.root)
 	}
 	running, err := s.H.Agents(ctx)
-	var he *herdr.Error
 	switch {
-	case errors.As(err, &he) && he.Kind == herdr.Unavailable: // herdr is not running: no agent either
+	case app.NotRunning(err): // herdr is not running: no agent either
 	case err != nil:
 		return project.Failf("cannot ask herdr for the running agents: %v", err)
 	}
@@ -541,8 +539,7 @@ func copyTree(src, dst string) (int, error) {
 func (s *Setup) migrateHerdrPlugin(ctx context.Context) ([]string, error) {
 	plugins, err := s.H.Plugins(ctx)
 	if err != nil {
-		var he *herdr.Error
-		if errors.As(err, &he) && he.Kind == herdr.Unavailable {
+		if app.NotRunning(err) {
 			s.say("hint: herdr is not running; start it, then run obor migrate again to link obor.events")
 			return nil, nil
 		}
@@ -660,7 +657,7 @@ func (s *Setup) migrateFinish(ctx context.Context) error {
 	var workers, leads []string
 	seen := map[string]bool{}
 	for _, p := range panes {
-		if p.Label == "" || seen[p.Label] || !contains(names, p.Label) || !launch.LabelOurs(s.cfg, p.Label, p.Cwd, "") {
+		if p.Label == "" || seen[p.Label] || !contains(names, p.Label) || !project.LabelOurs(s.cfg, p.Label, p.Cwd, "") {
 			continue
 		}
 		seen[p.Label] = true

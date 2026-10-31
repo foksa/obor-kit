@@ -18,8 +18,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 ## Packages
 
 **base** — shared leaves, no obor state of their own.
-- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; a per-lane
-  restart lock (`lock.go`: `RestartLock`, T-500), the sid files and the opencode plugin marker (`plugin.go`).
+- `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
+  `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `Validate` (removed keys WARN), `TaskIDOK` /
   `TaskFromBranch`.
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
@@ -76,13 +76,15 @@ Adding a kind = one package + a config entry.
   flakes, receipts, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence).
   Implements `app.Scratch`.
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
-  `app.PaneControl`; implements `app.Agents`); the herdr plugin's restore (`Restorer`); `session.go`: a fresh start's session from the
+  `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
+  `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: a fresh start's session from the
   transcript its process holds open (a Codex rollout, T-588), reported to serve.
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
-- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report); `obor migrate` (herd → obor, `migrate.go`, until v0.17).
+- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it starts
+  agents through an `app.Starter` that `cmd/obor` injects); `obor migrate` (herd → obor, `migrate.go`, until v0.17).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
@@ -95,10 +97,3 @@ socket: scripted panes and plugins, and every request a test's client sent).
 adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`, `answer`, `resume`, `sendback`,
 `drop`, `spec`, `watch`, `pause`, `send`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
 `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`, `migrate`).
-
-## Open boundary violations
-
-1. **`project` (base) holds runtime state**: the locks, a per-lane restart lock among them. That is core state living
-   in a leaf package; it moves to the `app` store.
-2. **`setup` reaches into other adapters** (`setup -> herdr`, `setup -> launch`; `boundaryAllowlist`): `obor setup
-   pane` and `role` label panes and start agents themselves. It should ask the core (or run through `cmd/obor` wiring) instead.

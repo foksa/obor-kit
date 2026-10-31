@@ -97,7 +97,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		return fail("roles.lead.type is not set (a lane_types key; roles.lead.agent names the herdr agent): a new " +
 			"lead pane needs it")
 	}
-	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, H: r.h, Out: r.out}
+	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, H: r.h, Out: r.out, Starter: launcherFor(r.env, r.kit, r.h, r.out, r.tune)}
 	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead"})
 }
 
@@ -105,10 +105,10 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 // agent names are machine-wide): its cwd in the main checkout, a lanes_dir worktree, the lead's configured cwd or
 // another worktree of this repository. No cwd known: yes.
 func leadOurs(cfg *config.Config, agent, cwd string) bool {
-	if cwd == "" || launch.LabelOurs(cfg, agent, cwd, "") {
+	if cwd == "" || project.LabelOurs(cfg, agent, cwd, "") {
 		return true
 	}
-	if info, ok := project.AgentLookup(cfg, agent, ""); ok && info.Cwd != "" && launch.LabelOurs(cfg, agent, cwd, info.Cwd) {
+	if info, ok := project.AgentLookup(cfg, agent, ""); ok && info.Cwd != "" && project.LabelOurs(cfg, agent, cwd, info.Cwd) {
 		return true
 	}
 	r, err := project.Find(cwd)

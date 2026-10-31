@@ -3,10 +3,8 @@ package launch
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"obor/internal/app"
-	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -52,7 +50,7 @@ func (l *Launcher) paneIn(panes []app.PaneInfo, agent, dir string) (string, erro
 	maybe := ""
 	for _, id := range labelled {
 		cwd := cwds[id]
-		if !LabelOurs(l.Cfg, agent, cwd, dir) && (own == "" || !LabelOurs(l.Cfg, agent, cwd, own)) {
+		if !project.LabelOurs(l.Cfg, agent, cwd, dir) && (own == "" || !project.LabelOurs(l.Cfg, agent, cwd, own)) {
 			continue
 		}
 		if cwd != "" {
@@ -66,30 +64,4 @@ func (l *Launcher) paneIn(panes []app.PaneInfo, agent, dir string) (string, erro
 		return "", errNoPane
 	}
 	return maybe, nil
-}
-
-// LabelOurs: a pane labelled label with herdr's cwd may be cfg's project's (RV-19 #3: labels are machine-wide, another
-// project may use the same names): its cwd in dir (when given), else in the main checkout or a lanes_dir worktree. No
-// cwd known: yes, except for a bare <lane lower> label in a lane lookup (dir given; axis's o-01), the name other
-// projects share, which only a cwd can confirm. Paths compared physically.
-func LabelOurs(cfg *config.Config, label, cwd, dir string) bool {
-	if cwd == "" {
-		if dir != "" {
-			for _, lane := range cfg.Lanes() {
-				if strings.ToLower(lane.Name) == label {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	c := project.Physical(cwd)
-	in := func(d string) bool {
-		d = project.Physical(d)
-		return c == d || strings.HasPrefix(c, d+"/")
-	}
-	if dir != "" {
-		return in(dir)
-	}
-	return in(cfg.Root) || strings.HasPrefix(c, project.Physical(cfg.LanesDir())+"/")
 }
