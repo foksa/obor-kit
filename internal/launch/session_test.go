@@ -366,8 +366,8 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 	eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 }
 
-// T-586: serve refusing the session (another agent holds it), or not reachable, records nothing and says so: the next
-// restart starts fresh (T-599).
+// T-586: serve refusing the session (another agent holds it), or not reachable, records nothing and says so; a
+// restart resumes the last recorded session, else herdr's (T-607).
 func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	t.Parallel()
 	edit := testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`)
@@ -398,7 +398,8 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 		t.Parallel()
 		x, out := run(t, errors.New("obor serve is not running"))
 		contains(t, out, "session cx-new of pj-o-01 not recorded", "said")
-		contains(t, out, "the next restart starts fresh", "what follows")
+		contains(t, out, "a restart resumes pj-o-01's last recorded session", "what follows")
+		contains(t, out, "obor restart pj-o-01 --fresh starts a new one", "how to start fresh")
 		eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 	})
 }

@@ -288,15 +288,16 @@ func turn(input []byte, env project.Env, ended bool) {
 }
 
 // sessionBegan is the SessionStart hook telling the project's serve the agent's session began (app.MethodSession,
-// T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so); the
-// agent's next restart starts fresh.
+// T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so), and a
+// restart resumes the agent's last recorded session, else herdr's (T-607).
 func sessionBegan(b guard.Began, log io.Writer) {
 	ctx, cancel := context.WithTimeout(context.Background(), turnWait)
 	defer cancel()
 	c := app.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
 		Lane: b.Lane, Task: b.Task, Started: time.Now().Unix(), Source: "SessionStart hook"}
 	if _, err := app.Verdict(ctx, app.SocketPath(b.Root), app.MethodSession, c); err != nil {
-		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (the next restart of %s starts fresh)\n", b.ID, b.Agent, err, b.Agent)
+		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)\n",
+			b.ID, b.Agent, err, b.Agent, b.Agent)
 	}
 }
 

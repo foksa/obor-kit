@@ -63,6 +63,9 @@ func TestSessionStartHookReports(t *testing.T) {
 	if !strings.Contains(stderr, "session sid-77 of pj-o-01 not recorded") {
 		t.Errorf("serve down: stderr %q, want it to say the session is not recorded", stderr)
 	}
+	if !strings.Contains(stderr, "a restart resumes pj-o-01's last recorded session; obor restart pj-o-01 --fresh starts a new one") {
+		t.Errorf("serve down: stderr %q, want what a restart does then", stderr)
+	}
 	if _, err := os.Stat(filepath.Join(state, "agents", "pj-o-01.sid")); err == nil {
 		t.Error("serve down: a .sid file was written")
 	}
