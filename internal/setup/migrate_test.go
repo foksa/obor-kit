@@ -452,7 +452,7 @@ func TestMigrateOutsideAProjectFails(t *testing.T) {
 	}
 }
 
-func TestGithooksRepointsAHerdKitsHooksOnly(t *testing.T) {
+func TestGithooksRepointsAHerdKitsHooksAndChainsOthers(t *testing.T) {
 	x := newFx(t)
 	mine := filepath.Join(kit, "githooks")
 	// a herd kit's githooks (its plugin.json names herd): re-pointed
@@ -467,13 +467,14 @@ func TestGithooksRepointsAHerdKitsHooksOnly(t *testing.T) {
 	// a kit that is gone, named like one: re-pointed
 	x.Git(x.Root, "config", "--local", "core.hooksPath", "/nowhere/herd-kit/githooks")
 	x.ok(t, "githooks")
-	// anyone else's hooks: refused, left alone
+	// anyone else's hooks dir is the project's own: chained, not refused (T-620)
 	for _, other := range []string{"/nowhere/husky/githooks", "/usr/local/hooks", x.Base + "/githooks"} {
 		x.Git(x.Root, "config", "--local", "core.hooksPath", other)
-		if out, rc := x.run(t, "githooks"); rc != 1 || !strings.Contains(last(out), "already set to "+other) {
-			t.Errorf("hooks %s: exit %d\n%s", other, rc, out)
+		has(t, x.ok(t, "githooks"), "chaining "+other, "chained hooks "+other)
+		if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != other {
+			t.Errorf("obor.hooksChain = %s, want %s", got, other)
 		}
-		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != other {
+		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
 			t.Errorf("core.hooksPath %s changed to %s", other, got)
 		}
 	}

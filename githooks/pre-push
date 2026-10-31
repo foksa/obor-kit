@@ -1,12 +1,5 @@
 #!/bin/bash
-# obor pre-push (design "Git hooks layer (v2.3)"): after the project's own pre-push, always refuse unless
-# OBOR_ALLOW_PUSH=1. No-op without .obor/config.json.
-common=$(git rev-parse --git-common-dir 2> /dev/null) || exit 0
-common=$(cd "$common" && pwd -P) || exit 0
-if [ -x "$common/hooks/pre-push" ] && [ -f "$common/hooks/pre-push" ]; then
-  "$common/hooks/pre-push" "$@" || exit $?
-fi
-[ -f "$(dirname "$common")/.obor/config.json" ] || exit 0
-[ "${OBOR_ALLOW_PUSH:-}" = 1 ] && exit 0
-echo "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand" >&2
-exit 1
+# obor pre-push (design "Git hooks layer"): chains the project's own pre-push, then obor's rule: always refuse unless
+# OBOR_ALLOW_PUSH=1 (the user pushes).
+. "$(dirname "$0")/_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"

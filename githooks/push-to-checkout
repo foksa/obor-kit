@@ -1,0 +1,4 @@
+#!/bin/bash
+# obor push-to-checkout (design "Git hooks layer"): chains the project's own push-to-checkout, then obor's rule (none: T-620).
+. "$(dirname "$0")/_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"

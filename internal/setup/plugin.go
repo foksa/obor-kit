@@ -32,6 +32,9 @@ func herdKitHooks(path string) bool {
 	return json.Unmarshal(b, &m) == nil && (m.Name == "herd" || m.Name == "obor")
 }
 
+// githooks points core.hooksPath at <kit>/githooks. A project's own hooks dir (the value it already had) is not
+// refused but chained (T-620): recorded as obor.hooksChain in the repo config and run by <kit>/githooks/_hook before
+// obor's rule, for every hook. --remove puts it back and unsets obor.hooksChain.
 func (s *Setup) githooks(args []string) error {
 	remove := len(args) == 1 && args[0] == "--remove"
 	if len(args) > 0 && !remove {
@@ -43,16 +46,33 @@ func (s *Setup) githooks(args []string) error {
 	dir := filepath.Join(s.Kit, "githooks")
 	cur, _ := project.Git(s.root, "config", "--local", "--get", "core.hooksPath")
 	cur = strings.TrimSpace(cur)
-	switch {
-	case remove && cur == "":
-		s.say("OK githooks: core.hooksPath not set")
-	case remove && cur != dir:
-		return project.Failf("core.hooksPath is %s (not obor's %s): left alone", cur, dir)
-	case remove:
+	chain, _ := project.Git(s.root, "config", "--local", "--get", "obor.hooksChain")
+	chain = strings.TrimSpace(chain)
+	if remove {
+		switch {
+		case cur != "" && cur != dir:
+			return project.Failf("core.hooksPath is %s (not obor's %s): left alone", cur, dir)
+		case cur == "" && chain == "":
+			s.say("OK githooks: core.hooksPath not set")
+			return nil
+		}
+		if chain != "" {
+			if _, err := project.Git(s.root, "config", "--local", "core.hooksPath", chain); err != nil {
+				return project.Failf("cannot set core.hooksPath in %s", s.root)
+			}
+			if _, err := project.Git(s.root, "config", "--local", "--unset", "obor.hooksChain"); err != nil {
+				return project.Failf("cannot unset obor.hooksChain in %s", s.root)
+			}
+			s.say("OK githooks removed (core.hooksPath = %s, the project's own)", chain)
+			return nil
+		}
 		if _, err := project.Git(s.root, "config", "--local", "--unset", "core.hooksPath"); err != nil {
 			return project.Failf("cannot unset core.hooksPath in %s", s.root)
 		}
 		s.say("OK githooks removed (core.hooksPath unset)")
+		return nil
+	}
+	switch {
 	case cur == dir:
 		s.say("OK githooks: core.hooksPath already %s", dir)
 	case cur != "" && herdKitHooks(cur):
@@ -61,7 +81,14 @@ func (s *Setup) githooks(args []string) error {
 		}
 		s.say("OK githooks: core.hooksPath = %s (was %s, a herd or obor kit's)", dir, cur)
 	case cur != "":
-		return project.Failf("core.hooksPath is already set to %s (unset it first, or chain obor's hooks from there)", cur)
+		// The project's own hooks dir: chain it, rather than make it choose.
+		if _, err := project.Git(s.root, "config", "--local", "obor.hooksChain", cur); err != nil {
+			return project.Failf("cannot set obor.hooksChain in %s", s.root)
+		}
+		if _, err := project.Git(s.root, "config", "--local", "core.hooksPath", dir); err != nil {
+			return project.Failf("cannot set core.hooksPath in %s", s.root)
+		}
+		s.say("OK githooks: core.hooksPath = %s, chaining %s", dir, cur)
 	default:
 		if _, err := project.Git(s.root, "config", "--local", "core.hooksPath", dir); err != nil {
 			return project.Failf("cannot set core.hooksPath in %s", s.root)

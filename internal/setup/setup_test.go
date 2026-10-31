@@ -1116,8 +1116,8 @@ func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 
 // --- githooks ---------------------------------------------------------------------------------------------------------
 
-// tests/githooks.test.sh case_setup_githooks_sets_refuses_removes
-func TestGithooksSetsRefusesRemoves(t *testing.T) {
+// tests/githooks.test.sh case_setup_githooks_sets_chains_removes (T-620)
+func TestGithooksSetsChainsRemoves(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	hooks := filepath.Join(kit, "githooks")
@@ -1127,13 +1127,43 @@ func TestGithooksSetsRefusesRemoves(t *testing.T) {
 	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != hooks {
 		t.Errorf("hooksPath %q", got)
 	}
+	if got, err := gitIn(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != "" || err == nil {
+		t.Errorf("no chain for a repo without its own hooks: %q (%v)", got, err)
+	}
 	has(t, x.ok(t, "githooks"), "OK githooks: core.hooksPath already", "rerun")
 	x.ok(t, "githooks", "--remove")
 	if got, _ := gitIn(x.Root, "config", "--local", "--get", "core.hooksPath"); got != "" {
 		t.Errorf("removed: %q", got)
 	}
+	// The project's own hooksPath is chained, not refused (T-620): recorded, then obor's.
+	x.Git(x.Root, "config", "core.hooksPath", ".githooks")
+	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+hooks+", chaining .githooks\n" {
+		t.Errorf("own hooksPath: %q", out)
+	}
+	if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != ".githooks" {
+		t.Errorf("obor.hooksChain %q", got)
+	}
+	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != hooks {
+		t.Errorf("chained hooksPath %q", got)
+	}
+	has(t, x.ok(t, "githooks"), "OK githooks: core.hooksPath already", "rerun chained")
+	x.ok(t, "githooks", "--remove")
+	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != ".githooks" {
+		t.Errorf("restored hooksPath %q", got)
+	}
+	if got, err := gitIn(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != "" || err == nil {
+		t.Errorf("chain unset: %q (%v)", got, err)
+	}
+	// An absolute chainsPath is recorded as it is.
 	x.Git(x.Root, "config", "core.hooksPath", "/elsewhere")
-	x.failing(t, "FAIL core.hooksPath is already set to /elsewhere (unset it first, or chain obor's hooks from there)", "githooks")
+	if out := x.ok(t, "githooks"); out != "OK githooks: core.hooksPath = "+hooks+", chaining /elsewhere\n" {
+		t.Errorf("absolute hooksPath: %q", out)
+	}
+	x.ok(t, "githooks", "--remove")
+	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != "/elsewhere" {
+		t.Errorf("absolute restored: %q", got)
+	}
+	// Not obor's: --remove leaves it alone.
 	x.failing(t, "FAIL core.hooksPath is /elsewhere (not obor's "+hooks+"): left alone", "githooks", "--remove")
 	if got := x.Git(x.Root, "config", "--get", "core.hooksPath"); got != "/elsewhere" {
 		t.Errorf("someone else's hooksPath kept: %q", got)

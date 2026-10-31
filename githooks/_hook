@@ -1,0 +1,101 @@
+#!/bin/bash
+# obor's git hook runner (design "Git hooks layer"), sourced by every githooks/<name> file: the file calls
+# obor_hook with git's args. It runs the project's own <name> first, then obor's rule (pre-commit, pre-push; none for
+# the rest). The project's own hook is, in order:
+#   <obor.hooksChain>/<name>  the core.hooksPath `obor setup githooks` chained (a path relative to the main checkout)
+#   <main>/.git/hooks/<name>  git's own dir, which obor chained before T-620
+# Args and stdin pass through (pre-push, post-rewrite and reference-transaction read stdin). A chained hook's failure is
+# the result for the hooks whose result git uses (all but post-applypatch, post-checkout, post-commit, post-index-change,
+# post-merge and post-rewrite). Without .obor/config.json a hook only chains.
+
+# obor_hook NAME [GIT ARGS…]: chain NAME's project hook, then obor's rule for NAME.
+obor_hook() {
+  local name=$1 chained rc common chain
+  shift
+  common=$(git rev-parse --git-common-dir 2> /dev/null) || return 0
+  common=$(cd "$common" && pwd -P) || return 0
+  chain=$(git config --get obor.hooksChain 2> /dev/null) || chain=
+  case "$chain" in
+    "") chained= ;;
+    /*) chained=$chain/$name ;;
+    *) chained=$(dirname "$common")/$chain/$name ;;
+  esac
+  if [ ! -f "$chained" ] || [ ! -x "$chained" ]; then
+    chained=$common/hooks/$name
+  fi
+  rc=0
+  if [ -f "$chained" ] && [ -x "$chained" ]; then
+    "$chained" "$@" || rc=$?
+  fi
+  if [ "$rc" != 0 ]; then
+    case "$name" in
+      post-applypatch | post-checkout | post-commit | post-index-change | post-merge | post-rewrite)
+        rc=0
+        ;;
+      *) return "$rc" ;;
+    esac
+  fi
+  [ -f "$(dirname "$common")/.obor/config.json" ] || return 0
+  case "$name" in
+    pre-commit) obor_pre_commit ;;
+    pre-push) obor_pre_push ;;
+  esac
+}
+
+# obor_pre_commit (needs common, set by obor_hook): refuse a commit in a lane worktree unless OBOR_MERGE=1 (obor serve
+# sets it). The main checkout is not checked (the agent guard covers commit -a there). Fails closed: in a linked
+# worktree of an obor project, a classifier that can't answer (no binary, stale, hanging, past the timeout) refuses; the
+# hook never fetches a binary (no network).
+obor_pre_commit() {
+  local gitdir kit out rc source_line pid watchdog
+  [ "${OBOR_MERGE:-}" = 1 ] && return 0
+  # The main checkout is not a lane: only a linked worktree (own git dir) needs the classifier.
+  gitdir=$(git rev-parse --git-dir 2> /dev/null) && gitdir=$(cd "$gitdir" && pwd -P) || return 0
+  [ "$gitdir" != "$common" ] || return 0
+  # whoami's source is cwd or env+cwd in a lane worktree.
+  kit=$(cd "$(dirname "$0")/.." && pwd -P)
+  out=$(mktemp "${TMPDIR:-/tmp}/obor-precommit.XXXXXX") || out=
+  rc=1
+  if [ -n "$out" ]; then
+    # No job control (T-279: where setpgid is refused, `set -m` printed to git's stderr and the group kill missed): a
+    # simple background command is the binary's own pid. The watchdog sleeps in the background and waits, so a TERM
+    # ends it at once, its sleep with it.
+    OBOR_NO_SELF_HOST=1 OBOR_NO_FETCH=1 "$kit/bin/obor" whoami < /dev/null > "$out" 2> /dev/null &
+    pid=$!
+    (
+      s=
+      trap 'kill "$s"; exit 0' TERM
+      sleep "${OBOR_PRE_COMMIT_WHOAMI_TIMEOUT:-2}" &
+      s=$!
+      wait "$s"
+      kill -KILL "$pid"
+    ) > /dev/null 2>&1 &
+    watchdog=$!
+    wait "$pid" 2> /dev/null && rc=0
+    kill -TERM "$watchdog" 2> /dev/null || :
+    wait "$watchdog" 2> /dev/null || :
+    source_line=$(grep -m1 '^source: ' "$out") || source_line=
+    rm -f "$out"
+  else
+    source_line=
+  fi
+  case "${source_line:-}" in
+    'source: env' | 'source: none') [ "$rc" = 0 ] && return 0 ;;
+    'source: cwd' | 'source: env+cwd')
+      if [ "$rc" = 0 ]; then
+        echo "obor: no commits in a lane: obor serve commits it (OBOR_MERGE=1 to commit by hand)" >&2
+        return 1
+      fi
+      ;;
+  esac
+  # No answer, or one that is not a known source (empty, unknown): can't classify, so refuse.
+  echo "obor: cannot tell whether this is a lane (no usable obor binary): make -C $kit build (OBOR_MERGE=1 to commit by hand)" >&2
+  return 1
+}
+
+# obor_pre_push: always refuse unless OBOR_ALLOW_PUSH=1: the user pushes.
+obor_pre_push() {
+  [ "${OBOR_ALLOW_PUSH:-}" = 1 ] && return 0
+  echo "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand" >&2
+  return 1
+}
