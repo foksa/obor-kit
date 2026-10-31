@@ -17,9 +17,9 @@ global across herdr workspaces → prefix `ob-`. Tabs ([lead.md](lead.md)): `lea
 | ob-o-03 | [worker](worker.md) | Claude Code, Opus, effort medium (`opus`) | opus lanes (w5:p8) | `~/Work/obor-kit-wt/O-03` |
 | ob-o-04 | [worker](worker.md) | Claude Code, Opus, effort medium (`opus`) | opus lanes (w5:pB) | `~/Work/obor-kit-wt/O-04` |
 | ob-s-01 | [worker](worker.md) | Claude Code, Sonnet, effort medium (`sonnet`) | small lanes (w5:p4) | `~/Work/obor-kit-wt/S-01` |
-| ob-h-01 | [worker](worker.md) (simple/bulk) | Claude Code, Haiku (`haiku`) | small lanes (w5:p1M) | `~/Work/obor-kit-wt/H-01` |
+| ob-d-02 | [worker](worker.md) | opencode, DeepSeek V4.1 Flash (`deepseek`, as ob-d-01; max 2) | small lanes (w5:p1V) | `~/Work/obor-kit-wt/D-02` |
 | ob-c-01 | [worker](worker.md) | Codex `gpt-6-luna` high (`luna`) | small lanes (w5:p6) | `~/Work/obor-kit-wt/C-01` |
-| ob-d-01 | [worker](worker.md) | opencode, DeepSeek V4.1 Flash (`deepseek`: `--auto --standalone`; max 1); guard + session context via obor's opencode plugin (`obor setup opencode-plugin` once per user, then restart opencode; opencode 2.x has no stop hook, so nothing blocks it before `task_done`) | small lanes (w5:p1N) | `~/Work/obor-kit-wt/D-01` |
+| ob-d-01 | [worker](worker.md) | opencode, DeepSeek V4.1 Flash (`deepseek`: `--auto --standalone`; max 2); guard + session context via obor's opencode plugin (`obor setup opencode-plugin` once per user, then restart opencode; opencode 2.x has no stop hook, so nothing blocks it before `task_done`) | small lanes (w5:p1N) | `~/Work/obor-kit-wt/D-01` |
 | obor-kit-serve | dispatch + merge loop | `obor serve` | system (w5:p1F) | main checkout |
 
 Role not running now: `deep_dive` (`roles.deep_dive`: type `opus`, worktree `~/Work/obor-kit-wt/deep-dive`).

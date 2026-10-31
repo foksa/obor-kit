@@ -44,8 +44,14 @@
     }
   },
   "difficulty": {
-    "medium": ["deepseek", "sonnet"],
-    "simple": ["deepseek", "luna"]
+    "medium": [
+      "deepseek",
+      "sonnet"
+    ],
+    "simple": [
+      "deepseek",
+      "luna"
+    ]
   },
   "protected_files": [
     "docs/design.md"
@@ -137,7 +143,7 @@
         "--auto",
         "--standalone"
       ],
-      "max": 1,
+      "max": 2,
       "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
     },
     "terra": {
@@ -159,10 +165,10 @@
     "O-02": "opus",
     "O-03": "opus",
     "S-01": "sonnet",
-    "H-01": "haiku",
     "C-01": "luna",
     "O-04": "opus",
-    "D-01": "deepseek"
+    "D-01": "deepseek",
+    "D-02": "deepseek"
   },
   "roles": {
     "reviewer": {
