@@ -558,6 +558,9 @@ func TestRefreshSubscribesAgainQuietly(t *testing.T) {
 	if strings.Contains(r.out.String(), "stream ended") {
 		t.Errorf("a refresh logged a stream end:\n%s", r.out)
 	}
+	// T-1's quiet baseline at 0 before the clock moves: the stall counts from the first sample of the identified
+	// agent, and the refresh's check is not the test's to order (a sample taken at 11 min never stalls).
+	r.waitQuiet("T-1", r.clock.Now())
 	r.clock.Add(11 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}")
 }
