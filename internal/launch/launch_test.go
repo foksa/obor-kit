@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,7 +112,7 @@ func setup(t *testing.T, edits ...func(map[string]any)) *fx {
 	return x
 }
 
-func (x *fx) launcher(out *bytes.Buffer) *launch.Launcher {
+func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	x.t.Helper()
 	cfg, err := config.Load(x.p.Root)
 	if err != nil {
@@ -1964,6 +1965,24 @@ func TestOneRestartLock(t *testing.T) {
 	eq(t, strings.Join(seen, " "), "run:restart-pj-int.lock", "no lane: the agent's lock")
 }
 
+// lockedBuf is a bytes.Buffer a restart's goroutine writes while the test reads it.
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
 // T-500: two restarts of one lane: the second waits (saying so) until the first frees the lane's restart lock, and
 // touches the pane only then.
 func TestConcurrentRestartWaits(t *testing.T) {
@@ -1979,17 +1998,26 @@ func TestConcurrentRestartWaits(t *testing.T) {
 		line string
 		err  error
 	}
-	var out bytes.Buffer
+	var out lockedBuf
 	l := x.launcher(&out)
 	done := make(chan res, 1)
 	go func() {
 		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-o-01"})
 		done <- res{line, err}
 	}()
-	select {
-	case r := <-done:
-		t.Fatalf("the second restart did not wait: %q, %v", r.line, r.err)
-	case <-time.After(300 * time.Millisecond):
+	// Wait for the second restart's waiting line: it is what proves it reached the lock (under load, not within any
+	// fixed sample of the test).
+	said := "waiting for the restart of lane O-01 (pid " + strconv.Itoa(os.Getpid()) + ")\n"
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(out.String(), said); {
+		select {
+		case r := <-done:
+			t.Fatalf("the second restart did not wait: %q, %v", r.line, r.err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the second restart never said %q: %q", said, out.String())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed while it waits")
 	eqInt(t, len(x.calls("agent.start")), 0, "nothing started while it waits")
@@ -2003,7 +2031,6 @@ func TestConcurrentRestartWaits(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, out.String())
 	}
-	contains(t, out.String(), "waiting for the restart of lane O-01 (pid "+strconv.Itoa(os.Getpid())+")\n", "said")
 	eq(t, r.line, "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
 	eqInt(t, len(x.calls("agent.start")), 1, "started once the first ended")
 }
