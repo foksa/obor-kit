@@ -33,7 +33,7 @@ var ErrUnmigrated = errors.New("run obor migrate")
 // fails the load.
 type Data struct {
 	Version          *int                `json:"version,omitempty"`
-	Obor             *Obor               `json:"obor,omitempty"`
+	Obor             any                 `json:"obor,omitempty"` // removed in v0.17.0 (T-597): validate warns
 	Name             string              `json:"name,omitempty"`
 	Prefix           string              `json:"prefix,omitempty"`
 	LanesDir         string              `json:"lanes_dir"`
@@ -65,10 +65,6 @@ type Data struct {
 	// Difficulty maps a level (hard, medium, simple) to its lane types in dispatch order; a level it omits has the built-in
 	// default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
-}
-
-type Obor struct {
-	Version string `json:"version,omitempty"`
 }
 
 // Spec holds only removed keys (T-496: no "Files you may touch" enforcement; placement is checked at accept).

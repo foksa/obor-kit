@@ -279,6 +279,7 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("paths.research", c.Data.Paths["research"] != "")
 	removed("paths.questions", c.Data.Paths["questions"] != "")
+	removed("obor", c.Data.Obor != nil)                                          // v0.17.0, T-597: one kit per machine
 	removed("cache.warn_tokens", c.Data.Cache.WarnTokens != nil)                 // v0.12.0, T-463
 	removed("heartbeat", c.Data.Heartbeat != nil)                                // v0.12.0, T-465: the heartbeat, its nudges and obor notify went
 	removed("stop_hook", c.Data.StopHook != nil)                                 // v0.12.0, T-465

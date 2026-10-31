@@ -20,7 +20,7 @@ import (
 
 // Tests for bin/obor, the kit's one bash file: self-hosting (T-143, T-240: inside an obor checkout, main or lane
 // worktree, `obor` runs the MAIN checkout's bin/obor; elsewhere the installed ("stable") copy runs) and finding the Go
-// binary (dev build, pinned release, fetch + checksum; a hook checks `has` first, T-195). Every fixture kit carries its
+// binary (dev build, installed release, fetch + checksum; a hook checks `has` first, T-195). Every fixture kit carries its
 // own VERSION (shimVersion), so the tests pass with any VERSION in the tree. A fake dist/obor marks which root ran.
 
 // shimVersion is the VERSION of every fixture kit.
@@ -301,12 +301,11 @@ func TestShimPicksBinary(t *testing.T) {
 			fakeGo(t, filepath.Join(f.Root, "dist", "obor"))
 			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
 		}, []string{"version"}, "argv: <version> source=dev build root=%s\n"},
-		{"the project's obor.version pin selects that installed release", func(t *testing.T, f *shimFixture) {
+		{"a leftover project pin is ignored: the kit's VERSION selects the release", func(t *testing.T, f *shimFixture) {
 			os.Remove(filepath.Join(f.Root, "dist", "obor"))
-			f.Config(testkit.Set("obor.version", "pin-9"))
+			f.Config(testkit.Set("obor", `{"version": "pin-9"}`))
 			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
-			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset("pin-9")))
-		}, []string{"version"}, "argv: <version> source=pinned root=%s\n"},
+		}, []string{"version"}, "argv: <version> source=kit default root=%s\n"},
 		{"hook and its argument reach the installed release in order", func(t *testing.T, f *shimFixture) {
 			os.Remove(filepath.Join(f.Root, "dist", "obor"))
 			fakeGo(t, filepath.Join(f.home, ".obor", "bin", shimAsset(shimVersion)))
@@ -384,37 +383,29 @@ func TestShimHookSkipsHangingDevBuild(t *testing.T) {
 	}
 }
 
-// bash tests/bin.test.sh case_local_fetch_verifies_checksum, case_cold_fetch_verifies_older_pin,
-// case_checksum_mismatch_refused: without a dev build or an installed release, a command fetches the release from
+// bash tests/bin.test.sh case_local_fetch_verifies_checksum, case_checksum_mismatch_refused: without a dev build or an
+// installed release, a command fetches the release from
 // bin/release-url (a local file here) into ~/.obor/bin and runs it only when its bin/checksums.txt line matches.
 func TestShimFetchVerifiesChecksum(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name    string
 		version string // the kit's VERSION
-		pin     string // the project's obor.version
 		line    string // checksum line: "%s" the sha256, "%[2]s" the asset
 		rc      int
 		want    string // stdout (%s: the project root), or a stderr substring when rc != 0
 	}{
-		{"the kit's dev version", shimVersion, "", "%s  %s\n", 0, "argv: <version> source=kit default root=%s\n"},
-		{"a release version, catalog line as make release writes it", "0.9.1", "", "%s  dist/%s\n", 0,
+		{"the kit's dev version", shimVersion, "%s  %s\n", 0, "argv: <version> source=kit default root=%s\n"},
+		{"a release version, catalog line as make release writes it", "0.9.1", "%s  dist/%s\n", 0,
 			"argv: <version> source=kit default root=%s\n"},
-		{"an older pin from a cold cache", shimVersion, "0.6.3", "%s  %s\n", 0,
-			"argv: <version> source=pinned root=%s\n"},
-		{"a checksum mismatch is refused", shimVersion, "", strings.Repeat("0", 64) + "  %[2]s\n", 1, "checksum mismatch"},
+		{"a checksum mismatch is refused", shimVersion, strings.Repeat("0", 64) + "  %[2]s\n", 1, "checksum mismatch"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f := newShimFixture(t)
 			os.Remove(filepath.Join(f.Root, "dist", "obor"))
 			f.Write("VERSION", c.version+"\n")
-			v := c.version
-			if c.pin != "" {
-				f.Config(testkit.Set("obor.version", c.pin))
-				v = c.pin
-			}
-			asset := shimAsset(v)
+			asset := shimAsset(c.version)
 			download := filepath.Join(f.Base, "download")
 			fakeGo(t, filepath.Join(download, asset))
 			sum := sha256.Sum256([]byte(readFile(t, filepath.Join(download, asset))))
