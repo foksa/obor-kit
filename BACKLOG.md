@@ -39,9 +39,6 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Later candidates
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
   pushed tag could upload bytes fresh installs reject. Rule instead of code: a pushed tag never moves (RELEASING.md).
-- (RV-62, v0.17) Drop the `<agent>.sid` fallback (only for serve down) once the store is the session record: RV-62 #1
-  took five rounds (T-582, T-586, T-588, T-589 after T-577), half of it in the fallback's ownership. Live process
-  races beyond the pinned pid are accepted (unchecked live).
 - **herdr-core (`hc`)** (`docs/research/herdr-core.md`, 10-30): a separate headless terminal core (own `herdr-core`/`hc`
   binary, own socket/state; no clash with `herdr`). Not now (0.1.x preview). Spike behind `app.PaneControl` when hc has a
   stable generation, herdr discussion #5684 is answered, and Claude/Codex/OpenCode all report OSC 7501. Until then: no
@@ -91,8 +88,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   `OBOR_AGENT=hk-*` still exported, so `job_next` refused ob-int ("only the integrator (ob-int) fetches its jobs,
   not hk-int"; T-590 review stuck → needs-you). `obor restart <agent> --fresh` sets it right (verified per pid).
   setup role should export the agent env the way restart does.
-- (T-577) `obor plugin restore` could resume a Codex worker from its session in the store (today it starts fresh
-  after a herdr restart; restore.go reads only `.sid`). Goal 1; not yet specced.
+- (T-577) `obor plugin restore` could resume a Codex worker from its session in the store (restore restarts each
+  pane via `obor restart`, which reads the store since T-599: check a Codex worker resumes before speccing). Goal 1.
 - (10-30, migrate) **Role worktrees keep the old plugin**: a detached role worktree (deep-dive, review) carries the
   tracked `.claude/settings.json` of its old commit (`herd@herd-kit`): after the switch its Claude session had no
   plugin, no inbox, and its brief sat undelivered. migrate / the UPGRADE guide: move every role worktree to the new

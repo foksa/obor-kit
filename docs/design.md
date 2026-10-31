@@ -132,7 +132,7 @@ before acting` (lead: `run /obor:lead`; T-204).
 
 ## Setup (`obor init`, `obor setup`; Go `internal/setup` since T-250)
 `obor init [--name] [--prefix]` (T-608) sets a project up with no questions: herdr reachable (else FAIL first),
-config with the detected commands, lanes for the CLIs on PATH, panes and roles, the plugin (`claude plugin
+config with the detected commands, lanes for the CLIs on PATH, the git hooks layer (T-623), panes and roles, the plugin (`claude plugin
 marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), obor.events, `obor serve install`, then a
 summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
 the repair path. `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
@@ -257,13 +257,18 @@ When the user types into a worker's pane by mistake, the worker must not act on 
 
 ## Git hooks layer (v2.3)
 A second layer that doesn't depend on agent hooks (also covers Codex/opencode lanes and humans).
-- Shipped in the kit as `githooks/`: a file per client-side hook git runs, each sourcing one runner (`_hook`).
-  `obor setup githooks` sets `core.hooksPath` in the project's repo config (shared by all worktrees) to
-  `<kit>/githooks`. A project that already has its own `core.hooksPath` keeps its hooks: setup records it as
-  `obor.hooksChain` (git config) and `--remove` puts it back (T-620; a herd or obor kit's path is re-pointed).
-- Every hook first runs the project's own `<name>`: `<obor.hooksChain>/<name>`, else `.git/hooks/<name>`; args and
-  stdin pass through; its failure is the hook's result where git uses one (not for the post-* hooks). Then obor's
-  rule, for `pre-commit` and `pre-push` only. Without `.obor/config.json` a hook only chains.
+- Shipped in the kit as `githooks/` (`pre-commit`, `pre-push`, the runner `_hook`) and `githooks/chain/` (a file per
+  client-side hook git runs, each sourcing `../_hook`). `obor setup githooks` (and `obor init`) sets `core.hooksPath`
+  in the project's repo config (shared by all worktrees) to `chain/` only when there is something to chain (a recorded
+  `obor.hooksChain`, or an executable `.git/hooks/<name>` other than those two), else to `githooks/`: a commit then
+  runs two cheap hooks, not twelve (DD-v0.17 #2, T-623). A project that already has its own `core.hooksPath` keeps
+  its hooks: setup records it as `obor.hooksChain` (git config) and `--remove` puts it back (T-620).
+- Every hook first runs the project's own `<name>`: `<obor.hooksChain>/<name>` when a chain is recorded (nothing when
+  it lacks that hook), else `.git/hooks/<name>`; args and stdin pass through; its failure is the hook's result where
+  git uses one (not for the post-* hooks). Then obor's rule, for `pre-commit` and `pre-push` only. Without
+  `.obor/config.json` a hook only chains.
+- serve's own commits (submit, the gate's merge commit, the amend) pass `--no-verify`: the project's checking step is
+  `commands.check`, not its commit hooks; git still runs `prepare-commit-msg` (T-622).
 - `pre-push`: always refuses (`obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand`).
 - `pre-commit`: refuses in a lane worktree unless `OBOR_MERGE=1` (set by serve's gate for its
   commands and scratch commits); in the main checkout git can't tell a `commit -a` from a normal commit, so nothing is
