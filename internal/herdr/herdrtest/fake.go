@@ -323,7 +323,7 @@ func (f *Fake) layout(at *Pane) map[string]any {
 func (f *Fake) split(t *Pane, dir, cwd string) *Pane {
 	f.made++
 	ws, _, _ := strings.Cut(t.ID, ":")
-	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: t.Tab, Cwd: cwd, W: t.W, H: t.H}
+	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: t.Tab, Workspace: t.Workspace, Cwd: cwd, W: t.W, H: t.H}
 	if f.NewPaneBusy > 0 {
 		n.Ready = time.Now().Add(f.NewPaneBusy)
 	}
@@ -342,10 +342,22 @@ func (f *Fake) newTab(ws, cwd string) *Pane {
 	if ws == "" {
 		ws = "w1"
 	}
-	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made), Cwd: cwd, W: 200, H: 50}
+	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made), Workspace: ws, Cwd: cwd,
+		W: 200, H: 50}
 	if f.NewPaneBusy > 0 {
 		n.Ready = time.Now().Add(f.NewPaneBusy)
 	}
+	f.Panes = append(f.Panes, n)
+	return n
+}
+
+// newWorkspace adds a workspace labelled label (wn1, wn2, …) with one tab whose root pane is a shell in cwd, and
+// returns that pane.
+func (f *Fake) newWorkspace(label, cwd string) *Pane {
+	f.made++
+	ws := fmt.Sprintf("wn%d", f.made)
+	f.Workspaces = append(f.Workspaces, herdr.Workspace{ID: ws, Label: label})
+	n := &Pane{ID: ws + ":p1", Tab: ws + ":t1", Workspace: ws, Cwd: cwd, W: 200, H: 50}
 	f.Panes = append(f.Panes, n)
 	return n
 }

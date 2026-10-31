@@ -150,12 +150,14 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)
 	out, rc := x.run(t)
-	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane w1:n1" {
+	// No pane of the project anywhere: its own herdr workspace first, wn1 (T-632).
+	if rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" {
 		t.Fatalf("no pane: exit %d\n%s", rc, out)
 	}
 	c := x.calls()
-	if !strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"pj-lead","OBOR_ROLE":"lead"},"focus":false,"label":"lead"}`) ||
-		!strings.Contains(c, startCall("pj-lead", "w1:n1", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
+	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
+		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"pj-lead","OBOR_ROLE":"lead"},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, startCall("pj-lead", "wn1:n2", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}
 }
@@ -241,7 +243,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	}
 
 	x = newLeadFx(t, testkit.Set("lane_types", `{"cx": {"kind": "codex"}}`), testkit.Set("roles.lead", `{"type": "cx"}`))
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane w1:n1" {
+	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace, T-632
 		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
 	}
 	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
