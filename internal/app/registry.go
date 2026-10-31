@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"obor/internal/config"
 )
 
 // State is what whereIs found of an agent.
@@ -192,7 +194,8 @@ type claim struct {
 }
 
 // reconcile rebuilds p's table from the proofs that hold now (under mu): every candidate agent × agent pane of p, each
-// pair's strongest proof (registry.reconcile accepts them).
+// pair's strongest proof (registry.reconcile accepts them). names is whether the config names an agent (read once per
+// pass, not per pane): a start row or a recorded session of an agent it does not name is no proof.
 func (a *App) reconcile(p *proj) {
 	if !a.connected {
 		return
@@ -210,12 +213,14 @@ func (a *App) reconcile(p *proj) {
 		}
 	}
 	logp := func(line string) { a.logf("%s: %s", p.name, line) }
+	names := namedAgents(p.root)
 	best := map[[2]string]claim{} // by agent and terminal: the strongest proof
-	for _, agent := range a.candidates(p, mine) {
+	for _, agent := range a.candidates(p, mine, names) {
 		sid := a.recordedSid(p, agent) // read once per candidate, not per pane (DD-v0.13 A6)
+		named := names(agent)
 		for _, pane := range mine {
-			p.reg.crossCheck(agent, sid, pane, logp)
-			if src := p.reg.proof(agent, sid, pane); src != "" {
+			p.reg.crossCheck(agent, sid, pane, named, logp)
+			if src := p.reg.proof(agent, sid, pane, named); src != "" {
 				k := [2]string{agent, termOf(pane)}
 				if c, ok := best[k]; !ok || rank(src) > rank(c.src) {
 					best[k] = claim{agent: agent, term: k[1], src: src, pane: pane}
@@ -223,17 +228,31 @@ func (a *App) reconcile(p *proj) {
 			}
 		}
 	}
-	p.reg.reconcile(best, logp)
+	p.reg.reconcile(best, names, logp)
+}
+
+// namedAgents is whether the current config names an agent (config.LoadDaemon, as serve reads it elsewhere): a lead,
+// integrator, role or lane agent, by the name rules launch resolves (AgentLookup). A config that does not load names
+// every agent: a broken file drops no proof.
+func namedAgents(root string) func(string) bool {
+	cfg, err := config.LoadDaemon(root)
+	if err != nil {
+		return func(string) bool { return true }
+	}
+	return func(agent string) bool {
+		_, ok := cfg.AgentLookup(agent, "", nil)
+		return ok
+	}
 }
 
 // reconcile rebuilds the table from best, the strongest proof of each agent and terminal, accepted strongest first;
-// log takes each line it logs. A claim is accepted when
+// log takes each line it logs; named is whether the config names an agent. A claim is accepted when
 // neither its agent nor its terminal is taken; an agent whose strongest free claims name two or more terminals is
 // ambiguous and takes none; two agents with equal proof of one terminal take it neither, and no weaker claim takes it
 // in this pass (RV-53-verify V1: it is owned again once the tie ends). The result does
-// not depend on any iteration order. A start row whose terminal another agent now owns is retired. Each change is
-// logged once.
-func (r *registry) reconcile(best map[[2]string]claim, log func(string)) {
+// not depend on any iteration order. A start row whose terminal another agent now owns is retired, as is the row of an
+// agent the config does not name. Each change is logged once.
+func (r *registry) reconcile(best map[[2]string]claim, named func(string) bool, log func(string)) {
 	owners, agents, ambiguous := map[string]owner{}, map[string]string{}, map[string][]string{}
 	done, contested := map[string]bool{}, map[string]bool{} // contested: equal proofs tied on it, unowned this pass
 	for r := 3; r >= 1; r-- {
@@ -268,6 +287,11 @@ func (r *registry) reconcile(best map[[2]string]claim, log func(string)) {
 	r.logOwners(owners, agents, ambiguous, best, log)
 	r.owners, r.agents, r.ambiguous = owners, agents, ambiguous
 	for agent, row := range r.starts {
+		if !named(agent) {
+			delete(r.starts, agent)
+			log(fmt.Sprintf("%s's start row retired: the config names no such agent", agent))
+			continue
+		}
 		t := row.Terminal
 		if t == "" {
 			t = "pane " + row.Pane
@@ -325,10 +349,10 @@ func (a *App) recordedSid(p *proj, agent string) string {
 
 // crossCheck logs, once per value, that herdr reports another session than agent's recorded sid for pane, the pane
 // agent's start or label names (under mu; log takes the line): herdr's agent_session is a cross-check only (T-577),
-// never adopted.
-func (r *registry) crossCheck(agent, sid string, pane Pane, log func(string)) {
+// never adopted. A start row of an agent the config does not name (named false) is no cross-check: it is being retired.
+func (r *registry) crossCheck(agent, sid string, pane Pane, named bool, log func(string)) {
 	row, started := r.start(agent)
-	ours := pane.Label == agent || started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Pane == pane.ID)
+	ours := pane.Label == agent || named && started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Pane == pane.ID)
 	if sid == "" || pane.Session == "" || !ours || sameSession(pane.Session, sid) || r.herdrSession[agent] == pane.Session {
 		return
 	}
@@ -337,14 +361,14 @@ func (r *registry) crossCheck(agent, sid string, pane Pane, log func(string)) {
 		agent, pane.ID, sid))
 }
 
-// proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session.
-func (r *registry) proof(agent, sid string, pane Pane) string {
+// proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session; named is
+// whether the config names agent: a start row or a recorded session of an agent it does not name is no proof.
+func (r *registry) proof(agent, sid string, pane Pane, named bool) string {
 	row, started := r.start(agent)
 	switch {
-	case sameSession(pane.Session, sid),
-		started && sameSession(pane.Session, row.Session):
+	case named && (sameSession(pane.Session, sid) || started && sameSession(pane.Session, row.Session)):
 		return srcSession
-	case started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Terminal == "" && row.Pane == pane.ID):
+	case named && started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Terminal == "" && row.Pane == pane.ID):
 		return srcStart
 	case pane.Label == agent:
 		return srcLabel
@@ -353,8 +377,9 @@ func (r *registry) proof(agent, sid string, pane Pane) string {
 }
 
 // candidates is the agents a pane of p may run, sorted: its roles, its lanes' and loop's agents, the agents serve
-// started or has lines for, and the labels of mine (so a hand-started pane is named).
-func (a *App) candidates(p *proj, mine []Pane) []string {
+// started or has lines for, and the labels of mine (so a hand-started pane is named). The start row of an agent the
+// config does not name is no candidate (named): it gives no proof.
+func (a *App) candidates(p *proj, mine []Pane, named func(string) bool) []string {
 	set := map[string]bool{p.lead: true, p.integrator: true}
 	for _, l := range p.lanes {
 		set[l.Agent] = true
@@ -363,7 +388,9 @@ func (a *App) candidates(p *proj, mine []Pane) []string {
 		set[mt.agent] = true
 	}
 	for agent := range p.reg.starts {
-		set[agent] = true
+		if named(agent) {
+			set[agent] = true
+		}
 	}
 	for agent := range p.briefs {
 		set[agent] = true
