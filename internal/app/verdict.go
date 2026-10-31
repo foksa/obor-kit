@@ -127,25 +127,25 @@ func (p *proj) foldJob(r Record) {
 		var d dispatchData
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Call != "" {
-			p.calls[verdictStep(MethodDispatch, d.Call)] = d.Reply
+			p.folded.calls[verdictStep(MethodDispatch, d.Call)] = d.Reply
 		}
 	case r.Kind == KindFact && r.Step == StepSubmitted:
 		var d submitData
 		_ = json.Unmarshal(r.Data, &d)
 		if d.Call != "" {
-			p.calls[verdictStep(MethodTaskDone, d.Call)] = taskDoneReply
+			p.folded.calls[verdictStep(MethodTaskDone, d.Call)] = taskDoneReply
 		}
 	case r.Kind == KindFact && r.Step == StepDelivered:
-		p.delivered[r.Fact().Job] = true
+		p.folded.delivered[r.Fact().Job] = true
 	case r.Kind == KindFact && r.Step == StepDropped:
 		if d := r.Fact(); d.Call != "" {
-			p.calls[verdictStep(MethodDrop, d.Call)] = dropReply(r.Task)
+			p.folded.calls[verdictStep(MethodDrop, d.Call)] = dropReply(r.Task)
 		}
 	case r.Kind == KindFact && (r.Step == StepNeedsYou || r.Step == StepUnblocked):
 		if d := r.Fact(); d.Call != "" && r.Step == StepNeedsYou {
-			p.calls[verdictStep(MethodHold, d.Call)] = holdReply(r.Task, d.Job)
+			p.folded.calls[verdictStep(MethodHold, d.Call)] = holdReply(r.Task, d.Job)
 		} else if d.Call != "" {
-			p.calls[verdictStep(MethodResume, d.Call)] = resumeReply(r.Task, d.Reason, d.Cause)
+			p.folded.calls[verdictStep(MethodResume, d.Call)] = resumeReply(r.Task, d.Reason, d.Cause)
 		}
 	case r.Kind == KindResult:
 		method, id := verdictMethod(r.Step)
@@ -154,7 +154,7 @@ func (p *proj) foldJob(r Record) {
 		}
 		var v verdictResult
 		_ = json.Unmarshal(r.Data, &v)
-		p.calls[method+"."+id] = v.Reply
+		p.folded.calls[method+"."+id] = v.Reply
 		if method == MethodAnswer {
 			p.answered(r.Task)
 		}
@@ -192,8 +192,8 @@ func (a *App) verdict(ctx context.Context, method string, c Call) (string, error
 	merging := false
 	if p != nil {
 		merging = p.merging
-		reply, stored = p.calls[verdictStep(method, c.CallID)]
-		if mt := p.loop[c.Task]; mt != nil {
+		reply, stored = p.folded.calls[verdictStep(method, c.CallID)]
+		if mt := p.folded.loop[c.Task]; mt != nil {
 			key, patch, open, sendbacks, input = mt.jobKey(), mt.patch, mt.openJob(), mt.sendbacks, mt.input
 			jobSt = mt.jobState(true)
 			dropped = mt.state == stDropped || p.ended[c.Task]
@@ -310,11 +310,11 @@ func (a *App) sendbackDecide(p *proj, method string, c Call) (mtask, string, err
 	if p == nil {
 		return mtask{}, "", fmt.Errorf("%s: no served project at %s", method, c.Root)
 	}
-	if reply, stored := p.calls[verdictStep(method, c.CallID)]; stored {
+	if reply, stored := p.folded.calls[verdictStep(method, c.CallID)]; stored {
 		return mtask{}, reply, nil
 	}
 	var mt mtask
-	if m := p.loop[c.Task]; m != nil {
+	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
 	switch {
@@ -371,7 +371,7 @@ func (a *App) hold(p *proj, c Call, job Key) (string, error) {
 	a.mu.Lock()
 	var lane string
 	held := false
-	if mt := p.loop[c.Task]; mt != nil {
+	if mt := p.folded.loop[c.Task]; mt != nil {
 		lane, held = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == causeHeld
 	}
 	a.mu.Unlock()
@@ -414,8 +414,8 @@ func (a *App) resume(c Call) (string, error) {
 	merging := false
 	if p != nil {
 		merging = p.merging
-		reply, stored = p.calls[verdictStep(MethodResume, c.CallID)]
-		if m := p.loop[c.Task]; m != nil {
+		reply, stored = p.folded.calls[verdictStep(MethodResume, c.CallID)]
+		if m := p.folded.loop[c.Task]; m != nil {
 			mt = *m
 		}
 	}
@@ -585,7 +585,7 @@ func (a *App) freeLane(p *proj, c Call, mt mtask) ([]string, error) {
 	var lines []string
 	a.mu.Lock()
 	agent := rowAgent(cfg, c.Lane, p.laneAgent(c.Lane))
-	if row := rowAgent(cfg, c.Lane, p.lr.rows[c.Lane].Agent); row != "" {
+	if row := rowAgent(cfg, c.Lane, p.folded.lr.rows[c.Lane].Agent); row != "" {
 		agent = row
 	}
 	a.mu.Unlock()
@@ -620,13 +620,14 @@ func (a *App) dropDecide(p *proj, c *Call) (mtask, error) {
 	if p == nil {
 		return mtask{}, fmt.Errorf("drop: no served project at %s", c.Root)
 	}
-	if _, stored := p.calls[verdictStep(MethodDrop, c.CallID)]; stored {
+	if _, stored := p.folded.calls[verdictStep(MethodDrop, c.CallID)]; stored {
 		return mtask{}, nil
 	}
 	if c.Task == "" { // by lane: the task the loop has open there, else its row's, else its branch's
-		for t, m := range p.loop {
-			if m.lane == c.Lane && !states[m.state].ended {
+		for _, t := range p.loopTasks() { // two open in the lane: the first task by name (T-615)
+			if m := p.folded.loop[t]; m.lane == c.Lane && !states[m.state].ended {
 				c.Task = t
+				break
 			}
 		}
 		for _, l := range p.lanes {
@@ -642,7 +643,7 @@ func (a *App) dropDecide(p *proj, c *Call) (mtask, error) {
 		}
 	}
 	var mt mtask
-	if m := p.loop[c.Task]; m != nil {
+	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	} else if c.Lane != "" { // a task the loop never held (dispatched before obor serve): only its lane is freed
 		mt = mtask{task: c.Task, lane: c.Lane}

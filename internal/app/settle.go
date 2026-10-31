@@ -31,7 +31,7 @@ func (a *App) settleEnded(p *proj, task string) int {
 	}
 	n := 0
 	for _, r := range p.log.Pending() {
-		mt := p.loop[r.Task]
+		mt := p.folded.loop[r.Task]
 		k := r.key()
 		_, lost := p.unwritten[k]
 		switch {

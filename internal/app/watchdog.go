@@ -50,7 +50,7 @@ func (a *App) decideLanes(ctx context.Context, p *proj) {
 		return
 	}
 	a.mu.Lock()
-	if p.lr.err != nil { // the last write of the lanes table failed: again
+	if p.folded.lr.err != nil { // the last write of the lanes table failed: again
 		if err := p.syncLanes(); err != nil {
 			a.logf("lanes table of %s: %v", p.root, err)
 		}

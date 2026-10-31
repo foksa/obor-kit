@@ -99,7 +99,7 @@ func (h *harness) step(t *testing.T, fx *Loop) bool {
 	t.Helper()
 	p := h.proj()
 	h.a.mu.Lock()
-	s := h.a.nextDispatch(p, *p.loop["T-1"])
+	s := h.a.nextDispatch(p, *p.folded.loop["T-1"])
 	h.a.mu.Unlock()
 	return s != nil && s(context.Background(), fx)
 }
@@ -150,8 +150,8 @@ func TestPromptFreshDelivered(t *testing.T) {
 	if _, err := h.a.jobNext(Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err) // delivered
 	}
-	if h.proj().loop["T-1"].state != stWorking {
-		t.Errorf("state %s; want working", h.proj().loop["T-1"].state)
+	if h.proj().folded.loop["T-1"].state != stWorking {
+		t.Errorf("state %s; want working", h.proj().folded.loop["T-1"].state)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestPromptReplayResends(t *testing.T) {
 	if _, err := h.a.jobNext(Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err)
 	}
-	if st := h.proj().loop["T-1"].state; st != stWorking || h.count(KindFact, StepDelivered) != 1 {
+	if st := h.proj().folded.loop["T-1"].state; st != stWorking || h.count(KindFact, StepDelivered) != 1 {
 		t.Errorf("state %s, delivered facts %d; want working, the job delivered once", st,
 			h.count(KindFact, StepDelivered))
 	}
@@ -335,7 +335,7 @@ func TestStartReplay(t *testing.T) {
 				o.pane.Agent = "claude"
 			}
 			h.step(t, fx)
-			mt := h.proj().loop["T-1"]
+			mt := h.proj().folded.loop["T-1"]
 			if ag.restarts != c.restarts || !strings.Contains(mt.refused, c.refused) ||
 				(c.refused == "") != mt.started {
 				t.Fatalf("restarts %d, refused %q, started %v; want %d, %q", ag.restarts, mt.refused, mt.started,
@@ -370,8 +370,8 @@ func TestStartResultLost(t *testing.T) {
 		t.Fatalf("intent %s; want the agent and its session id old recorded", r.Data)
 	}
 	h.step(t, fx)
-	if ag.restarts != 1 || !h.proj().loop["T-1"].started {
-		t.Errorf("restarts %d, started %v; want one start, its result written", ag.restarts, h.proj().loop["T-1"].started)
+	if ag.restarts != 1 || !h.proj().folded.loop["T-1"].started {
+		t.Errorf("restarts %d, started %v; want one start, its result written", ag.restarts, h.proj().folded.loop["T-1"].started)
 	}
 }
 

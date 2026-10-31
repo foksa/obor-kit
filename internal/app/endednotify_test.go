@@ -28,10 +28,10 @@ func TestEndedTaskKeepsNotificationInForce(t *testing.T) {
 			r := newConcRig(t)
 			a, p := r.app("pq"), r.proj("pq")
 			r.add("pq", "T-3", StepNeedsYou, KindFact, FactData{Lane: "O-03", Reason: "pane exited"})
-			if len(p.active["T-3"]) != 1 {
-				t.Fatalf("watchdog facts of T-3: %v, want one", p.active["T-3"])
+			if len(p.folded.active["T-3"]) != 1 {
+				t.Fatalf("watchdog facts of T-3: %v, want one", p.folded.active["T-3"])
 			}
-			fact := p.active["T-3"][0]
+			fact := p.folded.active["T-3"][0]
 			k := notifyKey(fact)
 			in, err := p.log.Append(Record{Task: k.Task, Attempt: k.Attempt, Step: k.Step, Kind: KindIntent,
 				Class: ClassFact}, a.opt.Now()) // its notification interrupted before the send
@@ -63,7 +63,7 @@ func TestEndedTaskKeepsNotificationInForce(t *testing.T) {
 				t.Fatal("the terminal fact was not recorded")
 			}
 
-			if got := p.loop["T-3"].state; got != c.end {
+			if got := p.folded.loop["T-3"].state; got != c.end {
 				t.Fatalf("T-3 is %s, want %s", got, c.end)
 			}
 			_, pending := p.log.Intent(k)

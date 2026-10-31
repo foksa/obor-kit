@@ -157,7 +157,7 @@ func seedSched(t *testing.T, serve bool) (*harness, *schedScratch) {
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
+	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
 	if !serve {
 		return h, f
@@ -225,11 +225,11 @@ func TestPausedScratchReservation(t *testing.T) {
 				h.pass(ctx)
 			}
 			p := h.a.p
-			h.a.needsYou(p, p.loop["T-1"], cause, cause)
+			h.a.needsYou(p, p.folded.loop["T-1"], cause, cause)
 			addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
 			addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
 			p = reloadProj(t, h)
-			mt := p.loop["T-1"]
+			mt := p.folded.loop["T-1"]
 			want := stResolving
 			if cause == "start.resolve failed" {
 				want = stConflict
@@ -237,8 +237,8 @@ func TestPausedScratchReservation(t *testing.T) {
 			if mt.state != stNeedsYou || mt.left != want {
 				t.Fatalf("precondition: T-1 %s (left %s), want needs-you left %s", mt.state, mt.left, want)
 			}
-			if p.loop["T-2"].state != stSubmitted || p.loop["T-2"].input != "s2" {
-				t.Fatalf("precondition: T-2 submitted at s2: %+v", *p.loop["T-2"])
+			if p.folded.loop["T-2"].state != stSubmitted || p.folded.loop["T-2"].input != "s2" {
+				t.Fatalf("precondition: T-2 submitted at s2: %+v", *p.folded.loop["T-2"])
 			}
 
 			h.pass(ctx)
@@ -249,10 +249,10 @@ func TestPausedScratchReservation(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
-			if mt := p.loop["T-1"]; mt.state != stResolving || len(f.gated) != 0 {
+			if mt := p.folded.loop["T-1"]; mt.state != stResolving || len(f.gated) != 0 {
 				t.Fatalf("resumed: T-1 %s, gated %v; want resolving, none", mt.state, f.gated)
 			}
-			job := JobID(p.loop["T-1"].jobKey())
+			job := JobID(p.folded.loop["T-1"].jobKey())
 			if _, err := h.a.verdict(ctx, MethodResolved, Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
 				CallID: "v", Job: job}); err != nil {
 				t.Fatal(err)
@@ -277,7 +277,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			f.Launch(ctx, Launch{})
 			h.pass(ctx)
 			p := h.a.p
-			h.a.needsYou(p, p.loop["T-1"], causeHeld, "held")
+			h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
 			addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
 			addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
 			if !p.scratchBusy("T-2") {
@@ -297,7 +297,7 @@ func TestPausedScratchReleased(t *testing.T) {
 				addRecord(t, h, "T-1", StepSendback, KindFact, noteData{Note: "fix"})
 			}
 			if p.scratchBusy("T-2") {
-				t.Fatalf("%s: T-1 (%s, left %s) still holds the scratch", release, p.loop["T-1"].state, p.loop["T-1"].left)
+				t.Fatalf("%s: T-1 (%s, left %s) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].left)
 			}
 		})
 	}
@@ -314,7 +314,7 @@ func TestMergeLoopNeedsIntegrator(t *testing.T) {
 		}
 		if serve {
 			h.pass(context.Background())
-			if st := p.loop["T-1"].state; st != stResolving {
+			if st := p.folded.loop["T-1"].state; st != stResolving {
 				t.Errorf("integrator: T-1 %s; want resolving (its resolve job sent)", st)
 			}
 			continue
@@ -414,7 +414,7 @@ func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
 	h, f := seedSched(t, true)
 	f.Launch(context.Background(), Launch{})
 	h.pass(context.Background())
-	mt := h.a.p.loop["T-1"]
+	mt := h.a.p.folded.loop["T-1"]
 	if mt.state != stResolving || !mt.openJob() {
 		t.Fatalf("precondition: T-1 %s, open job %v; want resolving with its job open", mt.state, mt.openJob())
 	}
@@ -535,7 +535,7 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	if got := countRecords(t, h); got != n {
 		t.Errorf("records while off: %d, want %d (none new)", got, n)
 	}
-	if mt := p.loop["T-1"]; mt.state != stNeedsYou || mt.left != stResolving || !mt.openJob() {
+	if mt := p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.left != stResolving || !mt.openJob() {
 		t.Errorf("T-1 while off: %s (left %s, open %v); want unchanged: held, its resolve job open", mt.state, mt.left,
 			mt.openJob())
 	}
@@ -548,7 +548,7 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	if err != nil || !strings.HasPrefix(reply, "RESOLVED T-1") || len(f.resolved) != 1 {
 		t.Errorf("resolved on again: %q, %v, Resolved %v; want it answered", reply, err, f.resolved)
 	}
-	if mt := p.loop["T-1"]; mt.state != stResolved {
+	if mt := p.folded.loop["T-1"]; mt.state != stResolved {
 		t.Errorf("T-1 on again: %s; want resolved", mt.state)
 	}
 }
@@ -570,7 +570,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 				addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
 				f.Launch(context.Background(), Launch{})
 				h.pass(context.Background())
-				mt := h.a.p.loop["T-1"]
+				mt := h.a.p.folded.loop["T-1"]
 				if mt.state != stAwaiting || !mt.openJob() {
 					t.Fatalf("precondition: T-1 %s, open %v; want awaiting-accept with its review job", mt.state, mt.openJob())
 				}
@@ -580,14 +580,14 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 				Patch: "p"}
 			if method == MethodResume {
 				p := h.a.p
-				h.a.needsYou(p, p.loop["T-1"], causeHeld, "held")
+				h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
 				c = Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", To: ResumeRegate}
 			}
 			call := listenMem(t, h)
 
 			p := serveHarness(t, h, false)
 			n, gated := countRecords(t, h), len(f.gated)
-			before := *p.loop["T-1"]
+			before := *p.folded.loop["T-1"]
 			if reply, err := call(method, c); err == nil || err.Error() != mergeOffReply || reply != "" {
 				t.Errorf("%s while off: %q, %v; want the refusal %q", method, reply, err, mergeOffReply)
 			}
@@ -597,7 +597,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			if got := countRecords(t, h); got != n {
 				t.Errorf("%s while off: %d records, want %d (none new)", method, got, n)
 			}
-			if mt := p.loop["T-1"]; mt.state != before.state || mt.needs.Seq != before.needs.Seq || mt.job != before.job {
+			if mt := p.folded.loop["T-1"]; mt.state != before.state || mt.needs.Seq != before.needs.Seq || mt.job != before.job {
 				t.Errorf("%s while off: T-1 %s (needs %d, job %s); want %s (needs %d, job %s)", method, mt.state,
 					mt.needs.Seq, mt.job, before.state, before.needs.Seq, before.job)
 			}

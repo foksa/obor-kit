@@ -119,7 +119,7 @@ func (a *App) dispatchCall(ctx context.Context, c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.calls[verdictStep(MethodDispatch, c.CallID)]
+		reply, stored = p.folded.calls[verdictStep(MethodDispatch, c.CallID)]
 	}
 	a.mu.Unlock()
 	switch {
@@ -348,10 +348,10 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	defer a.mu.Unlock()
 	held := map[string]string{}
 	var mt mtask
-	for t, m := range p.loop {
-		if t == task {
+	for _, t := range p.loopTasks() { // a lane two dispatches name: the first task by name holds it (T-615)
+		if m := p.folded.loop[t]; t == task {
 			mt = *m
-		} else if m.dispatching() {
+		} else if _, ok := held[m.lane]; m.dispatching() && !ok {
 			held[m.lane] = t
 		}
 	}
@@ -422,11 +422,11 @@ func (p *proj) foldDispatch(r Record) {
 	_ = json.Unmarshal(r.Data, &d)
 	at, _ := time.Parse(time.RFC3339, r.TS)
 	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at}
-	if mt := p.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
+	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
 		next.openDecision, next.openAt = mt.openDecision, mt.openAt // the lead's decision outlives the dispatch (T-611)
 	}
-	p.loop[r.Task] = next
+	p.folded.loop[r.Task] = next
 	delete(p.waitLine, r.Task) // the wait ended: a later wait's refusals start afresh
 }
 
@@ -443,7 +443,7 @@ func (a *App) waitTask(p *proj, c Call, ls []Lane) (string, error) {
 			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 		}
 		a.mu.Lock()
-		m := p.loop[dep]
+		m := p.folded.loop[dep]
 		cycle := p.waitsOn(dep, c.Task, map[string]bool{})
 		a.mu.Unlock()
 		switch {
@@ -504,10 +504,10 @@ func (p *proj) foldWaiting(r Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
 	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d}
-	if mt := p.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
+	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
 	}
-	p.loop[r.Task] = next
+	p.folded.loop[r.Task] = next
 	delete(p.waitLine, r.Task) // a new wait: no refusal of the one it replaces (its reason, its hour)
 }
 
@@ -521,7 +521,7 @@ func (a *App) pickWaiting(p *proj, mt mtask) step {
 	}
 	ready, unheld := true, []string(nil)
 	for _, dep := range mt.disp.After {
-		switch m := p.loop[dep]; {
+		switch m := p.folded.loop[dep]; {
 		case m != nil && (m.state == stDropped || m.state == stRejected):
 			why := fmt.Sprintf("after: %s waits for %s, which is %s: obor drop %s, or dispatch it again without it",
 				mt.task, dep, m.state, mt.task)
@@ -615,14 +615,14 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 func (a *App) waitCurrent(p *proj, mt mtask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	m := p.loop[mt.task]
+	m := p.folded.loop[mt.task]
 	return m != nil && m.state == stWaiting && m.attempt == mt.attempt && m.disp.Call == mt.disp.Call
 }
 
 // waitsOn: task waits (or its wait's needs-you is open), itself or through the tasks it waits for, for target (under
 // mu).
 func (p *proj) waitsOn(task, target string, seen map[string]bool) bool {
-	m := p.loop[task]
+	m := p.folded.loop[task]
 	if m == nil || m.kept() != stWaiting || seen[task] {
 		return false
 	}

@@ -70,7 +70,7 @@ func (r *concRig) runStep(name, task string) {
 	fx := r.concLoop(name)
 	a.mu.Lock()
 	p := a.p
-	st := a.next(p, p.loop[task])
+	st := a.next(p, p.folded.loop[task])
 	a.mu.Unlock()
 	if st == nil {
 		r.t.Fatalf("%s: no step for %s: state %s", name, task, r.state(name, task))
@@ -84,7 +84,7 @@ func (r *concRig) diskFactsInForce(name string) []Record {
 	a, p := r.app(name), r.proj(name)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]Record(nil), p.active[DiskTask]...)
+	return append([]Record(nil), p.folded.active[DiskTask]...)
 }
 
 // RV-59 #1, direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
@@ -157,7 +157,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 				t.Fatalf("precondition: T-1 is %s, want %s", got, c.state)
 			}
 			r.a.mu.Lock()
-			gates := p.loop["T-1"].gates
+			gates := p.folded.loop["T-1"].gates
 			r.a.mu.Unlock()
 			step := nth(StepGate, gates+1)
 			r.add("pj", "T-1", step, KindIntent, gateIn{Kind: c.kind, Lane: "O-01", Input: "s1"})

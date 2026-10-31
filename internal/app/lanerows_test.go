@@ -104,7 +104,7 @@ func TestTaskDoneByLane(t *testing.T) {
 	h.connect()
 	p := h.proj()
 	h.a.mu.Lock()
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"}
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"}
 	h.a.mu.Unlock()
 	if _, err := h.a.taskDone(Call{Root: h.root, Role: "worker", Agent: "pj-o-01", Lane: "O-02", CallID: "c0",
 		Report: "Summary: x"}); err == nil || err.Error() != "task_done: lane O-02 holds no task in obor serve" {

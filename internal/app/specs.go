@@ -29,7 +29,7 @@ func (a *App) specSet(c Call) (string, error) {
 	key := verdictStep(MethodSpecSet, c.CallID)
 	reply, stored := "", false
 	if p != nil {
-		reply, stored = p.calls[key]
+		reply, stored = p.replies[key]
 	}
 	a.mu.Unlock()
 	switch {
@@ -62,7 +62,7 @@ func (a *App) specSet(c Call) (string, error) {
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
 	}
 	a.mu.Lock()
-	p.calls[key] = reply
+	p.replies[key] = reply
 	a.mu.Unlock()
 	if changed {
 		a.wake()

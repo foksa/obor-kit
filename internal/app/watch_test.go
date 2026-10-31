@@ -865,7 +865,7 @@ func TestNotifyClearWhileSeveralQueued(t *testing.T) {
 	}
 	h.tick(2 * minute)
 	p := h.a.p
-	if len(h.panes.notes) != 0 || len(p.retry) != 0 || len(p.active) != 0 {
-		t.Errorf("notes %q, retries %v, facts in force %v; want none", h.panes.notes, p.retry, p.active)
+	if len(h.panes.notes) != 0 || len(p.retry) != 0 || len(p.folded.active) != 0 {
+		t.Errorf("notes %q, retries %v, facts in force %v; want none", h.panes.notes, p.retry, p.folded.active)
 	}
 }

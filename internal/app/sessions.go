@@ -73,14 +73,14 @@ func (p *proj) foldSession(r Record) {
 		return
 	}
 	var s store.Session
-	if json.Unmarshal(r.Data, &s) == nil && store.Admits(p.sessions, s) {
-		p.sessions = append(p.sessions, s)
+	if json.Unmarshal(r.Data, &s) == nil && store.Admits(p.folded.sessions, s) {
+		p.folded.sessions = append(p.folded.sessions, s)
 	}
 }
 
 // hasSession: p records agent's session id (under mu).
 func (p *proj) hasSession(agent, id string) bool {
-	for _, s := range p.sessions {
+	for _, s := range p.folded.sessions {
 		if s.Agent == agent && s.ID == id {
 			return true
 		}
@@ -89,10 +89,12 @@ func (p *proj) hasSession(agent, id string) bool {
 }
 
 // holder is the agent other than agent whose current session is id ("": none; under mu).
-func (p *proj) holder(agent, id string) string { return store.Holder(p.sessions, agent, id) }
+func (p *proj) holder(agent, id string) string { return store.Holder(p.folded.sessions, agent, id) }
 
 // session is agent's current session in p (under mu; ok false: none recorded).
-func (p *proj) session(agent string) (store.Session, bool) { return store.Current(p.sessions, agent) }
+func (p *proj) session(agent string) (store.Session, bool) {
+	return store.Current(p.folded.sessions, agent)
+}
 
 // transcript is the recorded transcript of pane's agent (under mu): its current session's ("": none recorded; the
 // reader then takes the one herdr's session names).

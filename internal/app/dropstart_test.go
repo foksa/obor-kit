@@ -179,7 +179,7 @@ func TestDropSelectedStep(t *testing.T) {
 				ap := r.app(c.proj)
 				fx := &dropFx{concScratch: r.fakes[c.proj]}
 				ap.mu.Lock()
-				selected := ap.next(p, p.loop[c.task])
+				selected := ap.next(p, p.folded.loop[c.task])
 				ap.mu.Unlock()
 				if selected == nil {
 					t.Fatalf("precondition: %s has no step selected", c.task)
@@ -217,7 +217,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			p := r.proj(c.proj)
 			ap := r.app(c.proj)
 			ap.mu.Lock()
-			selected := ap.next(p, p.loop[c.task])
+			selected := ap.next(p, p.folded.loop[c.task])
 			ap.mu.Unlock()
 			fx := &dropFx{concScratch: f}
 			selected(context.Background(), fx.loop(r.kit))
@@ -286,7 +286,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 			fx := &dropFx{concScratch: r.fakes[c.proj], block: c.effect, blocked: make(chan struct{}),
 				unblock: make(chan struct{})}
 			ap.mu.Lock()
-			selected := ap.next(p, p.loop[c.task])
+			selected := ap.next(p, p.folded.loop[c.task])
 			ap.mu.Unlock()
 			if selected == nil {
 				t.Fatalf("precondition: %s has no step selected", c.task)
@@ -334,7 +334,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 		fetched <- callAnswer{reply, err}
 	}
 	r.a.mu.Lock()
-	selected := r.a.next(p, p.loop["T-1"])
+	selected := r.a.next(p, p.folded.loop["T-1"])
 	r.a.mu.Unlock()
 	if selected == nil {
 		t.Fatal("precondition: T-1 has no step selected")
@@ -455,7 +455,7 @@ func TestDropAndSubmission(t *testing.T) {
 		}
 		p := r.proj("pq")
 		r.app("pq").mu.Lock()
-		attempt := p.loop["T-7"].attempt
+		attempt := p.folded.loop["T-7"].attempt
 		r.app("pq").mu.Unlock()
 		for _, n := range []int{attempt, attempt + 1} { // decided before the drop, recorded after
 			rec, err := p.log.Append(Record{Task: "T-7", Attempt: n, Step: StepSubmitted, Kind: KindFact,
@@ -473,7 +473,7 @@ func TestDropAndSubmission(t *testing.T) {
 		r.app("pq").closeLog() // the first serve ends: the replay is the next one
 		b := New(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
 		b.loadProject()
-		if mt := b.p.loop["T-7"]; mt == nil || mt.state != stDropped {
+		if mt := b.p.folded.loop["T-7"]; mt == nil || mt.state != stDropped {
 			t.Errorf("replay: %+v; want T-7 dropped", mt)
 		}
 	})
@@ -491,7 +491,7 @@ func TestDropWriteFailure(t *testing.T) {
 		}
 		r.app("pq").mu.Lock()
 		during.ended = p.ended["T-3"]
-		mt := *p.loop["T-3"]
+		mt := *p.folded.loop["T-3"]
 		r.app("pq").mu.Unlock()
 		if during.began = r.app("pq").begin(p, mt); during.began {
 			r.app("pq").release(p, "T-3")
@@ -507,7 +507,7 @@ func TestDropWriteFailure(t *testing.T) {
 			during.began)
 	}
 	r.app("pq").mu.Lock()
-	mt := *p.loop["T-3"]
+	mt := *p.folded.loop["T-3"]
 	r.app("pq").mu.Unlock()
 	if r.ended("pq", "T-3") || mt.state == stDropped {
 		t.Fatalf("after the failed write: ended mark %v, state %s", r.ended("pq", "T-3"), mt.state)

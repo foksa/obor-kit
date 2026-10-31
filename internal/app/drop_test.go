@@ -68,10 +68,10 @@ func TestDropNeedsYouTask(t *testing.T) {
 	b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 	b.loadProject()
 	p := b.p
-	if mt := p.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.Seq != 0 {
+	if mt := p.folded.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.Seq != 0 {
 		t.Errorf("replay: %+v; want T-3 dropped with no needs-you", mt)
 	}
-	if got := p.calls[verdictStep(MethodDrop, "d1")]; got != "DROPPED T-3" {
+	if got := p.folded.calls[verdictStep(MethodDrop, "d1")]; got != "DROPPED T-3" {
 		t.Errorf("replay: stored reply %q", got)
 	}
 }

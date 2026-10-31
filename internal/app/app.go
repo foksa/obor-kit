@@ -169,21 +169,26 @@ type App struct {
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
 }
 
-// proj is the served project: its herdr workspace is the one labelled Name.
+// proj is the served project: its herdr workspace is the one labelled Name. Its state is in two parts: folded, what a
+// replay of the event log alone rebuilds (written by foldRecord's folds), and the live state below it.
 type proj struct {
 	root, name string
 	log        *Log
-	active     map[string][]Record  // task → its watchdog facts since the last resumed
-	woke       map[string]time.Time // task → its stopped worker's first wake since the last resumed (stopwake.go)
+	folded     folded
+	// The live state (T-615): none of it is rebuilt by a replay; a restart starts it afresh (docs/state-model.md "Not
+	// recorded"), or it is the project's config, a read of the lanes or herdr, or a claim held while a step runs. A fold
+	// may reset a live entry its record ends (resume and clear a task's retries, answered its stall timer, a dispatch
+	// or a wait its refused dispatch line).
 	lanes      []Lane               // as last read
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
 	retry      map[Key]retry        // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
-	calls      map[string]string    // answered verdict calls: the stored reply by <method>.<call id>
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
-	loop       map[string]*mtask    // the merge loop's tasks, by task
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
+	// replies: the stored replies of the calls no fact records (job_next, spec set), by <method>.<call id>; a restart
+	// forgets them (folded.calls holds the recorded calls').
+	replies map[string]string
 	// idleWait: since when the integrator's pane has been identified and not Ready, the interval its jobs' fresh
 	// starts wait out (not recorded: a replay starts it afresh; T-602, T-606).
 	idleWait idleWait
@@ -203,23 +208,42 @@ type proj struct {
 	// none; under mu).
 	scratch chan struct{}
 	running Key
-	night   nightlyState // the nightly full check (nightly.go)
-	pause   *Pause       // the project's last pause fact (pause.go; nil: none or cleared)
 	// held: the tasks whose selected step runs now (from its start's check to its return, App.next), each with the
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
-	// Jobs by fetch (fetch.go): delivered, the jobs a fact delivered names (folded).
+	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
+	// and the nightly full check (nightly.go): each folds its records itself and keeps live state beside them.
+	reg   registry
+	out   outbox
+	night nightlyState
+}
+
+// folded is a project's state that a replay of its event log alone rebuilds (T-615): foldRecord's folds write it, live
+// code reads it. Two exceptions, both named where they live: a lanes read ends the watchdog facts (active, woke) of a
+// task no lane holds (setLanes: nothing recorded), and lr and watches carry live claims (lr's write state, a watch's
+// lining). The identity table (registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
+// their own beside their live state.
+type folded struct {
+	active map[string][]Record  // task → its watchdog facts since the last resumed
+	woke   map[string]time.Time // task → its stopped worker's first wake since the last resumed (stopwake.go)
+	calls  map[string]string    // answered verdict calls: the stored reply by <method>.<call id>
+	loop   map[string]*mtask    // the merge loop's tasks, by task
+	pause  *Pause               // the project's last pause fact (pause.go; nil: none or cleared)
+	// Jobs by fetch (fetch.go): delivered, the jobs a fact delivered names.
 	delivered map[string]bool
-	// reg: the identity table (registry.go).
-	reg registry
-	// lr: the lanes table's projection (lanerows.go, T-439).
-	lr laneRows
-	// out: the lines to the project's agents (messages.go, T-466, T-610).
-	out     outbox
-	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go)
+	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
+	lr      laneRows
+	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go; lining is live)
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
+}
+
+// newFolded is the folded state before the log's first record.
+func newFolded() folded {
+	return folded{active: map[string][]Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
+		loop: map[string]*mtask{}, delivered: map[string]bool{}, watches: map[string]*mergeWatch{},
+		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 
 // retry is one failed notification's next try; tries counts the failures so far (the wait doubles from notifyRetry).

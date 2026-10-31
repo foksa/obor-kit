@@ -97,7 +97,7 @@ func TestStartJobIntegrator(t *testing.T) {
 				_ = json.Unmarshal([]byte(raw), &early)
 			}
 			r.a.mu.Lock()
-			step := r.a.next(p, p.loop["T-1"])
+			step := r.a.next(p, p.folded.loop["T-1"])
 			r.a.mu.Unlock()
 			if step == nil {
 				t.Fatal("no step")
@@ -124,7 +124,7 @@ func TestStartJobIntegrator(t *testing.T) {
 			if row.start != "" {
 				same(t, deliveredOf(r, job), 1, "delivered facts of "+job)
 				r.a.mu.Lock()
-				mt := *p.loop["T-1"]
+				mt := *p.folded.loop["T-1"]
 				r.a.mu.Unlock()
 				same(t, mt.job+" "+mt.state, row.job+" "+mt.jobState(true), "the job out")
 				same(t, mt.delivered, true, "the job delivered (fetched during its start)")
@@ -161,7 +161,7 @@ func TestStartJobOtherPatch(t *testing.T) {
 		t.Errorf("job_next with the job's intent: %s %v, want T-1/1/review", raw, err)
 	}
 	r.a.mu.Lock()
-	patch := p.loop["T-1"].patch
+	patch := p.folded.loop["T-1"].patch
 	r.a.mu.Unlock()
 	same(t, patch, "p", "the open job's patch")
 }
@@ -242,7 +242,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 				t.Logf("first prompt=%q; job_next during start=%s", l.Prompt, raw)
 			}
 			fx := &Loop{Agents: f, Typer: f}
-			mt := *p.loop["T-1"]
+			mt := *p.folded.loop["T-1"]
 			if !r.a.job(context.Background(), p, fx, mt, kind) {
 				t.Fatal("job failed")
 			}
@@ -276,16 +276,16 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 		}
 	}
 	fx := &Loop{Agents: f, Typer: f, Kit: r.kit}
-	mt := *p.loop["T-2"]
+	mt := *p.folded.loop["T-2"]
 	d := startData{Agent: mt.agent, Pane: "w1:p2"}
 	if !r.a.startWorker(context.Background(), p, fx, mt, Key{mt.task, mt.attempt, StepStartWork}, d,
 		Key{mt.task, mt.attempt, StepWork}) {
 		t.Fatal("start failed")
 	}
-	if !r.a.sendWork(context.Background(), p, fx, *p.loop[mt.task], StepWork) {
+	if !r.a.sendWork(context.Background(), p, fx, *p.folded.loop[mt.task], StepWork) {
 		t.Fatal("work failed")
 	}
-	if len(f.typed) != 0 || p.loop[mt.task].state != stWorking {
-		t.Fatalf("typed=%q state=%s", f.typed, p.loop[mt.task].state)
+	if len(f.typed) != 0 || p.folded.loop[mt.task].state != stWorking {
+		t.Fatalf("typed=%q state=%s", f.typed, p.folded.loop[mt.task].state)
 	}
 }

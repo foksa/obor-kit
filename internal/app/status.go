@@ -85,8 +85,8 @@ func (a *App) Status() Status {
 			Facts: []Record{}}
 		if err := p.log.Err(); err != nil {
 			ps.LogError = err.Error()
-		} else if p.lr.err != nil {
-			ps.LogError = "lane rows: " + p.lr.err.Error()
+		} else if p.folded.lr.err != nil {
+			ps.LogError = "lane rows: " + p.folded.lr.err.Error()
 		}
 		for _, o := range a.obs {
 			if o.pane.Agent == "" || a.projectOf(o.pane) != p {
@@ -105,10 +105,10 @@ func (a *App) Status() Status {
 			ps.Agents = append(ps.Agents, as)
 		}
 		sort.Slice(ps.Agents, func(i, j int) bool { return ps.Agents[i].Pane < ps.Agents[j].Pane })
-		for _, fs := range p.active {
+		for _, fs := range p.folded.active {
 			ps.Facts = append(ps.Facts, fs...)
 		}
-		for _, mt := range p.loop {
+		for _, mt := range p.folded.loop {
 			if mt.needs.Seq != 0 {
 				ps.Facts = append(ps.Facts, mt.needs)
 			}
@@ -191,7 +191,7 @@ func answerPath(r Record, mt mtask) string {
 // answerPath is answerPath of p's needs-you r in the state p's merge loop holds of its task (under mu).
 func (p *proj) answerPath(r Record) string {
 	var mt mtask
-	if m := p.loop[r.Task]; m != nil {
+	if m := p.folded.loop[r.Task]; m != nil {
 		mt = *m
 	}
 	return answerPath(r, mt)

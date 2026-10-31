@@ -28,7 +28,7 @@ func (r *concRig) attempt(name, task string) int {
 	a, p := r.app(name), r.proj(name)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return p.loop[task].attempt
+	return p.folded.loop[task].attempt
 }
 
 // The lead's sendback is serve's own transition (T-410, RV-45 #1): from a green candidate, an open job or a needs-you
@@ -134,10 +134,10 @@ func TestLeadSendback(t *testing.T) {
 			b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 			b.loadProject()
 			p := b.p
-			if mt := p.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.Seq != 0 {
+			if mt := p.folded.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.Seq != 0 {
 				t.Errorf("replay: %+v; want T-6 working, attempt 2, no needs-you", mt)
 			}
-			if got := p.calls[verdictStep(MethodSendback, "s1")]; got != c.reply {
+			if got := p.folded.calls[verdictStep(MethodSendback, "s1")]; got != c.reply {
 				t.Errorf("replay: stored reply %q", got)
 			}
 		})
@@ -169,7 +169,7 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 
 	// The loop hands the task back: the fix job, never a publish.
 	a.mu.Lock()
-	p.loop["T-4"].agent = "pr-o-04"
+	p.folded.loop["T-4"].agent = "pr-o-04"
 	a.mu.Unlock()
 	r.worker("pr", "w3:p4", "pr-o-04")
 	r.run()
@@ -204,7 +204,7 @@ func TestLeadSendbackRefusals(t *testing.T) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		p := a.p
-		return p.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
+		return p.folded.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
 	})
 	_, err = r.app("pr").verdict(context.Background(), MethodSendback, Call{Root: r.roots["pr"], Agent: "pr-o-04",
 		Role: "worker", CallID: "w1", Task: "T-4", Note: "why"})

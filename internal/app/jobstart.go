@@ -112,7 +112,7 @@ type idleWait struct {
 // its turn after a verdict), wait for at most Gone from the first such look, then force: the start stops that turn.
 // The interval is the pane's, not the job's (T-606): alternating jobs cannot postpone it by replacing each other.
 func (a *App) integratorWait(p *proj, task string, w Where) (force, wait bool) {
-	for _, mt := range p.loop {
+	for _, mt := range p.folded.loop {
 		if mt.task != task && mt.openJob() && mt.state != stNeedsYou {
 			p.idleWait = idleWait{}
 			return false, true

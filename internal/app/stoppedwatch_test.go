@@ -25,7 +25,7 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 	addRecord(t, h, "T-1", StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Branch: "task/T-1", Target: "b"})
 	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "b"})
-	if mt := h.a.p.loop["T-1"]; mt.state != stDispatched || !mt.awaitsTaskDone() {
+	if mt := h.a.p.folded.loop["T-1"]; mt.state != stDispatched || !mt.awaitsTaskDone() {
 		t.Fatalf("precondition: T-1 %s; want dispatched and waiting on its worker", mt.state)
 	}
 	if h.a.p.tasks["T-1"] != nil {

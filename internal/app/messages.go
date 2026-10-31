@@ -197,7 +197,7 @@ func (p *proj) foldMsg(r Record) {
 			if r.Step == StepBriefed {
 				method = MethodBrief
 			}
-			p.calls[verdictStep(method, m.Call)] = m.Reply
+			p.folded.calls[verdictStep(method, m.Call)] = m.Reply
 		}
 		if m.Needs != 0 {
 			p.out.lined[m.Needs] = true
@@ -225,7 +225,7 @@ func (p *proj) foldMsg(r Record) {
 		// its task's needs-you (stopped.go)
 		var d stoppedData
 		_ = json.Unmarshal(r.Data, &d)
-		p.calls[verdictStep(MethodStopped, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(MethodStopped, d.Call)] = d.Reply
 		p.foldStop(r, d)
 		if d.Line != "" {
 			p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: recordTime(r), msg: d.Message, lead: true}
@@ -249,7 +249,7 @@ func (p *proj) foldMsg(r Record) {
 	case r.Kind == KindFact && r.Step == StepAnswered:
 		var m Message
 		_ = json.Unmarshal(r.Data, &m)
-		p.calls[verdictStep(MethodAnswer, m.Call)] = m.Reply
+		p.folded.calls[verdictStep(MethodAnswer, m.Call)] = m.Reply
 		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: recordTime(r), msg: m}
 		p.answered(m.Task)
 	case r.Kind == KindFact && r.Step == StepWorked:
@@ -475,7 +475,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 			break
 		}
 	}
-	held, same := len(p.active[MsgTask]) > 0, reason != "" && p.has(MsgTask, StepNeedsYou, reason)
+	held, same := len(p.folded.active[MsgTask]) > 0, reason != "" && p.has(MsgTask, StepNeedsYou, reason)
 	a.mu.Unlock()
 	switch {
 	case same, reason == "" && !held:
@@ -680,7 +680,7 @@ func (a *App) callProj(method string, c Call) (p *proj, reply string, stored boo
 	defer a.mu.Unlock()
 	p = a.projAt(c.Root)
 	if p != nil {
-		reply, stored = p.calls[verdictStep(method, c.CallID)]
+		reply, stored = p.folded.calls[verdictStep(method, c.CallID)]
 	}
 	return p, reply, stored
 }

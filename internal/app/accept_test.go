@@ -16,15 +16,15 @@ func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev 
 	addRecord(t, h, "T-1", gate, KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
 		Candidate: Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
 	p := h.a.p
-	mt := *p.loop["T-1"]
+	mt := *p.folded.loop["T-1"]
 	if !h.a.job(ctx, p, &Loop{Agents: f, Typer: f}, mt, nth(StepReview, mt.reviews+1)) {
 		t.Fatal("precondition: the review job was not sent")
 	}
 	if _, err := h.a.verdict(ctx, MethodAccept, Call{Root: h.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
-		CallID: "accept" + sha, Job: JobID(p.loop["T-1"].jobKey()), Patch: "same-diff"}); err != nil {
+		CallID: "accept" + sha, Job: JobID(p.folded.loop["T-1"].jobKey()), Patch: "same-diff"}); err != nil {
 		t.Fatal(err)
 	}
-	if mt := p.loop["T-1"]; mt.state != stAccepted || mt.accepted != "same-diff" || mt.gateRev != rev {
+	if mt := p.folded.loop["T-1"]; mt.state != stAccepted || mt.accepted != "same-diff" || mt.gateRev != rev {
 		t.Fatalf("precondition: T-1 %s accepted %q at rev %d; want accepted same-diff at rev %d", mt.state,
 			mt.accepted, mt.gateRev, rev)
 	}
@@ -46,15 +46,15 @@ func pickGreenOnce(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 	if replay {
 		p = reloadProj(t, h)
 	}
-	if mt := p.loop["T-1"]; mt.state != stGreen || mt.cand.SHA != "candidate2" || mt.cand.Patch != "same-diff" {
+	if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.cand.SHA != "candidate2" || mt.cand.Patch != "same-diff" {
 		t.Fatalf("precondition: T-1 %s at %s (%s); want green at candidate2, the patch unchanged", mt.state,
 			mt.cand.SHA, mt.cand.Patch)
 	}
-	s := h.a.pickGreen(p, *p.loop["T-1"])
+	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
 	if s == nil || !s(context.Background(), &Loop{Agents: f, Typer: f}) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
-	return p.loop["T-1"]
+	return p.folded.loop["T-1"]
 }
 
 func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
@@ -118,7 +118,7 @@ func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
 	if countStep(t, h, StepKept) != 1 {
 		t.Fatal("precondition: the log carries the kept fact")
 	}
-	mt := p.loop["T-1"]
+	mt := p.folded.loop["T-1"]
 	if mt.state != stGreen || mt.accepted != "" || mt.stepName() != nth(StepReview, 2) {
 		t.Errorf("replayed: T-1 %s, accepted %q, next %s; want green, no accept, review.2", mt.state, mt.accepted,
 			mt.stepName())

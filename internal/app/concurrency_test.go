@@ -346,7 +346,7 @@ func (r *concRig) state(name, task string) string {
 	a, p := r.app(name), r.proj(name)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return p.loop[task].state
+	return p.folded.loop[task].state
 }
 
 func (r *concRig) running(name, task string) string {
@@ -671,10 +671,10 @@ func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
 // notifyNightly appends the notification intent of p's needs-you in force (as notify does), with its result when done.
 func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 	t.Helper()
-	if len(p.active[NightlyTask]) == 0 {
+	if len(p.folded.active[NightlyTask]) == 0 {
 		t.Fatal("precondition: no nightly needs-you in force")
 	}
-	key := notifyKey(p.active[NightlyTask][0])
+	key := notifyKey(p.folded.active[NightlyTask][0])
 	if _, err := p.log.Append(Record{Task: key.Task, Step: key.Step, Kind: KindIntent, Class: ClassFact}, r.a.opt.Now()); err != nil {
 		t.Fatal(err)
 	}

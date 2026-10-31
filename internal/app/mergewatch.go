@@ -56,21 +56,21 @@ func (p *proj) foldWatch(r Record) {
 	var d WatchData
 	_ = json.Unmarshal(r.Data, &d)
 	if d.Call != "" {
-		p.calls[verdictStep(MethodWatch, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(MethodWatch, d.Call)] = d.Reply
 	}
-	if p.watches == nil {
-		p.watches = map[string]*mergeWatch{}
+	if p.folded.watches == nil {
+		p.folded.watches = map[string]*mergeWatch{}
 	}
-	delete(p.watches, d.Task)
+	delete(p.folded.watches, d.Task)
 	if r.Step == StepWatch {
-		p.watches[d.Task] = &mergeWatch{seq: r.Seq, at: recordTime(r), by: d.By}
+		p.folded.watches[d.Task] = &mergeWatch{seq: r.Seq, at: recordTime(r), by: d.By}
 	}
 }
 
 // watchEnded ends the watch of set whose fact is seq: its line is recorded (a message fact's fold, under mu).
 func (p *proj) watchEnded(set string, seq int64) {
-	if w := p.watches[set]; w != nil && w.seq == seq {
-		delete(p.watches, set)
+	if w := p.folded.watches[set]; w != nil && w.seq == seq {
+		delete(p.folded.watches, set)
 	}
 }
 
@@ -81,7 +81,7 @@ func (p *proj) outcome(set string) string {
 	tasks := strings.Split(set, ",")
 	for _, task := range tasks {
 		var end string
-		switch mt := p.loop[task]; {
+		switch mt := p.folded.loop[task]; {
 		case mt == nil:
 			continue
 		case mt.state == stDropped:
@@ -98,7 +98,7 @@ func (p *proj) outcome(set string) string {
 	}
 	var last *mtask
 	for _, task := range tasks {
-		mt := p.loop[task]
+		mt := p.folded.loop[task]
 		if mt == nil || mt.state != stMerged {
 			return ""
 		}
@@ -120,7 +120,7 @@ func (p *proj) outcome(set string) string {
 func (p *proj) waiting(set string) []string {
 	var open []string
 	for _, task := range strings.Split(set, ",") {
-		if mt := p.loop[task]; mt == nil || mt.state != stMerged {
+		if mt := p.folded.loop[task]; mt == nil || mt.state != stMerged {
 			open = append(open, task)
 		}
 	}
@@ -152,10 +152,10 @@ func (a *App) watchCall(c Call) (string, error) {
 	}
 	tasks := strings.Split(c.Task, ",")
 	a.mu.Lock()
-	end, w := p.outcome(c.Task), p.watches[c.Task]
+	end, w := p.outcome(c.Task), p.folded.watches[c.Task]
 	var unknown []string
 	for _, task := range tasks {
-		if p.loop[task] == nil {
+		if p.folded.loop[task] == nil {
 			unknown = append(unknown, task)
 		}
 	}
@@ -206,16 +206,16 @@ func (a *App) watchList(p *proj) string {
 	defer a.mu.Unlock()
 	now := a.opt.Now()
 	var sets []string
-	for set := range p.watches {
+	for set := range p.folded.watches {
 		sets = append(sets, set)
 	}
-	sort.Slice(sets, func(i, j int) bool { return p.watches[sets[i]].seq < p.watches[sets[j]].seq })
+	sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
 	if len(sets) == 0 {
 		return "NO WATCHES"
 	}
 	lines := make([]string, 0, len(sets))
 	for _, set := range sets {
-		line := "WATCH " + set + " since " + Age(now.Sub(p.watches[set].at))
+		line := "WATCH " + set + " since " + Age(now.Sub(p.folded.watches[set].at))
 		if strings.Contains(set, ",") {
 			line += ", waiting " + strings.Join(p.waiting(set), ",")
 		}
@@ -237,7 +237,7 @@ func (a *App) watchLines() {
 	a.mu.Lock()
 	p := a.p
 	if p != nil && p.merging && p.out.lead() != "" {
-		for set, w := range p.watches {
+		for set, w := range p.folded.watches {
 			if end := p.outcome(set); end != "" && !w.lining {
 				w.lining = true
 				out = append(out, todo{set, w, "[obor] " + end})
