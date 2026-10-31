@@ -37,7 +37,7 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
 //	        workspace): see rename.go.
 //
-// migrate (obor migrate, P7-0b): see migrate.go.
+// migrate (obor migrate, P7-0b): see migrate.go. obor init (P7-2): see oborinit.go.
 //
 // Pane and role refuse names that collide between lanes and roles (T-189) before any herdr call or worktree.
 package setup
@@ -84,10 +84,18 @@ type Setup struct {
 	// Starter builds the agent starter for the project's config (cmd/obor passes a launch.Launcher: setup is an
 	// adapter and does not import launch).
 	Starter func(cfg *config.Config) app.Starter
+	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
+	// it): obor init's last step. state is done, already or skipped; line says what.
+	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
 
 	root    string // the main checkout, once found
 	cfg     *config.Config
 	changed bool // migrate: a step did something
+	wrote   bool // init: a file was created or appended to
+	// start's last placement (obor init): the pane, and whether the agent was running already
+	placed  string
+	running bool
+	hints   *[]string // obor init: herdr's config hint goes here, to its summary, instead of out
 }
 
 // Usage is the one usage line.
@@ -133,6 +141,11 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.renameCmd(ctx, args)
 	case "migrate": // `obor migrate` (migrate.go); not in Usage: it is no setup subcommand to type
 		err = s.migrate(ctx, args)
+	case "obor-init": // `obor init` (oborinit.go); not in Usage either
+		err = s.oborInit(ctx, args)
+		if errors.Is(err, errUsage) {
+			err = project.Fail(InitUsage)
+		}
 	default:
 		err = errUsage
 	}

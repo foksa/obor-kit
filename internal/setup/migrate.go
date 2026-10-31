@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -365,20 +364,8 @@ func (s *Setup) migratePlugin(ctx context.Context) error {
 		return project.Failf("claude is not on PATH: run `claude plugin uninstall %s --scope project`, `claude plugin marketplace add %s` "+
 			"and `claude plugin install %s --scope project` in %s, then obor migrate again", strings.Join(append(herd, ""), " "), s.Kit, oborPlugin, s.root)
 	}
-	call := func(args ...string) error {
-		cmd := exec.CommandContext(ctx, claude, args...)
-		cmd.Dir = s.root
-		cmd.Env = append(os.Environ(), "PATH="+s.Env.Get("PATH"))
-		cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-		return cmd.Run()
-	}
-	exit := func(err error) string {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return "exit " + strconv.Itoa(ee.ExitCode())
-		}
-		return err.Error()
-	}
+	call := func(args ...string) error { return claudeCall(ctx, claude, s.root, s.Env, args...) }
+	exit := exitText
 	for _, k := range herd {
 		if err := call("plugin", "uninstall", k, "--scope", "project"); err != nil {
 			return project.Failf("claude plugin uninstall %s --scope project failed (%s)", k, exit(err))

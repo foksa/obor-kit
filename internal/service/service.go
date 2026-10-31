@@ -143,6 +143,20 @@ func (s Service) owner(ctx context.Context) (pid int, loaded bool, err error) {
 	return pid, loaded, nil
 }
 
+// Current: the plist on disk is the one Install would write and launchd has the label loaded (obor init's rerun
+// leaves such an agent alone instead of restarting its serve).
+func (s Service) Current(ctx context.Context) bool {
+	if !s.Supported() {
+		return false
+	}
+	b, err := os.ReadFile(s.PlistPath())
+	if err != nil || !bytes.Equal(b, s.Plist()) {
+		return false
+	}
+	_, loaded := s.PID(ctx)
+	return loaded
+}
+
 // Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
 // new plist). FAIL when the label is another project's (owner).
 func (s Service) Install(ctx context.Context) (string, error) {
