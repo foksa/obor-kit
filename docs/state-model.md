@@ -355,6 +355,5 @@ only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). 
 - **A `job_next` reply** after the first fetch: in memory only, so a repeated call id after a restart is answered
   afresh.
 - **In-memory waits and claims**: the integrator's idle wait before a fresh start (`idleWait`, T-602/T-606), a
-  needs-you's repeat deadline (row 47, T-621), a waiting task's last refusal (`waitLine`), a lane without a pane
-  (`nopane`), the outbox's `lining` claim.
+  waiting task's last refusal (`waitLine`), a lane without a pane (`nopane`), the outbox's `lining` claim.
 

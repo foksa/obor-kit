@@ -60,7 +60,7 @@ docs there).
 ## Releases (owner 2026-10-30, v0.16)
 - Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace
   `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
-  axis-alies still runs `~/Work/herd-kit-stable` (v0.15.0) until it migrates to `~/.obor/kit`.
+  axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
   (`RELEASING.md`): on main `VERSION`, plugin `version` + `docs/UPGRADE-v<x.y>.md` (committed); in a scratch worktree at
   main set marketplace `name` `obor-kit`, `make release`, commit with `bin/checksums.txt`, `git tag -a v<x.y.z>`; copy

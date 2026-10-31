@@ -54,13 +54,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (10-31, axis-alies migrated 54543f08) v0.17: delete `obor migrate` with the rename fallbacks (no herd project left;
-  it missed lane types' herd `--mcp-config` and project scripts' `HERD_CHANGED_FILES`). Until v0.17 is tagged the global
-  `obor.events` herdr plugin runs v0.16's `plugin restore` (expects `.sid`): a herdr restart may not resume obor-kit panes.
-- (T-615, 10-31) An open-questions hold whose answer needs a code change has no clean path: `obor resume` sends the
-  old patch to review with the decision, the integrator's sendback then counts toward K and can hit the cap; a lead
-  `sendback` is refused while needs-you. Lead typed the change into the worker pane. Candidate: allow `obor sendback`
-  of a needs-you task (the lead's decision as the fix job), not counted toward K.
+- (v0.17 release) Until `~/.obor/kit` moves to v0.17, the global `obor.events` herdr plugin runs v0.16's `plugin
+  restore` (expects `.sid`): a herdr restart may not resume obor-kit panes. Machine leftovers to retire with
+  herd-kit-stable: `~/.obor/herdr-plugin` (symlink into it) and herdr's `herd.events` plugin.
 - (RV-66 #1, accepted: by design) A pane labelled with an agent the config no longer names is still identified by
   its label: T-605 removed start-row and session proof only; labels name hand-started panes.
 - (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
@@ -83,7 +79,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   **Lanes did not pick `ob-*` at dispatch** (T-587 claim): agent.start FAILed "pane w5:p1N is labelled hk-d-01, not
   ob-d-01" until the lead cleared all 8 lane labels by hand. `obor setup rename` should relabel (or clear) every
   project pane, and grep per-worktree `opencode.json` (D-01's named the deleted `~/Work/herd-kit/bin/herd`: "MCP
-  server failed: herd"; fixed by hand). Matters only for the next rename (axis-alies' `obor migrate`?).
+  server failed: herd"; fixed by hand). Matters only for the next rename.
   **`obor setup role --pane` keeps the shell's old env**: ob-int/ob-sol/ob-fable started in their reused shells with
   `OBOR_AGENT=hk-*` still exported, so `job_next` refused ob-int ("only the integrator (ob-int) fetches its jobs,
   not hk-int"; T-590 review stuck → needs-you). `obor restart <agent> --fresh` sets it right (verified per pid).
