@@ -221,8 +221,12 @@ type Candidate struct {
 	Patch      string // sha256 of git diff Target SHA: an accept is bound to it (docs/state-model.md)
 	Checks     string // the checks summary ("" when none ran)
 	Stat       string // git diff --stat Target SHA
+	Diff       string // git diff Target SHA when at most InlineDiff bytes, else "" (the review job carries it, T-602)
 	Full       bool   // a full check ran (fact merged's full: obor serve's nightly reads it)
 }
+
+// InlineDiff is the largest candidate diff the review job carries whole (T-602): larger, the job says to read it.
+const InlineDiff = 15 << 10
 
 // Scratch is the merge loop's git side: serve's own worktree, the target branch, the pins under refs/obor/.
 // An outcome is final for its step; an error is "not decided": the step runs again (App.do's failure rule).

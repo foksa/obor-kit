@@ -7,37 +7,60 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
-// job sends the integrator a review or resolve job (rows 25, 36): started first when the snapshot shows it does not
-// run, through the one start sequence (startJob: the start runs under the job's intent and carries its wake). The
-// start's key is start.<job step>, start.<job step>.2 … once a start of that job is done and the integrator is gone
-// again; a start a crash or a failure left open is run with its recorded data (it no-ops when the integrator runs:
-// "running"). An integrator that runs, or a start that did not carry the wake, gets the job's wake typed (send); a job
-// whose prompt failed is sent again under its key.
+// job sends the integrator a review or resolve job (rows 25, 36) through the one start sequence (startJob: the start
+// runs under the job's intent and carries its wake). Each job's first start (start.<job step>) is a fresh session of
+// the integrator (T-602), also when one runs, so a job being answered is never cut off: it waits (false, nothing
+// recorded) while another task's job is out, then while the integrator's pane is not idle, for at most Gone; past
+// that the start forces (stops a turn that hangs or is blocked: the verdict is recorded). Its intent records the
+// integrator's pane and session then; a pending one (a crash, a failed start) starts fresh again only when the
+// snapshot shows that no new session runs (none runs, or the same session as at the intent), else it no-ops
+// ("running": no second start of the job). A later start of the job (start.<job step>.2 … once its start is done
+// and the integrator is gone again) runs when the snapshot shows it does not run, as before. An integrator that
+// runs, or a start that did not carry the wake, gets the job's wake typed (send); a job whose prompt failed is sent
+// again under its key.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
 	key := Key{mt.task, mt.attempt, jobStep}
-	a.mu.Lock()
-	w := a.whereIs(p, p.integrator)
-	a.mu.Unlock()
 	start := Key{mt.task, mt.attempt, stepStart + jobStep}
 	for n := 2; p.log.Done(start); n++ {
 		start.Step = nth(stepStart+jobStep, n)
 	}
-	if w.State == Ambiguous && !p.log.Open(start) { // no third pane started, nothing sent
+	replay := p.log.Open(start)
+	a.mu.Lock()
+	w := a.whereIs(p, p.integrator)
+	d := startData{Agent: p.integrator}
+	if w.State == Identified {
+		d.Pane, d.Ran, d.Session = w.Pane.ID, true, w.Pane.Session
+	}
+	if r, ok := p.log.Intent(start); ok { // a pending start: its recorded data
+		d = startData{}
+		_ = json.Unmarshal(r.Data, &d)
+	}
+	// the job's first start: a new session, unless a pending one shows its session started
+	fresh := start.Step == stepStart+jobStep && (!replay || freshAgain(d, w))
+	force, wait := false, false
+	if fresh {
+		force, wait = a.integratorWait(p, mt.task, JobID(key), w)
+	}
+	a.mu.Unlock()
+	if w.State == Ambiguous && !replay { // no third pane started, nothing sent
 		return a.heldJob(ctx, p, fx, mt, key, w)
 	}
+	if wait {
+		return false // the running session answers another job, or ends its turn: a later pass starts this one
+	}
+	if force {
+		a.logf("merge loop of %s: %s: integrator %s still %s %s after the last verdict: started fresh with force",
+			p.name, JobID(key), p.integrator, w.Pane.Status, a.opt.Gone)
+	}
 	data := promptData{Agent: p.integrator, Patch: mt.cand.Patch}
-	if w.State != Identified || p.log.Open(start) {
-		d := startData{Agent: p.integrator}
-		if r, ok := p.log.Intent(start); ok { // a pending start: its recorded data
-			d = startData{}
-			_ = json.Unmarshal(r.Data, &d)
-		}
+	if fresh || w.State != Identified || replay {
 		if !a.startJob(ctx, p, mt, Intent{Key: start, Class: ClassStart, Data: d}, key, data,
 			func(ctx context.Context, first string) (any, error) {
-				s, err := a.startIntegrator(ctx, fx.Agents, p.root, first)
+				s, err := a.startIntegrator(ctx, fx.Agents, p.root, Launch{Prompt: first, Fresh: fresh, Force: force})
 				switch {
 				case err != nil:
 					return nil, fmt.Errorf("integrator %s not started: %w", p.integrator, err)
@@ -62,6 +85,50 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	p.timers[mt.task] = &jobTimer{job: JobID(key), sent: at}
 	a.mu.Unlock()
 	return true
+}
+
+// freshAgain: a pending first start of an integrator job (its intent's data d) starts a fresh session again: the
+// snapshot (w) shows no integrator, or the session the intent saw (the start did not replace it). A session id
+// unknown at the intent or now cannot tell: no second start (it no-ops, the wake typed), as a new session does.
+func freshAgain(d startData, w Where) bool {
+	switch {
+	case w.State != Identified:
+		return true
+	case !d.Ran || d.Session == "" || w.Pane.Session == "":
+		return false
+	}
+	return w.Pane.Session == d.Session
+}
+
+// idleWait is the integrator job whose fresh start waits for the integrator's pane to be idle, and since when.
+type idleWait struct {
+	job   string
+	since time.Time
+}
+
+// integratorWait is whether a fresh start of p's integrator (w) for task's job would cut off a job it answers now
+// (under mu, T-602): wait while another task's integrator job is out (awaiting-accept, resolving; one a needs-you
+// left is the owner's, it waits for no one); then, while the integrator's pane is identified and not idle (it ends
+// its turn after a verdict), wait for at most Gone from the first such look, then force: the start stops that turn.
+func (a *App) integratorWait(p *proj, task, job string, w Where) (force, wait bool) {
+	for _, mt := range p.loop {
+		if mt.task != task && mt.openJob() && mt.state != stNeedsYou {
+			p.idleWait = idleWait{}
+			return false, true
+		}
+	}
+	if w.State != Identified || Ready(w.Pane.Status) {
+		p.idleWait = idleWait{}
+		return false, false
+	}
+	now := a.opt.Now()
+	if p.idleWait.job != job {
+		p.idleWait = idleWait{job: job, since: now}
+	}
+	if now.Sub(p.idleWait.since) < a.opt.Gone {
+		return false, true
+	}
+	return true, false
 }
 
 // errNoCarry is a start's outcome that did not carry its job's wake (refused, "running", a replay's stored result):
@@ -129,11 +196,21 @@ func (a *App) reviewText(p *proj, mt mtask) (string, error) {
 		spec = fmt.Sprintf("The gate merged no spec; the current one:%s\n", specText(row))
 	}
 	return fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
-		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; read it with "+
-		"git diff %s %s.\n%s\nPatch hash: %s\nThe worker's report:\n%s\n"+
+		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
+		"The worker's report:\n%s\n"+
 		"%sAnswer with one obor tool: accept (patch %s, a note optional) | sendback (why: what to fix) | reject (why).",
-		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task,
-		c.Target, c.SHA, c.Stat, c.Patch, mt.report, decisionText(mt), c.Patch), nil
+		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
+		decisionText(mt), c.Patch), nil
+}
+
+// diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
+// InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with.
+func diffText(c Candidate) string {
+	if c.Diff == "" {
+		return fmt.Sprintf("read it with git diff %s %s.\n%s\n", c.Target, c.SHA, c.Stat)
+	}
+	return fmt.Sprintf("its stat, then its whole diff (git diff %s %s, as the gate made it: no need to run it):\n%s\n"+
+		"%s\n(end of the whole diff)\n", c.Target, c.SHA, c.Stat, strings.TrimRight(c.Diff, "\n"))
 }
 
 // decisionText is the line of the lead's decision on mt's last obor resume of the attempt ("": none), for the

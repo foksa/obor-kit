@@ -832,7 +832,7 @@ func TestIdentIntegratorWithoutBridge(t *testing.T) {
 		t.Fatalf("precondition: integrator %q", h.proj().integrator)
 	}
 	f := &launchSpy{}
-	_, err := h.a.startIntegrator(context.Background(), f, h.root, "x")
+	_, err := h.a.startIntegrator(context.Background(), f, h.root, Launch{Prompt: "x"})
 	if err == nil || err.Error() != "integrator pj-int: its kind pi has no bridge (obor config validate)" || f.n != 0 {
 		t.Errorf("start: %v, %d launches; want refused, no launch", err, f.n)
 	}

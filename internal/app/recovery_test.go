@@ -174,6 +174,7 @@ type scenario struct {
 	moveMain   bool                   // main moves before the accept (an unrelated commit)
 	end        string                 // the record that ends it ("" merged)
 	publishes  int32                  // Publish calls when merged
+	jobs       int32                  // integrator jobs, each its fresh start (T-602; 0: 1)
 }
 
 const sharedLines = "2\n3\n4\n5\n6\n7\n8\n9\n10\n"
@@ -187,7 +188,7 @@ func conflictSetup(r *loopRig) {
 var scenarios = map[string]scenario{
 	"lane":     {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, publishes: 1},
 	"moved":    {check: "echo 1 pass", setup: func(r *loopRig) { r.work("feature.txt", "feature\n") }, moveMain: true, publishes: 2},
-	"resolved": {check: "echo 1 pass", setup: conflictSetup, resolution: "both\n" + sharedLines, publishes: 1},
+	"resolved": {check: "echo 1 pass", setup: conflictSetup, resolution: "both\n" + sharedLines, publishes: 1, jobs: 2},
 	"resolved red": {check: `if grep -q red shared.txt; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
 		setup: conflictSetup, resolution: "red\n" + sharedLines, end: "1 fact sendback"},
 	"resolved fail": {check: "echo 1 pass", edits: []func(map[string]any){testkit.Set("commands.lane_setup",
@@ -197,7 +198,7 @@ var scenarios = map[string]scenario{
 
 // Each step's effect at both crash points (before it; done, result lost): the restart ends the task as without the
 // crash: merged exactly once (one merge on main, one fact merged, after_merge's effect once: run again only after a
-// cut between it and its result, idempotent (T-525), the lane's work committed once), no prompt sent twice, one integrator start, before any job reaches it, and lane O-02 untouched. A red or failed
+// cut between it and its result, idempotent (T-525), the lane's work committed once), no prompt sent twice, one integrator start per job (T-602), before any job reaches it, and lane O-02 untouched. A red or failed
 // resolved gate replays on the same pinned resolution: one sendback, or one needs-you.
 func TestLoopRecovery(t *testing.T) {
 	for _, row := range []struct{ scenario, step, class string }{
@@ -281,8 +282,9 @@ func TestLoopRecovery(t *testing.T) {
 						t.Errorf("job %s prompted %d times", job, n)
 					}
 				}
-				if r.starts.Load() != 1 || early.Load() {
-					t.Errorf("integrator starts %d (want 1), a job before the start: %v", r.starts.Load(), early.Load())
+				if want := max(sc.jobs, 1); r.starts.Load() != want || early.Load() {
+					t.Errorf("integrator starts %d (want %d: one per job), a job before the start: %v", r.starts.Load(),
+						want, early.Load())
 				}
 				for _, s := range r.stopped() {
 					if s != "pj-o1 w1:p1" {

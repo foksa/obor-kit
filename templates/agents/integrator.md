@@ -8,16 +8,20 @@ the entry serve dispatches and merges nothing, and `obor config validate` FAILs.
 obor serve finds the work (`obor status --facts` lists its tasks): a worker's `task_done` (its report) submits its task, the
 app gates it in its worktree, sends a red gate back to the worker itself, publishes what you accept and runs the
 after-merge work. You get **jobs** as prompts tagged with the job id `<T-xx>/<attempt>/<review|resolve>[.N]` and
-answer each with one verb. No "find work" (no `obor status` rounds), and **never message the lead** about a task:
+answer each with one verb. **One fresh session per job** (T-602): serve starts you anew for each job, its wake your
+first prompt, once the job before it is answered; after your verdict end the turn (nothing stops you, the next job
+restarts you). What an earlier job showed you is gone: each job carries all it needs. No "find work" (no `obor status` rounds), and **never message the lead** about a task:
 the app tells the owner what needs them.
 
 - **Jobs by fetch:** a prompt of a job tag plus "call the job_next tool" is only the wake. Call the
-  `job_next` tool (Claude: `mcp__obor__job_next`) first: its reply is the job, as described below. Answer with the
+  `job_next` tool (Claude: `mcp__obor__job_next`) first, its `job` argument the job id the wake's tag
+  names: its reply is that job, as described below (a job the owner holds is never handed out). Answer with the
   tools of the same names and arguments as the verbs (`accept` `{patch, note}`, `sendback` `{why}`, `reject` `{why}`,
   `resolved`, `hold` `{why}`), not the CLI; a refusal (`stale`, an older job) comes back as the tool's text. A repeat
   of the wake returns the same job.
-- **Review job** (`…/review`): the gate is green. The job names the spec, quotes the worker's report, names the candidate (read it with
-  the `git diff <target> <sha>` it gives) and its patch hash. Check it on the candidate:
+- **Review job** (`…/review`): the gate is green. The job names the spec, quotes the worker's report, names the candidate and its patch hash, and
+  carries the candidate's `diff --stat` and, when it is at most 15 KB, its whole diff (inline: no `git diff` call
+  needed); a larger diff you read with the `git diff <target> <sha>` it gives. Check it on the candidate:
   1. Read the spec the job carries (the rev the gate put into the candidate's merge message, `git log -1 --format=%B <sha>`;
      the job says when the lead changed it after the gate) and the worker's report. **Hold instead of accepting** on open
      questions, a deviation the spec didn't allow, a change outside the task's goal, or missing Self-check evidence you can't

@@ -31,8 +31,8 @@ func (f *startJobFakes) Type(_ context.Context, _, text string, _ bool) (bool, e
 // T-393 (RV-42 #2), T-396: the one start sequence (startJob). An integrator that does not run is started with its
 // job's wake as the first prompt, the job open from its own intent, written before the start: a fetch during the start gets the job and
 // records delivered once, the job's step is sent (start prompt), nothing typed. The same for review and resolve, a
-// numbered job after job.lost and the owner's reprompt; an integrator that runs keeps the job's intent, then the
-// typed wake.
+// numbered job after job.lost and the owner's reprompt; an integrator that runs (idle, no other job out) is started
+// fresh as well (T-602).
 func TestStartJobIntegrator(t *testing.T) {
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
@@ -74,8 +74,8 @@ func TestStartJobIntegrator(t *testing.T) {
 			job: "resolve.2", start: "start.resolve.2"},
 		{name: "owner reprompt starts an absent integrator",
 			setup: []func(*concRig){gate(outGreen), sent("review"), reprompt}, job: "review.2", start: "start.review.2"},
-		{name: "running integrator: intent, then the typed wake", setup: []func(*concRig){gate(outGreen)},
-			running: true, job: "review", typed: 1},
+		{name: "running integrator: a fresh start too (T-602)", setup: []func(*concRig){gate(outGreen)},
+			running: true, job: "review", start: "start.review"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			r := newConcRig(t)
@@ -109,8 +109,8 @@ func TestStartJobIntegrator(t *testing.T) {
 			if row.start == "" {
 				same(t, len(f.launches), 0, "starts")
 			} else {
-				if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) {
-					t.Fatalf("launches %+v, want one with the first prompt %q", f.launches, wakeLine(job))
+				if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) || !f.launches[0].Fresh {
+					t.Fatalf("launches %+v, want one fresh with the first prompt %q", f.launches, wakeLine(job))
 				}
 				same(t, done(p, Key{"T-1", 1, row.start}), true, row.start+" done")
 				same(t, early.State+" "+early.Job, "job "+job, "job_next during the start")

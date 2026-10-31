@@ -119,13 +119,18 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 			return mtask{}, Key{}, false, fmt.Errorf("job_next: only the integrator (%s) fetches its jobs, not %s",
 				p.integrator, Dash(c.Agent))
 		}
+		// The job the call names (its wake's id) when it is open, else the oldest open one; never a held one (a
+		// needs-you left it: the owner's, T-602): a fresh session started for one job gets that job.
 		var best *mtask
 		var seq int64
 		var bestKey Key
-		for _, mt := range p.loop { // the oldest open job first
+		for _, mt := range p.loop {
 			k, ok := mt.integratorJob()
-			if !ok {
+			if !ok || mt.state == stNeedsYou {
 				continue
+			}
+			if c.Job != "" && JobID(k) == c.Job {
+				return *mt, k, true, nil
 			}
 			r, _ := p.log.Intent(k)
 			if best == nil || r.Seq < seq {

@@ -190,6 +190,9 @@ func (s Scratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, e
 		return app.GateOutcome{}, err
 	}
 	c.Patch = fmt.Sprintf("%x", sha256.Sum256([]byte(diff)))
+	if len(diff) <= app.InlineDiff {
+		c.Diff = diff // the review job carries it (T-602)
+	}
 	if c.Stat, err = s.call(s.Cfg.Root, "diff", "--stat", c.Target, c.SHA); err != nil {
 		return app.GateOutcome{}, err
 	}

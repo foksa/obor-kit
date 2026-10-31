@@ -236,6 +236,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rp
 		Pane: s.env.Get("HERDR_PANE_ID"), CallID: app.NewCallID(), Root: root.Root}
 	switch t.method {
 	case app.MethodJobNext:
+		c.Job = args["job"] // the wake's job id (T-602): that job when it is open, else superseded{current}
 	case app.MethodTaskDone:
 		if c.Lane == "" {
 			return errorResult(t.name + ": OBOR_LANE is not set: task_done is the worker's tool"), nil
