@@ -873,6 +873,18 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	if _, err := c.NewTab(ctx, "", "lead", "/proj"); !errors.Is(err, herdr.ErrBadAnswer) {
 		t.Errorf("tab.create without a root pane = %v, want a bad answer", err)
 	}
+
+	ws, err := c.NewWorkspace(ctx, "proj", "/proj")
+	if err != nil || ws == "" || f.Pane(ws+":p1") == nil || f.Pane(ws+":p1").Cwd != "/proj" {
+		t.Errorf("NewWorkspace = %q, %v; want a new workspace whose root pane is in /proj", ws, err)
+	}
+	if got := lastParams(t, srv, "workspace.create"); got != `{"cwd":"/proj","focus":false,"label":"proj"}` {
+		t.Errorf("workspace.create params = %s", got)
+	}
+	srv.Reply("workspace.create", map[string]any{"type": "workspace_created"})
+	if _, err := c.NewWorkspace(ctx, "proj", "/proj"); !errors.Is(err, herdr.ErrBadAnswer) {
+		t.Errorf("workspace.create without a workspace = %v, want a bad answer", err)
+	}
 }
 
 func TestSocketPlugins(t *testing.T) {

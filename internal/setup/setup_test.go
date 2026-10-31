@@ -57,7 +57,8 @@ type fx struct {
 }
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, lane types opus: claude --model opus, luna:
-// codex -m gpt-6-luna; edits on top) and a fake herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each).
+// codex -m gpt-6-luna; edits on top) and a fake herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
+// both shells of this project (workspace w1, cwd the root: the project's own tabs, T-632).
 func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	x := bare(t)
@@ -74,6 +75,9 @@ func bare(t *testing.T) *fx {
 	h.Tab("w1:t1", 200, 50, "w1:p1")
 	h.Tab("w1:t2", 200, 50, "w1:q1")
 	x := &fx{Project: testkit.New(t), h: h, srv: herdrtest.Serve(t, h)}
+	for _, p := range h.Panes {
+		p.Workspace, p.Cwd = "w1", x.Root
+	}
 	// A screen applies to every pane read, whatever pane it names (the fake's per-pane Screen is empty here).
 	x.srv.Before(func(r herdrtest.Request) {
 		if x.screen == "" || r.Method != "pane.read" {
@@ -741,7 +745,7 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list",
-		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-t-01,OBOR_LANE=T-01,OBOR_ROLE=worker} focus=false label=workers",
+		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-t-01,OBOR_LANE=T-01,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
 		"pane.rename label=pj-t-01 pane_id=w1:n1", "agent.get target=pj-t-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[-c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_AGENT\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-t-01 pane_id=w1:n1",
 		"pane.process_info pane_id=w1:n1"} // the fresh Codex start's pid: the rollout it holds is its session (T-588)
@@ -750,25 +754,26 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 	}
 }
 
-// T-137: from a pane of workspace w6 the new tab goes to w6, not herdr's active workspace.
-// bash setup.test.sh case_new_tab_in_the_callers_workspace
-func TestNewTabInTheCallersWorkspace(t *testing.T) {
+// A new tab goes to the project's workspace (w1: its panes work in the root), not herdr's active one (T-137) and not
+// the caller's when that holds no pane of the project (T-632).
+func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
 	x.ok(t, "role", "reviewer", "--new-tab", "review")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_ROLE=reviewer} focus=false label=review", "without HERDR_WORKSPACE_ID: unchanged")
-	hasNot(t, calls, "workspace_id", "no workspace")
+	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
 	x.reset()
 	x.env = []string{"HERDR_WORKSPACE_ID=w6"}
 	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-	if last(out) != "OK reviewer: pj-rev in pane w6:n2" {
+	if last(out) != "OK reviewer: pj-rev in pane w1:n2" {
 		t.Errorf("last line %q", last(out))
 	}
-	has(t, strings.Join(x.reqs(), "\n"), "workspace_id=w6", "the caller's workspace")
+	calls = strings.Join(x.reqs(), "\n")
+	has(t, calls, "workspace_id=w1", "the project's workspace")
+	hasNot(t, calls, "workspace_id=w6", "not the caller's, no pane of the project there")
 }
 
 // bash setup.test.sh case_pane_refuses_a_full_tab
@@ -906,7 +911,10 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	x.failing(t, "FAIL unknown lane O-09 (obor setup lane O-09 <type> first)", "pane", "O-09", "--tab", "w1:t1")
 	x.ok(t, "lane", "O-01", "opus")
 	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "O-01", "--tab", "w1:t1", "--new-tab", "x")
-	x.failing(t, "FAIL not in a herdr pane: pass --tab <tab-id>, --new-tab <label> or --pane <id>", "pane", "O-01")
+	x.ok(t, "lane", "O-02", "opus")
+	x.ok(t, "pane", "O-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
+	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
+	x.reset()
 	x.env = []string{"HERDR_PANE_ID=w1:q1"}
 	x.ok(t, "pane", "O-01")
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:q1", "no --tab: the caller's tab")

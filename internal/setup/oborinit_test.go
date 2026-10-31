@@ -148,9 +148,14 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	o, s := panes["proj-o-01"], panes["proj-s-01"]
 	i, r := panes[cfg.AgentName("integrator", "")], panes[cfg.AgentName("reviewer", "")]
 	tab := func(v string) string { return append(strings.Fields(v), "", "")[1] }
-	if len(panes) != 4 || !strings.HasPrefix(o, "w1:n") || !strings.HasPrefix(r, "w1:n") || tab(s) != tab(o) ||
+	// No pane of the project anywhere: one workspace of its own, wn1, made first (T-632).
+	if len(panes) != 4 || !strings.HasPrefix(o, "wn1:n") || !strings.HasPrefix(r, "wn1:n") || tab(s) != tab(o) ||
 		tab(i) != tab(o) || tab(r) == tab(o) {
-		t.Errorf("agents (O-01 in a new tab, S-01 and the integrator beside it, the reviewer in a new tab): %v", panes)
+		t.Errorf("agents (O-01 in a new tab of the new workspace, S-01 and the integrator beside it, the reviewer in a "+
+			"new tab): %v", panes)
+	}
+	if n := strings.Count(strings.Join(x.reqs(), "\n"), "workspace.create cwd="+x.Root+" focus=false label=proj"); n != 1 {
+		t.Errorf("workspace.create for the root %d times, want once", n)
 	}
 	var tabs []string
 	for _, q := range x.reqs() {

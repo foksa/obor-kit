@@ -699,6 +699,17 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 		defer f.mu.Unlock()
 		n := f.newTab(p.Workspace, p.Cwd)
 		return ok(map[string]any{"type": "tab_created", "tab": map[string]any{"tab_id": n.Tab}, "root_pane": n.paneJSON()}), nil
+	case "workspace.create":
+		var p struct {
+			Label string `json:"label"`
+			Cwd   string `json:"cwd"`
+		}
+		_ = json.Unmarshal(params, &p)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		n := f.newWorkspace(p.Label, p.Cwd)
+		return ok(map[string]any{"type": "workspace_created", "workspace": map[string]any{"workspace_id": n.Workspace,
+			"label": p.Label}, "tab": map[string]any{"tab_id": n.Tab}, "root_pane": n.paneJSON()}), nil
 	case "plugin.list":
 		f.mu.Lock()
 		defer f.mu.Unlock()

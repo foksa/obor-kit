@@ -525,6 +525,23 @@ func (s *Socket) NewTab(ctx context.Context, workspace, label, cwd string, env .
 	return r.Root.ID, nil
 }
 
+// NewWorkspace is workspace.create: a new workspace labelled label, its first tab's root pane a shell in cwd, not
+// focused; the workspace's id (T-632).
+func (s *Socket) NewWorkspace(ctx context.Context, label, cwd string) (string, error) {
+	var r struct {
+		Workspace struct {
+			ID string `json:"workspace_id"`
+		} `json:"workspace"`
+	}
+	if err := s.call(ctx, 0, &r, "workspace.create", map[string]any{"label": label, "cwd": cwd, "focus": false}); err != nil {
+		return "", err
+	}
+	if r.Workspace.ID == "" {
+		return "", &Error{Kind: BadAnswer, Op: "workspace.create", Msg: "no workspace id in the answer"}
+	}
+	return r.Workspace.ID, nil
+}
+
 // Plugins is plugin.list. herdr's plugin registry is user-global: every session sees the same plugins.
 func (s *Socket) Plugins(ctx context.Context) ([]Plugin, error) {
 	var r pluginsAnswer

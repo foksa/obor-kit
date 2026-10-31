@@ -243,20 +243,25 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	case pane != "":
 		s.say("pane %s (existing)", pane)
 	case w.newTab != "":
-		// In the project's workspace (T-628): without one, the caller's; herdr's active one only when the caller has none.
-		if pane, err = s.H.NewTab(ctx, s.workspace(panes), w.newTab, a.cwd, env...); err != nil {
-			return project.Failf("herdr tab create failed: %v", err)
+		if pane, err = s.newTab(ctx, panes, w.newTab, a.cwd, env); err != nil {
+			return err
 		}
-		s.say("tab %s: pane %s", w.newTab, pane)
 		fresh = true
 	default:
 		tab := w.tab
 		if tab == "" {
-			if tab, err = s.defaultTab(panes); err != nil {
-				return err
-			}
+			tab = s.defaultTab(panes)
 		}
-		if pane, err = s.split(ctx, panes, tab, a.cwd, env); err != nil {
+		if tab == "" { // no tab of the project to split: a new one in its workspace (T-632)
+			label := a.role.Name
+			if a.lane != "" {
+				label = "workers"
+			}
+			pane, err = s.newTab(ctx, panes, label, a.cwd, env)
+		} else {
+			pane, err = s.split(ctx, panes, tab, a.cwd, env)
+		}
+		if err != nil {
 			return err
 		}
 		fresh = true
@@ -365,83 +370,96 @@ func (s *Setup) projectWorkspace(panes []app.PaneInfo) string {
 	return ws
 }
 
-// splittable: a split may use p. Its cwd is unknown, or in this project: never another project's pane (T-628).
+// splittable: a split of a named tab (--tab) may use p. Its cwd is unknown, or in this project: never another
+// project's pane (T-628).
 func (s *Setup) splittable(p app.PaneInfo) bool { return p.Cwd == "" || s.inProject(p.Cwd) }
 
-// workspace is where this run's new tabs go: the project's workspace, else the caller's, with one warning line.
-func (s *Setup) workspace(panes []app.PaneInfo) string {
+// projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own (T-632). A pane
+// with an unknown cwd may be another project's.
+func (s *Setup) projectTab(panes []app.PaneInfo, tab string) bool {
+	n := 0
+	for _, p := range panes {
+		if p.Tab != tab {
+			continue
+		}
+		if !s.inProject(p.Cwd) {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
+// project) → a new workspace named after the project, its first pane a shell in the root, made once a run (T-632).
+// The caller's or herdr's active workspace is never a fallback: it may be another project's.
+func (s *Setup) workspace(ctx context.Context, panes []app.PaneInfo) (string, error) {
 	if ws := s.projectWorkspace(panes); ws != "" {
-		return ws
+		return ws, nil
 	}
-	caller := s.Env.Get("HERDR_WORKSPACE_ID")
-	if !s.warned {
-		s.warned = true
-		id := caller
-		if id == "" {
-			id = "herdr's active workspace"
-		}
-		s.say("warning: no herdr workspace has a pane in %s: using the caller's (%s)", s.root, id)
+	if s.madeWS != "" {
+		return s.madeWS, nil
 	}
-	return caller
+	name := s.cfg.Data.Name
+	if name == "" {
+		name = filepath.Base(s.root)
+	}
+	ws, err := s.H.NewWorkspace(ctx, name, s.root)
+	if err != nil {
+		return "", project.Failf("herdr workspace create failed: %v", err)
+	}
+	s.madeWS = ws
+	s.say("workspace %s created for %s", ws, name)
+	return ws, nil
 }
 
-// defaultTab is the tab a split without --tab goes to: the caller's when it is the project's, else the project's tab
-// with most panes of it; no pane of the project anywhere: the caller's, with the warning.
-func (s *Setup) defaultTab(panes []app.PaneInfo) (string, error) {
-	self := s.Env.Get("HERDR_PANE_ID")
-	var mine *app.PaneInfo
-	for i, p := range panes {
-		if self != "" && p.ID == self {
-			mine = &panes[i]
-		}
+// newTab makes a tab labelled label in the project's workspace (made first when there is none), its pane in cwd with
+// env; the pane's id.
+func (s *Setup) newTab(ctx context.Context, panes []app.PaneInfo, label, cwd string, env []string) (string, error) {
+	ws, err := s.workspace(ctx, panes)
+	if err != nil {
+		return "", err
 	}
-	if proj := s.projectWorkspace(panes); proj != "" {
-		if mine != nil && mine.Workspace == proj && s.splittable(*mine) && s.hasSplittable(panes, mine.Tab) {
-			return mine.Tab, nil
-		}
-		if tab := s.busiestTab(panes, proj); tab != "" {
-			return tab, nil
-		}
-		return "", project.Failf("no pane of this project to split in workspace %s: pass --new-tab <label> (or --pane <id>)", proj)
+	pane, err := s.H.NewTab(ctx, ws, label, cwd, env...)
+	if err != nil {
+		return "", project.Failf("herdr tab create failed: %v", err)
 	}
-	s.workspace(panes) // the no-project-workspace warning, once
-	switch {
-	case self == "":
-		return "", project.Failf("not in a herdr pane: pass --tab <tab-id>, --new-tab <label> or --pane <id>")
-	case mine == nil:
-		return "", project.Failf("pane %s not in herdr pane list: pass --tab or --new-tab", self)
-	case !s.splittable(*mine):
-		return "", project.Failf("the caller's pane %s is another project's (cwd %s): pass --new-tab <label> (or --pane <id>)",
-			self, mine.Cwd)
-	}
-	return mine.Tab, nil
+	s.say("tab %s: pane %s", label, pane)
+	return pane, nil
 }
 
-// busiestTab is the tab of ws with the most panes a split may use ("" when none).
+// defaultTab is the tab a split without --tab goes to: the caller's when it is a project tab in the project's
+// workspace, else that workspace's project tab with most panes; "" when none (a new tab then, T-632).
+func (s *Setup) defaultTab(panes []app.PaneInfo) string {
+	proj := s.projectWorkspace(panes)
+	if proj == "" {
+		return ""
+	}
+	if self := s.Env.Get("HERDR_PANE_ID"); self != "" {
+		for _, p := range panes {
+			if p.ID == self && p.Workspace == proj && s.projectTab(panes, p.Tab) {
+				return p.Tab
+			}
+		}
+	}
+	return s.busiestTab(panes, proj)
+}
+
+// busiestTab is the project tab of ws with the most panes ("" when none).
 func (s *Setup) busiestTab(panes []app.PaneInfo, ws string) string {
 	count := map[string]int{}
 	for _, p := range panes {
-		if p.Workspace == ws && s.splittable(p) {
+		if p.Workspace == ws {
 			count[p.Tab]++
 		}
 	}
 	tab, most := "", 0
 	for _, p := range panes { // in herdr's order: the first of equals
-		if c := count[p.Tab]; p.Workspace == ws && s.splittable(p) && c > most {
+		if c := count[p.Tab]; p.Workspace == ws && c > most && s.projectTab(panes, p.Tab) {
 			tab, most = p.Tab, c
 		}
 	}
 	return tab
-}
-
-// hasSplittable: tab holds a pane a split may use.
-func (s *Setup) hasSplittable(panes []app.PaneInfo, tab string) bool {
-	for _, p := range panes {
-		if p.Tab == tab && s.splittable(p) {
-			return true
-		}
-	}
-	return false
 }
 
 // split splits the largest pane of tab a split may use for a new pane with cwd and env: to the right when it is wider

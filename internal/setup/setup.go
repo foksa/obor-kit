@@ -7,9 +7,11 @@
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
 //	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
-//	        when it is the project's, else the project's busiest tab, T-628), or a new tab in the project's workspace
-//	        (the one with most panes in the project), or an existing shell pane; without a pane of the project anywhere
-//	        the caller's, with a warning, and another project's pane is never split; cwd the lane, env
+//	        when it is the project's, else the project's busiest tab, T-628; a tab is the project's only when every
+//	        pane in it has a known cwd in the project, and with none a new tab, T-632), or a new tab in the project's
+//	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
+//	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
+//	        herdr's active one, T-632), and another project's pane is never split; cwd the lane, env
 //	        OBOR_ROLE / OBOR_AGENT / OBOR_LANE; then the pane label (= the agent, R-28 §2: refused when another pane
 //	        holds it or --pane is labelled otherwise) and herdr agent start with the lane type's kind and args (+ Claude
 //	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
@@ -64,13 +66,15 @@ import (
 )
 
 // Herdr is what setup asks of herdr: the pane operations launch needs (app.PaneControl) and the ones setup makes
-// itself, the agents, a new tab, a tab's layout, a split, and the plugin registry; the herdr socket client is it.
+// itself, the agents, a new tab or workspace, a tab's layout, a split, and the plugin registry; the herdr socket
+// client is it.
 type Herdr interface {
 	app.PaneControl
 	Agents(ctx context.Context) ([]app.AgentInfo, error)
 	Layout(ctx context.Context, pane string) ([]app.Rect, error)
 	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
 	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
+	NewWorkspace(ctx context.Context, label, cwd string) (string, error)
 	Plugins(ctx context.Context) ([]app.Plugin, error)
 	LinkPlugin(ctx context.Context, dir string) error
 	UnlinkPlugin(ctx context.Context, id string) error
@@ -97,8 +101,8 @@ type Setup struct {
 
 	root   string // the main checkout, once found
 	cfg    *config.Config
-	wrote  bool // init: a file was created or appended to
-	warned bool // placement said its no-project-workspace warning (once a run)
+	wrote  bool   // init: a file was created or appended to
+	madeWS string // the herdr workspace this run created for the project (T-632), "" when none
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
