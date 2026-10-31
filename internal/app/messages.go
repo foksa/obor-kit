@@ -546,6 +546,9 @@ func (a *App) needsLines() {
 			if r.Task == MsgTask || p.out.lining[r.Seq] {
 				continue
 			}
+			if p.closed(r.Task) && !r.Fact().Merge { // T-635: a watchdog fact of a closed task (one older than its end's clear)
+				continue
+			}
 			n := p.out.lined[r.Seq]
 			if n == 0 { // the first line, right away
 				p.out.lining[r.Seq] = true

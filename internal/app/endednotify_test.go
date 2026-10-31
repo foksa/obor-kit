@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// T-401 (RV-43 #1): settling an ended task keeps the notification of every needs-you still in force, a watchdog's
-// (p.active) as well as the merge loop's, merged or dropped, live or on replay: notify shows it once. A notification
-// whose fact cleared before the task ended is settled as before.
-func TestEndedTaskKeepsNotificationInForce(t *testing.T) {
+// T-401 (RV-43 #1), changed by T-635: a task's end (merged or dropped, live or on replay) ends its watchdog facts, a
+// needs-you in force too, so the pending notification of one is settled as "not run", as one whose fact cleared
+// (resumed) before the task ended always was; nothing is shown for it afterwards.
+func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		replay  bool
 		end     string
-		cleared bool // the watchdog fact ended (resumed) before the task did
+		cleared bool // the watchdog fact ended (resumed) before the task did: settled all the same
 	}{
 		{"live merged", false, StepMerged, false},
 		{"live dropped", false, StepDropped, false},
@@ -67,31 +67,21 @@ func TestEndedTaskKeepsNotificationInForce(t *testing.T) {
 				t.Fatalf("T-3 is %s, want %s", got, c.end)
 			}
 			_, pending := p.log.Intent(k)
-			if c.cleared {
-				if pending {
-					t.Error("the notification of a cleared fact is still pending")
-				}
-				if got := string(p.log.results[k].Data); got != `"not run: T-3 `+c.end+`"` {
-					t.Errorf("its result = %s, want not run", got)
-				}
-				return
+			if pending {
+				t.Error("the notification of the ended task's fact is still pending")
 			}
-			if !pending {
-				t.Fatalf("the notification of a needs-you in force was settled: %s", p.log.results[k].Data)
+			if got := string(p.log.results[k].Data); got != `"not run: T-3 `+c.end+`"` {
+				t.Errorf("its result = %s, want not run", got)
 			}
-			// An unfinished lane still holds the task: its watchdog stays in force.
+			if p.inForce(fact) {
+				t.Error("the ended task's watchdog fact is still in force")
+			}
+			// A lane row still naming the task (its row not yet freed) brings nothing back: nothing is shown.
 			p.setLanes([]Lane{{Name: "O-03", Task: "T-3", Agent: "pq-o-03"}})
-			if !p.inForce(fact) {
-				t.Fatal("precondition: the watchdog fact is not in force")
-			}
 			panes := a.panes.(*fakePanes)
 			a.notify(context.Background())
-			a.notify(context.Background())
-			if len(panes.notes) != 1 {
-				t.Errorf("notifications shown: %v, want one", panes.notes)
-			}
-			if got := string(p.log.results[k].Data); got != `"shown"` {
-				t.Errorf("its result = %s, want shown", got)
+			if len(panes.notes) != 0 {
+				t.Errorf("notifications shown: %v, want none", panes.notes)
 			}
 		})
 	}
