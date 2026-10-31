@@ -179,11 +179,13 @@ type mtask struct {
 	fails             map[string]int // counted failures per step key since the attempt began or the last resume
 	needs             Record         // the needs-you fact in force (Seq 0: none)
 	left              string         // the state the last needs-you left: obor resume's retry goes back to it
-	// A dispatched attempt (dispatch.go): the fact's data and time (a waiting task: its waiting fact's); lane.prepare's
+	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
+	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done; the work
 	// job's step ("": not sent in this attempt, or sent anew after obor resume).
 	disp                    dispatchData
 	at                      time.Time
+	dispSeq                 int64
 	base, refused           string
 	prepares, starts, works int
 	started                 bool
@@ -300,7 +302,7 @@ func (a *App) advance(ctx context.Context) {
 	a.mu.Lock()
 	p.dispatching = fx.Lane != nil && fx.Specs != nil
 	var tasks, waiting []string
-	for task, mt := range p.loop {
+	for task, mt := range p.folded.loop {
 		if mt.state == stWaiting {
 			waiting = append(waiting, task)
 		} else {
@@ -429,7 +431,7 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 		return false
 	}
 	a.mu.Lock()
-	m := p.loop[mt.task]
+	m := p.folded.loop[mt.task]
 	tell := m.attempt == mt.attempt && m.fails[step] >= tries && m.needs.Seq == 0
 	a.mu.Unlock()
 	if tell {
@@ -458,7 +460,7 @@ func (a *App) loopStatus(p *proj, src *bool, err error) {
 	if err != nil {
 		reason = "loop: " + err.Error()
 	}
-	held := len(p.active[LoopTask]) > 0
+	held := len(p.folded.active[LoopTask]) > 0
 	same := p.has(LoopTask, StepNeedsYou, reason)
 	ok := !p.badLoop && !p.badLanes
 	a.mu.Unlock()
@@ -485,7 +487,7 @@ func (a *App) needsYou(p *proj, mt *mtask, cause, reason string) bool {
 // task_done, the owner) or a step fails (the next pass tries again).
 func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 	a.mu.Lock()
-	mt := *p.loop[task]
+	mt := *p.folded.loop[task]
 	running := p.running.Task == task
 	a.mu.Unlock()
 	if running {
@@ -506,7 +508,7 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 	}
 	for i := 0; i < maxSteps && ctx.Err() == nil; i++ {
 		a.mu.Lock()
-		step := a.next(p, p.loop[task])
+		step := a.next(p, p.folded.loop[task])
 		a.mu.Unlock()
 		if step == nil || !step(ctx, fx) {
 			return
@@ -547,7 +549,7 @@ func (a *App) next(p *proj, m *mtask) step {
 func (a *App) begin(p *proj, mt mtask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	m := p.loop[mt.task]
+	m := p.folded.loop[mt.task]
 	if m == nil || m.attempt != mt.attempt || m.state == stDropped || p.ended[mt.task] || p.held[mt.task] != "" {
 		return false
 	}

@@ -27,7 +27,7 @@ func (h *harness) sessions(agent string) []string {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
 	var out []string
-	for _, s := range h.proj().sessions {
+	for _, s := range h.proj().folded.sessions {
 		if s.Agent == agent {
 			out = append(out, s.ID+" "+s.Transcript)
 		}

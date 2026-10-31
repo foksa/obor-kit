@@ -203,7 +203,7 @@ func (a *App) handGreen(p *proj, n *Nightly) {
 	}
 	a.mu.Lock()
 	red := false
-	for _, f := range p.active[NightlyTask] {
+	for _, f := range p.folded.active[NightlyTask] {
 		red = red || f.Step == StepNeedsYou && strings.HasPrefix(f.Fact().Reason, redPrefix)
 	}
 	a.mu.Unlock()
@@ -266,7 +266,7 @@ func (a *App) nightlyVerdict(p *proj, out NightlyOut) {
 		return
 	}
 	a.mu.Lock()
-	held := len(p.active[NightlyTask]) > 0
+	held := len(p.folded.active[NightlyTask]) > 0
 	a.mu.Unlock()
 	if !held {
 		a.mu.Lock()
@@ -280,7 +280,7 @@ func (a *App) nightlyVerdict(p *proj, out NightlyOut) {
 // nightlyNeedsYou records the nightly's needs-you reason, ending another in force; the same one in force: nothing.
 func (a *App) nightlyNeedsYou(p *proj, reason string) {
 	a.mu.Lock()
-	held, same := len(p.active[NightlyTask]) > 0, p.has(NightlyTask, StepNeedsYou, reason)
+	held, same := len(p.folded.active[NightlyTask]) > 0, p.has(NightlyTask, StepNeedsYou, reason)
 	if same {
 		p.night.unsettled = nil
 	}

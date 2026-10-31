@@ -66,15 +66,15 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	if !h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, d) {
 		t.Fatal("the needs-you was refused")
 	}
-	r := p.active["T-1"][len(p.active["T-1"])-1]
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o1"} // a row to write: the write fails
+	r := p.folded.active["T-1"][len(p.folded.active["T-1"])-1]
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o1"} // a row to write: the write fails
 	if _, err := p.log.db.Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 
 	h.a.needsLines()
-	if ms := needsMessages(t, p); len(ms) != 1 || p.lr.err == nil {
-		t.Fatalf("precondition: needs-you lines in the log = %d, lane-row error = %v; want 1 and an error", len(ms), p.lr.err)
+	if ms := needsMessages(t, p); len(ms) != 1 || p.folded.lr.err == nil {
+		t.Fatalf("precondition: needs-you lines in the log = %d, lane-row error = %v; want 1 and an error", len(ms), p.folded.lr.err)
 	}
 	h.a.needsLines()
 	if ms := needsMessages(t, p); len(ms) != 1 {

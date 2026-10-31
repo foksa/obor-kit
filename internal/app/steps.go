@@ -129,7 +129,7 @@ func (a *App) where(p *proj, agent string) Where {
 // at a time), also while a needs-you pauses that work (RV-38 #9). It is released when the task abandons it (reject,
 // regate, a new attempt) or merges.
 func (p *proj) scratchBusy(task string) bool {
-	for t, mt := range p.loop {
+	for t, mt := range p.folded.loop {
 		if t != task && states[mt.kept()].scratch {
 			return true
 		}
@@ -255,7 +255,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		return a.failed(ctx, p, mt, in.Step, err)
 	}
 	a.mu.Lock()
-	moved := p.loop[mt.task].state == stMoved
+	moved := p.folded.loop[mt.task].state == stMoved
 	a.mu.Unlock()
 	if moved {
 		return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepMoved, Kind: KindFact},

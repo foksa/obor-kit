@@ -24,10 +24,10 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
-	mt := p.loop["T-1"]
+	mt := p.folded.loop["T-1"]
 	if watch {
 		h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, FactData{Lane: "O-01", Reason: cause})
-		return h, p, p.active["T-1"][0]
+		return h, p, p.folded.active["T-1"][0]
 	}
 	mt.state, mt.job = state, job
 	if state == stWaiting { // a waiting task holds no lane yet

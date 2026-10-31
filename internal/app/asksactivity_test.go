@@ -44,7 +44,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 					t.Fatal(err)
 				}
 				if !p.asks("T-1") || !p.watched("T-1") {
-					t.Fatalf("precondition: want the asks and its companion in force: %v", p.active["T-1"])
+					t.Fatalf("precondition: want the asks and its companion in force: %v", p.folded.active["T-1"])
 				}
 				switch activity {
 				case "working":
@@ -62,10 +62,10 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				check := func(when string, p *proj) {
 					t.Helper()
 					if !p.asks("T-1") {
-						t.Errorf("%s: the unanswered question ended: %v", when, p.active["T-1"])
+						t.Errorf("%s: the unanswered question ended: %v", when, p.folded.active["T-1"])
 					}
 					if p.watched("T-1") {
-						t.Errorf("%s: a fact activity ends is still in force: %v", when, p.active["T-1"])
+						t.Errorf("%s: a fact activity ends is still in force: %v", when, p.folded.active["T-1"])
 					}
 				}
 				check("live", p)
@@ -88,7 +88,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 // TestResumeKeepsTheAsksRetry: a resumed fact drops the notification retries of the facts it ends, not the open
 // question's.
 func TestResumeKeepsTheAsksRetry(t *testing.T) {
-	p := &proj{active: map[string][]Record{}, retry: map[Key]retry{}}
+	p := &proj{folded: folded{active: map[string][]Record{}}, retry: map[Key]retry{}}
 	stall := Record{Seq: 1, Task: "T-1", Step: StepStalled, Kind: KindFact, Data: []byte(`{"reason":"idle"}`)}
 	ask := Record{Seq: 2, Task: "T-1", Step: StepNeedsYou, Kind: KindFact, Data: []byte(`{"reason":"asks: may I?"}`)}
 	p.fold(stall)
@@ -96,8 +96,8 @@ func TestResumeKeepsTheAsksRetry(t *testing.T) {
 	p.retry[notifyKey(stall)] = retry{tries: 1}
 	p.retry[notifyKey(ask)] = retry{tries: 1}
 	p.fold(Record{Seq: 3, Task: "T-1", Step: StepResumed, Kind: KindFact})
-	if len(p.active["T-1"]) != 1 || p.active["T-1"][0].Seq != 2 {
-		t.Errorf("facts in force %v, want the asks only", p.active["T-1"])
+	if len(p.folded.active["T-1"]) != 1 || p.folded.active["T-1"][0].Seq != 2 {
+		t.Errorf("facts in force %v, want the asks only", p.folded.active["T-1"])
 	}
 	if _, ok := p.retry[notifyKey(ask)]; !ok {
 		t.Error("the question's notification retry ended")

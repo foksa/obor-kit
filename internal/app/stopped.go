@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"obor/internal/agents"
@@ -261,7 +260,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 		return false
 	}
 	callID := "turn." + e.turn.ID
-	_, done := p.calls[verdictStep(MethodStopped, callID)]
+	_, done := p.folded.calls[verdictStep(MethodStopped, callID)]
 	if !counts(e.turn, o.Status, done) {
 		return false
 	}
@@ -294,7 +293,7 @@ func (p *proj) foldStop(r Record, d stoppedData) {
 		return
 	}
 	data, _ := json.Marshal(d.NeedsYou) // strings: cannot fail
-	p.active[d.Task] = append(p.active[d.Task], Record{Seq: r.Seq, TS: r.TS, Task: d.Task, Step: StepNeedsYou,
+	p.folded.active[d.Task] = append(p.folded.active[d.Task], Record{Seq: r.Seq, TS: r.TS, Task: d.Task, Step: StepNeedsYou,
 		Kind: KindFact, Data: data})
 }
 
@@ -365,13 +364,8 @@ func (p *proj) stoppedTask(c Call) (string, *watch) {
 			return task, w
 		}
 	}
-	tasks := make([]string, 0, len(p.loop))
-	for task := range p.loop {
-		tasks = append(tasks, task)
-	}
-	sort.Strings(tasks)
-	for _, task := range tasks {
-		mt := p.loop[task]
+	for _, task := range p.loopTasks() {
+		mt := p.folded.loop[task]
 		if !mt.awaitsTaskDone() || mt.lane == "" {
 			continue
 		}
@@ -406,7 +400,7 @@ func (p *proj) stops(task string) bool {
 
 // stop is task's worker's stop in force (ok false: none).
 func (p *proj) stop(task string) (Record, bool) {
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if isStop(f) {
 			return f, true
 		}

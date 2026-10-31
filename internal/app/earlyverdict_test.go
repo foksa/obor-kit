@@ -90,11 +90,11 @@ func TestEarlyVerdict(t *testing.T) {
 				_, verdictErr = r.a.verdict(context.Background(), row.method, Call{Root: p.root, Agent: p.integrator,
 					Role: "integrator", Task: fetched.Task, Job: fetched.Job, Patch: "p", Note: "why", CallID: "answer"})
 				r.a.mu.Lock()
-				during = *p.loop["T-1"]
+				during = *p.folded.loop["T-1"]
 				r.a.mu.Unlock()
 			}
 			r.a.mu.Lock()
-			step := r.a.next(p, p.loop["T-1"])
+			step := r.a.next(p, p.folded.loop["T-1"])
 			r.a.mu.Unlock()
 			if step == nil {
 				t.Fatal("no step")
@@ -112,7 +112,7 @@ func TestEarlyVerdict(t *testing.T) {
 			}
 			same(t, during.state+" "+strconv.Itoa(during.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the verdict")
 			r.a.mu.Lock()
-			after := *p.loop["T-1"]
+			after := *p.folded.loop["T-1"]
 			r.a.mu.Unlock()
 			same(t, after.state+" "+strconv.Itoa(after.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the start")
 			same(t, resultOf(p, key), `"sent (start prompt)"`, row.job+" result")
@@ -155,11 +155,11 @@ func TestEarlyTaskDone(t *testing.T) {
 		_, doneErr = r.a.taskDone(Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", Task: "T-2",
 			CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 		r.a.mu.Lock()
-		during = p.loop["T-2"].state
+		during = p.folded.loop["T-2"].state
 		r.a.mu.Unlock()
 	}
 	r.a.mu.Lock()
-	step := r.a.next(p, p.loop["T-2"])
+	step := r.a.next(p, p.folded.loop["T-2"])
 	r.a.mu.Unlock()
 	if step == nil {
 		t.Fatal("no step")
@@ -176,7 +176,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	}
 	same(t, during, stSubmitted, "state after task_done")
 	r.a.mu.Lock()
-	after := p.loop["T-2"].state
+	after := p.folded.loop["T-2"].state
 	r.a.mu.Unlock()
 	same(t, after, stSubmitted, "state after the start")
 	same(t, resultOf(p, Key{"T-2", 1, StepWork}), `"sent (start prompt)"`, "work result")
@@ -213,7 +213,7 @@ func TestStartAgainSameJob(t *testing.T) {
 	r.add("pj", "T-2", StepUnblocked, KindFact, FactData{Merge: true, Reason: ResumeRetry})
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
 	r.a.mu.Lock()
-	step := r.a.next(p, p.loop["T-2"])
+	step := r.a.next(p, p.folded.loop["T-2"])
 	r.a.mu.Unlock()
 	if step == nil {
 		t.Fatal("no step")

@@ -55,7 +55,7 @@ func (h *harness) selected() step {
 	h.t.Helper()
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	return h.a.next(h.a.p, h.a.p.loop["T-1"])
+	return h.a.next(h.a.p, h.a.p.folded.loop["T-1"])
 }
 
 func (h *harness) freeLanes() {
@@ -75,7 +75,7 @@ func (h *harness) fact(task, step string, data any) {
 func (h *harness) t1() mtask {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
-	return *h.a.p.loop["T-1"]
+	return *h.a.p.folded.loop["T-1"]
 }
 
 func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {

@@ -48,7 +48,7 @@ func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 	free, err := d.Free()
 	a.mu.Lock()
 	p.diskAt = a.opt.Now()
-	held := len(p.active[DiskTask]) > 0
+	held := len(p.folded.active[DiskTask]) > 0
 	a.mu.Unlock()
 	switch {
 	case err != nil:

@@ -57,11 +57,11 @@ func (h *harness) applySids() {
 	h.a.mu.Lock()
 	defer h.a.mu.Unlock()
 	for agent, id := range h.sidMap {
-		if cur, ok := store.Current(h.a.p.sessions, agent); ok && cur.ID == id {
+		if cur, ok := store.Current(h.a.p.folded.sessions, agent); ok && cur.ID == id {
 			continue
 		}
 		h.sidSeq++
-		h.a.p.sessions = append(h.a.p.sessions, store.Session{Agent: agent, Kind: "claude", ID: id, Started: h.sidSeq})
+		h.a.p.folded.sessions = append(h.a.p.folded.sessions, store.Session{Agent: agent, Kind: "claude", ID: id, Started: h.sidSeq})
 	}
 }
 
@@ -159,7 +159,7 @@ func (f *idAgents) Stop(_ context.Context, agent, pane string, _ bool) (string, 
 func (h *harness) stop(f *idAgents) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
 	h.a.mu.Unlock()
 	return h.a.stopWorker(context.Background(), p, &Loop{Agents: f}, mtask{task: "T-1", attempt: 1, lane: "O-01",
 		agent: "pj-o-01"})
@@ -412,7 +412,7 @@ func TestIdentMoveThenStop(t *testing.T) {
 	h.move("w1:p1", "w1:p7")
 	p := h.proj()
 	h.a.mu.Lock()
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
 	h.a.mu.Unlock()
 	f := &idAgents{}
 	mt := mtask{task: "T-1", attempt: 1, lane: "O-01", agent: "pj-o-01", after: slices.Index(afterSteps, StepStop)}
@@ -750,8 +750,8 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	h.a.record(p, Record{Task: "T-1", Attempt: 1, Step: StepSubmitted, Kind: KindFact},
 		submitData{Lane: "O-01", Agent: "pj-o-01"})
 	h.a.mu.Lock()
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
-	mt := p.loop["T-1"]
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
+	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
 	mt.after = slices.Index(afterSteps, StepStop)
 	h.a.connected = false
@@ -1030,7 +1030,7 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	eqs(t, h.where("pj-other"), "unavailable no proof", "pj-other during the tie")
 	delete(sids, "pj-lead")
 	h.a.mu.Lock()
-	h.proj().sessions = slices.DeleteFunc(h.proj().sessions, func(s store.Session) bool { return s.Agent == "pj-lead" })
+	h.proj().folded.sessions = slices.DeleteFunc(h.proj().folded.sessions, func(s store.Session) bool { return s.Agent == "pj-lead" })
 	h.a.mu.Unlock()
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "pj-o-01 after the tie")
@@ -1071,7 +1071,7 @@ func (f *verifyStopRace) Stop(context.Context, string, string, bool) (string, er
 func (h *harness) stopWith(ag Agents) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
-	p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
+	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
 	h.a.mu.Unlock()
 	return h.a.stopWorker(context.Background(), p, &Loop{Agents: ag}, mtask{task: "T-1", attempt: 1, lane: "O-01",
 		agent: "pj-o-01"})
@@ -1125,7 +1125,7 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 	h.a.record(p, Record{Task: "T-1", Attempt: 1, Step: StepSubmitted, Kind: KindFact},
 		submitData{Lane: "O-01", Agent: "pj-o-01"})
 	h.a.mu.Lock()
-	mt := p.loop["T-1"]
+	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
 	mt.after = slices.Index(afterSteps, StepStop)
 	before := mt.after

@@ -149,7 +149,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 			c.act(t, r)
 			p := r.proj("pq")
 			r.app("pq").mu.Lock()
-			live := *p.loop["T-7"]
+			live := *p.folded.loop["T-7"]
 			ended := p.ended["T-7"]
 			r.app("pq").mu.Unlock()
 			if live.state != c.want || live.attempt != c.attempt {
@@ -161,7 +161,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 			r.app("pq").closeLog() // the first serve ends: the replay is the next one
 			b := New(Options{Root: r.roots["pq"], Now: r.app("pq").opt.Now}, &fakePanes{}, &fakeLanes{})
 			b.loadProject()
-			if mt := b.p.loop["T-7"]; mt == nil || mt.state != c.want || mt.attempt != c.attempt {
+			if mt := b.p.folded.loop["T-7"]; mt == nil || mt.state != c.want || mt.attempt != c.attempt {
 				t.Errorf("replay: %+v; want %s at attempt %d", mt, c.want, c.attempt)
 			}
 		})

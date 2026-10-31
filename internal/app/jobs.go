@@ -135,7 +135,7 @@ func (a *App) undelivered(p *proj, mt mtask, t *jobTimer, key Key, agent string,
 // watchFix is the delivery timer of mt's fix job key (under mu), as the work job's (watchWork): delivered by the
 // worker's job_next, else undelivered. A delivered fix job waits for task_done.
 func (a *App) watchFix(p *proj, mt mtask, key Key) step {
-	if p.delivered[JobID(key)] {
+	if p.folded.delivered[JobID(key)] {
 		return nil
 	}
 	t := a.timerOf(p, key)

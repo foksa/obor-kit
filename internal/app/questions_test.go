@@ -27,7 +27,7 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
+	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
 	addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
 		Report: report})
@@ -35,7 +35,7 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	addRecord(t, h, "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
 	addRecord(t, h, "T-1", StepGate, KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
 		Candidate: Candidate{Task: "T-1", Lane: "O-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
-	if mt := h.a.p.loop["T-1"]; mt.state != stGreen || mt.report != report {
+	if mt := h.a.p.folded.loop["T-1"]; mt.state != stGreen || mt.report != report {
 		t.Fatalf("precondition: T-1 %s with report %q; want green with the submitted report", mt.state, mt.report)
 	}
 	return h, f
@@ -48,11 +48,11 @@ func pickGreenStep(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 	if replay {
 		p = reloadProj(t, h)
 	}
-	s := h.a.pickGreen(p, *p.loop["T-1"])
+	s := h.a.pickGreen(p, *p.folded.loop["T-1"])
 	if s == nil || !s(context.Background(), &Loop{Agents: f, Typer: f}) {
 		t.Fatal("pickGreen: no step, or it failed")
 	}
-	return p.loop["T-1"]
+	return p.folded.loop["T-1"]
 }
 
 func TestOpenQuestionsHoldGreenBeforeReview(t *testing.T) {
@@ -154,7 +154,7 @@ func TestOpenQuestionsSendbackStartsNextAttempt(t *testing.T) {
 	if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 		t.Fatalf("sendback: %q, %v", reply, err)
 	}
-	mt := h.a.p.loop["T-1"]
+	mt := h.a.p.folded.loop["T-1"]
 	if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != 1 || mt.needs.Seq != 0 {
 		t.Errorf("after the sendback: T-1 %s, attempt %d, sendbacks %d, needs %d; want attempt 2 working, no needs-you",
 			mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq)
@@ -166,7 +166,7 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 	t.Helper()
 	p := h.a.p
 	h.a.mu.Lock()
-	s := h.a.pickWorking(p, *p.loop["T-1"])
+	s := h.a.pickWorking(p, *p.folded.loop["T-1"])
 	h.a.mu.Unlock()
 	if s == nil || !s(context.Background(), &Loop{Scratch: f, Agents: f, Typer: f}) {
 		t.Fatal("pickWorking: no step, or it failed")
@@ -297,7 +297,7 @@ func TestResumeOpenQuestionsNeedsADecision(t *testing.T) {
 					if n := countStep(t, h, StepUnblocked); n != 0 {
 						t.Errorf("%d unblocked facts; want none", n)
 					}
-					if mt := h.a.p.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
+					if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
 						t.Errorf("after the refused resume: T-1 %s (%s); want the hold in force", mt.state,
 							mt.needs.Fact().Cause)
 					}
@@ -314,7 +314,7 @@ func TestResumeOpenQuestionsNeedsADecision(t *testing.T) {
 				if d.Cause != causeOpen || d.Reason != to || d.Note != c.note {
 					t.Errorf("unblocked %+v; want cause %q, %q, the decision %q", d, causeOpen, to, c.note)
 				}
-				if mt := h.a.p.loop["T-1"]; mt.needs.Seq != 0 {
+				if mt := h.a.p.folded.loop["T-1"]; mt.needs.Seq != 0 {
 					t.Errorf("T-1 still holds a needs-you; want the hold ended")
 				}
 			})
@@ -327,7 +327,7 @@ func TestResumeOpenQuestionsNeedsADecision(t *testing.T) {
 		}
 		addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Reason: "held: the owner's call",
 			Merge: true, Cause: causeHeld})
-		if mt := h.a.p.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
+		if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
 			t.Fatalf("precondition: T-1 %s; want the held needs-you", mt.state)
 		}
 		reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1"})
@@ -378,7 +378,7 @@ func TestOpenQuestionsDecisionOutlivesANewAttempt(t *testing.T) {
 	addAttempt(t, h, 2, StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s2"})
 	addAttempt(t, h, 2, StepGate, KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
 		Candidate: Candidate{Task: "T-1", Lane: "O-01", SHA: "c2", Target: "base1", Patch: "patch2"}})
-	if mt := h.a.p.loop["T-1"]; mt.attempt != 2 || mt.state != stGreen || mt.openDecision != decision {
+	if mt := h.a.p.folded.loop["T-1"]; mt.attempt != 2 || mt.state != stGreen || mt.openDecision != decision {
 		t.Fatalf("after the second submission: T-1 attempt %d, %s, decision %q; want attempt 2 green with the decision",
 			mt.attempt, mt.state, mt.openDecision)
 	}

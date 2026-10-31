@@ -10,7 +10,7 @@ import (
 
 // foldLoop folds r into p's merge-loop tasks.
 func (p *proj) foldLoop(r Record) {
-	mt := p.loop[r.Task]
+	mt := p.folded.loop[r.Task]
 	if r.Kind == KindFact && r.Step == StepDispatched {
 		p.foldDispatch(r)
 		return
@@ -40,8 +40,9 @@ func (p *proj) foldLoop(r Record) {
 			// The worker's spec rev and the lead's decision on its open questions outlive its attempt (T-611).
 			next.sendbacks, next.specRev = mt.sendbacks, mt.specRev
 			next.openDecision, next.openAt = mt.openDecision, mt.openAt
+			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
 		}
-		p.loop[r.Task] = next
+		p.folded.loop[r.Task] = next
 		return
 	}
 	if mt == nil || r.Attempt != mt.attempt || mt.state == stDropped {
@@ -348,4 +349,16 @@ func (mt *mtask) verdict(method string, v verdictResult) {
 			return
 		}
 	}
+}
+
+// loopTasks is p's merge-loop tasks by task name (under mu): a choice of the first, oldest or any one of them ranges
+// over this, never over the map, so it never depends on Go's map order (T-615; the oldest job is by intent seq,
+// T-606).
+func (p *proj) loopTasks() []string {
+	out := make([]string, 0, len(p.folded.loop))
+	for task := range p.folded.loop {
+		out = append(out, task)
+	}
+	slices.Sort(out)
+	return out
 }

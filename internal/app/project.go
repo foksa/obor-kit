@@ -29,19 +29,17 @@ func (a *App) load(root string) (*proj, error) {
 		return nil, err
 	}
 	rc, _ := cfg.Role("integrator")
-	p := &proj{root: root, name: name, log: log, active: map[string][]Record{}, woke: map[string]time.Time{}, tasks: map[string]*watch{},
+	p := &proj{root: root, name: name, log: log, tasks: map[string]*watch{},
 		retry: map[Key]retry{}, integrator: cfg.AgentName("integrator", ""),
-		out: newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")), watches: map[string]*mergeWatch{},
-		calls: map[string]string{}, merging: a.opt.Loop != nil && rc.Configured,
-		loop: map[string]*mtask{}, timers: map[string]*jobTimer{},
+		out:     newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
+		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[Key]json.RawMessage{}, scratch: make(chan struct{}, 1), held: map[string]string{}, ended: map[string]bool{},
-		delivered: map[string]bool{}, reg: newRegistry(),
-		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
+		reg: newRegistry(), folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
-	p.lr.live = true
+	p.folded.lr.live = true
 	if err := p.syncLanes(); err != nil {
 		a.logf("project %s: lanes table: %v", name, err)
 	}
@@ -51,7 +49,7 @@ func (a *App) load(root string) (*proj, error) {
 	// sent again: prompt.go).
 	settled := a.settleEnded(p, "")
 	a.logf("project %s (%s): %d records replayed, %d tasks with watchdog facts, %d merge tasks, %d lanes, %d pending intents (%d settled)",
-		name, root, len(recs), len(p.active), len(p.loop), len(p.lr.rows), pending, settled)
+		name, root, len(recs), len(p.folded.active), len(p.folded.loop), len(p.folded.lr.rows), pending, settled)
 	return p, nil
 }
 
@@ -88,7 +86,7 @@ func (p *proj) foldRecord(r Record) {
 	p.foldMsg(r)
 	p.foldWatch(r)
 	p.foldWake(r)
-	if p.lr.live {
+	if p.folded.lr.live {
 		_ = p.syncLanes() // a failed write is tried again (the check's pass logs it)
 	}
 }
@@ -98,7 +96,7 @@ func (p *proj) fold(r Record) {
 	switch r.Step {
 	case StepStalled, StepNeedsYou:
 		if !r.Fact().Merge {
-			p.active[r.Task] = append(p.active[r.Task], r)
+			p.folded.active[r.Task] = append(p.folded.active[r.Task], r)
 		}
 	case StepResumed:
 		p.resume(r.Task)
@@ -109,10 +107,10 @@ func (p *proj) fold(r Record) {
 // (asks: obor answer, the task's submission or a drop ends it, state model row 12), with the retries of their failed
 // notifications.
 func (p *proj) resume(task string) {
-	delete(p.woke, task)
+	delete(p.folded.woke, task)
 	var kept []Record
 	keep := map[Key]bool{}
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if isAsk(f) {
 			kept = append(kept, f)
 			keep[notifyKey(f)] = true
@@ -122,7 +120,7 @@ func (p *proj) resume(task string) {
 		p.clear(task)
 		return
 	}
-	p.active[task] = kept
+	p.folded.active[task] = kept
 	for k := range p.retry {
 		if k.Task == task && !keep[k] {
 			delete(p.retry, k)
@@ -132,8 +130,8 @@ func (p *proj) resume(task string) {
 
 // clear drops task's watchdog facts in force and the retries of their failed notifications.
 func (p *proj) clear(task string) {
-	delete(p.active, task)
-	delete(p.woke, task)
+	delete(p.folded.active, task)
+	delete(p.folded.woke, task)
 	for k := range p.retry {
 		if k.Task == task {
 			delete(p.retry, k)
@@ -143,10 +141,10 @@ func (p *proj) clear(task string) {
 
 // inForce: the fact r is still in force.
 func (p *proj) inForce(r Record) bool {
-	if mt := p.loop[r.Task]; mt != nil && mt.needs.Seq == r.Seq && r.Seq != 0 {
+	if mt := p.folded.loop[r.Task]; mt != nil && mt.needs.Seq == r.Seq && r.Seq != 0 {
 		return true
 	}
-	for _, f := range p.active[r.Task] {
+	for _, f := range p.folded.active[r.Task] {
 		if f.Seq == r.Seq {
 			return true
 		}
@@ -156,7 +154,7 @@ func (p *proj) inForce(r Record) bool {
 
 // asks: task has a worker's question in force (needs-you{asks: …}).
 func (p *proj) asks(task string) bool {
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if isAsk(f) {
 			return true
 		}
@@ -172,7 +170,7 @@ func isAsk(f Record) bool {
 // watched: task has a watchdog fact in force that its worker's activity ends: any but a question (asks: obor answer
 // ends it, T-511).
 func (p *proj) watched(task string) bool {
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if !isAsk(f) {
 			return true
 		}
@@ -182,7 +180,7 @@ func (p *proj) watched(task string) bool {
 
 // has: task has an active fact step{reason}.
 func (p *proj) has(task, step, reason string) bool {
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if f.Step == step && f.Fact().Reason == reason {
 			return true
 		}
@@ -197,7 +195,7 @@ func (p *proj) setLanes(ls []Lane) {
 	p.lanes = ls
 	open := map[string]Lane{}
 	for _, l := range ls {
-		if l.Task != "" && !p.loop[l.Task].inLoop() {
+		if l.Task != "" && !p.folded.loop[l.Task].inLoop() {
 			open[l.Task] = l
 		}
 	}
@@ -213,7 +211,7 @@ func (p *proj) setLanes(ls []Lane) {
 			p.tasks[task] = &watch{lane: l}
 		}
 	}
-	for task := range p.active {
+	for task := range p.folded.active {
 		if _, ok := open[task]; !ok && task != LoopTask && task != NightlyTask && task != MsgTask && task != DiskTask {
 			p.clear(task)
 		}

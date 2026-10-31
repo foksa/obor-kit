@@ -67,7 +67,7 @@ func (a *App) jobNext(c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.calls[verdictStep(MethodJobNext, c.CallID)]
+		reply, stored = p.replies[verdictStep(MethodJobNext, c.CallID)]
 	}
 	a.mu.Unlock()
 	switch {
@@ -78,7 +78,7 @@ func (a *App) jobNext(c Call) (string, error) {
 	}
 	a.mu.Lock()
 	mt, key, ok, err := a.callerJob(p, c)
-	delivered := p.delivered[JobID(key)]
+	delivered := p.folded.delivered[JobID(key)]
 	a.mu.Unlock()
 	if err != nil {
 		return "", err
@@ -107,7 +107,7 @@ func (a *App) jobNext(c Call) (string, error) {
 	}
 	b, _ := json.Marshal(r) // strings and an int: cannot fail
 	a.mu.Lock()
-	p.calls[verdictStep(MethodJobNext, c.CallID)] = string(b)
+	p.replies[verdictStep(MethodJobNext, c.CallID)] = string(b)
 	a.mu.Unlock()
 	return string(b), nil
 }
@@ -125,7 +125,8 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 		var best *mtask
 		var seq int64
 		var bestKey Key
-		for _, mt := range p.loop {
+		for _, t := range p.loopTasks() { // equal seqs (no intent found): the first task by name
+			mt := p.folded.loop[t]
 			k, ok := mt.integratorJob()
 			if !ok || mt.state == stNeedsYou {
 				continue
@@ -147,7 +148,8 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 	case "worker":
 		var found *mtask
 		var key Key
-		for _, mt := range p.loop {
+		for _, t := range p.loopTasks() { // two jobs for one lane or agent: the first task by name (T-615)
+			mt := p.folded.loop[t]
 			k, ok := mt.workerJob()
 			if ok && (c.Lane != "" && mt.lane == c.Lane || c.Lane == "" && mt.agent == c.Agent) {
 				found, key = mt, k
@@ -261,7 +263,7 @@ func (a *App) taskDone(c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.calls[verdictStep(MethodTaskDone, c.CallID)]
+		reply, stored = p.folded.calls[verdictStep(MethodTaskDone, c.CallID)]
 		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
 			c.Task = p.laneTask(c.Lane)
 		}
@@ -294,7 +296,7 @@ func (a *App) taskDone(c Call) (string, error) {
 	}
 	a.mu.Lock()
 	var mt mtask
-	if m := p.loop[c.Task]; m != nil {
+	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
 	if p.ended[c.Task] { // a drop of it is being recorded
@@ -337,7 +339,7 @@ func (a *App) taskDone(c Call) (string, error) {
 	}
 	a.wake()
 	a.mu.Lock()
-	dropped := p.loop[c.Task] != nil && p.loop[c.Task].state == stDropped
+	dropped := p.folded.loop[c.Task] != nil && p.folded.loop[c.Task].state == stDropped
 	a.mu.Unlock()
 	if dropped { // dropped after the decision: the submitted fact changes nothing
 		return "", fmt.Errorf("task_done: superseded: %s was dropped", c.Task)

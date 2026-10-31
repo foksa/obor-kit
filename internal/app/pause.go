@@ -43,21 +43,21 @@ func (p *proj) foldPause(r Record) {
 	var d Pause
 	_ = json.Unmarshal(r.Data, &d)
 	if d.Call != "" {
-		p.calls[verdictStep(MethodPause, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(MethodPause, d.Call)] = d.Reply
 	}
-	p.pause = nil
+	p.folded.pause = nil
 	if r.Step == StepPaused {
 		d.Since = r.TS
-		p.pause = &d
+		p.folded.pause = &d
 	}
 }
 
 // paused is the pause in force in p at now (under mu; nil: none).
 func (p *proj) paused(now time.Time) *Pause {
-	if p.pause == nil || p.pause.Until != 0 && now.Unix() >= p.pause.Until {
+	if p.folded.pause == nil || p.folded.pause.Until != 0 && now.Unix() >= p.folded.pause.Until {
 		return nil
 	}
-	return p.pause
+	return p.folded.pause
 }
 
 // pausedErr is why a dispatch is refused while ps holds.
@@ -88,7 +88,7 @@ func (a *App) pauseCall(c Call) (string, error) {
 	reply, stored := "", false
 	var held *Pause
 	if p != nil {
-		reply, stored = p.calls[key]
+		reply, stored = p.folded.calls[key]
 		held = p.paused(a.opt.Now())
 	}
 	a.mu.Unlock()

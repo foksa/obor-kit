@@ -402,16 +402,16 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l}, nil }
 	now = now.Add(25 * time.Hour)
 	a.advance(context.Background())
-	if len(p.active[MsgTask]) != 1 {
-		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.active[MsgTask]))
+	if len(p.folded.active[MsgTask]) != 1 {
+		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.folded.active[MsgTask]))
 	}
 	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	a.advance(context.Background())
 	a.advance(context.Background())
-	if len(p.active[MsgTask]) != 0 {
-		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.active[MsgTask])
+	if len(p.folded.active[MsgTask]) != 0 {
+		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[MsgTask])
 	}
 	if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] second" || len(l.calls) != 0 {
 		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.calls)
@@ -658,9 +658,9 @@ func TestLinesBehindCheckout(t *testing.T) {
 		l := &linerSpy{}
 		a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l, Checkout: off}, nil }
 		a.advance(context.Background())
-		if len(l.calls) != 0 || len(p.active[MsgTask]) != 1 {
+		if len(l.calls) != 0 || len(p.folded.active[MsgTask]) != 1 {
 			t.Fatalf("want the working reviewer's 25 h line held with a needs-you: calls %v, needs-you %d", l.calls,
-				len(p.active[MsgTask]))
+				len(p.folded.active[MsgTask]))
 		}
 	})
 }

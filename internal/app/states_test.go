@@ -46,13 +46,13 @@ func checkRow(t *testing.T, w rowWant) {
 		same(t, c.state, want, mt.state+": state after "+m)
 	}
 	same(t, mt.openJob(), w.open, mt.state+": job open")
-	p := &proj{loop: map[string]*mtask{"T-1": &mt}}
+	p := &proj{folded: folded{loop: map[string]*mtask{"T-1": &mt}}}
 	same(t, p.scratchBusy("T-2"), w.scratch, mt.state+": scratch busy for another task")
 	same(t, p.scratchBusy("T-1"), false, mt.state+": scratch busy for itself")
 	same(t, row.landed, w.landed, mt.state+": drive checks a merge outside")
 	same(t, row.ended, w.ended, mt.state+": ended")
 	if w.ended {
-		p := &proj{merging: true, loop: map[string]*mtask{"T-1": &mt}, ended: map[string]bool{}, held: map[string]string{}}
+		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, ended: map[string]bool{}, held: map[string]string{}}
 		_, err := (&App{}).dropDecide(p, &Call{Task: "T-1", Note: "why", CallID: "d"})
 		if err == nil || !strings.Contains(err.Error(), "is "+mt.state+" already") {
 			t.Errorf("%s: drop %v, want refused as ended", mt.state, err)
@@ -177,10 +177,10 @@ func TestStateWaitingRow2a(t *testing.T) {
 		{"T-2 rejected", map[string]string{"T-2": stRejected, "T-3": stWorking}, true},
 	} {
 		mt := mtask{task: "T-1", attempt: 1, state: stWaiting, disp: dispatchData{After: []string{"T-2", "T-3"}}}
-		p := &proj{dispatching: true, loop: map[string]*mtask{"T-1": &mt}}
+		p := &proj{dispatching: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}}
 		for task, st := range c.deps {
 			if st != "" {
-				p.loop[task] = &mtask{task: task, attempt: 1, state: st}
+				p.folded.loop[task] = &mtask{task: task, attempt: 1, state: st}
 			}
 		}
 		if got := (&App{}).pick(p, &mt) != nil; got != c.step {
@@ -193,8 +193,8 @@ func TestStateWaitingRow2a(t *testing.T) {
 	}
 	// drop: a waiting task is open, obor drop <T> takes it
 	mt := mtask{task: "T-1", attempt: 1, state: stWaiting}
-	p := &proj{merging: true, loop: map[string]*mtask{"T-1": &mt}, ended: map[string]bool{}, held: map[string]string{},
-		calls: map[string]string{}, log: &Log{}}
+	p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}, calls: map[string]string{}},
+		ended: map[string]bool{}, held: map[string]string{}, log: &Log{}}
 	if got, err := (&App{}).dropDecide(p, &Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
 		!p.ended["T-1"] {
 		t.Errorf("drop of a waiting task: %+v, %v; want T-1 marked ended", got, err)

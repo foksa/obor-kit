@@ -82,14 +82,14 @@ func (a *App) nextNotify(tried map[Key]bool) (*proj, Record, bool) {
 // needsYou is p's needs-you facts in force: the watchdogs' and the merge loop's.
 func (p *proj) needsYou() []Record {
 	var out []Record
-	for _, fs := range p.active {
+	for _, fs := range p.folded.active {
 		for _, r := range fs {
 			if r.Step == StepNeedsYou {
 				out = append(out, r)
 			}
 		}
 	}
-	for _, mt := range p.loop {
+	for _, mt := range p.folded.loop {
 		if mt.needs.Seq != 0 {
 			out = append(out, mt.needs)
 		}

@@ -84,13 +84,13 @@ func (a *App) stopWakes(ctx context.Context, p *proj, fx *Loop) {
 			continue
 		}
 		w := p.tasks[task]
-		if woke := p.woke[task]; !woke.IsZero() && !woke.Before(recordTime(f)) && now.Sub(woke) >= wakeAlarm &&
+		if woke := p.folded.woke[task]; !woke.IsZero() && !woke.Before(recordTime(f)) && now.Sub(woke) >= wakeAlarm &&
 			!p.alarmed(task) {
 			a.fact(p, task, w, verdict{step: StepNeedsYou, reason: f.Fact().Reason + stillStopped, cause: causeStopped,
 				pane: w.agent})
 		}
 		due, ok := wakeDue(f, now)
-		mt := p.loop[task]
+		mt := p.folded.loop[task]
 		if !ok || mt == nil {
 			continue
 		}
@@ -152,14 +152,14 @@ func (p *proj) foldWake(r Record) {
 		}
 		return
 	}
-	if p.woke[r.Task].IsZero() {
-		p.woke[r.Task] = recordTime(r)
+	if p.folded.woke[r.Task].IsZero() {
+		p.folded.woke[r.Task] = recordTime(r)
 	}
 }
 
 // alarmed: task's stop in force has had its alarm.
 func (p *proj) alarmed(task string) bool {
-	for _, f := range p.active[task] {
+	for _, f := range p.folded.active[task] {
 		if isStop(f) && strings.HasSuffix(f.Fact().Reason, stillStopped) {
 			return true
 		}
@@ -202,7 +202,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 		b := p.out.brief(rd.agent)
 		var fact any
 		step := StepStopped
-		_, done := p.calls[verdictStep(MethodStopped, "turn."+t.ID)]
+		_, done := p.folded.calls[verdictStep(MethodStopped, "turn."+t.ID)]
 		act := turnNone
 		if b != nil && (b.stop == nil || (b.stop.turn != "" && b.stop.turn != t.ID)) && counts(t, rd.pane.Status, done) {
 			act = turnDecide(turnCase{stopped: b.stop != nil, followed: b.followed, worked: b.worked, ended: t.Ended,

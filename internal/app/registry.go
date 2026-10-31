@@ -384,7 +384,7 @@ func (a *App) candidates(p *proj, mine []Pane, named func(string) bool) []string
 	for _, l := range p.lanes {
 		set[l.Agent] = true
 	}
-	for _, mt := range p.loop {
+	for _, mt := range p.folded.loop {
 		set[mt.agent] = true
 	}
 	for agent := range p.reg.starts {

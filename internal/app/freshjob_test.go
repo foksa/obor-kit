@@ -21,7 +21,7 @@ func greenTask(r *concRig, task string, c Candidate) {
 // runNext runs task's next step in p with f as its agents and typer: whether it ran and returned true.
 func runNext(r *concRig, p *proj, task string, f *startJobFakes) bool {
 	r.a.mu.Lock()
-	step := r.a.next(p, p.loop[task])
+	step := r.a.next(p, p.folded.loop[task])
 	r.a.mu.Unlock()
 	if step == nil {
 		r.t.Fatalf("%s: no step", task)
@@ -237,7 +237,7 @@ func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 		r.add("pj", task, StepReview, KindResult, "sent")
 	}
 	for _, task := range []string{"T-1", "T-5"} {
-		mt := p.loop[task]
+		mt := p.folded.loop[task]
 		if k, ok := mt.integratorJob(); !ok || JobID(k) != task+"/1/review" {
 			t.Fatalf("precondition: %s's review job is not open (%s, %v)", task, JobID(k), ok)
 		}
@@ -298,7 +298,7 @@ func TestReviewTextDiff(t *testing.T) {
 			[]string{"read it with git diff"}},
 		{"too big", "", []string{"stat-line", "read it with git diff b c1."}, []string{"whole diff", "+the change"}},
 	} {
-		mt := *p.loop["T-1"]
+		mt := *p.folded.loop["T-1"]
 		mt.cand = Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line", Diff: c.diff}
 		text, err := r.a.reviewText(p, mt)
 		if err != nil {
