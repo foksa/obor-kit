@@ -109,7 +109,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	var made, had []string
 	for _, l := range [][2]string{{"O-01", "opus"}, {"S-01", "sonnet"}} {
-		if s.cfg.Data.Lanes.M[l[0]].Type == l[1] {
+		// A configured lane keeps its type (the user may have changed it): only a missing lane gets the default.
+		if have := s.cfg.Data.Lanes.M[l[0]].Type; have != "" {
+			l[1] = have
 			if _, err := os.Stat(filepath.Join(s.cfg.LanesDir(), l[0])); err == nil {
 				had = append(had, l[0]+" "+l[1])
 				continue

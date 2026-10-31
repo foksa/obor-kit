@@ -216,6 +216,48 @@ func TestOborInitRerunChangesNothing(t *testing.T) {
 	}
 }
 
+// A lane whose type the user changed keeps it on a rerun (the summary's "change it, then obor init again"): exit 0,
+// lanes already, no new lane or pane; a configured lane whose worktree is gone gets it back, with its own type.
+func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	x.init(t)
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"lanes", "O-01"}, "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Write(".obor/config.json", string(doc))
+	agents, wt := x.agents(t), x.Git(x.Root, "worktree", "list")
+	x.reset()
+	out := x.init(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil || cfg.Data.Lanes.M["O-01"].Type != "sonnet" {
+		t.Fatalf("O-01 type after the rerun: %q (%v)", cfg.Data.Lanes.M["O-01"].Type, err)
+	}
+	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "O-01 sonnet") {
+		t.Errorf("lanes step %q", summary(out, "lanes"))
+	}
+	if got := x.agents(t); len(got) != len(agents) {
+		t.Errorf("agents %v, were %v", got, agents)
+	}
+	if got := x.Git(x.Root, "worktree", "list"); got != wt {
+		t.Errorf("worktrees:\n%s\nwere:\n%s", got, wt)
+	}
+	for _, r := range x.reqs() {
+		if strings.HasPrefix(r, "agent.start") || strings.HasPrefix(r, "tab.create") || strings.HasPrefix(r, "pane.split") {
+			t.Errorf("rerun sent %s", r)
+		}
+	}
+	x.Git(x.Root, "worktree", "remove", "--force", filepath.Join(cfg.LanesDir(), "O-01"))
+	out = x.init(t)
+	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "O-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
+		t.Errorf("worktree not recreated (%v), lanes %q", err, summary(out, "lanes"))
+	}
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.M["O-01"].Type != "sonnet" {
+		t.Errorf("recreated lane's type %q", cfg.Data.Lanes.M["O-01"].Type)
+	}
+}
+
 // herdr down: FAIL first, before any file is written or claude is called.
 func TestOborInitFailsFirstWhenHerdrIsDown(t *testing.T) {
 	t.Parallel()
