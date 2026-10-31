@@ -57,6 +57,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (T-615, 10-31) An open-questions hold whose answer needs a code change has no clean path: `obor resume` sends the
+  old patch to review with the decision, the integrator's sendback then counts toward K and can hit the cap; a lead
+  `sendback` is refused while needs-you. Lead typed the change into the worker pane. Candidate: allow `obor sendback`
+  of a needs-you task (the lead's decision as the fix job), not counted toward K.
 - (RV-66 #1, accepted: by design) A pane labelled with an agent the config no longer names is still identified by
   its label: T-605 removed start-row and session proof only; labels name hand-started panes.
 - (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
