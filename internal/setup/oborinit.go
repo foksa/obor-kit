@@ -9,7 +9,7 @@ package setup
 //	git        no commit yet: only a directory holding nothing but .git (or init's own untouched files, a rerun)
 //	           gets git init (when in no repository) and, after the project step, the "obor init" commit of init's
 //	           files; anything else there → FAIL before any write (T-631). A repository with a commit: untouched.
-//	project   init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
+//	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain (T-623).

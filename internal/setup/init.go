@@ -249,6 +249,7 @@ func (s *Setup) autoCommit(root string, repo bool) (bool, error) {
 
 // initFiles is what init writes into an empty root, by path relative to it, for the config there (.obor/config.json,
 // .gitignore, the docs); empty when root has no config yet (init writes it first). It loads that config into s.cfg.
+// It must follow configJSON's inputs (today name, prefix, the root's base name): a config needing more changes it.
 func (s *Setup) initFiles() (map[string][]byte, error) {
 	want := map[string][]byte{}
 	if !s.configExists() {
