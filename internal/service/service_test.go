@@ -269,3 +269,119 @@ func TestCurrent(t *testing.T) {
 		t.Error("current off darwin")
 	}
 }
+
+// T-614: Install and Restart move a serve.log over MaxLog to serve.log.1 (replacing an old one) before they start
+// the agent; a smaller or missing log is left; a failed rename returns the error and launchctl is not called to
+// start anything.
+func TestRotateLog(t *testing.T) {
+	big := func(t *testing.T, path string, size int64) {
+		t.Helper()
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if err := f.Truncate(size); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, verb := range []string{"install", "restart"} {
+		run := func(s Service) error {
+			var err error
+			if verb == "install" {
+				_, err = s.Install(context.Background())
+			} else {
+				_, err = s.Restart(context.Background())
+			}
+			return err
+		}
+		prep := func(t *testing.T) (Service, string) {
+			log, state := fakeLaunchctl(t)
+			s := darwin(t)
+			if err := os.MkdirAll(filepath.Dir(s.LogPath()), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if verb == "restart" {
+				if _, err := s.Install(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(state); err != nil {
+					t.Fatalf("precondition: loaded: %v", err)
+				}
+				if err := os.Remove(log); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return s, log
+		}
+		t.Run(verb+"/over the limit is renamed and the old .1 replaced", func(t *testing.T) {
+			s, _ := prep(t)
+			big(t, s.LogPath(), MaxLog+1)
+			if err := os.WriteFile(s.LogPath()+".1", []byte("old"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := run(s); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(s.LogPath()); !os.IsNotExist(err) {
+				t.Errorf("serve.log kept: %v", err)
+			}
+			if fi, err := os.Stat(s.LogPath() + ".1"); err != nil || fi.Size() != MaxLog+1 {
+				t.Errorf("serve.log.1: %v %v", fi, err)
+			}
+		})
+		t.Run(verb+"/at the limit is kept", func(t *testing.T) {
+			s, _ := prep(t)
+			big(t, s.LogPath(), MaxLog)
+			if err := run(s); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(s.LogPath()); err != nil {
+				t.Errorf("serve.log gone: %v", err)
+			}
+			if _, err := os.Stat(s.LogPath() + ".1"); !os.IsNotExist(err) {
+				t.Errorf("serve.log.1 made: %v", err)
+			}
+		})
+		t.Run(verb+"/missing does nothing", func(t *testing.T) {
+			s, _ := prep(t)
+			if err := run(s); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(s.LogPath() + ".1"); !os.IsNotExist(err) {
+				t.Errorf("serve.log.1 made: %v", err)
+			}
+		})
+		t.Run(verb+"/rename error is returned and nothing is started", func(t *testing.T) {
+			s, log := prep(t)
+			big(t, s.LogPath(), MaxLog+1)
+			// a non-empty directory at .1 cannot be replaced by a file
+			if err := os.MkdirAll(filepath.Join(s.LogPath()+".1", "x"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			before := 0
+			if b, err := os.ReadFile(log); err == nil {
+				before = len(strings.Split(strings.TrimSpace(string(b)), "\n"))
+			}
+			if err := run(s); err == nil {
+				t.Fatal("no error")
+			}
+			after := 0
+			if b, err := os.ReadFile(log); err == nil {
+				after = len(strings.Split(strings.TrimSpace(string(b)), "\n"))
+			}
+			// only the owner check's print may have run; no bootstrap, bootout or kickstart
+			if b, _ := os.ReadFile(log); strings.Contains(string(b), "kickstart") && verb == "install" {
+				t.Errorf("started: %s", b)
+			}
+			if verb == "install" && strings.Contains(strings.Join(calls(t, log), "\n"), "bootstrap") {
+				t.Errorf("bootstrap called: %v", calls(t, log))
+			}
+			if verb == "restart" {
+				if got := strings.Join(calls(t, log)[before:after], "\n"); strings.Contains(got, "kickstart") {
+					t.Errorf("kickstart called: %s", got)
+				}
+			}
+		})
+	}
+}

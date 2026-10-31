@@ -49,6 +49,27 @@ func (s Service) LogPath() string {
 	return filepath.Join(s.Root, ".obor", "state", "logs", "serve.log")
 }
 
+// MaxLog is the size over which Install and Restart move serve.log aside.
+const MaxLog = 5 << 20
+
+// rotateLog moves serve.log to serve.log.1 (replacing an old one) when it is over MaxLog: launchd opens the log path
+// at each spawn, so serve cannot rotate the file it was given. Missing or small: nothing. Called before an agent is
+// started (Install, Restart); a crash respawn by launchd is not rotated.
+func (s Service) rotateLog() error {
+	log := s.LogPath()
+	fi, err := os.Stat(log)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Size() <= MaxLog {
+		return nil
+	}
+	return os.Rename(log, log+".1")
+}
+
 func (s Service) target() string { return fmt.Sprintf("gui/%d/%s", s.UID, s.Label()) }
 
 // Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
@@ -176,6 +197,9 @@ func (s Service) Install(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+	if err := s.rotateLog(); err != nil {
+		return "", err
+	}
 	if err := os.WriteFile(plist, s.Plist(), 0o644); err != nil {
 		return "", err
 	}
@@ -228,6 +252,9 @@ func (s Service) Restart(ctx context.Context) (string, error) {
 	}
 	if !loaded {
 		return "", fmt.Errorf("%s is not installed (obor serve install)", s.Label())
+	}
+	if err := s.rotateLog(); err != nil {
+		return "", err
 	}
 	if _, err := launchctl(ctx, "kickstart", "-k", s.target()); err != nil {
 		return "", err
