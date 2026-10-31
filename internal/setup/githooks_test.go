@@ -97,6 +97,21 @@ func (x *hx) gitEnv(kv ...string) []string {
 		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"), kv...)
 }
 
+// hook runs the kit's hook name directly with dir as git's cwd (a hook whose result no git command here can exercise):
+// its exit code.
+func (x *hx) hook(env []string, dir, name string) int {
+	x.t.Helper()
+	cmd := exec.Command(filepath.Join(x.hooks(), name))
+	cmd.Dir, cmd.Env = dir, env
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode()
+		}
+		x.t.Fatalf("hook %s: %v", name, err)
+	}
+	return 0
+}
+
 // git runs git -C dir args… with env (fixture identity): its exit code and stderr.
 func (x *hx) git(env []string, dir string, args ...string) (int, string) {
 	x.t.Helper()
@@ -297,6 +312,25 @@ func TestGithooks(t *testing.T) {
 			}
 			if got := x.Read(calls); got != "chained\n" {
 				t.Errorf("the chained hook runs once, .git/hooks not at all: %q", got)
+			}
+		}},
+		// T-620: git aborts `git gc --auto` on a non-zero pre-auto-gc ("Exiting with non-zero status from this script
+		// causes the git gc --auto to abort"), so a project's vote must reach it through the chain.
+		{"a chained pre-auto-gc's veto is the hook's result", func(t *testing.T, x *hx) {
+			calls := filepath.Join(x.Base, "own.calls")
+			x.chain(".githooks", "pre-auto-gc", fmt.Sprintf("#!/bin/sh\necho ran >> %q\nexit 1\n", calls))
+			if rc := x.hook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 1 {
+				t.Errorf("a chained veto: exit %d, want 1", rc)
+			}
+			if got := x.Read(calls); got != "ran\n" {
+				t.Errorf("the chained pre-auto-gc ran once: %q", got)
+			}
+			x.chain(".githooks", "pre-auto-gc", fmt.Sprintf("#!/bin/sh\necho again >> %q\n", calls))
+			if rc := x.hook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 0 {
+				t.Errorf("a passing chained pre-auto-gc: exit %d, want 0", rc)
+			}
+			if got := x.Read(calls); got != "ran\nagain\n" {
+				t.Errorf("the chained pre-auto-gc ran again: %q", got)
 			}
 		}},
 		{"a chained post-merge runs; its failure is not the merge's", func(t *testing.T, x *hx) {

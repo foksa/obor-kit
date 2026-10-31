@@ -5,7 +5,8 @@
 #   <obor.hooksChain>/<name>  the core.hooksPath `obor setup githooks` chained (a path relative to the main checkout)
 #   <main>/.git/hooks/<name>  git's own dir, which obor chained before T-620
 # Args and stdin pass through (pre-push, post-rewrite and reference-transaction read stdin). A chained hook's failure is
-# the result for the hooks whose result git uses. Without .obor/config.json a hook only chains.
+# the result for the hooks whose result git uses (all but post-applypatch, post-checkout, post-commit, post-index-change,
+# post-merge and post-rewrite). Without .obor/config.json a hook only chains.
 
 # obor_hook NAME [GIT ARGS…]: chain NAME's project hook, then obor's rule for NAME.
 obor_hook() {
@@ -28,7 +29,7 @@ obor_hook() {
   fi
   if [ "$rc" != 0 ]; then
     case "$name" in
-      post-applypatch | post-checkout | post-commit | post-index-change | post-merge | post-rewrite | pre-auto-gc)
+      post-applypatch | post-checkout | post-commit | post-index-change | post-merge | post-rewrite)
         rc=0
         ;;
       *) return "$rc" ;;
