@@ -6,7 +6,10 @@ package setup
 //
 //	herdr      herdr unreachable → FAIL, before any write (nothing later works without it); no claude on PATH →
 //	           FAIL (the lead runs it).
-//	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
+//	git        no commit yet: only a directory holding nothing but .git (or init's own untouched files, a rerun)
+//	           gets git init (when in no repository) and, after the project step, the "obor init" commit of init's
+//	           files; anything else there → FAIL before any write (T-631). A repository with a commit: untouched.
+//	project   init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain (T-623).
@@ -73,7 +76,22 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	// git: a directory in no repository gets one (T-629); a repository without a commit gets its first below, from
 	// init's own files (the lanes branch from it).
-	if _, err := project.Find(s.Dir); errors.Is(err, project.ErrNotGit) {
+	// Decided before any write (T-631): init commits only in a directory that held nothing but .git (or init's own
+	// untouched files, a rerun); a repository with no commit and anything else in it is a FAIL.
+	root, repo := s.Dir, true
+	switch r, err := project.Find(s.Dir); {
+	case errors.Is(err, project.ErrNotGit):
+		repo = false
+	case err != nil:
+		return project.Failf("not in a git repository")
+	default:
+		root = r.Root
+	}
+	auto, err := s.autoCommit(root, repo)
+	if err != nil {
+		return err
+	}
+	if !repo {
 		if err := s.gitInit(); err != nil {
 			return err
 		}
@@ -100,8 +118,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Data.Name, s.cfg.Data.Prefix)
 
-	// commit: a repository with no commit gets init's own files as its first (the lanes branch from it).
-	committed, err := s.initCommit()
+	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
+	// from it).
+	committed, err := s.initCommit(auto)
 	if err != nil {
 		return err
 	}
