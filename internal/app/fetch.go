@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"obor/internal/config"
 )
@@ -410,13 +411,71 @@ func MissingSections(text string, sections []string) []string {
 	lines := strings.Split(text, "\n")
 	var lack []string
 	for _, name := range sections {
-		q := regexp.QuoteMeta(name)
-		re := regexp.MustCompile(`(?i)^\s*(#{1,6}\s+` + q + `|\*\*` + q + `:?\*\*|` + q + `\s*:)`)
-		if name != "" && !slices.ContainsFunc(lines, re.MatchString) {
+		if name != "" && !slices.ContainsFunc(lines, headingRe(name).MatchString) {
 			lack = append(lack, name)
 		}
 	}
 	return lack
+}
+
+// headingRe is the heading of a report's labelled section name: a Name: label, a ## Name or **Name** heading at the
+// start of a line, any case.
+func headingRe(name string) *regexp.Regexp {
+	q := regexp.QuoteMeta(name)
+	return regexp.MustCompile(`(?i)^\s*(#{1,6}\s+` + q + `|\*\*` + q + `:?\*\*|` + q + `\s*:)`)
+}
+
+// reportSection is the body of text's labelled section name: the rest of its heading line, then the lines up to the
+// next heading (a labelled section, markdown or bold), trimmed. A heading alone on its line takes the next non-empty
+// line whatever it looks like: a section's text may start with a word and a colon ("Which DB: sqlite?"). "" when text
+// has no heading for name.
+func reportSection(text, name string) string {
+	lines := strings.Split(text, "\n")
+	re := headingRe(name)
+	start := slices.IndexFunc(lines, re.MatchString)
+	if start < 0 {
+		return ""
+	}
+	loc := re.FindStringIndex(lines[start])
+	body := []string{strings.TrimSpace(strings.TrimLeft(lines[start][loc[1]:], ":*# "))}
+	started := body[0] != ""
+	for _, l := range lines[start+1:] {
+		if started && headingLineRe.MatchString(l) {
+			break
+		}
+		body = append(body, l)
+		if strings.TrimSpace(l) != "" {
+			started = true
+		}
+	}
+	return strings.TrimSpace(strings.Join(body, "\n"))
+}
+
+// headingLineRe is a report's next labelled section: a short Name: label, a markdown # heading or a **Name** one. A line
+// of prose that happens to carry a colon is no heading (its label holds a sentence's punctuation).
+var headingLineRe = regexp.MustCompile(`(?i)^\s*(?:#{1,6}\s+\S|\*\*[^*\n]{1,40}\*\*|[A-Za-z][A-Za-z0-9 ()/&'-]{0,30}:)`)
+
+// openQuestions is report's Open questions: section when it leaves something open — anything but none, n/a, - or no,
+// case-insensitive, trimmed (a report's "none." reads as none) — as one line; "" when it leaves nothing open (T-604).
+func openQuestions(report string) string {
+	q := reportSection(report, "Open questions")
+	switch strings.ToLower(strings.TrimRight(q, ".")) {
+	case "", "none", "n/a", "-", "no":
+		return ""
+	}
+	return strings.Join(strings.Fields(q), " ")
+}
+
+// clip is s cut to n bytes at a rune boundary.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[:max(n, 0)]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // submittable: a submission of mt's lane is mt's next attempt step: the worker works on it, sent back, or a needs-you
