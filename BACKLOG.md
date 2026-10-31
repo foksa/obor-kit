@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-10-31 session 13 (in flight): T-596 P7-3 launchd (O-01), T-595 review #1 (S-01), T-597 P7-4 (D-01); queued
+  T-598 (#3) after T-595, T-599 (#2, .sid) after T-596, T-600 (#4 step 1, registry) after T-595+T-599. RV-64 (ob-terra) written: #3 → T-601,
+  #4 fixed in RELEASING, #1/#2/#5 accepted. **When T-601 merges: verify #3, #4 in the same ob-terra session.** T-596 merged; serve still in pane w5:p1F: the owner
+  runs the install (classifier refuses the lead's LaunchAgent). Part 3 (token cuts, owner 10-31): T-602 (O-01),
+  T-603 waits for a medium lane, T-604 after T-602.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
   free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
@@ -52,6 +57,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-64, accepted: unlikely, fixes add code) #1 a hand relabel of an idle pane reaches serve only with its next
+  status/update event or a reconnect (herdr's rename emits no event; serve's own relabels are followed by an agent
+  start's events); #2 an interrupted `obor setup rename` rerun reads the new prefix as the old one (rename is once per
+  project: finish it by hand); #5 rename's lane `opencode.json` loop skips an unreadable file silently.
+- (T-596) Under launchd `.obor/state/logs/serve.log` is never rotated (worker: rotate at serve start, keep `.1`); and
+  `obor status` tests on darwin run a real read-only `launchctl print`. Small follow-ups, not urgent. While herdr is
+  down serve stays up but gates/merges nothing (lead's call 10-31: outages are short).
 - (10-30, rename) **serve keeps a pane's old label**: after `herdr pane rename` + `obor setup role --pane`, serve
   identified the new agents by their old labels (hk-int at w5:pZ, label proof) until serve restarted. Label changes
   seem not to refresh serve's pane cache; any relabel (setup pane/role on a reused pane) hits it. Also ob-int's
