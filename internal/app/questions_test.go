@@ -243,6 +243,103 @@ func TestFixJobWithoutADecisionHasNoLine(t *testing.T) {
 	}
 }
 
+// unblockedFact is T-1's last unblocked fact in the log.
+func unblockedFact(t *testing.T, h *harness) FactData {
+	t.Helper()
+	recs, err := ReadLog(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d FactData
+	found := false
+	for _, r := range recs {
+		if r.Task == "T-1" && r.Step == StepUnblocked {
+			if err := json.Unmarshal(r.Data, &d); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no unblocked fact in the log")
+	}
+	return d
+}
+
+// T-612: resuming an open-questions hold needs the lead's decision: with no note or a blank one it is refused before
+// anything is recorded, in the default mode and explicit ones; a note is recorded with the decision. Another cause's
+// resume without a note goes on as before.
+func TestResumeOpenQuestionsNeedsADecision(t *testing.T) {
+	const hold = "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: should it use sqlite?"
+	for _, mode := range []struct{ name, to string }{
+		{"default", ""}, {ResumeRegate, ResumeRegate}, {ResumeReprompt, ResumeReprompt},
+	} {
+		for _, c := range []struct {
+			name, note string
+			refused    bool
+		}{
+			{"no note", "", true},
+			{"blank note", " \t ", true},
+			{"a decision", "use sqlite, it is cgo-free", false},
+		} {
+			t.Run(mode.name+"/"+c.name, func(t *testing.T) {
+				h, f := seedQuestions(t, hold)
+				if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou || !mt.heldQuestions {
+					t.Fatalf("precondition: T-1 %s (held %v); want the open-questions hold", mt.state, mt.heldQuestions)
+				}
+				reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+					To: mode.to, Note: c.note})
+				if c.refused {
+					want := `resume: T-1 waits on the lead's answer to its open questions: obor resume T-1 "<decision>"`
+					if err == nil || err.Error() != want {
+						t.Fatalf("resume: %q, %v; want the refusal %q", reply, err, want)
+					}
+					if n := countStep(t, h, StepUnblocked); n != 0 {
+						t.Errorf("%d unblocked facts; want none", n)
+					}
+					if mt := h.a.p.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
+						t.Errorf("after the refused resume: T-1 %s (%s); want the hold in force", mt.state,
+							mt.needs.Fact().Cause)
+					}
+					return
+				}
+				to := mode.to
+				if to == "" {
+					to = ResumeReprompt
+				}
+				if want := "RESUMED T-1: " + to + " (open questions)"; err != nil || reply != want {
+					t.Fatalf("resume: %q, %v; want %q", reply, err, want)
+				}
+				d := unblockedFact(t, h)
+				if d.Cause != causeOpen || d.Reason != to || d.Note != c.note {
+					t.Errorf("unblocked %+v; want cause %q, %q, the decision %q", d, causeOpen, to, c.note)
+				}
+				if mt := h.a.p.loop["T-1"]; mt.needs.Seq != 0 {
+					t.Errorf("T-1 still holds a needs-you; want the hold ended")
+				}
+			})
+		}
+	}
+	t.Run("another cause with no note", func(t *testing.T) {
+		h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.")
+		if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
+			t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
+		}
+		addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Reason: "held: the owner's call",
+			Merge: true, Cause: causeHeld})
+		if mt := h.a.p.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
+			t.Fatalf("precondition: T-1 %s; want the held needs-you", mt.state)
+		}
+		reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1"})
+		if want := "RESUMED T-1: reprompt (held)"; err != nil || reply != want {
+			t.Fatalf("resume: %q, %v; want %q", reply, err, want)
+		}
+		if d := unblockedFact(t, h); d.Cause != causeHeld || d.Note != "" {
+			t.Errorf("unblocked %+v; want cause %q, no note", d, causeHeld)
+		}
+	})
+}
+
 // addAttempt is addRecord for a record of another attempt (the worker's next submission).
 func addAttempt(t *testing.T, h *harness, attempt int, step, kind string, d any) {
 	t.Helper()

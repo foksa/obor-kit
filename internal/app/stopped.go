@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"obor/internal/agents"
@@ -355,13 +356,39 @@ func (a *App) roleTurn(p *proj, c Call) (string, error) {
 }
 
 // stoppedTask is the open task of the worker c names (its lane, else the lane its agent works in) and its watch; ""
-// and nil when it has none (under mu).
+// and nil when it has none (under mu). A task dispatched since the watchdog's last look has no watch yet: the loop's
+// open task stands in, its watch installed as the check would (T-612: a worker may stop before that look).
 func (p *proj) stoppedTask(c Call) (string, *watch) {
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
 		if (c.Lane != "" && w.lane.Name == c.Lane) || (c.Lane == "" && w.lane.Agent == c.Agent) {
 			return task, w
 		}
+	}
+	tasks := make([]string, 0, len(p.loop))
+	for task := range p.loop {
+		tasks = append(tasks, task)
+	}
+	sort.Strings(tasks)
+	for _, task := range tasks {
+		mt := p.loop[task]
+		if !mt.awaitsTaskDone() || mt.lane == "" {
+			continue
+		}
+		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) != c.Agent) {
+			continue
+		}
+		l := Lane{Name: mt.lane}
+		for _, row := range p.lanes {
+			if row.Name == mt.lane {
+				l = row
+				break
+			}
+		}
+		l.Task = task
+		w := &watch{lane: l}
+		p.tasks[task] = w
+		return task, w
 	}
 	return "", nil
 }

@@ -430,11 +430,15 @@ func (a *App) resume(c Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
+	d := mt.needs.Fact()
+	if d.Cause == causeOpen && strings.TrimSpace(c.Note) == "" { // the hold waits for the lead's answer (T-612)
+		return "", fmt.Errorf("resume: %s waits on the lead's answer to its open questions: obor resume %s \"<decision>\"",
+			c.Task, c.Task)
+	}
 	to, err := mt.resumeTo(c.Task, c.To)
 	if err != nil {
 		return "", err
 	}
-	d := mt.needs.Fact()
 	if !a.record(p, Record{Task: c.Task, Attempt: mt.attempt, Step: StepUnblocked, Kind: KindFact},
 		FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: to, Merge: true, Cause: d.Cause, Call: c.CallID,
 			Note: strings.TrimSpace(c.Note)}) {
