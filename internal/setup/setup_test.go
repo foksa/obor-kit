@@ -928,7 +928,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1")
 	lines := x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE; echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && echo obor-env-") {
 		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE", lines)
 	}
 	calls := strings.Join(x.reqs(), "\n")
@@ -941,7 +941,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "O-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01; echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
 	}
 
@@ -953,6 +953,61 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	if lines := x.envLines(); len(lines) != 0 {
 		t.Errorf("a new pane got a typed env line: %q", lines)
 	}
+}
+
+// T-601 (RV-64 #3): setup role --pane types the env line through the same setEnv as restart. A cd that fails echoes the
+// line's failure word, not its success word, so the agent is not started with the shell's old cwd and OBOR_* env.
+func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
+	t.Parallel()
+	t.Run("cd fails: the failure mark, no start, FAIL", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+		x.h.Tab("w1:t1", 200, 50, "w1:p3")
+		pane := x.h.Pane("w1:p3")
+		pane.OnRun = "fail"
+		x.failing(t, "FAIL the env line in w1:p3 failed (nothing started; check the pane)", "role", "integrator", "--pane", "w1:p3")
+		lines := x.envLines()
+		if len(lines) != 1 {
+			t.Fatalf("one env line typed, got %q", lines)
+		}
+		okWord, badWord := envWords(t, lines[0])
+		if strings.Contains(pane.Screen, okWord) || !strings.Contains(pane.Screen, badWord) {
+			t.Errorf("the screen shows the failure mark only, want %q:\n%s", badWord, pane.Screen)
+		}
+		hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "no start after a failed env line")
+	})
+	t.Run("the line runs: the success mark, the agent starts", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+		x.h.Tab("w1:t1", 200, 50, "w1:p3")
+		pane := x.h.Pane("w1:p3")
+		if out := x.ok(t, "role", "integrator", "--pane", "w1:p3"); last(out) != "OK integrator: pj-int in pane w1:p3" {
+			t.Errorf("last line %q", last(out))
+		}
+		lines := x.envLines()
+		if len(lines) != 1 {
+			t.Fatalf("one env line typed, got %q", lines)
+		}
+		okWord, badWord := envWords(t, lines[0])
+		if !strings.Contains(pane.Screen, okWord) || strings.Contains(pane.Screen, badWord) {
+			t.Errorf("the screen shows the success mark only, want %q:\n%s", okWord, pane.Screen)
+		}
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-int pane_id=w1:p3",
+			"the agent starts after the env line succeeded")
+	})
+}
+
+// envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
+var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
+
+// envWords is the success and failure words the typed env line echoes (T-601), quotes removed.
+func envWords(t *testing.T, line string) (ok, bad string) {
+	t.Helper()
+	m := envMarksRE.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("the env line has no success and failure marks: %q", line)
+	}
+	return "obor-env-" + m[1], "obor-env-" + m[2]
 }
 
 // bash setup.test.sh case_role_lead_new_tab_gets_role_and_agent_env

@@ -307,8 +307,8 @@ func eq(t *testing.T, got, want, what string) {
 	}
 }
 
-// envMarkRE is the word the env line echoes last (T-544), as typed.
-var envMarkRE = regexp.MustCompile(`; echo obor-env-"[0-9a-z]+"$`)
+// envMarksRE is the env line's two words as typed (T-601): its success word, then its failure word.
+var envMarksRE = regexp.MustCompile(` && echo obor-env-"([0-9a-z]+)" \|\| echo obor-env-"([0-9a-z]+)"$`)
 
 // Who: the env line typed at the shell and the start line, per kind of agent.
 func TestRestartWho(t *testing.T) {
@@ -514,10 +514,11 @@ func TestRestartWho(t *testing.T) {
 			if len(runs) != 1 {
 				t.Fatalf("one env line typed, got %q", runs)
 			}
-			eq(t, envMarkRE.ReplaceAllString(runs[0], ""), c.env(x), "env line (cwd, OBOR_AGENT, OBOR_ROLE, OBOR_LANE)")
-			if !envMarkRE.MatchString(runs[0]) {
-				t.Errorf("the env line ends without its mark: %q", runs[0])
+			m := envMarksRE.FindStringSubmatch(runs[0])
+			if m == nil {
+				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
+			eq(t, runs[0][:len(runs[0])-len(m[0])], c.env(x), "env line (cwd, OBOR_AGENT, OBOR_ROLE, OBOR_LANE)")
 			eq(t, x.startCall(), c.start, "agent start (kind, pane, type args, resume)")
 			if c.out != "" {
 				contains(t, out, c.out, "output")
@@ -979,9 +980,63 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		if ok {
 			t.Fatalf("restarted while the shell still ran the env line:\n%s", out)
 		}
-		eq(t, failLine(out), "FAIL the shell in w1:p3 did not finish the env line in 200ms (nothing started)", "result")
+		eq(t, failLine(out), "FAIL the shell in w1:p3 did not finish the env line in 200ms (nothing started; the env line may have failed: check the pane)", "result")
 		eq(t, x.startCall(), "", "no start")
 	})
+}
+
+// T-601 (RV-64 #3): the env line's success mark proves the env was set. A cd that fails echoes the failure mark instead
+// (no success mark), and the launch gives up before it starts the agent in the shell's old cwd with the old OBOR_* env.
+func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
+	t.Parallel()
+	t.Run("cd fails: the failure mark, no start, FAIL", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		pane := x.shell("w1:p3", "pj-o-01", "")
+		pane.OnRun = "fail"
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		if ok {
+			t.Fatalf("restarted after a failed env line:\n%s", out)
+		}
+		runs := x.calls("pane.send_input pane_id=w1:p3")
+		if len(runs) != 1 {
+			t.Fatalf("one env line typed, got %q", runs)
+		}
+		okWord, badWord := envWords(t, runs[0])
+		lacks(t, pane.Screen, okWord, "the screen: the success mark")
+		contains(t, pane.Screen, badWord, "the screen: the failure mark")
+		eq(t, failLine(out), "FAIL the env line in w1:p3 failed (nothing started; check the pane)", "result")
+		eq(t, x.startCall(), "", "no start")
+	})
+	t.Run("the line runs: the success mark, the agent starts", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		pane := x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		if !ok {
+			t.Fatalf("restart failed:\n%s", out)
+		}
+		runs := x.calls("pane.send_input pane_id=w1:p3")
+		if len(runs) != 1 {
+			t.Fatalf("one env line typed, got %q", runs)
+		}
+		okWord, badWord := envWords(t, runs[0])
+		contains(t, pane.Screen, okWord, "the screen: the success mark")
+		lacks(t, pane.Screen, badWord, "the screen: the failure mark")
+		if s := x.startCall(); !strings.Contains(s, "name=pj-o-01 pane_id=w1:p3") {
+			t.Errorf("the agent started after the env line succeeded, got %q", s)
+		}
+	})
+}
+
+// envWords is the success and failure words the typed env line echoes (T-601), quotes removed.
+func envWords(t *testing.T, line string) (ok, bad string) {
+	t.Helper()
+	m := envMarksRE.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("the env line has no success and failure marks: %q", line)
+	}
+	return "obor-env-" + m[1], "obor-env-" + m[2]
 }
 
 // T-404: herdr's agent start answers only once the agent is ready for input (30 s), which an agent busy on its first
