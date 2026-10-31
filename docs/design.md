@@ -130,8 +130,12 @@ consult the role.** A `SessionStart` hook prints `obor whoami` (role, lane, task
 session context, plus `obor: role text: <kit>/templates/agents/<role>.md[, project: docs/agents/<role>.md] — read it
 before acting` (lead: `run /obor:lead`; T-204).
 
-## Setup (`obor setup`, Go `internal/setup` since T-250)
-`init`, `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
+## Setup (`obor init`, `obor setup`; Go `internal/setup` since T-250)
+`obor init [--name] [--prefix]` (T-608) sets a project up with no questions: herdr reachable (else FAIL first),
+config with the detected commands, lanes for the CLIs on PATH, panes and roles, the plugin (`claude plugin
+marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), obor.events, `obor serve install`, then a
+summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
+the repair path. `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and worktree defaults come from `internal/roles`. `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` links obor.events in herdr from `<kit>/herdr-plugin`
@@ -353,12 +357,11 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   whose `go test` takes that list (obor-kit's `make check-affected`), a `merge.classes` entry for its Go paths with
   `checks: ["check_affected"]`, and `merge.guard` for the rest; `CHECK_CPUS` maps to `go test -p`.
 
-## Stable channel (2026-10-08 — user decision)
+## Stable channel (owner 2026-10-30, phase 7)
 Other projects never run obor from this repo's main checkout (every merge here would change their live tooling).
-They use `~/Work/herd-kit-stable`: a detached worktree at a release tag (`v0.2.0` = what axis-alies validated
-stages 0+1 against). The lead promotes stable only to a commit whose code changes are reviewed **and** verified
-(RV-xx-verify), and tells adopting leads: `git tag -a v0.N.0 <sha> && git -C ~/Work/herd-kit-stable checkout -q
---detach v0.N.0`. Long-running processes in other projects (obor serve) pick up a promotion only when restarted.
+They use one kit per machine, `~/.obor/kit`: a checkout at the newest release tag, made and moved by `install.sh`
+(RELEASING.md), with `obor` linked into `~/.local/bin`. A release is tagged only after its merges are reviewed and
+verified; adopting leads hear of it by `obor send`. A project's serve picks a new kit up at `obor serve restart`.
 
 ## Shipping the binary (T-187, T-195, T-240; bin/obor the only bash since T-253)
 `bin/obor` is a small self-contained bash shim (no other kit file sourced):
