@@ -43,7 +43,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	fresh := start.Step == stepStart+jobStep && (!replay || freshAgain(d, w))
 	force, wait := false, false
 	if fresh {
-		force, wait = a.integratorWait(p, mt.task, JobID(key), w)
+		force, wait = a.integratorWait(p, mt.task, w)
 	}
 	a.mu.Unlock()
 	if w.State == Ambiguous && !replay { // no third pane started, nothing sent
@@ -100,9 +100,9 @@ func freshAgain(d startData, w Where) bool {
 	return w.Pane.Session == d.Session
 }
 
-// idleWait is the integrator job whose fresh start waits for the integrator's pane to be idle, and since when.
+// idleWait is since when the integrator's pane has been identified and not Ready: the busy interval belongs to the
+// pane, not to a job (T-606), so two queued jobs share it and one Gone bounds the wait for both.
 type idleWait struct {
-	job   string
 	since time.Time
 }
 
@@ -110,7 +110,8 @@ type idleWait struct {
 // (under mu, T-602): wait while another task's integrator job is out (awaiting-accept, resolving; one a needs-you
 // left is the owner's, it waits for no one); then, while the integrator's pane is identified and not idle (it ends
 // its turn after a verdict), wait for at most Gone from the first such look, then force: the start stops that turn.
-func (a *App) integratorWait(p *proj, task, job string, w Where) (force, wait bool) {
+// The interval is the pane's, not the job's (T-606): alternating jobs cannot postpone it by replacing each other.
+func (a *App) integratorWait(p *proj, task string, w Where) (force, wait bool) {
 	for _, mt := range p.loop {
 		if mt.task != task && mt.openJob() && mt.state != stNeedsYou {
 			p.idleWait = idleWait{}
@@ -122,8 +123,8 @@ func (a *App) integratorWait(p *proj, task, job string, w Where) (force, wait bo
 		return false, false
 	}
 	now := a.opt.Now()
-	if p.idleWait.job != job {
-		p.idleWait = idleWait{job: job, since: now}
+	if p.idleWait.since.IsZero() {
+		p.idleWait = idleWait{since: now}
 	}
 	if now.Sub(p.idleWait.since) < a.opt.Gone {
 		return false, true

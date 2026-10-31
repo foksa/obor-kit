@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,72 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 	}
 }
 
+// T-606 (RV-65 #1): the idle wait is the integrator's pane's, not a job's. Two queued jobs alternating across Gone
+// share one busy interval, so one of them forces a fresh start after one Gone; the other waits for its verdict.
+func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
+	r := newConcRig(t)
+	p := r.proj("pj")
+	now := r.a.opt.Now()
+	r.a.opt.Now = func() time.Time { return now }
+	var out strings.Builder
+	r.a.opt.Out = &out
+	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	setStatus(r, "working")
+	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+
+	// Alternate both jobs while the clock is under Gone: neither starts, whichever job looked last.
+	step := r.a.opt.Gone / 5
+	for i := 0; i < 4; i++ {
+		for _, task := range []string{"T-1", "T-5"} {
+			if runNext(r, p, task, f) {
+				t.Fatalf("%s's job went on in pass %d, under Gone", task, i)
+			}
+		}
+		now = now.Add(step)
+	}
+	same(t, len(f.launches), 0, "starts before Gone")
+
+	// Past Gone from that first look, the first job in advance order forces; the other waits for its verdict.
+	now = now.Add(r.a.opt.Gone)
+	if !runNext(r, p, "T-1", f) {
+		t.Fatal("T-1's job did not start after Gone")
+	}
+	same(t, len(f.launches), 1, "starts after Gone")
+	if l := f.launches[0]; !l.Fresh || !l.Force || l.Prompt != wakeLine("T-1/1/review") || l.Agent != "pj-int" {
+		t.Errorf("launch %+v, want a fresh pj-int with force and T-1's wake", l)
+	}
+	same(t, len(f.typed), 0, "typed wakes")
+	if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
+		t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
+	}
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while T-1's job is out")
+	}
+	same(t, len(f.launches), 1, "starts while T-1's job is out")
+	same(t, p.log.Open(Key{"T-5", 1, StepReview}) || done(p, Key{"T-5", 1, StepReview}), false,
+		"T-5's review recorded")
+
+	// T-1's verdict, then its turn's end: T-5 starts fresh, not forced.
+	if _, err := r.a.verdict(context.Background(), MethodAccept, Call{Root: p.root, Task: "T-1", Agent: "pj-int",
+		Role: "integrator", CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
+		t.Fatal(err)
+	}
+	if runNext(r, p, "T-5", f) {
+		t.Error("T-5's job went on while the integrator works")
+	}
+	setStatus(r, "idle")
+	if !runNext(r, p, "T-5", f) {
+		t.Fatal("T-5's review job not started after T-1's verdict")
+	}
+	if len(f.launches) != 2 {
+		t.Fatalf("launches %+v, want two", f.launches)
+	}
+	if l := f.launches[1]; !l.Fresh || l.Force || l.Prompt != wakeLine("T-5/1/review") {
+		t.Errorf("launch %+v, want a fresh start (no force) with T-5's wake", l)
+	}
+}
+
 // job_next hands out the job the call names when it is open, else the oldest open one, never a held one (T-602): a
 // fresh session started for job B fetches B, also while an older job A is held (the T-598 resolve.2 shape).
 func TestJobNextNamedNotHeld(t *testing.T) {
@@ -156,6 +223,37 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
 	jr := fetch("n5", "T-1/1/review")
 	same(t, jr.State+" "+jr.Current, "superseded T-5/1/resolve.2", "the held job named: not handed out")
+}
+
+// T-606: the unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
+// their order must be the log's, not the map's: each call ranges the loop afresh and must still name the first.
+func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
+	r := newConcRig(t)
+	p := r.proj("pj")
+	for _, task := range []string{"T-1", "T-5"} {
+		greenTask(r, task, Candidate{Task: task, SHA: "c-" + task, Target: "b", Patch: "p-" + task})
+		r.add("pj", task, StepReview, KindIntent, promptData{Agent: "pj-int", Job: task + "/1/review",
+			Patch: "p-" + task})
+		r.add("pj", task, StepReview, KindResult, "sent")
+	}
+	for _, task := range []string{"T-1", "T-5"} {
+		mt := p.loop[task]
+		if k, ok := mt.integratorJob(); !ok || JobID(k) != task+"/1/review" {
+			t.Fatalf("precondition: %s's review job is not open (%s, %v)", task, JobID(k), ok)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator",
+			CallID: "old" + strconv.Itoa(i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jr JobReply
+		_ = json.Unmarshal([]byte(raw), &jr)
+		if jr.Job != "T-1/1/review" {
+			t.Fatalf("call %d: the unnamed fetch got %q, want the oldest open job T-1/1/review", i, jr.Job)
+		}
+	}
 }
 
 // A crash after the job's intent and its start's intent, before their results: the replay starts nothing again (the
