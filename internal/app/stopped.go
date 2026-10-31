@@ -392,18 +392,23 @@ func (p *proj) stoppedTask(c Call) (string, *watch) {
 }
 
 // workerTask is the current task of the worker c names and its lane, as the loop holds it (under mu): the task whose
-// attempt awaits its worker's task_done on c's lane, else on the lane its agent works in; "" when none does.
+// attempt awaits its worker's task_done on c's lane, else on the lane its agent works in; "" when none does. Of two
+// such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
 func (p *proj) workerTask(c Call) (task, lane string) {
-	for _, task := range p.loopTasks() {
-		mt := p.folded.loop[task]
+	var newest int64
+	for _, t := range p.loopTasks() {
+		mt := p.folded.loop[t]
 		if !mt.awaitsTaskDone() || mt.lane == "" {
 			continue
 		}
-		if (c.Lane != "" && mt.lane == c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) == c.Agent) {
-			return task, mt.lane
+		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) != c.Agent) {
+			continue
+		}
+		if task == "" || mt.dispSeq > newest {
+			task, lane, newest = t, mt.lane, mt.dispSeq
 		}
 	}
-	return "", ""
+	return task, lane
 }
 
 // isStop: the fact f is a worker's stop (needs-you, cause stopped).
