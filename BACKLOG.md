@@ -19,8 +19,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, restart
   serve in w5:p1F (`timeout 20 herdr pane send-keys w5:p1F C-c`; `herdr pane run w5:p1F "./dist/obor serve"`).
 - **Owner decisions pending:** LICENSE (none yet: MIT, Apache-2.0 or none); S5a (when a herdr restart is OK).
-- **Next (owner 10-31: start from the architectural review**, `docs/reviews/architectural-review.md`, untracked in
-  main: move it to the review worktree): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
+- **Next (owner 10-31: start from the architectural review**, `~/Work/obor-kit-wt/review/docs/reviews/architectural-review.md`): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
   `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in
   parallel with P7-3 (`obor serve install`); (3) #4 split `proj` in three hard, sequential, reviewed steps:
   registry, outbox, folded vs live state (existing app tests are the oracle; two strikes = rethink); (4) #3 boundary
