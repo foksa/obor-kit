@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/config"
@@ -237,19 +238,28 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		env = append(env, "OBOR_LANE="+a.lane)
 	}
 	pane := w.pane
+	fresh := false
 	switch {
 	case pane != "":
 		s.say("pane %s (existing)", pane)
 	case w.newTab != "":
-		// In the caller's workspace (T-137): without --workspace herdr uses its active one, maybe another project's.
-		if pane, err = s.H.NewTab(ctx, s.Env.Get("HERDR_WORKSPACE_ID"), w.newTab, a.cwd, env...); err != nil {
+		// In the project's workspace (T-628): without one, the caller's; herdr's active one only when the caller has none.
+		if pane, err = s.H.NewTab(ctx, s.workspace(panes), w.newTab, a.cwd, env...); err != nil {
 			return project.Failf("herdr tab create failed: %v", err)
 		}
 		s.say("tab %s: pane %s", w.newTab, pane)
+		fresh = true
 	default:
-		if pane, err = s.split(ctx, panes, w.tab, a.cwd, env); err != nil {
+		tab := w.tab
+		if tab == "" {
+			if tab, err = s.defaultTab(panes); err != nil {
+				return err
+			}
+		}
+		if pane, err = s.split(ctx, panes, tab, a.cwd, env); err != nil {
 			return err
 		}
+		fresh = true
 	}
 
 	s.placed = pane
@@ -260,10 +270,25 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return err
 		}
 	}
-	err = l.Start(ctx, app.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
-		Prompt: a.role.StartPrompt(lt.Kind)})
+	run := func() error {
+		return l.Start(ctx, app.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
+			Prompt: a.role.StartPrompt(lt.Kind)})
+	}
+	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
+	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.
+	deadline := time.Now().Add(s.shellWait())
+	err = run()
+	for fresh && startCode(err) == "agent_pane_busy" && time.Now().Before(deadline) {
+		if !s.waitShell(ctx, pane, deadline) {
+			break
+		}
+		err = run()
+	}
 	var se *app.StartError
 	switch {
+	case fresh && startCode(err) == "agent_pane_busy":
+		return project.Failf("pane %s is not an available shell after %s: start the agent there by hand "+
+			"(herdr agent start %s --kind %s --pane %s)", pane, s.shellWait(), a.name, lt.Kind, pane)
 	case errors.As(err, &se) && se.NotReady:
 		return project.Failf("agent not ready: %s", se.Hint)
 	case errors.As(err, &se):
@@ -276,45 +301,189 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	return nil
 }
 
-// split splits the largest pane of tab (default: the caller's) for a new pane with cwd and env: to the right when it
-// is wider than tall on screen (a cell is about twice as tall as wide), else down.
-func (s *Setup) split(ctx context.Context, panes []app.PaneInfo, tab, cwd string, env []string) (string, error) {
-	if tab == "" {
-		self := s.Env.Get("HERDR_PANE_ID")
-		if self == "" {
-			return "", project.Failf("not in a herdr pane: pass --tab <tab-id>, --new-tab <label> or --pane <id>")
+// startCode is herdr's error code of a failed start (a StartError wraps herdr's own error), "" when none.
+func startCode(err error) string {
+	var se *app.StartError
+	if errors.As(err, &se) {
+		return app.ErrorCode(se.Err)
+	}
+	return app.ErrorCode(err)
+}
+
+// waitShell waits until herdr reports pane an available shell (its shell in the foreground), no longer than until;
+// false when the bound came first. It waits one poll before asking: a start herdr answered agent_pane_busy for is
+// retried no faster than that.
+func (s *Setup) waitShell(ctx context.Context, pane string, until time.Time) bool {
+	for {
+		left := time.Until(until)
+		if left <= 0 {
+			return false
 		}
-		for _, p := range panes {
-			if p.ID == self {
-				tab = p.Tab
-			}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(min(shellPoll, left)):
 		}
-		if tab == "" {
-			return "", project.Failf("pane %s not in herdr pane list: pass --tab or --new-tab", self)
+		if pi, err := s.H.ProcessInfo(ctx, pane); err == nil && pi.AtShell() {
+			return true
 		}
 	}
-	var in []string
+}
+
+// --- placement (T-628) -------------------------------------------------------------------------------------------
+
+// shellWait bounds the wait for a new pane's shell, and shellPoll is how often herdr is asked meanwhile.
+const (
+	shellWait = 10 * time.Second
+	shellPoll = 100 * time.Millisecond
+)
+
+// shellWait is the bound (Setup.ShellWait when set: tests shorten it).
+func (s *Setup) shellWait() time.Duration {
+	if s.ShellWait > 0 {
+		return s.ShellWait
+	}
+	return shellWait
+}
+
+// projectWorkspace is the herdr workspace of this project: the one with most panes whose cwd is the project root or
+// under its lanes dir ("" when none). Placement follows it, never the caller's workspace when that is another
+// project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in obor-kit's w5).
+func (s *Setup) projectWorkspace(panes []app.PaneInfo) string {
+	count := map[string]int{}
 	for _, p := range panes {
-		if p.Tab == tab {
+		if p.Workspace != "" && s.inProject(p.Cwd) {
+			count[p.Workspace]++
+		}
+	}
+	ws, most := "", 0
+	for _, p := range panes { // in herdr's order: the first of equals
+		if c := count[p.Workspace]; p.Workspace != "" && s.inProject(p.Cwd) && c > most {
+			ws, most = p.Workspace, c
+		}
+	}
+	return ws
+}
+
+// splittable: a split may use p. Its cwd is unknown, or in this project: never another project's pane (T-628).
+func (s *Setup) splittable(p app.PaneInfo) bool { return p.Cwd == "" || s.inProject(p.Cwd) }
+
+// workspace is where this run's new tabs go: the project's workspace, else the caller's, with one warning line.
+func (s *Setup) workspace(panes []app.PaneInfo) string {
+	if ws := s.projectWorkspace(panes); ws != "" {
+		return ws
+	}
+	caller := s.Env.Get("HERDR_WORKSPACE_ID")
+	if !s.warned {
+		s.warned = true
+		id := caller
+		if id == "" {
+			id = "herdr's active workspace"
+		}
+		s.say("warning: no herdr workspace has a pane in %s: using the caller's (%s)", s.root, id)
+	}
+	return caller
+}
+
+// defaultTab is the tab a split without --tab goes to: the caller's when it is the project's, else the project's tab
+// with most panes of it; no pane of the project anywhere: the caller's, with the warning.
+func (s *Setup) defaultTab(panes []app.PaneInfo) (string, error) {
+	self := s.Env.Get("HERDR_PANE_ID")
+	var mine *app.PaneInfo
+	for i, p := range panes {
+		if self != "" && p.ID == self {
+			mine = &panes[i]
+		}
+	}
+	if proj := s.projectWorkspace(panes); proj != "" {
+		if mine != nil && mine.Workspace == proj && s.splittable(*mine) && s.hasSplittable(panes, mine.Tab) {
+			return mine.Tab, nil
+		}
+		if tab := s.busiestTab(panes, proj); tab != "" {
+			return tab, nil
+		}
+		return "", project.Failf("no pane of this project to split in workspace %s: pass --new-tab <label> (or --pane <id>)", proj)
+	}
+	s.workspace(panes) // the no-project-workspace warning, once
+	switch {
+	case self == "":
+		return "", project.Failf("not in a herdr pane: pass --tab <tab-id>, --new-tab <label> or --pane <id>")
+	case mine == nil:
+		return "", project.Failf("pane %s not in herdr pane list: pass --tab or --new-tab", self)
+	case !s.splittable(*mine):
+		return "", project.Failf("the caller's pane %s is another project's (cwd %s): pass --new-tab <label> (or --pane <id>)",
+			self, mine.Cwd)
+	}
+	return mine.Tab, nil
+}
+
+// busiestTab is the tab of ws with the most panes a split may use ("" when none).
+func (s *Setup) busiestTab(panes []app.PaneInfo, ws string) string {
+	count := map[string]int{}
+	for _, p := range panes {
+		if p.Workspace == ws && s.splittable(p) {
+			count[p.Tab]++
+		}
+	}
+	tab, most := "", 0
+	for _, p := range panes { // in herdr's order: the first of equals
+		if c := count[p.Tab]; p.Workspace == ws && s.splittable(p) && c > most {
+			tab, most = p.Tab, c
+		}
+	}
+	return tab
+}
+
+// hasSplittable: tab holds a pane a split may use.
+func (s *Setup) hasSplittable(panes []app.PaneInfo, tab string) bool {
+	for _, p := range panes {
+		if p.Tab == tab && s.splittable(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// split splits the largest pane of tab a split may use for a new pane with cwd and env: to the right when it is wider
+// than tall on screen (a cell is about twice as tall as wide), else down. Another project's pane is never split.
+func (s *Setup) split(ctx context.Context, panes []app.PaneInfo, tab, cwd string, env []string) (string, error) {
+	var in []string
+	n := 0
+	for _, p := range panes {
+		if p.Tab != tab {
+			continue
+		}
+		n++
+		if s.splittable(p) {
 			in = append(in, p.ID)
 		}
 	}
-	if len(in) == 0 {
+	if n == 0 {
 		return "", project.Failf("no panes in tab %s", tab)
+	}
+	if len(in) == 0 {
+		return "", project.Failf("tab %s holds no pane of this project: pass --new-tab <label> (or --pane <id>)", tab)
 	}
 	limit := 4
 	if l := s.cfg.Data.Limits; l != nil && l.MaxPanesPerTab != nil {
 		limit = *l.MaxPanesPerTab
 	}
-	if len(in) >= limit {
-		return "", project.Failf("tab %s is full (%d of %d panes; --new-tab <label>)", tab, len(in), limit)
+	if n >= limit {
+		return "", project.Failf("tab %s is full (%d of %d panes; --new-tab <label>)", tab, n, limit)
 	}
 	layout, err := s.H.Layout(ctx, in[0])
 	if err != nil {
 		return "", project.Failf("herdr pane layout failed: %v", err)
 	}
+	may := map[string]bool{}
+	for _, id := range in {
+		may[id] = true
+	}
 	target, w, h := "", 0, 0
 	for _, p := range layout {
+		if !may[p.Pane] {
+			continue
+		}
 		if p.W*p.H >= w*h { // the last of equals: the newest
 			target, w, h = p.Pane, p.W, p.H
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"obor/internal/herdr"
 )
@@ -23,7 +24,11 @@ type Pane struct {
 	Workspace          string // the workspace id (session.snapshot's workspace_id), "" for none
 	Transcript         string // agent_session as a path (kind path) instead of the Session id
 	Seq                int64
-	Procs              []herdr.Process // its foreground processes (pane process-info)
+	// Ready is when the pane's shell becomes an available shell (zero: at once). Until then pane.process_info
+	// reports no shell in the foreground and agent.start answers agent_pane_busy, as herdr does for a pane a new tab or
+	// a split just made (T-628).
+	Ready time.Time
+	Procs []herdr.Process // its foreground processes (pane process-info)
 	// Foreground is the pane's foreground process group (pane process-info; the shell is pid 1): 0 = the agent's (2)
 	// when one runs, else the shell's.
 	Foreground int
@@ -81,6 +86,8 @@ type Fake struct {
 	Plugins    []Plugin          // nil: plugin.list answers an empty list
 	Workspaces []herdr.Workspace // session.snapshot's workspaces
 	made       int               // panes made by pane.split and tab.create
+	// NewPaneBusy: a pane pane.split or tab.create makes is not an available shell for this long (0: at once, T-628).
+	NewPaneBusy time.Duration
 }
 
 // New is an empty fake.
@@ -182,9 +189,16 @@ func (p *Pane) processInfo() map[string]any {
 		"foreground_processes": procs}
 }
 
-// foreground is the pane's foreground process group: Foreground, else the agent's (2) or the shell's (1).
+// foreground is the pane's foreground process group: Foreground, else the agent's (2) or the shell's (1). A pane whose
+// shell is not up yet has neither: the terminal's own process leads.
 func (p *Pane) foreground() int {
+	sh := p.Shell
+	if sh == 0 {
+		sh = 1
+	}
 	switch {
+	case !p.ready():
+		return sh + 1
 	case p.Foreground != 0:
 		return p.Foreground
 	case p.Kind != "":
@@ -192,6 +206,9 @@ func (p *Pane) foreground() int {
 	}
 	return 1
 }
+
+// ready: the pane's shell is an available shell now.
+func (p *Pane) ready() bool { return p.Ready.IsZero() || !time.Now().Before(p.Ready) }
 
 // atShell: the pane's shell (pid 1, or Shell) has the foreground.
 func (p *Pane) atShell() bool {
@@ -307,6 +324,9 @@ func (f *Fake) split(t *Pane, dir, cwd string) *Pane {
 	f.made++
 	ws, _, _ := strings.Cut(t.ID, ":")
 	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: t.Tab, Cwd: cwd, W: t.W, H: t.H}
+	if f.NewPaneBusy > 0 {
+		n.Ready = time.Now().Add(f.NewPaneBusy)
+	}
 	if dir == "right" {
 		t.W, n.W = t.W/2, t.W-t.W/2
 	} else {
@@ -323,6 +343,9 @@ func (f *Fake) newTab(ws, cwd string) *Pane {
 		ws = "w1"
 	}
 	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made), Cwd: cwd, W: 200, H: 50}
+	if f.NewPaneBusy > 0 {
+		n.Ready = time.Now().Add(f.NewPaneBusy)
+	}
 	f.Panes = append(f.Panes, n)
 	return n
 }

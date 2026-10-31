@@ -45,6 +45,8 @@ type fx struct {
 	open func(pids []int) []string
 	// serve is Setup.Serve (obor init's serve install; nil: none)
 	serve func(context.Context, *config.Config) (string, string, error)
+	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
+	shellWait time.Duration
 }
 
 // newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, lane types opus: claude --model opus, luna:
@@ -101,7 +103,7 @@ func (x *fx) run(t *testing.T, args ...string) (string, int) {
 		open = func([]int) []string { return nil }
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
-	s := &Setup{Kit: k, Dir: x.Root, Env: env, H: h, Out: &out, McpCheck: check,
+	s := &Setup{Kit: k, Dir: x.Root, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) app.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
 		}, Serve: x.serve}
