@@ -248,7 +248,7 @@ func (p *proj) foldMsg(r Record) {
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
 // after the brief's line was delivered (or with no line) is the work the brief asked for (under mu, after reconcile).
 func (a *App) sawWork(p *proj, pane Pane) {
-	agent, ok := a.whoIs(p, pane)
+	agent, ok := p.reg.whoIs(pane)
 	b := p.briefs[agent]
 	if !ok || b == nil || pane.Agent == "" || Ready(pane.Status) {
 		return

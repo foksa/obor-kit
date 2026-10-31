@@ -209,14 +209,8 @@ type proj struct {
 	ended map[string]bool
 	// Jobs by fetch (fetch.go): delivered, the jobs a fact delivered names (folded).
 	delivered map[string]bool
-	// The identity table (registry.go): starts, serve's own starts by agent (folded); owners, by terminal key the
-	// agent its pane runs, and agents its inverse; ambiguous, the agents two or more panes claim with equal proof (their
-	// pane ids); strays, the labels logged as not their agent's pane. All but starts are rebuilt by reconcile.
-	starts    map[string]startRow
-	owners    map[string]owner
-	agents    map[string]string
-	ambiguous map[string][]string
-	strays    map[string]bool
+	// reg: the identity table (registry.go).
+	reg registry
 	// lr: the lanes table's projection (lanerows.go, T-439).
 	lr laneRows
 	// The lines to the project's agents (messages.go, T-466): lead, the lead's agent (roles.lead.agent); msgs, the lines
@@ -228,10 +222,8 @@ type proj struct {
 	lining   map[int64]bool // needs-you facts whose line a pass is recording now (needsLines' claim, not folded)
 	briefs   map[string]*brief
 	watches  map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go)
-	// sessions: the agents' recorded sessions in log order (sessions.go, T-577); herdrSession: the herdr session last
-	// logged as differing from an agent's recorded one, by agent (registry.go: logged once).
-	sessions     []store.Session
-	herdrSession map[string]string
+	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
+	sessions []store.Session
 }
 
 // retry is one failed notification's next try; tries counts the failures so far (the wait doubles from notifyRetry).

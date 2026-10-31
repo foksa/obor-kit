@@ -725,7 +725,7 @@ func (a *App) placement(p *proj, dir string, names ...string) *seen {
 			continue
 		}
 		r := 1
-		if agent, ok := a.whoIs(p, o.pane); ok && agent != "" && slices.Contains(names, agent) {
+		if agent, ok := p.reg.whoIs(o.pane); ok && agent != "" && slices.Contains(names, agent) {
 			r = 3
 		} else if o.pane.Agent != "" {
 			r = 2

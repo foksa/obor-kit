@@ -96,7 +96,7 @@ func (p *proj) session(agent string) (store.Session, bool) { return store.Curren
 // transcript is the recorded transcript of pane's agent (under mu): its current session's ("": none recorded; the
 // reader then takes the one herdr's session names).
 func (a *App) transcript(p *proj, pane Pane) string {
-	agent, ok := a.whoIs(p, pane)
+	agent, ok := p.reg.whoIs(pane)
 	if !ok {
 		return ""
 	}
