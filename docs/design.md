@@ -257,15 +257,19 @@ When the user types into a worker's pane by mistake, the worker must not act on 
 
 ## Git hooks layer (v2.3)
 A second layer that doesn't depend on agent hooks (also covers Codex/opencode lanes and humans).
-- Shipped in the kit as `githooks/` (`pre-commit`, `pre-push`); `obor setup githooks`
-  sets `core.hooksPath` in the project's repo config (shared by all worktrees) to `<kit>/githooks`, refusing if
-  `core.hooksPath` is already set to something else; each obor hook first runs the project's own
-  `.git/hooks/<name>` if it exists (chaining), and is a no-op without `.obor/config.json`.
+- Shipped in the kit as `githooks/`: a file per client-side hook git runs, each sourcing one runner (`_hook`).
+  `obor setup githooks` sets `core.hooksPath` in the project's repo config (shared by all worktrees) to
+  `<kit>/githooks`. A project that already has its own `core.hooksPath` keeps its hooks: setup records it as
+  `obor.hooksChain` (git config) and `--remove` puts it back (T-620; a herd or obor kit's path is re-pointed).
+- Every hook first runs the project's own `<name>`: `<obor.hooksChain>/<name>`, else `.git/hooks/<name>`; args and
+  stdin pass through; its failure is the hook's result where git uses one (not for the post-* hooks). Then obor's
+  rule, for `pre-commit` and `pre-push` only. Without `.obor/config.json` a hook only chains.
 - `pre-push`: always refuses (`obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand`).
 - `pre-commit`: refuses in a lane worktree unless `OBOR_MERGE=1` (set by serve's gate for its
   commands and scratch commits); in the main checkout git can't tell a `commit -a` from a normal commit, so nothing is
   checked there (the agent guard covers `commit -a`).
-- No `post-merge` / `post-commit`: serve dispatches the waiting tasks (`--after`) after a merge.
+- obor has no rule of its own in `post-merge` / `post-commit` (serve dispatches the waiting tasks, `--after`, and runs
+  `commands.after_merge` in the main checkout after a merge); a project's own still run through the chain.
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies T-373)
 Both workspaces share one machine, so heavy test runs take a slot from one **machine-wide** slot dir shared with
