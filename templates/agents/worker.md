@@ -10,7 +10,8 @@ start prints your lane, task and the protected files your spec unlocks (`obor wh
   (Claude: `mcp__obor__job_next`) before anything else: its reply is your job (the task prompt, or the notes of a
   sendback) and replaces any other instruction to start. A repeat of that wake is harmless: the same job comes back.
   You finish only with the `task_done` tool, your final report its `report` argument; there is no done file. Its
-  refusal names what is missing (a section, an empty report): fix the report and call again.
+  refusal names what is missing (a section, an empty report): fix the report and call again. Once it succeeds your
+  final message is just `Done.`: the report is not repeated there.
 - **Files:** edit only inside your lane; change what the spec asks and the wiring it needs, and name in your report
   any file the spec did not mention (the integrator checks placement against the module map at accept). The Edit/Write
   guard denies other lanes, the main checkout, other obor projects and protected files, and says why. A protected file
@@ -45,7 +46,7 @@ Re-read the spec item by item. Evidence by task type:
   nothing); say which tests.
 - **Port:** behaviours kept / changed / dropped vs the original, with reasons.
 
-Then call `task_done` with your final report as its `report` argument (the same text as your final message), only
+Then call `task_done` with your final report as its `report` argument, only
 once the test results are in:
 ```
 Summary: what changed (files, functions, tests).
@@ -55,6 +56,7 @@ Open questions: anything the lead must decide.
 Concerns (optional): something systemic (complexity creep, a fragile dependency, effort vs value, rule friction,
   a bug pattern) with a recommendation. Omit when there is nothing.
 ```
+Once it succeeds, your final message is just `Done.`: the report is already submitted, never write it again.
 Stuck? Call `task_done` with a `Blocked:` report naming what you need (its first line after `Blocked:`), then stop
 and wait: it submits nothing, the task stays yours, and the owner is notified. The Stop hook blocks a
 stop once while your task has no `task_done` (it reads obor serve's log; a second stop in the same loop is allowed,

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -175,12 +177,16 @@ func (a *App) fetchText(p *proj, mt mtask, key Key) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	if base == StepFix {
-		return fixText(mt, row), row.Rev, nil
-	}
 	fx, err := a.loopOf(p)
 	if err != nil {
 		return "", 0, err
+	}
+	if base == StepFix {
+		read, err := fixRead(p, fx.Kit)
+		if err != nil {
+			return "", 0, err
+		}
+		return fixText(mt, row, read), row.Rev, nil
 	}
 	text, err := workText(p, mt, fx.Kit)
 	if err != nil {
@@ -190,6 +196,22 @@ func (a *App) fetchText(p *proj, mt mtask, key Key) (string, int, error) {
 		text += specText(row)
 	}
 	return text, row.Rev, nil
+}
+
+// fixRead is the fix job's line for a worker started fresh (T-603): the work job carried the role texts, so only a
+// session that did not get it needs the paths. The project's worker doc only when the main checkout has one.
+func fixRead(p *proj, kit string) (string, error) {
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return "", err
+	}
+	paths := []string{filepath.Join(kit, "templates", "agents", "worker.md")}
+	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], "worker.md")
+	if _, err := os.Stat(doc); err == nil {
+		paths = append(paths, doc)
+	}
+	return "If this session did not get the work job (a fresh start), read " + strings.Join(paths, " and ") +
+		" first.", nil
 }
 
 // laneAgent is the agent of lane as the lanes were last read (its row's, under mu).

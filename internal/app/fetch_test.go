@@ -384,6 +384,9 @@ func TestFetchFixUndelivered(t *testing.T) {
 		"typed to pj-o1")
 	if jr := r.workerNext("f2"); jr.Job != "T-1/2/fix.2" {
 		t.Errorf("job_next after the resume: %+v, want T-1/2/fix.2", jr)
+	} else if !strings.Contains(jr.Text, "If this session did not get the work job (a fresh start), read ") ||
+		!strings.Contains(jr.Text, "templates/agents/worker.md") {
+		t.Errorf("the fix job names no role text for a worker started fresh:\n%s", jr.Text)
 	}
 	r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
 	r.later(20 * time.Minute)

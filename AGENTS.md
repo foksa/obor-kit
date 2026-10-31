@@ -11,7 +11,7 @@ clear one-line result (`MERGED …`, `FAIL …`). Avoid: frameworks, generated c
 If you notice something systemic while working — complexity growing faster than value, a fragile dependency (e.g. on
 another tool's undocumented behaviour), effort out of proportion to the benefit, a rule or process that keeps causing
 friction, a pattern of bugs, or a mistake of your own — say so without being asked. One or two sentences, with a
-recommendation. Workers: a `Concerns:` line in the final message (the `task_done` report). Reviewers: a "Design
+recommendation. Workers: a `Concerns:` line in their `task_done` report. Reviewers: a "Design
 concerns" section. Leads: tell the user and keep `BACKLOG.md` "Concerns" current. Different agents see different things;
 none of this replaces the task, and "nothing to flag" needs no line.
 

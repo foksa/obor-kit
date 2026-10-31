@@ -1,6 +1,7 @@
 # Role: worker — obor-kit specifics
 
-Role text: `templates/agents/worker.md` in the obor kit (the worker prompt and the session start name its path).
+Role text: `templates/agents/worker.md` in the obor kit (the work job carries its text; the session start names its
+path).
 Runtime and test rules: `AGENTS.md`.
 
 - Tests of a changed file: `go test ./<pkg>/...` of its package (a bash script such as `githooks/*` or `bin/obor`:
