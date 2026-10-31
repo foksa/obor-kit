@@ -135,6 +135,19 @@
       ],
       "max": 1,
       "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
+    },
+    "terra": {
+      "kind": "codex",
+      "args": [
+        "-m",
+        "gpt-6.1-terra",
+        "-c",
+        "model_reasoning_effort=high",
+        "-s",
+        "workspace-write",
+        "-a",
+        "never"
+      ]
     }
   },
   "lanes": {
@@ -149,9 +162,9 @@
   },
   "roles": {
     "reviewer": {
-      "type": "sol",
+      "type": "terra",
       "worktree": "review",
-      "agent": "ob-sol"
+      "agent": "ob-terra"
     },
     "lead": {
       "agent": "ob-lead",
