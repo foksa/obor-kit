@@ -54,6 +54,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-67-verify #1, accepted) `obor init` appends its lines to an existing `.gitignore` in a repo with commits (by
+  design, printed, not committed); byte-identical pre-existing template files in an unborn repo count as init's
+  (constructed).
 - (owner 10-31) **v0.17.1 as soon as T-627, T-628, T-629 merge** (restore of never-prompted sessions; init places
   panes in the project's workspace + waits for the shell; init on an empty dir / Claude-only). Then: one Terra review
   over the three (RV-67), fixes if likely, tag v0.17.1 (RELEASING.md), owner pushes/publishes/reruns install.sh.
