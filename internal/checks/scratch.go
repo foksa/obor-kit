@@ -38,7 +38,9 @@ const (
 
 // Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
 // refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
-// later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race).
+// later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
+// passes --no-verify (T-622): the project's checking step is commands.check, not its commit hooks (prepare-commit-msg
+// still runs).
 func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker string) (string, error) {
 	s.gitCtx = ctx
 	pin := submittedRefs + task + "/" + id
@@ -69,7 +71,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	}
 	if st != "" {
 		msg := task + ": " + summary + "\n\nImplemented by " + worker + ", reviewed by integrator." + s.trailer()
-		for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", msg}} {
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "--no-verify", "-m", msg}} {
 			if _, err := s.call(dir, args...); err != nil {
 				return "", err
 			}
@@ -256,7 +258,7 @@ func gateHalt(r *runner, h *halt) (*app.GateOutcome, error) {
 }
 
 // commit commits the open merge of the target and input in dir with the newer parent's date (the same commit on every
-// repeat): its sha.
+// repeat): its sha. --no-verify as submit's (T-622); prepare-commit-msg still runs.
 func (s Scratch) commit(dir, msg, target, input string) (string, error) {
 	out, err := s.call(dir, "show", "-s", "--format=%ct", target, input)
 	if err != nil {
@@ -272,7 +274,7 @@ func (s Scratch) commit(dir, msg, target, input string) (string, error) {
 	}
 	date := fmt.Sprintf("@%d +0000", newest)
 	env := []string{"GIT_AUTHOR_DATE=" + date, "GIT_COMMITTER_DATE=" + date}
-	if _, errOut, err := s.gitLocked(env, dir, "commit", "-qm", msg); err != nil {
+	if _, errOut, err := s.gitLocked(env, dir, "commit", "-q", "--no-verify", "-m", msg); err != nil {
 		return "", gitError(dir, []string{"commit"}, errOut, err)
 	}
 	return s.call(dir, "rev-parse", "HEAD")
