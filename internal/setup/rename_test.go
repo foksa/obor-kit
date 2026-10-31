@@ -28,7 +28,7 @@ func renameProject(t *testing.T) *fx {
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
-	for _, f := range []string{"pj-l-01.sid", "pj-l-01.inbox", "proj-lead.sid", "scribe.sid"} {
+	for _, f := range []string{"pj-l-01.sid", "pj-l-01.inbox", "proj-lead.inbox", "scribe.inbox"} {
 		x.Write(filepath.Join(agents, f), "old "+f+"\n")
 	}
 	x.running()
@@ -109,7 +109,7 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 	}
 
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
-	for from, to := range map[string]string{"pj-l-01.sid": "ob-l-01.sid", "pj-l-01.inbox": "ob-l-01.inbox", "proj-lead.sid": "ob-lead.sid"} {
+	for from, to := range map[string]string{"pj-l-01.inbox": "ob-l-01.inbox", "proj-lead.inbox": "ob-lead.inbox"} {
 		if b, err := os.ReadFile(filepath.Join(agents, to)); err != nil || string(b) != "old "+from+"\n" {
 			t.Errorf("%s = %q, %v; want the copy of %s", to, b, err, from)
 		}
@@ -117,8 +117,11 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 			t.Errorf("%s is gone: the old files stay", from)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(agents, "scribe.sid")); err != nil {
-		t.Errorf("scribe.sid: %v", err)
+	if _, err := os.Stat(filepath.Join(agents, "scribe.inbox")); err != nil {
+		t.Errorf("scribe.inbox: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agents, "ob-l-01.sid")); err == nil {
+		t.Error("a .sid file was copied: only the inbox record is (T-599)")
 	}
 
 	if b, _ := os.ReadFile(filepath.Join(dir, "label")); strings.TrimSpace(string(b)) != "newp" {

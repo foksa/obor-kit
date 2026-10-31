@@ -69,7 +69,9 @@ type harness struct {
 	lanes    *fakeLanes
 	now      time.Time
 	root, wt string
-	snap     Snapshot // herdr's session now
+	snap     Snapshot          // herdr's session now
+	sidMap   map[string]string // sids: agent → session id, put in the store (applySids)
+	sidSeq   int64
 }
 
 func newHarness(t *testing.T) *harness {
@@ -128,6 +130,7 @@ func (h *harness) setLane(task string, done bool) {
 // connect is a subscription: load the project, then work from h.snap.
 func (h *harness) connect() {
 	h.a.loadProject()
+	h.applySids()
 	snap := h.snap
 	snap.Panes = append([]Pane(nil), h.snap.Panes...)
 	h.a.connect(context.Background(), snap)

@@ -45,7 +45,6 @@ func (a *App) load(root string) (*proj, error) {
 	if err := p.syncLanes(); err != nil {
 		a.logf("project %s: lanes table: %v", name, err)
 	}
-	a.importSids(p, cfg)
 	pending := len(log.Pending())
 	// What a crash left open (docs/state-model.md "Crash classes"): an ended task's intents are settled as nothing;
 	// every other pending intent is the loop's to run again, its effect checking first what happened (a prompt is

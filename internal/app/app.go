@@ -120,12 +120,6 @@ type Options struct {
 	// Inboxed: agent's session inbox is recorded (its SessionStart hook's <agent>.inbox, T-485), and the session that
 	// recorded it ("": none named). A lead line waits, untried, while it is not; nil: always tried.
 	Inboxed func(agent string) (session string, ok bool)
-	// Sid is agent's session id as its SessionStart hook recorded it (<agent>.sid, else its .inbox's; "": none): the
-	// identity's strongest proof (registry.go); nil: none.
-	Sid func(agent string) string
-	// Recorded is the session agent's .sid file holds (T-577: the SessionStart hook's fallback while serve is down),
-	// its Started the file's time; serve imports one it has not recorded when it loads the project. nil: none.
-	Recorded func(agent string) (store.Session, bool)
 }
 
 // notifyRetry is the first wait before a failed notification is sent again; it doubles with each failure up to

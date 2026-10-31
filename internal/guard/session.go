@@ -41,7 +41,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(p
 	kind := sessionKind(cfg, agent, ev.Cwd)
 	if err != nil { // DD-v0.13 A1: say so, keep the session's records, guard nothing else on a default config
 		fmt.Fprintln(out, "obor: "+unreadable(err))
-		record(agent, ev.SessionID, kind, env)
+		record(agent, ev.SessionID, env)
 		return Began{}, false
 	}
 	if len(unknown) > 0 {
@@ -99,7 +99,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(p
 		}
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
-	record(agent, ev.SessionID, kind, env)
+	record(agent, ev.SessionID, env)
 	began := Began{Root: cfg.Root, Agent: sessionAgent(cfg, w.Role, env), Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane}
 	if w.State != nil {
@@ -177,24 +177,13 @@ func laneKind(cfg *config.Config, lane string) string {
 	return ""
 }
 
-// record writes this session's records under agent's name (every agent, role-free; none without a usable name): its
-// session id (T-113: obor restart resumes it after a kill) for a kind that resumes (a kind that resumes nothing, such
-// as OpenCode, keeps no .sid: T-581) and its inbox (T-485: obor serve posts the lead's lines there, nothing is typed),
-// as the bridge of the kind whose environment this is builds it (Kind.InboxRecord); a session with none (messaging
-// off, no inbox kind) removes a stale record.
-func record(agent, sessionID, kind string, env project.Env) {
+// record writes this session's inbox under agent's name (every agent, role-free; none without a usable name; T-485:
+// obor serve posts the lead's lines there, nothing is typed), as the bridge of the kind whose environment this is
+// builds it (Kind.InboxRecord); a session with none (messaging off, no inbox kind) removes a stale record. The
+// session itself is recorded by serve alone (the session request), never in a file.
+func record(agent, sessionID string, env project.Env) {
 	if !recordable(agent) {
 		return
-	}
-	if agents.Resumes(kind) {
-		if sessionID != "" {
-			f := project.SidFile(agent, env)
-			if os.MkdirAll(filepath.Dir(f), 0o755) == nil {
-				os.WriteFile(f, []byte(sessionID+"\n"), 0o644)
-			}
-		}
-	} else {
-		_ = os.Remove(project.SidFile(agent, env)) // T-581: no resume, no .sid (a stale one goes too)
 	}
 	for _, name := range agents.Names() {
 		k, _ := agents.Lookup(name)

@@ -1614,7 +1614,7 @@ func TestKitManifestMCPServers(t *testing.T) {
 
 // T-582 (RV-62 #3), T-588: obor setup pane and setup role start Codex through launch's one start path, so the rollout
 // the fresh start's process holds open (the fake herdr's agent: pid 2) is recorded as the agent's session: serve down
-// here, so in its .sid file, the stale older record replaced.
+// here, so it is said and nothing is recorded (no .sid file: T-599).
 func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1632,11 +1632,6 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 			x.rollout = 10 * time.Second
 			if c.args[0] == "pane" {
 				x.ok(t, "lane", c.wt, "luna")
-			}
-			sidFile := project.SidFile(c.agent, x.Env())
-			x.Write(sidFile, "cx-stale\n")
-			if err := os.Chtimes(sidFile, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour)); err != nil {
-				t.Fatal(err)
 			}
 			cwd := x.LaneDir(c.wt)
 			rollout := filepath.Join(x.Base, "home", ".codex", "sessions", "2026", "10", "30", "rollout-cx-new.jsonl")
@@ -1658,8 +1653,9 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 			out := x.ok(t, c.args...)
 			has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent, "precondition: a codex start")
 			has(t, out, "session cx-new (", "the new session found")
-			if b, _ := os.ReadFile(sidFile); strings.TrimSpace(string(b)) != "cx-new" {
-				t.Errorf("the stale record not replaced: %q\n%s", b, out)
+			has(t, out, "session cx-new of "+c.agent+" not recorded", "serve down: said, nothing recorded")
+			if _, err := os.Stat(filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents", c.agent+".sid")); err == nil {
+				t.Errorf("a .sid file written\n%s", out)
 			}
 		})
 	}

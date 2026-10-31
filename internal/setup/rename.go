@@ -11,7 +11,7 @@ package setup
 //	           neither are kept
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
-//	3 files    ~/.obor/agents/<old>.{sid,inbox} copied to <new>.… (no overwrite); each lane worktree's opencode.json
+//	3 files    ~/.obor/agents/<old>.inbox copied to <new>.… (no overwrite); each lane worktree's opencode.json
 //	           with a path to another kit's bin/obor or bin/herd (an MCP server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
@@ -279,27 +279,25 @@ func (r *renamer) files(context.Context) error {
 		if p.old == p.new {
 			continue
 		}
-		for _, f := range []func(string, project.Env) string{project.SidFile, project.InboxFile} {
-			src, dst := f(p.old, r.Env), f(p.new, r.Env)
-			b, err := os.ReadFile(src)
-			if err != nil {
-				continue
-			}
-			if _, err := os.Lstat(dst); err == nil {
-				continue // never overwritten
-			}
-			info, err := os.Stat(src)
-			if err != nil {
-				continue
-			}
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return project.Failf("%v", err)
-			}
-			if err := os.WriteFile(dst, b, info.Mode().Perm()); err != nil {
-				return project.Failf("%v", err)
-			}
-			did = append(did, filepath.Base(src)+" → "+filepath.Base(dst))
+		src, dst := project.InboxFile(p.old, r.Env), project.InboxFile(p.new, r.Env)
+		b, err := os.ReadFile(src)
+		if err != nil {
+			continue
 		}
+		if _, err := os.Lstat(dst); err == nil {
+			continue // never overwritten
+		}
+		info, err := os.Stat(src)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return project.Failf("%v", err)
+		}
+		if err := os.WriteFile(dst, b, info.Mode().Perm()); err != nil {
+			return project.Failf("%v", err)
+		}
+		did = append(did, filepath.Base(src)+" → "+filepath.Base(dst))
 	}
 	moved, err := r.kitPaths()
 	if err != nil {

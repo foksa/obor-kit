@@ -37,9 +37,26 @@ func (h *harness) withLead() {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{},"lead":{}}}`)
 }
 
-// sids makes agent → session the SessionStart records (Options.Sid).
+// sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
+// p.sessions directly, so two agents may hold one id (the tie cases; sessionCall refuses that).
 func (h *harness) sids(m map[string]string) {
-	h.a.opt.Sid = func(agent string) string { return m[agent] }
+	h.sidMap = m
+	h.applySids()
+}
+
+func (h *harness) applySids() {
+	if h.a.p == nil {
+		return
+	}
+	h.a.mu.Lock()
+	defer h.a.mu.Unlock()
+	for agent, id := range h.sidMap {
+		if cur, ok := store.Current(h.a.p.sessions, agent); ok && cur.ID == id {
+			continue
+		}
+		h.sidSeq++
+		h.a.p.sessions = append(h.a.p.sessions, store.Session{Agent: agent, Kind: "claude", ID: id, Started: h.sidSeq})
+	}
 }
 
 // started writes serve's start of agent in pane (terminal term, session sid; "": none) to the log: agent.start's
@@ -179,7 +196,7 @@ func TestIdentStartByServe(t *testing.T) {
 	}
 }
 
-// 2: the lead's obor restart pj-o-01 (no serve start): its .sid s2 is the pane's session: identified by session; a
+// 2: the lead's obor restart pj-o-01 (no serve start): its recorded session s2 is the pane's session: identified by session; a
 // brief to it (a typed kind) is typed into w1:p1.
 func TestIdentRestartByLead(t *testing.T) {
 	h, _ := newIdentHarness(t)
@@ -196,7 +213,7 @@ func TestIdentRestartByLead(t *testing.T) {
 	}
 }
 
-// 3: --fresh: .sid rewritten s3 and the pane shows s3: identified by the new session; work after the brief is marked.
+// 3: --fresh: session recorded s3 and the pane shows s3: identified by the new session; work after the brief is marked.
 func TestIdentFreshSession(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
@@ -216,7 +233,7 @@ func TestIdentFreshSession(t *testing.T) {
 	}
 }
 
-// 4: herdr restarted, obor plugin restore: new pane ids and terminals, the same label, the .sid kept: identified by
+// 4: herdr restarted, obor plugin restore: new pane ids and terminals, the same label, the session record kept: identified by
 // session (by label for opencode, which records none); the lane sees no agent exit.
 func TestIdentHerdrRestartRestore(t *testing.T) {
 	for _, kind := range []string{"claude", "opencode"} {
@@ -405,7 +422,7 @@ func TestIdentMoveAddressReused(t *testing.T) {
 	}
 }
 
-// 14 (RV-53 #2): a session claim and a label claim on one terminal: the lead's .sid s1 is w1:p1's session, w1:p1 is
+// 14 (RV-53 #2): a session claim and a label claim on one terminal: the lead's recorded session s1 is w1:p1's session, w1:p1 is
 // labelled pj-other: the lead owns t1, pj-other has no proof; whoIs(w1:p1) is the lead.
 func TestIdentSessionBeatsLabel(t *testing.T) {
 	h, _ := newIdentHarness(t)
@@ -448,7 +465,7 @@ func TestIdentDuplicateLater(t *testing.T) {
 	}
 }
 
-// 16: row 9, then w1:p1 shows .sid s1: identified at w1:p1 by session; w1:p3 logged once as a stray label.
+// 16: row 9, then w1:p1 shows recorded session s1: identified at w1:p1 by session; w1:p3 logged once as a stray label.
 func TestIdentOneLabelProven(t *testing.T) {
 	h, out := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
@@ -487,7 +504,7 @@ func TestIdentStartRowRetired(t *testing.T) {
 }
 
 // 18 (RV-53 #4): replay → brief work: a brief recorded, serve restarts, the first snapshot shows w1:p1 working with
-// no label, its .sid s1: identified by session and the brief's work marked (and logged) on that first snapshot.
+// no label, its recorded session s1: identified by session and the brief's work marked (and logged) on that first snapshot.
 func TestIdentReplayBriefWork(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
@@ -787,29 +804,6 @@ func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	}
 }
 
-// DD-v0.13 A6: reconcile reads each candidate's recorded session once, not once per agent pane (three here).
-func TestIdentSidReadOncePerReconcile(t *testing.T) {
-	h, _ := newIdentHarness(t)
-	h.snap.Panes = append(h.snap.Panes, h.twin(), Pane{ID: "w1:p4", Workspace: "w1", Cwd: h.root, Agent: "claude",
-		Status: "idle", Label: "notes", Terminal: "t4"})
-	h.connect()
-	reads := map[string]int{}
-	h.a.opt.Sid = func(agent string) string { reads[agent]++; return "" }
-	h.a.mu.Lock()
-	p := h.proj()
-	h.a.reconcile(p)
-	cands := h.a.candidates(p, []Pane{{Label: "pj-o-01"}, {Label: "notes"}})
-	h.a.mu.Unlock()
-	if len(reads) == 0 {
-		t.Fatal("precondition: no Sid read")
-	}
-	for _, agent := range cands {
-		if reads[agent] != 1 {
-			t.Errorf("Sid(%s) read %d times in one reconcile, want once: %v", agent, reads[agent], reads)
-		}
-	}
-}
-
 // DD-v0.13 D1: the integrator's type names a kind obor has no bridge for: its start is refused (no Launch), naming
 // obor config validate.
 func TestIdentIntegratorWithoutBridge(t *testing.T) {
@@ -915,7 +909,7 @@ func TestIdentBriefUsesPaneAddress(t *testing.T) {
 }
 
 // T-505: the identity table's transitions; each failed on the code it was found on.
-// V1: pj-o-01's and the lead's .sid are both w1:p1's session s1 (equal proof of t1): t1 is unowned whatever its
+// V1: pj-o-01's and the lead's recorded session are both w1:p1's session s1 (equal proof of t1): t1 is unowned whatever its
 // label names, a third label (pj-other) included; neither tied claimant is identified.
 func TestIdentEqualProofTerminal(t *testing.T) {
 	for _, label := range []string{"", "pj-o-01", "pj-lead", "pj-other"} {
@@ -936,7 +930,7 @@ func TestIdentEqualProofTerminal(t *testing.T) {
 }
 
 // V1: the tie on t1, and serve's start of pj-other in w1:p1 (a lower-ranked start claim): t1 stays unowned; once the
-// lead's .sid no longer names s1 the tie ends and pj-o-01 owns t1 again by session.
+// lead's session is no longer s1 the tie ends and pj-o-01 owns t1 again by session.
 func TestIdentEqualProofStartClaim(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.withLead()
@@ -959,6 +953,9 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1) during the tie")
 	eqs(t, h.where("pj-other"), "unavailable no proof", "pj-other during the tie")
 	delete(sids, "pj-lead")
+	h.a.mu.Lock()
+	h.proj().sessions = slices.DeleteFunc(h.proj().sessions, func(s store.Session) bool { return s.Agent == "pj-lead" })
+	h.a.mu.Unlock()
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "pj-o-01 after the tie")
 	eqs(t, h.who("w1:p1"), "pj-o-01", "whoIs(w1:p1) after the tie")

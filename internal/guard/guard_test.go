@@ -1103,8 +1103,6 @@ func TestNoIdentityFromTheSessionID(t *testing.T) {
 	P, home := f.P, f.Base+"/state-home"
 	f.Write(home+"/sessions/sid-o1", "pj-o-01\tworker\tO-01\n")
 	f.Write(home+"/sessions/sid-int", "pj-int\tintegrator\t\n")
-	f.Write(home+"/agents/pj-o-01.sid", "sid-o1\n")
-	f.Write(home+"/agents/pj-int.sid", "sid-int\n")
 	call := func(who string, c tc, sid string, env ...string) (int, string) {
 		return runAs(f.Project, who, c.input(map[string]any{"session_id": sid}), env...)
 	}

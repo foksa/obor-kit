@@ -79,8 +79,8 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 }
 
 // DD-v0.13 A1, SessionStart: an unknown key is one WARN line naming it, then the usual context; a config that does not
-// load is one line saying so (no role line: nothing is guarded on the default config's view) and the session's .sid
-// and .inbox are still written.
+// load is one line saying so (no role line: nothing is guarded on the default config's view) and the session's
+// .inbox is still written.
 func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
@@ -107,9 +107,6 @@ func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 		lacks(t, out, b.name, "obor: role ", "Hooks:")
 		if strings.Count(out, "\n") != 1 {
 			t.Errorf("%s: want one line, got\n%s", b.name, out)
-		}
-		if got := f.Read(project.SidFile("pj-o1", penv)); got != sid+"\n" {
-			t.Errorf("%s: .sid = %q, want %s", b.name, got, sid)
 		}
 		in, err := project.ReadInbox("pj-o1", penv)
 		if err != nil || in != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: sid}) {

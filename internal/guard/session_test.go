@@ -191,35 +191,26 @@ func TestSessionNoConfigOrBadInputSilent(t *testing.T) {
 	}
 }
 
-// bash plugin case_session_records_sid (T-113)
-func TestSessionRecordsTheSessionID(t *testing.T) {
+// T-599: the hook writes no session-id file: serve's store is the only session record (the session request); with
+// serve down the session is not recorded. Nothing is written without OBOR_AGENT either.
+func TestSessionWritesNoSidFile(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
 	state := f.Base + "/state"
-	sid := state + "/agents/pj-o1.sid"
 	contains(t, f.session(t, o1, "sid-123", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state), "hook ran", "obor: role worker")
-	if got := f.Read(sid); got != "sid-123\n" {
-		t.Errorf("sid recorded: %q", got)
+	if f.Exists(state + "/agents/pj-o1.sid") {
+		t.Error("the hook wrote a .sid file")
 	}
 	os.RemoveAll(state)
 	contains(t, f.session(t, o1, "sid-123", "OBOR_STATE_HOME="+state), "hook ran without OBOR_AGENT", "obor: role worker")
 	if f.Exists(state + "/agents") {
 		t.Error("no OBOR_AGENT → something written")
 	}
-	contains(t, f.session(t, o1, "", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state), "hook ran without session_id", "obor: role worker")
-	if f.Exists(sid) {
-		t.Error("no session_id → something written")
-	}
-	f.session(t, o1, "sid-456", "OBOR_AGENT=pj-o1", "OBOR_STATE_HOME="+state)
-	if got := f.Read(sid); got != "sid-456\n" {
-		t.Errorf("a newer session replaces the record: %q", got)
-	}
 }
 
 // T-581: an OpenCode lane's session-start (its plugin's shared process carries no OBOR_AGENT) records the session
-// under the lane's agent, but writes no .sid: obor never resumes an OpenCode session. A stale one goes when the
-// environment does name the agent. The control: a Claude lane still records its .sid (T-113).
-func TestSessionOpencodeRecordsNoSid(t *testing.T) {
+// under the lane's agent (its Began names the agent, kind and session for serve).
+func TestSessionOpencodeBegan(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	f.Config(testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
 	state := f.Base + "/state"
@@ -235,17 +226,10 @@ func TestSessionOpencodeRecordsNoSid(t *testing.T) {
 		began.Transcript != "/data/opencode/opencode.db" || began.Lane != "O-01" || began.Task != "T-05" {
 		t.Errorf("no OBOR_AGENT: began %+v, %v; want the lane's agent and its session", began, ok)
 	}
-	if f.Exists(state + "/agents/pj-o-01.sid") {
-		t.Error("no OBOR_AGENT: a .sid written")
-	}
 
-	f.Write(state+"/agents/pj-o-01.sid", "old\n") // an older kit's record (or a kind that does resume)
 	began, ok = start(o1, "OBOR_AGENT=pj-o-01")
 	if !ok || began.Agent != "pj-o-01" || began.Kind != "opencode" || began.ID != "sid-o" {
 		t.Errorf("OBOR_AGENT: began %+v, %v", began, ok)
-	}
-	if f.Exists(state + "/agents/pj-o-01.sid") {
-		t.Error("an OpenCode session kept a .sid")
 	}
 
 	g, g1 := sessionFx(t, true)
@@ -256,9 +240,6 @@ func TestSessionOpencodeRecordsNoSid(t *testing.T) {
 		began.Kind != "claude" {
 		t.Fatalf("control (claude): began %+v, %v", began, ok)
 	}
-	if got := g.Read(gState + "/agents/pj-o-01.sid"); got != "sid-c\n" {
-		t.Errorf("control (claude): .sid %q, want sid-c", got)
-	}
 }
 
 // bash plugin case_session_no_identity_fallback (T-159; its pre-tool-use part: guard TestNoIdentityFromTheSessionID)
@@ -266,9 +247,7 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	_, sock := f.serve(t)
 	home := f.Base + "/state-home"
-	f.Write(home+"/agents/pj-lead.sid", "sid-lead\n")
 	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
-	f.Write(home+"/agents/pj-o-01.sid", "sid-o1\n")
 	f.label("w9:p1", "pj-lead")
 	envFile := f.Base + "/claude-env"
 	out := f.session(t, f.Root, "sid-lead", "HERDR_PANE_ID=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
@@ -277,14 +256,11 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	if n := strings.Count(out, "pj-lead"); n != 2 { // the label line names it twice
 		t.Errorf("the label line is the only mention: %d in\n%s", n, out)
 	}
-	if f.Exists(envFile) || f.Exists(home+"/sessions") || f.Read(home+"/agents/pj-lead.sid") != "sid-lead\n" {
+	if f.Exists(envFile) || f.Exists(home+"/sessions") {
 		t.Error("something exported or recorded")
 	}
 	os.Remove(home + "/agents/pj-lead.pane")
 	contains(t, f.session(t, o1, "sid-o1-new", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p2", sock), "hook ran", "obor: role worker")
-	if f.Read(home+"/agents/pj-o-01.sid") != "sid-o1-new\n" {
-		t.Error("sid file not kept")
-	}
 	entries, _ := os.ReadDir(home + "/agents")
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".pane") {
@@ -362,7 +338,6 @@ func TestSessionWithHerdAgentIgnoresOtherRecords(t *testing.T) {
 	plain := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p1", sock)
 	contains(t, plain, "hook ran", "obor: role worker, lane O-01, task T-05 (cwd)")
 	home := f.Base + "/state-home"
-	f.Write(home+"/agents/pj-lead.sid", "sid-o1\n")
 	f.Write(home+"/agents/pj-lead.pane", "w9:p1\n")
 	before := panes(srv, "w9:p1")
 	if out := f.session(t, o1, "sid-o1", "OBOR_AGENT=pj-o-01", "HERDR_PANE_ID=w9:p1", sock); out != plain {
@@ -416,15 +391,15 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 		t.Fatalf("precondition: a readable database shows the spec's unlocks:\n%s", out)
 	}
 	f.Write(".obor/state/obor.db", "not a database\n")
-	out := f.session(t, o1, "sid-bad", "OBOR_AGENT=wk")
+	out := f.session(t, o1, "sid-bad", "OBOR_AGENT=wk", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	contains(t, out, "unreadable database", "could not read this lane or its spec", "obor: role worker, lane O-01")
 	lacks(t, out, "unreadable database", "No lane row", "Protected files this task may edit:")
-	if b, err := os.ReadFile(project.SidFile("wk", f.Env())); err != nil || strings.TrimSpace(string(b)) != "sid-bad" {
-		t.Errorf("session id file = %q, %v; want sid-bad (the bookkeeping still runs)", b, err)
+	if in, err := project.ReadInbox("wk", f.Env()); err != nil || in.Session != "sid-bad" {
+		t.Errorf("inbox = %+v, %v; want session sid-bad (the bookkeeping still runs)", in, err)
 	}
 }
 
-// T-485: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox beside <agent>.sid, mode 0600, with the
+// T-485: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox, mode 0600, with the
 // socket, the token and the session id, whatever the role; a later session without one removes it; no OBOR_AGENT
 // writes none.
 func TestSessionRecordsTheInbox(t *testing.T) {
@@ -434,7 +409,7 @@ func TestSessionRecordsTheInbox(t *testing.T) {
 	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": state})
 	inbox := project.InboxFile("pj-o1", env)
 	if inbox != state+"/agents/pj-o1.inbox" {
-		t.Fatalf("inbox record at %s, want beside the .sid", inbox)
+		t.Fatalf("inbox record at %s, want in the agents dir", inbox)
 	}
 	f.session(t, o1, "sid-1", "OBOR_STATE_HOME="+state, "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	if f.Exists(state + "/agents") {

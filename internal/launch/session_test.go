@@ -15,13 +15,12 @@ import (
 	"obor/internal/app"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
-	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
 // T-577: resume reads the recorded session first: herdr's differing session is only said, and none from herdr is no
-// reason to fail; a .sid file written after the recorded session started (its hook ran while serve was down) wins.
+// reason to fail. The store is the only record.
 func TestResumeRecordedSession(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -47,9 +46,6 @@ func TestResumeRecordedSession(t *testing.T) {
 		x := setup(t)
 		x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-rec", Started: now.Unix()}}
 		x.transcript(x.lane, "sid-rec")
-		if _, err := os.Stat(project.SidFile("pj-o-01", x.env())); err == nil {
-			t.Fatal("precondition: no .sid file")
-		}
 		x.shell("w1:p3", "pj-o-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
 		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-rec)", "result")
@@ -57,25 +53,6 @@ func TestResumeRecordedSession(t *testing.T) {
 			t.Errorf("no warning: %q", out)
 		}
 		contains(t, x.startCall(), "--resume sid-rec", "recorded session resumed")
-	})
-	t.Run("an older .sid file: the store's; a newer one: the file's", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-o-01", "sid-file")
-		sidFile := project.SidFile("pj-o-01", x.env())
-		x.transcript(x.lane, "sid-rec")
-		x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-rec", Started: now.Unix()}}
-		if err := os.Chtimes(sidFile, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
-			t.Fatal(err)
-		}
-		x.shell("w1:p3", "pj-o-01", "")
-		out, _ := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-rec)", "older file: the store's")
-		x.reset()
-		x.sessions["pj-o-01"] = store.Session{Agent: "pj-o-01", ID: "sid-rec", Started: now.Add(-2 * time.Hour).Unix()}
-		x.shell("w1:p3", "pj-o-01", "")
-		out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-file)", "newer file: the file's")
 	})
 	t.Run("serve's store: the newest session fact", func(t *testing.T) {
 		t.Parallel()
@@ -95,12 +72,11 @@ func TestResumeRecordedSession(t *testing.T) {
 }
 
 // T-581: a kind that resumes nothing (OpenCode) starts fresh whatever session is recorded — serve's store's or a
-// stale .sid — and its first prompt survives; no resume reaches the start.
+// older record — and its first prompt survives; no resume reaches the start.
 func TestOpencodeStartsFresh(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
 	x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-o", Started: time.Now().Unix()}}
-	x.sid("pj-o-01", "sid-o") // a stale .sid: the record before T-581 (or a kind that does resume)
 	x.shell("w1:p3", "pj-o-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Prompt: "go"})
 	if !ok {
@@ -370,7 +346,7 @@ func TestCodexRolloutOfAChild(t *testing.T) {
 }
 
 // T-588: the agent's process holds no rollout within the bound (a rollout of its cwd exists, written by another
-// Codex): no session fact, a line saying so, no .sid file: never a guess from the cwd.
+// Codex): no session fact, a line saying so, nothing recorded: never a guess from the cwd.
 func TestCodexNoRolloutOpen(t *testing.T) {
 	t.Parallel()
 	x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
@@ -387,12 +363,12 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 	if len(x.reported) != 0 {
 		t.Errorf("a session fact: %+v", x.reported)
 	}
-	eq(t, launch.RecordedSid("pj-o-01", x.env()), "", "no .sid written")
+	eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 }
 
-// T-586: serve refusing the session (another agent holds it) writes no .sid file and says so; serve unreachable still
-// falls back to the .sid file.
-func TestCodexRefusedSessionWritesNoSid(t *testing.T) {
+// T-586: serve refusing the session (another agent holds it), or not reachable, records nothing and says so: the next
+// restart starts fresh (T-599).
+func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	t.Parallel()
 	edit := testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`)
 	run := func(t *testing.T, reportErr error) (*fx, string) {
@@ -411,17 +387,19 @@ func TestCodexRefusedSessionWritesNoSid(t *testing.T) {
 		}
 		return x, out
 	}
-	t.Run("refused: no .sid, said", func(t *testing.T) {
+	t.Run("refused: said", func(t *testing.T) {
 		t.Parallel()
 		x, out := run(t, errors.New("session: session already held by pj-lead (pj-o-01's report refused)"))
-		contains(t, out, "serve refused session cx-new of pj-o-01", "said")
-		eq(t, launch.RecordedSid("pj-o-01", x.env()), "", "no .sid written")
+		contains(t, out, "session cx-new of pj-o-01 not recorded", "said")
+		contains(t, out, "session already held by pj-lead", "why")
+		eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 	})
-	t.Run("serve unreachable: the .sid fallback", func(t *testing.T) {
+	t.Run("serve unreachable: said", func(t *testing.T) {
 		t.Parallel()
 		x, out := run(t, errors.New("obor serve is not running"))
-		contains(t, out, "recorded in its .sid file", "said")
-		eq(t, launch.RecordedSid("pj-o-01", x.env()), "cx-new", ".sid written")
+		contains(t, out, "session cx-new of pj-o-01 not recorded", "said")
+		contains(t, out, "the next restart starts fresh", "what follows")
+		eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 	})
 }
 
@@ -476,43 +454,4 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 			eq(t, got["pj-int"].ID+" "+got["pj-int"].Transcript, "cx-own "+own, "its own rollout, not the replacement's")
 		})
 	}
-}
-
-// T-589: a .sid file's id another agent holds in the store is not resumed: the restart FAILs before anything is
-// stopped or typed, naming both agents; an id no one else holds resumes.
-func TestRestartSidHeldByAnotherAgent(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	t.Run("held: FAIL naming both, nothing typed or started", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-o-01", "sid-shared")
-		recordSessions(t, x.p.Root, store.Session{Agent: "pj-o-02", ID: "sid-shared", Started: now.Unix()})
-		if _, ok := store.CurrentAt(x.p.Root, "pj-o-01"); ok {
-			t.Fatal("precondition: the store has no session for pj-o-01")
-		}
-		x.agent("w1:p3", "pj-o-01", "claude", "idle")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		last := last(out)
-		contains(t, last, "FAIL pj-o-01's .sid file names a session pj-o-02 holds", "names both agents")
-		if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
-			t.Errorf("nothing typed or started: %q", x.srv.Calls())
-		}
-		out, ok = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-		if !ok {
-			t.Errorf("--fresh still starts: %s", out)
-		}
-	})
-	t.Run("held by no one else: resumed", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.sid("pj-o-01", "sid-mine")
-		recordSessions(t, x.p.Root, store.Session{Agent: "pj-o-02", ID: "sid-other", Started: now.Unix()})
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-mine)", "the .sid file's id")
-		if !ok {
-			t.Fatal(out)
-		}
-	})
 }

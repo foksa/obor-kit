@@ -21,7 +21,6 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
-	"obor/internal/store"
 )
 
 // serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
@@ -91,7 +90,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		}
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes),
-		Inboxed: inboxed(env), Sid: sid(env), Recorded: recorded(root, env)},
+		Inboxed: inboxed(env)},
 		panes, laneTable{})
 	go a.Listen(ln)
 	fmt.Fprintf(flushWriter{}, "obor serve: running (project %s, socket %s)\n", root, sock)
@@ -126,31 +125,6 @@ func mergeLoop(env project.Env, panes herdr.Panes) func(root string) (*app.Loop,
 
 // herdrSocket is the herdr socket client every runtime caller shares: herdr's socket for env (herdr.SocketPath).
 func herdrSocket(env project.Env) *herdr.Socket { return &herdr.Socket{Path: herdr.SocketPath(env)} }
-
-// sid is app.Options.Sid: agent's session id as its SessionStart hook recorded it (<agent>.sid, else its .inbox's).
-func sid(env project.Env) func(agent string) string {
-	return func(agent string) string {
-		if s := launch.RecordedSid(agent, env); s != "" {
-			return s
-		}
-		in, _ := project.ReadInbox(agent, env)
-		return in.Session
-	}
-}
-
-// recorded is app.Options.Recorded: the session agent's <agent>.sid holds (the SessionStart hook's fallback while
-// serve is down), started at the file's time, its transcript as the kinds keep them.
-func recorded(root string, env project.Env) func(agent string) (store.Session, bool) {
-	return func(agent string) (store.Session, bool) {
-		id := launch.RecordedSid(agent, env)
-		fi, err := os.Stat(project.SidFile(agent, env))
-		if id == "" || err != nil {
-			return store.Session{}, false
-		}
-		return store.Session{ID: id, Transcript: project.TranscriptOf(root, id, env), Started: fi.ModTime().Unix(),
-			Source: "sid file"}, true
-	}
-}
 
 // cacheDir is the Go build cache dir (`go env GOCACHE`), read on first use.
 type cacheDir struct {
