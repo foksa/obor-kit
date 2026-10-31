@@ -137,7 +137,7 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 
 	// events
 	linked := s.eventsLinked(ctx)
-	if err := s.events(ctx, true); err != nil {
+	if err := s.events(ctx); err != nil {
 		return err
 	}
 	add("events", doneOr(!linked), "obor.events linked in herdr (user-global)")

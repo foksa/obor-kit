@@ -180,7 +180,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return nil
 		}
 	}
-	s.warnPlugin()
 	if lt.Max > 0 {
 		n := 0
 		names := map[string]bool{}

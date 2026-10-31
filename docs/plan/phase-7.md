@@ -20,7 +20,7 @@ whole. A new user: install obor (one script), `obor init` (no questions, install
 | v0.17 | P7-3 | `internal/service`: `obor serve install/uninstall/restart`, status line, serve waits for herdr instead of exiting | medium/hard |
 | v0.17 | P7-4 | Delete `herd.version` (config, shim, docs) | simple |
 | v0.17 | P7-2 | `obor init` (advice §1 steps 1–7), fake `claude` + stub herdr tests | hard |
-| v0.17 | P7-5 | Delete the setup skill's question flow, `setup init`, `warnPlugin`; design doc Setup/Stable (lead) | simple |
+| v0.17 | P7-5 | Delete the setup skill's question flow, `setup`'s init subcommand, `warnPlugin`; design doc Setup/Stable (lead) | simple |
 
 Order: P7-0a alone → P7-0b → P7-1 → tag v0.16, axis-alies migrates once (advice §5) → P7-3 ∥ P7-4 → P7-2 → P7-5 →
 deep dive → v0.17 (drops the four fallbacks); axis-maps starts on it with `obor init`, run by the owner alone.

@@ -1,13 +1,6 @@
 // Package setup is `obor setup`: make a project obor-ready. Every subcommand is idempotent, prints what it did and
 // ends with OK … / FAIL … (exit 1).
 //
-//	init [--name N] [--prefix P]  .obor/config.json from templates/config.example.json (name, prefix, lanes_dir filled;
-//	        no lanes; the example's commands, lane_links and protected_files cleared); .gitignore lines (obor state,
-//	        obor run's .task-run, lane_links); BACKLOG.md and docs/decisions.md from templates/ (T-470); templates/
-//	        task-spec.md and templates/agents/roster.md into paths.agents (default docs/agents), and per role text in
-//	        templates/agents a short project stub there (its title, a pointer to the kit text, its "This project"
-//	        section; T-204), placeholders filled. Never overwrites a file, commits nothing. Then the obor.events report
-//	        (herdr-plugin without linking).
 //	lane <LANE> <type>  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
 //	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
@@ -44,7 +37,6 @@ package setup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -107,7 +99,7 @@ func Usage() string {
 		}
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
-	return "usage: obor setup init [--name N] [--prefix P] | lane <LANE> <type> | pane <LANE> " + where +
+	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where +
 		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | rename --name N --prefix P"
 }
 
@@ -121,8 +113,6 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 	}
 	var err error
 	switch sub {
-	case "init":
-		err = s.initCmd(ctx, args)
 	case "lane":
 		err = s.lane(ctx, args)
 	case "pane":
@@ -178,27 +168,10 @@ func (s *Setup) load() error {
 	}
 	cfg, err := config.Load(s.root)
 	if err != nil {
-		return project.Failf("no usable .obor/config.json (obor setup init, then obor config validate)")
+		return project.Failf("no usable .obor/config.json (obor init, then obor config validate)")
 	}
 	s.cfg = cfg
 	return nil
-}
-
-// warnPlugin: the project's .claude/settings.json enables no obor@… plugin (T-137), so its agents would run without
-// obor's hooks. One WARN line; obor never installs it.
-func (s *Setup) warnPlugin() {
-	var settings struct {
-		Enabled map[string]any `json:"enabledPlugins"`
-	}
-	if b, err := os.ReadFile(filepath.Join(s.root, ".claude", "settings.json")); err == nil && json.Unmarshal(b, &settings) == nil {
-		for k, v := range settings.Enabled {
-			if strings.HasPrefix(k, "obor@") && v == true {
-				return
-			}
-		}
-	}
-	s.say("WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit --scope project " +
-		"(or obor@obor-kit-dev for obor-kit itself)")
 }
 
 // ensureWorktree makes dir a detached worktree at the root's current branch, unless it already is one of this repo.
