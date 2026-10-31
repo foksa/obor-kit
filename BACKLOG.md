@@ -6,11 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-10-31 session 13 (in flight): T-596 P7-3 launchd (O-01), T-595 review #1 (S-01), T-597 P7-4 (D-01); queued
-  T-598 (#3) after T-595, T-599 (#2, .sid) after T-596, T-600 (#4 step 1, registry) after T-595+T-599. RV-64 (ob-terra) written: #3 → T-601,
-  #4 fixed in RELEASING, #1/#2/#5 accepted. **When T-601 merges: verify #3, #4 in the same ob-terra session.** T-596 merged; the owner installed serve under launchd. Part 3 (token cuts, owner 10-31): T-602 (O-01),
-  T-603 waits for a medium lane, T-604 after T-602. **When T-602 merges:** apply its report's
-  `docs/state-model.md` edits (rows 4, 19, 23, 25, 36, crash-table start row).
+- 2026-10-31 session 13 (in flight): T-608 P7-2 `obor init` (O-01), T-610 `proj` split 2/3 outbox (O-02); T-609 P7-5
+  after T-608. Merged today: T-595..T-607 (review #1–#3, P7-3 launchd, P7-4, Part 3 token cuts T-602..T-604); RV-64 and
+  RV-65 closed. Unreviewed since RV-65: T-604, T-605 (+ the wave). Then: split 3/3 (folded vs live + the p.loop
+  map-order sweep), deep dive over v0.16..HEAD, v0.17 (drops the four rename fallbacks: axis-alies must have migrated
+  first). Serve under launchd: after a code merge `make build && ./bin/obor serve restart`.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
   free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
