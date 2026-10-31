@@ -61,8 +61,8 @@ docs there).
   `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
   axis-alies still runs `~/Work/herd-kit-stable` (v0.15.0) until it migrates to `~/.obor/kit`.
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
-  (`RELEASING.md`): on main `VERSION` + `docs/UPGRADE-v<x.y>.md`; in a scratch worktree at main set plugin `version`
-  and marketplace `name` `obor-kit`, `make release`, commit with `bin/checksums.txt`, `git tag -a v<x.y.z>`; copy
+  (`RELEASING.md`): on main `VERSION`, plugin `version` + `docs/UPGRADE-v<x.y>.md` (committed); in a scratch worktree at
+  main set marketplace `name` `obor-kit`, `make release`, commit with `bin/checksums.txt`, `git tag -a v<x.y.z>`; copy
   `bin/checksums.txt` to main; `OBOR_ALLOW_PUSH=1 git push origin main v<x.y.z>`; the owner runs `make publish` in the
   scratch worktree (the classifier refuses the lead's upload); check `install.sh` in a scratch HOME. A pushed tag
   never moves. Then `obor send <project> "<what changed>"` to the adopting leads.
