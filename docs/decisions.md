@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- (owner 2026-10-31) **Structure debt is worth fixing without a bug behind it**: a big shared struct "makes every new
+  feature harder to navigate, more error prone, and more token intensive". The architectural review's #4 (split
+  `internal/app`'s `proj`: registry, outbox, folded vs live state) is in, as behaviour-preserving hard steps.
 - (owner 2026-10-30) **Public history: re-root local main.** v0.16.0 is one orphan commit holding main's tree; local
   `main` moves onto it and is pushed to `foksa/obor-kit`; every later commit pushes normally. The old history stays
   local under tag `pre-public` (`git log pre-public` for history and blame before v0.16). Commits use the GitHub

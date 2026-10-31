@@ -19,11 +19,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, restart
   serve in w5:p1F (`timeout 20 herdr pane send-keys w5:p1F C-c`; `herdr pane run w5:p1F "./dist/obor serve"`).
 - **Owner decisions pending:** LICENSE (none yet: MIT, Apache-2.0 or none); S5a (when a herdr restart is OK).
-- **Next:** (1) axis-alies migrates once, by its lead at a handoff: `install.sh` (kit `~/.obor/kit`), then
-  `obor migrate` (installs `obor@obor-kit`); move its role worktrees first; send it the steps with `obor send
-  axis-alies`. (2) P7-3 (`obor serve install`, launchd) and P7-4 (delete `herd.version`) in parallel, then P7-2
-  `obor init` (`docs/plan/phase-7.md`). (3) Rename gaps in Open (setup role env, serve's stale labels, setup rename
-  relabel): small fixes or accept, before the next adopter.
+- **Next (owner 10-31: start from the architectural review**, `docs/reviews/architectural-review.md`, untracked in
+  main: move it to the review worktree): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
+  `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in
+  parallel with P7-3 (`obor serve install`); (3) #4 split `proj` in three hard, sequential, reviewed steps:
+  registry, outbox, folded vs live state (existing app tests are the oracle; two strikes = rethink); (4) #3 boundary
+  cleanup with whichever task touches `setup/agent.go`; #5 stays low. axis-alies migrates at its own handoff
+  (`~/.obor/kit` is installed on this machine since 10-31). Unreviewed merges: T-592, T-594 (review due).
 - Difficulty rule (`docs/agents/lead.md`): wide or risky-to-deploy is medium, not hard.
 
 ## Owner decisions pending
