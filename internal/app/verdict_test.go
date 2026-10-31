@@ -188,7 +188,7 @@ func TestStartIntegrator(t *testing.T) {
 	if n := len(r.app.Status().Project.Agents); n != 3 {
 		t.Fatalf("precondition: %d agents seen, want 3 with the integrator", n)
 	}
-	s, err := app.StartIntegrator(r.app, context.Background(), ag, r.root, "", false)
+	s, err := app.StartIntegrator(r.app, context.Background(), ag, r.root, app.Launch{})
 	line := s.Line
 	if err != nil || line != "running" || len(ag.restarts) != 0 {
 		t.Fatalf("integrator running: %q, %v, restarts %+v; want none", line, err, ag.restarts)
@@ -200,7 +200,7 @@ func TestStartIntegrator(t *testing.T) {
 	if n := len(r.app.Status().Project.Agents); n != 2 {
 		t.Fatalf("precondition: %d agents seen, want 2 without the integrator", n)
 	}
-	s, err = app.StartIntegrator(r.app, context.Background(), ag, r.root, "", false)
+	s, err = app.StartIntegrator(r.app, context.Background(), ag, r.root, app.Launch{})
 	line = s.Line
 	if err != nil || line != "STARTED pj-int" || len(ag.restarts) != 1 || ag.restarts[0] != (app.Launch{Agent: "pj-int"}) {
 		t.Errorf("integrator not running: %q, %v, restarts %+v; want one start of pj-int", line, err, ag.restarts)

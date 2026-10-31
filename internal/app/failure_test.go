@@ -45,6 +45,7 @@ type failRow struct {
 	arm     func(r *loopRig, ans *answers) (heal func())
 	pending func(r *loopRig) // more checks while the step is pending
 	end     string           // the record that ends the task once the step ran ("": the merge's last step)
+	tick    time.Duration    // the clock moved on per look while waiting for the needs-you (0: not moved)
 }
 
 func (row failRow) run(t *testing.T) {
@@ -64,7 +65,13 @@ func (row failRow) run(t *testing.T) {
 		base = row.step
 	}
 	needs := at + " fact needs-you{" + row.step + " failed: "
-	r.waitFor(needs, func() bool { ans.pass(); return r.hasPrefix(needs) })
+	r.waitFor(needs, func() bool {
+		if row.tick > 0 {
+			r.clock.Add(row.tick)
+		}
+		ans.pass()
+		return r.hasPrefix(needs)
+	})
 	failed := at + " fact failed{" + row.step + ": "
 	pending := func(when string) {
 		t.Helper()
@@ -148,9 +155,31 @@ var failRows = map[string]failRow{
 			r.t.Fatalf("want 3 starts and no prompt: starts %d, %q", r.starts.Load(), r.steps())
 		}
 	}},
-	// T-602: no "review (agent_blocked)" row: a review job's first start is a fresh session (its wake the first
-	// prompt), never typed into a running integrator; its failure is the start's (the row above), and a typed
-	// integrator wake that fails is TestRV37V2ResumeRetryKeepsTheJob's (retry, nudge).
+	// T-602: a review job's first start is a fresh session (its wake the first prompt), never typed into a running
+	// integrator: a blocked integrator is the start's failure (the two rows below); a typed integrator wake that fails
+	// is TestRV37V2ResumeRetryKeepsTheJob's (retry, nudge).
+	"start.review (integrator idle, start refused)": {step: "start.review", arm: func(r *loopRig, _ *answers) func() {
+		in := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
+		in.Workspace, in.Label, in.Session = "w1", "pj-int", "int-0" // a refused start leaves it running
+		r.mu.Lock()
+		r.onStart = func() error { return errors.New("pj-int has background tasks (finish them, or --force to stop them)") }
+		r.mu.Unlock()
+		return func() { r.mu.Lock(); r.onStart = nil; r.mu.Unlock() }
+	}, pending: func(r *loopRig) { r.startsWere(3, false) }},
+	"start.review (integrator blocked past the bound)": {step: "start.review", tick: 20 * time.Second,
+		arm: func(r *loopRig, _ *answers) func() {
+			in := r.f.Agent("w1:p9", "pj-int", "blocked", r.p.Root)
+			in.Workspace, in.Label, in.Session = "w1", "pj-int", "int-0" // a failed start leaves it running
+			r.mu.Lock()
+			r.onStart = func() error { return errors.New("pj-int: exit dialog without a numbered option (closed it)") }
+			r.mu.Unlock()
+			return func() {
+				r.mu.Lock()
+				r.onStart = nil
+				r.mu.Unlock()
+				r.integratorIs("idle") // its turn ended
+			}
+		}, pending: func(r *loopRig) { r.startsWere(3, true) }},
 	"fix (agent_blocked)": {step: "fix", attempt: 2, check: `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
 		arm: func(r *loopRig, _ *answers) func() {
 			r.work("red.txt", "red\n")
@@ -439,5 +468,27 @@ func TestLoopSubmitRefused(t *testing.T) {
 	r.merged(1)
 	if !r.has("1 result submit.2") || r.mainMerges() != 1 {
 		t.Errorf("want submit.2, then merged once: %q", r.steps())
+	}
+}
+
+// startsWere fails the test unless pj-int was started n times, each fresh with the job's wake, forced or not as
+// force says, and nothing was typed to it (T-602).
+func (r *loopRig) startsWere(n int, force bool) {
+	r.t.Helper()
+	r.mu.Lock()
+	var starts []app.Launch
+	for _, l := range r.launches {
+		if l.Agent == "pj-int" {
+			starts = append(starts, l)
+		}
+	}
+	r.mu.Unlock()
+	if len(starts) != n || len(r.prompts()) != 0 {
+		r.t.Fatalf("want %d starts of pj-int and no prompt: %+v, prompts %d, %q", n, starts, len(r.prompts()), r.steps())
+	}
+	for _, l := range starts {
+		if !l.Fresh || l.Force != force || l.Prompt != "[obor job T-1/1/review] call the obor job_next tool" {
+			r.t.Errorf("start %+v: want fresh, force %v, the review job's wake", l, force)
+		}
 	}
 }

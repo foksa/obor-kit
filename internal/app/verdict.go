@@ -693,10 +693,11 @@ func Dash(s string) string {
 }
 
 // startIntegrator starts the integrator of the project at root through agents unless it is identified in the
-// project's workspace (refused while two panes claim it) (docs/state-model.md row 36; the merge loop records it), prompt its first prompt (a job's
-// wake, "": none): the start (its line "running" when it runs already: nothing started). fresh (a job's first start,
-// T-602): a new session, also in place of one that runs.
-func (a *App) startIntegrator(ctx context.Context, agents Agents, root, prompt string, fresh bool) (Started, error) {
+// project's workspace (refused while two panes claim it) (docs/state-model.md row 36; the merge loop records it), with
+// l's first prompt (a job's wake, "": none) and Force: the start (its line "running" when it runs already: nothing
+// started).
+// l.Fresh (a job's first start, T-602): a new session, also in place of one that runs.
+func (a *App) startIntegrator(ctx context.Context, agents Agents, root string, l Launch) (Started, error) {
 	a.mu.Lock()
 	p := a.projAt(root)
 	var w Where
@@ -709,7 +710,7 @@ func (a *App) startIntegrator(ctx context.Context, agents Agents, root, prompt s
 		return Started{}, fmt.Errorf("no served project at %s", root)
 	case p.integrator == "":
 		return Started{}, fmt.Errorf("%s has no integrator", p.name)
-	case w.State == Identified && !fresh:
+	case w.State == Identified && !l.Fresh:
 		return Started{Line: "running"}, nil
 	case w.State == Ambiguous:
 		return Started{}, fmt.Errorf("integrator %s", notIdentified(p.integrator, w))
@@ -722,5 +723,6 @@ func (a *App) startIntegrator(ctx context.Context, agents Agents, root, prompt s
 		return Started{}, fmt.Errorf("integrator %s: its kind %s has no bridge (obor config validate)", p.integrator,
 			unbridged(cfg, rc.Type))
 	}
-	return agents.Launch(ctx, Launch{Agent: p.integrator, Fresh: fresh, Prompt: prompt})
+	l.Agent, l.Pane, l.Sid = p.integrator, "", ""
+	return agents.Launch(ctx, l)
 }

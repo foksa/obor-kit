@@ -14,7 +14,8 @@ restarts you). What an earlier job showed you is gone: each job carries all it n
 the app tells the owner what needs them.
 
 - **Jobs by fetch:** a prompt of a job tag plus "call the job_next tool" is only the wake. Call the
-  `job_next` tool (Claude: `mcp__obor__job_next`) first: its reply is the job, as described below. Answer with the
+  `job_next` tool (Claude: `mcp__obor__job_next`) first, its `job` argument the job id the wake's tag
+  names: its reply is that job, as described below (a job the owner holds is never handed out). Answer with the
   tools of the same names and arguments as the verbs (`accept` `{patch, note}`, `sendback` `{why}`, `reject` `{why}`,
   `resolved`, `hold` `{why}`), not the CLI; a refusal (`stale`, an older job) comes back as the tool's text. A repeat
   of the wake returns the same job.

@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // T-602: integrator jobs start a fresh session each (Launch with Fresh, the job's wake its first prompt), not a wake
@@ -71,13 +73,89 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	}
 	for i, l := range f.launches {
 		job := []string{"T-1/1/review", "T-5/1/review"}[i]
-		if !l.Fresh || l.Prompt != wakeLine(job) || l.Agent != "pj-int" {
-			t.Errorf("launch %d: %+v, want a fresh pj-int with the first prompt %q", i, l, wakeLine(job))
+		if !l.Fresh || l.Force || l.Prompt != wakeLine(job) || l.Agent != "pj-int" {
+			t.Errorf("launch %d: %+v, want a fresh pj-int (no force) with the first prompt %q", i, l, wakeLine(job))
 		}
 	}
 	same(t, len(f.launches), 2, "starts (one per job)")
 	same(t, len(f.typed), 0, "typed wakes")
 	same(t, resultOf(p, Key{"T-5", 1, StepReview}), `"sent (start prompt)"`, "T-5's review result")
+}
+
+// The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
+// look the next job waits; past it the fresh start forces (stops the turn), with one log line.
+func TestFreshIntegratorIdleBound(t *testing.T) {
+	r := newConcRig(t)
+	p := r.proj("pj")
+	now := r.a.opt.Now()
+	r.a.opt.Now = func() time.Time { return now }
+	var out strings.Builder
+	r.a.opt.Out = &out
+	f := &startJobFakes{concScratch: r.fakes["pj"]}
+	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	for _, status := range []string{"working", "blocked"} {
+		t.Run(status, func(t *testing.T) {
+			f.launches = nil
+			setStatus(r, status)
+			r.a.mu.Lock()
+			p.idleWait = idleWait{}
+			r.a.mu.Unlock()
+			if runNext(r, p, "T-1", f) {
+				t.Fatalf("the job went on at once while the integrator is %s", status)
+			}
+			now = now.Add(r.a.opt.Gone - time.Second)
+			if runNext(r, p, "T-1", f) || len(f.launches) != 0 {
+				t.Fatalf("the job went on before Gone (%s): launches %+v", r.a.opt.Gone, f.launches)
+			}
+			if status == "working" {
+				return // the blocked row starts it
+			}
+			now = now.Add(2 * time.Second)
+			if !runNext(r, p, "T-1", f) {
+				t.Fatal("the job not started past Gone")
+			}
+			if len(f.launches) != 1 || !f.launches[0].Fresh || !f.launches[0].Force ||
+				f.launches[0].Prompt != wakeLine("T-1/1/review") {
+				t.Errorf("launches %+v, want one fresh start with force and the job's wake", f.launches)
+			}
+			if n := strings.Count(out.String(), "started fresh with force"); n != 1 {
+				t.Errorf("force log lines %d, want 1:\n%s", n, out.String())
+			}
+		})
+	}
+}
+
+// job_next hands out the job the call names when it is open, else the oldest open one, never a held one (T-602): a
+// fresh session started for job B fetches B, also while an older job A is held (the T-598 resolve.2 shape).
+func TestJobNextNamedNotHeld(t *testing.T) {
+	r := newConcRig(t)
+	p := r.proj("pj")
+	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	r.add("pj", "T-1", StepReview, KindResult, "sent")
+	r.add("pj", "T-5", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-05", Input: "s5"})
+	r.add("pj", "T-5", StepGate, KindResult, gateOut{Outcome: outConflict, Candidate: Candidate{Task: "T-5", SHA: "c5",
+		Target: "b", Patch: "p5"}})
+	r.add("pj", "T-5", nth(StepResolve, 2), KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})
+	r.add("pj", "T-5", nth(StepResolve, 2), KindResult, "sent")
+	fetch := func(id, job string) JobReply {
+		t.Helper()
+		raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: id, Job: job})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jr JobReply
+		_ = json.Unmarshal([]byte(raw), &jr)
+		return jr
+	}
+	same(t, fetch("n1", "").Job, "T-1/1/review", "unnamed, nothing held: the oldest open job")
+	same(t, fetch("n2", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named: that job, though an older one is open")
+
+	r.add("pj", "T-1", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
+	same(t, fetch("n3", "").Job, "T-5/1/resolve.2", "unnamed, the older job held: the open one not held")
+	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
+	jr := fetch("n5", "T-1/1/review")
+	same(t, jr.State+" "+jr.Current, "superseded T-5/1/resolve.2", "the held job named: not handed out")
 }
 
 // A crash after the job's intent and its start's intent, before their results: the replay starts nothing again (the
@@ -138,5 +216,54 @@ func TestReviewTextDiff(t *testing.T) {
 				t.Errorf("%s: the review job has %q:\n%s", c.name, w, text)
 			}
 		}
+	}
+}
+
+// A pending first start of an integrator job (a crash, or a failed start) starts fresh again only when the snapshot
+// shows the session its intent saw, or none: a new session there means the start ran (no second start: the wake
+// typed); an unknown session cannot tell (the same).
+func TestFreshIntegratorPendingStart(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		at            startData // the start's intent
+		now           string    // the integrator pane's session now ("gone": no integrator)
+		start, forced bool
+	}{
+		{"the same session: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "old",
+			true, false},
+		{"none runs: start again", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "gone",
+			true, false},
+		{"a new session: started", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true, Session: "old"}, "new",
+			false, false},
+		{"none at the intent, one now: started", startData{Agent: "pj-int"}, "new", false, false},
+		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newConcRig(t)
+			p := r.proj("pj")
+			greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+			r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+			r.add("pj", "T-1", "start.review", KindIntent, c.at)
+			r.a.mu.Lock()
+			if c.now == "gone" {
+				delete(r.a.obs, "w1:p9")
+			} else {
+				r.a.obs["w1:p9"].pane.Session = c.now
+			}
+			r.a.mu.Unlock()
+			f := &startJobFakes{concScratch: r.fakes["pj"]}
+			if !runNext(r, p, "T-1", f) {
+				t.Fatal("the pending job step failed")
+			}
+			if c.start {
+				if len(f.launches) != 1 || !f.launches[0].Fresh || f.launches[0].Prompt != wakeLine("T-1/1/review") {
+					t.Errorf("launches %+v, want one fresh start with the job's wake", f.launches)
+				}
+				same(t, len(f.typed), 0, "typed wakes")
+				return
+			}
+			same(t, len(f.launches), 0, "starts")
+			same(t, len(f.typed), 1, "typed wakes")
+		})
 	}
 }

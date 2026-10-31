@@ -191,6 +191,9 @@ type proj struct {
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	loop       map[string]*mtask    // the merge loop's tasks, by task
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
+	// idleWait: the integrator job whose fresh start waits for the integrator's pane to be idle, and since when (not
+	// recorded: a replay starts it afresh; T-602).
+	idleWait idleWait
 	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Lane, Loop.Specs); nopane: since when a
 	// dispatched task's lane has no pane, by task; waitLine: a waiting task's last refused dispatch (logged on change)
 	// and since when that refusal holds.

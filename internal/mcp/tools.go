@@ -12,7 +12,9 @@ import (
 // verdict.go); the tool only renders what the app answers.
 var (
 	jobNextTool = tool{name: toolJobNext, desc: "Your open obor job: its id, task, attempt, step and prompt text. Call " +
-		"it when a wake names a job; the same job comes back until a newer one replaces it.", method: app.MethodJobNext}
+		"it when a wake names a job; the same job comes back until a newer one replaces it.", method: app.MethodJobNext,
+		args: []arg{{name: "job", desc: "the job id the wake names ([obor job <id>]): that job when it is open for " +
+			"you; omitted, your oldest open job"}}}
 	taskDoneTool = tool{name: toolTaskDone, desc: "Submit your task's work, your final report its argument (the " +
 		"review job quotes it). A refusal names what is missing.", method: app.MethodTaskDone,
 		args: []arg{{name: "report", desc: "your final report: Summary, Self-check, Skipped, Open questions " +
