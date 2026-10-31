@@ -43,16 +43,20 @@ func newHx(t *testing.T, bin string) *hx {
 	return x
 }
 
-// newKit is a kit in a temp dir: bin/*, VERSION and githooks/* of this checkout, bin as dist/obor ("": none).
+// newKit is a kit in a temp dir: bin/*, VERSION and the two githooks sets of this checkout, bin as dist/obor ("":
+// none).
 func newKit(t *testing.T, bin string) string {
 	t.Helper()
 	k := testkit.Dir(t)
-	for _, glob := range []string{"bin/*", "VERSION", "githooks/*"} {
+	for _, glob := range []string{"bin/*", "VERSION", "githooks/*", "githooks/chain/*"} {
 		files, _ := filepath.Glob(filepath.Join(kit, glob))
 		if len(files) == 0 {
 			t.Fatalf("precondition: %s in %s", glob, kit)
 		}
 		for _, f := range files {
+			if fi, err := os.Stat(f); err != nil || fi.IsDir() {
+				continue
+			}
 			rel, _ := filepath.Rel(kit, f)
 			copyFile(t, f, filepath.Join(k, rel))
 		}
@@ -79,8 +83,12 @@ func copyFile(t *testing.T, from, to string) {
 	}
 }
 
-// hooks is the kit's githooks dir; the project's own hooksPath is a dir of the main checkout, recorded for it.
+// hooks is the kit's small githooks set (pre-commit, pre-push and the runner); the project's own hooksPath is a dir of
+// the main checkout, recorded for it.
 func (x *hx) hooks() string { return filepath.Join(x.kit, "githooks") }
+
+// chainDir is the kit's full hook set: what core.hooksPath points at when there is something to chain (T-623).
+func (x *hx) chainDir() string { return filepath.Join(x.kit, "githooks", "chain") }
 
 // chain makes dir (relative to the main checkout) hold hook with script, executable, and records it as obor.hooksChain.
 func (x *hx) chain(dir, hook, script string) {
@@ -97,11 +105,11 @@ func (x *hx) gitEnv(kv ...string) []string {
 		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"), kv...)
 }
 
-// hook runs the kit's hook name directly with dir as git's cwd (a hook whose result no git command here can exercise):
-// its exit code.
-func (x *hx) hook(env []string, dir, name string) int {
+// chainHook runs the chain set's hook name directly with dir as git's cwd (the file git runs when core.hooksPath points
+// at the chain set, for a hook whose result no git command here can exercise): its exit code.
+func (x *hx) chainHook(env []string, dir, name string) int {
 	x.t.Helper()
-	cmd := exec.Command(filepath.Join(x.hooks(), name))
+	cmd := exec.Command(filepath.Join(x.chainDir(), name))
 	cmd.Dir, cmd.Env = dir, env
 	if err := cmd.Run(); err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -319,14 +327,14 @@ func TestGithooks(t *testing.T) {
 		{"a chained pre-auto-gc's veto is the hook's result", func(t *testing.T, x *hx) {
 			calls := filepath.Join(x.Base, "own.calls")
 			x.chain(".githooks", "pre-auto-gc", fmt.Sprintf("#!/bin/sh\necho ran >> %q\nexit 1\n", calls))
-			if rc := x.hook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 1 {
+			if rc := x.chainHook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 1 {
 				t.Errorf("a chained veto: exit %d, want 1", rc)
 			}
 			if got := x.Read(calls); got != "ran\n" {
 				t.Errorf("the chained pre-auto-gc ran once: %q", got)
 			}
 			x.chain(".githooks", "pre-auto-gc", fmt.Sprintf("#!/bin/sh\necho again >> %q\n", calls))
-			if rc := x.hook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 0 {
+			if rc := x.chainHook(x.gitEnv(), x.Root, "pre-auto-gc"); rc != 0 {
 				t.Errorf("a passing chained pre-auto-gc: exit %d, want 0", rc)
 			}
 			if got := x.Read(calls); got != "ran\nagain\n" {
@@ -336,6 +344,7 @@ func TestGithooks(t *testing.T) {
 		{"a chained post-merge runs; its failure is not the merge's", func(t *testing.T, x *hx) {
 			calls := filepath.Join(x.Base, "own.calls")
 			x.chain(".githooks", "post-merge", fmt.Sprintf("#!/bin/sh\necho post-merge >> %q\nexit 3\n", calls))
+			has(t, x.ok(t, "githooks"), "core.hooksPath = "+x.chainDir(), "a chain moves hooksPath to the full set")
 			x.Git(x.Root, "checkout", "-q", "-b", "side")
 			x.Write(filepath.Join(x.Root, "side.txt"), "side\n")
 			x.Git(x.Root, "add", "side.txt")
@@ -393,21 +402,50 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
-		// T-620: one file per client-side hook git runs, all through the shared runner.
-		{"one file per client-side hook plus the shared runner", func(t *testing.T, x *hx) {
+		// T-623: the small set ships pre-commit and pre-push; every other hook git runs lives in chain/, which git
+		// runs only when core.hooksPath points there. Each chain file sources ../_hook (one runner, one level up).
+		{"pre-commit and pre-push in githooks/, every hook in githooks/chain/", func(t *testing.T, x *hx) {
 			entries, _ := os.ReadDir(filepath.Join(kit, "githooks"))
 			var names []string
 			for _, e := range entries {
 				names = append(names, e.Name())
-				if fi, err := e.Info(); err == nil && e.Name() != "_hook" && fi.Mode()&0o111 == 0 {
+				if fi, err := e.Info(); err == nil && !e.IsDir() && fi.Mode()&0o111 == 0 {
 					t.Errorf("%s is not executable", e.Name())
 				}
 			}
-			want := "_hook applypatch-msg commit-msg post-applypatch post-checkout post-commit post-index-change " +
+			if got := strings.Join(names, " "); got != "_hook chain pre-commit pre-push" {
+				t.Errorf("githooks/:\n got %q\nwant %q", got, "_hook chain pre-commit pre-push")
+			}
+			entries, _ = os.ReadDir(filepath.Join(kit, "githooks", "chain"))
+			names = nil
+			for _, e := range entries {
+				names = append(names, e.Name())
+				if fi, err := e.Info(); err == nil && fi.Mode()&0o111 == 0 {
+					t.Errorf("chain/%s is not executable", e.Name())
+				}
+				if b, err := os.ReadFile(filepath.Join(kit, "githooks", "chain", e.Name())); err != nil ||
+					!strings.Contains(string(b), `. "$(dirname "$0")/../_hook"`) {
+					t.Errorf("chain/%s does not source ../_hook", e.Name())
+				}
+			}
+			want := "applypatch-msg commit-msg post-applypatch post-checkout post-commit post-index-change " +
 				"post-merge post-rewrite pre-applypatch pre-auto-gc pre-commit pre-merge-commit pre-push pre-rebase " +
 				"prepare-commit-msg push-to-checkout reference-transaction"
 			if got := strings.Join(names, " "); got != want {
-				t.Errorf("hooks shipped:\n got %q\nwant %q", got, want)
+				t.Errorf("chain/:\n got %q\nwant %q", got, want)
+			}
+		}},
+		// T-623 #5: with a chain recorded, a hook the chain lacks runs nothing: .git/hooks is not a fallback (git
+		// never runs it once core.hooksPath is set), so a failing .git/hooks/pre-commit cannot block the commit.
+		{"with a chain, a hook it lacks runs nothing (.git/hooks is no fallback)", func(t *testing.T, x *hx) {
+			calls := filepath.Join(x.Base, "dotgit.calls")
+			own := x.Write(".git/hooks/pre-commit", fmt.Sprintf("#!/bin/sh\necho dotgit >> %q\nexit 3\n", calls))
+			os.Chmod(own, 0o755)
+			x.Git(x.Root, "config", "obor.hooksChain", ".githooks")
+			has(t, x.ok(t, "githooks"), "core.hooksPath = "+x.chainDir(), "a chain moves hooksPath to the full set")
+			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit with a chain that lacks pre-commit")
+			if _, err := os.Stat(calls); err == nil {
+				t.Error(".git/hooks/pre-commit ran: a recorded chain is the only project hook")
 			}
 		}},
 	} {

@@ -184,6 +184,23 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	hasNot(t, out, "waiting on", "no trust dialog")
 }
 
+// T-623: obor init installs the git hooks (core.hooksPath at the kit's set), and a rerun says already.
+func TestOborInitInstallsTheGitHooks(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	out := x.init(t)
+	dir := filepath.Join(kit, "githooks")
+	if stateOf(out, "githooks") != "done" || !strings.Contains(summary(out, "githooks"), "core.hooksPath = "+dir) {
+		t.Errorf("githooks step %q", summary(out, "githooks"))
+	}
+	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != dir {
+		t.Errorf("core.hooksPath = %q, want %q", got, dir)
+	}
+	if out := x.init(t); stateOf(out, "githooks") != "already" {
+		t.Errorf("rerun githooks step %q", summary(out, "githooks"))
+	}
+}
+
 // A rerun is the repair path: no new lane, pane, plugin call or herdr link; every step says already.
 func TestOborInitRerunChangesNothing(t *testing.T) {
 	t.Parallel()

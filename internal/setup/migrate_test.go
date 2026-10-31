@@ -455,6 +455,7 @@ func TestMigrateOutsideAProjectFails(t *testing.T) {
 func TestGithooksRepointsAHerdKitsHooksAndChainsOthers(t *testing.T) {
 	x := newFx(t)
 	mine := filepath.Join(kit, "githooks")
+	chain := filepath.Join(mine, "chain")
 	// a herd kit's githooks (its plugin.json names herd): re-pointed
 	old := filepath.Join(x.Base, "herd-kit-stable")
 	x.Write(old+"/.claude-plugin/plugin.json", `{"name": "herd"}`)
@@ -464,18 +465,24 @@ func TestGithooksRepointsAHerdKitsHooksAndChainsOthers(t *testing.T) {
 	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
 		t.Errorf("core.hooksPath = %s, want %s", got, mine)
 	}
+	// a herd kit's chain set is re-pointed too (T-623)
+	x.Git(x.Root, "config", "--local", "core.hooksPath", old+"/githooks/chain")
+	has(t, x.ok(t, "githooks"), "core.hooksPath = "+mine, "a kit's chain set re-pointed")
+	if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
+		t.Errorf("a kit's chain set: core.hooksPath = %s, want %s", got, mine)
+	}
 	// a kit that is gone, named like one: re-pointed
 	x.Git(x.Root, "config", "--local", "core.hooksPath", "/nowhere/herd-kit/githooks")
 	x.ok(t, "githooks")
-	// anyone else's hooks dir is the project's own: chained, not refused (T-620)
+	// anyone else's hooks dir is the project's own: chained, not refused (T-620), so obor's full set runs (T-623)
 	for _, other := range []string{"/nowhere/husky/githooks", "/usr/local/hooks", x.Base + "/githooks"} {
 		x.Git(x.Root, "config", "--local", "core.hooksPath", other)
 		has(t, x.ok(t, "githooks"), "chaining "+other, "chained hooks "+other)
 		if got := x.Git(x.Root, "config", "--local", "--get", "obor.hooksChain"); got != other {
 			t.Errorf("obor.hooksChain = %s, want %s", got, other)
 		}
-		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != mine {
-			t.Errorf("core.hooksPath %s changed to %s", other, got)
+		if got := x.Git(x.Root, "config", "--local", "core.hooksPath"); got != chain {
+			t.Errorf("core.hooksPath %s changed to %s, want %s", other, got, chain)
 		}
 	}
 }

@@ -1,0 +1,5 @@
+#!/bin/bash
+# obor pre-push (design "Git hooks layer"): chains the project's own pre-push, then obor's rule: always refuse unless
+# OBOR_ALLOW_PUSH=1 (the user pushes).
+. "$(dirname "$0")/../_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"

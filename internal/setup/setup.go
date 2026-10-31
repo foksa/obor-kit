@@ -18,10 +18,12 @@
 //	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root, or for a
 //	        role-worktree role (reviewer, deep_dive; T-179) a detached worktree <lanes_dir>/<roles.<role>.worktree>,
 //	        never a lane. triage also copies templates/BUGS.md to docs/BUGS.md if missing.
-//	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (one file per
-//	        client-side hook, all through githooks/_hook); the project's own hooksPath, when already set, is chained
-//	        (obor.hooksChain, run by every hook) instead of refused. --remove puts the chained dir back and unsets
-//	        obor.hooksChain, or unsets core.hooksPath when there is none (only when it is ours).
+//	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
+//	        pre-push and githooks/_hook) or, when there is something to chain, <kit>/githooks/chain (every hook git
+//	        runs, all through githooks/_hook; T-623: a recorded obor.hooksChain or a hook in .git/hooks the small set
+//	        lacks). The project's own hooksPath, when already set, is chained (obor.hooksChain, run by every hook)
+//	        instead of refused. --remove puts the chained dir back and unsets obor.hooksChain, or unsets
+//	        core.hooksPath when there is none (only when it is ours).
 //	herdr-plugin  the obor.events herdr plugin (R-28 §3; user-global, once per user): link <kit>/herdr-plugin in
 //	        herdr, or re-link it when herdr runs another kit's copy (herdr stores the resolved path, so a kit at a new
 //	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
