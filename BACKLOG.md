@@ -54,6 +54,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (owner 10-31) **v0.17.1 as soon as T-627, T-628, T-629 merge** (restore of never-prompted sessions; init places
+  panes in the project's workspace + waits for the shell; init on an empty dir / Claude-only). Then: one Terra review
+  over the three (RV-67), fixes if likely, tag v0.17.1 (RELEASING.md), owner pushes/publishes/reruns install.sh.
 - (10-31, axis-alies v0.17) `obor restart aa-rev --fresh` (Codex, no prompt) warns "holds no codex transcript open
   within 10s (its session is not recorded)". Guess, unverified: Codex writes its rollout only at the first prompt.
   Check at axis' next review brief; if so, the warning should not fire for a fresh role start without a prompt.
