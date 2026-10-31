@@ -18,7 +18,7 @@ var (
 	userInvokedSkills = []string{"setup", "role"}
 	removedSkills     = []string{"worker", "integrator", "review-brief", "night-shift"}
 
-	herdMentionRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])obor ([a-z][a-z0-9-]*)`)
+	oborMentionRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])obor ([a-z][a-z0-9-]*)`)
 	skillFileRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*\.md$`)
 )
 
@@ -91,13 +91,13 @@ func readFile(t *testing.T, p string) string {
 	return string(b)
 }
 
-// herdMentions is the sorted unique subcommand names mentioned as `obor <sub>` in the dirs' files.
-func herdMentions(t *testing.T, dirs ...string) []string {
+// oborMentions is the sorted unique subcommand names mentioned as `obor <sub>` in the dirs' files.
+func oborMentions(t *testing.T, dirs ...string) []string {
 	t.Helper()
 	set := map[string]bool{}
 	for _, f := range walkFiles(t, dirs...) {
 		for _, chunk := range codeText(readFile(t, f)) {
-			for _, m := range herdMentionRe.FindAllStringSubmatch(chunk, -1) {
+			for _, m := range oborMentionRe.FindAllStringSubmatch(chunk, -1) {
 				set[m[2]] = true
 			}
 		}
@@ -127,7 +127,7 @@ func missingSubs(t *testing.T, root string) []string {
 		}
 	}
 	var out []string
-	for _, s := range herdMentions(t, dirs...) {
+	for _, s := range oborMentions(t, dirs...) {
 		if !known[s] {
 			out = append(out, s)
 		}
@@ -238,13 +238,13 @@ func TestMentionsCountBackticksAndFencesNotProse(t *testing.T) {
 	})
 	r := filepath.Join(root, "r")
 	eqStrings(t, []string{"dispatch", "fenced", "ghost"},
-		herdMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")), "mentions")
+		oborMentions(t, filepath.Join(r, "skills"), filepath.Join(r, "templates")), "mentions")
 	eqStrings(t, []string{"fenced", "ghost"}, missingSubs(t, r), "missing: dispatch is a Go command (bin/go-commands)")
 }
 
 // bash tests/skills.test.sh every obor subcommand in skills and templates exists
-func TestEveryHerdSubcommandInSkillsAndTemplatesExists(t *testing.T) {
-	found := herdMentions(t, filepath.Join(pluginRoot, "skills"), filepath.Join(pluginRoot, "templates"),
+func TestEveryOborSubcommandInSkillsAndTemplatesExists(t *testing.T) {
+	found := oborMentions(t, filepath.Join(pluginRoot, "skills"), filepath.Join(pluginRoot, "templates"),
 		filepath.Join(pluginRoot, "docs", "agents"))
 	for _, want := range []string{"dispatch", "sendback"} {
 		if !contains(found, want) {

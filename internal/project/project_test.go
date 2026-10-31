@@ -34,8 +34,6 @@ func fixture(t *testing.T, cfg string) (root, wt string) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("OBOR_ROLE", "")
 	t.Setenv("OBOR_LANE", "")
-	t.Setenv("HERD_ROLE", "")
-	t.Setenv("HERD_LANE", "")
 	base := Physical(t.TempDir())
 	root, wt = filepath.Join(base, "proj"), filepath.Join(base, "proj-wt")
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)

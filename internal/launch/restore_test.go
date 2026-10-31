@@ -83,8 +83,8 @@ func has(t *testing.T, s, sub, what string) {
 	}
 }
 
-// bash restore.test.sh case_labelled_herd_panes_restarted_others_skipped
-func TestRestoreLabelledHerdPanes(t *testing.T) {
+// bash restore.test.sh case_labelled_obor_panes_restarted_others_skipped
+func TestRestoreLabelledOborPanes(t *testing.T) {
 	f := newRfx(t)
 	lane := f.p.Lane("O-01", "task/T-01")
 	f.p.Commit(lane)
@@ -112,8 +112,8 @@ func TestRestoreLabelledHerdPanes(t *testing.T) {
 	}
 }
 
-// bash restore.test.sh case_outside_herd_silent
-func TestRestoreOutsideHerdSilent(t *testing.T) {
+// bash restore.test.sh case_outside_obor_silent
+func TestRestoreOutsideOborSilent(t *testing.T) {
 	f := newRfx(t)
 	other := filepath.Join(f.p.Base, "other")
 	f.p.Git(f.p.Base, "init", "-q", other)

@@ -15,8 +15,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// herdBin is the binary under test, built once by TestMain.
-var herdBin string
+// oborBin is the binary under test, built once by TestMain.
+var oborBin string
 
 func TestMain(m *testing.M) {
 	testkit.Isolate()
@@ -24,8 +24,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	herdBin = filepath.Join(dir, "obor")
-	if out, err := exec.Command("go", "build", "-o", herdBin, ".").CombinedOutput(); err != nil {
+	oborBin = filepath.Join(dir, "obor")
+	if out, err := exec.Command("go", "build", "-o", oborBin, ".").CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
 	code := m.Run()
@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func build(t *testing.T) string { return herdBin }
+func build(t *testing.T) string { return oborBin }
 
 // run is the binary in dir with env added: its exit code, stdout and stderr. The command is killed after 60 s (and
 // WaitDelay, in case a grandchild holds the pipes) so a hang names the command instead of costing go test's timeout.
@@ -42,7 +42,7 @@ func run(t *testing.T, dir string, env []string, args ...string) (int, string, s
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, herdBin, args...)
+	cmd := exec.CommandContext(ctx, oborBin, args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, &stdout, &stderr
 	cmd.Env = append(os.Environ(), env...)
 	cmd.WaitDelay = 5 * time.Second
@@ -196,13 +196,13 @@ func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 }
 
 // The PreToolUse hook's deny: exit 2 and one line "obor: <reason>" on stderr, nothing on stdout; allow: exit 0, silent.
-func TestPreToolUseDenyIsOneHerdLine(t *testing.T) {
+func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()
 	hook := func(cmd string) (int, string, string) {
 		in, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": p.Root, "tool_input": map[string]string{"command": cmd}})
-		c := exec.Command(herdBin, "hook", "pre-tool-use")
+		c := exec.Command(oborBin, "hook", "pre-tool-use")
 		c.Stdin = bytes.NewReader(in)
 		var stdout, stderr bytes.Buffer
 		c.Stdout, c.Stderr = &stdout, &stderr
@@ -283,7 +283,7 @@ func runIn(t *testing.T, dir string, env []string, stdin string, args ...string)
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, herdBin, args...)
+	cmd := exec.CommandContext(ctx, oborBin, args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Stdin = dir, &stdout, &stderr, strings.NewReader(stdin)
 	cmd.Env = append(os.Environ(), env...)
 	cmd.WaitDelay = 5 * time.Second

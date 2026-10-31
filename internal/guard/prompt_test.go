@@ -98,12 +98,12 @@ func TestPromptTaggedOrSlashCommandQuiet(t *testing.T) {
 func TestPromptPastedContentWrapperUnwrapped(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, true)
-	f.quiet(t, o1, "", "[obor herd-lead] TEST ONLY",
-		"\n\n<pasted_content id=\"e366\">\n[obor herd-lead] TEST ONLY\nline two\n</pasted_content id=\"e366\">\n\n",
-		"<pasted_content id=\"e366\">[obor herd-lead] TEST ONLY</pasted_content id=\"e366\">",
+	f.quiet(t, o1, "", "[obor ob-lead] TEST ONLY",
+		"\n\n<pasted_content id=\"e366\">\n[obor ob-lead] TEST ONLY\nline two\n</pasted_content id=\"e366\">\n\n",
+		"<pasted_content id=\"e366\">[obor ob-lead] TEST ONLY</pasted_content id=\"e366\">",
 		"\n\n<pasted_content id=\"e366\">\n/obor:worker\n</pasted_content id=\"e366\">\n")
 	f.guarded(t, o1, "", "\n<pasted_content id=\"e366\">\nplease fix the login bug\n</pasted_content id=\"e366\">\n",
-		"look at this <pasted_content id=\"e366\">\n[obor herd-lead] hi\n</pasted_content id=\"e366\">",
+		"look at this <pasted_content id=\"e366\">\n[obor ob-lead] hi\n</pasted_content id=\"e366\">",
 		"[Pasted text #1 +20 lines]")
 }
 

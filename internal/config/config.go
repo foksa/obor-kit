@@ -491,7 +491,7 @@ func (c *Config) Raw(path string) (string, bool) {
 // LanesDir is the absolute, lexically normalised lanes dir.
 func (c *Config) LanesDir() string { return AbsUnder(c.Root, c.Data.LanesDir) }
 
-// AbsUnder is p if absolute, else root/p, lexically normalised (herd_path_norm).
+// AbsUnder is p if absolute, else root/p, lexically normalised (obor_path_norm).
 func AbsUnder(root, p string) string {
 	if !strings.HasPrefix(p, "/") {
 		p = root + "/" + p

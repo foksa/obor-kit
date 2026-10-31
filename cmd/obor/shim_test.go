@@ -211,7 +211,7 @@ exit 1
 	}
 }
 
-// bash tests/bin.test.sh case_self_host, case_lane_uses_main_bin, case_opt_out_and_no_loop, case_needs_herd_manifest
+// bash tests/bin.test.sh case_self_host, case_lane_uses_main_bin, case_opt_out_and_no_loop, case_needs_obor_manifest
 func TestShimSelfHost(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)

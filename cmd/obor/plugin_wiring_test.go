@@ -185,7 +185,7 @@ func TestHooksJSONWiring(t *testing.T) {
 		if hk.Command != prefix+w.hook {
 			t.Errorf("%s: command %q, want %q", w.event, hk.Command, prefix+w.hook)
 		}
-		if rc, _, _, _ := shimRun(t, root, "", nil, herdBin, "has", "hook", w.hook); rc != 0 {
+		if rc, _, _, _ := shimRun(t, root, "", nil, oborBin, "has", "hook", w.hook); rc != 0 {
 			t.Errorf("%s: the binary has no hook %s (exit %d)", w.event, w.hook, rc)
 		}
 	}

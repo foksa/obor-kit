@@ -28,12 +28,12 @@ func Main(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// Isolate keeps the tests away from the developer's shell: no OBOR_* / HERD_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the
+// Isolate keeps the tests away from the developer's shell: no OBOR_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the
 // merge gate exports to `make check` (nor Claude's or Codex's config dirs), git without global or system config.
 func Isolate() {
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "OBOR_") || strings.HasPrefix(k, "HERD_") || strings.HasPrefix(k, "HERDR_") || k == "CLAUDE_CONFIG_DIR" || k == "CODEX_HOME" ||
+		if strings.HasPrefix(k, "OBOR_") || strings.HasPrefix(k, "HERDR_") || k == "CLAUDE_CONFIG_DIR" || k == "CODEX_HOME" ||
 			k == "CHECK_PRIORITY" || k == "CHECK_SLOT_HELD" || k == "CHECK_SLOT_DIR" || k == "CHECK_SLOTS" {
 			os.Unsetenv(k)
 		}

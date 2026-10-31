@@ -219,7 +219,7 @@ func TestGithooks(t *testing.T) {
 				t.Error("pushed")
 			}
 		}},
-		// bash case_pre_commit_refuses_in_lane_allows_with_herd_merge_and_in_main
+		// bash case_pre_commit_refuses_in_lane_allows_with_obor_merge_and_in_main
 		{"pre-commit refuses in a lane, allows with OBOR_MERGE=1 and in main", func(t *testing.T, x *hx) {
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")
 			x.commits(t, x.lane, x.gitEnv("OBOR_MERGE=1"), 0, "", "lane commit with OBOR_MERGE=1")
@@ -270,7 +270,7 @@ func TestGithooks(t *testing.T) {
 				x.commits(t, x.lane, env, rc, s.want, "source: "+s.source)
 			}
 		}},
-		// bash case_pre_commit_without_a_binary_allows_main_and_herd_merge
+		// bash case_pre_commit_without_a_binary_allows_main_and_obor_merge
 		{"pre-commit without a binary still allows main and OBOR_MERGE=1", func(t *testing.T, x *hx) {
 			env, _ := x.cold(t)
 			x.commits(t, x.Root, env, 0, "", "main commit without a binary")

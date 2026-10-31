@@ -19,7 +19,7 @@ func TestProtected(t *testing.T) {
 	}
 }
 
-func TestGlobMatchMirrorsHerdStarCases(t *testing.T) {
+func TestGlobMatchMirrorsOborStarCases(t *testing.T) {
 	cases := []struct {
 		path, glob string
 		match      bool
@@ -55,7 +55,7 @@ func TestGlobMatchMirrorsHerdStarCases(t *testing.T) {
 	}
 }
 
-// bash lib.test.sh case_glob_overlap (herd_glob_overlap, the dispatch lead guard's reading): both argument orders.
+// bash lib.test.sh case_glob_overlap (obor_glob_overlap, the dispatch lead guard's reading): both argument orders.
 func TestOverlap(t *testing.T) {
 	for _, c := range []struct {
 		a, b string

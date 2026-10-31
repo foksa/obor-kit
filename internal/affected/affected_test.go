@@ -85,7 +85,7 @@ func TestGoBrokenModule(t *testing.T) {
 // This repo, read-only (T-347 spec): a guard change does not select app; an app change selects cmd/obor but not the
 // packages below app (spec, project). internal/setup IS selected by an app change: setup imports herdr, which imports
 // app.
-func TestGoHerdKit(t *testing.T) {
+func TestGoOborKit(t *testing.T) {
 	t.Parallel()
 	root, _ := filepath.Abs("../..")
 	for _, c := range []struct {

@@ -24,7 +24,7 @@ import (
 func startServe(t *testing.T, dir string, env []string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 	var out bytes.Buffer
-	cmd := exec.Command(herdBin, "serve")
+	cmd := exec.Command(oborBin, "serve")
 	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Env = dir, &out, &out, append(os.Environ(), env...)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	lane := p.Lane("O-01", "task/T-01")
-	p.Config(testkit.Set("merge.from_a_newer_herd", []string{"x"}))
+	p.Config(testkit.Set("merge.from_a_newer_obor", []string{"x"}))
 	p.Commit(lane)
 	f := herdrtest.New()
 	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
@@ -237,7 +237,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
-	if n := strings.Count(out.String(), `"merge.from_a_newer_herd"`); n != 1 || !strings.Contains(out.String(), "restart serve") {
+	if n := strings.Count(out.String(), `"merge.from_a_newer_obor"`); n != 1 || !strings.Contains(out.String(), "restart serve") {
 		t.Errorf("warnings for the key: %d, want 1 naming the restart:\n%s", n, out.String())
 	}
 }

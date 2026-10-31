@@ -24,7 +24,7 @@ main_checkout() {
   dirname "$common"
 }
 
-is_herd_checkout() {
+is_obor_checkout() {
   [ -f "$1/bin/obor" ] && [ -f "$1/.claude-plugin/plugin.json" ] &&
     [ "$(jq -r '.name // empty' "$1/.claude-plugin/plugin.json" 2> /dev/null)" = obor ]
 }
@@ -37,7 +37,7 @@ self_host() {
   local root
   [ -z "${OBOR_SELF_HOSTED:-}" ] && [ -z "${OBOR_NO_SELF_HOST:-}" ] || return 0
   root=$(main_checkout) || return 0
-  is_herd_checkout "$root" || return 0
+  is_obor_checkout "$root" || return 0
   [ "$root" != "$OBOR_PLUGIN_ROOT" ] || return 0
   OBOR_SELF_HOSTED=1 exec "$BASH" "$root/bin/obor" "$@"
 }

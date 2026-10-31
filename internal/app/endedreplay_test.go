@@ -150,7 +150,7 @@ func TestDropSettlesOpenIntents(t *testing.T) {
 	if r.resultOf(1, app.StepWork) != "" || len(r.open()) != 1 {
 		t.Fatalf("precondition: the work intent open while the needs-you holds: %q", r.steps())
 	}
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Agent: "herd-lead",
+	reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Agent: "ob-lead",
 		Role: "lead", CallID: "d1", Task: "T-1", Note: "why"})
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
