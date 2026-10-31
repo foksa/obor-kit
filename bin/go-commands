@@ -19,6 +19,7 @@ nightly
 milestone-check
 plugin
 setup
+init
 status
 restart
 lead

@@ -54,20 +54,18 @@ again.
 In the project's repository, inside herdr:
 
 ```sh
-claude plugin marketplace add ~/.obor/kit
-claude plugin install obor@obor-kit --scope project
-claude          # then: /obor:setup
+obor init       # the plugin, .obor/config.json, lane worktrees, agent panes, obor serve
 ```
 
-`/obor:setup` asks for the project's name and agent prefix, its lanes and their models, and its check commands. It then
-writes `.obor/config.json` and creates the lane worktrees and agent panes. After that:
+`obor init` detects the check commands, picks the lanes and role types, installs the plugin and its `obor serve`
+launchd agent, then prints each step and the file to change (`.obor/config.json`). Run it once on a machine with
+`claude` on PATH.
+
+After that:
 
 ```sh
-obor serve      # in its own pane: dispatch, checks, merges
 obor lead       # starts the lead in its own tab; run /obor:lead in it
 ```
-
-(A no-questions `obor init` is planned for v0.17.)
 
 ## Everyday commands
 

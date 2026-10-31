@@ -544,7 +544,7 @@ func (s *Setup) migrateHerdrPlugin(ctx context.Context) ([]string, error) {
 		var out bytes.Buffer
 		sub := *s
 		sub.Out = &out
-		if err := sub.events(ctx, true); err != nil {
+		if err := sub.events(ctx); err != nil {
 			return nil, project.Failf("%s", strings.TrimSpace(out.String()))
 		}
 		did = append(did, "linked obor.events (user-global)")

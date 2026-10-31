@@ -74,7 +74,7 @@ func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
-	if err := s.events(ctx, true); err != nil {
+	if err := s.events(ctx); err != nil {
 		return err
 	}
 	s.say("OK herdr-plugin")
@@ -82,9 +82,8 @@ func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 }
 
 // events: obor.events in herdr, linked from <kit>/herdr-plugin directly (herdr keeps the path resolved at link time,
-// so a symlink in between buys nothing): link sets it up (not linked → link; another kit's copy → re-link), else only
-// says how. Then herdr's resume setting.
-func (s *Setup) events(ctx context.Context, link bool) error {
+// so a symlink in between buys nothing): not linked → link; another kit's copy → re-link. Then herdr's resume setting.
+func (s *Setup) events(ctx context.Context) error {
 	mine := filepath.Join(s.Kit, "herdr-plugin")
 	if fi, err := os.Stat(filepath.Join(mine, "herdr-plugin.toml")); err != nil || !fi.Mode().IsRegular() {
 		s.say("WARN herdr-plugin: no herdr plugin in %s", mine)
@@ -105,12 +104,6 @@ func (s *Setup) events(ctx context.Context, link bool) error {
 	switch {
 	case linked && (root == "" || project.Physical(root) == project.Physical(mine)):
 		s.say("herdr-plugin: obor.events linked (%s)", mine)
-		return nil
-	case !link && linked:
-		s.say("herdr-plugin: obor.events runs %s, not this kit's %s (obor setup herdr-plugin re-links it)", root, mine)
-		return nil
-	case !link:
-		s.say("hint: obor restarts its panes after a herdr session restore (once per user): obor setup herdr-plugin")
 		return nil
 	case linked:
 		if err := s.H.UnlinkPlugin(ctx, "obor.events"); err != nil {

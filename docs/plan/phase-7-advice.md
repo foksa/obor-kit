@@ -35,7 +35,7 @@ PreToolUse denies every Bash/Edit (`bin/herd:159`). Two consequences:
 Upgrade = run the script again (it moves the checkout to the new tag) and `herd serve restart` in each project; no
 `herd upgrade` command this phase. No brew formula (a tap is a second repo to keep in step; later, if ever).
 
-**`herd init`** (`cmd/herd/init.go` wiring, logic in `internal/setup`; `herd setup init` is absorbed):
+**`herd init`** (`cmd/herd/init.go` wiring, logic in `internal/setup`; `herd setup`'s init subcommand is absorbed):
 1. `initCmd` as today (`internal/setup/init.go:15`), name = folder, prefix = `defaultPrefix` made unique against
    `s.H.Agents()` names (the `Herdr` interface already has it, `setup.go:55`). herdr unreachable → `FAIL` first: it is
    a hard dependency, nothing later works without it.
@@ -66,7 +66,7 @@ Every step is idempotent today except the plugin calls, so `herd init` rerun aft
   prose that the code no longer matches: `events` never asks at a terminal), §5 (filling "This project" with the user;
   the stubs are still written and the lead fills them while working), §6. Keep §3–§4 as "add a lane / pane / role",
   one screen.
-- `herd setup init` (its flags move to `herd init [--name] [--prefix]`); `warnPlugin`; the `WARN herd plugin not
+- `herd setup`'s init subcommand (its flags move to `herd init [--name] [--prefix]`); `warnPlugin`; the `WARN herd plugin not
   enabled` test cases in `setup_test.go`.
 - `docs/design.md` "Setup" and "Stable channel" paragraphs (lead-owned): stable = `~/.herd/kit`.
 - `bin/release-url` placeholder and the "placeholders pending" line of `RELEASING.md`.
@@ -113,7 +113,7 @@ upgrade would take the others down (the 10-30 incident again, by our own hand).
 | P7-2 | `herd init`: §1 steps 1–7, summary, idempotent rerun; `setup_test.go` with the stub herdr and a fake `claude` on PATH | hard | P7-3 for step 7 (stub it, merge first) |
 | P7-3 | `internal/service` + `herd serve install/uninstall/restart`, the status line, serve tolerating herdr down | medium; the herdr-down part is the hard half | — |
 | P7-4 | Delete `herd.version` (config, shim, docs) | simple | — |
-| P7-5 | Delete the setup skill's flow, `herd setup init`, `warnPlugin`; design doc Setup/Stable paragraphs (lead) | simple | P7-2 merged |
+| P7-5 | Delete the setup skill's flow, `herd setup`'s init subcommand, `warnPlugin`; design doc Setup/Stable paragraphs (lead) | simple | P7-2 merged |
 Order: P7-1 (owner) and P7-3, P7-4 in parallel; P7-2 right after; P7-5 last. The axis-maps run needs a tag that
 includes P7-1 to P7-3 and `~/.herd/kit` on the owner's machine (not `~/Work/herd-kit-stable`): a run against the dev
 checkout would not test the copy-without-binary path.

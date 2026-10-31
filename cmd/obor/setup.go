@@ -16,7 +16,7 @@ import (
 	"obor/internal/setup"
 )
 
-// setupCmd is `obor setup <init|lane|pane|role|githooks|herdr-plugin|agents|mcp> …` (internal/setup): progress lines, then OK …
+// setupCmd is `obor setup <lane|pane|role|githooks|herdr-plugin|agents|mcp> …` (internal/setup): progress lines, then OK …
 // or FAIL … (exit 1).
 func setupCmd(args []string) int {
 	cwd, _ := os.Getwd()

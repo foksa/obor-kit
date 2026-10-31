@@ -2,7 +2,6 @@ package setup
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,24 +10,6 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 )
-
-func (s *Setup) initCmd(ctx context.Context, args []string) error {
-	name, prefix, err := initArgs(args)
-	if err != nil {
-		return err
-	}
-	if err := s.findRoot(); err != nil {
-		return err
-	}
-	if err := s.initProject(name, prefix); err != nil {
-		return err
-	}
-	_ = s.events(ctx, false)
-	s.warnPlugin()
-	s.say("OK init %s (prefix %s); nothing committed: review, then commit .obor/config.json, .gitignore, "+
-		"BACKLOG.md, docs/decisions.md, %s/", s.cfg.Data.Name, s.cfg.Data.Prefix, s.agentsDir())
-	return nil
-}
 
 // initArgs parses [--name N] [--prefix P].
 func initArgs(args []string) (name, prefix string, err error) {

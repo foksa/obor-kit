@@ -49,7 +49,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (RV-57-verify #2, #3, accepted) the load-run guard misses separately `bash -c`-wrapped sibling background tests and
   repeated `-P` options ending in 1 is still denied: constructed forms.
 - (DD-v0.14 U3/U6/S4) The difficulty map's type names and the Go-only load-run rules are obor-kit's own policy built
-  into the kit; simpler: `obor setup init` writes them into the project's config. Not before a second adopter.
+  into the kit; simpler: `obor init` writes them into the project's config. Not before a second adopter.
 - **A herdr restart takes every serve down** (10-30: obor-kit and axis-alies serves, axis' reviewer pane lost):
   phase 7 launchd. Who restarted herdr is unknown (S5a).
 - `obor doctor`: hooks loaded + kit version per pane (stale panes hid guard bugs twice).

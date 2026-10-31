@@ -191,6 +191,23 @@ func (x *fx) running(agents ...[2]string) {
 	}
 }
 
+// projectStep is the project step of `obor init` (initProject calls it too): the files it writes, its lines, or the
+// error.
+func (x *fx) projectStep(t *testing.T, name, prefix string) (string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	k := kit
+	if x.kit != "" {
+		k = x.kit
+	}
+	s := &Setup{Kit: k, Dir: x.Root, Env: x.Env(), H: x.srv.Client(), Out: &out}
+	if err := s.findRoot(); err != nil {
+		t.Fatal(err)
+	}
+	err := s.initProject(name, prefix)
+	return out.String(), err
+}
+
 // ok runs and wants exit 0.
 func (x *fx) ok(t *testing.T, args ...string) string {
 	t.Helper()
@@ -250,9 +267,9 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if x.Exists(".obor/config.json") || x.Exists("docs/agents") || x.Exists("docs/tasks") {
 		t.Fatal("precondition: no config, no agents docs, no tasks dir")
 	}
-	out := x.ok(t, "init", "--name", "My Proj", "--prefix", "mp")
-	if !regexp.MustCompile(`^OK init My Proj \(prefix mp\); nothing committed`).MatchString(last(out)) {
-		t.Errorf("last line: %q", last(out))
+	out, err := x.projectStep(t, "My Proj", "mp")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
 	}
 	cfg, err := config.Load(x.Root)
 	if err != nil {
@@ -283,7 +300,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if x.Exists("docs/tasks") {
 		t.Error("init created docs/tasks")
 	}
-	has(t, last(out), "BACKLOG.md, docs/decisions.md", "the files to commit named")
+	has(t, out, "created .obor/config.json (name My Proj, prefix mp, no lanes)", "the config said")
 
 	// T-204: role texts stay in the kit; the project gets short stubs (title, pointer, "This project" prompts).
 	texts, _ := filepath.Glob(filepath.Join(kit, "templates", "agents", "*.md"))
@@ -340,8 +357,8 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	if got := x.Git(x.Root, "rev-parse", "HEAD"); got != head {
 		t.Error("something committed")
 	}
-	if strings.Contains(last(out), "QUEUE.md") {
-		t.Errorf("init does not say to commit a queue file: %q", last(out))
+	if strings.Contains(out, "QUEUE.md") {
+		t.Errorf("init does not say to commit a queue file:\n%s", out)
 	}
 	st := x.Git(x.Root, "status", "--porcelain")
 	has(t, st, "?? .obor/", "config left untracked")
@@ -354,7 +371,10 @@ func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	x := bare(t)
 	x.Write("docs/agents/lead.md", "mine\n")
 	x.Write(".gitignore", x.Read(".gitignore")+".obor/state/") // no trailing newline: appended lines must not glue on
-	out := x.ok(t, "init", "--prefix", "pj")
+	out, err := x.projectStep(t, "", "pj")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
+	}
 	has(t, out, "skip docs/agents/lead.md (exists)", "existing doc said")
 	if x.Read("docs/agents/lead.md") != "mine\n" {
 		t.Error("existing role doc kept")
@@ -369,7 +389,10 @@ func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	if !strings.Contains(x.Read(".obor/config.json"), `"name": "kept"`) {
 		t.Fatal("precondition: name edited")
 	}
-	out = x.ok(t, "init", "--name", "other", "--prefix", "zz")
+	out, err = x.projectStep(t, "other", "zz")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
+	}
 	has(t, out, "skip .obor/config.json (exists)", "config skipped")
 	has(t, out, "skip BACKLOG.md (exists)", "backlog skipped")
 	has(t, out, "skip docs/decisions.md (exists)", "decisions skipped")
@@ -394,7 +417,10 @@ func TestInitCopiesNoQueueFile(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(kit, "templates", "QUEUE.md")); !os.IsNotExist(err) {
 		t.Fatalf("precondition: the kit's templates/QUEUE.md is deleted (%v)", err)
 	}
-	out := x.ok(t, "init", "--prefix", "pj")
+	out, err := x.projectStep(t, "", "pj")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
+	}
 	hasNot(t, out, "QUEUE.md", "init says nothing about a queue file")
 	if x.Exists("docs/QUEUE.md") {
 		t.Error("init wrote no docs/QUEUE.md")
@@ -419,7 +445,10 @@ func TestInitAddsGitignoreLinesOnce(t *testing.T) {
 			t.Fatalf("precondition: %s not ignored", l)
 		}
 	}
-	out := x.ok(t, "init")
+	out, err := x.projectStep(t, "", "")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
+	}
 	for _, l := range []string{".task-run", "public/assets"} {
 		has(t, out, ".gitignore += "+l, "said")
 	}
@@ -434,7 +463,11 @@ func TestInitAddsGitignoreLinesOnce(t *testing.T) {
 	if count(gi, "QUEUE.md.lock") != 0 {
 		t.Errorf("no queue lock line:\n%s", gi)
 	}
-	hasNot(t, x.ok(t, "init"), ".gitignore +=", "nothing added on rerun")
+	if again, err := x.projectStep(t, "", ""); err != nil {
+		t.Fatalf("rerun: %v\n%s", err, again)
+	} else {
+		hasNot(t, again, ".gitignore +=", "nothing added on rerun")
+	}
 	if x.Read(".gitignore") != gi {
 		t.Error("gitignore unchanged on rerun")
 	}
@@ -448,7 +481,10 @@ func TestInitAddsGitignoreLinesOnce(t *testing.T) {
 func TestInitDoesNotWriteThePluginMarkerLine(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
-	out := x.ok(t, "init", "--prefix", "pj")
+	out, err := x.projectStep(t, "", "pj")
+	if err != nil {
+		t.Fatalf("project step: %v\n%s", err, out)
+	}
 	hasNot(t, out, ".obor-plugin", "init said nothing about .obor-plugin")
 	if count(x.Read(".gitignore"), ".obor-plugin") != 0 {
 		t.Errorf(".gitignore names .obor-plugin:\n%s", x.Read(".gitignore"))
@@ -462,7 +498,10 @@ func TestInitDoesNotWriteThePluginMarkerLine(t *testing.T) {
 func TestInitRefusesABadPrefix(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
-	x.failing(t, "FAIL bad prefix Bad_Prefix (must match ^[a-z][a-z0-9-]{0,7}$)", "init", "--prefix", "Bad_Prefix")
+	_, err := x.projectStep(t, "", "Bad_Prefix")
+	if err == nil || err.Error() != "bad prefix Bad_Prefix (must match ^[a-z][a-z0-9-]{0,7}$)" {
+		t.Fatalf("err %v", err)
+	}
 	if x.Exists(".obor/config.json") {
 		t.Error("no config written")
 	}
@@ -476,6 +515,15 @@ func TestDefaultPrefix(t *testing.T) {
 			t.Errorf("%q: %q, want %q", name, got, want)
 		}
 	}
+}
+
+// T-609: `obor setup`'s init subcommand is gone (obor init sets a project up): the usage line names no init, and
+// the old init subcommand is unknown.
+func TestSetupUsageNamesNoInit(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.failing(t, "FAIL "+Usage(), "init", "--prefix", "pj")
+	hasNot(t, Usage(), "init", "the usage line")
 }
 
 // --- lane -------------------------------------------------------------------------------------------------------------
@@ -1066,30 +1114,6 @@ func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 	}
 }
 
-// T-137 (4): no obor@… plugin enabled in .claude/settings.json → one WARN line; enabled → none.
-// bash setup.test.sh case_warns_when_herd_plugin_not_enabled, case_pane_warns_when_herd_plugin_not_enabled
-func TestWarnsWhenHerdPluginNotEnabled(t *testing.T) {
-	t.Parallel()
-	const warn = "WARN obor plugin not enabled for this project: claude plugin install obor@obor-kit --scope project (or obor@obor-kit-dev for obor-kit itself)"
-	x := bare(t)
-	out := x.ok(t, "init", "--prefix", "pj")
-	if count(out, warn) != 1 || !strings.HasPrefix(last(out), "OK init ") {
-		t.Errorf("init, no settings → WARN once, goes on:\n%s", out)
-	}
-	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-dev":false,"other@x":true}}`)
-	has(t, x.ok(t, "init"), warn, "obor@ disabled → WARN")
-	x.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit-dev":true}}`)
-	hasNot(t, x.ok(t, "init"), "WARN", "obor@ enabled → no WARN")
-
-	y := newFx(t)
-	y.ok(t, "lane", "O-01", "opus")
-	out = y.ok(t, "pane", "O-01", "--pane", "w1:p1")
-	has(t, out, warn, "pane, no settings → WARN")
-	y.Write(".claude/settings.json", `{"enabledPlugins":{"obor@obor-kit":true}}`)
-	y.noAgents()
-	hasNot(t, y.ok(t, "pane", "O-01", "--pane", "w1:p1"), "WARN", "pane, obor@obor-kit enabled → no WARN")
-}
-
 // --- githooks ---------------------------------------------------------------------------------------------------------
 
 // tests/githooks.test.sh case_setup_githooks_sets_refuses_removes
@@ -1117,26 +1141,6 @@ func TestGithooksSetsRefusesRemoves(t *testing.T) {
 }
 
 // --- herdr-plugin (R-28 §3) -------------------------------------------------------------------------------------------
-
-// bash setup.test.sh case_init_links_symlink_and_prints_link_command: init reports, never links (T-256: no symlink).
-func TestInitReportsAndNeverLinks(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	x.h.Plugins = []herdrtest.Plugin{{ID: "other.plugin", Root: "/x"}}
-	out := x.ok(t, "init", "--prefix", "pj")
-	if count(out, "hint: obor restarts its panes after a herdr session restore (once per user): obor setup herdr-plugin") != 1 {
-		t.Errorf("not linked → the command, once:\n%s", out)
-	}
-	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "plugin.list", "precondition: herdr was asked")
-	hasNot(t, calls, "plugin.link", "init never links")
-	if x.Exists(filepath.Join(x.Base, "state-home", "herdr-plugin")) {
-		t.Error("no ~/.obor/herdr-plugin symlink")
-	}
-	if !strings.HasPrefix(last(out), "OK init ") {
-		t.Errorf("goes on: %q", last(out))
-	}
-}
 
 // bash setup.test.sh case_herdr_plugin_refreshes_symlink_and_reports_link; not linked → the kit's herdr-plugin linked
 // directly (T-250, T-256).
@@ -1208,12 +1212,8 @@ func TestHerdrPluginRelinksAnotherKitsPlugin(t *testing.T) {
 	old, mine := x.Path("old-kit/herdr-plugin"), filepath.Join(kit, "herdr-plugin")
 	os.MkdirAll(old, 0o755)
 	x.h.Plugins = []herdrtest.Plugin{{ID: "obor.events", Root: old}}
-	out := x.ok(t, "init")
-	has(t, out, "herdr-plugin: obor.events runs "+old+", not this kit's "+mine+" (obor setup herdr-plugin re-links it)", "init: said")
-	hasNot(t, strings.Join(x.reqs(), "\n"), "plugin.link", "init never links")
-
 	x.reset()
-	out = x.ok(t, "herdr-plugin")
+	out := x.ok(t, "herdr-plugin")
 	if got := strings.Join(x.reqs(), "\n"); !strings.Contains(got, "plugin.unlink plugin_id=obor.events\nplugin.link path="+mine) {
 		t.Errorf("unlink, then link the kit's herdr-plugin:\n%s", got)
 	}
