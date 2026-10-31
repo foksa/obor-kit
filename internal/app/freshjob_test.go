@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -222,6 +223,37 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
 	jr := fetch("n5", "T-1/1/review")
 	same(t, jr.State+" "+jr.Current, "superseded T-5/1/resolve.2", "the held job named: not handed out")
+}
+
+// T-606: the unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
+// their order must be the log's, not the map's: each call ranges the loop afresh and must still name the first.
+func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
+	r := newConcRig(t)
+	p := r.proj("pj")
+	for _, task := range []string{"T-1", "T-5"} {
+		greenTask(r, task, Candidate{Task: task, SHA: "c-" + task, Target: "b", Patch: "p-" + task})
+		r.add("pj", task, StepReview, KindIntent, promptData{Agent: "pj-int", Job: task + "/1/review",
+			Patch: "p-" + task})
+		r.add("pj", task, StepReview, KindResult, "sent")
+	}
+	for _, task := range []string{"T-1", "T-5"} {
+		mt := p.loop[task]
+		if k, ok := mt.integratorJob(); !ok || JobID(k) != task+"/1/review" {
+			t.Fatalf("precondition: %s's review job is not open (%s, %v)", task, JobID(k), ok)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator",
+			CallID: "old" + strconv.Itoa(i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jr JobReply
+		_ = json.Unmarshal([]byte(raw), &jr)
+		if jr.Job != "T-1/1/review" {
+			t.Fatalf("call %d: the unnamed fetch got %q, want the oldest open job T-1/1/review", i, jr.Job)
+		}
+	}
 }
 
 // A crash after the job's intent and its start's intent, before their results: the replay starts nothing again (the

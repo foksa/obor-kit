@@ -133,7 +133,9 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 			if c.Job != "" && JobID(k) == c.Job {
 				return *mt, k, true, nil
 			}
-			r, _ := p.log.Intent(k)
+			// The intent's seq, with its result or not: a sent job has one too, so the oldest is the log's order,
+			// never the map's (T-606).
+			r, _ := p.log.IntentOf(k)
 			if best == nil || r.Seq < seq {
 				best, bestKey, seq = mt, k, r.Seq
 			}

@@ -120,12 +120,14 @@ type Log struct {
 	err      error            // the last append's error (nil: it succeeded, or none yet); obor serve status shows it
 	results  map[Key]Record   // by key
 	pending  map[Key]Record   // intents without a result, by key
+	intents  map[Key]Record   // every intent, with or without its result (its seq orders open jobs), by key
 	inflight map[Key]struct{} // keys whose effect runs now
 }
 
 // OpenLog replays db's event log: its records in seq order.
 func OpenLog(db *sql.DB) (*Log, []Record, error) {
-	l := &Log{db: db, results: map[Key]Record{}, pending: map[Key]Record{}, inflight: map[Key]struct{}{}}
+	l := &Log{db: db, results: map[Key]Record{}, pending: map[Key]Record{}, intents: map[Key]Record{},
+		inflight: map[Key]struct{}{}}
 	recs, err := records(db)
 	if err != nil {
 		return nil, nil, err
@@ -223,6 +225,7 @@ func (l *Log) index(r Record) {
 	switch r.Kind {
 	case KindIntent:
 		l.pending[r.key()] = r
+		l.intents[r.key()] = r
 	case KindResult:
 		l.results[r.key()] = r
 		delete(l.pending, r.key())
@@ -344,6 +347,15 @@ func (l *Log) Intent(k Key) (Record, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r, ok := l.pending[k]
+	return r, ok
+}
+
+// IntentOf is k's intent as written, with or without its result (false: none): its seq orders job_next's open jobs,
+// the oldest first (T-606).
+func (l *Log) IntentOf(k Key) (Record, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r, ok := l.intents[k]
 	return r, ok
 }
 
