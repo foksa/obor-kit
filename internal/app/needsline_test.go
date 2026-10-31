@@ -25,6 +25,18 @@ func (r *loopRig) needsLineFacts() []app.Record {
 	return out
 }
 
+// againLines is the needs-you lines that repeat fact seq: the lines ending in " (again, <age>)".
+func (r *loopRig) againLines(seq int64) []string {
+	var out []string
+	for _, rec := range r.needsLineFacts() {
+		var m app.Message
+		if json.Unmarshal(rec.Data, &m) == nil && m.Needs == seq && strings.Contains(m.Line, " (again, ") {
+			out = append(out, m.Line)
+		}
+	}
+	return out
+}
+
 // refusedRig is the dispatch rig with T-1's lane preparation refused: T-1 has the needs-you "lane: lane_setup in O-01:
 // rc 1: boom". It returns that fact's line to the lead, as serve's answers name the commands that answer it.
 func refusedRig(t *testing.T) (*loopRig, string) {
@@ -181,5 +193,71 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 	r.passes()
 	if n := len(r.needsLineFacts()); n != 1 {
 		t.Errorf("needs-you lines recorded %d, want exactly 1: %q", n, r.steps())
+	}
+}
+
+// T-621: a needs-you line still unanswered is posted to the lead again 30 min after it, then every 60, the same line
+// with " (again, <its age>)".
+func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
+	r, line := refusedRig(t)
+	seq := r.needsYou().Seq
+	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.later(29 * time.Minute)
+	if got := r.againLines(seq); len(got) != 0 {
+		t.Fatalf("at 29 min: again lines %q, want none", got)
+	}
+	r.later(time.Minute) // 30
+	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	if got := r.againLines(seq)[0]; got != line+" (again, 30m)" {
+		t.Errorf("at 30 min: line %q, want the same line with (again, 30m)", got)
+	}
+	r.later(59 * time.Minute) // 89
+	if got := r.againLines(seq); len(got) != 1 {
+		t.Fatalf("at 89 min: again lines %q, want still one", got)
+	}
+	r.later(time.Minute) // 90
+	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
+	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
+		t.Errorf("at 90 min: second line %q, want (again, 1h)", got)
+	}
+}
+
+// T-621: what ends a needs-you ends its repeats: resumed at 45 after one repeat, nothing follows.
+func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
+	r, _ := refusedRig(t)
+	seq := r.needsYou().Seq
+	r.later(30 * time.Minute)
+	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.later(15 * time.Minute) // 45
+	r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
+	r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
+	r.waitFor("the needs-you ended", func() bool { return r.taskState() != "needs-you" })
+	r.later(60 * time.Minute) // 105: the repeat that was due at 90 never comes
+	if got := r.againLines(seq); len(got) != 1 {
+		t.Errorf("after the resume: again lines %q, want only the one before it", got)
+	}
+}
+
+// T-621: a replay starts the clock from the needs-you fact's time: a restart at 40 posts the repeat the first line
+// owed at 30 (once, not every missed one), and the next is 60 min after that, not 30 after the restart.
+func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
+	r, line := refusedRig(t)
+	seq := r.needsYou().Seq
+	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.stop()
+	r.clock.Add(40 * time.Minute)
+	r.start()
+	r.waitFor("the repeat after the restart", func() bool { return len(r.againLines(seq)) == 1 })
+	if got := r.againLines(seq)[0]; got != line+" (again, 40m)" {
+		t.Errorf("after a restart at 40 min: line %q, want (again, 40m)", got)
+	}
+	r.later(30 * time.Minute) // 70: a clock restarted at 40 would post its own repeat now
+	if got := r.againLines(seq); len(got) != 1 {
+		t.Errorf("at 70 min: again lines %q, want one (the clock counts from the fact's time)", got)
+	}
+	r.later(30 * time.Minute) // 100: 60 after the repeat
+	r.waitFor("the next repeat", func() bool { return len(r.againLines(seq)) == 2 })
+	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
+		t.Errorf("at 100 min: line %q, want (again, 1h)", got)
 	}
 }

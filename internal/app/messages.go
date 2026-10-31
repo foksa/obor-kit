@@ -67,6 +67,14 @@ const (
 // msgWait is how long a line may wait for its delivery before it needs the owner.
 const msgWait = 24 * time.Hour
 
+// A needs-you line to the lead is posted again while the needs-you stays in force and unanswered (T-621): 30 min
+// after the line, then every needsAgainEvery. Constants, not config; the deadline is in memory (next), so a replay
+// starts it from the needs-you fact's time (one extra line after a restart is fine).
+const (
+	needsAgain      = 30 * time.Minute
+	needsAgainEvery = 60 * time.Minute
+)
+
 // Message is a line fact's data: the agent it goes to and the line typed, who sent it, the brief it ends, and the
 // call that recorded it with its reply.
 type Message struct {
@@ -94,10 +102,11 @@ type MessageStatus struct {
 
 // outbox is one project's lines to its agents (proj.out; T-610): leadAgent, the lead's agent (roles.lead.agent), and
 // leadKind, its kind as configured (its role's type, else agents.Default): its lines' inbox; msgs, the lines not
-// delivered yet by their fact's seq; lined, the needs-you facts (by seq) whose line to the lead is recorded; lining,
-// those whose line a pass is recording now (needsLines' claim, not folded); briefs, the open briefs by role agent.
-// Its fields are under App.mu like the rest of proj; only this file names its maps (the other files read it through
-// lead, brief and allBriefs).
+// delivered yet by their fact's seq; lined, the needs-you facts (by seq) whose lines to the lead are recorded, and how
+// many; lining, those whose line a pass is recording now (needsLines' claim, not folded); next, when the next line of
+// a needs-you is due (T-621: in memory, a replay recomputes it from the fact's time); briefs, the open briefs by role
+// agent. Its fields are under App.mu like the rest of proj; only this file names its maps (the other files read it
+// through lead, brief and allBriefs).
 //
 // claim makes a line's delivery claim (deliverLine: typing set) and a brief's supersede of the agent's undelivered
 // brief lines (briefCall: the choice to the append) exclude each other (RV-61 #3). Lock order: claim, then App.mu;
@@ -107,15 +116,16 @@ type outbox struct {
 	leadAgent string
 	leadKind  string
 	msgs      map[int64]*queued
-	lined     map[int64]bool
+	lined     map[int64]int
 	lining    map[int64]bool
+	next      map[int64]time.Time
 	briefs    map[string]*brief
 }
 
 // newOutbox is an empty outbox of the lead agent lead, its configured kind leadKind.
 func newOutbox(lead, leadKind string) outbox {
-	return outbox{leadAgent: lead, leadKind: leadKind, msgs: map[int64]*queued{}, lined: map[int64]bool{},
-		lining: map[int64]bool{}, briefs: map[string]*brief{}}
+	return outbox{leadAgent: lead, leadKind: leadKind, msgs: map[int64]*queued{}, lined: map[int64]int{},
+		lining: map[int64]bool{}, next: map[int64]time.Time{}, briefs: map[string]*brief{}}
 }
 
 // lead is the project's lead agent ("": none configured).
@@ -201,7 +211,7 @@ func (p *proj) foldMsg(r Record) {
 			p.folded.calls[verdictStep(method, m.Call)] = m.Reply
 		}
 		if m.Needs != 0 {
-			p.out.lined[m.Needs] = true
+			p.out.lined[m.Needs]++
 		}
 		if m.Watch != 0 {
 			p.watchEnded(m.Task, m.Watch)
@@ -498,24 +508,46 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 	}
 }
 
-// needsLines queues, once per needs-you fact in force, a line to p's lead naming it and the commands that answer it
-// (T-497: the herdr notification reaches the owner, the lead is the one who acts). A pass claims each fact under mu before it records (the loop's notify and the watchdog's run at once). The message
-// fact carries the needs-you's seq, so a replay finds the line recorded and queues none again. The needs-you of the project's own lines
-// gets none (a lead line waiting would only queue another one).
+// needsLines queues a line to p's lead for each needs-you fact in force naming it and the commands that answer it
+// (T-497: the herdr notification reaches the owner, the lead is the one who acts), and posts the same line again while
+// the needs-you stays in force and unanswered (T-621): 30 min after the first line, then every 60, the line ending in
+// " (again, <its age>)". A pass claims each fact under mu before it records (the loop's notify and the watchdog's run at
+// once). The message fact carries the needs-you's seq, so a replay finds the lines recorded and queues none again; the
+// next repeat's deadline is in memory (outbox.next), recomputed from the fact's time after a restart. The needs-you of
+// the project's own lines gets none (a lead line waiting would only queue another one).
 func (a *App) needsLines() {
 	a.mu.Lock()
 	type todo struct {
-		r   Record
-		ans string // the commands that answer it, in its task's state now
+		r     Record
+		ans   string // the commands that answer it, in its task's state now
+		n     int    // the lines already recorded when the pass claimed it
+		again bool   // a repeat: the line ends in " (again, <age>)"
+		age   time.Duration
 	}
 	var out []todo
 	p := a.p
+	now := a.opt.Now()
 	if p != nil && p.merging && p.out.leadAgent != "" {
 		for _, r := range p.needsYou() {
-			if r.Task != MsgTask && !p.out.lined[r.Seq] && !p.out.lining[r.Seq] {
-				p.out.lining[r.Seq] = true // claimed: a pass running at once (the loop's and the watchdog's) skips it
-				out = append(out, todo{r, p.answerPath(r)})
+			if r.Task == MsgTask || p.out.lining[r.Seq] {
+				continue
 			}
+			n := p.out.lined[r.Seq]
+			if n == 0 { // the first line, right away
+				p.out.lining[r.Seq] = true
+				out = append(out, todo{r: r, ans: p.answerPath(r), n: n})
+				continue
+			}
+			next, ok := p.out.next[r.Seq]
+			if !ok { // a replay: the clock is the needs-you fact's time, and its recorded lines' schedule
+				next = recordTime(r).Add(needsAgain + needsAgainEvery*time.Duration(n-1))
+				p.out.next[r.Seq] = next
+			}
+			if now.Before(next) {
+				continue
+			}
+			p.out.lining[r.Seq] = true
+			out = append(out, todo{r: r, ans: p.answerPath(r), n: n, again: true, age: now.Sub(recordTime(r))})
 		}
 	}
 	a.mu.Unlock()
@@ -531,13 +563,24 @@ func (a *App) needsLines() {
 		if t.ans != "" {
 			line += " → " + t.ans
 		}
+		if t.again {
+			line += " (again, " + Age(t.age) + ")"
+		}
 		m := Message{To: p.out.leadAgent, From: "obor", Line: line, Needs: t.r.Seq}
 		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
 			queued = true
 		}
 		// The claim ends either way: an appended line is in lined (its fold), even when record is false for the lanes
-		// table only (RV-52-verify V1); a refused append leaves it out, so a later pass tries again.
+		// table only (RV-52-verify V1); a refused append leaves it out, so a later pass tries again. Only a line that
+		// landed moves the next repeat's deadline.
 		a.mu.Lock()
+		if p.out.lined[t.r.Seq] > t.n {
+			if t.again {
+				p.out.next[t.r.Seq] = now.Add(needsAgainEvery)
+			} else {
+				p.out.next[t.r.Seq] = now.Add(needsAgain)
+			}
+		}
 		delete(p.out.lining, t.r.Seq)
 		a.mu.Unlock()
 	}
