@@ -8,8 +8,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Handoff (lead; rewrite at each handoff)
 - 2026-10-31 session 13 (in flight): T-596 P7-3 launchd (O-01), T-595 review #1 (S-01), T-597 P7-4 (D-01); queued
   T-598 (#3) after T-595, T-599 (#2, .sid) after T-596, T-600 (#4 step 1, registry) after T-595+T-599. RV-64 (ob-terra) written: #3 → T-601,
-  #4 fixed in RELEASING, #1/#2/#5 accepted. **When T-601 merges: verify #3, #4 in the same ob-terra session.** T-596 merged; serve still in pane w5:p1F: the owner
-  runs the install (classifier refuses the lead's LaunchAgent). Part 3 (token cuts, owner 10-31): T-602 (O-01),
+  #4 fixed in RELEASING, #1/#2/#5 accepted. **When T-601 merges: verify #3, #4 in the same ob-terra session.** T-596 merged; the owner installed serve under launchd. Part 3 (token cuts, owner 10-31): T-602 (O-01),
   T-603 waits for a medium lane, T-604 after T-602.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
@@ -21,8 +20,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   (T-592, re-registered here); Codex smoke T-593 passed (after the tag, see `docs/agents/lead.md` Releases).
 - **How to work now:** push with `OBOR_ALLOW_PUSH=1 git push` (pre-push hook); main is public: every commit is
   published, author email is the noreply. After the re-root, old `task/*` lane branches looked `done` (not reachable
-  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, restart
-  serve in w5:p1F (`timeout 20 herdr pane send-keys w5:p1F C-c`; `herdr pane run w5:p1F "./dist/obor serve"`).
+  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, then
+  `./bin/obor serve restart` (serve runs under launchd since 10-31, `obor.serve.obor-kit`; log `.obor/state/logs/serve.log`).
 - **Owner decisions pending:** LICENSE (none yet: MIT, Apache-2.0 or none); S5a (when a herdr restart is OK).
 - **Next (owner 10-31: start from the architectural review**, `~/Work/obor-kit-wt/review/docs/reviews/architectural-review.md`): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
   `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in
