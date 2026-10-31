@@ -2,13 +2,16 @@ package setup
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/run"
 )
 
 // initArgs parses [--name N] [--prefix P].
@@ -162,6 +165,90 @@ func (s *Setup) gitignore() error {
 		s.say(".gitignore += %s", l)
 	}
 	return nil
+}
+
+// gitInit makes dir a repository when it is in none: branch is branches.main from a config already there, else main
+// (T-629).
+func (s *Setup) gitInit() error {
+	branch := "main"
+	if cfg, err := config.Load(s.Dir); err == nil && cfg.Data.Branches.Main != "" {
+		branch = cfg.Data.Branches.Main
+	}
+	if _, err := project.Git(s.Dir, "init", "-q", "-b", branch); err != nil {
+		return project.Failf("git init -b %s in %s", branch, s.Dir)
+	}
+	s.say("git init -b %s in %s", branch, s.Dir)
+	return nil
+}
+
+// initCommit commits a repository with no commit yet: init's own files as "obor init", the commit the lanes branch from
+// (T-629). A repository with a commit is left as it is. Untracked files init did not write: FAIL, init never commits
+// the user's files. committed is what it committed, nil when it made no commit.
+func (s *Setup) initCommit() (committed []string, err error) {
+	if _, err := project.Git(s.root, "rev-parse", "-q", "--verify", "HEAD"); err == nil {
+		return nil, nil
+	}
+	status, err := project.Git(s.root, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, project.Failf("cannot read git status in %s", s.root)
+	}
+	var other []string
+	for _, e := range strings.Split(status, "\x00") {
+		p, ok := strings.CutPrefix(e, "?? ")
+		if !ok {
+			continue
+		}
+		if s.initFile(p) {
+			committed = append(committed, p)
+		} else {
+			other = append(other, p)
+		}
+	}
+	if len(other) > 0 {
+		branch, _ := project.Git(s.root, "symbolic-ref", "--short", "HEAD")
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			branch = "main"
+		}
+		return nil, project.Failf("%s has no commit yet and %s has files obor did not write: commit what belongs in the "+
+			"project, then obor init again", branch, s.root)
+	}
+	if len(committed) == 0 {
+		return nil, nil
+	}
+	if _, err := project.Git(s.root, append([]string{"add", "--"}, committed...)...); err != nil {
+		return nil, project.Failf("git add %s", strings.Join(committed, " "))
+	}
+	args := append([]string{"-C", s.root, "commit", "-q", "-m", "obor init", "--"}, committed...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cleanup := run.Group(cmd)
+	defer cleanup()
+	if err := cmd.Run(); err != nil {
+		return nil, project.Failf("git commit -m obor init: %s", lastLine(out.String(), err))
+	}
+	return committed, nil
+}
+
+// initFile reports whether p (relative to the root) is a file init writes: its config and .gitignore, its docs.
+func (s *Setup) initFile(p string) bool {
+	switch p {
+	case ".obor/config.json", ".gitignore", "BACKLOG.md", "docs/decisions.md":
+		return true
+	}
+	return strings.HasPrefix(p, s.agentsDir()+"/")
+}
+
+// lastLine is the last non-empty line of out, else err.
+func lastLine(out string, err error) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return l
+		}
+	}
+	return err.Error()
 }
 
 // copyTemplate writes the template file to rel under the root, placeholders filled, unless rel exists. stub: only the

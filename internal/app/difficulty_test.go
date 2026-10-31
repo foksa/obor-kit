@@ -21,6 +21,7 @@ func newLevelRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	edits = append([]func(map[string]any){
 		testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
 		testkit.Set("lane_types.deepseek", map[string]any{"kind": "claude"}),
+		testkit.Set("lanes.O-01", map[string]any{"type": "deepseek", "agent": "pj-o1"}),
 		testkit.Set("lanes.O-02", "sonnet"),
 	}, edits...)
 	r := newDispatchRig(t, edits...)
@@ -67,6 +68,27 @@ func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
 	}
 	if d := r.factData("T-1", app.StepDispatched); d["level"] != "medium" || d["lane"] != "O-02" {
 		t.Errorf("dispatch fact %v, want level medium on O-02", d)
+	}
+}
+
+// T-629: a level whose listed types have no lane falls back to medium's list (sonnet before opus), and the reply says
+// so: simple in a project with opus and sonnet lanes runs on sonnet, never waiting for a deepseek no lane has.
+func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
+	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
+		testkit.Set("lanes.O-02", map[string]any{"type": "sonnet", "agent": "pj-o1"}))
+	r.setLane(func(l *app.Lane) { l.Type = "opus" })
+	r.lanes.mu.Lock()
+	r.lanes.lanes = append(r.lanes.lanes, app.Lane{Name: "O-02", Dir: r.lane, Type: "sonnet", State: "free", Agent: "pj-o1"})
+	r.lanes.mu.Unlock()
+	r.start()
+	r.specLevel("simple") // deepseek and luna: no lane; medium's sonnet is the fallback
+	reply, err := r.dispatchLevel("d1")
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") ||
+		!strings.Contains(reply, "(level simple has no lane: using sonnet)") {
+		t.Fatalf("simple dispatch with no simple lane: %q, %v", reply, err)
+	}
+	if d := r.factData("T-1", app.StepDispatched); d["level"] != "simple" || d["lane"] != "O-02" {
+		t.Errorf("dispatch fact %v, want level simple on O-02", d)
 	}
 }
 

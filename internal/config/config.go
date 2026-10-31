@@ -734,19 +734,58 @@ var DifficultyDefault = map[string][]string{
 }
 
 // DifficultyTypes is the lane types of level in dispatch order: the project's difficulty entry, else the built-in
-// default, without the types the project lacks. ok is false for a level that is none of hard, medium, simple.
+// default, keeping only the types a configured lane has (a type without a lane would wait forever, T-629). A level
+// left with none falls back to the project's other lane types, medium's built-in list before hard's (simple → sonnet
+// before opus; DifficultyLevelTypes is the list before that fallback). ok is false for a level that is none of hard,
+// medium, simple.
 func (c *Config) DifficultyTypes(level string) (types []string, ok bool) {
+	if _, ok := DifficultyDefault[level]; !ok {
+		return nil, false
+	}
+	if types := c.DifficultyLevelTypes(level); len(types) > 0 {
+		return types, true
+	}
+	for _, other := range []string{"medium", "hard"} {
+		if other == level {
+			continue
+		}
+		if types := c.laneTypes(DifficultyDefault[other]); len(types) > 0 {
+			return types, true
+		}
+	}
+	return nil, true
+}
+
+// DifficultyLevelTypes is level's listed types that a configured lane has, in their order: DifficultyTypes before its
+// fallback (dispatch says when it used the fallback). nil for a name that is no level.
+func (c *Config) DifficultyLevelTypes(level string) []string {
 	listed, ok := DifficultyDefault[level]
 	if !ok {
-		return nil, false
+		return nil
 	}
 	if own, set := c.Data.Difficulty[level]; set {
 		listed = own
 	}
+	return c.laneTypes(listed)
+}
+
+// laneTypes keeps the types of listed that at least one configured lane has.
+func (c *Config) laneTypes(listed []string) []string {
+	var out []string
 	for _, t := range listed {
-		if _, known := c.LaneType(t); known {
-			types = append(types, t)
+		if c.hasLaneOfType(t) {
+			out = append(out, t)
 		}
 	}
-	return types, true
+	return out
+}
+
+// hasLaneOfType reports whether a configured lane is of type typ.
+func (c *Config) hasLaneOfType(typ string) bool {
+	for _, k := range c.Data.Lanes.Keys {
+		if c.Data.Lanes.M[k].Type == typ {
+			return true
+		}
+	}
+	return false
 }

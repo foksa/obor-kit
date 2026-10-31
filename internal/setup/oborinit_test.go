@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,7 +102,8 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Fatal("precondition: no config, no herdr plugin")
 	}
 	out := x.init(t)
-	if last(out) != "OK init proj (prefix proj); next: obor lead" {
+	if last(out) != "OK init proj (prefix proj); next: first task for the lead: set up the stack and `commands.check` "+
+		"(lane_setup, lane_ready); until then every gate stops on \"missing command\"" {
 		t.Errorf("last line %q\n%s", last(out), out)
 	}
 	cfg, err := config.Load(x.Root)
@@ -182,6 +184,100 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Errorf("the herdr hint %d times (once, in the summary)", n)
 	}
 	hasNot(t, out, "waiting on", "no trust dialog")
+}
+
+// T-629: obor init in a plain directory (no repository) makes one on branch main, commits its own files as "obor init"
+// and branches the lanes from that commit; a directory the user already made a repository of, with no commit, gets the
+// same first commit; a user's untracked file is a FAIL, never committed; a repository with a commit is left as it is.
+func TestOborInitInAnEmptyDirectory(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	dir := filepath.Join(x.Base, "empty")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("obor init in an empty dir: exit %d\n%s", rc, out)
+	}
+	if got := x.Git(dir, "branch", "--show-current"); got != "main" {
+		t.Errorf("branch %q, want main", got)
+	}
+	if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+		t.Errorf("commits %q, want the one obor_init commit", got)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range []string{"O-01", "S-01"} {
+		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
+			t.Errorf("no worktree for %s: %v", lane, err)
+		}
+	}
+	has(t, out, "git init -b main in "+dir, "the git init line")
+	has(t, out, "committed obor init: ", "the commit line")
+	has(t, out, ".obor/config.json", "the commit's config")
+	has(t, out, ".gitignore", "the commit's .gitignore")
+	has(t, out, "docs/agents/", "the commit's agents dir")
+	hasNot(t, out, "nothing committed", "no uncommitted note after init committed")
+}
+
+func TestOborInitCommitsAnUnbornRepository(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	dir := filepath.Join(x.Base, "unborn")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x.Git(dir, "init", "-q", "-b", "main")
+	out, rc := x.runIn(t, dir, "obor-init")
+	if rc != 0 {
+		t.Fatalf("obor init in an unborn repo: exit %d\n%s", rc, out)
+	}
+	if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
+		t.Errorf("commits %q, want the one obor init commit", got)
+	}
+	hasNot(t, out, "git init -b", "no second git init line")
+	has(t, out, "committed obor init: ", "the commit line")
+}
+
+func TestOborInitRefusesToCommitAUsersFile(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	dir := filepath.Join(x.Base, "mine")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, rc := x.runIn(t, dir, "obor-init")
+	want := "FAIL main has no commit yet and " + dir + " has files obor did not write: commit what belongs in the " +
+		"project, then obor init again"
+	if rc != 1 || last(out) != want {
+		t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), want, out)
+	}
+	if _, err := exec.Command("git", "-C", dir, "rev-parse", "-q", "--verify", "HEAD").Output(); err == nil {
+		t.Error("init made a commit")
+	}
+	if !x.Exists(filepath.Join(dir, "README.md")) || x.Read(filepath.Join(dir, "README.md")) != "mine\n" {
+		t.Error("the user's file was touched")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".obor", "config.json")); err != nil {
+		t.Errorf("the project step did not run before the FAIL: %v", err)
+	}
+}
+
+func TestOborInitLeavesACommittedRepositoryAlone(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	before := x.Git(x.Root, "rev-parse", "HEAD")
+	out := x.init(t)
+	if after := x.Git(x.Root, "rev-parse", "HEAD"); after != before {
+		t.Errorf("HEAD moved %s → %s", before, after)
+	}
+	has(t, out, "nothing committed: review, then commit", "the uncommitted note")
 }
 
 // T-623: obor init installs the git hooks (core.hooksPath at the kit's set), and a rerun says already.
@@ -594,6 +690,9 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	}
 	if stateOf(out, "commands") != "done" {
 		t.Errorf("commands step %q", summary(out, "commands"))
+	}
+	if last(out) != "OK init proj (prefix proj); next: obor lead" {
+		t.Errorf("a detected stack's next line: %q", last(out))
 	}
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"commands", "check"}, "make mine")

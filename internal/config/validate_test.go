@@ -482,23 +482,54 @@ func TestValidateTemplatesAndKitConfig(t *testing.T) {
 	}
 }
 
-// T-538: a level's lane types are the project's difficulty entry, else the built-in default, minus the types the
-// project lacks (the fixture has opus only); a name that is no level has none.
+// T-538/T-629: a level's lane types are the project's difficulty entry, else the built-in default, keeping only the
+// types a configured lane has; a level left with none falls back to medium's list, then hard's. A name that is no
+// level has none.
 func TestDifficultyTypes(t *testing.T) {
-	p := newProject(t)
-	p.Config(set("lane_types.sonnet", map[string]any{"kind": "claude"}),
-		set("lane_types.deepseek", map[string]any{"kind": "claude"}), set("difficulty.simple", []string{"luna", "sonnet"}))
-	c, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
+	types := []edit{
+		set("lane_types.opus", map[string]any{"kind": "claude"}),
+		set("lane_types.sonnet", map[string]any{"kind": "claude"}),
+		set("lane_types.haiku", map[string]any{"kind": "claude"}),
+		set("lane_types.deepseek", map[string]any{"kind": "claude"}),
+		set("lane_types.luna", map[string]any{"kind": "codex"}),
 	}
-	for level, want := range map[string]string{"hard": "opus", "medium": "sonnet,deepseek", "simple": "sonnet"} {
-		got, ok := c.DifficultyTypes(level)
-		if !ok || strings.Join(got, ",") != want {
-			t.Errorf("DifficultyTypes(%q) = %v, %v; want %s", level, got, ok, want)
-		}
-	}
-	if got, ok := c.DifficultyTypes("easy"); ok || got != nil {
-		t.Errorf("DifficultyTypes(easy) = %v, %v; want none", got, ok)
+	for _, c := range []struct {
+		name       string
+		lanes      map[string]any
+		difficulty map[string]any
+		want, own  map[string]string // DifficultyTypes, DifficultyLevelTypes (before the fallback)
+	}{
+		{"claude-only lanes: simple falls back to medium's sonnet", map[string]any{"O-01": "opus", "S-01": "sonnet"}, nil,
+			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"},
+			map[string]string{"hard": "opus", "medium": "sonnet", "simple": ""}},
+		{"a lane of every default type: as listed", map[string]any{"O-01": "opus", "S-01": "sonnet", "T-01": "deepseek",
+			"U-01": "luna"}, nil,
+			map[string]string{"hard": "opus", "medium": "sonnet,deepseek", "simple": "deepseek,luna"},
+			map[string]string{"hard": "opus", "medium": "sonnet,deepseek", "simple": "deepseek,luna"}},
+		{"a level with no lane and no fallback lane: empty", map[string]any{"O-01": "haiku"},
+			map[string]any{"simple": []string{"luna"}},
+			map[string]string{"hard": "", "medium": "", "simple": ""},
+			map[string]string{"hard": "", "medium": "", "simple": ""}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := newProject(t)
+			p.Config(append(types, set("lanes", c.lanes), set("difficulty", c.difficulty))...)
+			cfg, err := config.Load(p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for level, want := range c.want {
+				got, ok := cfg.DifficultyTypes(level)
+				if !ok || strings.Join(got, ",") != want {
+					t.Errorf("DifficultyTypes(%q) = %v, %v; want %s", level, got, ok, want)
+				}
+				if own := strings.Join(cfg.DifficultyLevelTypes(level), ","); own != c.own[level] {
+					t.Errorf("DifficultyLevelTypes(%q) = %q, want %q", level, own, c.own[level])
+				}
+			}
+			if got, ok := cfg.DifficultyTypes("easy"); ok || got != nil {
+				t.Errorf("DifficultyTypes(easy) = %v, %v; want none", got, ok)
+			}
+		})
 	}
 }
