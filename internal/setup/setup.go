@@ -51,11 +51,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"obor/internal/app"
 	"obor/internal/config"
-	"obor/internal/herdr"
 	"obor/internal/project"
 	"obor/internal/roles"
 )
@@ -64,16 +62,14 @@ import (
 // itself, the agents, a new tab, a tab's layout, a split, and the plugin registry; the herdr socket client is it.
 type Herdr interface {
 	app.PaneControl
-	Agents(ctx context.Context) ([]herdr.Agent, error)
-	Layout(ctx context.Context, pane string) ([]herdr.Rect, error)
+	Agents(ctx context.Context) ([]app.AgentInfo, error)
+	Layout(ctx context.Context, pane string) ([]app.Rect, error)
 	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
 	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
-	Plugins(ctx context.Context) ([]herdr.Plugin, error)
+	Plugins(ctx context.Context) ([]app.Plugin, error)
 	LinkPlugin(ctx context.Context, dir string) error
 	UnlinkPlugin(ctx context.Context, id string) error
 }
-
-var _ Herdr = (*herdr.Socket)(nil)
 
 // Setup runs `obor setup` subcommands for the project around Dir.
 type Setup struct {
@@ -85,10 +81,9 @@ type Setup struct {
 	// McpCheck is `obor mcp --check` (the doctor's handshake against the server itself; internal/mcp is an adapter,
 	// so cmd/obor passes it in).
 	McpCheck func(project.Env) (string, error)
-	// Rollout is how long a fresh start looks for its new session's transcript (launch.Launcher.Rollout; 0: its default).
-	Rollout time.Duration
-	// Open is the files processes hold open (launch.Launcher.Open; nil: its default).
-	Open func(pids []int) []string
+	// Starter builds the agent starter for the project's config (cmd/obor passes a launch.Launcher: setup is an
+	// adapter and does not import launch).
+	Starter func(cfg *config.Config) app.Starter
 
 	root    string // the main checkout, once found
 	cfg     *config.Config

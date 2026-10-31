@@ -70,8 +70,10 @@ func Reached(err error) bool {
 	return !errors.As(err, &e) || e.reached
 }
 
-// NotFound and ErrorCode let the core read an *Error without importing herdr (app.NotFound, app.ErrorCode).
+// NotFound, Unavailable and ErrorCode let the core read an *Error without importing herdr (app.NotFound,
+// app.NotRunning, app.ErrorCode).
 func (e *Error) NotFound() bool    { return e.Kind == NotFound }
+func (e *Error) Unavailable() bool { return e.Kind == Unavailable }
 func (e *Error) ErrorCode() string { return e.Code }
 
 func (e *Error) Error() string {
@@ -1108,11 +1110,11 @@ func trimSlash(p string) string {
 	return p
 }
 
-// Rect is a pane's size on screen in cells (pane.layout).
-type Rect struct {
-	Pane string
-	W, H int
-}
+// Rect and Plugin are the core's types (pane.layout, plugin.list), so setup need not import herdr.
+type (
+	Rect   = app.Rect
+	Plugin = app.Plugin
+)
 
 // layoutAnswer is herdr's answer to pane.layout.
 type layoutAnswer struct {
@@ -1134,9 +1136,6 @@ func (r layoutAnswer) rects() []Rect {
 	}
 	return out
 }
-
-// Plugin is one linked herdr plugin (plugin.list): its id and the directory herdr runs it from.
-type Plugin struct{ ID, Root string }
 
 // pluginsAnswer is herdr's answer to plugin.list.
 type pluginsAnswer struct {

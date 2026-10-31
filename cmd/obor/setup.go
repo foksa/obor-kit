@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 
+	"obor/internal/app"
+	"obor/internal/config"
 	"obor/internal/herdr"
+	"obor/internal/launch"
 	"obor/internal/mcp"
 	"obor/internal/project"
 	"obor/internal/setup"
@@ -14,9 +18,23 @@ import (
 // or FAIL … (exit 1).
 func setupCmd(args []string) int {
 	cwd, _ := os.Getwd()
-	s := &setup.Setup{Kit: project.KitRoot(project.OSEnv), Dir: cwd, Env: project.OSEnv,
-		H: &herdr.Socket{Path: herdr.SocketPath(project.OSEnv)}, Out: out, McpCheck: mcp.Check}
+	kit := project.KitRoot(project.OSEnv)
+	h := &herdr.Socket{Path: herdr.SocketPath(project.OSEnv)}
+	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, H: h, Out: out, McpCheck: mcp.Check,
+		Starter: launcherFor(project.OSEnv, kit, h, out, nil)}
 	return s.Run(context.Background(), args)
+}
+
+// launcherFor is how obor setup starts an agent (setup does not import launch): a launch.Launcher for the config it
+// loaded; tune (nil: none) adjusts it.
+func launcherFor(env project.Env, kit string, h app.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) app.Starter {
+	return func(cfg *config.Config) app.Starter {
+		l := &launch.Launcher{Cfg: cfg, Env: env, Kit: kit, H: h, Out: w}
+		if tune != nil {
+			tune(l)
+		}
+		return l
+	}
 }
 
 // migrateCmd is `obor migrate` (P7-0b; until v0.17): the herd → obor move of this project and machine, step by step

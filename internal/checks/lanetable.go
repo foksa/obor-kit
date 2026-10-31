@@ -26,7 +26,6 @@ type LaneStatus struct {
 	DoneAge         *int64 // seconds since the task's task_done was recorded; nil without one
 	Dirty           bool
 	Warning         string // a live warning (agent-blocked …), or ""
-	Op              string // "restart" while a restart of the lane holds its restart lock (project.RestartLock), else ""
 }
 
 // LaneTable is the project's lanes as their worktrees, git and the store's lanes table say, computed once per command.
@@ -55,12 +54,6 @@ func (p *LaneTable) States() []LaneStatus {
 			}()
 		}
 		wg.Wait()
-		// A restart running in the lane (T-192, T-500): its restart lock held.
-		for i, l := range ls {
-			if project.RestartLock(p.Root, l.Name, "").Held() {
-				p.states[i].Op = "restart"
-			}
-		}
 	})
 	return p.states
 }

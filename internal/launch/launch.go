@@ -161,9 +161,6 @@ func ParseRequest(args []string) (Request, error) {
 	return r, nil
 }
 
-// AgentName is what a herdr agent name obor starts must match.
-var AgentName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
-
 func (l *Launcher) say(format string, a ...any) { fmt.Fprintf(l.Out, format+"\n", a...) }
 
 func (l *Launcher) wait() time.Duration {
@@ -316,8 +313,8 @@ func (l *Launcher) ps(args ...string) ([]byte, error) {
 // stopped or typed.
 func (l *Launcher) inProject(ctx context.Context, t *target) error {
 	cwd := t.entry.Cwd
-	if !t.known || cwd == "" || LabelOurs(l.Cfg, t.agent, cwd, "") ||
-		t.info.Cwd != "" && LabelOurs(l.Cfg, t.agent, cwd, t.info.Cwd) {
+	if !t.known || cwd == "" || project.LabelOurs(l.Cfg, t.agent, cwd, "") ||
+		t.info.Cwd != "" && project.LabelOurs(l.Cfg, t.agent, cwd, t.info.Cwd) {
 		return nil
 	}
 	if r, err := project.Find(cwd); err == nil && r.Root == project.Physical(l.Cfg.Root) {
@@ -350,7 +347,7 @@ func (l *Launcher) begin(ctx context.Context, agent, lane string) (func(), error
 	if l.Cfg == nil {
 		return func() {}, nil
 	}
-	lock := project.RestartLock(l.Cfg.Root, lane, agent)
+	lock := RestartLock(l.Cfg.Root, lane, agent)
 	lock.Output = l.Out
 	ok, err := lock.Try()
 	if err == nil && !ok {
@@ -380,7 +377,7 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 // Launch is Restart (app.Agents): its line, and the agent it started there with the session id herdr reported for it
 // (the identity serve records for a later rename, T-418; none for a scheduled restart of the caller's own pane).
 func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error) {
-	if !AgentName.MatchString(req.Agent) {
+	if !config.AgentNameRE.MatchString(req.Agent) {
 		return app.Started{}, project.Failf("bad agent name %q", req.Agent)
 	}
 	if req.Sid != "" && req.Fresh {
@@ -514,9 +511,8 @@ func (l *Launcher) checkTranscript(t *target, sid string) error {
 	return nil
 }
 
-// AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
-// lane ("" for none) and the directory it works in ("" keeps the shell's).
-type AgentEnv struct{ Agent, Role, Lane, Cwd string }
+// AgentEnv is app.AgentEnv.
+type AgentEnv = app.AgentEnv
 
 // SetEnv types the env line of e at pane's shell, as a restart does (obor setup in a pane that already exists: its
 // shell may hold the env of the agent that ran there before).

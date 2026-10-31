@@ -188,12 +188,3 @@ func (l *Lock) Held() bool {
 	defer f.Close()
 	return errors.Is(syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), syscall.EWOULDBLOCK)
 }
-
-// RestartLock is the per-lane restart lock, <state>/restart-<lane>.lock (lane "": the agent's): held while obor stops
-// and starts the lane's agent, so a second restart of the lane waits for the first.
-func RestartLock(root, lane, agent string) *Lock {
-	if lane == "" {
-		lane = agent
-	}
-	return NewLock(filepath.Join(StateDir(root), "restart-"+SafeName(lane)+".lock"))
-}

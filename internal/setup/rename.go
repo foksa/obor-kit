@@ -32,8 +32,8 @@ import (
 	"strconv"
 	"strings"
 
+	"obor/internal/app"
 	"obor/internal/config"
-	"obor/internal/herdr"
 	"obor/internal/project"
 	"obor/internal/roles"
 	"obor/internal/store"
@@ -118,9 +118,8 @@ func (r *renamer) stop(ctx context.Context) error {
 		return project.Failf("%s names pid %d, which still runs: stop that serve, then run obor setup rename again", path, pid)
 	}
 	running, err := r.H.Agents(ctx)
-	var he *herdr.Error
 	switch {
-	case errors.As(err, &he) && he.Kind == herdr.Unavailable: // herdr is not running: no agent either
+	case app.NotRunning(err): // herdr is not running: no agent either
 	case err != nil:
 		return project.Failf("cannot ask herdr for the running agents: %v", err)
 	}
