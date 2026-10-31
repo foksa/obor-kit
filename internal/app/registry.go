@@ -380,7 +380,7 @@ func (r *registry) proof(agent, sid string, pane Pane, named bool) string {
 // started or has lines for, and the labels of mine (so a hand-started pane is named). The start row of an agent the
 // config does not name is no candidate (named): it gives no proof.
 func (a *App) candidates(p *proj, mine []Pane, named func(string) bool) []string {
-	set := map[string]bool{p.lead: true, p.integrator: true}
+	set := map[string]bool{p.out.lead(): true, p.integrator: true}
 	for _, l := range p.lanes {
 		set[l.Agent] = true
 	}
@@ -392,10 +392,10 @@ func (a *App) candidates(p *proj, mine []Pane, named func(string) bool) []string
 			set[agent] = true
 		}
 	}
-	for agent := range p.briefs {
+	for agent := range p.out.allBriefs() {
 		set[agent] = true
 	}
-	for _, q := range p.msgs {
+	for _, q := range p.queuedLines() {
 		set[q.msg.To] = true
 	}
 	for _, pane := range mine {

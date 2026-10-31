@@ -236,7 +236,7 @@ func (a *App) watchLines() {
 	var out []todo
 	a.mu.Lock()
 	p := a.p
-	if p != nil && p.merging && p.lead != "" {
+	if p != nil && p.merging && p.out.lead() != "" {
 		for set, w := range p.watches {
 			if end := p.outcome(set); end != "" && !w.lining {
 				w.lining = true
@@ -248,7 +248,7 @@ func (a *App) watchLines() {
 	sort.Slice(out, func(i, j int) bool { return out[i].w.seq < out[j].w.seq })
 	queued := false
 	for _, t := range out {
-		m := Message{To: p.lead, From: "obor", Line: t.line, Task: t.set, Watch: t.w.seq}
+		m := Message{To: p.out.lead(), From: "obor", Line: t.line, Task: t.set, Watch: t.w.seq}
 		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
 			queued = true
 		}

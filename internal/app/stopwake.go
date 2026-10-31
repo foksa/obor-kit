@@ -147,7 +147,7 @@ func (p *proj) foldWake(r Record) {
 	}
 	if r.Task == MsgTask {
 		_, agent, _ := strings.Cut(strings.TrimPrefix(r.Step, stepContinue), ".")
-		if b := p.briefs[agent]; b != nil && b.stop != nil && b.stop.woke.IsZero() && !recordTime(r).Before(b.stop.at) {
+		if b := p.out.brief(agent); b != nil && b.stop != nil && b.stop.woke.IsZero() && !recordTime(r).Before(b.stop.at) {
 			b.stop.woke = recordTime(r)
 		}
 		return
@@ -182,9 +182,9 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 	}
 	var reads []read
 	a.mu.Lock()
-	for agent, b := range p.briefs {
+	for agent, b := range p.out.allBriefs() {
 		w := a.whereIs(p, agent)
-		if agent == p.lead || w.State != Identified || !turnsRead(w.Pane.Agent) {
+		if agent == p.out.lead() || w.State != Identified || !turnsRead(w.Pane.Agent) {
 			continue
 		}
 		if (b.stop != nil && b.stop.turn != "") || (b.stop == nil && (b.followed || (b.worked && Ready(w.Pane.Status)))) {
@@ -199,7 +199,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 			continue
 		}
 		a.mu.Lock()
-		b := p.briefs[rd.agent]
+		b := p.out.brief(rd.agent)
 		var fact any
 		step := StepStopped
 		_, done := p.calls[verdictStep(MethodStopped, "turn."+t.ID)]
@@ -232,13 +232,13 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	var alarms []Message
 	var shows []*roleStop
 	a.mu.Lock()
-	for agent, b := range p.briefs {
+	for agent, b := range p.out.allBriefs() {
 		s := b.stop
-		if s == nil || agent == p.lead {
+		if s == nil || agent == p.out.lead() {
 			continue
 		}
 		if !s.woke.IsZero() && now.Sub(s.woke) >= wakeAlarm && !s.alarmed {
-			alarms = append(alarms, Message{To: p.lead, From: "obor", Line: s.line + stillStopped, Stop: s.seq})
+			alarms = append(alarms, Message{To: p.out.lead(), From: "obor", Line: s.line + stillStopped, Stop: s.seq})
 		}
 		if s.alarmed && !p.log.Done(alarmKey(s.seq)) {
 			shows = append(shows, &roleStop{seq: s.seq, line: s.line})
@@ -283,7 +283,7 @@ func alarmKey(seq int64) Key {
 
 // roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).
 func (p *proj) roleAlarmed(seq int64) {
-	for _, b := range p.briefs {
+	for _, b := range p.out.allBriefs() {
 		if b.stop != nil && b.stop.seq == seq {
 			b.stop.alarmed = true
 		}

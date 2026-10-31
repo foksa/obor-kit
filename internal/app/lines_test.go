@@ -69,7 +69,7 @@ func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
 	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.lead, Status: "idle"},
+		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:rev", Workspace: "w", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
 	}})
 	return a, p
@@ -120,6 +120,25 @@ func lineTyped(calls []string, kind string) bool {
 	return len(calls) == 1 && strings.HasPrefix(calls[0], want)
 }
 
+// queuedAt is p's undelivered line of fact seq (nil: none), by its outbox's queuedLines.
+func (p *proj) queuedAt(seq int64) *queued {
+	for _, q := range p.queuedLines() {
+		if q.seq == seq {
+			return q
+		}
+	}
+	return nil
+}
+
+// briefCount is the number of p's open briefs, by its outbox's allBriefs.
+func (p *proj) briefCount() int {
+	n := 0
+	for range p.out.allBriefs() {
+		n++
+	}
+	return n
+}
+
 // TestRefusedLineReplay: a line refused before typing stays queued across a restart (orderly and SIGKILL) and is
 // typed once after it, for each kind of line (RV-50 #1).
 func TestRefusedLineReplay(t *testing.T) {
@@ -130,18 +149,18 @@ func TestRefusedLineReplay(t *testing.T) {
 			queueLine(t, a, p, kind, now)
 			l := &linerSpy{refuse: true}
 			a.deliver(context.Background(), p, linerLoop(l))
-			if len(l.calls) != 1 || len(p.msgs) != 1 {
-				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.msgs))
+			if len(l.calls) != 1 || len(p.queuedLines()) != 1 {
+				t.Fatalf("precondition: one refused try of one queued line; calls %v, queued %d", l.calls, len(p.queuedLines()))
 			}
 			b, q := lineReload(t, a, p, &now)
-			if len(q.msgs) != 1 {
-				t.Fatalf("the refused line is not queued after reload: %d", len(q.msgs))
+			if len(q.queuedLines()) != 1 {
+				t.Fatalf("the refused line is not queued after reload: %d", len(q.queuedLines()))
 			}
 			good := &linerSpy{}
 			b.deliver(context.Background(), q, linerLoop(good))
 			b.deliver(context.Background(), q, linerLoop(good))
-			if !lineTyped(good.calls, kind) || len(q.msgs) != 0 {
-				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.msgs))
+			if !lineTyped(good.calls, kind) || len(q.queuedLines()) != 0 {
+				t.Fatalf("after reload: want the %s line typed once, got %v (queued %d)", kind, good.calls, len(q.queuedLines()))
 			}
 			c, s := lineReload(t, b, q, &now)
 			c.deliver(context.Background(), s, linerLoop(good))
@@ -206,8 +225,8 @@ func killedLines(t *testing.T, kind, mode string) []string {
 	now := time.Now()
 	l := &linerSpy{}
 	a, p := lineApp(t, root, &now)
-	if p.lead != "pj-lead" {
-		t.Fatalf("precondition: lead pj-lead, got %s", p.lead)
+	if p.out.lead() != "pj-lead" {
+		t.Fatalf("precondition: lead pj-lead, got %s", p.out.lead())
 	}
 	a.deliver(context.Background(), p, linerLoop(l))
 	a.deliver(context.Background(), p, linerLoop(l))
@@ -276,18 +295,18 @@ func TestBriefCompletionReplay(t *testing.T) {
 			if note != "" {
 				lines = 1
 			}
-			if !p.briefs["pj-rev"].worked || len(l.calls) != lines {
-				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.briefs["pj-rev"].worked, l.calls)
+			if !p.out.brief("pj-rev").worked || len(l.calls) != lines {
+				t.Fatalf("precondition: work seen, no finished line yet; worked %v, calls %v", p.out.brief("pj-rev").worked, l.calls)
 			}
 			b, q := lineReload(t, a, p, &now) // the reviewer idle on reconnect
-			if q.briefs["pj-rev"] == nil || !q.briefs["pj-rev"].worked {
+			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
 			b.deliver(context.Background(), q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
-			if !lineTyped(out.calls, "finished") || len(q.briefs) != 0 {
-				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, len(q.briefs))
+			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
 			}
 		})
 	}
@@ -309,14 +328,14 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	}
 	lineStatus(a, "w:rev", "working", now)
 	a.deliver(context.Background(), p, linerLoop(l))
-	if !p.briefs["pj-rev"].worked {
+	if !p.out.brief("pj-rev").worked {
 		t.Fatal("precondition: the first brief's work is seen")
 	}
 	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "again", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	b, q := lineReload(t, a, p, &now)
-	if br := q.briefs["pj-rev"]; br == nil || br.worked {
+	if br := q.out.brief("pj-rev"); br == nil || br.worked {
 		t.Fatalf("the newer brief is armed by the older one's work: %+v", br)
 	}
 	b.deliver(context.Background(), q, linerLoop(l))
@@ -335,14 +354,14 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.msgs) != 1 {
-		t.Fatalf("precondition: one brief queued, got %d", len(p.msgs))
+	if len(p.queuedLines()) != 1 {
+		t.Fatalf("precondition: one brief queued, got %d", len(p.queuedLines()))
 	}
 	q := p.queuedLines()[0]
 	a.record(p, Record{Task: MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
 		Kind: KindIntent, Class: ClassPrompt}, lineData{To: "pj-rev"})
-	if m := p.msgs[q.seq]; m == nil || !m.typing {
-		t.Fatalf("precondition: the delivery in flight; queued %+v", p.msgs)
+	if m := p.queuedAt(q.seq); m == nil || !m.typing {
+		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
 	}
 	reply, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"})
 	if err != nil {
@@ -351,10 +370,10 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if strings.Contains(reply, "replaces") {
 		t.Errorf("reply %q says it replaced a line whose delivery may have landed", reply)
 	}
-	if m := p.msgs[q.seq]; m == nil || !m.typing {
-		t.Errorf("the in-flight line was superseded: queued %+v", p.msgs)
+	if m := p.queuedAt(q.seq); m == nil || !m.typing {
+		t.Errorf("the in-flight line was superseded: queued %+v", p.queuedLines())
 	}
-	if n := len(p.msgs); n != 2 {
+	if n := len(p.queuedLines()); n != 2 {
 		t.Errorf("queued lines %d, want the in-flight one and the newer brief's", n)
 	}
 	recs, err := ReadLog(p.root)
@@ -411,8 +430,8 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 			if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 				t.Fatal(err)
 			}
-			if len(p.msgs) != 1 {
-				t.Fatalf("precondition: brief A queued, got %d", len(p.msgs))
+			if len(p.queuedLines()) != 1 {
+				t.Fatalf("precondition: brief A queued, got %d", len(p.queuedLines()))
 			}
 			briefed := false
 			p.log.refuse = func(r Record) error { // the crash cut: nothing after the new brief reaches the log
@@ -430,7 +449,7 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 				t.Fatal("precondition: brief B's fact is in the log")
 			}
 			b, q := lineReload(t, a, p, &now)
-			for _, m := range q.msgs {
+			for _, m := range q.queuedLines() {
 				if m.msg.Line == "[obor owner] first" {
 					t.Errorf("brief A is queued again after the restart: %+v", m)
 				}
@@ -554,8 +573,8 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	}
 	a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact}, // A's delivery refused: undelivered again
 		FactData{Machine: Machine, Reason: step + ": refused", Step: step})
-	if len(p.msgs) != 2 || p.msgs[first] == nil || p.msgs[first].typing {
-		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.msgs)
+	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).typing {
+		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
 	}
 	reply, err := a.briefCall(Call{Root: p.root, CallID: "b3", To: "pj-rev", Note: "third", Role: "lead"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 2 undelivered briefs)") {
@@ -684,25 +703,25 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 			l := &linerSpy{}
 			if c.note != "" {
 				a.deliver(context.Background(), p, linerLoop(l)) // the brief's line typed
-				if len(l.calls) != 1 || p.briefs["pj-rev"].worked {
+				if len(l.calls) != 1 || p.out.brief("pj-rev").worked {
 					t.Fatalf("precondition: the line typed, no work seen yet; calls %v", l.calls)
 				}
 			}
 			if c.seen != nil {
 				c.seen(a, p)
 			}
-			if b := p.briefs["pj-rev"]; !b.worked || !b.logged {
+			if b := p.out.brief("pj-rev"); !b.worked || !b.logged {
 				t.Fatalf("the work seen is not in the log once its caller returns: %+v", *b)
 			}
 			b, q := lineReload(t, a, p, &now) // no pass since; the reviewer idle on reconnect
-			if q.briefs["pj-rev"] == nil || !q.briefs["pj-rev"].worked {
+			if q.out.brief("pj-rev") == nil || !q.out.brief("pj-rev").worked {
 				t.Fatal("the brief's observed work is not replayed")
 			}
 			out := &linerSpy{}
 			b.deliver(context.Background(), q, linerLoop(out))
 			b.deliver(context.Background(), q, linerLoop(out))
-			if !lineTyped(out.calls, "finished") || len(q.briefs) != 0 {
-				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, len(q.briefs))
+			if !lineTyped(out.calls, "finished") || q.briefCount() != 0 {
+				t.Fatalf("want one finished line after reload, got %v (open briefs %d)", out.calls, q.briefCount())
 			}
 		})
 	}
@@ -771,14 +790,14 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			queueLine(t, a, p, kind, now)
 			first := &linerSpy{}
 			a.deliver(context.Background(), p, &Loop{Typer: first, Inbox: &inboxSpy{}}) // records the finished line
-			if len(first.calls) != 0 || len(p.msgs) != 1 || !p.queuedLines()[0].lead {
-				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.msgs))
+			if len(first.calls) != 0 || len(p.queuedLines()) != 1 || !p.queuedLines()[0].lead {
+				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.queuedLines()))
 			}
 
 			registerLead(t, p.root, "pj-new-lead")
 			b, q := lineReload(t, a, p, &now)
-			if q.lead != "pj-new-lead" || len(q.msgs) != 1 {
-				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.lead, len(q.msgs))
+			if q.out.lead() != "pj-new-lead" || len(q.queuedLines()) != 1 {
+				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.out.lead(), len(q.queuedLines()))
 			}
 			pane := b.obs["w:lead"].pane
 			pane.Label = "pj-lead" // the old lead's session still open and idle under its old name
@@ -790,18 +809,18 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			b.opt.Inboxed = func(string) (string, bool) { return "", false }
 			lines, posts := &linerSpy{}, &inboxSpy{}
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.msgs) != 1 {
+			if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.queuedLines()) != 1 {
 				t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried, still queued", lines.calls,
-					posts.calls, len(q.msgs))
+					posts.calls, len(q.queuedLines()))
 			}
 
 			b.opt.Inboxed = func(string) (string, bool) { return "", true }
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
 			b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
 			if len(lines.calls) != 0 || len(posts.calls) != 1 || !strings.HasPrefix(posts.calls[0], "pj-lead: [obor") ||
-				len(q.msgs) != 0 {
+				len(q.queuedLines()) != 0 {
 				t.Errorf("inbox recorded: typed %q, posted %q, queued %d; want posted once, never typed", lines.calls,
-					posts.calls, len(q.msgs))
+					posts.calls, len(q.queuedLines()))
 			}
 		})
 	}
@@ -814,14 +833,14 @@ func TestBriefOfAgentSinceLead(t *testing.T) {
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // busy: the brief's line waits
 	queueLine(t, a, p, "brief", now)
-	if len(p.msgs) != 1 || p.queuedLines()[0].lead {
-		t.Fatalf("precondition: one role brief queued; queued %d", len(p.msgs))
+	if len(p.queuedLines()) != 1 || p.queuedLines()[0].lead {
+		t.Fatalf("precondition: one role brief queued; queued %d", len(p.queuedLines()))
 	}
 
 	registerLead(t, p.root, "pj-rev")
 	b, q := lineReload(t, a, p, &now)
-	if q.lead != "pj-rev" || len(q.msgs) != 1 {
-		t.Fatalf("precondition: pj-rev the lead with the brief queued; lead %q, queued %d", q.lead, len(q.msgs))
+	if q.out.lead() != "pj-rev" || len(q.queuedLines()) != 1 {
+		t.Fatalf("precondition: pj-rev the lead with the brief queued; lead %q, queued %d", q.out.lead(), len(q.queuedLines()))
 	}
 	lead := b.obs["w:lead"].pane
 	lead.Label = "pj-lead" // the old lead's pane keeps its label: pj-rev runs in w:rev alone
@@ -832,8 +851,8 @@ func TestBriefOfAgentSinceLead(t *testing.T) {
 	b.opt.Inboxed = func(string) (string, bool) { return "", false }
 	lines, posts := &linerSpy{}, &inboxSpy{}
 	b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-	if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.msgs) != 1 {
-		t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried", lines.calls, posts.calls, len(q.msgs))
+	if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.queuedLines()) != 1 {
+		t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried", lines.calls, posts.calls, len(q.queuedLines()))
 	}
 	b.opt.Inboxed = func(string) (string, bool) { return "", true }
 	b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
