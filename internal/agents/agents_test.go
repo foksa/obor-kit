@@ -92,3 +92,14 @@ func TestResetIn(t *testing.T) {
 		}
 	}
 }
+
+func TestSkills(t *testing.T) {
+	for _, c := range []struct {
+		kind string
+		want bool
+	}{{"claude", true}, {"codex", false}, {"opencode", false}, {"", false}} {
+		if got := agents.Skills(c.kind); got != c.want {
+			t.Errorf("Skills(%q) = %v, want %v", c.kind, got, c.want)
+		}
+	}
+}

@@ -167,7 +167,7 @@ func TestKind(t *testing.T) {
 	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Turns false below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, Inbox: true, Resume: true, Transcript: true}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, Inbox: true, Resume: true, Skills: true, Transcript: true}) {
 		t.Errorf("Caps = %+v", c)
 	}
 }

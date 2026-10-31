@@ -254,7 +254,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 
 	args := lt.LaunchArgs(a.role.Name == "lead")
 	l := &launch.Launcher{Cfg: s.cfg, Env: s.Env, Kit: s.Kit, H: s.H, Out: s.Out, Rollout: s.Rollout, Open: s.Open}
-	err = l.Start(ctx, launch.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane})
+	err = l.Start(ctx, launch.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
+		Prompt: a.role.StartPrompt(lt.Kind)})
 	var se *launch.StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:

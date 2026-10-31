@@ -909,7 +909,7 @@ func TestRoleLeadNewTabGetsRoleAndAgentEnv(t *testing.T) {
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-lead,OBOR_ROLE=lead} focus=false label=lead", "env")
-	has(t, calls, "agent.start args=[--model opus] kind=claude name=pj-lead pane_id=w1:n1", "the agent named as OBOR_AGENT, no Remote Control default (T-280)")
+	has(t, calls, "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named as OBOR_AGENT, no Remote Control default (T-280)")
 }
 
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
@@ -920,7 +920,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 		t.Fatalf("setup role lead: %q", out)
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "agent.start args=[--model opus] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
+	has(t, calls, "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 
@@ -1158,7 +1158,7 @@ func TestLeadMaxCountsTheLeadByItsType(t *testing.T) {
 			if rc != 0 {
 				t.Fatalf("exit %d\n%s", rc, out)
 			}
-			has(t, strings.Join(x.reqs(), "\n"), "agent.start kind=claude name=pj-lead", "started")
+			has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[/obor:lead] kind=claude name=pj-lead", "started")
 		})
 	}
 }
