@@ -58,19 +58,14 @@ is_command() {
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 
-# platform: sets os, arch, ver (the project's obor.version pin, else the kit's VERSION), source and asset.
+# platform: sets os, arch, ver (the kit's VERSION), source and asset.
 platform() {
-  local project pin
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
   case "$os" in darwin|linux) ;; *) return 1 ;; esac
   arch=$(uname -m)
   case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) return 1 ;; esac
   ver=$(cat "$OBOR_PLUGIN_ROOT/VERSION")
   source="kit default"
-  if project=$(main_checkout) && [ -f "$project/.obor/config.json" ]; then
-    pin=$(jq -r '.obor.version // empty' "$project/.obor/config.json" 2> /dev/null || true)
-    if [ -n "$pin" ]; then ver=$pin; source=pinned; fi
-  fi
   asset="obor-$ver-$os-$arch"
 }
 

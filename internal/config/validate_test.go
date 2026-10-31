@@ -102,8 +102,9 @@ func TestValidate(t *testing.T) {
 		{name: "spec keys removed", edits: []edit{set("spec", map[string]any{"files_heading": "Files", "enforce_files": false})},
 			want: []string{"WARN spec.files_heading: no longer used, remove it",
 				"WARN spec.enforce_files: no longer used, remove it"}},
-		// bash config.test.sh case_validate_herd_version_pin
-		{name: "obor.version pin", edits: []edit{set("obor", map[string]any{"version": "0.7.0"})}},
+		// T-597: one kit per machine; a leftover version pin WARNs, never fails.
+		{name: "the version pin is removed", edits: []edit{set("obor", map[string]any{"version": "0.7.0"})},
+			want: []string{"WARN obor: no longer used, remove it"}},
 		// bash config.test.sh case_validate_removed_keys_warn; the keys removed by v0.10.0 are unknown (see
 		// TestRemovedByV010KeysAreUnknown), the rest warn (TestRemovedKeysWithinTwoVersions).
 		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md"),
@@ -257,7 +258,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		edit edit
 		want string
 	}{
-		{set("obor", "0.7.0"), "obor"},
 		{set("commands.lane_ready", 5), "lane_ready"},
 		{set("commands.after_merge", map[string]any{"cmd": "make build", "when": "cmd/**"}), "when"},
 		{set("lane_types", []any{}), "lane_types"},
@@ -356,6 +356,7 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		{"spec.files_heading", set("spec.files_heading", `"Files"`), 13, 15},
 		{"spec.enforce_files", set("spec.enforce_files", false), 13, 15},
 		{"paths.tasks", set("paths.tasks", `"docs/tasks"`), 14, 16},
+		{"obor", set("obor", `{"version": "0.7.0"}`), 17, 19},
 	} {
 		if r.keepUntil != r.removed+2 {
 			t.Errorf("%s: keepUntil v0.%d is not two minors after v0.%d", r.key, r.keepUntil, r.removed)
