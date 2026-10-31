@@ -3,7 +3,8 @@
 //
 //	lane <LANE> <type>  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
 //	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout), leaving
-//	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then).
+//	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
+//	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
 //	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default the tab of
 //	        $HERDR_PANE_ID), or a new tab in the caller's workspace, or an existing shell pane; cwd the lane, env

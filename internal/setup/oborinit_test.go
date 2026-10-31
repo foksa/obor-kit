@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/testkit"
 )
 
 // initFx is a bare project (no config) for obor init: a fake `claude` (and, with codex, a fake `codex`) first on the
@@ -292,6 +294,26 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 				t.Errorf("lanes step %q", summary(out, "lanes"))
 			}
 		}},
+		{"lane_setup changed since it finished: the rerun runs it", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
+					t.Fatalf("precondition: %s's lane_setup ran and left its marker", lane)
+				}
+				os.Remove(filepath.Join(x.LaneDir(lane), "setup-ran"))
+			}
+			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran-again")
+			out := x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if !x.Exists(x.LaneDir(lane) + "/setup-ran-again") {
+					t.Errorf("%s: the rerun did not run the edited lane_setup", lane)
+				}
+			}
+			if stateOf(out, "lanes") != "done" {
+				t.Errorf("lanes step %q", summary(out, "lanes"))
+			}
+		}},
 		{"lane_setup finished last run: the rerun skips it", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
 			x.init(t)
@@ -359,6 +381,44 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			x := newInitFx(t, true)
 			x.init(t)
 			c.run(t, x)
+		})
+	}
+}
+
+// T-618 #3: the marker says a command finished, not just that some lane_setup did: only the command configured now
+// counts, so an edited commands.lane_setup runs again on the next obor init; no marker is never done.
+func TestLaneDoneChecksTheMarkersCommand(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, marker, setup string
+		done                bool
+	}{
+		{"the marker of the command configured now: done", "bun install --frozen-lockfile", "bun install --frozen-lockfile", true},
+		{"another command's marker: not done", "bun install --frozen-lockfile", "pnpm install --frozen-lockfile", false},
+		{"no marker: not done", "", "bun install --frozen-lockfile", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t, testkit.Set("commands.lane_setup", c.setup))
+			dir := x.Lane("O-01", "")
+			if c.marker != "" {
+				x.Write(laneSetupMarker(x.Root, "O-01"), c.marker+"\n")
+				if !x.Exists(laneSetupMarker(x.Root, "O-01")) {
+					t.Fatal("precondition: the marker was written")
+				}
+			}
+			var out bytes.Buffer
+			s := &Setup{Dir: x.Root, Env: x.Env(), H: x.srv.Client(), Out: &out}
+			if err := s.load(); err != nil {
+				t.Fatal(err)
+			}
+			done, err := s.laneDone(context.Background(), "O-01", dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if done != c.done {
+				t.Errorf("laneDone = %v, want %v\n%s", done, c.done, out.String())
+			}
 		})
 	}
 }

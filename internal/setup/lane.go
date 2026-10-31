@@ -82,9 +82,9 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	return nil
 }
 
-// laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: given once commands.lane_setup finished for the lane.
+// laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: the commands.lane_setup that finished for the lane.
 // setup.lane writes the config and the worktree before running it, so on a rerun only this marker tells a finished
-// setup from one that failed (T-613).
+// setup from one that failed (T-613); it holds the command, so an edit to lane_setup does not match it (T-618).
 func laneSetupMarker(root, lane string) string {
 	return filepath.Join(project.StateDir(root), "lanes", lane+".setup")
 }
@@ -103,8 +103,9 @@ func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, ou
 }
 
 // laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun, T-613): dir is a worktree of this
-// repo and commands.lane_ready passes there, or (with none configured) its lane_setup finished the last time. A dir
-// that exists and is not a worktree of this repo is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
+// repo and commands.lane_ready passes there, or (with none configured) its lane_setup finished the last time with the
+// command configured now (an edited lane_setup runs again, T-618). A dir that exists and is not a worktree of this repo
+// is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
 func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return false, nil
@@ -120,11 +121,15 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 		s.say("lane %s: lane_ready fails (%s): running its lane_setup again", lane, c.Cmd)
 		return false, nil
 	}
-	if _, ok := run.Command(s.cfg, "lane_setup"); !ok {
+	c, ok := run.Command(s.cfg, "lane_setup")
+	if !ok {
 		return true, nil
 	}
-	_, err = os.Stat(laneSetupMarker(s.root, lane))
-	return err == nil, nil
+	b, err := os.ReadFile(laneSetupMarker(s.root, lane))
+	if err != nil {
+		return false, nil
+	}
+	return strings.TrimSpace(string(b)) == c.Cmd, nil
 }
 
 // addLane adds lanes.<lane> = type to .obor/config.json (not local.json), uncommitted.
