@@ -19,10 +19,12 @@ import (
 // it. Each test asserts whereIs and the consumer's observable call (the fake Agents' Stop pane, the Prompter/Poster/
 // Liner target, the queued line, the fact written). Rows 12–20 are the transitions RV-53 asks for.
 
-// newIdentHarness is the harness with w1:p1 labelled pj-o-01 on terminal t1 (session s1), the lane row naming
-// pj-o-01, and a shell w1:p2 (terminal t2) in the project's workspace; its log lines in out.
+// newIdentHarness is the harness with w1:p1 labelled pj-o-01 on terminal t1 (session s1), the lane row and the config
+// naming pj-o-01 (lane O-01's worker), and a shell w1:p2 (terminal t2) in the project's workspace; its log lines in
+// out.
 func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","lanes":{"O-01":{"agent":"pj-o-01"}}}`)
 	h.lanes.lanes[0].Agent = "pj-o-01"
 	p := h.pane("w1:p1")
 	p.Label, p.Terminal, p.Session = "pj-o-01", "t1", "s1"
@@ -32,9 +34,13 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	return h, out
 }
 
-// withLead gives pj a lead role (pj-lead) and an integrator (pj-int).
+// withLead gives pj a lead role (pj-lead), an integrator (pj-int) and the configured agent pj-other (agents.pj-other,
+// no lane or role): every name a start row or a recorded session may prove a pane with (T-605), lane O-01's worker
+// pj-o-01 included.
 func (h *harness) withLead() {
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{},"lead":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj",`+
+		`"lanes":{"O-01":{"agent":"pj-o-01"}},"roles":{"integrator":{},"lead":{}},`+
+		`"agents":{"pj-other":{"type":"claude"}}}`)
 }
 
 // sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
@@ -502,18 +508,19 @@ func TestIdentOneLabelProven(t *testing.T) {
 	}
 }
 
-// 17: a start row {w1:p1, t1} whose pane now runs hk-sol's session: pj-o-01 has none (the row retired, logged),
-// hk-sol owns t1; the stop of pj-o-01 signals nothing.
+// 17: a start row {w1:p1, t1} whose pane now runs the integrator's session: pj-o-01 has none (the row retired,
+// logged), pj-int owns t1; the stop of pj-o-01 signals nothing.
 func TestIdentStartRowRetired(t *testing.T) {
 	h, out := newIdentHarness(t)
+	h.withLead()
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	p := h.pane("w1:p1")
-	p.Label, p.Session = "hk-sol", "s9"
-	h.sids(map[string]string{"hk-sol": "s9"})
+	p.Label, p.Session = "pj-int", "s9"
+	h.sids(map[string]string{"pj-int": "s9"})
 	h.connect()
-	eqs(t, h.where("hk-sol"), "identified w1:p1 session", "hk-sol")
+	eqs(t, h.where("pj-int"), "identified w1:p1 session", "pj-int")
 	eqs(t, h.where("pj-o-01"), "unavailable no proof", "pj-o-01")
-	if !strings.Contains(out.String(), "pj-o-01's start row retired: pane w1:p1 runs hk-sol now") {
+	if !strings.Contains(out.String(), "pj-o-01's start row retired: pane w1:p1 runs pj-int now") {
 		t.Errorf("no retire line:\n%s", out)
 	}
 	f := &idAgents{}
@@ -521,6 +528,58 @@ func TestIdentStartRowRetired(t *testing.T) {
 	if err != nil || !strings.HasPrefix(line, "stopped: no agent") || len(f.stops) != 0 {
 		t.Errorf("stop %q (err %v), stops %q; want stopped: no agent, nothing signalled", line, err, f.stops)
 	}
+}
+
+// T-605: an agent the config does not name owns no pane (the lane H-01 case: its worker before the rename, hk-h1,
+// left a start row on the pane D-02 took over).
+
+// T-605 #1: a stale start row of hk-h1 (the config names no such agent) on w1:p1, labelled pj-o-01: the label wins,
+// and the stale row is retired in memory, logged once.
+func TestIdentUnnamedStartRetired(t *testing.T) {
+	h, out := newIdentHarness(t)
+	h.started("hk-h1", "w1:p1", "t1", "")
+	h.connect()
+	eqs(t, h.who("w1:p1"), "pj-o-01", "whoIs(w1:p1)")
+	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "pj-o-01")
+	eqs(t, h.where("hk-h1"), "unavailable no proof", "hk-h1")
+	h.a.mu.Lock()
+	_, kept := h.proj().reg.start("hk-h1")
+	h.a.mu.Unlock()
+	if kept {
+		t.Error("hk-h1's start row kept after the pass")
+	}
+	h.connect()
+	const line = "hk-h1's start row retired: the config names no such agent"
+	if n := strings.Count(out.String(), line); n != 1 {
+		t.Errorf("logged %d times, want once:\n%s", n, out)
+	}
+}
+
+// T-605 #2: nothing else in the ranking changes: a configured agent's start row still beats a label (pj-o-01's start
+// on w1:p1, labelled pj-o-02; both are lane agents of the config).
+func TestIdentNamedStartBeatsLabel(t *testing.T) {
+	h, _ := newIdentHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"),
+		`{"name":"pj","lanes":{"O-01":{"agent":"pj-o-01"},"O-02":{"agent":"pj-o-02"}}}`)
+	h.pane("w1:p1").Label = "pj-o-02"
+	h.started("pj-o-01", "w1:p1", "t1", "")
+	h.connect()
+	eqs(t, h.who("w1:p1"), "pj-o-01", "whoIs(w1:p1)")
+	eqs(t, h.where("pj-o-01"), "identified w1:p1 start", "pj-o-01")
+	eqs(t, h.where("pj-o-02"), "unavailable no proof", "pj-o-02")
+}
+
+// T-605 #3: an unconfigured agent's recorded session gives no session proof either: hk-sol's record is w1:p1's session
+// s1, and it has a brief (a candidate), yet no pane proves it.
+func TestIdentUnnamedSessionNoProof(t *testing.T) {
+	h, _ := newIdentHarness(t)
+	h.pane("w1:p1").Label = ""
+	h.connect()
+	h.sids(map[string]string{"hk-sol": "s1"})
+	h.brief("hk-sol", "")
+	h.connect()
+	eqs(t, h.where("hk-sol"), "unavailable no proof", "hk-sol")
+	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1)")
 }
 
 // 18 (RV-53 #4): replay → brief work: a brief recorded, serve restarts, the first snapshot shows w1:p1 working with
