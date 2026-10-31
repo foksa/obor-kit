@@ -6,6 +6,10 @@ Install (a new machine; re-running is the upgrade):
 curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
+Steps 1–3 run in a scratch worktree at main (`git worktree add --detach <dir> main`), never in the main checkout:
+main keeps marketplace `obor-kit-dev` (RV-64 #4). Afterwards copy `bin/checksums.txt` and `VERSION` to main and commit
+them there; nothing else of the release commit goes to main.
+
 1. Update `VERSION` and `.claude-plugin/plugin.json`'s `version` (the plugin version keys Claude's cache dir, so the two
    must match) and set `.claude-plugin/marketplace.json`'s `name` to `obor-kit` (main's is `obor-kit-dev`, the dev
    checkout's; the release tag ships the name users install, and `make publish` refuses a tag that does not say
