@@ -228,17 +228,17 @@ func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
 	}
 }
 
-// A lane worktree's opencode.json that names another kit's shim (the deleted herd-kit/bin/herd) is pointed at this
-// kit's bin/obor; its other members and a lane without one stay.
+// A lane worktree's opencode.json that names another obor kit's shim is pointed at this kit's bin/obor; its other
+// members and a lane without one stay.
 func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
 	x := renameProject(t)
 	x.stubHerdr(t, "proj")
 	path := filepath.Join(x.LaneDir("L-01"), "opencode.json")
-	x.Write(path, `{"$schema": "https://opencode.ai/config.json", "model": "m/x", "mcp": {"servers": {"herd": {"type": "local", "command": ["/gone/herd-kit/bin/herd", "mcp"]}}}}`+"\n")
+	x.Write(path, `{"$schema": "https://opencode.ai/config.json", "model": "m/x", "mcp": {"servers": {"obor": {"type": "local", "command": ["/gone/obor-kit/bin/obor", "mcp"]}}}}`+"\n")
 	shim := filepath.Join(kit, "bin", "obor")
 	out := x.rename(t)
 	got := x.Read(path)
-	if !strings.Contains(got, `"command": ["`+shim+`", "mcp"]`) || strings.Contains(got, "herd-kit") {
+	if !strings.Contains(got, `"command": ["`+shim+`", "mcp"]`) || strings.Contains(got, "/gone/") {
 		t.Errorf("opencode.json = %s, want the command at %s", got, shim)
 	}
 	if !strings.Contains(got, `"model": "m/x"`) || !strings.Contains(got, `"$schema"`) {

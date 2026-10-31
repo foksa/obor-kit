@@ -125,8 +125,6 @@ func main() {
 		exit(setupCmd(args))
 	case "init":
 		exit(initCmd(args))
-	case "migrate":
-		exit(migrateCmd(args))
 	case "serve":
 		exit(serveCmd(args))
 	case "mcp":
@@ -168,7 +166,6 @@ func load() (*project.Repo, *config.Config, int) {
 // so bin/obor runs a binary for a hook only when it knows it (T-195: a stale dist/obor broke every hook).
 var commands = map[string][]string{
 	"whoami":          nil,
-	"migrate":         nil,
 	"init":            nil,
 	"status":          nil,
 	"config":          {"get", "validate"},

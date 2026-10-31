@@ -469,26 +469,3 @@ func TestTailLinesShortAndEmpty(t *testing.T) {
 		t.Error("a missing file: no error")
 	}
 }
-
-// P7-0a: a pane split before the rename keeps HERD_*; the four identity variables read it after OBOR_*, nothing else
-// does. // until v0.17 (P7-0a fallback)
-func TestEnvGetFallsBackToHerdNames(t *testing.T) {
-	env := func(m map[string]string) Env {
-		return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
-	}
-	old := env(map[string]string{"HERD_ROLE": "lead", "HERD_AGENT": "pj-lead", "HERD_LANE": "O-01",
-		"HERD_STATE_HOME": "/h", "HERD_MERGE": "1"})
-	for k, want := range map[string]string{"OBOR_ROLE": "lead", "OBOR_AGENT": "pj-lead", "OBOR_LANE": "O-01",
-		"OBOR_STATE_HOME": "/h", "OBOR_MERGE": ""} {
-		if got := old.Get(k); got != want {
-			t.Errorf("HERD_ env only: Get(%s) = %q, want %q", k, got, want)
-		}
-	}
-	both := env(map[string]string{"OBOR_ROLE": "worker", "HERD_ROLE": "lead"})
-	if got := both.Get("OBOR_ROLE"); got != "worker" {
-		t.Errorf("both set: Get(OBOR_ROLE) = %q, want the OBOR_ value worker", got)
-	}
-	if got := StateHome(env(map[string]string{"HOME": "/home", "HERD_STATE_HOME": "/old"})); got != "/old" {
-		t.Errorf("StateHome with HERD_STATE_HOME only = %q, want /old", got)
-	}
-}

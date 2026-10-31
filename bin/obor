@@ -130,15 +130,6 @@ in_project() {
   root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ]
 }
 
-# unmigrated_root <event json>: the event's cwd is in a herd-era project (.herd/config.json and no .obor/ in its main
-# checkout); sets $unmigrated to that root. # until v0.17 (P7-0a fallback)
-unmigrated_root() {
-  local cwd
-  cwd=$(jq -r '.cwd // empty' <<< "$1" 2> /dev/null) || return 1
-  [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
-  unmigrated=$(main_checkout "$cwd") && [ -f "$unmigrated/.herd/config.json" ] && [ ! -e "$unmigrated/.obor" ]
-}
-
 # hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; user decision T-201:
 # fail visibly) in an obor project: pre-tool-use denies Bash / Edit / Write / MultiEdit / NotebookEdit with the repair
 # hint, except the command that repairs it (exactly `make -C <kit> build`, or `make build` with cwd = the kit); the
@@ -157,10 +148,6 @@ hook() {
   input=$(cat) || exit 0
   if in_project "$input"; then
     hint="obor: no usable Go binary in $OBOR_PLUGIN_ROOT — run: make -C $OBOR_PLUGIN_ROOT build"
-  elif unmigrated_root "$input"; then # until v0.17 (P7-0a fallback)
-    # The Go loader's line (config.ErrUnmigrated): only pre-tool-use fails closed on it.
-    [ "$name" = pre-tool-use ] || exit 0
-    hint="obor: $unmigrated/.herd/config.json and no .obor/: run obor migrate"
   else
     exit 0
   fi

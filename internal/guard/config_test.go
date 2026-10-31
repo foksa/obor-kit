@@ -141,27 +141,3 @@ func TestHeadlessFormsFromTheBridges(t *testing.T) {
 		t.Errorf("headlessForms = %q", got)
 	}
 }
-
-// P7-0a: a herd-era project (.herd/config.json, no .obor/) fails closed like a config that does not load, its hint
-// `run obor migrate`: no read fallback for .herd/. // until v0.17 (P7-0a fallback)
-func TestHerdProjectWithoutOborFailsClosed(t *testing.T) {
-	t.Parallel()
-	const why = "run obor migrate"
-	f := fixture(t)
-	P, L := f.P, f.L
-	// Precondition: migrated, the same writes are allowed.
-	check(t, f.Project, []tc{
-		edit("worker", L, "Edit", L+"/src/a/x.go", ""),
-		edit("integrator", P, "Edit", P+"/README.md", ""),
-	})
-	if err := os.Rename(f.Path(".obor"), f.Path(".herd")); err != nil {
-		t.Fatal(err)
-	}
-	check(t, f.Project, []tc{
-		edit("worker", L, "Edit", L+"/src/a/x.go", why),
-		bash("worker", L, "git commit -m x", why),
-		edit("integrator", P, "Edit", P+"/README.md", why),
-		edit("-", L, "Edit", L+"/src/a/x.go", why),
-		bash("lead", P, "git push", "git push is blocked"),
-	})
-}

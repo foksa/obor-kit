@@ -140,7 +140,7 @@ const autoContinue = "Your claude.ai usage limit has reset. Continue the task yo
 // the start and its closing tag at the very end). Claude Code 2.1.312 hands the hook no origin field for a subagent's
 // hand-back or another session's message, only the prompt: `<agent-message from=…>` resp.
 // `<cross-session-message from=…>` (T-502, testdata/prompt-*.json). A raw post to the inbox socket (obor's own) comes
-// bare: it passes by its `[obor ` tag (or a `[herd ` one recorded before the rename, until v0.17).
+// bare: it passes by its `[obor ` tag.
 func personTyped(prompt string) bool {
 	const blanks = " \t\n\v\f\r"
 	t := strings.TrimLeft(prompt, blanks)
@@ -153,7 +153,7 @@ func personTyped(prompt string) bool {
 	t = strings.TrimRight(t, blanks)
 	has, ends := strings.HasPrefix, strings.HasSuffix
 	switch {
-	case has(t, "[obor "), has(t, "[herd "), has(t, "/"), has(t, autoContinue): // [herd: until v0.17 (P7-0a fallback)
+	case has(t, "[obor "), has(t, "/"), has(t, autoContinue):
 		return false
 	case has(t, "<task-notification>"):
 		return !ends(t, "</task-notification>")

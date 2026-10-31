@@ -140,18 +140,11 @@ type Env func(key string) (string, bool)
 // OSEnv is the process environment.
 var OSEnv Env = os.LookupEnv
 
-// Get is the value of key, "" when unset. OBOR_ROLE, OBOR_AGENT, OBOR_LANE and OBOR_STATE_HOME fall back to their
-// OBOR_ name: a pane split before the rename keeps that environment until it is restarted.
+// Get is the value of key, "" when unset.
 func (e Env) Get(key string) string {
 	v, _ := e(key)
-	if v == "" && herdEnv[key] { // until v0.17 (P7-0a fallback)
-		v, _ = e("HERD_" + strings.TrimPrefix(key, "OBOR_"))
-	}
 	return v
 }
-
-// herdEnv are the variables Get reads under their old name too. // until v0.17 (P7-0a fallback)
-var herdEnv = map[string]bool{"OBOR_ROLE": true, "OBOR_AGENT": true, "OBOR_LANE": true, "OBOR_STATE_HOME": true}
 
 // Seconds is a whole number of seconds s (def when s is ""); ok false, with def, when s is not one.
 func Seconds(s string, def int) (time.Duration, bool) {

@@ -37,7 +37,7 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
 //	        workspace): see rename.go.
 //
-// migrate (obor migrate, P7-0b): see migrate.go. obor init (P7-2): see oborinit.go.
+// obor init (P7-2): see oborinit.go.
 //
 // Pane and role refuse names that collide between lanes and roles (T-189) before any herdr call or worktree.
 package setup
@@ -48,6 +48,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -87,10 +88,9 @@ type Setup struct {
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
 
-	root    string // the main checkout, once found
-	cfg     *config.Config
-	changed bool // migrate: a step did something
-	wrote   bool // init: a file was created or appended to
+	root  string // the main checkout, once found
+	cfg   *config.Config
+	wrote bool // init: a file was created or appended to
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
@@ -136,8 +136,6 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.mcpCmd(ctx, args)
 	case "rename":
 		err = s.renameCmd(ctx, args)
-	case "migrate": // `obor migrate` (migrate.go); not in Usage: it is no setup subcommand to type
-		err = s.migrate(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {
@@ -157,6 +155,45 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 }
 
 func (s *Setup) say(format string, a ...any) { fmt.Fprintf(s.Out, format+"\n", a...) }
+
+// ok says one step's OK line; already (nothing was left to do) adds the suffix.
+func (s *Setup) ok(step string, already bool, format string, a ...any) {
+	line := fmt.Sprintf(format, a...)
+	if already {
+		line += " (already)"
+	}
+	s.say("OK %s: %s", step, line)
+}
+
+// rel is p relative to the project root (p unchanged when it is not under it).
+func (s *Setup) rel(p string) string {
+	if r, err := filepath.Rel(s.root, p); err == nil {
+		return r
+	}
+	return p
+}
+
+// inProject: cwd is in the main checkout or under the project's lanes dir; a renamed (or moved) lanes dir is the
+// config's.
+func (s *Setup) inProject(cwd string) bool {
+	if cwd == "" || s.cfg == nil {
+		return false
+	}
+	c := project.Physical(cwd)
+	in := func(d string) bool { d = project.Physical(d); return c == d || strings.HasPrefix(c, d+"/") }
+	return in(s.root) || in(config.AbsUnder(s.root, s.cfg.Data.LanesDir))
+}
+
+// lookPath finds name in the directories of the PATH value path.
+func lookPath(path, name string) (string, error) {
+	for _, dir := range filepath.SplitList(path) {
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", exec.ErrNotFound
+}
 
 // findRoot sets the main checkout of the project around Dir.
 func (s *Setup) findRoot() error {

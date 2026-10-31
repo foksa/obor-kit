@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -359,58 +358,4 @@ func TestLaneCommands(t *testing.T) {
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	return lines[len(lines)-1]
-}
-
-// P7-0a: a herd-era project (.herd/config.json, no .obor/): commands exit 1 and the PreToolUse hook denies, each with
-// `run obor migrate`. // until v0.17 (P7-0a fallback)
-func TestHerdProjectWithoutOborSaysMigrate(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	p.Config()
-	if rc, _, stderr := run(t, p.Root, nil, "status"); rc == 1 || strings.Contains(stderr, "migrate") {
-		t.Fatalf("precondition, migrated: status exit %d, %q", rc, stderr)
-	}
-	if err := os.Rename(filepath.Join(p.Root, ".obor"), filepath.Join(p.Root, ".herd")); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{{"status"}, {"whoami"}, {"config", "get", ".prefix"}} {
-		if rc, _, stderr := run(t, p.Root, nil, args...); rc != 1 || !strings.Contains(stderr, "run obor migrate") {
-			t.Errorf("obor %v: exit %d, %q; want 1 and run obor migrate", args, rc, stderr)
-		}
-	}
-	in, _ := json.Marshal(map[string]any{"tool_name": "Edit", "cwd": p.Root,
-		"tool_input": map[string]string{"file_path": filepath.Join(p.Root, "README.md")}})
-	c := exec.Command(herdBin, "hook", "pre-tool-use")
-	c.Dir, c.Stdin, c.Env = p.Root, bytes.NewReader(in), append(os.Environ(), "OBOR_ROLE=integrator")
-	var stderr bytes.Buffer
-	c.Stderr = &stderr
-	if err := c.Run(); err == nil || !strings.Contains(stderr.String(), "run obor migrate") {
-		t.Errorf("pre-tool-use Edit as the integrator: %v, %q; want a deny naming run obor migrate", err, stderr.String())
-	}
-}
-
-// P7-0b: `obor migrate` runs in a herd-era project that fails closed everywhere else, and its first step refuses while
-// a serve holds the flock: nothing is touched. // until v0.17 (P7-0b)
-func TestMigrateRunsInAHerdProjectAndStopsWhileServeRuns(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	p.Config()
-	if err := os.Rename(filepath.Join(p.Root, ".obor"), filepath.Join(p.Root, ".herd")); err != nil {
-		t.Fatal(err)
-	}
-	if rc, _, stderr := run(t, p.Root, nil, "status"); rc != 1 || !strings.Contains(stderr, "run obor migrate") {
-		t.Fatalf("precondition: status exit %d, %q; want the fail-closed hint", rc, stderr)
-	}
-	l := project.NewLock(filepath.Join(p.Root, ".herd", "state", "serve.flock"))
-	if ok, err := l.Try(); !ok || err != nil {
-		t.Fatalf("take the flock: %v %v", ok, err)
-	}
-	defer l.Unlock()
-	rc, stdout, stderr := run(t, p.Root, nil, "migrate")
-	if rc != 1 || !strings.HasPrefix(lastLine(stdout), "FAIL 1 stop: a serve holds ") {
-		t.Errorf("obor migrate: exit %d, stdout %q, stderr %q; want exit 1 and FAIL 1 stop", rc, stdout, stderr)
-	}
-	if _, err := os.Stat(filepath.Join(p.Root, ".herd", "config.json")); err != nil {
-		t.Errorf("config.json moved: %v", err)
-	}
 }

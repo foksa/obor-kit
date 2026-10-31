@@ -137,7 +137,6 @@ func TestPromptCapturedPayloads(t *testing.T) {
 	}{
 		{"prompt-typed.json", true},
 		{"prompt-subagent-handback.json", false},
-		{"prompt-inbox-herd.json", false}, // a herd-era tag: until v0.17 (P7-0a fallback)
 		{"prompt-inbox-obor.json", false},
 		{"prompt-cross-session-message.json", false},
 		{"prompt-inbox-untagged.json", true},
