@@ -58,6 +58,9 @@ func (y *sx) calls() []string { return lines(y.Read(filepath.Join(y.cut, "calls"
 
 var ctx = context.Background()
 
+// kitDir is this checkout: the kit's githooks/ (the project's chained dir runs through them, T-620).
+var kitDir = func() string { d, _ := filepath.Abs("../.."); return d }()
+
 func (y *sx) submit() string {
 	y.t.Helper()
 	sha, err := y.s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1")
@@ -887,5 +890,53 @@ func TestScratchGateKeepsSmallDiff(t *testing.T) {
 	y.eq(c.Diff, "", "a diff over InlineDiff not kept")
 	if c.Patch == "" || c.Stat == "" {
 		t.Errorf("the big candidate lost its patch %q or stat %q", c.Patch, c.Stat)
+	}
+}
+
+// T-622: serve's own commits pass --no-verify. The project's own hooks dir (obor.hooksChain, chained by the kit's
+// commit-msg since T-620) rejects every message, yet submit's commit and the gate's merge commit are made.
+func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	// The kit's commit-msg lives in githooks/chain/ and sources ../_hook (T-623): copy the two files into the same
+	// shape and point core.hooksPath at the chain dir.
+	hooks := filepath.Join(y.Base, "hooks")
+	for _, c := range []struct{ dir, name string }{{"", "_hook"}, {"chain", "commit-msg"}} {
+		b, err := os.ReadFile(filepath.Join(kitDir, "githooks", c.dir, c.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(hooks, c.dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(hooks, c.dir, c.name), b, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	y.Git(y.Root, "config", "core.hooksPath", filepath.Join(hooks, "chain"))
+	y.Git(y.Root, "config", "obor.hooksChain", ".githooks")
+	chained := y.Write(".githooks/commit-msg", "#!/bin/sh\necho 'commit-msg: rejects every message' >&2\nexit 1\n")
+	if err := os.Chmod(chained, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Precondition: a plain commit runs the chained hook and fails.
+	y.Write("probe.txt", "probe\n")
+	y.Git(y.Root, "add", "probe.txt")
+	probe := exec.Command("git", "-C", y.Root, "-c", "user.name=obor test", "-c", "user.email=obor-test@example.invalid",
+		"-c", "commit.gpgsign=false", "commit", "-q", "-m", "T-05: probe")
+	out, err := probe.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "rejects every message") {
+		t.Fatalf("precondition: the chained commit-msg must reject a plain commit: %v\n%s", err, out)
+	}
+	y.Git(y.Root, "reset", "-q")
+
+	sha := y.submit()
+	y.eq(y.Git(y.lane, "log", "-1", "--format=%s"), "T-05: feature", "submit's commit")
+	c := y.green(lane(sha))
+	y.eq(y.Git(y.Root, "log", "-1", "--format=%s", c.SHA), "Merge T-05: feature", "the gate's merge commit")
+	parents := strings.Fields(y.Git(y.Root, "rev-list", "--parents", "-n", "1", c.SHA))
+	if len(parents) != 3 || parents[2] != sha {
+		t.Errorf("the merge commit's parents %q, want the submitted %s on the target", parents, sha)
 	}
 }
