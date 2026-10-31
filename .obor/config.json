@@ -50,7 +50,7 @@
     ],
     "simple": [
       "deepseek",
-      "luna"
+      "sonnet"
     ]
   },
   "protected_files": [
@@ -234,5 +234,9 @@
     "allow_push": [
       "ob-lead"
     ]
+  },
+  "slots": {
+    "max": 1,
+    "cpus": 4
   }
 }
