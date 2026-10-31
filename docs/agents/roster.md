@@ -11,7 +11,7 @@ global across herdr workspaces → prefix `ob-`. Tabs ([lead.md](lead.md)): `lea
 | ob-lead | [lead](lead.md) | Claude Code, Opus, effort medium (`roles.lead`, type `opus`) | lead (w5:p1R) | main checkout `~/Work/obor-kit` |
 | ob-int | [integrator](integrator.md) | Claude Code, Opus, effort medium (`roles.integrator`, type `opus`; was Sonnet — user 2026-10-13: Opus for complex jobs) | roles (w5:pZ) | main checkout |
 | ob-fable | [advisor](advisor.md) | Claude Code, Fable, auto mode — writes only its answer file (`agents.ob-fable`, type `fable`; `obor restart ob-fable` restores it) | roles (w5:p1G) | main checkout |
-| ob-sol | [reviewer](reviewer.md) | Codex `gpt-6.1-sol` high (`sol`; user 2026-10-13: 6.1 is far cheaper than 5.6 — keep it) | roles (w5:pA) | `~/Work/obor-kit-wt/review` (detached) |
+| ob-terra | [reviewer](reviewer.md) | Codex `gpt-6.1-terra` high (`terra`; owner 2026-10-31, was `gpt-6.1-sol`) | roles (w5:pA) | `~/Work/obor-kit-wt/review` (detached) |
 | ob-o-01 | [worker](worker.md) | Claude Code, Opus, effort medium (`opus`) | opus lanes (w5:p2) | `~/Work/obor-kit-wt/O-01` |
 | ob-o-02 | [worker](worker.md) | Claude Code, Opus, effort medium (`opus`) | opus lanes (w5:p5) | `~/Work/obor-kit-wt/O-02` |
 | ob-o-03 | [worker](worker.md) | Claude Code, Opus, effort medium (`opus`) | opus lanes (w5:p8) | `~/Work/obor-kit-wt/O-03` |
