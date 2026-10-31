@@ -299,3 +299,23 @@ func TestOpenQuestionsDecisionOutlivesANewAttempt(t *testing.T) {
 		t.Errorf("the fix job %s does not carry %q:\n%s", jr.Job, want, jr.Text)
 	}
 }
+
+// T-616: an Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever follows.
+func TestOpenQuestionsFirstWord(t *testing.T) {
+	for _, c := range []struct {
+		section string
+		open    bool
+	}{
+		{"none", false}, {"None.", false}, {"none (the lead decided X).", false}, {"None — answered", false},
+		{"n/a", false}, {"-", false}, {"", false}, {"No.", false}, {"no (settled)", false},
+		{"Nonetheless, should X?", true}, {"Should X?", true}, {"no idea whether X", true},
+	} {
+		got := openQuestions("Summary: s\nOpen questions: " + c.section + "\n")
+		if (got != "") != c.open {
+			t.Errorf("section %q: openQuestions = %q, want open=%v", c.section, got, c.open)
+		}
+	}
+	if got := openQuestions("Open questions: Should X?\n"); got != "Should X?" {
+		t.Errorf("a question must come back as its text, got %q", got)
+	}
+}
