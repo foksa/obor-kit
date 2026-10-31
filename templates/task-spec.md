@@ -25,5 +25,5 @@ may still be said in prose above, for planning: nothing reads it. -->
 ## Out of scope
 - <tempting adjacent work that belongs to another task>
 
-## Final message
-Summary / Self-check / Skipped / Open questions — the same text as the `task_done` tool's report.
+## Report
+Summary / Self-check / Skipped / Open questions — the report you pass to `task_done`.

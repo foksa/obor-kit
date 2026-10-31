@@ -820,7 +820,8 @@ func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key,
 	return a.send(ctx, p, fx, mt, key, JobID(job), promptData{Agent: mt.agent}, wakeText, what)
 }
 
-// workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now.
+// workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now: the prompt
+// template, then the worker's role texts (T-603: one read of them instead of two turns).
 func workText(p *proj, mt mtask, kit string) (string, error) {
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
@@ -832,7 +833,52 @@ func workText(p *proj, mt mtask, kit string) (string, error) {
 			lt, _ = cfg.LaneType(l.Type)
 		}
 	}
-	return workerPrompt(cfg, kit, mt.task, lt)
+	text, err := workerPrompt(cfg, kit, mt.task, lt)
+	if err != nil {
+		return "", err
+	}
+	roles, read, err := roleTexts(cfg, kit)
+	if err != nil {
+		return "", err
+	}
+	if len(read) > 0 {
+		text += " Read your role text before you act: " + strings.Join(read, ", ") + " (too large to carry here)."
+	}
+	if roles != "" {
+		text += "\n\n" + roles
+	}
+	return text, nil
+}
+
+// roleTextMax is the largest role text the work job inlines: a bigger one is named for the worker to read, which
+// costs fewer tokens than carrying it in the job.
+const roleTextMax = 12 << 10
+
+// roleFile is one role text of the work job: the line naming it and its path.
+type roleFile struct{ title, path string }
+
+// roleTexts is the work job's role texts as they are now: the obor kit's templates/agents/worker.md and the project's
+// worker doc (<paths.agents>/worker.md) when the main checkout has one. Each comes under a line naming its path; one
+// larger than roleTextMax is not inlined, its path is returned in read instead.
+func roleTexts(cfg *config.Config, kit string) (text string, read []string, err error) {
+	files := []roleFile{{"Your role text", filepath.Join(kit, "templates", "agents", "worker.md")}}
+	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], "worker.md")
+	if _, err := os.Stat(doc); err == nil {
+		files = append(files, roleFile{"This project's worker rules (where they differ from the role text, they win)", doc})
+	}
+	var parts []string
+	for _, f := range files {
+		b, err := os.ReadFile(f.path)
+		if err != nil {
+			return "", nil, fmt.Errorf("cannot read the role text %s", f.path)
+		}
+		if len(b) > roleTextMax {
+			read = append(read, f.path)
+			continue
+		}
+		parts = append(parts, f.title+" ("+f.path+"):\n"+string(b))
+	}
+	return strings.Join(parts, "\n\n"), read, nil
 }
 
 // watchWork is the work job's delivery timer (rows 6–8, under mu): delivered once the worker's job_next fetched it
@@ -849,11 +895,9 @@ func (a *App) watchWork(p *proj, mt mtask) step {
 
 // workerPrompt is the worker prompt, the work job's text job_next hands out: templates/worker-prompt.txt rendered (its
 // lines joined by spaces), the lane type's prompt_extra; no backticks (herdr gotcha). It carries no sender tag of its
-// own. {{base}} is the target branch (branches.main). Placeholders:
+// own. The worker's role texts follow it (workText). {{base}} is the target branch (branches.main). Placeholders:
 //
 //	{{task}} {{base}}
-//	{{kit}}            the obor kit's absolute path (the worker role text is {{kit}}/templates/agents/worker.md)
-//	{{project_doc}}    <paths.agents>/worker.md when the main checkout has one; else every line naming it is dropped
 //	{{done_sections}}  done_file_sections, comma-separated: the sections task_done's report must have
 func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (string, error) {
 	file := filepath.Join(kit, "templates", "worker-prompt.txt")
@@ -861,15 +905,11 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (str
 	if err != nil {
 		return "", fmt.Errorf("cannot read the worker prompt %s", file)
 	}
-	projectDoc := cfg.Data.Paths["agents"] + "/worker.md"
-	if _, err := os.Stat(filepath.Join(cfg.Root, projectDoc)); err != nil {
-		projectDoc = ""
-	}
-	fill := strings.NewReplacer("{{task}}", task, "{{base}}", cfg.Data.Branches.Main, "{{kit}}", kit, "{{project_doc}}", projectDoc,
+	fill := strings.NewReplacer("{{task}}", task, "{{base}}", cfg.Data.Branches.Main,
 		"{{done_sections}}", strings.Join(cfg.Data.DoneFileSections, ", "))
 	var parts []string
 	for _, line := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(line) == "" || (projectDoc == "" && strings.Contains(line, "{{project_doc}}")) {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		parts = append(parts, fill.Replace(line))
