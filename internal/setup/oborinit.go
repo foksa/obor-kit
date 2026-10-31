@@ -12,11 +12,14 @@ package setup
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
 //	lanes      O-01 opus, S-01 sonnet (setup lane); roles.integrator and roles.reviewer keep their type when its
-//	           kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus).
+//	           kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
+//	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
+//	           lane_setup marker) is skipped; one whose lane_setup failed the last time is set up again.
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
-//	events     obor.events linked in herdr (setup herdr-plugin, no question).
+//	events     obor.events linked in herdr (setup herdr-plugin, no question); herdr's plugin list read once, and a
+//	           list error fails the step with herdr's error.
 //	panes      O-01 in a new tab "workers", S-01 and the integrator beside it (the integrator in the caller's tab when
 //	           run in a herdr pane), the reviewer in a new tab "review". A pane held by a trust dialog is listed, not
 //	           fatal: Enter there, then obor init again.
@@ -112,7 +115,11 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		// A configured lane keeps its type (the user may have changed it): only a missing lane gets the default.
 		if have := s.cfg.Data.Lanes.M[l[0]].Type; have != "" {
 			l[1] = have
-			if _, err := os.Stat(filepath.Join(s.cfg.LanesDir(), l[0])); err == nil {
+			done, err := s.laneDone(ctx, l[0], filepath.Join(s.cfg.LanesDir(), l[0]))
+			if err != nil {
+				return err
+			}
+			if done {
 				had = append(had, l[0]+" "+l[1])
 				continue
 			}
@@ -136,11 +143,18 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	add("plugin", state, "%s", what)
 
 	// events
-	linked := s.eventsLinked(ctx)
-	if err := s.events(ctx); err != nil {
+	mine, err := s.pluginDir()
+	if err != nil {
 		return err
 	}
-	add("events", doneOr(!linked), "obor.events linked in herdr (user-global)")
+	plugins, err := s.H.Plugins(ctx)
+	if err != nil {
+		return project.Failf("cannot read herdr's plugin list: %v", err)
+	}
+	if err := s.events(ctx, mine, plugins); err != nil {
+		return err
+	}
+	add("events", doneOr(!eventsLinked(mine, plugins)), "obor.events linked in herdr (user-global)")
 
 	// panes
 	waiting, err := s.initPanes(ctx, add)
@@ -454,23 +468,6 @@ func exitText(err error) string {
 		return "exit " + strconv.Itoa(ee.ExitCode())
 	}
 	return err.Error()
-}
-
-// --- events -----------------------------------------------------------------------------------------------------
-
-// eventsLinked: herdr runs this kit's obor.events.
-func (s *Setup) eventsLinked(ctx context.Context) bool {
-	plugins, err := s.H.Plugins(ctx)
-	if err != nil {
-		return false
-	}
-	mine := project.Physical(filepath.Join(s.Kit, "herdr-plugin"))
-	for _, p := range plugins {
-		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == mine) {
-			return true
-		}
-	}
-	return false
 }
 
 // --- panes ------------------------------------------------------------------------------------------------------

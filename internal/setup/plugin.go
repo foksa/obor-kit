@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"obor/internal/agents"
+	"obor/internal/app"
 	"obor/internal/project"
 )
 
@@ -74,25 +75,39 @@ func (s *Setup) herdrPlugin(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errUsage
 	}
-	if err := s.events(ctx); err != nil {
+	mine, err := s.pluginDir()
+	if err != nil {
+		return err
+	}
+	plugins, err := s.H.Plugins(ctx)
+	if err != nil {
+		return project.Failf("cannot read herdr's plugin list: %v", err)
+	}
+	if err := s.events(ctx, mine, plugins); err != nil {
 		return err
 	}
 	s.say("OK herdr-plugin")
 	return nil
 }
 
-// events: obor.events in herdr, linked from <kit>/herdr-plugin directly (herdr keeps the path resolved at link time,
-// so a symlink in between buys nothing): not linked → link; another kit's copy → re-link. Then herdr's resume setting.
-func (s *Setup) events(ctx context.Context) error {
+// pluginDir is this kit's herdr-plugin: FAIL, after a WARN, when the kit has none.
+func (s *Setup) pluginDir() (string, error) {
 	mine := filepath.Join(s.Kit, "herdr-plugin")
 	if fi, err := os.Stat(filepath.Join(mine, "herdr-plugin.toml")); err != nil || !fi.Mode().IsRegular() {
 		s.say("WARN herdr-plugin: no herdr plugin in %s", mine)
-		return project.Failf("herdr-plugin")
+		return "", project.Failf("herdr-plugin")
 	}
+	return mine, nil
+}
+
+// events: obor.events in herdr, linked from mine (<kit>/herdr-plugin) directly (herdr keeps the path resolved at link
+// time, so a symlink in between buys nothing): not linked → link; another kit's copy → re-link. Then herdr's resume
+// setting. plugins is herdr's plugin list, read once by the caller (T-613 #4: a list error is the step's error, never
+// "linked"); the caller checked the kit has the plugin.
+func (s *Setup) events(ctx context.Context, mine string, plugins []app.Plugin) error {
 	defer s.resumeHint()
-	plugins, err := s.H.Plugins(ctx)
-	if err != nil {
-		s.say("hint: could not read herdr plugin list; if obor.events is not linked (once per user): herdr plugin link %s", mine)
+	if eventsLinked(mine, plugins) {
+		s.say("herdr-plugin: obor.events linked (%s)", mine)
 		return nil
 	}
 	root, linked := "", false
@@ -101,11 +116,7 @@ func (s *Setup) events(ctx context.Context) error {
 			root, linked = p.Root, true
 		}
 	}
-	switch {
-	case linked && (root == "" || project.Physical(root) == project.Physical(mine)):
-		s.say("herdr-plugin: obor.events linked (%s)", mine)
-		return nil
-	case linked:
+	if linked {
 		if err := s.H.UnlinkPlugin(ctx, "obor.events"); err != nil {
 			s.say("WARN herdr-plugin: %v", err)
 			return project.Failf("herdr-plugin")
@@ -121,6 +132,18 @@ func (s *Setup) events(ctx context.Context) error {
 		s.say("herdr-plugin: obor.events linked to %s (user-global: obor restarts its panes after a herdr session restore)", mine)
 	}
 	return nil
+}
+
+// eventsLinked: herdr runs this kit's obor.events (mine is its herdr-plugin dir; a plugin with no root counts: herdr
+// did not say where it is).
+func eventsLinked(mine string, plugins []app.Plugin) bool {
+	physical := project.Physical(mine)
+	for _, p := range plugins {
+		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == physical) {
+			return true
+		}
+	}
+	return false
 }
 
 var resumeRE = regexp.MustCompile(`^\s*resume_agents_on_restore\s*=\s*([^#\s]*)`)

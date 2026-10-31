@@ -1174,8 +1174,10 @@ func TestHerdrPluginLinksTheKitAndHints(t *testing.T) {
 	os.Remove(conf)
 
 	x.srv.Fail("plugin.list", "invalid_request", "boom")
-	has(t, x.ok(t, "herdr-plugin"), "hint: could not read herdr plugin list; if obor.events is not linked (once per user): herdr plugin link "+mine,
-		"no answer from herdr → the command, hedged")
+	x.failing(t, "FAIL cannot read herdr's plugin list: herdr plugin.list: failed: boom (invalid_request)", "herdr-plugin")
+	if len(x.h.Plugins) != 1 || x.h.Plugins[0].Root != mine {
+		t.Errorf("a plugin list error changed herdr's plugins: %v", x.h.Plugins)
+	}
 	x.srv.Clear("plugin.list")
 
 	x.h.Plugins = nil

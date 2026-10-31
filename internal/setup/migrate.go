@@ -534,9 +534,10 @@ func (s *Setup) migrateHerdrPlugin(ctx context.Context) ([]string, error) {
 	}
 	var did []string
 	linked, herd := false, false
+	mine := filepath.Join(s.Kit, "herdr-plugin")
 	for _, p := range plugins {
 		herd = herd || p.ID == "herd.events"
-		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == project.Physical(filepath.Join(s.Kit, "herdr-plugin"))) {
+		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == project.Physical(mine)) {
 			linked = true
 		}
 	}
@@ -544,7 +545,11 @@ func (s *Setup) migrateHerdrPlugin(ctx context.Context) ([]string, error) {
 		var out bytes.Buffer
 		sub := *s
 		sub.Out = &out
-		if err := sub.events(ctx); err != nil {
+		dir, err := sub.pluginDir()
+		if err == nil {
+			err = sub.events(ctx, dir, plugins)
+		}
+		if err != nil {
 			return nil, project.Failf("%s", strings.TrimSpace(out.String()))
 		}
 		did = append(did, "linked obor.events (user-global)")
