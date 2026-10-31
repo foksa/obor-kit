@@ -119,6 +119,9 @@ func (r *serveRig) start() {
 				"GIT_COMMITTER_NAME=obor test", "GIT_COMMITTER_EMAIL=obor-test@example.invalid")
 			s.Out, s.GitAlive = io.Discard, r.alive
 			l.Scratch, l.Agents = wrapped{s, r}, r
+			// No low-disk watch (T-606): it would hold this loop on the host's free space, a gate that runs while
+			// the host is near the 5 GiB bound then fails to start its jobs; the guard has its own tests (internal/app).
+			l.Disk = nil
 			return l, nil
 		}}, panes, laneTable{})
 	ctx, cancel := context.WithCancel(context.Background())
