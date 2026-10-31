@@ -397,7 +397,7 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
 	}, {
-		// bash restart.test.sh case_lead_agent_is_a_role_agent, case_lead_unsets_herd_lane
+		// bash restart.test.sh case_lead_agent_is_a_role_agent, case_lead_unsets_obor_lane
 		name: "a lead is a role agent; OBOR_LANE unset",
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
@@ -407,7 +407,7 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--model opus] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
-		// bash restart.test.sh case_unknown_agent_with_sid_gets_herd_agent_only
+		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
 		name: "unknown agent with a sid: OBOR_AGENT only, no cd, no type args",
 		prep: func(x *fx) {
 			x.record("triage", "sid-t")
@@ -421,7 +421,7 @@ func TestRestartWho(t *testing.T) {
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
 		out:   "warning: pane w1:p8 has no known cwd: recorded session sid-t not checked",
 	}, {
-		// bash restart.test.sh case_triage_gets_herd_agent_only
+		// bash restart.test.sh case_triage_gets_obor_agent_only
 		name: "triage role: its type, cwd root, OBOR_AGENT only",
 		edit: []func(map[string]any){testkit.Set("roles", `{"lead":{"type":"opus"},"triage":{"type":"opus"}}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },

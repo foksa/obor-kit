@@ -59,9 +59,9 @@ function kitRoot() {
   return path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))));
 }
 
-// herdCheckout: the main checkout of the repository at dir when it is an obor checkout (bin/obor and a
-// .claude-plugin/plugin.json named obor: bin/obor's is_herd_checkout), else "".
-function herdCheckout(dir) {
+// oborCheckout: the main checkout of the repository at dir when it is an obor checkout (bin/obor and a
+// .claude-plugin/plugin.json named obor: bin/obor's is_obor_checkout), else "".
+function oborCheckout(dir) {
   try {
     const common = execFileSync("git", ["-C", dir, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
     const main = path.dirname(fs.realpathSync(path.resolve(dir, common)));
@@ -75,7 +75,7 @@ function herdCheckout(dir) {
 // kitFor is the kit whose bin/obor runs for dir: bin/obor's self-hosting rule (T-478), so inside an obor checkout (main
 // or a lane worktree) the MAIN checkout's, never a lane's own build; elsewhere this plugin's kit.
 function kitFor(dir) {
-  return herdCheckout(dir) || kitRoot();
+  return oborCheckout(dir) || kitRoot();
 }
 
 // inProject: a directory at or above dir holds .obor/config.json.

@@ -133,7 +133,7 @@ func TestCounts(t *testing.T) {
 // obor-kit's own config (bash classify.test.sh case_real_valid, case_real_docs): it loads and validates, docs-only
 // merges are partial neutral, Go-only merges are partial go and run check_affected (the same heavy gate on the
 // affected packages, T-347), and every other code path runs the full check.
-func TestHerdKitConfig(t *testing.T) {
+func TestOborKitConfig(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
 	cfg, err := config.Load(repo)

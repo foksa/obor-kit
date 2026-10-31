@@ -46,7 +46,7 @@ func section(text, heading string) []string {
 
 var backticked = regexp.MustCompile("`[^`]*`")
 
-// Match follows herd_glob_match: * and ** both span '/', and **/ also matches zero directories.
+// Match follows obor_glob_match: * and ** both span '/', and **/ also matches zero directories.
 func Match(path, glob string) bool {
 	re, err := compileGlob(glob)
 	return err == nil && re.MatchString(path)

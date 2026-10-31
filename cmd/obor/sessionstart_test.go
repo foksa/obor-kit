@@ -23,7 +23,7 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 		"transcript_path": "/data/opencode/opencode.db", "source": "startup"})
 
 	_, serve := startFakeServe(t, p.Root, app.Status{}, "SESSION pj-o-01 sid-oc", "")
-	if rc, _, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "session-start"); rc != 0 {
+	if rc, _, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start"); rc != 0 {
 		t.Errorf("exit %d, want 0", rc)
 	}
 	calls, _ := serve.requests()
@@ -56,7 +56,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
-	rc, _, stderr, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "session-start")
+	rc, _, stderr, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start")
 	if rc != 0 {
 		t.Errorf("serve down: exit %d, want 0", rc)
 	}
@@ -71,7 +71,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	}
 
 	_, serve := startFakeServe(t, p.Root, app.Status{}, "SESSION pj-o-01 sid-77", "")
-	if rc, _, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "session-start"); rc != 0 {
+	if rc, _, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start"); rc != 0 {
 		t.Errorf("serve up: exit %d, want 0", rc)
 	}
 	calls, _ := serve.requests()

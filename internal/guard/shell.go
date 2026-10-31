@@ -1243,7 +1243,7 @@ func (g *guard) isMain(dir, gitDir, workTree string) bool {
 	return err == nil && r.Top == g.root
 }
 
-// checkPush: a push is allowed only for a non-worker whose agent name (herd_self_agent) is in guards.allow_push.
+// checkPush: a push is allowed only for a non-worker whose agent name (obor_self_agent) is in guards.allow_push.
 func (g *guard) checkPush(what string) {
 	if g.role != "worker" && len(g.allowPush) > 0 {
 		if me := project.SelfAgent(g.cfg, g.detected, g.env); me != "" {

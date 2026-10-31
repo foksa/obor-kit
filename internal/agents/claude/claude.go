@@ -52,7 +52,7 @@ func (kind) Start(in agents.Start) []string {
 	}
 	p := parse(args)
 	out := make([]string, 0, len(args)+4)
-	if p.needsHerd(in.Kit, in.Read) {
+	if p.needsObor(in.Kit, in.Read) {
 		out = append(out, args[:p.strict]...)
 		out = append(out, "--mcp-config", MCPConfig(in.Kit))
 		out = append(out, args[p.strict:]...)
@@ -116,22 +116,22 @@ func parse(a []string) args {
 	return p
 }
 
-// needsHerd: the start is strict, has a kit to name and its configs name no obor server (an explicit one wins).
-func (p args) needsHerd(kit string, read agents.ReadFile) bool {
+// needsObor: the start is strict, has a kit to name and its configs name no obor server (an explicit one wins).
+func (p args) needsObor(kit string, read agents.ReadFile) bool {
 	if kit == "" || p.strict < 0 {
 		return false
 	}
 	for _, value := range p.configs {
-		if namesHerd(value, read) {
+		if namesObor(value, read) {
 			return false
 		}
 	}
 	return true
 }
 
-// namesHerd: value, a --mcp-config value (inline JSON, or the path of a file of it), registers a server named obor.
+// namesObor: value, a --mcp-config value (inline JSON, or the path of a file of it), registers a server named obor.
 // A value that is neither JSON nor a file read can read names none.
-func namesHerd(value string, read agents.ReadFile) bool {
+func namesObor(value string, read agents.ReadFile) bool {
 	b := []byte(value)
 	if !json.Valid(b) {
 		var err error
@@ -178,7 +178,7 @@ func (kind) Install(kit string, _ func(string) string) agents.Install {
 			return "", true, true
 		case kit == "":
 			return StrictFlag + " and no obor kit to point at", false, false
-		case p.needsHerd(kit, read):
+		case p.needsObor(kit, read):
 			return StrictFlag + " hides the plugin manifest's server; obor adds --mcp-config " + MCPConfig(kit), true, false
 		}
 		return "the type's args name an obor server in --mcp-config", true, false

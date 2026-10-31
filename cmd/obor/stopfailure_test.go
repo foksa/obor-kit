@@ -43,7 +43,7 @@ func TestStopFailureHook(t *testing.T) {
 	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
-	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
+	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	ls := logLines()
@@ -53,7 +53,7 @@ func TestStopFailureHook(t *testing.T) {
 	}
 
 	_, serve := startFakeServe(t, p.Root, app.Status{}, "STOPPED pj-o-01 (needs-you T-01)", "")
-	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
+	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve up: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	calls, _ := serve.requests()
@@ -71,13 +71,13 @@ func TestStopFailureHook(t *testing.T) {
 
 	// A refusal: still exit 0, nothing on stdout.
 	startFakeServe(t, p.Root, app.Status{}, "", "stopped: no served project")
-	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
+	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve refusing: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 
 	outside := t.TempDir()
 	event, _ = json.Marshal(map[string]any{"cwd": outside, "error": "rate_limit"})
-	if rc, stdout, stderr, _ := shimRun(t, outside, string(event), env, herdBin, "hook", "stop-failure"); rc != 0 ||
+	if rc, stdout, stderr, _ := shimRun(t, outside, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 ||
 		stdout != "" || stderr != "" {
 		t.Errorf("outside an obor project: exit %d, %q, %q; want silent", rc, stdout, stderr)
 	}
@@ -102,13 +102,13 @@ func TestTurnHooks(t *testing.T) {
 		return string(b)
 	}
 
-	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, herdBin, "hook", "user-prompt-submit"); rc != 0 ||
+	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
 		stdout != "" {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 
 	_, serve := startFakeServe(t, p.Root, app.Status{}, "TURN pj-o-01 (no stop)", "")
-	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, herdBin, "hook", "user-prompt-submit"); rc != 0 ||
+	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
 		stdout != "" {
 		t.Errorf("user-prompt-submit: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
@@ -119,7 +119,7 @@ func TestTurnHooks(t *testing.T) {
 	}
 
 	p.Dispatched("O-01") // a task without task_done: the Stop hook blocks, and tells serve all the same
-	rc, stdout, _, _ := shimRun(t, lane, event("Stop"), worker, herdBin, "hook", "stop")
+	rc, stdout, _, _ := shimRun(t, lane, event("Stop"), worker, oborBin, "hook", "stop")
 	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) {
 		t.Errorf("stop: exit %d, stdout %q; want the block verdict", rc, stdout)
 	}
@@ -128,17 +128,17 @@ func TestTurnHooks(t *testing.T) {
 		t.Fatalf("after stop serve got %v %+v, want a second turn request, its end", serve.methods, calls)
 	}
 
-	shimRun(t, lane, event("SessionStart"), worker, herdBin, "hook", "session-start")
+	shimRun(t, lane, event("SessionStart"), worker, oborBin, "hook", "session-start")
 	lead := []string{"OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), lead, herdBin, "hook", "user-prompt-submit")
-	shimRun(t, p.Root, event("Stop", p.Root), lead, herdBin, "hook", "stop")
+	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), lead, oborBin, "hook", "user-prompt-submit")
+	shimRun(t, p.Root, event("Stop", p.Root), lead, oborBin, "hook", "stop")
 	if calls, _ = serve.requests(); len(calls) != 2 {
 		t.Fatalf("session-start and the lead's hooks sent %v, want none", serve.methods[2:])
 	}
 
 	reviewer := []string{"OBOR_ROLE=reviewer", "OBOR_AGENT=pj-rev"}
-	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), reviewer, herdBin, "hook", "user-prompt-submit")
-	shimRun(t, p.Root, event("Stop", p.Root), reviewer, herdBin, "hook", "stop")
+	shimRun(t, p.Root, event("UserPromptSubmit", p.Root), reviewer, oborBin, "hook", "user-prompt-submit")
+	shimRun(t, p.Root, event("Stop", p.Root), reviewer, oborBin, "hook", "stop")
 	calls, _ = serve.requests()
 	if len(calls) != 4 {
 		t.Fatalf("the reviewer's hooks sent %v, want two turn requests", serve.methods[2:])
@@ -170,7 +170,7 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	run := func(cwd, hook string, event map[string]any) {
 		t.Helper()
 		b, _ := json.Marshal(event)
-		if rc, _, _, _ := shimRun(t, cwd, string(b), env, herdBin, "hook", hook); rc != 0 {
+		if rc, _, _, _ := shimRun(t, cwd, string(b), env, oborBin, "hook", hook); rc != 0 {
 			t.Errorf("%s in %s: exit %d, want 0", hook, cwd, rc)
 		}
 	}

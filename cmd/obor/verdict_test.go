@@ -63,7 +63,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	cmd := exec.Command(herdBin, "serve")
+	cmd := exec.Command(oborBin, "serve")
 	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Env = p.Root, &out, &out, append(os.Environ(), env...)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

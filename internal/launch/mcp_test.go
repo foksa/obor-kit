@@ -23,12 +23,12 @@ const strictMCP = `--mcp-config {"mcpServers":{"obor":{"args":["mcp"],"command":
 // (no second one); a start without the flag is unchanged.
 func TestStartStrictMCPConfig(t *testing.T) {
 	t.Parallel()
-	const herdEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
+	const oborEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
 	types := `{"plain":{"kind":"claude","args":["--model","opus"]},` +
 		`"strict":{"kind":"claude","args":["--model","opus","--strict-mcp-config"]},` +
-		`"mine":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` + jsonStr(herdEntry) + `]},` +
+		`"mine":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` + jsonStr(oborEntry) + `]},` +
 		`"other":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` + jsonStr(otherEntry) + `]}}`
 	for _, c := range []struct {
 		name, typ string
@@ -43,9 +43,9 @@ func TestStartStrictMCPConfig(t *testing.T) {
 		{"strict flag last, a lead without --settings, a wake", "strict", true, true,
 			`--model opus ` + strictMCP + ` --strict-mcp-config -- ` + wake},
 		{"an explicit obor entry wins: no second --mcp-config, a wake", "mine", false, true,
-			`--model opus --strict-mcp-config --mcp-config ` + herdEntry + " " + settings + " -- " + wake},
+			`--model opus --strict-mcp-config --mcp-config ` + oborEntry + " " + settings + " -- " + wake},
 		{"an explicit obor config trailing the args of a lead: the prompt is positional", "mine", true, true,
-			`--model opus --strict-mcp-config --mcp-config ` + herdEntry + " -- " + wake},
+			`--model opus --strict-mcp-config --mcp-config ` + oborEntry + " -- " + wake},
 		{"a config naming no obor server: obor adds its own, a wake", "other", false, true,
 			`--model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " " + settings + " -- " + wake},
 		{"a trailing unrelated config and the generated one, a lead: the prompt is positional", "other", true, true,
@@ -125,9 +125,9 @@ func TestMCPArgs(t *testing.T) {
 func TestRV47ExplicitVariadicConfig(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	herdFile := filepath.Join(dir, "obor.json")
+	oborFile := filepath.Join(dir, "obor.json")
 	otherFile := filepath.Join(dir, "other.json")
-	if err := os.WriteFile(herdFile, []byte(`{"mcpServers":{"obor":{"command":"/x/bin/obor"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(oborFile, []byte(`{"mcpServers":{"obor":{"command":"/x/bin/obor"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(otherFile, []byte(`{"mcpServers":{"other":{"command":"/bin/other"}}}`), 0o644); err != nil {
@@ -143,7 +143,7 @@ func TestRV47ExplicitVariadicConfig(t *testing.T) {
 		want []string
 	}{
 		{"obor in a later inline value", []string{"--mcp-config", other, obor, strict}, nil},
-		{"obor in a later file value", []string{"--mcp-config", otherFile, herdFile, strict}, nil},
+		{"obor in a later file value", []string{"--mcp-config", otherFile, oborFile, strict}, nil},
 		{"obor in a later value after =", []string{"--mcp-config=" + other, obor, strict}, nil},
 		{"obor in a repeated flag", []string{"--mcp-config", other, "--mcp-config", obor, strict}, nil},
 		{"obor in a repeated flag, after =", []string{"--mcp-config=" + other, "--mcp-config=" + obor, strict}, nil},
@@ -164,18 +164,18 @@ func TestRV47ExplicitVariadicConfig(t *testing.T) {
 // entry; the prompt stays the first prompt after the flag.
 func TestRV47StartVariadicConfig(t *testing.T) {
 	t.Parallel()
-	const herdEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
+	const oborEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
 	types := `{"variadic":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` +
-		jsonStr(otherEntry) + `,` + jsonStr(herdEntry) + `]}}`
+		jsonStr(otherEntry) + `,` + jsonStr(oborEntry) + `]}}`
 	x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"variadic"}}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: wake})
 	if !ok {
 		t.Fatalf("start failed:\n%s", out)
 	}
-	want := "--model opus --strict-mcp-config --mcp-config " + otherEntry + " " + herdEntry + " " + settings + " -- " + wake
+	want := "--model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " -- " + wake
 	eq(t, x.startCall(), "agent.start args=["+want+"] kind=claude name=pj-rev pane_id=w1:p7", "agent start")
 	if strings.Contains(x.startCall(), claude.MCPConfig("/kit")) {
 		t.Errorf("obor added a second obor entry: %q", x.startCall())
@@ -191,8 +191,8 @@ func TestStartArgsTable(t *testing.T) {
 	const other = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const prompt = "review the rollout"
 	dir := t.TempDir()
-	herdFile, otherFile := filepath.Join(dir, "obor.json"), filepath.Join(dir, "other.json")
-	for f, body := range map[string]string{herdFile: obor, otherFile: other} {
+	oborFile, otherFile := filepath.Join(dir, "obor.json"), filepath.Join(dir, "other.json")
+	for f, body := range map[string]string{oborFile: obor, otherFile: other} {
 		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -215,8 +215,8 @@ func TestStartArgsTable(t *testing.T) {
 			[]string{strict, cfg, obor, "--", prompt}},
 		{"strict, obor in a later inline value", "claude", []string{cfg, other, obor, strict}, prompt,
 			[]string{cfg, other, obor, strict, "--", prompt}},
-		{"strict, obor in a later file value", "claude", []string{cfg, otherFile, herdFile, strict}, prompt,
-			[]string{cfg, otherFile, herdFile, strict, "--", prompt}},
+		{"strict, obor in a later file value", "claude", []string{cfg, otherFile, oborFile, strict}, prompt,
+			[]string{cfg, otherFile, oborFile, strict, "--", prompt}},
 		{"strict, obor after the = spelling", "claude", []string{cfg + "=" + other, obor, strict}, prompt,
 			[]string{cfg + "=" + other, obor, strict, "--", prompt}},
 		{"strict, obor in a repeated flag", "claude", []string{cfg, other, cfg, obor, strict}, prompt,

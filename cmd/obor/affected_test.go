@@ -71,7 +71,7 @@ func TestAffectedGoCommand(t *testing.T) {
 // this tree's config lists the build and test-support paths T-347 hard-coded. affected.Go on the tree itself, not the
 // binary: the binary reads the main checkout's config (project.Find), which a lane or the merge scratch does not
 // control (T-573: an unmigrated main failed this test). TestAffectedGoCommand covers the command.
-func TestAffectedGoHerdKit(t *testing.T) {
+func TestAffectedGoOborKit(t *testing.T) {
 	t.Parallel()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

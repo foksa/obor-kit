@@ -108,11 +108,11 @@ func TestSetupMCPLane(t *testing.T) {
 // entry is a later value (or a repeated flag) names obor itself: no per-start registration is added.
 func TestRV47SetupMCPLaneVariadic(t *testing.T) {
 	t.Parallel()
-	const herdEntry = `{"mcpServers":{"obor":{"command":"/x/bin/obor"}}}`
+	const oborEntry = `{"mcpServers":{"obor":{"command":"/x/bin/obor"}}}`
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	x := newFx(t, testkit.Set("lane_types", `{
-		"later": {"kind": "claude", "args": ["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`, `+jsonStr(herdEntry)+`]},
-		"repeated": {"kind": "claude", "args": ["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`, "--mcp-config", `+jsonStr(herdEntry)+`]},
+		"later": {"kind": "claude", "args": ["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`, `+jsonStr(oborEntry)+`]},
+		"repeated": {"kind": "claude", "args": ["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`, "--mcp-config", `+jsonStr(oborEntry)+`]},
 		"none": {"kind": "claude", "args": ["--strict-mcp-config", "--mcp-config", `+jsonStr(otherEntry)+`]}}`))
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
 	for _, name := range []string{"later", "repeated"} {

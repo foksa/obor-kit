@@ -331,7 +331,7 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 }
 
 // bash plugin case_session_env_unchanged
-func TestSessionWithHerdAgentIgnoresOtherRecords(t *testing.T) {
+func TestSessionWithOborAgentIgnoresOtherRecords(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	srv, sock := f.serve(t)
 	f.label("w9:p1", "pj-o-01")
@@ -349,7 +349,7 @@ func TestSessionWithHerdAgentIgnoresOtherRecords(t *testing.T) {
 }
 
 // bash plugin case_session_label_check (R-28 §2)
-func TestSessionPaneLabelledHerdAgentWithoutHerdAgent(t *testing.T) {
+func TestSessionPaneLabelledOborAgentWithoutOborAgent(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	srv, sock := f.serve(t)
 	warn := "obor: WARNING: this pane is labelled obor agent pj-o-01 but OBOR_AGENT is unset (herdr restore?) — run obor restart pj-o-01 from another pane"
