@@ -309,18 +309,13 @@ func gateState(kind string) string {
 	return stSubmitted
 }
 
-// unsendable is why the lead cannot send mt back now ("": it can): only a green candidate, an open job
-// (awaiting-accept, resolving) or a needs-you after a red gate or a hold goes back to the worker. A state the loop
+// unsendable is why the lead cannot send mt back now ("": it can): a green candidate, an open job
+// (awaiting-accept, resolving) or a needs-you of any merge-loop cause (T-619) goes back to the worker. A state the loop
 // leaves by itself settles first.
 func (mt *mtask) unsendable() string {
 	switch states[mt.state].send {
 	case sendYes:
 		return ""
-	case sendByCause:
-		if c := mt.needs.Fact().Cause; c == causeRed || c == causeHeld || c == causeOpen {
-			return ""
-		}
-		return fmt.Sprintf("%s is %s (%s): obor resume or obor drop it", mt.task, stNeedsYou, mt.needs.Fact().Reason)
 	case sendSettles:
 		return fmt.Sprintf("%s is %s; retry when it settles", mt.task, mt.state)
 	}
@@ -338,8 +333,10 @@ func (mt *mtask) verdict(method string, v verdictResult) {
 	}
 	if method == MethodSendback && v.Lead {
 		if mt.unsendable() == "" {
+			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the
+			// integrator's sendbacks (T-619).
 			mt.needs = Record{}
-			mt.sendback(v.Note)
+			mt.next(v.Note, false)
 		}
 		return
 	}

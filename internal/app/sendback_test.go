@@ -31,8 +31,8 @@ func (r *concRig) attempt(name, task string) int {
 	return p.folded.loop[task].attempt
 }
 
-// The lead's sendback is serve's own transition (T-410, RV-45 #1): from a green candidate, an open job or a needs-you
-// after a red gate or a hold the task goes back to its worker as the next attempt, its job, candidate and needs-you
+// The lead's sendback is serve's own transition (T-410, RV-45 #1): from a green candidate, an open job or a needs-you of
+// any merge-loop cause (T-619) the task goes back to its worker as the next attempt, its job, candidate and needs-you
 // ended; any other state is refused by name with nothing recorded.
 func TestLeadSendback(t *testing.T) {
 	sub := func(r *concRig) {
@@ -81,7 +81,7 @@ func TestLeadSendback(t *testing.T) {
 			gate(r, outFail)
 			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Lane: "O-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
-		}, stNeedsYou, "", "sendback: T-6 is needs-you (gate: gate fail): obor resume or obor drop it", 1},
+		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"accepted", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
@@ -139,6 +139,101 @@ func TestLeadSendback(t *testing.T) {
 			}
 			if got := p.folded.calls[verdictStep(MethodSendback, "s1")]; got != c.reply {
 				t.Errorf("replay: stored reply %q", got)
+			}
+		})
+	}
+}
+
+// T-619: the lead cannot type a change into the worker's pane. From a needs-you of any merge-loop cause (open questions,
+// sendbacks past K, a red gate) obor sendback ends the hold and starts the next attempt, the worker's fix job carrying
+// the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
+func TestLeadSendbackFromNeedsYou(t *testing.T) {
+	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
+	for _, c := range []struct {
+		name      string
+		cause     string
+		report    string
+		sendbacks int
+	}{
+		{"open questions", causeOpen, full + "\nOpen questions: should it use sqlite?", 0},
+		{"sendbacks", causeSendbacks, full, K},
+		{"red", causeRed, full, K},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, f := seedQuestions(t, c.report)
+			if c.cause == causeOpen {
+				if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
+					t.Fatalf("precondition: T-1 %s; want the open-questions hold", mt.state)
+				}
+			} else {
+				if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
+					t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
+				}
+				h.a.mu.Lock()
+				h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
+				h.a.mu.Unlock()
+				addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: c.cause,
+					Reason: c.cause + ": the integrator's limit"})
+				if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
+					t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
+				}
+			}
+			const why = "use the config store; drop the extra test"
+			reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-lead",
+				Role: "lead", CallID: "s1", Task: "T-1", Note: why})
+			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
+				t.Fatalf("sendback: %q, %v", reply, err)
+			}
+			mt := h.a.p.folded.loop["T-1"]
+			if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != c.sendbacks || mt.needs.Seq != 0 {
+				t.Errorf("after the sendback: T-1 %s, attempt %d, sendbacks %d, needs %d; want working, attempt 2, %d, none",
+					mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq, c.sendbacks)
+			}
+			fixStep(t, h, f)
+			jr := fixJob(t, h)
+			if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, why) {
+				t.Errorf("the fix job %s does not carry the lead's text %q:\n%s", jr.Job, why, jr.Text)
+			}
+		})
+	}
+}
+
+// T-619: K still counts the integrator's sendbacks: one more below K starts the next attempt and increments the count;
+// at K a further sendback goes to the owner, no attempt.
+func TestIntegratorSendbackStillCounts(t *testing.T) {
+	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
+	for _, c := range []struct {
+		name      string
+		sendbacks int
+		state     string
+		attempt   int
+	}{
+		{"below K", K - 1, stWorking, 2},
+		{"at K", K, stFail, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, f := seedQuestions(t, full)
+			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
+				t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
+			}
+			h.a.mu.Lock()
+			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
+			h.a.mu.Unlock()
+			reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+				Role: "integrator", CallID: "s1", Job: "T-1/1/review", Task: "T-1", Note: "fix it"})
+			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1 (job T-1/1/review)") {
+				t.Fatalf("sendback: %q, %v", reply, err)
+			}
+			mt := h.a.p.folded.loop["T-1"]
+			if mt.state != c.state || mt.attempt != c.attempt || mt.sendbacks != K {
+				t.Errorf("after the integrator's sendback: T-1 %s, attempt %d, sendbacks %d; want %s, attempt %d, %d",
+					mt.state, mt.attempt, mt.sendbacks, c.state, c.attempt, K)
+			}
+			if c.state == stFail && mt.cause != causeSendbacks {
+				t.Errorf("at K the cause is %q; want %q (the owner decides)", mt.cause, causeSendbacks)
+			}
+			if n := countStep(t, h, StepFix); n != 0 {
+				t.Errorf("%d fix jobs; want none before the loop sends one", n)
 			}
 		})
 	}

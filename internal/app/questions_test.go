@@ -143,7 +143,8 @@ func TestOpenQuestionsResumeSendsReviewWithDecision(t *testing.T) {
 	}
 }
 
-// The lead's sendback from the hold starts the next attempt: the worker's fix job.
+// The lead's sendback from the hold starts the next attempt: the worker's fix job. It is not a sendback K counts
+// (T-619: only the gate's and the integrator's do).
 func TestOpenQuestionsSendbackStartsNextAttempt(t *testing.T) {
 	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: is this in scope?")
 	if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
@@ -155,7 +156,7 @@ func TestOpenQuestionsSendbackStartsNextAttempt(t *testing.T) {
 		t.Fatalf("sendback: %q, %v", reply, err)
 	}
 	mt := h.a.p.folded.loop["T-1"]
-	if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != 1 || mt.needs.Seq != 0 {
+	if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != 0 || mt.needs.Seq != 0 {
 		t.Errorf("after the sendback: T-1 %s, attempt %d, sendbacks %d, needs %d; want attempt 2 working, no needs-you",
 			mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq)
 	}

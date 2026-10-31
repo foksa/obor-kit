@@ -235,6 +235,6 @@ func TestStateNeedsYouRow40(t *testing.T) {
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, job: "resolve", needs: needsOf(causeHeld)},
 		waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true, cause: causeHeld})
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane")}, waits: true,
-		name: "a step (needs-you)", send: "T-1 is needs-you (lane: why): obor resume or obor drop it", landed: true,
+		name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
 }
