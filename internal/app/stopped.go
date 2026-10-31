@@ -355,26 +355,24 @@ func (a *App) roleTurn(p *proj, c Call) (string, error) {
 }
 
 // stoppedTask is the open task of the worker c names (its lane, else the lane its agent works in) and its watch; ""
-// and nil when it has none (under mu). A task dispatched since the watchdog's last look has no watch yet: the loop's
-// open task stands in, its watch installed as the check would (T-612: a worker may stop before that look).
+// and nil when it has none (under mu). The loop decides which task that is (workerTask): a watch is used only if it is
+// that task's, and a watch of another task on its lane is stale (the lane's old task ended and this one was dispatched
+// since the watchdog's last look, T-617), dropped as the next check would. A task dispatched since that look has no
+// watch yet: one is installed as the check would (T-612: a worker may stop before that look). With no such loop task
+// the watch on c's lane stands.
 func (p *proj) stoppedTask(c Call) (string, *watch) {
-	for _, task := range p.openTasks() {
-		w := p.tasks[task]
-		if (c.Lane != "" && w.lane.Name == c.Lane) || (c.Lane == "" && w.lane.Agent == c.Agent) {
+	if task, lane := p.workerTask(c); task != "" {
+		if w := p.tasks[task]; w != nil && w.lane.Name == lane {
 			return task, w
 		}
-	}
-	for _, task := range p.loopTasks() {
-		mt := p.folded.loop[task]
-		if !mt.awaitsTaskDone() || mt.lane == "" {
-			continue
+		for other, w := range p.tasks {
+			if w.lane.Name == lane {
+				delete(p.tasks, other)
+			}
 		}
-		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) != c.Agent) {
-			continue
-		}
-		l := Lane{Name: mt.lane}
+		l := Lane{Name: lane}
 		for _, row := range p.lanes {
-			if row.Name == mt.lane {
+			if row.Name == lane {
 				l = row
 				break
 			}
@@ -384,7 +382,33 @@ func (p *proj) stoppedTask(c Call) (string, *watch) {
 		p.tasks[task] = w
 		return task, w
 	}
+	for _, task := range p.openTasks() {
+		w := p.tasks[task]
+		if (c.Lane != "" && w.lane.Name == c.Lane) || (c.Lane == "" && w.lane.Agent == c.Agent) {
+			return task, w
+		}
+	}
 	return "", nil
+}
+
+// workerTask is the current task of the worker c names and its lane, as the loop holds it (under mu): the task whose
+// attempt awaits its worker's task_done on c's lane, else on the lane its agent works in; "" when none does. Of two
+// such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
+func (p *proj) workerTask(c Call) (task, lane string) {
+	var newest int64
+	for _, t := range p.loopTasks() {
+		mt := p.folded.loop[t]
+		if !mt.awaitsTaskDone() || mt.lane == "" {
+			continue
+		}
+		if (c.Lane != "" && mt.lane != c.Lane) || (c.Lane == "" && p.laneAgent(mt.lane) != c.Agent) {
+			continue
+		}
+		if task == "" || mt.dispSeq > newest {
+			task, lane, newest = t, mt.lane, mt.dispSeq
+		}
+	}
+	return task, lane
 }
 
 // isStop: the fact f is a worker's stop (needs-you, cause stopped).
