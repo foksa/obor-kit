@@ -339,6 +339,14 @@ attempt. So `DROPPED` is true once it is returned, whatever was decided before. 
 request lock is held across a wait for external work. `obor drop` is wholly serve's (T-439): the mark holds while the
 lane is given back (`LaneSetup.Free`, the worker stop), outside the verdict lock; a refused lane clears the mark.
 
+## Folded vs live (T-615)
+`proj` holds two kinds of state. **Folded**: what a replay of the event log alone rebuilds (`proj.folded`, plus the
+parts `registry`, `outbox` and `nightlyState` declare as theirs); only folds write it, live code reads it. **Live**:
+the rest (timers, the scratch token, held steps, refused-dispatch lines), started afresh by a restart. A fold may
+only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). Two named exceptions
+(`internal/app/app.go`): `setLanes` ends `active`/`woke` from a lanes read, and `lr`'s write state / a watch's
+`lining` claim.
+
 ## Not recorded (rebuilt on replay)
 
 - **herdr**: status, pane ids, who holds which pane — `session.snapshot` on connect and after each `events_lost`.
@@ -346,4 +354,7 @@ lane is given back (`LaneSetup.Free`, the worker stop), outside the verdict lock
 - **Watchdog timers**, **check output** (files on disk), **activity** (read live before any prompt).
 - **A `job_next` reply** after the first fetch: in memory only, so a repeated call id after a restart is answered
   afresh.
+- **In-memory waits and claims**: the integrator's idle wait before a fresh start (`idleWait`, T-602/T-606), a
+  needs-you's repeat deadline (row 47, T-621), a waiting task's last refusal (`waitLine`), a lane without a pane
+  (`nopane`), the outbox's `lining` claim.
 
