@@ -1,0 +1,223 @@
+// Package service is the launchd adapter (T-596, phase 7 advice §2): one LaunchAgent per project runs its obor
+// serve, so serve outlives the pane (and herdr) it was typed in. Darwin only; elsewhere every verb says to run
+// obor serve yourself.
+package service
+
+import (
+	"bytes"
+	"context"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Elsewhere is every verb's line off darwin (exit 0: nothing to do there yet).
+const Elsewhere = "run `obor serve` yourself (systemd --user later)"
+
+// Service is one project's LaunchAgent.
+type Service struct {
+	Name  string // the project's config name: the label is obor.serve.<Name>
+	Root  string // the project's main checkout: the agent's WorkingDirectory
+	Kit   string // the obor kit: the agent runs <Kit>/bin/obor serve
+	Home  string // the user's home: the plist is in <Home>/Library/LaunchAgents
+	UID   int    // the gui/<uid> domain
+	GOOS  string // runtime.GOOS: launchd only on darwin
+	Path  string // the caller's PATH (launchd's own has no claude, codex, herdr or jq)
+	Herdr string // HERDR_SOCKET_PATH ("": unset, not written)
+}
+
+// Supported: launchd is there (darwin).
+func (s Service) Supported() bool { return s.GOOS == "darwin" }
+
+// Label is the agent's launchd label.
+func (s Service) Label() string { return "obor.serve." + s.Name }
+
+// PlistPath is the agent's plist: ~/Library/LaunchAgents/<label>.plist.
+func (s Service) PlistPath() string {
+	return filepath.Join(s.Home, "Library", "LaunchAgents", s.Label()+".plist")
+}
+
+// LogPath is where the agent's serve writes (stdout and stderr): .obor/state/logs/serve.log, by the check logs.
+func (s Service) LogPath() string {
+	return filepath.Join(s.Root, ".obor", "state", "logs", "serve.log")
+}
+
+func (s Service) target() string { return fmt.Sprintf("gui/%d/%s", s.UID, s.Label()) }
+
+// Plist is the agent's plist: obor serve in the project, started at load, kept alive, its output in LogPath, the
+// caller's PATH (and HERDR_SOCKET_PATH when set).
+func (s Service) Plist() []byte {
+	var b bytes.Buffer
+	str := func(indent, v string) { fmt.Fprintf(&b, "%s<string>%s</string>\n", indent, esc(v)) }
+	key := func(indent, k string) { fmt.Fprintf(&b, "%s<key>%s</key>\n", indent, k) }
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+`)
+	key("\t", "Label")
+	str("\t", s.Label())
+	key("\t", "ProgramArguments")
+	b.WriteString("\t<array>\n")
+	str("\t\t", filepath.Join(s.Kit, "bin", "obor"))
+	str("\t\t", "serve")
+	b.WriteString("\t</array>\n")
+	key("\t", "WorkingDirectory")
+	str("\t", s.Root)
+	key("\t", "RunAtLoad")
+	b.WriteString("\t<true/>\n")
+	key("\t", "KeepAlive")
+	b.WriteString("\t<true/>\n")
+	key("\t", "StandardOutPath")
+	str("\t", s.LogPath())
+	key("\t", "StandardErrorPath")
+	str("\t", s.LogPath())
+	key("\t", "EnvironmentVariables")
+	b.WriteString("\t<dict>\n")
+	key("\t\t", "PATH")
+	str("\t\t", s.Path)
+	if s.Herdr != "" {
+		key("\t\t", "HERDR_SOCKET_PATH")
+		str("\t\t", s.Herdr)
+	}
+	b.WriteString("\t</dict>\n</dict>\n</plist>\n")
+	return b.Bytes()
+}
+
+func esc(v string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(v))
+	return b.String()
+}
+
+var workDir = regexp.MustCompile(`<key>WorkingDirectory</key>\s*<string>([^<]*)</string>`)
+
+// installedRoot is the WorkingDirectory of the plist at path ("" with no plist; an error when it has none).
+func installedRoot(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	m := workDir.FindSubmatch(b)
+	if m == nil {
+		return "", fmt.Errorf("%s names no WorkingDirectory", path)
+	}
+	var v struct {
+		S string `xml:",chardata"`
+	}
+	if err := xml.Unmarshal([]byte("<s>"+string(m[1])+"</s>"), &v); err != nil {
+		return "", err
+	}
+	return v.S, nil
+}
+
+// Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
+// new plist). FAIL when a plist of this label runs serve for another project (two projects of one name).
+func (s Service) Install(ctx context.Context) (string, error) {
+	if !s.Supported() {
+		return Elsewhere, nil
+	}
+	if s.Name == "" {
+		return "", errors.New("the project has no name")
+	}
+	plist := s.PlistPath()
+	switch other, err := installedRoot(plist); {
+	case err != nil:
+		return "", err
+	case other != "" && filepath.Clean(other) != filepath.Clean(s.Root):
+		return "", fmt.Errorf("%s runs obor serve for %s, not %s: two projects named %q (rename one: config name)",
+			plist, other, s.Root, s.Name)
+	}
+	for _, dir := range []string{filepath.Dir(plist), filepath.Dir(s.LogPath())} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(plist, s.Plist(), 0o644); err != nil {
+		return "", err
+	}
+	if _, loaded := s.PID(ctx); loaded {
+		if _, err := launchctl(ctx, "bootout", s.target()); err != nil {
+			return "", err
+		}
+	}
+	if _, err := launchctl(ctx, "bootstrap", fmt.Sprintf("gui/%d", s.UID), plist); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("INSTALLED %s (%s; log %s)", s.Label(), plist, s.LogPath()), nil
+}
+
+// Uninstall unloads the agent (bootout, which stops its serve) and removes its plist.
+func (s Service) Uninstall(ctx context.Context) (string, error) {
+	if !s.Supported() {
+		return Elsewhere, nil
+	}
+	plist := s.PlistPath()
+	_, statErr := os.Stat(plist)
+	_, loaded := s.PID(ctx)
+	if !loaded && errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Sprintf("%s is not installed", s.Label()), nil
+	}
+	if loaded {
+		if _, err := launchctl(ctx, "bootout", s.target()); err != nil {
+			return "", err
+		}
+	}
+	if err := os.Remove(plist); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return "UNINSTALLED " + s.Label(), nil
+}
+
+// Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over.
+func (s Service) Restart(ctx context.Context) (string, error) {
+	if !s.Supported() {
+		return Elsewhere, nil
+	}
+	if _, loaded := s.PID(ctx); !loaded {
+		return "", fmt.Errorf("%s is not installed (obor serve install)", s.Label())
+	}
+	if _, err := launchctl(ctx, "kickstart", "-k", s.target()); err != nil {
+		return "", err
+	}
+	return "RESTARTED " + s.Label(), nil
+}
+
+var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)\s*$`)
+
+// PID is the agent's process (launchctl print): loaded says launchd knows the label (print exits 113 for one it
+// does not), pid its running process (0: none now). Off darwin: not loaded.
+func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
+	if !s.Supported() {
+		return 0, false
+	}
+	out, err := launchctl(ctx, "print", s.target())
+	if err != nil {
+		return 0, false
+	}
+	if m := pidLine.FindStringSubmatch(out); m != nil {
+		pid, _ = strconv.Atoi(m[1])
+	}
+	return pid, true
+}
+
+// launchctl runs launchctl (from PATH) under a timeout; its error carries its output.
+func launchctl(ctx context.Context, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("launchctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}

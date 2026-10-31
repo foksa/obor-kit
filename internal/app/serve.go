@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -23,6 +24,9 @@ func New(opt Options, panes Panes, lanes Lanes) *App {
 	}
 	if opt.Retry <= 0 {
 		opt.Retry = 2 * time.Second
+	}
+	if opt.RetryMax < opt.Retry {
+		opt.RetryMax = max(5*time.Second, opt.Retry)
 	}
 	if opt.Now == nil {
 		opt.Now = time.Now
@@ -46,8 +50,11 @@ func (a *App) logf(format string, args ...any) {
 
 // Serve runs until ctx ends: it loads the project at Options.Root (replaying its log), subscribes to herdr, works
 // from the stream's snapshot, and subscribes again whenever the stream ends; the watchdogs look every Tick, and each
-// look wakes the merge loop (its own goroutine: a gate takes minutes). It returns once the merge loop has stopped and
-// the socket requests in progress, canceled, have ended (their process groups cleaned up).
+// look wakes the merge loop (its own goroutine: a gate takes minutes). Herdr down (at the start, or its socket gone
+// under the stream) never ends it (T-596): one line when herdr goes away, subscribes again with a backoff (Retry
+// doubling up to RetryMax), one line when it is back, then it works from the fresh snapshot; the socket requests
+// and the merge loop's goroutine go on meanwhile. It returns once the merge loop has stopped and the socket requests
+// in progress, canceled, have ended (their process groups cleaned up).
 func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
@@ -61,25 +68,53 @@ func (a *App) Serve(ctx context.Context) error {
 		}()
 		defer wg.Wait()
 	}
+	wait, down := a.opt.Retry, false
+	var ended error // the last stream's end, not logged yet (nil: none, or a refresh)
 	for ctx.Err() == nil {
 		a.loadProject()
 		st, err := a.panes.Subscribe(ctx)
 		if err != nil {
-			a.logf("herdr: %v; again in %s", err, a.opt.Retry)
+			if ctx.Err() != nil {
+				break
+			}
+			if !down {
+				down = true
+				if ended != nil {
+					a.logf("herdr: gone (stream ended: %v; subscribe: %v); waiting for it, retrying up to every %s",
+						ended, err, a.opt.RetryMax)
+				} else {
+					a.logf("herdr: gone (%v); waiting for it, retrying up to every %s", err, a.opt.RetryMax)
+				}
+			}
+			ended = nil
 			select {
 			case <-ctx.Done():
-			case <-time.After(a.opt.Retry):
+			case <-time.After(wait):
 			}
+			wait = min(2*wait, a.opt.RetryMax)
 			continue
 		}
+		switch {
+		case down:
+			a.logf("herdr: back")
+		case ended != nil:
+			a.logf("herdr stream ended: %v; subscribed again", ended)
+		}
+		wait, down, ended = a.opt.Retry, false, nil
 		a.connect(ctx, st.Snapshot)
 		a.run(ctx, st, tick.C)
 		st.Close()
 		a.mu.Lock()
 		a.connected = false
 		a.mu.Unlock()
-		if err := st.Err(); ctx.Err() == nil && !a.opt.Refresh(err) {
+		switch err := st.Err(); {
+		case ctx.Err() != nil || a.opt.Refresh(err):
+		case ErrorCode(err) != "": // herdr ended it with an answer (events_lost): it is there, say so now
 			a.logf("herdr stream ended: %v; subscribing again", err)
+		case err == nil:
+			ended = errors.New("closed")
+		default: // the socket went: the next subscribe says whether herdr is gone (one line either way)
+			ended = err
 		}
 	}
 	return nil

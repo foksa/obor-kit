@@ -84,6 +84,9 @@ Adding a kind = one package + a config entry.
   SessionStart, UserPromptSubmit, whoami.
 - `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report); `obor migrate` (herd → obor, `migrate.go`, until v0.17).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
+- `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
+  the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
+  for `obor serve install|uninstall|restart` and `obor status`' serve line.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).

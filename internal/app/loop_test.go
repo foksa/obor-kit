@@ -200,7 +200,7 @@ func (r *loopRig) start() {
 	if r.tick != 0 {
 		tick = r.tick
 	}
-	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond,
+	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
 		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"

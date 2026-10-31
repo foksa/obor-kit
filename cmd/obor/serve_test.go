@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,8 +68,9 @@ func TestServeBinary(t *testing.T) {
 			t.Fatalf("obor status in the lane never showed serve's agent: exit %d %q; serve output:\n%s", rc, stdout, out.String())
 		}
 	}
-	if !strings.HasPrefix(status, "serve: up") || strings.Contains(status, "not loaded") {
-		t.Errorf("status from the lane:\n%s\nwant serve up with the project loaded", status)
+	if want := fmt.Sprintf("serve: pane pid %d since ", cmd.Process.Pid); !strings.HasPrefix(status, want) ||
+		strings.Contains(status, "not loaded") {
+		t.Errorf("status from the lane:\n%s\nwant %q… with the project loaded", status, want)
 	}
 	if fi, err := os.Stat(sock); err != nil || fi.Mode()&os.ModeSocket == 0 {
 		t.Errorf("serve socket %s: %v; want a unix socket in the project", sock, err)
