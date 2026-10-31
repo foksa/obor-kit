@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/store"
 )
 
 // T-603: the work job carries the worker's role texts, so the worker reads them once (in the job) instead of spending
@@ -128,5 +129,37 @@ func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 		if strings.Contains(prompt, no) {
 			t.Errorf("the rendered prompt carries %q:\n%s", no, prompt)
 		}
+	}
+}
+
+// The fix job names the role texts for a worker started fresh, both paths (T-603, fix job: the texts are not repeated).
+func TestFixJobNamesBothRoleTexts(t *testing.T) {
+	p, kit := roleFixture(t, "# Role: worker\nkit\n", "# Worker here\nproject rules\n")
+	read, err := fixRead(p, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := fixText(mtask{task: "T-9", attempt: 2, line: "add a test"}, store.SpecRow{}, read)
+	want := "If this session did not get the work job (a fresh start), read " +
+		filepath.Join(kit, "templates", "agents", "worker.md") + " and " +
+		filepath.Join(p.root, "doc/roles/worker.md") + " first."
+	if !strings.Contains(text, want) {
+		t.Errorf("the fix job has no %q:\n%s", want, text)
+	}
+}
+
+func TestFixJobNamesTheKitRoleTextAloneWithoutAProjectDoc(t *testing.T) {
+	p, kit := roleFixture(t, "# Role: worker\nkit\n", "")
+	read, err := fixRead(p, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := fixText(mtask{task: "T-9", attempt: 2, line: "add a test"}, store.SpecRow{}, read)
+	want := "read " + filepath.Join(kit, "templates", "agents", "worker.md") + " first."
+	if !strings.Contains(text, want) {
+		t.Errorf("the fix job has no %q:\n%s", want, text)
+	}
+	if strings.Contains(text, p.root) {
+		t.Errorf("the fix job names a project doc the checkout lacks:\n%s", text)
 	}
 }
