@@ -3,7 +3,6 @@ package launch
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app"
-	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
 )
@@ -243,38 +241,10 @@ func same(a, now app.AgentInfo, name string) bool {
 	return now.Name == "" || now.Name == a.Name || now.Name == name
 }
 
-// recorded is agent's recorded session id ("": none): its current session in serve's store (T-577), unless its
-// <agent>.sid names another one written after that session started (its SessionStart hook ran while serve was down);
-// no session in the store: the .sid file's. holder: the other agent that holds the id the .sid file names (T-589; then
-// the id is "": the same ownership the store's readers apply, T-588).
-func (l *Launcher) recorded(agent string) (id, holder string) {
-	s, ok := l.session(agent)
-	return recordedSid(s, ok, RecordedSid(agent, l.Env), agent, l.Env, l.Cfg)
-}
-
-// recordedSid is the recorded session id from s, agent's current session in serve's store (ok false: none), and file,
-// the id its <agent>.sid names ("" none): the file's when it names another one written after s started, else s's
-// (file's when the store has no session). The file's id another agent holds in the store of cfg's project is not used:
-// "" and that agent (holder).
-func recordedSid(s store.Session, ok bool, file, agent string, env project.Env, cfg *config.Config) (id, holder string) {
-	id = s.ID
-	switch {
-	case !ok:
-		id = file
-	case file == "" || file == s.ID:
-	default:
-		if fi, err := os.Stat(project.SidFile(agent, env)); err == nil && fi.ModTime().Unix() > s.Started {
-			id = file
-		}
-	}
-	if id == "" || id == s.ID && ok || cfg == nil {
-		return id, ""
-	}
-	ss, _ := store.ReadSessionsAt(cfg.Root)
-	if holder = store.Holder(ss, agent, id); holder != "" {
-		return "", holder
-	}
-	return id, ""
+// recorded is agent's recorded session id ("": none): its current session in serve's store (T-577), nothing else.
+func (l *Launcher) recorded(agent string) string {
+	s, _ := l.session(agent)
+	return s.ID
 }
 
 // session is agent's current recorded session (Sessions, else serve's store).
@@ -291,17 +261,6 @@ func (l *Launcher) session(agent string) (store.Session, bool) {
 // sameSid: herdr's session value live (an id, or its transcript's path) names session sid.
 func sameSid(live, sid string) bool {
 	return live == sid || sid != "" && strings.TrimSuffix(filepath.Base(live), filepath.Ext(live)) == sid
-}
-
-// RecordedSid is agent's session id as its SessionStart hook recorded it in <agent>.sid ("": none). obor serve's
-// registry reads it too (app.Options.Sid).
-func RecordedSid(agent string, env project.Env) string {
-	b, err := os.ReadFile(project.SidFile(agent, env))
-	if err != nil {
-		return ""
-	}
-	sid, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-	return sid
 }
 
 // held is what a pane holds as herdr answered for it (now, err): its agent, or none.

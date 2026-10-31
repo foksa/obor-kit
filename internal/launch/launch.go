@@ -3,7 +3,7 @@
 //
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
 //	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
-//	         lane worktree as cwd (that lane's agent), or any agent with a recorded session id (<agent>.sid). Env
+//	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_AGENT, OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE
 //	         (no lane: unset) and the cwd as obor setup gives them; an unknown agent gets OBOR_AGENT only, in the pane's
 //	         cwd. Kind and args from the lane / role / lead / agents entry type (lane_types: args, then --settings for
@@ -208,7 +208,6 @@ type target struct {
 	known bool // the config knows it (lane, role, agents entry, lane cwd)
 	info  config.AgentInfo
 	sid   string // recorded session id
-	held  string // the other agent that holds the session id its .sid file names (T-589)
 	pane  string
 	entry app.PaneInfo // the pane as pane list shows it
 	panes []app.PaneInfo
@@ -234,7 +233,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, er
 			}
 		}
 	}
-	t.sid, t.held = l.recorded(agent)
+	t.sid = l.recorded(agent)
 	if !t.known && t.sid == "" && pane == "" {
 		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
 	}
@@ -419,10 +418,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 			l.say("warning: no resume for kind %s: new session", t.kind)
 		}
 	} else {
-		if t.held != "" && req.Sid == "" && !req.Fresh {
-			return app.Started{}, project.Failf("%s's .sid file names a session %s holds: not resumed (pass --fresh to start a new one, or --sid)",
-				t.agent, t.held)
-		}
 		if live := t.entry.Session; live != "" && !sameSid(live, sid) {
 			switch {
 			case sid == "":

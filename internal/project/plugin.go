@@ -8,14 +8,8 @@ import (
 	"time"
 )
 
-// SidFile is where the SessionStart hook records an agent's session id: ${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.sid
-// (obor restart resumes it).
-func SidFile(agent string, env Env) string {
-	return filepath.Join(StateHome(env), "agents", agent+".sid")
-}
-
-// InboxFile is where the SessionStart hook records an agent's Claude session inbox (T-485): beside its SidFile,
-// <agent>.inbox, mode 0600 (it holds the session's messaging token). obor serve posts the lead's lines there.
+// InboxFile is where the SessionStart hook records an agent's Claude session inbox (T-485):
+// ${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.inbox, mode 0600 (it holds the session's messaging token). obor serve posts the lead's lines there.
 func InboxFile(agent string, env Env) string {
 	return filepath.Join(StateHome(env), "agents", agent+".inbox")
 }

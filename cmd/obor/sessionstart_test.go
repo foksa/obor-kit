@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"obor/internal/app"
@@ -11,7 +12,7 @@ import (
 )
 
 // T-581: an OpenCode lane's session-start has no OBOR_AGENT (its plugin runs in a shared process): obor reports the
-// session to serve under the lane's agent, and writes no .sid (it resumes no OpenCode session).
+// session to serve under the lane's agent, and writes no .sid.
 func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t, testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
@@ -40,8 +41,8 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 }
 
 // T-577: obor hook session-start sends serve one session request with the agent, its kind, the session id and its
-// transcript_path, the pane, lane and task; serve down: the <agent>.sid it writes as before is the fallback, and the
-// hook still exits 0.
+// transcript_path, the pane, lane and task; serve down: nothing is recorded (no .sid file), the hook says so on stderr
+// and still exits 0.
 func TestSessionStartHookReports(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
@@ -55,11 +56,15 @@ func TestSessionStartHookReports(t *testing.T) {
 	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
-	if rc, _, _, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "session-start"); rc != 0 {
+	rc, _, stderr, _ := shimRun(t, lane, string(event), env, herdBin, "hook", "session-start")
+	if rc != 0 {
 		t.Errorf("serve down: exit %d, want 0", rc)
 	}
-	if b, err := os.ReadFile(filepath.Join(state, "agents", "pj-o-01.sid")); err != nil || string(b) != "sid-77\n" {
-		t.Fatalf("serve down: .sid %q (%v), want the fallback sid-77", b, err)
+	if !strings.Contains(stderr, "session sid-77 of pj-o-01 not recorded") {
+		t.Errorf("serve down: stderr %q, want it to say the session is not recorded", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(state, "agents", "pj-o-01.sid")); err == nil {
+		t.Error("serve down: a .sid file was written")
 	}
 
 	_, serve := startFakeServe(t, p.Root, app.Status{}, "SESSION pj-o-01 sid-77", "")

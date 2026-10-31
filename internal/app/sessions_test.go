@@ -82,39 +82,12 @@ func TestSessionFacts(t *testing.T) {
 	eqs(t, h.current("pj-o-01"), "s2", "replay: current")
 }
 
-// T-577: serve down at SessionStart: the hook's .sid (Options.Recorded) of an agent the config knows is imported
-// when serve loads the project, once; a .sid of a session already recorded is not imported again.
-func TestSessionSidImported(t *testing.T) {
-	h, out := newIdentHarness(t)
-	h.withLead()
-	at := time.Now().Add(-time.Minute).Unix()
-	recorded := func(agent string) (store.Session, bool) {
-		if agent != "pj-lead" {
-			return store.Session{}, false
-		}
-		return store.Session{ID: "s-file", Transcript: "/t/s-file.jsonl", Started: at, Source: "sid file"}, true
-	}
-	h.a.opt.Recorded = recorded
-	h.connect()
-	eqs(t, strings.Join(h.sessions("pj-lead"), ","), "s-file /t/s-file.jsonl", "imported")
-	eqs(t, h.current("pj-lead"), "s-file", "current")
-	if !strings.Contains(out.String(), "pj-lead's session s-file imported from its .sid file") {
-		t.Errorf("import not logged:\n%s", out)
-	}
-
-	h.a.closeLog()
-	h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out, Recorded: recorded}, h.panes, h.lanes)
-	h.connect()
-	eqs(t, strings.Join(h.sessions("pj-lead"), ","), "s-file /t/s-file.jsonl", "a second load: not imported again")
-}
-
 // T-577: the identity reads the recorded session first: a pane whose herdr session is the record is identified by
 // session; one whose herdr session differs is still identified by its label, or its start, as before, and the
 // difference is logged once (not adopted).
 func TestSessionIdentityCrossCheck(t *testing.T) {
 	t.Run("label", func(t *testing.T) {
 		h, out := newIdentHarness(t)
-		h.sids(map[string]string{"pj-o-01": "s-file"}) // the .sid: the fallback, not read while a session is recorded
 		h.connect()
 		h.session("pj-o-01", "s1", "", time.Now().Unix())
 		h.connect()
@@ -180,7 +153,7 @@ func (h *harness) refused(agent, id string, at int64) string {
 	if err == nil {
 		return ""
 	}
-	if !SessionRefused(err) {
+	if !strings.Contains(err.Error(), refusedMark) {
 		h.t.Fatalf("an error that is not a refusal: %v", err)
 	}
 	return err.Error()

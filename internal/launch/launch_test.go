@@ -225,12 +225,25 @@ func last(out string) string {
 	return lines[len(lines)-1]
 }
 
-// sid records agent's session id, with its Claude transcript under the lane worktree and the main checkout (T-137).
+// sid records agent's session id in serve's store (as its session request does), with its Claude transcript under the
+// lane worktree and the main checkout (T-137).
 func (x *fx) sid(agent, sid string) {
 	x.t.Helper()
-	x.p.Write(project.SidFile(agent, x.env()), sid+"\n")
+	recordSessions(x.t, x.p.Root, store.Session{Agent: agent, Kind: "claude", ID: sid, Started: time.Now().Unix()})
 	x.transcript(x.lane, sid)
 	x.transcript(x.p.Root, sid)
+}
+
+// record puts agent's session id in serve's store alone (no transcript): the one record a restart reads.
+func (x *fx) record(agent, sid string) {
+	x.t.Helper()
+	recordSessions(x.t, x.p.Root, store.Session{Agent: agent, Kind: "claude", ID: sid, Started: time.Now().Unix()})
+}
+
+// recorded is agent's current session id in serve's store ("": none).
+func (x *fx) recorded(agent string) string {
+	s, _ := store.CurrentAt(x.p.Root, agent)
+	return s.ID
 }
 
 // transcript is Claude's transcript of sid for a session started in cwd.
@@ -396,7 +409,7 @@ func TestRestartWho(t *testing.T) {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_herd_agent_only
 		name: "unknown agent with a sid: OBOR_AGENT only, no cd, no type args",
 		prep: func(x *fx) {
-			x.p.Write(project.SidFile("triage", x.env()), "sid-t\n")
+			x.record("triage", "sid-t")
 			x.shell("w1:p8", "triage", "").Session = "sid-t"
 		},
 		req: launch.Request{Agent: "triage"},
@@ -586,7 +599,7 @@ func TestRestartNoSessionFailsFreshStartsNew(t *testing.T) {
 	x := setup(t)
 	x.shell("w1:p9", "", x.lane)
 	x.shell("w1:p4", "pj-o-01", "")
-	if _, err := os.Stat(project.SidFile("pj-o-01", x.env())); err == nil {
+	if x.recorded("pj-o-01") != "" {
 		t.Fatal("precondition: no recorded sid")
 	}
 	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
@@ -1575,7 +1588,7 @@ func TestRestartSuspended(t *testing.T) {
 func TestRestartRecordedSession(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.p.Write(project.SidFile("pj-o-01", x.env()), "sid-x\n")
+	x.record("pj-o-01", "sid-x")
 	x.transcript("/Users/someone/other-project", "sid-x")
 	x.shell("w1:p3", "pj-o-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
@@ -1590,14 +1603,14 @@ func TestRestartRecordedSession(t *testing.T) {
 
 	x.reset()
 	x.shell("w1:p3", "pj-o-01", "")
-	x.p.Write(project.SidFile("pj-o-01", x.env()), "sid-stale\n")
+	x.record("pj-o-01", "sid-stale")
 	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Sid: "sid-y"})
 	contains(t, out, "resuming sid-y (from --sid)", "source printed")
 	contains(t, x.calls("agent.start")[1], "--resume sid-y", "--sid wins over the stale record")
 
 	// No lane or role: the pane's cwd is checked; herdr's session is not checked; Codex records are not checked.
 	x.reset()
-	x.p.Write(project.SidFile("triage", x.env()), "sid-t\n")
+	x.record("triage", "sid-t")
 	x.shell("w1:p8", "triage", "/work/maps/").Session = "sid-t"
 	out, _ = x.restart(launch.Request{Agent: "triage"})
 	eq(t, last(out), "FAIL recorded session sid-t is not from /work/maps (pass --fresh, or --sid <id>)", "the pane cwd")
@@ -1606,15 +1619,12 @@ func TestRestartRecordedSession(t *testing.T) {
 	eq(t, last(out), "RESTARTED triage (pane w1:p8, session sid-t)", "transcript under the pane cwd")
 
 	x.reset()
-	if err := os.Remove(project.SidFile("triage", x.env())); err != nil {
-		t.Fatal(err)
-	}
 	x.shell("w1:p8", "", "/work/maps").Session = "sid-h"
-	out, _ = x.restart(launch.Request{Agent: "triage", Pane: "w1:p8"})
+	out, _ = x.restart(launch.Request{Agent: "scout", Pane: "w1:p8"})
 	contains(t, out, "resuming sid-h (from herdr)", "herdr's session, unchecked")
 
 	x.reset()
-	x.p.Write(project.SidFile("pj-rev", x.env()), "cx-1\n")
+	x.record("pj-rev", "cx-1")
 	x.shell("w1:p7", "pj-rev", "")
 	out, _ = x.restart(launch.Request{Agent: "pj-rev"})
 	contains(t, out, "recorded session cx-1 not checked (codex keeps no transcript per cwd)", "said")
@@ -2420,17 +2430,10 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 }
 
 // T-577 (was T-265): the recorded session wins over herdr's live one for the pane, which is only said; herdr's is
-// resumed when none is recorded. The .sid record is never rewritten from herdr.
+// resumed when none is recorded. The record is never rewritten from herdr.
 func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Parallel()
-	record := func(x *fx) string {
-		x.t.Helper()
-		b, err := os.ReadFile(project.SidFile("pj-o-01", x.env()))
-		if err != nil {
-			x.t.Fatal(err)
-		}
-		return string(b)
-	}
+	record := func(x *fx) string { return x.recorded("pj-o-01") + "\n" }
 	t.Run("record == herdr: resumes it, no warning", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -2461,7 +2464,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("stale record of another project, herdr set: the record is checked, not replaced", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.p.Write(project.SidFile("pj-o-01", x.env()), "sid-old\n")
+		x.record("pj-o-01", "sid-old")
 		x.transcript("/Users/someone/other-project", "sid-old")
 		x.shell("w1:p3", "pj-o-01", "").Session = "sid-live"
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
@@ -2474,7 +2477,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("no herdr session: record, transcript checked", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.p.Write(project.SidFile("pj-o-01", x.env()), "sid-x\n")
+		x.record("pj-o-01", "sid-x")
 		x.transcript("/Users/someone/other-project", "sid-x")
 		x.shell("w1:p3", "pj-o-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
@@ -2492,7 +2495,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-o-01", "").Session = "sid-h"
-		if _, err := os.Stat(project.SidFile("pj-o-01", x.env())); err == nil {
+		if x.recorded("pj-o-01") != "" {
 			t.Fatal("precondition: no record")
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})

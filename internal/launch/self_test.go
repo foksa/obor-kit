@@ -15,7 +15,6 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
-	"obor/internal/project"
 )
 
 // spawned is one Spawn call: the args, the output file and the cwd.
@@ -281,14 +280,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 			t.Errorf("nothing typed, stopped or started: %q", x.srv.Calls())
 		}
 	}
-	record := func(x *fx) string {
-		x.t.Helper()
-		b, err := os.ReadFile(project.SidFile("pj-o-01", x.env()))
-		if err != nil {
-			x.t.Fatal(err)
-		}
-		return string(b)
-	}
+	record := func(x *fx) string { return x.recorded("pj-o-01") + "\n" }
 	down := errors.New("herdr went away")
 
 	t.Run("#1 #2 a transient agent get error, then working/blocked: no /exit until idle", func(t *testing.T) {

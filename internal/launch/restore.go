@@ -10,7 +10,7 @@ package launch
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
 // (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A worker with no recorded
-// session (serve's store first, then its .sid: T-583) restarts --fresh (RV-18 #3). Log: ~/.obor/restore.log (last 200).
+// session (serve's store, T-583) restarts --fresh (RV-18 #3). Log: ~/.obor/restore.log (last 200).
 
 import (
 	"bufio"
@@ -115,17 +115,16 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane app.
 		fmt.Fprintf(w, "%s skip %s (pane %s): lane %s is free (dispatch starts its worker)\n", now, agent, pane.ID, lane)
 		return
 	}
-	// A worker with no session it can resume starts fresh (RV-18 #3, T-583): none recorded store-first (a Codex lane
-	// keeps no .sid), or a kind that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway.
+	// A worker with no session it can resume starts fresh (RV-18 #3, T-583): none in serve's store, or a kind that resumes nothing (OpenCode, T-581). Every dispatch starts a fresh worker anyway.
 	// Others without one fail in obor restart (a lead keeps its context).
 	req := Request{Agent: agent, Pane: pane.ID}
 	note := ""
 	if info.Role == "worker" {
-		sid, held := recordedSession(cfg, agent, p.Env)
+		s, _ := store.CurrentAt(cfg.Root, agent)
 		switch kind := agentKind(cfg, info); {
 		case !agents.Resumes(kind):
 			req.Fresh, note = true, " (worker, kind "+kind+" resumes nothing: --fresh)"
-		case sid == "" && held == "": // held: the restart fails naming both agents, never a silent fresh start
+		case s.ID == "":
 			req.Fresh, note = true, " (worker, no recorded session: --fresh)"
 		}
 	}
@@ -159,13 +158,6 @@ func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 		}
 	}
 	return ""
-}
-
-// recordedSession is agent's recorded session id store-first (T-577, as obor restart reads it), "" when none; and the
-// other agent holding the id its .sid names (T-589): a worker then does not start fresh, the restart fails naming both.
-func recordedSession(cfg *config.Config, agent string, env project.Env) (id, holder string) {
-	s, ok := store.CurrentAt(cfg.Root, agent)
-	return recordedSid(s, ok, RecordedSid(agent, env), agent, env, cfg)
 }
 
 // agentKind is agent's kind as the config starts it: its type's kind, else agents.Default (a restore pane runs no

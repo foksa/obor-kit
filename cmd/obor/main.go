@@ -233,7 +233,7 @@ func hook(args []string) int {
 			guard.Stop(input, project.OSEnv, out, os.Stderr)
 		case "session-start":
 			if b, ok := guard.SessionStart(input, project.OSEnv, out, paneLabel); ok {
-				sessionBegan(b)
+				sessionBegan(b, os.Stderr)
 			}
 		default:
 			guard.UserPromptSubmit(input, project.OSEnv, out)
@@ -288,14 +288,16 @@ func turn(input []byte, env project.Env, ended bool) {
 }
 
 // sessionBegan is the SessionStart hook telling the project's serve the agent's session began (app.MethodSession,
-// T-577): its id and transcript. Serve down or a refusal: nothing (the hook's <agent>.sid is the fallback serve imports
-// when it loads the project).
-func sessionBegan(b guard.Began) {
+// T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so); the
+// agent's next restart starts fresh.
+func sessionBegan(b guard.Began, log io.Writer) {
 	ctx, cancel := context.WithTimeout(context.Background(), turnWait)
 	defer cancel()
 	c := app.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
 		Lane: b.Lane, Task: b.Task, Started: time.Now().Unix(), Source: "SessionStart hook"}
-	_, _ = app.Verdict(ctx, app.SocketPath(b.Root), app.MethodSession, c)
+	if _, err := app.Verdict(ctx, app.SocketPath(b.Root), app.MethodSession, c); err != nil {
+		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (the next restart of %s starts fresh)\n", b.ID, b.Agent, err, b.Agent)
+	}
 }
 
 // paneLabel is the label of a herdr pane: one `herdr pane get` bounded by 3 s; "" on any error (the SessionStart

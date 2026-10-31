@@ -97,7 +97,7 @@ func TestRestoreLabelledHerdPanes(t *testing.T) {
 	f.shell("w1:p4", other, "pj-o-01")
 	f.shell("w1:p5", f.p.Root, "my notes")
 	f.h.Agent("w1:p6", "pj-int", "idle", f.p.Root).Label = "pj-int"
-	f.p.Write("../state-home/agents/pj-o-01.sid", "sid-o-01\n")
+	recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-01", Kind: "claude", ID: "sid-o-01", Started: time.Now().Unix()})
 	f.pl.Restore(context.Background())
 	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1", f.p.Root+" restart pj-lead --pane w1:p2")
 	log := f.restoreLog()
@@ -163,7 +163,7 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	f.shell("w1:p2", o2, "o-02")
 	f.shell("w1:p3", f.p.Root, "pj-lead")
 	f.p.State("O-02", `{"lane":"O-02","agent":"o-02"}`) // a bare lane name is the lane's only when its state names it
-	f.p.Write("../state-home/agents/o-02.sid", "sid-o-02\n")
+	recordSessions(t, f.p.Root, store.Session{Agent: "o-02", Kind: "claude", ID: "sid-o-02", Started: time.Now().Unix()})
 	f.pl.Restore(context.Background())
 	f.wantCalls(f.p.Root+" restart pj-o-01 --pane w1:p1 --fresh", f.p.Root+" restart o-02 --pane w1:p2",
 		f.p.Root+" restart pj-lead --pane w1:p3")
@@ -175,10 +175,9 @@ func TestRestoreWorkerWithoutSessionFresh(t *testing.T) {
 	}
 }
 
-// T-583 (RV-62 #2): the restore's --fresh decision reads the recorded session store-first (T-577), as obor restart
-// does: a Codex worker's session may be only in serve's store (its SessionStart keeps no .sid). A .sid-only Claude
-// worker: as before; no session at all: TestRestoreWorkerWithoutSessionFresh. A kind that resumes nothing (OpenCode,
-// T-581) starts fresh whatever is recorded.
+// T-583, T-599: the restore's --fresh decision reads serve's store only, as obor restart does. A worker with a session
+// there (Claude or Codex) resumes; none at all: TestRestoreWorkerWithoutSessionFresh. A kind that resumes nothing
+// (OpenCode, T-581) starts fresh whatever is recorded.
 func TestRestoreWorkerRecordedSession(t *testing.T) {
 	t.Run("store-only Codex worker: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
@@ -187,35 +186,20 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 		f.p.Config(testkit.Set("lane_types.opus", `{"kind":"codex","args":[]}`))
 		f.shell("w1:p1", lane, "pj-o-01")
 		recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-01", Kind: "codex", ID: "cx-1", Started: time.Now().Unix()})
-		if f.p.Exists("../state-home/agents/pj-o-01.sid") {
-			t.Fatal("precondition: no .sid file")
-		}
 		f.pl.Restore(context.Background())
 		f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1")
 		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
 	})
-	t.Run(".sid-only Claude worker: no --fresh, as before", func(t *testing.T) {
+	t.Run("Claude worker with a session in the store: resumed, no --fresh", func(t *testing.T) {
 		f := newRfx(t)
 		lane := f.p.Lane("O-01", "task/T-01")
 		f.p.Commit(lane)
 		f.p.Config()
 		f.shell("w1:p1", lane, "pj-o-01")
-		f.p.Write("../state-home/agents/pj-o-01.sid", "sid-o-01\n")
+		recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-01", Kind: "claude", ID: "sid-o-01", Started: time.Now().Unix()})
 		f.pl.Restore(context.Background())
 		f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1")
 		lacks(t, f.restoreLog(), "no recorded session", "no --fresh note")
-	})
-	t.Run(".sid names a session another agent holds: no --fresh, so the restart fails (T-589)", func(t *testing.T) {
-		f := newRfx(t)
-		lane := f.p.Lane("O-01", "task/T-01")
-		f.p.Commit(lane)
-		f.p.Config()
-		f.shell("w1:p1", lane, "pj-o-01")
-		f.p.Write("../state-home/agents/pj-o-01.sid", "sid-shared\n")
-		recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-02", ID: "sid-shared", Started: time.Now().Unix()})
-		f.pl.Restore(context.Background())
-		f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1")
-		lacks(t, f.restoreLog(), "no recorded session", "no silent fresh start")
 	})
 	t.Run("OpenCode worker: --fresh even with a recorded session", func(t *testing.T) {
 		f := newRfx(t)

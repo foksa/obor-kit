@@ -32,7 +32,7 @@ type Where struct {
 
 // The proofs that an agent runs in a pane, strongest first (rank).
 const (
-	srcSession = "session" // the pane's agent_session is the agent's recorded session (sessions.go, else <agent>.sid; its start's)
+	srcSession = "session" // the pane's agent_session is the agent's recorded session (sessions.go; its start's)
 	srcStart   = "start"   // the pane's terminal is the one serve's own start placed the agent in
 	srcLabel   = "label"   // the pane's label is the agent's name (launch's mark)
 )
@@ -270,16 +270,10 @@ func (a *App) logOwners(p *proj, owners map[string]owner, agents map[string]stri
 	}
 }
 
-// recordedSid is agent's recorded session id (under mu): its current session fact (sessions.go, T-577), else
-// Options.Sid (the hook's .sid file, else its inbox's); "": none.
+// recordedSid is agent's recorded session id (under mu): its current session fact (sessions.go, T-577); "": none.
 func (a *App) recordedSid(p *proj, agent string) string {
-	if s, ok := p.session(agent); ok {
-		return s.ID
-	}
-	if a.opt.Sid != nil {
-		return a.opt.Sid(agent)
-	}
-	return ""
+	s, _ := p.session(agent)
+	return s.ID
 }
 
 // crossCheck logs, once per value, that herdr reports another session than agent's recorded sid for pane, the pane
@@ -295,8 +289,7 @@ func (p *proj) crossCheck(a *App, agent, sid string, pane Pane) {
 		agent, pane.ID, sid)
 }
 
-// proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session
-// (Options.Sid).
+// proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session.
 func (p *proj) proof(agent, sid string, pane Pane) string {
 	row, started := p.starts[agent]
 	switch {

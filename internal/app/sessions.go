@@ -4,20 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
-	"obor/internal/config"
-	"obor/internal/roles"
 	"obor/internal/store"
 )
 
 // An agent's sessions (T-577): obor records each session an agent starts itself, as fact session{agent, kind, id,
 // transcript, pane, lane, task, started} on task key store.SessionTask, one per (agent, id); the history stays (the
 // UI's list), the agent's current session is its newest (store.Current). The sources, per kind:
-//   - Claude: its SessionStart hook sends serve a session request with the id and transcript_path (it still writes
-//     <agent>.sid, the fallback while serve is down: serve imports a .sid it has not recorded when it loads the
-//     project, importSids);
+//   - Claude: its SessionStart hook sends serve a session request with the id and transcript_path (serve down: the
+//     session is not recorded, said on the hook's log line; the agent's next restart starts fresh);
 //   - Codex: launch, after a fresh start, reads the rollout the started agent's process holds open (T-588; its first
 //     line's session_meta) and reports it (in serve after the start returned: its own goroutine);
 //   - OpenCode: none yet; the session request is kind-neutral, T-578's plugin is to send it.
@@ -29,12 +24,8 @@ import (
 // Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task).
 const MethodSession = "session"
 
-// refusedMark is in the error of a session request serve refused because another agent holds the session: the
-// callers keep no .sid fallback for it (SessionRefused).
+// refusedMark is in the error of a session request serve refused because another agent holds the session (T-586).
 const refusedMark = "session already held by "
-
-// SessionRefused: err is serve's refusal of a session another agent holds (T-586), not a failure to reach it.
-func SessionRefused(err error) bool { return err != nil && strings.Contains(err.Error(), refusedMark) }
 
 // sessionCall answers the socket's session request: fact session, once per (agent, id) — a repeat (a resume, a second
 // report of one session) records nothing and gets the same reply. One session id belongs to one agent (T-586): an id
@@ -111,63 +102,4 @@ func (a *App) transcript(p *proj, pane Pane) string {
 	}
 	s, _ := p.session(agent)
 	return s.Transcript
-}
-
-// importSids records, for each agent of cfg, the session its .sid file holds when p has not recorded it
-// (Options.Recorded: a SessionStart hook that ran while serve was down). Its start is the file's time, so a session
-// recorded since stays the current one.
-func (a *App) importSids(p *proj, cfg *config.Config) {
-	if a.opt.Recorded == nil {
-		return
-	}
-	for _, agent := range configAgents(cfg, p) {
-		s, ok := a.opt.Recorded(agent)
-		a.mu.Lock()
-		known := ok && p.hasSession(agent, s.ID)
-		holder := ""
-		if ok {
-			holder = p.holder(agent, s.ID)
-		}
-		a.mu.Unlock()
-		if !ok || known {
-			continue
-		}
-		if holder != "" {
-			a.logf("%s: %s's session %s in its .sid file not imported: it is %s's current session", p.name, agent, s.ID, holder)
-			continue
-		}
-		s.Agent = agent
-		if a.record(p, Record{Task: store.SessionTask, Step: store.StepSession, Kind: KindFact}, s) {
-			a.logf("%s: %s's session %s imported from its .sid file", p.name, agent, s.ID)
-		}
-	}
-}
-
-// configAgents is every agent name cfg knows, sorted: the table roles' agents, each lane's aliases (its row's agent
-// too), the agents entries and the agents p's lane rows name.
-func configAgents(cfg *config.Config, p *proj) []string {
-	set := map[string]bool{}
-	for _, r := range roles.All() {
-		if r.Name != "worker" {
-			set[cfg.AgentName(r.Name, "")] = true
-		}
-	}
-	for _, l := range cfg.Lanes() {
-		for _, name := range cfg.LaneAgentAliases(l.Name, p.lr.rows[l.Name].Agent) {
-			set[name] = true
-		}
-	}
-	for name := range cfg.Data.Agents.M {
-		set[name] = true
-	}
-	for _, r := range p.lr.rows {
-		set[r.Agent] = true
-	}
-	delete(set, "")
-	out := make([]string, 0, len(set))
-	for name := range set {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
 }
