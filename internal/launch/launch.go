@@ -508,15 +508,47 @@ func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error
 	case cwd == "":
 		l.say("warning: pane %s has no known cwd: recorded session %s not checked", t.pane, sid)
 	default:
-		if _, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid)); err == nil {
+		_, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid))
+		if err == nil {
 			return false, nil
 		}
+		if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted" (RV-67 #4)
+			return false, project.Failf("recorded session %s: cannot check its transcript under %s: %v (pass --fresh, or --sid <id>)", sid, cwd, err)
+		}
 		// Under any cwd ("" asks for the kind's whole transcript dir): another project's, refuse as before.
-		if m, _ := filepath.Glob(k.Transcript(l.Env.Get, "", sid)); len(m) > 0 {
+		found, err := transcriptElsewhere(k.Transcript(l.Env.Get, "", sid))
+		if err != nil {
+			return false, project.Failf("recorded session %s: cannot search its transcript: %v (pass --fresh, or --sid <id>)", sid, err)
+		}
+		if found {
 			return false, project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
 		}
 		l.say("recorded session %s has no transcript (never prompted): starting fresh", sid)
 		return true, nil
+	}
+	return false, nil
+}
+
+// transcriptElsewhere: whether the transcript wild is "<projects>/*/<file>" names exists under any project dir. The
+// projects dir is listed literally (no glob: a base dir with glob metacharacters, T-633) and a failure other than
+// "no such dir" is an error, never "not found".
+func transcriptElsewhere(wild string) (bool, error) {
+	dir, file := filepath.Dir(filepath.Dir(wild)), filepath.Base(wild)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		_, err := os.Stat(filepath.Join(dir, e.Name(), file))
+		switch {
+		case err == nil:
+			return true, nil
+		case !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTDIR):
+			return false, err
+		}
 	}
 	return false, nil
 }

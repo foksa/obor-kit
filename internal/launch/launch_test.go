@@ -1724,6 +1724,50 @@ func TestSessionResumeRule(t *testing.T) {
 			t.Errorf("nothing typed or started")
 		}
 	})
+	t.Run("restart: config dir with glob metacharacters, transcript under another cwd: refused", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.claude = filepath.Join(x.p.Base, "cl[aude")
+		x.record("pj-o-01", "sid-x")
+		x.transcript("/Users/someone/other-project", "sid-x")
+		if _, err := os.Stat(filepath.Join(x.claude, "projects")); err != nil {
+			t.Fatalf("precondition: the transcript exists under the bracketed dir: %v", err)
+		}
+		x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		if ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "refused")
+		lacks(t, out, "starting fresh", "never fresh")
+		if x.startCall() != "" {
+			t.Errorf("nothing started")
+		}
+	})
+	t.Run("restart: unreadable projects dir: refused, never fresh", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.record("pj-o-01", "sid-x")
+		x.transcript("/Users/someone/other-project", "sid-x")
+		projects := filepath.Join(x.claude, "projects")
+		if err := os.Chmod(projects, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(projects, 0o755) })
+		if _, err := os.ReadDir(projects); err == nil {
+			t.Skip("the projects dir is readable despite mode 0 (root)")
+		}
+		x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		if ok {
+			t.Fatal(out)
+		}
+		contains(t, last(out), "FAIL recorded session sid-x: cannot", "refused with the error")
+		lacks(t, out, "starting fresh", "never fresh")
+		if x.startCall() != "" {
+			t.Errorf("nothing started")
+		}
+	})
 	t.Run("restart: transcript nowhere (never prompted): fresh, said", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
