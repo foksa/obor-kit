@@ -348,11 +348,12 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	defer a.mu.Unlock()
 	held := map[string]string{}
 	var mt mtask
-	for _, t := range p.loopTasks() { // a lane two dispatches name: the first task by name holds it (T-615)
+	newest := map[string]int64{} // a lane two dispatches name: the newest dispatch's task holds it (T-615)
+	for _, t := range p.loopTasks() {
 		if m := p.folded.loop[t]; t == task {
 			mt = *m
-		} else if _, ok := held[m.lane]; m.dispatching() && !ok {
-			held[m.lane] = t
+		} else if _, ok := held[m.lane]; m.dispatching() && (!ok || m.dispSeq > newest[m.lane]) {
+			held[m.lane], newest[m.lane] = t, m.dispSeq
 		}
 	}
 	return mt, held
@@ -421,7 +422,8 @@ func (p *proj) foldDispatch(r Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
 	at, _ := time.Parse(time.RFC3339, r.TS)
-	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at}
+	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at,
+		dispSeq: r.Seq}
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
 		next.openDecision, next.openAt = mt.openDecision, mt.openAt // the lead's decision outlives the dispatch (T-611)

@@ -40,6 +40,7 @@ func (p *proj) foldLoop(r Record) {
 			// The worker's spec rev and the lead's decision on its open questions outlive its attempt (T-611).
 			next.sendbacks, next.specRev = mt.sendbacks, mt.specRev
 			next.openDecision, next.openAt = mt.openDecision, mt.openAt
+			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
 		}
 		p.folded.loop[r.Task] = next
 		return

@@ -179,11 +179,13 @@ type mtask struct {
 	fails             map[string]int // counted failures per step key since the attempt began or the last resume
 	needs             Record         // the needs-you fact in force (Seq 0: none)
 	left              string         // the state the last needs-you left: obor resume's retry goes back to it
-	// A dispatched attempt (dispatch.go): the fact's data and time (a waiting task: its waiting fact's); lane.prepare's
+	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
+	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done; the work
 	// job's step ("": not sent in this attempt, or sent anew after obor resume).
 	disp                    dispatchData
 	at                      time.Time
+	dispSeq                 int64
 	base, refused           string
 	prepares, starts, works int
 	started                 bool

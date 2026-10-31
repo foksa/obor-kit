@@ -2,18 +2,20 @@ package app
 
 import "testing"
 
-// The choices of one merge-loop task over p's loop map are by task name, never Go's map order (T-615). Each test has
-// two tasks the choice could take and asks it many times: map order would pick T-2 in about half of them.
+// The choices of one merge-loop task over p's loop map never follow Go's map order (T-615): a lane's task is its newest
+// dispatch's, the other choices are by task name. Each test has two tasks the choice could take and asks it many
+// times: map order would pick the other one in about half of them.
 
 const orderTries = 64
 
-// twoInLane is a project whose loop holds T-2 and T-1, both dispatched to lane L1 by agent w1, their work jobs out.
+// twoInLane is a project whose loop holds T-2 and T-1, both dispatched to lane L1 by agent w1, their work jobs out;
+// T-2's dispatch is the newer (seq 7 after T-1's 3): name order and dispatch order disagree.
 func twoInLane() *proj {
-	mk := func(task string) *mtask {
-		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, work: StepWork}
+	mk := func(task string, seq int64) *mtask {
+		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, work: StepWork, dispSeq: seq}
 	}
 	return &proj{merging: true, log: &Log{}, ended: map[string]bool{}, held: map[string]string{},
-		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2"), "T-1": mk("T-1")}, calls: map[string]string{}}}
+		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2", 7), "T-1": mk("T-1", 3)}, calls: map[string]string{}}}
 }
 
 func TestLoopTasksSortedByName(t *testing.T) {
@@ -59,25 +61,28 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 	}
 }
 
-func TestDropByLaneTwoOpenTakesFirstTaskByName(t *testing.T) {
+func TestDropByLaneTwoOpenTakesNewestDispatch(t *testing.T) {
 	for range orderTries {
 		p := twoInLane()
+		if p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {
+			t.Fatal("precondition: T-2's dispatch is the newer, T-1 the first by name")
+		}
 		got, err := (&App{}).dropDecide(p, &Call{Lane: "L1", Note: "why", CallID: "d"})
-		if err != nil || got.task != "T-1" || !p.ended["T-1"] || p.ended["T-2"] {
-			t.Fatalf("dropDecide = %q %v (ended %v); want T-1 only", got.task, err, p.ended)
+		if err != nil || got.task != "T-2" || !p.ended["T-2"] || p.ended["T-1"] {
+			t.Fatalf("dropDecide = %q %v (ended %v); want T-2 only", got.task, err, p.ended)
 		}
 	}
 }
 
-func TestHeldLaneOfTwoDispatchesIsFirstTaskByName(t *testing.T) {
+func TestHeldLaneOfTwoDispatchesIsNewestDispatch(t *testing.T) {
 	for range orderTries {
 		p := twoInLane()
-		if !p.folded.loop["T-2"].dispatching() {
-			t.Fatal("precondition: T-2's dispatch holds its lane")
+		if !p.folded.loop["T-1"].dispatching() || p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {
+			t.Fatal("precondition: both dispatches hold L1, T-2's the newer, T-1 the first by name")
 		}
 		mt, held := (&App{}).held(p, "T-3")
-		if mt.task != "" || len(held) != 1 || held["L1"] != "T-1" {
-			t.Fatalf("held = %q %v; want no record of T-3 and L1 held by T-1", mt.task, held)
+		if mt.task != "" || len(held) != 1 || held["L1"] != "T-2" {
+			t.Fatalf("held = %q %v; want no record of T-3 and L1 held by T-2", mt.task, held)
 		}
 	}
 }

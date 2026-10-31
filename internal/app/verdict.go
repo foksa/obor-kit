@@ -624,10 +624,10 @@ func (a *App) dropDecide(p *proj, c *Call) (mtask, error) {
 		return mtask{}, nil
 	}
 	if c.Task == "" { // by lane: the task the loop has open there, else its row's, else its branch's
-		for _, t := range p.loopTasks() { // two open in the lane: the first task by name (T-615)
-			if m := p.folded.loop[t]; m.lane == c.Lane && !states[m.state].ended {
-				c.Task = t
-				break
+		var newest int64 // two open in the lane: the newest dispatch's task, the lane's current one (T-615)
+		for _, t := range p.loopTasks() {
+			if m := p.folded.loop[t]; m.lane == c.Lane && !states[m.state].ended && (c.Task == "" || m.dispSeq > newest) {
+				c.Task, newest = t, m.dispSeq
 			}
 		}
 		for _, l := range p.lanes {
