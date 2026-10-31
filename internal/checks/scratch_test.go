@@ -898,20 +898,22 @@ func TestScratchGateKeepsSmallDiff(t *testing.T) {
 func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
+	// The kit's commit-msg lives in githooks/chain/ and sources ../_hook (T-623): copy the two files into the same
+	// shape and point core.hooksPath at the chain dir.
 	hooks := filepath.Join(y.Base, "hooks")
-	if err := os.MkdirAll(hooks, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"_hook", "commit-msg"} {
-		b, err := os.ReadFile(filepath.Join(kitDir, "githooks", name))
+	for _, c := range []struct{ dir, name string }{{"", "_hook"}, {"chain", "commit-msg"}} {
+		b, err := os.ReadFile(filepath.Join(kitDir, "githooks", c.dir, c.name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(hooks, name), b, 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(hooks, c.dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(hooks, c.dir, c.name), b, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	y.Git(y.Root, "config", "core.hooksPath", hooks)
+	y.Git(y.Root, "config", "core.hooksPath", filepath.Join(hooks, "chain"))
 	y.Git(y.Root, "config", "obor.hooksChain", ".githooks")
 	chained := y.Write(".githooks/commit-msg", "#!/bin/sh\necho 'commit-msg: rejects every message' >&2\nexit 1\n")
 	if err := os.Chmod(chained, 0o755); err != nil {

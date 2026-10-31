@@ -400,8 +400,9 @@ func lookPath(path, name string) (string, error) {
 func (s *Setup) migrateGithooks(context.Context) error {
 	dir := filepath.Join(s.Kit, "githooks")
 	cur, _ := project.Git(s.root, "config", "--local", "--get", "core.hooksPath")
-	if strings.TrimSpace(cur) == dir {
-		s.ok("4 githooks", true, "core.hooksPath is %s", dir)
+	cur = strings.TrimSpace(cur)
+	if cur == dir || cur == filepath.Join(dir, "chain") { // T-623: the chain set is ours too
+		s.ok("4 githooks", true, "core.hooksPath is %s", cur)
 		return nil
 	}
 	var out bytes.Buffer

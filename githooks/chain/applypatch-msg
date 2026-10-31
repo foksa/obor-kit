@@ -1,4 +1,4 @@
 #!/bin/bash
 # obor applypatch-msg (design "Git hooks layer"): chains the project's own applypatch-msg, then obor's rule (none: T-620).
-. "$(dirname "$0")/_hook" || exit 1
+. "$(dirname "$0")/../_hook" || exit 1
 obor_hook "$(basename "$0")" "$@"

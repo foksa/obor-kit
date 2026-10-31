@@ -1,9 +1,10 @@
 #!/bin/bash
-# obor's git hook runner (design "Git hooks layer"), sourced by every githooks/<name> file: the file calls
-# obor_hook with git's args. It runs the project's own <name> first, then obor's rule (pre-commit, pre-push; none for
-# the rest). The project's own hook is, in order:
+# obor's git hook runner (design "Git hooks layer"), sourced by githooks/<name> and githooks/chain/<name>: the file
+# calls obor_hook with git's args. It runs the project's own <name> first, then obor's rule (pre-commit, pre-push; none
+# for the rest). The project's own hook is:
 #   <obor.hooksChain>/<name>  the core.hooksPath `obor setup githooks` chained (a path relative to the main checkout)
-#   <main>/.git/hooks/<name>  git's own dir, which obor chained before T-620
+#   <main>/.git/hooks/<name>  git's own dir, when no chain is recorded (T-623: with a chain, a hook it lacks runs
+#                             nothing: git itself never runs .git/hooks once core.hooksPath is set)
 # Args and stdin pass through (pre-push, post-rewrite and reference-transaction read stdin). A chained hook's failure is
 # the result for the hooks whose result git uses (all but post-applypatch, post-checkout, post-commit, post-index-change,
 # post-merge and post-rewrite). Without .obor/config.json a hook only chains.
@@ -16,13 +17,10 @@ obor_hook() {
   common=$(cd "$common" && pwd -P) || return 0
   chain=$(git config --get obor.hooksChain 2> /dev/null) || chain=
   case "$chain" in
-    "") chained= ;;
+    "") chained=$common/hooks/$name ;;
     /*) chained=$chain/$name ;;
     *) chained=$(dirname "$common")/$chain/$name ;;
   esac
-  if [ ! -f "$chained" ] || [ ! -x "$chained" ]; then
-    chained=$common/hooks/$name
-  fi
   rc=0
   if [ -f "$chained" ] && [ -x "$chained" ]; then
     "$chained" "$@" || rc=$?
@@ -52,8 +50,9 @@ obor_pre_commit() {
   # The main checkout is not a lane: only a linked worktree (own git dir) needs the classifier.
   gitdir=$(git rev-parse --git-dir 2> /dev/null) && gitdir=$(cd "$gitdir" && pwd -P) || return 0
   [ "$gitdir" != "$common" ] || return 0
-  # whoami's source is cwd or env+cwd in a lane worktree.
-  kit=$(cd "$(dirname "$0")/.." && pwd -P)
+  # whoami's source is cwd or env+cwd in a lane worktree. The kit is _hook's dir's parent (githooks/ and
+  # githooks/chain/ both source it), so $0 (the hook file) does not decide it.
+  kit=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
   out=$(mktemp "${TMPDIR:-/tmp}/obor-precommit.XXXXXX") || out=
   rc=1
   if [ -n "$out" ]; then

@@ -1,4 +1,4 @@
 #!/bin/bash
 # obor pre-auto-gc (design "Git hooks layer"): chains the project's own pre-auto-gc, then obor's rule (none: T-620).
-. "$(dirname "$0")/_hook" || exit 1
+. "$(dirname "$0")/../_hook" || exit 1
 obor_hook "$(basename "$0")" "$@"

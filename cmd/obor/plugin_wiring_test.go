@@ -119,13 +119,22 @@ func bashParseError(t *testing.T, path string) string {
 	return fmt.Sprintf("exit %d: %s", rc, stderr)
 }
 
-// The two bash files the kit ships (bin/obor and the git hooks) parse: since T-281 no code merge runs them, so an
+// The bash files the kit ships (bin/obor and the git hooks) parse: since T-281 no code merge runs them, so an
 // unreached syntax error would merge green (RV-31 #5).
 func TestScriptsParse(t *testing.T) {
 	root := checkoutRoot(t)
-	hooks, err := filepath.Glob(filepath.Join(root, "githooks/*"))
-	if err != nil || len(hooks) == 0 {
-		t.Fatalf("githooks/*: %v, %d files", err, len(hooks))
+	// githooks/ holds the runner and the two rules, githooks/chain/ every other hook (T-623): all of them parse.
+	var hooks []string
+	for _, glob := range []string{"githooks/*", "githooks/chain/*"} {
+		files, err := filepath.Glob(filepath.Join(root, glob))
+		if err != nil || len(files) == 0 {
+			t.Fatalf("%s: %v, %d files", glob, err, len(files))
+		}
+		for _, f := range files {
+			if fi, err := os.Stat(f); err == nil && !fi.IsDir() {
+				hooks = append(hooks, f)
+			}
+		}
 	}
 	for _, path := range append([]string{filepath.Join(root, "bin/obor")}, hooks...) {
 		if msg := bashParseError(t, path); msg != "" {

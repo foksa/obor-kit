@@ -1,0 +1,5 @@
+#!/bin/bash
+# obor pre-commit (design "Git hooks layer"): chains the project's own pre-commit, then obor's rule: a commit in a lane
+# worktree is refused (OBOR_MERGE=1 to commit by hand).
+. "$(dirname "$0")/../_hook" || exit 1
+obor_hook "$(basename "$0")" "$@"
