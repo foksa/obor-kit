@@ -43,6 +43,10 @@
       "timeout": 600
     }
   },
+  "difficulty": {
+    "medium": ["deepseek", "sonnet"],
+    "simple": ["deepseek", "luna"]
+  },
   "protected_files": [
     "docs/design.md"
   ],
