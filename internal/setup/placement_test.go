@@ -148,6 +148,50 @@ func TestPlacementTable(t *testing.T) {
 		has(t, calls, "label=workers workspace_id=wA", "a new tab in the project's workspace")
 		hasNot(t, calls, "workspace.create", "wA is the project's")
 	})
+	t.Run("caller cd'd into the root in another project's workspace: a new workspace (T-634)", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.ok(t, "lane", "O-01", "opus")
+		x.h.Panes = nil
+		x.h.Tab("w5:t1", 200, 50, "w5:p1", "w5:p2") // another project's lead, and the caller cd'd into this root
+		x.h.Tab("w5:t2", 200, 50, "w5:p3")          // another of that project's panes
+		for _, id := range []string{"w5:p1", "w5:p2", "w5:p3"} {
+			x.h.Pane(id).Workspace, x.h.Pane(id).Cwd = "w5", "/elsewhere/other"
+		}
+		x.h.Pane("w5:p2").Cwd = x.Root
+		x.env = []string{"HERDR_PANE_ID=w5:p2", "HERDR_WORKSPACE_ID=w5"}
+		if len(x.h.Panes) != 3 || len(x.h.Workspaces) != 0 {
+			t.Fatalf("precondition: %d panes, %d workspaces; want 3, 0", len(x.h.Panes), len(x.h.Workspaces))
+		}
+
+		x.ok(t, "pane", "O-01")
+		calls := strings.Join(x.reqs(), "\n")
+		has(t, calls, "workspace.create cwd="+x.Root+" focus=false label=proj", "a workspace of its own")
+		has(t, calls, "label=workers workspace_id=wn1", "the pane in a new tab of it")
+		hasNot(t, calls, "workspace_id=w5", "never the foreign workspace")
+		hasNot(t, calls, "pane.split", "no pane of w5 is split")
+	})
+	t.Run("only project panes and unknown-cwd ones: that workspace (T-634)", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.ok(t, "lane", "O-01", "opus")
+		x.h.Panes = nil
+		x.h.Tab("wA:t1", 200, 50, "wA:p1")
+		x.h.Tab("wA:t2", 200, 50, "wA:q1") // unknown cwd
+		x.h.Tab("w5:t9", 200, 50, "w5:p9") // another project's, the caller
+		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
+		x.h.Pane("wA:q1").Workspace = "wA"
+		x.h.Pane("w5:p9").Cwd, x.h.Pane("w5:p9").Workspace = "/elsewhere/other", "w5"
+		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+		if x.h.Pane("wA:q1").Cwd != "" {
+			t.Fatal("precondition: wA:q1 has an unknown cwd")
+		}
+
+		x.ok(t, "pane", "O-01", "--new-tab", "workers")
+		calls := strings.Join(x.reqs(), "\n")
+		has(t, calls, "label=workers workspace_id=wA", "the new tab in wA")
+		hasNot(t, calls, "workspace.create", "wA is the project's: no workspace made")
+	})
 	t.Run("caller with an unknown cwd: not its tab", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t)
@@ -166,8 +210,40 @@ func TestPlacementTable(t *testing.T) {
 	})
 }
 
-// The caller's tab holds another project's lead, in this project's own workspace: that pane is never split, and the
-// project's other tab is the one used (T-628).
+// T-634: a user's own --tab into a mixed tab (a project pane and one with an unknown cwd) is honoured: a split there.
+func TestPlacementHonoursAnExplicitTabIntoAMixedTab(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.ok(t, "lane", "O-01", "opus")
+	x.h.Panes = nil
+	x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2")
+	x.h.Tab("wA:t2", 200, 50, "wA:p3")
+	for _, id := range []string{"wA:p1", "wA:p2", "wA:p3"} {
+		x.h.Pane(id).Workspace = "wA"
+	}
+	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p3").Cwd = x.Root, x.Root
+	if x.h.Pane("wA:p2").Cwd != "" {
+		t.Fatal("precondition: wA:p2 has an unknown cwd")
+	}
+
+	x.ok(t, "pane", "O-01", "--tab", "wA:t1")
+	calls := strings.Join(x.reqs(), "\n")
+	has(t, calls, "pane.split", "a split of the named tab")
+	hasNot(t, calls, "target_pane_id=wA:p3", "not the other tab")
+	hasNot(t, calls, "tab.create", "no new tab")
+	var in string
+	for _, p := range x.h.Panes {
+		if p.Name == "pj-o-01" {
+			in = p.Tab
+		}
+	}
+	if in != "wA:t1" {
+		t.Errorf("O-01 in tab %q, want the named wA:t1", in)
+	}
+}
+
+// The caller's tab holds another project's lead, in the workspace of this project's pane: that pane is never split
+// (T-628), and the workspace is not the project's (T-634: another project's pane there): a workspace of its own.
 func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
@@ -182,7 +258,9 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 
 	x.ok(t, "pane", "O-01")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "target_pane_id=wA:p1", "the project's own tab")
+	has(t, calls, "workspace.create cwd="+x.Root+" focus=false label=proj", "wA is mixed: a workspace of its own")
+	has(t, calls, "label=workers workspace_id=wn1", "the pane in a new tab there")
+	hasNot(t, calls, "workspace_id=wA", "nothing new in the mixed workspace")
 	hasNot(t, calls, "target_pane_id=wA:p9", "never another project's lead pane")
 }
 

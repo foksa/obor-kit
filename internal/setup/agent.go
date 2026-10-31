@@ -351,19 +351,26 @@ func (s *Setup) shellWait() time.Duration {
 	return shellWait
 }
 
-// projectWorkspace is the herdr workspace of this project: the one with most panes whose cwd is the project root or
-// under its lanes dir ("" when none). Placement follows it, never the caller's workspace when that is another
-// project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in obor-kit's w5).
+// projectWorkspace is the herdr workspace of this project ("" when none): one with a pane whose cwd is the project
+// root or under its lanes dir and no pane with a known cwd elsewhere (T-634: a shell of another project's workspace
+// that cd's into this one does not make that workspace the project's); an unknown cwd counts neither way. Several:
+// the one with most project panes, the first of equals in herdr's order. Placement follows it, never the caller's
+// workspace when that is another project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in
+// obor-kit's w5).
 func (s *Setup) projectWorkspace(panes []app.PaneInfo) string {
-	count := map[string]int{}
+	count, foreign := map[string]int{}, map[string]bool{}
 	for _, p := range panes {
-		if p.Workspace != "" && s.inProject(p.Cwd) {
+		switch {
+		case p.Workspace == "" || p.Cwd == "":
+		case s.inProject(p.Cwd):
 			count[p.Workspace]++
+		default:
+			foreign[p.Workspace] = true
 		}
 	}
 	ws, most := "", 0
 	for _, p := range panes { // in herdr's order: the first of equals
-		if c := count[p.Workspace]; p.Workspace != "" && s.inProject(p.Cwd) && c > most {
+		if c := count[p.Workspace]; c > most && !foreign[p.Workspace] {
 			ws, most = p.Workspace, c
 		}
 	}

@@ -574,7 +574,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	if err := place("O-01", s.laneAgent("O-01"), lane("O-01"), []string{"--new-tab", "workers"}); err != nil {
 		return nil, err
 	}
-	tab := s.tabOf(ctx, s.placed)
+	tab := s.projectTabOf(ctx, s.placed)
 	beside := []string{"--new-tab", "workers"}
 	if tab != "" {
 		beside = []string{"--tab", tab}
@@ -603,14 +603,16 @@ func (s *Setup) laneAgent(lane string) string {
 	return s.cfg.AgentName("worker", lane)
 }
 
-// tabOf is the tab of pane ("": unknown).
-func (s *Setup) tabOf(ctx context.Context, pane string) string {
+// projectTabOf is the tab of pane when it is the project's (projectTab: every pane there has a known cwd in the
+// project), "" otherwise or when unknown: init never derives a tab for S-01 and the integrator that holds a foreign
+// or unknown-cwd pane, a new tab in the project's workspace then (T-634). A user's own --tab is not checked here.
+func (s *Setup) projectTabOf(ctx context.Context, pane string) string {
 	panes, err := s.H.Panes(ctx)
 	if err != nil {
 		return ""
 	}
 	for _, p := range panes {
-		if p.ID == pane {
+		if p.ID == pane && s.projectTab(panes, p.Tab) {
 			return p.Tab
 		}
 	}
