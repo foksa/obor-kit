@@ -57,6 +57,12 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
+  session; with none recorded it resumes herdr's, else asks for `--fresh` (state-model row 51 is the contract; T-599's
+  "starts fresh" promise is dropped).
+- (T-606) Other "oldest/first" choices that range over `p.loop` (a map) go by Go's map order: job_next's did
+  (T-602 → T-606, a flaky gate). Sweep: each such choice orders by intent seq or task; a candidate for the `proj`
+  split's folded-state step.
 - (RV-64, accepted: unlikely, fixes add code) #1 a hand relabel of an idle pane reaches serve only with its next
   status/update event or a reconnect (herdr's rename emits no event; serve's own relabels are followed by an agent
   start's events); #2 an interrupted `obor setup rename` rerun reads the new prefix as the old one (rename is once per
