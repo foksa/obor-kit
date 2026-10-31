@@ -24,8 +24,8 @@ package setup
 //	events     obor.events linked in herdr (setup herdr-plugin, no question); herdr's plugin list read once, and a
 //	           list error fails the step with herdr's error.
 //	panes      O-01 in a new tab "workers", S-01 and the integrator beside it (the integrator in the caller's tab when
-//	           run in a herdr pane), the reviewer in a new tab "review". A pane held by a trust dialog is listed, not
-//	           fatal: Enter there, then obor init again.
+//	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
+//	           listed, not fatal: Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 
 import (
@@ -524,7 +524,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	}
 	integrator := beside
 	if s.Env.Get("HERDR_PANE_ID") != "" {
-		integrator = nil // the caller's tab
+		integrator = nil // the default placement: the caller's tab when it is the project's (T-628)
 	}
 	if err := place("integrator", s.cfg.AgentName("integrator", ""), role("integrator"), integrator); err != nil {
 		return nil, err

@@ -6,11 +6,15 @@
 //	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
-//	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default the tab of
-//	        $HERDR_PANE_ID), or a new tab in the caller's workspace, or an existing shell pane; cwd the lane, env
+//	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
+//	        when it is the project's, else the project's busiest tab, T-628), or a new tab in the project's workspace
+//	        (the one with most panes in the project), or an existing shell pane; without a pane of the project anywhere
+//	        the caller's, with a warning, and another project's pane is never split; cwd the lane, env
 //	        OBOR_ROLE / OBOR_AGENT / OBOR_LANE; then the pane label (= the agent, R-28 §2: refused when another pane
 //	        holds it or --pane is labelled otherwise) and herdr agent start with the lane type's kind and args (+ Claude
-//	        --settings), both through launch.Start (the one start, shared with obor restart). Refuses a full tab
+//	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
+//	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).
+//	        Refuses a full tab
 //	        (limits.max_panes_per_tab, default 4) and a type at its max (lane_types.<type>.max: running agents in lanes
 //	        of that type and role agents of that type). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
@@ -51,6 +55,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/config"
@@ -87,10 +92,13 @@ type Setup struct {
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
+	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (T-628; 0: 10 s).
+	ShellWait time.Duration
 
-	root  string // the main checkout, once found
-	cfg   *config.Config
-	wrote bool // init: a file was created or appended to
+	root   string // the main checkout, once found
+	cfg    *config.Config
+	wrote  bool // init: a file was created or appended to
+	warned bool // placement said its no-project-workspace warning (once a run)
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
