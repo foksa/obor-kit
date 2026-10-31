@@ -87,6 +87,15 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 		}
 	}
 	worker := append(append([]string(nil), env...), "OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01")
+	// serve answers status before its project is loaded (its first subscribe or tick replays the log): wait for it.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, stdout, _ := run(t, p.Root, worker, "resume", "T-01"); !strings.Contains(stdout, "no served project") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("obor serve never loaded the project; its output:\n%s", out.String())
+		}
+	}
 	check(worker, "FAIL resume: the lead or the owner resumes a task, not pj-o-01 (role worker)", "resume", "T-01")
 	lead := append(append([]string(nil), env...), "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead")
 	check(lead, "FAIL resume: T-01 has no needs-you of the merge loop", "resume", "T-01", "reprompt")
