@@ -157,6 +157,9 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if len(tabs) != 2 || !strings.Contains(tabs[0], "label=workers") || !strings.Contains(tabs[1], "label=review") {
 		t.Errorf("tabs created: %q", tabs)
 	}
+	if n := strings.Count(strings.Join(x.reqs(), "\n"), "plugin.list"); n != 1 {
+		t.Errorf("plugin.list read %d times, want once for the events step (T-613)", n)
+	}
 	if x.serves != 1 {
 		t.Errorf("serve install called %d times", x.serves)
 	}
@@ -256,6 +259,143 @@ func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
 	}
 	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.M["O-01"].Type != "sonnet" {
 		t.Errorf("recreated lane's type %q", cfg.Data.Lanes.M["O-01"].Type)
+	}
+}
+
+// T-613 #3: obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
+// runs again, a finished one is skipped, and a lane dir that is no worktree of the repo is a FAIL (never a skip).
+func TestOborInitLaneSetupOnARerun(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		run  func(t *testing.T, x *initFx)
+	}{
+		{"lane_setup failed last run: the rerun runs it", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_setup"}, "exit 3")
+			x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("O-01")+": exit 3", "obor-init")
+			for _, lane := range []string{"O-01", "S-01"} {
+				if x.Exists(".obor/state/lanes/" + lane + ".setup") {
+					t.Errorf("%s: a failed lane_setup left the done marker", lane)
+				}
+			}
+			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			out := x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if got, want := x.Read(x.LaneDir(lane)+"/setup-ran"), x.LaneDir(lane)+"\n"; got != want {
+					t.Errorf("%s: the rerun's lane_setup wrote %q, want %q", lane, got, want)
+				}
+				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
+					t.Errorf("%s: no done marker after its lane_setup finished", lane)
+				}
+			}
+			if stateOf(out, "lanes") != "done" {
+				t.Errorf("lanes step %q", summary(out, "lanes"))
+			}
+		}},
+		{"lane_setup finished last run: the rerun skips it", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
+			x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
+					t.Fatalf("precondition: %s's lane_setup ran and left its marker", lane)
+				}
+				os.Remove(filepath.Join(x.LaneDir(lane), "setup-ran"))
+			}
+			out := x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if x.Exists(x.LaneDir(lane) + "/setup-ran") {
+					t.Errorf("%s: the rerun ran lane_setup again", lane)
+				}
+			}
+			if stateOf(out, "lanes") != "already" {
+				t.Errorf("lanes step %q", summary(out, "lanes"))
+			}
+		}},
+		{"a lane dir that is no worktree of the repo: FAIL", func(t *testing.T, x *initFx) {
+			dir := x.LaneDir("O-01")
+			x.Git(x.Root, "worktree", "remove", "--force", dir)
+			os.MkdirAll(dir, 0o755)
+			x.Write(dir+"/keep", "a plain directory, not a worktree\n")
+			x.failing(t, "FAIL "+dir+" exists and is not a worktree of "+x.Root, "obor-init")
+			if !x.Exists(dir + "/keep") {
+				t.Error("the directory was touched")
+			}
+		}},
+		{"lane_ready fails with no lane_setup to run: FAIL", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_ready"}, "false")
+			x.failing(t, "FAIL lane O-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
+		}},
+		{"lane_ready still fails after lane_setup: FAIL, never done", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_ready"}, "echo not ready; exit 1")
+			x.editConfig(t, []string{"commands", "lane_setup"}, "true")
+			out, rc := x.run(t, "obor-init")
+			want := "FAIL lane O-01: lane_ready still fails after lane_setup (echo not ready; exit 1): not ready"
+			if rc != 1 || last(out) != want {
+				t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), want, out)
+			}
+			if strings.Contains(out, "OK init") || stateOf(out, "lanes") == "done" {
+				t.Errorf("a lane that is still not ready was reported done:\n%s", out)
+			}
+		}},
+		{"lane_ready passes after lane_setup: done", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_ready"}, "test -f ready")
+			x.editConfig(t, []string{"commands", "lane_setup"}, "touch ready")
+			out := x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if !x.Exists(x.LaneDir(lane) + "/ready") {
+					t.Errorf("%s: the rerun's lane_setup did not run", lane)
+				}
+			}
+			if stateOf(out, "lanes") != "done" {
+				t.Errorf("lanes step %q", summary(out, "lanes"))
+			}
+			if out := x.init(t); stateOf(out, "lanes") != "already" {
+				t.Errorf("rerun after it was ready: lanes step %q", summary(out, "lanes"))
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newInitFx(t, true)
+			x.init(t)
+			c.run(t, x)
+		})
+	}
+}
+
+// editConfig sets key to val in the project's .obor/config.json: the fix a user makes, then runs obor init again.
+func (x *initFx) editConfig(t *testing.T, key []string, val any) {
+	t.Helper()
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), key, val)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Write(".obor/config.json", string(doc))
+}
+
+// T-613 #4: herdr cannot list its plugins: the events step fails with herdr's error (never "linked"), it reads the list
+// once, and init stops before the panes.
+func TestOborInitFailsWhenHerdrCannotListPlugins(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	x.srv.Fail("plugin.list", "internal", "boom")
+	x.failing(t, "FAIL cannot read herdr's plugin list: herdr plugin.list: failed: boom (internal)", "obor-init")
+	var lists int
+	for _, r := range x.reqs() {
+		if strings.HasPrefix(r, "plugin.list") {
+			lists++
+		}
+		for _, m := range []string{"agent.start", "pane.split", "tab.create", "plugin.link", "plugin.unlink"} {
+			if strings.HasPrefix(r, m) {
+				t.Errorf("init sent %s after the FAIL", r)
+			}
+		}
+	}
+	if lists != 1 {
+		t.Errorf("plugin.list read %d times, want once", lists)
+	}
+	if len(x.h.Plugins) != 0 || x.serves != 0 {
+		t.Errorf("plugins %v, serve installs %d after the FAIL", x.h.Plugins, x.serves)
 	}
 }
 

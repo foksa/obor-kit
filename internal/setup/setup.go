@@ -2,7 +2,8 @@
 // ends with OK … / FAIL … (exit 1).
 //
 //	lane <LANE> <type>  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
-//	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout).
+//	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout), leaving
+//	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
 //	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default the tab of
 //	        $HERDR_PANE_ID), or a new tab in the caller's workspace, or an existing shell pane; cwd the lane, env
@@ -20,7 +21,8 @@
 //	        pre-push); refuses when it is set to something else. --remove unsets it (only when it is ours).
 //	herdr-plugin  the obor.events herdr plugin (R-28 §3; user-global, once per user): link <kit>/herdr-plugin in
 //	        herdr, or re-link it when herdr runs another kit's copy (herdr stores the resolved path, so a kit at a new
-//	        path needs this); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
+//	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
+//	        (T-613); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
 //	        false` (never edited, T-159).
 //	agents [--remove]  what each kind's bridge says to install (user-global, once per user; alias opencode-plugin):
 //	        its plugin link (OpenCode: <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js,
