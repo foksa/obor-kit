@@ -121,8 +121,30 @@ func installedRoot(path string) (string, error) {
 	return v.S, nil
 }
 
+// owner is the check all three verbs run before they touch launchd (T-607): the label's plist, when there is one,
+// must name this root — another project's plist of the same label is not this one's to boot out, kickstart or
+// overwrite — and a label launchd has loaded with no plist is one whose owner cannot be told. So nothing is done to
+// another project's agent, nor to one nobody can claim. pid and loaded are launchd's state of the label.
+func (s Service) owner(ctx context.Context) (pid int, loaded bool, err error) {
+	plist := s.PlistPath()
+	root, err := installedRoot(plist)
+	if err != nil {
+		return 0, false, err
+	}
+	if root != "" && filepath.Clean(root) != filepath.Clean(s.Root) {
+		return 0, false, fmt.Errorf("%s runs obor serve for %s, not %s: two projects named %q (rename one: config name)",
+			plist, root, s.Root, s.Name)
+	}
+	pid, loaded = s.PID(ctx)
+	if root == "" && loaded {
+		return 0, false, fmt.Errorf("%s is loaded in launchd with no plist: cannot tell whose it is (launchctl bootout gui/%d/%s by hand)",
+			s.Label(), s.UID, s.Label())
+	}
+	return pid, loaded, nil
+}
+
 // Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
-// new plist). FAIL when a plist of this label runs serve for another project (two projects of one name).
+// new plist). FAIL when the label is another project's (owner).
 func (s Service) Install(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
@@ -131,12 +153,9 @@ func (s Service) Install(ctx context.Context) (string, error) {
 		return "", errors.New("the project has no name")
 	}
 	plist := s.PlistPath()
-	switch other, err := installedRoot(plist); {
-	case err != nil:
+	_, loaded, err := s.owner(ctx)
+	if err != nil {
 		return "", err
-	case other != "" && filepath.Clean(other) != filepath.Clean(s.Root):
-		return "", fmt.Errorf("%s runs obor serve for %s, not %s: two projects named %q (rename one: config name)",
-			plist, other, s.Root, s.Name)
 	}
 	for _, dir := range []string{filepath.Dir(plist), filepath.Dir(s.LogPath())} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -146,7 +165,7 @@ func (s Service) Install(ctx context.Context) (string, error) {
 	if err := os.WriteFile(plist, s.Plist(), 0o644); err != nil {
 		return "", err
 	}
-	if _, loaded := s.PID(ctx); loaded {
+	if loaded {
 		if _, err := launchctl(ctx, "bootout", s.target()); err != nil {
 			return "", err
 		}
@@ -157,14 +176,18 @@ func (s Service) Install(ctx context.Context) (string, error) {
 	return fmt.Sprintf("INSTALLED %s (%s; log %s)", s.Label(), plist, s.LogPath()), nil
 }
 
-// Uninstall unloads the agent (bootout, which stops its serve) and removes its plist.
+// Uninstall unloads the agent (bootout, which stops its serve) and removes its plist. Another project's label
+// (owner): FAIL, nothing done.
 func (s Service) Uninstall(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
 	}
 	plist := s.PlistPath()
+	_, loaded, err := s.owner(ctx)
+	if err != nil {
+		return "", err
+	}
 	_, statErr := os.Stat(plist)
-	_, loaded := s.PID(ctx)
 	if !loaded && errors.Is(statErr, os.ErrNotExist) {
 		return fmt.Sprintf("%s is not installed", s.Label()), nil
 	}
@@ -179,12 +202,17 @@ func (s Service) Uninstall(ctx context.Context) (string, error) {
 	return "UNINSTALLED " + s.Label(), nil
 }
 
-// Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over.
+// Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over. Another project's
+// label (owner): FAIL, nothing done.
 func (s Service) Restart(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
 	}
-	if _, loaded := s.PID(ctx); !loaded {
+	_, loaded, err := s.owner(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !loaded {
 		return "", fmt.Errorf("%s is not installed (obor serve install)", s.Label())
 	}
 	if _, err := launchctl(ctx, "kickstart", "-k", s.target()); err != nil {

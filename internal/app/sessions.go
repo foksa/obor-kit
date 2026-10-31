@@ -12,7 +12,8 @@ import (
 // transcript, pane, lane, task, started} on task key store.SessionTask, one per (agent, id); the history stays (the
 // UI's list), the agent's current session is its newest (store.Current). The sources, per kind:
 //   - Claude: its SessionStart hook sends serve a session request with the id and transcript_path (serve down: the
-//     session is not recorded, said on the hook's log line; the agent's next restart starts fresh);
+//     session is not recorded, said on the hook's log line; a restart resumes the agent's last recorded session,
+//     else herdr's, T-607);
 //   - Codex: launch, after a fresh start, reads the rollout the started agent's process holds open (T-588; its first
 //     line's session_meta) and reports it (in serve after the start returned: its own goroutine);
 //   - OpenCode: none yet; the session request is kind-neutral, T-578's plugin is to send it.

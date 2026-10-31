@@ -28,14 +28,16 @@ func TestPlistGolden(t *testing.T) {
 	}
 }
 
-// fakeLaunchctl puts a launchctl on PATH that logs each call (one line of its args) and keeps one label's state:
-// bootstrap loads it, bootout unloads it, print answers "pid = 4242" while loaded and exits 113 otherwise.
-func fakeLaunchctl(t *testing.T) (log string) {
+// fakeLaunchctl puts a launchctl on PATH that logs each call (one line of its args) and keeps one label's state in
+// state (a file: bootstrap loads it, bootout unloads it, print answers "pid = 4242" while loaded and exits 113
+// otherwise).
+func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log = filepath.Join(dir, "calls")
+	state = filepath.Join(dir, "loaded")
 	script := `#!/bin/sh
 echo "$*" >> "` + log + `"
-state="` + filepath.Join(dir, "loaded") + `"
+state="` + state + `"
 case "$1" in
 bootstrap) : > "$state" ;;
 bootout) [ -f "$state" ] || exit 3; rm "$state" ;;
@@ -47,7 +49,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return log
+	return log, state
 }
 
 func calls(t *testing.T, log string) []string {
@@ -64,7 +66,7 @@ func darwin(t *testing.T) Service {
 // install writes the plist and bootstraps it (a second install boots the loaded one out first); restart kickstarts
 // it; uninstall boots it out and removes the plist; uninstall again and restart of nothing say it is not installed.
 func TestVerbs(t *testing.T) {
-	log := fakeLaunchctl(t)
+	log, _ := fakeLaunchctl(t)
 	s := darwin(t)
 	ctx := context.Background()
 	if _, loaded := s.PID(ctx); loaded {
@@ -115,7 +117,7 @@ func TestVerbs(t *testing.T) {
 // A plist of this label that runs serve for another project: install FAILs and leaves it (and launchd) alone; the
 // same project's plist is no clash.
 func TestInstallLabelClash(t *testing.T) {
-	log := fakeLaunchctl(t)
+	log, _ := fakeLaunchctl(t)
 	s := darwin(t)
 	other := s
 	other.Root = "/elsewhere/pj"
@@ -143,9 +145,79 @@ func TestInstallLabelClash(t *testing.T) {
 	}
 }
 
+// T-607 #3: uninstall and restart check the plist's owner first: another project's plist of this label FAILs naming
+// it, and launchctl is never called — its agent is not booted out or kickstarted.
+func TestVerbsLeaveAnotherRootsAgent(t *testing.T) {
+	log, state := fakeLaunchctl(t)
+	s := darwin(t)
+	other := s
+	other.Root = "/elsewhere/pj"
+	if err := os.MkdirAll(filepath.Dir(s.PlistPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.PlistPath(), other.Plist(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(other.Plist()), "<string>/elsewhere/pj</string>") {
+		t.Fatal("precondition: the plist runs serve for another root")
+	}
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, loaded := s.PID(ctx); !loaded {
+		t.Fatal("precondition: the label is loaded")
+	}
+	if err := os.Remove(log); err != nil { // the precondition's own print is not the verbs' doing
+		t.Fatal(err)
+	}
+	for name, verb := range map[string]func(context.Context) (string, error){"uninstall": s.Uninstall, "restart": s.Restart} {
+		_, err := verb(ctx)
+		if err == nil || !strings.Contains(err.Error(), "runs obor serve for /elsewhere/pj, not "+s.Root) {
+			t.Fatalf("%s over another project's plist: %v", name, err)
+		}
+		if b, _ := os.ReadFile(s.PlistPath()); string(b) != string(other.Plist()) {
+			t.Errorf("%s changed the other project's plist:\n%s", name, b)
+		}
+		if _, err := os.Stat(state); err != nil {
+			t.Errorf("%s unloaded the other project's agent: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Errorf("launchctl called: %q", calls(t, log))
+	}
+}
+
+// T-607 #3: a label launchd has loaded with no plist at all is nobody's to boot out or kickstart: uninstall and
+// restart FAIL saying whose it is cannot be told, and launchctl is only asked whether it is loaded.
+func TestVerbsRefuseUnownedLabel(t *testing.T) {
+	log, state := fakeLaunchctl(t)
+	s := darwin(t)
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.PlistPath()); !os.IsNotExist(err) {
+		t.Fatalf("precondition: no plist: %v", err)
+	}
+	ctx := context.Background()
+	for name, verb := range map[string]func(context.Context) (string, error){"uninstall": s.Uninstall, "restart": s.Restart} {
+		_, err := verb(ctx)
+		if err == nil || !strings.Contains(err.Error(), "cannot tell whose it is (launchctl bootout gui/501/obor.serve.pj by hand)") {
+			t.Fatalf("%s of a loaded label with no plist: %v", name, err)
+		}
+		if _, err := os.Stat(state); err != nil {
+			t.Errorf("%s unloaded the label: %v", name, err)
+		}
+	}
+	want := []string{"print gui/501/obor.serve.pj", "print gui/501/obor.serve.pj"}
+	if got := calls(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("launchctl calls:\n%s\nwant only the prints that read it:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 // Off darwin every verb prints the one line and does nothing (no launchctl, no plist).
 func TestElsewhere(t *testing.T) {
-	log := fakeLaunchctl(t)
+	log, _ := fakeLaunchctl(t)
 	s := darwin(t)
 	s.GOOS = "linux"
 	ctx := context.Background()

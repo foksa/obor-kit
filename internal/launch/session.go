@@ -55,7 +55,8 @@ func (l *Launcher) running(p proc) bool {
 
 // reportRollout: after a fresh start of a kind whose transcripts begin with their session (agents.Caps.Sessions:
 // Codex's rollout, T-577), the transcript of the start's new session is reported as agent's session (Report); serve
-// not told or refusing: said, nothing recorded (the next restart starts fresh). The start's session is the one
+// not told or refusing: said, nothing recorded (a restart resumes agent's last recorded session, else herdr's; T-607).
+// The start's session is the one
 // whose transcript the started agent's own process p holds open (T-588: a fact, not a guess by cwd and time; T-589: p
 // pinned by the start, never read again from the pane, which another agent may hold by now): p or a process below it.
 // p gone: nothing recorded. Nothing open within Rollout: said, nothing recorded (never a scan of the cwd). say is where
@@ -116,7 +117,8 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 	}
 	say("session %s (%s, open in pid %d)", rec.ID, path, pid)
 	if err := l.report(ctx, rec); err != nil {
-		say("warning: session %s of %s not recorded: %v (the next restart starts fresh)", rec.ID, agent, err)
+		say("warning: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)",
+			rec.ID, agent, err, agent, agent)
 	}
 }
 
