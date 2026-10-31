@@ -95,6 +95,9 @@ type AgentInfo struct {
 	// Workspace is the herdr workspace id; Transcript is Session when herdr reports it as a path (agent_session kind
 	// path: the agent's transcript file), else "".
 	Workspace, Transcript string
+	// Label is the pane's label: not in herdr's agent entry, so only a Stream's reread and the snapshot fill it
+	// (a relabel emits no herdr event; the stream sees it on the next reread of the pane).
+	Label string
 }
 
 // PaneInfo is one pane; the agent fields are empty when it runs none.

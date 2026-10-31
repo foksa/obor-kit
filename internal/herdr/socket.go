@@ -927,7 +927,7 @@ func (st *Stream) settle(ev Event, hint *Agent) (Event, bool, error) {
 			return ev, false, nil
 		}
 		now, err := st.reread(ev.Pane)
-		if err != nil || same(now, last) {
+		if err != nil || same(now, last) { // a changed label too: Label is part of Agent
 			return ev, false, gone(err)
 		}
 		st.seen[ev.Pane] = now
@@ -956,14 +956,22 @@ func merge(hint, last Agent) Agent {
 	return last
 }
 
-// reread is pane as herdr reports it now: its agent entry, or the pane when no agent runs there.
+// reread is pane as herdr reports it now: its agent entry, or the pane when no agent runs there, with the pane's
+// label (an agent entry has none; pane.rename emits no event, so a reread is where a relabel is seen).
 func (st *Stream) reread(pane string) (Agent, error) {
 	a, err := st.s.Agent(st.ctx, pane)
-	if !errors.Is(err, ErrNotFound) {
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return a, err
 	}
-	p, err := st.s.Pane(st.ctx, pane)
-	return paneAgent(p), err
+	p, perr := st.s.Pane(st.ctx, pane)
+	if errors.Is(err, ErrNotFound) {
+		return paneAgent(p), perr
+	}
+	if perr != nil {
+		return a, perr
+	}
+	a.Label = p.Label
+	return a, nil
 }
 
 // observed is each pane of snap as herdr reports it: its agent entry when one runs there (the pane's workspace and
@@ -979,7 +987,7 @@ func observed(snap Snapshot) map[string]Agent {
 		if !ok {
 			a = paneAgent(p)
 		}
-		a.Workspace, a.Cwd = cmp.Or(a.Workspace, p.Workspace), cmp.Or(a.Cwd, p.Cwd)
+		a.Workspace, a.Cwd, a.Label = cmp.Or(a.Workspace, p.Workspace), cmp.Or(a.Cwd, p.Cwd), p.Label
 		out[p.ID] = a
 	}
 	return out
@@ -987,7 +995,7 @@ func observed(snap Snapshot) map[string]Agent {
 
 func paneAgent(p Pane) Agent {
 	return Agent{Pane: p.ID, Status: p.Status, Cwd: p.Cwd, Kind: p.Kind, Session: p.Session, Workspace: p.Workspace,
-		Transcript: p.Transcript}
+		Transcript: p.Transcript, Label: p.Label}
 }
 
 // same: a and b differ in nothing obor watches (Seq grows with every change, even one undone since).

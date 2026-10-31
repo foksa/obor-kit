@@ -81,10 +81,10 @@ func (p Panes) appEvent(ev Event) app.Event {
 }
 
 // appPane is a pane as herdr reports it (its agent entry, or the pane's fields when no agent runs). An agent entry has
-// no label: the callers that have the pane add it (a status event has none: the app keeps the one it has).
+// no label of its own: Label is the pane's, set by a Stream's reread and the snapshot.
 func (p Panes) appPane(a Agent) app.Pane {
 	return app.Pane{ID: a.Pane, Workspace: a.Workspace, Cwd: a.Cwd, Agent: a.Kind, Status: a.Status,
-		Transcript: p.transcript(a), Session: a.Session}
+		Transcript: p.transcript(a), Session: a.Session, Label: a.Label}
 }
 
 func (p Panes) appSnapshot(s Snapshot) app.Snapshot {

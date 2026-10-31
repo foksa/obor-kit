@@ -459,23 +459,8 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
 		return app.Started{}, err
 	}
-	// Env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
-	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
-		prog := pi.Foreground()
-		if prog == "" {
-			prog = "unknown"
-		}
-		return app.Started{}, project.Failf("%s runs another program (%s)", t.pane, prog)
-	}
-	mark := envMark()
-	if err := l.H.Type(ctx, t.pane, envLine(t)+`; echo `+mark.typed); err != nil {
-		return app.Started{}, project.Failf("herdr pane run %s (env) failed", t.pane)
-	}
-	if !l.until(ctx, l.wait(), func() bool {
-		screen, err := l.H.Screen(ctx, t.pane, 30)
-		return err == nil && mark.done(screen)
-	}) {
-		return app.Started{}, l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started)", t.pane, l.wait())
+	if err := l.setEnv(ctx, t); err != nil {
+		return app.Started{}, err
 	}
 
 	args, err := l.args(t)
@@ -525,6 +510,39 @@ func (l *Launcher) checkTranscript(t *target, sid string) error {
 		if _, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid)); err != nil {
 			return project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
 		}
+	}
+	return nil
+}
+
+// AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
+// lane ("" for none) and the directory it works in ("" keeps the shell's).
+type AgentEnv struct{ Agent, Role, Lane, Cwd string }
+
+// SetEnv types the env line of e at pane's shell, as a restart does (obor setup in a pane that already exists: its
+// shell may hold the env of the agent that ran there before).
+func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
+	return l.setEnv(ctx, &target{agent: e.Agent, known: true, pane: pane,
+		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}})
+}
+
+// setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
+func (l *Launcher) setEnv(ctx context.Context, t *target) error {
+	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
+		prog := pi.Foreground()
+		if prog == "" {
+			prog = "unknown"
+		}
+		return project.Failf("%s runs another program (%s)", t.pane, prog)
+	}
+	mark := envMark()
+	if err := l.H.Type(ctx, t.pane, envLine(t)+`; echo `+mark.typed); err != nil {
+		return project.Failf("herdr pane run %s (env) failed", t.pane)
+	}
+	if !l.until(ctx, l.wait(), func() bool {
+		screen, err := l.H.Screen(ctx, t.pane, 30)
+		return err == nil && mark.done(screen)
+	}) {
+		return l.giveUp(ctx, t, "the shell in %s did not finish the env line in %s (nothing started)", t.pane, l.wait())
 	}
 	return nil
 }

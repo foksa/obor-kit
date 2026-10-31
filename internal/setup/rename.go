@@ -11,9 +11,10 @@ package setup
 //	           neither are kept
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
-//	3 files    ~/.obor/agents/<old>.{sid,inbox} copied to <new>.… (no overwrite)
-//	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`); pane labels are set by
-//	           the next start
+//	3 files    ~/.obor/agents/<old>.{sid,inbox} copied to <new>.… (no overwrite); each lane worktree's opencode.json
+//	           with a path to another kit's bin/obor or bin/herd (an MCP server) pointing at this kit's bin/obor
+//	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
+//	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
 //	5 finish   the old → new agent table, the lanes dir moves when its path has the old name, what to do next
 
 import (
@@ -21,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -300,24 +302,65 @@ func (r *renamer) files(context.Context) error {
 			did = append(did, filepath.Base(src)+" → "+filepath.Base(dst))
 		}
 	}
+	moved, err := r.kitPaths()
+	if err != nil {
+		return err
+	}
+	if len(did) > 0 {
+		did = []string{"copied " + strings.Join(did, ", ") + " (the old ones stay)"}
+	}
+	if len(moved) > 0 {
+		did = append(did, "kit path in "+strings.Join(moved, ", "))
+	}
 	if len(did) == 0 {
-		r.ok("3 files", true, "no agent file left to copy")
+		r.ok("3 files", true, "no agent file left to copy, no kit path to correct")
 	} else {
-		r.ok("3 files", false, "copied %s (the old ones stay)", strings.Join(did, ", "))
+		r.ok("3 files", false, "%s", strings.Join(did, "; "))
 	}
 	return nil
+}
+
+// kitPath matches a quoted path to a kit's shim (bin/obor, or the old bin/herd): where an OpenCode lane's MCP server
+// command points.
+var kitPath = regexp.MustCompile(`"((?:[^"\\]|\\.)*/bin/(?:obor|herd))"`)
+
+// kitPaths points each lane worktree's opencode.json (per-worktree config, git-excluded: setup does not write it, so
+// it keeps the kit it was written for, which may be gone: D-01's named the deleted herd-kit/bin/herd) at this kit's
+// bin/obor. It returns the opencode.json it changed, as "<lane>/opencode.json"; a lane without one is skipped.
+func (r *renamer) kitPaths() ([]string, error) {
+	shim := filepath.Join(r.Kit, "bin", "obor")
+	var moved []string
+	for _, l := range r.cfg.Lanes() {
+		path := filepath.Join(l.Dir, "opencode.json")
+		doc, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		out := kitPath.ReplaceAllFunc(doc, func(m []byte) []byte {
+			var p string
+			if json.Unmarshal(m, &p) != nil || p == shim {
+				return m
+			}
+			b, _ := json.Marshal(shim)
+			return b
+		})
+		if bytes.Equal(out, doc) {
+			continue
+		}
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			return nil, project.Failf("%v", err)
+		}
+		moved = append(moved, l.Name+"/opencode.json")
+	}
+	return moved, nil
 }
 
 // 4 ---------------------------------------------------------------------------------------------------------------
 
 func (r *renamer) workspace(ctx context.Context) error {
-	if r.oldName == r.name {
-		r.ok("4 herdr", true, "no workspace labelled with another name")
-		return nil
-	}
 	herdrBin, err := lookPath(r.Env.Get("PATH"), "herdr")
 	if err != nil {
-		r.say("WARN 4 herdr: herdr is not on PATH: rename the workspace %s to %s by hand", r.oldName, r.name)
+		r.say("WARN 4 herdr: herdr is not on PATH: rename the workspace %s to %s and relabel its panes by hand (herdr pane rename)", r.oldName, r.name)
 		return nil
 	}
 	call := func(args ...string) ([]byte, error) {
@@ -342,21 +385,70 @@ func (r *renamer) workspace(ctx context.Context) error {
 		return project.Failf("herdr workspace list: unreadable answer: %v", err)
 	}
 	var renamed []string
+	spaces := map[string]bool{} // the project's workspaces: labelled with the old name, or the new (a rerun, or only the prefix changes)
 	for _, w := range list.Result.Workspaces {
-		if w.Label != r.oldName {
-			continue
+		switch w.Label {
+		case r.name:
+			spaces[w.ID] = true
+		case r.oldName:
+			spaces[w.ID] = true
+			if _, err := call("workspace", "rename", w.ID, r.name); err != nil {
+				return project.Failf("herdr workspace rename %s %s failed: %v", w.ID, r.name, err)
+			}
+			renamed = append(renamed, w.ID)
 		}
-		if _, err := call("workspace", "rename", w.ID, r.name); err != nil {
-			return project.Failf("herdr workspace rename %s %s failed: %v", w.ID, r.name, err)
-		}
-		renamed = append(renamed, w.ID)
 	}
-	if len(renamed) == 0 {
-		r.ok("4 herdr", true, "no workspace is labelled %s", r.oldName)
+	relabelled, err := r.relabelPanes(call, spaces)
+	if err != nil {
+		return err
+	}
+	var did []string
+	if len(renamed) > 0 {
+		did = append(did, fmt.Sprintf("workspace %s: %s → %s", strings.Join(renamed, ", "), r.oldName, r.name))
+	}
+	if len(relabelled) > 0 {
+		did = append(did, "pane labels "+strings.Join(relabelled, ", "))
+	}
+	if len(did) == 0 {
+		r.ok("4 herdr", true, "no workspace is labelled %s, no pane label follows the old prefix", r.oldName)
 	} else {
-		r.ok("4 herdr", false, "workspace %s: %s → %s", strings.Join(renamed, ", "), r.oldName, r.name)
+		r.ok("4 herdr", false, "%s", strings.Join(did, "; "))
 	}
 	return nil
+}
+
+// relabelPanes renames each pane of the workspaces in spaces whose label mapAgent maps to a new name (herdr pane
+// rename), so a later start in it is not refused for "labelled pj-o-01, not ob-o-01"; the other labels stay. It
+// returns "<pane> <old> → <new>" for each.
+func (r *renamer) relabelPanes(call func(...string) ([]byte, error), spaces map[string]bool) ([]string, error) {
+	out, err := call("pane", "list")
+	if err != nil {
+		return nil, project.Failf("herdr pane list failed: %v", err)
+	}
+	var list struct {
+		Result struct {
+			Panes []struct {
+				ID    string `json:"pane_id"`
+				Space string `json:"workspace_id"`
+				Label string `json:"label"`
+			} `json:"panes"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, project.Failf("herdr pane list: unreadable answer: %v", err)
+	}
+	var done []string
+	for _, p := range list.Result.Panes {
+		next := r.mapAgent(p.Label)
+		if !spaces[p.Space] || next == p.Label {
+			continue
+		}
+		if _, err := call("pane", "rename", p.ID, next); err != nil {
+			return nil, project.Failf("herdr pane rename %s %s failed: %v", p.ID, next, err)
+		}
+		done = append(done, fmt.Sprintf("%s %s → %s", p.ID, p.Label, next))
+	}
+	return done, nil
 }
 
 // 5 ---------------------------------------------------------------------------------------------------------------
