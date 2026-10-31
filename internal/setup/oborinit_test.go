@@ -325,6 +325,34 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			x.editConfig(t, []string{"commands", "lane_ready"}, "false")
 			x.failing(t, "FAIL lane O-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
 		}},
+		{"lane_ready still fails after lane_setup: FAIL, never done", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_ready"}, "echo not ready; exit 1")
+			x.editConfig(t, []string{"commands", "lane_setup"}, "true")
+			out, rc := x.run(t, "obor-init")
+			want := "FAIL lane O-01: lane_ready still fails after lane_setup (echo not ready; exit 1): not ready"
+			if rc != 1 || last(out) != want {
+				t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), want, out)
+			}
+			if strings.Contains(out, "OK init") || stateOf(out, "lanes") == "done" {
+				t.Errorf("a lane that is still not ready was reported done:\n%s", out)
+			}
+		}},
+		{"lane_ready passes after lane_setup: done", func(t *testing.T, x *initFx) {
+			x.editConfig(t, []string{"commands", "lane_ready"}, "test -f ready")
+			x.editConfig(t, []string{"commands", "lane_setup"}, "touch ready")
+			out := x.init(t)
+			for _, lane := range []string{"O-01", "S-01"} {
+				if !x.Exists(x.LaneDir(lane) + "/ready") {
+					t.Errorf("%s: the rerun's lane_setup did not run", lane)
+				}
+			}
+			if stateOf(out, "lanes") != "done" {
+				t.Errorf("lanes step %q", summary(out, "lanes"))
+			}
+			if out := x.init(t); stateOf(out, "lanes") != "already" {
+				t.Errorf("rerun after it was ready: lanes step %q", summary(out, "lanes"))
+			}
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

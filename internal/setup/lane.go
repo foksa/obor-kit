@@ -89,6 +89,19 @@ func laneSetupMarker(root, lane string) string {
 	return filepath.Join(project.StateDir(root), "lanes", lane+".setup")
 }
 
+// laneReady runs commands.lane_ready in dir (ok with none configured) and reads its output as a FAIL line can carry
+// it: its last three lines on one line (checks.LaneSetup's shape).
+func (s *Setup) laneReady(ctx context.Context, dir string) (c config.Command, out string, ok bool) {
+	c, configured := run.Command(s.cfg, "lane_ready")
+	if !configured {
+		return c, "", true
+	}
+	var b bytes.Buffer
+	rc, timedOut := run.Execute(ctx, c, dir, nil, nil, &b, &b)
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	return c, strings.Join(lines[max(0, len(lines)-3):], " "), rc == 0 && !timedOut
+}
+
 // laneDone: this lane of the config needs no `obor setup lane` (obor init's rerun, T-613): dir is a worktree of this
 // repo and commands.lane_ready passes there, or (with none configured) its lane_setup finished the last time. A dir
 // that exists and is not a worktree of this repo is a FAIL, never a skip; no dir at all is false: setup.lane makes one.
@@ -100,11 +113,8 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	if err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
 		return false, project.Failf("%s exists and is not a worktree of %s", dir, s.root)
 	}
-	if c, ok := run.Command(s.cfg, "lane_ready"); ok {
-		if rc, timedOut := run.Execute(ctx, c, dir, nil, nil, nil, nil); rc == 0 && !timedOut {
-			return true, nil
-		}
-		if _, ok := run.Command(s.cfg, "lane_setup"); !ok {
+	if c, _, ok := s.laneReady(ctx, dir); !ok {
+		if _, has := run.Command(s.cfg, "lane_setup"); !has {
 			return false, project.Failf("lane %s: lane_ready fails (%s) and commands.lane_setup is not set", lane, c.Cmd)
 		}
 		s.say("lane %s: lane_ready fails (%s): running its lane_setup again", lane, c.Cmd)

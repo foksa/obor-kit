@@ -14,7 +14,8 @@ package setup
 //	lanes      O-01 opus, S-01 sonnet (setup lane); roles.integrator and roles.reviewer keep their type when its
 //	           kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
-//	           lane_setup marker) is skipped; one whose lane_setup failed the last time is set up again.
+//	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
+//	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
 //	plugin     claude plugin marketplace add <kit>, claude plugin install obor@<the kit's marketplace> --scope
 //	           project (exit codes only, under a timeout); skipped when the project's settings enable it. Before the
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
@@ -126,6 +127,10 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		}
 		if err := s.lane(ctx, l[:]); err != nil {
 			return err
+		}
+		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use (T-613).
+		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l[0])); !ok {
+			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l[0], c.Cmd, out)
 		}
 		made = append(made, l[0]+" "+l[1])
 	}
