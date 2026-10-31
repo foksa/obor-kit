@@ -47,7 +47,8 @@ one line once all merged (or the first dropped). `obor watch` lists, `--rm T-xx`
   reaches the worker as a line in the same attempt. A question you answer by typing into the worker's pane stays
   open until the worker submits or asks again.
 - `obor resume <T-xx> [regate|reprompt] ["<decision>"]` — a step that stopped, once its cause is dealt with; for a
-  held review, the decision text goes into the integrator's next job ("Lead's decision on your hold: …").
+  held review, the decision text goes into the integrator's next job ("Lead's decision on your hold: …"); for open
+  questions the decision is required and reaches the worker too.
 - `obor sendback <LANE> "<why>"` — fixes to a finished task (its review ends, the worker gets a fix job).
 - `obor drop <LANE> "<why>" [--discard] [--force]` — abandon a task and free the lane; `obor drop <T-xx> "<why>"`
   cancels a task that has no lane yet (a waiting dispatch, `--after` or no free lane).
