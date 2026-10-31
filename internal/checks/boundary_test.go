@@ -43,7 +43,7 @@ var layerOf = map[string]string{
 	"internal/app": core,
 
 	"internal/herdr": adapter, "internal/checks": adapter, "internal/launch": adapter, "internal/mcp": adapter,
-	"internal/guard": adapter, "internal/setup": adapter,
+	"internal/guard": adapter, "internal/setup": adapter, "internal/service": adapter,
 
 	"cmd/obor": entry, "internal/affected": adapter,
 

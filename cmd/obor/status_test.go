@@ -324,3 +324,33 @@ func TestStatusFactLine(t *testing.T) {
 		t.Errorf("fact line %q", got)
 	}
 }
+
+// T-596: the serve line names who runs serve: launchd (its agent's pid is serve's), a pane (any other serve), or
+// nobody with no launchd agent (install it); a down serve whose agent is installed keeps the reason.
+func TestStatusServeLine(t *testing.T) {
+	since := time.Now().Add(-time.Hour)
+	at := since.Format(time.RFC3339)
+	for _, c := range []struct {
+		name string
+		s    serveJSON
+		want string
+	}{
+		{"launchd", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 4242, Launchd: "running"},
+			"serve: launchd pid 4242 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
+		{"pane, agent installed", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+			Launchd: "loaded"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
+		{"pane, no agent", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+			Launchd: "none"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
+		{"down, no agent", serveJSON{Error: "obor serve is not running", Launchd: "none"},
+			"serve: down (obor serve install)"},
+		{"down, agent installed", serveJSON{Error: "obor serve is not running", Launchd: "loaded"},
+			"serve: down (obor serve is not running)"},
+	} {
+		c.s.sinceTime, _ = time.Parse(time.RFC3339, c.s.Since)
+		var b bytes.Buffer
+		writeStatus(&b, statusModel{Serve: c.s}, time.Now())
+		if got := strings.SplitN(b.String(), "\n", 2)[0]; got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}

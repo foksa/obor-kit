@@ -25,7 +25,8 @@ import (
 )
 
 // serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
-// status` (an alias of `obor status --facts`) and `dump`.
+// install|uninstall|restart` (its launchd agent, T-596), `obor serve status` (an alias of `obor status --facts`) and
+// `dump`.
 func serveCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -41,8 +42,10 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		return status([]string{"--facts"})
 	case len(args) == 1 && args[0] == "dump":
 		return serveDump(out, cwd)
+	case len(args) == 1 && (args[0] == "install" || args[0] == "uninstall" || args[0] == "restart"):
+		return serveService(args[0], cwd, env)
 	case len(args) != 0:
-		errf("usage: obor serve [status (= obor status --facts, goes next release) | dump]")
+		errf("usage: obor serve [install | uninstall | restart | status (= obor status --facts, goes next release) | dump]")
 		return 2
 	}
 	repo, err := project.Find(cwd)

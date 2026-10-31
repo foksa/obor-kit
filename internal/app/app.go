@@ -106,9 +106,11 @@ type Options struct {
 	Idle  time.Duration // the watchdogs' bound (10 min)
 	Gone  time.Duration // how long a lane's panes may run no agent before its task needs the owner (1 min: a restart)
 	Tick  time.Duration // how often the watchdogs look (30 s)
-	Retry time.Duration // the wait before subscribing again after a subscribe error (2 s)
-	Now   func() time.Time
-	Out   io.Writer // one line per connect, stream end and fact (nil: none)
+	Retry time.Duration // the first wait before subscribing again after a subscribe error (2 s)
+	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s; T-596)
+	RetryMax time.Duration
+	Now      func() time.Time
+	Out      io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
 	// Refresh: the stream ended with err only so the app works from a new snapshot (herdr's Code refresh): it
 	// subscribes again with no line in Out (nil: never).
 	Refresh func(err error) bool

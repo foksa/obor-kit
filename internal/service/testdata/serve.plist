@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>obor.serve.pj</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/kit/bin/obor</string>
+		<string>serve</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/work/p&amp;j</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/work/p&amp;j/.obor/state/logs/serve.log</string>
+	<key>StandardErrorPath</key>
+	<string>/work/p&amp;j/.obor/state/logs/serve.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/bin:/usr/bin</string>
+		<key>HERDR_SOCKET_PATH</key>
+		<string>/tmp/herdr.sock</string>
+	</dict>
+</dict>
+</plist>

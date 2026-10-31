@@ -14,6 +14,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app"
 	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -35,13 +36,17 @@ type statusModel struct {
 
 // serveJSON: serve answered (Up, since when) or not (Error); the project's state in it.
 type serveJSON struct {
-	Up        bool   `json:"up"`
-	Since     string `json:"since,omitempty"`
-	Error     string `json:"error,omitempty"`     // why it is down
-	Herdr     bool   `json:"herdr"`               // serve's herdr subscription is live
-	Project   bool   `json:"project"`             // serve has this project loaded
-	Merging   bool   `json:"merging"`             // its merge loop runs for it
-	LogError  string `json:"log_error,omitempty"` // its event log's last append error
+	Up       bool   `json:"up"`
+	Since    string `json:"since,omitempty"`
+	Error    string `json:"error,omitempty"`     // why it is down
+	Herdr    bool   `json:"herdr"`               // serve's herdr subscription is live
+	Project  bool   `json:"project"`             // serve has this project loaded
+	Merging  bool   `json:"merging"`             // its merge loop runs for it
+	LogError string `json:"log_error,omitempty"` // its event log's last append error
+	PID      int    `json:"pid,omitempty"`       // the serve that answered (its serve.flock's pid)
+	// Launchd is the project's launchd agent (T-596; darwin): "none" (not installed), "loaded" (installed, its
+	// process not the serve that answered), "running" (the serve that answered is launchd's); "": not asked.
+	Launchd   string `json:"launchd,omitempty"`
 	sinceTime time.Time
 }
 
@@ -115,6 +120,7 @@ func status(args []string) int {
 	defer cancel()
 	ss, err := app.Ask(ctx, app.SocketPath(cfg.Root))
 	st := buildStatus(checks.NewLaneTable(cfg), ss, err)
+	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
 	if !asJSON {
 		writeStatus(out, st, time.Now())
 		if facts {
@@ -130,6 +136,24 @@ func status(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// serveProcess is the serve that answered (up: its pid) and the project's launchd agent (serveJSON.Launchd).
+func serveProcess(ctx context.Context, cfg *config.Config, up bool) (pid int, launchd string) {
+	if up {
+		pid = servePID(cfg.Root)
+	}
+	s := serviceOf(cfg, project.OSEnv)
+	if !s.Supported() {
+		return pid, ""
+	}
+	switch lpid, loaded := s.PID(ctx); {
+	case !loaded:
+		return pid, "none"
+	case pid != 0 && lpid == pid:
+		return pid, "running"
+	}
+	return pid, "loaded"
 }
 
 // buildStatus joins serve's answer (ss, or err when it gave none) to the lane table of p.
@@ -209,10 +233,18 @@ func readFullCheck(root string) *fullCheckJSON {
 // the agents on no lane, each needs-you with its answer, the lines not typed yet, the full check and the pause.
 func writeStatus(w io.Writer, st statusModel, now time.Time) {
 	switch s := st.Serve; {
+	case !s.Up && s.Launchd == "none":
+		fmt.Fprintln(w, "serve: down (obor serve install)")
 	case !s.Up:
 		fmt.Fprintf(w, "serve: down (%s)\n", s.Error)
 	default:
 		line := "serve: up"
+		switch {
+		case s.PID != 0 && s.Launchd == "running":
+			line = fmt.Sprintf("serve: launchd pid %d", s.PID)
+		case s.PID != 0:
+			line = fmt.Sprintf("serve: pane pid %d", s.PID)
+		}
 		if !s.sinceTime.IsZero() {
 			line += fmt.Sprintf(" since %s (%s)", s.sinceTime.Local().Format("Jan 2 15:04"),
 				app.Age(now.Sub(s.sinceTime)))

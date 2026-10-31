@@ -190,7 +190,7 @@ var commands = map[string][]string{
 	"nightly":         nil,
 	"milestone-check": nil,
 	"plugin":          {"restore"},
-	"serve":           {"status"},
+	"serve":           {"status", "install", "uninstall", "restart"},
 	"mcp":             nil,
 	"setup":           {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "opencode-plugin"},
 }

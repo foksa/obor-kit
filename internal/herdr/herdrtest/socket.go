@@ -132,17 +132,28 @@ func Serve(t testing.TB, f *Fake) *Server {
 	if err := herdr.CheckSocketPath(s.Path); err != nil {
 		t.Fatal(err)
 	}
-	if s.ln, err = net.Listen("unix", s.Path); err != nil {
+	if err := s.listen(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		s.ln.Close()
-		s.DropConns()
+		s.Die()
 		os.RemoveAll(dir)
 	})
+	return s
+}
+
+// listen opens the socket at Path and accepts on it until Die.
+func (s *Server) listen() error {
+	ln, err := net.Listen("unix", s.Path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.ln = ln
+	s.mu.Unlock()
 	go func() {
 		for {
-			c, err := s.ln.Accept()
+			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
@@ -152,7 +163,28 @@ func Serve(t testing.TB, f *Fake) *Server {
 			go s.serve(&conn{c: c})
 		}
 	}()
-	return s
+	return nil
+}
+
+// Die is herdr gone: its socket closed and removed, every connection dropped (a no-op when already down).
+func (s *Server) Die() {
+	s.mu.Lock()
+	ln := s.ln
+	s.ln = nil
+	s.mu.Unlock()
+	if ln != nil {
+		ln.Close()
+		_ = os.Remove(s.Path)
+	}
+	s.DropConns()
+}
+
+// Revive is herdr back after Die: the socket at the same Path again, on the same panes.
+func (s *Server) Revive(t testing.TB) {
+	t.Helper()
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Client is a socket client on this server.
