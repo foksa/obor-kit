@@ -6,11 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-10-31 session 13 (in flight): T-608 P7-2 `obor init` (O-01), T-610 `proj` split 2/3 outbox (O-02); T-609 P7-5
-  after T-608. Merged today: T-595..T-607 (review #1–#3, P7-3 launchd, P7-4, Part 3 token cuts T-602..T-604); RV-64 and
-  RV-65 closed. Unreviewed since RV-65: T-604, T-605 (+ the wave). Then: split 3/3 (folded vs live + the p.loop
-  map-order sweep), deep dive over v0.16..HEAD, v0.17 (drops the four rename fallbacks: axis-alies must have migrated
-  first). Serve under launchd: after a code merge `make build && ./bin/obor serve restart`.
+- 2026-10-31 session 13, 14:45: all of T-595..T-611 merged. RV-66 (Terra, over T-604/605/608..611) written; fixes in
+  flight: T-612 resume needs a decision (D-01), T-613 init retry + plugin list error (D-02), T-614 serve.log rotation
+  (S-01); T-615 split 3/3 (folded vs live + p.loop order) waits on T-612. Then: RV-66 verify, deep dive over
+  v0.16..HEAD, v0.17 (drops the four rename fallbacks: axis-alies must have migrated first). Rule for the lead: always
+  keep the next task queued (`--after`) so the lanes never run dry. After a code merge: `make build && ./bin/obor serve restart`.
 - 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
   Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
   free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
@@ -57,6 +57,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-66 #1, accepted: by design) A pane labelled with an agent the config no longer names is still identified by
+  its label: T-605 removed start-row and session proof only; labels name hand-started panes.
 - (RV-65-verify #2, accepted: rare) The "session not recorded" warnings say a restart resumes the last recorded
   session; with none recorded it resumes herdr's, else asks for `--fresh` (state-model row 51 is the contract; T-599's
   "starts fresh" promise is dropped).
@@ -110,7 +112,6 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (T-194, low) `obor sendback` onto a moved main leaves the worker a hand rebase; serve could merge main into the
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
-- Reviewer / deep_dive are read-only only by role text: the guard could deny their writes outside the reviews dir.
 ## Concerns
 - **`internal/app` is where all growth lands** (+789 in phase 4, 7.4k; DD-v0.12 Design 1). Keep "a new state or
   step is a row in `states.go`"; split files in phase 5.
