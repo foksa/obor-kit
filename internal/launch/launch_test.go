@@ -1667,6 +1667,7 @@ func TestRestartRecordedSession(t *testing.T) {
 	// No lane or role: the pane's cwd is checked; herdr's session is not checked; Codex records are not checked.
 	x.reset()
 	x.record("triage", "sid-t")
+	x.transcript("/Users/someone/elsewhere", "sid-t")
 	x.shell("w1:p8", "triage", "/work/maps/").Session = "sid-t"
 	out, _ = x.restart(launch.Request{Agent: "triage"})
 	eq(t, last(out), "FAIL recorded session sid-t is not from /work/maps (pass --fresh, or --sid <id>)", "the pane cwd")
@@ -1685,6 +1686,82 @@ func TestRestartRecordedSession(t *testing.T) {
 	out, _ = x.restart(launch.Request{Agent: "pj-rev"})
 	contains(t, out, "recorded session cx-1 not checked (codex keeps no transcript per cwd)", "said")
 	contains(t, x.startCall(), "args=[resume cx-1", "codex resumes its record")
+}
+
+// T-627: the session rule, restart and restore, as the state model's row 51 says it. A recorded session is resumed
+// when its transcript is under the pane's cwd, refused when it is under another, and started fresh (said) when it
+// exists nowhere: Claude writes no transcript before the first prompt, so a session never prompted has none. A pane
+// with no recorded session starts fresh in restore, role or worker (a role started fresh with no prompt has no
+// transcript either).
+func TestSessionResumeRule(t *testing.T) {
+	t.Parallel()
+	t.Run("restart: transcript in the pane's cwd: resumed", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-o-01", "sid-1")
+		x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "resumed")
+		contains(t, x.startCall(), "--resume sid-1", "the transcript's session")
+		lacks(t, out, "starting fresh", "no fresh start")
+	})
+	t.Run("restart: transcript under another cwd: refused", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.record("pj-o-01", "sid-x")
+		x.transcript("/Users/someone/other-project", "sid-x")
+		x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		if ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "refused")
+		lacks(t, out, "starting fresh", "never fresh")
+		if x.startCall() != "" || len(x.calls("pane.send_input")) > 0 {
+			t.Errorf("nothing typed or started")
+		}
+	})
+	t.Run("restart: transcript nowhere (never prompted): fresh, said", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.record("pj-o-01", "sid-x")
+		x.shell("w1:p3", "pj-o-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, out, "recorded session sid-x has no transcript (never prompted): starting fresh", "said")
+		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "a new session")
+		lacks(t, x.startCall(), "--resume", "no resume")
+	})
+	t.Run("restore: a role with no recorded session: fresh, said", func(t *testing.T) {
+		t.Parallel()
+		f := newRfx(t)
+		f.p.Config(testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+		rev := f.p.Lane("review", "review")
+		f.shell("w1:p7", rev, "pj-rev")
+		f.pl.Restore(context.Background())
+		f.wantCalls(f.p.Root + " restart pj-rev --pane w1:p7 --fresh")
+		has(t, f.restoreLog(), " restore pj-rev (pane w1:p7) in "+f.p.Root+" (reviewer, no recorded session: --fresh)",
+			"the fresh start is logged")
+	})
+	t.Run("restore: a worker of a busy lane with no recorded session: fresh, as before", func(t *testing.T) {
+		t.Parallel()
+		f := newRfx(t)
+		lane := f.p.Lane("O-01", "task/T-01")
+		f.p.Commit(lane)
+		f.p.Config()
+		f.shell("w1:p1", lane, "pj-o-01")
+		f.pl.Restore(context.Background())
+		f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1 --fresh")
+		log := f.restoreLog()
+		has(t, log, " restore pj-o-01 (pane w1:p1) in "+f.p.Root+" (worker, no recorded session: --fresh)",
+			"the fresh start is logged")
+		lacks(t, log, "skip pj-o-01", "the busy lane's worker is not skipped")
+	})
 }
 
 // Stop (pain 4): idle → /exit, no start, the pane stays labelled at a shell; at a shell already; working → FAIL unless

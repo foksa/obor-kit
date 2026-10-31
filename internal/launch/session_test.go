@@ -346,24 +346,36 @@ func TestCodexRolloutOfAChild(t *testing.T) {
 }
 
 // T-588: the agent's process holds no rollout within the bound (a rollout of its cwd exists, written by another
-// Codex): no session fact, a line saying so, nothing recorded: never a guess from the cwd.
+// Codex): no session fact, a line saying so, nothing recorded: never a guess from the cwd. T-627: the line says that
+// this is expected of a fresh start with no prompt (Codex writes its rollout at the first one); a prompted start gets
+// the plain one.
 func TestCodexNoRolloutOpen(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
-	x.wrap = func(h app.PaneControl) app.PaneControl {
-		return onStart{h, func() { writeRollout(x, "cx-other", x.lane, time.Now()) }}
+	for _, c := range []struct {
+		name, prompt, line string
+	}{
+		{"no prompt: expected", "", "warning: pj-o-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded: expected after a fresh start with no prompt)"},
+		{"prompted: the plain line", "work", "warning: pj-o-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
+			x.wrap = func(h app.PaneControl) app.PaneControl {
+				return onStart{h, func() { writeRollout(x, "cx-other", x.lane, time.Now()) }}
+			}
+			x.shell("w1:p3", "pj-o-01", "")
+			out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: c.prompt})
+			if !ok {
+				t.Fatal(out)
+			}
+			contains(t, x.startCall(), "codex", "precondition: a codex start")
+			contains(t, out, c.line, "said")
+			if len(x.reported) != 0 {
+				t.Errorf("a session fact: %+v", x.reported)
+			}
+			eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
+		})
 	}
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-	if !ok {
-		t.Fatal(out)
-	}
-	contains(t, x.startCall(), "codex", "precondition: a codex start")
-	contains(t, out, "warning: pj-o-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded)", "said")
-	if len(x.reported) != 0 {
-		t.Errorf("a session fact: %+v", x.reported)
-	}
-	eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
 }
 
 // T-586: serve refusing the session (another agent holds it), or not reachable, records nothing and says so; a

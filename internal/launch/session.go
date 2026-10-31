@@ -59,9 +59,10 @@ func (l *Launcher) running(p proc) bool {
 // The start's session is the one
 // whose transcript the started agent's own process p holds open (T-588: a fact, not a guess by cwd and time; T-589: p
 // pinned by the start, never read again from the pane, which another agent may hold by now): p or a process below it.
-// p gone: nothing recorded. Nothing open within Rollout: said, nothing recorded (never a scan of the cwd). say is where
-// it says so.
-func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane string, p proc, say func(format string, args ...any)) {
+// p gone: nothing recorded. Nothing open within Rollout: said, nothing recorded (never a scan of the cwd; a fresh
+// start with no prompt writes none, T-627: the line says so). say is where it says so.
+func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane string, p proc, prompted bool,
+	say func(format string, args ...any)) {
 	k, ok := agents.Lookup(kind)
 	if !ok || !k.Caps().Sessions {
 		return
@@ -100,8 +101,12 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 		say("warning: %s (pid %d) is gone: its %s session is not recorded", agent, pid, kind)
 		return
 	case len(found) == 0:
-		say("warning: %s (pid %d) holds no %s transcript open within %s (its session is not recorded)", agent, pid, kind,
-			l.rollout())
+		why := ""
+		if !prompted {
+			why = ": expected after a fresh start with no prompt" // Codex writes its rollout at the first one (T-627)
+		}
+		say("warning: %s (pid %d) holds no %s transcript open within %s (its session is not recorded%s)", agent, pid, kind,
+			l.rollout(), why)
 		return
 	case len(found) > 1:
 		say("warning: %s (pid %d) holds several %s transcripts open (sessions %s): its session is not recorded", agent,
@@ -201,7 +206,7 @@ func (l *Launcher) openFiles(pids []int) []string {
 // searchRollout runs reportRollout for a fresh start of agent (kind) in pane and lane: the agent's process is pinned
 // here, in the start's own path (T-589), and searched in Background when set (its own bound, Rollout and the report's;
 // the start returns at once; its lines to Log), else before the start returns.
-func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane string) {
+func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane string, prompted bool) {
 	say := l.say
 	if l.Background != nil {
 		say = func(string, ...any) {}
@@ -215,13 +220,13 @@ func (l *Launcher) searchRollout(ctx context.Context, agent, pane, kind, lane st
 		return
 	}
 	if l.Background == nil {
-		l.reportRollout(ctx, agent, pane, kind, lane, p, say)
+		l.reportRollout(ctx, agent, pane, kind, lane, p, prompted, say)
 		return
 	}
 	l.Background(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), l.rollout()+reportWait)
 		defer cancel()
-		l.reportRollout(ctx, agent, pane, kind, lane, p, say)
+		l.reportRollout(ctx, agent, pane, kind, lane, p, prompted, say)
 	})
 }
 
