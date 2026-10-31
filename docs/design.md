@@ -189,7 +189,7 @@ allows silently.
    Stop hook).
 4. **SessionStart** (`guard.SessionStart`): prints the `obor: role …, lane …, task …` line, the protected files the
    stored spec unlocks (or that the lane has no row), the hooks this role runs under and the role-text line (T-204). It
-   records the agent's session id (`<agent>.sid`) and, for an opencode lane, the plugin marker. When the pane carries a
+   tells serve the agent's session (the store records it; serve down: nothing, T-599) and, for an opencode lane, the plugin marker. When the pane carries a
    obor agent's label but `OBOR_AGENT` is unset, it prints a warning (herdr restore?) and renames nothing; the renames
    herdr needs are serve's (T-416).
 5. **StopFailure** (`obor hook stop-failure`, T-532; Claude Code fires it instead of Stop when a turn ends on an API
@@ -407,7 +407,7 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
 - **Lines to the lead are posted, never typed** (T-485, owner 2026-10-28: nothing types into the pane the owner writes
   in, and an idle lead must still be woken). Claude Code binds an inbox socket per session
   (`CLAUDE_CODE_MESSAGING_SOCKET`, with `CLAUDE_CODE_MESSAGING_TOKEN`; needs Claude Code ≥ 2.1.224); every agent's
-  SessionStart hook records it as `${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.inbox` (0600, beside `<agent>.sid`;
+  SessionStart hook records it as `${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.inbox` (0600;
   a session without one removes it). Serve posts the line to the socket that record names (the auth line, then a
   `user` message; `cmd/obor`'s `poster`): no pane lookup, no idle rule. An idle lead starts a new turn with it, a busy
   one reads it between tool calls; it arrives as a message from another session, and the owner's half-typed draft
@@ -441,7 +441,7 @@ opencode runs no Claude Code hooks. The kit ships `opencode/obor.js`, an opencod
 stops loading). It holds no obor rules: each hook maps opencode's event to the Claude Code hook event JSON and runs
 `obor hook <name>`, so the guard and the session context stay in the Go binary. `tool execute.before` →
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
-→ `session-start` (with `session_id: ""`: obor never resumes an opencode session, so no `.sid` record). There is no
+→ `session-start` (with `session_id: ""`: obor never resumes an opencode session, so no session record). There is no
 `task_done` re-prompt on 2.x (it delivered no idle event).
 `obor hook` runs without `OBOR_AGENT`, `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd and
 the lane state, because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
