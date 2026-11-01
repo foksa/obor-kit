@@ -11,6 +11,37 @@ import (
 	"obor/internal/app"
 )
 
+// patience is how long a step may take: up to the package's own test deadline (less a margin), never a fixed wall
+// clock shorter than it, so a loaded machine slows the test and does not fail it.
+func (r *loopRig) patience() time.Duration {
+	if d, ok := r.t.Deadline(); ok {
+		if left := time.Until(d) - 10*time.Second; left > time.Second {
+			return left
+		}
+	}
+	return 10 * time.Minute
+}
+
+// await polls ok (the log or a fold of it) until it holds; the serve pass runs on the fake clock, so only the poll
+// is real time.
+func (r *loopRig) await(what string, ok func() bool) {
+	r.t.Helper()
+	for deadline := time.Now().Add(r.patience()); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	r.t.Fatalf("timed out waiting for %s; records:\n%s\napp output:\n%s", what, strings.Join(r.steps(), "\n"), r.out)
+}
+
+// advance moves the fake clock on by d (0: not at all), then waits for two more passes of serve's loop.
+func (r *loopRig) advance(d time.Duration) {
+	r.t.Helper()
+	_, n := app.Counts(r.app)
+	r.clock.Add(d)
+	r.await("two more passes", func() bool { _, passes := app.Counts(r.app); return passes >= n+2 })
+}
+
 // needsLineFacts is the message facts of the project's log that announce a needs-you.
 func (r *loopRig) needsLineFacts() []app.Record {
 	var out []app.Record
@@ -48,7 +79,7 @@ func refusedRig(t *testing.T) (*loopRig, string) {
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
-	r.waitFor("needs-you fact folded into status", func() bool {
+	r.await("needs-you fact folded into status", func() bool {
 		for _, f := range r.app.Status().Project.Facts {
 			if f.Step == app.StepNeedsYou {
 				return true
@@ -76,17 +107,17 @@ func refusedRig(t *testing.T) (*loopRig, string) {
 // post no second line.
 func TestNeedsYouIsPostedToTheLeadOnce(t *testing.T) {
 	r, line := refusedRig(t)
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+	r.await("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.await("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	if n := len(r.needsLineFacts()); n != 1 {
 		t.Fatalf("needs-you lines recorded %d, want 1: %q", n, r.steps())
 	}
-	r.passes()
-	r.passes()
+	r.advance(0)
+	r.advance(0)
 	r.stop()
 	r.start()
-	r.passes()
-	r.passes()
+	r.advance(0)
+	r.advance(0)
 	if n := r.inbox.count("pj-lead", line); n != 1 {
 		t.Errorf("posted %d times across passes and a restart, want once", n)
 	}
@@ -105,15 +136,15 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	})
 	r.start()
 	r.mustDispatch("d1")
-	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
-	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 })
+	r.await("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+	r.await("the line queued", func() bool { return len(r.waiting()) == 1 })
 	w := r.waiting()[0]
 	if w.To != "pj-lead" || !strings.HasPrefix(w.Line, "[obor] needs-you T-1 (O-01): lane: lane_setup in O-01: rc 1: boom") {
 		t.Fatalf("waiting %+v, want the needs-you line to pj-lead", w)
 	}
 	r.stop()
 	r.start()
-	r.passes()
+	r.advance(0)
 	if n, ww := len(r.needsLineFacts()), r.waiting(); len(ww) != 1 || n != 1 {
 		t.Errorf("after a restart: waiting %+v, %d facts; want one line queued once", ww, n)
 	}
@@ -121,7 +152,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 		t.Errorf("posted %d times with no record", n)
 	}
 	r.inbox.record("pj-lead")
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", w.Line) == 1 })
+	r.await("the line posted", func() bool { return r.inbox.count("pj-lead", w.Line) == 1 })
 	if n := countReq(r.srv, "notification.show"); n != 1 {
 		t.Errorf("notifications %d, want 1", n)
 	}
@@ -135,12 +166,12 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	if _, err := r.line(app.MethodSend, "s1", app.Call{Note: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
-	r.later(25 * time.Hour)
+	r.advance(25 * time.Hour)
 	const want = "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: [obor other] hello}"
-	r.waitFor("the line's needs-you", func() bool { return r.taskStep(app.MsgTask, want) == 1 })
-	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
-	r.passes()
-	r.passes()
+	r.await("the line's needs-you", func() bool { return r.taskStep(app.MsgTask, want) == 1 })
+	r.await("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+	r.advance(0)
+	r.advance(0)
 	if n, w := len(r.needsLineFacts()), r.waiting(); n != 0 || len(w) != 1 || !strings.HasPrefix(w[0].Line, "[obor other]") {
 		t.Errorf("needs-you lines %d, waiting %+v; want none and only the original line", n, w)
 	}
@@ -172,7 +203,7 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 	r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
 	select {
 	case <-held:
-	case <-time.After(20 * time.Second):
+	case <-time.After(r.patience()):
 		t.Fatalf("precondition: no line reached its record: %q", r.steps())
 	}
 	done := make(chan struct{})
@@ -184,13 +215,13 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 	go func() { wg.Wait(); close(done) }()
 	select {
 	case <-done: // none of them tried to record the claimed fact's line
-	case <-time.After(5 * time.Second):
+	case <-time.After(r.patience()):
 		t.Error("a concurrent pass recorded (or waited on) a line the first pass had claimed")
 	}
 	close(release)
-	r.waitFor("the line queued", func() bool { return len(r.needsLineFacts()) >= 1 })
-	r.passes()
-	r.passes()
+	r.await("the line queued", func() bool { return len(r.needsLineFacts()) >= 1 })
+	r.advance(0)
+	r.advance(0)
 	if n := len(r.needsLineFacts()); n != 1 {
 		t.Errorf("needs-you lines recorded %d, want exactly 1: %q", n, r.steps())
 	}
@@ -201,22 +232,22 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.later(29 * time.Minute)
+	r.await("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.advance(29 * time.Minute)
 	if got := r.againLines(seq); len(got) != 0 {
 		t.Fatalf("at 29 min: again lines %q, want none", got)
 	}
-	r.later(time.Minute) // 30
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.advance(time.Minute) // 30
+	r.await("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
 	if got := r.againLines(seq)[0]; got != line+" (again, 30m)" {
 		t.Errorf("at 30 min: line %q, want the same line with (again, 30m)", got)
 	}
-	r.later(59 * time.Minute) // 89
+	r.advance(59 * time.Minute) // 89
 	if got := r.againLines(seq); len(got) != 1 {
 		t.Fatalf("at 89 min: again lines %q, want still one", got)
 	}
-	r.later(time.Minute) // 90
-	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
+	r.advance(time.Minute) // 90
+	r.await("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
 	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
 		t.Errorf("at 90 min: second line %q, want (again, 1h)", got)
 	}
@@ -226,13 +257,13 @@ func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
 	r, _ := refusedRig(t)
 	seq := r.needsYou().Seq
-	r.later(30 * time.Minute)
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
-	r.later(15 * time.Minute) // 45
+	r.advance(30 * time.Minute)
+	r.await("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.advance(15 * time.Minute) // 45
 	r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
 	r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
-	r.waitFor("the needs-you ended", func() bool { return r.taskState() != "needs-you" })
-	r.later(60 * time.Minute) // 105: the repeat that was due at 90 never comes
+	r.await("the needs-you ended", func() bool { return r.taskState() != "needs-you" })
+	r.advance(60 * time.Minute) // 105: the repeat that was due at 90 never comes
 	if got := r.againLines(seq); len(got) != 1 {
 		t.Errorf("after the resume: again lines %q, want only the one before it", got)
 	}
@@ -243,20 +274,20 @@ func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
 func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.await("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.stop()
 	r.clock.Add(40 * time.Minute)
 	r.start()
-	r.waitFor("the repeat after the restart", func() bool { return len(r.againLines(seq)) == 1 })
+	r.await("the repeat after the restart", func() bool { return len(r.againLines(seq)) == 1 })
 	if got := r.againLines(seq)[0]; got != line+" (again, 40m)" {
 		t.Errorf("after a restart at 40 min: line %q, want (again, 40m)", got)
 	}
-	r.later(30 * time.Minute) // 70: a clock restarted at 40 would post its own repeat now
+	r.advance(30 * time.Minute) // 70: a clock restarted at 40 would post its own repeat now
 	if got := r.againLines(seq); len(got) != 1 {
 		t.Errorf("at 70 min: again lines %q, want one (the clock counts from the fact's time)", got)
 	}
-	r.later(30 * time.Minute) // 100: 60 after the repeat
-	r.waitFor("the next repeat", func() bool { return len(r.againLines(seq)) == 2 })
+	r.advance(30 * time.Minute) // 100: 60 after the repeat
+	r.await("the next repeat", func() bool { return len(r.againLines(seq)) == 2 })
 	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
 		t.Errorf("at 100 min: line %q, want (again, 1h)", got)
 	}
@@ -273,7 +304,7 @@ func undeliveredRig(t *testing.T) (*loopRig, int64) {
 	})
 	r.start()
 	r.mustDispatch("d1")
-	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 && len(r.needsLineFacts()) == 1 })
+	r.await("the line queued", func() bool { return len(r.waiting()) == 1 && len(r.needsLineFacts()) == 1 })
 	return r, r.needsYou().Seq
 }
 
@@ -281,25 +312,25 @@ func undeliveredRig(t *testing.T) (*loopRig, int64) {
 // that line is queued. Once it is delivered at t, the first repeat is due at t + 30 and the next at t + 30 + 60.
 func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
 	r, seq := undeliveredRig(t)
-	r.later(2 * time.Hour) // two repeat intervals and more, nothing delivered
+	r.advance(2 * time.Hour) // two repeat intervals and more, nothing delivered
 	if n, w := len(r.needsLineFacts()), r.waiting(); n != 1 || len(w) != 1 {
 		t.Fatalf("after 2 h undelivered: %d lines recorded, waiting %+v; want exactly the first line", n, w)
 	}
 	r.inbox.record("pj-lead") // delivered at t = 2 h
-	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
-	r.later(29 * time.Minute)
+	r.await("the first line posted", func() bool { return len(r.waiting()) == 0 })
+	r.advance(29 * time.Minute)
 	if got := r.againLines(seq); len(got) != 0 {
 		t.Fatalf("29 min after the delivery: again lines %q, want none", got)
 	}
-	r.later(time.Minute) // t + 30
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
-	r.waitFor("the repeat posted", func() bool { return len(r.waiting()) == 0 })
-	r.later(59 * time.Minute) // t + 89
+	r.advance(time.Minute) // t + 30
+	r.await("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.await("the repeat posted", func() bool { return len(r.waiting()) == 0 })
+	r.advance(59 * time.Minute) // t + 89
 	if got := r.againLines(seq); len(got) != 1 {
 		t.Fatalf("89 min after the delivery: again lines %q, want one", got)
 	}
-	r.later(time.Minute) // t + 90
-	r.waitFor("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
+	r.advance(time.Minute) // t + 90
+	r.await("the second repeat", func() bool { return len(r.againLines(seq)) == 2 })
 }
 
 // T-624: a repeat waiting undelivered blocks the next one too (the deadline counts from delivery, not queuing), and a
@@ -307,14 +338,14 @@ func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
 func TestNeedsYouLineRepeatReplayKeepsTheWait(t *testing.T) {
 	r, seq := undeliveredRig(t)
 	r.inbox.record("pj-lead")
-	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })
+	r.await("the first line posted", func() bool { return len(r.waiting()) == 0 })
 	r.inbox.unrecord("pj-lead")
-	r.later(30 * time.Minute)
-	r.waitFor("the first repeat queued", func() bool { return len(r.againLines(seq)) == 1 })
-	r.later(5 * time.Hour)
+	r.advance(30 * time.Minute)
+	r.await("the first repeat queued", func() bool { return len(r.againLines(seq)) == 1 })
+	r.advance(5 * time.Hour)
 	r.stop()
 	r.start()
-	r.passes()
+	r.advance(0)
 	if got, w := r.againLines(seq), r.waiting(); len(got) != 1 || len(w) != 1 {
 		t.Errorf("after 5 h and a restart: again lines %q, waiting %+v; want the one repeat, still waiting", got, w)
 	}
