@@ -508,6 +508,10 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		if id != "" {
 			reason = id + ": " + err.Error()
 		}
+		if cutByServe(ctx, err) { // serve is stopping: the review's start was cut, not refused (T-660)
+			a.shutDown(ReviewTask + " " + StepNeedsYou + "{" + reason + "}")
+			return
+		}
 		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
 		return
 	}

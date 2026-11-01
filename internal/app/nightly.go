@@ -233,9 +233,11 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 		return out, err
 	})
 	if err != nil {
-		if ctx.Err() == nil {
-			a.nightlyFailed(p, step, err)
+		if cutByServe(ctx, err) { // serve is stopping: the check was cut, not failed (T-660)
+			a.shutDown(NightlyTask + " " + StepFailed + "{" + step + ": " + err.Error() + "}")
+			return
 		}
+		a.nightlyFailed(p, step, err)
 		return
 	}
 	var out NightlyOut

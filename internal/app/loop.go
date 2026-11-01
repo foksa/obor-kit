@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -297,7 +298,7 @@ func (a *App) advance(ctx context.Context) {
 	if err == nil && fx.Checkout != nil {
 		err = fx.Checkout(ctx)
 	}
-	a.loopStatus(p, &p.badLoop, err)
+	a.loopStatus(ctx, p, &p.badLoop, err)
 	if err != nil {
 		a.logf("merge loop of %s: %v", p.name, err)
 		return
@@ -419,14 +420,31 @@ func (a *App) do(ctx context.Context, p *proj, in Intent, effect func(context.Co
 	return raw, nil
 }
 
+// cutByServe: err is serve's own cancellation (its ctx ended: a restart, a stop), so the effect was cut off, not
+// failed (T-660): nothing is recorded as a failure or needs-you, and the intent stays pending for the next serve's
+// replay, as after a crash.
+func cutByServe(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.Canceled)
+}
+
+// shutDown logs the one line a failure or needs-you leaves behind when serve is stopping (T-660) instead of being
+// recorded: nothing was decided on the cut-off effect.
+func (a *App) shutDown(what string) {
+	a.logf("shutting down: %s not recorded", what)
+}
+
 // failed counts err, the failure of mt's step (the failure rule: do): fact failed{step: why}, so a restart keeps the
 // count. The tries-th is needs-you{<step> failed: why}; while it is in force the step is not tried, and obor resume
 // ends it and the count. An attempt cut off by ctx or by the loss of the herdr connection is not counted, nor herdr's
 // agent_not_found within startSettle of the start of mt's agent (herdr may not know a new agent's name yet). The task
 // waits either way.
 func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err error) bool {
+	if cutByServe(ctx, err) { // serve is stopping: the step was cut, not failed (T-660)
+		a.shutDown(mt.task + " " + StepFailed + "{" + step + ": " + err.Error() + "}")
+		return false
+	}
 	a.mu.Lock()
-	cut := ctx.Err() != nil || !a.connected || a.p != p
+	cut := !a.connected || a.p != p
 	a.mu.Unlock()
 	if ErrorCode(err) == "agent_not_found" && !mt.startAt.IsZero() && a.opt.Now().Sub(mt.startAt) < startSettle {
 		cut = true
@@ -455,8 +473,13 @@ const LoopTask = "loop"
 
 // loopStatus notes that a pass over p failed (err) or did not (nil) at one source (the loop's adapters, the lanes
 // read): a failure is recorded as a needs-you "loop: <error>" once per distinct error (the owner is notified, the
-// lead has a reason), and it ends with the first pass in which no source fails.
-func (a *App) loopStatus(p *proj, src *bool, err error) {
+// lead has a reason), and it ends with the first pass in which no source fails. A pass cut by serve's own stop
+// records nothing (T-660): it was not a failure, and the next serve's pass decides again.
+func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
+	if err != nil && cutByServe(ctx, err) {
+		a.shutDown("loop " + StepNeedsYou + "{loop: " + err.Error() + "}")
+		return
+	}
 	a.loopMu.Lock()
 	defer a.loopMu.Unlock()
 	reason := ""
