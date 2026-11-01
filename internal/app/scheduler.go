@@ -22,12 +22,12 @@ type ScratchStatus struct {
 	Why  string `json:"why"`
 }
 
-// ScratchWait is one task whose next step needs the scratch (a gate or a publish), in the pass's order: Next, the pass
-// gives it the scratch; else WaitsOn the task it waits for and Why (that task's ScratchStatus.Why, or gating /
-// publishing for the next one's step).
+// ScratchWait is one task whose next step needs the scratch (a gate or a publish), in the pass's order: WaitsOn the
+// task it waits for and Why (scratchWait: that task's ScratchStatus.Why, or gating / publishing for its step). Both
+// empty: nothing serve knows holds the scratch; no task is predicted to take it (T-673: the scheduler's rules are
+// more than status can copy).
 type ScratchWait struct {
 	Task    string `json:"task"`
-	Next    bool   `json:"next,omitempty"`
 	WaitsOn string `json:"waits_on,omitempty"`
 	Why     string `json:"why,omitempty"`
 }
@@ -95,9 +95,10 @@ func runningUse(step string) string {
 	return ScratchGating
 }
 
-// scratchQueue is the scheduler's state (obor status): who holds the scratch (nil: free) and, in the pass's order,
-// each task whose next step needs it: the first one scratchWait lets take it is next, every later one waits on that
-// one (once its step starts, it holds the scratch). Under mu.
+// scratchQueue is the scheduler's state (obor status): who holds the scratch and why (nil: free) and, in the pass's
+// order, each task whose next step needs it with what it waits for (scratchWait). A task nothing known holds says
+// nothing more: the queue names no task as next (T-673: the admission rules are the scheduler's, and copying them
+// was a second, partial copy that went stale). Under mu.
 func (p *proj) scratchQueue() (*ScratchStatus, []ScratchWait) {
 	var owner *ScratchStatus
 	if p.running.Task != "" {
@@ -106,30 +107,21 @@ func (p *proj) scratchQueue() (*ScratchStatus, []ScratchWait) {
 		owner = &ScratchStatus{Task: t, Why: why}
 	}
 	var out []ScratchWait
-	var next ScratchWait
 	for _, task := range p.passOrder() {
 		mt := p.folded.loop[task]
-		use := states[mt.state].uses
-		if use == "" || task == p.running.Task || p.ended[task] {
+		if states[mt.state].uses == "" || task == p.running.Task || p.ended[task] {
 			continue
 		}
 		w := ScratchWait{Task: task}
-		switch t, why := p.scratchWait(*mt); {
-		case t != "":
-			w.WaitsOn, w.Why = t, why
-		case next.Task != "":
-			w.WaitsOn, w.Why = next.Task, next.Why
-		default:
-			w.Next = true
-			next = ScratchWait{Task: task, Why: use}
-		}
+		w.WaitsOn, w.Why = p.scratchWait(*mt)
 		out = append(out, w)
 	}
 	return owner, out
 }
 
-// scratchCommand is the command the running gate runs now (Scratch.Gate reports each as it starts: the class's, the
-// guard, the full check, lane_setup); "": none started yet. Under mu.
+// scratchCommand is the command the running gate runs now (Scratch.Gate reports each as it starts and "" as it ends:
+// the class's, the guard, the full check, lane_setup); "" when none runs now, between two commands too (T-673). Under
+// mu.
 func (p *proj) scratchCommand(k Key) string {
 	if base, _ := stepN(k.Step); k != p.running || base != StepGate {
 		return ""

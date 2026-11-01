@@ -58,8 +58,8 @@ type ProjectStatus struct {
 	// failed, or one the next pass or a replay has yet to run, oldest first.
 	Pending []PendingStep `json:"pending"`
 	// Scratch is the task that holds serve's worktree and why (T-669; nil: free), and ScratchQueue, in the merge loop's
-	// order, each task whose next step needs it: the next one, or what it waits on (scratchQueue: the scheduler's own
-	// rule, not a prediction).
+	// order, each task whose next step needs it with what it waits for, if anything does (scratchQueue: the scheduler's
+	// own rule; no task is named as next, T-673).
 	Scratch      *ScratchStatus `json:"scratch,omitempty"`
 	ScratchQueue []ScratchWait  `json:"scratch_queue"`
 }
@@ -71,8 +71,8 @@ const StepServeRestart = "restart"
 // RunningStep is one step that runs without an agent, as obor status' running line lists it (T-657): the merge loop's
 // gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when the effect
 // started (Unix seconds): the elapsed time the line shows (T-662: not the intent's time, which a replay's is older).
-// Command is the command a gate runs now (T-669: commands.<name>, the class's, the guard or check; "": none started
-// yet, or another step).
+// Command is the command a gate runs now (T-669: commands.<name>, the class's, the guard or check; T-673: "" between
+// two commands too, so a finished one never shows as running; "", also, before the first and after the last).
 type RunningStep struct {
 	Step    string `json:"step"`
 	Task    string `json:"task,omitempty"`

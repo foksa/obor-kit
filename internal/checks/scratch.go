@@ -133,7 +133,7 @@ func (s Scratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, e
 	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
 	r := newRunner(ctx, &s.Options, dir, in.Task, "serve-changed-files")
-	r.onCommand = in.Command // obor status' running line names the command (T-669)
+	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
 	defer r.releaseSlot()
 	c := app.Candidate{Task: in.Task, Lane: in.Lane, SHA: in.Input}
 	rev := ""

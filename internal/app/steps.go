@@ -237,7 +237,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	}
 	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepGate, mt.gates+1)}, Class: ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
-	g.Command = func(name string) { // obor status' running line names it (T-669)
+	g.Command = func(name string) { // obor status' running line names the command while it runs (T-669); "" between two (T-673)
 		a.mu.Lock()
 		if p.running == in.Key {
 			p.runCmd = name

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -941,8 +942,9 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #4): serve's gate tells GateInput.Command each command it starts: a partial merge its guard then its
-// class's check (check_affected), never check; a full merge check.
+// T-669 (RV-75 #4), T-673: serve's gate tells GateInput.Command each command as it starts and "" as it ends: a partial
+// merge its guard then its class's check (check_affected), never check; a full merge check; and the gate runs on with
+// no command between two.
 func TestGateReportsItsCommands(t *testing.T) {
 	t.Parallel()
 	partial := testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard",
@@ -950,11 +952,11 @@ func TestGateReportsItsCommands(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		edits []func(map[string]any)
-		want  string
+		want  []string
 	}{
 		{"partial", []func(map[string]any){partial, cmd("guard", "echo 1 pass"), cmd("check_affected", "echo 2 pass"),
-			cmd("check", "echo 3 pass")}, "guard check_affected"},
-		{"full", []func(map[string]any){cmd("check", "echo 3 pass")}, "check"},
+			cmd("check", "echo 3 pass")}, []string{"guard", "", "check_affected", ""}},
+		{"full", []func(map[string]any){cmd("check", "echo 3 pass")}, []string{"check", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			y := newSx(t, tc.edits...)
@@ -962,8 +964,8 @@ func TestGateReportsItsCommands(t *testing.T) {
 			var got []string
 			in.Command = func(name string) { got = append(got, name) }
 			y.green(in)
-			if s := strings.Join(got, " "); s != tc.want {
-				t.Errorf("commands told %q, want %q", s, tc.want)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("commands told %q, want %q", got, tc.want)
 			}
 		})
 	}

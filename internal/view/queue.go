@@ -15,8 +15,8 @@ import (
 
 // Queue is what waits (T-664, the owner: "not only what is going on but also what is queued"), as typed arrays the
 // text renderers word: who holds serve's worktree (Scratch, serve's own word: T-669), the merge loop's tasks with their
-// stage and the next one to get the scratch, the dispatches waiting and on what, the review request, the lines and
-// briefs not done, the pause and the next nightly run.
+// stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what, the review
+// request, the lines and briefs not done, the pause and the next nightly run.
 type Queue struct {
 	Scratch *app.ScratchStatus `json:"scratch"`
 	Merge   []MergeItem        `json:"merge"`
@@ -37,14 +37,13 @@ const (
 )
 
 // MergeItem is one task in the merge loop, in the merge loop's order: serve's state, its stage, its open integrator
-// job, and, when its next step needs the scratch, what serve's scheduler says of it (T-669: copied, never predicted):
-// Next, it gets the scratch next; else WaitsOn the task it waits for and Why (app.ScratchWait).
+// job, and, when its next step needs the scratch, what it waits for and why (T-669: copied from serve's scheduler,
+// which names no task as next, T-673).
 type MergeItem struct {
 	Task    string `json:"task"`
 	Lane    string `json:"lane,omitempty"`
 	State   string `json:"state"`
 	Stage   string `json:"stage"`
-	Next    bool   `json:"next,omitempty"`
 	WaitsOn string `json:"waits_on,omitempty"`
 	Why     string `json:"why,omitempty"`
 	Job     *Job   `json:"job,omitempty"`
@@ -132,8 +131,7 @@ func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]
 		}
 		if stage := stageOf(t, v); stage != "" {
 			w := waits[t.Task]
-			m := MergeItem{Task: t.Task, Lane: t.Lane, State: t.State, Stage: stage, Next: w.Next, WaitsOn: w.WaitsOn,
-				Why: w.Why}
+			m := MergeItem{Task: t.Task, Lane: t.Lane, State: t.State, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why}
 			if stage == StageReview && t.Job != "" {
 				m.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
