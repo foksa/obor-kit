@@ -22,7 +22,8 @@ import (
 //     never before: its verify runs in the same session.
 //
 // A stop is intent/result role.stop on the task key RoleTask (S, step stop.<agent>[.N]): its result (roleStopOut)
-// folds the agent as stopped until a start or a brief of it, so a replay keeps it. A stop runs only on an idle agent
+// records the stop, and the agent's labelled pane left at its shell is what obor status shows as stopped, whoever
+// stopped it (stoppedRoles: serve, or the lead's obor restart <agent> --stop). A stop runs only on an idle agent
 // (its turn after the verdict ends first); one that fails is tried again on a pass at least roleStopRetry later.
 // The advisor and the deep dive are the lead's to stop (skills/lead/SKILL.md); a brief to any stopped role agent but
 // the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine).
@@ -45,21 +46,21 @@ type roleStopOut struct {
 	Line   string `json:"line"`
 }
 
-// roleStops is the folded part of the role stops: how many each agent has (the next key), the agents stopped and not
-// started or briefed since, whether an integrator job's verdict is in since its last job or stop (due), and the
-// review the reviewer was last stopped for (review.started's seq).
+// roleStops is the folded part of the role stops: how many each agent has (the next key), whether an integrator job's
+// verdict is in since its last job or stop (due), and the review the reviewer was last stopped for (review.started's
+// seq). Whether an agent is stopped now is its pane's to say (stoppedRoles): serve and the lead both leave it at a
+// shell.
 type roleStops struct {
-	n       map[string]int
-	stopped map[string]bool
-	due     bool
-	review  int64
+	n      map[string]int
+	due    bool
+	review int64
 }
 
 // foldRoles folds r into the role stops (foldRecord).
 func (p *proj) foldRoles(r Record) {
 	rs := &p.folded.roles
 	if rs.n == nil {
-		rs.n, rs.stopped = map[string]int{}, map[string]bool{}
+		rs.n = map[string]int{}
 	}
 	switch step, _ := stepN(r.Step); {
 	case r.Task == RoleTask && r.Kind == KindResult && strings.HasPrefix(r.Step, stepRoleStop):
@@ -68,7 +69,6 @@ func (p *proj) foldRoles(r Record) {
 			return
 		}
 		rs.n[out.Agent]++
-		rs.stopped[out.Agent] = true
 		switch out.Role {
 		case "integrator":
 			rs.due = false
@@ -77,33 +77,38 @@ func (p *proj) foldRoles(r Record) {
 		}
 	case r.Kind == KindIntent && (step == StepReview || step == StepResolve):
 		rs.due = false // a new job: its own verdict makes the next stop due
-	case r.Kind == KindResult && strings.HasPrefix(step, stepStart):
-		var out startOut
-		if json.Unmarshal(r.Data, &out) == nil && out.Agent != "" {
-			delete(rs.stopped, out.Agent)
-		}
 	case r.Kind == KindResult:
 		if m, _ := verdictMethod(r.Step); m != "" && m != MethodAnswer && p.folded.loop[r.Task] != nil {
 			rs.due = true
 		}
-	case r.Kind == KindFact && r.Step == StepBriefed: // a brief starts a stopped agent (or its fresh start carried it)
-		var m Message
-		_ = json.Unmarshal(r.Data, &m)
-		delete(rs.stopped, m.To)
 	}
 }
 
-// stoppedRoles is the agents serve stopped that no pane runs now, sorted (under mu): obor status shows them as
-// stopped.
+// stoppedRoles is the role agents whose only labelled pane is at its shell (the one launch.Stop leaves), whoever
+// stopped them — serve once their work was done (T-672) or the lead with obor restart <agent> --stop (T-677) — sorted
+// (under mu): obor status, its --json, obor monitor and the view show them all as stopped. An agent two panes are
+// labelled with, or one serve cannot see while herdr is not connected, is unknown, not stopped; no labelled pane at all
+// leaves it "no pane".
 func (a *App) stoppedRoles(p *proj) []string {
 	var out []string
-	for agent, ok := range p.folded.roles.stopped {
-		if ok && a.whereIs(p, agent).State == Unavailable {
+	for _, o := range a.obs {
+		agent := o.pane.Label
+		if agent == "" || o.pane.Agent != "" || a.projectOf(o.pane) != p {
+			continue // not a labelled pane at a shell of this project
+		}
+		if p.roleAgent(agent) && a.atShell(p, agent) {
 			out = append(out, agent)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+// atShell: agent's only labelled pane is at its shell, and no pane is identified as agent's (labelledShell; under mu).
+// It is shellPane without the brief's gate on role agents: status reports the integrator stopped too.
+func (a *App) atShell(p *proj, agent string) bool {
+	_, ok := a.labelledShell(p, agent)
+	return ok
 }
 
 // stopRoles is a pass's stops of the role agents whose work is done (after the tasks' steps and the review pass).
@@ -227,7 +232,16 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 // integrator), that runs no agent (its shell: the agent stopped, by serve or by the lead's obor restart --stop) while
 // no pane is identified as agent's (under mu; false: connected to no herdr, not such a role agent, or none).
 func (a *App) shellPane(p *proj, agent string) (Pane, bool) {
-	if w := a.whereIs(p, agent); w.State != Unavailable || w.Why == notConnected || !p.roleAgentOf(agent) {
+	if !p.roleAgentOf(agent) {
+		return Pane{}, false
+	}
+	return a.labelledShell(p, agent)
+}
+
+// labelledShell is agent's only labelled pane at its shell (the pane launch.Stop leaves, whichever stop left it) while no
+// pane is identified as agent's (under mu; false: two are labelled so, none is, or herdr is not connected).
+func (a *App) labelledShell(p *proj, agent string) (Pane, bool) {
+	if w := a.whereIs(p, agent); w.State != Unavailable || w.Why == notConnected {
 		return Pane{}, false
 	}
 	var ids []string
@@ -237,7 +251,7 @@ func (a *App) shellPane(p *proj, agent string) (Pane, bool) {
 		}
 	}
 	if len(ids) != 1 {
-		return Pane{}, false // none, or two labelled alike: nothing is started
+		return Pane{}, false // none, or two labelled alike: nothing is started, nothing stopped
 	}
 	return a.obs[ids[0]].pane, true
 }
@@ -246,7 +260,7 @@ func (a *App) shellPane(p *proj, agent string) (Pane, bool) {
 // the agent's fresh start in that pane (deliverLine), not typed into a shell.
 const startRoute = "start"
 
-// stoppedAt: agent's labelled pane is at its shell (shellPane; under mu).
+// stoppedAt: agent's labelled pane is at its shell and a brief to it starts it fresh (shellPane; under mu).
 func (a *App) stoppedAt(p *proj, agent string) bool {
 	_, ok := a.shellPane(p, agent)
 	return ok
@@ -256,13 +270,21 @@ func (a *App) stoppedAt(p *proj, agent string) bool {
 // lead, the integrator or a lane's worker (by the name rules launch resolves, the lane rows' agents included; under
 // mu). A config that does not load names none.
 func (p *proj) roleAgentOf(agent string) bool {
+	return agent != p.integrator && p.roleAgent(agent)
+}
+
+// roleAgent: agent is a role agent of p's config on no lane, the integrator included: a role's or an agents entry's,
+// not the lead and not a lane's worker (under mu): the agents obor status may report stopped.
+func (p *proj) roleAgent(agent string) bool {
+	if agent == "" || agent == p.out.lead() {
+		return false
+	}
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return false
 	}
 	info, ok := cfg.AgentLookup(agent, "", func(lane string) string { return p.folded.lr.rows[lane].Agent })
-	if !ok || info.Role == "lead" || info.Role == "integrator" || info.Role == "worker" || agent == p.integrator ||
-		agent == p.out.lead() {
+	if !ok || info.Role == "lead" || info.Role == "worker" {
 		return false
 	}
 	for _, l := range p.lanes {

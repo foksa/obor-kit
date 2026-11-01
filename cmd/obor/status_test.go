@@ -752,3 +752,57 @@ func TestStatusStoppedRole(t *testing.T) {
 		t.Errorf("pj-rev shown stopped:\n%s", text)
 	}
 }
+
+// T-677: a role agent the lead stopped (obor restart <agent> --stop), its pane at a shell, is `stopped` for every
+// output that reads the field: the view's role row, obor status' text and --json, and obor monitor's ROLES.
+func TestStatusStoppedRoleTextJSONMonitor(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config(testkit.Set("roles.advisor", map[string]any{}))
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	ss := app.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+		Name: "proj", Root: p.Root, Merging: true, Agents: []app.AgentStatus{}, Tasks: []app.TaskStatus{},
+		Facts: []app.Record{}, Stopped: []string{"pj-advisor"}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	r := roleRowOf(t, st, "pj-advisor")
+	if r == nil {
+		t.Fatalf("no advisor role row (roles %+v)", st.Roles)
+	}
+	if r.Status != view.RoleStopped {
+		t.Fatalf("view role pj-advisor %q, want %q", r.Status, view.RoleStopped)
+	}
+	matchLine(t, text, `^agent pj-advisor: stopped$`, "the lead-stopped advisor's status line")
+
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Roles []view.Role `json:"roles"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	stopped := 0
+	for _, r := range wire.Roles {
+		if r.Agent == "pj-advisor" && r.Status == view.RoleStopped {
+			stopped++
+		}
+	}
+	if stopped != 1 {
+		t.Errorf("--json carries %d stopped rows of pj-advisor, want 1: %s", stopped, b)
+	}
+	rows := strings.Join(roleRows(st, renderOpts{now: now}, palette{}), "\n")
+	matchLine(t, rows, `^  ● pj-advisor +stopped *$`, "obor monitor's ROLES")
+}
+
+// roleRowOf is st's role row of agent (nil: none).
+func roleRowOf(t *testing.T, st view.Project, agent string) *view.Role {
+	t.Helper()
+	for i, r := range st.Roles {
+		if r.Agent == agent {
+			return &st.Roles[i]
+		}
+	}
+	return nil
+}

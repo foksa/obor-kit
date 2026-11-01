@@ -62,8 +62,9 @@ type ProjectStatus struct {
 	// own rule; no task is named as next, T-673).
 	Scratch      *ScratchStatus `json:"scratch,omitempty"`
 	ScratchQueue []ScratchWait  `json:"scratch_queue"`
-	// Stopped is the role agents serve stopped once their work was done (T-672: the integrator after its last verdict,
-	// the reviewer once its review closed) that no pane runs now, sorted: their next use starts them fresh.
+	// Stopped is the role agents whose only labelled pane is at its shell — serve stopped them once their work was done
+	// (T-672: the integrator after its last verdict, the reviewer once its review closed) or the lead did (T-677:
+	// obor restart <agent> --stop for any role) — sorted: their next use starts them fresh.
 	Stopped []string `json:"stopped,omitempty"`
 }
 
