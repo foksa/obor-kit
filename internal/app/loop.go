@@ -97,15 +97,15 @@ const (
 	causeResolveRejected = "resolve rejected"
 	causeFix             = "fix job not sent"
 	causeRejected        = "rejected"
-	// causeOpen: the worker's report left open questions: the lead decides them before the review job goes out
-	// (T-604).
+	// causeOpen: an older log's hold of a report's open questions before the review job (T-604, reversed by T-649):
+	// the fold ends it, and the task gets its review job.
 	causeOpen    = "open questions"
 	failedSuffix = " failed"
 )
 
 var resumeDefault = map[string]string{
 	causeHeld: ResumeReprompt, causeUndelivered: ResumeReprompt, causeStalled: ResumeReprompt,
-	causeOpen: ResumeReprompt, causeRed: ResumeRegate, causeGate: ResumeRegate, causePublish: ResumeRegate,
+	causeRed: ResumeRegate, causeGate: ResumeRegate, causePublish: ResumeRegate,
 }
 
 // resumeDefaultOf is what obor resume does by default with a needs-you of cause ("": the owner says which).
@@ -169,9 +169,6 @@ type mtask struct {
 	fixed             bool           // stWorking: the fix job of this attempt is out
 	answer            bool           // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
 	decision          string         // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
-	openDecision      string         // the lead's decision on this task's open questions, kept across attempts (T-611)
-	openAt            int            // the attempt whose open questions openDecision answers
-	heldQuestions     bool           // this attempt's review job was held for the lead's open questions (T-604)
 	fixes             int            // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	report            string         // the last submission's report (task_done's)
 	after             int            // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
@@ -607,9 +604,8 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 	}
 }
 
-// pickGreen keeps the accept bound to the patch (row 20), else sends a review job (row 19). A report that leaves open
-// questions goes to the lead first: the task is held (T-604), and the review job carries the lead's decision (obor
-// resume) once it comes.
+// pickGreen keeps the accept bound to the patch (row 20), else sends a review job (row 19): a report's open questions
+// go with it, for the integrator to decide or hold (T-649).
 func (a *App) pickGreen(p *proj, mt mtask) step {
 	if mt.accepted != "" && mt.accepted == mt.cand.Patch {
 		return func(context.Context, *Loop) bool {
@@ -617,18 +613,10 @@ func (a *App) pickGreen(p *proj, mt mtask) step {
 				JobData{Patch: mt.cand.Patch})
 		}
 	}
-	if q := openQuestions(mt.report); q != "" && !mt.heldQuestions {
-		return func(context.Context, *Loop) bool {
-			return a.needsYou(p, &mt, causeOpen, "open questions: "+clip(q, questionsMax))
-		}
-	}
 	return func(ctx context.Context, fx *Loop) bool {
 		return a.job(ctx, p, fx, mt, nth(StepReview, mt.reviews+1))
 	}
 }
-
-// questionsMax is how much of the report's Open questions: section a needs-you quotes.
-const questionsMax = 300
 
 // pickConflict sends a resolve job (row 23).
 func (a *App) pickConflict(p *proj, mt mtask) step {

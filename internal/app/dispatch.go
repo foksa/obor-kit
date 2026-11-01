@@ -432,7 +432,6 @@ func (p *proj) foldDispatch(r Record) {
 		dispSeq: r.Seq}
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
-		next.openDecision, next.openAt = mt.openDecision, mt.openAt // the lead's decision outlives the dispatch (T-611)
 	}
 	p.folded.loop[r.Task] = next
 	delete(p.waitLine, r.Task) // the wait ended: a later wait's refusals start afresh

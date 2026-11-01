@@ -37,9 +37,8 @@ func (p *proj) foldLoop(r Record) {
 			return // ended: a submission decided before the drop
 		}
 		if mt != nil {
-			// The worker's spec rev and the lead's decision on its open questions outlive its attempt (T-611).
+			// The worker's spec rev outlives its attempt.
 			next.sendbacks, next.specRev = mt.sendbacks, mt.specRev
-			next.openDecision, next.openAt = mt.openDecision, mt.openAt
 			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
 		}
 		p.folded.loop[r.Task] = next
@@ -76,11 +75,9 @@ func (p *proj) foldLoop(r Record) {
 			}
 			mt.fails[r.Fact().Step]++
 		case StepNeedsYou:
-			if r.Fact().Merge {
+			// An older log's hold of the open questions before review (T-604) ends here: the review job goes out (T-649).
+			if r.Fact().Merge && r.Fact().Cause != causeOpen {
 				mt.needs = r
-				if r.Fact().Cause == causeOpen {
-					mt.heldQuestions = true
-				}
 				if mt.state != stNeedsYou {
 					mt.left = mt.state
 				}
@@ -217,8 +214,7 @@ func (mt *mtask) sendback(note string) {
 func (mt *mtask) next(note string, answer bool) {
 	mt.attempt++
 	mt.state, mt.line, mt.fixed, mt.fixes, mt.fails, mt.work = stWorking, note, false, 0, nil, ""
-	mt.answer, mt.decision, mt.heldQuestions = answer, "", false
-	// mt.openDecision is kept: the lead's decision on the task's open questions outlives the attempt (T-611).
+	mt.answer, mt.decision = answer, ""
 	mt.gates, mt.reviews, mt.resolves, mt.pubs, mt.submits, mt.input = 0, 0, 0, 0, 0, ""
 	mt.cand, mt.gateRev, mt.accepted, mt.kind, mt.job, mt.patch, mt.delivered, mt.lost = Candidate{}, 0, "", "", "", "", false, 0
 }
@@ -265,10 +261,6 @@ func (mt *mtask) unblock(d FactData) {
 		switch d.Cause {
 		case causeHeld:
 			mt.decision = "Lead's decision on your hold: " + d.Note
-		case causeOpen:
-			mt.decision = "Lead's decision on your open questions: " + d.Note
-			// The worker's next fix job carries it too, whatever attempt it is sent in (T-611).
-			mt.openDecision, mt.openAt = d.Note, mt.attempt
 		}
 	}
 	switch {

@@ -199,9 +199,26 @@ func (a *App) reviewText(p *proj, mt mtask) (string, error) {
 	return fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
 		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
 		"The worker's report:\n%s\n"+
-		"%sAnswer with one obor tool: accept (patch %s, a note optional) | sendback (why: what to fix) | reject (why).",
+		"%s%sAnswer with one obor tool: accept (patch %s, a note optional) | sendback (why: what to fix) | reject (why).",
 		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
-		decisionText(mt), c.Patch), nil
+		questionsText(mt.report), decisionText(mt), c.Patch), nil
+}
+
+// questionsText is the review job's part for the report's Open questions: section (T-649; "": it leaves nothing
+// open): the section verbatim, cut like the diff at InlineDiff bytes, and what to do with it: decide a question
+// the spec's goal and decisions answer in the accept note, hold one that changes scope, a contract, config or a
+// protected file.
+func questionsText(report string) string {
+	q := openQuestions(report)
+	if q == "" {
+		return ""
+	}
+	if len(q) > InlineDiff {
+		q = clip(q, InlineDiff) + fmt.Sprintf("\n(cut at %d bytes: the whole section is in the report above)", InlineDiff)
+	}
+	return "The worker's open questions (decide one the spec's goal and decisions answer: decided: <what> — <why> in " +
+		"the accept note; hold one that changes scope, a contract, config or a protected file):\n" + q +
+		"\n(end of the open questions)\n"
 }
 
 // diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most

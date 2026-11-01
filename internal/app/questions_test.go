@@ -11,9 +11,8 @@ import (
 	"obor/internal/store"
 )
 
-// T-604: a green task whose worker's report leaves open questions goes to the lead before the integrator's review: the
-// gate runs (it costs no tokens), the review job waits for the lead's decision (obor resume), and a sendback from the
-// hold starts the next attempt.
+// T-649 (reverses T-604): a green task whose worker's report leaves open questions gets its review job, the questions
+// in it: the integrator decides the ones inside the spec's goal and holds the rest for the lead.
 
 // seedQuestions is project pj with an integrator, lane O-01's T-1 submitted with report and its lane gate green.
 func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
@@ -55,113 +54,6 @@ func pickGreenStep(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 	return p.folded.loop["T-1"]
 }
 
-func TestOpenQuestionsHoldGreenBeforeReview(t *testing.T) {
-	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
-	for _, c := range []struct {
-		name, report, quote string // quote "": the review job goes out
-	}{
-		{"section absent", full, ""},
-		{"none", full + "\nOpen questions: none", ""},
-		{"n/a", full + "\nOpen questions: N/A", ""},
-		{"dash", full + "\nOpen questions: -", ""},
-		{"no", full + "\nOpen questions: no", ""},
-		{"none with its period", full + "\nOpen questions: none.", ""},
-		{"none then concerns", full + "\nOpen questions: none\nConcerns: none", ""},
-		{"real text", full + "\nOpen questions: should the gate run the full check?", "should the gate run the full check?"},
-		{"a trailing none line", full + "\nOpen questions:\n- which DB?\n- none", "- which DB? - none"},
-		{"a colon in the text", full + "\nOpen questions:\nWhich DB: sqlite or pg?", "Which DB: sqlite or pg?"},
-		{"ended by the next section", full + "\nOpen questions: may I edit the hook?\nConcerns: none",
-			"may I edit the hook?"},
-		{"ended by a markdown heading", full + "\nOpen questions: may I edit the hook?\n## Notes\nnothing else",
-			"may I edit the hook?"},
-		{"long text cut to 300", full + "\nOpen questions: " + strings.Repeat("a", questionsMax+100),
-			strings.Repeat("a", questionsMax)},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			h, f := seedQuestions(t, c.report)
-			mt := pickGreenStep(t, h, f, false)
-			if c.quote == "" {
-				if mt.state != stAwaiting || mt.reviews != 1 || mt.job != StepReview || mt.heldQuestions {
-					t.Fatalf("reviewed: T-1 %s, reviews %d, job %q, held %v; want the review job out",
-						mt.state, mt.reviews, mt.job, mt.heldQuestions)
-				}
-				if n := countStep(t, h, StepNeedsYou); n != 0 {
-					t.Errorf("%d needs-you facts; want none", n)
-				}
-				return
-			}
-			want := "open questions: " + c.quote
-			if mt.state != stNeedsYou || !mt.heldQuestions || mt.reviews != 0 || mt.job != "" {
-				t.Fatalf("held: T-1 %s, reviews %d, job %q, held %v; want needs-you before any review",
-					mt.state, mt.reviews, mt.job, mt.heldQuestions)
-			}
-			if d := mt.needs.Fact(); d.Cause != causeOpen || d.Reason != want {
-				t.Errorf("needs-you %+v; want cause %q, reason %q", d, causeOpen, want)
-			}
-			if h.a.p.log.Open(Key{"T-1", 1, StepReview}) {
-				t.Error("the review job is open; want it held for the lead")
-			}
-		})
-	}
-}
-
-// The lead's resume with a decision sends the review job, the decision in it; the hold survives a restart (replay).
-func TestOpenQuestionsResumeSendsReviewWithDecision(t *testing.T) {
-	for _, replay := range []bool{false, true} {
-		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
-			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\n"+
-				"Open questions: should it use sqlite?")
-			if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
-				t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
-			}
-			const decision = "use sqlite, it is cgo-free"
-			reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-				Note: decision})
-			if err != nil || reply != "RESUMED T-1: reprompt (open questions)" {
-				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
-			}
-			mt := pickGreenStep(t, h, f, replay)
-			if mt.state != stAwaiting || mt.reviews != 1 || mt.job != StepReview {
-				t.Fatalf("after the resume: T-1 %s, reviews %d, job %q; want the review job out", mt.state, mt.reviews,
-					mt.job)
-			}
-			raw, err := h.a.jobNext(Call{Root: h.root, Agent: "pj-int", Role: "integrator", CallID: "j1"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var jr JobReply
-			if err := json.Unmarshal([]byte(raw), &jr); err != nil {
-				t.Fatal(err)
-			}
-			if jr.State != "job" || jr.Job != "T-1/1/review" {
-				t.Fatalf("job_next: %+v; want T-1/1/review", jr)
-			}
-			if want := "Lead's decision on your open questions: " + decision; !strings.Contains(jr.Text, want) {
-				t.Errorf("the review job does not carry %q:\n%s", want, jr.Text)
-			}
-		})
-	}
-}
-
-// The lead's sendback from the hold starts the next attempt: the worker's fix job. It is not a sendback K counts
-// (T-619: only the gate's and the integrator's do).
-func TestOpenQuestionsSendbackStartsNextAttempt(t *testing.T) {
-	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: is this in scope?")
-	if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
-		t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
-	}
-	reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-lead", Role: "lead",
-		CallID: "sb1", Task: "T-1", Note: "drop that part"})
-	if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
-		t.Fatalf("sendback: %q, %v", reply, err)
-	}
-	mt := h.a.p.folded.loop["T-1"]
-	if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != 0 || mt.needs.Seq != 0 {
-		t.Errorf("after the sendback: T-1 %s, attempt %d, sendbacks %d, needs %d; want attempt 2 working, no needs-you",
-			mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq)
-	}
-}
-
 // fixStep runs the step pickWorking selects for T-1 (the fix job of the attempt): fatal when there is none or it fails.
 func fixStep(t *testing.T, h *harness, f *schedScratch) {
 	t.Helper()
@@ -177,7 +69,18 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 // fixJob is the text of T-1's worker's open job (its job_next call).
 func fixJob(t *testing.T, h *harness) JobReply {
 	t.Helper()
-	raw, err := h.a.jobNext(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
+	return nextJob(t, h, Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
+}
+
+// reviewJob is the integrator's open job (its job_next call, under call id id).
+func reviewJob(t *testing.T, h *harness, id string) JobReply {
+	t.Helper()
+	return nextJob(t, h, Call{Root: h.root, Agent: "pj-int", Role: "integrator", CallID: id})
+}
+
+func nextJob(t *testing.T, h *harness, c Call) JobReply {
+	t.Helper()
+	raw, err := h.a.jobNext(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,223 +91,166 @@ func fixJob(t *testing.T, h *harness) JobReply {
 	return jr
 }
 
-// T-611: the lead's decision on the worker's open questions reaches the worker too: after the integrator's sendback,
-// the fix job carries it, live and after a replay of the log (the crash between the resume and the fix job).
-func TestOpenQuestionsDecisionReachesTheFixJob(t *testing.T) {
-	for _, replay := range []bool{false, true} {
-		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
-			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\n"+
-				"Open questions: should it use sqlite?")
-			if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
-				t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
+// questionsPart is the review job's open-questions part for section q (questionsText).
+func questionsPart(q string) string {
+	return "the accept note; hold one that changes scope, a contract, config or a protected file):\n" + q +
+		"\n(end of the open questions)\n"
+}
+
+// A report's open questions no longer hold the task: the review job goes out at once, carrying the section verbatim
+// (cut like the diff); a section that leaves nothing open adds no part.
+func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
+	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
+	long := strings.Repeat("a", InlineDiff+100)
+	for _, c := range []struct {
+		name, report, quote string // quote "": no open-questions part
+	}{
+		{"section absent", full, ""},
+		{"none", full + "\nOpen questions: none", ""},
+		{"n/a", full + "\nOpen questions: N/A", ""},
+		{"dash", full + "\nOpen questions: -", ""},
+		{"no", full + "\nOpen questions: no", ""},
+		{"none with its period", full + "\nOpen questions: none.", ""},
+		{"none new", full + "\nOpen questions: none new.", ""},
+		{"none with a parenthesis", full + "\nOpen questions: none (the lead decided X).", ""},
+		{"None with a dash", full + "\nOpen questions: None — keep as built.", ""},
+		{"none then concerns", full + "\nOpen questions: none\nConcerns: none", ""},
+		{"real text", full + "\nOpen questions: should the gate run the full check?", "should the gate run the full check?"},
+		{"bullets verbatim", full + "\nOpen questions:\n- which DB?\n- none", "- which DB?\n- none"},
+		{"a colon in the text", full + "\nOpen questions:\nWhich DB: sqlite or pg?", "Which DB: sqlite or pg?"},
+		{"ended by the next section", full + "\nOpen questions: may I edit the hook?\nConcerns: none",
+			"may I edit the hook?"},
+		{"ended by a markdown heading", full + "\nOpen questions: may I edit the hook?\n## Notes\nnothing else",
+			"may I edit the hook?"},
+		{"long text cut like the diff", full + "\nOpen questions: " + long, long[:InlineDiff] +
+			"\n(cut at 15360 bytes: the whole section is in the report above)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, f := seedQuestions(t, c.report)
+			mt := pickGreenStep(t, h, f, false)
+			if mt.state != stAwaiting || mt.reviews != 1 || mt.job != StepReview {
+				t.Fatalf("T-1 %s, reviews %d, job %q; want the review job out", mt.state, mt.reviews, mt.job)
 			}
-			const decision = "use sqlite, it is cgo-free"
-			if reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-				Note: decision}); err != nil || reply != "RESUMED T-1: reprompt (open questions)" {
-				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
+			if n := countStep(t, h, StepNeedsYou); n != 0 {
+				t.Errorf("%d needs-you facts; want none", n)
 			}
-			if replay {
-				reloadProj(t, h) // the crash between the resume and the fix job
+			jr := reviewJob(t, h, "j1")
+			if jr.Job != "T-1/1/review" {
+				t.Fatalf("job_next: %+v; want T-1/1/review", jr)
 			}
-			if mt := pickGreenStep(t, h, f, replay); mt.job != StepReview || mt.state != stAwaiting {
-				t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
+			if c.quote == "" {
+				if strings.Contains(jr.Text, "The worker's open questions") {
+					t.Errorf("the review job has an open-questions part; want none:\n%s", jr.Text)
+				}
+				return
 			}
-			if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
-				Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
-				t.Fatal(err)
-			}
-			fixStep(t, h, f)
-			jr := fixJob(t, h)
-			want := "Lead's decision on your open questions (attempt 1): " + decision +
-				" — do not list these again under Open questions."
-			if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, want) {
-				t.Errorf("the fix job %s does not carry %q:\n%s", jr.Job, want, jr.Text)
+			if !strings.Contains(jr.Text, "The worker's open questions (decide") ||
+				!strings.Contains(jr.Text, questionsPart(c.quote)) {
+				t.Errorf("the review job does not carry the open questions %q:\n%s", c.quote, jr.Text)
 			}
 		})
 	}
 }
 
-// T-611: a task the lead never answered has no such line in its fix job.
-func TestFixJobWithoutADecisionHasNoLine(t *testing.T) {
-	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.")
-	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview || mt.state != stAwaiting {
-		t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
-	}
-	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
-		Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
-		t.Fatal(err)
-	}
-	fixStep(t, h, f)
-	jr := fixJob(t, h)
-	if jr.Job != "T-1/2/fix" || !strings.Contains(jr.Text, "the report is missing the test") {
-		t.Fatalf("the fix job %s does not carry the sendback's why:\n%s", jr.Job, jr.Text)
-	}
-	if strings.Contains(jr.Text, "Lead's decision") {
-		t.Errorf("a task never held carries a lead's decision:\n%s", jr.Text)
-	}
-}
-
-// unblockedFact is T-1's last unblocked fact in the log.
-func unblockedFact(t *testing.T, h *harness) FactData {
-	t.Helper()
-	recs, err := ReadLog(h.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var d FactData
-	found := false
-	for _, r := range recs {
-		if r.Task == "T-1" && r.Step == StepUnblocked {
-			if err := json.Unmarshal(r.Data, &d); err != nil {
+// The integrator holds a question it may not decide: the lead gets the needs-you, and its resume sends the next review
+// job carrying the decision (row 40), live and after a replay of the log.
+func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
+	for _, replay := range []bool{false, true} {
+		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
+			const q = "should the hook change the config's schema?"
+			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
+			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting || mt.job != StepReview {
+				t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
+			}
+			if jr := reviewJob(t, h, "j1"); jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, questionsPart(q)) {
+				t.Fatalf("precondition: job %s does not carry the question:\n%s", jr.Job, jr.Text)
+			}
+			if _, err := h.a.verdict(context.Background(), MethodHold, Call{Root: h.root, Agent: "pj-int",
+				Role: "integrator", CallID: "h1", Task: "T-1", Job: "T-1/1/review",
+				Note: "the question changes the config contract"}); err != nil {
 				t.Fatal(err)
 			}
-			found = true
-		}
+			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
+				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.Fact().Cause)
+			}
+			const decision = "keep the schema; add the field later"
+			reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+				Note: decision})
+			if err != nil || reply != "RESUMED T-1: reprompt (held)" {
+				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
+			}
+			mt := pickGreenStep(t, h, f, replay)
+			if mt.state != stAwaiting || mt.reviews != 2 || mt.job != StepReview+".2" {
+				t.Fatalf("after the resume: T-1 %s, reviews %d, job %q; want review.2 out", mt.state, mt.reviews, mt.job)
+			}
+			jr := reviewJob(t, h, "j2")
+			if jr.Job != "T-1/1/review.2" {
+				t.Fatalf("job_next: %+v; want T-1/1/review.2", jr)
+			}
+			if want := "Lead's decision on your hold: " + decision; !strings.Contains(jr.Text, want) {
+				t.Errorf("the review job does not carry %q:\n%s", want, jr.Text)
+			}
+		})
 	}
-	if !found {
-		t.Fatal("no unblocked fact in the log")
-	}
-	return d
 }
 
-// T-612: resuming an open-questions hold needs the lead's decision: with no note or a blank one it is refused before
-// anything is recorded, in the default mode and explicit ones; a note is recorded with the decision. Another cause's
-// resume without a note goes on as before.
-func TestResumeOpenQuestionsNeedsADecision(t *testing.T) {
-	const hold = "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: should it use sqlite?"
-	for _, mode := range []struct{ name, to string }{
-		{"default", ""}, {ResumeRegate, ResumeRegate}, {ResumeReprompt, ResumeReprompt},
+// An older log's hold of the open questions before review (T-604) still folds: the hold ends, the task is green and
+// gets its review job carrying the questions (and the lead's decision when the old log has one), live and on replay.
+func TestOldPreReviewHoldFolds(t *testing.T) {
+	const q = "should it use sqlite?"
+	for _, c := range []struct {
+		name     string
+		resumed  bool
+		replay   bool
+		decision string
+	}{
+		{"held, live", false, false, ""},
+		{"held, replay", false, true, ""},
+		{"resumed, live", true, false, "use sqlite, it is cgo-free"},
+		{"resumed, replay", true, true, "use sqlite, it is cgo-free"},
 	} {
-		for _, c := range []struct {
-			name, note string
-			refused    bool
-		}{
-			{"no note", "", true},
-			{"blank note", " \t ", true},
-			{"a decision", "use sqlite, it is cgo-free", false},
-		} {
-			t.Run(mode.name+"/"+c.name, func(t *testing.T) {
-				h, f := seedQuestions(t, hold)
-				if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou || !mt.heldQuestions {
-					t.Fatalf("precondition: T-1 %s (held %v); want the open-questions hold", mt.state, mt.heldQuestions)
-				}
-				reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-					To: mode.to, Note: c.note})
-				if c.refused {
-					want := `resume: T-1 waits on the lead's answer to its open questions: obor resume T-1 "<decision>"`
-					if err == nil || err.Error() != want {
-						t.Fatalf("resume: %q, %v; want the refusal %q", reply, err, want)
-					}
-					if n := countStep(t, h, StepUnblocked); n != 0 {
-						t.Errorf("%d unblocked facts; want none", n)
-					}
-					if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
-						t.Errorf("after the refused resume: T-1 %s (%s); want the hold in force", mt.state,
-							mt.needs.Fact().Cause)
-					}
-					return
-				}
-				to := mode.to
-				if to == "" {
-					to = ResumeReprompt
-				}
-				if want := "RESUMED T-1: " + to + " (open questions)"; err != nil || reply != want {
-					t.Fatalf("resume: %q, %v; want %q", reply, err, want)
-				}
-				d := unblockedFact(t, h)
-				if d.Cause != causeOpen || d.Reason != to || d.Note != c.note {
-					t.Errorf("unblocked %+v; want cause %q, %q, the decision %q", d, causeOpen, to, c.note)
-				}
-				if mt := h.a.p.folded.loop["T-1"]; mt.needs.Seq != 0 {
-					t.Errorf("T-1 still holds a needs-you; want the hold ended")
-				}
-			})
-		}
-	}
-	t.Run("another cause with no note", func(t *testing.T) {
-		h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.")
-		if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
-			t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
-		}
-		addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Reason: "held: the owner's call",
-			Merge: true, Cause: causeHeld})
-		if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
-			t.Fatalf("precondition: T-1 %s; want the held needs-you", mt.state)
-		}
-		reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1"})
-		if want := "RESUMED T-1: reprompt (held)"; err != nil || reply != want {
-			t.Fatalf("resume: %q, %v; want %q", reply, err, want)
-		}
-		if d := unblockedFact(t, h); d.Cause != causeHeld || d.Note != "" {
-			t.Errorf("unblocked %+v; want cause %q, no note", d, causeHeld)
-		}
-	})
-}
-
-// addAttempt is addRecord for a record of another attempt (the worker's next submission).
-func addAttempt(t *testing.T, h *harness, attempt int, step, kind string, d any) {
-	t.Helper()
-	p := h.a.p
-	raw, _ := json.Marshal(d)
-	r, err := p.log.Append(Record{Task: "T-1", Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.foldRecord(r)
-}
-
-// T-611: a new attempt does not clear the decision: the worker's next submission (another attempt) keeps it, and the
-// fix job after the next sendback carries it still.
-func TestOpenQuestionsDecisionOutlivesANewAttempt(t *testing.T) {
-	h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: should it use sqlite?")
-	if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou {
-		t.Fatalf("precondition: T-1 %s; want held for the open questions", mt.state)
-	}
-	const decision = "use sqlite, it is cgo-free"
-	if _, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
-		Note: decision}); err != nil {
-		t.Fatal(err)
-	}
-	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview {
-		t.Fatalf("precondition: T-1 job %q; want the review job out", mt.job)
-	}
-	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
-		Role: "integrator", CallID: "sb1", Task: "T-1", Note: "the report is missing the test"}); err != nil {
-		t.Fatal(err)
-	}
-	// attempt 2's task_done: the worker fixed it, its report leaving no open questions.
-	addAttempt(t, h, 2, StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
-		Report: "Summary: done.\nSelf-check: ok.\nSkipped: none."})
-	addAttempt(t, h, 2, StepSubmit, KindResult, submitOut{SHA: "s2"})
-	addAttempt(t, h, 2, StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s2"})
-	addAttempt(t, h, 2, StepGate, KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
-		Candidate: Candidate{Task: "T-1", Lane: "O-01", SHA: "c2", Target: "base1", Patch: "patch2"}})
-	if mt := h.a.p.folded.loop["T-1"]; mt.attempt != 2 || mt.state != stGreen || mt.openDecision != decision {
-		t.Fatalf("after the second submission: T-1 attempt %d, %s, decision %q; want attempt 2 green with the decision",
-			mt.attempt, mt.state, mt.openDecision)
-	}
-	if mt := pickGreenStep(t, h, f, false); mt.job != StepReview || mt.state != stAwaiting {
-		t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
-	}
-	if _, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
-		Role: "integrator", CallID: "sb2", Task: "T-1", Note: "the test still fails"}); err != nil {
-		t.Fatal(err)
-	}
-	fixStep(t, h, f)
-	jr := fixJob(t, h)
-	want := "Lead's decision on your open questions (attempt 1): " + decision
-	if jr.Job != "T-1/3/fix" || !strings.Contains(jr.Text, want) {
-		t.Errorf("the fix job %s does not carry %q:\n%s", jr.Job, want, jr.Text)
+		t.Run(c.name, func(t *testing.T) {
+			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
+			addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+				Reason: "open questions: " + q})
+			if c.resumed {
+				addRecord(t, h, "T-1", StepUnblocked, KindFact, FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+					Reason: ResumeReprompt, Agent: "pj-lead", Call: "r1", Note: c.decision})
+			}
+			if n := countStep(t, h, StepNeedsYou); n != 1 {
+				t.Fatalf("precondition: %d needs-you facts in the log; want the old hold", n)
+			}
+			p := h.a.p
+			if c.replay {
+				p = reloadProj(t, h)
+			}
+			if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.needs.Seq != 0 {
+				t.Fatalf("folded: T-1 %s, needs %d; want green with no needs-you", mt.state, mt.needs.Seq)
+			}
+			mt := pickGreenStep(t, h, f, false)
+			if mt.state != stAwaiting || mt.job != StepReview {
+				t.Fatalf("T-1 %s, job %q; want the review job out", mt.state, mt.job)
+			}
+			jr := reviewJob(t, h, "j1")
+			if jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, questionsPart(q)) {
+				t.Errorf("job %s does not carry the question:\n%s", jr.Job, jr.Text)
+			}
+			if c.decision != "" && !strings.Contains(jr.Text, c.decision) {
+				t.Errorf("the review job does not carry the old decision %q:\n%s", c.decision, jr.Text)
+			}
+		})
 	}
 }
 
-// T-616: an Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever follows.
+// T-616, T-649: an Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever
+// follows; one that leaves something open comes back verbatim.
 func TestOpenQuestionsFirstWord(t *testing.T) {
 	for _, c := range []struct {
 		section string
 		open    bool
 	}{
-		{"none", false}, {"None.", false}, {"none (the lead decided X).", false}, {"None — answered", false},
+		{"none", false}, {"None.", false}, {"none new.", false}, {"none (the lead decided X).", false},
+		{"None — answered", false}, {"None — keep as built.", false},
 		{"n/a", false}, {"-", false}, {"", false}, {"No.", false}, {"no (settled)", false},
 		{"Nonetheless, should X?", true}, {"Should X?", true}, {"no idea whether X", true},
 	} {
@@ -413,7 +259,7 @@ func TestOpenQuestionsFirstWord(t *testing.T) {
 			t.Errorf("section %q: openQuestions = %q, want open=%v", c.section, got, c.open)
 		}
 	}
-	if got := openQuestions("Open questions: Should X?\n"); got != "Should X?" {
-		t.Errorf("a question must come back as its text, got %q", got)
+	if got := openQuestions("Open questions: Should X?\n- and Y?\n"); got != "Should X?\n- and Y?" {
+		t.Errorf("a question must come back verbatim, got %q", got)
 	}
 }
