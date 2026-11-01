@@ -120,14 +120,79 @@ func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Read AGENTS.md", "implement the spec of T-9 exactly", "Summary, Self-check", "Extra."} {
+	for _, want := range []string{"implement the spec of T-9 exactly", "obor spec show T-9", "Extra."} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the rendered prompt has no %q:\n%s", want, prompt)
 		}
 	}
-	for _, no := range []string{"worker.md", "Also read", "{{"} {
+	for _, no := range []string{"worker.md", "Also read", "{{", "task_done", "commands.check", "Wrong-tab", "AGENTS.md"} {
 		if strings.Contains(prompt, no) {
 			t.Errorf("the rendered prompt carries %q:\n%s", no, prompt)
+		}
+	}
+}
+
+// T-674: only an empty "## This project" section is dropped from the job; a project's filled one is carried.
+func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
+	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
+	doc := "# Worker here\nproject rules\n\n## This project\n- run make build\n"
+	p, kit := roleFixture(t, kitRole, doc)
+	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "- run make build") {
+		t.Errorf("the project's filled This project section is not in the job:\n%s", text)
+	}
+	if strings.Contains(text, "fill in") {
+		t.Errorf("the kit's empty This project section is in the job:\n%s", text)
+	}
+	if n := strings.Count(text, "## This project"); n != 1 {
+		t.Errorf("## This project appears %d times, want the project's one:\n%s", n, text)
+	}
+}
+
+// T-674: the work job of this kit (templates/worker-prompt.txt, templates/agents/worker.md and obor-kit's
+// docs/agents/worker.md) says each rule once, carries no empty "This project" section and does not tell a worker to
+// fetch the job it is reading.
+func TestWorkJobSaysEachRuleOnce(t *testing.T) {
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"),
+		[]byte(`{"name":"pj","paths":{"agents":"docs/agents"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := os.ReadFile(filepath.Join(kit, "docs", "agents", "worker.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRoleFile(t, filepath.Join(root, "docs", "agents", "worker.md"), string(doc))
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "O-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Precondition: the job carries the kit's role text and this project's doc, not an empty job.
+	for _, want := range []string{"# Role: worker", "obor run check_affected", "implement the spec of T-9 exactly"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("precondition: the work job has no %q:\n%s", want, text)
+		}
+	}
+	for _, rule := range []string{"Read AGENTS.md", "test cache on", "commands.check",
+		"call `task_done` with your final report", "wrong tab"} {
+		if n := strings.Count(text, rule); n != 1 {
+			t.Errorf("the rule %q appears %d times, want once:\n%s", rule, n, text)
+		}
+	}
+	for _, no := range []string{"fill in", "## This project", "before anything else", "your first prompt is a job tag",
+		"Call the `job_next` tool", "Finish by calling the obor task_done tool"} {
+		if strings.Contains(text, no) {
+			t.Errorf("the work job carries %q:\n%s", no, text)
 		}
 	}
 }

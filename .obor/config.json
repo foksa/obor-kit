@@ -145,7 +145,7 @@
         "--standalone"
       ],
       "max": 2,
-      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
+      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
     },
     "terra": {
       "kind": "codex",

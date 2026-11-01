@@ -313,12 +313,12 @@ func TestDispatchHappyPath(t *testing.T) {
 	// T-440: the job carries the stored spec (backticks kept: it is fetched, not typed), not a git read of it.
 	// T-603: it carries the kit's worker role text inline (the rig's project has no project doc).
 	for _, want := range []string{"implement the spec of T-1 exactly", "obor spec show T-1", "# Role: worker",
-		"I am worker <your agent name> on T-1.", "The spec of T-1 (rev 1", "\n\n" + stored} {
+		"Did you mean to type here?", "The spec of T-1 (rev 1", "\n\n" + stored} {
 		if !strings.Contains(job, want) {
 			t.Errorf("work job has no %q:\n%s", want, job)
 		}
 	}
-	for _, no := range []string{"Read AGENTS.md and your role text", "Also read"} {
+	for _, no := range []string{"Read AGENTS.md and your role text", "Also read", "fill in", "## This project"} {
 		if strings.Contains(job, no) {
 			t.Errorf("work job carries %q (the role text is inline):\n%s", no, job)
 		}

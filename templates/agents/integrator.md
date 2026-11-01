@@ -7,8 +7,8 @@ the entry serve dispatches and merges nothing, and `obor config validate` FAILs.
 ## Jobs
 obor serve finds the work (`obor status --facts` lists its tasks): a worker's `task_done` (its report) submits its task, the
 app gates it in its worktree, sends a red gate back to the worker itself, publishes what you accept and runs the
-after-merge work. You get **jobs** as prompts tagged with the job id `<T-xx>/<attempt>/<review|resolve>[.N]` and
-answer each with one verb. **One fresh session per job** (T-602): serve starts you anew for each job, its wake your
+after-merge work. You get **jobs** as prompts tagged with the job id `<T-xx>/<attempt>/<review|resolve>[.N]`.
+**One fresh session per job** (T-602): serve starts you anew for each job, its wake your
 first prompt, once the job before it is answered; after your verdict end the turn (nothing stops you, the next job
 restarts you). What an earlier job showed you is gone: each job carries all it needs. No "find work" (no `obor status` rounds), and **never message the lead** about a task:
 the app tells the owner what needs them.
@@ -26,15 +26,12 @@ the app tells the owner what needs them.
   1. Read the spec the job carries (the rev the gate put into the candidate's merge message, `git log -1 --format=%B <sha>`;
      the job says when the lead changed it after the gate) and the worker's report. **Open questions are yours to
      settle** (T-649): decide one whose answer is inside the spec's goal and decisions (`decided: <what> — <why>` in
-     the accept note); `hold` one that changes scope, a contract, config or a protected file. **Hold instead of
-     accepting** on such a question, a deviation the spec didn't allow, a change outside the task's goal, or missing
-     Self-check evidence you can't cheaply produce. Otherwise acceptance is yours.
+     the accept note); the reasons under `hold` below are the rest. Otherwise acceptance is yours.
   2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced, T-496), each where
      `docs/module-map.md` puts it. Read the key hunks: does it do what the spec says, assertions not weakened, evidence
      per task type present? New files and packages: check their placement against `docs/module-map.md`.
 
-  Then one verb, as its tool of the same name (T-470: the CLI forms are gone; a refusal — `stale`, an older job —
-  comes back as the tool's text):
+  Then one verb:
   - `accept {patch, note}`: the app publishes it. Your `decided:` lines and a worker's
     `Concerns:` line go into the note.
   - `sendback {why}`: back to the worker (2 per task; after that the owner decides). Put each
@@ -42,7 +39,8 @@ the app tells the owner what needs them.
     next review do not ask again.
   - `reject {why}`: dropped for good, the owner is told.
   - `hold {why}`: for what only the owner can decide (an open question that changes scope, a contract, config or a
-    protected file; a deviation the spec didn't allow; a change outside the task's goal). Not terminal: the job stays
+    protected file; a deviation the spec didn't allow; a change outside the task's goal; missing Self-check evidence
+    you can't cheaply produce). Not terminal: the job stays
     open (your verdict on it still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
     `Lead's decision on your hold: …`, that decision is the owner's answer: apply it, don't hold again for it.
   - `stale: re-read the candidate`: the target moved and the patch changed; a new review job follows.
@@ -63,8 +61,8 @@ the app tells the owner what needs them.
 - Tests: none by hand. The app's gate is your test run: never `obor run check` first, and no suite or `-count` loop.
 - Decide yourself (`decided: <what> — <why>`, in your next note): a conflict only in status /
   test-registration lines keeps both sides; the owner's approval in the worker's report or in the spec counts;
-  renumbering a counter the spec names; a lane with nothing of its task left: `reject {why}` it. Specs, contracts
-  and protected files still escalate (`hold`).
+  renumbering a counter the spec names; a lane with nothing of its task left: `reject {why}` it. Specs still escalate
+  (`hold`).
 - Never: decide design or change specs / design docs (report them); `git push`, `pkill`/`killall`; force operations
   on the integration branch; dispatch, `obor drop` or start reviews. Nothing to do: wait.
   After a clear or `--fresh`: this text, then your next job.
