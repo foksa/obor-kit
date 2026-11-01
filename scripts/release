@@ -142,6 +142,8 @@ check_tag() {
   if [ "$tagver" != "$v" ] || [ "$tagplug" != "$v" ] || [ "$tagmarket" != obor-kit ]; then
     fail "$tag's contents are wrong (VERSION '$tagver', plugin '$tagplug', marketplace '$tagmarket'): $(never_moves)"
   fi
+  problem=$(tag_market_problem)
+  [ -z "$problem" ] || fail ".claude-plugin/marketplace.json $problem: $(never_moves)"
   require_fresh_tag
 }
 
@@ -272,9 +274,14 @@ else
   git worktree add -q --detach "$scratch" "$sha" || fail "cannot add the scratch worktree $scratch"
   market="$scratch/.claude-plugin/marketplace.json"
   tmp=$(mktemp "$tmpdir/obor-marketplace.XXXXXX")
-  sed 's/"name"[[:space:]]*:[[:space:]]*"[^"]*"/"name": "obor-kit"/' "$market" > "$tmp" &&
-    mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
+  # Only the top-level name flips (T-645: v0.17.2's sed renamed the plugin entry too, and obor@obor-kit broke).
+  market_flip < "$market" > "$tmp" ||
+    fail "$market has no single \"name\": \"obor-kit-dev\" to set to obor-kit: nothing is tagged"
+  mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
   tmp=
+  problem=$(market_problem "$(cat "$market")" "$(git show "$sha:.claude-plugin/marketplace.json" 2> /dev/null)" \
+    "$(jq -r '.name | strings' "$scratch/.claude-plugin/plugin.json" 2> /dev/null)" "$scratch")
+  [ -z "$problem" ] || fail ".claude-plugin/marketplace.json $problem: nothing is tagged"
   ( cd "$scratch" && plain_make release V= ) || fail "make release failed in $scratch: nothing is tagged"
   # The tag's message carries the owner's UNREVIEWED reason (T-642): the merges the tag ships past the last review.
   tagmsg="obor $tag"

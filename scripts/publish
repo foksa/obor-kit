@@ -32,16 +32,18 @@ tag="v$v"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 
+# shellcheck source=scripts/release-lib.sh
+. "$(dirname "$0")/release-lib.sh"
+
 git rev-parse -q --verify "refs/tags/$tag" > /dev/null || fail "no tag $tag: commit the release, tag it, then publish"
 tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
 [ "$tagver" = "$v" ] || fail "VERSION at $tag is '$tagver', want $v"
 plugin=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
   sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || plugin=
 [ "$plugin" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$plugin', want $v"
-# T-592: the release tag ships the marketplace name users install (main's obor-kit-dev names the dev checkout).
-market=$(git show "$tag:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\n' |
-  sed -n 's/^[^"]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || market=
-[ "$market" = obor-kit ] || fail ".claude-plugin/marketplace.json name at $tag is '$market', want obor-kit"
+# T-592: the release tag ships the marketplace name users install (main's obor-kit-dev names the dev checkout); T-645:
+# and nothing else of main's marketplace.json changes (its plugin entry is still plugin.json's name).
+require_tag_market
 catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
 
 files=

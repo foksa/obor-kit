@@ -255,7 +255,8 @@ func TestMakeReleaseVersionMismatch(t *testing.T) {
 var publishPlatforms = []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"}
 
 // releaseMarketplace is the marketplace name a release tag ships (T-592; main says obor-kit-dev).
-const releaseMarketplace = `{"name":"obor-kit","owner":{"name":"x"},"plugins":[{"name":"obor","source":"./"}]}`
+// It is devMarketplace with only its top-level name flipped (T-645).
+var releaseMarketplace = strings.Replace(devMarketplace, `"name": "obor-kit-dev"`, `"name": "obor-kit"`, 1)
 
 // publishFixture is a repo shaped like a finished release of 1.2.3: the four dist files, bin/checksums.txt listing them,
 // VERSION and plugin.json at 1.2.3, all committed and tagged v1.2.3; a logging gh stub is first on PATH.
@@ -270,8 +271,13 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	dir := p.Root
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeExec(t, filepath.Join(dir, "scripts", "publish"), string(treeFile(t, "scripts/publish")))
+	writeFile(t, filepath.Join(dir, "scripts", "release-lib.sh"), string(treeFile(t, "scripts/release-lib.sh")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
+	// The tag's source parent: main's dev marketplace (T-645 compares the tag's against it).
+	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), devMarketplace+"\n")
+	p.Git(dir, "add", "-A")
+	p.Git(dir, "commit", "-q", "-m", "obor v1.2.3: VERSION, plugin version")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
 	var catalog string
 	for _, pl := range publishPlatforms {
@@ -319,11 +325,12 @@ func wantPublishFail(t *testing.T, out string, failed bool, gh []string, want st
 	}
 }
 
-// commitAll commits the working tree on top of the tag (the tag stays where it was).
+// commitAll commits the working tree as a replacement of the tag's commit, on the same source parent (the tag stays
+// where it was until a test moves it): the tag's marketplace is still compared with main's dev one (T-645).
 func (f *publishFixture) commitAll(t *testing.T) {
 	t.Helper()
 	f.Git(f.Root, "add", "-A")
-	f.Git(f.Root, "commit", "-q", "-m", "after the tag")
+	f.Git(f.Root, "commit", "-q", "--amend", "-m", "release 1.2.3, changed")
 }
 
 // RV-63: make publish uploads exactly the four checked binaries of the tag: a literal platform list passed to gh as
@@ -392,8 +399,7 @@ func TestMakePublish(t *testing.T) {
 			}
 		}
 		writeFile(t, filepath.Join(f.Root, "bin", "checksums.txt"), strings.Join(kept, "\n")+"\n")
-		f.Git(f.Root, "add", "-A")
-		f.Git(f.Root, "commit", "-q", "-m", "drop a line")
+		f.commitAll(t)
 		f.Git(f.Root, "tag", "-f", "v1.2.3")
 		// the working catalog is complete again: only the tag's lacks the line
 		writeFile(t, filepath.Join(f.Root, "bin", "checksums.txt"), catalog)
@@ -406,8 +412,7 @@ func TestMakePublish(t *testing.T) {
 		path := filepath.Join(f.Root, "bin", "checksums.txt")
 		good := readFile(t, path)
 		writeFile(t, path, strings.Replace(good, fileSum(t, filepath.Join(f.Root, "dist", "obor-1.2.3-darwin-arm64")), strings.Repeat("0", 64), 1))
-		f.Git(f.Root, "add", "-A")
-		f.Git(f.Root, "commit", "-q", "-m", "stale catalog")
+		f.commitAll(t)
 		f.Git(f.Root, "tag", "-f", "v1.2.3")
 		writeFile(t, path, good)
 		out, failed, gh := f.publish(t)
@@ -433,6 +438,38 @@ func TestMakePublish(t *testing.T) {
 		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
 		out, failed, gh := f.publish(t)
 		wantPublishFail(t, out, failed, gh, "marketplace.json")
+	})
+	// T-645: v0.17.2's flip renamed every "name": the plugin entry too, so obor@obor-kit no longer resolved.
+	t.Run("the tag's flip renamed the plugin entry too", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), v0172Marketplace+"\n")
+		f.commitAll(t)
+		f.Git(f.Root, "tag", "-f", "v1.2.3")
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
+		out, failed, gh := f.publish(t)
+		wantPublishFail(t, out, failed, gh, "plugin name at v1.2.3 is 'obor-kit', want 'obor'")
+	})
+	t.Run("the tag's marketplace differs from main's beyond the name", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"),
+			`{"name": "obor-kit","owner":{"name":"obor-kit"},"plugins":[{"name":"obor","source":"./"}]}`+"\n")
+		f.commitAll(t)
+		f.Git(f.Root, "tag", "-f", "v1.2.3")
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
+		out, failed, gh := f.publish(t)
+		wantPublishFail(t, out, failed, gh, "differs from its source's in more than the top-level name")
+	})
+	t.Run("the tag's marketplace does not parse", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), `{"name": "obor-kit",`+"\n")
+		f.commitAll(t)
+		f.Git(f.Root, "tag", "-f", "v1.2.3")
+		writeFile(t, filepath.Join(f.Root, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
+		out, failed, gh := f.publish(t)
+		wantPublishFail(t, out, failed, gh, "does not parse")
 	})
 	t.Run("the tag's VERSION differs", func(t *testing.T) {
 		t.Parallel()
