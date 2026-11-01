@@ -40,7 +40,7 @@ decisions and the second strike of a fix chain; Sol for batch reviews (the expen
   lead carries the deploy risk, not the lane's model.
 
 ## Merge classes
-- Before committing `.obor/config.json` on main: `go test ./internal/checks -run TestHerdKitConfig ./internal/config`
+- Before committing `.obor/config.json` on main: `go test ./internal/checks -run TestOborKitConfig ./internal/config`
   (it reads the real config; a direct merge-class commit once broke main), or send the change through a lane.
 - A spec that adds a script or test lists `.obor/config.json` in its files and adds its own merge-class entry + check
   (the classify audit fails otherwise; committing the class on main ahead of the merge names a test that doesn't
