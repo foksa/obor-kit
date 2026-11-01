@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-01 (owner): **Monitoring is the next need** ("the kit is in great part feature complete, but I need
+  monitoring: not only what is going on but also what is queued"); the 10-24 web-UI deferral is lifted. One read
+  model `internal/view` feeds `obor status --json`, the monitor and `obor web` (read-only, localhost, stdlib, all
+  projects); serve records prompt texts (`prompts` table); the monitor stays plain ANSI with a modern look ("like what
+  we have in agents"), no Bubble Tea; `obor show` and herdr sidebar metadata not now. Wave T-664..T-668; advice
+  docs/research/monitor-ui-advice-fable.md.
 - 2026-11-01 (owner): **T-604 reversed**: a report's open questions go to the integrator's review job again; it
   decides in-goal ones and holds the rest for the lead (T-649). The lead-before-review hold sent 7 questions to the
   lead in a day, 5 answered "keep as built"; its token saving was not real. Planner/coordinator split: not now; the
