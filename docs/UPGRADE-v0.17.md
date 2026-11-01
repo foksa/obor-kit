@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.16 to v0.17
 
+## v0.17.3 (patch, fixes v0.17.2's plugin)
+Re-run the installer, then `obor serve restart` in each project, then restart every Claude pane started since you
+installed v0.17.2 (`obor restart <agent> --fresh`, the lead at a break).
+- **v0.17.2's catalog renamed the plugin** (`obor-kit` instead of `obor`), so `obor@obor-kit` did not load: new
+  sessions had no obor skills (`Unknown command: /obor:lead`) and no obor hooks. Fixed; release and publish now refuse
+  a tag whose plugin name differs from `plugin.json` (T-645).
+- `obor init` sets the lead's type (`roles.lead.type`); before, `obor lead` failed after a fresh init (T-644). A
+  project initialized with v0.17.0–v0.17.2: add `"type": "opus"` under `roles.lead` in `.obor/config.json`, or re-run
+  `obor init`.
+- Kit maintainers: `make release` refuses while merged code is unreviewed (`UNREVIEWED="<why>"` overrides, owner's
+  call), and the release/ship steps resume safely after any failure (T-642, T-643).
+
 ## v0.17.2 (patch)
 Re-run the installer, then `obor serve restart` in each project. No config change.
 - **`obor review [--after T-a,T-b] [--note "…"]`**: serve starts the next review itself once the listed tasks merged
