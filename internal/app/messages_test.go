@@ -39,7 +39,9 @@ func (in *rigInbox) Post(_ context.Context, _, agent, line string) (bool, error)
 		}
 		return false, errors.New("dial unix: connection refused")
 	}
-	in.posts = append(in.posts, agent+": "+line)
+	for _, row := range strings.Split(line, "\n") { // a batched post (T-651) counts as one entry per row
+		in.posts = append(in.posts, agent+": "+row)
+	}
 	if in.partial {
 		if in.once {
 			in.partial = false

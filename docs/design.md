@@ -420,7 +420,7 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   its line was delivered) and is idle again, serve records and posts `[obor] <agent> finished (briefed <age> ago)` to the lead's
   session: one line per brief, nothing for task or merge flow. A turn that ends on an API error (the StopFailure
   hook, T-532) ends the brief with `[obor] <agent> stopped: <error> (<details>)` instead.
-- **Delivery** is one function in serve (`deliver`, each merge-loop pass): the oldest line per agent. The lines
+- **Delivery** is one function in serve (`deliver`, each merge-loop pass): the oldest line per agent, the lead's every queued line as one post, one per row (T-651). The lines
   survive a restart (the log) and a crash may deliver one twice, never not at all (T-524); `obor status` lists the ones
   not delivered yet, and one waiting over 24 h is the project's needs-you. Mechanics: `docs/state-model.md` row 47.
 - **A needs-you reaches the lead** (T-497; the herdr notification reaches the owner, the lead is the one who acts):
