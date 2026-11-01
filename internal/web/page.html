@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>obor</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #29323d; --fg: #d7dde5; --muted: #7d8896;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff; --purple: #bc8cff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef1f5; --line: #d8dee6; --fg: #1c2128; --muted: #66707c;
+      --accent: #0969da; --green: #1a7f37; --red: #cf222e; --amber: #9a6700; --blue: #0969da; --purple: #8250df;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #29323d; --fg: #d7dde5; --muted: #7d8896;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff; --purple: #bc8cff;
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef1f5; --line: #d8dee6; --fg: #1c2128; --muted: #66707c;
+    --accent: #0969da; --green: #1a7f37; --red: #cf222e; --amber: #9a6700; --blue: #0969da; --purple: #8250df;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body { font: 14px/1.5 var(--sans); min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: var(--mono); }
+  header {
+    position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; letter-spacing: .08em; color: var(--fg); text-transform: lowercase; }
+  .brand::before { content: "◆ "; color: var(--accent); }
+  #crumbs { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #theme {
+    margin-left: auto; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 9px; cursor: pointer; font: 13px var(--mono);
+  }
+  #theme:hover { color: var(--fg); border-color: var(--muted); }
+  main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); }
+  .err { color: var(--red); font-family: var(--mono); font-size: 12px; }
+  .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font: 12px var(--mono); color: var(--muted); }
+  .chip.warn { color: var(--amber); border-color: var(--amber); }
+  .chip.bad { color: var(--red); border-color: var(--red); }
+  .chip.ok { color: var(--green); border-color: var(--green); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); vertical-align: 1px; }
+  .dot-working, .dot-done, .dot-published, .dot-merged, .dot-ok { background: var(--green); }
+  .dot-held, .dot-blocked, .dot-fail, .dot-dropped, .dot-needs-you, .dot-red { background: var(--red); }
+  .dot-gating, .dot-merging, .dot-submitted, .dot-gate, .dot-publish, .dot-running, .dot-queued { background: var(--blue); }
+  .dot-reviewing, .dot-resolving, .dot-review { background: var(--purple); }
+  .dot-free, .dot-idle, .dot-none, .dot-waiting, .dot-gate-pending, .dot-publish-pending { background: var(--amber); }
+  .projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card {
+    display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--fg);
+  }
+  .card:hover { border-color: var(--accent); text-decoration: none; }
+  .card-title { font-weight: 650; font-size: 15px; display: flex; justify-content: space-between; gap: 10px; }
+  .card-title .muted { font: 11px var(--mono); }
+  .counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+  @media (max-width: 980px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+  .panel h2 { margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font: 600 11px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); vertical-align: top; font-size: 13px; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; }
+  .row { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+  .row:last-child { border-bottom: 0; }
+  .row .grow { flex: 1; min-width: 0; }
+  .needs { border-left: 2px solid var(--amber); padding-left: 10px; margin-bottom: 10px; }
+  .needs:last-child { margin-bottom: 0; }
+  .needs .why { white-space: pre-wrap; }
+  .needs .answer { display: block; margin-top: 3px; color: var(--muted); font: 12px var(--mono); }
+  .events { max-height: 52vh; overflow: auto; }
+  .ev { display: flex; gap: 10px; padding: 2px 0; font: 12.5px/1.5 var(--mono); }
+  .ev time { color: var(--muted); white-space: nowrap; }
+  .ev .line { min-width: 0; overflow-wrap: anywhere; }
+  pre.text {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 8px 0 0;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55; max-height: 60vh; overflow: auto;
+  }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; font: 13px var(--mono); padding: 4px 0; color: var(--accent); }
+  summary:hover { text-decoration: underline; }
+  .empty { color: var(--muted); font-size: 13px; }
+  .flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#/">obor</a>
+  <span id="crumbs"></span>
+  <button id="theme" title="dark / light">◐</button>
+</header>
+<main id="app"><p class="muted">loading…</p></main>
+<script>
+"use strict";
+
+// ---- small helpers -------------------------------------------------------------------------------------------------
+const app = document.getElementById("app");
+const crumbs = document.getElementById("crumbs");
+const enc = encodeURIComponent;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+));
+const cls = (s) => "dot-" + String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const dot = (s) => `<span class="dot ${esc(cls(s))}" title="${esc(s)}"></span>`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function age(sec) {
+  if (sec === undefined || sec === null || sec === 0) return "—";
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h" + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m";
+  return Math.floor(s / 86400) + "d" + String(Math.floor((s % 86400) / 3600)).padStart(2, "0") + "h";
+}
+const since = (unix) => unix ? age(Date.now() / 1000 - unix) + " ago" : "";
+const when = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleTimeString([], { hour12: false });
+};
+const whenDay = (ts) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleString([], { hour12: false });
+};
+async function api(path, signal) {
+  const r = await fetch(path, { cache: "no-store", signal });
+  let body = null;
+  try { body = await r.json(); } catch (e) { body = null; }
+  if (!r.ok) throw new Error((body && body.error) || r.status + " " + r.statusText);
+  return body;
+}
+const link = (route, text, cls) =>
+  `<a class="${cls || ""}" href="#/${route}">${esc(text)}</a>`;
+const taskLink = (p, task) => task ? link(`t/${enc(p)}/${enc(task)}`, task) : "—";
+const agentLink = (p, agent) => agent ? link(`a/${enc(p)}/${enc(agent)}`, agent) : "—";
+const jobLink = (p, job) => job ? link(`j/${enc(p)}/${enc(job)}`, job) : "—";
+
+// ---- theme --------------------------------------------------------------------------------------------------------
+const themeBtn = document.getElementById("theme");
+function applyTheme(t) {
+  if (t) document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+applyTheme(localStorage.getItem("obor-theme"));
+themeBtn.addEventListener("click", () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const current = localStorage.getItem("obor-theme") || (dark ? "dark" : "light");
+  const next = current === "dark" ? "light" : "dark";
+  localStorage.setItem("obor-theme", next);
+  applyTheme(next);
+});
+
+// ---- routing ------------------------------------------------------------------------------------------------------
+let poller = null;   // the open /api/events poll (AbortController)
+let generation = 0;  // bumps on every navigation, so a slow fetch cannot draw another page
+function stopPolling() {
+  if (poller) { poller.abort(); poller = null; }
+}
+function go() {
+  stopPolling();
+  generation++;
+  const g = generation;
+  const hash = location.hash.replace(/^#\/?/, "");
+  const [kind, a, b] = hash.split("/").map((s) => decodeURIComponent(s || ""));
+  const draw = (html, crumb) => {
+    if (g !== generation) return false;
+    app.innerHTML = html;
+    crumbs.textContent = crumb || "";
+    return true;
+  };
+  if (!kind) return landing(g, draw);
+  if (kind === "p") return projectPage(g, a, draw);
+  if (kind === "t") return detailPage(g, draw, "task", a, b);
+  if (kind === "a") return detailPage(g, draw, "agent", a, b);
+  if (kind === "j") return detailPage(g, draw, "job", a, b);
+  location.hash = "#/";
+}
+window.addEventListener("hashchange", go);
+go();
+
+// ---- landing ------------------------------------------------------------------------------------------------------
+async function landing(g, draw) {
+  const ps = await api("/api/projects");
+  if (g !== generation) return;
+  const rows = ps.map((p) => `
+    <a class="card" href="#/p/${enc(p.name)}">
+      <div class="card-title"><span>${dot(p.error ? "fail" : p.needs_you ? "held" : "working")} ${esc(p.name)}</span>
+        <span class="muted">${esc(p.root)}</span></div>
+      <div class="counts">
+        <span class="chip ${p.needs_you ? "warn" : ""}">${p.needs_you} needs you</span>
+        <span class="chip">${p.queue} queued</span>
+      </div>
+      ${p.error ? `<div class="err">${esc(p.error)}</div>` : ""}
+    </a>`).join("");
+  draw(`<h1>projects</h1><p class="sub">every obor project on this machine, read-only</p>
+    <div class="projects">${rows || '<p class="empty">no obor projects known yet (obor serve and obor init register one)</p>'}</div>`,
+    "all projects");
+  // The counts move with the log: refresh the landing while it is the page shown.
+  setTimeout(() => {
+    if (g === generation && !location.hash.replace(/^#\/?/, "")) landing(g, draw);
+  }, 10000);
+}
+
+// ---- project ------------------------------------------------------------------------------------------------------
+async function projectPage(g, name, draw) {
+  const v = await api("/api/view?project=" + enc(name));
+  if (g !== generation) return;
+  draw(renderProject(name, v), name);
+  const newest = (v.events && v.events[0] && v.events[0].seq) || 0;
+  pollEvents(g, name, newest);
+}
+
+function serveLine(name, v) {
+  const s = v.serve || {};
+  if (!s.up) return `<span class="chip bad">serve down</span> ${esc(s.error || "")}`;
+  const bits = [`<span class="chip ok">serve up ${esc(s.since ? since(Date.parse(s.since) / 1000) : "")}</span>`];
+  if (s.pid) bits.push(`<span class="chip">pid ${s.pid}</span>`);
+  if (!s.project) bits.push(`<span class="chip warn">project not loaded</span>`);
+  if (!s.merging) bits.push(`<span class="chip">merge loop off</span>`);
+  if (!s.herdr) bits.push(`<span class="chip warn">herdr down</span>`);
+  if (s.log_error) bits.push(`<span class="chip bad">log: ${esc(s.log_error)}</span>`);
+  return bits.join(" ");
+}
+
+function runningLine(v) {
+  const rs = v.running || [];
+  if (!rs.length) return `<span class="muted">running: nothing</span>`;
+  return rs.map((r) => {
+    const el = r.since ? age(Date.now() / 1000 - r.since) : "";
+    return `<span class="chip"><span class="dot dot-running"></span> ${esc(r.step)} ${esc(r.task || "")}
+      ${r.command ? "(" + esc(r.command) + ", " + el + ")" : "(" + el + ")"}</span>`;
+  }).join(" ");
+}
+
+function renderProject(name, v) {
+  const lanes = (v.lanes || []).map((l) => `<tr>
+      <td class="mono">${esc(l.lane)}</td>
+      <td>${dot(l.column)} <span class="mono">${esc(l.column)}</span></td>
+      <td>${taskLink(name, l.task)}</td>
+      <td class="num">${l.spec_rev ? esc("r" + l.spec_rev) : "—"}</td>
+      <td>${l.job ? jobLink(name, l.job.id) + (l.job.delivered ? "" : ' <span class="chip">not fetched</span>') : "—"}</td>
+      <td>${agentLink(name, l.agent)}${l.agent_status ? ` <span class="muted">(${esc(l.agent_status)})</span>` : ""}</td>
+      <td class="num muted">${l.since ? esc(since(l.since)) : "—"}</td>
+    </tr>`).join("");
+
+  const q = v.queue || {};
+  const merge = (q.merge || []).map((m) => `<div class="row">
+      <span>${dot(m.stage)}</span>
+      <span class="grow">${taskLink(name, m.task)} <span class="mono muted">${esc(m.stage)}</span>
+        ${m.state && m.state !== m.stage ? `<span class="muted">(${esc(m.state)})</span>` : ""}
+        ${m.next ? '<span class="chip ok">next</span>' : ""}
+        ${m.job ? jobLink(name, m.job.id) : ""}</span>
+    </div>`).join("");
+  const waiting = (q.waiting || []).map((w) => `<div class="row">
+      <span class="dot dot-queued"></span>
+      <span class="grow">${taskLink(name, w.task)} <span class="mono muted">${esc(waitWhy(w))}</span>
+        ${w.title ? "<br><span class=muted>" + esc(w.title) + "</span>" : ""}</span>
+    </div>`).join("");
+  const outbox = (q.outbox || []).map((o) => `<div class="row">
+      <span class="dot ${o.kind === "line" ? "dot-queued" : "dot-working"}"></span>
+      <span class="grow">${o.kind === "line"
+        ? `line to ${agentLink(name, o.to)} from ${esc(o.from || "—")}: <span class="mono">${esc(o.line || "")}</span>`
+        : `brief to ${agentLink(name, o.to)} ${o.worked ? "worked" : o.delivered ? "delivered" : "not delivered"}`}
+        <span class="muted">${esc(since(o.since))}</span></span>
+    </div>`).join("");
+  const review = (q.review || []).map((r) => `<div class="row"><span class="dot dot-review"></span>
+      <span class="grow">review ${esc(r.state)}${r.note ? ": " + esc(r.note) : ""}
+        ${r.after && r.after.length ? '<span class="muted mono">after ' + esc(r.after.join(",")) + "</span>" : ""}</span></div>`).join("");
+  const nightly = q.nightly ? `<div class="row"><span class="dot dot-idle"></span>
+      <span class="grow">nightly check at <span class="mono">${esc(q.nightly.at)}</span>
+      <span class="muted">in ${esc(age(q.nightly.next - Date.now() / 1000))}</span></span></div>` : "";
+  const paused = v.paused ? `<div class="row"><span class="dot dot-held"></span>
+      <span class="grow">paused: ${esc(v.paused.reason || "")} <span class="muted">${esc(v.paused.by || "")}</span></span></div>` : "";
+
+  const needs = (v.needs_you || []).map((n) => `<div class="needs">
+      <div><span class="dot dot-held"></span> <strong>${taskLink(name, n.task)}</strong>
+        ${n.lane ? "<span class=muted>" + esc(n.lane) + "</span>" : ""}
+        <span class="muted">${esc(since(n.since))}</span></div>
+      <div class="why">${esc(n.reason)}</div>
+      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}
+    </div>`).join("");
+
+  const events = (v.events || []).map(eventRow).join("");
+
+  return `
+    <h1>${esc(name)}</h1>
+    <p class="sub">${serveLine(name, v)} ${runningLine(v)}</p>
+    <div class="cols">
+      <div>
+        <div class="panel">
+          <h2>lanes</h2>
+          ${lanes ? `<table><thead><tr><th>lane</th><th>state</th><th>task</th><th class="num">spec</th><th>job</th><th>agent</th><th class="num">since</th></tr></thead>
+            <tbody>${lanes}</tbody></table>` : '<p class="empty">no lanes configured</p>'}
+        </div>
+        <div class="panel">
+          <h2>queue</h2>
+          ${merge}${waiting}${review}${outbox}${paused}${nightly}
+          ${!(merge || waiting || review || outbox || paused || nightly) ? '<p class="empty">nothing waits</p>' : ""}
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h2>needs you ${needs ? `<span class="chip warn">${(v.needs_you || []).length}</span>` : ""}</h2>
+          ${needs || '<p class="empty">nothing needs you</p>'}
+        </div>
+        <div class="panel">
+          <h2>events</h2>
+          <div class="events" id="events">${events || '<p class="empty">no events yet</p>'}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function eventRow(e) {
+  return `<div class="ev" data-seq="${esc(e.seq)}"><time>${esc(when(e.ts))}</time>
+    <span class="line">${esc(e.line)}</span></div>`;
+}
+
+function waitWhy(w) {
+  if (w.waits_on === "after") return "after " + (w.after || []).join(", ");
+  if (w.waits_on === "never dispatched") return "spec r" + (w.rev || 0) + " stored, never dispatched";
+  return "waiting for a " + (w.level || "") + " lane" + (w.types && w.types.length ? " (" + w.types.join(", ") + ")" : "");
+}
+
+// ---- live events --------------------------------------------------------------------------------------------------
+async function pollEvents(g, name, since) {
+  const ctl = new AbortController();
+  poller = ctl;
+  let cursor = since;
+  while (!ctl.signal.aborted && g === generation) {
+    let page;
+    try {
+      page = await api(`/api/events?project=${enc(name)}&since=${cursor}`, ctl.signal);
+    } catch (e) {
+      if (ctl.signal.aborted || g !== generation) return;
+      await sleep(2000);
+      continue;
+    }
+    if (g !== generation) return;
+    cursor = Math.max(cursor, page.seq || 0);
+    if (page.events && page.events.length) {
+      // New records: refresh the whole project page (lanes, queue and needs-you move with the log too).
+      const scroll = window.scrollY;
+      try {
+        const v = await api("/api/view?project=" + enc(name));
+        if (g !== generation) return;
+        app.innerHTML = renderProject(name, v);
+        window.scrollTo(0, scroll);
+        const ev = document.getElementById("events");
+        if (ev) { ev.classList.add("flash"); setTimeout(() => ev.classList.remove("flash"), 1200); }
+      } catch (e) { /* the next poll tries again */ }
+    }
+  }
+}
+
+// ---- detail pages -------------------------------------------------------------------------------------------------
+const detailAPI = { task: "/api/task", agent: "/api/agent", job: "/api/job" };
+async function detailPage(g, draw, kind, project, id) {
+  const param = kind === "job" ? "job" : kind;
+  const d = await api(`${detailAPI[kind]}?project=${enc(project)}&${param}=${enc(id)}`);
+  if (g !== generation) return;
+  const back = `<p class="sub">${link(`p/${enc(project)}`, "← " + project)}</p>`;
+  if (kind === "task") return draw(back + renderTask(project, d), `${project} / ${id}`);
+  if (kind === "agent") return draw(back + renderAgent(project, d), `${project} / ${id}`);
+  return draw(back + renderJob(project, d), `${project} / job ${id}`);
+}
+
+function renderTask(p, t) {
+  const jobs = (t.jobs || []).map((j) => `<details><summary>${esc(j.job || "(job)")} · ${esc(j.agent)}
+      · ${esc(whenDay(j.ts))}</summary><pre class="text">${esc(j.text)}</pre></details>`).join("");
+  const needs = (t.needs_you || []).map((n) => `<div class="needs"><div class="why">${esc(n.reason)}</div>
+      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}</div>`).join("");
+  const records = (t.records || []).map((r) => `<tr>
+      <td class="num mono muted">${esc(r.seq)}</td>
+      <td class="mono muted">${esc(whenDay(r.ts))}</td>
+      <td class="mono">${esc(r.step)}</td>
+      <td class="mono muted">${esc(r.kind)}</td>
+      <td>${esc(r.line || "")}</td>
+    </tr>`).join("");
+  return `
+    <h1>${esc(t.task)}</h1>
+    <p class="sub">
+      ${t.state ? dot(t.state) + " <span class='mono'>" + esc(t.state) + "</span>" : ""}
+      ${t.attempt ? `<span class="chip">attempt ${t.attempt}</span>` : ""}
+      ${t.lane ? `<span class="chip">lane ${esc(t.lane)}</span>` : ""}
+      ${t.agent ? `<span class="chip">agent ${agentLink(p, t.agent)}</span>` : ""}
+      ${t.spec_rev ? `<span class="chip">spec r${t.spec_rev}${t.gated_rev ? " · gated r" + t.gated_rev : ""}</span>` : ""}
+      ${t.dispatched_at ? `<span class="chip">dispatched ${esc(since(t.dispatched_at))}</span>` : ""}
+    </p>
+    ${t.title ? `<p class="sub">${esc(t.title)}</p>` : ""}
+    ${needs ? `<div class="panel"><h2>needs you</h2>${needs}</div>` : ""}
+    <div class="panel"><h2>report</h2>
+      ${t.report ? `<pre class="text">${esc(t.report)}</pre>` : '<p class="empty">no report recorded</p>'}</div>
+    <div class="panel"><h2>gate</h2>
+      ${t.gate_line ? `<pre class="text">${esc(t.gate_line)}</pre>` : '<p class="empty">no gate recorded</p>'}
+      ${t.gate_log ? `<p class="sub mono">log: ${esc(t.gate_log)}</p>` : ""}</div>
+    <div class="panel"><h2>jobs</h2>${jobs || '<p class="empty">no job text recorded</p>'}</div>
+    <div class="panel"><h2>records</h2>
+      ${records ? `<table><thead><tr><th class="num">seq</th><th>time</th><th>step</th><th>kind</th><th>line</th></tr></thead>
+        <tbody>${records}</tbody></table>` : '<p class="empty">no records</p>'}</div>`;
+}
+
+function renderAgent(p, a) {
+  const sessions = (a.sessions || []).map((s) => `<tr>
+      <td class="mono">${esc(s.id)}</td>
+      <td>${esc(s.kind || "")}</td>
+      <td class="mono muted">${esc(whenDay(new Date(s.started * 1000).toISOString()))}</td>
+      <td class="mono muted">${s.last_write ? esc(since(s.last_write)) : "—"}</td>
+      <td>${s.pane ? `<span class="mono">${esc(s.pane)}</span>` : "—"}</td>
+      <td>${taskLink(p, s.task)} ${esc(s.lane || "")}</td>
+      <td class="mono muted" style="overflow-wrap:anywhere">${esc(s.transcript || "—")}</td>
+    </tr>`).join("");
+  const prompts = (list) => (list || []).map((j) => `<details><summary>${esc(j.job || j.kind)}
+      · ${esc(whenDay(j.ts))}${j.task ? " · " + esc(j.task) : ""}</summary>
+      <pre class="text">${esc(j.text)}</pre></details>`).join("");
+  const lines = (a.lines || []).map((l) => `<div class="row">
+      <span class="dot dot-queued"></span>
+      <span class="grow"><span class="mono muted">${esc(whenDay(l.ts))}</span>
+        ${l.from ? agentLink(p, l.from) : ""} <span class="mono">${esc(l.line)}</span></span>
+    </div>`).join("");
+  return `
+    <h1>${esc(a.agent)}</h1>
+    <p class="sub"><span class="chip">${(a.sessions || []).length} sessions</span>
+      <span class="chip">${(a.jobs || []).length} jobs</span>
+      <span class="chip">${(a.briefs || []).length} briefs</span>
+      <span class="chip">${(a.lines || []).length} lines</span></p>
+    <div class="panel"><h2>jobs</h2>${prompts(a.jobs) || '<p class="empty">no job text recorded</p>'}</div>
+    <div class="panel"><h2>briefs</h2>${prompts(a.briefs) || '<p class="empty">no briefs recorded</p>'}</div>
+    <div class="panel"><h2>lines</h2>${lines || '<p class="empty">no lines recorded</p>'}</div>
+    <div class="panel"><h2>sessions</h2>
+      ${sessions ? `<table><thead><tr><th>session</th><th>kind</th><th>started</th><th>last write</th><th>pane</th><th>task</th><th>transcript</th></tr></thead>
+        <tbody>${sessions}</tbody></table>` : '<p class="empty">no sessions recorded</p>'}</div>`;
+}
+
+function renderJob(p, j) {
+  return `
+    <h1>${esc(j.job || j.kind)}</h1>
+    <p class="sub"><span class="chip">${esc(j.kind)}</span>
+      ${j.agent ? `<span class="chip">agent ${agentLink(p, j.agent)}</span>` : ""}
+      ${j.task ? `<span class="chip">task ${taskLink(p, j.task)}</span>` : ""}
+      <span class="chip">${esc(whenDay(j.ts))}</span></p>
+    <pre class="text">${esc(j.text)}</pre>`;
+}
+</script>
+</body>
+</html>

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -85,13 +84,7 @@ const statusEvents = 20
 // openStore is the project's store at root, read-only (nil: none yet, or it cannot be opened: the view reads no
 // specs and no events then).
 func openStore(root string) *sql.DB {
-	if _, err := os.Stat(store.File(root)); err != nil {
-		return nil
-	}
-	db, err := store.OpenRO(store.File(root))
-	if err != nil {
-		return nil
-	}
+	db, _ := store.OpenAt(root)
 	return db
 }
 

@@ -48,7 +48,7 @@ var layerOf = map[string]string{
 
 	"internal/view": view,
 
-	"cmd/obor": entry, "internal/affected": adapter,
+	"cmd/obor": entry, "internal/web": entry, "internal/affected": adapter,
 
 	"internal/testkit": testhelp, "internal/herdr/herdrtest": testhelp,
 }

@@ -67,6 +67,10 @@ func OpenRO(path string) (*sql.DB, error) {
 	return open(path, fmt.Sprintf("mode=ro&_pragma=busy_timeout(%d)", readerBusyTimeout.Milliseconds()))
 }
 
+// OpenAt opens the database of the project at root read-only, the handle the project's readers use: nil, nil when the
+// project has no database yet. The caller closes it.
+func OpenAt(root string) (*sql.DB, error) { return openROAt(root) }
+
 // Backup writes a consistent copy of db to path (VACUUM INTO; serve's nightly backup). path must not exist.
 func Backup(db *sql.DB, path string) error {
 	if path == "" {
