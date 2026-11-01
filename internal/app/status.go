@@ -46,9 +46,12 @@ type ProjectStatus struct {
 	Review string `json:"review,omitempty"`
 	// Answers is, by a needs-you fact's seq, the commands that answer it in its task's state (answerPath; none: "").
 	Answers map[int64]string `json:"answers,omitempty"`
-	// Running is what serve does for the project without an agent now (T-657): its command steps' open intents and a
-	// pending self-restart, oldest first.
+	// Running is what serve does for the project without an agent now (T-657, T-662): its command steps whose effect
+	// runs, and a pending self-restart, oldest first.
 	Running []RunningStep `json:"running"`
+	// Pending is the command steps whose intent has no result and whose effect does not run now (T-662): a step that
+	// failed, or one the next pass or a replay has yet to run, oldest first.
+	Pending []PendingStep `json:"pending"`
 }
 
 // StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
@@ -56,12 +59,23 @@ type ProjectStatus struct {
 const StepServeRestart = "restart"
 
 // RunningStep is one step that runs without an agent, as obor status' running line lists it (T-657): the merge loop's
-// gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when its intent was
-// written (Unix seconds): the elapsed time the line shows.
+// gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when the effect
+// started (Unix seconds): the elapsed time the line shows (T-662: not the intent's time, which a replay's is older).
 type RunningStep struct {
 	Step  string `json:"step"`
 	Task  string `json:"task,omitempty"`
 	Since int64  `json:"since"`
+}
+
+// PendingStep is one command step whose intent has no result and whose effect does not run now, as obor status'
+// pending line lists it (T-662): Since is when its intent was written (Unix seconds); Error and FailedAt are its last
+// failure's reason and time (none: the step never failed, it is queued for its next pass or a replay).
+type PendingStep struct {
+	Step     string `json:"step"`
+	Task     string `json:"task,omitempty"`
+	Since    int64  `json:"since"`
+	Error    string `json:"error,omitempty"`
+	FailedAt int64  `json:"failed_at,omitempty"`
 }
 
 // WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, and since when
@@ -174,7 +188,9 @@ func (a *App) Status() Status {
 				ps.Answers[f.Seq] = ans
 			}
 		}
-		ps.Running = runningSteps(p.log.OpenIntents(), p.restarting)
+		open := p.log.OpenIntents()
+		ps.Running = p.runningSteps(open)
+		ps.Pending = p.pendingSteps(open)
 		sets := make([]string, 0, len(p.folded.watches))
 		for set := range p.folded.watches {
 			sets = append(sets, set)
@@ -191,26 +207,68 @@ func (a *App) Status() Status {
 	return st
 }
 
+// commandStep is a record's step as the running and pending lines show it (T-657, T-662): the merge loop's command
+// steps — gate, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
+// false: another step's record (a prompt, a start) runs no command the lines show.
+func commandStep(r Record) (step, task string, ok bool) {
+	if strings.HasPrefix(r.Step, StepNightly+".") {
+		return StepNightly, "", true
+	}
+	switch step, _ = stepN(r.Step); step {
+	case StepGate, StepPublish, StepAfterMerge:
+		return step, r.Task, true
+	}
+	return "", "", false
+}
+
 // runningSteps is the steps that run without an agent, in seq order: the open intents of the merge loop's command
-// steps (gate, publish the merge, after_merge, the nightly check) and, last, a pending self-restart (restarting not
-// zero). An intent with a result is no running step; another step's intent (a prompt, a start) runs no command the
-// line shows.
-func runningSteps(open []Record, restarting time.Time) []RunningStep {
+// steps whose effect runs now (p.exec, T-662) and, last, a pending self-restart (p.restarting). Since is the start of
+// that execution, not the intent's write time (a replay's is older). An intent with a result is no open intent; an
+// open one not running is pending. Under mu.
+func (p *proj) runningSteps(open []Record) []RunningStep {
 	var out []RunningStep
 	for _, r := range open {
-		step, task := r.Step, r.Task
+		step, task, ok := commandStep(r)
+		if !ok {
+			continue
+		}
+		at, running := p.exec[r.key()]
+		if !running {
+			continue
+		}
+		out = append(out, RunningStep{Step: step, Task: task, Since: at.Unix()})
+	}
+	if !p.restarting.IsZero() {
+		out = append(out, RunningStep{Step: StepServeRestart, Since: p.restarting.Unix()})
+	}
+	return out
+}
+
+// pendingSteps is the steps that wait, in seq order (T-662): the merge loop's command steps whose intent has no result
+// and whose effect does not run now — one whose last try failed (Error, FailedAt: the failed fact's reason without its
+// step prefix, and its time) or one the next pass or a replay has yet to run (no error: queued). Under mu.
+func (p *proj) pendingSteps(open []Record) []PendingStep {
+	var out []PendingStep
+	for _, r := range open {
+		step, task, ok := commandStep(r)
+		if !ok {
+			continue
+		}
+		if _, running := p.exec[r.key()]; running {
+			continue
+		}
+		ps := PendingStep{Step: step, Task: task, Since: recordTime(r).Unix()}
 		switch {
-		case strings.HasPrefix(step, StepNightly+"."):
-			step, task = StepNightly, ""
-		default:
-			if step, _ = stepN(step); step != StepGate && step != StepPublish && step != StepAfterMerge {
-				continue
+		case r.Task == NightlyTask:
+			if p.night.fails[r.Step] > 0 {
+				ps.Error, ps.FailedAt = strings.TrimPrefix(p.night.failedWhy, r.Step+": "), p.night.failedAt.Unix()
+			}
+		case p.folded.loop[r.Task] != nil:
+			if f, failed := p.folded.loop[r.Task].fails[r.Step]; failed {
+				ps.Error, ps.FailedAt = strings.TrimPrefix(f.why, r.Step+": "), f.at.Unix()
 			}
 		}
-		out = append(out, RunningStep{Step: step, Task: task, Since: recordTime(r).Unix()})
-	}
-	if !restarting.IsZero() {
-		out = append(out, RunningStep{Step: StepServeRestart, Since: restarting.Unix()})
+		out = append(out, ps)
 	}
 	return out
 }

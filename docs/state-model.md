@@ -193,7 +193,8 @@ step, step name, verdicts, sendback, resume rule and scratch, each naming its ro
 
 A task with no record in the loop has no state: approved with its spec in the store, it waits for a dispatch (row 2).
 Two are not states: a gate or a publish running (`submitted`, `moved`, `resolved` or `accepted`; `obor serve status`
-shows the step `running`), and a watchdog's `stalled{idle}` (row 10, a fact: the task stays `working`).
+shows the step `running`, and one whose intent waits as `gate pending`/`publish pending`, T-662), and a watchdog's
+`stalled{idle}` (row 10, a fact: the task stays `working`).
 
 ## Timers
 

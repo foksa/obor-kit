@@ -71,9 +71,11 @@ func (p *proj) foldLoop(r Record) {
 			}
 		case StepFailed:
 			if mt.fails == nil {
-				mt.fails = map[string]int{}
+				mt.fails = map[string]failure{}
 			}
-			mt.fails[r.Fact().Step]++
+			f := mt.fails[r.Fact().Step]
+			f.n, f.at, f.why = f.n+1, recordTime(r), r.Fact().Reason
+			mt.fails[r.Fact().Step] = f
 		case StepNeedsYou:
 			// An older log's hold of the open questions before review (T-604) ends here: the review job goes out (T-649).
 			if r.Fact().Merge && r.Fact().Cause != causeOpen {

@@ -162,30 +162,30 @@ type mtask struct {
 	gates, reviews    int // the step counters of the attempt (the last N used)
 	resolves, pubs    int
 	submits           int
-	input             string         // submit's sha, the lane gate's and the moved gate's input ("": submit first)
-	cand              Candidate      // the attempt's last green candidate
-	gateRev           int            // the spec rev in cand's merge message (T-521; 0: none)
-	accepted          string         // the patch hash the integrator accepted in this attempt
-	resolved          string         // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
-	line              string         // the last gate or publish line, or the integrator's note
-	why, cause        string         // stFail: the needs-you's reason and cause
-	kind              string         // the attempt's last gate's kind: lane, resolved, moved
-	job               string         // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
-	patch             string         // the patch hash that job was prompted with (its intent's JobData)
-	delivered         bool           // the integrator took that job (fact delivered)
-	lost              int            // how often the integrator exited with a job open since the last resume
-	fixed             bool           // stWorking: the fix job of this attempt is out
-	answer            bool           // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
-	decision          string         // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
-	fixes             int            // the attempt's last fix job's N (fix, fix.2 … after obor resume)
-	report            string         // the last submission's report (task_done's)
-	after             int            // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
-	head              string         // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
-	mergedSeq         int64          // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
-	dropped           string         // stDropped: obor drop's why
-	fails             map[string]int // counted failures per step key since the attempt began or the last resume
-	needs             Record         // the needs-you fact in force (Seq 0: none)
-	left              string         // the state the last needs-you left: obor resume's retry goes back to it
+	input             string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
+	cand              Candidate          // the attempt's last green candidate
+	gateRev           int                // the spec rev in cand's merge message (T-521; 0: none)
+	accepted          string             // the patch hash the integrator accepted in this attempt
+	resolved          string             // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
+	line              string             // the last gate or publish line, or the integrator's note
+	why, cause        string             // stFail: the needs-you's reason and cause
+	kind              string             // the attempt's last gate's kind: lane, resolved, moved
+	job               string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
+	patch             string             // the patch hash that job was prompted with (its intent's JobData)
+	delivered         bool               // the integrator took that job (fact delivered)
+	lost              int                // how often the integrator exited with a job open since the last resume
+	fixed             bool               // stWorking: the fix job of this attempt is out
+	answer            bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
+	decision          string             // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
+	fixes             int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
+	report            string             // the last submission's report (task_done's)
+	after             int                // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
+	head              string             // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
+	mergedSeq         int64              // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
+	dropped           string             // stDropped: obor drop's why
+	fails             map[string]failure // counted failures per step key since the attempt began or the last resume
+	needs             Record             // the needs-you fact in force (Seq 0: none)
+	left              string             // the state the last needs-you left: obor resume's retry goes back to it
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done; the work
@@ -199,6 +199,14 @@ type mtask struct {
 	work                    string
 	startAt                 time.Time // when the last start that started its agent was written
 	specRev                 int       // the spec rev the worker's last fetched job carried (0: none)
+}
+
+// failure is one step's counted failures in an attempt: how many, and the last one's reason and time (obor status'
+// pending line names them, T-662).
+type failure struct {
+	n   int
+	at  time.Time
+	why string // the failed fact's reason: "<step>: <err>"
 }
 
 // Records' data.
@@ -366,6 +374,9 @@ func (a *App) record(p *proj, r Record, data any) bool {
 //
 // An effect that ran and whose result's write failed is never run again in this process: the next call writes the
 // result it had (p.unwritten). A restart has only the log: the intent's crash class settles it.
+//
+// From the moment the effect runs until it returns its key is p.exec: obor status' running line lists those, and every
+// other open intent as pending (T-662).
 func (a *App) do(ctx context.Context, p *proj, in Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
 	data, _ := json.Marshal(in.Data)
 	intent := Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindIntent, Class: in.Class, Data: data}
@@ -395,6 +406,14 @@ func (a *App) do(ctx context.Context, p *proj, in Intent, effect func(context.Co
 			a.mu.Unlock()
 		}
 		ran = true
+		a.mu.Lock() // from here the effect runs: obor status' running line shows it, elapsed from now (T-662)
+		p.exec[in.Key] = a.opt.Now()
+		a.mu.Unlock()
+		defer func() {
+			a.mu.Lock()
+			delete(p.exec, in.Key)
+			a.mu.Unlock()
+		}()
 		v, err := effect(ctx)
 		if err == nil && ctx.Err() != nil {
 			err = ctx.Err()
@@ -458,7 +477,7 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 	}
 	a.mu.Lock()
 	m := p.folded.loop[mt.task]
-	tell := m.attempt == mt.attempt && m.fails[step] >= tries && m.needs.Seq == 0
+	tell := m.attempt == mt.attempt && m.fails[step].n >= tries && m.needs.Seq == 0
 	a.mu.Unlock()
 	if tell {
 		base, _ := stepN(step)

@@ -20,13 +20,14 @@ import (
 )
 
 // statusModel is `obor status`: obor serve's view of the project (its agents, open tasks and needs-you, each needs-you
-// with the commands that answer it), what serve does without an agent now (the running line, T-657), the lanes (the
-// store's rows and what git says of each worktree), serve up or down, the last full check, the pause and the lines serve
-// has not typed yet (obor send, obor brief, a brief's finished line); rendered as text (writeStatus, writeStatusShort)
-// or JSON (--json).
+// with the commands that answer it), what serve does without an agent now (the running line and the pending line under
+// it, T-657, T-662), the lanes (the store's rows and what git says of each worktree), serve up or down, the last full
+// check, the pause and the lines serve has not typed yet (obor send, obor brief, a brief's finished line); rendered as
+// text (writeStatus, writeStatusShort) or JSON (--json).
 type statusModel struct {
 	Serve     serveJSON           `json:"serve"`
 	Running   []runningJSON       `json:"running"`
+	Pending   []app.PendingStep   `json:"pending"` // the open command steps whose effect does not run now
 	Lanes     []laneJSON          `json:"lanes"`
 	Tasks     []app.TaskStatus    `json:"tasks"`  // serve's open tasks
 	Agents    []app.AgentStatus   `json:"agents"` // the agents serve sees in the project
@@ -186,7 +187,8 @@ func serveProcess(ctx context.Context, cfg *config.Config, up bool) (pid int, la
 // buildStatus joins serve's answer (ss, or err when it gave none) to the lane table of p.
 func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 	st := statusModel{Lanes: []laneJSON{}, Tasks: []app.TaskStatus{}, Agents: []app.AgentStatus{},
-		NeedsYou: []needsYouJSON{}, Messages: []app.MessageStatus{}, Running: []runningJSON{}}
+		NeedsYou: []needsYouJSON{}, Messages: []app.MessageStatus{}, Running: []runningJSON{},
+		Pending: []app.PendingStep{}}
 	var ps app.ProjectStatus
 	if err != nil {
 		st.Serve.Error = err.Error()
@@ -200,6 +202,7 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 			st.Running = append(st.Running, runningJSON{Step: r.Step, Task: r.Task, Command: runningCommand(p, r),
 				Since: r.Since})
 		}
+		st.Pending = append(st.Pending, ps.Pending...)
 		st.Serve.Merging, st.Serve.LogError = ps.Merging, ps.LogError
 		st.Tasks, st.Agents = append(st.Tasks, ps.Tasks...), append(st.Agents, ps.Agents...)
 		st.Messages = append(st.Messages, ps.Messages...)
@@ -283,11 +286,12 @@ func statusSections(st statusModel, now time.Time) [][]string {
 	return [][]string{serveSection(st, now), laneSection(st, now), needsYouSection(st), tailSection(st, now)}
 }
 
-// serveSection is serve's line with the running line under it.
+// serveSection is serve's line with the running line and the pending line under it.
 func serveSection(st statusModel, now time.Time) []string {
 	var b strings.Builder
 	writeServe(&b, st.Serve, now)
 	writeRunning(&b, st, now)
+	writePending(&b, st, now)
 	return textLines(b.String())
 }
 
@@ -397,11 +401,13 @@ func writeLines(w io.Writer, s []string) {
 	}
 }
 
-// writeStatusShort is `obor status --short` (T-657): serve's line, the running line and each needs-you, nothing else
-// (a status bar or a quick glance). It is the head of writeStatus' text, so both read the same.
+// writeStatusShort is `obor status --short` (T-657): serve's line, the running line (and the pending line under it,
+// T-662) and each needs-you, nothing else (a status bar or a quick glance). It is the head of writeStatus' text, so
+// both read the same.
 func writeStatusShort(w io.Writer, st statusModel, now time.Time) {
 	writeServe(w, st.Serve, now)
 	writeRunning(w, st, now)
+	writePending(w, st, now)
 	writeNeedsYou(w, st.NeedsYou)
 }
 
@@ -467,6 +473,42 @@ func writeRunning(w io.Writer, st statusModel, now time.Time) {
 	fmt.Fprintln(w, "running: "+strings.Join(items, " · "))
 }
 
+// writePending is the pending line under the running one (T-662): the merge loop's command steps whose intent has no
+// result and whose effect does not run now (`pending: after_merge T-655 (failed 3m ago: <err>) · gate T-656 (queued)`),
+// nothing when none waits. A step that failed names its last failure's age and reason (its first line, short: the
+// needs-you or the log has the rest); one that never failed reads "queued": the next pass or a replay runs it.
+func writePending(w io.Writer, st statusModel, now time.Time) {
+	if len(st.Pending) == 0 {
+		return
+	}
+	items := make([]string, 0, len(st.Pending))
+	for _, p := range st.Pending {
+		item := runningName(p.Step)
+		if p.Task != "" {
+			item += " " + p.Task
+		}
+		if p.FailedAt != 0 {
+			item += fmt.Sprintf(" (failed %s ago: %s)", app.Age(now.Sub(time.Unix(p.FailedAt, 0))), shortErr(p.Error))
+		} else {
+			item += " (queued)"
+		}
+		items = append(items, item)
+	}
+	fmt.Fprintln(w, "pending: "+strings.Join(items, " · "))
+}
+
+// shortErr is a failed step's reason in the pending line: its first line, cut at pendingErrMax characters.
+func shortErr(s string) string {
+	s = project.FirstLine(s)
+	if r := []rune(s); len(r) > pendingErrMax {
+		s = string(r[:pendingErrMax]) + "…"
+	}
+	return s
+}
+
+// pendingErrMax is how much of a failed step's reason the pending line keeps.
+const pendingErrMax = 80
+
 // runningName is a running step's name in the line: the log's own step, but the nightly run (a day's key) and the
 // self-restart, which say what they are.
 func runningName(step string) string {
@@ -495,7 +537,9 @@ func writeNeedsYou(w io.Writer, needs []needsYouJSON) {
 }
 
 // laneState is l's state column (T-657): what serve does for its task now — held (needs-you), gating, merging
-// (publishing), reviewing (an integrator job is out) — else the lane table's state (done, working, free …).
+// (publishing), reviewing (an integrator job is out) — else the lane table's state (done, working, free …). A gate or
+// publish whose effect does not run now but whose intent waits reads `gate pending` / `publish pending` (T-662): it is
+// not progress, it is stuck work (a failed step, a replay the next pass has yet to run).
 func laneState(l laneJSON, st statusModel) string {
 	if l.TaskState == "needs-you" || held(st.NeedsYou, l) {
 		return "held"
@@ -509,6 +553,15 @@ func laneState(l laneJSON, st statusModel) string {
 			return "gating"
 		case app.StepPublish:
 			return "merging"
+		}
+	}
+	for _, p := range st.Pending {
+		if l.Task == nil || p.Task != *l.Task {
+			continue
+		}
+		switch p.Step {
+		case app.StepGate, app.StepPublish:
+			return p.Step + " pending"
 		}
 	}
 	if l.TaskState == "awaiting-accept" || l.TaskState == "resolving" { // an integrator job is out
@@ -528,9 +581,9 @@ func held(needs []needsYouJSON, l laneJSON) bool {
 }
 
 // laneSince is when l's state column began, as far as this command can tell (nil: a free lane, no task, or nothing
-// recorded): the held needs-you's fact, the gate or publish running on its task, the lane row's dispatch (a task
-// working in the lane) or the task_done's record (done). obor monitor counts the elapsed time of the state from it
-// (T-658).
+// recorded): the held needs-you's fact, the gate or publish running on its task (a waiting one: its failure's time,
+// else its intent's), the lane row's dispatch (a task working in the lane) or the task_done's record (done). obor
+// monitor counts the elapsed time of the state from it (T-658).
 func laneSince(l laneJSON, st statusModel, now, dispatched int64) *int64 {
 	at := func(v int64) *int64 { return &v }
 	switch laneState(l, st) {
@@ -549,6 +602,18 @@ func laneSince(l laneJSON, st statusModel, now, dispatched int64) *int64 {
 		for _, r := range st.Running {
 			if l.Task != nil && r.Task == *l.Task && r.Since != 0 {
 				return at(r.Since)
+			}
+		}
+	case "gate pending", "publish pending":
+		for _, p := range st.Pending {
+			if l.Task == nil || p.Task != *l.Task {
+				continue
+			}
+			if p.FailedAt != 0 {
+				return at(p.FailedAt)
+			}
+			if p.Since != 0 {
+				return at(p.Since)
 			}
 		}
 	case "done":
