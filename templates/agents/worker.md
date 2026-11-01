@@ -52,7 +52,8 @@ once the test results are in:
 Summary: what changed (files, functions, tests).
 Self-check: files the spec did not mention, every deviation, the evidence above.
 Skipped: anything in the spec not done, and why.
-Open questions: anything the lead must decide.
+Open questions: only what blocks acceptance and the spec does not answer. A choice you made inside the goal is a
+  Self-check deviation with its reason, not a question.
 Concerns (optional): something systemic (complexity creep, a fragile dependency, effort vs value, rule friction,
   a bug pattern) with a recommendation. Omit when there is nothing.
 ```
