@@ -27,11 +27,12 @@ The lead, in a clean checkout on main:
 The owner:
 
 3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): first the tag's own checks (`scripts/publish --check`) and the same
-   stale-tag check as `make release`; then pushes main and the tag, runs `scripts/publish` (the GitHub release), then
-   `install.sh` on this machine. Each step is skipped when it is already done and checked after it runs: origin has the
-   tag (the same object) and a main containing the local one; the GitHub release is not a draft and has the four assets
-   (a release missing some gets only those, via `scripts/publish --upload`; a draft stops with the
-   `gh release edit` command); the installed `obor` is this version.
+   stale-tag check as `make release`, against the release's `checksums: v<x.y.z>` commit on main instead of HEAD; then
+   pushes main up to that commit and the tag, runs `scripts/publish` (the GitHub release), then `install.sh` on this
+   machine. Each step is skipped when it is already done and checked after it runs: origin has the tag (the same
+   object) and a main containing that commit; the GitHub release is not a draft and has the four assets (a release
+   missing some gets only those, via `scripts/publish --upload`; a draft stops with the `gh release edit` command); the
+   installed `obor` is this version. Ship publishes main up to the release; later merges wait for the next release.
 4. `obor serve restart` in each project (`make ship` names the ones launchd knows): a project picks the new kit up
    at restart.
 

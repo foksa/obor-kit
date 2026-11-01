@@ -1,10 +1,13 @@
 #!/bin/sh
 # ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md), from the main checkout. Before
 # anything leaves this machine the tag must be this release's (scripts/publish --check: its contents and the four dist
-# files' bytes) and not predate code on main (scripts/release-lib.sh, as scripts/release checks it). Then three steps,
+# files' bytes) and not predate code in the release (scripts/release-lib.sh). The release is the tag plus its
+# `checksums: v<version>` commit on main (the newest with that subject on main's first-parent line, T-661): ship pushes
+# main up to that commit, never main's tip, so merges after `make release` wait for the next release. Then three steps,
 # each skipped when its done evidence holds and proven by it after it runs (T-643):
-#   push     done: origin has tag v<version> (the same object) and origin's main contains the local main
-#            run: git push origin of whichever of main and the tag origin lacks (OBOR_ALLOW_PUSH=1)   fail: stop
+#   push     done: origin has tag v<version> (the same object) and origin's main contains the checksums commit
+#            run: git push origin <checksums commit>:refs/heads/main and/or the tag, whichever origin lacks
+#            (OBOR_ALLOW_PUSH=1)                                  fail: stop
 #   publish  done: the GitHub release is not a draft and has the four assets
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
@@ -37,44 +40,54 @@ branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
 [ -z "$(git status --porcelain)" ] || fail "the working tree is dirty: commit first (make ship pushes, it does not commit)"
 [ "$(tr -d '[:space:]' < VERSION)" = "$v" ] || fail "VERSION is $(cat VERSION), not $v: make ship ships the checked-out version"
 
-# main is pushable when it has the release's catalog: the copy-back commit scripts/release makes.
+# The release on main: the copy-back commit scripts/release makes ("checksums: v<version>"), the newest on main's
+# first-parent line, with the release's catalog. Main past it (later merges) is the next release's.
+rel=$(git log --first-parent --format='%H %s' refs/heads/main |
+  awk -v s="checksums: $tag" '{ h = $1; sub(/^[^ ]* /, "") } $0 == s { print h; exit }')
+[ -n "$rel" ] ||
+  fail "no 'checksums: $tag' commit on main's first-parent history: run make release V=$v (it commits the catalog on main)"
+relshort=$(git rev-parse --short "$rel")
 tagcat=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: run make release V=$v first"
 tagv=$(printf '%s\n' "$tagcat" | grep -F "dist/obor-$v-" || true)
 [ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] || fail "bin/checksums.txt at $tag has no four lines for $v"
-havev=$(git show HEAD:bin/checksums.txt 2> /dev/null | grep -F "dist/obor-$v-" || true)
-[ "$havev" = "$tagv" ] || fail "main's bin/checksums.txt has no $tag catalog: commit it first (make release V=$v does)"
+havev=$(git show "$rel:bin/checksums.txt" 2> /dev/null | grep -F "dist/obor-$v-" || true)
+[ "$havev" = "$tagv" ] ||
+  fail "bin/checksums.txt at $relshort (checksums: $tag) is not $tag's catalog: make release V=$v commits it"
 # The tag's own checks (scripts/publish's: contents and the four files' bytes) run before it leaves this machine.
 sh scripts/publish "$v" --check || fail "$tag is not a finished release (above): a pushed tag never moves"
-require_fresh_tag
+require_fresh_tag "$rel"
 
 # --- push
 ltag=$(git rev-parse "refs/tags/$tag")
-lmain=$(git rev-parse refs/heads/main)
+lmain=$rel
 # read_remote: origin's main and tag shas into rmain and rtag (empty when origin lacks one or is unreachable).
 read_remote() {
   remote=$(git ls-remote origin refs/heads/main "refs/tags/$tag" 2> /dev/null) || remote=
   rmain=$(printf '%s\n' "$remote" | awk '$2 == "refs/heads/main" { print $1; exit }')
   rtag=$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag" '$2 == r { print $1; exit }')
 }
-# main_landed: origin's main is the local main or contains it.
+# main_landed: origin's main is the checksums commit or contains it (fetch-free: an origin main this clone has not seen
+# does not count).
 main_landed() {
   [ "$rmain" = "$lmain" ] && return 0
   [ -n "$rmain" ] && git merge-base --is-ancestor "$lmain" "$rmain" 2> /dev/null
 }
+upto="main up to $relshort (checksums: $tag)"
 read_remote
 if [ "$rtag" = "$ltag" ] && main_landed; then
-  say "origin has main and $tag: push skipped"
+  say "origin has $upto and $tag: push skipped"
 else
   [ -z "$rtag" ] || [ "$rtag" = "$ltag" ] ||
     fail "origin has $tag at $rtag, not the local $ltag: a pushed tag never moves (a changed release is a new patch version)"
   set --
-  main_landed || set -- main
-  [ "$rtag" = "$ltag" ] || set -- "$@" "$tag"
+  pushed=
+  main_landed || { set -- "$lmain:refs/heads/main"; pushed=$upto; }
+  [ "$rtag" = "$ltag" ] || { set -- "$@" "$tag"; pushed="${pushed:+$pushed and }$tag"; }
   OBOR_ALLOW_PUSH=1 git push origin "$@" || fail "git push origin $* failed"
   read_remote
   [ "$rtag" = "$ltag" ] && main_landed ||
-    fail "after git push origin $*, origin has main '${rmain:-none}' and $tag '${rtag:-none}', not the local $lmain and $ltag"
-  if [ "$#" = 2 ]; then say "pushed main and $tag"; else say "pushed $1"; fi
+    fail "after git push origin $*, origin has main '${rmain:-none}' and $tag '${rtag:-none}', not one containing $lmain and $ltag"
+  say "pushed $pushed"
 fi
 
 # --- publish

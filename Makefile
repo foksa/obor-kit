@@ -99,8 +99,9 @@ else
 	@sh scripts/release "$(V)" $(if $(DRY),--dry-run)
 endif
 
-# ship is the owner's one command after make release V=x.y.z (scripts/ship): push main and the tag, publish the GitHub
-# release, install the kit; each step is skipped when it is already done.
+# ship is the owner's one command after make release V=x.y.z (scripts/ship): push main up to the release (its
+# `checksums: vx.y.z` commit, not main's tip) and the tag, publish the GitHub release, install the kit; each step is
+# skipped when it is already done.
 ship:
 	@sh scripts/ship "$(VERSION)"
 
