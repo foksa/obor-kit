@@ -6,9 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-01: **v0.17.2 released** (`make release` + owner `make ship`; all three serves restarted on it). Since:
-  T-642 (release refuses unreviewed code), T-643 (release/ship step rewrite, RV-70). RV-70 closed; nothing
-  unreviewed. axis-maps: its lead not started yet (owner: `obor lead` in wA:p1). Nothing in flight.
+- 2026-11-01 evening: **v0.17.5 released** (v0.17.3/v0.17.4 tagged, never published); all three serves on it;
+  `obor monitor` panes in each project's system tab. Lead on opus-high (config; applies at the next lead restart).
+  In flight: T-662 (running vs pending), T-663 (monitor fits rows), both RV-74 display fixes, unreviewed.
+  Planner/coordinator split deferred: cheap fixes in (T-649..T-652); measure what still reaches the lead's chat.
+  Plan + Fable advice: docs/research/planner-coordinator-*.md; the owner may add Gemini's read.
 - 2026-10-31 session 13, evening: **v0.17.0 released** (tag pushed, GitHub release published, `~/.obor/kit` at
   v0.17.0). Merged today T-595..T-626; RV-64..66 closed; DD-v0.17 + verify approved (V2 → T-626, V1/V3 docs done).
   axis-alies migrated (54543f08) and was told to follow UPGRADE-v0.17 (githooks, serve install, restarts). Nothing
