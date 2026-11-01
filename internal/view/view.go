@@ -17,6 +17,7 @@ import (
 	"obor/internal/checks"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -95,8 +96,9 @@ type Lane struct {
 	// no task): the held needs-you's fact, the gate or publish running on the task, the task_done's record (done), the
 	// lane row's dispatch (a task working). obor monitor counts its elapsed time from it (T-658).
 	Since *int64 `json:"since,omitempty"`
-	// SpecRev is the store's current rev of the task's spec (0: none stored).
-	SpecRev int `json:"spec_rev,omitempty"`
+	// SpecRev is the store's current rev of the task's spec (0: none stored), Title its title.
+	SpecRev int    `json:"spec_rev,omitempty"`
+	Title   string `json:"title,omitempty"`
 	// Job is the task's open job (nil: none).
 	Job *Job `json:"job,omitempty"`
 }
@@ -234,7 +236,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps app.ProjectSt
 		}
 	}
 	if s.Task != "" {
-		l.SpecRev = specs[s.Task].Rev
+		l.SpecRev, l.Title = specs[s.Task].Rev, spec.Title(specs[s.Task].Text)
 	}
 	l.Column = column(l, v)
 	l.Since = laneSince(l, v, p.Now, row.DispatchedAt)

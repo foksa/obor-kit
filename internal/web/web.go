@@ -71,28 +71,41 @@ func readOnly(h http.Handler) http.Handler {
 	})
 }
 
-// ProjectsEntry is one row of /api/projects: the project's name and root, its needs-you count and its queue length (the
-// merge loop's tasks and the dispatches waiting), and why its view could not be built.
+// ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
+// its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
+// an agent, and why its view could not be built.
 type ProjectsEntry struct {
-	Name     string `json:"name"`
-	Root     string `json:"root"`
-	NeedsYou int    `json:"needs_you"`
-	Queue    int    `json:"queue"`
-	Error    string `json:"error,omitempty"`
+	Name     string         `json:"name"`
+	Root     string         `json:"root"`
+	Up       bool           `json:"up"`
+	Busy     int            `json:"busy"`
+	Free     int            `json:"free"`
+	NeedsYou int            `json:"needs_you"`
+	Queue    int            `json:"queue"`
+	Running  []view.Running `json:"running"`
+	Error    string         `json:"error,omitempty"`
 }
 
 // projectsAPI is the machine's projects with their counts.
 func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 	out := make([]ProjectsEntry, 0)
 	for _, p := range s.projects() {
-		e := ProjectsEntry{Name: p.Name, Root: p.Root}
+		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}}
 		ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 		v, err := s.build(ctx, p.Root)
 		cancel()
 		if err != nil {
 			e.Error = err.Error()
 		} else {
-			e.NeedsYou, e.Queue = len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
+			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
+			e.Running = append(e.Running, v.Running...)
+			for _, l := range v.Lanes {
+				if l.State == "free" || l.State == "dirty-free" { // a free lane keeps its last branch's task
+					e.Free++
+				} else {
+					e.Busy++
+				}
+			}
 		}
 		out = append(out, e)
 	}

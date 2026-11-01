@@ -36,11 +36,13 @@ const (
 	StageHeld      = "held"      // needs-you or failed: the owner decides
 )
 
-// MergeItem is one task in the merge loop, in the merge loop's order: serve's state, its stage, its open integrator
+// MergeItem is one task in the merge loop, in the merge loop's order: its spec's title, serve's state, its stage, its
+// open integrator
 // job, and, when its next step needs the scratch, what serve's scheduler says of it (T-669: copied, never predicted):
 // Next, it gets the scratch next; else WaitsOn the task it waits for and Why (app.ScratchWait).
 type MergeItem struct {
 	Task    string `json:"task"`
+	Title   string `json:"title,omitempty"`
 	Lane    string `json:"lane,omitempty"`
 	State   string `json:"state"`
 	Stage   string `json:"stage"`
@@ -132,8 +134,8 @@ func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]
 		}
 		if stage := stageOf(t, v); stage != "" {
 			w := waits[t.Task]
-			m := MergeItem{Task: t.Task, Lane: t.Lane, State: t.State, Stage: stage, Next: w.Next, WaitsOn: w.WaitsOn,
-				Why: w.Why}
+			m := MergeItem{Task: t.Task, Title: spec.Title(specs[t.Task].Text), Lane: t.Lane, State: t.State,
+				Stage: stage, Next: w.Next, WaitsOn: w.WaitsOn, Why: w.Why}
 			if stage == StageReview && t.Job != "" {
 				m.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}

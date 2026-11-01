@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -195,6 +197,11 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 		e.Queue != len(want.Queue.Merge)+len(want.Queue.Waiting) {
 		t.Errorf("/api/projects: %+v, want pj with %d needs-you and %d queued", e, len(want.NeedsYou),
 			len(want.Queue.Merge)+len(want.Queue.Waiting))
+	}
+	// T-675: the landing's row says whether serve is up and how many lanes are busy (O-01 works on T-01) and free.
+	if e := entries[0]; !e.Up || e.Busy != 1 || e.Free != 0 || e.Running == nil {
+		t.Errorf("/api/projects: up %v, busy %d, free %d, running %v; want up, 1 busy, 0 free, a running list", e.Up,
+			e.Busy, e.Free, e.Running)
 	}
 }
 
@@ -433,4 +440,51 @@ func TestPageIsOneEmbeddedFile(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(".", "page.html")); err != nil {
 		t.Errorf("page.html is not beside the server: %v", err)
 	}
+}
+
+// TestRouterHandlesEveryLinkedRoute (T-675): every route kind the page links to (#/p/…, #/t/…, #/a/…, #/j/…, built by
+// href or written out) is a key of its router's ROUTES table, and the page links all four kinds.
+func TestRouterHandlesEveryLinkedRoute(t *testing.T) {
+	page := string(pageHTML)
+	table := regexp.MustCompile(`(?s)const ROUTES = \{(.*?)\n\};`).FindStringSubmatch(page)
+	if table == nil {
+		t.Fatal("the page has no ROUTES table")
+	}
+	routes := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*(\w+): \{ page: (\w+)`).FindAllStringSubmatch(table[1], -1) {
+		if !strings.Contains(page, "async function "+m[2]+"(") {
+			t.Errorf("route %s draws with %s, which the page does not define", m[1], m[2])
+		}
+		routes[m[1]] = true
+	}
+	linked := map[string]bool{}
+	for _, m := range regexp.MustCompile(`href\("(\w+)"`).FindAllStringSubmatch(page, -1) {
+		linked[m[1]] = true
+	}
+	for _, m := range regexp.MustCompile(`#/(\w+)/`).FindAllStringSubmatch(page, -1) {
+		linked[m[1]] = true
+	}
+	for _, kind := range []string{"p", "t", "a", "j"} {
+		if !linked[kind] {
+			t.Errorf("the page never links a #/%s/ route", kind)
+		}
+	}
+	for kind := range linked {
+		if !routes[kind] {
+			t.Errorf("the page links #/%s/…, which its router does not handle (routes: %v)", kind, keys(routes))
+		}
+	}
+	if !strings.Contains(page, `window.addEventListener("hashchange", go)`) {
+		t.Error("the router does not redraw on a hash change")
+	}
+}
+
+// keys is m's keys, sorted.
+func keys(m map[string]bool) []string {
+	out := []string{}
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }

@@ -20,7 +20,8 @@ type Detail struct {
 	Project Project
 }
 
-// TaskDetail is one task's page: where it is, its spec, the report it was last submitted with, its last gate, its
+// TaskDetail is one task's page: where it is (a lane freed since — the task merged — : its newest dispatch's lane and
+// agent), its spec, the report it was last submitted with, its last gate, its
 // needs-you, its records newest first and the prompts of its jobs.
 type TaskDetail struct {
 	Task         string       `json:"task"`
@@ -31,6 +32,7 @@ type TaskDetail struct {
 	Attempt      int          `json:"attempt,omitempty"`
 	DispatchedAt int64        `json:"dispatched_at,omitempty"` // the lane row's dispatch (epoch seconds)
 	SpecRev      int          `json:"spec_rev,omitempty"`      // the store's current rev
+	Spec         string       `json:"spec,omitempty"`          // the current rev's text
 	GatedRev     int          `json:"gated_rev,omitempty"`     // the rev the last gate checked
 	Report       string       `json:"report,omitempty"`        // the last submission's report
 	GateLine     string       `json:"gate_line,omitempty"`     // the last gate's result line
@@ -62,14 +64,17 @@ type Prompt struct {
 	Text  string `json:"text"`
 }
 
-// AgentDetail is one agent's page: the sessions obor recorded for it (a transcript path and its last write, never the
+// AgentDetail is one agent's page: what serve sees it on now (status, lane, task), the sessions obor recorded for it (a transcript path and its last write, never the
 // contents), the briefs and lines it was sent, and the jobs it was given, with their text.
 type AgentDetail struct {
 	Agent    string         `json:"agent"`
-	Sessions []AgentSession `json:"sessions"` // newest first
-	Briefs   []Prompt       `json:"briefs"`   // newest first
-	Lines    []AgentLine    `json:"lines"`    // newest first
-	Jobs     []Prompt       `json:"jobs"`     // newest first
+	Status   string         `json:"status,omitempty"` // its pane's status as serve sees it ("": no pane)
+	Lane     string         `json:"lane,omitempty"`   // the lane serve sees it in
+	Task     string         `json:"task,omitempty"`   // the task serve sees it on now
+	Sessions []AgentSession `json:"sessions"`         // newest first
+	Briefs   []Prompt       `json:"briefs"`           // newest first
+	Lines    []AgentLine    `json:"lines"`            // newest first
+	Jobs     []Prompt       `json:"jobs"`             // newest first
 }
 
 // AgentSession is one recorded session of an agent (store.Session) and when its transcript was last written (LastWrite,
@@ -129,7 +134,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		return t, found
 	}
 	if row, ok, err := store.ReadSpec(db, task); err == nil && ok {
-		t.SpecRev, t.Title, found = row.Rev, spec.Title(row.Text), true
+		t.SpecRev, t.Spec, t.Title, found = row.Rev, row.Text, spec.Title(row.Text), true
 	}
 	if rows, err := store.ReadLanes(db); err == nil {
 		for _, r := range rows {
@@ -161,6 +166,9 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 			t.GateLine = dataString(r.data, "line")
 			t.GatedRev = int(dataNumber(r.data, "spec_rev"))
 			t.GateLog = gateLog(task)
+		case r.Kind == app.KindFact && r.Step == app.StepDispatched && t.Lane == "" && t.Agent == "":
+			// The lane was freed (the task merged, its row cleared): where its newest dispatch put it.
+			t.Lane, t.Agent = dataString(r.data, "lane"), dataString(r.data, "agent")
 		}
 	}
 	if rows, err := store.ReadPrompts(db, store.PromptQuery{Task: task}, detailPrompts); err == nil {
@@ -184,7 +192,7 @@ func (d Detail) Agent(agent string) (AgentDetail, bool) {
 	found := false
 	for _, s := range d.Project.Agents {
 		if s.Name == agent {
-			found = true
+			a.Status, a.Lane, a.Task, found = s.Status, s.Lane, s.Task, true
 		}
 	}
 	if d.Root != "" {
