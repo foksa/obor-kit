@@ -63,7 +63,10 @@ type fx struct {
 	// open: the files each pid holds open (the launcher's Open; hold sets it). The fake herdr's agent is pid 2 unless
 	// a test gives its pane another.
 	open map[int][]string
-	mu   sync.Mutex // guards reported, logged, open
+	// files replaces the launcher's Open when set: a test's own view of the files (it may act while the search reads
+	// them, T-646).
+	files func(pids []int) []string
+	mu    sync.Mutex // guards reported, logged, open
 }
 
 // hold makes pid hold path open (a Codex writing its rollout).
@@ -152,6 +155,9 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		},
 		Alive: func(pid int) bool { return !x.gone[strconv.Itoa(pid)] }, PS: x.ps,
 		Open: func(pids []int) []string {
+			if x.files != nil {
+				return x.files(pids)
+			}
 			x.mu.Lock()
 			defer x.mu.Unlock()
 			var files []string
