@@ -287,8 +287,10 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   (T-659): serve binds its socket only once its log is replayed (it logs `replayed N records in X s`), so no call is
   admitted to wait; a caller retries a refused/missing socket or a lost reply every 500 ms with the same call id until
   its own deadline (`app.Verdict`'s table: a CLI verdict or MCP tool 15 s, a hook's turn/SessionStart 8 s,
-  stop-failure 5 s; the last try starts 200 ms before it): a restart shorter than that lands the call once, a longer
-  one fails it at its deadline with nothing left waiting to be applied. `obor status` does not retry (`serve is not
+  stop-failure 5 s; the last try starts 200 ms before it): a restart that ends before that last try lands the call
+  once, a longer one fails it at its deadline with nothing left waiting to be applied. A call already admitted (a
+  verdict waiting for the scratch or the verdict lock) runs under serve's 60 s context, not the caller's: its timeout
+  is an ambiguous outcome; check `obor status` before retrying by hand (RV-73, accepted). `obor status` does not retry (`serve is not
   running` during a restart). A failed restart is a needs-you `serve restart after T-xx failed: <err>` (key `serve`);
   the next serve start ends it. Two windows lose only the restart, never a result (accepted): serve dies
   between the step's result and the restart, or the result was written late (an effect whose log write failed): serve
