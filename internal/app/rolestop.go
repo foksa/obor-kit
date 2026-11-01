@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"obor/internal/config"
 )
 
 // Idle role agents hold memory, and nothing of a stopped one is resumed: its next use starts fresh (T-672;
@@ -221,10 +223,11 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 	}
 }
 
-// shellPane is the pane labelled agent that runs no agent (its shell: the agent stopped, by serve or by the lead's
-// obor restart --stop) while no pane is identified as agent's (under mu; false: connected to no herdr, or none).
+// shellPane is the pane labelled agent, a role agent a brief may start (roleAgentOf: never a worker, the lead or the
+// integrator), that runs no agent (its shell: the agent stopped, by serve or by the lead's obor restart --stop) while
+// no pane is identified as agent's (under mu; false: connected to no herdr, not such a role agent, or none).
 func (a *App) shellPane(p *proj, agent string) (Pane, bool) {
-	if w := a.whereIs(p, agent); w.State != Unavailable || w.Why == notConnected {
+	if w := a.whereIs(p, agent); w.State != Unavailable || w.Why == notConnected || !p.roleAgentOf(agent) {
 		return Pane{}, false
 	}
 	var ids []string
@@ -247,4 +250,25 @@ const startRoute = "start"
 func (a *App) stoppedAt(p *proj, agent string) bool {
 	_, ok := a.shellPane(p, agent)
 	return ok
+}
+
+// roleAgentOf: agent is a role agent of p's config that a brief may start fresh: a role's or an agents entry's, not the
+// lead, the integrator or a lane's worker (by the name rules launch resolves, the lane rows' agents included; under
+// mu). A config that does not load names none.
+func (p *proj) roleAgentOf(agent string) bool {
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return false
+	}
+	info, ok := cfg.AgentLookup(agent, "", func(lane string) string { return p.folded.lr.rows[lane].Agent })
+	if !ok || info.Role == "lead" || info.Role == "integrator" || info.Role == "worker" || agent == p.integrator ||
+		agent == p.out.lead() {
+		return false
+	}
+	for _, l := range p.lanes {
+		if l.Agent == agent {
+			return false
+		}
+	}
+	return true
 }

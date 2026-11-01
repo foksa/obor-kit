@@ -302,3 +302,49 @@ func readLog(t *testing.T, root string) []Record {
 	}
 	return recs
 }
+
+// A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (T-672
+// sendback: only a role agent is started on a brief; workers are dispatched): its line stays queued, nothing typed.
+func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
+	root := lineRoot(t)
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}},"lanes":{"O-01":{"agent":"pj-o1"}}}`
+	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	a, p := lineApp(t, root, &now)
+	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
+		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:o1", Workspace: "w", Cwd: root, Agent: "", Label: "pj-o1"},
+	}})
+	a.mu.Lock()
+	w := a.whereIs(p, "pj-o1")
+	a.mu.Unlock()
+	if w.State != Unavailable || w.Why == notConnected {
+		t.Fatalf("precondition: pj-o1 %+v, want no agent running (its pane at a shell)", w)
+	}
+	if _, ok := a.obs["w:o1"]; !ok {
+		t.Fatal("precondition: the worker's labelled pane is not observed")
+	}
+	reply, err := a.briefCall(Call{Root: p.root, CallID: "b-w", To: "pj-o1", Note: "why X?", Role: "lead",
+		Agent: "pj-lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(reply, "serve starts it fresh") {
+		t.Errorf("reply %q says the worker is started fresh", reply)
+	}
+	f := &startJobFakes{concScratch: newConcScratch("")}
+	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
+	same(t, len(f.launches), 0, "starts of the stopped worker")
+	same(t, len(f.typed), 0, "lines typed")
+	a.mu.Lock()
+	queued := 0
+	for _, q := range p.queuedLines() {
+		if q.msg.To == "pj-o1" {
+			queued++
+		}
+	}
+	a.mu.Unlock()
+	same(t, queued, 1, "the worker's brief lines still queued")
+}
