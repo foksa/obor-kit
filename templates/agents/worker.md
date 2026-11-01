@@ -43,7 +43,7 @@ Re-read the spec item by item. Evidence by task type:
 - **Port:** behaviours kept / changed / dropped vs the original, with reasons.
 
 Then call `task_done` with your final report as its `report` argument (there is no done file), only
-once the test results are in:
+once the test results are in. These labels are the defaults: the job's list of sections wins.
 ```
 Summary: what changed (files, functions, tests).
 Self-check: files the spec did not mention, every deviation, the evidence above.
