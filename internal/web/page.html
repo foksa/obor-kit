@@ -5,141 +5,236 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>obor</title>
 <style>
+  /* One accent; state colors only for state: green working, amber waiting, red needs-you/failed, grey free. */
   :root {
-    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #29323d; --fg: #d7dde5; --muted: #7d8896;
-    --accent: #58a6ff; --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff; --purple: #bc8cff;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+    --bg: #131312; --panel: #1b1b19; --raise: #232320; --line: #2f2e2a; --line-soft: #262522;
+    --fg: #ecebe6; --fg-2: #c9c7bf; --muted: #8f8d85; --accent: #e08a65; --accent-soft: rgba(224, 138, 101, .14);
+    --ok: #5cbf86; --wait: #e0a845; --bad: #ef6b62; --idle: #77756e;
+    --ok-soft: rgba(92, 191, 134, .13); --wait-soft: rgba(224, 168, 69, .13); --bad-soft: rgba(239, 107, 98, .13);
+    --idle-soft: rgba(143, 141, 133, .12);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
+    color-scheme: dark;
   }
   @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef1f5; --line: #d8dee6; --fg: #1c2128; --muted: #66707c;
-      --accent: #0969da; --green: #1a7f37; --red: #cf222e; --amber: #9a6700; --blue: #0969da; --purple: #8250df;
+    :root:not([data-theme="dark"]) {
+      --bg: #f7f6f2; --panel: #ffffff; --raise: #f1efe9; --line: #e3e0d8; --line-soft: #eeebe4;
+      --fg: #1e1d1a; --fg-2: #3d3b36; --muted: #75726a; --accent: #c4613c; --accent-soft: rgba(196, 97, 60, .1);
+      --ok: #23874f; --wait: #a06a00; --bad: #c93a30; --idle: #8c8980;
+      --ok-soft: rgba(35, 135, 79, .1); --wait-soft: rgba(160, 106, 0, .1); --bad-soft: rgba(201, 58, 48, .09);
+      --idle-soft: rgba(117, 114, 106, .1);
+      color-scheme: light;
     }
   }
-  :root[data-theme="dark"] {
-    --bg: #0d1117; --panel: #151b23; --panel-2: #1b232d; --line: #29323d; --fg: #d7dde5; --muted: #7d8896;
-    --accent: #58a6ff; --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff; --purple: #bc8cff;
-  }
   :root[data-theme="light"] {
-    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #eef1f5; --line: #d8dee6; --fg: #1c2128; --muted: #66707c;
-    --accent: #0969da; --green: #1a7f37; --red: #cf222e; --amber: #9a6700; --blue: #0969da; --purple: #8250df;
+    --bg: #f7f6f2; --panel: #ffffff; --raise: #f1efe9; --line: #e3e0d8; --line-soft: #eeebe4;
+    --fg: #1e1d1a; --fg-2: #3d3b36; --muted: #75726a; --accent: #c4613c; --accent-soft: rgba(196, 97, 60, .1);
+    --ok: #23874f; --wait: #a06a00; --bad: #c93a30; --idle: #8c8980;
+    --ok-soft: rgba(35, 135, 79, .1); --wait-soft: rgba(160, 106, 0, .1); --bad-soft: rgba(201, 58, 48, .09);
+    --idle-soft: rgba(117, 114, 106, .1);
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); }
-  body { font: 14px/1.5 var(--sans); min-height: 100vh; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, pre { font-family: var(--mono); }
+  body { font: 14px/1.55 var(--sans); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  a.ln { color: var(--accent); }
+  a.ln:hover { text-decoration: underline; text-underline-offset: 2px; }
+  code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+  .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
   header {
-    position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 20px;
-    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 28px;
+    background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line-soft);
   }
-  .brand { font-weight: 700; letter-spacing: .08em; color: var(--fg); text-transform: lowercase; }
-  .brand::before { content: "◆ "; color: var(--accent); }
-  #crumbs { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .brand { font-weight: 650; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+  .brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); transform: rotate(45deg); display: inline-block; }
+  #crumbs { display: flex; gap: 6px; align-items: center; color: var(--muted); min-width: 0; overflow: hidden; white-space: nowrap; }
+  #crumbs a:hover { color: var(--fg); }
+  #crumbs .sep { opacity: .5; }
+  .spacer { flex: 1; }
+  #live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #live i { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); display: inline-block; }
+  #live.on i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  #live.stale i { background: var(--wait); }
   #theme {
-    margin-left: auto; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 6px;
-    padding: 3px 9px; cursor: pointer; font: 13px var(--mono);
+    background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; width: 30px; height: 28px;
+    cursor: pointer; font-size: 14px; line-height: 1;
   }
   #theme:hover { color: var(--fg); border-color: var(--muted); }
-  main { padding: 20px; max-width: 1500px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
-  .muted { color: var(--muted); }
-  .mono { font-family: var(--mono); }
-  .err { color: var(--red); font-family: var(--mono); font-size: 12px; }
-  .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font: 12px var(--mono); color: var(--muted); }
-  .chip.warn { color: var(--amber); border-color: var(--amber); }
-  .chip.bad { color: var(--red); border-color: var(--red); }
-  .chip.ok { color: var(--green); border-color: var(--green); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); vertical-align: 1px; }
-  .dot-working, .dot-done, .dot-published, .dot-merged, .dot-ok { background: var(--green); }
-  .dot-held, .dot-blocked, .dot-fail, .dot-dropped, .dot-needs-you, .dot-red { background: var(--red); }
-  .dot-gating, .dot-merging, .dot-submitted, .dot-gate, .dot-publish, .dot-running, .dot-queued { background: var(--blue); }
-  .dot-reviewing, .dot-resolving, .dot-review { background: var(--purple); }
-  .dot-free, .dot-idle, .dot-none, .dot-waiting, .dot-gate-pending, .dot-publish-pending { background: var(--amber); }
-  .projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-  .card {
-    display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--fg);
+
+  main { padding: 28px; max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 22px; line-height: 1.3; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  h1 .title { font-weight: 450; color: var(--fg-2); }
+  .head { margin-bottom: 22px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .meta b { color: var(--fg-2); font-weight: 500; }
+  section { margin: 0 0 28px; }
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted);
+    margin: 0 0 10px; display: flex; align-items: center; gap: 8px;
   }
-  .card:hover { border-color: var(--accent); text-decoration: none; }
-  .card-title { font-weight: 650; font-size: 15px; display: flex; justify-content: space-between; gap: 10px; }
-  .card-title .muted { font: 11px var(--mono); }
-  .counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
-  @media (max-width: 980px) { .cols { grid-template-columns: minmax(0, 1fr); } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
-  .panel h2 { margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font: 600 11px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); vertical-align: top; font-size: 13px; }
-  tr:last-child td { border-bottom: 0; }
-  td.num, th.num { text-align: right; }
-  .row { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
-  .row:last-child { border-bottom: 0; }
-  .row .grow { flex: 1; min-width: 0; }
-  .needs { border-left: 2px solid var(--amber); padding-left: 10px; margin-bottom: 10px; }
-  .needs:last-child { margin-bottom: 0; }
-  .needs .why { white-space: pre-wrap; }
-  .needs .answer { display: block; margin-top: 3px; color: var(--muted); font: 12px var(--mono); }
-  .events { max-height: 52vh; overflow: auto; }
-  .ev { display: flex; gap: 10px; padding: 2px 0; font: 12.5px/1.5 var(--mono); }
-  .ev time { color: var(--muted); white-space: nowrap; }
-  .ev .line { min-width: 0; overflow-wrap: anywhere; }
+  h2 .count { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+  h3 { font-size: 13px; font-weight: 600; margin: 18px 0 8px; color: var(--fg-2); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .pad { padding: 14px 16px; }
+  .quiet { color: var(--muted); font-size: 13px; padding: 2px 0; margin: 6px 0; }
+  .quiet > .dot:first-child { margin-right: 6px; vertical-align: 0; }
+
+  /* state pills and dots */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 1px 9px 1px 8px; font-size: 12px;
+    font-weight: 500; white-space: nowrap; background: var(--idle-soft); color: var(--muted); line-height: 20px;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.plain::before { display: none; }
+  .t-ok { color: var(--ok); background: var(--ok-soft); }
+  .t-wait { color: var(--wait); background: var(--wait-soft); }
+  .t-bad { color: var(--bad); background: var(--bad-soft); }
+  .t-idle { color: var(--muted); background: var(--idle-soft); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--idle); }
+  .dot.t-ok { background: var(--ok); } .dot.t-wait { background: var(--wait); } .dot.t-bad { background: var(--bad); }
+  .tag { font: 11.5px var(--mono); color: var(--muted); background: var(--raise); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+
+  /* rows: a grid on desktop, stacked on a phone */
+  .rows { display: flex; flex-direction: column; }
+  .row { display: grid; gap: 4px 14px; align-items: center; padding: 11px 16px; border-top: 1px solid var(--line-soft); min-width: 0; }
+  .row:first-child { border-top: 0; }
+  a.row:hover { background: var(--raise); }
+  .rows > .row:first-child { border-radius: 12px 12px 0 0; }
+  .rows > .row:last-child { border-radius: 0 0 12px 12px; }
+  .rows > .row:only-child { border-radius: 12px; }
+  .work { grid-template-columns: 64px minmax(0, 1fr) 128px 150px 76px; }
+  .roles { grid-template-columns: 96px minmax(0, 1fr) 128px 76px; }
+  .lead { display: flex; flex-direction: column; min-width: 0; }
+  .lead .ttl { color: var(--fg-2); }
+  .sub2 { font-size: 12px; color: var(--muted); }
+  .r { text-align: right; }
+  .projects .row { grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) 92px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* needs you */
+  .needs { border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); background: linear-gradient(var(--bad-soft), var(--bad-soft)), var(--panel); }
+  .need { padding: 14px 16px; border-top: 1px solid color-mix(in srgb, var(--bad) 22%, var(--line)); }
+  .need:first-child { border-top: 0; }
+  .need .why { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .answer { display: inline-block; margin-top: 8px; padding: 4px 9px; border-radius: 7px; background: var(--raise); border: 1px solid var(--line); overflow-wrap: anywhere; }
+
+  /* pipeline */
+  .pipe { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 10px; }
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-height: 76px; min-width: 0; }
+  .stage h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; }
+  .stage .item { padding: 6px 0; border-top: 1px dashed var(--line-soft); }
+  .stage .item:first-of-type { border-top: 0; padding-top: 0; }
+  .stage.empty h4 { opacity: .6; }
+
+  .steps { display: flex; align-items: center; gap: 0; margin: 18px 0 4px; flex-wrap: wrap; row-gap: 10px; }
+  .step { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .step .n { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 10px; }
+  .step.done { color: var(--fg-2); }
+  .step.done .n { background: var(--fg-2); border-color: var(--fg-2); color: var(--bg); }
+  .step.cur { color: var(--fg); font-weight: 600; }
+  .step.cur .n { border-color: currentColor; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .step.cur.t-ok, .step.cur.t-wait, .step.cur.t-bad { background: none; }
+  .step .bar { width: 28px; height: 1.5px; background: var(--line); margin: 0 8px; }
+  .step.done .bar { background: var(--fg-2); opacity: .5; }
+
+  /* lists: events, timeline */
+  .list { display: flex; flex-direction: column; }
+  .li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 7px 16px; border-top: 1px solid var(--line-soft); align-items: baseline; }
+  .li:first-child { border-top: 0; }
+  .li time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .li .txt { overflow-wrap: anywhere; color: var(--fg-2); }
+  .li .txt q { quotes: none; color: var(--fg); }
+  .fresh { animation: fresh 1.6s ease-out; }
+  @keyframes fresh { from { background: var(--accent-soft); } to { background: transparent; } }
+
+  /* text blocks */
+  .prose { padding: 4px 18px 10px; color: var(--fg-2); overflow-wrap: anywhere; }
+  .prose h1, .prose h2, .prose h3, .prose h4 { color: var(--fg); text-transform: none; letter-spacing: 0; margin: 16px 0 6px; }
+  .prose h1 { font-size: 17px; } .prose h2 { font-size: 15px; } .prose h3, .prose h4 { font-size: 14px; }
+  .prose p { margin: 8px 0; }
+  .prose ul { margin: 6px 0; padding-left: 20px; }
+  .prose li { margin: 3px 0; }
+  .prose code { background: var(--raise); border-radius: 5px; padding: 0 4px; font-size: 12px; }
+  .prose pre { background: var(--raise); border-radius: 8px; padding: 10px 12px; overflow: auto; }
+  .prose pre code { background: none; padding: 0; }
+  .prose strong { color: var(--fg); font-weight: 600; }
+  .fold { position: relative; max-height: 340px; overflow: hidden; }
+  .fold::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 70px; background: linear-gradient(transparent, var(--panel)); }
+  .fold.open { max-height: none; }
+  .fold.open::after { display: none; }
+  .more { margin: 0 18px 14px; background: none; border: 1px solid var(--line); color: var(--fg-2); border-radius: 8px; padding: 4px 12px; font: 12.5px var(--sans); cursor: pointer; }
+  .more:hover { border-color: var(--muted); color: var(--fg); }
   pre.text {
-    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 8px 0 0;
-    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55; max-height: 60vh; overflow: auto;
+    margin: 0; padding: 12px 16px 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6;
+    color: var(--fg-2); max-height: 70vh; overflow: auto;
   }
-  details { margin: 8px 0; }
-  summary { cursor: pointer; font: 13px var(--mono); padding: 4px 0; color: var(--accent); }
-  summary:hover { text-decoration: underline; }
-  .empty { color: var(--muted); font-size: 13px; }
-  .flash { animation: flash 1.2s ease-out; }
-  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
+  .block { border-top: 1px solid var(--line-soft); }
+  .block:first-child { border-top: 0; }
+  .bhead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 11px 16px; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary .chev { transition: transform .15s; display: inline-block; color: var(--muted); }
+  details[open] > summary .chev { transform: rotate(90deg); }
+  details > summary:hover { background: var(--raise); }
+  .toggle { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; padding: 6px 2px; }
+  .toggle:hover { color: var(--fg); background: none !important; }
+  table.raw { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.raw td, table.raw th { text-align: left; padding: 5px 12px; border-top: 1px solid var(--line-soft); vertical-align: top; }
+  table.raw th { color: var(--muted); font-weight: 500; border-top: 0; }
+  .banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; margin-bottom: 18px; }
+  .err { color: var(--bad); }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
+  .loading { color: var(--muted); padding: 40px 0; }
+
+  @media (max-width: 900px) {
+    .pipe { grid-auto-flow: row; }
+    .stage.empty { display: none; }
+    .grid2 { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 700px) {
+    header { padding: 10px 14px; gap: 10px; }
+    main { padding: 18px 14px; }
+    h1 { font-size: 19px; }
+    #live span { display: none; }
+    /* a row on a phone: its state line (lane, state, time) first, what it is about below */
+    .work, .roles, .projects .row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 4px; }
+    .work > .lead, .roles > .lead { order: 5; flex-basis: 100%; }
+    .projects .row > .lead { flex-basis: 100%; }
+    .row > .hide-sm { display: none; }
+    .row > .r { margin-left: auto; }
+    .li { grid-template-columns: 60px minmax(0, 1fr); padding: 7px 12px; }
+    .steps .bar { width: 14px; margin: 0 5px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <a class="brand" href="#/">obor</a>
-  <span id="crumbs"></span>
-  <button id="theme" title="dark / light">◐</button>
+  <a class="brand" href="#/"><i></i>obor</a>
+  <nav id="crumbs"></nav>
+  <span class="spacer"></span>
+  <span id="live" title="no live connection"><i></i><span>offline</span></span>
+  <button id="theme" title="switch dark / light">◐</button>
 </header>
-<main id="app"><p class="muted">loading…</p></main>
+<main id="app"><p class="loading">loading…</p></main>
 <script>
 "use strict";
 
-// ---- small helpers -------------------------------------------------------------------------------------------------
+// ---- helpers -------------------------------------------------------------------------------------------------------
 const app = document.getElementById("app");
-const crumbs = document.getElementById("crumbs");
 const enc = encodeURIComponent;
+const dec = (s) => { try { return decodeURIComponent(s || ""); } catch (e) { return s || ""; } };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
-  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
-));
-const cls = (s) => "dot-" + String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const dot = (s) => `<span class="dot ${esc(cls(s))}" title="${esc(s)}"></span>`;
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const now = () => Date.now() / 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function age(sec) {
-  if (sec === undefined || sec === null || sec === 0) return "—";
-  const s = Math.max(0, Math.floor(sec));
-  if (s < 60) return s + "s";
-  if (s < 3600) return Math.floor(s / 60) + "m";
-  if (s < 86400) return Math.floor(s / 3600) + "h" + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m";
-  return Math.floor(s / 86400) + "d" + String(Math.floor((s % 86400) / 3600)).padStart(2, "0") + "h";
-}
-const since = (unix) => unix ? age(Date.now() / 1000 - unix) + " ago" : "";
-const when = (ts) => {
-  if (!ts) return "";
-  const d = new Date(ts);
-  return isNaN(d) ? ts : d.toLocaleTimeString([], { hour12: false });
-};
-const whenDay = (ts) => {
-  if (!ts) return "";
-  const d = new Date(ts);
-  return isNaN(d) ? ts : d.toLocaleString([], { hour12: false });
-};
+const unixOf = (ts) => { const t = Date.parse(ts); return isNaN(t) ? 0 : t / 1000; };
+
 async function api(path, signal) {
   const r = await fetch(path, { cache: "no-store", signal });
   let body = null;
@@ -147,318 +242,614 @@ async function api(path, signal) {
   if (!r.ok) throw new Error((body && body.error) || r.status + " " + r.statusText);
   return body;
 }
-const link = (route, text, cls) =>
-  `<a class="${cls || ""}" href="#/${route}">${esc(text)}</a>`;
-const taskLink = (p, task) => task ? link(`t/${enc(p)}/${enc(task)}`, task) : "—";
-const agentLink = (p, agent) => agent ? link(`a/${enc(p)}/${enc(agent)}`, agent) : "—";
-const jobLink = (p, job) => job ? link(`j/${enc(p)}/${enc(job)}`, job) : "—";
 
-// ---- theme --------------------------------------------------------------------------------------------------------
-const themeBtn = document.getElementById("theme");
-function applyTheme(t) {
-  if (t) document.documentElement.setAttribute("data-theme", t);
-  else document.documentElement.removeAttribute("data-theme");
+// dur is a duration in seconds as a person says it: 40s, 12m, 3h 05m, 2d 4h.
+function dur(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h";
 }
+function relText(at, mode) {
+  const d = now() - at;
+  if (mode === "for") return dur(d);
+  if (mode === "in") return "in " + dur(-d);
+  return d < 45 ? "just now" : dur(d) + " ago";
+}
+const clock = (at) => new Date(at * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric",
+  hour: "2-digit", minute: "2-digit", second: "2-digit" });
+// rel is a relative time that keeps itself current (the ticker), its clock time on hover; "" without a time.
+function rel(at, mode) {
+  if (!at) return "";
+  return `<time data-at="${at}" data-mode="${mode || ""}" title="${esc(clock(at))}">${esc(relText(at, mode))}</time>`;
+}
+setInterval(() => {
+  for (const t of document.querySelectorAll("time[data-at]")) t.textContent = relText(+t.dataset.at, t.dataset.mode);
+}, 15000);
+
+// tone is a state's color: green working, amber waiting, red needs-you or failed, grey free or idle.
+function tone(state) {
+  const s = String(state || "").toLowerCase();
+  if (/held|needs-you|fail|red|blocked|conflict|down|missing|dropped/.test(s)) return "bad";
+  if (/pending|waiting|submitted|done|queued|not fetched|stuck|review requested|ready/.test(s)) return "wait";
+  if (/working|gating|merging|review|resolv|running|green|accepted|published|merged|live|up|brief/.test(s)) return "ok";
+  return "idle";
+}
+const pill = (state, text) => `<span class="pill t-${tone(state)}">${esc(text ?? state)}</span>`;
+const dot = (state, title) => `<span class="dot t-${tone(state)}" title="${esc(title || state)}"></span>`;
+// ttl is a spec title, escaped, its `code` spans as code.
+const ttl = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const tag = (text, title) => `<span class="tag"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
+
+// ---- routes ---------------------------------------------------------------------------------------------------------
+// Every link the page draws goes through href, and every kind it links is a key of ROUTES (web_test checks it).
+const href = (kind, project, id) => "#/" + kind + (project !== undefined ? "/" + enc(project) : "") +
+  (id ? "/" + enc(id) : "");
+const ln = (url, text, title) => `<a class="ln" href="${url}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</a>`;
+const taskLink = (p, task, text) => task ? ln(href("t", p, task), text || task) : "";
+const agentLink = (p, agent) => agent ? ln(href("a", p, agent), agent) : "";
+const jobLink = (p, job, text) => job ? ln(href("j", p, job), text || job) : "";
+
+const ROUTES = {
+  p: { page: projectPage, crumb: (r) => [] },
+  t: { page: taskPage, crumb: (r) => [r.id] },
+  a: { page: agentPage, crumb: (r) => ["agent " + r.id] },
+  j: { page: jobPage, crumb: (r) => ["job " + r.id] },
+};
+
+// parse is a hash as a route: its kind, its project and its id (a job's id keeps its slashes, encoded or not).
+function parse(hash) {
+  const parts = String(hash || "").replace(/^#\/?/, "").split("/");
+  return { kind: parts[0] || "", project: dec(parts[1]), id: parts.slice(2).map(dec).join("/") };
+}
+
+let nav = 0;          // bumps on every navigation: a slow answer never draws over another page
+let current = null;   // { route, draw }: the page shown, to redraw on new records
+async function go() {
+  const my = ++nav;
+  stopLive();
+  const r = parse(location.hash);
+  const def = r.kind ? ROUTES[r.kind] : { page: landing, crumb: () => [] };
+  if (!def || (r.kind && !r.project)) { location.replace("#/"); return; }
+  crumbs(r, def.crumb(r));
+  app.innerHTML = '<p class="loading">loading…</p>';
+  window.scrollTo(0, 0);
+  const draw = async (refresh) => {
+    const html = await def.page(r);
+    if (my !== nav) return false;
+    paint(html, refresh);
+    return true;
+  };
+  current = { r, draw, my };
+  try {
+    if (!(await draw(false))) return;
+  } catch (e) {
+    if (my === nav) app.innerHTML = `<div class="banner t-bad">could not load this page: ${esc(e.message)}</div>`;
+  }
+  if (my !== nav) return;
+  if (r.project) live(my, r.project);
+  else landingLoop(my);
+}
+window.addEventListener("hashchange", go);
+// A click on a link to the page already shown changes no hash: draw it again rather than nothing.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest('a[href^="#/"]');
+  if (a && a.getAttribute("href") === location.hash && !e.metaKey && !e.ctrlKey) { e.preventDefault(); go(); }
+});
+
+function crumbs(r, tail) {
+  const el = document.getElementById("crumbs");
+  const parts = [];
+  if (r.project) parts.push(`<span class="sep">/</span>${ln(href("p", r.project), r.project).replace('class="ln"', "")}`);
+  for (const t of tail) parts.push(`<span class="sep">/</span><span class="ell">${esc(t)}</span>`);
+  el.innerHTML = parts.join("");
+  document.title = (tail.length ? tail[tail.length - 1] + " · " : "") + (r.project ? r.project + " · " : "") + "obor";
+}
+
+// paint draws html; a refresh keeps the scroll, the open toggles and the unfolded texts.
+function paint(html, refresh) {
+  if (!refresh) { app.innerHTML = html; return; }
+  const open = new Set([...app.querySelectorAll("details[data-key]")].filter((d) => d.open).map((d) => d.dataset.key));
+  const closed = new Set([...app.querySelectorAll("details[data-key]")].filter((d) => !d.open).map((d) => d.dataset.key));
+  const unfolded = new Set([...app.querySelectorAll(".fold.open[data-key]")].map((d) => d.dataset.key));
+  const seen = new Set([...app.querySelectorAll("[data-seq]")].map((d) => d.dataset.seq));
+  const y = window.scrollY;
+  app.innerHTML = html;
+  for (const d of app.querySelectorAll("details[data-key]")) {
+    if (open.has(d.dataset.key)) d.open = true;
+    if (closed.has(d.dataset.key)) d.open = false;
+  }
+  for (const d of app.querySelectorAll(".fold[data-key]")) if (unfolded.has(d.dataset.key)) unfold(d);
+  for (const d of app.querySelectorAll("[data-seq]")) if (seen.size && !seen.has(d.dataset.seq)) d.classList.add("fresh");
+  window.scrollTo(0, y);
+}
+app.addEventListener("click", (e) => {
+  const b = e.target.closest("button.more");
+  if (b) unfold(document.getElementById(b.dataset.for));
+});
+function unfold(el) {
+  if (!el) return;
+  el.classList.add("open");
+  const b = app.querySelector(`button.more[data-for="${el.id}"]`);
+  if (b) b.remove();
+}
+
+// ---- live -------------------------------------------------------------------------------------------------------
+// One /api/events long poll per project page: any newer record redraws the page (state moves with the log).
+const liveEl = document.getElementById("live");
+let poller = null;
+const cursors = {};   // project → the newest seq seen
+function setLive(state, text) {
+  liveEl.className = state;
+  liveEl.querySelector("span").textContent = text;
+  liveEl.title = state === "on" ? "live: new records redraw the page" : text;
+}
+function stopLive() { if (poller) { poller.abort(); poller = null; } }
+async function live(my, project) {
+  const ctl = new AbortController();
+  poller = ctl;
+  if (cursors[project] === undefined) {
+    try {
+      const v = await api("/api/view?project=" + enc(project), ctl.signal);
+      cursors[project] = (v.events || []).reduce((m, e) => Math.max(m, e.seq || 0), 0);
+    } catch (e) { cursors[project] = 0; }
+  }
+  setLive("on", "live");
+  let last = 0;
+  while (!ctl.signal.aborted && my === nav) {
+    let page;
+    try {
+      page = await api(`/api/events?project=${enc(project)}&since=${cursors[project]}`, ctl.signal);
+    } catch (e) {
+      if (ctl.signal.aborted || my !== nav) return;
+      setLive("stale", "reconnecting");
+      await sleep(3000);
+      continue;
+    }
+    if (my !== nav) return;
+    setLive("on", "live");
+    if ((page.seq || 0) <= cursors[project]) continue;
+    cursors[project] = page.seq;
+    const wait = 1200 - (Date.now() - last); // a burst of records redraws once
+    if (wait > 0) await sleep(wait);
+    if (my !== nav) return;
+    last = Date.now();
+    try { await current.draw(true); } catch (e) { setLive("stale", "redraw failed"); }
+  }
+}
+async function landingLoop(my) {
+  setLive("on", "live");
+  while (my === nav) {
+    await sleep(8000);
+    if (my !== nav) return;
+    try { await current.draw(true); setLive("on", "live"); } catch (e) { setLive("stale", "reconnecting"); }
+  }
+}
+
+// ---- wording ------------------------------------------------------------------------------------------------------
+// human is a log line for a person: no [obor …] prefixes, a worktree path as its lane, other paths shortened.
+function human(line) {
+  let s = String(line || "").replace(/\[obor(?: [^\]]*)?\]\s*/g, "");
+  s = s.replace(/(?:\/[\w.@+-]+){2,}\/?/g, (p) => {
+    const m = p.match(/-wt\/([\w.-]+)(\/.*)?$/);
+    if (m) return m[1] === "merge" ? "the merge worktree" + (m[2] || "") : m[1] + (m[2] || "");
+    const segs = p.replace(/\/$/, "").split("/");
+    return segs.length > 3 ? "…/" + segs.slice(-2).join("/") : p;
+  });
+  return s.trim();
+}
+// linked is escaped text with its task ids linked.
+const linked = (p, text) => esc(text).replace(/\b(T-\d+)\b/g, (t) => taskLink(p, t));
+// eventHTML is one worded event: a line to an agent as "→ agent: text", every task id a link.
+function eventHTML(p, line) {
+  const m = String(line || "").match(/^line to ([^:]+): ([\s\S]*)$/);
+  if (m) return `<span class="muted">→</span> ${agentLink(p, m[1])} <q>${linked(p, human(m[2]))}</q>`;
+  return linked(p, human(line));
+}
+
+// md is a spec's or report's markdown, readable: headings, lists, code blocks, inline code and bold; escaped first.
+function md(text, p) {
+  const inline = (s) => linked(p, s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/^(Summary|Self-check|Skipped|Open questions|Concerns|Blocked):/, "<strong>$1:</strong>");
+  const out = [];
+  let para = [], list = null, code = null;
+  const flush = () => {
+    if (para.length) { out.push("<p>" + para.map(inline).join(" ") + "</p>"); para = []; }
+    if (list) { out.push("<ul>" + list.map((i) => "<li>" + inline(i) + "</li>").join("") + "</ul>"); list = null; }
+  };
+  for (const raw of String(text || "").split("\n")) {
+    if (code !== null) {
+      if (/^\s*```/.test(raw)) { out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>"); code = null; }
+      else code.push(raw);
+      continue;
+    }
+    if (/^\s*```/.test(raw)) { flush(); code = []; continue; }
+    const h = raw.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { flush(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+    const li = raw.match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+    if (li) { if (para.length) { const l = list; list = null; flush(); list = l; } (list = list || []).push(li[1]); continue; }
+    if (!raw.trim()) { flush(); continue; }
+    if (list && /^\s+\S/.test(raw)) { list[list.length - 1] += " " + raw.trim(); continue; }
+    if (list || /^(Summary|Self-check|Skipped|Open questions|Concerns|Blocked):/.test(raw)) flush(); // a report section
+    para.push(raw.trim());
+  }
+  if (code !== null) out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>");
+  flush();
+  return out.join("");
+}
+// folded is html in a box that shows its first part, with a button for the rest when it is long.
+let foldN = 0;
+function folded(key, html, long) {
+  if (!long) return `<div class="prose">${html}</div>`;
+  const id = "fold-" + (++foldN);
+  return `<div class="prose fold" id="${id}" data-key="${esc(key)}">${html}</div>
+    <button class="more" data-for="${id}">Show all</button>`;
+}
+
+// ---- landing ------------------------------------------------------------------------------------------------------
+async function landing() {
+  const ps = await api("/api/projects");
+  if (!ps.length) return `<div class="head"><h1>Projects</h1></div>
+    <p class="quiet">No obor project known on this machine yet — <code>obor init</code> or <code>obor serve</code> registers one.</p>`;
+  const rows = ps.map((p) => {
+    const state = p.error ? "fail" : !p.up ? "down" : p.needs_you ? "needs-you" : p.busy ? "working" : "free";
+    const running = (p.running || []).map((r) => pill("running", r.step + (r.task ? " " + r.task : ""))).join(" ");
+    return `<a class="row" href="${href("p", p.name)}">
+      <div class="lead"><div class="nowrap" style="display:flex;gap:9px;align-items:center">${dot(state)}
+        <strong class="ell">${esc(p.name)}</strong></div>
+        <span class="sub2 ell" title="${esc(p.root)}">${esc(p.root)}</span></div>
+      <div class="stats">
+        ${p.error ? `<span class="err small ell" title="${esc(p.error)}">${esc(p.error)}</span>` : `
+        ${p.up ? "" : pill("down", "serve down")}
+        ${p.needs_you ? pill("needs-you", p.needs_you + " needs you") : ""}
+        ${p.busy ? pill("working", p.busy + " busy") : ""}
+        <span class="pill plain t-idle">${p.free} free</span>
+        ${p.queue ? pill("waiting", p.queue + " queued") : ""}
+        ${running}`}
+      </div>
+      <div class="r muted small">${p.up ? "serve up" : ""}</div>
+    </a>`;
+  }).join("");
+  return `<div class="head"><h1>Projects</h1>
+      <div class="meta">every obor project on this machine · read-only</div></div>
+    <section><div class="card rows projects">${rows}</div></section>`;
+}
+
+// ---- project --------------------------------------------------------------------------------------------------------
+async function projectPage(r) {
+  const v = await api("/api/view?project=" + enc(r.project));
+  return renderProject(r.project, v);
+}
+
+const FREE = new Set(["free", "dirty-free"]);
+const roleName = (r) => String(r || "").replace(/_/g, " ");
+
+function renderProject(p, v) {
+  const s = v.serve || {};
+  const lanes = v.lanes || [];
+  const busy = lanes.filter((l) => !FREE.has(l.state));
+  const free = lanes.filter((l) => FREE.has(l.state));
+  const q = v.queue || {};
+
+  // header
+  const serve = s.up
+    ? pill("up", "serve up " + (s.since ? dur(now() - unixOf(s.since)) : ""))
+    : pill("down", "serve down");
+  const warns = [];
+  if (s.up && !s.project) warns.push(pill("pending", "project not loaded"));
+  if (s.up && !s.merging) warns.push(pill("idle", "merge loop off"));
+  if (s.up && !s.herdr) warns.push(pill("blocked", "herdr not connected"));
+  if (s.log_error) warns.push(pill("fail", "log: " + s.log_error));
+  const running = (v.running || []).map((x) => `<span class="pill t-ok">${esc(x.step)}${x.task ? " " : ""}${
+    x.task ? taskLink(p, x.task) : ""}${x.command ? ` <span class="muted">${esc(x.command)}</span>` : ""}
+    ${rel(x.since, "for")}</span>`).join(" ");
+  const head = `<div class="head"><h1>${esc(p)}</h1>
+    <div class="meta">${serve} ${warns.join(" ")} ${running}
+      ${!s.up && s.error ? `<span class="small ell" title="${esc(s.error)}">${esc(human(s.error))}</span>` : ""}</div></div>`;
+  const paused = v.paused ? `<div class="banner t-wait">⏸ <span>Paused${v.paused.until ? " " +
+    rel(v.paused.until, "in") : ""}${v.paused.reason ? ": " + esc(v.paused.reason) : ""}
+    ${v.paused.by ? `<span class="muted">· ${esc(v.paused.by)}</span>` : ""}</span></div>` : "";
+
+  // needs you
+  const needs = v.needs_you || [];
+  const needsHTML = needs.length ? `<section><h2>Needs you <span class="count">${needs.length}</span></h2>
+    <div class="card needs">${needs.map((n) => `<div class="need">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${dot("needs-you")}
+        <strong>${taskLink(p, n.task)}</strong>${n.lane ? tag(n.lane) : ""}<span class="muted small">${rel(n.since)}</span></div>
+      <div class="why">${linked(p, human(n.reason))}</div>
+      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}</div>`).join("")}</div></section>`
+    : `<section><p class="quiet">${dot("working")} Nothing needs you.</p></section>`;
+
+  // work in progress: busy lanes, then the role agents with a pane
+  const work = busy.map((l) => {
+    const job = l.job ? `${jobLink(p, l.job.id, l.job.id.split("/").slice(2).join("/") || l.job.id)}
+      ${l.job.delivered ? "" : pill("not fetched")}` : "";
+    return `<div class="row work">
+      <span class="mono c-lane" style="display:flex;gap:8px;align-items:center">${dot(l.column)}${esc(l.lane)}</span>
+      <div class="lead">${l.task ? `<span class="ell">${taskLink(p, l.task)}${l.title ? ` <span class="ttl">${ttl(l.title)}</span>` : ""}</span>` : '<span class="muted">no task</span>'}
+        <span class="sub2 ell">${agentLink(p, l.agent)}${l.agent_status ? " · " + esc(l.agent_status) : ""}${
+          job ? " · job " + job : ""}${l.warning ? " · " + pill("fail", l.warning) : ""}${l.op ? " · " + esc(l.op) : ""}</span></div>
+      <span>${pill(l.column)}</span>
+      <span class="sub2 hide-sm">${l.spec_rev ? "spec r" + l.spec_rev : ""}${l.attempt > 1 ? " · attempt " + l.attempt : ""}</span>
+      <span class="r muted small">${rel(l.since, "for")}</span>
+    </div>`;
+  }).join("");
+  const roles = v.roles || [];
+  const active = roles.filter((x) => x.status || x.brief);
+  const idleRoles = roles.filter((x) => !(x.status || x.brief));
+  const rolesHTML = active.map((x) => `<div class="row roles">
+      <span class="small" style="display:flex;gap:8px;align-items:center">${dot(x.status === "done" ? "idle" : x.status)}${esc(roleName(x.role))}</span>
+      <div class="lead"><span>${agentLink(p, x.agent)}</span>
+        ${x.brief ? `<span class="sub2">brief ${x.brief.worked ? "being worked" : x.brief.delivered ? "delivered" :
+          "not delivered"} · ${rel(x.brief.since)}</span>` : ""}</div>
+      <span>${x.status ? pill(x.status === "done" ? "idle" : x.status, x.status) : ""}</span>
+      <span class="r muted small">${x.age ? dur(x.age) : ""}</span>
+    </div>`).join("");
+  const freeLine = free.length ? `<p class="quiet">${dot("free")} ${free.length} lane${free.length > 1 ? "s" : ""} free:
+      ${free.map((l) => `<span class="mono" title="${esc(l.task ? "last: " + l.task : "never used")}">${esc(l.lane)}</span>`).join(", ")}</p>` : "";
+  const idleLine = idleRoles.length ? `<p class="quiet">${dot("idle")} No pane: ${idleRoles.map((x) =>
+      `${esc(roleName(x.role))} (${agentLink(p, x.agent)})`).join(", ")}</p>` : "";
+  const wip = `<section><h2>In progress <span class="count">${busy.length} of ${lanes.length} lanes</span></h2>
+    ${work ? `<div class="card rows">${work}</div>` : '<p class="quiet">No lane is busy.</p>'}
+    ${rolesHTML ? `<h3>Role agents</h3><div class="card rows">${rolesHTML}</div>` : ""}
+    <div style="margin-top:10px">${freeLine}${idleLine}</div></section>`;
+
+  return head + paused + needsHTML + wip + renderQueue(p, v, q) + renderEvents(p, v.events || []);
+}
+
+// The merge pipeline's stages as a person reads them (view.Stage*), held last and only when a task is.
+const STAGES = [["submitted", "Submitted"], ["gating", "Gate"], ["review", "Review"], ["publish", "Merging"]];
+
+function renderQueue(p, v, q) {
+  const merge = q.merge || [];
+  const parts = [];
+  if (merge.length) {
+    const stages = STAGES.concat(merge.some((m) => m.stage === "held") ? [["held", "Held"]] : []);
+    const cols = stages.map(([key, label]) => {
+      const items = merge.filter((m) => m.stage === key);
+      return `<div class="stage ${items.length ? "" : "empty"}"><h4><span>${label}</span><span>${items.length || ""}</span></h4>
+        ${items.map((m) => `<div class="item"><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            ${dot(m.stage === "held" ? "held" : m.state)}${taskLink(p, m.task)}
+            ${m.state !== key ? `<span class="muted small">${esc(m.state)}</span>` : ""}</div>
+          ${m.title ? `<div class="sub2 ell" title="${esc(m.title)}">${ttl(m.title)}</div>` : ""}
+          ${m.waits_on ? `<div class="sub2">waits on ${taskLink(p, m.waits_on)}${m.why ? " (" + esc(m.why) + ")" : ""}</div>` : ""}
+          ${m.job ? `<div class="sub2">job ${jobLink(p, m.job.id, m.job.id.split("/").slice(2).join("/"))}${
+            m.job.delivered ? "" : " · not fetched"}</div>` : ""}</div>`).join("")}</div>`;
+    }).join("");
+    const scratch = q.scratch ? `<p class="quiet small">Merge worktree: ${taskLink(p, q.scratch.task)} (${esc(q.scratch.why)})</p>` : "";
+    parts.push(`<h3>Merge pipeline</h3><div class="pipe">${cols}</div>${scratch}`);
+  }
+  const waiting = q.waiting || [];
+  if (waiting.length) parts.push(`<h3>Waiting to dispatch</h3><div class="card rows">${waiting.map((w) => `
+    <div class="row roles"><span class="mono" style="display:flex;gap:8px;align-items:center">${dot("waiting")}${taskLink(p, w.task)}</span>
+      <div class="lead">${w.title ? `<span class="ttl ell">${ttl(w.title)}</span>` : ""}<span class="sub2">${linked(p, waitWhy(w))}</span></div>
+      <span>${pill(w.waits_on === "never dispatched" ? "idle" : "waiting", w.waits_on)}</span>
+      <span class="r muted small">${rel(w.since)}</span></div>`).join("")}</div>`);
+  const review = q.review || [];
+  if (review.length || v.review) parts.push(`<h3>Review cycle</h3><div class="card rows">${review.map((x) => `
+    <div class="row roles"><span class="small" style="display:flex;gap:8px;align-items:center">${dot(x.state === "ready" ? "ready" : "waiting")}review</span>
+      <div class="lead"><span>${x.note ? linked(p, x.note) : "review requested"}</span>
+        <span class="sub2">${x.after && x.after.length ? "after " + x.after.map((t) => taskLink(p, t)).join(", ") : ""}${
+          x.waiting && x.waiting.length ? " · waits on " + x.waiting.map((t) => taskLink(p, t)).join(", ") : ""}${
+          x.held ? " · holds " + taskLink(p, x.held) : ""}${x.by ? " · by " + esc(x.by) : ""}</span></div>
+      <span>${pill(x.state === "ready" ? "ready" : "waiting", x.state)}</span><span class="r muted small">${rel(x.since)}</span></div>`).join("")}
+    ${!review.length && v.review ? `<div class="row"><span>${linked(p, v.review)}</span></div>` : ""}</div>`);
+  const watches = v.watches || [];
+  if (watches.length) parts.push(`<h3>Watches</h3><div class="card rows">${watches.map((w) => `
+    <div class="row roles"><span class="mono" style="display:flex;gap:8px;align-items:center">${dot("idle")}${
+      w.task.split(",").map((t) => taskLink(p, t.trim())).join(", ")}</span>
+      <div class="lead"><span class="ttl">${w.note ? linked(p, w.note) : '<span class="muted">no note</span>'}</span></div>
+      <span class="sub2">${esc(w.by || "")}</span><span class="r muted small">${rel(w.since)}</span></div>`).join("")}</div>`);
+  const outbox = q.outbox || [];
+  if (outbox.length) parts.push(`<h3>Not delivered yet</h3><div class="card list">${outbox.map((o) => `
+    <div class="li"><time>${o.since ? esc(dur(now() - o.since)) : ""}</time><span class="txt">${o.kind === "line"
+      ? `<span class="muted">→</span> ${agentLink(p, o.to)} <q>${linked(p, human(o.line))}</q>${o.from ? ` <span class="muted small">from ${esc(o.from)}</span>` : ""}`
+      : `brief to ${agentLink(p, o.to)} <span class="muted">${o.worked ? "being worked" : o.delivered ? "delivered" : "not delivered"}</span>`}</span></div>`).join("")}</div>`);
+
+  const foot = [];
+  if (q.nightly) foot.push(`nightly check at <span class="mono">${esc(q.nightly.at)}</span> (${rel(q.nightly.next, "in")})`);
+  if (v.full_check) foot.push(`last full check ${pill(v.full_check.verdict === "GREEN" ? "green" : "fail", v.full_check.verdict)}
+    <span class="mono">${esc((v.full_check.sha || "").slice(0, 7))}</span> ${rel(v.full_check.at)}`);
+  const footHTML = foot.length ? `<p class="quiet small" style="flex-wrap:wrap">${foot.join(" · ")}</p>` : "";
+  const count = merge.length + waiting.length;
+  return `<section><h2>Queue ${count ? `<span class="count">${count}</span>` : ""}</h2>
+    ${parts.length ? parts.join("") : '<p class="quiet">Nothing is queued.</p>'}${footHTML}</section>`;
+}
+
+function waitWhy(w) {
+  if (w.waits_on === "after") return "after " + (w.after || []).join(", ") + (w.why ? " · " + w.why : "");
+  if (w.waits_on === "never dispatched") return "spec r" + (w.rev || 0) + " stored, never dispatched";
+  return "waits for a free " + (w.level ? w.level + " " : "") + "lane" + (w.types && w.types.length ? " (" +
+    w.types.join(", ") + ")" : "") + (w.why ? " · " + w.why : "");
+}
+
+function renderEvents(p, events) {
+  if (!events.length) return "";
+  return `<section><h2>Recent events</h2><div class="card list">${events.map((e) => {
+    const at = unixOf(e.ts);
+    return `<div class="li" data-seq="${esc(e.seq + ":" + e.ts)}">${rel(at) || "<time></time>"}
+      <span class="txt">${eventHTML(p, e.line)}</span></div>`;
+  }).join("")}</div></section>`;
+}
+
+// ---- prompts (a task's or agent's jobs, briefs) ------------------------------------------------------------------
+// prompt is one prompt: its header, and its text inline; a long one folds, the first of a list open.
+function prompt(p, j, key, open, showTask) {
+  const lines = String(j.text || "").split("\n").length;
+  const head = `<span class="chev">▸</span> ${j.job ? `<strong class="mono">${esc(j.job)}</strong>` : `<strong>${esc(j.kind)}</strong>`}
+    <span class="muted small">${esc(j.agent || "")}${showTask && j.task ? " · " + esc(j.task) : ""} · ${rel(unixOf(j.ts))} · ${lines} lines</span>`;
+  const links = `<span class="small">${j.job ? jobLink(p, j.job, "open") : ""}${j.agent ? " · " + agentLink(p, j.agent) : ""}</span>`;
+  return `<details class="block" data-key="${esc(key)}"${open || lines <= 14 ? " open" : ""}>
+    <summary class="bhead">${head}</summary>
+    <pre class="text">${esc(j.text)}</pre><div class="bhead" style="padding-top:0">${links}</div></details>`;
+}
+
+// ---- task -----------------------------------------------------------------------------------------------------------
+async function taskPage(r) {
+  const t = await api(`/api/task?project=${enc(r.project)}&task=${enc(r.id)}`);
+  return renderTask(r.project, t);
+}
+
+// milestone is a record as one line of the task's timeline ("" for the bookkeeping a person need not read).
+function milestone(rec) {
+  const base = rec.step.replace(/\.\d+$/, "");
+  const method = rec.step.split(".")[0];
+  if (rec.kind === "fact") {
+    switch (rec.step) {
+      case "dispatch": return ["ok", rec.line || "dispatched"];
+      case "waiting": return ["wait", "waits to be dispatched"];
+      case "delivered": return ["idle", "job fetched by its agent"];
+      case "submitted": return ["ok", "submitted"];
+      case "sendback": return ["wait", rec.line || "sent back"];
+      case "needs-you": return ["bad", rec.line || "needs you"];
+      case "merged": return ["ok", rec.line || "merged"];
+      case "target.moved": return ["idle", "target moved: the gate runs again"];
+    }
+    return rec.line ? ["idle", rec.line] : null;
+  }
+  if (rec.kind !== "result") return null;
+  if (base === "gate") return [/ pass /.test(rec.line || "") ? "ok" : "bad", rec.line || "gate"];
+  if (method === "accept") return ["ok", "accepted"];
+  if (method === "sendback") return ["wait", rec.line || "sent back"];
+  if (base === "review" || base === "resolve") return ["idle", base === "review" ? "review job sent" : "resolve job sent"];
+  if (base === "work" || base === "fix") return ["idle", base + " job sent"];
+  return rec.line ? ["idle", rec.line] : null;
+}
+
+// stageOf is the task's place in dispatched → working → submitted → gate → review → merged, with its tone.
+const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merged"];
+function stageOfTask(t) {
+  const recs = t.records || [];
+  if (recs.some((r) => r.kind === "fact" && r.step === "merged")) return { i: 6, tone: "ok", state: "merged" };
+  const st = t.state || "";
+  const map = { waiting: 0, dispatched: 1, working: 1, submitted: 2, resolved: 3, moved: 3, red: 3, green: 4,
+    "awaiting-accept": 4, conflict: 4, resolving: 4, accepted: 5, published: 5 };
+  if (st in map) return { i: map[st], tone: tone(st === "submitted" ? "submitted" : st), state: st };
+  // needs-you, fail or ended: the furthest milestone its records reached, held there.
+  let i = 0;
+  for (const r of recs) {
+    const m = r.kind === "fact" && r.step === "dispatch" ? 1 : r.kind === "fact" && r.step === "submitted" ? 3 :
+      r.kind === "result" && r.step.startsWith("gate") ? 4 : r.kind === "result" && r.step.startsWith("accept") ? 5 : 0;
+    i = Math.max(i, m);
+  }
+  return { i, tone: st ? tone(st) : "idle", state: st || (recs.length ? "ended" : "") };
+}
+function steps(t) {
+  const s = stageOfTask(t);
+  return `<div class="steps">${TASK_STEPS.map((name, i) => {
+    const cls = i < s.i ? "done" : i === s.i ? "cur" : "";
+    const color = i === s.i ? ` style="color:var(--${s.tone === "idle" ? "fg" : s.tone})"` : "";
+    return `<div class="step ${cls}"${color}>${i ? '<span class="bar"></span>' : ""}<span class="n">${i < s.i ? "✓" : i + 1}</span>${name}</div>`;
+  }).join("")}</div>`;
+}
+
+function renderTask(p, t) {
+  const s = stageOfTask(t);
+  const meta = [];
+  if (s.state) meta.push(pill(s.state === "ended" ? "idle" : s.state, s.state));
+  if (t.lane) meta.push(`lane <b class="mono">${esc(t.lane)}</b>`);
+  if (t.agent) meta.push(`agent ${agentLink(p, t.agent)}`);
+  if (t.attempt) meta.push(`attempt <b>${t.attempt}</b>`);
+  if (t.spec_rev) meta.push(`spec <b>r${t.spec_rev}</b>`);
+  if (t.dispatched_at) meta.push(`dispatched ${rel(t.dispatched_at)}`);
+  const out = [`<div class="head"><h1>${esc(t.task)}${t.title ? ` <span class="title">${ttl(t.title)}</span>` : ""}</h1>
+    <div class="meta">${meta.join('<span class="muted">·</span>')}</div>${(t.records || []).length ? steps(t) : ""}</div>`];
+
+  if ((t.needs_you || []).length) out.push(`<section><h2>Needs you</h2><div class="card needs">${t.needs_you.map((n) => `
+    <div class="need"><div class="why">${linked(p, human(n.reason))}</div>
+      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}</div>`).join("")}</div></section>`);
+
+  if (t.gate_line) {
+    const green = /^GREEN/.test(t.gate_line);
+    out.push(`<section><h2>Gate</h2><div class="card pad" style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      ${pill(green ? "green" : "fail", green ? "pass" : "fail")}
+      <div style="flex:1;min-width:0"><div class="mono" style="overflow-wrap:anywhere">${esc(human(t.gate_line))}</div>
+      <div class="sub2">${t.gated_rev ? "checked spec r" + t.gated_rev + (t.spec_rev && t.spec_rev !== t.gated_rev ?
+        ` · <span style="color:var(--wait)">spec is r${t.spec_rev} now</span>` : "") + " · " : ""}log <span class="mono">${esc(t.gate_log || "")}</span></div></div>
+    </div></section>`);
+  }
+  const grid = [];
+  if (t.report) grid.push(`<section><h2>Report</h2><div class="card">${folded("report", md(t.report, p), t.report.length > 1400)}</div></section>`);
+  if (t.spec) grid.push(`<section><h2>Spec <span class="count">r${t.spec_rev}</span></h2><div class="card">${folded("spec", md(t.spec, p), t.spec.length > 1400)}</div></section>`);
+  out.push(...grid);
+
+  if ((t.jobs || []).length) out.push(`<section><h2>Jobs <span class="count">${t.jobs.length}</span></h2><div class="card">${
+    t.jobs.map((j, i) => prompt(p, j, "job:" + j.seq, i === 0 && j.text.length < 6000)).join("")}</div></section>`);
+
+  const tl = (t.records || []).map((r) => ({ r, m: milestone(r) })).filter((x) => x.m);
+  if (tl.length) out.push(`<section><h2>Timeline</h2><div class="card list">${tl.map(({ r, m }) => `
+    <div class="li" data-seq="${esc(r.seq)}">${rel(unixOf(r.ts))}<span class="txt" style="display:flex;gap:9px;align-items:baseline">
+      ${dot(m[0] === "ok" ? "working" : m[0] === "wait" ? "waiting" : m[0] === "bad" ? "fail" : "idle")}
+      <span>${linked(p, human(m[1]))}</span></span></div>`).join("")}</div>
+    <details data-key="raw" style="margin-top:8px"><summary class="toggle"><span class="chev">▸</span> raw records (${t.records.length})</summary>
+      <div class="card" style="overflow:auto"><table class="raw"><tr><th>seq</th><th>time</th><th>step</th><th>kind</th><th>line</th></tr>
+      ${t.records.map((r) => `<tr><td class="mono muted">${esc(r.seq)}</td><td class="mono muted nowrap">${esc(clock(unixOf(r.ts)))}</td>
+        <td class="mono">${esc(r.step)}</td><td class="muted">${esc(r.kind)}</td><td>${esc(r.line || "")}</td></tr>`).join("")}
+      </table></div></details></section>`);
+  return out.join("");
+}
+
+// ---- agent ----------------------------------------------------------------------------------------------------------
+async function agentPage(r) {
+  const a = await api(`/api/agent?project=${enc(r.project)}&agent=${enc(r.id)}`);
+  return renderAgent(r.project, a);
+}
+
+function renderAgent(p, a) {
+  const meta = [];
+  meta.push(a.status ? pill(a.status === "done" ? "idle" : a.status, a.status) : pill("idle", "no pane"));
+  if (a.task) meta.push(`on ${taskLink(p, a.task)}`);
+  if (a.lane) meta.push(`lane <b class="mono">${esc(a.lane)}</b>`);
+  const out = [`<div class="head"><h1>${esc(a.agent)}</h1><div class="meta">${meta.join('<span class="muted">·</span>')}</div></div>`];
+  if ((a.jobs || []).length) out.push(`<section><h2>Jobs <span class="count">${a.jobs.length}</span></h2><div class="card">${
+    a.jobs.map((j, i) => prompt(p, j, "job:" + j.seq, i === 0 && j.text.length < 6000, true)).join("")}</div></section>`);
+  if ((a.briefs || []).length) out.push(`<section><h2>Briefs <span class="count">${a.briefs.length}</span></h2><div class="card">${
+    a.briefs.map((j, i) => prompt(p, j, "brief:" + j.seq, i === 0, true)).join("")}</div></section>`);
+  if ((a.lines || []).length) out.push(`<section><h2>Lines sent <span class="count">${a.lines.length}</span></h2><div class="card list">${
+    a.lines.map((l) => `<div class="li" data-seq="${esc(l.seq)}">${rel(unixOf(l.ts))}<span class="txt">${
+      l.from ? `<span class="muted small">${esc(l.from)}</span> ` : ""}${linked(p, human(l.line))}</span></div>`).join("")}</div></section>`);
+  if ((a.sessions || []).length) out.push(`<section><h2>Sessions <span class="count">${a.sessions.length}</span></h2><div class="card rows">${
+    a.sessions.map((s) => `<div class="row roles">
+      <span class="mono small ell" title="${esc(s.id)}">${esc(s.id.slice(0, 8))}</span>
+      <div class="lead"><span>${esc(s.kind || "")}${s.task ? " · " + taskLink(p, s.task) : ""}${s.lane ? " · " + esc(s.lane) : ""}${
+        s.pane ? ` <span class="muted small">pane ${esc(s.pane)}</span>` : ""}</span>
+        ${s.transcript ? `<span class="sub2 ell mono" title="${esc(s.transcript)}">${esc(human(s.transcript))}</span>` : ""}</div>
+      <span class="sub2">started ${rel(s.started)}</span>
+      <span class="r muted small">${s.last_write ? "wrote " + rel(s.last_write) : ""}</span></div>`).join("")}</div></section>`);
+  if (out.length === 1) out.push('<p class="quiet">Nothing recorded for this agent yet.</p>');
+  return out.join("");
+}
+
+// ---- job ------------------------------------------------------------------------------------------------------------
+async function jobPage(r) {
+  const j = await api(`/api/job?project=${enc(r.project)}&job=${enc(r.id)}`);
+  const meta = [pill("idle", j.kind)];
+  if (j.task) meta.push(`task ${taskLink(r.project, j.task)}`);
+  if (j.agent) meta.push(`agent ${agentLink(r.project, j.agent)}`);
+  meta.push(`sent ${rel(unixOf(j.ts))}`);
+  return `<div class="head"><h1 class="mono" style="font-size:19px">${esc(j.job || j.kind)}</h1>
+    <div class="meta">${meta.join('<span class="muted">·</span>')}</div></div>
+    <section><h2>Prompt <span class="count">${String(j.text || "").split("\n").length} lines</span></h2>
+    <div class="card"><pre class="text" style="max-height:none">${esc(j.text)}</pre></div></section>`;
+}
+
+// ---- theme ----------------------------------------------------------------------------------------------------------
+const themeBtn = document.getElementById("theme");
+const applyTheme = (t) => t ? document.documentElement.setAttribute("data-theme", t)
+  : document.documentElement.removeAttribute("data-theme");
 applyTheme(localStorage.getItem("obor-theme"));
 themeBtn.addEventListener("click", () => {
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  const current = localStorage.getItem("obor-theme") || (dark ? "dark" : "light");
-  const next = current === "dark" ? "light" : "dark";
+  const cur = localStorage.getItem("obor-theme") || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
   localStorage.setItem("obor-theme", next);
   applyTheme(next);
 });
 
-// ---- routing ------------------------------------------------------------------------------------------------------
-let poller = null;   // the open /api/events poll (AbortController)
-let generation = 0;  // bumps on every navigation, so a slow fetch cannot draw another page
-function stopPolling() {
-  if (poller) { poller.abort(); poller = null; }
-}
-function go() {
-  stopPolling();
-  generation++;
-  const g = generation;
-  const hash = location.hash.replace(/^#\/?/, "");
-  const [kind, a, b] = hash.split("/").map((s) => decodeURIComponent(s || ""));
-  const draw = (html, crumb) => {
-    if (g !== generation) return false;
-    app.innerHTML = html;
-    crumbs.textContent = crumb || "";
-    return true;
-  };
-  if (!kind) return landing(g, draw);
-  if (kind === "p") return projectPage(g, a, draw);
-  if (kind === "t") return detailPage(g, draw, "task", a, b);
-  if (kind === "a") return detailPage(g, draw, "agent", a, b);
-  if (kind === "j") return detailPage(g, draw, "job", a, b);
-  location.hash = "#/";
-}
-window.addEventListener("hashchange", go);
 go();
-
-// ---- landing ------------------------------------------------------------------------------------------------------
-async function landing(g, draw) {
-  const ps = await api("/api/projects");
-  if (g !== generation) return;
-  const rows = ps.map((p) => `
-    <a class="card" href="#/p/${enc(p.name)}">
-      <div class="card-title"><span>${dot(p.error ? "fail" : p.needs_you ? "held" : "working")} ${esc(p.name)}</span>
-        <span class="muted">${esc(p.root)}</span></div>
-      <div class="counts">
-        <span class="chip ${p.needs_you ? "warn" : ""}">${p.needs_you} needs you</span>
-        <span class="chip">${p.queue} queued</span>
-      </div>
-      ${p.error ? `<div class="err">${esc(p.error)}</div>` : ""}
-    </a>`).join("");
-  draw(`<h1>projects</h1><p class="sub">every obor project on this machine, read-only</p>
-    <div class="projects">${rows || '<p class="empty">no obor projects known yet (obor serve and obor init register one)</p>'}</div>`,
-    "all projects");
-  // The counts move with the log: refresh the landing while it is the page shown.
-  setTimeout(() => {
-    if (g === generation && !location.hash.replace(/^#\/?/, "")) landing(g, draw);
-  }, 10000);
-}
-
-// ---- project ------------------------------------------------------------------------------------------------------
-async function projectPage(g, name, draw) {
-  const v = await api("/api/view?project=" + enc(name));
-  if (g !== generation) return;
-  draw(renderProject(name, v), name);
-  const newest = (v.events && v.events[0] && v.events[0].seq) || 0;
-  pollEvents(g, name, newest);
-}
-
-function serveLine(name, v) {
-  const s = v.serve || {};
-  if (!s.up) return `<span class="chip bad">serve down</span> ${esc(s.error || "")}`;
-  const bits = [`<span class="chip ok">serve up ${esc(s.since ? since(Date.parse(s.since) / 1000) : "")}</span>`];
-  if (s.pid) bits.push(`<span class="chip">pid ${s.pid}</span>`);
-  if (!s.project) bits.push(`<span class="chip warn">project not loaded</span>`);
-  if (!s.merging) bits.push(`<span class="chip">merge loop off</span>`);
-  if (!s.herdr) bits.push(`<span class="chip warn">herdr down</span>`);
-  if (s.log_error) bits.push(`<span class="chip bad">log: ${esc(s.log_error)}</span>`);
-  return bits.join(" ");
-}
-
-function runningLine(v) {
-  const rs = v.running || [];
-  if (!rs.length) return `<span class="muted">running: nothing</span>`;
-  return rs.map((r) => {
-    const el = r.since ? age(Date.now() / 1000 - r.since) : "";
-    return `<span class="chip"><span class="dot dot-running"></span> ${esc(r.step)} ${esc(r.task || "")}
-      ${r.command ? "(" + esc(r.command) + ", " + el + ")" : "(" + el + ")"}</span>`;
-  }).join(" ");
-}
-
-function renderProject(name, v) {
-  const lanes = (v.lanes || []).map((l) => `<tr>
-      <td class="mono">${esc(l.lane)}</td>
-      <td>${dot(l.column)} <span class="mono">${esc(l.column)}</span></td>
-      <td>${taskLink(name, l.task)}</td>
-      <td class="num">${l.spec_rev ? esc("r" + l.spec_rev) : "—"}</td>
-      <td>${l.job ? jobLink(name, l.job.id) + (l.job.delivered ? "" : ' <span class="chip">not fetched</span>') : "—"}</td>
-      <td>${agentLink(name, l.agent)}${l.agent_status ? ` <span class="muted">(${esc(l.agent_status)})</span>` : ""}</td>
-      <td class="num muted">${l.since ? esc(since(l.since)) : "—"}</td>
-    </tr>`).join("");
-
-  const q = v.queue || {};
-  const merge = (q.merge || []).map((m) => `<div class="row">
-      <span>${dot(m.stage)}</span>
-      <span class="grow">${taskLink(name, m.task)} <span class="mono muted">${esc(m.stage)}</span>
-        ${m.state && m.state !== m.stage ? `<span class="muted">(${esc(m.state)})</span>` : ""}
-        ${m.next ? '<span class="chip ok">next</span>' : ""}
-        ${m.job ? jobLink(name, m.job.id) : ""}</span>
-    </div>`).join("");
-  const waiting = (q.waiting || []).map((w) => `<div class="row">
-      <span class="dot dot-queued"></span>
-      <span class="grow">${taskLink(name, w.task)} <span class="mono muted">${esc(waitWhy(w))}</span>
-        ${w.title ? "<br><span class=muted>" + esc(w.title) + "</span>" : ""}</span>
-    </div>`).join("");
-  const outbox = (q.outbox || []).map((o) => `<div class="row">
-      <span class="dot ${o.kind === "line" ? "dot-queued" : "dot-working"}"></span>
-      <span class="grow">${o.kind === "line"
-        ? `line to ${agentLink(name, o.to)} from ${esc(o.from || "—")}: <span class="mono">${esc(o.line || "")}</span>`
-        : `brief to ${agentLink(name, o.to)} ${o.worked ? "worked" : o.delivered ? "delivered" : "not delivered"}`}
-        <span class="muted">${esc(since(o.since))}</span></span>
-    </div>`).join("");
-  const review = (q.review || []).map((r) => `<div class="row"><span class="dot dot-review"></span>
-      <span class="grow">review ${esc(r.state)}${r.note ? ": " + esc(r.note) : ""}
-        ${r.after && r.after.length ? '<span class="muted mono">after ' + esc(r.after.join(",")) + "</span>" : ""}</span></div>`).join("");
-  const nightly = q.nightly ? `<div class="row"><span class="dot dot-idle"></span>
-      <span class="grow">nightly check at <span class="mono">${esc(q.nightly.at)}</span>
-      <span class="muted">in ${esc(age(q.nightly.next - Date.now() / 1000))}</span></span></div>` : "";
-  const paused = v.paused ? `<div class="row"><span class="dot dot-held"></span>
-      <span class="grow">paused: ${esc(v.paused.reason || "")} <span class="muted">${esc(v.paused.by || "")}</span></span></div>` : "";
-
-  const needs = (v.needs_you || []).map((n) => `<div class="needs">
-      <div><span class="dot dot-held"></span> <strong>${taskLink(name, n.task)}</strong>
-        ${n.lane ? "<span class=muted>" + esc(n.lane) + "</span>" : ""}
-        <span class="muted">${esc(since(n.since))}</span></div>
-      <div class="why">${esc(n.reason)}</div>
-      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}
-    </div>`).join("");
-
-  const events = (v.events || []).map(eventRow).join("");
-
-  return `
-    <h1>${esc(name)}</h1>
-    <p class="sub">${serveLine(name, v)} ${runningLine(v)}</p>
-    <div class="cols">
-      <div>
-        <div class="panel">
-          <h2>lanes</h2>
-          ${lanes ? `<table><thead><tr><th>lane</th><th>state</th><th>task</th><th class="num">spec</th><th>job</th><th>agent</th><th class="num">since</th></tr></thead>
-            <tbody>${lanes}</tbody></table>` : '<p class="empty">no lanes configured</p>'}
-        </div>
-        <div class="panel">
-          <h2>queue</h2>
-          ${merge}${waiting}${review}${outbox}${paused}${nightly}
-          ${!(merge || waiting || review || outbox || paused || nightly) ? '<p class="empty">nothing waits</p>' : ""}
-        </div>
-      </div>
-      <div>
-        <div class="panel">
-          <h2>needs you ${needs ? `<span class="chip warn">${(v.needs_you || []).length}</span>` : ""}</h2>
-          ${needs || '<p class="empty">nothing needs you</p>'}
-        </div>
-        <div class="panel">
-          <h2>events</h2>
-          <div class="events" id="events">${events || '<p class="empty">no events yet</p>'}</div>
-        </div>
-      </div>
-    </div>`;
-}
-
-function eventRow(e) {
-  return `<div class="ev" data-seq="${esc(e.seq)}"><time>${esc(when(e.ts))}</time>
-    <span class="line">${esc(e.line)}</span></div>`;
-}
-
-function waitWhy(w) {
-  if (w.waits_on === "after") return "after " + (w.after || []).join(", ");
-  if (w.waits_on === "never dispatched") return "spec r" + (w.rev || 0) + " stored, never dispatched";
-  return "waiting for a " + (w.level || "") + " lane" + (w.types && w.types.length ? " (" + w.types.join(", ") + ")" : "");
-}
-
-// ---- live events --------------------------------------------------------------------------------------------------
-async function pollEvents(g, name, since) {
-  const ctl = new AbortController();
-  poller = ctl;
-  let cursor = since;
-  while (!ctl.signal.aborted && g === generation) {
-    let page;
-    try {
-      page = await api(`/api/events?project=${enc(name)}&since=${cursor}`, ctl.signal);
-    } catch (e) {
-      if (ctl.signal.aborted || g !== generation) return;
-      await sleep(2000);
-      continue;
-    }
-    if (g !== generation) return;
-    cursor = Math.max(cursor, page.seq || 0);
-    if (page.events && page.events.length) {
-      // New records: refresh the whole project page (lanes, queue and needs-you move with the log too).
-      const scroll = window.scrollY;
-      try {
-        const v = await api("/api/view?project=" + enc(name));
-        if (g !== generation) return;
-        app.innerHTML = renderProject(name, v);
-        window.scrollTo(0, scroll);
-        const ev = document.getElementById("events");
-        if (ev) { ev.classList.add("flash"); setTimeout(() => ev.classList.remove("flash"), 1200); }
-      } catch (e) { /* the next poll tries again */ }
-    }
-  }
-}
-
-// ---- detail pages -------------------------------------------------------------------------------------------------
-const detailAPI = { task: "/api/task", agent: "/api/agent", job: "/api/job" };
-async function detailPage(g, draw, kind, project, id) {
-  const param = kind === "job" ? "job" : kind;
-  const d = await api(`${detailAPI[kind]}?project=${enc(project)}&${param}=${enc(id)}`);
-  if (g !== generation) return;
-  const back = `<p class="sub">${link(`p/${enc(project)}`, "← " + project)}</p>`;
-  if (kind === "task") return draw(back + renderTask(project, d), `${project} / ${id}`);
-  if (kind === "agent") return draw(back + renderAgent(project, d), `${project} / ${id}`);
-  return draw(back + renderJob(project, d), `${project} / job ${id}`);
-}
-
-function renderTask(p, t) {
-  const jobs = (t.jobs || []).map((j) => `<details><summary>${esc(j.job || "(job)")} · ${esc(j.agent)}
-      · ${esc(whenDay(j.ts))}</summary><pre class="text">${esc(j.text)}</pre></details>`).join("");
-  const needs = (t.needs_you || []).map((n) => `<div class="needs"><div class="why">${esc(n.reason)}</div>
-      ${n.answer ? `<code class="answer">${esc(n.answer)}</code>` : ""}</div>`).join("");
-  const records = (t.records || []).map((r) => `<tr>
-      <td class="num mono muted">${esc(r.seq)}</td>
-      <td class="mono muted">${esc(whenDay(r.ts))}</td>
-      <td class="mono">${esc(r.step)}</td>
-      <td class="mono muted">${esc(r.kind)}</td>
-      <td>${esc(r.line || "")}</td>
-    </tr>`).join("");
-  return `
-    <h1>${esc(t.task)}</h1>
-    <p class="sub">
-      ${t.state ? dot(t.state) + " <span class='mono'>" + esc(t.state) + "</span>" : ""}
-      ${t.attempt ? `<span class="chip">attempt ${t.attempt}</span>` : ""}
-      ${t.lane ? `<span class="chip">lane ${esc(t.lane)}</span>` : ""}
-      ${t.agent ? `<span class="chip">agent ${agentLink(p, t.agent)}</span>` : ""}
-      ${t.spec_rev ? `<span class="chip">spec r${t.spec_rev}${t.gated_rev ? " · gated r" + t.gated_rev : ""}</span>` : ""}
-      ${t.dispatched_at ? `<span class="chip">dispatched ${esc(since(t.dispatched_at))}</span>` : ""}
-    </p>
-    ${t.title ? `<p class="sub">${esc(t.title)}</p>` : ""}
-    ${needs ? `<div class="panel"><h2>needs you</h2>${needs}</div>` : ""}
-    <div class="panel"><h2>report</h2>
-      ${t.report ? `<pre class="text">${esc(t.report)}</pre>` : '<p class="empty">no report recorded</p>'}</div>
-    <div class="panel"><h2>gate</h2>
-      ${t.gate_line ? `<pre class="text">${esc(t.gate_line)}</pre>` : '<p class="empty">no gate recorded</p>'}
-      ${t.gate_log ? `<p class="sub mono">log: ${esc(t.gate_log)}</p>` : ""}</div>
-    <div class="panel"><h2>jobs</h2>${jobs || '<p class="empty">no job text recorded</p>'}</div>
-    <div class="panel"><h2>records</h2>
-      ${records ? `<table><thead><tr><th class="num">seq</th><th>time</th><th>step</th><th>kind</th><th>line</th></tr></thead>
-        <tbody>${records}</tbody></table>` : '<p class="empty">no records</p>'}</div>`;
-}
-
-function renderAgent(p, a) {
-  const sessions = (a.sessions || []).map((s) => `<tr>
-      <td class="mono">${esc(s.id)}</td>
-      <td>${esc(s.kind || "")}</td>
-      <td class="mono muted">${esc(whenDay(new Date(s.started * 1000).toISOString()))}</td>
-      <td class="mono muted">${s.last_write ? esc(since(s.last_write)) : "—"}</td>
-      <td>${s.pane ? `<span class="mono">${esc(s.pane)}</span>` : "—"}</td>
-      <td>${taskLink(p, s.task)} ${esc(s.lane || "")}</td>
-      <td class="mono muted" style="overflow-wrap:anywhere">${esc(s.transcript || "—")}</td>
-    </tr>`).join("");
-  const prompts = (list) => (list || []).map((j) => `<details><summary>${esc(j.job || j.kind)}
-      · ${esc(whenDay(j.ts))}${j.task ? " · " + esc(j.task) : ""}</summary>
-      <pre class="text">${esc(j.text)}</pre></details>`).join("");
-  const lines = (a.lines || []).map((l) => `<div class="row">
-      <span class="dot dot-queued"></span>
-      <span class="grow"><span class="mono muted">${esc(whenDay(l.ts))}</span>
-        ${l.from ? agentLink(p, l.from) : ""} <span class="mono">${esc(l.line)}</span></span>
-    </div>`).join("");
-  return `
-    <h1>${esc(a.agent)}</h1>
-    <p class="sub"><span class="chip">${(a.sessions || []).length} sessions</span>
-      <span class="chip">${(a.jobs || []).length} jobs</span>
-      <span class="chip">${(a.briefs || []).length} briefs</span>
-      <span class="chip">${(a.lines || []).length} lines</span></p>
-    <div class="panel"><h2>jobs</h2>${prompts(a.jobs) || '<p class="empty">no job text recorded</p>'}</div>
-    <div class="panel"><h2>briefs</h2>${prompts(a.briefs) || '<p class="empty">no briefs recorded</p>'}</div>
-    <div class="panel"><h2>lines</h2>${lines || '<p class="empty">no lines recorded</p>'}</div>
-    <div class="panel"><h2>sessions</h2>
-      ${sessions ? `<table><thead><tr><th>session</th><th>kind</th><th>started</th><th>last write</th><th>pane</th><th>task</th><th>transcript</th></tr></thead>
-        <tbody>${sessions}</tbody></table>` : '<p class="empty">no sessions recorded</p>'}</div>`;
-}
-
-function renderJob(p, j) {
-  return `
-    <h1>${esc(j.job || j.kind)}</h1>
-    <p class="sub"><span class="chip">${esc(j.kind)}</span>
-      ${j.agent ? `<span class="chip">agent ${agentLink(p, j.agent)}</span>` : ""}
-      ${j.task ? `<span class="chip">task ${taskLink(p, j.task)}</span>` : ""}
-      <span class="chip">${esc(whenDay(j.ts))}</span></p>
-    <pre class="text">${esc(j.text)}</pre>`;
-}
 </script>
 </body>
 </html>
