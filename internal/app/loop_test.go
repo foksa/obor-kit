@@ -51,6 +51,8 @@ type loopRig struct {
 	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 20 ms); set before start
 	night *app.Nightly   // the loop's Nightly (nil: none); set before start
 	disk  *app.Disk      // the loop's Disk (nil: none); set before start
+	// restart is the loop's Restart, serve's self-restart (nil: none, T-652); set before start
+	restart func(ctx context.Context) error
 	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-o1 and the
 	// integrator pj-int start with no inbox record, so their job wakes are typed (T-499's fallback); a test of posted
 	// wakes records them (inbox.record).
@@ -212,7 +214,7 @@ func (r *loopRig) start() {
 				return nil, err
 			}
 			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Nightly: r.night, Disk: r.disk,
-				Inbox: r.inbox,
+				Inbox: r.inbox, Restart: r.restart,
 				Checkout: func(context.Context) error {
 					r.mu.Lock()
 					defer r.mu.Unlock()

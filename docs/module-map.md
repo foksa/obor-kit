@@ -65,7 +65,7 @@ Adding a kind = one package + a config entry.
 - Watchdogs: idle with a task, working without activity, blocked, pane exited.
 - Interfaces it drives adapters through: `Panes` (subscribe, busy, activity, notify), `Lanes` (a project's lanes), and,
   on its `Loop`, `Scratch` (submit/gate/resolved/publish/after_merge/landed/unpin), `Agents` (launch/stop), `Typer`
-  (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs` and `Nightly`.
+  (a job's wake, a line typed into a pane), `Poster` (posted to a session's inbox), `Specs`, `Nightly` and `Restart` (serve's own restart after a code merge, T-652).
   API: `app.New(Options, Panes, Lanes)`, `(*App).Serve(ctx)`.
 
 **adapters** — one outside system each.

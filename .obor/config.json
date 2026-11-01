@@ -16,6 +16,7 @@
     "after_merge": {
       "cmd": "make build",
       "timeout": 300,
+      "restart_serve": true,
       "when": [
         "cmd/**",
         "internal/**",

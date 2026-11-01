@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+
+	"obor/internal/config"
+	"obor/internal/project"
 )
 
 // obor serve install / restart / uninstall in a project: the plist of its config name under HOME's LaunchAgents,
@@ -65,5 +70,62 @@ func TestServeServiceVerbs(t *testing.T) {
 		if !strings.Contains(string(calls), verb) {
 			t.Errorf("launchctl never got %q:\n%s", verb, calls)
 		}
+	}
+}
+
+// serve's self-restart (T-652): only launchd's serve restarts itself. Not installed, or the agent's process another
+// one (a serve in a pane): an error, nothing run. This serve's: `<exe> serve restart` in the project; its FAIL line is
+// the error.
+func TestServeRestarter(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd: darwin only")
+	}
+	p := servedProject(t)
+	cfg, err := config.LoadDaemon(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	pid, calls, fail := filepath.Join(bin, "pid"), filepath.Join(bin, "calls"), filepath.Join(bin, "fail")
+	launchctl := "#!/bin/sh\ncase \"$1\" in print) [ -f " + pid + " ] || exit 113; echo \"\tpid = $(cat " + pid + ")\" ;; esac\n"
+	exe := filepath.Join(bin, "obor")
+	fake := "#!/bin/sh\necho \"$(pwd -P) $*\" >> " + calls + "\n[ -f " + fail + " ] || exit 0\n" +
+		"echo 'FAIL obor serve restart: launchctl kickstart -k: boom' >&2\nexit 1\n"
+	for name, script := range map[string]string{"launchctl": launchctl, "obor": fake} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	home := t.TempDir()
+	env := project.Env(func(k string) (string, bool) {
+		if k == "HOME" {
+			return home, true
+		}
+		return os.LookupEnv(k)
+	})
+	restart := serveRestarter(cfg, env, exe)
+	ran := func() string { b, _ := os.ReadFile(calls); return string(b) }
+	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not installed") || ran() != "" {
+		t.Errorf("not installed: %v, ran %q; want the error, nothing run", err, ran())
+	}
+	if err := os.WriteFile(pid, []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not launchd's") || ran() != "" {
+		t.Errorf("another process: %v, ran %q; want the error, nothing run", err, ran())
+	}
+	if err := os.WriteFile(pid, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := filepath.EvalSymlinks(p.Root)
+	if err := restart(context.Background()); err != nil || ran() != root+" serve restart\n" {
+		t.Errorf("this serve: %v, ran %q; want nil, %q", err, ran(), root+" serve restart")
+	}
+	if err := os.WriteFile(fail, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := restart(context.Background()); err == nil || err.Error() != "launchctl kickstart -k: boom" {
+		t.Errorf("a failing restart: %v; want its FAIL line's reason", err)
 	}
 }

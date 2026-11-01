@@ -142,7 +142,7 @@ next pass writes the result it had; after a restart its crash class settles it.
 | `gate[.N]` (lane, moved) | G | Reset the worktree to the target (any earlier partial state goes: an open merge, a dirty tree, a foreign `MERGE_HEAD`), merge the input sha again, check, commit, pin: the same two shas give the same merge. |
 | `gate.N` (resolved) | G | Reset to the verdict's pin `refs/obor/resolved/<task>` and check it: a pure function of the commit; green, red and fail replay to the same outcome. |
 | `publish[.N]` | G | The target holds `Candidate.SHA` → `Already` (no second publish); target moved → `Moved`; dirty merged paths → `Hold` before any write; else ff, then the pins go. |
-| `after_merge` | G | `commands.after_merge`; its result → not run again, a pending intent runs it again (idempotent by contract, T-525). |
+| `after_merge` | G | `commands.after_merge`; its result → not run again, a pending intent runs it again (idempotent by contract, T-525). `ran` with `commands.after_merge.restart_serve`: then serve restarts itself (T-652), its result already in the log: the new serve does not run it again. |
 | `unpin` | G | Deletes the pins again (an absent one is not an error). |
 | `agent.stop` | S | Only while the lane holds the task. No agent in the submitted pane (snapshot) → `stopped`; else stop it (force). `stop_idle_workers: false` → kept. |
 | `lane.prepare[.N]` | G | Prepare again with the recorded input: `checkout -B` to the same target sha (a redo skips it), lane_ready green, the same base and head. |

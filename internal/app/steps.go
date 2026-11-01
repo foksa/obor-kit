@@ -47,10 +47,15 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	step := afterSteps[mt.after]
 	in := Intent{Key: Key{mt.task, mt.attempt, step}, Class: ClassGit}
 	var effect func(context.Context) (any, error)
+	ran := "" // after_merge's line when it ran in this pass (a stored result: "")
 	switch step {
 	case StepAfterMerge:
 		in.Data = mt.cand
-		effect = func(ctx context.Context) (any, error) { return fx.Scratch.AfterMerge(ctx, mt.cand) }
+		effect = func(ctx context.Context) (any, error) {
+			line, err := fx.Scratch.AfterMerge(ctx, mt.cand)
+			ran = line
+			return line, err
+		}
 	case StepStop:
 		in.Class, in.Data = ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
 		effect = func(ctx context.Context) (any, error) { return a.stopWorker(ctx, p, fx, mt) }
@@ -58,7 +63,55 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	if _, err := a.do(ctx, p, in, effect); err != nil {
 		return a.failed(ctx, p, mt, step, err)
 	}
+	if ran == "ran" {
+		a.restartServe(ctx, p, fx, mt.task)
+	}
 	return true
+}
+
+// ServeTask is the task key of a failed self-restart's needs-you (T-652): the project's serve, not a task's.
+const ServeTask = "serve"
+
+// restartServe restarts serve on the new build after task's green after_merge, when the project's
+// commands.after_merge.restart_serve is set (T-652). The step's result is in the log already, so the new serve finds
+// it done: no replay of the merge or the command, and work in flight here folds as at any restart. A restart that
+// fails (serve still runs): needs-you "serve restart after <task> failed: <err>", which the next serve start ends.
+func (a *App) restartServe(ctx context.Context, p *proj, fx *Loop, task string) {
+	if fx.Restart == nil {
+		return
+	}
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		a.logf("%s %s: serve restart not tried: %v", p.name, task, err)
+		return
+	}
+	if cmd, _ := cfg.Command(StepAfterMerge); !cmd.RestartServe {
+		return
+	}
+	a.logf("%s %s: after_merge ran: restarting serve on the new build", p.name, task)
+	err = fx.Restart(ctx)
+	if err == nil || ctx.Err() != nil { // restarted, or this serve is stopping (being restarted)
+		return
+	}
+	a.mu.Lock()
+	held := len(p.folded.active[ServeTask]) > 0
+	a.mu.Unlock()
+	if held && !a.record(p, Record{Task: ServeTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}) {
+		return
+	}
+	a.record(p, Record{Task: ServeTask, Step: StepNeedsYou, Kind: KindFact},
+		FactData{Machine: Machine, Reason: "serve restart after " + task + " failed: " + err.Error()})
+}
+
+// endServeNeeds ends a failed self-restart's needs-you at a serve's start (a new serve runs: the restart the owner
+// was asked for happened).
+func (a *App) endServeNeeds(p *proj) {
+	a.mu.Lock()
+	held := len(p.folded.active[ServeTask]) > 0
+	a.mu.Unlock()
+	if held {
+		a.record(p, Record{Task: ServeTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
+	}
 }
 
 // lanePassed is why mt's lane is no longer the task's ("" while its row holds the task): after-merge work on the lane

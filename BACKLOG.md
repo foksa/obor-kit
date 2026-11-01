@@ -26,8 +26,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   (T-592, re-registered here); Codex smoke T-593 passed (after the tag, see `docs/agents/lead.md` Releases).
 - **How to work now:** push with `OBOR_ALLOW_PUSH=1 git push` (pre-push hook); main is public: every commit is
   published, author email is the noreply. After the re-root, old `task/*` lane branches looked `done` (not reachable
-  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After every code merge: `make build`, then
-  `./bin/obor serve restart` (serve runs under launchd since 10-31, `obor.serve.obor-kit`; log `.obor/state/logs/serve.log`).
+  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After a code merge serve runs `make build`
+  and restarts itself on the new build (T-652, `commands.after_merge.restart_serve`; serve runs under launchd since 10-31,
+  `obor.serve.obor-kit`; log `.obor/state/logs/serve.log`); a failed restart is a needs-you.
 - **Owner decisions pending:** none.
 - **Next (owner 10-31: start from the architectural review**, `~/Work/obor-kit-wt/review/docs/reviews/architectural-review.md`): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
   `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in

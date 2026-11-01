@@ -46,6 +46,9 @@ type Loop struct {
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
+	// Restart restarts this serve on the new build, detached (launchd's kickstart -k, T-652): after a green
+	// after_merge of a project with commands.after_merge.restart_serve. Nil: never restarted.
+	Restart func(ctx context.Context) error
 }
 
 // K is how often a task is sent back before the owner decides (rule 3).
