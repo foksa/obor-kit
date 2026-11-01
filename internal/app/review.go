@@ -24,8 +24,8 @@ import (
 // from git (ReviewGit: the next id, the integration branch's head, the merges and files since the previous review),
 // the review worktree detached at the head, and the reviewer's fresh start with the brief as its first prompt (the
 // path of `obor restart <reviewer> --fresh --prompt`, its brief recorded the same way: briefed with no line). Then
-// fact review.started{id, head, tasks} and the lead's line "[obor] review RV-xx started at <sha7> (T-a, T-b)". Any
-// step failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
+// fact review.started{id, head, tasks}: no line to the lead (T-650; obor status counts from its head). Any step
+// failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
 // dropped or rejected ends the request with the lead's line "[obor] review request ended: T-b dropped" (fact message
 // {review: the request's seq}, whose fold ends it).
 //
@@ -494,11 +494,12 @@ func (a *App) reviewerIdle(p *proj, agent string) bool {
 }
 
 // fireReview starts the review of the fired request q: the facts, the detached worktree, the reviewer's fresh start
-// on the brief, its brief recorded, fact review.started and the lead's line; a step failing records needs-you
-// {<id>: <error>} instead and starts nothing. A fact after the launch the log refuses is logged and a needs-you
-// {<id>: started but not recorded: <error>} (RV-69 #2: the review runs, serve does not know it).
+// on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
+// starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
+// <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
+// merges since the review's head.
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s reviewSetup, cfgErr error) {
-	id, line, brief, tasks, head, err := a.prepareReview(ctx, fx.Review, q, s, cfgErr)
+	id, brief, tasks, head, err := a.prepareReview(ctx, fx.Review, q, s, cfgErr)
 	if err == nil {
 		_, err = fx.Agents.Launch(ctx, Launch{Agent: s.agent, Fresh: true, Prompt: brief})
 	}
@@ -523,7 +524,6 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		a.logf("FAIL review of %s: %s", p.name, reason)
 		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
 	}
-	a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, Message{To: p.out.lead(), From: "obor", Line: line})
 }
 
 // closedRE is a review's close commit subject: "RV-<n> closed · <reviewed sha> · …".
@@ -544,32 +544,32 @@ func previousReview(last string) (next int, prev, sha string) {
 var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
 
 // prepareReview collects a review's facts in order (the next id, the head, the merges and files since the previous
-// review's sha) and detaches the review worktree at the head: the id, the lead's line, the brief, the tasks and the
-// head; an error from the first step that fails (id "" when the id is not known yet).
-func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s reviewSetup, cfgErr error) (id, line,
+// review's sha) and detaches the review worktree at the head: the id, the brief, the tasks and the head; an error from
+// the first step that fails (id "" when the id is not known yet).
+func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s reviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
 	last, err := g.Last(ctx, s.branch)
 	if err != nil {
-		return "", "", "", nil, "", err
+		return "", "", nil, "", err
 	}
-	n, prev, prevSHA := previousReview(last)
+	n, _, prevSHA := previousReview(last)
 	id = "RV-" + strconv.Itoa(n)
 	if cfgErr != nil {
-		return id, "", "", nil, "", cfgErr
+		return id, "", nil, "", cfgErr
 	}
 	if head, err = g.Head(ctx, s.branch); err != nil {
-		return id, "", "", nil, "", err
+		return id, "", nil, "", err
 	}
 	merges, err := g.Merges(ctx, prevSHA, head)
 	if err != nil {
-		return id, "", "", nil, "", err
+		return id, "", nil, "", err
 	}
 	files, err := g.Files(ctx, prevSHA, head)
 	if err != nil {
-		return id, "", "", nil, "", err
+		return id, "", nil, "", err
 	}
 	if err = g.Detach(ctx, s.worktree, head); err != nil {
-		return id, "", "", nil, "", err
+		return id, "", nil, "", err
 	}
 	short := head[:min(len(head), 7)]
 	var scope []string
@@ -583,11 +583,7 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s re
 			scope = append(scope, subject+" ("+sha+")")
 		}
 	}
-	line = "[obor] review " + id + " started at " + short + " (" + strings.Join(tasks, ", ") + ")"
-	if len(tasks) == 0 {
-		line = "[obor] review " + id + " started at " + short + " (no merges since " + cmp.Or(prev, "the start") + ")"
-	}
-	return id, line, reviewBrief(id, s, short, last, scope, files, q.note), tasks, head, nil
+	return id, reviewBrief(id, s, short, last, scope, files, q.note), tasks, head, nil
 }
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in and

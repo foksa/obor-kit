@@ -37,7 +37,8 @@ moved or whose name changed is left out).
   send <name> "…")`.
 
 ## obor review (T-638)
-`obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `[obor] review RV-xx started at <sha7> (T-a, …)`.
+`obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
+is no line to you (T-650): `obor status` shows the review.
 
 ## An agent stopped by an API error (T-532)
 A Claude agent whose turn ends on an API error (a usage limit `rate_limit`, `overloaded`, `billing_error`, …) did not

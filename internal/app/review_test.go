@@ -217,8 +217,8 @@ func TestReviewRequest(t *testing.T) {
 			if len(r.git.detached) != 1 || !strings.HasSuffix(r.git.detached[0], "/review@abcdef0123456789abcdef0123456789abcdef01") {
 				t.Errorf("detached %q, want the review worktree at the head", r.git.detached)
 			}
-			if lines := r.leadLines(); len(lines) != 1 || lines[0] != "[obor] review RV-5 started at abcdef0 (T-a, T-b)" {
-				t.Errorf("lead lines %q", lines)
+			if lines := r.leadLines(); len(lines) != 0 {
+				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
 			}
 			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(StepReviewStarted) != 1 {
 				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(StepReviewStarted))
