@@ -1,5 +1,14 @@
 # Upgrading an obor project from v0.16 to v0.17
 
+## v0.17.5 (patch; v0.17.3 and v0.17.4 were tagged but never published: their notes below are part of this one)
+Same steps as v0.17.4 below.
+- **`obor monitor`**: a live view (running work, needs-you, lanes, review, recent events) in each project's `system`
+  tab; `obor init` creates it, `obor setup monitor` adds it to an existing project (T-658).
+- `obor status` shows `running:` (gates, merges, after_merge, nightly, restart) and lane states `gating`, `merging`,
+  `reviewing`, `held`; `obor status --short` (T-657). Known: work waiting for a retry also shows as running (T-662).
+- A serve shutting down records no failure caused by its own cancellation (T-660).
+- Kit maintainers: `make ship` pushes main only up to the release's checksums commit (T-661).
+
 ## v0.17.4 (patch; v0.17.3 was tagged but never published, its notes below are part of this one)
 Re-run the installer, then `obor serve restart` in each project, then restart every Claude pane started since you
 installed v0.17.2 (`obor restart <agent> --fresh`, the lead at a break).
