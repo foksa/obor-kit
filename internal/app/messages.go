@@ -375,15 +375,26 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 
 	a.mu.Lock()
-	var oldest []queued // each agent's oldest line
+	var oldest []queued    // each agent's oldest line
+	var leadLines []queued // every line queued for the lead (T-651: one post)
 	taken := map[string]bool{}
 	for _, q := range p.queuedLines() {
-		if !taken[q.msg.To] {
+		if q.lead || q.msg.To == p.out.leadAgent {
+			leadLines = append(leadLines, *q)
+		} else if !taken[q.msg.To] {
 			taken[q.msg.To] = true
 			oldest = append(oldest, *q)
 		}
 	}
 	a.mu.Unlock()
+	if len(leadLines) > 0 {
+		a.mu.Lock()
+		post, target, ok := a.route(p, fx, leadLines[0])
+		a.mu.Unlock()
+		if ok {
+			a.deliverLead(ctx, p, fx, leadLines, post, target)
+		}
+	}
 	for _, q := range oldest {
 		// Resolved right before its own delivery (RV-53-verify V3): an earlier delivery of this pass may have moved,
 		// duplicated or busied its agent.
@@ -495,6 +506,54 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	if err != nil && !began { // nothing went out: the next pass delivers it
 		a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
 			FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step})
+	}
+}
+
+// deliverLead posts every line queued for the lead as one message, one line per row, in order (T-651), under the
+// first line's delivery key; each other line gets its own delivery intent and result "sent" once the post is done, so
+// a replay finds all delivered. A post refused before a byte went out: fact failed for each line, none delivered, all
+// retried as one at the next pass. A crash between the post and the other results leaves those lines queued: they
+// are posted again (a line may reach its agent twice, T-524).
+func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, post, target string) {
+	p.out.claim.Lock()
+	a.mu.Lock()
+	var lines []queued
+	for _, q := range qs {
+		if m := p.out.msgs[q.seq]; m != nil {
+			m.typing = true
+			lines = append(lines, q)
+		}
+	}
+	a.mu.Unlock()
+	p.out.claim.Unlock()
+	if len(lines) == 0 {
+		return
+	}
+	text := make([]string, len(lines))
+	for i, q := range lines {
+		text[i] = q.msg.Line
+	}
+	key := func(q queued) Key { return Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)} }
+	began := false
+	_, err := a.do(ctx, p, Intent{Key: key(lines[0]), Class: ClassPrompt, Data: lineData{To: lines[0].msg.To}},
+		func(ctx context.Context) (any, error) {
+			var err error
+			began, err = fx.transmit(ctx, post, target, strings.Join(text, "\n"), false)
+			return sentResult(began, err)
+		})
+	if err != nil && !began { // nothing went out: the next pass delivers them all
+		for _, q := range lines {
+			a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
+				FactData{Machine: Machine, Reason: key(q).Step + ": " + err.Error(), Step: key(q).Step})
+		}
+		return
+	}
+	if err != nil { // the head's result is not in the log: the others wait with it
+		return
+	}
+	for _, q := range lines[1:] {
+		_, _ = a.do(ctx, p, Intent{Key: key(q), Class: ClassPrompt, Data: lineData{To: q.msg.To}},
+			func(context.Context) (any, error) { return "sent", nil })
 	}
 }
 
