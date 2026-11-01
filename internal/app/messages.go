@@ -122,12 +122,14 @@ type outbox struct {
 	lining    map[int64]bool
 	delivered map[int64]time.Time
 	briefs    map[string]*brief
+	posts     map[int64][]int64 // a delivery intent's members by its key's seq, its result not folded yet (T-654)
 }
 
 // newOutbox is an empty outbox of the lead agent lead, its configured kind leadKind.
 func newOutbox(lead, leadKind string) outbox {
 	return outbox{leadAgent: lead, leadKind: leadKind, msgs: map[int64]*queued{}, lined: map[int64]int{},
-		lining: map[int64]bool{}, delivered: map[int64]time.Time{}, briefs: map[string]*brief{}}
+		lining: map[int64]bool{}, delivered: map[int64]time.Time{}, briefs: map[string]*brief{},
+		posts: map[int64][]int64{}}
 }
 
 // lead is the project's lead agent ("": none configured).
@@ -141,7 +143,8 @@ func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.brief
 
 // queued is a line not delivered yet: its fact's seq and time, its data, whether its delivery may have begun (typing),
 // whether it is a lead line (fact message, posted to the inbox whatever today's lead name; fact briefed: a role
-// brief), and whether it is a brief's line (fact briefed with a line: a newer brief ends it).
+// brief), whether it is a brief's line (fact briefed with a line: a newer brief ends it), and the seq of the delivery
+// intent whose post carries it (0: none; T-654: only that post's result settles it).
 type queued struct {
 	seq    int64
 	at     time.Time
@@ -149,6 +152,7 @@ type queued struct {
 	typing bool
 	lead   bool
 	brief  bool
+	post   int64
 }
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
@@ -191,9 +195,19 @@ type supersededData struct {
 	By  int64 `json:"by"`
 }
 
-// lineData is a delivery intent's data: the line's agent.
+// lineData is a delivery intent's data: the line's agent (the post's target), and the seqs of the lines its post
+// carries (T-654; none: its own line alone, as before T-654 and for a single line).
 type lineData struct {
-	To string `json:"to"`
+	To    string  `json:"to"`
+	Lines []int64 `json:"lines,omitempty"`
+}
+
+// members is the lines a delivery intent of seq's key carries.
+func (d lineData) members(seq int64) []int64 {
+	if len(d.Lines) == 0 {
+		return []int64{seq}
+	}
+	return d.Lines
 }
 
 // foldMsg folds r, a record of the project's lines.
@@ -284,22 +298,46 @@ func (p *proj) foldMsg(r Record) {
 		if q := p.out.msgs[seq]; q != nil {
 			q.typing = false
 		}
-	case strings.HasPrefix(r.Step, stepDeliver):
+	case strings.HasPrefix(r.Step, stepDeliver): // T-654: a post's result settles exactly the lines its intent names
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
-		if q := p.out.msgs[seq]; q != nil && r.Kind == KindIntent {
-			q.typing = true
-		} else if r.Kind == KindResult {
-			if q != nil {
-				if q.msg.Needs != 0 { // a needs-you line delivered: its next repeat counts from now (T-624)
-					p.out.delivered[q.msg.Needs] = recordTime(r)
-				}
-				if b := p.out.briefs[q.msg.To]; b != nil && b.seq == seq { // the brief's line delivered: its age starts
-					b.at = recordTime(r)
+		switch r.Kind {
+		case KindIntent:
+			var d lineData
+			_ = json.Unmarshal(r.Data, &d)
+			var members []int64
+			for _, m := range d.members(seq) {
+				if q := p.out.msgs[m]; q != nil && q.post == 0 { // a line delivered already is no member
+					q.typing, q.post = true, seq
+					members = append(members, m)
 				}
 			}
-			delete(p.out.msgs, seq)
+			if len(members) > 0 {
+				p.out.posts[seq] = members
+			}
+		case KindResult:
+			members, ok := p.out.posts[seq]
+			if !ok {
+				members = []int64{seq}
+			}
+			delete(p.out.posts, seq)
+			for _, m := range members {
+				if q := p.out.msgs[m]; q != nil && (q.post == seq || q.post == 0 && m == seq) {
+					p.settleLine(q, r)
+				}
+			}
 		}
 	}
+}
+
+// settleLine folds r, the result of the post that carried q, as q's delivery (under mu).
+func (p *proj) settleLine(q *queued, r Record) {
+	if q.msg.Needs != 0 { // a needs-you line delivered: its next repeat counts from now (T-624)
+		p.out.delivered[q.msg.Needs] = recordTime(r)
+	}
+	if b := p.out.briefs[q.msg.To]; b != nil && b.seq == q.seq { // the brief's line delivered: its age starts
+		b.at = recordTime(r)
+	}
+	delete(p.out.msgs, q.seq)
 }
 
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
@@ -350,7 +388,7 @@ func (a *App) logWorked(p *proj) {
 
 // deliver is one pass over p's lines: the seen work of briefs not in the log yet recorded (logWorked's retry), the
 // briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (none
-// while a stop is in force), the lead's oldest line posted when its inbox is recorded, each role agent's oldest
+// while a stop is in force), the lead's lines posted as one per target when its inbox is recorded (T-651, T-654), each role agent's oldest
 // line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
@@ -376,24 +414,28 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 
 	a.mu.Lock()
-	var oldest []queued    // each agent's oldest line
-	var leadLines []queued // every line queued for the lead (T-651: one post)
+	var oldest []queued // each agent's oldest line
+	var targets []string
+	leadLines := map[string][]queued{} // the lines queued for the lead by their target (T-651: one post; T-654: per target)
 	taken := map[string]bool{}
 	for _, q := range p.queuedLines() {
 		if q.lead || q.msg.To == p.out.leadAgent {
-			leadLines = append(leadLines, *q)
+			if leadLines[q.msg.To] == nil {
+				targets = append(targets, q.msg.To)
+			}
+			leadLines[q.msg.To] = append(leadLines[q.msg.To], *q)
 		} else if !taken[q.msg.To] {
 			taken[q.msg.To] = true
 			oldest = append(oldest, *q)
 		}
 	}
 	a.mu.Unlock()
-	if len(leadLines) > 0 {
+	for _, to := range targets { // the target of the oldest line first
 		a.mu.Lock()
-		post, target, ok := a.route(p, fx, leadLines[0])
+		post, target, ok := a.route(p, fx, leadLines[to][0])
 		a.mu.Unlock()
 		if ok {
-			a.deliverLead(ctx, p, fx, leadLines, post, target)
+			a.deliverLead(ctx, p, fx, leadLines[to], post, target)
 		}
 	}
 	for _, q := range oldest {
@@ -510,52 +552,89 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	}
 }
 
-// deliverLead posts every line queued for the lead as one message, one line per row, in order (T-651), under the
-// first line's delivery key; each other line gets its own delivery intent and result "sent" once the post is done, so
-// a replay finds all delivered. A post refused before a byte went out: fact failed for each line, none delivered, all
-// retried as one at the next pass. A crash between the post and the other results leaves those lines queued: they
-// are posted again (a line may reach its agent twice, T-524).
+// deliverLead posts qs, the lines queued for one lead target (oldest first), as one message, one line per row, in
+// order (T-651). A post's intent names its members and its target (T-654); its result settles exactly those members
+// (the fold), so a line queued later waits for its own post. A post still open (its intent pending: refused before a
+// byte, or cut by a crash; or its result kept unwritten in this process) goes again with exactly its members, or its
+// kept result is written without a transmit, before any new post of the target (a recovery that transmitted nothing
+// lets the rest go out in the same pass). A post refused before a byte went out: fact failed for each member, posted
+// again as one at the next pass. Once the post's result is in the log each other member gets its own delivery
+// result "sent" (the log's per-line record; its fold settles nothing more).
 func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, post, target string) {
-	p.out.claim.Lock()
-	a.mu.Lock()
-	var lines []queued
-	for _, q := range qs {
-		if m := p.out.msgs[q.seq]; m != nil {
-			m.typing = true
-			lines = append(lines, q)
+	key := func(seq int64) Key { return Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(seq, 10)} }
+	for {
+		head, lines, recovered := a.leadPost(p, qs, key)
+		if len(lines) == 0 {
+			return
 		}
-	}
-	a.mu.Unlock()
-	p.out.claim.Unlock()
-	if len(lines) == 0 {
-		return
-	}
-	text := make([]string, len(lines))
-	for i, q := range lines {
-		text[i] = q.msg.Line
-	}
-	key := func(q queued) Key { return Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)} }
-	began := false
-	_, err := a.do(ctx, p, Intent{Key: key(lines[0]), Class: ClassPrompt, Data: lineData{To: lines[0].msg.To}},
-		func(ctx context.Context) (any, error) {
-			var err error
-			began, err = fx.transmit(ctx, post, target, strings.Join(text, "\n"), false)
-			return sentResult(began, err)
-		})
-	if err != nil && !began { // nothing went out: the next pass delivers them all
+		members := make([]int64, len(lines))
+		text := make([]string, len(lines))
+		for i, q := range lines {
+			members[i], text[i] = q.seq, q.msg.Line
+		}
+		began := false
+		_, err := a.do(ctx, p, Intent{Key: key(head), Class: ClassPrompt, Data: lineData{To: lines[0].msg.To, Lines: members}},
+			func(ctx context.Context) (any, error) {
+				var err error
+				began, err = fx.transmit(ctx, post, target, strings.Join(text, "\n"), false)
+				return sentResult(began, err)
+			})
+		if err != nil && !began && !recovered { // nothing went out: the next pass posts them again, as one
+			for _, q := range lines {
+				a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
+					FactData{Machine: Machine, Reason: key(q.seq).Step + ": " + err.Error(), Step: key(q.seq).Step})
+			}
+		}
+		if err != nil { // the post's result is not in the log: its members wait with it
+			return
+		}
 		for _, q := range lines {
-			a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
-				FactData{Machine: Machine, Reason: key(q).Step + ": " + err.Error(), Step: key(q).Step})
+			if q.seq != head {
+				_, _ = a.do(ctx, p, Intent{Key: key(q.seq), Class: ClassPrompt, Data: lineData{To: q.msg.To}},
+					func(context.Context) (any, error) { return "sent", nil })
+			}
 		}
-		return
+		if !recovered {
+			return
+		}
 	}
-	if err != nil { // the head's result is not in the log: the others wait with it
-		return
+}
+
+// leadPost is the post deliverLead makes next of qs (one target's lines), its members claimed (typing): the open post
+// of a line of qs (its key's seq, its members still queued), else every line of qs not delivered yet under the
+// oldest's seq. recovered: the open post's result is kept unwritten (App.do writes it, nothing is transmitted).
+func (a *App) leadPost(p *proj, qs []queued, key func(int64) Key) (head int64, lines []queued, recovered bool) {
+	p.out.claim.Lock()
+	defer p.out.claim.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, q := range qs {
+		if m := p.out.msgs[q.seq]; m != nil && m.post != 0 {
+			head = m.post
+			break
+		}
 	}
-	for _, q := range lines[1:] {
-		_, _ = a.do(ctx, p, Intent{Key: key(q), Class: ClassPrompt, Data: lineData{To: q.msg.To}},
-			func(context.Context) (any, error) { return "sent", nil })
+	if head != 0 {
+		for _, seq := range p.out.posts[head] {
+			if m := p.out.msgs[seq]; m != nil && m.post == head {
+				lines = append(lines, *m)
+			}
+		}
+		_, recovered = p.unwritten[key(head)]
+	} else {
+		for _, q := range qs {
+			if m := p.out.msgs[q.seq]; m != nil {
+				lines = append(lines, *m)
+			}
+		}
+		if len(lines) > 0 {
+			head = lines[0].seq
+		}
 	}
+	for _, q := range lines {
+		p.out.msgs[q.seq].typing = true
+	}
+	return head, lines, recovered
 }
 
 // msgNeedsYou keeps p's needs-you for lines waiting longer than msgWait: one for the oldest such line (a newer oldest
