@@ -739,7 +739,7 @@ func TestMakeShip(t *testing.T) {
 	if failed {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
-	for _, want := range []string{"pushed main and v1.2.4", "published v1.2.4", "installed the kit",
+	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4", "installed the kit",
 		"restart serve: obor serve restart in each project"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ship does not say %q:\n%s", want, out)

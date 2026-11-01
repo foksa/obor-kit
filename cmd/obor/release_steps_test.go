@@ -267,9 +267,11 @@ func TestReleaseCopyBackChecksBeforeWriting(t *testing.T) {
 	}
 }
 
-// Tag row and ship's push, RV-70 #4: an existing tag is accepted only when its source parent and HEAD differ in docs and
-// bookkeeping. Code merged after the tag (v0.17.2's shape: tagged, then T-642 merged and reviewed) is refused by
-// release and by ship before it pushes; a docs-only merge is accepted by both.
+// Tag row and ship's push, RV-70 #4: an existing tag is accepted by release only when its source parent and HEAD differ
+// in docs and bookkeeping: code merged after the tag (v0.17.2's shape: tagged, then T-642 merged and reviewed) is
+// refused by release. Ship (T-661) compares the tag with its checksums: v<V> commit on main, not HEAD: code merged
+// after that commit is the next release's, so ship pushes main only up to it; a tag whose source differs in code from
+// that commit's history is refused before anything is pushed.
 func TestReleaseStaleTag(t *testing.T) {
 	t.Parallel()
 	t.Run("code merged after the tag", func(t *testing.T) {
@@ -279,6 +281,10 @@ func TestReleaseStaleTag(t *testing.T) {
 			t.Fatalf("make release V=1.2.4 failed:\n%s", out)
 		}
 		tagBefore := f.Git(f.Root, "rev-parse", "v1.2.4")
+		rel := f.Git(f.Root, "rev-parse", "HEAD")
+		if got := f.Git(f.Root, "log", "-1", "--format=%s"); got != "checksums: v1.2.4" {
+			t.Fatalf("precondition: the release's last commit is %q, want checksums: v1.2.4", got)
+		}
 		f.merge(t, "topic/late", "Merge T-9: late code", map[string]string{"internal/late.go": "package internal\n"})
 		f.closeReview(t, 1, f.headShort(t)) // reviewed: the review guard passes, only the tag is stale
 		head := f.Git(f.Root, "rev-parse", "HEAD")
@@ -298,6 +304,51 @@ func TestReleaseStaleTag(t *testing.T) {
 		}
 
 		out, failed = f.make(t, "ship")
+		relShort := f.Git(f.Root, "rev-parse", "--short", rel)
+		for _, want := range []string{"pushed main up to " + relShort + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4",
+			"installed the kit"} {
+			if failed || !strings.Contains(out, want) {
+				t.Errorf("ship after a later code merge must ship the release (failed %v), saying %q:\n%s", failed, want, out)
+			}
+		}
+		if got := f.Git(f.origin, "rev-parse", "refs/heads/main"); got != rel {
+			t.Errorf("origin's main = %s, want the checksums commit %s (not main's tip %s)", got, rel, head)
+		}
+		if got := f.Git(f.origin, "rev-parse", "refs/tags/v1.2.4"); got != f.Git(f.Root, "rev-parse", "refs/tags/v1.2.4") {
+			t.Errorf("origin's v1.2.4 = %s, want the local tag", got)
+		}
+		if !strings.Contains(readFile(t, f.ghlog), "release create v1.2.4") {
+			t.Errorf("ship did not publish:\n%s", readFile(t, f.ghlog))
+		}
+		if n := strings.Count(readFile(t, f.instlog), "\n"); n != 1 {
+			t.Errorf("install.sh ran %d times, want once", n)
+		}
+
+		ghBefore, instBefore := readFile(t, f.ghlog), readFile(t, f.instlog)
+		out, failed = f.make(t, "ship")
+		for _, want := range []string{"push skipped", "publish skipped", "install skipped"} {
+			if failed || !strings.Contains(out, want) {
+				t.Errorf("the re-run must say %q (failed %v):\n%s", want, failed, out)
+			}
+		}
+		if got := f.Git(f.origin, "rev-parse", "refs/heads/main"); got != rel {
+			t.Errorf("the re-run moved origin's main to %s, want %s", got, rel)
+		}
+		if strings.Count(readFile(t, f.ghlog), "release create") != strings.Count(ghBefore, "release create") ||
+			readFile(t, f.instlog) != instBefore {
+			t.Error("the re-run published or installed again")
+		}
+	})
+	t.Run("code between the tag's source and the checksums commit", func(t *testing.T) {
+		t.Parallel()
+		f := newShipFixture(t)
+		if out, failed := f.release(t, "V=1.2.4"); failed {
+			t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+		}
+		f.merge(t, "topic/late", "Merge T-9: late code", map[string]string{"internal/late.go": "package internal\n"})
+		// A newer checksums: v1.2.4 commit on top of the code merge: its history has code the tag's source lacks.
+		f.Git(f.Root, "commit", "-q", "--allow-empty", "-m", "checksums: v1.2.4")
+		out, failed := f.make(t, "ship")
 		if !failed || !strings.Contains(out, "FAIL v1.2.4 predates T-9: release a new patch version") {
 			t.Errorf("ship must refuse the stale tag (failed %v):\n%s", failed, out)
 		}
@@ -308,6 +359,22 @@ func TestReleaseStaleTag(t *testing.T) {
 		}
 		if f.Exists(f.ghlog) || f.Exists(f.instlog) {
 			t.Error("ship published or installed despite the stale tag")
+		}
+	})
+	t.Run("no checksums commit on main", func(t *testing.T) {
+		t.Parallel()
+		f := newShipFixture(t)
+		if out, failed := f.release(t, "V=1.2.4"); failed {
+			t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+		}
+		// Main's line without the copy-back commit: a commit with the catalog under another subject.
+		f.Git(f.Root, "commit", "-q", "--amend", "-m", "catalog under another name")
+		out, failed := f.make(t, "ship")
+		if !failed || !strings.Contains(out, "no 'checksums: v1.2.4' commit on main's first-parent history: run make release V=1.2.4") {
+			t.Errorf("ship must refuse naming what to do (failed %v):\n%s", failed, out)
+		}
+		if exec.Command("git", "-C", f.origin, "rev-parse", "-q", "--verify", "refs/tags/v1.2.4").Run() == nil {
+			t.Error("the tag was pushed without a checksums commit")
 		}
 	})
 	t.Run("docs merged after the tag", func(t *testing.T) {
@@ -322,7 +389,7 @@ func TestReleaseStaleTag(t *testing.T) {
 			t.Errorf("release must accept a docs-only merge after the tag (failed %v):\n%s", failed, out)
 		}
 		out, failed = f.make(t, "ship")
-		if failed || !strings.Contains(out, "pushed main and v1.2.4") {
+		if failed || !strings.Contains(out, " (checksums: v1.2.4) and v1.2.4") {
 			t.Errorf("ship must accept a docs-only merge after the tag (failed %v):\n%s", failed, out)
 		}
 	})

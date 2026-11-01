@@ -80,19 +80,20 @@ tag_extra() {
   echo "$extra"
 }
 
-# tag_predates: what HEAD has past the tag's source parent beyond main_neutral paths (empty when nothing): the
-# first-parent commits that bring it, as task ids (Merge T-<n>: …) or short shas; a difference no such commit explains
-# is named by its paths.
+# tag_predates [<tip>]: what <tip> (default HEAD) has past the tag's source parent beyond main_neutral paths (empty when
+# nothing): the first-parent commits that bring it, as task ids (Merge T-<n>: …) or short shas; a difference no such
+# commit explains is named by its paths.
 tag_predates() {
+  tip=${1:-HEAD}
   base=$(tag_source)
   [ -n "$base" ] || return 0
   stale=
-  for f in $(git diff --name-only "$base" HEAD); do
+  for f in $(git diff --name-only "$base" "$tip"); do
     main_neutral "$f" || stale="${stale:+$stale, }$f"
   done
   [ -n "$stale" ] || return 0
   ids=
-  for sha in $(git log --first-parent --reverse --format=%H "$base..HEAD"); do
+  for sha in $(git log --first-parent --reverse --format=%H "$base..$tip"); do
     code=
     for f in $(git diff --name-only "$sha^1" "$sha"); do
       main_neutral "$f" || { code=1; break; }
@@ -105,11 +106,13 @@ tag_predates() {
   echo "${ids:-$stale}"
 }
 
-# require_fresh_tag: the tag is a release commit on top of the version commit, and HEAD has nothing past that commit
-# but docs and bookkeeping. A tag is never moved, so either refusal's fix is a new patch version.
+# require_fresh_tag [<tip>]: the tag is a release commit on top of the version commit, and <tip> has nothing past that
+# commit but docs and bookkeeping. <tip> is HEAD by default (scripts/release, at tag time); scripts/ship passes the
+# checksums: v<version> commit (T-661): merges on main after it belong to the next release. A tag is never moved, so
+# either refusal's fix is a new patch version.
 require_fresh_tag() {
   extra=$(tag_extra)
   [ -z "$extra" ] || fail "$tag's commit changes $extra, not only its catalog and marketplace name: release a new patch version"
-  predates=$(tag_predates)
+  predates=$(tag_predates "${1:-HEAD}")
   [ -z "$predates" ] || fail "$tag predates $predates: release a new patch version"
 }
