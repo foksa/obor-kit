@@ -194,7 +194,7 @@
       "handoff_tokens": 500000
     },
     "deep_dive": {
-      "type": "opus",
+      "type": "opus-high",
       "worktree": "deep-dive"
     },
     "integrator": {
