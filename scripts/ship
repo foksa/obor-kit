@@ -1,10 +1,16 @@
 #!/bin/sh
-# ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md). From the main checkout:
-#   git push origin main v<version> (with OBOR_ALLOW_PUSH=1, the release tag's own bytes and never moved),
-#   scripts/publish (the GitHub release), install.sh (this machine's kit at the newest tag).
-# Each step is skipped when it is already done (origin has the tag, the GitHub release exists, the installed obor is
-# this version); the last line is the one follow-up: `obor serve restart` in the projects whose serve launchd knows
-# (the generic line when it knows none). POSIX sh.
+# ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md), from the main checkout. Before
+# anything leaves this machine the tag must be this release's (scripts/publish --check: its contents and the four dist
+# files' bytes) and not predate code on main (scripts/release-lib.sh, as scripts/release checks it). Then three steps,
+# each skipped when its done evidence holds and proven by it after it runs (T-643):
+#   push     done: origin has tag v<version> (the same object) and origin's main contains the local main
+#            run: git push origin of whichever of main and the tag origin lacks (OBOR_ALLOW_PUSH=1)   fail: stop
+#   publish  done: the GitHub release is not a draft and has the four assets
+#            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
+#            checks first)                                       fail: stop with the repair command
+#   install  done: `obor version` is v<version>     run: install.sh     fail: stop
+# A pushed tag never moves. The last line is the one follow-up: `obor serve restart` in the projects whose serve launchd
+# knows (the generic line when it knows none). POSIX sh.
 set -eu
 
 usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
@@ -18,6 +24,9 @@ platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 say() { echo "ship: $*"; }
+
+# shellcheck source=scripts/release-lib.sh
+. "$(dirname "$0")/release-lib.sh"
 
 [ -f Makefile ] && [ -f VERSION ] && [ -f install.sh ] ||
   fail "not at a kit checkout's root: run make ship there"
@@ -34,50 +43,83 @@ tagv=$(printf '%s\n' "$tagcat" | grep -F "dist/obor-$v-" || true)
 [ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] || fail "bin/checksums.txt at $tag has no four lines for $v"
 havev=$(git show HEAD:bin/checksums.txt 2> /dev/null | grep -F "dist/obor-$v-" || true)
 [ "$havev" = "$tagv" ] || fail "main's bin/checksums.txt has no $tag catalog: commit it first (make release V=$v does)"
-for pl in $platforms; do
-  f="dist/obor-$v-$pl"
-  [ -f "$f" ] || fail "missing $f: run make release V=$v (or check the tag out and build it there)"
-done
-# The tag's own checks (scripts/publish's) run before it leaves this machine: a pushed tag never moves.
-tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
-tagplug=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
-  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || tagplug=
-tagmarket=$(git show "$tag:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\n' |
-  sed -n 's/^[^"]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || tagmarket=
-[ "$tagver" = "$v" ] || fail "VERSION at $tag is '$tagver', not $v"
-[ "$tagplug" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$tagplug', not $v"
-[ "$tagmarket" = obor-kit ] || fail ".claude-plugin/marketplace.json name at $tag is '$tagmarket', not obor-kit"
+# The tag's own checks (scripts/publish's: contents and the four files' bytes) run before it leaves this machine.
+sh scripts/publish "$v" --check || fail "$tag is not a finished release (above): a pushed tag never moves"
+require_fresh_tag
 
-remote=$(git ls-remote origin refs/heads/main "refs/tags/$tag" 2> /dev/null) || remote=
-lmain=$(git rev-parse refs/heads/main)
+# --- push
 ltag=$(git rev-parse "refs/tags/$tag")
-rmain=$(printf '%s\n' "$remote" | awk '$2 == "refs/heads/main" { print $1; exit }')
-rtag=$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag" '$2 == r { print $1; exit }')
-if [ "$rmain" = "$lmain" ] && [ "$rtag" = "$ltag" ]; then
+lmain=$(git rev-parse refs/heads/main)
+# read_remote: origin's main and tag shas into rmain and rtag (empty when origin lacks one or is unreachable).
+read_remote() {
+  remote=$(git ls-remote origin refs/heads/main "refs/tags/$tag" 2> /dev/null) || remote=
+  rmain=$(printf '%s\n' "$remote" | awk '$2 == "refs/heads/main" { print $1; exit }')
+  rtag=$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag" '$2 == r { print $1; exit }')
+}
+# main_landed: origin's main is the local main or contains it.
+main_landed() {
+  [ "$rmain" = "$lmain" ] && return 0
+  [ -n "$rmain" ] && git merge-base --is-ancestor "$lmain" "$rmain" 2> /dev/null
+}
+read_remote
+if [ "$rtag" = "$ltag" ] && main_landed; then
   say "origin has main and $tag: push skipped"
 else
   [ -z "$rtag" ] || [ "$rtag" = "$ltag" ] ||
     fail "origin has $tag at $rtag, not the local $ltag: a pushed tag never moves (a changed release is a new patch version)"
-  OBOR_ALLOW_PUSH=1 git push origin main "$tag" || fail "git push origin main $tag failed"
-  say "pushed main and $tag"
+  set --
+  main_landed || set -- main
+  [ "$rtag" = "$ltag" ] || set -- "$@" "$tag"
+  OBOR_ALLOW_PUSH=1 git push origin "$@" || fail "git push origin $* failed"
+  read_remote
+  [ "$rtag" = "$ltag" ] && main_landed ||
+    fail "after git push origin $*, origin has main '${rmain:-none}' and $tag '${rtag:-none}', not the local $lmain and $ltag"
+  if [ "$#" = 2 ]; then say "pushed main and $tag"; else say "pushed $1"; fi
 fi
 
+# --- publish
 command -v gh > /dev/null 2>&1 || fail "gh not found: install GitHub's CLI to publish the release"
-if gh release view "$tag" > /dev/null 2>&1; then
-  say "the GitHub release for $tag exists: publish skipped"
+# read_release: whether the GitHub release exists (has), is a draft (draft) and which of the four assets it lacks
+# (missing, as platforms).
+read_release() {
+  has=0 draft= missing=
+  assets=$(gh release view "$tag" --json assets --jq '.assets[].name' 2> /dev/null) || return 0
+  has=1
+  draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null) || draft=unknown
+  for pl in $platforms; do
+    printf '%s\n' "$assets" | grep -qxF "obor-$v-$pl" || missing="${missing:+$missing }$pl"
+  done
+}
+read_release
+if [ "$has" = 1 ] && [ "$draft" = false ] && [ -z "$missing" ]; then
+  say "the GitHub release for $tag is published with its four assets: publish skipped"
 else
-  sh scripts/publish "$v" || fail "scripts/publish $v failed"
-  say "published $tag"
+  if [ "$has" = 0 ]; then
+    sh scripts/publish "$v" || fail "scripts/publish $v failed: re-run make ship"
+    say "published $tag"
+  elif [ -n "$missing" ]; then
+    # shellcheck disable=SC2086 # platform names, no spaces
+    sh scripts/publish "$v" --upload $missing || fail "uploading $missing failed: sh scripts/publish $v --upload $missing"
+    say "uploaded the missing assets of $tag: $missing"
+  fi
+  read_release
+  [ "$has" = 1 ] || fail "no GitHub release for $tag after scripts/publish: sh scripts/publish $v"
+  [ -z "$missing" ] || fail "the GitHub release for $tag lacks $missing: sh scripts/publish $v --upload $missing"
+  [ "$draft" = false ] || fail "the GitHub release for $tag is a draft: gh release edit $tag --draft=false"
 fi
 
-installed=
-if command -v obor > /dev/null 2>&1; then
-  installed=$(cd / && obor version 2> /dev/null | awk 'NR == 1 { print $2 }') || installed=
-fi
-if [ "$installed" = "$tag" ]; then
+# --- install
+# installed: the version the obor on PATH reports (empty when there is none).
+installed() {
+  command -v obor > /dev/null 2>&1 || return 0
+  (cd / && obor version 2> /dev/null | awk 'NR == 1 { print $2 }') || true
+}
+if [ "$(installed)" = "$tag" ]; then
   say "the installed obor is $tag: install skipped"
 else
   sh install.sh || fail "install.sh failed"
+  got=$(installed)
+  [ "$got" = "$tag" ] || fail "install.sh ran but obor version is '${got:-none}', not $tag: check PATH, then sh install.sh"
   say "installed the kit (install.sh): obor $tag"
 fi
 

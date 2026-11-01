@@ -18,14 +18,20 @@ The lead, in a clean checkout on main:
    the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on main. In a scratch
    worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
-   worktree. A re-run resumes where it stopped (the version commit, the tag and the catalog commit are not redone); a
-   local tag whose bytes differ is refused, and a pushed tag never moves.
+   worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
+   whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, main's catalog with the four files matching it)
+   and a failed step is undone (the bump's or the catalog's index and tree back to `HEAD`, the scratch worktree removed),
+   so the re-run starts from a clean tree. An existing tag is never touched: one whose bytes differ, or that predates
+   code merged on main after it (anything but docs and `bin/checksums.txt`), is refused — release a new patch version.
 
 The owner:
 
-3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): pushes main and the tag, runs `scripts/publish` (the GitHub release),
-   then `install.sh` on this machine. Each step is skipped when it is already done (origin has the tag, the GitHub
-   release exists, the installed `obor` is this version).
+3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): first the tag's own checks (`scripts/publish --check`) and the same
+   stale-tag check as `make release`; then pushes main and the tag, runs `scripts/publish` (the GitHub release), then
+   `install.sh` on this machine. Each step is skipped when it is already done and checked after it runs: origin has the
+   tag (the same object) and a main containing the local one; the GitHub release is not a draft and has the four assets
+   (a release missing some gets only those, via `scripts/publish --upload`; a draft stops with the
+   `gh release edit` command); the installed `obor` is this version.
 4. `obor serve restart` in each project (`make ship` names the ones launchd knows): a project picks the new kit up
    at restart.
 
