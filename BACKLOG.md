@@ -6,6 +6,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-02 early: **v0.18.0 tagged** (10a24b7c; monitoring release: `internal/view`, `obor web`, prompts table,
+  new monitor, watch --note, role agents stop when done, deduped job prompts). RV-75 and RV-76 closed. Codex smoke
+  T-679 passed. Nothing in flight, no watches; ob-int and ob-terra stopped by serve, ob-fable and ob-deep-dive by the
+  lead. `obor web` runs in pane `ob-web` (system tab, http://127.0.0.1:8787/).
+  **Owner next:** `make ship`, then `obor serve restart` in axis-alies and axis-maps; then the lead: `obor send` both
+  leads what changed (docs/UPGRADE-v0.18.md), restart their monitors (aa-monitor w2:p24, axis-monitor wA:p7).
+  Later (owner): `obor drive`/`obor land` (Later candidates). Owner ended the day after this release.
 - 2026-11-01 evening: **v0.17.5 released** (v0.17.3/v0.17.4 tagged, never published); all three serves on it;
   `obor monitor` panes in each project's system tab. Lead on opus-high (config; applies at the next lead restart).
   In flight: T-662 (running vs pending), T-663 (monitor fits rows), both RV-74 display fixes, unreviewed.
@@ -67,10 +74,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
-- (owner 11-01) **Release v0.18.0 after this batch** (T-672, T-674, T-675), then stop for the day unless something
-  important: release review (requested --after the three) → fixes if likely → verify → close → Codex smoke on C-01 →
-  docs/UPGRADE-v0.18.md → `make release V=0.18.0` → owner `make ship`, serve restarts → `obor send` the adopting leads;
-  restart the axis monitors and `ob-web`.
+- (v0.18.0 release, 11-02) `TestStopForceTerminates` failed once under the full check (60 ms waits for a fake agent;
+  passes alone): same family as the flaky `TestStopEveryKind`. Widen the test's waits if it fails again.
 - (RV-68 #3, accepted: low) A needs-you repeat claimed before a task closes can be appended after the close (claim
   and append are not serialized with the close); fixing needs a lock-order change.
 - (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
@@ -173,5 +178,3 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   have pushed the tag first, which is harmless (the tag is the release). Fetch, then re-run ship.
 - (DD-routing #1 (b), deferred) If workers still re-ask after T-655's template line: keep the lead's hold decision
   across attempts in serve (a decision stays in every later job of the task until it merges). Lead's call then.
-- (owner 11-01) When T-668 merges: restart the monitor process in each project's `system` tab (Ctrl-C, `obor monitor`)
-  so it runs the new build; check it fits and scrolling up no longer moves.
