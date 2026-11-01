@@ -5,8 +5,9 @@
 #   2. a scratch worktree detached at that commit under $TMPDIR: marketplace name obor-kit, `make release` (the four
 #      binaries and bin/checksums.txt), commit, tag v<version>;
 #   3. the four dist files and bin/checksums.txt back on main, committed; the worktree removed.
-# A re-run resumes: the version commit, the local tag and the checksums commit are skipped when present. A pushed tag is
-# never moved (a changed release is a new patch version). --dry-run prints the steps and changes nothing.
+# A re-run resumes: the version commit, the local tag and the checksums commit are skipped when present; a failure
+# before the version commit restores VERSION and the plugin version, so every run starts from a clean tree. A pushed tag
+# is never moved (a changed release is a new patch version). --dry-run prints the steps and changes nothing.
 # POSIX sh, like scripts/publish.
 set -eu
 
@@ -31,6 +32,15 @@ scratch="${tmpdir%/}/obor-release-$v"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 say() { echo "release: $*"; }
+
+# A failure before the version commit leaves the tree clean: the bump is undone (the re-run starts from scratch).
+bumped=0
+tmp=
+cleanup() {
+  [ -z "$tmp" ] || rm -f "$tmp"
+  [ "$bumped" = 0 ] || git checkout -- VERSION .claude-plugin/plugin.json 2> /dev/null || true
+}
+trap cleanup EXIT
 
 # gt a b: a is greater than b, comparing x.y.z numerically.
 gt() {
@@ -82,12 +92,7 @@ grep -Eq "^#+[[:space:]]*v$(printf '%s' "$v" | sed 's/\./\\./g')([^0-9.]|\$)" "$
   fail "$guide has no v$v heading: the guide names that version before the release"
 
 dirty=$(git status --porcelain)
-if [ -n "$dirty" ]; then
-  other=$(printf '%s\n' "$dirty" | awk '{ print $2 }' | grep -v -x -e VERSION -e .claude-plugin/plugin.json || true)
-  { [ -z "$other" ] && [ "$resume" = 1 ]; } ||
-    fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
-  say "resuming: the uncommitted version bump is this release's own step"
-fi
+[ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
 
 have_version_commit=0
 headver=$(git show HEAD:VERSION 2> /dev/null | tr -d '[:space:]') || headver=
@@ -102,14 +107,17 @@ elif [ "$dry" = 1 ]; then
   say "would: make check (the full gate; a failure stops the release, nothing committed)"
   say "would: git commit -m 'obor v$v: VERSION, plugin version' on main"
 else
+  bumped=1
   printf '%s\n' "$v" > VERSION
   tmp=$(mktemp "$tmpdir/obor-plugin.XXXXXX")
   sed 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "'"$v"'"/' .claude-plugin/plugin.json > "$tmp" &&
     mv "$tmp" .claude-plugin/plugin.json || fail "cannot set the plugin version in .claude-plugin/plugin.json"
+  tmp=
   say "VERSION and the plugin version set to $v; running make check"
-  make check || fail "make check failed: nothing is committed (fix it, then re-run)"
+  make check || fail "make check failed: nothing is committed (VERSION and the plugin version are back as they were)"
   git add VERSION .claude-plugin/plugin.json
   git commit -q -m "obor v$v: VERSION, plugin version" || fail "cannot commit the version bump on main"
+  bumped=0
   say "committed on main: obor v$v: VERSION, plugin version"
 fi
 
@@ -156,6 +164,7 @@ else
   tmp=$(mktemp "$tmpdir/obor-marketplace.XXXXXX")
   sed 's/"name"[[:space:]]*:[[:space:]]*"[^"]*"/"name": "obor-kit"/' "$market" > "$tmp" &&
     mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
+  tmp=
   ( cd "$scratch" && make release V= ) || fail "make release failed in $scratch: nothing is tagged"
   ( cd "$scratch" && git add bin/checksums.txt .claude-plugin/marketplace.json &&
     git commit -q -m "obor v$v: marketplace name, checksums" &&

@@ -265,8 +265,8 @@ func TestMakeReleaseResumes(t *testing.T) {
 	}
 }
 
-// T-640: a red make check stops the release with nothing committed; its uncommitted version bump is the resume's own
-// step, so the next run (check green) finishes the release.
+// T-640: a red make check stops the release with nothing committed and puts VERSION and the plugin version back, so
+// the re-run (check green) starts from a clean tree and finishes the release.
 func TestMakeReleaseCheckFailsAndResumes(t *testing.T) {
 	t.Parallel()
 	f := newReleaseFixture(t)
@@ -284,6 +284,15 @@ func TestMakeReleaseCheckFailsAndResumes(t *testing.T) {
 	}
 	if got := f.Git(f.Root, "show", "HEAD:VERSION"); got != "1.2.3" {
 		t.Errorf("HEAD:VERSION = %q, want the release's 1.2.3", got)
+	}
+	if got := strings.TrimSpace(f.Read("VERSION")); got != "1.2.3" {
+		t.Errorf("a red check left VERSION at %q, want 1.2.3 restored", got)
+	}
+	if got := f.Read(".claude-plugin/plugin.json"); strings.Contains(got, "1.2.4") {
+		t.Errorf("a red check left the plugin version bumped: %q", got)
+	}
+	if got := f.Git(f.Root, "status", "--porcelain"); got != "" {
+		t.Errorf("a red check left the tree dirty: %q", got)
 	}
 
 	if err := os.Remove(filepath.Join(f.Base, "go-fail")); err != nil {
@@ -374,6 +383,7 @@ type shipFixture struct {
 	ghlog   string
 	verfile string
 	instlog string
+	labels  string // launchctl list's output for the stub
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -385,6 +395,7 @@ func newShipFixture(t *testing.T) *shipFixture {
 		ghlog:          filepath.Join(f.Base, "gh.log"),
 		verfile:        filepath.Join(f.Base, "installed-version"),
 		instlog:        filepath.Join(f.Base, "install.log"),
+		labels:         filepath.Join(f.Base, "launchctl-list"),
 	}
 	f.Git(f.Base, "init", "-q", "--bare", s.origin)
 	f.Git(f.Root, "remote", "add", "origin", s.origin)
@@ -398,6 +409,8 @@ esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), "#!/bin/bash\necho \"obor $(cat "+s.verfile+")\"\n")
+	// launchctl list: the labels the follow-up line reads (none until a test writes them).
+	writeExec(t, filepath.Join(f.Root, "stub", "launchctl"), "#!/bin/bash\ncat \""+s.labels+"\" 2> /dev/null\n")
 	writeExec(t, filepath.Join(f.Root, "install.sh"), "#!/bin/sh\necho ran >> \""+s.instlog+"\"\nprintf '%s\\n' v1.2.4 > \""+s.verfile+"\"\n")
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "stubs")
@@ -422,7 +435,8 @@ func TestMakeShip(t *testing.T) {
 	if failed {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
-	for _, want := range []string{"pushed main and v1.2.4", "published v1.2.4", "installed the kit", "obor serve restart"} {
+	for _, want := range []string{"pushed main and v1.2.4", "published v1.2.4", "installed the kit",
+		"restart serve: obor serve restart in each project"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ship does not say %q:\n%s", want, out)
 		}
@@ -443,11 +457,14 @@ func TestMakeShip(t *testing.T) {
 
 	ghBefore, instBefore := gh, readFile(t, f.instlog)
 	head := f.Git(f.Root, "rev-parse", "HEAD")
+	// launchd's view of this machine's serves: the follow-up names those projects instead of saying "each project".
+	writeFile(t, f.labels, "PID\tStatus\tLabel\n-\t0\tcom.apple.something\n123\t0\tobor.serve.obor-kit\n456\t0\tobor.serve.axis-alies\n")
 	out, failed = f.make(t, "ship")
 	if failed {
 		t.Fatalf("the second ship failed:\n%s", out)
 	}
-	for _, want := range []string{"push skipped", "publish skipped", "install skipped"} {
+	for _, want := range []string{"push skipped", "publish skipped", "install skipped",
+		"restart serve: obor serve restart in obor-kit, axis-alies"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the second ship does not say %q:\n%s", want, out)
 		}

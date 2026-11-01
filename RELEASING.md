@@ -24,7 +24,8 @@ The owner:
 3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): pushes main and the tag, runs `scripts/publish` (the GitHub release),
    then `install.sh` on this machine. Each step is skipped when it is already done (origin has the tag, the GitHub
    release exists, the installed `obor` is this version).
-4. `obor serve restart` in each project: a project picks the new kit up at restart.
+4. `obor serve restart` in each project (`make ship` names the ones launchd knows): a project picks the new kit up
+   at restart.
 
 Guarantees: main keeps marketplace `obor-kit-dev` (only the tag ships `obor-kit`); `scripts/publish` uploads exactly
 the four binaries the tag's `bin/checksums.txt` names, and the catalog stays cumulative. A pushed tag never moves: a
