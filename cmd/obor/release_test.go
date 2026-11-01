@@ -34,6 +34,7 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	writeExec(t, filepath.Join(dir, "scripts", "release"), string(treeFile(t, "scripts/release")))
 	writeExec(t, filepath.Join(dir, "scripts", "ship"), string(treeFile(t, "scripts/ship")))
 	writeExec(t, filepath.Join(dir, "scripts", "publish"), string(treeFile(t, "scripts/publish")))
+	writeFile(t, filepath.Join(dir, "scripts", "release-lib.sh"), string(treeFile(t, "scripts/release-lib.sh")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, ".gitignore"), ".task-done.md\ndist/\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
@@ -44,7 +45,8 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 		catalog += strings.Repeat("a", 64) + "  dist/obor-1.2.2-" + pl + "\n"
 	}
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), catalog)
-	// A go that logs its argv and writes the -o path; `go test` fails while go-fail exists (a red make check).
+	// A go that logs its argv and writes the -o path; `go test` fails while go-fail exists (a red make check), and a
+	// release build (-o dist/obor-<v>-…) while build-fail exists (a red make release in the scratch worktree).
 	writeExec(t, filepath.Join(dir, "stub", "go"), `#!/bin/bash
 echo "$*" >> "`+f.log+`"
 out=
@@ -57,6 +59,7 @@ if [ -n "$out" ]; then
   mkdir -p "$(dirname "$out")"
   printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 fi
+case $out in dist/obor-*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
 [ "$1" != test ] || [ ! -f "`+filepath.Join(p.Base, "go-fail")+`" ]
 `)
 	for k, v := range map[string]string{"user.name": "obor test", "user.email": "obor-test@example.invalid", "commit.gpgsign": "false"} {
@@ -70,7 +73,8 @@ fi
 func (f *releaseFixture) env() []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "TMPDIR=") || strings.HasPrefix(kv, "HOME=") {
+		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "TMPDIR=") || strings.HasPrefix(kv, "HOME=") ||
+			strings.HasPrefix(kv, "UNREVIEWED=") {
 			continue
 		}
 		env = append(env, kv)
@@ -84,8 +88,14 @@ func (f *releaseFixture) env() []string {
 // make runs `make -s -C root <args…>` with the fixture's go stub first on PATH.
 func (f *releaseFixture) make(t *testing.T, args ...string) (string, bool) {
 	t.Helper()
+	return f.makeEnv(t, nil, args...)
+}
+
+// makeEnv is make with more environment (UNREVIEWED=… the way the owner types it: in the shell, not as a make variable).
+func (f *releaseFixture) makeEnv(t *testing.T, extra []string, args ...string) (string, bool) {
+	t.Helper()
 	cmd := exec.Command("make", append([]string{"-s", "-C", f.Root}, args...)...)
-	cmd.Env = f.env()
+	cmd.Env = append(f.env(), extra...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err != nil
 }
@@ -544,24 +554,27 @@ func TestMakeReleasePlainMakeEnv(t *testing.T) {
 	caller, check := filepath.Join(f.Base, "caller.env"), filepath.Join(f.Base, "check.env")
 	writeFile(t, filepath.Join(f.Root, "Makefile"),
 		"release:\n"+
-			"\t@printf 'V=[%s] MAKEFLAGS=[%s]' \"$${V-}\" \"$${MAKEFLAGS-}\" > "+caller+"\n"+
+			"\t@printf 'V=[%s] MAKEFLAGS=[%s] UNREVIEWED=[%s]' \"$${V-}\" \"$${MAKEFLAGS-}\" \"$${UNREVIEWED-}\" > "+caller+"\n"+
 			"\t@sh scripts/release \"$(V)\"\n"+
 			"\ncheck:\n"+
-			"\t@printf 'V=[%s] DRY=[%s] MAKEFLAGS=[%s] MFLAGS=[%s] MAKELEVEL=[%s]' \"$${V-}\" \"$${DRY-}\" \"$${MAKEFLAGS-}\" \"$${MFLAGS-}\" \"$${MAKELEVEL-}\" > "+check+"\n"+
+			"\t@printf 'V=[%s] DRY=[%s] MAKEFLAGS=[%s] MFLAGS=[%s] MAKELEVEL=[%s] UNREVIEWED=[%s]' \"$${V-}\" \"$${DRY-}\" \"$${MAKEFLAGS-}\" \"$${MFLAGS-}\" \"$${MAKELEVEL-}\" \"$${UNREVIEWED-}\" > "+check+"\n"+
 			"\t@exit 1\n")
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "a check that records the make environment it was run with")
 
-	out, failed := f.release(t, "V=1.2.4")
+	out, failed := f.makeEnv(t, []string{"UNREVIEWED=the owner ships it"}, "release", "V=1.2.4")
 	if !failed || !strings.Contains(out, "make check failed") {
 		t.Fatalf("the recording check must stop the release (failed %v):\n%s", failed, out)
 	}
-	// Precondition: the caller's make does leak its V into the script's environment and MAKEFLAGS (else this is vacuous).
+	// Precondition: the caller's make does leak its V and the owner's UNREVIEWED into the script's environment and V
+	// into MAKEFLAGS (else this is vacuous).
 	got := readFile(t, caller)
-	if !strings.Contains(got, "V=[1.2.4]") || !strings.Contains(got, "MAKEFLAGS=[") || !strings.Contains(got, "V=1.2.4") {
-		t.Fatalf("precondition: the caller's make exports V, got %q", got)
+	if !strings.Contains(got, "V=[1.2.4]") || !strings.Contains(got, "MAKEFLAGS=[") || !strings.Contains(got, "V=1.2.4") ||
+		!strings.Contains(got, "UNREVIEWED=[the owner ships it]") {
+		t.Fatalf("precondition: the caller's make exports V and UNREVIEWED, got %q", got)
 	}
-	if got, want := readFile(t, check), "V=[] DRY=[] MAKEFLAGS=[] MFLAGS=[] MAKELEVEL=[1]"; got != want {
+	// T-643 (RV-70 #1): UNREVIEWED is scrubbed too, else the gate's own release tests run with the override.
+	if got, want := readFile(t, check), "V=[] DRY=[] MAKEFLAGS=[] MFLAGS=[] MAKELEVEL=[1] UNREVIEWED=[]"; got != want {
 		t.Errorf("the release's make check saw %q, want %q: the caller's make variables must not reach it", got, want)
 	}
 }
@@ -575,6 +588,7 @@ type shipFixture struct {
 	verfile string
 	instlog string
 	labels  string // launchctl list's output for the stub
+	ghstate string // the stub gh's release: release, assets, draft
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -587,22 +601,40 @@ func newShipFixture(t *testing.T) *shipFixture {
 		verfile:        filepath.Join(f.Base, "installed-version"),
 		instlog:        filepath.Join(f.Base, "install.log"),
 		labels:         filepath.Join(f.Base, "launchctl-list"),
+		ghstate:        filepath.Join(f.Base, "gh-state"),
 	}
 	f.Git(f.Base, "init", "-q", "--bare", s.origin)
 	f.Git(f.Root, "remote", "add", "origin", s.origin)
-	marker := filepath.Join(f.Base, "gh-release")
+	// gh keeps the release in ghstate: "release" when it exists, "assets" its asset names, "draft" true for a draft.
+	st := s.ghstate
 	writeExec(t, filepath.Join(f.Root, "stub", "gh"), `#!/bin/bash
 echo "$*" >> "`+s.ghlog+`"
+st="`+st+`"
+mkdir -p "$st"
 case "$1 $2" in
-  "release view") [ -f "`+marker+`" ] ;;
-  "release create") : > "`+marker+`" ;;
+  "release view")
+    [ -f "$st/release" ] || { echo "release not found" >&2; exit 1; }
+    case "$*" in
+      *isDraft*) cat "$st/draft" 2> /dev/null || echo false ;;
+      *assets*) cat "$st/assets" 2> /dev/null ;;
+    esac ;;
+  "release create")
+    : > "$st/release"
+    shift 3
+    for a; do case $a in --*) ;; *) basename "$a" >> "$st/assets" ;; esac; done ;;
+  "release upload")
+    [ -f "$st/release" ] || exit 1
+    shift 3
+    for a; do basename "$a" >> "$st/assets"; done ;;
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), "#!/bin/bash\necho \"obor $(cat "+s.verfile+")\"\n")
 	// launchctl list: the labels the follow-up line reads (none until a test writes them).
 	writeExec(t, filepath.Join(f.Root, "stub", "launchctl"), "#!/bin/bash\ncat \""+s.labels+"\" 2> /dev/null\n")
-	writeExec(t, filepath.Join(f.Root, "install.sh"), "#!/bin/sh\necho ran >> \""+s.instlog+"\"\nprintf '%s\\n' v1.2.4 > \""+s.verfile+"\"\n")
+	// install.sh installs v1.2.4 unless install-broken exists (an install that does not land).
+	writeExec(t, filepath.Join(f.Root, "install.sh"), "#!/bin/sh\necho ran >> \""+s.instlog+"\"\n"+
+		"[ -f \""+filepath.Join(f.Base, "install-broken")+"\" ] || printf '%s\\n' v1.2.4 > \""+s.verfile+"\"\n")
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "stubs")
 	return s

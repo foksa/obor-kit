@@ -2,9 +2,32 @@
 # publish <version>: upload the four release binaries of v<version> to its GitHub release (`make publish`). The four
 # paths are a literal list, not GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
 # bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. POSIX sh.
+#   publish <version> --check: only the checks (scripts/ship runs them before it pushes the tag);
+#   publish <version> --upload <os-arch>…: the checks, then only those platforms' files to the existing release
+#   (scripts/ship, for a release that lacks some of its four assets).
 set -eu
 
-v=${1:?usage: publish <version>}
+usage() { echo "usage: publish <version> [--check | --upload <os-arch>...]" >&2; exit 2; }
+platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+
+[ "$#" -ge 1 ] || usage
+v=$1
+shift
+mode=create
+case ${1:-} in
+  "") ;;
+  --check) [ "$#" = 1 ] || usage; mode=check ;;
+  --upload)
+    shift
+    [ "$#" -ge 1 ] || usage
+    for pl in "$@"; do
+      case " $platforms " in *" $pl "*) ;; *) usage ;; esac
+    done
+    mode=upload
+    ;;
+  *) usage ;;
+esac
+upload="$*"
 tag="v$v"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
@@ -21,15 +44,24 @@ market=$(git show "$tag:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\
 [ "$market" = obor-kit ] || fail ".claude-plugin/marketplace.json name at $tag is '$market', want obor-kit"
 catalog=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: commit the release's catalog before tagging"
 
-set --
-for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+files=
+for platform in $platforms; do
   f="dist/obor-$v-$platform"
   [ -f "$f" ] || fail "missing $f: run make release first"
   want=$(printf '%s\n' "$catalog" | awk -v f="$f" '$2 == f { print $1; exit }')
   [ -n "$want" ] || fail "no line for $f in bin/checksums.txt at $tag"
   got=$(shasum -a 256 "$f" | awk '{ print $1 }')
   [ "$got" = "$want" ] || fail "$f sha256 $got differs from the $tag catalog's $want: rebuild at $tag (a pushed tag never moves: a changed release is a new version)"
-  set -- "$@" "$f"
+  files="$files $f"
 done
 
-exec gh release create "$tag" --verify-tag "$@"
+case $mode in
+  check) exit 0 ;;
+  upload)
+    set --
+    for platform in $upload; do set -- "$@" "dist/obor-$v-$platform"; done
+    exec gh release upload "$tag" "$@"
+    ;;
+esac
+# shellcheck disable=SC2086 # the four literal paths, no spaces
+exec gh release create "$tag" --verify-tag $files
