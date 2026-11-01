@@ -104,11 +104,12 @@ type BriefStatus struct {
 	Worked    bool   `json:"worked,omitempty"`
 }
 
-// WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, and since when
-// (Unix seconds, its fact's time).
+// WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, its note (T-666:
+// what the lead meant to do when the set ends; "" when none), and since when (Unix seconds, its fact's time).
 type WatchStatus struct {
 	Task  string `json:"task"`
 	By    string `json:"by,omitempty"`
+	Note  string `json:"note,omitempty"`
 	Since int64  `json:"since"`
 }
 
@@ -241,7 +242,7 @@ func (a *App) Status() Status {
 		sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
 		for _, set := range sets {
 			w := p.folded.watches[set]
-			ps.Watches = append(ps.Watches, WatchStatus{Task: set, By: w.by, Since: w.at.Unix()})
+			ps.Watches = append(ps.Watches, WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })

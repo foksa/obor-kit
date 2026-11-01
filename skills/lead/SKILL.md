@@ -41,12 +41,15 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   `--types a,b` overrides the level (smoke tests, Haiku). Add `--after T-yy[,T-zz]` and serve dispatches it once
   those are merged and a lane is free. A second `obor dispatch` of a waiting task replaces its request. `--force` takes a
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
-- "When Y, do X" is never only chat: an `--after` dispatch, else a line in `BACKLOG.md`.
+- "When Y, do X" is never only chat: an `--after` dispatch; when Y is a merge, a watch with `--note "<what to do>"`
+  (the line you get says both); else a line in `BACKLOG.md`.
 
 ## Watch
-A merge you must act on (restart serve after it, a step by hand): `obor watch T-xx`, instead of a background wait or a
-`git log` loop; you get `[obor] T-xx merged <sha7>` (or `dropped: <why>`) once. A wave's end: `obor watch T-a,T-b,T-c`,
-one line once all merged (or the first dropped). `obor watch` lists, `--rm T-xx` ends one (`commands.md`).
+A merge you must act on (restart serve after it, a step by hand): `obor watch T-xx --note "<what to do>"`, instead of a
+background wait or a `git log` loop; you get `[obor] T-xx merged <sha7> — <what to do>` (or `dropped: <why>`) once, so
+the line says what you meant to do, not only that something merged. A wave's end: `obor watch T-a,T-b,T-c --note "…"`,
+one line once all merged (or the first dropped). `obor watch` lists them with their notes, `--rm T-xx` ends one
+(`commands.md`).
 
 ## Needs-you
 `obor status` lists each `needs-you <T-xx> (<LANE>): <reason> → <commands>`; the owner is notified through herdr too.

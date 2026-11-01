@@ -229,6 +229,9 @@ func queueSection(st view.Project, now time.Time) []string {
 		if w.By != "" {
 			line += " (by " + w.By + ")"
 		}
+		if w.Note != "" {
+			line += " — " + w.Note
+		}
 		out = append(out, line)
 	}
 	for _, o := range q.Outbox {

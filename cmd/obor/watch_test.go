@@ -96,3 +96,36 @@ func TestWatchSetRequest(t *testing.T) {
 		}
 	}
 }
+
+// T-666: --note "<text>" goes with a watch (one request per set, each carrying the note); a note with no set, with no
+// text or with --rm is a usage error, as is a note before a missing text; nothing is sent then.
+func TestWatchNoteFlag(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	home, serve := startFakeServe(t, p.Root, app.Status{}, "WATCHING", "")
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	for _, args := range [][]string{{"watch", "--note"}, {"watch", "--note", "restart serve"},
+		{"watch", "T-1", "--note"}, {"watch", "--rm", "T-1", "--note", "restart serve"}} {
+		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor watch") {
+			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
+		}
+	}
+	if _, n := serve.requests(); n != 0 {
+		t.Fatalf("a refused command sent %d requests", n)
+	}
+	const note = "restart serve, then release v0.17.4"
+	if rc, stdout, _ := run(t, p.Root, env, "watch", "T-1,T-2", "T-3", "--note", note); rc != 0 ||
+		stdout != "WATCHING\nWATCHING\n" {
+		t.Errorf("watch T-1,T-2 T-3 --note: exit %d, %q", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if len(calls) != 2 {
+		t.Fatalf("%d requests, want 2", len(calls))
+	}
+	for i, want := range []string{"T-1,T-2", "T-3"} {
+		if c := calls[i]; c.Task != want || c.Note != note || c.Clear {
+			t.Errorf("request %d: task %q note %q clear %v, want %q with the note", i+1, c.Task, c.Note, c.Clear, want)
+		}
+	}
+}
