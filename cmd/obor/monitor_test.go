@@ -18,6 +18,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
+	"obor/internal/view"
 )
 
 // statusServe is a fake app socket at path answering every status request with ss (changing ss between calls is the
@@ -79,21 +80,6 @@ func addEvent(t *testing.T, root string, at time.Time, kind, task, step string, 
 	}
 }
 
-// readEvents is the project's newest records, newest first.
-func readEvents(t *testing.T, root string, n int) []app.Record {
-	t.Helper()
-	db, err := store.OpenRO(store.File(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	recs, err := app.RecentEvents(db, n)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return recs
-}
-
 // monitorOf is a monitor of p's project at the fixed clock and the fixed height, in the unknown-width default columns.
 func monitorOf(t *testing.T, p *testkit.Project, now time.Time, height int) *monitor {
 	t.Helper()
@@ -108,7 +94,7 @@ func monitorOf(t *testing.T, p *testkit.Project, now time.Time, height int) *mon
 // frameLines is m's frame at now as lines.
 func frameLines(t *testing.T, m *monitor, now time.Time) []string {
 	t.Helper()
-	text := m.frame(now, readEvents(t, m.root, monitorRecent))
+	text := m.frame(now)
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
@@ -169,7 +155,7 @@ func TestMonitorSections(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	p, _ := monitorFx(t, now)
 	m := monitorOf(t, p, now, 40)
-	text := m.frame(now, readEvents(t, p.Root, monitorRecent))
+	text := m.frame(now)
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	if len(lines) < 12 {
 		t.Fatalf("precondition: a full view, got %d lines:\n%s", len(lines), text)
@@ -229,13 +215,13 @@ func TestMonitorSections(t *testing.T) {
 func TestMonitorPendingLine(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
-	st := statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
+	st := view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
 		Pending: []app.PendingStep{
 			{Step: app.StepAfterMerge, Task: "T-1", Since: now.Add(-time.Hour).Unix(),
 				Error: "git I/O: index.lock exists", FailedAt: now.Add(-4 * time.Minute).Unix()},
 			{Step: app.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
 		}}
-	sec := monitorSections(st, nil, now, false)[0]
+	sec := monitorSections(st, now, false)[0]
 	if len(sec) < 3 || sec[1] != "running: nothing" ||
 		sec[2] != "pending: after_merge T-1 (failed 4m ago: git I/O: index.lock exists) · gate T-2 (queued)" {
 		t.Errorf("the monitor's serve section %q, want serve's line, `running: nothing` and the pending line", sec)
@@ -269,7 +255,7 @@ func TestMonitorTruncatesLaterSections(t *testing.T) {
 	}
 }
 
-// TestMonitorFitsTerminal: at 80x10 a frame is exactly 10 rows with serve's line first, no row longer than 80 runes (a
+// TestMonitorFitsTerminal: at 80x14 a frame is exactly 14 rows with serve's line first, no row longer than 80 runes (a
 // long line is cut with an ellipsis, not wrapped), and no newline after the last row (which would scroll the view one).
 func TestMonitorFitsTerminal(t *testing.T) {
 	t.Parallel()
@@ -281,15 +267,15 @@ func TestMonitorFitsTerminal(t *testing.T) {
 	p, _ := monitorFx(t, now)
 	addEvent(t, p.Root, now.Add(-70*time.Second), app.KindFact, app.MsgTask, app.StepMessage,
 		map[string]any{"to": "pj-lead", "line": strings.Repeat("x", 100)})
-	m := monitorOf(t, p, now, 10)
+	m := monitorOf(t, p, now, 14)
 	m.width = func() int { return 80 }
-	text := m.frame(now, readEvents(t, p.Root, monitorRecent))
+	text := m.frame(now)
 	if strings.HasSuffix(text, "\n") {
 		t.Errorf("the frame ends in a newline, which scrolls the view one row:\n%s", text)
 	}
 	lines := strings.Split(text, "\n")
-	if len(lines) != 10 {
-		t.Fatalf("%d rows at 80x10, want exactly 10:\n%s", len(lines), text)
+	if len(lines) != 14 {
+		t.Fatalf("%d rows at 80x14, want exactly 14:\n%s", len(lines), text)
 	}
 	if !strings.HasPrefix(lines[0], "serve: up since ") {
 		t.Errorf("row 0 is %q, want serve's line first", lines[0])
@@ -410,5 +396,27 @@ func TestMonitorUsage(t *testing.T) {
 	rc, _, stderr := run(t, p.Root, nil, "monitor", "--json")
 	if rc != 2 || !strings.Contains(stderr, "usage: obor monitor") {
 		t.Errorf("obor monitor --json: exit %d, %q", rc, stderr)
+	}
+}
+
+// TestMonitorShowsLaneWait (T-664): a dispatch that waits only for a free lane of its level (hidden before T-664: the
+// monitor listed --after waits alone) and a spec never dispatched both appear in the frame's queue, before the events.
+func TestMonitorShowsLaneWait(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	p, srv := monitorFx(t, now)
+	p.Spec("T-30", "# T-30 — later\n")
+	srv.ss.Project.Tasks = append(srv.ss.Project.Tasks, app.TaskStatus{Task: "T-03", Attempt: 1, State: "waiting",
+		Level: "medium", Types: []string{"sonnet", "deepseek"}})
+	m := monitorOf(t, p, now, 40)
+	text := m.frame(now)
+	lane := strings.Index(text, "queued T-03: waiting for a medium lane (sonnet, deepseek)")
+	never := strings.Index(text, "queued T-30: spec r1 stored")
+	events := strings.Index(text, "dispatched T-01")
+	if lane < 0 || never < 0 {
+		t.Fatalf("no lane-wait or never-dispatched line in the frame:\n%s", text)
+	}
+	if events < 0 || lane > events || never > events {
+		t.Errorf("the queue lines (%d, %d) not before the events (%d):\n%s", lane, never, events, text)
 	}
 }

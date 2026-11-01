@@ -886,3 +886,32 @@ func TestRunningLeadHint(t *testing.T) {
 		}
 	}
 }
+
+// TestBriefStatus (T-664): the app's status lists a role agent's open brief: not delivered while its line is queued,
+// delivered once typed, worked on once its pane worked; none once it finished.
+func TestBriefStatus(t *testing.T) {
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	if got := a.Status().Project.Briefs; len(got) != 0 {
+		t.Fatalf("precondition: no brief, got %+v", got)
+	}
+	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify 1", Role: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 {
+		t.Errorf("briefed, its line queued: %+v; want pj-rev, not delivered, its time", got)
+	}
+	l := &linerSpy{}
+	a.deliver(context.Background(), p, linerLoop(l))
+	if len(l.calls) != 1 {
+		t.Fatalf("precondition: the brief's line typed, got %v", l.calls)
+	}
+	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Delivered || got[0].Worked {
+		t.Errorf("its line typed: %+v; want delivered, not worked on", got)
+	}
+	lineStatus(a, "w:rev", "working", now)
+	a.deliver(context.Background(), p, linerLoop(l))
+	if got := a.Status().Project.Briefs; len(got) != 1 || !got[0].Worked {
+		t.Errorf("its pane worked: %+v; want worked on", got)
+	}
+}

@@ -28,6 +28,7 @@ const (
 	bridge   = "bridge"  // what differs per agent CLI (agents and one package per kind): data and pure functions
 	core     = "core"    // the app: task state, event log, scheduler rules, watchdogs, adapter interfaces
 	adapter  = "adapter" // one outside system each: herdr, git/merge gate, agent CLIs, MCP, Claude Code hooks, setup
+	view     = "view"    // the read model (internal/view): joins serve's status, git's lane table and the store
 	entry    = "entry"   // cmd/obor: wiring and flags only
 	testhelp = "test"    // test helpers
 	tool     = "tool"    // standalone programs (probes, spikes)
@@ -44,6 +45,8 @@ var layerOf = map[string]string{
 
 	"internal/herdr": adapter, "internal/checks": adapter, "internal/launch": adapter, "internal/mcp": adapter,
 	"internal/guard": adapter, "internal/setup": adapter, "internal/service": adapter,
+
+	"internal/view": view,
 
 	"cmd/obor": entry, "internal/affected": adapter,
 
@@ -72,7 +75,9 @@ func layer(pkg string) string {
 
 // allowed: may a package of layer `from` import pkg `to` of layer `toLayer`? Adapters reach each other only through
 // core interfaces; nobody but legacy, entry and test code imports legacy. Every layer may import a bridge; a bridge
-// imports no obor package but the agents package itself (its kinds implement agents.Kind).
+// imports no obor package but the agents package itself (its kinds implement agents.Kind). The view reads base, core
+// and the adapters (the lane table, the restart lock); only entry (and test) packages import it, so every reader of
+// project state goes through view.Build (T-664).
 func allowed(fromPkg, from, toPkg, to string) bool {
 	switch {
 	case from == bridge:
@@ -87,6 +92,8 @@ func allowed(fromPkg, from, toPkg, to string) bool {
 		return to == base
 	case core:
 		return to == base || to == core
+	case view:
+		return to == base || to == core || to == adapter
 	case adapter:
 		return to == base || to == core || strings.HasPrefix(toPkg, fromPkg+"/")
 	}
@@ -124,6 +131,14 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/config", "internal/agents", true},
 		{"internal/launch", "internal/agents/claude", true},
 		{"internal/app", "internal/agents", true},
+		{"internal/view", "internal/app", true},
+		{"internal/view", "internal/checks", true},
+		{"internal/view", "internal/store", true},
+		{"cmd/obor", "internal/view", true},
+		{"internal/app", "internal/view", false},
+		{"internal/checks", "internal/view", false},
+		{"internal/mcp", "internal/view", false},
+		{"internal/store", "internal/view", false},
 	} {
 		if got := allowed(c.from, layer(c.from), c.to, layer(c.to)); got != c.want {
 			t.Errorf("allowed(%s -> %s) = %v, want %v", c.from, c.to, got, c.want)

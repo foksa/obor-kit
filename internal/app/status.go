@@ -44,6 +44,11 @@ type ProjectStatus struct {
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
 	// (review.go; "": neither).
 	Review string `json:"review,omitempty"`
+	// ReviewRequest is the open review request as data (T-664: the view's queue; nil: none): Review is its line.
+	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
+	// Briefs is the role agents' open briefs (messages.go): the brief each is on, since when and whether its line was
+	// delivered (T-664: the view's roles and queue), by agent.
+	Briefs []BriefStatus `json:"briefs,omitempty"`
 	// Answers is, by a needs-you fact's seq, the commands that answer it in its task's state (answerPath; none: "").
 	Answers map[int64]string `json:"answers,omitempty"`
 	// Running is what serve does for the project without an agent now (T-657, T-662): its command steps whose effect
@@ -78,6 +83,27 @@ type PendingStep struct {
 	FailedAt int64  `json:"failed_at,omitempty"`
 }
 
+// ReviewRequestStatus is the open review request (review.go): the tasks it waits to merge (After) and those of them
+// not merged yet (Waiting), the task whose fix it waits to close (Held), its note, who asked and since when (Unix
+// seconds).
+type ReviewRequestStatus struct {
+	After   []string `json:"after,omitempty"`
+	Waiting []string `json:"waiting,omitempty"`
+	Held    string   `json:"held,omitempty"`
+	Note    string   `json:"note,omitempty"`
+	By      string   `json:"by,omitempty"`
+	Since   int64    `json:"since"`
+}
+
+// BriefStatus is a role agent's open brief: to whom, since when (Unix seconds: its line's delivery, else its fact's
+// time), whether its line was delivered, and whether the agent's pane worked on it since.
+type BriefStatus struct {
+	To        string `json:"to"`
+	Since     int64  `json:"since"`
+	Delivered bool   `json:"delivered"`
+	Worked    bool   `json:"worked,omitempty"`
+}
+
 // WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, and since when
 // (Unix seconds, its fact's time).
 type WatchStatus struct {
@@ -97,6 +123,10 @@ type TaskStatus struct {
 	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
 	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its lane types came from
 	Types   []string `json:"types,omitempty"`   // waiting: the lane types it takes
+	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
+	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
+	Job       string `json:"job,omitempty"`
+	Delivered bool   `json:"delivered,omitempty"`
 }
 
 // AgentStatus is one observed agent: its address, lane and task (when its cwd is a lane) and status for Age seconds.
@@ -164,6 +194,14 @@ func (a *App) Status() Status {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
 				}
+				key, open := mt.workerJob()
+				if !open {
+					key, open = mt.integratorJob()
+				}
+				if open {
+					ts.Job = JobID(key)
+					ts.Delivered = p.folded.delivered[ts.Job]
+				}
 				ps.Tasks = append(ps.Tasks, ts)
 			}
 		}
@@ -177,6 +215,11 @@ func (a *App) Status() Status {
 		} else {
 			ps.Review = s
 		}
+		if q := p.folded.review; q != nil {
+			ps.ReviewRequest = &ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
+				Note: q.note, By: q.by, Since: q.at.Unix()}
+		}
+		ps.Briefs = p.briefStatus()
 		for _, f := range ps.Facts {
 			if f.Step != StepNeedsYou {
 				continue
