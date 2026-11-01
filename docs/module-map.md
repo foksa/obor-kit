@@ -106,7 +106,7 @@ appears in all of them; no second builder.
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
 
-**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`, T-658) rendering of
+**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`: the loop and the alternate-screen drawing; `monitor_render.go`: the look; T-658, T-668) rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`,
 `answer`, `resume`, `sendback`, `drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
