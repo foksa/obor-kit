@@ -245,9 +245,23 @@ func (r *loopRig) stop() {
 	r.cancel = nil
 }
 
+// patience is how long a wait may take: the time left to the package's test deadline less a margin (the serve pass
+// runs on a fake clock, so only the poll is real time, and a loaded machine must slow a test, not fail it); 20 s
+// when the test has no deadline. Under 1 s left it is 1 s, so the wait ends in a t.Fatalf before the package panics.
+func (r *loopRig) patience() time.Duration {
+	d, ok := r.t.Deadline()
+	if !ok {
+		return 20 * time.Second
+	}
+	if left := time.Until(d) - 10*time.Second; left > time.Second {
+		return left
+	}
+	return time.Second
+}
+
 func (r *loopRig) waitFor(what string, ok func() bool) {
 	r.t.Helper()
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(r.patience()); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		if ok() {
 			return
 		}
