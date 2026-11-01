@@ -9,8 +9,8 @@ import (
 	"obor/internal/config"
 )
 
-// show is `obor setup show`: read-only, the setup table (models and effort per difficulty level, the lanes that run
-// each, the roles' types) and whether the owner confirmed it.
+// show is `obor setup show`: read-only, the setup table (per difficulty level each of its lane types with its model,
+// effort and lanes, the roles' types) and whether the owner confirmed it.
 func (s *Setup) show(args []string) error {
 	if len(args) > 0 {
 		return errUsage
@@ -38,10 +38,11 @@ func (s *Setup) printTable() {
 	}
 }
 
-// levelLine is one level of the table: the level's types the project has, in order — the first with its model and
-// effort, or "no lane" when no configured lane has it, then the types that do run the level — and the lanes that run
-// it: "opus-high (opus, effort high; no lane), opus: O-01", "deepseek (no lane), sonnet: S-01", "sonnet (sonnet,
-// effort medium): S-01". A type the project has no lane_type for is never named (T-647).
+// levelLine is one level of the table: each type the project has for the level, in order, with its own model and
+// effort and its own lanes — "deepseek (opencode): D-01, D-02 | sonnet (sonnet, effort medium): S-01" — and "no lane"
+// as the lanes of a type no configured lane has: "opus-high (opus, effort high): no lane" (T-653). A type the project
+// has no lane_type for is never named (T-647). A level none of whose types has a lane names the T-631 fallback
+// ("… | no simple lane: fallback sonnet"), and one with no lane anywhere says the task waits.
 func (s *Setup) levelLine(level string) string {
 	types := s.existingTypes(s.cfg.DifficultyList(level))
 	if len(types) == 0 { // only another level's types can run it, if any
@@ -50,47 +51,47 @@ func (s *Setup) levelLine(level string) string {
 		}
 		return "no lane_type this level lists: a " + level + " task waits for one"
 	}
-	pref := types[0]
-	own := s.existingTypes(s.cfg.DifficultyLevelTypes(level)) // the level's types a lane has
-	switch {
-	case hasType(own, pref):
-		return pref + s.typeDetail(pref, true) + ": " + s.lanesOfTypes(own)
-	case len(own) > 0:
-		return pref + s.typeDetail(pref, false) + ", " + strings.Join(own, ", ") + ": " + s.lanesOfTypes(own)
+	parts := make([]string, 0, len(types))
+	withLane := false
+	for _, t := range types {
+		lanes := s.lanesOfType(t)
+		if lanes == "" {
+			lanes = "no lane"
+		} else {
+			withLane = true
+		}
+		parts = append(parts, t+s.typeDetail(t)+": "+lanes)
 	}
-	fb := s.fallbackTypes(level) // T-631: no lane of any type this level lists
-	if len(fb) == 0 {
-		return pref + s.typeDetail(pref, false) + ": no lane: a " + level + " task waits for one"
+	line := strings.Join(parts, " | ")
+	if withLane {
+		return line
 	}
-	return pref + s.typeDetail(pref, false) + ": " + s.lanesOfTypes(fb) + " | no " + level + " lane: fallback " +
-		strings.Join(fb, ", ")
+	if fb := s.fallbackTypes(level); len(fb) > 0 { // T-631: no lane of any type this level lists
+		return line + " | no " + level + " lane: fallback " + strings.Join(fb, ", ")
+	}
+	return line + ": a " + level + " task waits for one"
 }
 
 // typeDetail is a lane type as the table shows it after the type's name: its model and effort as its args name them
-// ("(opus, effort high)"), nothing when the args name neither; hasLane false adds "; no lane" — the level runs on
-// another of its types instead.
-func (s *Setup) typeDetail(name string, hasLane bool) string {
-	detail := s.typeModelEffort(name)
-	if !hasLane {
-		if detail != "" {
-			detail += "; "
-		}
-		detail += "no lane"
+// ("(opus, effort high)"); nothing for a type whose args name neither.
+func (s *Setup) typeDetail(name string) string {
+	if detail := s.typeModelEffort(name); detail != "" {
+		return " (" + detail + ")"
 	}
-	if detail == "" {
-		return ""
-	}
-	return " (" + detail + ")"
+	return ""
 }
 
-// typeModelEffort is a lane type's model and effort as its args name them ("opus, effort high"); "" for a type whose
-// args name neither (obor setup show never guesses a model).
+// typeModelEffort is a lane type's model and effort as its args name them ("opus, effort high"), the kind in the
+// model's place when the args name no model ("opencode"): the table shows what runs and never guesses a model.
 func (s *Setup) typeModelEffort(name string) string {
 	lt, ok := s.cfg.LaneType(name)
 	if !ok {
 		return ""
 	}
 	model, effort := lt.Model(), lt.Effort()
+	if model == "" {
+		model = lt.Kind
+	}
 	switch {
 	case model != "" && effort != "":
 		return model + ", effort " + effort
@@ -120,6 +121,17 @@ func (s *Setup) fallbackTypes(level string) []string {
 	return s.existingTypes(types)
 }
 
+// lanesOfType is one type's configured lanes, by lane name, as "O-01, S-01" ("" when none).
+func (s *Setup) lanesOfType(typ string) string {
+	var names []string
+	for _, l := range s.cfg.Lanes() {
+		if l.Type == typ {
+			names = append(names, l.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // lanesOfTypes is the configured lanes of the types, by lane name, as "O-01, S-01" ("" when none).
 func (s *Setup) lanesOfTypes(types []string) string {
 	var names []string
@@ -144,7 +156,7 @@ func (s *Setup) rolesLine() string {
 			parts = append(parts, role+" - (roles."+role+".type is not a lane_type)")
 			continue
 		}
-		parts = append(parts, role+" "+rc.Type+s.typeDetail(rc.Type, true))
+		parts = append(parts, role+" "+rc.Type+s.typeDetail(rc.Type))
 	}
 	return strings.Join(parts, ", ")
 }

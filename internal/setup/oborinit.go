@@ -35,8 +35,8 @@ package setup
 //	           listed, not fatal: Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
-// The output ends with the setup table (T-647, setup show): per difficulty level its preferred lane type, model,
-// effort and lanes, the roles' types, and whether the owner confirmed them.
+// The output ends with the setup table (T-647, setup show): per difficulty level each of its lane types with its
+// model, effort and lanes, the roles' types, and whether the owner confirmed them.
 
 import (
 	"bytes"

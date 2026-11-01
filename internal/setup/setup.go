@@ -43,8 +43,9 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
 //	        workspace): see rename.go.
 //
-//	show  the setup table, read-only (T-647): per difficulty level its preferred lane type, that type's model and
-//	        effort, the lanes that run the level and its fallback; the roles' types; whether the owner confirmed it.
+//	show  the setup table, read-only (T-647): per difficulty level each lane type the project has for it, in order, with
+//	        that type's model and effort and the lanes that run it (T-653), the level's fallback; the roles' types;
+//	        whether the owner confirmed it.
 //
 // obor init (P7-2): see oborinit.go.
 //
