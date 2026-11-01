@@ -53,7 +53,8 @@ Summary: what changed (files, functions, tests).
 Self-check: files the spec did not mention, every deviation, the evidence above.
 Skipped: anything in the spec not done, and why.
 Open questions: only what blocks acceptance and the spec does not answer. A choice you made inside the goal is a
-  Self-check deviation with its reason, not a question.
+  Self-check deviation with its reason, not a question; a question the sendback's why already decided is not open:
+  follow the decision. Nothing open: write `none.` and put remarks under Concerns.
 Concerns (optional): something systemic (complexity creep, a fragile dependency, effort vs value, rule friction,
   a bug pattern) with a recommendation. Omit when there is nothing.
 ```
