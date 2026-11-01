@@ -1,10 +1,13 @@
 package main
 
-// obor monitor (T-658): the project's live view in the "system" tab of its herdr workspace. It renders the project's
-// view (view.Build, as obor status does) redrawn in place — serve's line with what it does without an agent, needs-you,
-// the lanes and the role agents, the queue (T-664) — plus the store's recent events, fitted to the terminal's height. It redraws on every new record in the store and at least
-// every 2 s (elapsed times), survives a serve restart ("serve: restarting…" until the socket answers again), and ends
-// on Ctrl-C. Read-only, any role; no TUI library: clear the screen, write the lines.
+// obor monitor (T-658, T-668): the project's live view in the "system" tab of its herdr workspace. It renders the
+// project's view (view.Build, as obor status does; the look is monitor_render.go) — a header, needs-you, the lanes and
+// the role agents, the queue (T-664), the store's recent events — fitted to the terminal. It draws on the alternate
+// screen with the cursor hidden (nothing it draws reaches the scrollback), redraws in place by cursor-home and a
+// clear-to-end-of-line per row, only when the frame's text changed, and refits at once on a resize. It looks at the
+// store for a new record every poll and redraws at least every 2 s (elapsed times), survives a serve restart ("serve
+// restarting…" until the socket answers again), and ends on Ctrl-C (no other keys). NO_COLOR or a pipe: plain frames.
+// Read-only, any role; no TUI library.
 
 import (
 	"context"
@@ -49,10 +52,12 @@ type monitor struct {
 	height func() int // the terminal's rows
 	width  func() int // the terminal's columns
 	now    func() time.Time
+	color  bool // paint the frame (a tty and no NO_COLOR)
 
 	db    *sql.DB   // the store, read-only, open while it reads
 	seq   int64     // the newest record drawn
 	drawn time.Time // when the last frame was drawn
+	size  [2]int    // the rows and columns it was drawn for
 	// seen: serve answered at least once (then a failure is a restart); lost: when it stopped answering, so a serve that
 	// is gone for good reads as down again after monitorRestart.
 	seen bool
@@ -69,40 +74,50 @@ func monitorCmd(args []string) int {
 	if rc != 0 {
 		return rc
 	}
-	m := &monitor{root: cfg.Root, cfg: cfg, height: terminalRows, width: terminalCols, now: time.Now}
+	rows, _ := terminalSize()
+	tty := rows > 0
+	m := &monitor{root: cfg.Root, cfg: cfg, height: terminalRows, width: terminalCols, now: time.Now,
+		color: tty && os.Getenv("NO_COLOR") == ""}
 	defer m.close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	m.run(ctx, out)
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	defer signal.Stop(winch)
+	s := &screen{w: out, tty: tty}
+	s.enter()
+	defer s.leave()
+	m.run(ctx, s, winch)
 	return 0
 }
 
 // run draws the view until ctx ends (Ctrl-C), a frame at once and then one for each new record, and at least every
-// monitorEvery.
-func (m *monitor) run(ctx context.Context, w frameWriter) {
+// monitorEvery; a resize (winch) refits it at once.
+func (m *monitor) run(ctx context.Context, s *screen, winch <-chan os.Signal) {
 	for {
 		if text, drawn := m.tick(); drawn {
-			drawFrame(w, text)
+			s.show(text, m.rows(), m.cols())
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(w)
-			_ = w.Flush()
 			return
+		case <-winch:
+			m.drawn = time.Time{}
 		case <-time.After(monitorPoll):
 		}
 	}
 }
 
-// tick redraws the view when the store has a new record or monitorEvery passed since the last frame: drawn says
-// whether text is a frame to draw.
+// tick builds the view when the store has a new record, monitorEvery passed since the last frame or the terminal's
+// size changed: drawn says whether text is a frame to show (the screen writes it only when it differs from the last).
 func (m *monitor) tick() (text string, drawn bool) {
 	now := m.now()
 	seq := m.newest()
-	if seq == m.seq && !m.drawn.IsZero() && now.Sub(m.drawn) < monitorEvery {
+	size := [2]int{m.rows(), m.cols()}
+	if seq == m.seq && size == m.size && !m.drawn.IsZero() && now.Sub(m.drawn) < monitorEvery {
 		return "", false
 	}
-	m.seq, m.drawn = seq, now
+	m.seq, m.drawn, m.size = seq, now, size
 	return m.frame(now), true
 }
 
@@ -132,16 +147,9 @@ func (m *monitor) frame(now time.Time) string {
 		st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, m.cfg, st.Serve.Up)
 	}
 	cancel()
-	lines := fitSections(monitorSections(st, now, restarting), m.rows())
-	width := m.cols()
-	var b strings.Builder
-	for i, l := range lines {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(clip(l, width))
-	}
-	return b.String()
+	lines := fitFrame(st, renderOpts{name: projectName(m.root), now: now, restarting: restarting, color: m.color},
+		m.rows(), m.cols())
+	return strings.Join(lines, "\n")
 }
 
 // newest is the seq of the store's newest record (0: no store yet, or no records). A read that fails closes the store,
@@ -190,12 +198,6 @@ func (m *monitor) cols() int {
 	return monitorWidth
 }
 
-// drawFrame clears the terminal and writes frame.
-func drawFrame(w frameWriter, frame string) {
-	fmt.Fprintf(w, "\033[H\033[2J%s", frame)
-	_ = w.Flush()
-}
-
 // terminalSize is the size of the terminal obor monitor draws on (stdout) in rows and columns: 0, 0 when it is not one.
 func terminalSize() (rows, cols int) {
 	var ws struct{ rows, cols, xpix, ypix uint16 }
@@ -216,64 +218,6 @@ func terminalRows() int {
 func terminalCols() int {
 	_, cols := terminalSize()
 	return cols
-}
-
-// monitorSections is the monitor's view as sections, top to bottom (T-658): serve's line and the running line; the
-// needs-you, in full, with their commands; one line per lane and one for the role agents; the queue (T-664: the merge
-// loop, the waiting dispatches, the review, watches, lines and briefs, the pause, the nightly check); the recent events,
-// newest first.
-func monitorSections(st view.Project, now time.Time, restarting bool) [][]string {
-	serve := serveSection(st, now)
-	if restarting {
-		serve = []string{"serve: restarting…"}
-	}
-	return [][]string{serve, needsYouSection(st), monitorLaneSection(st, now), queueSection(st, now),
-		eventSection(st.Events)}
-}
-
-// monitorLaneSection is section 3: one line per lane — its state column (T-657: working, gating, merging, reviewing,
-// held, free …), the task, how long the lane has been in that state, and its agent idle or working — then the role
-// agents on one line (none while serve is down: their state is not known).
-func monitorLaneSection(st view.Project, now time.Time) []string {
-	out := make([]string, 0, len(st.Lanes)+1)
-	for _, l := range st.Lanes {
-		since := "-"
-		if l.Since != nil {
-			since = app.Age(now.Sub(time.Unix(*l.Since, 0)))
-		}
-		agent := "-"
-		if l.Agent != "" {
-			agent = l.Agent
-			if l.AgentStatus != "" {
-				agent += " " + l.AgentStatus
-			}
-		}
-		out = append(out, fmt.Sprintf("%-6s  %-9s  %-8s  %7s  %s", l.Lane, l.Column, orDash(l.Task), since, agent))
-	}
-	if len(st.Roles) > 0 {
-		items := make([]string, 0, len(st.Roles))
-		for _, r := range st.Roles {
-			item := r.Agent + " no pane"
-			if r.Status != "" {
-				item = r.Agent + " " + r.Status + " " + app.Age(time.Duration(r.Age)*time.Second)
-			}
-			if b := r.Brief; b != nil {
-				item += ", briefed " + app.Age(max(now.Sub(time.Unix(b.Since, 0)), 0)) + " ago"
-			}
-			items = append(items, item)
-		}
-		out = append(out, "roles   "+strings.Join(items, " · "))
-	}
-	return out
-}
-
-// eventSection is section 5: the recent events, newest first, one line each with its local time.
-func eventSection(ev []view.Event) []string {
-	out := make([]string, 0, len(ev))
-	for _, e := range ev {
-		out = append(out, e.At.Local().Format("15:04:05")+"  "+e.Line)
-	}
-	return out
 }
 
 // fitSections is sections in order, cut to height rows: the later ones are dropped first — the section that does not
@@ -298,17 +242,66 @@ func fitSections(sections [][]string, height int) []string {
 	return out
 }
 
-// clip is line cut to width runes with an ellipsis at the cut: a line longer than the terminal is cut, never wrapped.
-func clip(line string, width int) string {
-	if width <= 0 {
-		return line
+// The terminal control the screen writes (a tty only).
+const (
+	altOn  = "\033[?1049h\033[?25l" // the alternate screen, the cursor hidden
+	altOff = "\033[?25h\033[?1049l" // the cursor back, the main screen back
+	home   = "\033[H"
+	toEOL  = "\033[K"
+	below  = "\033[J"
+)
+
+// screen is where frames land. On a tty: the alternate screen (nothing drawn reaches the scrollback), a frame written
+// from the home position, each row followed by clear-to-end-of-line and the last by clear-below — no full clear, no
+// newline after the last row — and only when it differs from the last one. Not a tty: the plain text of each changed
+// frame, a newline after it, no escape at all.
+type screen struct {
+	w    frameWriter
+	tty  bool
+	last string
+	size [2]int
+	any  bool // a frame was shown
+}
+
+// enter switches a tty to the alternate screen and hides the cursor.
+func (s *screen) enter() {
+	if s.tty {
+		fmt.Fprint(s.w, altOn)
+		_ = s.w.Flush()
 	}
-	r := []rune(line)
-	if len(r) <= width {
-		return line
+}
+
+// leave restores the cursor and the main screen.
+func (s *screen) leave() {
+	if s.tty {
+		fmt.Fprint(s.w, altOff)
+		_ = s.w.Flush()
 	}
-	if width == 1 {
-		return "…"
+}
+
+// show draws text (rows joined by newlines) for a terminal of rows by cols; the same text at the same size writes
+// nothing.
+func (s *screen) show(text string, rows, cols int) {
+	size := [2]int{rows, cols}
+	if s.any && text == s.last && size == s.size {
+		return
 	}
-	return string(r[:width-1]) + "…"
+	s.last, s.size, s.any = text, size, true
+	if !s.tty {
+		fmt.Fprintln(s.w, text)
+		_ = s.w.Flush()
+		return
+	}
+	var b strings.Builder
+	b.WriteString(home)
+	for i, l := range strings.Split(text, "\n") {
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		b.WriteString(l)
+		b.WriteString(toEOL)
+	}
+	b.WriteString(below)
+	_, _ = s.w.Write([]byte(b.String()))
+	_ = s.w.Flush()
 }

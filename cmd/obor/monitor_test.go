@@ -160,11 +160,16 @@ func TestMonitorSections(t *testing.T) {
 	if len(lines) < 12 {
 		t.Fatalf("precondition: a full view, got %d lines:\n%s", len(lines), text)
 	}
-	if !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != "running: nothing" {
-		t.Errorf("the first two lines %q %q, want serve's and `running: nothing`", lines[0], lines[1])
+	if !strings.Contains(lines[0], "serve up 1h") || !strings.Contains(lines[0], "merging") {
+		t.Errorf("the header %q, want serve up 1h and merging", lines[0])
+	}
+	for _, title := range []string{"NEEDS YOU", "LANES", "QUEUE", "EVENTS"} {
+		if !strings.Contains(text, "\n"+title+" ─") {
+			t.Errorf("no %s section title in\n%s", title, text)
+		}
 	}
 	for _, want := range []string{
-		`needs-you T-09 (O-09): asks: may I? → obor answer T-09 "<text>"`,
+		"T-09 (O-09)", "asks: may I?", `→ obor answer T-09 "<text>"`,
 		"O-01", "review request since 3m (now)", "watch T-02 since 3m (by pj-lead)",
 		"queued T-02: waiting (after T-01): dispatch T-02: no free lane of the types",
 		"paused: quota, until cleared (obor pause --clear ends it; no dispatch meanwhile)",
@@ -179,11 +184,11 @@ func TestMonitorSections(t *testing.T) {
 	}
 	lane := ""
 	for _, l := range lines {
-		if strings.HasPrefix(l, "O-01 ") {
+		if strings.HasPrefix(l, "  ● O-01 ") {
 			lane = l
 		}
 	}
-	if f := strings.Fields(lane); len(f) < 4 || f[1] != "working" || f[2] != "T-01" || f[3] != "4m" {
+	if f := strings.Fields(lane); len(f) < 6 || f[2] != "working" || f[3] != "T-01" || f[4] != "4m" {
 		t.Errorf("the lane line %q, want working, its task T-01 and 4m in that state", lane)
 	}
 	if !strings.HasSuffix(lane, "-") || strings.Contains(lane, "agent") {
@@ -191,7 +196,7 @@ func TestMonitorSections(t *testing.T) {
 	}
 	// Section order: serve's lines, needs-you, the lanes, the review and watches and queue, the events.
 	at := func(sub string) int { return strings.Index(text, sub) }
-	for _, pair := range [][2]string{{"running: nothing", "needs-you T-09"}, {"asks: may I?", "O-01 "},
+	for _, pair := range [][2]string{{"serve up", "T-09 (O-09)"}, {"asks: may I?", "O-01 "},
 		{"O-01 ", "review request since"}, {"review request since", "watch T-02 since"},
 		{"queued T-02:", "line to pj-lead"}} {
 		if a, b := at(pair[0]), at(pair[1]); a < 0 || b < 0 || a > b {
@@ -210,8 +215,8 @@ func TestMonitorSections(t *testing.T) {
 	}
 }
 
-// TestMonitorPendingLine (T-662): the monitor draws the pending line under the running one — the same projection as
-// obor status: a failed step with the age of its failure and its reason, a queued one as queued.
+// TestMonitorPendingLine (T-662): the monitor draws the pending steps in the queue — the same projection as obor
+// status: a failed step with the age of its failure and its reason, a queued one as queued.
 func TestMonitorPendingLine(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
@@ -221,10 +226,10 @@ func TestMonitorPendingLine(t *testing.T) {
 				Error: "git I/O: index.lock exists", FailedAt: now.Add(-4 * time.Minute).Unix()},
 			{Step: app.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
 		}}
-	sec := monitorSections(st, now, false)[0]
-	if len(sec) < 3 || sec[1] != "running: nothing" ||
-		sec[2] != "pending: after_merge T-1 (failed 4m ago: git I/O: index.lock exists) · gate T-2 (queued)" {
-		t.Errorf("the monitor's serve section %q, want serve's line, `running: nothing` and the pending line", sec)
+	sec := queueRows(st, renderOpts{now: now, cols: 100}, palette{})
+	want := "  pending: after_merge T-1 (failed 4m ago: git I/O: index.lock exists) · gate T-2 (queued)"
+	if len(sec) != 2 || sec[1] != want {
+		t.Errorf("the monitor's queue section %q, want the title and the pending line %q", sec, want)
 	}
 }
 
@@ -239,10 +244,10 @@ func TestMonitorTruncatesLaterSections(t *testing.T) {
 	if len(lines) != 6 {
 		t.Fatalf("%d lines at height 6:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
-	if !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != "running: nothing" {
-		t.Errorf("the first two lines %q %q, want serve's and `running: nothing`", lines[0], lines[1])
+	if !strings.Contains(lines[0], "serve up") || !strings.HasPrefix(lines[1], "NEEDS YOU") {
+		t.Errorf("the first two lines %q %q, want the header and NEEDS YOU", lines[0], lines[1])
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "needs-you T-09") {
+	if !strings.Contains(strings.Join(lines, "\n"), "T-09 (O-09)") {
 		t.Errorf("the needs-you is gone before the events:\n%s", strings.Join(lines, "\n"))
 	}
 	if lines[len(lines)-1] != "…" {
@@ -255,8 +260,9 @@ func TestMonitorTruncatesLaterSections(t *testing.T) {
 	}
 }
 
-// TestMonitorFitsTerminal: at 80x14 a frame is exactly 14 rows with serve's line first, no row longer than 80 runes (a
-// long line is cut with an ellipsis, not wrapped), and no newline after the last row (which would scroll the view one).
+// TestMonitorFitsTerminal: at 80x14 a frame is exactly 14 rows with the header first, no row wider than 79 columns (one
+// less than the terminal's: a row in the last column leaves the cursor pending a wrap), and no newline after the last
+// row (which would scroll the view one); with room, a long event line is cut with an ellipsis, not wrapped.
 func TestMonitorFitsTerminal(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
@@ -277,20 +283,23 @@ func TestMonitorFitsTerminal(t *testing.T) {
 	if len(lines) != 14 {
 		t.Fatalf("%d rows at 80x14, want exactly 14:\n%s", len(lines), text)
 	}
-	if !strings.HasPrefix(lines[0], "serve: up since ") {
-		t.Errorf("row 0 is %q, want serve's line first", lines[0])
+	if !strings.Contains(lines[0], "serve up") {
+		t.Errorf("row 0 is %q, want the header first", lines[0])
 	}
-	cut := ""
 	for i, l := range lines {
-		if n := utf8.RuneCountInString(l); n > 80 {
-			t.Errorf("row %d is %d runes, want at most 80: %q", i, n, l)
+		if n := utf8.RuneCountInString(l); n > 79 {
+			t.Errorf("row %d is %d runes, want at most 79: %q", i, n, l)
 		}
+	}
+	m.height = func() int { return 60 }
+	cut := ""
+	for _, l := range strings.Split(m.frame(now), "\n") {
 		if strings.Contains(l, "line to pj-lead: xxx") {
 			cut = l
 		}
 	}
-	if n := utf8.RuneCountInString(cut); cut == "" || n != 80 || !strings.HasSuffix(cut, "…") {
-		t.Errorf("the long event row %q: %d runes, want 80 cut with an ellipsis", cut, n)
+	if n := utf8.RuneCountInString(cut); cut == "" || n != 79 || !strings.HasSuffix(cut, "…") {
+		t.Errorf("the long event row %q: %d runes, want 79 cut with an ellipsis", cut, n)
 	}
 }
 
@@ -309,7 +318,7 @@ func TestFitSections(t *testing.T) {
 	}
 }
 
-// TestMonitorReconnects: serve answers, its socket goes away (a restart: "serve: restarting…", not "down"), and comes
+// TestMonitorReconnects: serve answers, its socket goes away (a restart: "serve restarting…", not "down"), and comes
 // back (serve's line again).
 func TestMonitorReconnects(t *testing.T) {
 	t.Parallel()
@@ -325,28 +334,28 @@ func TestMonitorReconnects(t *testing.T) {
 	m := monitorOf(t, p, now, 24)
 	m.now = func() time.Time { return clock }
 	text, drawn := m.tick()
-	if !drawn || !strings.HasPrefix(text, "serve: up since ") {
+	if !drawn || !strings.Contains(text, "serve up") {
 		t.Fatalf("first frame: drawn %v, %q", drawn, text)
 	}
 	srv.stop()
 	clock = clock.Add(3 * time.Second)
 	text, drawn = m.tick()
-	if !drawn || !strings.Contains(text, "serve: restarting…") {
+	if !drawn || !strings.Contains(text, "serve restarting…") {
 		t.Fatalf("socket gone: drawn %v\n%s", drawn, text)
 	}
-	if strings.Contains(text, "serve: down") {
+	if strings.Contains(text, "serve down") {
 		t.Errorf("a restart reads as a serve that is down:\n%s", text)
 	}
 	// Gone for good (a minute without an answer): the down line and its error, not a restarting line forever.
 	clock = clock.Add(monitorRestart)
 	text, _ = m.tick()
-	if !strings.Contains(text, "serve: down (") || strings.Contains(text, "restarting") {
+	if !strings.Contains(text, "serve down") || strings.Contains(text, "restarting") {
 		t.Errorf("after %s without an answer:\n%s", monitorRestart, text)
 	}
 	serveStatus(t, srv.path, ss)
 	clock = clock.Add(3 * time.Second)
 	text, drawn = m.tick()
-	if !drawn || !strings.HasPrefix(text, "serve: up since ") {
+	if !drawn || !strings.Contains(text, "serve up") {
 		t.Fatalf("socket back: drawn %v\n%s", drawn, text)
 	}
 	if strings.Contains(text, "restarting") {
