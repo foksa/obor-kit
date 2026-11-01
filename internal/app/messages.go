@@ -929,6 +929,18 @@ func (a *App) callProj(method string, c Call) (p *proj, reply string, stored boo
 	return p, reply, stored
 }
 
+// briefStatus is p's open briefs as obor status lists them, by agent (under mu): a brief whose line is still queued is
+// not delivered.
+func (p *proj) briefStatus() []BriefStatus {
+	var out []BriefStatus
+	for agent, b := range p.out.allBriefs() {
+		_, queued := p.out.msgs[b.seq]
+		out = append(out, BriefStatus{To: agent, Since: b.at.Unix(), Delivered: !queued, Worked: b.worked})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].To < out[j].To })
+	return out
+}
+
 // messageStatus is p's lines not delivered yet as obor status lists them (under mu).
 func (p *proj) messageStatus(now time.Time) []MessageStatus {
 	out := []MessageStatus{}

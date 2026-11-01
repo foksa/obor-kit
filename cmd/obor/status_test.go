@@ -14,18 +14,23 @@ import (
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/launch"
 	"obor/internal/testkit"
+	"obor/internal/view"
 )
 
 // statusOf is obor status of p's project with serve's answer ss (err: serve gave none), and its text at now.
-func statusOf(t *testing.T, p *testkit.Project, ss app.Status, err error, now time.Time) (statusModel, string) {
+func statusOf(t *testing.T, p *testkit.Project, ss app.Status, err error, now time.Time) (view.Project, string) {
 	t.Helper()
 	cfg, cerr := config.Load(p.Root)
 	if cerr != nil {
 		t.Fatal(cerr)
 	}
-	st := buildStatus(checks.NewLaneTable(cfg), ss, err)
+	db := openStore(p.Root)
+	if db != nil {
+		defer db.Close()
+	}
+	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now,
+		Events: statusEvents})
 	var b bytes.Buffer
 	writeStatus(&b, st, now)
 	return st, b.String()
@@ -98,7 +103,7 @@ func TestStatusOverServe(t *testing.T) {
 	matchLine(t, text, `^O-02 +opus +- +free +- +\(-\)$`, "O-02")
 	for _, want := range []string{
 		"task T-05 (O-09): needs-you (attempt 2)",
-		"task T-09: waiting (after T-03): dispatch T-09: lane O-01 is working on T-01", // DD-v0.12 A1
+		"queued T-09: waiting (after T-03): dispatch T-09: lane O-01 is working on T-01", // DD-v0.12 A1
 		"agent pj-int: working 5m",
 		`needs-you T-01 (O-01): asks: may I edit x.go? → obor answer T-01 "<text>"`,
 		`needs-you T-05 (O-09): gate red after 2 sendbacks → obor sendback O-09 "<why>" | obor resume T-05 | obor drop O-09 "<why>"`,
@@ -134,8 +139,9 @@ func TestStatusOverServe(t *testing.T) {
 	matchLine(t, text, `^serve: up since .*; this project is not loaded \(obor serve's output says why\); herdr: not connected$`, "not loaded")
 }
 
-// Serve down: one line saying so, the lanes from the store and git alone (a done lane with its age,
-// an opencode lane without its plugin marker warned), no full check yet; herdr is never asked.
+// Serve down: one line saying so, first, the lanes from the store and git alone (a done lane with its age, an opencode
+// lane without its plugin marker warned), no agents and no role rows (T-664: nothing stale), no full check yet; herdr
+// is never asked.
 func TestStatusServeDown(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -151,6 +157,10 @@ func TestStatusServeDown(t *testing.T) {
 	st, text := statusOf(t, p, app.Status{}, errors.New("obor serve is not running (dial: refused)"), time.Now())
 	if st.Serve.Up || len(st.Lanes) != 3 {
 		t.Fatalf("precondition: serve down, 3 lanes: %+v", st)
+	}
+	if len(st.Agents) != 0 || len(st.Roles) != 0 || st.Lanes[0].AgentStatus != "" {
+		t.Errorf("serve down: agents %+v, roles %+v, lane agent status %q; want none (not stale rows)", st.Agents,
+			st.Roles, st.Lanes[0].AgentStatus)
 	}
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	want := []string{`^serve: down \(obor serve is not running \(dial: refused\)\)$`,
@@ -244,7 +254,7 @@ func heldGateStatus() app.Status {
 func taskLines(t *testing.T, st app.Status) map[string]string {
 	t.Helper()
 	var buf bytes.Buffer
-	writeStatus(&buf, statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
+	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
 		Tasks: st.Project.Tasks}, time.Now())
 	lines := map[string]string{}
 	for _, l := range strings.Split(buf.String(), "\n") {
@@ -297,23 +307,33 @@ func TestStatusIdleTaskHasNoRunning(t *testing.T) {
 	}
 }
 
-// T-462: a waiting task's line names what it waits for, no lane or attempt; DD-v0.12 A1: and why its dispatch is
-// refused once all of them merged.
+// T-462: a waiting task's queue line names what it waits for, no lane or attempt; DD-v0.12 A1: and why its dispatch
+// is refused once all of them merged; T-538: a lane of its level; T-664: a spec stored and never dispatched.
 func TestStatusShowsWaiting(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		w    view.WaitItem
+		want string
+	}{
+		{view.WaitItem{Task: "T-4", WaitsOn: view.WaitsAfter, After: []string{"T-2", "T-3"}}, "waiting (after T-2, T-3)"},
+		{view.WaitItem{Task: "T-5", WaitsOn: view.WaitsAfter, After: []string{"T-2"},
+			Why: "dispatch T-5: no free lane of the types"}, "waiting (after T-2): dispatch T-5: no free lane of the types"},
+		{view.WaitItem{Task: "T-6", WaitsOn: view.WaitsLane, Level: "simple", Types: []string{"deepseek", "luna"}},
+			"waiting for a simple lane (deepseek, luna)"},
+		{view.WaitItem{Task: "T-7", WaitsOn: view.WaitsLane}, "waiting for a lane"},
+		{view.WaitItem{Task: "T-8", WaitsOn: view.WaitsNever, Rev: 2, Since: now.Add(-3 * time.Hour).Unix(),
+			Title: "a title"}, "spec r2 stored 3h ago, never dispatched: a title"},
+	} {
+		if got := waitLine(c.w, now); got != c.want {
+			t.Errorf("%s: %q, want %q", c.w.Task, got, c.want)
+		}
+	}
+	// A waiting task is the queue's: no task line of its own in the lanes section.
 	st := heldGateStatus()
 	st.Project.Tasks = append(st.Project.Tasks, app.TaskStatus{Task: "T-4", Attempt: 1, State: "waiting",
-		After: []string{"T-2", "T-3"}}, app.TaskStatus{Task: "T-5", Attempt: 1, State: "waiting", After: []string{"T-2"},
-		Why: "dispatch T-5: no free lane of the types"},
-		app.TaskStatus{Task: "T-6", Attempt: 1, State: "waiting", Level: "simple", Types: []string{"deepseek", "luna"}})
-	lines := taskLines(t, st)
-	if line := lines["T-4"]; line != "task T-4: waiting (after T-2, T-3)" {
-		t.Errorf("waiting line = %q, want %q", line, "task T-4: waiting (after T-2, T-3)")
-	}
-	if line, want := lines["T-5"], "task T-5: waiting (after T-2): dispatch T-5: no free lane of the types"; line != want {
-		t.Errorf("refused waiting line = %q, want %q", line, want)
-	}
-	if line, want := lines["T-6"], "task T-6: waiting for a simple lane (deepseek, luna)"; line != want {
-		t.Errorf("lane-wait line = %q, want %q", line, want)
+		After: []string{"T-2"}})
+	if line, ok := taskLines(t, st)["T-4"]; ok {
+		t.Errorf("a waiting task listed as a task line: %q", line)
 	}
 }
 
@@ -334,46 +354,26 @@ func TestStatusServeLine(t *testing.T) {
 	at := since.Format(time.RFC3339)
 	for _, c := range []struct {
 		name string
-		s    serveJSON
+		s    view.Serve
 		want string
 	}{
-		{"launchd", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 4242, Launchd: "running"},
+		{"launchd", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 4242, Launchd: "running"},
 			"serve: launchd pid 4242 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
-		{"pane, agent installed", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+		{"pane, agent installed", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
 			Launchd: "loaded"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
-		{"pane, no agent", serveJSON{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
+		{"pane, no agent", view.Serve{Up: true, Since: at, Herdr: true, Project: true, Merging: true, PID: 77,
 			Launchd: "none"}, "serve: pane pid 77 since " + since.Local().Format("Jan 2 15:04") + " (1h)"},
-		{"down, no agent", serveJSON{Error: "obor serve is not running", Launchd: "none"},
+		{"down, no agent", view.Serve{Error: "obor serve is not running", Launchd: "none"},
 			"serve: down (obor serve install)"},
-		{"down, agent installed", serveJSON{Error: "obor serve is not running", Launchd: "loaded"},
+		{"down, agent installed", view.Serve{Error: "obor serve is not running", Launchd: "loaded"},
 			"serve: down (obor serve is not running)"},
 	} {
-		c.s.sinceTime, _ = time.Parse(time.RFC3339, c.s.Since)
+		c.s.SinceTime, _ = time.Parse(time.RFC3339, c.s.Since)
 		var b bytes.Buffer
-		writeStatus(&b, statusModel{Serve: c.s}, time.Now())
+		writeStatus(&b, view.Project{Serve: c.s}, time.Now())
 		if got := strings.SplitN(b.String(), "\n", 2)[0]; got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
-	}
-}
-
-// T-192, T-500: a lane whose restart lock is held has op restart (obor status); a lock file nobody holds (its restart
-// was killed) is no op.
-func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
-	root := t.TempDir()
-	lock := launch.RestartLock(root, "O-01", "")
-	if ok, err := lock.Try(); !ok || err != nil {
-		t.Fatalf("Try = %v, %v", ok, err)
-	}
-	if got := restartOp(root, "O-01"); got != "restart" {
-		t.Errorf("held: op = %q, want restart", got)
-	}
-	if got := restartOp(root, "O-02"); got != "" {
-		t.Errorf("another lane's lock: op = %q, want none", got)
-	}
-	lock.Unlock()
-	if got := restartOp(root, "O-01"); got != "" {
-		t.Errorf("freed: op = %q, want none", got)
 	}
 }
 
@@ -452,56 +452,6 @@ func TestStatusPendingLine(t *testing.T) {
 	}
 }
 
-// T-657: a lane's state column says what serve does for its task — gating, merging, reviewing (an integrator job is
-// out), held (needs-you) — else the lane table's state (done). T-662: gating and merging only while the effect runs; a
-// gate or publish whose intent waits reads gate pending / publish pending, not progress.
-func TestStatusLaneStateColumn(t *testing.T) {
-	now := time.Now()
-	str := func(s string) *string { return &s }
-	for _, c := range []struct {
-		name    string
-		lane    laneJSON
-		running []runningJSON
-		pending []app.PendingStep
-		needs   []needsYouJSON
-		want    string
-	}{
-		{"gating", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
-			[]runningJSON{{Step: app.StepGate, Task: "T-1"}}, nil, nil, "gating"},
-		{"merging", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
-			[]runningJSON{{Step: app.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
-		{"gate pending", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
-			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-1"}}, nil, "gate pending"},
-		{"publish pending", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
-			nil, []app.PendingStep{{Step: app.StepPublish, Task: "T-1"}}, nil, "publish pending"},
-		{"pending on another task", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-2"}}, nil, "working"},
-		{"reviewing", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
-			"reviewing"},
-		{"resolving", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
-			"reviewing"},
-		{"held", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, nil, "held"},
-		{"held by a watchdog fact", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, nil, []needsYouJSON{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
-		{"done", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, nil, "done"},
-	} {
-		c.lane.Type = "opus"
-		var b bytes.Buffer
-		writeStatus(&b, statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
-			Lanes: []laneJSON{c.lane}, Running: c.running, Pending: c.pending, NeedsYou: c.needs}, now)
-		lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
-		lane := ""
-		for _, l := range lines {
-			if strings.HasPrefix(l, "O-01") {
-				lane = l
-			}
-		}
-		if cols := regexp.MustCompile(`\s{2,}`).Split(strings.TrimSpace(lane), -1); len(cols) < 4 || cols[3] != c.want {
-			t.Errorf("%s: lane line %q, want state %q", c.name, lane, c.want)
-		}
-	}
-}
-
 // T-657: --short is the serve line, the running line and needs-you, nothing else (a status bar).
 func TestStatusShort(t *testing.T) {
 	p := testkit.New(t)
@@ -547,5 +497,168 @@ func TestStatusShortBinary(t *testing.T) {
 	}
 	if strings.Contains(stdout, "O-01") || strings.Contains(stdout, "full check") {
 		t.Errorf("--short prints a lane or the full check:\n%s", stdout)
+	}
+}
+
+// T-664: a store and a served status with one item of each queue kind — the merge loop (a review job out and not
+// fetched, the next submitted task by id, one waiting for the scratch), dispatches waiting on --after tasks, on a lane
+// of their level and a spec never dispatched, the review request, a line and a brief not done, the pause and the
+// nightly check — give --json's typed arrays (with the role rows, a lane's spec rev and open job, and the worded
+// events with their seq) and one plain text line each.
+func TestStatusQueue(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-10")
+	p.Config(testkit.Set("merge.nightly_at", "03:00"))
+	p.Commit(o1)
+	p.Dispatched("O-01")
+	p.Spec("T-10", "# T-10 — ten\n")
+	p.Spec("T-20", "# T-20 — never sent\n")
+	now := time.Now().Truncate(time.Second)
+	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+		Name: "pj", Root: p.Root, Merging: true, Paused: &app.Pause{Why: "quota", Caller: "pj-lead"},
+		Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-int", Agent: "claude", Status: "idle", Age: 120,
+			Session: "s1"}},
+		Tasks: []app.TaskStatus{
+			{Task: "T-10", Lane: "O-01", Attempt: 1, State: "working", Job: "T-10/1/work", Delivered: true},
+			{Task: "T-100", Lane: "O-04", Attempt: 1, State: "submitted"},
+			{Task: "T-11", Lane: "O-02", Attempt: 1, State: "submitted"},
+			{Task: "T-12", Attempt: 1, State: "waiting", After: []string{"T-11"}},
+			{Task: "T-14", Attempt: 1, State: "waiting", Level: "medium", Types: []string{"sonnet"}},
+			{Task: "T-9", Lane: "O-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
+		},
+		Review: "review request since 3m (after T-11, waiting T-11), note: check x",
+		ReviewRequest: &app.ReviewRequestStatus{After: []string{"T-11"}, Waiting: []string{"T-11"}, Note: "check x",
+			By: "pj-lead", Since: now.Add(-3 * time.Minute).Unix()},
+		Messages: []app.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
+		Briefs:   []app.BriefStatus{{To: "pj-rev", Since: now.Add(-5 * time.Minute).Unix(), Delivered: true}},
+	}}
+	st, text := statusOf(t, p, ss, nil, now)
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var js struct {
+		Lanes []struct {
+			Lane    string `json:"lane"`
+			SpecRev int    `json:"spec_rev"`
+			Job     *struct {
+				ID        string `json:"id"`
+				Delivered bool   `json:"delivered"`
+			} `json:"job"`
+		} `json:"lanes"`
+		Roles []struct {
+			Role, Agent, Status, Session string
+			Brief                        *struct {
+				Delivered bool `json:"delivered"`
+			}
+		} `json:"roles"`
+		Events []struct {
+			Seq        int64
+			TS         string
+			Task, Line string
+		} `json:"events"`
+		Queue struct {
+			Merge []struct {
+				Task, Stage string
+				Next        bool
+				Job         *struct {
+					ID        string `json:"id"`
+					Delivered bool   `json:"delivered"`
+				}
+			} `json:"merge"`
+			Waiting []struct {
+				Task    string   `json:"task"`
+				WaitsOn string   `json:"waits_on"`
+				After   []string `json:"after"`
+				Level   string   `json:"level"`
+				Rev     int      `json:"rev"`
+				Title   string   `json:"title"`
+			} `json:"waiting"`
+			Review []struct {
+				After []string `json:"after"`
+				Note  string   `json:"note"`
+				State string   `json:"state"`
+				Since int64    `json:"since"`
+			} `json:"review"`
+			Outbox []struct {
+				Kind, To  string
+				Delivered bool
+			} `json:"outbox"`
+			Pause *struct {
+				Reason string `json:"reason"`
+			} `json:"pause"`
+			Nightly *struct {
+				At   string `json:"at"`
+				Next int64  `json:"next"`
+			} `json:"nightly"`
+		} `json:"queue"`
+	}
+	if err := json.Unmarshal(b, &js); err != nil {
+		t.Fatal(err)
+	}
+	q := js.Queue
+	if len(q.Merge) != 3 || q.Merge[0].Task != "T-9" || q.Merge[0].Stage != "review" || q.Merge[1].Task != "T-11" ||
+		q.Merge[1].Stage != "submitted" || !q.Merge[1].Next || q.Merge[2].Task != "T-100" || q.Merge[2].Next {
+		t.Errorf("queue.merge %+v; want T-9 review, T-11 submitted next, T-100 submitted (by id, numerically)", q.Merge)
+	}
+	if j := q.Merge[0].Job; j == nil || j.ID != "T-9/1/review" || j.Delivered {
+		t.Errorf("queue.merge T-9 job %+v; want T-9/1/review, not delivered", j)
+	}
+	if len(q.Waiting) != 3 || q.Waiting[0].Task != "T-12" || q.Waiting[0].WaitsOn != "after" ||
+		strings.Join(q.Waiting[0].After, ",") != "T-11" || q.Waiting[1].Task != "T-14" || q.Waiting[1].WaitsOn != "lane" ||
+		q.Waiting[1].Level != "medium" || q.Waiting[2].Task != "T-20" || q.Waiting[2].WaitsOn != "never dispatched" ||
+		q.Waiting[2].Rev != 1 || q.Waiting[2].Title != "never sent" {
+		t.Errorf("queue.waiting %+v; want T-12 after T-11, T-14 a medium lane, T-20 never dispatched (r1, its title)",
+			q.Waiting)
+	}
+	if len(q.Review) != 1 || q.Review[0].State != "waiting" || q.Review[0].Note != "check x" || q.Review[0].Since == 0 ||
+		strings.Join(q.Review[0].After, ",") != "T-11" {
+		t.Errorf("queue.review %+v; want the request waiting on T-11 with its note and time", q.Review)
+	}
+	if len(q.Outbox) != 2 || q.Outbox[0].Kind != "line" || q.Outbox[0].To != "pj-lead" || q.Outbox[1].Kind != "brief" ||
+		q.Outbox[1].To != "pj-rev" || !q.Outbox[1].Delivered {
+		t.Errorf("queue.outbox %+v; want the line to pj-lead and the delivered brief to pj-rev", q.Outbox)
+	}
+	if q.Pause == nil || q.Pause.Reason != "quota" {
+		t.Errorf("queue.pause %+v; want quota", q.Pause)
+	}
+	if q.Nightly == nil || q.Nightly.At != "03:00" || q.Nightly.Next <= now.Unix() || q.Nightly.Next > now.Add(24*time.Hour).Unix() {
+		t.Errorf("queue.nightly %+v; want 03:00 within the next day", q.Nightly)
+	}
+	if len(js.Lanes) != 1 || js.Lanes[0].SpecRev != 1 || js.Lanes[0].Job == nil || js.Lanes[0].Job.ID != "T-10/1/work" ||
+		!js.Lanes[0].Job.Delivered {
+		t.Errorf("lanes %+v; want O-01 with spec_rev 1 and job T-10/1/work delivered", js.Lanes)
+	}
+	if len(js.Roles) != 2 || js.Roles[0].Agent != "pj-int" || js.Roles[0].Status != "idle" || js.Roles[0].Session != "s1" ||
+		js.Roles[1].Agent != "pj-rev" || js.Roles[1].Status != "" || js.Roles[1].Brief == nil || !js.Roles[1].Brief.Delivered {
+		t.Errorf("roles %+v; want pj-int idle (session s1) and pj-rev with no pane, on its delivered brief", js.Roles)
+	}
+	var dispatched bool
+	for _, e := range js.Events {
+		if e.Line == "dispatched T-10 (O-01)" && e.Seq > 0 && e.Task == "T-10" && e.TS != "" {
+			dispatched = true
+		}
+	}
+	if !dispatched {
+		t.Errorf("events %+v; want the dispatch of T-10 with its seq, time and task", js.Events)
+	}
+	for _, re := range []string{
+		`^merge T-9 \(O-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
+		`^merge T-11 \(O-02\): submitted, next \(by id\)$`,
+		`^merge T-100 \(O-04\): submitted, waits for the scratch$`,
+		`^queued T-12: waiting \(after T-11\)$`,
+		`^queued T-14: waiting for a medium lane \(sonnet\)$`,
+		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
+		`^review request since 3m \(after T-11, waiting T-11\), note: check x$`,
+		`^undelivered to pj-lead \(from other, 1m\): \[obor other\] hi$`,
+		`^brief to pj-rev: delivered, since 5m$`,
+		`^paused: quota, until cleared`,
+		`^nightly check at 03:00 \(in [0-9]+[smhd]\)$`,
+	} {
+		matchLine(t, text, re, "queue")
+	}
+	if strings.Contains(text, "queued T-10") {
+		t.Errorf("a dispatched task with a spec listed as never dispatched:\n%s", text)
 	}
 }

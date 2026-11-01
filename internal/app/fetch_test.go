@@ -21,6 +21,16 @@ func fetchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	return newDispatchRig(t, edits...)
 }
 
+// task is serve's status of task (zero: none).
+func (r *loopRig) task(task string) app.TaskStatus {
+	for _, t := range r.app.Status().Project.Tasks {
+		if t.Task == task {
+			return t
+		}
+	}
+	return app.TaskStatus{}
+}
+
 // wake is the one line typed for job (the Prompter's tag, then the wake).
 func wake(job string) string { return "[obor job " + job + "] call the obor job_next tool" }
 
@@ -143,6 +153,9 @@ func TestFetchWorkJob(t *testing.T) {
 	if n := len(r.deliveries()); n != 0 {
 		t.Fatalf("a refused or empty job_next recorded: %q", r.steps())
 	}
+	if ts := r.task("T-1"); ts.Job != "T-1/1/work" || ts.Delivered { // T-664: obor status' open job
+		t.Errorf("status before the fetch: job %q delivered %v; want T-1/1/work, not delivered", ts.Job, ts.Delivered)
+	}
 
 	jr, raw, err := r.jobNext("pj-o1", "worker", "O-01", "n1", "")
 	if err != nil || jr.State != "job" || jr.Job != "T-1/1/work" || jr.Task != "T-1" || jr.Attempt != 1 || jr.Step != "work" ||
@@ -151,6 +164,9 @@ func TestFetchWorkJob(t *testing.T) {
 	}
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	eq(t, r.deliveries(), []string{"T-1/1/work mcp"}, "delivered facts")
+	if ts := r.task("T-1"); ts.Job != "T-1/1/work" || !ts.Delivered {
+		t.Errorf("status after the fetch: job %q delivered %v; want T-1/1/work, delivered", ts.Job, ts.Delivered)
+	}
 	if _, again, err := r.jobNext("pj-o1", "worker", "O-01", "n1", ""); err != nil || again != raw {
 		t.Errorf("repeated call id: %q, %v; want the stored reply", again, err)
 	}
@@ -240,6 +256,10 @@ func TestFetchReviewJob(t *testing.T) {
 	r.mu.Unlock()
 	if prompt != wake("T-1/1/review") {
 		t.Errorf("the integrator's start prompt %q, want the review job's wake", prompt)
+	}
+	if ts := r.task("T-1"); ts.Job != "T-1/1/review" || !ts.Delivered { // T-664: the integrator's job, fetched
+		t.Errorf("status with the review job fetched: job %q delivered %v; want T-1/1/review, delivered", ts.Job,
+			ts.Delivered)
 	}
 	r.accept("c1", r.patch(text))
 	r.waitStep("1 result agent.stop")

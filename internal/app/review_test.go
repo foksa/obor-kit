@@ -348,6 +348,10 @@ func TestReviewRequest(t *testing.T) {
 			if got := r.a.Status().Project.Review; got != "review request since 0s (now, waiting RV-5 to close), note: next" {
 				t.Errorf("status %q", got)
 			}
+			if q := r.a.Status().Project.ReviewRequest; q == nil || q.Held != "RV-5" || q.Note != "next" || q.By != "pj-lead" ||
+				q.Since == 0 || len(q.After) != 0 { // T-664: the request as data
+				t.Errorf("status review_request %+v; want held by RV-5, note next, by pj-lead, its time", q)
+			}
 			r.git.last = "RV-5 closed · abcdef0 · approved · T-7"
 			r.pass()
 			if len(r.agents.launches) != 2 || !strings.HasPrefix(r.agents.launches[1].Prompt, "Review RV-6. ") ||

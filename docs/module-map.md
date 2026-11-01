@@ -9,7 +9,7 @@ multi-machine itself is later, but no interface may assume local.
 
 ## Layers and import rules
 
-The layers are base, bridge, core, adapter, entry, test helpers and tools (probes under `tests/`). The enforced table
+The layers are base, bridge, core, adapter, view, entry, test helpers and tools (probes under `tests/`). The enforced table
 (which package is in which layer, and who may import whom) is `layerOf` in `internal/checks/boundary_test.go`; the merge
 gate runs it. Adapters never import each other: one that needs another goes through an interface the core defines
 (e.g. `launch` gets panes via `app.PaneControl`, not `herdr`). A package with no layer fails the test: add it to
@@ -93,10 +93,21 @@ Adding a kind = one package + a config entry.
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
   for `obor serve install|uninstall|restart` and `obor status`' serve line.
 
+**view** — `view` (T-664): the project's read model. `view.Build(view.Input{Status, Err, Lanes, DB, Now, Events})`
+joins serve's status answer (none when serve is down, with its error), the git lane table (`checks.LaneTable`) and the
+store (read-only: specs, events) into one `view.Project`: serve, running and pending, the lanes (state column, spec
+rev, open job), serve's tasks and agents, the role agents, needs-you, the full check, the pause, the lines, the queue
+(merge loop with stages and the next by id, waiting dispatches: after | lane | never dispatched, the review request,
+the outbox, pause, nightly) and the newest worded events (seq, ts, task, line). It may import base, core and the
+adapters; only entry packages import it. **Every reader of project state goes through `view.Build`**: `obor status`
+(`--json` prints `view.Project` as is), `obor monitor` and the web UI render the same struct, so a field added for one
+appears in all of them; no second builder.
+
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
 
-**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`, T-658) rendering; the
+**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`, T-658) rendering of
+`view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`,
 `answer`, `resume`, `sendback`, `drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
