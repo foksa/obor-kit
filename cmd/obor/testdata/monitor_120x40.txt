@@ -13,7 +13,7 @@ ROLES ────────────────────────�
   ● ob-fable  no pane
 QUEUE ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   merge T-660 (O-03): gating
-  merge T-661: submitted, next
+  merge T-661: submitted
   queued T-664: waiting (after T-662)
   queued T-665: waiting for a medium lane (opus, sonnet)
   paused: quota, until cleared (obor pause --clear ends it; no dispatch meanwhile)

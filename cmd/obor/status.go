@@ -202,10 +202,10 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 }
 
 // queueSection is what waits (T-664), one line per item, in the order of urgency: a merge open in serve's worktree
-// (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage (the
-// next to get the scratch, or what it waits on: serve's scheduler says), the dispatches waiting and on what (--after tasks, a lane of their level, a
-// spec never dispatched), the review request (or "review due"), the lead's watches, the lines not typed yet and the
-// briefs in progress, the pause and the next nightly check.
+// (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage and
+// what each waits for, where serve's scheduler knows of one (T-673: it names no task as next), the dispatches waiting
+// and on what (--after tasks, a lane of their level, a spec never dispatched), the review request (or "review due"),
+// the lead's watches, the lines not typed yet and the briefs in progress, the pause and the next nightly check.
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
@@ -255,8 +255,8 @@ func queueSection(st view.Project, now time.Time) []string {
 	return out
 }
 
-// mergeLine is a merge-loop task's queue line: its lane, its stage (serve's state when it says more), the next to get
-// the scratch or the task it waits for and why (serve's scheduler, T-669), an integrator job out and whether it was
+// mergeLine is a merge-loop task's queue line: its lane, its stage (serve's state when it says more), what it waits
+// for and why (serve's scheduler, T-669; no task is named next, T-673), an integrator job out and whether it was
 // fetched.
 func mergeLine(m view.MergeItem) string {
 	line := "merge " + m.Task
@@ -267,10 +267,7 @@ func mergeLine(m view.MergeItem) string {
 	if m.State != m.Stage {
 		line += " (" + m.State + ")"
 	}
-	switch {
-	case m.Next:
-		line += ", next"
-	case m.WaitsOn != "":
+	if m.WaitsOn != "" {
 		line += ", waits for " + m.WaitsOn + " (" + m.Why + ")"
 	}
 	if j := m.Job; j != nil {

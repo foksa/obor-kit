@@ -68,19 +68,18 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	}
 }
 
-// T-669 (RV-75 #1 #2): the merge queue is serve's: its tasks in the merge loop's order, next and what each waits on
-// copied from its scheduler (never predicted: with none said, none is next, even while a gate runs); a gating task and
-// a held one have their stages.
-func TestQueueMergeNext(t *testing.T) {
+// T-669 (RV-75 #1 #2), T-673: the merge queue is serve's: its tasks in the merge loop's order with their stages and
+// what each waits for, copied from its scheduler (never predicted: a task nothing waits behind says nothing more).
+func TestQueueMerge(t *testing.T) {
 	now := time.Now()
 	tasks := []app.TaskStatus{{Task: "T-10", State: "submitted"}, {Task: "T-3", State: "working"},
 		{Task: "T-7", State: "needs-you"}, {Task: "T-8", State: "accepted"}, {Task: "T-9", State: "submitted"}}
 	ps := app.ProjectStatus{Scratch: &app.ScratchStatus{Task: "T-7", Why: app.ScratchHeld},
-		ScratchQueue: []app.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: app.ScratchHeld}, {Task: "T-8", Next: true},
+		ScratchQueue: []app.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: app.ScratchHeld}, {Task: "T-8"},
 			{Task: "T-9", WaitsOn: "T-7", Why: app.ScratchHeld}}}
 	q := queue(&Project{Tasks: tasks}, ps, "", nil, nil, now)
 	want := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld},
-		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish, Next: true},
+		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish},
 		{Task: "T-9", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld}}
 	if !slices.Equal(q.Merge, want) {
 		t.Errorf("merge %+v\nwant %+v", q.Merge, want)
@@ -89,13 +88,13 @@ func TestQueueMergeNext(t *testing.T) {
 		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
 	}
 	running := &Project{Tasks: tasks, Running: []Running{{Step: app.StepGate, Task: "T-10"}}}
-	for _, m := range queue(running, app.ProjectStatus{}, "", nil, nil, now).Merge {
-		if m.Next || m.WaitsOn != "" {
-			t.Errorf("serve said nothing: %s next %v, waits on %q", m.Task, m.Next, m.WaitsOn)
-		}
-		if m.Task == "T-10" && m.Stage != StageGating {
-			t.Errorf("T-10 with its gate running: stage %q, want gating", m.Stage)
-		}
+	free := queue(running, app.ProjectStatus{}, "", nil, nil, now)
+	// No scratch, no scheduler facts: the stages are the facts, and nothing claims a place in line.
+	wantFree := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageGating},
+		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish},
+		{Task: "T-9", State: "submitted", Stage: StageSubmitted}}
+	if !slices.Equal(free.Merge, wantFree) {
+		t.Errorf("free scratch: merge %+v\nwant %+v", free.Merge, wantFree)
 	}
 }
 

@@ -393,10 +393,11 @@ func TestStatusRunningLine(t *testing.T) {
 		{"nothing open", nil, "running: nothing"},
 		{"gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check",
 			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
-		// T-669 (RV-75 #4): a partial gate shows the class's command serve says it runs; none known, no command.
+		// T-669 (RV-75 #4), T-673: a partial gate shows the class's command serve says it runs; between two commands
+		// (the runner clears it as each ends) none, so the line names no command either.
 		{"partial gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check_affected",
 			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (make -s check-affected, 14s)"},
-		{"gate, no command yet", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
+		{"gate between two commands", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
 			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (14s)"},
 		{"two steps at once", []app.RunningStep{
 			{Step: app.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
@@ -516,7 +517,8 @@ func TestStatusShortBinary(t *testing.T) {
 }
 
 // T-664: a store and a served status with one item of each queue kind — the merge loop in serve's order (a review
-// job out and not fetched, the next submitted task and one waiting for it, as serve's scheduler says: T-669), dispatches waiting on --after tasks, on a lane
+// job out and not fetched, two submitted tasks waiting for the conflict that holds the scratch, as serve's scheduler
+// says: T-669, T-673), dispatches waiting on --after tasks, on a lane
 // of their level and a spec never dispatched, the review request, the lead's watch with its note (T-666), a line and a
 // brief not done, the pause and the nightly check — give --json's typed arrays (with the role rows, a lane's spec rev
 // and open job, and the worded events with their seq) and one plain text line each.
@@ -543,11 +545,11 @@ func TestStatusQueue(t *testing.T) {
 			{Task: "T-14", Attempt: 1, State: "waiting", Level: "medium", Types: []string{"sonnet"}},
 			{Task: "T-9", Lane: "O-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
 		},
-		// T-669: serve's scheduler: lexical order, T-100 next; T-11 waits on it; the scratch owner a conflict (as data:
-		// these are not consistent with each other, the view copies them as they are).
+		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
+		// lexical order) wait on it; no task is next (as data: the view copies what serve says, it does not check it).
 		Scratch: &app.ScratchStatus{Task: "T-1000", Why: app.ScratchConflict},
-		ScratchQueue: []app.ScratchWait{{Task: "T-100", Next: true},
-			{Task: "T-11", WaitsOn: "T-100", Why: app.ScratchGating}},
+		ScratchQueue: []app.ScratchWait{{Task: "T-100", WaitsOn: "T-1000", Why: app.ScratchConflict},
+			{Task: "T-11", WaitsOn: "T-1000", Why: app.ScratchConflict}},
 		Review: "review request since 3m (after T-11, waiting T-11), note: check x",
 		ReviewRequest: &app.ReviewRequestStatus{After: []string{"T-11"}, Waiting: []string{"T-11"}, Note: "check x",
 			By: "pj-lead", Since: now.Add(-3 * time.Minute).Unix()},
@@ -591,7 +593,6 @@ func TestStatusQueue(t *testing.T) {
 			} `json:"scratch"`
 			Merge []struct {
 				Task, Stage string
-				Next        bool
 				WaitsOn     string `json:"waits_on"`
 				Why         string
 				Job         *struct {
@@ -629,13 +630,28 @@ func TestStatusQueue(t *testing.T) {
 	if err := json.Unmarshal(b, &js); err != nil {
 		t.Fatal(err)
 	}
+	// T-673: --json's merge items have no next field (the prediction is gone; the nightly's next run stays).
+	var raw struct {
+		Queue struct {
+			Merge []map[string]json.RawMessage `json:"merge"`
+		} `json:"queue"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range raw.Queue.Merge {
+		if _, ok := m["next"]; ok {
+			t.Errorf("queue.merge %s has a next field in --json; want the facts only", m["task"])
+		}
+	}
 	q := js.Queue
-	if len(q.Merge) != 4 || q.Merge[0].Task != "T-100" || q.Merge[0].Stage != "submitted" || !q.Merge[0].Next ||
-		q.Merge[1].Task != "T-1000" || q.Merge[1].Stage != "review" || q.Merge[1].Next || q.Merge[1].WaitsOn != "" ||
-		q.Merge[2].Task != "T-11" || q.Merge[2].Next || q.Merge[2].WaitsOn != "T-100" || q.Merge[2].Why != "gating" ||
+	if len(q.Merge) != 4 || q.Merge[0].Task != "T-100" || q.Merge[0].Stage != "submitted" ||
+		q.Merge[0].WaitsOn != "T-1000" || q.Merge[0].Why != "conflict" ||
+		q.Merge[1].Task != "T-1000" || q.Merge[1].Stage != "review" || q.Merge[1].WaitsOn != "" ||
+		q.Merge[2].Task != "T-11" || q.Merge[2].WaitsOn != "T-1000" || q.Merge[2].Why != "conflict" ||
 		q.Merge[3].Task != "T-9" || q.Merge[3].Stage != "review" {
-		t.Errorf("queue.merge %+v; want serve's order and word: T-100 next, T-1000 conflict, T-11 waits on T-100 "+
-			"gating, T-9 review", q.Merge)
+		t.Errorf("queue.merge %+v; want serve's order and word: T-100 and T-11 wait on the conflict T-1000, T-1000 "+
+			"review, T-9 review", q.Merge)
 	}
 	if s := q.Scratch; s == nil || s.Task != "T-1000" || s.Why != "conflict" {
 		t.Errorf("queue.scratch %+v; want T-1000 conflict", s)
@@ -688,8 +704,8 @@ func TestStatusQueue(t *testing.T) {
 	for _, re := range []string{
 		`^merge T-9 \(O-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
 		`^scratch T-1000: conflict$`,
-		`^merge T-100 \(O-04\): submitted, next$`,
-		`^merge T-11 \(O-02\): submitted, waits for T-100 \(gating\)$`,
+		`^merge T-100 \(O-04\): submitted, waits for T-1000 \(conflict\)$`,
+		`^merge T-11 \(O-02\): submitted, waits for T-1000 \(conflict\)$`,
 		`^queued T-12: waiting \(after T-11\)$`,
 		`^queued T-14: waiting for a medium lane \(sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
@@ -704,5 +720,8 @@ func TestStatusQueue(t *testing.T) {
 	}
 	if strings.Contains(text, "queued T-10") {
 		t.Errorf("a dispatched task with a spec listed as never dispatched:\n%s", text)
+	}
+	if strings.Contains(text, ", next") {
+		t.Errorf("a merge line claims a task goes next (T-673: the queue states facts only):\n%s", text)
 	}
 }

@@ -55,7 +55,7 @@ func goldenView() view.Project {
 		},
 		Queue: view.Queue{
 			Merge: []view.MergeItem{{Task: "T-660", Lane: "O-03", State: "gating", Stage: view.StageGating},
-				{Task: "T-661", State: "submitted", Stage: view.StageSubmitted, Next: true}},
+				{Task: "T-661", State: "submitted", Stage: view.StageSubmitted}},
 			Waiting: []view.WaitItem{{Task: "T-664", WaitsOn: view.WaitsAfter, After: []string{"T-662"}},
 				{Task: "T-665", WaitsOn: view.WaitsLane, Level: "medium", Types: []string{"opus", "sonnet"}}},
 			Pause: &view.Pause{Reason: "quota"},

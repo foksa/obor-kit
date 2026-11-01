@@ -43,7 +43,7 @@ type runner struct {
 	reused      []string          // the trees the reused receipts named (receipts.go)
 	noReuse     bool              // a reused tree went stale: every check runs
 	pruned      bool              // the old logs were removed (once per run)
-	onCommand   func(name string) // told each command exec starts (serve's gate: obor status' running line, T-669)
+	onCommand   func(name string) // told each command as it starts and "" as it ends (serve's gate: obor status' running line, T-669, T-673)
 }
 
 func newRunner(ctx context.Context, o *Options, dir, logName, changedFile string) runner {
@@ -134,6 +134,11 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 	}
 	var buf bytes.Buffer
 	rc, timedOut := run.Execute(r.ctx, c, wd, nil, environ, &buf, &buf)
+	if r.onCommand != nil {
+		// The command ended, however it ended (a normal exit, a timeout, the signal that cut ctx): between two
+		// commands the gate runs and no command does (T-673, RV-75 #4).
+		r.onCommand("")
+	}
 	if code := r.interrupted(); code != 0 {
 		return output{}, true, interrupt(code)
 	}
