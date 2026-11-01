@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-01 (owner): **T-604 reversed**: a report's open questions go to the integrator's review job again; it
+  decides in-goal ones and holds the rest for the lead (T-649). The lead-before-review hold sent 7 questions to the
+  lead in a day, 5 answered "keep as built"; its token saving was not real. Planner/coordinator split: not now; the
+  cheap fixes first (T-649..T-652, docs/research/planner-coordinator-advice-fable.md), then measure.
 - 2026-10-31 (owner): LICENSE is MIT.
 - (owner 2026-10-31, architectural review Part 3) **Token cuts:** the integrator starts fresh per job, still Opus,
   and its review job carries the diff when it is ≤ 15 KB (T-602); workers get their role text inside the job and do not
