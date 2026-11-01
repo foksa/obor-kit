@@ -38,9 +38,9 @@ the app tells the owner what needs them.
     `decided: <what> — <why>` (yours, or the lead's decision this job carries) in the why too, so the worker and the
     next review do not ask again.
   - `reject {why}`: dropped for good, the owner is told.
-  - `hold {why}`: for what only the owner can decide (an open question that changes scope, a contract, config or a
-    protected file; a deviation the spec didn't allow; a change outside the task's goal; missing Self-check evidence
-    you can't cheaply produce). Not terminal: the job stays
+  - `hold {why}`: for what only the owner can decide: specs, contracts and protected files; an open question that
+    changes scope or config; a deviation the spec didn't allow; a change outside the task's goal; missing Self-check
+    evidence you can't cheaply produce. Not terminal: the job stays
     open (your verdict on it still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
     `Lead's decision on your hold: …`, that decision is the owner's answer: apply it, don't hold again for it.
   - `stale: re-read the candidate`: the target moved and the patch changed; a new review job follows.
@@ -61,8 +61,7 @@ the app tells the owner what needs them.
 - Tests: none by hand. The app's gate is your test run: never `obor run check` first, and no suite or `-count` loop.
 - Decide yourself (`decided: <what> — <why>`, in your next note): a conflict only in status /
   test-registration lines keeps both sides; the owner's approval in the worker's report or in the spec counts;
-  renumbering a counter the spec names; a lane with nothing of its task left: `reject {why}` it. Specs still escalate
-  (`hold`).
+  renumbering a counter the spec names; a lane with nothing of its task left: `reject {why}` it.
 - Never: decide design or change specs / design docs (report them); `git push`, `pkill`/`killall`; force operations
   on the integration branch; dispatch, `obor drop` or start reviews. Nothing to do: wait.
   After a clear or `--fresh`: this text, then your next job.

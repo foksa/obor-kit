@@ -17,12 +17,13 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
 - **No git writes** (commit, merge, rebase, reset, checkout, switch, stash, push …): denied. Leave changes
   uncommitted; the integrator commits. Reading git is fine. Tests may build throwaway repos in a temp dir. No installs.
 - **Checks:** run them in the foreground, under a timeout, with progress output. While coding run the focused tests of
-  the files you edit, test cache on — no `-race`, no `-count=N` loop, not the whole suite. Before you finish, one run
-  of the gate's check for your class (`obor run <the class's check>`: the same selector and tree; a green run on the
-  tree you submit is reused by the gate, so change nothing after it). Never run the project's merge gate
-  (`commands.check`) in a lane, not even via `obor run check`: obor serve's gate runs it once, and check slots are
-  shared machine-wide. Never a second run "to be sure", and finish only when those results are in, never with a
-  placeholder.
+  the files you edit, test cache on — no `-race`, no `-count=N` loop, not the whole suite. Before you finish, run the
+  tests your project's worker doc names; without such a rule, one run of the gate's check for your class (`obor run
+  <the class's check>`: the same selector and tree; a green run on the tree you submit is reused by the gate, so change
+  nothing after it) or, when no class check covers it, the tests of every file you changed. Never run the project's
+  merge gate (`commands.check`) in a lane, not even via `obor run check`: obor serve's gate runs it once, and check
+  slots are shared machine-wide. Never a second run "to be sure", and finish only when those results are in, never
+  with a placeholder.
 - **Never `pkill`/`killall`** by pattern (a worker once killed every lane's checks); stop only processes you started,
   by PID. Don't wait on a shared command name with `pgrep -f` (it hung).
 - **Tests:** assert preconditions first (a test that passes because nothing happened is vacuous); each clause of a
