@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"obor/internal/app"
 	"obor/internal/config"
@@ -93,14 +94,15 @@ func readEvents(t *testing.T, root string, n int) []app.Record {
 	return recs
 }
 
-// monitorOf is a monitor of p's project at the fixed clock now and the fixed height.
+// monitorOf is a monitor of p's project at the fixed clock and the fixed height, in the unknown-width default columns.
 func monitorOf(t *testing.T, p *testkit.Project, now time.Time, height int) *monitor {
 	t.Helper()
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &monitor{root: cfg.Root, cfg: cfg, now: func() time.Time { return now }, height: func() int { return height }}
+	return &monitor{root: cfg.Root, cfg: cfg, now: func() time.Time { return now }, height: func() int { return height },
+		width: func() int { return monitorWidth }}
 }
 
 // frameLines is m's frame at now as lines.
@@ -246,6 +248,45 @@ func TestMonitorTruncatesLaterSections(t *testing.T) {
 		if strings.Contains(strings.Join(lines, "\n"), gone) {
 			t.Errorf("an event line (%q) at height 6:\n%s", gone, strings.Join(lines, "\n"))
 		}
+	}
+}
+
+// TestMonitorFitsTerminal: at 80x10 a frame is exactly 10 rows with serve's line first, no row longer than 80 runes (a
+// long line is cut with an ellipsis, not wrapped), and no newline after the last row (which would scroll the view one).
+func TestMonitorFitsTerminal(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	long := "line to pj-lead: " + strings.Repeat("x", 100)
+	if n := utf8.RuneCountInString(long); n <= 80 {
+		t.Fatalf("precondition: the event line is %d runes, not longer than the terminal's 80", n)
+	}
+	p, _ := monitorFx(t, now)
+	addEvent(t, p.Root, now.Add(-70*time.Second), app.KindFact, app.MsgTask, app.StepMessage,
+		map[string]any{"to": "pj-lead", "line": strings.Repeat("x", 100)})
+	m := monitorOf(t, p, now, 10)
+	m.width = func() int { return 80 }
+	text := m.frame(now, readEvents(t, p.Root, monitorRecent))
+	if strings.HasSuffix(text, "\n") {
+		t.Errorf("the frame ends in a newline, which scrolls the view one row:\n%s", text)
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) != 10 {
+		t.Fatalf("%d rows at 80x10, want exactly 10:\n%s", len(lines), text)
+	}
+	if !strings.HasPrefix(lines[0], "serve: up since ") {
+		t.Errorf("row 0 is %q, want serve's line first", lines[0])
+	}
+	cut := ""
+	for i, l := range lines {
+		if n := utf8.RuneCountInString(l); n > 80 {
+			t.Errorf("row %d is %d runes, want at most 80: %q", i, n, l)
+		}
+		if strings.Contains(l, "line to pj-lead: xxx") {
+			cut = l
+		}
+	}
+	if n := utf8.RuneCountInString(cut); cut == "" || n != 80 || !strings.HasSuffix(cut, "…") {
+		t.Errorf("the long event row %q: %d runes, want 80 cut with an ellipsis", cut, n)
 	}
 }
 

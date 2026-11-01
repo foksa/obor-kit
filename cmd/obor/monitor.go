@@ -32,7 +32,8 @@ const (
 	monitorEvery  = 2 * time.Second        // a redraw at least this often: elapsed times
 	monitorAsk    = 2 * time.Second        // one status request (serve answers at once, or is not there)
 	monitorRecent = 200                    // records read for the event list at one redraw
-	monitorHeight = 24                     // rows drawn when the terminal's size is unknown
+	monitorHeight = 24                     // rows drawn when the terminal's height is unknown
+	monitorWidth  = 120                    // columns drawn when the terminal's width is unknown
 	// monitorRestart is how long a serve that stopped answering reads as restarting, not as down (launchd starts the
 	// new build at once; a serve that is gone for good shows its error then).
 	monitorRestart = time.Minute
@@ -48,7 +49,8 @@ type frameWriter interface {
 type monitor struct {
 	root   string
 	cfg    *config.Config
-	height func() int
+	height func() int // the terminal's rows
+	width  func() int // the terminal's columns
 	now    func() time.Time
 
 	db    *sql.DB   // the store, read-only, open while it reads
@@ -70,7 +72,7 @@ func monitorCmd(args []string) int {
 	if rc != 0 {
 		return rc
 	}
-	m := &monitor{root: cfg.Root, cfg: cfg, height: terminalHeight, now: time.Now}
+	m := &monitor{root: cfg.Root, cfg: cfg, height: terminalRows, width: terminalCols, now: time.Now}
 	defer m.close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -108,7 +110,8 @@ func (m *monitor) tick() (text string, drawn bool) {
 }
 
 // frame is the view at now: serve's answer (or the restarting line after one stopped answering), the lanes as git and
-// the store say, and the recent events, fitted to the terminal's height.
+// the store say, and the recent events, fitted to the terminal's rows and cut to its columns, with no newline after the
+// last row.
 func (m *monitor) frame(now time.Time, recs []app.Record) string {
 	ctx, cancel := context.WithTimeout(context.Background(), monitorAsk)
 	ss, err := app.Ask(ctx, app.SocketPath(m.root))
@@ -130,10 +133,14 @@ func (m *monitor) frame(now time.Time, recs []app.Record) string {
 	}
 	cancel()
 	ev := eventsOf(recs, st)
+	lines := fitSections(monitorSections(st, ev, now, restarting), m.rows())
+	width := m.cols()
 	var b strings.Builder
-	for _, l := range fitSections(monitorSections(st, ev, now, restarting), m.rows()) {
-		b.WriteString(l)
-		b.WriteByte('\n')
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(clip(l, width))
 	}
 	return b.String()
 }
@@ -181,20 +188,40 @@ func (m *monitor) rows() int {
 	return monitorHeight
 }
 
+// cols is the terminal's width in columns (monitorWidth when unknown).
+func (m *monitor) cols() int {
+	if n := m.width(); n > 0 {
+		return n
+	}
+	return monitorWidth
+}
+
 // drawFrame clears the terminal and writes frame.
 func drawFrame(w frameWriter, frame string) {
 	fmt.Fprintf(w, "\033[H\033[2J%s", frame)
 	_ = w.Flush()
 }
 
-// terminalHeight is the height of the terminal obor monitor draws on (stdout), 0 when it is not one.
-func terminalHeight() int {
+// terminalSize is the size of the terminal obor monitor draws on (stdout) in rows and columns: 0, 0 when it is not one.
+func terminalSize() (rows, cols int) {
 	var ws struct{ rows, cols, xpix, ypix uint16 }
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&ws)))
 	if errno != 0 {
-		return 0
+		return 0, 0
 	}
-	return int(ws.rows)
+	return int(ws.rows), int(ws.cols)
+}
+
+// terminalRows is the height of the terminal obor monitor draws on (stdout), 0 when it is not one.
+func terminalRows() int {
+	rows, _ := terminalSize()
+	return rows
+}
+
+// terminalCols is the width of the terminal obor monitor draws on (stdout), 0 when it is not one.
+func terminalCols() int {
+	_, cols := terminalSize()
+	return cols
 }
 
 // monitorSections is the monitor's view as sections, top to bottom (T-658): serve's line and the running line; the
@@ -409,4 +436,19 @@ func fitSections(sections [][]string, height int) []string {
 		return out
 	}
 	return out
+}
+
+// clip is line cut to width runes with an ellipsis at the cut: a line longer than the terminal is cut, never wrapped.
+func clip(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	r := []rune(line)
+	if len(r) <= width {
+		return line
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(r[:width-1]) + "…"
 }
