@@ -15,8 +15,8 @@ import (
 // new build (Loop.Restart) once the step's result is in the log.
 
 // restartRig is a loop rig whose after_merge is cmd, restart_serve flag, and whose Restart counts its calls,
-// notes whether after_merge's result was in the log by then, then gives err (nil: a restart, which ends the app as
-// launchd's kickstart -k ends serve).
+// notes whether after_merge's result was in the log by then, then gives err (nil: a restart: serve ends itself
+// gracefully, as a signal ends it, T-656).
 type restartRig struct {
 	*loopRig
 	calls       atomic.Int32
@@ -34,7 +34,7 @@ func newRestartRig(t *testing.T, cmd string, flag bool, err error) *restartRig {
 		if r.err != nil {
 			return r.err
 		}
-		r.cancel() // kickstart -k: this serve ends
+		r.cancel() // the self-restart: serve ends itself gracefully (T-656)
 		return nil
 	}
 	r.work("feature.txt", "feature\n")
@@ -100,12 +100,12 @@ func TestSelfRestartNotAsked(t *testing.T) {
 // A restart that fails: serve goes on (the worker's stop runs) and the lead is told
 // "serve restart after T-1 failed: <err>"; the next serve's start ends it.
 func TestSelfRestartFails(t *testing.T) {
-	r := newRestartRig(t, "true", true, errors.New("launchctl kickstart -k: boom"))
+	r := newRestartRig(t, "true", true, errors.New("obor.serve.pj is not installed (obor serve install)"))
 	r.start()
 	r.submit()
 	r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 	r.merged(1)
-	const want = "serve restart after T-1 failed: launchctl kickstart -k: boom"
+	const want = "serve restart after T-1 failed: obor.serve.pj is not installed (obor serve install)"
 	if r.calls.Load() != 1 || !r.resultFirst.Load() {
 		t.Fatalf("restart calls %d, after_merge result first %v; want 1, true", r.calls.Load(), r.resultFirst.Load())
 	}

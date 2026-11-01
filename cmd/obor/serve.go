@@ -53,6 +53,9 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		errf("FAIL obor serve: %s is not in an obor project (no .obor/config.json): run it in the project", cwd)
 		return 1
 	}
+	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it (T-656).
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	root := repo.Root
 	sock := app.SocketPath(root)
 	if err := herdr.CheckSocketPath(sock); err != nil {
@@ -95,7 +98,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 				version, protocol, herdr.Protocol)
 		}
 	}
-	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes),
+	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, stop),
 		Inboxed: inboxed(env)},
 		panes, laneTable{})
 	go a.Listen(ln)
@@ -108,7 +111,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 // change counts), launch for the integrator's start and the merged worker's stop, the herdr socket for the job
 // prompts and the lines it types (T-466), the session inbox for the lead's lines and for the lines and job wakes of a
 // kind with an inbox (T-485, T-499), and dispatch as state (dispatchLoop: obor serve is the only dispatcher, T-408).
-func mergeLoop(env project.Env, panes herdr.Panes) func(root string) (*app.Loop, error) {
+// stop ends serve for its self-restart (T-656).
+func mergeLoop(env project.Env, panes herdr.Panes, stop context.CancelFunc) func(root string) (*app.Loop, error) {
 	var cache cacheDir // asked once: the Loop is built on every pass
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
@@ -126,9 +130,7 @@ func mergeLoop(env project.Env, panes herdr.Panes) func(root string) (*app.Loop,
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root}
-		if exe, err := os.Executable(); err == nil {
-			l.Restart = serveRestarter(cfg, env, exe)
-		}
+		l.Restart = serveRestarter(cfg, env, stop)
 		return l, nil
 	}
 }

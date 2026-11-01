@@ -332,7 +332,7 @@ func TestSpecs(t *testing.T) {
 func TestMergeLoopDispatchWiring(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	l, err := mergeLoop(p.Env(), herdr.Panes{})(p.Root)
+	l, err := mergeLoop(p.Env(), herdr.Panes{}, func() {})(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestMergeLoopDispatchWiring(t *testing.T) {
 func TestMergeLoopCheckoutPause(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	l, err := mergeLoop(p.Env(), herdr.Panes{})(p.Root)
+	l, err := mergeLoop(p.Env(), herdr.Panes{}, func() {})(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

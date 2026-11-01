@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
 	"obor/internal/app"
@@ -84,12 +81,13 @@ func servePID(root string) int {
 	return pid
 }
 
-// serveRestarter is serve's self-restart after a green after_merge (app.Loop.Restart, T-652): `<exe> serve restart`
-// in the project, in a session of its own (detached: launchd's kickstart -k ends this serve and its process group,
-// not the restart), waited for so a failure is serve's to report. Only launchd's serve restarts itself: off darwin,
-// not installed, or this serve not the agent's process (one in a pane) is an error, nothing run. Not run under ctx:
-// the restart ends this serve, and with it ctx, while it runs.
-func serveRestarter(cfg *config.Config, env project.Env, exe string) func(context.Context) error {
+// serveRestarter is serve's self-restart after a green after_merge (app.Loop.Restart, T-652, T-656): it ends serve the
+// way a signal does — stop cancels the daemon's context, running gates end their process groups, serve returns and
+// exits 0 — and launchd's KeepAlive starts the new build. Not `launchctl kickstart -k` on itself: that signal is not
+// known to be a TERM (a SIGKILL would orphan a gate's process groups), while a graceful exit is the path launchd
+// restarts anyway. Only launchd's serve restarts itself: off darwin, not installed, or this serve not the agent's
+// process (one in a pane) is an error, nothing ended — restart it by hand then (`obor serve restart`).
+func serveRestarter(cfg *config.Config, env project.Env, stop context.CancelFunc) func(context.Context) error {
 	return func(ctx context.Context) error {
 		s := serviceOf(cfg, env)
 		if !s.Supported() {
@@ -103,16 +101,7 @@ func serveRestarter(cfg *config.Config, env project.Env, exe string) func(contex
 			return fmt.Errorf("this serve (pid %d) is not launchd's %s (pid %d): restart it by hand", os.Getpid(),
 				s.Label(), pid)
 		}
-		cmd := exec.Command(exe, "serve", "restart")
-		cmd.Dir = cfg.Root
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		b, err := cmd.CombinedOutput()
-		if err != nil {
-			if out := strings.TrimPrefix(strings.TrimSpace(string(b)), "FAIL obor serve restart: "); out != "" {
-				return errors.New(out)
-			}
-			return err
-		}
+		stop()
 		return nil
 	}
 }

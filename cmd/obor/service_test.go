@@ -73,9 +73,10 @@ func TestServeServiceVerbs(t *testing.T) {
 	}
 }
 
-// serve's self-restart (T-652): only launchd's serve restarts itself. Not installed, or the agent's process another
-// one (a serve in a pane): an error, nothing run. This serve's: `<exe> serve restart` in the project; its FAIL line is
-// the error.
+// serve's self-restart (T-652, T-656): only launchd's serve restarts itself, and it does so by a graceful exit —
+// the restarter cancels serve's context (serve ends, exits 0, launchd's KeepAlive starts the new build), not by
+// `launchctl kickstart -k` on itself. Not installed, or the agent's process another one (a serve in a pane): an error,
+// nothing cancelled, launchctl never kicked.
 func TestServeRestarter(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("launchd: darwin only")
@@ -86,15 +87,11 @@ func TestServeRestarter(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	pid, calls, fail := filepath.Join(bin, "pid"), filepath.Join(bin, "calls"), filepath.Join(bin, "fail")
-	launchctl := "#!/bin/sh\ncase \"$1\" in print) [ -f " + pid + " ] || exit 113; echo \"\tpid = $(cat " + pid + ")\" ;; esac\n"
-	exe := filepath.Join(bin, "obor")
-	fake := "#!/bin/sh\necho \"$(pwd -P) $*\" >> " + calls + "\n[ -f " + fail + " ] || exit 0\n" +
-		"echo 'FAIL obor serve restart: launchctl kickstart -k: boom' >&2\nexit 1\n"
-	for name, script := range map[string]string{"launchctl": launchctl, "obor": fake} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	pid, calls := filepath.Join(bin, "pid"), filepath.Join(bin, "calls")
+	launchctl := "#!/bin/sh\necho \"$*\" >> " + calls + "\ncase \"$1\" in print) [ -f " + pid + " ] || exit 113; " +
+		"echo \"\tpid = $(cat " + pid + ")\" ;; kickstart) exit 1 ;; esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte(launchctl), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	home := t.TempDir()
@@ -104,28 +101,28 @@ func TestServeRestarter(t *testing.T) {
 		}
 		return os.LookupEnv(k)
 	})
-	restart := serveRestarter(cfg, env, exe)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	restart := serveRestarter(cfg, env, cancel)
 	ran := func() string { b, _ := os.ReadFile(calls); return string(b) }
-	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not installed") || ran() != "" {
-		t.Errorf("not installed: %v, ran %q; want the error, nothing run", err, ran())
+	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not installed") ||
+		ctx.Err() != nil {
+		t.Errorf("not installed: %v, cancelled %v; want the error, serve running", err, ctx.Err())
 	}
 	if err := os.WriteFile(pid, []byte("1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not launchd's") || ran() != "" {
-		t.Errorf("another process: %v, ran %q; want the error, nothing run", err, ran())
+	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not launchd's") ||
+		ctx.Err() != nil {
+		t.Errorf("another process: %v, cancelled %v; want the error, serve running", err, ctx.Err())
 	}
 	if err := os.WriteFile(pid, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root, _ := filepath.EvalSymlinks(p.Root)
-	if err := restart(context.Background()); err != nil || ran() != root+" serve restart\n" {
-		t.Errorf("this serve: %v, ran %q; want nil, %q", err, ran(), root+" serve restart")
+	if err := restart(context.Background()); err != nil || ctx.Err() == nil {
+		t.Errorf("this serve: %v, cancelled %v; want nil and serve's context ended", err, ctx.Err())
 	}
-	if err := os.WriteFile(fail, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := restart(context.Background()); err == nil || err.Error() != "launchctl kickstart -k: boom" {
-		t.Errorf("a failing restart: %v; want its FAIL line's reason", err)
+	if got := ran(); strings.Contains(got, "kickstart") {
+		t.Errorf("the restart kicked launchd instead of exiting gracefully:\n%s", got)
 	}
 }
