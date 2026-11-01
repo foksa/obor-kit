@@ -277,6 +277,14 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   checked there (the agent guard covers `commit -a`).
 - obor has no rule of its own in `post-merge` / `post-commit` (serve dispatches the waiting tasks, `--after`, and runs
   `commands.after_merge` in the main checkout after a merge); a project's own still run through the chain.
+- Self-restart after a code merge (T-652): `commands.after_merge.restart_serve: true` (default false; obor-kit sets
+  it) makes serve restart itself once `after_merge` ran green: its result is in the log first, then a detached
+  `obor serve restart` (own session; launchd's `kickstart -k`) ends this serve and starts the new build, which replays
+  a done step (no second merge or command; work in flight folds as at any restart). Only launchd's serve restarts
+  itself (one in a pane, or not installed: an error). A failed restart is a needs-you `serve restart after T-xx
+  failed: <err>` (key `serve`); the next serve start ends it. Two windows lose only the restart, never a result
+  (accepted): serve dies between the step's result and the restart, or the result was written late (an effect whose
+  log write failed): serve keeps the old binary until `obor serve restart` by hand.
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies T-373)
 Both workspaces share one machine, so heavy test runs take a slot from one **machine-wide** slot dir shared with
