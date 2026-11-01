@@ -12,9 +12,11 @@ The lead, in a clean checkout on main:
    `git log v<prev>..` (every merge's spec is in its message), not task by task: a guide written mid-milestone misses
    the last merges (DD-v0.14 U1). Commit it on main.
 2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses off main, on a dirty tree, when
-   `V` is not above `VERSION`, or when the guide has no `v<x.y.z>` heading; then it sets `VERSION` and the plugin
-   `version`, runs the full `make check` (a failure commits nothing), and commits them on main. In a scratch worktree
-   at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
+   `V` is not above `VERSION`, when the guide has no `v<x.y.z>` heading, or when a merge after the last `RV-<n> closed`
+   commit changes anything but docs (`docs/` or a `.md` file): run `obor review` and close it first. `UNREVIEWED="<why>"`
+   overrides the last refusal (the owner's call only) and puts the reason in the tag message. Then it sets `VERSION` and
+   the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on main. In a scratch
+   worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
    worktree. A re-run resumes where it stopped (the version commit, the tag and the catalog commit are not redone); a
    local tag whose bytes differ is refused, and a pushed tag never moves.

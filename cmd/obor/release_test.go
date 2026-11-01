@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,6 +118,164 @@ func (f *releaseFixture) untouched(t *testing.T, v, head string) {
 	if got := strings.TrimSpace(f.Read("VERSION")); got != "1.2.3" {
 		t.Errorf("VERSION became %q", got)
 	}
+}
+
+// closeReview commits "RV-<n> closed · <sha> · approved" on main (the shape obor review closes with): the reviewed
+// point T-642 reads is the close commit itself, never the sha it names.
+func (f *releaseFixture) closeReview(t *testing.T, n int, named string) string {
+	t.Helper()
+	writeFile(t, filepath.Join(f.Root, "docs", "reviews", fmt.Sprintf("RV-%d.md", n)), "# RV\n")
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", fmt.Sprintf("RV-%d closed · %s · approved", n, named))
+	return f.Git(f.Root, "rev-parse", "HEAD")
+}
+
+// headShort is main's short sha: the sha a close commit names.
+func (f *releaseFixture) headShort(t *testing.T) string {
+	t.Helper()
+	return f.Git(f.Root, "rev-parse", "--short", "HEAD")
+}
+
+// merge brings files in on a topic branch and merges it on main with subject: a first-parent merge commit.
+func (f *releaseFixture) merge(t *testing.T, branch, subject string, files map[string]string) string {
+	t.Helper()
+	return f.mergeBody(t, branch, subject, "", files)
+}
+
+// mergeBody is merge with a message body after the subject: main's merge messages carry whole specs, so a body may quote
+// a close line at the start of a line (T-642).
+func (f *releaseFixture) mergeBody(t *testing.T, branch, subject, body string, files map[string]string) string {
+	t.Helper()
+	f.Git(f.Root, "checkout", "-q", "-b", branch)
+	for name, content := range files {
+		writeFile(t, filepath.Join(f.Root, name), content)
+	}
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", "work on "+branch)
+	f.Git(f.Root, "checkout", "-q", "main")
+	args := []string{"merge", "-q", "--no-ff", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	f.Git(f.Root, append(args, branch)...)
+	if got := f.Git(f.Root, "log", "-1", "--format=%s"); got != subject {
+		t.Fatalf("the merge's subject is %q, want %q", got, subject)
+	}
+	return f.Git(f.Root, "rev-parse", "HEAD")
+}
+
+// T-642: make release refuses while a merge after the last "RV-n closed" commit changes anything but docs, naming the
+// tasks a review has not seen; --dry-run reports it too, and nothing runs or changes.
+func TestMakeReleaseRefusesUnreviewed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		prepare func(t *testing.T, f *releaseFixture)
+		want    string
+	}{
+		{"code merges after the close", func(t *testing.T, f *releaseFixture) {
+			f.closeReview(t, 1, f.headShort(t))
+			f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
+			f.merge(t, "topic/b", "Merge T-6: more", map[string]string{"scripts/b": "#!/bin/sh\n"})
+		}, `unreviewed since RV-1: T-5, T-6 (run obor review, close it, then release; or UNREVIEWED="<why>" make release V=1.2.4)`},
+		{"no close commit: every merge counts", func(t *testing.T, f *releaseFixture) {
+			f.merge(t, "topic/c", "Merge T-7: code", map[string]string{"cmd/x.go": "package main\n"})
+		}, `unreviewed since the first commit (no RV closed yet): T-7 (run obor review`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newReleaseFixture(t)
+			tc.prepare(t, f)
+			head := f.Git(f.Root, "rev-parse", "HEAD")
+			for _, args := range [][]string{{"V=1.2.4"}, {"V=1.2.4", "DRY=1"}} {
+				out, failed := f.release(t, args...)
+				if !failed || !strings.Contains(out, "FAIL "+tc.want) {
+					t.Errorf("%q: want a FAIL %q (failed %v):\n%s", args, tc.want, failed, out)
+				}
+				f.untouched(t, "1.2.4", head)
+			}
+		})
+	}
+}
+
+// T-642: a merge after the close whose files are all docs passes the check (docs/ of any kind, a .md anywhere), and so
+// does a code merge the close commit came after.
+func TestMakeReleaseAllowsDocsAndReviewedMerges(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		prepare func(t *testing.T, f *releaseFixture)
+	}{
+		{"docs-only merge after the close", func(t *testing.T, f *releaseFixture) {
+			f.closeReview(t, 1, f.headShort(t))
+			f.merge(t, "topic/docs", "Merge T-8: docs", map[string]string{
+				"docs/notes.md": "notes\n", "docs/diagram.png": "png\n", "NOTES.md": "top\n"})
+		}},
+		{"code merge after the sha the close names, before the close", func(t *testing.T, f *releaseFixture) {
+			named := f.headShort(t)
+			f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
+			f.closeReview(t, 1, named)
+			f.merge(t, "topic/docs", "Merge T-9: docs", map[string]string{"docs/more.md": "more\n"})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newReleaseFixture(t)
+			tc.prepare(t, f)
+			head := f.Git(f.Root, "rev-parse", "HEAD")
+			out, failed := f.release(t, "V=1.2.4", "DRY=1")
+			if failed {
+				t.Fatalf("the dry run was refused:\n%s", out)
+			}
+			if !strings.Contains(out, "would: set VERSION") {
+				t.Errorf("the dry run does not pass the unreviewed check:\n%s", out)
+			}
+			f.untouched(t, "1.2.4", head)
+		})
+	}
+}
+
+// T-642: UNREVIEWED="<why>" (the owner's call) lets the release through, says what it lets through, and puts the reason
+// in the tag message.
+func TestMakeReleaseUnreviewedOverride(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.closeReview(t, 1, f.headShort(t))
+	f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
+	out, failed := f.release(t, "V=1.2.4", "UNREVIEWED=the owner ships it anyway")
+	if failed {
+		t.Fatalf("UNREVIEWED must let the release through:\n%s", out)
+	}
+	if !strings.Contains(out, "unreviewed since RV-1: T-5 (UNREVIEWED: the owner ships it anyway)") {
+		t.Errorf("the release does not say what it let through:\n%s", out)
+	}
+	msg := f.Git(f.Root, "tag", "-l", "--format=%(contents)", "v1.2.4")
+	if !strings.Contains(msg, "Unreviewed: T-5 — the owner ships it anyway") {
+		t.Errorf("the tag message does not carry the unreviewed line: %q", msg)
+	}
+	if !strings.Contains(msg, "obor v1.2.4") {
+		t.Errorf("the tag message lost its subject: %q", msg)
+	}
+}
+
+// T-642 review finding: only a subject is a close commit. A merge message carries a whole spec, which may quote a close
+// line at the start of a line; that must not become the newest review (it would silently disable the check).
+func TestMakeReleaseIgnoresCloseLinesInMergeBodies(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.closeReview(t, 1, f.headShort(t))
+	body := "Spec quote:\n\nRV-99 closed · abc1234 · approved"
+	f.mergeBody(t, "topic/a", "Merge T-5: code", body, map[string]string{"internal/a.go": "package internal\n"})
+	// Precondition: the body really has the close line at a line start (else this is vacuous).
+	if msg := f.Git(f.Root, "log", "-1", "--format=%B"); !strings.Contains(msg, "\nRV-99 closed · abc1234 · approved") {
+		t.Fatalf("precondition: the merge body does not quote a close line: %q", msg)
+	}
+	head := f.Git(f.Root, "rev-parse", "HEAD")
+	out, failed := f.release(t, "V=1.2.4")
+	if !failed || !strings.Contains(out, "FAIL unreviewed since RV-1: T-5 (") {
+		t.Fatalf("a close line in a merge body must not count as the review (failed %v):\n%s", failed, out)
+	}
+	f.untouched(t, "1.2.4", head)
 }
 
 // T-640: make release refuses off main, a dirty tree, a V not greater than VERSION, and a guide without its heading;
