@@ -253,8 +253,12 @@ func (a *App) verdict(ctx context.Context, method string, c Call) (string, error
 	var v verdictResult
 	_ = json.Unmarshal(raw, &v)
 	a.mu.Lock()
+	was := p.closed(c.Task)
 	p.foldRecord(Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindResult, Data: raw,
 		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // a sendback's time: the next attempt's begun
+	if !was && p.closed(c.Task) {
+		a.settleEnded(p, c.Task) // rejected: its cleared watchdog notifications never run (T-636)
+	}
 	a.mu.Unlock()
 	a.logf("%s %s by %s", p.name, v.Reply, c.Agent)
 	a.wake()
