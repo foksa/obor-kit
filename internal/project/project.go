@@ -19,6 +19,10 @@ import (
 // StopFailureLog is the project's StopFailure hook log under StateDir.
 const StopFailureLog = "stop-failure.log"
 
+// MonitorCommand is what the project's monitor pane runs: obor setup types it there and the restore types it again in a
+// pane left at its shell (T-658).
+const MonitorCommand = "obor monitor"
+
 // ErrNotGit: dir is not inside a git repository.
 var ErrNotGit = errors.New("not a git repository")
 

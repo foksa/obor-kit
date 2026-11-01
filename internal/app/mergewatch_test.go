@@ -59,6 +59,10 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 	if reply, err := r.watch("w2", "", false); err != nil || reply != "WATCH T-1 since 0s" {
 		t.Fatalf("the list: %q, %v", reply, err)
 	}
+	// T-658: serve's status carries the open watches (obor monitor lists them, not a fold of its own).
+	if ws := r.app.Status().Project.Watches; len(ws) != 1 || ws[0].Task != "T-1" || ws[0].By != "pj-lead" {
+		t.Errorf("status watches %+v, want T-1 watched by pj-lead", ws)
+	}
 	if n := len(r.watchFacts()); n != 1 {
 		t.Fatalf("precondition: %d watch facts, want 1", n)
 	}
@@ -72,6 +76,9 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 	r.passes()
 	if l := r.watchLines(); len(l) != 1 || l[0] != line {
 		t.Errorf("watch lines %q, want one %q", l, line)
+	}
+	if ws := r.app.Status().Project.Watches; len(ws) != 0 {
+		t.Errorf("status watches %+v after the merge, want none", ws)
 	}
 	if reply, err := r.watch("w3", "", false); err != nil || reply != "NO WATCHES" {
 		t.Errorf("the list after the line: %q, %v; want the watch ended", reply, err)

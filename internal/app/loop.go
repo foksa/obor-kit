@@ -91,7 +91,10 @@ const (
 // default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
 const (
-	causeHeld            = "held"
+	// CauseHeld is causeHeld, exported: the integrator's hold, the one cause obor monitor lists as an event of its own
+	// (T-658: "held T-xx: why"; every cause is in obor status' needs-you line).
+	CauseHeld            = "held"
+	causeHeld            = CauseHeld
 	causeUndelivered     = "job not delivered"
 	causeStalled         = "job stalled"
 	causeRed             = "red"

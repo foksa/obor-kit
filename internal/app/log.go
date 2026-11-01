@@ -174,6 +174,20 @@ func Dump(w io.Writer, root string) error {
 	return nil
 }
 
+// RecentEvents is db's newest limit records, newest first: obor monitor's event list (T-658). The caller opens the
+// store read-only (store.OpenRO) and keeps it while it polls; limit ≤ 0: none. Events must exist for it to have any.
+func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := db.Query("SELECT seq, ts, task, attempt, step, kind, class, data FROM events ORDER BY seq DESC LIMIT ?", limit)
+	if err != nil {
+		return nil, fmt.Errorf("event log: %w", err)
+	}
+	defer rows.Close()
+	return scanRecords(rows)
+}
+
 // records is every row of db's events table in seq order.
 func records(db *sql.DB) ([]Record, error) {
 	rows, err := db.Query("SELECT seq, ts, task, attempt, step, kind, class, data FROM events ORDER BY seq")
@@ -181,6 +195,11 @@ func records(db *sql.DB) ([]Record, error) {
 		return nil, fmt.Errorf("event log: %w", err)
 	}
 	defer rows.Close()
+	return scanRecords(rows)
+}
+
+// scanRecords is rows of the events table's columns, in their order.
+func scanRecords(rows *sql.Rows) ([]Record, error) {
 	var recs []Record
 	for rows.Next() {
 		var r Record

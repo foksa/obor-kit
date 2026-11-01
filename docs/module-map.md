@@ -84,9 +84,10 @@ Adding a kind = one package + a config entry.
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
-- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it starts
-  agents through an `app.Starter` that `cmd/obor` injects); `obor init` (`oborinit.go`, P7-2: the steps chained with no
-  questions; serve install through `Setup.Serve`, which `cmd/obor` wires to `service`).
+- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report, the
+  monitor pane `monitor.go`, T-658; it starts agents through an `app.Starter` that `cmd/obor` injects); `obor init`
+  (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
+  to `service`).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
 - `service`: the project's launchd agent (T-596; darwin only, elsewhere each verb says to run `obor serve` yourself):
   the plist `~/Library/LaunchAgents/obor.serve.<name>.plist` and `launchctl` bootstrap / bootout / kickstart / print
@@ -95,7 +96,8 @@ Adding a kind = one package + a config entry.
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
 
-**entry** — `cmd/obor`: flags and wiring only; `obor status` rendering; the thin `app.Specs`, `Lanes`, `Poster`
-adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`, `answer`, `resume`, `sendback`,
-`drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
-`nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`).
+**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`, T-658) rendering; the
+thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`,
+`answer`, `resume`, `sendback`, `drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
+`setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
+`hook`, `whoami`).

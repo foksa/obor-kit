@@ -9,6 +9,21 @@ Read the line under serve's to see what runs without an agent: `running: gate T-
 T-655 (make build, 12s)` (else `running: nothing`); a lane's state column reads `gating`, `merging`, `reviewing` or
 `held` while serve works on it. `obor status --short` is just that line, serve's and needs-you (a status bar).
 
+## obor monitor (T-658)
+The project's live view, in the `system` tab of its herdr workspace (a pane labelled `<prefix>-monitor`; `obor init`
+makes it, `obor setup monitor` adds it to a project set up before). It is `obor status` redrawn in place, plus the
+store's recent events:
+
+- serve's line and the `running:` line; needs-you, in full, with the commands that answer them;
+- one line per lane: its state column, task, how long it has been in that state, and its agent idle or working;
+- the open review request (or `review due`), the watches and the dispatches queued on `--after` tasks;
+- the recent events, newest first, with their local time: dispatched, submitted, gate pass/fail with its line,
+  accepted, sendback, held, merged with its sha, a review requested or started, a line posted, serve restarted.
+
+It redraws on every new record and at least every 2 s (elapsed times), says `serve: restarting…` while serve is between
+restarts and reconnects by itself, and ends on Ctrl-C. Read-only, any role: the lane's states are serve's and git's,
+never the monitor's own. `obor setup monitor` (idempotent: an existing pane is reused) is how a project gets one later.
+
 ## obor watch (T-523, T-528)
 Clean merges stay quiet for you; a merge you must act on (restart serve after it, dispatch by hand, tell the owner)
 is a watch, never a shell loop over `git log` or a background wait.

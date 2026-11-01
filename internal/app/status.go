@@ -26,8 +26,8 @@ type Status struct {
 }
 
 // ProjectStatus is the served project: its observed agents, whether the merge loop runs for it and its open tasks,
-// and the facts in force (the watchdogs' and the merge loop's needs-you). LogError is its event log's last append
-// error (cleared by a good append): every step that needs a record fails while it stays.
+// the facts in force (the watchdogs' and the merge loop's needs-you) and the lead's open watches. LogError is its
+// event log's last append error (cleared by a good append): every step that needs a record fails while it stays.
 type ProjectStatus struct {
 	Name     string        `json:"name"`
 	Root     string        `json:"root"`
@@ -37,6 +37,8 @@ type ProjectStatus struct {
 	Facts    []Record      `json:"facts"`
 	LogError string        `json:"log_error,omitempty"`
 	Paused   *Pause        `json:"paused,omitempty"` // the pause in force (pause.go)
+	// Watches is the lead's open watches (mergewatch.go), oldest first: obor monitor lists them (T-658).
+	Watches []WatchStatus `json:"watches,omitempty"`
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
@@ -59,6 +61,14 @@ const StepServeRestart = "restart"
 type RunningStep struct {
 	Step  string `json:"step"`
 	Task  string `json:"task,omitempty"`
+	Since int64  `json:"since"`
+}
+
+// WatchStatus is one of the lead's open watches: the task or comma list watched, who watches it, and since when
+// (Unix seconds, its fact's time).
+type WatchStatus struct {
+	Task  string `json:"task"`
+	By    string `json:"by,omitempty"`
 	Since int64  `json:"since"`
 }
 
@@ -165,6 +175,15 @@ func (a *App) Status() Status {
 			}
 		}
 		ps.Running = runningSteps(p.log.OpenIntents(), p.restarting)
+		sets := make([]string, 0, len(p.folded.watches))
+		for set := range p.folded.watches {
+			sets = append(sets, set)
+		}
+		sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
+		for _, set := range sets {
+			w := p.folded.watches[set]
+			ps.Watches = append(ps.Watches, WatchStatus{Task: set, By: w.by, Since: w.at.Unix()})
+		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
 		st.Project = &ps

@@ -33,8 +33,9 @@ type statusModel struct {
 	NeedsYou  []needsYouJSON      `json:"needs_you"`
 	FullCheck *fullCheckJSON      `json:"full_check"`
 	Paused    *pauseJSON          `json:"paused"`
-	Messages  []app.MessageStatus `json:"messages"`         // the lines not typed yet
-	Review    string              `json:"review,omitempty"` // the open review request, or "review due: …" (T-638)
+	Messages  []app.MessageStatus `json:"messages"`          // the lines not typed yet
+	Review    string              `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
+	Watches   []app.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
 	facts     []app.Record        // serve's facts in force for the project (--facts)
 }
 
@@ -81,6 +82,10 @@ type laneJSON struct {
 	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
+	// Since is when the state column began, as far as this command can tell (epoch seconds; nil: unknown, or a lane with
+	// no task): the held needs-you's fact, the gate or publish running on the task, the task_done's record (done), the
+	// lane row's dispatch (a task working). obor monitor counts its elapsed time from it (T-658).
+	Since *int64 `json:"since,omitempty"`
 }
 
 type needsYouJSON struct {
@@ -88,6 +93,7 @@ type needsYouJSON struct {
 	Lane   string `json:"lane,omitempty"`
 	Reason string `json:"reason"`
 	Answer string `json:"answer,omitempty"` // the commands that answer it (serve's ProjectStatus.Answers)
+	Since  int64  `json:"since,omitempty"`  // when serve recorded the fact (epoch seconds)
 }
 
 type fullCheckJSON struct {
@@ -197,12 +203,16 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 		st.Serve.Merging, st.Serve.LogError = ps.Merging, ps.LogError
 		st.Tasks, st.Agents = append(st.Tasks, ps.Tasks...), append(st.Agents, ps.Agents...)
 		st.Messages = append(st.Messages, ps.Messages...)
-		st.Review = ps.Review
+		st.Review, st.Watches = ps.Review, ps.Watches
 		st.facts = ps.Facts
 		for _, f := range ps.Facts {
 			if f.Step == app.StepNeedsYou {
-				st.NeedsYou = append(st.NeedsYou, needsYouJSON{Task: f.Task, Lane: f.Fact().Lane,
-					Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]})
+				n := needsYouJSON{Task: f.Task, Lane: f.Fact().Lane, Reason: f.Fact().Reason,
+					Answer: ps.Answers[f.Seq]}
+				if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
+					n.Since = t.Unix()
+				}
+				st.NeedsYou = append(st.NeedsYou, n)
 			}
 		}
 	}
@@ -224,6 +234,7 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 				l.Agent, l.AgentStatus = a.Name, a.Status
 			}
 		}
+		l.Since = laneSince(l, st, p.Now, p.Rows()[s.Lane].DispatchedAt)
 		st.Lanes = append(st.Lanes, l)
 	}
 	st.FullCheck = readFullCheck(p.Root)
@@ -259,67 +270,130 @@ func readFullCheck(root string) *fullCheckJSON {
 // lane, serve's open tasks on no lane (not dropped), the agents on no lane, each needs-you with its answer, the lines
 // not typed yet, the full check and the pause.
 func writeStatus(w io.Writer, st statusModel, now time.Time) {
-	writeServe(w, st.Serve, now)
-	writeRunning(w, st, now)
+	for _, s := range statusSections(st, now) {
+		writeLines(w, s)
+	}
+}
+
+// statusSections is writeStatus' text as sections, in its order: serve's line and the running line, the lanes (with
+// serve's tasks on no lane and the agents on no lane), needs-you, then the lines not typed yet and what reads under
+// them (the review, the full check, the pause). obor monitor draws serveSection and needsYouSection the same way
+// (T-658: one source for those lines).
+func statusSections(st statusModel, now time.Time) [][]string {
+	return [][]string{serveSection(st, now), laneSection(st, now), needsYouSection(st), tailSection(st, now)}
+}
+
+// serveSection is serve's line with the running line under it.
+func serveSection(st statusModel, now time.Time) []string {
+	var b strings.Builder
+	writeServe(&b, st.Serve, now)
+	writeRunning(&b, st, now)
+	return textLines(b.String())
+}
+
+// laneSection is one line per lane, serve's open tasks on no lane (not dropped) and the agents on no lane.
+func laneSection(st statusModel, now time.Time) []string {
+	var b strings.Builder
 	shown := map[string]bool{}
 	for _, l := range st.Lanes {
-		ago := "-"
-		if l.DoneAge != nil {
-			ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
-		}
-		line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, l.Type, orDash(l.Branch),
-			laneState(l, st), ago, orDash(l.Task))
+		fmt.Fprintln(&b, laneLine(l, st))
 		if l.TaskState != "" {
-			line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
 			shown[*l.Task] = true
 		}
-		if l.Dirty && l.State != "dirty-free" {
-			line += "  dirty"
-		}
-		if l.Warning != nil {
-			line += "  warning: " + *l.Warning
-		}
-		if l.Agent != "" {
-			line += "  agent: " + l.Agent
-			if l.AgentStatus != "" {
-				line += " (" + l.AgentStatus + ")"
-			}
-		}
-		fmt.Fprintln(w, line)
 	}
 	for _, t := range st.Tasks {
 		if !shown[t.Task] && t.State != "dropped" { // dropped stays in serve's list for good; --json has it
 			if t.State == "waiting" { // no lane, no attempt yet
-				fmt.Fprintf(w, "task %s: %s\n", t.Task, waitingOn(t))
+				fmt.Fprintf(&b, "task %s: %s\n", t.Task, waitingOn(t))
 				continue
 			}
-			fmt.Fprintf(w, "task %s (%s): %s (attempt %d)%s\n", t.Task, app.Dash(t.Lane), t.State, t.Attempt, running(t.Running))
+			fmt.Fprintf(&b, "task %s (%s): %s (attempt %d)%s\n", t.Task, app.Dash(t.Lane), t.State, t.Attempt, running(t.Running))
 		}
 	}
 	for _, a := range st.Agents {
 		if a.Lane == "" {
-			fmt.Fprintf(w, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+			fmt.Fprintf(&b, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
 		}
 	}
-	writeNeedsYou(w, st.NeedsYou)
+	return textLines(b.String())
+}
+
+// laneLine is l's line: its lane, type, branch, the state column (T-657), the task's age and id, then serve's state of
+// the task, a dirty or warned worktree and the agent.
+func laneLine(l laneJSON, st statusModel) string {
+	ago := "-"
+	if l.DoneAge != nil {
+		ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
+	}
+	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, l.Type, orDash(l.Branch),
+		laneState(l, st), ago, orDash(l.Task))
+	if l.TaskState != "" {
+		line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
+	}
+	if l.Dirty && l.State != "dirty-free" {
+		line += "  dirty"
+	}
+	if l.Warning != nil {
+		line += "  warning: " + *l.Warning
+	}
+	if l.Agent != "" {
+		line += "  agent: " + l.Agent
+		if l.AgentStatus != "" {
+			line += " (" + l.AgentStatus + ")"
+		}
+	}
+	return line
+}
+
+// needsYouSection is one line per needs-you with the commands that answer it.
+func needsYouSection(st statusModel) []string {
+	var b strings.Builder
+	writeNeedsYou(&b, st.NeedsYou)
+	return textLines(b.String())
+}
+
+// tailSection is the lines not typed yet, the open review (or "review due"), the full check and the pause.
+func tailSection(st statusModel, now time.Time) []string {
+	var b strings.Builder
 	for _, m := range st.Messages {
-		fmt.Fprintf(w, "undelivered to %s (from %s, %s): %s\n", m.To, app.Dash(m.From), app.Age(time.Duration(m.Age)*time.Second), m.Line)
+		fmt.Fprintf(&b, "undelivered to %s (from %s, %s): %s\n", m.To, app.Dash(m.From), app.Age(time.Duration(m.Age)*time.Second), m.Line)
 	}
 	if st.Review != "" {
-		fmt.Fprintln(w, st.Review)
+		fmt.Fprintln(&b, st.Review)
 	}
 	if fc := st.FullCheck; fc == nil {
-		fmt.Fprintln(w, "full check: none yet")
+		fmt.Fprintln(&b, "full check: none yet")
 	} else {
-		fmt.Fprintf(w, "full check: %s %s, %s ago (%s)\n", fc.Verdict, fc.SHA[:min(7, len(fc.SHA))],
+		fmt.Fprintf(&b, "full check: %s %s, %s ago (%s)\n", fc.Verdict, fc.SHA[:min(7, len(fc.SHA))],
 			app.Age(max(now.Sub(time.Unix(fc.At, 0)), 0)), fc.Summary)
 	}
 	if p := st.Paused; p != nil {
-		until := "cleared"
-		if p.Until != nil {
-			until = time.Unix(*p.Until, 0).Format("15:04")
-		}
-		fmt.Fprintf(w, "paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
+		b.WriteString(pauseLine(p))
+	}
+	return textLines(b.String())
+}
+
+// pauseLine is the pause in force as obor status writes it (obor monitor adds it to its needs-a-look section).
+func pauseLine(p *pauseJSON) string {
+	until := "cleared"
+	if p.Until != nil {
+		until = time.Unix(*p.Until, 0).Format("15:04")
+	}
+	return fmt.Sprintf("paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
+}
+
+// textLines is text split into its lines (a trailing newline ends the last, it does not add one).
+func textLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+}
+
+// writeLines writes each line of s with its newline.
+func writeLines(w io.Writer, s []string) {
+	for _, l := range s {
+		fmt.Fprintln(w, l)
 	}
 }
 
@@ -451,6 +525,41 @@ func held(needs []needsYouJSON, l laneJSON) bool {
 		}
 	}
 	return false
+}
+
+// laneSince is when l's state column began, as far as this command can tell (nil: a free lane, no task, or nothing
+// recorded): the held needs-you's fact, the gate or publish running on its task, the lane row's dispatch (a task
+// working in the lane) or the task_done's record (done). obor monitor counts the elapsed time of the state from it
+// (T-658).
+func laneSince(l laneJSON, st statusModel, now, dispatched int64) *int64 {
+	at := func(v int64) *int64 { return &v }
+	switch laneState(l, st) {
+	case "held":
+		var best *int64
+		for _, n := range st.NeedsYou {
+			if n.Since == 0 || n.Lane != l.Lane && (l.Task == nil || n.Task != *l.Task) {
+				continue
+			}
+			if best == nil || n.Since > *best {
+				best = at(n.Since)
+			}
+		}
+		return best
+	case "gating", "merging":
+		for _, r := range st.Running {
+			if l.Task != nil && r.Task == *l.Task && r.Since != 0 {
+				return at(r.Since)
+			}
+		}
+	case "done":
+		if l.DoneAge != nil {
+			return at(now - *l.DoneAge)
+		}
+	}
+	if l.Task != nil && dispatched != 0 {
+		return at(dispatched)
+	}
+	return nil
 }
 
 // runningCommand is the configured command r runs, for the running line: the project's checking step for a gate or the
