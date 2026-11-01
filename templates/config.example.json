@@ -25,6 +25,12 @@
     "opus": { "kind": "claude", "args": ["--model", "opus", "--effort", "medium", "--permission-mode", "auto"], "max": 4 },
     "sonnet": { "kind": "claude", "args": ["--model", "sonnet", "--effort", "medium", "--permission-mode", "auto"] },
     "haiku": { "kind": "claude", "args": ["--model", "haiku", "--permission-mode", "auto"] },
+    "deepseek": {
+      "kind": "opencode",
+      "args": ["--auto", "--standalone"],
+      "max": 2,
+      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
+    },
     "luna": {
       "kind": "codex",
       "args": ["-m", "gpt-6-luna", "-c", "model_reasoning_effort=high", "-s", "workspace-write", "-a", "never"],

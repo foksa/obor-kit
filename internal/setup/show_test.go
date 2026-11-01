@@ -8,9 +8,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-647: obor setup show prints the setup table from the config: per difficulty level its preferred lane type with
-// that type's model and effort, the lanes that run the level, and the level's fallback; then the roles' types and the
-// owner's answer. It is read-only.
+// T-647: obor setup show prints the setup table from the config: per difficulty level its types in order with the
+// first one's model and effort (or "no lane" when no lane has it, then the types that do), the lanes that run the
+// level, the level's fallback; then the roles' types and the owner's answer. It is read-only.
 func TestSetupShowPrintsTheTable(t *testing.T) {
 	t.Parallel()
 	x := newFx(t,
@@ -28,9 +28,9 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	out := x.ok(t, "show")
 	want := strings.Join([]string{
 		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):",
-		"  hard   → opus-high (opus, effort high): O-01 | fallback opus",
+		"  hard   → opus-high (opus, effort high; no lane), opus: O-01",
 		"  medium → sonnet (sonnet, effort medium): S-01",
-		"  simple → deepseek (unknown): S-01 | fallback sonnet",
+		"  simple → deepseek (no lane), sonnet: S-01",
 		"roles: lead opus (opus, effort medium), integrator opus (opus, effort medium), reviewer terra (gpt-6.1-terra, effort high)",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",
@@ -44,40 +44,54 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	}
 }
 
-// T-647: a preferred type that has a lane is the level's own pick (no fallback note), a level whose own types have no
-// lane says so and names the T-631 fallback's lanes, a level with no lane anywhere says a task of it waits, and a
-// confirmed setup prints no starting point.
+// T-647: a type with a lane is never marked; a type that exists but has no lane is "(no lane)" with the level's types
+// that do run it; the table never names a lane_type the project lacks (the built-in default names some); a level with
+// no lane anywhere names the T-631 fallback's lanes or says a task of it waits; a confirmed setup prints no starting
+// point.
 func TestSetupShowLevelLines(t *testing.T) {
 	t.Parallel()
 	types := `{
 		"opus": {"kind": "claude", "args": ["--model", "opus", "--effort", "medium"]},
-		"sonnet": {"kind": "claude", "args": ["--model", "sonnet"]}}`
+		"sonnet": {"kind": "claude", "args": ["--model", "sonnet"]},
+		"deepseek": {"kind": "opencode", "args": []}}`
 	x := newFx(t,
 		testkit.Set("lane_types", types),
 		testkit.Set("lanes", `{"O-01": "opus", "S-01": "sonnet"}`),
-		testkit.Set("difficulty", `{"hard": ["opus"], "simple": ["haiku"]}`),
+		testkit.Set("difficulty", `{"hard": ["opus"], "simple": ["deepseek", "sonnet", "haiku"]}`),
 		testkit.Set("setup", `{"confirmed": true}`))
 	out := x.ok(t, "show")
 	for _, want := range []string{
 		"  hard   → opus (opus, effort medium): O-01\n",
 		"  medium → sonnet (sonnet): S-01\n",
-		"  simple → haiku (no such lane_type): S-01 | no simple lane: fallback sonnet\n",
+		"  simple → deepseek (no lane), sonnet: S-01\n",
 		"confirmed: yes\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("obor setup show lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "fallback opus") {
-		t.Errorf("a preferred type with a lane prints a fallback:\n%s", out)
+	if strings.Contains(out, "haiku") || strings.Contains(out, "opus-high") {
+		t.Errorf("the table names a lane_type the project lacks:\n%s", out)
 	}
 	if strings.Contains(out, "starting point") {
 		t.Errorf("a confirmed setup prints the starting point line:\n%s", out)
 	}
-	// No lane at all in the project: each level says its task waits instead of naming lanes.
-	y := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{}`))
-	if out := y.ok(t, "show"); !strings.Contains(out, "  simple → deepseek (no such lane_type): no lane: a simple task waits for one\n") {
+	// A level whose own types have no lane at all names the T-631 fallback; with no lane anywhere, the task waits.
+	y := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{"O-01": "opus", "S-01": "sonnet"}`),
+		testkit.Set("difficulty", `{"simple": ["deepseek"]}`))
+	if out := y.ok(t, "show"); !strings.Contains(out, "  simple → deepseek (no lane): S-01 | no simple lane: fallback sonnet\n") {
+		t.Errorf("a level with no lane of its own:\n%s", out)
+	}
+	z := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{}`),
+		testkit.Set("difficulty", `{"simple": ["deepseek"]}`))
+	if out := z.ok(t, "show"); !strings.Contains(out, "  simple → deepseek (no lane): no lane: a simple task waits for one\n") {
 		t.Errorf("no lanes:\n%s", out)
+	}
+	// A level naming only types the project lacks: another level's lanes run it, and no such type is named.
+	w := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{"O-01": "opus", "S-01": "sonnet"}`),
+		testkit.Set("difficulty", `{"simple": ["haiku"]}`))
+	if out := w.ok(t, "show"); !strings.Contains(out, "  simple → no lane_type this level lists: S-01 | fallback sonnet\n") {
+		t.Errorf("a level listing only missing types:\n%s", out)
 	}
 }
 
@@ -146,9 +160,9 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 	tail := strings.Join([]string{
 		"",
 		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):",
-		"  hard   → opus-high (opus, effort high): O-01 | fallback opus",
+		"  hard   → opus-high (opus, effort high; no lane), opus: O-01",
 		"  medium → sonnet (sonnet, effort medium): S-01",
-		"  simple → deepseek (no such lane_type): S-01 | fallback sonnet",
+		"  simple → deepseek (no lane), sonnet: S-01",
 		"roles: lead opus (opus, effort medium), integrator opus (opus, effort medium), reviewer sol (gpt-6.1-sol, effort high)",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",
