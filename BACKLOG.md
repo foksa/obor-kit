@@ -45,7 +45,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Later candidates
 - (owner 11-01, idea, not now) **Owner-driven iteration** (e.g. tweaking the web design): no interactive mode in
   obor; a worker does the first pass, the owner iterates in their own Claude pane on a branch, then hands it back.
-  Gap: `obor land <branch>` (the owner's branch through the gate and integrator once, instead of a bare commit on main).
+  Shape (owner: "something like obor interactive claude, so it can create worktree and stuff"): `obor drive <name>
+  [--kind claude|codex] [--from main|T-xx]` makes a worktree + branch, a labelled pane in the owner's tab, a plain
+  interactive agent (no worker role, job_next or wrong-tab guard), optionally `obor web` on a spare port; `obor land
+  <name>` sends the branch through the gate and integrator, merges, closes the pane and worktree; monitor/web list
+  open drives. One task when the owner asks.
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
   pushed tag could upload bytes fresh installs reject. Rule instead of code: a pushed tag never moves (RELEASING.md).
 - **herdr-core (`hc`)** (`docs/research/herdr-core.md`, 10-30): a separate headless terminal core (own `herdr-core`/`hc`
