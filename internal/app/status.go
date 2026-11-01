@@ -226,8 +226,8 @@ const requestTimeout = time.Minute
 
 // Listen answers the app socket's requests on ln until it is closed: one request line per connection. A request's
 // effect runs under the daemon's lifetime and requestTimeout; once Serve has ended, a connection is closed unanswered.
-// Serve starts listening before it loads the project (cmd/obor/serve.go), so a request that needs the project waits
-// for the replay, at most Options.LoadWait, instead of being refused (T-656).
+// Serve binds the socket only once its project is loaded (cmd/obor/serve.go, Loaded; T-659): a request never waits
+// for the replay, a client retries the socket that is not there yet inside its own deadline.
 func (a *App) Listen(ln net.Listener) {
 	for {
 		c, err := ln.Accept()
@@ -255,10 +255,6 @@ func (a *App) Listen(ln net.Listener) {
 			var req request
 			var ans answer
 			unreadable := json.Unmarshal(b, &req) != nil
-			if !unreadable && req.Method != "status" {
-				a.awaitLoad()
-				_ = c.SetDeadline(time.Now().Add(10 * time.Second)) // the wait used up the read's own bound
-			}
 			switch {
 			case unreadable:
 				ans.Error = "unreadable request"
@@ -327,17 +323,6 @@ func (a *App) Listen(ln net.Listener) {
 	}
 }
 
-// awaitLoad waits for the served project's first load (its replay), at most Options.LoadWait: a call made while serve
-// listens but has not replayed yet waits for it rather than being refused (T-656). Serve's end wakes it too: a request
-// is not held up by a restart's shutdown.
-func (a *App) awaitLoad() {
-	select {
-	case <-a.loaded:
-	case <-a.life.Done():
-	case <-time.After(a.opt.LoadWait):
-	}
-}
-
 // Ask is the status of the app listening on the unix socket at path.
 func Ask(ctx context.Context, path string) (Status, error) {
 	ans, err := ask(ctx, path, request{Method: "status"})
@@ -363,8 +348,10 @@ func NewCallID() string {
 }
 
 // Verdict sends the verdict call c (MethodAccept, …) to the app listening at path: its reply line, or the app's
-// refusal as the error.
+// refusal as the error. The call has its method's deadline (callDeadline) or ctx's, the earlier.
 func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, callDeadline(method))
+	defer cancel()
 	ans, err := verdictAsk(ctx, path, request{Method: method, Call: &c})
 	if err != nil {
 		return "", err
@@ -372,78 +359,62 @@ func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
 	return ans.Reply, nil
 }
 
-// ask's retries: askRetryWait, doubling up to askMaxWait; a lost reply is retried until askBudget, a verdict that
-// found no serve until askWait (a restart's own bound, T-656).
+// The deadlines of the socket's callers, the one table (T-659): a call is retried inside its own deadline, so a serve
+// restart that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a
+// read fails at once.
 const (
-	askRetryWait = 200 * time.Millisecond
-	askMaxWait   = 4 * time.Second
-	askBudget    = 30 * time.Second
-	askWait      = 10 * time.Second
+	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
+	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
+	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
 )
 
-// ask sends req to the app socket at path and reads its answer; an answer's error is the error. A request whose
-// connection carried it and then lost the reply (closed before a line, or reset) is sent again, same request and call
-// id, with backoff until askBudget: an app that recorded the call and crashed before answering restarts and replays
-// its log meanwhile, then answers from its store (docs/state-model.md, class F). A retry refused is retried too: the
-// first attempt carried the call.
-//
-// A read fails fast: obor status reports a serve that is not there at once.
+// callDeadline is method's deadline from the table above.
+func callDeadline(method string) time.Duration {
+	switch method {
+	case MethodTurn, MethodSession:
+		return turnDeadline
+	case MethodStopped:
+		return stopFailureDeadline
+	}
+	return verdictDeadline
+}
+
+// ask's retries (T-659): every askRetryWait, flat, and none later than askMargin before the call's deadline, so the
+// last attempt still has time to be answered.
+const (
+	askRetryWait = 500 * time.Millisecond
+	askMargin    = 200 * time.Millisecond
+)
+
+// ask sends req once to the app socket at path and reads its answer; an answer's error is the error. It is not
+// retried: obor status reports a serve that is not there at once.
 func ask(ctx context.Context, path string, req request) (answer, error) {
-	return askFor(ctx, path, req, false)
+	return askOnce(ctx, path, req)
 }
 
-// verdictAsk is ask for a verdict's request (a CLI verdict, an MCP tool's, a hook's: task_done, job_next, turn …):
-// besides a lost reply it waits out a serve that is not there yet — a refused or missing socket, and "no served
-// project" from a serve that listens before its replay — for up to askWait, so a call made during a serve restart
-// (T-652, T-656) lands instead of being dropped.
+// verdictAsk is ask for a verdict's request (a CLI verdict, an MCP tool's, a hook's: task_done, job_next, turn …),
+// retried until ctx's deadline less askMargin while it cannot have done harm: a refused or missing socket carried
+// nothing (serve binds only once its project is loaded, so a restart is a socket not there yet), and a reply lost
+// after the request was written is sent again with the same call id, which the app's stored reply answers
+// (docs/state-model.md, class F). Any other error, the app's refusal included, is returned at once.
 func verdictAsk(ctx context.Context, path string, req request) (answer, error) {
-	return askFor(ctx, path, req, true)
-}
-
-// askFor is ask; verdict also retries a request that certainly did not land while the serve is not there.
-func askFor(ctx context.Context, path string, req request, verdict bool) (answer, error) {
-	ans, err := askOnce(ctx, path, req)
-	if err == nil || ctx.Err() != nil {
-		return ans, err
+	last := time.Now().Add(-askMargin) // no deadline: one attempt
+	if d, ok := ctx.Deadline(); ok {
+		last = d.Add(-askMargin)
 	}
-	// The first attempt says what is worth retrying: a dial refused or a missing socket carried nothing (a verdict
-	// waits for the serve, askWait), a reply lost after the request was written may have landed (askBudget).
-	var budget time.Duration
-	may := false
-	switch {
-	case absent(err):
-		if !verdict {
+	for {
+		ans, err := askOnce(ctx, path, req)
+		if err == nil || ctx.Err() != nil || !(absent(err) || lostReply(err)) {
+			return ans, err
+		}
+		wait := min(askRetryWait, time.Until(last))
+		if wait <= 0 {
 			return answer{}, err
-		}
-		budget = askWait
-	case lostReply(err):
-		budget, may = askBudget, true
-	default:
-		return answer{}, err
-	}
-	deadline := time.Now().Add(budget)
-	for wait := askRetryWait; ; wait *= 2 {
-		if wait > askMaxWait {
-			wait = askMaxWait
-		}
-		left := time.Until(deadline)
-		if left <= 0 {
-			return answer{}, err // the budget is spent: the refusal, and the call may have landed
-		}
-		if wait > left {
-			wait = left
 		}
 		select {
 		case <-ctx.Done():
 			return answer{}, err
 		case <-time.After(wait):
-		}
-		ans, err = askOnce(ctx, path, req)
-		if err == nil || ctx.Err() != nil {
-			return ans, err
-		}
-		if !lostReply(err) && !(absent(err) && (may || verdict)) {
-			return answer{}, err
 		}
 	}
 }
@@ -454,16 +425,15 @@ func lostReply(err error) bool {
 	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF)
 }
 
-// absent is a request that certainly did not land: the dial was refused or the socket missing, or the app that
-// answered had not loaded its project yet (a serve listens before its replay, T-656).
+// absent is a request that certainly did not land: the dial was refused or the socket missing (no serve, or one that
+// has not loaded its project yet: it binds after its replay, T-659).
 func absent(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) ||
-		strings.Contains(err.Error(), "no served project")
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 }
 
 // askOnce is one request on its own connection; see ask.
 func askOnce(ctx context.Context, path string, req request) (answer, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, verdictDeadline) // a caller with no deadline still has one
 	defer cancel()
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", path)

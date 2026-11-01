@@ -251,12 +251,15 @@ func TestAskVerdictWaitsForServe(t *testing.T) {
 
 // A read does not wait: obor status reports a serve that is not there at once, not after the verdicts' bound.
 func TestAskStatusDoesNotWaitForServe(t *testing.T) {
-	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
-	if err != nil {
-		t.Fatal(err)
+	sock := filepath.Join(sockDir(t), "serve.sock") // a restart: no socket until the new serve has loaded (T-659)
+	start := time.Now()
+	if _, err := app.Ask(context.Background(), sock); err == nil || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("Ask on a missing socket: %v; want the missing socket", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	sock := filepath.Join(dir, "serve.sock")
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("status returned after %v on a missing socket; want at once", d)
+	}
+	sock = filepath.Join(sockDir(t), "serve.sock") // the old serve gone, its socket file left: a dial is refused
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +269,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	if _, err := os.Stat(sock); err != nil {
 		t.Fatalf("precondition: no socket file to refuse the dial: %v", err)
 	}
-	start := time.Now()
+	start = time.Now()
 	_, err = app.Ask(context.Background(), sock)
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("Ask on a refused socket: %v; want the refusal", err)
@@ -276,26 +279,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	}
 }
 
-// T-656: a serve listens before it replays its log, so a call made meanwhile is answered "no served project"; a
-// verdict retries that until the replay is done and its call answered.
-func TestAskVerdictRetriesUntilProjectLoaded(t *testing.T) {
-	sock, seen := fakeApp(t, func(n int) string {
-		if n < 3 {
-			return `{"error":"spec set: no served project at /r"}`
-		}
-		return `{"reply":"SET T-1 rev 1"}`
-	})
-	reply, err := app.Verdict(context.Background(), sock, app.MethodSpecSet,
-		app.Call{Root: "/r", Agent: "pj-lead", Role: "lead", CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
-	if err != nil || reply != "SET T-1 rev 1" {
-		t.Fatalf("Verdict during a replay = %q, %v; want the reply after the load", reply, err)
-	}
-	if n := len(seen()); n != 3 {
-		t.Errorf("the call reached the app %d times, want 3: the two refusals and the answered call", n)
-	}
-}
-
-// The retries stop at the caller's deadline, not after the budget.
+// The retries stop at the caller's deadline.
 func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
 	sock, seen := fakeApp(t, func(int) string { return "" }) // every connection is dropped unanswered
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -305,7 +289,7 @@ func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
 		t.Fatal("Verdict answered a call the app never answered")
 	}
 	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("returned after %v; want at the caller's deadline (500ms), not after the budget", d)
+		t.Errorf("returned after %v; want at the caller's deadline (500ms)", d)
 	}
 	if ids := seen(); len(ids) < 2 || ids[0] != "c1" || ids[1] != "c1" {
 		t.Errorf("call ids seen = %q; want the same id on the retries", ids)
@@ -368,5 +352,177 @@ func TestAskDoesNotRetryTimeout(t *testing.T) {
 	defer mu.Unlock()
 	if accepted != 1 {
 		t.Errorf("timed-out call reached the app %d times, want once", accepted)
+	}
+}
+
+// sockDir is a new short temp dir (a unix socket path is limited), removed at the test's end.
+func sockDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// storingApp is a fake serve that applies each call once, stores its reply by call id and answers a repeated id from
+// the store, as the app does (docs/state-model.md, class F). With drop, the first connection is applied and closed
+// unanswered (a reply lost to a crash after the record).
+type storingApp struct {
+	mu      sync.Mutex
+	conns   int
+	applied map[string]int
+	ids     []string
+}
+
+// serveStoring listens at sock after delay (no listener before: a restart's socket not bound yet) and serves until
+// the test ends.
+func serveStoring(t *testing.T, sock string, delay time.Duration, drop bool) *storingApp {
+	t.Helper()
+	s := &storingApp{applied: map[string]int{}}
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		select {
+		case <-done:
+			return
+		case <-time.After(delay):
+		}
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		go func() {
+			<-done
+			ln.Close()
+		}()
+		stored := map[string]string{}
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			line, err := bufio.NewReader(c).ReadBytes('\n')
+			if err != nil {
+				c.Close()
+				continue
+			}
+			id := callID(line)
+			s.mu.Lock()
+			s.conns++
+			s.ids = append(s.ids, id)
+			reply, ok := stored[id]
+			if !ok {
+				s.applied[id]++
+				reply = `{"reply":"done ` + id + `"}`
+				stored[id] = reply
+			}
+			first := s.conns == 1
+			s.mu.Unlock()
+			if !(drop && first) {
+				_, _ = c.Write([]byte(reply + "\n"))
+			}
+			c.Close()
+		}
+	}()
+	return s
+}
+
+// counts is s's connections, the calls applied per id and the ids seen.
+func (s *storingApp) counts() (int, map[string]int, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	applied := map[string]int{}
+	for k, v := range s.applied {
+		applied[k] = v
+	}
+	return s.conns, applied, append([]string(nil), s.ids...)
+}
+
+// T-659: a verdict made while serve restarts (no socket until the new serve has loaded) is retried inside its 15 s
+// and lands once: one connection, one record.
+func TestVerdictLandsAfterRestartOnce(t *testing.T) {
+	t.Parallel()
+	sock := filepath.Join(sockDir(t), "serve.sock")
+	s := serveStoring(t, sock, 3*time.Second, false)
+	start := time.Now()
+	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	if err != nil || reply != "done c1" {
+		t.Fatalf("Verdict through a 3 s restart = %q, %v; want the reply", reply, err)
+	}
+	if d := time.Since(start); d < 3*time.Second {
+		t.Fatalf("answered after %v, before the listener was there", d)
+	}
+	if conns, applied, _ := s.counts(); conns != 1 || applied["c1"] != 1 {
+		t.Errorf("connections %d, applied %v; want the call received and recorded once", conns, applied)
+	}
+}
+
+// T-659: the StopFailure hook's call (5 s) survives a serve back at 4 s: a retry near its deadline lands.
+func TestStopFailureLandsNearItsDeadline(t *testing.T) {
+	t.Parallel()
+	sock := filepath.Join(sockDir(t), "serve.sock")
+	s := serveStoring(t, sock, 4*time.Second, false)
+	c := app.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1", Error: "rate_limit"}
+	start := time.Now()
+	if _, err := app.Verdict(context.Background(), sock, app.MethodStopped, c); err != nil {
+		t.Fatalf("stop-failure through a 4 s restart: %v; want it recorded", err)
+	}
+	if d := time.Since(start); d < 4*time.Second || d > 5*time.Second {
+		t.Errorf("answered after %v; want after the 4 s restart, inside the 5 s deadline", d)
+	}
+	if _, applied, _ := s.counts(); applied["s1"] != 1 {
+		t.Errorf("applied %v; want the stop recorded once", applied)
+	}
+}
+
+// T-659: a turn call (8 s) whose serve never comes back fails at its deadline, and a serve that binds afterwards gets
+// nothing: no call is applied after its caller gave up.
+func TestTurnFailsAtItsDeadline(t *testing.T) {
+	t.Parallel()
+	sock := filepath.Join(sockDir(t), "serve.sock")
+	c := app.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "t1"}
+	start := time.Now()
+	_, err := app.Verdict(context.Background(), sock, app.MethodTurn, c)
+	d := time.Since(start)
+	if err == nil {
+		t.Fatal("a turn with no serve answered")
+	}
+	if d < 7*time.Second || d > 8500*time.Millisecond {
+		t.Errorf("failed after %v; want at the turn's 8 s deadline", d)
+	}
+	s := serveStoring(t, sock, 0, false) // the serve is back after the caller gave up
+	time.Sleep(time.Second)
+	if conns, applied, _ := s.counts(); conns != 0 || len(applied) != 0 {
+		t.Errorf("after the deadline the serve saw %d connections, applied %v; want nothing", conns, applied)
+	}
+}
+
+// T-659: a reply lost after the serve stored the call is asked again with the same call id; the stored reply answers
+// it and the call is applied once.
+func TestLostReplyAnsweredFromStore(t *testing.T) {
+	t.Parallel()
+	sock := filepath.Join(sockDir(t), "serve.sock")
+	s := serveStoring(t, sock, 0, true)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("precondition: the fake serve never bound its socket")
+		}
+	}
+	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	if err != nil || reply != "done c1" {
+		t.Fatalf("Verdict after a lost reply = %q, %v; want the stored reply", reply, err)
+	}
+	conns, applied, ids := s.counts()
+	if conns != 2 || len(ids) != 2 || ids[0] != "c1" || ids[1] != "c1" {
+		t.Errorf("connections %d, ids %q; want the same call id twice", conns, ids)
+	}
+	if applied["c1"] != 1 {
+		t.Errorf("applied %v; want once", applied)
 	}
 }

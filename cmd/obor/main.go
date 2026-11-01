@@ -253,12 +253,10 @@ func hook(args []string) int {
 	return 2
 }
 
-// stopFailureWait bounds the StopFailure hook's one request to serve (the hook's timeout is 15 s).
-const stopFailureWait = 5 * time.Second
-
 // stopFailure is the StopFailure hook (T-532): the log line (guard.StopFailure), then one request to the project's
-// serve (app.MethodStopped) with the agent, its error and details. Serve down, a refusal or a session with no agent
-// name: a line on stderr, nothing else; the hook always exits 0.
+// serve (app.MethodStopped) with the agent, its error and details, under the call's deadline (app.Verdict's table:
+// 5 s, retried through a serve restart; T-659). Serve down, a refusal or a session with no agent name: a line on
+// stderr, nothing else; the hook always exits 0.
 func stopFailure(input []byte, env project.Env) {
 	s, ok, err := guard.StopFailure(input, env, time.Now())
 	if err != nil {
@@ -267,39 +265,31 @@ func stopFailure(input []byte, env project.Env) {
 	if !ok || s.Agent == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), stopFailureWait)
-	defer cancel()
 	c := app.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: app.NewCallID(), Error: s.Error,
 		Details: s.Details}
-	if _, err := app.Verdict(ctx, app.SocketPath(s.Root), app.MethodStopped, c); err != nil {
+	if _, err := app.Verdict(context.Background(), app.SocketPath(s.Root), app.MethodStopped, c); err != nil {
 		fmt.Fprintln(os.Stderr, "obor stop-failure hook: serve not told:", err)
 	}
 }
 
-// turnWait bounds an agent's turn request to serve: one per prompt and per stop. It covers a serve restart (T-656;
-// the call now waits out one, and the hooks' own timeouts are 10 s and 15 s) yet stays under them.
-const turnWait = 8 * time.Second
-
 // turn is a worker's or role agent's UserPromptSubmit or Stop hook (ended) telling the project's serve its next turn
 // began or ended (app.MethodTurn, T-540, T-569; the phase: T-571): a stop in force (its last turn ended on an API
-// error) ends. Serve down, a refusal, the lead or no role: nothing (no line: the hook's own output is its verdict).
+// error) ends. The call's deadline is app.Verdict's (8 s, retried through a serve restart; T-659). Serve down, a
+// refusal, the lead or no role: nothing (no line: the hook's own output is its verdict).
 func turn(input []byte, env project.Env, ended bool) {
 	s, ok := guard.Turn(input, env)
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), turnWait)
-	defer cancel()
 	c := app.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: app.NewCallID(), Ended: ended}
-	_, _ = app.Verdict(ctx, app.SocketPath(s.Root), app.MethodTurn, c)
+	_, _ = app.Verdict(context.Background(), app.SocketPath(s.Root), app.MethodTurn, c)
 }
 
 // sessionBegan is the SessionStart hook telling the project's serve the agent's session began (app.MethodSession,
 // T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so), and a
 // restart resumes the agent's last recorded session, else herdr's (T-607).
 func sessionBegan(b guard.Began, log io.Writer) {
-	ctx, cancel := context.WithTimeout(context.Background(), turnWait)
-	defer cancel()
+	ctx := context.Background() // the call's deadline is app.Verdict's (8 s; T-659)
 	c := app.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
 		Lane: b.Lane, Task: b.Task, Started: time.Now().Unix(), Source: "SessionStart hook"}
 	if _, err := app.Verdict(ctx, app.SocketPath(b.Root), app.MethodSession, c); err != nil {

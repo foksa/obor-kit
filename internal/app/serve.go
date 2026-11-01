@@ -28,9 +28,6 @@ func New(opt Options, panes Panes, lanes Lanes) *App {
 	if opt.RetryMax < opt.Retry {
 		opt.RetryMax = max(5*time.Second, opt.Retry)
 	}
-	if opt.LoadWait <= 0 {
-		opt.LoadWait = 10 * time.Second
-	}
 	if opt.Now == nil {
 		opt.Now = time.Now
 	}
@@ -181,8 +178,12 @@ func (a *App) loadProject() {
 	a.reconcile(p) // its identity table from the panes known now (none before the first snapshot)
 	a.mu.Unlock()
 	a.endServeNeeds(p)
-	a.loadOnce.Do(func() { close(a.loaded) }) // a request waiting for the replay answers now (awaitLoad)
+	a.loadOnce.Do(func() { close(a.loaded) })
 }
+
+// Loaded is closed once Serve has loaded the project (its log replayed, loadProject): obor serve binds its socket
+// only then (T-659), so no request is ever admitted to wait for the replay.
+func (a *App) Loaded() <-chan struct{} { return a.loaded }
 
 // projAt is the served project when root is its root (nil: not loaded yet, or another project's root; under mu).
 func (a *App) projAt(root string) *proj {

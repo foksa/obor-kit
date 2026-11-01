@@ -74,13 +74,6 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	defer lock.Unlock()
 	_ = os.Remove(sock) // a leftover of a serve that died: the lock says none runs
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		errf("FAIL obor serve: %v", err)
-		return 1
-	}
-	defer os.Remove(sock)
-	defer ln.Close()
 	// The machine's list of obor projects by name (T-646): obor send and obor projects read it. A failure is one line,
 	// not the end of serve: naming a project is a convenience, serving it is not.
 	if _, err := project.Register(root, env); err != nil {
@@ -101,9 +94,30 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, stop),
 		Inboxed: inboxed(env)},
 		panes, laneTable{})
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = a.Serve(ctx)
+	}()
+	// The socket is bound only once the project is loaded (T-659): a call made during the replay finds no socket and
+	// its client retries inside its own deadline; nothing is admitted to wait for the load.
+	select {
+	case <-served:
+		return 0
+	case <-a.Loaded():
+	}
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		errf("FAIL obor serve: %v", err)
+		stop()
+		<-served
+		return 1
+	}
+	defer os.Remove(sock)
+	defer ln.Close()
 	go a.Listen(ln)
 	fmt.Fprintf(flushWriter{}, "obor serve: running (project %s, socket %s)\n", root, sock)
-	_ = a.Serve(ctx)
+	<-served
 	return 0
 }
 

@@ -10,6 +10,7 @@ import (
 	"obor/internal/store"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -483,49 +484,38 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 	}
 }
 
-// T-656: serve listens before it loads its project (cmd/obor/serve.go). A request made meanwhile waits for the
-// replay instead of being refused.
-func TestRequestWaitsForLoad(t *testing.T) {
+// T-659: Loaded is closed only once the project's log is replayed (obor serve binds its socket then), and a request
+// that reaches an app before its load is answered at once, never held for the replay.
+func TestLoadedAfterReplay(t *testing.T) {
 	root := projectRoot(t)
-	a := rootApp(root, &bytes.Buffer{})
+	out := &bytes.Buffer{}
+	a := rootApp(root, out)
 	defer a.closeLog()
-	ln := newMemListener()
-	defer ln.Close()
-	go a.Listen(ln)
-	c := ln.send(t, MethodSpecSet, Call{Root: root, CallID: "c1", Task: "T-1",
-		Spec: "# T-1\n\nDifficulty: medium\n"})
-	defer c.Close()
-	// Nothing answers before the load: the request waits for the replay.
-	_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	if b, err := bufio.NewReader(c).ReadBytes('\n'); err == nil {
-		t.Fatalf("answered %q before the project loaded", b)
+	select {
+	case <-a.Loaded():
+		t.Fatal("Loaded before the project was loaded")
+	default:
 	}
-	a.loadProject()
-	if ans := read(t, c); ans.Error != "" || !strings.HasPrefix(ans.Reply, "SET T-1 rev ") {
-		t.Errorf("the request during the load: %+v; want it answered once the project loaded", ans)
-	}
-}
-
-// T-656: a project that never loads times the wait out at Options.LoadWait (10 s); the request is refused as before.
-func TestRequestLoadWaitTimesOut(t *testing.T) {
-	root := projectRoot(t)
-	a := rootApp(root, &bytes.Buffer{})
-	if def := New(Options{}, &fakePanes{}, &fakeLanes{}); def.opt.LoadWait != 10*time.Second {
-		t.Fatalf("the default load wait: %v; want 10s", def.opt.LoadWait)
-	}
-	a.opt.LoadWait = 100 * time.Millisecond // the bound, not ten seconds of test time
 	ln := newMemListener()
 	defer ln.Close()
 	go a.Listen(ln)
 	start := time.Now()
-	c := ln.send(t, MethodSpecSet, Call{Root: root, CallID: "c1", Task: "T-1",
-		Spec: "# T-1\n\nDifficulty: medium\n"})
+	c := ln.send(t, MethodSpecSet, Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
 	defer c.Close()
 	if ans := read(t, c); !strings.Contains(ans.Error, "no served project") {
-		t.Errorf("the answer after the load wait: %+v; want the refusal", ans)
+		t.Errorf("a request before the load: %+v; want the refusal", ans)
 	}
-	if d := time.Since(start); d < a.opt.LoadWait {
-		t.Errorf("refused after %v; want the wait to run its %v first", d, a.opt.LoadWait)
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("refused after %v; want at once (no request waits for the replay)", d)
+	}
+	a.loadProject()
+	select {
+	case <-a.Loaded():
+	default:
+		t.Fatal("Loaded not closed after the project loaded")
+	}
+	if !regexp.MustCompile(`replayed \d+ records in \d+\.\d\d s`).MatchString(out.String()) {
+		t.Errorf("the load's line names no replay time:\n%s", out.String())
 	}
 }
 
