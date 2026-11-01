@@ -1,5 +1,6 @@
 #!/bin/sh
-# release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree and
+# release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree, no code
+# merged since the last "RV-<n> closed" commit (UNREVIEWED="<why>" overrides it: the owner's call) and
 # docs/UPGRADE-v<x.y>.md holding a v<version> heading:
 #   1. VERSION and the plugin version = <version>, the full `make check`, commit on main;
 #   2. a scratch worktree detached at that commit under $TMPDIR: marketplace name obor-kit, `make release` (the four
@@ -102,6 +103,39 @@ grep -Eq "^#+[[:space:]]*v$(printf '%s' "$v" | sed 's/\./\\./g')([^0-9.]|\$)" "$
 dirty=$(git status --porcelain)
 [ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
 
+# Code merged since the last review (T-642): the merges on main after the newest "RV-<n> closed" commit whose files are
+# not all docs, as the task ids their subjects name. The range starts at the close commit itself, so fixes verified
+# before the close count as reviewed. No close commit: nothing has been reviewed, so every merge counts.
+close=$(git log -1 -E --grep='^RV-[0-9]+ closed' --format=%H HEAD)
+since="the first commit (no RV closed yet)"
+range=HEAD
+if [ -n "$close" ]; then
+  range="$close..HEAD"
+  since=$(git log -1 --format=%s "$close" | sed -n 's/^\(RV-[0-9][0-9]*\) closed.*/\1/p')
+  [ -n "$since" ] || since=$(git rev-parse --short "$close")
+fi
+unreviewed=
+for sha in $(git log --first-parent --merges --reverse --format=%H "$range"); do
+  code=
+  for f in $(git diff --name-only "$sha^1" "$sha"); do
+    case $f in
+      docs/* | *.md) ;;
+      *) code=1; break ;;
+    esac
+  done
+  [ -n "$code" ] || continue
+  id=$(git log -1 --format=%s "$sha" | sed -n 's/^Merge \(T-[0-9][0-9]*[a-z]*\):.*/\1/p')
+  [ -n "$id" ] || id=$(git rev-parse --short "$sha")
+  unreviewed="${unreviewed:+$unreviewed, }$id"
+done
+if [ -n "$unreviewed" ]; then
+  if [ -n "${UNREVIEWED:-}" ]; then
+    say "unreviewed since $since: $unreviewed (UNREVIEWED: ${UNREVIEWED})"
+  else
+    fail "unreviewed since $since: $unreviewed (run obor review, close it, then release; or UNREVIEWED=\"<why>\" make release V=$v)"
+  fi
+fi
+
 have_version_commit=0
 headver=$(git show HEAD:VERSION 2> /dev/null | tr -d '[:space:]') || headver=
 if [ "$headver" = "$v" ] && [ "$(plugin_version HEAD)" = "$v" ]; then
@@ -174,9 +208,13 @@ else
     mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
   tmp=
   ( cd "$scratch" && plain_make release V= ) || fail "make release failed in $scratch: nothing is tagged"
+  # The tag's message carries the owner's UNREVIEWED reason (T-642): the merges the tag ships past the last review.
+  tagmsg="obor $tag"
+  [ -z "$unreviewed" ] || tagmsg="$tagmsg
+Unreviewed: $unreviewed — ${UNREVIEWED}"
   ( cd "$scratch" && git add bin/checksums.txt .claude-plugin/marketplace.json &&
     git commit -q -m "obor v$v: marketplace name, checksums" &&
-    git tag -a "$tag" -m "obor $tag" ) || fail "cannot commit and tag the release in $scratch"
+    git tag -a "$tag" -m "$tagmsg" ) || fail "cannot commit and tag the release in $scratch"
   say "tagged $tag in $scratch"
   planned=0
 fi
