@@ -281,7 +281,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
 			addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
 			addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
-			if !p.scratchBusy("T-2") {
+			if !busy(p, "T-2") {
 				t.Fatal("precondition: the paused T-1 holds the scratch")
 			}
 			switch release {
@@ -297,7 +297,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			case "sendback":
 				addRecord(t, h, "T-1", StepSendback, KindFact, noteData{Note: "fix"})
 			}
-			if p.scratchBusy("T-2") {
+			if busy(p, "T-2") {
 				t.Fatalf("%s: T-1 (%s, left %s) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].left)
 			}
 		})

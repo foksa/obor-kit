@@ -1,6 +1,7 @@
 package view
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -67,39 +68,33 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	}
 }
 
-// T-664: the merge queue is by task id, numerically; the lowest submitted task is next while the scratch is free, and
-// none is while a gate runs or waits (a pending one holds it too); a gating task and a held one have their stages.
+// T-669 (RV-75 #1 #2): the merge queue is serve's: its tasks in the merge loop's order, next and what each waits on
+// copied from its scheduler (never predicted: with none said, none is next, even while a gate runs); a gating task and
+// a held one have their stages.
 func TestQueueMergeNext(t *testing.T) {
 	now := time.Now()
-	tasks := []app.TaskStatus{{Task: "T-100", State: "submitted"}, {Task: "T-12", State: "submitted"},
-		{Task: "T-7", State: "needs-you"}, {Task: "T-8", State: "accepted"}, {Task: "T-3", State: "working"}}
-	v := &Project{Tasks: tasks}
-	q := queue(v, app.ProjectStatus{}, "", nil, nil, now)
-	if len(q.Merge) != 4 {
-		t.Fatalf("merge %+v; want the four tasks in the merge loop (a working one is not)", q.Merge)
+	tasks := []app.TaskStatus{{Task: "T-10", State: "submitted"}, {Task: "T-3", State: "working"},
+		{Task: "T-7", State: "needs-you"}, {Task: "T-8", State: "accepted"}, {Task: "T-9", State: "submitted"}}
+	ps := app.ProjectStatus{Scratch: &app.ScratchStatus{Task: "T-7", Why: app.ScratchHeld},
+		ScratchQueue: []app.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: app.ScratchHeld}, {Task: "T-8", Next: true},
+			{Task: "T-9", WaitsOn: "T-7", Why: app.ScratchHeld}}}
+	q := queue(&Project{Tasks: tasks}, ps, "", nil, nil, now)
+	want := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld},
+		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish, Next: true},
+		{Task: "T-9", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld}}
+	if !slices.Equal(q.Merge, want) {
+		t.Errorf("merge %+v\nwant %+v", q.Merge, want)
 	}
-	want := []struct {
-		task, stage string
-		next        bool
-	}{{"T-7", StageHeld, false}, {"T-8", StagePublish, false}, {"T-12", StageSubmitted, true},
-		{"T-100", StageSubmitted, false}}
-	for i, w := range want {
-		if m := q.Merge[i]; m.Task != w.task || m.Stage != w.stage || m.Next != w.next {
-			t.Errorf("merge[%d] = %+v, want %s %s next=%v", i, m, w.task, w.stage, w.next)
+	if q.Scratch != ps.Scratch {
+		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
+	}
+	running := &Project{Tasks: tasks, Running: []Running{{Step: app.StepGate, Task: "T-10"}}}
+	for _, m := range queue(running, app.ProjectStatus{}, "", nil, nil, now).Merge {
+		if m.Next || m.WaitsOn != "" {
+			t.Errorf("serve said nothing: %s next %v, waits on %q", m.Task, m.Next, m.WaitsOn)
 		}
-	}
-	for _, held := range []*Project{
-		{Tasks: tasks, Running: []Running{{Step: app.StepGate, Task: "T-100"}}},
-		{Tasks: tasks, Pending: []app.PendingStep{{Step: app.StepPublish, Task: "T-8"}}},
-	} {
-		q := queue(held, app.ProjectStatus{}, "", nil, nil, now)
-		for _, m := range q.Merge {
-			if m.Next {
-				t.Errorf("scratch held (running %+v, pending %+v): %s marked next", held.Running, held.Pending, m.Task)
-			}
-			if m.Task == "T-100" && len(held.Running) > 0 && m.Stage != StageGating {
-				t.Errorf("T-100 with its gate running: stage %q, want gating", m.Stage)
-			}
+		if m.Task == "T-10" && m.Stage != StageGating {
+			t.Errorf("T-10 with its gate running: stage %q, want gating", m.Stage)
 		}
 	}
 }

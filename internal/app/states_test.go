@@ -16,7 +16,7 @@ type rowWant struct {
 	send     string            // unsendable ("": the lead may send it back)
 	verdicts map[string]string // the integrator's verdict → the state it folds to (absent: no change)
 	open     bool              // openJob: a verdict answers its job
-	scratch  bool              // it holds the scratch: another task's gate waits (scratchBusy)
+	scratch  bool              // it holds the scratch: another task's gate waits (scratchHolder)
 	landed   bool              // drive checks for an obor merge outside first
 	ended    bool              // terminal: drop refuses it
 	cause    string            // the needs-you's cause resume is asked about
@@ -47,8 +47,8 @@ func checkRow(t *testing.T, w rowWant) {
 	}
 	same(t, mt.openJob(), w.open, mt.state+": job open")
 	p := &proj{folded: folded{loop: map[string]*mtask{"T-1": &mt}}}
-	same(t, p.scratchBusy("T-2"), w.scratch, mt.state+": scratch busy for another task")
-	same(t, p.scratchBusy("T-1"), false, mt.state+": scratch busy for itself")
+	same(t, busy(p, "T-2"), w.scratch, mt.state+": scratch busy for another task")
+	same(t, busy(p, "T-1"), false, mt.state+": scratch busy for itself")
 	same(t, row.landed, w.landed, mt.state+": drive checks a merge outside")
 	same(t, row.ended, w.ended, mt.state+": ended")
 	if w.ended {
@@ -242,4 +242,10 @@ func TestStateNeedsYouRow40(t *testing.T) {
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
 		name: "a step (needs-you)", send: "T-1 has no lane yet: obor resume or obor drop it", landed: true,
 		cause: causeAfter, resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+}
+
+// busy: another task than task holds p's scratch (scratchHolder).
+func busy(p *proj, task string) bool {
+	t, _ := p.scratchHolder(task)
+	return t != ""
 }

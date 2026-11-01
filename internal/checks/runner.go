@@ -36,13 +36,14 @@ type runner struct {
 	redLoad     *float64 // the load a red check was retried at, for the flake log
 	pre         string   // the target side of the merge
 	class       Class
-	mode        string   // class.Mode() once classified
-	check       string   // the checks' counts
-	gate        string   // ", gate <counts>" when the gate ran
-	staged      bool     // the merge being checked is uncommitted in dir (its tree is written from the index)
-	reused      []string // the trees the reused receipts named (receipts.go)
-	noReuse     bool     // a reused tree went stale: every check runs
-	pruned      bool     // the old logs were removed (once per run)
+	mode        string            // class.Mode() once classified
+	check       string            // the checks' counts
+	gate        string            // ", gate <counts>" when the gate ran
+	staged      bool              // the merge being checked is uncommitted in dir (its tree is written from the index)
+	reused      []string          // the trees the reused receipts named (receipts.go)
+	noReuse     bool              // a reused tree went stale: every check runs
+	pruned      bool              // the old logs were removed (once per run)
+	onCommand   func(name string) // told each command exec starts (serve's gate: obor status' running line, T-669)
 }
 
 func newRunner(ctx context.Context, o *Options, dir, logName, changedFile string) runner {
@@ -127,6 +128,9 @@ func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 	wd := r.dir
 	if len(dir) > 0 {
 		wd = dir[0]
+	}
+	if r.onCommand != nil {
+		r.onCommand(name)
 	}
 	var buf bytes.Buffer
 	rc, timedOut := run.Execute(r.ctx, c, wd, nil, environ, &buf, &buf)

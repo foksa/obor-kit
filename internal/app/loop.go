@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -291,8 +290,8 @@ func (a *App) mergeLoop(ctx context.Context) {
 	}
 }
 
-// advance is one pass over the project when it merges: each task driven as far as it goes now, the waiting ones last
-// (a task they wait for may merge in the same pass). It needs a herdr snapshot (the integrator's pane).
+// advance is one pass over the project when it merges: each task driven as far as it goes now, in passOrder (the
+// waiting ones last: a task they wait for may merge in the same pass). It needs a herdr snapshot (the integrator's pane).
 func (a *App) advance(ctx context.Context) {
 	a.mu.Lock()
 	p := a.p
@@ -316,19 +315,9 @@ func (a *App) advance(ctx context.Context) {
 	}
 	a.mu.Lock()
 	p.dispatching = fx.Lane != nil && fx.Specs != nil
-	var tasks, waiting []string
-	for task, mt := range p.folded.loop {
-		if mt.state == stWaiting {
-			waiting = append(waiting, task)
-		} else {
-			tasks = append(tasks, task)
-		}
-	}
+	tasks := p.passOrder()
 	a.mu.Unlock()
 	a.diskTick(p, fx)
-	sort.Strings(tasks)
-	sort.Strings(waiting)
-	tasks = append(tasks, waiting...)
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return
@@ -640,15 +629,17 @@ func (a *App) pick(p *proj, m *mtask) step {
 }
 
 // pickGate submits the lane (submitted, no input yet), else gates it: the lane, the resolved merge or the moved
-// candidate (rows 16, 18). Another task's conflict in the scratch, or another gate or publish there: it waits.
+// candidate (rows 16, 18). Another task's merge open in the scratch, or another gate or publish there: it waits
+// (scratchWait; the submit needs no scratch, only no open merge).
 func (a *App) pickGate(p *proj, mt mtask) step {
-	if !states[mt.state].scratch && p.scratchBusy(mt.task) {
-		return nil // a conflict is open in the scratch: a gate would reset it
+	holder, why := p.scratchWait(mt)
+	if holder != "" && !runs(why) {
+		return nil // a merge is open in the scratch: a gate would reset it
 	}
 	if mt.state == stSubmitted && mt.input == "" {
 		return func(ctx context.Context, fx *Loop) bool { return a.submit(ctx, p, fx, mt) }
 	}
-	if p.running.Task != "" {
+	if holder != "" {
 		return nil // another gate or publish holds the scratch
 	}
 	return func(ctx context.Context, fx *Loop) bool {
@@ -711,7 +702,7 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 
 // pickAccepted publishes the candidate (row 33) once the scratch is free.
 func (a *App) pickAccepted(p *proj, mt mtask) step {
-	if p.running.Task != "" {
+	if holder, _ := p.scratchWait(mt); holder != "" {
 		return nil
 	}
 	return func(ctx context.Context, fx *Loop) bool {

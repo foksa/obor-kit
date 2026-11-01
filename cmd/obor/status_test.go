@@ -382,7 +382,8 @@ func TestStatusServeLine(t *testing.T) {
 // self-restart, and `running: nothing` when none is open.
 func TestStatusRunningLine(t *testing.T) {
 	p := testkit.New(t)
-	p.Config(testkit.Set("commands.check", "make -s check"), testkit.Set("commands.after_merge", "make build"))
+	p.Config(testkit.Set("commands.check", "make -s check"), testkit.Set("commands.after_merge", "make build"),
+		testkit.Set("commands.check_affected", "make -s check-affected"))
 	now := time.Now().Truncate(time.Second)
 	for _, c := range []struct {
 		name    string
@@ -390,10 +391,15 @@ func TestStatusRunningLine(t *testing.T) {
 		want    string
 	}{
 		{"nothing open", nil, "running: nothing"},
-		{"gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
+		{"gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check",
 			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
+		// T-669 (RV-75 #4): a partial gate shows the class's command serve says it runs; none known, no command.
+		{"partial gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check_affected",
+			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (make -s check-affected, 14s)"},
+		{"gate, no command yet", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
+			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (14s)"},
 		{"two steps at once", []app.RunningStep{
-			{Step: app.StepGate, Task: "T-656", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
+			{Step: app.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
 			{Step: app.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
 			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
 		{"publish", []app.RunningStep{{Step: app.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
@@ -404,13 +410,22 @@ func TestStatusRunningLine(t *testing.T) {
 			"running: restarting serve"},
 	} {
 		ss := app.Status{Connected: true, Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Running: c.running}}
-		_, text := statusOf(t, p, ss, nil, now)
+		st, text := statusOf(t, p, ss, nil, now)
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 		if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: ") {
 			t.Fatalf("%s: the first line is not serve's:\n%s", c.name, text)
 		}
 		if lines[1] != c.want {
 			t.Errorf("%s: the line under serve's = %q, want %q\n%s", c.name, lines[1], c.want, text)
+		}
+		for _, r := range st.Running { // --json: the same command the text names
+			if r.Step != app.StepServeRestart && r.Step != app.StepPublish && r.Command != "" &&
+				!strings.Contains(lines[1], "("+r.Command+", ") {
+				t.Errorf("%s: --json running %+v, its command not on the text line %q", c.name, r, lines[1])
+			}
+			if r.Step == app.StepGate && r.Command == "" && strings.Contains(lines[1], "make") {
+				t.Errorf("%s: --json has no command, the text guesses one: %q", c.name, lines[1])
+			}
 		}
 	}
 }
@@ -500,8 +515,8 @@ func TestStatusShortBinary(t *testing.T) {
 	}
 }
 
-// T-664: a store and a served status with one item of each queue kind — the merge loop (a review job out and not
-// fetched, the next submitted task by id, one waiting for the scratch), dispatches waiting on --after tasks, on a lane
+// T-664: a store and a served status with one item of each queue kind — the merge loop in serve's order (a review
+// job out and not fetched, the next submitted task and one waiting for it, as serve's scheduler says: T-669), dispatches waiting on --after tasks, on a lane
 // of their level and a spec never dispatched, the review request, the lead's watch with its note (T-666), a line and a
 // brief not done, the pause and the nightly check — give --json's typed arrays (with the role rows, a lane's spec rev
 // and open job, and the worded events with their seq) and one plain text line each.
@@ -522,11 +537,17 @@ func TestStatusQueue(t *testing.T) {
 		Tasks: []app.TaskStatus{
 			{Task: "T-10", Lane: "O-01", Attempt: 1, State: "working", Job: "T-10/1/work", Delivered: true},
 			{Task: "T-100", Lane: "O-04", Attempt: 1, State: "submitted"},
+			{Task: "T-1000", Lane: "O-05", Attempt: 1, State: "conflict"},
 			{Task: "T-11", Lane: "O-02", Attempt: 1, State: "submitted"},
 			{Task: "T-12", Attempt: 1, State: "waiting", After: []string{"T-11"}},
 			{Task: "T-14", Attempt: 1, State: "waiting", Level: "medium", Types: []string{"sonnet"}},
 			{Task: "T-9", Lane: "O-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
 		},
+		// T-669: serve's scheduler: lexical order, T-100 next; T-11 waits on it; the scratch owner a conflict (as data:
+		// these are not consistent with each other, the view copies them as they are).
+		Scratch: &app.ScratchStatus{Task: "T-1000", Why: app.ScratchConflict},
+		ScratchQueue: []app.ScratchWait{{Task: "T-100", Next: true},
+			{Task: "T-11", WaitsOn: "T-100", Why: app.ScratchGating}},
 		Review: "review request since 3m (after T-11, waiting T-11), note: check x",
 		ReviewRequest: &app.ReviewRequestStatus{After: []string{"T-11"}, Waiting: []string{"T-11"}, Note: "check x",
 			By: "pj-lead", Since: now.Add(-3 * time.Minute).Unix()},
@@ -565,9 +586,14 @@ func TestStatusQueue(t *testing.T) {
 			Since          int64
 		} `json:"watches"`
 		Queue struct {
+			Scratch *struct {
+				Task, Why string
+			} `json:"scratch"`
 			Merge []struct {
 				Task, Stage string
 				Next        bool
+				WaitsOn     string `json:"waits_on"`
+				Why         string
 				Job         *struct {
 					ID        string `json:"id"`
 					Delivered bool   `json:"delivered"`
@@ -604,11 +630,17 @@ func TestStatusQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := js.Queue
-	if len(q.Merge) != 3 || q.Merge[0].Task != "T-9" || q.Merge[0].Stage != "review" || q.Merge[1].Task != "T-11" ||
-		q.Merge[1].Stage != "submitted" || !q.Merge[1].Next || q.Merge[2].Task != "T-100" || q.Merge[2].Next {
-		t.Errorf("queue.merge %+v; want T-9 review, T-11 submitted next, T-100 submitted (by id, numerically)", q.Merge)
+	if len(q.Merge) != 4 || q.Merge[0].Task != "T-100" || q.Merge[0].Stage != "submitted" || !q.Merge[0].Next ||
+		q.Merge[1].Task != "T-1000" || q.Merge[1].Stage != "review" || q.Merge[1].Next || q.Merge[1].WaitsOn != "" ||
+		q.Merge[2].Task != "T-11" || q.Merge[2].Next || q.Merge[2].WaitsOn != "T-100" || q.Merge[2].Why != "gating" ||
+		q.Merge[3].Task != "T-9" || q.Merge[3].Stage != "review" {
+		t.Errorf("queue.merge %+v; want serve's order and word: T-100 next, T-1000 conflict, T-11 waits on T-100 "+
+			"gating, T-9 review", q.Merge)
 	}
-	if j := q.Merge[0].Job; j == nil || j.ID != "T-9/1/review" || j.Delivered {
+	if s := q.Scratch; s == nil || s.Task != "T-1000" || s.Why != "conflict" {
+		t.Errorf("queue.scratch %+v; want T-1000 conflict", s)
+	}
+	if j := q.Merge[3].Job; j == nil || j.ID != "T-9/1/review" || j.Delivered {
 		t.Errorf("queue.merge T-9 job %+v; want T-9/1/review, not delivered", j)
 	}
 	if len(q.Waiting) != 3 || q.Waiting[0].Task != "T-12" || q.Waiting[0].WaitsOn != "after" ||
@@ -655,8 +687,9 @@ func TestStatusQueue(t *testing.T) {
 	}
 	for _, re := range []string{
 		`^merge T-9 \(O-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
-		`^merge T-11 \(O-02\): submitted, next \(by id\)$`,
-		`^merge T-100 \(O-04\): submitted, waits for the scratch$`,
+		`^scratch T-1000: conflict$`,
+		`^merge T-100 \(O-04\): submitted, next$`,
+		`^merge T-11 \(O-02\): submitted, waits for T-100 \(gating\)$`,
 		`^queued T-12: waiting \(after T-11\)$`,
 		`^queued T-14: waiting for a medium lane \(sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,

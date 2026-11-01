@@ -271,6 +271,9 @@ type GateInput struct {
 	Summary                 string
 	Spec                    string
 	SpecRev                 int
+	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, the guard,
+	// the class's checks, or check), for obor status' running line (T-669).
+	Command func(name string)
 }
 
 // Gate input kinds.

@@ -57,6 +57,11 @@ type ProjectStatus struct {
 	// Pending is the command steps whose intent has no result and whose effect does not run now (T-662): a step that
 	// failed, or one the next pass or a replay has yet to run, oldest first.
 	Pending []PendingStep `json:"pending"`
+	// Scratch is the task that holds serve's worktree and why (T-669; nil: free), and ScratchQueue, in the merge loop's
+	// order, each task whose next step needs it: the next one, or what it waits on (scratchQueue: the scheduler's own
+	// rule, not a prediction).
+	Scratch      *ScratchStatus `json:"scratch,omitempty"`
+	ScratchQueue []ScratchWait  `json:"scratch_queue"`
 }
 
 // StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
@@ -66,10 +71,13 @@ const StepServeRestart = "restart"
 // RunningStep is one step that runs without an agent, as obor status' running line lists it (T-657): the merge loop's
 // gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when the effect
 // started (Unix seconds): the elapsed time the line shows (T-662: not the intent's time, which a replay's is older).
+// Command is the command a gate runs now (T-669: commands.<name>, the class's, the guard or check; "": none started
+// yet, or another step).
 type RunningStep struct {
-	Step  string `json:"step"`
-	Task  string `json:"task,omitempty"`
-	Since int64  `json:"since"`
+	Step    string `json:"step"`
+	Task    string `json:"task,omitempty"`
+	Command string `json:"command,omitempty"`
+	Since   int64  `json:"since"`
 }
 
 // PendingStep is one command step whose intent has no result and whose effect does not run now, as obor status'
@@ -235,6 +243,10 @@ func (a *App) Status() Status {
 		open := p.log.OpenIntents()
 		ps.Running = p.runningSteps(open)
 		ps.Pending = p.pendingSteps(open)
+		ps.Scratch, ps.ScratchQueue = p.scratchQueue()
+		if ps.ScratchQueue == nil {
+			ps.ScratchQueue = []ScratchWait{}
+		}
 		sets := make([]string, 0, len(p.folded.watches))
 		for set := range p.folded.watches {
 			sets = append(sets, set)
@@ -280,7 +292,7 @@ func (p *proj) runningSteps(open []Record) []RunningStep {
 		if !running {
 			continue
 		}
-		out = append(out, RunningStep{Step: step, Task: task, Since: at.Unix()})
+		out = append(out, RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.key()), Since: at.Unix()})
 	}
 	if !p.restarting.IsZero() {
 		out = append(out, RunningStep{Step: StepServeRestart, Since: p.restarting.Unix()})
