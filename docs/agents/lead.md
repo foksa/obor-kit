@@ -24,6 +24,10 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   pane). obor-kit's tabs: `lead`, `opus lanes` (O-01..O-04), `small lanes` (S/H/C/D), `roles` (integrator, reviewers,
   advisor), `system` (obor serve). New role panes go into `roles`, at most 4 panes per tab, laid out as a 2×2 grid (2 panes side
   by side, 3 = one left and two stacked right), never four stacked rows.
+- Role agents done with their work are stopped (owner 2026-11-01: they hold memory): `obor restart <agent> --stop`
+  quits the agent and keeps its labelled pane at a shell, as for workers; the next use is `obor restart <agent> --fresh`
+  (a review start does it itself). Keep one only while its context is still needed (a reviewer until its verify, an
+  advisor with a follow-up pending); stop it right after.
 - Every agent run is an interactive agent in a herdr pane, never headless (`codex exec`, `claude -p`) or an in-process
   subagent.
 
