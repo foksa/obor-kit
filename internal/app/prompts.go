@@ -7,21 +7,33 @@ import (
 )
 
 // The text of every prompt serve sent (T-665; the store's prompts table, store/prompts.go): a job's text (job_next's
-// reply), a brief's line, a fresh start's first prompt. A payload, not state: never folded or replayed, so a restart
-// keeps only what the log carries. A failed write is logged and never fails the job or brief it belongs to.
+// reply, one row per distinct text a job's fetch returned, T-670), a brief's line, a fresh start's first prompt. A
+// payload, not state: never folded or replayed, so a restart keeps only what the log carries. A failed write is logged
+// and never fails the job or brief it belongs to.
 
 // promptKeep is how long the prompts table keeps a row: serve's nightly backup prunes the rest (T-665).
 const promptKeep = 14 * 24 * time.Hour
 
 // prompt records text, sent to agent for fact seq, in the project's prompts table (kind store.PromptJob,
-// store.PromptBrief or store.PromptStart; job: the job id, jobs only; task: a job's, "" for a brief or a start).
-// Nothing for an empty text.
-func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string) {
+// store.PromptBrief or store.PromptStart; job: the job id, jobs only; task: a job's, "" for a brief or a start; rev:
+// the spec rev a job's text was built from, 0 for none). A job's text is recorded once per distinct text (T-670): a
+// refetch whose text is its newest row's writes nothing. Nothing for an empty text.
+func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string, rev int) {
 	if seq <= 0 || text == "" {
 		return
 	}
+	if kind == store.PromptJob {
+		newest, err := store.ReadPrompts(p.log.db, store.PromptQuery{Job: job}, 1)
+		if err != nil {
+			a.logf("FAIL prompts of %s: %v", p.name, err)
+			return
+		}
+		if len(newest) > 0 && newest[0].Text == text {
+			return
+		}
+	}
 	err := store.WritePrompt(p.log.db, store.PromptRow{Seq: seq, Agent: agent, Kind: kind, Job: job, Task: task,
-		TS: a.opt.Now().UTC().Format(time.RFC3339), Text: text})
+		TS: a.opt.Now().UTC().Format(time.RFC3339), Rev: rev, Text: text})
 	if err != nil {
 		a.logf("FAIL prompts of %s: %v", p.name, err)
 	}

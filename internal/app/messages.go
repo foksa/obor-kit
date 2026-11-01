@@ -889,9 +889,9 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string,
 		return "", false
 	}
 	if m.Line != "" {
-		a.prompt(p, seq, store.PromptBrief, to, "", "", m.Line)
+		a.prompt(p, seq, store.PromptBrief, to, "", "", m.Line, 0)
 	} else {
-		a.prompt(p, seq, store.PromptStart, to, "", "", prompt)
+		a.prompt(p, seq, store.PromptStart, to, "", "", prompt, 0)
 	}
 	if m.Line == "" { // the restart's start carried the brief: the agent may be working on it already
 		a.mu.Lock()

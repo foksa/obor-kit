@@ -56,7 +56,8 @@ func (mt *mtask) integratorJob() (Key, bool) { return mt.jobKey(), mt.openJob() 
 // jobNext answers job_next (row 6): the caller's open job, "none", or superseded{current} when the call names an
 // older job id. The caller is the job's agent: the integrator for its jobs, the lane's worker for a work or fix job
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
-// delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply.
+// delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
+// its text in the prompts table: a refetch whose text changed adds a row (T-670).
 func (a *App) jobNext(c Call) (string, error) {
 	a.verdicts.Lock() // two fetches never both record a delivery
 	defer a.verdicts.Unlock()
@@ -99,15 +100,20 @@ func (a *App) jobNext(c Call) (string, error) {
 		if base, _ := stepN(key.Step); base == StepReview || base == StepResolve {
 			agent = p.integrator
 		}
-		if !delivered {
-			seq, ok := a.recordSeq(p, Record{Task: key.Task, Attempt: key.Attempt, Step: StepDelivered, Kind: KindFact},
+		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
+		// the text: a refetch whose text changed since the newest row (a new spec rev, a restart) gets its own row
+		// (T-670), an identical one none.
+		seq := delivered
+		if seq == 0 {
+			var ok bool
+			seq, ok = a.recordSeq(p, Record{Task: key.Task, Attempt: key.Attempt, Step: StepDelivered, Kind: KindFact},
 				FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
 					Via: viaMCP, Call: c.CallID, Rev: rev})
 			if !ok {
 				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
 			}
-			a.prompt(p, seq, store.PromptJob, agent, JobID(key), key.Task, text)
 		}
+		a.prompt(p, seq, store.PromptJob, agent, JobID(key), key.Task, text, rev)
 		a.wake()
 	}
 	b, _ := json.Marshal(r) // strings and an int: cannot fail

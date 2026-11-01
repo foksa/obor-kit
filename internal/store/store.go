@@ -22,8 +22,8 @@ import (
 
 const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
-	// obor that wrote it may be newer than this binary. 7: prompts (T-665).
-	SchemaVersion = 7
+	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670).
+	SchemaVersion = 8
 	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.12 (schema 2–5) is refused, and upgrades
 	// through v0.12.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
 	// IF NOT EXISTS, so the version is what a migration updates).
@@ -141,8 +141,8 @@ func File(root string) string { return filepath.Join(root, ".obor", "state", "ob
 
 // schema is every table this binary knows. events is the event log (docs/state-model.md "The log"): one row per
 // record, seq its order, data the record's JSON (NULL: none). lanes is serve's lane projection (lanes.go); specs the
-// tasks' specs (specs.go); prompts the text of the prompts serve sent, by the seq of the fact it belongs to
-// (prompts.go). Every statement is IF NOT EXISTS: an older store gets the tables it lacks.
+// tasks' specs (specs.go); prompts the text of the prompts serve sent, by the seq of the fact it belongs to and its
+// own id (prompts.go). Every statement is IF NOT EXISTS: an older store gets the tables it lacks.
 var schema = []string{
 	"CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 	`CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
@@ -152,8 +152,9 @@ var schema = []string{
 		finished INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS specs (task TEXT PRIMARY KEY, text TEXT NOT NULL, rev INTEGER NOT NULL,
 		set_by TEXT NOT NULL, set_at TEXT NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS prompts (seq INTEGER PRIMARY KEY, agent TEXT NOT NULL, kind TEXT NOT NULL,
-		job TEXT NOT NULL, task TEXT NOT NULL, ts TEXT NOT NULL, text TEXT NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL,
+		agent TEXT NOT NULL, kind TEXT NOT NULL, job TEXT NOT NULL, task TEXT NOT NULL, ts TEXT NOT NULL,
+		rev INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL)`,
 }
 
 // initSchema checks an existing database's schema version before it changes anything (a refused database is left
@@ -194,6 +195,23 @@ func initSchema(db *sql.DB) error {
 				got, SchemaVersion)
 		}
 	}
+	// Version 8 gave the prompts table its own key (T-670): a job fetched again after its text changed gets another
+	// row, so its fact's seq no longer keys it. A version-7 table is renamed here, and its rows are copied into the
+	// new one the schema below creates.
+	movedPrompts := false
+	if found && got == 7 {
+		var n int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'prompts'").
+			Scan(&n); err != nil {
+			return fmt.Errorf("store: read prompts: %w", err)
+		}
+		if n > 0 {
+			if _, err := tx.ExecContext(ctx, "ALTER TABLE prompts RENAME TO prompts_v7"); err != nil {
+				return fmt.Errorf("store: migrate prompts: %w", err)
+			}
+			movedPrompts = true
+		}
+	}
 	for _, ddl := range schema {
 		if _, err := tx.ExecContext(ctx, ddl); err != nil {
 			return fmt.Errorf("store: create schema: %w", err)
@@ -206,6 +224,15 @@ func initSchema(db *sql.DB) error {
 			return fmt.Errorf("store: write schema version: %w", err)
 		}
 	case got < SchemaVersion: // migrated above: every table is there now
+		if movedPrompts {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO prompts (seq, agent, kind, job, task, ts, rev, text)
+				SELECT seq, agent, kind, job, task, ts, 0, text FROM prompts_v7`); err != nil {
+				return fmt.Errorf("store: migrate prompts: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, "DROP TABLE prompts_v7"); err != nil {
+				return fmt.Errorf("store: migrate prompts: %w", err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = 'schema_version'",
 			strconv.Itoa(SchemaVersion)); err != nil {
 			return fmt.Errorf("store: write schema version: %w", err)
