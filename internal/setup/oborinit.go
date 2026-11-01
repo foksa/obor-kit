@@ -11,6 +11,8 @@ package setup
 //	           files; anything else there → FAIL before any write (T-631). A repository with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
+//	setup      setup.confirmed: false when the config has no key (T-647): the models, effort and lanes obor init left
+//	           are a starting point the lead goes through with the owner at its first session.
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain (T-623).
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
@@ -30,6 +32,9 @@ package setup
 //	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
+//
+// The output ends with the setup table (T-647, setup show): per difficulty level its preferred lane type, model,
+// effort and lanes, the roles' types, and whether the owner confirmed them.
 
 import (
 	"bytes"
@@ -117,6 +122,13 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Data.Name, s.cfg.Data.Prefix)
+
+	// setup: models, effort and difficulty are a starting point until the lead confirms them with the owner (T-647).
+	confirmed, err := s.initConfirmed()
+	if err != nil {
+		return err
+	}
+	add("setup", doneOr(confirmed || !existed), "%s", confirmedLine(s.cfg))
 
 	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
 	// from it).
@@ -247,6 +259,8 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 			"every gate stops on \"missing command\""
 	}
 	s.say("OK init %s (prefix %s); next: %s", s.cfg.Data.Name, s.cfg.Data.Prefix, next)
+	s.say("")
+	s.printTable()
 	return nil
 }
 

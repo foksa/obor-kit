@@ -50,6 +50,7 @@ type Data struct {
 	StopIdleWorkers  *bool               `json:"stop_idle_workers,omitempty"`
 	Agents           Ordered[AgentEntry] `json:"agents,omitzero"`
 	Roles            Roles               `json:"roles"`
+	Setup            Setup               `json:"setup,omitzero"`
 	Leads            any                 `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
 	Merge            Merge               `json:"merge"`
 	MCP              MCP                 `json:"mcp"`
@@ -130,6 +131,46 @@ type LaneType struct {
 	Settings    map[string]any `json:"settings,omitempty"` // the kind's settings (Claude: --settings)
 }
 
+// Model is the model this type's args name: Claude's --model M, Codex's -m M (also as --model=M or -m=M); "" when the
+// args name none (obor setup show must not guess one).
+func (lt LaneType) Model() string {
+	for i := 0; i < len(lt.Args); i++ {
+		switch a := lt.Args[i]; {
+		case a == "--model" || a == "-m":
+			if i+1 < len(lt.Args) {
+				return lt.Args[i+1]
+			}
+		case strings.HasPrefix(a, "--model="):
+			return strings.TrimPrefix(a, "--model=")
+		case strings.HasPrefix(a, "-m="):
+			return strings.TrimPrefix(a, "-m=")
+		}
+	}
+	return ""
+}
+
+// Effort is the effort this type's args set: Claude's --effort E, Codex's -c model_reasoning_effort=E (also as
+// --effort=E); "" when the args set none.
+func (lt LaneType) Effort() string {
+	for i := 0; i < len(lt.Args); i++ {
+		a := lt.Args[i]
+		switch {
+		case a == "--effort" && i+1 < len(lt.Args):
+			return lt.Args[i+1]
+		case strings.HasPrefix(a, "--effort="):
+			return strings.TrimPrefix(a, "--effort=")
+		case a == "-c" && i+1 < len(lt.Args):
+			if e, ok := strings.CutPrefix(lt.Args[i+1], "model_reasoning_effort="); ok {
+				return e
+			}
+		case strings.HasPrefix(a, "-c") && strings.Contains(a, "model_reasoning_effort="):
+			_, e, _ := strings.Cut(a, "model_reasoning_effort=")
+			return e
+		}
+	}
+	return ""
+}
+
 // LaneEntry is lanes.<name>: a lane type, or {type, agent}.
 type LaneEntry struct {
 	Type  string `json:"type"`
@@ -177,6 +218,18 @@ type RoleEntry struct {
 	Agent         string  `json:"agent,omitempty"`
 	Worktree      *string `json:"worktree,omitempty"`
 	HandoffTokens *int64  `json:"handoff_tokens,omitempty"`
+}
+
+// Setup is `setup`: what obor init records about the project's models, effort and lanes (T-647). `obor setup show`
+// prints that table; the lead goes through it with the owner at its first session.
+type Setup struct {
+	// Confirmed is the owner's answer to the setup table: false or absent means the lead asks at its first session.
+	Confirmed *bool `json:"confirmed,omitempty"`
+}
+
+// SetupConfirmed is the owner's answer to the setup table (setup.confirmed): absent is not confirmed (T-647).
+func (c *Config) SetupConfirmed() bool {
+	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
 }
 
 // entry is roles.<name>; nil when not configured.
@@ -726,11 +779,12 @@ func ParseClock(s string) (hour, minute int, ok bool) {
 }
 
 // DifficultyDefault is the lane types of each difficulty level when .obor/config.json's `difficulty` does not name
-// the level (a spec's `Difficulty:` line picks the level, dispatch the lane). Haiku is in no level: --types reaches it.
+// the level (a spec's `Difficulty:` line picks the level, dispatch the lane): hard wants opus at effort high
+// (opus-high), simple the cheap types. A project that lacks a type of a level skips it (DifficultyLevelTypes).
 var DifficultyDefault = map[string][]string{
-	"hard":   {"opus"},
+	"hard":   {"opus-high", "opus"},
 	"medium": {"sonnet", "deepseek"},
-	"simple": {"deepseek", "luna"},
+	"simple": {"deepseek", "sonnet", "haiku"},
 }
 
 // DifficultyTypes is the lane types of level in dispatch order: the project's difficulty entry, else the built-in
@@ -759,6 +813,12 @@ func (c *Config) DifficultyTypes(level string) (types []string, ok bool) {
 // DifficultyLevelTypes is level's listed types that a configured lane has, in their order: DifficultyTypes before its
 // fallback (dispatch says when it used the fallback). nil for a name that is no level.
 func (c *Config) DifficultyLevelTypes(level string) []string {
+	return c.laneTypes(c.DifficultyList(level))
+}
+
+// DifficultyList is level's listed types before the lanes filter, in order: the project's difficulty entry, else the
+// built-in default. nil for a name that is no level.
+func (c *Config) DifficultyList(level string) []string {
 	listed, ok := DifficultyDefault[level]
 	if !ok {
 		return nil
@@ -766,7 +826,7 @@ func (c *Config) DifficultyLevelTypes(level string) []string {
 	if own, set := c.Data.Difficulty[level]; set {
 		listed = own
 	}
-	return c.laneTypes(listed)
+	return listed
 }
 
 // laneTypes keeps the types of listed that at least one configured lane has.

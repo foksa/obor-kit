@@ -14,7 +14,12 @@ Project specifics: `docs/agents/lead.md` (`paths.agents`).
 To (re)start the lead (none running, or after a Claude Code update): `obor lead` at a shell in the project; it starts a fresh session, `--resume` continues the last one.
 1. `obor whoami` must say `role: lead`; else stop, tell the user.
 2. `obor status` (serve up? lanes, needs-you, the full check, the pause, the lines not delivered yet).
-3. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
+3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `setup.confirmed`), this is
+   the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
+   effort, how many lanes of each type, the lead's, integrator's and reviewer's models. Write the answers into
+   `.obor/config.json` (`difficulty`, `lane_types`, `lanes`, `roles`), then set `setup.confirmed: true` and commit.
+   Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
+4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
 
 ## Spec and dispatch

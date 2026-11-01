@@ -13,8 +13,8 @@ import (
 
 // T-538: obor dispatch <T-xx> takes its lane types from the spec's Difficulty level (config difficulty, built-in
 // default), the first free lane of the first type that has one; no free lane of the level: the task waits for one,
-// never for a higher level. The rig has the lane types sonnet and deepseek (luna is not in the project: skipped), O-01
-// (deepseek) and O-02 (sonnet), both free.
+// never for a higher level. The rig has the lane types sonnet and deepseek (the built-in lists' other types are not in
+// the project: skipped), O-01 (deepseek) and O-02 (sonnet), both free.
 
 func newLevelRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
@@ -72,16 +72,17 @@ func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
 }
 
 // T-629: a level whose listed types have no lane falls back to medium's list (sonnet before opus), and the reply says
-// so: simple in a project with opus and sonnet lanes runs on sonnet, never waiting for a deepseek no lane has.
+// so: a simple level naming a type no lane has runs on sonnet, never waiting for a deepseek no lane has.
 func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
+		testkit.Set("difficulty.simple", []string{"luna"}),
 		testkit.Set("lanes.O-02", map[string]any{"type": "sonnet", "agent": "pj-o1"}))
 	r.setLane(func(l *app.Lane) { l.Type = "opus" })
 	r.lanes.mu.Lock()
 	r.lanes.lanes = append(r.lanes.lanes, app.Lane{Name: "O-02", Dir: r.lane, Type: "sonnet", State: "free", Agent: "pj-o1"})
 	r.lanes.mu.Unlock()
 	r.start()
-	r.specLevel("simple") // deepseek and luna: no lane; medium's sonnet is the fallback
+	r.specLevel("simple") // luna: no lane; medium's sonnet is the fallback
 	reply, err := r.dispatchLevel("d1")
 	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") ||
 		!strings.Contains(reply, "(level simple has no lane: using sonnet)") {
@@ -111,14 +112,14 @@ func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
 	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"
 	r.lanes.mu.Unlock()
 	r.start()
-	r.specLevel("simple") // deepseek (luna is not in the project)
-	const want = "WAITING T-1 (queued): waiting for a simple lane (deepseek); idle: O-01 (opus)"
+	r.specLevel("simple") // deepseek and sonnet: O-02 (sonnet) is busy, O-01 is a higher level
+	const want = "WAITING T-1 (queued): waiting for a simple lane (deepseek, sonnet); idle: O-01 (opus)"
 	if reply, err := r.dispatchLevel("d1"); err != nil || reply != want {
-		t.Fatalf("simple dispatch, no deepseek lane free: %q, %v; want %q", reply, err, want)
+		t.Fatalf("simple dispatch, no lane of its types free: %q, %v; want %q", reply, err, want)
 	}
 	r.passes()
-	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek" {
-		t.Errorf("status %+v, want waiting for simple (deepseek)", st)
+	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet" {
+		t.Errorf("status %+v, want waiting for simple (deepseek, sonnet)", st)
 	}
 	if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
 		t.Fatalf("dispatched onto a lane of another level: %q", r.steps())
@@ -203,13 +204,13 @@ func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	}
 	r.setSpec("s2", "# T-1 — Leveled\n\nDifficulty: simple\n")
 	reply, err := r.dispatchLevel("d3")
-	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a simple lane (deepseek)") {
+	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a simple lane (deepseek, sonnet)") {
 		t.Fatalf("replacement at another level: %q, %v", reply, err)
 	}
 	if n := r.taskStep("T-1", "fact waiting"); n != 2 {
 		t.Errorf("waiting facts %d, want 2 (the request, its replacement)", n)
 	}
-	if st := r.taskStatus("T-1"); st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek" {
+	if st := r.taskStatus("T-1"); st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet" {
 		t.Errorf("status %+v, want the replacement's level and types", st)
 	}
 	r.lanes.mu.Lock()

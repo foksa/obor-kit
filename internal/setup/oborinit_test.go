@@ -102,9 +102,10 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Fatal("precondition: no config, no herdr plugin")
 	}
 	out := x.init(t)
-	if last(out) != "OK init proj (prefix proj); next: first task for the lead: set up the stack and `commands.check` "+
-		"(lane_setup, lane_ready); until then every gate stops on \"missing command\"" {
-		t.Errorf("last line %q\n%s", last(out), out)
+	const ok = "OK init proj (prefix proj); next: first task for the lead: set up the stack and `commands.check` " +
+		"(lane_setup, lane_ready); until then every gate stops on \"missing command\""
+	if !strings.Contains(out, ok+"\n") {
+		t.Errorf("no OK line %q in\n%s", ok, out)
 	}
 	cfg, err := config.Load(x.Root)
 	if err != nil {
@@ -846,8 +847,8 @@ func TestOborInitWritesDetectedCommandsOnce(t *testing.T) {
 	if stateOf(out, "commands") != "done" {
 		t.Errorf("commands step %q", summary(out, "commands"))
 	}
-	if last(out) != "OK init proj (prefix proj); next: obor lead" {
-		t.Errorf("a detected stack's next line: %q", last(out))
+	if !strings.Contains(out, "OK init proj (prefix proj); next: obor lead\n") {
+		t.Errorf("a detected stack's next line is not the OK line:\n%s", out)
 	}
 	has(t, out, "go.mod", "detected line")
 	doc, _ := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"commands", "check"}, "make mine")

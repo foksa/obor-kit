@@ -21,6 +21,7 @@
   "lane_links": ["reference", "public/assets"],
   "protected_files": ["src/engine/types.ts"],
   "lane_types": {
+    "opus-high": { "kind": "claude", "args": ["--model", "opus", "--effort", "high", "--permission-mode", "auto"], "max": 4 },
     "opus": { "kind": "claude", "args": ["--model", "opus", "--effort", "medium", "--permission-mode", "auto"], "max": 4 },
     "sonnet": { "kind": "claude", "args": ["--model", "sonnet", "--effort", "medium", "--permission-mode", "auto"] },
     "haiku": { "kind": "claude", "args": ["--model", "haiku", "--permission-mode", "auto"] },
@@ -36,6 +37,7 @@
   },
   "lanes": { "O-01": "opus", "S-01": "sonnet", "T-01": "luna" },
   "roles": { "integrator": { "type": "opus" }, "reviewer": { "type": "sol", "worktree": "review" } },
+  "setup": { "confirmed": false },
   "merge": {
     "scratch_dir": null,
     "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>",
