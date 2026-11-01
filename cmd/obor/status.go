@@ -20,11 +20,13 @@ import (
 )
 
 // statusModel is `obor status`: obor serve's view of the project (its agents, open tasks and needs-you, each needs-you
-// with the commands that answer it), the lanes (the store's rows and what git says of each worktree), serve up or
-// down, the last full check, the pause and the lines serve has not typed yet (obor send, obor brief, a brief's finished
-// line); rendered as text (writeStatus) or JSON (--json).
+// with the commands that answer it), what serve does without an agent now (the running line, T-657), the lanes (the
+// store's rows and what git says of each worktree), serve up or down, the last full check, the pause and the lines serve
+// has not typed yet (obor send, obor brief, a brief's finished line); rendered as text (writeStatus, writeStatusShort)
+// or JSON (--json).
 type statusModel struct {
 	Serve     serveJSON           `json:"serve"`
+	Running   []runningJSON       `json:"running"`
 	Lanes     []laneJSON          `json:"lanes"`
 	Tasks     []app.TaskStatus    `json:"tasks"`  // serve's open tasks
 	Agents    []app.AgentStatus   `json:"agents"` // the agents serve sees in the project
@@ -34,6 +36,15 @@ type statusModel struct {
 	Messages  []app.MessageStatus `json:"messages"`         // the lines not typed yet
 	Review    string              `json:"review,omitempty"` // the open review request, or "review due: …" (T-638)
 	facts     []app.Record        // serve's facts in force for the project (--facts)
+}
+
+// runningJSON is one step that runs without an agent (app.RunningStep, T-657) with the configured command it runs ("":
+// a step of git alone, such as publish); the text renderers count its elapsed time from Since.
+type runningJSON struct {
+	Step    string `json:"step"` // gate, publish, after_merge, nightly or restart
+	Task    string `json:"task,omitempty"`
+	Command string `json:"command,omitempty"`
+	Since   int64  `json:"since"`
 }
 
 // serveJSON: serve answered (Up, since when) or not (Error); the project's state in it.
@@ -93,11 +104,12 @@ type pauseJSON struct {
 	By     string `json:"by,omitempty"`
 }
 
-// status is `obor status [--facts] [--json]`. Serve down is a line, never a non-zero exit: the lanes are read from
-// the store alone. --facts adds the facts in force. --all is accepted and changes nothing for one release (T-522: a
-// serve holds one project, this one); drop it once adopters run v0.14.
+// status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
+// from the store alone. --facts adds the facts in force; --short prints only the serve line, the running line and
+// needs-you (T-657). --all is accepted and changes nothing for one release (T-522: a serve holds one project, this one);
+// drop it once adopters run v0.14.
 func status(args []string) int {
-	asJSON, facts := false, false
+	asJSON, facts, short := false, false, false
 	for _, a := range args {
 		switch a {
 		case "--json":
@@ -105,8 +117,10 @@ func status(args []string) int {
 		case "--all":
 		case "--facts":
 			facts = true
+		case "--short":
+			short = true
 		default:
-			errf("usage: obor status [--facts] [--json]")
+			errf("usage: obor status [--facts] [--json] [--short]")
 			return 2
 		}
 	}
@@ -124,9 +138,14 @@ func status(args []string) int {
 	st := buildStatus(checks.NewLaneTable(cfg), ss, err)
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
 	if !asJSON {
-		writeStatus(out, st, time.Now())
-		if facts {
-			writeFacts(out, "", st.facts)
+		switch {
+		case short:
+			writeStatusShort(out, st, time.Now())
+		default:
+			writeStatus(out, st, time.Now())
+			if facts {
+				writeFacts(out, "", st.facts)
+			}
 		}
 		return 0
 	}
@@ -161,7 +180,7 @@ func serveProcess(ctx context.Context, cfg *config.Config, up bool) (pid int, la
 // buildStatus joins serve's answer (ss, or err when it gave none) to the lane table of p.
 func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 	st := statusModel{Lanes: []laneJSON{}, Tasks: []app.TaskStatus{}, Agents: []app.AgentStatus{},
-		NeedsYou: []needsYouJSON{}, Messages: []app.MessageStatus{}}
+		NeedsYou: []needsYouJSON{}, Messages: []app.MessageStatus{}, Running: []runningJSON{}}
 	var ps app.ProjectStatus
 	if err != nil {
 		st.Serve.Error = err.Error()
@@ -170,6 +189,10 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 		st.Serve.sinceTime, _ = time.Parse(time.RFC3339, ss.Since)
 		if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
 			ps, st.Serve.Project = *x, true
+		}
+		for _, r := range ps.Running {
+			st.Running = append(st.Running, runningJSON{Step: r.Step, Task: r.Task, Command: runningCommand(p, r),
+				Since: r.Since})
 		}
 		st.Serve.Merging, st.Serve.LogError = ps.Merging, ps.LogError
 		st.Tasks, st.Agents = append(st.Tasks, ps.Tasks...), append(st.Agents, ps.Agents...)
@@ -232,48 +255,20 @@ func readFullCheck(root string) *fullCheckJSON {
 	return fc
 }
 
-// writeStatus is the text of st at now: serve's line, one line per lane, serve's open tasks on no lane (not dropped),
-// the agents on no lane, each needs-you with its answer, the lines not typed yet, the full check and the pause.
+// writeStatus is the text of st at now: serve's line, the running line (what serve does without an agent), one line per
+// lane, serve's open tasks on no lane (not dropped), the agents on no lane, each needs-you with its answer, the lines
+// not typed yet, the full check and the pause.
 func writeStatus(w io.Writer, st statusModel, now time.Time) {
-	switch s := st.Serve; {
-	case !s.Up && s.Launchd == "none":
-		fmt.Fprintln(w, "serve: down (obor serve install)")
-	case !s.Up:
-		fmt.Fprintf(w, "serve: down (%s)\n", s.Error)
-	default:
-		line := "serve: up"
-		switch {
-		case s.PID != 0 && s.Launchd == "running":
-			line = fmt.Sprintf("serve: launchd pid %d", s.PID)
-		case s.PID != 0:
-			line = fmt.Sprintf("serve: pane pid %d", s.PID)
-		}
-		if !s.sinceTime.IsZero() {
-			line += fmt.Sprintf(" since %s (%s)", s.sinceTime.Local().Format("Jan 2 15:04"),
-				app.Age(now.Sub(s.sinceTime)))
-		}
-		switch {
-		case !s.Project:
-			line += "; this project is not loaded (obor serve's output says why)"
-		case !s.Merging:
-			line += "; merge loop off (no integrator role)"
-		}
-		if !s.Herdr {
-			line += "; herdr: not connected"
-		}
-		fmt.Fprintln(w, line)
-		if s.LogError != "" {
-			fmt.Fprintf(w, "serve: event log broken: %s\n", s.LogError)
-		}
-	}
+	writeServe(w, st.Serve, now)
+	writeRunning(w, st, now)
 	shown := map[string]bool{}
 	for _, l := range st.Lanes {
 		ago := "-"
 		if l.DoneAge != nil {
 			ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
 		}
-		line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, l.Type, orDash(l.Branch), l.State, ago,
-			orDash(l.Task))
+		line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, l.Type, orDash(l.Branch),
+			laneState(l, st), ago, orDash(l.Task))
 		if l.TaskState != "" {
 			line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
 			shown[*l.Task] = true
@@ -306,17 +301,7 @@ func writeStatus(w io.Writer, st statusModel, now time.Time) {
 			fmt.Fprintf(w, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
 		}
 	}
-	for _, n := range st.NeedsYou {
-		line := "needs-you " + n.Task
-		if n.Lane != "" {
-			line += " (" + n.Lane + ")"
-		}
-		line += ": " + n.Reason
-		if n.Answer != "" {
-			line += " → " + n.Answer
-		}
-		fmt.Fprintln(w, line)
-	}
+	writeNeedsYou(w, st.NeedsYou)
 	for _, m := range st.Messages {
 		fmt.Fprintf(w, "undelivered to %s (from %s, %s): %s\n", m.To, app.Dash(m.From), app.Age(time.Duration(m.Age)*time.Second), m.Line)
 	}
@@ -336,6 +321,164 @@ func writeStatus(w io.Writer, st statusModel, now time.Time) {
 		}
 		fmt.Fprintf(w, "paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
 	}
+}
+
+// writeStatusShort is `obor status --short` (T-657): serve's line, the running line and each needs-you, nothing else
+// (a status bar or a quick glance). It is the head of writeStatus' text, so both read the same.
+func writeStatusShort(w io.Writer, st statusModel, now time.Time) {
+	writeServe(w, st.Serve, now)
+	writeRunning(w, st, now)
+	writeNeedsYou(w, st.NeedsYou)
+}
+
+// writeServe is serve's line at now: up (launchd, a pane, since when), down and why, and a broken event log under it.
+func writeServe(w io.Writer, s serveJSON, now time.Time) {
+	switch {
+	case !s.Up && s.Launchd == "none":
+		fmt.Fprintln(w, "serve: down (obor serve install)")
+	case !s.Up:
+		fmt.Fprintf(w, "serve: down (%s)\n", s.Error)
+	default:
+		line := "serve: up"
+		switch {
+		case s.PID != 0 && s.Launchd == "running":
+			line = fmt.Sprintf("serve: launchd pid %d", s.PID)
+		case s.PID != 0:
+			line = fmt.Sprintf("serve: pane pid %d", s.PID)
+		}
+		if !s.sinceTime.IsZero() {
+			line += fmt.Sprintf(" since %s (%s)", s.sinceTime.Local().Format("Jan 2 15:04"),
+				app.Age(now.Sub(s.sinceTime)))
+		}
+		switch {
+		case !s.Project:
+			line += "; this project is not loaded (obor serve's output says why)"
+		case !s.Merging:
+			line += "; merge loop off (no integrator role)"
+		}
+		if !s.Herdr {
+			line += "; herdr: not connected"
+		}
+		fmt.Fprintln(w, line)
+		if s.LogError != "" {
+			fmt.Fprintf(w, "serve: event log broken: %s\n", s.LogError)
+		}
+	}
+}
+
+// writeRunning is the running line right under serve's (T-657): what serve does without an agent, each step with the
+// command it runs and its elapsed time (`running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build,
+// 12s)`), or `running: nothing`. A restart in progress reads "restarting serve", a step without a command (publish, a
+// gate of git alone) its elapsed time only.
+func writeRunning(w io.Writer, st statusModel, now time.Time) {
+	if len(st.Running) == 0 {
+		fmt.Fprintln(w, "running: nothing")
+		return
+	}
+	items := make([]string, 0, len(st.Running))
+	for _, r := range st.Running {
+		item := runningName(r.Step)
+		if r.Task != "" {
+			item += " " + r.Task
+		}
+		if r.Step != app.StepServeRestart {
+			if r.Command != "" {
+				item += fmt.Sprintf(" (%s, %s)", r.Command, elapsed(now.Sub(time.Unix(r.Since, 0))))
+			} else {
+				item += fmt.Sprintf(" (%s)", elapsed(now.Sub(time.Unix(r.Since, 0))))
+			}
+		}
+		items = append(items, item)
+	}
+	fmt.Fprintln(w, "running: "+strings.Join(items, " · "))
+}
+
+// runningName is a running step's name in the line: the log's own step, but the nightly run (a day's key) and the
+// self-restart, which say what they are.
+func runningName(step string) string {
+	switch step {
+	case app.StepNightly:
+		return "nightly check"
+	case app.StepServeRestart:
+		return "restarting serve"
+	}
+	return step
+}
+
+// writeNeedsYou is one line per needs-you with the commands that answer it.
+func writeNeedsYou(w io.Writer, needs []needsYouJSON) {
+	for _, n := range needs {
+		line := "needs-you " + n.Task
+		if n.Lane != "" {
+			line += " (" + n.Lane + ")"
+		}
+		line += ": " + n.Reason
+		if n.Answer != "" {
+			line += " → " + n.Answer
+		}
+		fmt.Fprintln(w, line)
+	}
+}
+
+// laneState is l's state column (T-657): what serve does for its task now — held (needs-you), gating, merging
+// (publishing), reviewing (an integrator job is out) — else the lane table's state (done, working, free …).
+func laneState(l laneJSON, st statusModel) string {
+	if l.TaskState == "needs-you" || held(st.NeedsYou, l) {
+		return "held"
+	}
+	for _, r := range st.Running {
+		if r.Task == "" || l.Task == nil || r.Task != *l.Task {
+			continue
+		}
+		switch r.Step {
+		case app.StepGate:
+			return "gating"
+		case app.StepPublish:
+			return "merging"
+		}
+	}
+	if l.TaskState == "awaiting-accept" || l.TaskState == "resolving" { // an integrator job is out
+		return "reviewing"
+	}
+	return l.State
+}
+
+// held: a needs-you is in force for l's lane or its task (a watchdog's, the merge loop's, the project's).
+func held(needs []needsYouJSON, l laneJSON) bool {
+	for _, n := range needs {
+		if n.Lane == l.Lane || l.Task != nil && n.Task == *l.Task {
+			return true
+		}
+	}
+	return false
+}
+
+// runningCommand is the configured command r runs, for the running line: the project's checking step for a gate or the
+// nightly check, commands.after_merge for after_merge; "" for a step of git alone (publish) or an unset command.
+func runningCommand(p *checks.LaneTable, r app.RunningStep) string {
+	name := ""
+	switch r.Step {
+	case app.StepGate, app.StepNightly:
+		name = "check"
+	case app.StepAfterMerge:
+		name = app.StepAfterMerge
+	}
+	cmd, _ := p.Cfg.Command(name)
+	return cmd.Cmd
+}
+
+// elapsed is a running step's age as the running line shows it: 12s, 2m14s, 1h02m, 3d04h.
+func elapsed(d time.Duration) string {
+	s := max(int64(d/time.Second), 0)
+	switch {
+	case s < 60:
+		return strconv.FormatInt(s, 10) + "s"
+	case s < 3600:
+		return fmt.Sprintf("%dm%02ds", s/60, s%60)
+	case s < 86400:
+		return fmt.Sprintf("%dh%02dm", s/3600, s%3600/60)
+	}
+	return fmt.Sprintf("%dd%02dh", s/86400, s%86400/3600)
 }
 
 // pluginMissing (T-307): a lane whose kind runs obor's hooks through obor's plugin (agents.HooksPlugin: opencode) has

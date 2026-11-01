@@ -367,6 +367,19 @@ func (l *Log) Done(k Key) bool {
 	return ok
 }
 
+// OpenIntents is every intent without a result, running or not, in seq order: the steps whose effect runs now, or was
+// left to run again after a crash (App.do). obor status' running line lists the command steps among them (T-657).
+func (l *Log) OpenIntents() []Record {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]Record, 0, len(l.pending))
+	for _, r := range l.pending {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out
+}
+
 // Pending is every intent without a result, in seq order: the effect may or may not have happened. Its Class says
 // how to settle it (docs/state-model.md "Crash classes"); settling is the caller's job.
 func (l *Log) Pending() []Record {

@@ -94,7 +94,7 @@ func TestStatusOverServe(t *testing.T) {
 	if want := "serve: up since " + since.Local().Format("Jan 2 15:04") + " (2h)"; lines[0] != want {
 		t.Errorf("first line %q, want %q", lines[0], want)
 	}
-	matchLine(t, text, `^O-01 +opus +task/T-01 +working +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-o1 \(idle\)$`, "O-01")
+	matchLine(t, text, `^O-01 +opus +task/T-01 +held +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-o1 \(idle\)$`, "O-01")
 	matchLine(t, text, `^O-02 +opus +- +free +- +\(-\)$`, "O-02")
 	for _, want := range []string{
 		"task T-05 (O-09): needs-you (attempt 2)",
@@ -154,6 +154,7 @@ func TestStatusServeDown(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	want := []string{`^serve: down \(obor serve is not running \(dial: refused\)\)$`,
+		`^running: nothing$`,
 		`^O-01 +opus +task/T-01 +done +12m +\(T-01\)  agent: pj-o-01$`,
 		`^O-02 +opus +task/T-02 +done +[0-9]+s +\(T-02\)  agent: pj-o-02$`,
 		`^O-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
@@ -373,5 +374,133 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	lock.Unlock()
 	if got := restartOp(root, "O-01"); got != "" {
 		t.Errorf("freed: op = %q, want none", got)
+	}
+}
+
+// T-657: the running line right under serve's says what serve does without an agent: an open gate intent with the
+// command it runs and its elapsed time, two steps at once both, a publish (git alone) and the nightly check, a pending
+// self-restart, and `running: nothing` when none is open.
+func TestStatusRunningLine(t *testing.T) {
+	p := testkit.New(t)
+	p.Config(testkit.Set("commands.check", "make -s check"), testkit.Set("commands.after_merge", "make build"))
+	now := time.Now().Truncate(time.Second)
+	for _, c := range []struct {
+		name    string
+		running []app.RunningStep
+		want    string
+	}{
+		{"nothing open", nil, "running: nothing"},
+		{"gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
+			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
+		{"two steps at once", []app.RunningStep{
+			{Step: app.StepGate, Task: "T-656", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
+			{Step: app.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
+			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
+		{"publish", []app.RunningStep{{Step: app.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
+			"running: publish T-4 (5s)"},
+		{"nightly check", []app.RunningStep{{Step: app.StepNightly, Since: now.Add(-90 * time.Second).Unix()}},
+			"running: nightly check (make -s check, 1m30s)"},
+		{"restarting serve", []app.RunningStep{{Step: app.StepServeRestart, Since: now.Unix()}},
+			"running: restarting serve"},
+	} {
+		ss := app.Status{Connected: true, Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Running: c.running}}
+		_, text := statusOf(t, p, ss, nil, now)
+		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		if len(lines) < 2 || !strings.HasPrefix(lines[0], "serve: ") {
+			t.Fatalf("%s: the first line is not serve's:\n%s", c.name, text)
+		}
+		if lines[1] != c.want {
+			t.Errorf("%s: the line under serve's = %q, want %q\n%s", c.name, lines[1], c.want, text)
+		}
+	}
+}
+
+// T-657: a lane's state column says what serve does for its task — gating, merging, reviewing (an integrator job is
+// out), held (needs-you) — else the lane table's state (done).
+func TestStatusLaneStateColumn(t *testing.T) {
+	now := time.Now()
+	str := func(s string) *string { return &s }
+	for _, c := range []struct {
+		name    string
+		lane    laneJSON
+		running []runningJSON
+		needs   []needsYouJSON
+		want    string
+	}{
+		{"gating", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
+			[]runningJSON{{Step: app.StepGate, Task: "T-1"}}, nil, "gating"},
+		{"merging", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
+			[]runningJSON{{Step: app.StepPublish, Task: "T-1"}}, nil, "merging"},
+		{"reviewing", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil,
+			"reviewing"},
+		{"resolving", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil,
+			"reviewing"},
+		{"held", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, "held"},
+		{"held by a watchdog fact", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
+			nil, []needsYouJSON{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
+		{"done", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, "done"},
+	} {
+		c.lane.Type = "opus"
+		var b bytes.Buffer
+		writeStatus(&b, statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
+			Lanes: []laneJSON{c.lane}, Running: c.running, NeedsYou: c.needs}, now)
+		lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+		lane := ""
+		for _, l := range lines {
+			if strings.HasPrefix(l, "O-01") {
+				lane = l
+			}
+		}
+		if f := strings.Fields(lane); len(f) < 4 || f[3] != c.want {
+			t.Errorf("%s: lane line %q, want state %q", c.name, lane, c.want)
+		}
+	}
+}
+
+// T-657: --short is the serve line, the running line and needs-you, nothing else (a status bar).
+func TestStatusShort(t *testing.T) {
+	p := testkit.New(t)
+	p.Config()
+	now := time.Now().Truncate(time.Second)
+	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+		Name: "pj", Root: p.Root, Merging: true,
+		Running:  []app.RunningStep{{Step: app.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
+		Tasks:    []app.TaskStatus{{Task: "T-2", Lane: "O-02", Attempt: 1, State: "working"}},
+		Messages: []app.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
+		Facts:    []app.Record{fact(t, 1, "T-3", app.FactData{Lane: "O-03", Reason: "stalled"})},
+	}}
+	st, _ := statusOf(t, p, ss, nil, now)
+	var b bytes.Buffer
+	writeStatusShort(&b, st, now)
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("--short text:\n%s\nwant serve's line, the running line and one needs-you", b.String())
+	}
+	if !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != "running: gate T-1 (1m00s)" ||
+		!strings.HasPrefix(lines[2], "needs-you T-3 (O-03): stalled") {
+		t.Errorf("--short lines %q; want serve: up…, the running gate and needs-you T-3", lines)
+	}
+	for _, gone := range []string{"O-02", "task T-2", "undelivered", "full check"} {
+		if strings.Contains(b.String(), gone) {
+			t.Errorf("--short prints %q:\n%s", gone, b.String())
+		}
+	}
+}
+
+// T-657: the binary's --short over a lane and a full check prints neither, only serve's line and `running: nothing`
+// when nothing runs.
+func TestStatusShortBinary(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-01")
+	p.Config()
+	p.Commit(o1)
+	rc, stdout, stderr := run(t, p.Root, nil, "status", "--short")
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	if rc != 0 || len(lines) != 2 || !strings.HasPrefix(lines[0], "serve: down (") || lines[1] != "running: nothing" {
+		t.Errorf("obor status --short: exit %d, %q, %q; want serve's down line and `running: nothing`", rc, stdout, stderr)
+	}
+	if strings.Contains(stdout, "O-01") || strings.Contains(stdout, "full check") {
+		t.Errorf("--short prints a lane or the full check:\n%s", stdout)
 	}
 }
