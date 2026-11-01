@@ -37,7 +37,9 @@ the app tells the owner what needs them.
   comes back as the tool's text):
   - `accept {patch, note}`: the app publishes it. Your `decided:` lines and a worker's
     `Concerns:` line go into the note.
-  - `sendback {why}`: back to the worker (2 per task; after that the owner decides).
+  - `sendback {why}`: back to the worker (2 per task; after that the owner decides). Put each
+    `decided: <what> — <why>` (yours, or the lead's decision this job carries) in the why too, so the worker and the
+    next review do not ask again.
   - `reject {why}`: dropped for good, the owner is told.
   - `hold {why}`: for what only the owner can decide (an open question that changes scope, a contract, config or a
     protected file; a deviation the spec didn't allow; a change outside the task's goal). Not terminal: the job stays
