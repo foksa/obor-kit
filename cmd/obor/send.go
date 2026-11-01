@@ -18,17 +18,19 @@ import (
 )
 
 // sendCmd is `obor send <project> "<text>"`, a lead's or the owner's: a request to the target project's serve
-// (app.MethodSend), which posts "[obor <this project>] <text>" to that project's lead's Claude session (T-485). <project>
-// is a path into an obor project. Serve's reply (SENT to …), or FAIL: the own project, not an obor project, serve down or
-// its refusal (exit 1).
+// (app.MethodSend), which posts "[obor <this project>] <text> (reply: obor send <this project> "…")" to that project's
+// lead's Claude session (T-485).
+// <project> is a project this machine knows by name (obor projects), lead@<name> (the same: only a lead gets
+// messages), or a path into an obor project (T-646). Serve's reply (SENT to …), or FAIL: the own project, an unknown
+// name, not an obor project, serve down or its refusal (exit 1).
 func sendCmd(args []string) int {
 	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
 		fmt.Fprintln(out, `FAIL usage: obor send <project> "<text>"`)
 		return 1
 	}
-	ctx := context.Background()
-	return request(ctx, project.OSEnv, app.MethodSend, func(cfg *config.Config, c *app.Call) error {
-		root, err := sendTarget(args[0])
+	ctx, env := context.Background(), project.OSEnv
+	return request(ctx, env, app.MethodSend, func(cfg *config.Config, c *app.Call) error {
+		root, err := sendTarget(args[0], env)
 		if err != nil {
 			return err
 		}
@@ -43,16 +45,37 @@ func sendCmd(args []string) int {
 	})
 }
 
-// sendTarget is the root of the project arg names: a path inside an obor project (its main checkout).
-func sendTarget(arg string) (string, error) {
-	if st, err := os.Stat(arg); err != nil || !st.IsDir() {
-		return "", fmt.Errorf("%s is not a directory: obor send takes a path into the target project", arg)
+// sendTarget is the root of the project target names: a known name (or lead@<name>, the same thing), or a path inside
+// an obor project (its main checkout).
+func sendTarget(target string, env project.Env) (string, error) {
+	if st, err := os.Stat(target); err == nil && st.IsDir() {
+		repo, err := project.Find(target)
+		if err != nil || !configured(repo.Root) {
+			return "", fmt.Errorf("%s is not in an obor project (no .obor/config.json)", target)
+		}
+		return repo.Root, nil
 	}
-	repo, err := project.Find(arg)
-	if err != nil || !configured(repo.Root) {
-		return "", fmt.Errorf("%s is not in an obor project (no .obor/config.json)", arg)
+	name := strings.TrimPrefix(target, "lead@")
+	if root, ok := project.RootOf(name, env); ok {
+		return root, nil
 	}
-	return repo.Root, nil
+	if strings.ContainsRune(target, os.PathSeparator) || target == "." || target == ".." {
+		return "", fmt.Errorf("%s is not a directory: obor send takes a known project name (obor projects) or a path "+
+			"into the target project", target)
+	}
+	return "", unknownProject(name, env)
+}
+
+// unknownProject is the refusal of a name this machine knows no project by: the names it does know.
+func unknownProject(name string, env project.Env) error {
+	var known []string
+	for _, p := range project.Projects(env) {
+		known = append(known, p.Name)
+	}
+	if len(known) == 0 {
+		return fmt.Errorf("no obor project named %s (known: none: obor serve and obor init register a project)", name)
+	}
+	return fmt.Errorf("no obor project named %s (known: %s)", name, strings.Join(known, ", "))
 }
 
 // briefCmd is `obor brief <role-agent> "<text>"`, the lead's or the owner's: a request to obor serve (app.MethodBrief)

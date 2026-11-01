@@ -11,6 +11,8 @@ package setup
 //	           files; anything else there → FAIL before any write (T-631). A repository with a commit: untouched.
 //	project    init's files (.obor/config.json, .gitignore lines, docs); a new config's prefix is made unique against
 //	           the running herdr agents' names (<prefix>-…).
+//	projects   the project in the machine's list of obor projects by name (T-646, project.Register): obor send <name>
+//	           and obor projects read it.
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain (T-623).
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
@@ -117,6 +119,13 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	add("project", doneOr(s.wrote), "%s (prefix %s)", s.cfg.Data.Name, s.cfg.Data.Prefix)
+
+	// projects: the machine's list of obor projects by name (T-646): obor send <name> and obor projects read it.
+	changed, err := project.Register(s.cfg.Root, s.Env)
+	if err != nil {
+		return project.Failf("the machine's project list: %v", err)
+	}
+	add("projects", doneOr(changed), "%s in %s", s.cfg.Data.Name, project.ProjectsFile(s.Env))
 
 	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
 	// from it).

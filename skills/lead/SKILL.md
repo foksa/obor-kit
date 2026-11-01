@@ -60,7 +60,9 @@ Before a release, `obor review` and close it; `make release` refuses otherwise; 
 Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
 "<out of scope, contracts>"]`, serve starts it (`review-brief.md`). Reviewer and deep dive are role panes, never lanes;
 verifies: `obor brief <reviewer> "<text>"` in the same session.
-Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <project> "<text>"`. Workers and
+Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names
+`obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
+command: `obor send <that name> "<text>"`. Workers and
 the integrator get jobs from serve, never messages.
 Lines to you (another project's `obor send`, `[obor] <agent> finished …`) arrive as messages from another session;
 none are typed into your pane. `obor status` lists the ones not delivered yet.

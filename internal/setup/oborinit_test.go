@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -126,6 +127,13 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	}
 	if rc, _ := cfg.Role("reviewer"); rc.Type != "sol" {
 		t.Errorf("reviewer type %q, want the example's sol (codex on PATH)", rc.Type)
+	}
+	// T-646: init registers the project in the machine's list of obor projects by name.
+	if ps := project.Projects(x.Env()); len(ps) != 1 || ps[0] != (project.Project{Name: "proj", Root: x.Root}) {
+		t.Errorf("the machine's project list %+v, want proj at its root\n%s", ps, out)
+	}
+	if stateOf(out, "projects") != "done" {
+		t.Errorf("projects step %q, want done", summary(out, "projects"))
 	}
 	mkt, err := kitMarketplace(kit)
 	if err != nil {

@@ -19,7 +19,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 
 **base** — shared leaves, no obor state of their own.
 - `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
-  `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`).
+  `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`),
+  the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `Validate` (removed keys WARN), `TaskIDOK` /
   `TaskFromBranch`.
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
@@ -96,5 +97,5 @@ socket: scripted panes and plugins, and every request a test's client sent).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status` rendering; the thin `app.Specs`, `Lanes`, `Poster`
 adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`, `answer`, `resume`, `sendback`,
-`drop`, `spec`, `watch`, `pause`, `send`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
+`drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`, `setup`, `config` and the rest (`run`,
 `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`, `hook`, `whoami`).

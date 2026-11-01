@@ -25,6 +25,17 @@ to you):
 
 A task's needs-you reaches you as before (`[obor] needs-you …`), watched or not.
 
+## obor send and obor projects (T-646)
+Every obor project on this machine is known by its config name: `obor serve` (at its start) and `obor init` write the
+list, and `obor projects` prints it, one project per line: `<name> <root> serve <up|down>` (a project whose directory
+moved or whose name changed is left out).
+
+- `obor send <name> "<text>"` — to another project's lead; `lead@<name>` is the same (only leads get messages), and a
+  path into the project still works. An unknown name: FAIL, then the names it knows ("no obor project named X (known:
+  a, b, c)").
+- The line the target's lead reads names its sender, so the reply is one command: `[obor <name>] <text> (reply: obor
+  send <name> "…")`.
+
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `[obor] review RV-xx started at <sha7> (T-a, …)`.
 

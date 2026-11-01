@@ -34,7 +34,8 @@ func serveCmd(args []string) int {
 }
 
 // serve runs the app for the project around cwd until ctx ends: it holds the project's serve.flock (one serve per
-// project) and listens on <root>/.obor/state/serve.sock.
+// project) and listens on <root>/.obor/state/serve.sock, and it writes the project into the machine's list of obor
+// projects by name (T-646).
 func serve(ctx context.Context, args []string, env project.Env, cwd string) int {
 	switch {
 	case len(args) == 1 && args[0] == "status":
@@ -77,6 +78,11 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	defer os.Remove(sock)
 	defer ln.Close()
+	// The machine's list of obor projects by name (T-646): obor send and obor projects read it. A failure is one line,
+	// not the end of serve: naming a project is a convenience, serving it is not.
+	if _, err := project.Register(root, env); err != nil {
+		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
+	}
 	panes := herdr.Panes{S: herdrSocket(env)}
 	infoCtx, cancelInfo := context.WithTimeout(ctx, 2*time.Second)
 	version, protocol, infoErr := panes.S.VersionProtocol(infoCtx)

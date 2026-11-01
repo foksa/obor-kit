@@ -1,5 +1,5 @@
 // obor (Go): every command in `commands` (whoami, config, status, pause, run, restart, lead, dispatch, drop,
-// answer, sendback, resume, send, brief, spec, flakes, nightly,
+// answer, sendback, resume, send, projects, brief, spec, flakes, nightly,
 // milestone-check, plugin (the herdr plugin's restore hook), setup, has, serve, mcp, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
 // file) execs this binary for the commands in bin/go-commands.
 package main
@@ -91,6 +91,8 @@ func main() {
 		exit(lead(args))
 	case "send":
 		exit(sendCmd(args))
+	case "projects":
+		exit(projectsCmd(args))
 	case "brief":
 		exit(briefCmd(args))
 	case "dispatch":
@@ -177,6 +179,7 @@ var commands = map[string][]string{
 	"restart":         nil,
 	"lead":            nil,
 	"send":            nil,
+	"projects":        nil,
 	"brief":           nil,
 	"dispatch":        nil,
 	"drop":            nil,

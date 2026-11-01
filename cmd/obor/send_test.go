@@ -17,9 +17,10 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-466, T-522: obor send <project> "<text>" is one send request, as the caller, to the target's serve: the target by
-// a path into it; its serve on <target root>/.obor/state/serve.sock. Usage, the own project, a name and a path outside
-// an obor project send nothing (FAIL, exit 1); serve's refusal is FAIL.
+// T-466, T-522, T-646: obor send <project> "<text>" is one send request, as the caller, to the target's serve: the
+// target by a known name (obor projects), lead@<name> (the same thing), or a path into it; its serve on <target
+// root>/.obor/state/serve.sock. Usage, the own project, an unknown name, a path outside an obor project and a path
+// that is not a directory send nothing (FAIL, exit 1); serve's refusal is FAIL.
 func TestSendRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -34,6 +35,7 @@ func TestSendRequest(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	const unknownOther = "FAIL no obor project named other (known: none: obor serve and obor init register a project)"
 
 	for _, c := range []struct {
 		args []string
@@ -43,8 +45,12 @@ func TestSendRequest(t *testing.T) {
 		{[]string{"send", "other"}, `FAIL usage: obor send <project> "<text>"`},
 		{[]string{"send", "other", " "}, `FAIL usage: obor send <project> "<text>"`},
 		{[]string{"send", p.Root, "hi"}, "FAIL obor send goes to another project's lead, not this one"},
-		{[]string{"send", "other", "hi"}, "FAIL other is not a directory: obor send takes a path into the target project"},
+		{[]string{"send", "other", "hi"}, unknownOther},
+		{[]string{"send", "lead@other", "hi"}, unknownOther},
 		{[]string{"send", p.Base, "hi"}, "FAIL " + p.Base + " is not in an obor project (no .obor/config.json)"},
+		{[]string{"send", filepath.Join(p.Base, "nope"), "hi"},
+			"FAIL " + filepath.Join(p.Base, "nope") + " is not a directory: obor send takes a known project name " +
+				"(obor projects) or a path into the target project"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || strings.TrimRight(stdout, "\n") != c.want {
 			t.Errorf("obor %q: exit %d, %q; want 1, %q", c.args, rc, stdout, c.want)
@@ -54,29 +60,39 @@ func TestSendRequest(t *testing.T) {
 		t.Fatalf("a refused send sent %+v", calls)
 	}
 
-	// The target's own serve socket: the request goes there, with the text as it is.
+	// The machine's list of obor projects by name: obor serve and obor init write it (project.Register); obor send
+	// reads it. The target's own serve socket receives the request, the text as it is.
+	if _, err := project.Register(q.Root, p.Env("OBOR_STATE_HOME="+home)); err != nil {
+		t.Fatal(err)
+	}
+	if rc, stdout, _ := run(t, p.Root, env, "send", "nobody", "hi"); rc != 1 ||
+		stdout != "FAIL no obor project named nobody (known: other)\n" {
+		t.Errorf("an unknown name with a known one: exit %d, %q", rc, stdout)
+	}
 	if _, err := os.Stat(app.SocketPath(q.Root)); err == nil {
 		t.Fatal("precondition: the target has no serve socket")
 	}
 	_, target := startFakeServe(t, q.Root, app.Status{}, "SENT to ot-lead in other (posted to its session)", "")
-	if rc, stdout, _ := run(t, p.Root, env, "send", filepath.Join(q.Root, "sub"), "v0.12 is out"); rc != 0 ||
-		stdout != "SENT to ot-lead in other (posted to its session)\n" {
-		t.Errorf("send to a path in the target: exit %d, %q", rc, stdout)
-	}
-	calls, _ := target.requests()
-	if len(calls) != 1 {
-		t.Fatalf("%d requests to the target's serve, want 1", len(calls))
-	}
-	if c := calls[0]; target.methods[0] != app.MethodSend || c.Root != q.Root || c.From != "proj" || c.Note != "v0.12 is out" ||
-		c.Role != "lead" || c.Agent != "pj-lead" || c.CallID == "" {
-		t.Errorf("request: %s %+v", target.methods[0], c)
+	for i, by := range []string{"other", "lead@other", filepath.Join(q.Root, "sub")} {
+		if rc, stdout, _ := run(t, p.Root, env, "send", by, "v0.12 is out"); rc != 0 ||
+			stdout != "SENT to ot-lead in other (posted to its session)\n" {
+			t.Errorf("send by %s: exit %d, %q", by, rc, stdout)
+		}
+		calls, _ := target.requests()
+		if len(calls) != i+1 {
+			t.Fatalf("send by %s: %d requests to the target's serve, want %d", by, len(calls), i+1)
+		}
+		if c := calls[i]; target.methods[i] != app.MethodSend || c.Root != q.Root || c.From != "proj" ||
+			c.Note != "v0.12 is out" || c.Role != "lead" || c.Agent != "pj-lead" || c.CallID == "" {
+			t.Errorf("send by %s: request %s %+v", by, target.methods[i], c)
+		}
 	}
 	if calls, _ := own.requests(); len(calls) != 0 {
 		t.Errorf("the own project's serve got %+v", calls)
 	}
 
 	startFakeServe(t, q.Root, app.Status{}, "", "send: a lead or the owner sends, not pj-o1 (role worker)")
-	if rc, stdout, _ := run(t, p.Root, env, "send", q.Root, "x"); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, env, "send", "other", "x"); rc != 1 ||
 		stdout != "FAIL send: a lead or the owner sends, not pj-o1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}

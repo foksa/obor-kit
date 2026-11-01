@@ -115,7 +115,7 @@ func queueLine(t *testing.T, a *App, p *proj, kind string, now time.Time) {
 
 // lineTyped: calls is the line of kind typed once (a finished line's age aside; a brief typed into pj-rev's pane).
 func lineTyped(calls []string, kind string) bool {
-	want := map[string]string{"send": "pj-lead: [obor other] hello", "brief": "w:rev: [obor owner] verify finding 1",
+	want := map[string]string{"send": "pj-lead: " + sendLine("other", "hello"), "brief": "w:rev: [obor owner] verify finding 1",
 		"finished": "pj-lead: [obor] pj-rev finished (briefed "}[kind]
 	return len(calls) == 1 && strings.HasPrefix(calls[0], want)
 }

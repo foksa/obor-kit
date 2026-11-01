@@ -84,6 +84,11 @@ func TestServeBinary(t *testing.T) {
 	if !strings.Contains(out.String(), "herdr: fake, protocol "+strconv.Itoa(herdr.Protocol)) {
 		t.Errorf("serve did not report its herdr snapshot before running:\n%s", out.String())
 	}
+	// T-646: serve registers the project it serves in the machine's list of obor projects by name.
+	if b, err := os.ReadFile(filepath.Join(home, "projects.json")); err != nil ||
+		!strings.Contains(string(b), `"proj": "`+p.Root+`"`) {
+		t.Errorf("the machine's project list: %v, %q; want proj at the served root", err, b)
+	}
 	// the alias: obor serve status prints what obor status --facts does; --all is a no-op for one release
 	for _, args := range [][]string{{"serve", "status"}, {"status", "--all", "--facts"}} {
 		if rc, stdout, stderr := run(t, p.Root, env, args...); rc != 0 || !strings.Contains(stdout, "agent: pj-o-01 (working)") {
