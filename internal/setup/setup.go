@@ -43,6 +43,9 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
 //	        workspace): see rename.go.
 //
+//	show  the setup table, read-only (T-647): per difficulty level its preferred lane type, that type's model and
+//	        effort, the lanes that run the level and its fallback; the roles' types; whether the owner confirmed it.
+//
 // obor init (P7-2): see oborinit.go.
 //
 // Pane and role refuse names that collide between lanes and roles (T-189) before any herdr call or worktree.
@@ -119,7 +122,7 @@ func Usage() string {
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | show | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -148,6 +151,8 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.mcpCmd(ctx, args)
 	case "rename":
 		err = s.renameCmd(ctx, args)
+	case "show":
+		err = s.show(args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {

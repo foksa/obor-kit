@@ -356,6 +356,33 @@ func TestLaunchArgs(t *testing.T) {
 	}
 }
 
+// T-647: a lane type's model and effort come from its args as each kind names them; a type that names none says "" and
+// obor setup show must not guess one.
+func TestLaneTypeModelAndEffort(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		args       []string
+		model, eff string
+	}{
+		{"claude", []string{"--model", "opus", "--effort", "high", "--permission-mode", "auto"}, "opus", "high"},
+		{"claude, one word", []string{"--model=sonnet", "--effort=medium"}, "sonnet", "medium"},
+		{"codex", []string{"-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=xhigh", "-s", "workspace-write"}, "gpt-6.1-sol", "xhigh"},
+		{"codex, joined -c", []string{"-m=gpt-6-luna", "-cmodel_reasoning_effort=low"}, "gpt-6-luna", "low"},
+		{"no flag under it", []string{"--model"}, "", ""},
+		{"haiku: no effort", []string{"--model", "haiku", "--permission-mode", "auto"}, "haiku", ""},
+		{"opencode: neither", []string{"--auto", "--standalone"}, "", ""},
+		{"codex: another -c", []string{"-c", "check_for_update_on_startup=false", "-m", "luna"}, "luna", ""},
+	} {
+		lt := LaneType{Kind: "claude", Args: c.args}
+		if got := lt.Model(); got != c.model {
+			t.Errorf("%s: Model() = %q, want %q", c.name, got, c.model)
+		}
+		if got := lt.Effort(); got != c.eff {
+			t.Errorf("%s: Effort() = %q, want %q", c.name, got, c.eff)
+		}
+	}
+}
+
 // Lookup (obor config get) knows the unset fields of existing collection members, not invented members or Go names.
 func TestLookupCollectionDefaults(t *testing.T) {
 	t.Parallel()

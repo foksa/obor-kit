@@ -499,13 +499,17 @@ func TestDifficultyTypes(t *testing.T) {
 		difficulty map[string]any
 		want, own  map[string]string // DifficultyTypes, DifficultyLevelTypes (before the fallback)
 	}{
-		{"claude-only lanes: simple falls back to medium's sonnet", map[string]any{"O-01": "opus", "S-01": "sonnet"}, nil,
+		{"claude-only lanes: each level keeps what it has", map[string]any{"O-01": "opus", "S-01": "sonnet"}, nil,
+			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"},
+			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"}},
+		{"a lane of every type a level lists: as listed", map[string]any{"O-01": "opus-high", "O-02": "opus", "S-01": "sonnet",
+			"T-01": "deepseek", "H-01": "haiku"}, nil,
+			map[string]string{"hard": "opus-high,opus", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"},
+			map[string]string{"hard": "opus-high,opus", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"}},
+		{"simple names only a type with no lane: falls back to medium's sonnet", map[string]any{"O-01": "opus", "S-01": "sonnet"},
+			map[string]any{"simple": []string{"luna"}},
 			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"},
 			map[string]string{"hard": "opus", "medium": "sonnet", "simple": ""}},
-		{"a lane of every default type: as listed", map[string]any{"O-01": "opus", "S-01": "sonnet", "T-01": "deepseek",
-			"U-01": "luna"}, nil,
-			map[string]string{"hard": "opus", "medium": "sonnet,deepseek", "simple": "deepseek,luna"},
-			map[string]string{"hard": "opus", "medium": "sonnet,deepseek", "simple": "deepseek,luna"}},
 		{"a level with no lane and no fallback lane: empty", map[string]any{"O-01": "haiku"},
 			map[string]any{"simple": []string{"luna"}},
 			map[string]string{"hard": "", "medium": "", "simple": ""},
@@ -530,6 +534,22 @@ func TestDifficultyTypes(t *testing.T) {
 			if got, ok := cfg.DifficultyTypes("easy"); ok || got != nil {
 				t.Errorf("DifficultyTypes(easy) = %v, %v; want none", got, ok)
 			}
+			if got := cfg.DifficultyList("easy"); got != nil {
+				t.Errorf("DifficultyList(easy) = %v, want none", got)
+			}
 		})
+	}
+	// DifficultyList is the project's entry, else the built-in list, before the lanes filter (obor setup show).
+	p := newProject(t)
+	p.Config(append(types, set("lanes", map[string]any{"O-01": "opus"}), set("difficulty", map[string]any{"medium": []string{"haiku"}}))...)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.DifficultyList("medium"), ","); got != "haiku" {
+		t.Errorf("DifficultyList(medium) = %q, want the project's haiku", got)
+	}
+	if got := strings.Join(cfg.DifficultyList("hard"), ","); got != "opus-high,opus" {
+		t.Errorf("DifficultyList(hard) = %q, want the built-in opus-high,opus", got)
 	}
 }
