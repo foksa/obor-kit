@@ -276,8 +276,9 @@ func stopFailure(input []byte, env project.Env) {
 	}
 }
 
-// turnWait bounds an agent's turn request to serve: one per prompt and per stop, so it must not hold the turn up.
-const turnWait = 2 * time.Second
+// turnWait bounds an agent's turn request to serve: one per prompt and per stop. It covers a serve restart (T-656;
+// the call now waits out one, and the hooks' own timeouts are 10 s and 15 s) yet stays under them.
+const turnWait = 8 * time.Second
 
 // turn is a worker's or role agent's UserPromptSubmit or Stop hook (ended) telling the project's serve its next turn
 // began or ended (app.MethodTurn, T-540, T-569; the phase: T-571): a stop in force (its last turn ended on an API

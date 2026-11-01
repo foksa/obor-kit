@@ -190,9 +190,67 @@ func callID(line []byte) string {
 	return req.Call.CallID
 }
 
-// A first dial refused carried nothing, so there is no reply to lose: ask returns the refusal at once instead of
-// waiting out its budget for a serve that is not there.
-func TestAskFirstDialRefusedReturnsAtOnce(t *testing.T) {
+// T-656: a verdict waits out a serve that is not there yet (a restart: the socket file of the old serve refused or
+// gone) until the new one answers. `obor status`, a read, fails at once instead.
+func TestAskVerdictWaitsForServe(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	for _, c := range []struct {
+		name string
+		left func(t *testing.T, sock string)
+	}{
+		{"a refused dial", func(t *testing.T, sock string) {
+			ln, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ln.(*net.UnixListener).SetUnlinkOnClose(false)
+			ln.Close() // the socket file stays, the listener is gone: a dial is refused
+		}},
+		{"no socket file", func(*testing.T, string) {}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(dir) })
+			sock := filepath.Join(dir, "serve.sock")
+			c.left(t, sock)
+			back := make(chan struct{})
+			go func() {
+				time.Sleep(delay)
+				os.Remove(sock) // a restarted serve clears the socket its predecessor left (cmd/obor/serve.go)
+				ln, err := net.Listen("unix", sock)
+				if err != nil {
+					close(back)
+					return
+				}
+				defer ln.Close()
+				close(back)
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				if _, err := bufio.NewReader(conn).ReadBytes('\n'); err == nil {
+					_, _ = conn.Write([]byte(`{"reply":"accepted T-1"}` + "\n"))
+				}
+			}()
+			start := time.Now()
+			reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+			if err != nil || reply != "accepted T-1" {
+				t.Fatalf("Verdict through the restart = %q, %v; want the reply", reply, err)
+			}
+			if d := time.Since(start); d < delay {
+				t.Errorf("answered after %v, before the serve was back (%v): the refusal was not retried", d, delay)
+			}
+			<-back
+		})
+	}
+}
+
+// A read does not wait: obor status reports a serve that is not there at once, not after the verdicts' bound.
+func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 	if err != nil {
 		t.Fatal(err)
@@ -209,12 +267,31 @@ func TestAskFirstDialRefusedReturnsAtOnce(t *testing.T) {
 		t.Fatalf("precondition: no socket file to refuse the dial: %v", err)
 	}
 	start := time.Now()
-	_, err = app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	_, err = app.Ask(context.Background(), sock)
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
-		t.Fatalf("Verdict on a refused socket: %v", err)
+		t.Fatalf("Ask on a refused socket: %v; want the refusal", err)
 	}
 	if d := time.Since(start); d > time.Second {
-		t.Errorf("first dial refused returned after %v; want the refusal at once, not the retry budget", d)
+		t.Errorf("status returned after %v; want the refusal at once, not the retry bound", d)
+	}
+}
+
+// T-656: a serve listens before it replays its log, so a call made meanwhile is answered "no served project"; a
+// verdict retries that until the replay is done and its call answered.
+func TestAskVerdictRetriesUntilProjectLoaded(t *testing.T) {
+	sock, seen := fakeApp(t, func(n int) string {
+		if n < 3 {
+			return `{"error":"spec set: no served project at /r"}`
+		}
+		return `{"reply":"SET T-1 rev 1"}`
+	})
+	reply, err := app.Verdict(context.Background(), sock, app.MethodSpecSet,
+		app.Call{Root: "/r", Agent: "pj-lead", Role: "lead", CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
+	if err != nil || reply != "SET T-1 rev 1" {
+		t.Fatalf("Verdict during a replay = %q, %v; want the reply after the load", reply, err)
+	}
+	if n := len(seen()); n != 3 {
+		t.Errorf("the call reached the app %d times, want 3: the two refusals and the answered call", n)
 	}
 }
 

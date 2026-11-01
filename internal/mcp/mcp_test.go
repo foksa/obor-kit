@@ -143,8 +143,8 @@ type client struct {
 }
 
 // answerWait bounds one line through the pipes: a server that answers nothing fails the test there, not at go test's
-// timeout.
-const answerWait = 10 * time.Second
+// timeout. It outlasts a tool's wait for a serve that is not there (10 s, T-656).
+const answerWait = 20 * time.Second
 
 // start runs a server on pipes with env and cwd; the client writes requests and reads the one line of each answer.
 func start(t *testing.T, env project.Env, cwd string) *client {

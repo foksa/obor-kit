@@ -28,6 +28,9 @@ func New(opt Options, panes Panes, lanes Lanes) *App {
 	if opt.RetryMax < opt.Retry {
 		opt.RetryMax = max(5*time.Second, opt.Retry)
 	}
+	if opt.LoadWait <= 0 {
+		opt.LoadWait = 10 * time.Second
+	}
 	if opt.Now == nil {
 		opt.Now = time.Now
 	}
@@ -38,7 +41,7 @@ func New(opt Options, panes Panes, lanes Lanes) *App {
 		opt.Refresh = func(error) bool { return false }
 	}
 	a := &App{opt: opt, panes: panes, lanes: lanes,
-		spaces: map[string]string{}, obs: map[string]*seen{}, kick: make(chan struct{}, 1)}
+		spaces: map[string]string{}, obs: map[string]*seen{}, kick: make(chan struct{}, 1), loaded: make(chan struct{})}
 	a.life, a.stop = context.WithCancel(context.Background())
 	a.since = opt.Now()
 	return a
@@ -178,6 +181,7 @@ func (a *App) loadProject() {
 	a.reconcile(p) // its identity table from the panes known now (none before the first snapshot)
 	a.mu.Unlock()
 	a.endServeNeeds(p)
+	a.loadOnce.Do(func() { close(a.loaded) }) // a request waiting for the replay answers now (awaitLoad)
 }
 
 // projAt is the served project when root is its root (nil: not loaded yet, or another project's root; under mu).

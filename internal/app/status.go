@@ -226,6 +226,8 @@ const requestTimeout = time.Minute
 
 // Listen answers the app socket's requests on ln until it is closed: one request line per connection. A request's
 // effect runs under the daemon's lifetime and requestTimeout; once Serve has ended, a connection is closed unanswered.
+// Serve starts listening before it loads the project (cmd/obor/serve.go), so a request that needs the project waits
+// for the replay, at most Options.LoadWait, instead of being refused (T-656).
 func (a *App) Listen(ln net.Listener) {
 	for {
 		c, err := ln.Accept()
@@ -252,8 +254,13 @@ func (a *App) Listen(ln net.Listener) {
 			}
 			var req request
 			var ans answer
+			unreadable := json.Unmarshal(b, &req) != nil
+			if !unreadable && req.Method != "status" {
+				a.awaitLoad()
+				_ = c.SetDeadline(time.Now().Add(10 * time.Second)) // the wait used up the read's own bound
+			}
 			switch {
-			case json.Unmarshal(b, &req) != nil:
+			case unreadable:
 				ans.Error = "unreadable request"
 			case req.Method == "status":
 				st := a.Status()
@@ -320,6 +327,17 @@ func (a *App) Listen(ln net.Listener) {
 	}
 }
 
+// awaitLoad waits for the served project's first load (its replay), at most Options.LoadWait: a call made while serve
+// listens but has not replayed yet waits for it rather than being refused (T-656). Serve's end wakes it too: a request
+// is not held up by a restart's shutdown.
+func (a *App) awaitLoad() {
+	select {
+	case <-a.loaded:
+	case <-a.life.Done():
+	case <-time.After(a.opt.LoadWait):
+	}
+}
+
 // Ask is the status of the app listening on the unix socket at path.
 func Ask(ctx context.Context, path string) (Status, error) {
 	ans, err := ask(ctx, path, request{Method: "status"})
@@ -347,31 +365,63 @@ func NewCallID() string {
 // Verdict sends the verdict call c (MethodAccept, …) to the app listening at path: its reply line, or the app's
 // refusal as the error.
 func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
-	ans, err := ask(ctx, path, request{Method: method, Call: &c})
+	ans, err := verdictAsk(ctx, path, request{Method: method, Call: &c})
 	if err != nil {
 		return "", err
 	}
 	return ans.Reply, nil
 }
 
-// ask's retries of a request that may have landed: askRetryWait, doubling up to askMaxWait, until askBudget.
+// ask's retries: askRetryWait, doubling up to askMaxWait; a lost reply is retried until askBudget, a verdict that
+// found no serve until askWait (a restart's own bound, T-656).
 const (
 	askRetryWait = 200 * time.Millisecond
 	askMaxWait   = 4 * time.Second
 	askBudget    = 30 * time.Second
+	askWait      = 10 * time.Second
 )
 
 // ask sends req to the app socket at path and reads its answer; an answer's error is the error. A request whose
-// connection carried it and then lost the reply (closed before a line, reset, or refused on a retry) is sent again,
-// same request and call id, with backoff until askBudget: an app that recorded the call and crashed before answering
-// restarts and replays its log meanwhile, then answers from its store (docs/state-model.md, class F). A first dial
-// refused sent nothing, so it is not retried; nor are a refusal or a timeout.
+// connection carried it and then lost the reply (closed before a line, or reset) is sent again, same request and call
+// id, with backoff until askBudget: an app that recorded the call and crashed before answering restarts and replays
+// its log meanwhile, then answers from its store (docs/state-model.md, class F). A retry refused is retried too: the
+// first attempt carried the call.
+//
+// A read fails fast: obor status reports a serve that is not there at once.
 func ask(ctx context.Context, path string, req request) (answer, error) {
+	return askFor(ctx, path, req, false)
+}
+
+// verdictAsk is ask for a verdict's request (a CLI verdict, an MCP tool's, a hook's: task_done, job_next, turn …):
+// besides a lost reply it waits out a serve that is not there yet — a refused or missing socket, and "no served
+// project" from a serve that listens before its replay — for up to askWait, so a call made during a serve restart
+// (T-652, T-656) lands instead of being dropped.
+func verdictAsk(ctx context.Context, path string, req request) (answer, error) {
+	return askFor(ctx, path, req, true)
+}
+
+// askFor is ask; verdict also retries a request that certainly did not land while the serve is not there.
+func askFor(ctx context.Context, path string, req request, verdict bool) (answer, error) {
 	ans, err := askOnce(ctx, path, req)
-	if err == nil || !lostReply(err) || errors.Is(err, syscall.ECONNREFUSED) || ctx.Err() != nil {
+	if err == nil || ctx.Err() != nil {
 		return ans, err
 	}
-	deadline := time.Now().Add(askBudget)
+	// The first attempt says what is worth retrying: a dial refused or a missing socket carried nothing (a verdict
+	// waits for the serve, askWait), a reply lost after the request was written may have landed (askBudget).
+	var budget time.Duration
+	may := false
+	switch {
+	case absent(err):
+		if !verdict {
+			return answer{}, err
+		}
+		budget = askWait
+	case lostReply(err):
+		budget, may = askBudget, true
+	default:
+		return answer{}, err
+	}
+	deadline := time.Now().Add(budget)
 	for wait := askRetryWait; ; wait *= 2 {
 		if wait > askMaxWait {
 			wait = askMaxWait
@@ -389,16 +439,26 @@ func ask(ctx context.Context, path string, req request) (answer, error) {
 		case <-time.After(wait):
 		}
 		ans, err = askOnce(ctx, path, req)
-		if err == nil || !lostReply(err) || ctx.Err() != nil {
+		if err == nil || ctx.Err() != nil {
 			return ans, err
+		}
+		if !lostReply(err) && !(absent(err) && (may || verdict)) {
+			return answer{}, err
 		}
 	}
 }
 
 // lostReply is a transport failure that may follow an app which recorded the call and then went away unanswered: the
-// connection closed before a line or reset, or a retry refused (its first dial's refusal sent nothing; see ask).
+// connection closed before a line, or reset.
 func lostReply(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF)
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF)
+}
+
+// absent is a request that certainly did not land: the dial was refused or the socket missing, or the app that
+// answered had not loaded its project yet (a serve listens before its replay, T-656).
+func absent(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) ||
+		strings.Contains(err.Error(), "no served project")
 }
 
 // askOnce is one request on its own connection; see ask.

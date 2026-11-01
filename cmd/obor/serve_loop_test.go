@@ -103,7 +103,9 @@ func (w wrapped) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, e
 func (r *serveRig) start() {
 	r.t.Helper()
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
-	wired := mergeLoop(r.p.Env(), panes)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel, r.done = cancel, make(chan struct{})
+	wired := mergeLoop(r.p.Env(), panes, cancel) // cancel: serve's self-restart ends it as a signal does (T-656)
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
 		Out: r, Refresh: refreshed, Inboxed: inboxed(r.p.Env()), Loop: func(root string) (*app.Loop, error) {
 			l, err := wired(root)
@@ -124,8 +126,6 @@ func (r *serveRig) start() {
 			l.Disk = nil
 			return l, nil
 		}}, panes, laneTable{})
-	ctx, cancel := context.WithCancel(context.Background())
-	r.cancel, r.done = cancel, make(chan struct{})
 	go func() {
 		defer close(r.done)
 		_ = r.app.Serve(ctx)
