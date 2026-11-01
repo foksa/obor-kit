@@ -185,7 +185,7 @@ func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 		t.Errorf("no config: exit %d, %q; want 3, not an obor project", rc, stderr)
 	}
 	p.Config()
-	if rc, _, stderr := run(t, p.Root, nil, "status", "--bogus"); rc != 2 || !strings.Contains(stderr, "usage: obor status [--facts] [--json]") {
+	if rc, _, stderr := run(t, p.Root, nil, "status", "--bogus"); rc != 2 || !strings.Contains(stderr, "usage: obor status [--facts] [--json] [--short]") {
 		t.Errorf("obor status --bogus: exit %d, %q; want 2, the usage", rc, stderr)
 	}
 	for _, gone := range []string{"--herdr", "--lead"} {

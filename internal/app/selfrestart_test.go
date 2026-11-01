@@ -16,11 +16,12 @@ import (
 
 // restartRig is a loop rig whose after_merge is cmd, restart_serve flag, and whose Restart counts its calls,
 // notes whether after_merge's result was in the log by then, then gives err (nil: a restart: serve ends itself
-// gracefully, as a signal ends it, T-656).
+// gracefully, as a signal ends it, T-656). running is the status' running line during the restart (T-657).
 type restartRig struct {
 	*loopRig
 	calls       atomic.Int32
 	resultFirst atomic.Bool
+	running     []app.RunningStep
 	err         error
 }
 
@@ -31,6 +32,9 @@ func newRestartRig(t *testing.T, cmd string, flag bool, err error) *restartRig {
 	r.restart = func(context.Context) error {
 		r.calls.Add(1)
 		r.resultFirst.Store(r.has("1 result after_merge"))
+		if st := r.app.Status(); st.Project != nil {
+			r.running = st.Project.Running
+		}
 		if r.err != nil {
 			return r.err
 		}
@@ -60,6 +64,10 @@ func TestSelfRestartAfterMerge(t *testing.T) {
 	if r.calls.Load() != 1 || !r.resultFirst.Load() {
 		t.Fatalf("restart calls %d, after_merge result first %v; want 1, true: %q", r.calls.Load(), r.resultFirst.Load(),
 			r.steps())
+	}
+	// T-657: while the restart is in flight, a status answered says so.
+	if n := len(r.running); n != 1 || r.running[n-1].Step != app.StepServeRestart || r.running[n-1].Since == 0 {
+		t.Errorf("running line during the restart: %+v, want restarting serve", r.running)
 	}
 	if r.has("1 intent agent.stop") {
 		t.Fatalf("agent.stop ran before the restart: %q", r.steps())

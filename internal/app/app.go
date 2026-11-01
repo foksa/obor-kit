@@ -215,6 +215,9 @@ type proj struct {
 	// none; under mu).
 	scratch chan struct{}
 	running Key
+	// restarting: since when serve ends itself on the new build after a green after_merge (T-652): a status request
+	// answered meanwhile shows "restarting serve" (T-657; zero: no self-restart pending).
+	restarting time.Time
 	// held: the tasks whose selected step runs now (from its start's check to its return, App.next), each with the
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string

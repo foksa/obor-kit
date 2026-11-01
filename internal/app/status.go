@@ -44,6 +44,22 @@ type ProjectStatus struct {
 	Review string `json:"review,omitempty"`
 	// Answers is, by a needs-you fact's seq, the commands that answer it in its task's state (answerPath; none: "").
 	Answers map[int64]string `json:"answers,omitempty"`
+	// Running is what serve does for the project without an agent now (T-657): its command steps' open intents and a
+	// pending self-restart, oldest first.
+	Running []RunningStep `json:"running"`
+}
+
+// StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
+// once after_merge ran green (T-652).
+const StepServeRestart = "restart"
+
+// RunningStep is one step that runs without an agent, as obor status' running line lists it (T-657): the merge loop's
+// gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when its intent was
+// written (Unix seconds): the elapsed time the line shows.
+type RunningStep struct {
+	Step  string `json:"step"`
+	Task  string `json:"task,omitempty"`
+	Since int64  `json:"since"`
 }
 
 // TaskStatus is one task of the merge loop that is not merged.
@@ -148,11 +164,36 @@ func (a *App) Status() Status {
 				ps.Answers[f.Seq] = ans
 			}
 		}
+		ps.Running = runningSteps(p.log.OpenIntents(), p.restarting)
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
 		st.Project = &ps
 	}
 	return st
+}
+
+// runningSteps is the steps that run without an agent, in seq order: the open intents of the merge loop's command
+// steps (gate, publish the merge, after_merge, the nightly check) and, last, a pending self-restart (restarting not
+// zero). An intent with a result is no running step; another step's intent (a prompt, a start) runs no command the
+// line shows.
+func runningSteps(open []Record, restarting time.Time) []RunningStep {
+	var out []RunningStep
+	for _, r := range open {
+		step, task := r.Step, r.Task
+		switch {
+		case strings.HasPrefix(step, StepNightly+"."):
+			step, task = StepNightly, ""
+		default:
+			if step, _ = stepN(step); step != StepGate && step != StepPublish && step != StepAfterMerge {
+				continue
+			}
+		}
+		out = append(out, RunningStep{Step: step, Task: task, Since: recordTime(r).Unix()})
+	}
+	if !restarting.IsZero() {
+		out = append(out, RunningStep{Step: StepServeRestart, Since: restarting.Unix()})
+	}
+	return out
 }
 
 // answerPath is the commands that answer the needs-you fact r (obor status, the lead's needs-you line), each one its

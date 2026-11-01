@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"obor/internal/config"
 	"obor/internal/spec"
@@ -89,8 +90,17 @@ func (a *App) restartServe(ctx context.Context, p *proj, fx *Loop, task string) 
 		return
 	}
 	a.logf("%s %s: after_merge ran: restarting serve on the new build", p.name, task)
+	a.mu.Lock()
+	p.restarting = a.opt.Now() // obor status shows it while this serve is still answering (T-657)
+	a.mu.Unlock()
 	err = fx.Restart(ctx)
-	if err == nil || ctx.Err() != nil { // restarted, or this serve is stopping (being restarted)
+	if err == nil { // restarted: this serve ends, and a status request answered until then says so
+		return
+	}
+	a.mu.Lock()
+	p.restarting = time.Time{}
+	a.mu.Unlock()
+	if ctx.Err() != nil { // this serve is stopping anyway
 		return
 	}
 	a.mu.Lock()

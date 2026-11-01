@@ -4,6 +4,11 @@
 `obor lead` starts a fresh lead session (`RESTARTED <agent> (pane <p>, session new)`); `obor lead --resume` continues
 the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane <p>)`, nothing touched.
 
+## obor status (T-657)
+Read the line under serve's to see what runs without an agent: `running: gate T-656 (make -s check, 2m14s) · after_merge
+T-655 (make build, 12s)` (else `running: nothing`); a lane's state column reads `gating`, `merging`, `reviewing` or
+`held` while serve works on it. `obor status --short` is just that line, serve's and needs-you (a status bar).
+
 ## obor watch (T-523, T-528)
 Clean merges stay quiet for you; a merge you must act on (restart serve after it, dispatch by hand, tell the owner)
 is a watch, never a shell loop over `git log` or a background wait.
