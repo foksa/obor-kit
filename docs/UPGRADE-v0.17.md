@@ -1,5 +1,22 @@
 # Upgrading an obor project from v0.16 to v0.17
 
+## v0.17.4 (patch; v0.17.3 was tagged but never published, its notes below are part of this one)
+Re-run the installer, then `obor serve restart` in each project, then restart every Claude pane started since you
+installed v0.17.2 (`obor restart <agent> --fresh`, the lead at a break).
+- **Open questions go to the integrator again** (T-604 reversed): it decides questions inside the spec and holds the
+  rest for the lead; a decision is carried in a sendback's why so the next attempt does not ask again (T-649, T-655).
+- **Fewer lead lines**: no `review started` line; every line queued for the lead in one pass arrives as one message
+  (one per target); a sent batch settles exactly the lines it carried (T-650, T-651, T-654).
+- **`obor send <project name>`** (or `lead@<name>`, or a path); `obor projects` lists the projects this machine knows
+  (`~/.obor/projects.json`, written by serve and init); a posted line ends with its reply command (T-646).
+- **Model setup**: `obor setup show` prints models and effort per difficulty and role; `obor init` ends with it and the
+  lead's first session goes through it with you (`setup.confirmed`); the example config has `opus-high` and
+  `deepseek` types (T-647, T-653).
+- **Serve restarts itself after a code merge** when `commands.after_merge.restart_serve` is true (kit development;
+  off by default): it exits gracefully and launchd starts it again; it binds its socket only after replay, and calls
+  retry with the same call id until their deadline (T-652, T-656, T-659).
+- Release scripts: the scratch worktree is the repo's own and cleanup never deletes what it did not create (T-648).
+
 ## v0.17.3 (patch, fixes v0.17.2's plugin)
 Re-run the installer, then `obor serve restart` in each project, then restart every Claude pane started since you
 installed v0.17.2 (`obor restart <agent> --fresh`, the lead at a break).
