@@ -10,48 +10,63 @@ import (
 	"obor/internal/project"
 )
 
-const watchUsage = `FAIL usage: obor watch [<T-xx>[,<T-yy>…] …] | obor watch --rm <T-xx>[,<T-yy>…]`
+const watchUsage = `FAIL usage: obor watch [<T-xx>[,<T-yy>…] …] [--note "<text>"] | obor watch --rm <T-xx>[,<T-yy>…]`
 
-// watchCmd is `obor watch [<set> …] | --rm <set>`, the lead's or the owner's (T-523, T-528): a set is a task or a
-// comma list of them (as dispatch's --after), one watch; one request to obor serve per argument (app.MethodWatch).
-// Serve's reply per set: WATCHING <set> (the lead gets "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged
-// (<last short sha>)" or "[obor] T-b dropped: <why>" once it ends), its outcome at once when it ended already,
-// UNWATCHED / NOT WATCHING for --rm; with no argument the open watches (WATCH <set> since <age>[, waiting <tasks>]).
+// watchCmd is `obor watch [<set> …] [--note "<text>"] | --rm <set>`, the lead's or the owner's (T-523, T-528,
+// T-666): a set is a task or a comma list of them (as dispatch's --after), one watch; one request to obor serve per
+// set argument (app.MethodWatch). --note gives those watches the lead's note: what it meant to do when a set ends, on
+// the line and in `obor watch`, `obor status` and the monitor. Serve's reply per set: WATCHING <set> (the lead gets
+// "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged (<last short sha>)" or "[obor] T-b dropped: <why>" once it
+// ends, a note after it), its outcome at once when it ended already, UNWATCHED / NOT WATCHING for --rm; with no
+// argument the open watches (WATCH <set> since <age>[, waiting <tasks>][ — <note>]).
 // FAIL: serve down, its refusal (an unknown task) or a usage error; exit 1 when any request failed.
 func watchCmd(args []string) int {
 	rm := len(args) > 0 && args[0] == "--rm"
 	if rm {
 		args = args[1:]
-		if len(args) != 1 {
+	}
+	var sets []string
+	var note string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--note":
+			if rm || i+1 == len(args) {
+				fmt.Fprintln(out, watchUsage)
+				return 1
+			}
+			i++
+			note = args[i]
+		case strings.HasPrefix(a, "-"):
 			fmt.Fprintln(out, watchUsage)
 			return 1
+		default:
+			sets = append(sets, a)
 		}
 	}
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			fmt.Fprintln(out, watchUsage)
-			return 1
-		}
+	if rm && len(sets) != 1 || note != "" && len(sets) == 0 {
+		fmt.Fprintln(out, watchUsage)
+		return 1
 	}
-	if len(args) == 0 {
-		return watchRequest("", false)
+	if len(sets) == 0 {
+		return watchRequest("", false, "")
 	}
 	rc := 0
-	for _, set := range args {
-		rc = max(rc, watchRequest(set, rm))
+	for _, set := range sets {
+		rc = max(rc, watchRequest(set, rm, note))
 	}
 	return rc
 }
 
-// watchRequest is one watch request: set's, a task or a comma list (none: the list), ended by --rm when rm.
-func watchRequest(set string, rm bool) int {
+// watchRequest is one watch request: set's, a task or a comma list (none: the list), ended by --rm when rm, with the
+// lead's note when note is not "".
+func watchRequest(set string, rm bool, note string) int {
 	return request(context.Background(), project.OSEnv, app.MethodWatch, func(cfg *config.Config, call *app.Call) error {
 		if set != "" {
 			if err := taskIDs(cfg, strings.Split(set, ",")...); err != nil {
 				return err
 			}
 		}
-		call.Task, call.Clear = set, rm
+		call.Task, call.Clear, call.Note = set, rm, note
 		return nil
 	})
 }

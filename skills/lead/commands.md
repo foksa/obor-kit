@@ -24,17 +24,21 @@ It redraws on every new record and at least every 2 s (elapsed times), says `ser
 restarts and reconnects by itself, and ends on Ctrl-C. Read-only, any role: the lane's states are serve's and git's,
 never the monitor's own. `obor setup monitor` (idempotent: an existing pane is reused) is how a project gets one later.
 
-## obor watch (T-523, T-528)
+## obor watch (T-523, T-528, T-666)
 Clean merges stay quiet for you; a merge you must act on (restart serve after it, dispatch by hand, tell the owner)
-is a watch, never a shell loop over `git log` or a background wait.
+is a watch, never a shell loop over `git log` or a background wait. A "when Y, do X" whose Y is a merge is a watch
+with `--note "<what to do>"`: the line that tells you Y happened also tells you X.
 
-- `obor watch <T-xx> [<T-yy> …]` — one request per argument. An argument is a task or a comma list (`T-a,T-b,T-c`, as
-  dispatch's `--after`): one watch on the set, a single task being a set of one. Replies: `WATCHING T-xx` /
-  `WATCHING T-a,T-b,T-c`; its line at once when it has ended already (nothing is watched; tasks of a set merged
-  already count); `FAIL watch: unknown task …` for a task with no dispatch and no spec.
+- `obor watch <T-xx> [<T-yy> …] [--note "<text>"]` — one request per argument. An argument is a task or a comma list
+  (`T-a,T-b,T-c`, as dispatch's `--after`): one watch on the set, a single task being a set of one. `--note` gives
+  those watches your note (one line; what you meant to do when the set ends), shown by `obor watch`, `obor status` and
+  the monitor and carried by the line. Replies: `WATCHING T-xx` / `WATCHING T-a,T-b,T-c`; its line at once when it has
+  ended already (nothing is watched; tasks of a set merged already count); `FAIL watch: unknown task …` for a task with
+  no dispatch and no spec.
 - `obor watch` — the open watches, `WATCH T-xx since <age>` each, a set adding its open tasks
-  (`WATCH T-a,T-b,T-c since <age>, waiting T-c`); `NO WATCHES`.
-- `obor watch --rm <T-xx>` — ends one (a set by the same comma list): `UNWATCHED T-xx` (`NOT WATCHING T-xx`).
+  (`WATCH T-a,T-b,T-c since <age>, waiting T-c`), a watch with a note adding ` — <note>`; `NO WATCHES`.
+- `obor watch --rm <T-xx>` — ends one (a set by the same comma list): `UNWATCHED T-xx` (`NOT WATCHING T-xx`). A note
+  goes with a watch, not with `--rm`.
 
 Lines to you, one per watch (the watch ends with it; it survives a serve restart and a lead handoff, like every line
 to you):
@@ -42,6 +46,7 @@ to you):
 - `[obor] T-xx dropped: <why>` (`rejected: <note>` for a task the integrator rejected)
 - a set, once every task merged: `[obor] T-a,T-b,T-c merged (<the last merge's sha7>)`; the first task dropped or
   rejected ends it at once: `[obor] T-b dropped: <why> (watch T-a,T-b,T-c ended)`
+- a watch with a note adds ` — <note>` to its line, merged or dropped
 
 A task's needs-you reaches you as before (`[obor] needs-you …`), watched or not.
 

@@ -17,6 +17,12 @@ func (r *loopRig) watch(callID, task string, rm bool) (string, error) {
 		Agent: "pj-lead", CallID: callID, Task: task, Clear: rm})
 }
 
+// watchNote is a watch request carrying the lead's note (T-666).
+func (r *loopRig) watchNote(callID, task, note string) (string, error) {
+	return app.Verdict(context.Background(), r.sock, app.MethodWatch, app.Call{Root: r.p.Root, Role: "lead",
+		Agent: "pj-lead", CallID: callID, Task: task, Note: note})
+}
+
 // watchFacts is the watch and unwatch facts of the project's log; watchLines the lead lines a watch recorded.
 func (r *loopRig) watchFacts() []app.Record {
 	var out []app.Record
@@ -333,5 +339,64 @@ func TestWatchedSetRejectEndsIt(t *testing.T) {
 	r.waitFor("the rejected line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	if reply, err := r.watch("w2", "", false); err != nil || reply != "NO WATCHES" {
 		t.Errorf("the list after the reject: %q, %v", reply, err)
+	}
+}
+
+// T-666: a watch with a note keeps it (one line, as the lead meant it) on its fact and in serve's status, and
+// `obor watch` and the merged line carry it after the outcome: "[obor] T-1 merged <sha7> — <note>".
+func TestWatchNoteOnTheMergedLine(t *testing.T) {
+	r := newLoopRig(t, "echo 1 pass")
+	r.work("feature.txt", "feature\n")
+	r.start()
+	const note = "restart serve,\nthen release v0.17.4"
+	const one = "restart serve, then release v0.17.4"
+	if reply, err := r.watchNote("w1", "T-1", note); err != nil || reply != "WATCHING T-1" {
+		t.Fatalf("watch: %q, %v", reply, err)
+	}
+	facts := r.watchFacts()
+	if len(facts) != 1 {
+		t.Fatalf("precondition: %d watch facts, want 1", len(facts))
+	}
+	var d app.WatchData
+	if err := json.Unmarshal(facts[0].Data, &d); err != nil {
+		t.Fatalf("the watch fact %s: %v", facts[0].Data, err)
+	}
+	if d.Note != one {
+		t.Errorf("the watch fact's note %q, want %q one line", d.Note, one)
+	}
+	if reply, err := r.watch("w2", "", false); err != nil || reply != "WATCH T-1 since 0s — "+one {
+		t.Errorf("the list: %q, %v; want the watch with its note", reply, err)
+	}
+	if ws := r.app.Status().Project.Watches; len(ws) != 1 || ws[0].Task != "T-1" || ws[0].Note != one {
+		t.Errorf("status watches %+v, want T-1 with its note", ws)
+	}
+	r.mergedT1()
+	line := "[obor] T-1 merged " + r.p.Git(r.p.Root, "rev-parse", "--short=7", "main") + " — " + one
+	r.waitFor("the merged line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if l := r.watchLines(); len(l) != 1 || l[0] != line {
+		t.Errorf("watch lines %q, want one %q", l, line)
+	}
+}
+
+// T-666: a watched set dropped carries its note on the dropped line too, after the set's " (watch … ended)".
+func TestWatchNoteOnTheDroppedLine(t *testing.T) {
+	r := newLoopRig(t, "echo 1 pass")
+	r.work("feature.txt", "feature\n")
+	r.seedFailed("T-2")
+	r.start()
+	const note = "restart serve"
+	if reply, err := r.watchNote("w1", "T-1,T-2", note); err != nil || reply != "WATCHING T-1,T-2" {
+		t.Fatalf("watch: %q, %v", reply, err)
+	}
+	if reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+		CallID: "x1", Task: "T-2", Note: "superseded"}); err != nil || reply != "DROPPED T-2" {
+		t.Fatalf("drop: %q, %v", reply, err)
+	}
+	const line = "[obor] T-2 dropped: superseded (watch T-1,T-2 ended) — " + note
+	r.waitFor("the dropped line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if l := r.watchLines(); len(l) != 1 || l[0] != line {
+		t.Errorf("watch lines %q, want one %q", l, line)
 	}
 }

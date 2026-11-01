@@ -502,9 +502,9 @@ func TestStatusShortBinary(t *testing.T) {
 
 // T-664: a store and a served status with one item of each queue kind — the merge loop (a review job out and not
 // fetched, the next submitted task by id, one waiting for the scratch), dispatches waiting on --after tasks, on a lane
-// of their level and a spec never dispatched, the review request, a line and a brief not done, the pause and the
-// nightly check — give --json's typed arrays (with the role rows, a lane's spec rev and open job, and the worded
-// events with their seq) and one plain text line each.
+// of their level and a spec never dispatched, the review request, the lead's watch with its note (T-666), a line and a
+// brief not done, the pause and the nightly check — give --json's typed arrays (with the role rows, a lane's spec rev
+// and open job, and the worded events with their seq) and one plain text line each.
 func TestStatusQueue(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -532,6 +532,8 @@ func TestStatusQueue(t *testing.T) {
 			By: "pj-lead", Since: now.Add(-3 * time.Minute).Unix()},
 		Messages: []app.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
 		Briefs:   []app.BriefStatus{{To: "pj-rev", Since: now.Add(-5 * time.Minute).Unix(), Delivered: true}},
+		Watches: []app.WatchStatus{{Task: "T-11,T-20", By: "pj-lead", Note: "release v0.17.4",
+			Since: now.Add(-3 * time.Minute).Unix()}},
 	}}
 	st, text := statusOf(t, p, ss, nil, now)
 	b, err := json.Marshal(st)
@@ -558,6 +560,10 @@ func TestStatusQueue(t *testing.T) {
 			TS         string
 			Task, Line string
 		} `json:"events"`
+		Watches []struct {
+			Task, By, Note string
+			Since          int64
+		} `json:"watches"`
 		Queue struct {
 			Merge []struct {
 				Task, Stage string
@@ -626,6 +632,10 @@ func TestStatusQueue(t *testing.T) {
 	if q.Nightly == nil || q.Nightly.At != "03:00" || q.Nightly.Next <= now.Unix() || q.Nightly.Next > now.Add(24*time.Hour).Unix() {
 		t.Errorf("queue.nightly %+v; want 03:00 within the next day", q.Nightly)
 	}
+	if len(js.Watches) != 1 || js.Watches[0].Task != "T-11,T-20" || js.Watches[0].By != "pj-lead" ||
+		js.Watches[0].Note != "release v0.17.4" || js.Watches[0].Since != now.Add(-3*time.Minute).Unix() {
+		t.Errorf("watches %+v; want T-11,T-20 watched by pj-lead with its note and time", js.Watches)
+	}
 	if len(js.Lanes) != 1 || js.Lanes[0].SpecRev != 1 || js.Lanes[0].Job == nil || js.Lanes[0].Job.ID != "T-10/1/work" ||
 		!js.Lanes[0].Job.Delivered {
 		t.Errorf("lanes %+v; want O-01 with spec_rev 1 and job T-10/1/work delivered", js.Lanes)
@@ -651,6 +661,7 @@ func TestStatusQueue(t *testing.T) {
 		`^queued T-14: waiting for a medium lane \(sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
 		`^review request since 3m \(after T-11, waiting T-11\), note: check x$`,
+		`^watch T-11,T-20 since 3m \(by pj-lead\) — release v0\.17\.4$`,
 		`^undelivered to pj-lead \(from other, 1m\): \[obor other\] hi$`,
 		`^brief to pj-rev: delivered, since 5m$`,
 		`^paused: quota, until cleared`,
