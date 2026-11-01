@@ -287,9 +287,10 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 }
 
 // foldStop puts in force the worker's needs-you a stopped fact r with data d carries (foldMsg): a fact of d's task
-// with r's seq and time, unless the task has the same one in force.
+// with r's seq and time, unless the task has the same one in force or is closed (T-636: the task was picked before
+// its merge, drop or reject and the stop recorded after it).
 func (p *proj) foldStop(r Record, d stoppedData) {
-	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, StepNeedsYou, d.NeedsYou.Reason) {
+	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, StepNeedsYou, d.NeedsYou.Reason) || p.closed(d.Task) {
 		return
 	}
 	data, _ := json.Marshal(d.NeedsYou) // strings: cannot fail

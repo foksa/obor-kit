@@ -64,7 +64,10 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
   verdict's intent (its call id's reply), one whose result is unwritten in this process; and, merged or dropped
   alike, the notification of every needs-you still in force, the merge loop's (T-401: the same facts notify shows,
   `needsYou`); one whose fact has cleared is settled, and a watchdog's always is (T-635: the task's end ends its
-  watchdog facts, rows 12/16a). An intent of an open task replays as below.
+  watchdog facts, rows 12/16a). A rejected task's notifications are settled the same way, live as the reject folds
+  and on replay; its other intents stay (a new dispatch reopens it), and so does the notification of its merge
+  loop's needs-you in force (T-636). A watchdog fact recorded once its task is closed (merged, dropped or rejected;
+  a stop picked before the end) is discarded as it folds. An intent of an open task replays as below.
 - Bindings: the integrator's **accept** is bound to the patch hash (sha256 of `git diff <Candidate.Target>
   <Candidate.SHA>`). The **gate** result is bound to (candidate tree, target HEAD). When the target moves and the new
   candidate's patch hash is byte-identical, the gate re-runs and the accept stands.

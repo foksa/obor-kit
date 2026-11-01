@@ -95,11 +95,12 @@ func (p *proj) foldRecord(r Record) {
 	}
 }
 
-// fold folds a watchdog fact (a merge-loop needs-you is the loop's: foldLoop).
+// fold folds a watchdog fact (a merge-loop needs-you is the loop's: foldLoop); one of a closed task is discarded
+// (T-636: recorded after its end, as a stop picked before it; a new dispatch reopens the task).
 func (p *proj) fold(r Record) {
 	switch r.Step {
 	case StepStalled, StepNeedsYou:
-		if !r.Fact().Merge {
+		if !r.Fact().Merge && !p.closed(r.Task) {
 			p.folded.active[r.Task] = append(p.folded.active[r.Task], r)
 		}
 	case StepResumed:
