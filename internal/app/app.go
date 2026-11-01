@@ -223,6 +223,10 @@ type proj struct {
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
+	// roleFail: when a role agent's stop last failed, by agent; rvRead: the reviewer stop's last git read of an open
+	// review (rolestop.go, T-672). Under mu.
+	roleFail map[string]time.Time
+	rvRead   rvRead
 	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
 	// and the nightly full check (nightly.go): each folds its records itself and keeps live state beside them.
 	reg   registry
@@ -251,6 +255,8 @@ type folded struct {
 	reviewed lastReview
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
+	// roles: serve's stops of role agents (rolestop.go, T-672).
+	roles roleStops
 }
 
 // newFolded is the folded state before the log's first record.

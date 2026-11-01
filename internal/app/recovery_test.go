@@ -286,7 +286,7 @@ func TestLoopRecovery(t *testing.T) {
 					t.Errorf("integrator starts %d (want %d: one per job), a job before the start: %v", r.starts.Load(),
 						want, early.Load())
 				}
-				for _, s := range r.stopped() {
+				for _, s := range r.workerStops() {
 					if s != "pj-o1 w1:p1" {
 						t.Errorf("a stop of %s", s)
 					}
@@ -320,7 +320,7 @@ func TestLoopRecovery(t *testing.T) {
 				if n := strings.Count("\n"+r.p.Git(r.p.Root, "log", "--format=%s", "main"), "\nT-1: "); n != 1 {
 					t.Errorf("main has %d submit commits of T-1, want the one", n)
 				}
-				if len(r.stopped()) != 1 {
+				if len(r.workerStops()) != 1 {
 					t.Errorf("stops %q, want pj-o1 once", r.stopped())
 				}
 			})
@@ -385,7 +385,7 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 	r.setLane(func(l *app.Lane) { l.Task = "T-06" })
 	r.start()
 	r.merged(1)
-	if len(r.stopped()) != 0 || r.f.Pane("w1:p1").Name != "pj-o1" {
+	if len(r.workerStops()) != 0 || r.f.Pane("w1:p1").Name != "pj-o1" {
 		t.Errorf("the lane's worker was stopped: %q", r.stopped())
 	}
 	for _, step := range []string{"agent.stop"} {

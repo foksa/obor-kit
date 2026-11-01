@@ -68,7 +68,9 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 Before a release, `obor review` and close it; `make release` refuses otherwise; `UNREVIEWED` only on the owner's word.
 Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
 "<out of scope, contracts>"]`, serve starts it (`review-brief.md`). Reviewer and deep dive are role panes, never lanes;
-verifies: `obor brief <reviewer> "<text>"` in the same session.
+verifies: `obor brief <reviewer> "<text>"` in the same session. Serve stops the reviewer once the review is closed
+(`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
+`obor restart <deep-dive> --stop`; the next one starts clean. A brief to a stopped role agent starts it fresh.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names
 `obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
 command: `obor send <that name> "<text>"`. Workers and
@@ -77,7 +79,9 @@ Lines to you (another project's `obor send`, `[obor] <agent> finished …`) arri
 none are typed into your pane. `obor status` lists the ones not delivered yet.
 
 ## Decide and record
-Direction-setting questions go to the user (ask the advisor before a hard-to-reverse decision). Owner away: decide
+Direction-setting questions go to the user (ask the advisor before a hard-to-reverse decision; follow-ups and a
+requested change go to the same session; once its answer needs no follow-up, `obor restart <advisor> --stop`: it is
+never kept for a later, unrelated question, the next brief starts it clean). Owner away: decide
 reversible calls. Decisions → `docs/decisions.md`; concerns and open items → `BACKLOG.md`. The second finding in
 one function or invariant (two strikes) ends probe-sized fixes: spec a whole-function rewrite with a case → test
 table. Fix specs list every entry point of the finding's Extent line, one test each. Models: the strongest for

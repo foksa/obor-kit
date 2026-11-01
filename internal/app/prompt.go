@@ -87,6 +87,10 @@ func (fx *Loop) transmit(ctx context.Context, post, target, text string, clear b
 	return fx.Typer.Type(ctx, target, text, clear)
 }
 
+// sentStart is the result of a delivery an agent's start carried: a job's wake as its first prompt (startJob), or a
+// brief's line as a stopped role agent's (T-672).
+const sentStart = "sent (start prompt)"
+
 // sentResult is a send's result: "sent"; an error after a byte went out: "sent: <error>" (sent; the delivery timers or
 // the reader catch a lost one); an error before: no result (sent again).
 func sentResult(began bool, err error) (any, error) {

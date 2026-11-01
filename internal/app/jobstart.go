@@ -164,7 +164,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in Intent, job Ke
 		case !carried:
 			return nil, errNoCarry
 		}
-		return "sent (start prompt)", nil
+		return sentStart, nil
 	})
 	switch {
 	case startErr != nil:

@@ -725,3 +725,30 @@ func TestStatusQueue(t *testing.T) {
 		t.Errorf("a merge line claims a task goes next (T-673: the queue states facts only):\n%s", text)
 	}
 }
+
+// T-672: a role agent serve stopped once its work was done, with no pane running it, is `stopped`, not missing: the
+// view's role row and the status line `agent <name>: stopped`; one serve did not stop has no pane as before.
+func TestStatusStoppedRole(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	ss := app.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+		Name: "proj", Root: p.Root, Merging: true, Agents: []app.AgentStatus{}, Tasks: []app.TaskStatus{},
+		Facts: []app.Record{}, Stopped: []string{"pj-int"}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	roles := map[string]string{}
+	for _, r := range st.Roles {
+		roles[r.Agent] = r.Status
+	}
+	if roles["pj-int"] != view.RoleStopped {
+		t.Errorf("pj-int's role status %q, want %q (roles %+v)", roles["pj-int"], view.RoleStopped, st.Roles)
+	}
+	if s, ok := roles["pj-rev"]; !ok || s != "" {
+		t.Errorf("pj-rev's role status %q (listed %v), want listed with no pane", s, ok)
+	}
+	matchLine(t, text, `^agent pj-int: stopped$`, "the stopped integrator's line")
+	if strings.Contains(text, "agent pj-rev: stopped") {
+		t.Errorf("pj-rev shown stopped:\n%s", text)
+	}
+}

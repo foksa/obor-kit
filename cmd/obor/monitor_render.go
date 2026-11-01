@@ -253,7 +253,7 @@ func roleRows(st view.Project, o renderOpts, p palette) []string {
 	for _, r := range st.Roles {
 		status := roleStatus(r)
 		line := "  " + p.state(r.Status, dot) + " " + padRight(r.Agent, nw) + "  " + p.state(r.Status, padRight(status, sw))
-		if r.Status != "" {
+		if r.Status != "" && r.Status != view.RoleStopped {
 			line += "  " + p.dim(app.Age(time.Duration(r.Age)*time.Second))
 		}
 		if b := r.Brief; b != nil {
@@ -264,7 +264,7 @@ func roleRows(st view.Project, o renderOpts, p palette) []string {
 	return out
 }
 
-// roleStatus is a role's pane status, "no pane" when serve sees none.
+// roleStatus is a role's pane status, "no pane" when serve sees none ("stopped" when serve stopped it, T-672).
 func roleStatus(r view.Role) string {
 	if r.Status == "" {
 		return "no pane"

@@ -62,6 +62,9 @@ type ProjectStatus struct {
 	// own rule; no task is named as next, T-673).
 	Scratch      *ScratchStatus `json:"scratch,omitempty"`
 	ScratchQueue []ScratchWait  `json:"scratch_queue"`
+	// Stopped is the role agents serve stopped once their work was done (T-672: the integrator after its last verdict,
+	// the reviewer once its review closed) that no pane runs now, sorted: their next use starts them fresh.
+	Stopped []string `json:"stopped,omitempty"`
 }
 
 // StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
@@ -229,6 +232,7 @@ func (a *App) Status() Status {
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.Briefs = p.briefStatus()
+		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {
 			if f.Step != StepNeedsYou {
 				continue

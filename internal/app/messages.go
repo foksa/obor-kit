@@ -470,6 +470,11 @@ func (a *App) route(p *proj, fx *Loop, q queued) (post, target string, ok bool) 
 		return p.out.leadKind, q.msg.To, fx.Inbox != nil && a.inboxedAt(q.msg.To, Where{})
 	case lead: // its record is its own latest SessionStart, fresher than herdr's view: no pane check (DD-v0.13 R1)
 		return w.Pane.Agent, q.msg.To, fx.Inbox != nil && a.inboxedAt(q.msg.To, Where{})
+	case q.brief && q.msg.To != p.integrator && fx.Agents != nil && w.State == Unavailable:
+		if pane, ok := a.shellPane(p, q.msg.To); ok { // a stopped role agent: started fresh on the brief (T-672)
+			return startRoute, pane.ID, true
+		}
+		return "", "", false
 	case w.State != Identified || !Ready(w.Pane.Status):
 		return "", "", false
 	}
@@ -545,6 +550,13 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	began := false
 	_, err := a.do(ctx, p, Intent{Key: key, Class: ClassPrompt, Data: lineData{To: q.msg.To}},
 		func(ctx context.Context) (any, error) {
+			if post == startRoute { // the stopped agent's fresh start in its pane carries the line (T-672)
+				_, err := fx.Agents.Launch(ctx, Launch{Agent: q.msg.To, Pane: target, Fresh: true, Prompt: q.msg.Line})
+				if err != nil {
+					return nil, fmt.Errorf("%s not started on its brief: %w", q.msg.To, err)
+				}
+				return sentStart, nil
+			}
 			var err error
 			began, err = fx.transmit(ctx, post, target, q.msg.Line, false)
 			return sentResult(began, err)
@@ -912,6 +924,8 @@ func (a *App) unnamed(p *proj, agent, note string) string {
 	switch w := a.whereIs(p, agent); {
 	case w.State == Ambiguous:
 		return "queued: " + notIdentified(agent, w)
+	case w.State == Unavailable && agent != p.integrator && a.stoppedAt(p, agent):
+		return "stopped: serve starts it fresh with this brief; the lead hears when it finishes"
 	case a.connected && w.State == Unavailable:
 		return "queued: no pane runs " + agent + "; `obor restart " + agent + "` starts it"
 	}
