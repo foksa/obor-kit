@@ -1,7 +1,9 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine,
-# `make release` → local release files, `make publish` → the four of them to a GitHub release (explicit, outward-facing).
+# `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
+# (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
+# GitHub release (explicit, outward-facing).
 GO ?= go
 VERSION_FILE := VERSION
 VERSION := $(shell cat $(VERSION_FILE))
@@ -23,7 +25,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test check check-affected deadcode deps release publish clean
+.PHONY: build test check check-affected deadcode deps release ship publish clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -71,7 +73,11 @@ deadcode:
 deps:
 	$(GO) mod download
 
+# release: with V=x.y.z the lead's one command (scripts/release: the version commit and full check on main, the scratch
+# worktree with marketplace obor-kit and the four binaries, the tag, and the catalog back on main); without V only the
+# local release files, as before. DRY=1 (with V) prints the steps and changes nothing. The owner's next command: ship.
 release:
+ifeq ($(strip $(V)),)
 	@plugin=$$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n 1); \
 	[ "$$plugin" = "$(VERSION)" ] || { \
 	  echo "FAIL .claude-plugin/plugin.json version $$plugin != VERSION $(VERSION): make them match (the plugin version keys Claude's cache dir, so a mismatch serves the old copy)" >&2; \
@@ -89,6 +95,14 @@ release:
 	cat dist/checksums.old.tmp dist/checksums.tmp | LC_ALL=C sort -k2,2 > dist/checksums.sorted.tmp
 	mv dist/checksums.sorted.tmp bin/checksums.txt
 	rm -f dist/checksums.tmp dist/checksums.old.tmp
+else
+	@sh scripts/release "$(V)" $(if $(DRY),--dry-run)
+endif
+
+# ship is the owner's one command after make release V=x.y.z (scripts/ship): push main and the tag, publish the GitHub
+# release, install the kit; each step is skipped when it is already done.
+ship:
+	@sh scripts/ship "$(VERSION)"
 
 # publish is outward-facing and explicit: after `make release`, committing bin/checksums.txt and tagging, `make publish`
 # uploads exactly the four binaries of v$(VERSION), each checked against the tag's catalog (scripts/publish; --verify-tag:

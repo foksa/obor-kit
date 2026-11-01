@@ -1,0 +1,218 @@
+#!/bin/sh
+# release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree and
+# docs/UPGRADE-v<x.y>.md holding a v<version> heading:
+#   1. VERSION and the plugin version = <version>, the full `make check`, commit on main;
+#   2. a scratch worktree detached at that commit under $TMPDIR: marketplace name obor-kit, `make release` (the four
+#      binaries and bin/checksums.txt), commit, tag v<version>;
+#   3. the four dist files and bin/checksums.txt back on main, committed; the worktree removed.
+# A re-run resumes: the version commit, the local tag and the checksums commit are skipped when present; a failure
+# before the version commit restores VERSION and the plugin version, so every run starts from a clean tree. A pushed tag
+# is never moved (a changed release is a new patch version). --dry-run prints the steps and changes nothing.
+# POSIX sh, like scripts/publish.
+set -eu
+
+usage() { echo "usage: release <x.y.z> [--dry-run]" >&2; exit 2; }
+
+v=
+dry=0
+for arg in "$@"; do
+  case $arg in
+    --dry-run) dry=1 ;;
+    -*) usage ;;
+    *) [ -z "$v" ] || usage; v=$arg ;;
+  esac
+done
+[ -n "$v" ] && printf '%s\n' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || usage
+
+tag="v$v"
+guide="docs/UPGRADE-v${v%.*}.md"
+platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+tmpdir=${TMPDIR:-/tmp}
+scratch="${tmpdir%/}/obor-release-$v"
+
+fail() { echo "FAIL $*" >&2; exit 1; }
+say() { echo "release: $*"; }
+
+# A failure before the version commit leaves the tree clean: the bump is undone (the re-run starts from scratch).
+bumped=0
+tmp=
+cleanup() {
+  [ -z "$tmp" ] || rm -f "$tmp"
+  [ "$bumped" = 0 ] || git checkout -- VERSION .claude-plugin/plugin.json 2> /dev/null || true
+}
+trap cleanup EXIT
+
+# gt a b: a is greater than b, comparing x.y.z numerically.
+gt() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    if (split(a, x, ".") != 3 || split(b, y, ".") != 3) exit 1
+    for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit (x[i] + 0 > y[i] + 0) ? 0 : 1
+    exit 1
+  }'
+}
+
+# plugin_version <rev|->: the "version" of .claude-plugin/plugin.json at rev ("-" is the working tree).
+plugin_version() {
+  if [ "$1" = - ]; then cat .claude-plugin/plugin.json; else git show "$1:.claude-plugin/plugin.json" 2> /dev/null; fi |
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+# marketplace_name <rev>: the marketplace "name" in .claude-plugin/marketplace.json at rev.
+marketplace_name() {
+  git show "$1:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\n' |
+    sed -n 's/^[^"]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# remote_tag: the sha origin holds for v<version> (empty when it has none, or when origin is unreachable).
+remote_tag() {
+  out=$(git ls-remote origin "refs/tags/$tag" 2> /dev/null) || out=
+  printf '%s\n' "$out" | awk -v r="refs/tags/$tag" '$2 == r { print $1; exit }'
+}
+
+# four_lines <catalog text>: its lines for this version, one per platform (empty when any is missing).
+four_lines() {
+  printf '%s\n' "$1" | grep -F "dist/obor-$v-" || true
+}
+
+[ -f Makefile ] && [ -f VERSION ] && [ -f .claude-plugin/plugin.json ] ||
+  fail "not at a kit checkout's root: run make release V=$v there"
+
+branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
+[ "$branch" = main ] || fail "on ${branch:-a detached HEAD}, not main: make release runs on main"
+
+cur=$(tr -d '[:space:]' < VERSION)
+resume=0
+[ "$cur" = "$v" ] && resume=1
+if [ "$resume" = 0 ]; then
+  gt "$v" "$cur" || fail "VERSION is $cur: V=$v must be greater (a released version is never rewritten; a change is a new patch version)"
+fi
+
+[ -f "$guide" ] || fail "no $guide: write the release guide (with a v$v heading) and commit it on main first"
+grep -Eq "^#+[[:space:]]*v$(printf '%s' "$v" | sed 's/\./\\./g')([^0-9.]|\$)" "$guide" ||
+  fail "$guide has no v$v heading: the guide names that version before the release"
+
+dirty=$(git status --porcelain)
+[ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
+
+have_version_commit=0
+headver=$(git show HEAD:VERSION 2> /dev/null | tr -d '[:space:]') || headver=
+if [ "$headver" = "$v" ] && [ "$(plugin_version HEAD)" = "$v" ]; then
+  have_version_commit=1
+fi
+
+if [ "$have_version_commit" = 1 ]; then
+  say "VERSION and the plugin version at HEAD are $v: commit skipped"
+elif [ "$dry" = 1 ]; then
+  say "would: set VERSION and .claude-plugin/plugin.json to $v"
+  say "would: make check (the full gate; a failure stops the release, nothing committed)"
+  say "would: git commit -m 'obor v$v: VERSION, plugin version' on main"
+else
+  bumped=1
+  printf '%s\n' "$v" > VERSION
+  tmp=$(mktemp "$tmpdir/obor-plugin.XXXXXX")
+  sed 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "'"$v"'"/' .claude-plugin/plugin.json > "$tmp" &&
+    mv "$tmp" .claude-plugin/plugin.json || fail "cannot set the plugin version in .claude-plugin/plugin.json"
+  tmp=
+  say "VERSION and the plugin version set to $v; running make check"
+  make check || fail "make check failed: nothing is committed (VERSION and the plugin version are back as they were)"
+  git add VERSION .claude-plugin/plugin.json
+  git commit -q -m "obor v$v: VERSION, plugin version" || fail "cannot commit the version bump on main"
+  bumped=0
+  say "committed on main: obor v$v: VERSION, plugin version"
+fi
+
+if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
+  tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
+  tagplug=$(plugin_version "$tag")
+  tagmarket=$(marketplace_name "$tag")
+  if [ "$tagver" != "$v" ] || [ "$tagplug" != "$v" ] || [ "$tagmarket" != obor-kit ]; then
+    pushed=$(remote_tag)
+    [ -z "$pushed" ] || fail "$tag is on origin and its contents are wrong (VERSION '$tagver', plugin '$tagplug', marketplace '$tagmarket'): a pushed tag never moves; release a new patch version"
+    fail "$tag's contents are wrong (VERSION '$tagver', plugin '$tagplug', marketplace '$tagmarket'): delete it (git tag -d $tag) and re-run, or release a new patch version"
+  fi
+  say "$tag exists: build and tag skipped"
+  # The tag's bytes are the ones on disk: a re-run finishes with them, it never rebuilds or moves the tag.
+  for pl in $platforms; do
+    f="dist/obor-$v-$pl"
+    src="$scratch/$f"
+    [ -f "$src" ] || src=$f
+    [ -f "$src" ] || continue
+    want=$(git show "$tag:bin/checksums.txt" 2> /dev/null | awk -v f="$f" '$2 == f { print $1; exit }')
+    [ -n "$want" ] || fail "no $f line in bin/checksums.txt at $tag: the tag is not a finished release"
+    got=$(shasum -a 256 "$src" | awk '{ print $1 }')
+    if [ "$got" != "$want" ]; then
+      [ -z "$(remote_tag)" ] || fail "$src is sha256 $got, not the $tag catalog's $want, and $tag is pushed: a pushed tag never moves (a changed release is a new patch version)"
+      fail "$src is sha256 $got, not the $tag catalog's $want: delete the local tag (git tag -d $tag) and re-run, or release a new patch version"
+    fi
+  done
+  planned=0
+elif [ "$dry" = 1 ]; then
+  say "would: git worktree add --detach $scratch HEAD"
+  say "would: set the marketplace name obor-kit there, make release, commit, git tag -a $tag"
+  say "would: copy the four dist/obor-$v-<os>-<arch> files and bin/checksums.txt from $tag to main"
+  say "would: git commit -m 'checksums: $tag' on main"
+  say "would: remove the worktree $scratch"
+  planned=1
+else
+  sha=$(git rev-parse HEAD)
+  if [ -e "$scratch" ]; then
+    git worktree remove --force "$scratch" > /dev/null 2>&1 || rm -rf "$scratch" ||
+      fail "cannot clear the scratch worktree $scratch"
+  fi
+  git worktree add -q --detach "$scratch" "$sha" || fail "cannot add the scratch worktree $scratch"
+  market="$scratch/.claude-plugin/marketplace.json"
+  tmp=$(mktemp "$tmpdir/obor-marketplace.XXXXXX")
+  sed 's/"name"[[:space:]]*:[[:space:]]*"[^"]*"/"name": "obor-kit"/' "$market" > "$tmp" &&
+    mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
+  tmp=
+  ( cd "$scratch" && make release V= ) || fail "make release failed in $scratch: nothing is tagged"
+  ( cd "$scratch" && git add bin/checksums.txt .claude-plugin/marketplace.json &&
+    git commit -q -m "obor v$v: marketplace name, checksums" &&
+    git tag -a "$tag" -m "obor $tag" ) || fail "cannot commit and tag the release in $scratch"
+  say "tagged $tag in $scratch"
+  planned=0
+fi
+
+if [ "$planned" = 0 ]; then
+  tagcat=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: the tag is not a finished release"
+  tagv=$(four_lines "$tagcat")
+  [ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] ||
+    fail "bin/checksums.txt at $tag has no four lines for $v: the tag is not a finished release"
+  headcat=$(git show HEAD:bin/checksums.txt 2> /dev/null) || headcat=
+  havev=$(four_lines "$headcat")
+
+  if [ "$havev" = "$tagv" ]; then
+    say "bin/checksums.txt at HEAD has $tag's four lines: copy-back commit skipped"
+  elif [ "$dry" = 1 ]; then
+    say "would: copy the four dist/obor-$v-<os>-<arch> files and bin/checksums.txt from $tag to main"
+    say "would: git commit -m 'checksums: $tag' on main"
+  else
+    for pl in $platforms; do
+      f="dist/obor-$v-$pl"
+      [ ! -f "$scratch/$f" ] || cp "$scratch/$f" "$f"
+    done
+    printf '%s\n' "$tagcat" > bin/checksums.txt
+    for pl in $platforms; do
+      f="dist/obor-$v-$pl"
+      [ -f "$f" ] || fail "missing $f: the release files are built once, at $tag; check that tag out into a scratch worktree and run make release there, or release a new patch version"
+      want=$(printf '%s\n' "$tagcat" | awk -v f="$f" '$2 == f { print $1; exit }')
+      got=$(shasum -a 256 "$f" | awk '{ print $1 }')
+      [ "$got" = "$want" ] ||
+        fail "$f is sha256 $got, not the $tag catalog's $want: a pushed tag never moves (a changed release is a new patch version)"
+    done
+    git add bin/checksums.txt
+    git commit -q -m "checksums: $tag" || fail "cannot commit bin/checksums.txt on main"
+    say "committed on main: checksums: $tag"
+  fi
+fi
+
+if [ -e "$scratch" ]; then
+  if [ "$dry" = 1 ]; then
+    say "would: remove the worktree $scratch"
+  else
+    git worktree remove --force "$scratch" || fail "cannot remove the scratch worktree $scratch"
+    say "removed the worktree $scratch"
+  fi
+fi
+
+echo "next (owner): make ship"
