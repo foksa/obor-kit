@@ -324,6 +324,7 @@ func (a *App) advance(ctx context.Context) {
 	}
 	a.nightly(ctx, p, fx)
 	a.reviewPass(ctx, p, fx)
+	a.reviewDueTick(ctx, p, fx)
 }
 
 // record appends the fact r with data and folds it; false when the log failed.

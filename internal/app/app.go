@@ -183,6 +183,7 @@ type proj struct {
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
 	retry      map[Key]retry        // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
+	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task

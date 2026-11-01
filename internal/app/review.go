@@ -87,11 +87,23 @@ type reviewReq struct {
 	firing bool
 }
 
-// lastReview is the newest review the log started: its fact's seq and its id ("" seq 0: none).
+// lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none).
 type lastReview struct {
-	seq int64
-	id  string
+	seq      int64
+	id, head string
 }
+
+// reviewDueLine is obor status' "review due" line ("": none) as a pass last counted it in git, and what it was
+// counted on: the merges folded and the last review started (key), and when.
+type reviewDueLine struct {
+	key  string
+	at   time.Time
+	line string
+}
+
+// reviewDueEvery is how often the "review due" count is read again when nothing it was counted on changed (a review's
+// close is a commit serve does not record).
+const reviewDueEvery = 3 * time.Minute
 
 // foldReview folds r, a record of the project's review requests: a request opens (replacing the open one) and ends
 // a failed start's needs-you; --rm and a firing end it; a start is the last review.
@@ -111,7 +123,7 @@ func (p *proj) foldReview(r Record) {
 	case StepReviewFire:
 		p.reviewEnded(d.Request)
 	case StepReviewStarted:
-		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID}
+		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
 	default:
 		return
 	}
@@ -262,8 +274,8 @@ func (a *App) reviewList(p *proj) string {
 	return "REVIEW REQUEST " + p.reviewStatus(a.opt.Now())
 }
 
-// reviewStatus is the open request as obor status and obor review show it, else "review due: N merges since <the last
-// review>" when more than reviewDue merged since, else "" (under mu).
+// reviewStatus is the open request as obor status and obor review show it, else the "review due" line the last pass
+// counted in git (reviewDueTick), else "" (under mu).
 func (p *proj) reviewStatus(now time.Time) string {
 	if q := p.folded.review; q != nil {
 		s := "since " + Age(now.Sub(q.at)) + " (now"
@@ -279,20 +291,65 @@ func (p *proj) reviewStatus(now time.Time) string {
 		}
 		return s
 	}
+	return p.due.line
+}
+
+// reviewDueTick counts, in git, the merges on the integration branch since the previous review: the newest "RV-n
+// closed" commit's reviewed sha (the previous review the brief names), or the head of a review started since that is
+// not closed yet. More than reviewDue: obor status' line "review due: N merges since <RV-prev>". It counts again once
+// a merge or a start folded, or reviewDueEvery passed; a git error keeps the last line and is tried on the next pass.
+func (a *App) reviewDueTick(ctx context.Context, p *proj, fx *Loop) {
+	if fx.Review == nil {
+		return
+	}
+	a.mu.Lock()
 	n := 0
 	for _, mt := range p.folded.loop {
-		if mt.state == stMerged && mt.mergedSeq > p.folded.reviewed.seq {
+		if mt.state == stMerged {
 			n++
 		}
 	}
-	if n <= reviewDue {
-		return ""
+	started := p.folded.reviewed
+	key := fmt.Sprintf("%d %d", n, started.seq)
+	now := a.opt.Now()
+	fresh := key == p.due.key && now.Sub(p.due.at) < reviewDueEvery
+	a.mu.Unlock()
+	if fresh {
+		return
 	}
-	prev := "serve's log began (no review started by obor review)"
-	if p.folded.reviewed.id != "" {
-		prev = p.folded.reviewed.id
+	line, err := a.reviewDueCount(ctx, p, fx.Review, started)
+	if err != nil {
+		a.logf("review due of %s: %v", p.name, err)
+		return
 	}
-	return fmt.Sprintf("review due: %d merges since %s", n, prev)
+	a.mu.Lock()
+	p.due = reviewDueLine{key: key, at: now, line: line}
+	a.mu.Unlock()
+}
+
+// reviewDueCount is the "review due" line from git ("": not due, or no reviewer configured).
+func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started lastReview) (string, error) {
+	s, err := reviewConfig(p.root)
+	if err != nil {
+		return "", nil // reviews are not set up: none is due
+	}
+	last, err := g.Last(ctx, s.branch)
+	if err != nil {
+		return "", err
+	}
+	k, prev, from := previousReview(last)
+	if n, _ := strconv.Atoi(strings.TrimPrefix(started.id, "RV-")); n >= k && started.head != "" {
+		prev, from = started.id, started.head // started, not closed yet: its findings are being fixed
+	}
+	head, err := g.Head(ctx, s.branch)
+	if err != nil {
+		return "", err
+	}
+	merges, err := g.Merges(ctx, from, head)
+	if err != nil || len(merges) <= reviewDue {
+		return "", err
+	}
+	return fmt.Sprintf("review due: %d merges since %s", len(merges), cmp.Or(prev, "the first commit (no RV closed yet)")), nil
 }
 
 // reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. A
@@ -374,6 +431,17 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 // closedRE is a review's close commit subject: "RV-<n> closed · <reviewed sha> · …".
 var closedRE = regexp.MustCompile(`^RV-([0-9]+) closed(?: · ([0-9a-f]+))?`)
 
+// previousReview is the next review's number, and the previous review's id and reviewed sha ("": none) by last, the
+// newest close commit's subject ("": none yet, the next is RV-1).
+func previousReview(last string) (next int, prev, sha string) {
+	m := closedRE.FindStringSubmatch(last)
+	if m == nil {
+		return 1, "", ""
+	}
+	k, _ := strconv.Atoi(m[1])
+	return k + 1, "RV-" + m[1], m[2]
+}
+
 // mergeRE is an obor merge's subject: "Merge T-xx: …".
 var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
 
@@ -386,11 +454,7 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s re
 	if err != nil {
 		return "", "", "", nil, "", err
 	}
-	n, prev, prevSHA := 1, "", ""
-	if m := closedRE.FindStringSubmatch(last); m != nil {
-		k, _ := strconv.Atoi(m[1])
-		n, prev, prevSHA = k+1, "RV-"+m[1], m[2]
-	}
+	n, prev, prevSHA := previousReview(last)
 	id = "RV-" + strconv.Itoa(n)
 	if cfgErr != nil {
 		return id, "", "", nil, "", cfgErr

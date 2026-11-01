@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 type reviewGitFake struct {
 	last      string
 	merges    []string
+	from      []string // every Merges call's from
 	files     []string
 	detachErr error
 	detached  []string
@@ -26,7 +28,8 @@ func (g *reviewGitFake) Last(context.Context, string) (string, error) { return g
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
 	return "abcdef0123456789abcdef0123456789abcdef01", nil
 }
-func (g *reviewGitFake) Merges(context.Context, string, string) ([]string, error) {
+func (g *reviewGitFake) Merges(_ context.Context, from, _ string) ([]string, error) {
+	g.from = append(g.from, from)
 	return g.merges, nil
 }
 func (g *reviewGitFake) Files(context.Context, string, string) ([]string, error) { return g.files, nil }
@@ -78,6 +81,11 @@ func (r *reviewRig) reload() { r.a, r.p = lineReload(r.t, r.a, r.p, &r.now) }
 // pass is one review pass.
 func (r *reviewRig) pass() {
 	r.a.reviewPass(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+}
+
+// tick is one "review due" count.
+func (r *reviewRig) tick() {
+	r.a.reviewDueTick(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
 }
 
 // call is an obor review request from the lead.
@@ -292,29 +300,40 @@ func TestReviewRequest(t *testing.T) {
 			}
 		}},
 		{"status says review due at 4 unreviewed merges, not at 3", func(t *testing.T, r *reviewRig) {
-			for _, task := range []string{"T-1", "T-2", "T-3"} {
+			// The count is git's: the first-parent merges since the previous review (RV-4 closed · 1111111), read on a
+			// pass once a merge folded; the log's merges only say when to read it again.
+			merge := func(task string, merges int) {
 				r.submitted(task)
 				r.merged(task)
+				r.git.merges = nil
+				for i := range merges {
+					r.git.merges = append(r.git.merges, fmt.Sprintf("%07d Merge T-%d: x", i, i))
+				}
+				r.tick()
 			}
-			if got := r.a.Status().Project.Review; got != "" {
-				t.Errorf("at 3 merges: %q", got)
+			merge("T-1", 3)
+			if got := r.a.Status().Project.Review; got != "" || len(r.git.from) != 1 || r.git.from[0] != "1111111" {
+				t.Errorf("at 3 merges: %q (counted from %q; want since 1111111)", got, r.git.from)
 			}
-			r.submitted("T-4")
-			r.merged("T-4")
-			if got := r.a.Status().Project.Review; !strings.HasPrefix(got, "review due: 4 merges since ") {
+			merge("T-2", 4)
+			if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-4" {
 				t.Errorf("at 4 merges: %q", got)
 			}
 			r.mustCall("r1", nil, "", false)
 			r.pass()
-			if got := r.a.Status().Project.Review; got != "" {
-				t.Errorf("after RV-5 started: %q", got)
+			merge("T-3", 2) // RV-5 started, not closed: counted from its head
+			if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "" ||
+				from != "abcdef0123456789abcdef0123456789abcdef01" {
+				t.Errorf("after RV-5 started: %q (counted from %q)", got, from)
 			}
-			for _, task := range []string{"T-5", "T-6", "T-7", "T-8"} {
-				r.submitted(task)
-				r.merged(task)
-			}
+			merge("T-4", 4)
 			if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-5" {
 				t.Errorf("4 merges after RV-5: %q", got)
+			}
+			r.git.last = "RV-5 closed · 2222222 · approved"
+			merge("T-5", 1) // RV-5 closed: counted from its reviewed sha
+			if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "" || from != "2222222" {
+				t.Errorf("after RV-5 closed: %q (counted from %q)", got, from)
 			}
 		}},
 	} {
