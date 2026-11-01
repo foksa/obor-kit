@@ -201,7 +201,7 @@ func (a *App) Status() Status {
 				}
 				if open {
 					ts.Job = JobID(key)
-					ts.Delivered = p.folded.delivered[ts.Job]
+					ts.Delivered = p.folded.delivered[ts.Job] != 0
 				}
 				ps.Tasks = append(ps.Tasks, ts)
 			}

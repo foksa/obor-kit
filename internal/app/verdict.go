@@ -138,7 +138,7 @@ func (p *proj) foldJob(r Record) {
 			p.folded.calls[verdictStep(MethodTaskDone, d.Call)] = taskDoneReply
 		}
 	case r.Kind == KindFact && r.Step == StepDelivered:
-		p.folded.delivered[r.Fact().Job] = true
+		p.folded.delivered[r.Fact().Job] = r.Seq
 	case r.Kind == KindFact && r.Step == StepDropped:
 		if d := r.Fact(); d.Call != "" {
 			p.folded.calls[verdictStep(MethodDrop, d.Call)] = dropReply(r.Task)

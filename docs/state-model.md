@@ -175,15 +175,18 @@ Residual: a clear is `ctrl+u` (the input line); a multi-line draft is not proven
 
 Every agent fetches its jobs (T-437): there is no typed job text and no status rule of delivery.
 
-### The prompts table (T-665)
+### The prompts table (T-665, T-670)
 
 The text of every prompt serve sent is kept in the store's `prompts` table, so a prompt recorded can be shown after
 the fact: `seq` (the fact it belongs to: the `delivered` one for a job, the `briefed` one for a brief or a start),
 `agent` (the one it went to), `kind` (`job`, `brief` or `start`), `job` (the id, jobs only), `task` (a job's; empty for
-a brief or a start), `ts` and `text`. Serve is its only writer, as for `specs`; it writes the row right after it
-records the fact — a job's text in `jobNext` after `fetchText` (so a refetch, which records nothing, adds no row), a
-brief's line or a fresh start's first prompt (`obor restart … --fresh --prompt`, a review's start) in `recordBrief`.
-A payload, not state: never folded or replayed, and a failed write is logged and never fails the job or the brief. A
+a brief or a start), `ts`, `rev` (the spec rev a job's text was built from; 0 when there is none) and `text`. Its own
+id is the table's key (T-670): a job is fetched several times and its text changes with the spec (or a re-gate), so a
+job has one row per distinct text its fetch returned, the newest the text the last fetch gave, and an identical
+refetch adds none. Serve is its only writer, as for `specs`; it writes the row right after it records the fact — a
+job's text in `jobNext` after `fetchText` (a refetch's row too, under the delivery fact of its job), a brief's line or
+a fresh start's first prompt (`obor restart … --fresh --prompt`, a review's start) in `recordBrief` (one row each). A
+payload, not state: never folded or replayed, and a failed write is logged and never fails the job or the brief. A
 line (a `message` fact) carries its text already: no row. Readers are `store` functions by agent, by task and by job
 id, newest first, with a limit, on an `OpenRO` connection and no long transaction. Rows older than 14 days are deleted
 at serve's nightly backup (`PrunePrompts`; a backup made read-only with serve down prunes nothing).

@@ -240,8 +240,8 @@ type folded struct {
 	calls  map[string]string    // answered verdict calls: the stored reply by <method>.<call id>
 	loop   map[string]*mtask    // the merge loop's tasks, by task
 	pause  *Pause               // the project's last pause fact (pause.go; nil: none or cleared)
-	// Jobs by fetch (fetch.go): delivered, the jobs a fact delivered names.
-	delivered map[string]bool
+	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names and the fact's seq (0: not delivered).
+	delivered map[string]int64
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
 	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go; lining is live)
@@ -255,7 +255,7 @@ type folded struct {
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
-		loop: map[string]*mtask{}, delivered: map[string]bool{}, watches: map[string]*mergeWatch{},
+		loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{},
 		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 

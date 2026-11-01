@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// The prompts table (T-665): the text of every job, brief and start prompt serve sent, one row per fact it belongs to
-// (Seq: the delivered fact for a job, the briefed one for a brief or a start). Serve is its only writer (WritePrompt);
-// hooks and CLIs read it read-only (ReadPromptsAt). A payload, not state: never folded or replayed, so the log's
-// replay never carries it. A line (a message fact) carries its text already and has no row here. Rows older than 14
-// days are pruned with the daily backup (PrunePrompts).
+// The prompts table (T-665): the text of every job, brief and start prompt serve sent, one row per prompt it sent
+// (Seq: the delivered fact for a job, the briefed one for a brief or a start). Its own id is the key (T-670): a job
+// fetched again after its text changed (a new spec rev, a re-gate) gets another row, so a job may have several, its
+// newest first. Serve is its only writer (WritePrompt); hooks and CLIs read it read-only (ReadPromptsAt). A payload,
+// not state: never folded or replayed, so the log's replay never carries it. A line (a message fact) carries its text
+// already and has no row here. Rows older than 14 days are pruned with the daily backup (PrunePrompts).
 
 // Prompt kinds: a job's text (job_next's reply), a brief's line, a fresh start's first prompt.
 const (
@@ -21,7 +22,8 @@ const (
 )
 
 // PromptRow is one prompt serve sent: the seq of the fact it belongs to, the agent it went to, its kind, the job id
-// (jobs only), the task (a job's; "" for a brief or a start), when it was recorded (RFC 3339) and its text.
+// (jobs only), the task (a job's; "" for a brief or a start), when it was recorded (RFC 3339), the spec rev a job's
+// text was built from (0: none) and its text.
 type PromptRow struct {
 	Seq   int64
 	Agent string
@@ -29,10 +31,11 @@ type PromptRow struct {
 	Job   string
 	Task  string
 	TS    string
+	Rev   int
 	Text  string
 }
 
-// WritePrompt stores r: one row per fact (Seq is the table's key, so a repeated write is refused). Serve's only write.
+// WritePrompt stores r: a new row, whatever the table holds (each prompt has its own id, T-670). Serve's only write.
 func WritePrompt(db *sql.DB, r PromptRow) error {
 	switch {
 	case r.Seq <= 0:
@@ -42,8 +45,8 @@ func WritePrompt(db *sql.DB, r PromptRow) error {
 	case r.Kind != PromptJob && r.Kind != PromptBrief && r.Kind != PromptStart:
 		return fmt.Errorf("prompts: %q is no kind", r.Kind)
 	}
-	if _, err := db.Exec(`INSERT INTO prompts (seq, agent, kind, job, task, ts, text) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Seq, r.Agent, r.Kind, r.Job, r.Task, r.TS, r.Text); err != nil {
+	if _, err := db.Exec(`INSERT INTO prompts (seq, agent, kind, job, task, ts, rev, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Seq, r.Agent, r.Kind, r.Job, r.Task, r.TS, r.Rev, r.Text); err != nil {
 		return fmt.Errorf("prompts: %s %d: %w", r.Agent, r.Seq, err)
 	}
 	return nil
@@ -53,8 +56,8 @@ func WritePrompt(db *sql.DB, r PromptRow) error {
 // others empty).
 type PromptQuery struct{ Agent, Task, Job string }
 
-// ReadPrompts is db's prompts for q, newest first, at most limit (limit ≤ 0: none). One query: the caller keeps no
-// transaction open.
+// ReadPrompts is db's prompts for q, newest first (its rows' own order), at most limit (limit ≤ 0: none). One query:
+// the caller keeps no transaction open.
 func ReadPrompts(db *sql.DB, q PromptQuery, limit int) ([]PromptRow, error) {
 	col, val := "", ""
 	switch {
@@ -70,8 +73,8 @@ func ReadPrompts(db *sql.DB, q PromptQuery, limit int) ([]PromptRow, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	rows, err := db.Query("SELECT seq, agent, kind, job, task, ts, text FROM prompts WHERE "+col+
-		" = ? ORDER BY seq DESC LIMIT ?", val, limit)
+	rows, err := db.Query("SELECT seq, agent, kind, job, task, ts, rev, text FROM prompts WHERE "+col+
+		" = ? ORDER BY id DESC LIMIT ?", val, limit)
 	if err != nil {
 		return nil, fmt.Errorf("prompts: %w", err)
 	}
@@ -79,7 +82,7 @@ func ReadPrompts(db *sql.DB, q PromptQuery, limit int) ([]PromptRow, error) {
 	var out []PromptRow
 	for rows.Next() {
 		var r PromptRow
-		if err := rows.Scan(&r.Seq, &r.Agent, &r.Kind, &r.Job, &r.Task, &r.TS, &r.Text); err != nil {
+		if err := rows.Scan(&r.Seq, &r.Agent, &r.Kind, &r.Job, &r.Task, &r.TS, &r.Rev, &r.Text); err != nil {
 			return nil, fmt.Errorf("prompts: %w", err)
 		}
 		out = append(out, r)
