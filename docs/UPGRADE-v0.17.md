@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.16 to v0.17
 
+## v0.17.2 (patch)
+Re-run the installer, then `obor serve restart` in each project. No config change.
+- **`obor review [--after T-a,T-b] [--note "…"]`**: serve starts the next review itself once the listed tasks merged
+  and the reviewer is idle: next RV id, the merges and files since the previous `RV-n closed` commit, the review
+  worktree checked out at head, the reviewer restarted fresh with the brief. One review cycle at a time: a new
+  request waits until the open one's `RV-n closed` commit exists. `obor status` says `review due: N merges since
+  RV-n` past 3 (T-638, T-639). Close every review with its own `RV-n closed · <sha> · …` commit: that is what serve
+  counts from.
+- `make release V=x.y.z` and `make ship` replace the manual release steps (T-640; kit maintainers only).
+- A closed task gets no new watchdog fact and a reject settles its pending notification (T-636); the needs-you line
+  tests no longer time out under load (T-637).
+
 ## v0.17.1 (patch)
 Re-run the installer, then `obor serve restart` in each project. No config change.
 - `obor init` works in an empty directory (runs `git init` and makes the first commit, only when the directory held
@@ -13,7 +25,7 @@ Re-run the installer, then `obor serve restart` in each project. No config chang
 - A merged, dropped or rejected task's old needs-you facts end, so the hourly reminder no longer reposts them; an old
   log's stale ones end at the next serve start (T-635).
 - The plugin version is checked against `VERSION` (T-630).
-- Known, low (fixed in the next patch, T-636): a worker stop recorded just after its task closed can leave one stale
+- Known, low (fixed in v0.17.2, T-636): a worker stop recorded just after its task closed can leave one stale
   needs-you; a rejected task can leave one notification pending.
 
 ## Before you upgrade
