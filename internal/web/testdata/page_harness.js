@@ -191,6 +191,46 @@ const scenarios = {
     check(liveText() === "live", `the mark is live again (${liveText()})`);
   },
 
+  // RV-76 #1: a first draw that fails leaves the page not live, on every page kind; the next successful refresh
+  // clears the stale mark.
+  async failedFirstDraw() {
+    const pages = {
+      "/api/projects": () => [],
+      "/api/view": () => viewWith({}),
+      "/api/task": () => ({ task: "T-1", state: "working", records: [] }),
+      "/api/agent": () => ({ agent: "rv", status: "stopped", jobs: [], briefs: [], lines: [], sessions: [] }),
+      "/api/job": () => ({ kind: "job", job: "T-1/1/work", text: "x", ts: "2026-11-01T00:00:00Z" }),
+    };
+    for (const c of [
+      { kind: "landing", hash: "#/", path: "/api/projects" },
+      { kind: "project", hash: "#/p/proj", path: "/api/view" },
+      { kind: "task", hash: "#/t/proj/T-1", path: "/api/task" },
+      { kind: "agent", hash: "#/a/proj/rv", path: "/api/agent" },
+      { kind: "job", hash: "#/j/proj/T-1/1/work", path: "/api/job" },
+    ]) {
+      cursors.proj = server.seq; // a known cursor: the live poll holds, so the refresh is what redraws
+      let calls = 0;
+      let fail = true;
+      server.routes = {};
+      for (const [path, body] of Object.entries(pages)) {
+        server.routes[path] = () => {
+          if (path === c.path) {
+            calls++;
+            // the project page's first /api/view is the cursor read: the page's own draw is the second
+            if (fail && (path !== "/api/view" || calls === 2)) { fail = false; throw new Error("cannot load"); }
+          }
+          return body();
+        };
+      }
+      await navigate(c.hash);
+      await tick(100);
+      check(html().includes("could not load this page"), `${c.kind}: the failed load is shown: ` + html().slice(0, 200));
+      check(liveText() !== "live", `${c.kind}: a failed first draw is not live (${liveText()})`);
+      await tick(REFRESH_MS);
+      check(liveText() === "live", `${c.kind}: the next refresh clears the stale mark (${liveText()})`);
+    }
+  },
+
   // The router keeps each project's cursor: navigating away and back never moves it back, even when the cursor's read
   // fails or answers an older seq, and the poll resumes from it.
   async cursorKeptPerProject() {

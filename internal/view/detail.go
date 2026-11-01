@@ -68,7 +68,7 @@ type Prompt struct {
 // contents), the briefs and lines it was sent, and the jobs it was given, with their text.
 type AgentDetail struct {
 	Agent    string         `json:"agent"`
-	Status   string         `json:"status,omitempty"` // its pane's status as serve sees it ("": no pane)
+	Status   string         `json:"status,omitempty"` // its pane's status as serve sees it, or its role row's "stopped" ("" : no pane)
 	Lane     string         `json:"lane,omitempty"`   // the lane serve sees it in
 	Task     string         `json:"task,omitempty"`   // the task serve sees it on now
 	Sessions []AgentSession `json:"sessions"`         // newest first
@@ -182,7 +182,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	return t, found
 }
 
-// Agent is agent's page: ok false when nothing records the agent (no session, prompt or line).
+// Agent is agent's page: ok false when nothing records the agent (no role row, session, prompt or line).
 func (d Detail) Agent(agent string) (AgentDetail, bool) {
 	a := AgentDetail{Agent: agent, Sessions: []AgentSession{}, Briefs: []Prompt{}, Lines: []AgentLine{},
 		Jobs: []Prompt{}}
@@ -193,6 +193,17 @@ func (d Detail) Agent(agent string) (AgentDetail, bool) {
 	for _, s := range d.Project.Agents {
 		if s.Name == agent {
 			a.Status, a.Lane, a.Task, found = s.Status, s.Lane, s.Task, true
+		}
+	}
+	// A role agent on no lane is in the roles, not the agents: its page is still a page (stopped when serve stopped it,
+	// no pane when nothing runs it), and an active agent's status, lane and task keep precedence (T-680).
+	for _, r := range d.Project.Roles {
+		if r.Agent != agent {
+			continue
+		}
+		found = true
+		if a.Status == "" {
+			a.Status = r.Status
 		}
 	}
 	if d.Root != "" {

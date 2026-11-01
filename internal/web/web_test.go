@@ -289,6 +289,68 @@ func TestAgentPage(t *testing.T) {
 	}
 }
 
+// T-680 (RV-76 #2): a role on no lane has an agent page too: the detail joins the matching role row, so a stopped role
+// is found with its status and its history, and a role with no history is not a 404; an active agent's lane, task and
+// status keep precedence.
+func TestAgentPageOfRoles(t *testing.T) {
+	p, _, s := fixture(t)
+	p.Config(testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
+		testkit.Set("roles.advisor", map[string]any{"type": "opus"}))
+	// the reviewer was sent a line (its history); the advisor has none.
+	addEvent(t, p.Root, app.MsgTask, app.StepMessage, app.KindFact, app.ClassFact, app.Message{
+		To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] review T-01"})
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.OpenRO(store.File(p.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now()
+	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &app.ProjectStatus{Name: "pj", Root: p.Root,
+			Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
+				Status: "working"}},
+			Stopped: []string{"pj-rev", "pj-advisor"}}}
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})
+	roles := map[string]view.Role{}
+	for _, r := range v.Roles {
+		roles[r.Agent] = r
+	}
+	if r := roles["pj-rev"]; r.Status != view.RoleStopped {
+		t.Fatalf("precondition: the reviewer's role row says %q, want stopped: %+v", r.Status, v.Roles)
+	}
+	if r, ok := roles["pj-advisor"]; !ok || r.Status != view.RoleStopped {
+		t.Fatalf("precondition: the advisor's role row says stopped: %+v, %v", r, ok)
+	}
+	s.Build = func(context.Context, string) (view.Project, error) { return v, nil }
+	h := s.Handler()
+	for _, c := range []struct {
+		agent string
+		lines int
+	}{{"pj-rev", 1}, {"pj-advisor", 0}} {
+		r := get(t, h, "/api/agent?project=pj&agent="+c.agent)
+		if r.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.agent, r.Code, r.Body.String())
+		}
+		var a view.AgentDetail
+		decode(t, r, &a)
+		if a.Status != view.RoleStopped {
+			t.Errorf("%s: status %q, want %q (its role row's)", c.agent, a.Status, view.RoleStopped)
+		}
+		if len(a.Lines) != c.lines {
+			t.Errorf("%s: %d lines, want %d (its history)", c.agent, len(a.Lines), c.lines)
+		}
+	}
+	var a view.AgentDetail
+	decode(t, get(t, h, "/api/agent?project=pj&agent=pj-o1"), &a)
+	if a.Status != "working" || a.Lane != "O-01" || a.Task != "T-01" {
+		t.Errorf("active agent: %+v, want working on O-01/T-01", a)
+	}
+}
+
 // TestEventsSince: /api/events answers with the records newer than since only (the store's seq is the cursor), and
 // with its Seq as the next since.
 func TestEventsSince(t *testing.T) {
