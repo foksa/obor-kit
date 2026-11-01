@@ -103,10 +103,11 @@ grep -Eq "^#+[[:space:]]*v$(printf '%s' "$v" | sed 's/\./\\./g')([^0-9.]|\$)" "$
 dirty=$(git status --porcelain)
 [ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
 
-# Code merged since the last review (T-642): the merges on main after the newest "RV-<n> closed" commit whose files are
-# not all docs, as the task ids their subjects name. The range starts at the close commit itself, so fixes verified
-# before the close count as reviewed. No close commit: nothing has been reviewed, so every merge counts.
-close=$(git log -1 -E --grep='^RV-[0-9]+ closed' --format=%H HEAD)
+# Code merged since the last review (T-642): the merges on main after the newest commit whose subject is "RV-<n> closed"
+# whose files are not all docs, as the task ids their subjects name. Only the subject counts, never a body line: a merge
+# message carries a whole spec, which may quote a close line. The range starts at the close commit itself, so fixes
+# verified before the close count as reviewed. No close commit: nothing has been reviewed, so every merge counts.
+close=$(git log --format='%H %s' HEAD | grep -E -m1 '^[0-9a-f]+ RV-[0-9]+ closed' | cut -d' ' -f1)
 since="the first commit (no RV closed yet)"
 range=HEAD
 if [ -n "$close" ]; then

@@ -139,6 +139,13 @@ func (f *releaseFixture) headShort(t *testing.T) string {
 // merge brings files in on a topic branch and merges it on main with subject: a first-parent merge commit.
 func (f *releaseFixture) merge(t *testing.T, branch, subject string, files map[string]string) string {
 	t.Helper()
+	return f.mergeBody(t, branch, subject, "", files)
+}
+
+// mergeBody is merge with a message body after the subject: main's merge messages carry whole specs, so a body may quote
+// a close line at the start of a line (T-642).
+func (f *releaseFixture) mergeBody(t *testing.T, branch, subject, body string, files map[string]string) string {
+	t.Helper()
 	f.Git(f.Root, "checkout", "-q", "-b", branch)
 	for name, content := range files {
 		writeFile(t, filepath.Join(f.Root, name), content)
@@ -146,7 +153,11 @@ func (f *releaseFixture) merge(t *testing.T, branch, subject string, files map[s
 	f.Git(f.Root, "add", "-A")
 	f.Git(f.Root, "commit", "-q", "-m", "work on "+branch)
 	f.Git(f.Root, "checkout", "-q", "main")
-	f.Git(f.Root, "merge", "-q", "--no-ff", "-m", subject, branch)
+	args := []string{"merge", "-q", "--no-ff", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	f.Git(f.Root, append(args, branch)...)
 	if got := f.Git(f.Root, "log", "-1", "--format=%s"); got != subject {
 		t.Fatalf("the merge's subject is %q, want %q", got, subject)
 	}
@@ -245,6 +256,26 @@ func TestMakeReleaseUnreviewedOverride(t *testing.T) {
 	if !strings.Contains(msg, "obor v1.2.4") {
 		t.Errorf("the tag message lost its subject: %q", msg)
 	}
+}
+
+// T-642 review finding: only a subject is a close commit. A merge message carries a whole spec, which may quote a close
+// line at the start of a line; that must not become the newest review (it would silently disable the check).
+func TestMakeReleaseIgnoresCloseLinesInMergeBodies(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.closeReview(t, 1, f.headShort(t))
+	body := "Spec quote:\n\nRV-99 closed · abc1234 · approved"
+	f.mergeBody(t, "topic/a", "Merge T-5: code", body, map[string]string{"internal/a.go": "package internal\n"})
+	// Precondition: the body really has the close line at a line start (else this is vacuous).
+	if msg := f.Git(f.Root, "log", "-1", "--format=%B"); !strings.Contains(msg, "\nRV-99 closed · abc1234 · approved") {
+		t.Fatalf("precondition: the merge body does not quote a close line: %q", msg)
+	}
+	head := f.Git(f.Root, "rev-parse", "HEAD")
+	out, failed := f.release(t, "V=1.2.4")
+	if !failed || !strings.Contains(out, "FAIL unreviewed since RV-1: T-5 (") {
+		t.Fatalf("a close line in a merge body must not count as the review (failed %v):\n%s", failed, out)
+	}
+	f.untouched(t, "1.2.4", head)
 }
 
 // T-640: make release refuses off main, a dirty tree, a V not greater than VERSION, and a guide without its heading;
