@@ -61,7 +61,7 @@ func restart(args []string) int {
 	}
 	if err == nil && req.Fresh && req.Prompt != "" && l.Cfg != nil && strings.HasPrefix(line, "RESTARTED ") &&
 		roleAgent(l.Cfg, req.Agent) {
-		if _, berr := brief(ctx, l.Cfg, req.Agent, "", project.OSEnv); berr != nil {
+		if _, berr := brief(ctx, l.Cfg, req.Agent, "", req.Prompt, project.OSEnv); berr != nil {
 			fmt.Fprintf(out, "note: brief not recorded (the lead hears nothing when %s finishes): %v\n", req.Agent, berr)
 		}
 	}

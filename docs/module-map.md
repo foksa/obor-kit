@@ -31,7 +31,9 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`). Tables: `events` (T-435),
   `lanes` (T-439: each lane's dispatched task, serve's projection of the log; readers use `store.ReadLaneAt` /
   `ReadLanesAt`), `specs` (T-440: each task's spec and rev; `obor spec set` is a serve request, readers use
-  `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521). The agents'
+  `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521), `prompts`
+  (T-665: the text of every job, brief and start prompt serve sent, by the seq of the fact it belongs to; serve writes
+  it, readers use `store.ReadPromptsAt` / `ReadPrompts`, pruned to 14 days at the nightly backup). The agents'
   sessions (T-577) are `events` facts on task key `session` (`sessions.go`: `store.Session`, readers
   `ReadSessionsAt` / `CurrentAt` / `TranscriptAt` for launch and the hooks).
 
@@ -55,7 +57,8 @@ Adding a kind = one package + a config entry.
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
   unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
   project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
-  `lanerows.go` (the `lanes` table projection), `specs.go`, `dispatch.go`, `messages.go`, `mergewatch.go`,
+  `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
+  T-665), `dispatch.go`, `messages.go`, `mergewatch.go`,
   `stopped.go`, `stopwake.go`, `nightly.go`, `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go`: one concern each.

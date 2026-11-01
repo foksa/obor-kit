@@ -155,8 +155,9 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 		t.Fatalf("restart: exit %d\n%s", rc, stdout)
 	}
 	got, _ := serve.requests()
-	if len(got) != 1 || serve.methods[0] != app.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" || got[0].Role != "lead" {
-		t.Errorf("requests %v %+v, want one brief of pj-rev without a text", serve.methods, got)
+	if len(got) != 1 || serve.methods[0] != app.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" ||
+		got[0].Prompt != "review the module map" || got[0].Role != "lead" {
+		t.Errorf("requests %v %+v, want one brief of pj-rev without a text, its start's prompt with it", serve.methods, got)
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--fresh", "--prompt", "work"); rc != 0 {
 		t.Fatalf("worker restart: exit %d\n%s", rc, stdout)

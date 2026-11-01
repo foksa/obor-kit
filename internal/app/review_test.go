@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/store"
 )
 
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
@@ -222,6 +224,11 @@ func TestReviewRequest(t *testing.T) {
 			}
 			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(StepReviewStarted) != 1 {
 				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(StepReviewStarted))
+			}
+			rows, err := store.ReadPrompts(r.p.log.db, store.PromptQuery{Agent: "pj-rev"}, 10)
+			if err != nil || len(rows) != 1 || rows[0].Kind != store.PromptStart || rows[0].Text != l.Prompt ||
+				rows[0].Task != "" {
+				t.Errorf("the review start's prompt row: %+v %v; want its first prompt (T-665)", rows, err)
 			}
 		}},
 		{"waits while the reviewer is busy", func(t *testing.T, r *reviewRig) {
