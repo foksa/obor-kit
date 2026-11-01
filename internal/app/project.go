@@ -77,7 +77,11 @@ func (p *proj) foldRecord(r Record) {
 		p.fold(r)
 	}
 	p.foldJob(r)
+	was := p.closed(r.Task)
 	p.foldLoop(r)
+	if !was && p.closed(r.Task) || r.Kind == KindFact && r.Step == StepDropped {
+		p.clear(r.Task) // merged, dropped or rejected: its watchdog facts end, an asks too (state model rows 12/16a)
+	}
 	p.foldLanes(r)
 	p.foldStart(r)
 	p.foldNightly(r)
@@ -126,6 +130,12 @@ func (p *proj) resume(task string) {
 			delete(p.retry, k)
 		}
 	}
+}
+
+// closed: task is merged, dropped or rejected (its merge loop ended; a new dispatch reopens it).
+func (p *proj) closed(task string) bool {
+	mt := p.folded.loop[task]
+	return mt != nil && (mt.state == stMerged || mt.state == stDropped || mt.state == stRejected)
 }
 
 // clear drops task's watchdog facts in force and the retries of their failed notifications.
