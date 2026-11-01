@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,22 @@ import (
 // Tests for T-640: `make release V=x.y.z` (scripts/release) and `make ship` (scripts/ship). The fixtures are kit copies
 // in a temp repo with a fake go that writes its -o file, so `make check` and `make release` are fast and observable.
 
-const devMarketplace = `{"name":"obor-kit-dev","owner":{"name":"x"},"plugins":[{"name":"obor","source":"./"}]}`
+// devMarketplace is main's marketplace, laid out like the kit's own (one "name" per line: v0.17.2's line-wise sed
+// renamed each of them, T-645).
+const devMarketplace = `{
+  "name": "obor-kit-dev",
+  "owner": { "name": "x" },
+  "plugins": [
+    {
+      "name": "obor",
+      "source": "./"
+    }
+  ]
+}`
+
+// v0172Marketplace is what v0.17.2's flip made of devMarketplace: every "name" set to obor-kit, the owner's and the
+// plugin entry's too, so obor@obor-kit no longer resolved (T-645).
+const v0172Marketplace = `{"name": "obor-kit","owner":{"name": "obor-kit"},"plugins":[{"name": "obor-kit","source":"./"}]}`
 
 // releaseFixture is a kit copy ready for a release of 1.2.4 from VERSION 1.2.3: the Makefile, both scripts, the guide
 // with its v1.2.4 heading, an old catalog, and a fake go. tmp is the TMPDIR its scratch worktree goes to.
@@ -346,8 +362,31 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	if got := f.Read(".claude-plugin/marketplace.json"); !strings.Contains(got, "obor-kit-dev") {
 		t.Errorf("main's marketplace name is gone from %q", got)
 	}
-	if got := f.Git(f.Root, "show", "v1.2.4:.claude-plugin/marketplace.json"); !strings.Contains(got, `"name": "obor-kit"`) {
-		t.Errorf("the tag's marketplace name is not obor-kit: %q", got)
+	// T-645: the flip renames only the marketplace: the owner and the plugin entry keep main's names.
+	tagMarket := f.Git(f.Root, "show", "v1.2.4:.claude-plugin/marketplace.json")
+	var market struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Name string `json:"name"`
+		} `json:"owner"`
+		Plugins []struct {
+			Name string `json:"name"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(tagMarket), &market); err != nil {
+		t.Fatalf("the tag's marketplace does not parse: %v\n%s", err, tagMarket)
+	}
+	if market.Name != "obor-kit" {
+		t.Errorf("the tag's marketplace name is %q, want obor-kit: %s", market.Name, tagMarket)
+	}
+	if market.Owner.Name != "x" {
+		t.Errorf("the tag's marketplace owner is %q, want main's x: %s", market.Owner.Name, tagMarket)
+	}
+	if len(market.Plugins) != 1 || market.Plugins[0].Name != "obor" {
+		t.Errorf("the tag's plugin entries are %+v, want one named obor (plugin.json's name): %s", market.Plugins, tagMarket)
+	}
+	if want := releaseMarketplace; tagMarket != want {
+		t.Errorf("the tag's marketplace = %s, want main's with only the top-level name flipped: %s", tagMarket, want)
 	}
 	if got := f.Git(f.Root, "show", "v1.2.4:VERSION"); got != "1.2.4" {
 		t.Errorf("the tag's VERSION = %q, want 1.2.4", got)
