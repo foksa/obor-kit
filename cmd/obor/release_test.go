@@ -375,6 +375,38 @@ func TestMakeShipRefusesWrongTagBeforePush(t *testing.T) {
 	}
 }
 
+// T-641: the release's nested makes start from a plain make environment. make exports its command-line variables
+// (V=…) into every recipe and reads them back from MAKEFLAGS, so a nested `make check` that inherited them would run
+// the gate's tests with V set, and their own `make release` would take the V= path (`make release V=x` fails its own
+// check).
+func TestMakeReleasePlainMakeEnv(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	caller, check := filepath.Join(f.Base, "caller.env"), filepath.Join(f.Base, "check.env")
+	writeFile(t, filepath.Join(f.Root, "Makefile"),
+		"release:\n"+
+			"\t@printf 'V=[%s] MAKEFLAGS=[%s]' \"$${V-}\" \"$${MAKEFLAGS-}\" > "+caller+"\n"+
+			"\t@sh scripts/release \"$(V)\"\n"+
+			"\ncheck:\n"+
+			"\t@printf 'V=[%s] DRY=[%s] MAKEFLAGS=[%s] MFLAGS=[%s] MAKELEVEL=[%s]' \"$${V-}\" \"$${DRY-}\" \"$${MAKEFLAGS-}\" \"$${MFLAGS-}\" \"$${MAKELEVEL-}\" > "+check+"\n"+
+			"\t@exit 1\n")
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", "a check that records the make environment it was run with")
+
+	out, failed := f.release(t, "V=1.2.4")
+	if !failed || !strings.Contains(out, "make check failed") {
+		t.Fatalf("the recording check must stop the release (failed %v):\n%s", failed, out)
+	}
+	// Precondition: the caller's make does leak its V into the script's environment and MAKEFLAGS (else this is vacuous).
+	got := readFile(t, caller)
+	if !strings.Contains(got, "V=[1.2.4]") || !strings.Contains(got, "MAKEFLAGS=[") || !strings.Contains(got, "V=1.2.4") {
+		t.Fatalf("precondition: the caller's make exports V, got %q", got)
+	}
+	if got, want := readFile(t, check), "V=[] DRY=[] MAKEFLAGS=[] MFLAGS=[] MAKELEVEL=[1]"; got != want {
+		t.Errorf("the release's make check saw %q, want %q: the caller's make variables must not reach it", got, want)
+	}
+}
+
 // shipFixture is a kit copy with an origin (a bare repo on disk) and stubs for gh, obor and install.sh, all of them
 // logging outside the repo so the release's clean-tree check still holds.
 type shipFixture struct {

@@ -102,6 +102,21 @@ func writeFile(t *testing.T, path, text string) {
 	}
 }
 
+// plainMakeEnv is the test process's environment without the make variables an enclosing make exports into every
+// recipe: the gate run as `MAKEFLAGS=' V=0.17.2' make check` (or a test inside `make release V=…`) would otherwise put
+// a test's own `make release` on the V= path (T-641).
+func plainMakeEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		switch name, _, _ := strings.Cut(kv, "="); name {
+		case "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "V", "DRY":
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
 // shimFixture: a stable kit at <Base>/stable; an obor checkout at Root (kit committed, marker "main") with lane L-01
 // (its own uncommitted marker "lane"); a plain repo at <Base>/other; HOME at <Base>/home.
 type shimFixture struct {
@@ -494,7 +509,9 @@ done
 mkdir -p "$(dirname "$out")"
 printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 `)
-	if out, err := exec.Command("make", "-C", dir, "release", "GO="+fake).CombinedOutput(); err != nil {
+	cmd := exec.Command("make", "-C", dir, "release", "GO="+fake)
+	cmd.Env = plainMakeEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("make release: %v\n%s", err, out)
 	}
 	lines := strings.Split(strings.TrimSuffix(readFile(t, filepath.Join(dir, "bin", "checksums.txt")), "\n"), "\n")
