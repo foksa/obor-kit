@@ -49,9 +49,8 @@ func TestLeadLinesOnePost(t *testing.T) {
 	}
 	l := &linerSpy{}
 	a.deliver(context.Background(), p, linerLoop(l))
-	want := []string{"pj-lead: [obor other] m1\n[obor other] m2\n[obor other] m3", "w:rev: [obor owner] check"}
-	if strings.Join(l.calls, "|") != strings.Join(want, "|") {
-		t.Errorf("posted %q, want %q", l.calls, want)
+	if len(l.calls) != 2 || l.calls[1] != "w:rev: [obor owner] check" || !oneLeadPost(l.calls[0]) {
+		t.Errorf("posted %q, want one lead post of m1..m3 in order, then the brief", l.calls)
 	}
 	if n := len(p.queuedLines()); n != 0 {
 		t.Errorf("%d lines still queued", n)
@@ -109,10 +108,25 @@ func TestLeadLinesFailedPost(t *testing.T) {
 	}
 	l.refuse = false
 	a.deliver(context.Background(), p, linerLoop(l))
-	if len(l.calls) != 2 || l.calls[1] != "pj-lead: [obor other] m1\n[obor other] m2\n[obor other] m3" {
+	if len(l.calls) != 2 || !oneLeadPost(l.calls[1]) {
 		t.Errorf("retry posted %q, want the three lines as one", l.calls)
 	}
 	if n := len(p.queuedLines()); n != 0 {
 		t.Errorf("%d lines queued after the retry", n)
 	}
+}
+
+// oneLeadPost: call is one post to the lead of the lines m1, m2, m3 in order, one per row (a send line carries a
+// reply hint after its text).
+func oneLeadPost(call string) bool {
+	rows := strings.Split(strings.TrimPrefix(call, "pj-lead: "), "\n")
+	if !strings.HasPrefix(call, "pj-lead: ") || len(rows) != 3 {
+		return false
+	}
+	for i, row := range rows {
+		if !strings.HasPrefix(row, "[obor other] m"+strconv.Itoa(i+1)) {
+			return false
+		}
+	}
+	return true
 }
