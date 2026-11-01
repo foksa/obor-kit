@@ -67,6 +67,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (owner 11-01) **Release v0.18.0 after this batch** (T-672, T-674, T-675), then stop for the day unless something
+  important: release review (requested --after the three) → fixes if likely → verify → close → Codex smoke on C-01 →
+  docs/UPGRADE-v0.18.md → `make release V=0.18.0` → owner `make ship`, serve restarts → `obor send` the adopting leads;
+  restart the axis monitors and `ob-web`.
 - (RV-68 #3, accepted: low) A needs-you repeat claimed before a task closes can be appended after the close (claim
   and append are not serialized with the close); fixing needs a lock-order change.
 - (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
