@@ -19,13 +19,16 @@ the app tells the owner what needs them.
   tools of the same names and arguments as the verbs (`accept` `{patch, note}`, `sendback` `{why}`, `reject` `{why}`,
   `resolved`, `hold` `{why}`), not the CLI; a refusal (`stale`, an older job) comes back as the tool's text. A repeat
   of the wake returns the same job.
-- **Review job** (`…/review`): the gate is green. The job names the spec, quotes the worker's report, names the candidate and its patch hash, and
-  carries the candidate's `diff --stat` and, when it is at most 15 KB, its whole diff (inline: no `git diff` call
+- **Review job** (`…/review`): the gate is green. The job names the spec, quotes the worker's report (and, apart,
+  its `Open questions:` section when it leaves something open), names the candidate and its patch hash, and carries
+  the candidate's `diff --stat` and, when it is at most 15 KB, its whole diff (inline: no `git diff` call
   needed); a larger diff you read with the `git diff <target> <sha>` it gives. Check it on the candidate:
   1. Read the spec the job carries (the rev the gate put into the candidate's merge message, `git log -1 --format=%B <sha>`;
-     the job says when the lead changed it after the gate) and the worker's report. **Hold instead of accepting** on open
-     questions, a deviation the spec didn't allow, a change outside the task's goal, or missing Self-check evidence you can't
-     cheaply produce. Otherwise acceptance is yours.
+     the job says when the lead changed it after the gate) and the worker's report. **Open questions are yours to
+     settle** (T-649): decide one whose answer is inside the spec's goal and decisions (`decided: <what> — <why>` in
+     the accept note); `hold` one that changes scope, a contract, config or a protected file. **Hold instead of
+     accepting** on such a question, a deviation the spec didn't allow, a change outside the task's goal, or missing
+     Self-check evidence you can't cheaply produce. Otherwise acceptance is yours.
   2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced, T-496), each where
      `docs/module-map.md` puts it. Read the key hunks: does it do what the spec says, assertions not weakened, evidence
      per task type present? New files and packages: check their placement against `docs/module-map.md`.
@@ -36,9 +39,9 @@ the app tells the owner what needs them.
     `Concerns:` line go into the note.
   - `sendback {why}`: back to the worker (2 per task; after that the owner decides).
   - `reject {why}`: dropped for good, the owner is told.
-  - `hold {why}`: for what only the owner can decide (an open question,
-    a deviation the spec didn't allow, a change outside the task's goal). Not terminal: the job stays open (your verdict on it
-    still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
+  - `hold {why}`: for what only the owner can decide (an open question that changes scope, a contract, config or a
+    protected file; a deviation the spec didn't allow; a change outside the task's goal). Not terminal: the job stays
+    open (your verdict on it still counts), the owner is told and resumes it (`obor resume`), and a new job follows. When the job carries
     `Lead's decision on your hold: …`, that decision is the owner's answer: apply it, don't hold again for it.
   - `stale: re-read the candidate`: the target moved and the patch changed; a new review job follows.
 - **Resolve job** (`…/resolve`): the merge conflicts in serve's worktree the job names (`merge.scratch_dir`).

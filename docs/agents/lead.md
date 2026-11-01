@@ -14,8 +14,8 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,
   after_merge, scratch busy) ends with `obor resume <T-xx> [regate|reprompt] ["<decision>"]` once its cause is dealt with (a held review: put the
-  decision in the text; it reaches the integrator's next job; open questions: the decision is required and reaches the
-  worker too).
+  decision in the text; it reaches the integrator's next job). A report's open questions go to the integrator's review job: it
+  decides the in-goal ones and holds the rest for you (T-649).
 - axis-alies (`~/Gamedev/axis-alies`) is source material only, read-only for obor-kit; its lead is the Claude session
   `axis-alies-30` or its successor; changes go to it as a change list.
 

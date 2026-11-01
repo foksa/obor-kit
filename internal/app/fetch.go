@@ -460,19 +460,19 @@ func reportSection(text, name string) string {
 var headingLineRe = regexp.MustCompile(`(?i)^\s*(?:#{1,6}\s+\S|\*\*[^*\n]{1,40}\*\*|[A-Za-z][A-Za-z0-9 ()/&'-]{0,30}:)`)
 
 // noOpenQuestionRe is an Open questions section that leaves nothing open: its first word is none or n/a (whatever
-// follows: "none (the lead decided X)."), a lone - (a "- item" is a bullet list), or exactly no followed by nothing
-// or punctuation ("No."; "no idea whether X" stays a question). Case-insensitive; a longer word ("Nonetheless") is
-// no match.
+// follows: "none new.", "none (the lead decided X).", "None — answered"), a lone - (a "- item" is a bullet list), or
+// exactly no followed by nothing or punctuation ("No."; "no idea whether X" stays a question). Case-insensitive; a
+// longer word ("Nonetheless") is no match.
 var noOpenQuestionRe = regexp.MustCompile(`(?i)^(?:(?:none|n/a)(?:$|[^\p{L}\p{N}])|-$|no(?:$|\s*[^\p{L}\p{N}\s]))`)
 
 // openQuestions is report's Open questions: section when it leaves something open — anything not starting with the
-// word none, n/a, - or no (see noOpenQuestionRe) — as one line; "" when it leaves nothing open (T-604, T-616).
+// word none, n/a, - or no (see noOpenQuestionRe), verbatim; "" when it leaves nothing open (T-616, T-649).
 func openQuestions(report string) string {
 	q := reportSection(report, "Open questions")
 	if q == "" || noOpenQuestionRe.MatchString(q) {
 		return ""
 	}
-	return strings.Join(strings.Fields(q), " ")
+	return q
 }
 
 // clip is s cut to n bytes at a rune boundary.

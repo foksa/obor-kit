@@ -149,9 +149,9 @@ func TestLeadSendback(t *testing.T) {
 	}
 }
 
-// T-619: the lead cannot type a change into the worker's pane. From a needs-you of any merge-loop cause (open questions,
-// sendbacks past K, a red gate) obor sendback ends the hold and starts the next attempt, the worker's fix job carrying
-// the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
+// T-619: the lead cannot type a change into the worker's pane. From a needs-you of any merge-loop cause (the
+// integrator's hold, sendbacks past K, a red gate) obor sendback ends the hold and starts the next attempt, the worker's
+// fix job carrying the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
 func TestLeadSendbackFromNeedsYou(t *testing.T) {
 	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
 	for _, c := range []struct {
@@ -160,28 +160,22 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 		report    string
 		sendbacks int
 	}{
-		{"open questions", causeOpen, full + "\nOpen questions: should it use sqlite?", 0},
+		{"integrator hold", causeHeld, full + "\nOpen questions: should it use sqlite?", 0},
 		{"sendbacks", causeSendbacks, full, K},
 		{"red", causeRed, full, K},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h, f := seedQuestions(t, c.report)
-			if c.cause == causeOpen {
-				if mt := pickGreenStep(t, h, f, false); mt.state != stNeedsYou || mt.needs.Fact().Cause != causeOpen {
-					t.Fatalf("precondition: T-1 %s; want the open-questions hold", mt.state)
-				}
-			} else {
-				if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
-					t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
-				}
-				h.a.mu.Lock()
-				h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
-				h.a.mu.Unlock()
-				addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: c.cause,
-					Reason: c.cause + ": the integrator's limit"})
-				if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
-					t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
-				}
+			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
+				t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
+			}
+			h.a.mu.Lock()
+			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
+			h.a.mu.Unlock()
+			addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: c.cause,
+				Reason: c.cause + ": the integrator's limit"})
+			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
+				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
 			}
 			const why = "use the config store; drop the extra test"
 			reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-lead",
