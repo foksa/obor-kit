@@ -162,3 +162,5 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   have pushed the tag first, which is harmless (the tag is the release). Fetch, then re-run ship.
 - (DD-routing #1 (b), deferred) If workers still re-ask after T-655's template line: keep the lead's hold decision
   across attempts in serve (a decision stays in every later job of the task until it merges). Lead's call then.
+- (owner 11-01) When T-668 merges: restart the monitor process in each project's `system` tab (Ctrl-C, `obor monitor`)
+  so it runs the new build; check it fits and scrolling up no longer moves.
