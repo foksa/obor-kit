@@ -1,5 +1,21 @@
 # Upgrading an obor project from v0.16 to v0.17
 
+## v0.17.1 (patch)
+Re-run the installer, then `obor serve restart` in each project. No config change.
+- `obor init` works in an empty directory (runs `git init` and makes the first commit, only when the directory held
+  nothing but `.git`; with your own files present it asks you to commit first). On a Claude-only machine a difficulty
+  level whose lane types have no lane falls back (simple → sonnet) instead of waiting forever (T-629, T-631).
+- `obor init` puts a project's panes in its own herdr workspace (creating one when none has the project's panes) and
+  waits for a new pane's shell before starting its agent (T-628, T-632, T-634). Run it from a shell in the project's
+  own workspace.
+- After a herdr restart, a session that never got a prompt starts fresh instead of leaving a shell; a failed search
+  for a session's transcript refuses instead of starting fresh (T-627, T-633).
+- A merged, dropped or rejected task's old needs-you facts end, so the hourly reminder no longer reposts them; an old
+  log's stale ones end at the next serve start (T-635).
+- The plugin version is checked against `VERSION` (T-630).
+- Known, low (fixed in the next patch, T-636): a worker stop recorded just after its task closed can leave one stale
+  needs-you; a rejected task can leave one notification pending.
+
 ## Before you upgrade
 v0.17 deletes v0.16's one-release herd compatibility (T-625): `bin/herd`, `HERD_*` env, `[herd job` tags, the
 `<agent>.sid` session files and `obor migrate`. A project still on `.herd/` now loads as no obor project: hooks do

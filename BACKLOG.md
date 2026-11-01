@@ -54,6 +54,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-68 #3, accepted: low) A needs-you repeat claimed before a task closes can be appended after the close (claim
+  and append are not serialized with the close); fixing needs a lock-order change.
 - (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
   whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier
   misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored
