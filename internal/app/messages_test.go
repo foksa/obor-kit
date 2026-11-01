@@ -358,7 +358,12 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 		t.Errorf("needs-you recorded %d times, want once", n)
 	}
 	r.inbox.record("pj-lead")
-	r.waitFor("resumed", func() bool { return r.taskStep(app.MsgTask, "fact resumed") == 1 })
+	// The records the assertions below read: the line posted, the resumed fact in the log and folded out of the facts
+	// in force (the log and the status fold are not updated in one step).
+	r.waitFor("resumed", func() bool {
+		return r.taskStep(app.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", "[obor other] hello") == 1 &&
+			len(r.msgFacts()) == 0
+	})
 	if r.inbox.count("pj-lead", "[obor other] hello") != 1 || len(r.msgFacts()) != 0 {
 		t.Errorf("posted %d, facts %+v; want posted once, none in force", r.inbox.count("pj-lead", "[obor other] hello"),
 			r.msgFacts())
