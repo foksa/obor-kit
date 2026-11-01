@@ -23,6 +23,7 @@ plugin
 setup
 init
 status
+monitor
 restart
 lead
 serve

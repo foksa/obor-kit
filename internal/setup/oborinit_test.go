@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"obor/internal/config"
+	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -172,8 +173,26 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 			tabs = append(tabs, q)
 		}
 	}
-	if len(tabs) != 2 || !strings.Contains(tabs[0], "label=workers") || !strings.Contains(tabs[1], "label=review") {
+	if len(tabs) != 3 || !strings.Contains(tabs[0], "label=workers") || !strings.Contains(tabs[1], "label=review") ||
+		!strings.Contains(tabs[2], "label=system") {
 		t.Errorf("tabs created: %q", tabs)
+	}
+	// T-658: the monitor pane in the "system" tab, labelled <prefix>-monitor, running obor monitor.
+	var mon *herdrtest.Pane
+	for _, p := range x.h.Panes {
+		if p.Label == "proj-monitor" {
+			mon = p
+		}
+	}
+	if mon == nil {
+		t.Fatalf("no pane labelled proj-monitor in %+v", x.h.Panes)
+	}
+	if !strings.Contains(tabs[2], "cwd="+x.Root) || x.h.TabLabels[mon.Tab] != "system" {
+		t.Errorf("monitor pane %s in tab %s (%q), want the system tab in the project root",
+			mon.ID, mon.Tab, x.h.TabLabels[mon.Tab])
+	}
+	if n := strings.Count(strings.Join(x.reqs(), "\n"), "pane.send_input keys=[Enter] pane_id="+mon.ID+" text=obor monitor"); n != 1 {
+		t.Errorf("obor monitor typed in pane %s %d times, want once\n%s", mon.ID, n, x.reqs())
 	}
 	if n := strings.Count(strings.Join(x.reqs(), "\n"), "plugin.list"); n != 1 {
 		t.Errorf("plugin.list read %d times, want once for the events step (T-613)", n)
@@ -181,7 +200,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if x.serves != 1 {
 		t.Errorf("serve install called %d times", x.serves)
 	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "serve"} {
+	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "monitor", "serve"} {
 		if stateOf(out, st) != "done" {
 			t.Errorf("step %s: %q, want done\n%s", st, summary(out, st), out)
 		}
@@ -435,6 +454,12 @@ func TestOborInitRerunChangesNothing(t *testing.T) {
 	cfg := x.Read(".obor/config.json")
 	calls, agents, wt := x.claudeCalls(), x.agents(t), x.Git(x.Root, "worktree", "list")
 	x.reset()
+	// T-658: the monitor runs in its pane (a shell has its own foreground group).
+	for _, p := range x.h.Panes {
+		if p.Label == "proj-monitor" {
+			p.Foreground = 2
+		}
+	}
 	out := x.init(t)
 	if x.Read(".obor/config.json") != cfg {
 		t.Errorf("config changed on a rerun")
@@ -449,13 +474,13 @@ func TestOborInitRerunChangesNothing(t *testing.T) {
 		t.Errorf("worktrees:\n%s\nwere:\n%s", got, wt)
 	}
 	for _, r := range x.reqs() {
-		for _, m := range []string{"agent.start", "pane.split", "tab.create", "plugin.link", "plugin.unlink"} {
+		for _, m := range []string{"agent.start", "pane.split", "tab.create", "pane.send_input", "plugin.link", "plugin.unlink"} {
 			if strings.HasPrefix(r, m) {
 				t.Errorf("rerun sent %s", r)
 			}
 		}
 	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "serve"} {
+	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "monitor", "serve"} {
 		if stateOf(out, st) != "already" {
 			t.Errorf("rerun step %s: %q, want already\n%s", st, summary(out, st), out)
 		}

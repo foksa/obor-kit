@@ -3,15 +3,17 @@ package launch
 // The obor.events herdr plugin's restore (`obor plugin restore`; design "herdr integration"; T-470: package plugin
 // moved here). herdr runs the manifest's command from the plugin directory; the command backgrounds the work at once
 // (cmd/obor), so herdr never waits on it. It acts only on panes whose label is an agent of an obor project (R-28 §2:
-// obor setup and obor restart label the pane): the main checkout of the pane cwd's repository, when its config knows
-// the label. Anything else (no label, no git, no .obor/config.json, a label the project has no agent for) is silent.
+// obor setup and obor restart label the pane) or the project's monitor pane (T-658): the main checkout of the pane
+// cwd's repository, when its config knows the label. Anything else (no label, no git, no .obor/config.json, a label
+// the project has no agent for) is silent.
 //
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
 // (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A pane with no recorded
 // session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
-// fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log (last 200).
+// fresh with no prompt wrote no transcript either, so no restart could resume it). The monitor pane runs a command,
+// not an agent: it gets `obor monitor` typed at its shell again (T-658). Log: ~/.obor/restore.log (last 200).
 
 import (
 	"bufio"
@@ -56,11 +58,11 @@ func (p *Restorer) stamp() string {
 	return now().Format("2006-01-02 15:04:05")
 }
 
-// paneProject is the loaded config of the obor project a pane labelled agent with cwd belongs to: the main checkout
-// of cwd's repository, when its .obor/config.json knows agent (project.AgentLookup; the cwd is no fallback). ok false
-// otherwise.
-func paneProject(agent, cwd string) (cfg *config.Config, ok bool) {
-	if agent == "" || cwd == "" {
+// paneConfig is the loaded config of the obor project a pane with cwd belongs to: the main checkout of cwd's
+// repository (the cwd is no fallback; ok false otherwise). What the pane's label is made of is the caller's: an
+// agent's (project.AgentLookup), the monitor's (config.MonitorLabel; T-658).
+func paneConfig(cwd string) (cfg *config.Config, ok bool) {
+	if cwd == "" {
 		return nil, false
 	}
 	repo, err := project.Find(cwd)
@@ -68,9 +70,6 @@ func paneProject(agent, cwd string) (cfg *config.Config, ok bool) {
 		return nil, false
 	}
 	if cfg, err = config.Load(repo.Root); err != nil {
-		return nil, false
-	}
-	if _, ok = project.AgentLookup(cfg, agent, ""); !ok {
 		return nil, false
 	}
 	return cfg, true
@@ -95,14 +94,54 @@ func (p *Restorer) Restore(ctx context.Context) {
 	}
 	log := RestoreLog(p.Env)
 	for _, pane := range panes {
-		cfg, ok := paneProject(pane.Label, pane.Cwd)
+		if pane.Label == "" {
+			continue
+		}
+		cfg, ok := paneConfig(pane.Cwd)
 		if !ok {
+			continue
+		}
+		if pane.Label == cfg.MonitorLabel() { // the monitor pane: a command, no session to resume (T-658)
+			appendLog(log, func(w io.Writer) { p.restoreMonitor(cfg, pane, w) })
+			continue
+		}
+		if _, ok := project.AgentLookup(cfg, pane.Label, ""); !ok {
 			continue
 		}
 		appendLog(log, func(w io.Writer) {
 			p.restoreOne(ctx, cfg, pane, limit, w)
 		})
 	}
+}
+
+// restoreMonitor starts the monitor again in its pane: the pane runs no agent and is at its shell (nothing runs there:
+// a monitor that survives needs nothing). It has no session to resume, so nothing is recorded.
+func (p *Restorer) restoreMonitor(cfg *config.Config, pane app.PaneInfo, w io.Writer) {
+	now := p.stamp()
+	switch {
+	case pane.Kind != "":
+		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, pane.Label, pane.ID, pane.Kind)
+		return
+	case !p.atShell(pane.ID):
+		fmt.Fprintf(w, "%s skip %s (pane %s): a command runs there\n", now, pane.Label, pane.ID)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), panesTimeout)
+	defer cancel()
+	if err := p.H.Type(ctx, pane.ID, project.MonitorCommand); err != nil {
+		fmt.Fprintf(w, "%s restore %s (pane %s) in %s: FAIL %v\n", now, pane.Label, pane.ID, cfg.Root, err)
+		return
+	}
+	fmt.Fprintf(w, "%s restore %s (pane %s) in %s: %s\n", now, pane.Label, pane.ID, cfg.Root, project.MonitorCommand)
+}
+
+// atShell: nothing runs in pane beyond its shell (an unreadable process info: not a shell, so nothing is typed over
+// whatever may be there).
+func (p *Restorer) atShell(pane string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), panesTimeout)
+	defer cancel()
+	pi, err := p.H.ProcessInfo(ctx, pane)
+	return err == nil && pi.AtShell()
 }
 
 func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane app.PaneInfo, limit time.Duration, w io.Writer) {

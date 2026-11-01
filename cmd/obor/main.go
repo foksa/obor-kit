@@ -79,6 +79,8 @@ func main() {
 		exit(whoami(args))
 	case "status":
 		exit(status(args))
+	case "monitor":
+		exit(monitorCmd(args))
 	case "config":
 		exit(configCmd(args))
 	case "hook":
@@ -172,6 +174,7 @@ var commands = map[string][]string{
 	"whoami":          nil,
 	"init":            nil,
 	"status":          nil,
+	"monitor":         nil,
 	"config":          {"get", "validate"},
 	"hook":            {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},
 	"version":         nil,
@@ -198,7 +201,7 @@ var commands = map[string][]string{
 	"plugin":          {"restore"},
 	"serve":           {"status", "install", "uninstall", "restart"},
 	"mcp":             nil,
-	"setup":           {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "opencode-plugin"},
+	"setup":           {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "opencode-plugin", "monitor"},
 }
 
 // has is `obor has <subcommand> [<sub-subcommand>]`: exit 0 when implemented, 1 when not; no output.

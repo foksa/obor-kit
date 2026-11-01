@@ -168,6 +168,13 @@ type PaneInfo struct {
 	Workspace, Transcript string
 }
 
+// TabInfo is one herdr tab (tab.list): its id, its workspace, the label it shows, its number there and how many panes
+// it holds. obor finds the project's "system" tab by its label (obor setup monitor, T-658).
+type TabInfo struct {
+	ID, Workspace, Label string
+	Number, Panes        int
+}
+
 // Process is one foreground process of a pane.
 type Process struct {
 	PID     int      `json:"pid"`

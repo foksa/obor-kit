@@ -21,10 +21,10 @@ import (
 // answers ping, session.snapshot, agent.list, agent.get, pane.list, pane.get, pane.process_info, pane.layout and
 // pane.read from F's panes, plays agent.prompt and agent.send_keys on them (Pane.OnPrompt, Prompts, Draft, Submitted,
 // OnEnter; a "fail-typed" prompt is typed, then its connection drops unanswered; OnEnter "fail" refuses an Enter),
-// pane.send_input, pane.send_keys, pane.rename, agent.rename, agent.start, pane.split and tab.create, plugin.list,
-// plugin.link and plugin.unlink on F's Plugins, notification.show, and takes events.subscribe (a pane_id that F has
-// not is pane_not_found); every other method answers what Reply, Fail or Once scripted (a scripted failure comes
-// first, then a scripted answer).
+// pane.send_input, pane.send_keys, pane.rename, agent.rename, agent.start, pane.split, tab.create, tab.list,
+// plugin.list, plugin.link and plugin.unlink on F's Plugins, notification.show, and takes events.subscribe (a pane_id
+// that F has not is pane_not_found); every other method answers what Reply, Fail or Once scripted (a scripted failure
+// comes first, then a scripted answer).
 // Push sends an event to the connections subscribed to it, PushError an error line to every subscribed connection.
 type Server struct {
 	Path string
@@ -692,13 +692,18 @@ func (s *Server) answer(c *conn, method string, params json.RawMessage) (map[str
 	case "tab.create":
 		var p struct {
 			Workspace string `json:"workspace_id"`
+			Label     string `json:"label"`
 			Cwd       string `json:"cwd"`
 		}
 		_ = json.Unmarshal(params, &p)
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		n := f.newTab(p.Workspace, p.Cwd)
+		n := f.newTab(p.Workspace, p.Label, p.Cwd)
 		return ok(map[string]any{"type": "tab_created", "tab": map[string]any{"tab_id": n.Tab}, "root_pane": n.paneJSON()}), nil
+	case "tab.list":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return ok(map[string]any{"type": "tab_list", "tabs": f.tabList()}), nil
 	case "workspace.create":
 		var p struct {
 			Label string `json:"label"`

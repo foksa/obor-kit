@@ -43,6 +43,10 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
 //	        workspace): see rename.go.
 //
+//	monitor  the project's monitor pane (T-658): `obor monitor` in a tab labelled "system" of the project's workspace
+//	        (the tab reused when there is one), the pane labelled <prefix>-monitor (config.MonitorLabel); a pane left at
+//	        its shell gets the command again, a monitor that runs is left alone.
+//
 //	show  the setup table, read-only (T-647): per difficulty level each lane type the project has for it, in order, with
 //	        that type's model and effort and the lanes that run it (T-653), the level's fallback; the roles' types;
 //	        whether the owner confirmed it.
@@ -79,6 +83,7 @@ type Herdr interface {
 	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
 	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
 	NewWorkspace(ctx context.Context, label, cwd string) (string, error)
+	Tabs(ctx context.Context) ([]app.TabInfo, error)
 	Plugins(ctx context.Context) ([]app.Plugin, error)
 	LinkPlugin(ctx context.Context, dir string) error
 	UnlinkPlugin(ctx context.Context, id string) error
@@ -123,7 +128,7 @@ func Usage() string {
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | show | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | monitor | show | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -154,6 +159,8 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.renameCmd(ctx, args)
 	case "show":
 		err = s.show(args)
+	case "monitor": // `obor setup monitor` (T-658): the project's monitor pane
+		err = s.monitor(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {

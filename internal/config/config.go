@@ -665,6 +665,10 @@ func (c *Config) AgentName(role, lane string) string {
 	return rc.Role.AgentName(c.Data.Prefix, lane, rc.Agent)
 }
 
+// MonitorLabel is the label of the project's monitor pane, <prefix>-monitor: obor setup monitor creates it and the
+// restore hook starts `obor monitor` in it again (T-658). It is no agent name: nothing dispatches to it.
+func (c *Config) MonitorLabel() string { return c.Data.Prefix + "-monitor" }
+
 // roleAgents is every table role but the worker, an optional one only when configured.
 func (c *Config) roleAgents() []RoleConfig {
 	var out []RoleConfig

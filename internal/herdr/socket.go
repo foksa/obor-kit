@@ -525,6 +525,28 @@ func (s *Socket) NewTab(ctx context.Context, workspace, label, cwd string, env .
 	return r.Root.ID, nil
 }
 
+// Tabs is tab.list: every tab of every workspace, with the label it shows: obor setup finds the project's "system" tab
+// by it (T-658).
+func (s *Socket) Tabs(ctx context.Context) ([]TabInfo, error) {
+	var r struct {
+		Tabs []struct {
+			ID        string `json:"tab_id"`
+			Workspace string `json:"workspace_id"`
+			Label     string `json:"label"`
+			Number    int    `json:"number"`
+			Panes     int    `json:"pane_count"`
+		} `json:"tabs"`
+	}
+	if err := s.call(ctx, 0, &r, "tab.list", nil); err != nil {
+		return nil, err
+	}
+	out := make([]TabInfo, 0, len(r.Tabs))
+	for _, t := range r.Tabs {
+		out = append(out, TabInfo{ID: t.ID, Workspace: t.Workspace, Label: t.Label, Number: t.Number, Panes: t.Panes})
+	}
+	return out, nil
+}
+
 // NewWorkspace is workspace.create: a new workspace labelled label, its first tab's root pane a shell in cwd, not
 // focused; the workspace's id (T-632).
 func (s *Socket) NewWorkspace(ctx context.Context, label, cwd string) (string, error) {
@@ -1127,10 +1149,11 @@ func trimSlash(p string) string {
 	return p
 }
 
-// Rect and Plugin are the core's types (pane.layout, plugin.list), so setup need not import herdr.
+// Rect, Plugin and TabInfo are the core's types (pane.layout, plugin.list, tab.list), so setup need not import herdr.
 type (
-	Rect   = app.Rect
-	Plugin = app.Plugin
+	Rect    = app.Rect
+	Plugin  = app.Plugin
+	TabInfo = app.TabInfo
 )
 
 // layoutAnswer is herdr's answer to pane.layout.

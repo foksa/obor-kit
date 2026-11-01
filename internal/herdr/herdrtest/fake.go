@@ -85,6 +85,7 @@ type Fake struct {
 	Panes      []*Pane
 	Plugins    []Plugin          // nil: plugin.list answers an empty list
 	Workspaces []herdr.Workspace // session.snapshot's workspaces
+	TabLabels  map[string]string // tab id → the label tab.list shows (tab.create's label)
 	made       int               // panes made by pane.split and tab.create
 	// NewPaneBusy: a pane pane.split or tab.create makes is not an available shell for this long (0: at once, T-628).
 	NewPaneBusy time.Duration
@@ -336,14 +337,20 @@ func (f *Fake) split(t *Pane, dir, cwd string) *Pane {
 	return n
 }
 
-// newTab adds a tab in workspace ws ("": w1) and returns its root pane, in cwd.
-func (f *Fake) newTab(ws, cwd string) *Pane {
+// newTab adds a tab labelled label in workspace ws ("": w1) and returns its root pane, in cwd.
+func (f *Fake) newTab(ws, label, cwd string) *Pane {
 	f.made++
 	if ws == "" {
 		ws = "w1"
 	}
 	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made), Workspace: ws, Cwd: cwd,
 		W: 200, H: 50}
+	if label != "" {
+		if f.TabLabels == nil {
+			f.TabLabels = map[string]string{}
+		}
+		f.TabLabels[n.Tab] = label
+	}
 	if f.NewPaneBusy > 0 {
 		n.Ready = time.Now().Add(f.NewPaneBusy)
 	}
@@ -360,6 +367,27 @@ func (f *Fake) newWorkspace(label, cwd string) *Pane {
 	n := &Pane{ID: ws + ":p1", Tab: ws + ":t1", Workspace: ws, Cwd: cwd, W: 200, H: 50}
 	f.Panes = append(f.Panes, n)
 	return n
+}
+
+// tabList is herdr's tab.list: each tab of the panes, in their order, its label ("" when none), number and pane
+// count.
+func (f *Fake) tabList() []any {
+	var tabs []any
+	seen := map[string]bool{}
+	count := map[string]int{}
+	for _, p := range f.Panes {
+		count[p.Tab]++
+	}
+	for _, p := range f.Panes {
+		if p.Tab == "" || seen[p.Tab] {
+			continue
+		}
+		seen[p.Tab] = true
+		label := f.TabLabels[p.Tab]
+		tabs = append(tabs, map[string]any{"tab_id": p.Tab, "workspace_id": p.Workspace, "number": len(tabs) + 1,
+			"label": label, "focused": len(tabs) == 0, "pane_count": count[p.Tab], "agent_status": "unknown"})
+	}
+	return tabs
 }
 
 func (f *Fake) pluginList() []any {
