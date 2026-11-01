@@ -236,7 +236,9 @@ func TestMakeReleaseVersionMismatch(t *testing.T) {
 	log := filepath.Join(dir, "go.log")
 	fake := filepath.Join(dir, "fake-go")
 	writeExec(t, fake, "#!/bin/bash\necho \"$*\" >> \""+log+"\"\n")
-	out, err := exec.Command("make", "-s", "-C", dir, "release", "GO="+fake).CombinedOutput()
+	cmd := exec.Command("make", "-s", "-C", dir, "release", "GO="+fake)
+	cmd.Env = plainMakeEnv()
+	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("make release with plugin 0.9.9 and VERSION 1.2.3 succeeded:\n%s", out)
 	}

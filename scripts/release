@@ -33,6 +33,14 @@ scratch="${tmpdir%/}/obor-release-$v"
 fail() { echo "FAIL $*" >&2; exit 1; }
 say() { echo "release: $*"; }
 
+# plain_make: a nested make starts from a plain make environment. make runs a recipe with its command-line variables
+# (V=…, DRY=…) and its own MAKEFLAGS, MFLAGS and MAKELEVEL in the environment, and a nested make reads them back: under
+# `make release V=x` the check would run with V=x, and the tests it runs would take their own `make release`'s V= path
+# (T-641).
+plain_make() {
+  env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY make "$@"
+}
+
 # A failure before the version commit leaves the tree clean: the bump is undone (the re-run starts from scratch).
 bumped=0
 tmp=
@@ -114,7 +122,7 @@ else
     mv "$tmp" .claude-plugin/plugin.json || fail "cannot set the plugin version in .claude-plugin/plugin.json"
   tmp=
   say "VERSION and the plugin version set to $v; running make check"
-  make check || fail "make check failed: nothing is committed (VERSION and the plugin version are back as they were)"
+  plain_make check || fail "make check failed: nothing is committed (VERSION and the plugin version are back as they were)"
   git add VERSION .claude-plugin/plugin.json
   git commit -q -m "obor v$v: VERSION, plugin version" || fail "cannot commit the version bump on main"
   bumped=0
@@ -165,7 +173,7 @@ else
   sed 's/"name"[[:space:]]*:[[:space:]]*"[^"]*"/"name": "obor-kit"/' "$market" > "$tmp" &&
     mv "$tmp" "$market" || fail "cannot set the marketplace name in $market"
   tmp=
-  ( cd "$scratch" && make release V= ) || fail "make release failed in $scratch: nothing is tagged"
+  ( cd "$scratch" && plain_make release V= ) || fail "make release failed in $scratch: nothing is tagged"
   ( cd "$scratch" && git add bin/checksums.txt .claude-plugin/marketplace.json &&
     git commit -q -m "obor v$v: marketplace name, checksums" &&
     git tag -a "$tag" -m "obor $tag" ) || fail "cannot commit and tag the release in $scratch"
