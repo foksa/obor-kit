@@ -35,7 +35,8 @@ func (a *App) load(root string) (*proj, error) {
 		out:     newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
 		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
-		unwritten: map[Key]json.RawMessage{}, scratch: make(chan struct{}, 1), held: map[string]string{}, ended: map[string]bool{},
+		unwritten: map[Key]json.RawMessage{}, exec: map[Key]time.Time{}, scratch: make(chan struct{}, 1),
+		held: map[string]string{}, ended: map[string]bool{},
 		reg: newRegistry(), folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)

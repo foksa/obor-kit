@@ -224,6 +224,24 @@ func TestMonitorSections(t *testing.T) {
 	}
 }
 
+// TestMonitorPendingLine (T-662): the monitor draws the pending line under the running one — the same projection as
+// obor status: a failed step with the age of its failure and its reason, a queued one as queued.
+func TestMonitorPendingLine(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	st := statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
+		Pending: []app.PendingStep{
+			{Step: app.StepAfterMerge, Task: "T-1", Since: now.Add(-time.Hour).Unix(),
+				Error: "git I/O: index.lock exists", FailedAt: now.Add(-4 * time.Minute).Unix()},
+			{Step: app.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
+		}}
+	sec := monitorSections(st, nil, now, false)[0]
+	if len(sec) < 3 || sec[1] != "running: nothing" ||
+		sec[2] != "pending: after_merge T-1 (failed 4m ago: git I/O: index.lock exists) · gate T-2 (queued)" {
+		t.Errorf("the monitor's serve section %q, want serve's line, `running: nothing` and the pending line", sec)
+	}
+}
+
 // TestMonitorTruncatesLaterSections: at 6 rows the later sections go first — the events are gone, the last line says
 // the view was cut, and serve's line and the needs-you stay.
 func TestMonitorTruncatesLaterSections(t *testing.T) {

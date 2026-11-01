@@ -212,6 +212,9 @@ type proj struct {
 	// none; under mu).
 	scratch chan struct{}
 	running Key
+	// exec: the effects running now, each with when its start began (App.do). obor status' running line lists the
+	// command steps among them; an open intent not here is pending (T-662). Under mu.
+	exec map[Key]time.Time
 	// restarting: since when serve ends itself on the new build after a green after_merge (T-652): a status request
 	// answered meanwhile shows "restarting serve" (T-657; zero: no self-restart pending).
 	restarting time.Time

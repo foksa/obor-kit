@@ -88,14 +88,16 @@ func ReadMerges(root string) ([]Merge, error) {
 }
 
 // nightlyState is the nightly full check's fold: its last intent's step and whether it has a result, the counted
-// failures per step and the time of the last one, the last outcome while no needs-you or resumed fact has followed it,
-// whether a run is going, the day's step Due last answered false for, and the project's merges (Due's input).
+// failures per step and the time and reason of the last one, the last outcome while no needs-you or resumed fact has
+// followed it, whether a run is going, the day's step Due last answered false for, and the project's merges (Due's
+// input).
 type nightlyState struct {
 	merges    []Merge
 	step      string
 	done      bool
 	fails     map[string]int
 	failedAt  time.Time
+	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line, T-662)
 	unsettled *NightlyOut
 	running   bool   // runNightly runs (under mu; only the merge loop's pass starts one)
 	notDue    string // in memory only: a restart asks again
@@ -126,7 +128,7 @@ func (p *proj) foldNightly(r Record) {
 			n.fails = map[string]int{}
 		}
 		n.fails[r.Fact().Step]++
-		n.failedAt = recordTime(r)
+		n.failedAt, n.failedWhy = recordTime(r), r.Fact().Reason
 	case r.Kind == KindFact && (r.Step == StepNeedsYou || r.Step == StepResumed):
 		n.unsettled = nil
 	}

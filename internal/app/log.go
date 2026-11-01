@@ -387,7 +387,8 @@ func (l *Log) Done(k Key) bool {
 }
 
 // OpenIntents is every intent without a result, running or not, in seq order: the steps whose effect runs now, or was
-// left to run again after a crash (App.do). obor status' running line lists the command steps among them (T-657).
+// left to run again after a crash (App.do). obor status' running line lists the command steps among them whose effect
+// runs now, its pending line the others (T-657, T-662).
 func (l *Log) OpenIntents() []Record {
 	l.mu.Lock()
 	defer l.mu.Unlock()

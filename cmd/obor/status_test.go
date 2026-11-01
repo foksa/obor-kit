@@ -415,8 +415,46 @@ func TestStatusRunningLine(t *testing.T) {
 	}
 }
 
+// T-662: the pending line under the running one names the command steps whose effect does not run now: a failed step
+// with the age of its last failure and its reason (its first line, short), one that never failed as queued; no line at
+// all when nothing waits, and --json carries the same steps.
+func TestStatusPendingLine(t *testing.T) {
+	p := testkit.New(t)
+	p.Config()
+	now := time.Now().Truncate(time.Second)
+	pending := []app.PendingStep{
+		{Step: app.StepAfterMerge, Task: "T-655", Since: now.Add(-time.Hour).Unix(),
+			Error: "git I/O: index.lock exists", FailedAt: now.Add(-3 * time.Minute).Unix()},
+		{Step: app.StepGate, Task: "T-656", Since: now.Add(-time.Minute).Unix()},
+	}
+	ss := app.Status{Connected: true, Project: &app.ProjectStatus{Name: "pj", Root: p.Root,
+		Running: []app.RunningStep{{Step: app.StepGate, Task: "T-654", Since: now.Add(-time.Minute).Unix()}},
+		Pending: pending}}
+	st, text := statusOf(t, p, ss, nil, now)
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(lines) < 3 || lines[2] != "pending: after_merge T-655 (failed 3m ago: git I/O: index.lock exists) · gate T-656 (queued)" {
+		t.Errorf("the line under the running one = %q, want the two pending steps:\n%s", lines, text)
+	}
+	if len(st.Pending) != 2 || st.Pending[0].Error != pending[0].Error || st.Pending[1].Step != app.StepGate {
+		t.Errorf("--json pending %+v, want serve's two steps", st.Pending)
+	}
+	// A reason keeps its first line only.
+	ss.Project.Pending = []app.PendingStep{{Step: app.StepAfterMerge, Task: "T-655", FailedAt: now.Unix(),
+		Error: "FAIL T-655\nsecond line"}}
+	_, text = statusOf(t, p, ss, nil, now)
+	if !strings.Contains(text, "pending: after_merge T-655 (failed 0s ago: FAIL T-655)") {
+		t.Errorf("a multi-line reason is not shown as its first line only:\n%s", text)
+	}
+	// Nothing waits: no pending line at all.
+	ss.Project.Pending, ss.Project.Running = nil, nil
+	if _, text = statusOf(t, p, ss, nil, now); strings.Contains(text, "pending:") {
+		t.Errorf("the pending line is printed with nothing pending:\n%s", text)
+	}
+}
+
 // T-657: a lane's state column says what serve does for its task — gating, merging, reviewing (an integrator job is
-// out), held (needs-you) — else the lane table's state (done).
+// out), held (needs-you) — else the lane table's state (done). T-662: gating and merging only while the effect runs; a
+// gate or publish whose intent waits reads gate pending / publish pending, not progress.
 func TestStatusLaneStateColumn(t *testing.T) {
 	now := time.Now()
 	str := func(s string) *string { return &s }
@@ -424,26 +462,33 @@ func TestStatusLaneStateColumn(t *testing.T) {
 		name    string
 		lane    laneJSON
 		running []runningJSON
+		pending []app.PendingStep
 		needs   []needsYouJSON
 		want    string
 	}{
 		{"gating", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
-			[]runningJSON{{Step: app.StepGate, Task: "T-1"}}, nil, "gating"},
+			[]runningJSON{{Step: app.StepGate, Task: "T-1"}}, nil, nil, "gating"},
 		{"merging", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
-			[]runningJSON{{Step: app.StepPublish, Task: "T-1"}}, nil, "merging"},
-		{"reviewing", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil,
+			[]runningJSON{{Step: app.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
+		{"gate pending", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
+			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-1"}}, nil, "gate pending"},
+		{"publish pending", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
+			nil, []app.PendingStep{{Step: app.StepPublish, Task: "T-1"}}, nil, "publish pending"},
+		{"pending on another task", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
+			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-2"}}, nil, "working"},
+		{"reviewing", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
 			"reviewing"},
-		{"resolving", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil,
+		{"resolving", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
 			"reviewing"},
-		{"held", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, "held"},
+		{"held", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, nil, "held"},
 		{"held by a watchdog fact", laneJSON{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, []needsYouJSON{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
-		{"done", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, "done"},
+			nil, nil, []needsYouJSON{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
+		{"done", laneJSON{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, nil, "done"},
 	} {
 		c.lane.Type = "opus"
 		var b bytes.Buffer
 		writeStatus(&b, statusModel{Serve: serveJSON{Up: true, Herdr: true, Project: true, Merging: true},
-			Lanes: []laneJSON{c.lane}, Running: c.running, NeedsYou: c.needs}, now)
+			Lanes: []laneJSON{c.lane}, Running: c.running, Pending: c.pending, NeedsYou: c.needs}, now)
 		lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 		lane := ""
 		for _, l := range lines {
@@ -451,7 +496,7 @@ func TestStatusLaneStateColumn(t *testing.T) {
 				lane = l
 			}
 		}
-		if f := strings.Fields(lane); len(f) < 4 || f[3] != c.want {
+		if cols := regexp.MustCompile(`\s{2,}`).Split(strings.TrimSpace(lane), -1); len(cols) < 4 || cols[3] != c.want {
 			t.Errorf("%s: lane line %q, want state %q", c.name, lane, c.want)
 		}
 	}
