@@ -197,6 +197,58 @@ func TestWorkJobSaysEachRuleOnce(t *testing.T) {
 	}
 }
 
+// workJobText is the work job of a project whose .obor/config.json is cfg, from the kit's shipped templates: the test
+// fails when the prompt or the kit's role text is not in it (an empty job would pass every "names no" check below).
+func workJobText(t *testing.T, kit, cfg string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "O-01"}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"implement the spec of T-9 exactly", "# Role: worker"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("precondition: the work job has no %q:\n%s", want, text)
+		}
+	}
+	return text
+}
+
+// T-678: the work job names the project's configured done_file_sections, once, not the defaults.
+func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := workJobText(t, kit, `{"name":"pj","done_file_sections":["Summary","Verification"]}`)
+	want := "Your final report has these sections: Summary, Verification."
+	if n := strings.Count(text, want); n != 1 {
+		t.Errorf("the job names the configured sections %d times, want once (%q):\n%s", n, want, text)
+	}
+	if strings.Contains(text, "Summary, Self-check, Skipped, Open questions") {
+		t.Errorf("the job names the default sections, not the configured ones:\n%s", text)
+	}
+}
+
+// T-678: with the default config the work job names the default labels once.
+func TestWorkJobNamesTheDefaultReportSectionsOnce(t *testing.T) {
+	kit, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := workJobText(t, kit, `{"name":"pj"}`)
+	want := "Your final report has these sections: Summary, Self-check, Skipped, Open questions."
+	if n := strings.Count(text, want); n != 1 {
+		t.Errorf("the job names the default sections %d times, want once (%q):\n%s", n, want, text)
+	}
+}
+
 // The fix job names the role texts for a worker started fresh, both paths (T-603, fix job: the texts are not repeated).
 func TestFixJobNamesBothRoleTexts(t *testing.T) {
 	p, kit := roleFixture(t, "# Role: worker\nkit\n", "# Worker here\nproject rules\n")
