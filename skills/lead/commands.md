@@ -25,6 +25,9 @@ to you):
 
 A task's needs-you reaches you as before (`[obor] needs-you …`), watched or not.
 
+## obor review (T-638)
+`obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `[obor] review RV-xx started at <sha7> (T-a, …)`.
+
 ## An agent stopped by an API error (T-532)
 A Claude agent whose turn ends on an API error (a usage limit `rate_limit`, `overloaded`, `billing_error`, …) did not
 finish: it waits for the limit to reset or for you. Serve says so:

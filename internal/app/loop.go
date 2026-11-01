@@ -41,6 +41,8 @@ type Loop struct {
 	Nightly *Nightly
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk
+	// Review is the git of a review request's start (review.go; nil: no review is started, T-638).
+	Review ReviewGit
 	// Inbox posts the project's lines to its lead into the lead's Claude session (obor send, a brief's finished
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
@@ -321,6 +323,7 @@ func (a *App) advance(ctx context.Context) {
 		a.drive(ctx, p, fx, task)
 	}
 	a.nightly(ctx, p, fx)
+	a.reviewPass(ctx, p, fx)
 }
 
 // record appends the fact r with data and folds it; false when the log failed.

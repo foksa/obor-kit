@@ -78,16 +78,17 @@ const (
 // Message is a line fact's data: the agent it goes to and the line typed, who sent it, the brief it ends, and the
 // call that recorded it with its reply.
 type Message struct {
-	To    string `json:"to"`
-	Line  string `json:"line,omitempty"`
-	From  string `json:"from,omitempty"`
-	Ends  string `json:"ends,omitempty"`
-	Needs int64  `json:"needs,omitempty"` // the seq of the needs-you fact this line announces
-	Task  string `json:"task,omitempty"`  // answered: the task whose question it answers; a watch's line: the task or comma list watched
-	Watch int64  `json:"watch,omitempty"` // the seq of the watch fact this line ends (mergewatch.go)
-	Stop  int64  `json:"stop,omitempty"`  // the seq of the role agent's stop this alarm line is for (stopwake.go)
-	Call  string `json:"call,omitempty"`
-	Reply string `json:"reply,omitempty"`
+	To     string `json:"to"`
+	Line   string `json:"line,omitempty"`
+	From   string `json:"from,omitempty"`
+	Ends   string `json:"ends,omitempty"`
+	Needs  int64  `json:"needs,omitempty"`  // the seq of the needs-you fact this line announces
+	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a watch's line: the task or comma list watched
+	Watch  int64  `json:"watch,omitempty"`  // the seq of the watch fact this line ends (mergewatch.go)
+	Review int64  `json:"review,omitempty"` // the seq of the review request this line ends (review.go)
+	Stop   int64  `json:"stop,omitempty"`   // the seq of the role agent's stop this alarm line is for (stopwake.go)
+	Call   string `json:"call,omitempty"`
+	Reply  string `json:"reply,omitempty"`
 	// Supersedes: briefed's, the seqs of the agent's undelivered brief lines this brief ends (T-580)
 	Supersedes []int64 `json:"supersedes,omitempty"`
 }
@@ -215,6 +216,9 @@ func (p *proj) foldMsg(r Record) {
 		}
 		if m.Watch != 0 {
 			p.watchEnded(m.Task, m.Watch)
+		}
+		if m.Review != 0 {
+			p.reviewEnded(m.Review)
 		}
 		if m.Stop != 0 {
 			p.roleAlarmed(m.Stop)
@@ -679,6 +683,19 @@ func (a *App) briefCall(c Call) (string, error) {
 	if from == "" {
 		from = "owner"
 	}
+	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID)
+	if !ok {
+		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
+	}
+	a.wake()
+	return reply, nil
+}
+
+// recordBrief records fact briefed of the role agent to from from (note "": the restart's or a review's fresh start
+// carried the brief; call "": no call): its reply, false when the log refused it. The new brief ends the agent's
+// undelivered brief lines (T-575; its fact's supersedes, T-580). Without a note, a pane already identified as
+// the agent's may be working on it: that work is noted at once.
+func (a *App) recordBrief(p *proj, to, from, note, call string) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (its typing set: it may have landed) stays; a lead line is
@@ -687,16 +704,16 @@ func (a *App) briefCall(c Call) (string, error) {
 	a.mu.Lock()
 	var old []int64
 	for _, q := range p.queuedLines() {
-		if q.brief && q.msg.To == c.To && q.msg.To != p.out.leadAgent && !q.typing {
+		if q.brief && q.msg.To == to && q.msg.To != p.out.leadAgent && !q.typing {
 			old = append(old, q.seq)
 		}
 	}
 	a.mu.Unlock()
-	m := Message{To: c.To, From: from, Call: c.CallID, Supersedes: old,
-		Reply: "BRIEF RECORDED for " + c.To + " (" + a.unnamed(p, c.To, "the lead hears when it finishes") + ")"}
-	if c.Note != "" {
-		m.Line = "[obor " + from + "] " + c.Note
-		m.Reply = "BRIEFED " + c.To + " (" + a.unnamed(p, c.To, "delivered when its pane is idle; the lead hears when it finishes") + ")"
+	m := Message{To: to, From: from, Call: call, Supersedes: old,
+		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
+	if note != "" {
+		m.Line = "[obor " + from + "] " + note
+		m.Reply = "BRIEFED " + to + " (" + a.unnamed(p, to, "delivered when its pane is idle; the lead hears when it finishes") + ")"
 	}
 	if len(old) > 0 {
 		briefs := "briefs"
@@ -708,18 +725,17 @@ func (a *App) briefCall(c Call) (string, error) {
 	ok := a.record(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, m)
 	p.out.claim.Unlock()
 	if !ok {
-		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
+		return "", false
 	}
 	if m.Line == "" { // the restart's start carried the brief: the agent may be working on it already
 		a.mu.Lock()
-		if w := a.whereIs(p, c.To); w.State == Identified {
+		if w := a.whereIs(p, to); w.State == Identified {
 			a.sawWork(p, w.Pane)
 		}
 		a.mu.Unlock()
 		a.logWorked(p)
 	}
-	a.wake()
-	return m.Reply, nil
+	return m.Reply, true
 }
 
 // unnamed is a reply's note on a line to agent: when serve, connected to herdr, cannot identify agent's pane in p

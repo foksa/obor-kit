@@ -56,8 +56,9 @@ one line once all merged (or the first dropped). `obor watch` lists, `--rm T-xx`
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).
 
 ## Reviews
-Every ~3 merges (never > ~5 unreviewed): `review-brief.md`. Reviewer and deep dive are role panes, never lanes:
-`obor restart <reviewer> --fresh --prompt "<brief>"`; verifies: `obor brief <reviewer> "<text>"` in the same session.
+Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
+"<out of scope, contracts>"]`, serve starts it (`review-brief.md`). Reviewer and deep dive are role panes, never lanes;
+verifies: `obor brief <reviewer> "<text>"` in the same session.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <project> "<text>"`. Workers and
 the integrator get jobs from serve, never messages.
 Lines to you (another project's `obor send`, `[obor] <agent> finished …`) arrive as messages from another session;

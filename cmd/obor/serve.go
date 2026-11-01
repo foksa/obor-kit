@@ -119,6 +119,7 @@ func mergeLoop(env project.Env, panes herdr.Panes) func(root string) (*app.Loop,
 		l := &app.Loop{Scratch: checks.Scratch{Options: o}, Agents: agents, Typer: panes, Nightly: nightly(o),
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
 		dispatchLoop(l, env, cfg)
+		l.Review = reviewGit{root: repo.Root}
 		return l, nil
 	}
 }

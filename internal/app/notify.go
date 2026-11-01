@@ -36,7 +36,7 @@ func (a *App) notify(ctx context.Context) {
 		tried[key] = true
 		_, err := p.log.Do(ctx, Intent{Key: key, Class: ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
 			body := fmt.Sprintf("%s in %s: %s", r.Task, r.Fact().Lane, r.Fact().Reason)
-			if r.Task == LoopTask || r.Task == NightlyTask || r.Task == MsgTask || r.Task == DiskTask {
+			if projectKey(r.Task) {
 				body = r.Fact().Reason
 			}
 			if err := a.panes.Notify(ctx, "obor: "+p.name+" needs you", body); err != nil {

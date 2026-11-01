@@ -235,6 +235,9 @@ type folded struct {
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
 	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go; lining is live)
+	// review: the open review request (review.go; nil: none; firing is live); reviewed: the last review started.
+	review   *reviewReq
+	reviewed lastReview
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 }

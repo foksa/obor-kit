@@ -1,40 +1,44 @@
 # Review brief
 
-Builds the brief you (the lead) send to the reviewer, and later its verification prompt. The reviewer's rules and
-output format are in the kit's `templates/agents/reviewer.md` (+ the project's `docs/agents/reviewer.md`); this file
-only collects the facts the brief needs.
+A review, from its request to its close: `obor review` builds and sends the brief (§1–2), you triage (§3) and verify
+(§4). The reviewer's rules and output format are in the kit's `templates/agents/reviewer.md` (+ the project's
+`docs/agents/reviewer.md`).
 
-## 1. Collect
+## 1. What serve collects
+`obor review` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
 - **Reviews dir**: `obor config get .paths.reviews`, in the review worktree only: review files never enter the
   integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
   (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names.
-- **Next id**: the previous id + 1 (e.g. `RV-55.md`).
-- **Head**: `git rev-parse --short HEAD` on the integration branch (`<sha>`).
+- **Next id**: the previous id + 1 (e.g. `RV-55.md`; none yet: `RV-1`).
+- **Head**: the integration branch's sha (`<sha>`).
 - **Merged tasks since then**:
   `git log --first-parent --merges --format='%h %s' <prev-sha>..HEAD` → one `Merge T-xx: …` line per task.
-- **Files per task**: `git diff --stat <merge>^1 <merge>` for each merge commit (or
-  `git diff --name-only <prev-sha>..HEAD` for the whole batch).
-- **Out of scope**: tasks merged since `<prev-sha>` you deliberately leave for later, docs-only commits, the previous
-  review's findings (unless verifying), and anything the specs mark out of scope. List them explicitly.
-- **Contracts**: the design docs the specs cite.
+- **Files**: `git diff --name-only <prev-sha>..HEAD` for the whole batch.
+- **Out of scope** and **contracts** are yours: tasks merged since `<prev-sha>` you deliberately leave for later,
+  docs-only commits, the previous review's findings (unless verifying), anything the specs mark out of scope, and the
+  design docs the specs cite. They go into `--note`.
 
-## 2. Brief (one prompt to the reviewer)
-The reviewer is a role pane (`obor setup role reviewer`: its own detached worktree, `roles.reviewer.worktree`,
-default `review`), never a worker lane: never `obor dispatch` a review. You first put its worktree at the commit to
-review (a Codex reviewer can't): `git -C <review worktree> checkout -q --detach <sha>`. Each new review starts in a
-fresh reviewer session: `obor restart <reviewer agent> --fresh` first.
+## 2. Start it: `obor review`
+`obor review [--after T-a,T-b] [--note "<out of scope: …; contracts: …>"]` (one open request; a second call replaces
+it, `obor review` lists it, `obor review --rm` ends it). Serve starts the review once every `--after` task has merged
+(none given: now) and the reviewer (a role pane, `obor setup role reviewer`, its own detached worktree
+`roles.reviewer.worktree`, default `review`; never a worker lane, never `obor dispatch` a review) is idle: it detaches
+the review worktree at the head, starts a fresh reviewer session with the brief below as its first prompt (as
+`obor restart <reviewer> --fresh --prompt` does), records the brief, and tells you
+`[obor] review RV-xx started at <sha7> (T-a, T-b, …)`. A `--after` task dropped or rejected ends the request
+(`[obor] review request ended: T-b dropped`); a step that fails starts nothing and is a needs-you
+(`review: RV-xx: <error>`; a new `obor review` ends it). The brief serve sends:
 ```
-Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>. Out of scope: <list>.
+Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>.
 Previous review: <RV-prev> (git show <its removal's parent>:<reviews>/<RV-prev>.md, or the file while open) — don't
-repeat its findings. Contracts: <design docs>. For every finding give severity, likelihood (does a real config or workflow hit it,
+repeat its findings. For every finding give severity, likelihood (does a real config or workflow hit it,
 or only a constructed one?), file:line, probe/evidence, suggested fix and its cost in added code, and an
 Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked. Write
 only <reviews>/<RV-xx>.md in your worktree. Do not commit.
+Lead's note: <your --note>
 ```
-Send it as a fresh session's first prompt: `obor restart <reviewer agent> --fresh --prompt "…"` (default
-`<prefix>-rev`; no backticks inside a double-quoted message). Serve records the brief and posts
-`[obor] <reviewer agent> finished (briefed <age> ago)` to your session once the reviewer has worked and is idle again:
-nothing to watch.
+Serve posts `[obor] <reviewer agent> finished (briefed <age> ago)` to your session once the reviewer has worked and is
+idle again: nothing to watch.
 
 ## 3. When the review is written
 Read `<review worktree>/<reviews>/<RV-xx>.md` there; do not copy or commit it. Triage each finding (owner rule

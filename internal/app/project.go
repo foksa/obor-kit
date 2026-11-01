@@ -89,6 +89,7 @@ func (p *proj) foldRecord(r Record) {
 	p.foldSession(r)
 	p.foldMsg(r)
 	p.foldWatch(r)
+	p.foldReview(r)
 	p.foldWake(r)
 	if p.folded.lr.live {
 		_ = p.syncLanes() // a failed write is tried again (the check's pass logs it)
@@ -223,10 +224,16 @@ func (p *proj) setLanes(ls []Lane) {
 		}
 	}
 	for task := range p.folded.active {
-		if _, ok := open[task]; !ok && task != LoopTask && task != NightlyTask && task != MsgTask && task != DiskTask {
+		if _, ok := open[task]; !ok && !projectKey(task) {
 			p.clear(task)
 		}
 	}
+}
+
+// projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
+// review requests'), not a task's.
+func projectKey(task string) bool {
+	return task == LoopTask || task == NightlyTask || task == MsgTask || task == DiskTask || task == ReviewTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

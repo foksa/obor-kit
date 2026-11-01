@@ -39,6 +39,9 @@ type ProjectStatus struct {
 	Paused   *Pause        `json:"paused,omitempty"` // the pause in force (pause.go)
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
+	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
+	// (review.go; "": neither).
+	Review string `json:"review,omitempty"`
 	// Answers is, by a needs-you fact's seq, the commands that answer it in its task's state (answerPath; none: "").
 	Answers map[int64]string `json:"answers,omitempty"`
 }
@@ -129,6 +132,11 @@ func (a *App) Status() Status {
 			ps.Paused = &c
 		}
 		ps.Messages = p.messageStatus(now)
+		if s := p.reviewStatus(now); s != "" && p.folded.review != nil {
+			ps.Review = "review request " + s
+		} else {
+			ps.Review = s
+		}
 		for _, f := range ps.Facts {
 			if f.Step != StepNeedsYou {
 				continue
@@ -156,7 +164,9 @@ func answerPath(r Record, mt mtask) string {
 	d := r.Fact()
 	drop := `obor drop ` + cmp.Or(d.Lane, r.Task) + ` "<why>"` // a waiting task has no lane: obor drop takes its task
 	switch {
-	case r.Task == LoopTask, r.Task == NightlyTask, r.Task == MsgTask, r.Task == DiskTask: // a GREEN nightly ends a nightly's; a line typed, a line's
+	case r.Task == ReviewTask: // a failed review start's: a new request ends it
+		return "obor review [--after T-a,T-b]"
+	case projectKey(r.Task): // a GREEN nightly ends a nightly's; a line typed, a line's
 		return ""
 	case strings.HasPrefix(d.Reason, reasonAsks):
 		return `obor answer ` + r.Task + ` "<text>"`
@@ -249,13 +259,13 @@ func (a *App) Listen(ln net.Listener) {
 				st := a.Status()
 				ans.Status = &st
 			case req.Method == MethodSpecSet || req.Method == MethodPause || req.Method == MethodSend || req.Method == MethodBrief ||
-				req.Method == MethodWatch || req.Method == MethodStopped || req.Method == MethodTurn || req.Method == MethodSession:
+				req.Method == MethodWatch || req.Method == MethodReview || req.Method == MethodStopped || req.Method == MethodTurn || req.Method == MethodSession:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
 				}
 				do := map[string]func(Call) (string, error){MethodSpecSet: a.specSet, MethodPause: a.pauseCall,
-					MethodSend: a.sendCall, MethodBrief: a.briefCall, MethodWatch: a.watchCall,
+					MethodSend: a.sendCall, MethodBrief: a.briefCall, MethodWatch: a.watchCall, MethodReview: a.reviewCall,
 					MethodStopped: a.stoppedCall, MethodTurn: a.turnCall, MethodSession: a.sessionCall}[req.Method]
 				var err error
 				if ans.Reply, err = do(*req.Call); err != nil {
