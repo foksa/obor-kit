@@ -78,10 +78,6 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 		gone  bool
 	)
 	find := func() bool {
-		if !l.running(p) {
-			gone = true
-			return false
-		}
 		found = nil
 		for _, f := range l.openFiles(l.tree(p.pid)) {
 			if !transcriptPath(glob, f) {
@@ -91,6 +87,12 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 				path, s = f, fs
 				found = append(found, fs.ID)
 			}
+		}
+		// The pin is read last, right before the recording it guards: a pid the system reused while the files were read
+		// is gone, and what another process opened meanwhile is not the agent's (T-589).
+		if !l.running(p) {
+			gone = true
+			return false
 		}
 		return len(found) > 0
 	}

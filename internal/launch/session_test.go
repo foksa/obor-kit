@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -171,6 +172,43 @@ func writeRollout(x *fx, id, cwd string, at time.Time) string {
 		`","timestamp":"`+at.UTC().Format(time.RFC3339Nano)+`","cwd":"`+cwd+`","originator":"codex_cli_rs"}}`+"\n"+
 		`{"timestamp":"`+at.UTC().Format(time.RFC3339Nano)+`","type":"event_msg","payload":{"type":"task_started"}}`+"\n")
 	return path
+}
+
+// T-589: a pid the system reuses while the search reads the files a process holds open is not recorded under: the pin
+// is read again after the scan (T-646: before, the pid's new lstart was checked before the files were read, so a reuse
+// in between recorded the new process's rollout as the agent's).
+func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("roles", `{"integrator":{"type":"luna"}}`))
+	x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
+	var gen atomic.Int32
+	x.ps = func(args ...string) ([]byte, error) {
+		if strings.Join(args, " ") == "-o lstart= -p 205" {
+			return []byte("start-" + strconv.Itoa(int(gen.Load())) + "\n"), nil
+		}
+		return nil, nil
+	}
+	x.wrap = func(h app.PaneControl) app.PaneControl { return pids{h, x.f, map[string]int{"w1:p5": 205}} }
+	x.shell("w1:p5", "pj-int", "")
+	stranger := writeRollout(x, "cx-stranger", x.p.Root, time.Now())
+	var once sync.Once
+	x.files = func([]int) []string {
+		once.Do(func() { gen.Store(1) }) // the pid is taken by another process as the files are read
+		return []string{stranger}
+	}
+	if out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true}); !ok {
+		t.Fatal(out)
+	}
+	deadline := time.Now().Add(bound)
+	for !strings.Contains(x.log(), "is gone") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	contains(t, x.log(), "warning: pj-int (pid 205) is gone: its codex session is not recorded", "said")
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if len(x.reported) != 0 {
+		t.Errorf("recorded the rollout of the process that took the pid: %+v", x.reported)
+	}
 }
 
 // T-577 rev 2: serve's starts run one at a time, so its rollout search runs after the start (Background): a start

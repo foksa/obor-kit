@@ -203,10 +203,16 @@ func (r *loopRig) supersededLines() []supersededLine {
 // waiting is the lines serve has not delivered yet (obor status).
 func (r *loopRig) waiting() []app.MessageStatus { return r.app.Status().Project.Messages }
 
+// sentLine is the line obor send posts in the target project for text from the project from: the sender, the text, and
+// the reply in one command (T-466, T-646).
+func sentLine(from, text string) string {
+	return "[obor " + from + "] " + text + ` (reply: obor send ` + from + ` "…")`
+}
+
 // T-485: obor send's line is posted to the lead's Claude session at once, working or idle (no pane, no idle rule, no
-// quiet period), exactly once, as "[obor <sender>] <text>": nothing typed into the lead's pane, no keys; its delivery
-// result is sent; a repeated call id gets the stored reply and records nothing; a worker cannot send; text and sender
-// are required.
+// quiet period), exactly once, as "[obor <sender>] <text> (reply: …)": nothing typed into the lead's pane, no keys; its
+// delivery result is sent; a repeated call id gets the stored reply and records nothing; a worker cannot send; text and
+// sender are required.
 func TestSendPostedOnceToTheLead(t *testing.T) {
 	r := lineRig(t, "working", "idle")
 	r.start()
@@ -232,7 +238,7 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 	if n := r.taskStep(app.MsgTask, "fact message"); n != 1 {
 		t.Fatalf("message facts %d, want 1: %q", n, r.steps())
 	}
-	const line = "[obor other] release v0.12 is out"
+	line := sentLine("other", "release v0.12 is out")
 	r.waitFor("the line posted to the working lead", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.waitFor("its delivery result", func() bool { return len(r.waiting()) == 0 })
 	r.agentIs("w1:p5", "pj-lead", "idle")
@@ -269,20 +275,20 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 	r.stop()
 	r.start()
 	r.passes()
-	if w := r.waiting(); len(w) != 1 || w[0].Line != "[obor other] hello" || r.inbox.count("pj-lead", "[obor other] hello") != 0 {
+	if w := r.waiting(); len(w) != 1 || w[0].Line != sentLine("other", "hello") || r.inbox.count("pj-lead", sentLine("other", "hello")) != 0 {
 		t.Fatalf("after a restart with no record: waiting %+v, posted %d; want queued, untried", w,
-			r.inbox.count("pj-lead", "[obor other] hello"))
+			r.inbox.count("pj-lead", sentLine("other", "hello")))
 	}
-	if n := r.taskStep(app.MsgTask, "intent deliver.1") + r.typedTo("pj-lead", "[obor other] hello"); n != 0 {
+	if n := r.taskStep(app.MsgTask, "intent deliver.1") + r.typedTo("pj-lead", sentLine("other", "hello")); n != 0 {
 		t.Fatalf("tried with no record: %q", r.steps())
 	}
 	r.inbox.record("pj-lead")
-	r.waitFor("the line posted once recorded", func() bool { return r.inbox.count("pj-lead", "[obor other] hello") == 1 })
+	r.waitFor("the line posted once recorded", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
 	r.waitFor("no line waits", func() bool { return len(r.waiting()) == 0 })
 	r.stop()
 	r.start()
 	r.passes()
-	if n := r.inbox.count("pj-lead", "[obor other] hello"); n != 1 {
+	if n := r.inbox.count("pj-lead", sentLine("other", "hello")); n != 1 {
 		t.Errorf("posted %d times across restarts, want once", n)
 	}
 }
@@ -325,7 +331,7 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 	if got := r.lineResults(); got[1] != "sent: broken pipe" {
 		t.Errorf("a post that began then failed: %q, want sent: broken pipe", got[1])
 	}
-	if n := r.inbox.tries("pj-lead", "[obor other] two"); n != 1 {
+	if n := r.inbox.tries("pj-lead", sentLine("other", "two")); n != 1 {
 		t.Errorf("the partial post tried %d times, want once", n)
 	}
 	if w := r.waiting(); len(w) != 0 {
@@ -343,7 +349,7 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.later(23 * time.Hour)
-	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: [obor other] hello}"
+	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") + "}"
 	if n := r.taskStep(app.MsgTask, want); n != 0 {
 		t.Fatalf("a needs-you before 24 h: %q", r.steps())
 	}
@@ -361,11 +367,11 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 	// The records the assertions below read: the line posted, the resumed fact in the log and folded out of the facts
 	// in force (the log and the status fold are not updated in one step).
 	r.waitFor("resumed", func() bool {
-		return r.taskStep(app.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", "[obor other] hello") == 1 &&
+		return r.taskStep(app.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 &&
 			len(r.msgFacts()) == 0
 	})
-	if r.inbox.count("pj-lead", "[obor other] hello") != 1 || len(r.msgFacts()) != 0 {
-		t.Errorf("posted %d, facts %+v; want posted once, none in force", r.inbox.count("pj-lead", "[obor other] hello"),
+	if r.inbox.count("pj-lead", sentLine("other", "hello")) != 1 || len(r.msgFacts()) != 0 {
+		t.Errorf("posted %d, facts %+v; want posted once, none in force", r.inbox.count("pj-lead", sentLine("other", "hello")),
 			r.msgFacts())
 	}
 }
@@ -451,7 +457,7 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 	if want := "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)"; err != nil || reply != want {
 		t.Errorf("brief of a named pane: %q, %v; want %q", reply, err, want)
 	}
-	r.waitFor("the lead's line posted", func() bool { return r.inbox.count("pj-lead", "[obor other] hello") == 1 })
+	r.waitFor("the lead's line posted", func() bool { return r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 })
 	r.passes()
 	if w := r.waiting(); len(w) != 2 || w[0].To != "pj-sol" || w[1].To != "pj-rev" {
 		t.Errorf("lines waiting %+v, want pj-sol's (unnamed) and pj-rev's (working) still queued", w)
@@ -592,7 +598,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 	for _, m := range r.waiting() {
 		got[m.Line] = true
 	}
-	for _, line := range []string{done, "[obor other] hello", "[obor pj-lead] second"} {
+	for _, line := range []string{done, sentLine("other", "hello"), "[obor pj-lead] second"} {
 		if !got[line] {
 			t.Errorf("waiting %+v lacks %q", r.waiting(), line)
 		}

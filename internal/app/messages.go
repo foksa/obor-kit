@@ -19,8 +19,9 @@ import (
 // Lines to a project's agents (T-466; docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
 // an answer's (obor answer <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"}, T-511;
 // answer.go).
-//   - obor send <project> "<text>" (a lead or the owner of another project): fact message{to: the lead, line
-//     "[obor <sender project>] <text>"} in the target project's log, recorded by the serve holding it.
+//   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path,
+//     T-646): fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
+//     target project's log, recorded by the serve holding it.
 //   - obor brief <role-agent> "<text>": fact briefed{to: the role agent, line "[obor <caller>] <text>"}; obor restart
 //     <role-agent> --fresh --prompt "<brief>" records the same fact without a line (the start carried the brief).
 //     A new brief of that agent also ends its undelivered brief lines (T-575: a newer brief makes an older
@@ -622,6 +623,12 @@ func Age(d time.Duration) string {
 	return strconv.FormatInt(s/86400, 10) + "d"
 }
 
+// sendLine is the line obor send posts in the target project (T-466): the sender and the text, then the reply in one
+// command (T-646: the target lead answers with a known name instead of a path).
+func sendLine(from, text string) string {
+	return "[obor " + from + "] " + text + ` (reply: obor send ` + from + ` "…")`
+}
+
 // sendCall answers the socket's send request (a lead or the owner of another project): the line for this project's
 // lead, posted to its Claude session. A call id is required and a repeated one gets the stored reply.
 func (a *App) sendCall(c Call) (string, error) {
@@ -643,7 +650,7 @@ func (a *App) sendCall(c Call) (string, error) {
 	case c.From == "":
 		return "", errors.New("send: the sender project is required")
 	}
-	m := Message{To: p.out.leadAgent, Line: "[obor " + c.From + "] " + c.Note, From: c.From, Call: c.CallID,
+	m := Message{To: p.out.leadAgent, Line: sendLine(c.From, c.Note), From: c.From, Call: c.CallID,
 		Reply: "SENT to " + p.out.leadAgent + " in " + p.name + " (posted to its session)"}
 	if !a.inboxed(p.out.leadAgent) {
 		m.Reply = "SENT to " + p.out.leadAgent + " in " + p.name + " (queued: no session recorded for " + p.out.leadAgent +

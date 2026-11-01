@@ -144,7 +144,7 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.advance(25 * time.Hour)
-	const want = "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: [obor other] hello}"
+	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") + "}"
 	r.waitFor("the line's needs-you", func() bool { return r.taskStep(app.MsgTask, want) == 1 })
 	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	r.advance(0)

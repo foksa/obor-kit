@@ -13,6 +13,8 @@ package setup
 //	           the running herdr agents' names (<prefix>-…).
 //	setup      setup.confirmed: false when the config has no key (T-647): the models, effort and lanes obor init left
 //	           are a starting point the lead goes through with the owner at its first session.
+//	projects   the project in the machine's list of obor projects by name (T-646, project.Register): obor send <name>
+//	           and obor projects read it.
 //	githooks   obor setup githooks: core.hooksPath at the kit's hooks, or at its chain/ set when there is something to
 //	           chain (T-623).
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
@@ -129,6 +131,13 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	add("setup", doneOr(confirmed || !existed), "%s", confirmedLine(s.cfg))
+
+	// projects: the machine's list of obor projects by name (T-646): obor send <name> and obor projects read it.
+	changed, err := project.Register(s.cfg.Root, s.Env)
+	if err != nil {
+		return project.Failf("the machine's project list: %v", err)
+	}
+	add("projects", doneOr(changed), "%s in %s", s.cfg.Data.Name, project.ProjectsFile(s.Env))
 
 	// commit: a repository with no commit, empty before init, gets init's own files as its first (the lanes branch
 	// from it).

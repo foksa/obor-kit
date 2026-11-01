@@ -622,12 +622,13 @@ func TestMakeReleasePlainMakeEnv(t *testing.T) {
 // logging outside the repo so the release's clean-tree check still holds.
 type shipFixture struct {
 	*releaseFixture
-	origin  string
-	ghlog   string
-	verfile string
-	instlog string
-	labels  string // launchctl list's output for the stub
-	ghstate string // the stub gh's release: release, assets, draft
+	origin   string
+	ghlog    string
+	verfile  string
+	instlog  string
+	labels   string // launchctl list's output for the stub
+	ghstate  string // the stub gh's release: release, assets, draft
+	projects string // `obor projects`' output for the stub (T-646)
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -668,7 +669,15 @@ case "$1 $2" in
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
-	writeExec(t, filepath.Join(f.Root, "stub", "obor"), "#!/bin/bash\necho \"obor $(cat "+s.verfile+")\"\n")
+	// obor: its version line, and `obor projects` as the machine's project list prints it (T-646).
+	s.projects = filepath.Join(f.Base, "projects-out")
+	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
+if [ "$1" = projects ]; then
+  cat "`+s.projects+`" 2> /dev/null
+  exit 0
+fi
+echo "obor $(cat "`+s.verfile+`")"
+`)
 	// launchctl list: the labels the follow-up line reads (none until a test writes them).
 	writeExec(t, filepath.Join(f.Root, "stub", "launchctl"), "#!/bin/bash\ncat \""+s.labels+"\" 2> /dev/null\n")
 	// install.sh installs v1.2.4 unless install-broken exists (an install that does not land).
@@ -739,5 +748,31 @@ func TestMakeShip(t *testing.T) {
 	}
 	if got := readFile(t, f.instlog); got != instBefore {
 		t.Errorf("the second ship installed again: %q", got)
+	}
+}
+
+// T-646: the restart reminder names the projects of the machine's list of obor projects, through obor projects, when
+// that list exists (not launchd's labels): only the ones whose serve is up.
+func TestMakeShipRestartNamesTheProjectList(t *testing.T) {
+	t.Parallel()
+	f := newShipFixture(t)
+	if out, failed := f.release(t, "V=1.2.4"); failed {
+		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+	}
+	writeFile(t, filepath.Join(f.Base, "home", ".obor", "projects.json"), "{}\n")
+	writeFile(t, f.projects, "obor-kit /w/obor-kit serve up\naxis-alies /w/axis-alies serve up\nquiet /w/quiet serve down\n")
+	// launchd knows another project: the list wins, so its reminder is not the one printed.
+	writeFile(t, f.labels, "PID\tStatus\tLabel\n123\t0\tobor.serve.launchd-only\n")
+	out, failed := f.make(t, "ship")
+	if failed {
+		t.Fatalf("make ship failed:\n%s", out)
+	}
+	if want := "restart serve: obor serve restart in obor-kit, axis-alies"; !strings.Contains(out, want) {
+		t.Errorf("ship does not say %q:\n%s", want, out)
+	}
+	for _, name := range []string{"launchd-only", "quiet"} {
+		if strings.Contains(out, name) {
+			t.Errorf("the reminder names %s (a launchd label, a serve that is down):\n%s", name, out)
+		}
 	}
 }
