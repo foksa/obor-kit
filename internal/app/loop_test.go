@@ -185,6 +185,18 @@ func (r *loopRig) stopped() []string {
 	return append([]string(nil), r.stops...)
 }
 
+// workerStops is the stops of agents but the integrator (T-672: serve stops pj-int after each verdict that leaves no
+// job for it).
+func (r *loopRig) workerStops() []string {
+	var out []string
+	for _, s := range r.stopped() {
+		if !strings.HasPrefix(s, "pj-int ") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // start runs the app (a replay of the log so far) until stop or the test's end, with its socket; it returns after the
 // app's first full check.
 func (r *loopRig) start() {
@@ -506,7 +518,16 @@ func TestLoopHappyPath(t *testing.T) {
 	if r.mainMerges() != 1 || !r.p.Exists("feature.txt") {
 		t.Errorf("main: %d merges of T-1, feature.txt %v; want one merge with the feature", r.mainMerges(), r.p.Exists("feature.txt"))
 	}
-	eq(t, r.steps(), []string{"1 fact dispatch", "1 fact submitted", "1 intent submit", "1 result submit", "1 intent gate",
+	var steps []string // the integrator's stop after its verdict (T-672) runs beside the publish: asserted on its own
+	for _, s := range r.steps() {
+		if !strings.HasPrefix(s, "0 intent stop.") && !strings.HasPrefix(s, "0 result stop.") {
+			steps = append(steps, s)
+		}
+	}
+	if !r.has("0 intent stop.pj-int") || !r.has("0 result stop.pj-int") {
+		t.Errorf("no stop of pj-int after its verdict (T-672): %q", r.steps())
+	}
+	eq(t, steps, []string{"1 fact dispatch", "1 fact submitted", "1 intent submit", "1 result submit", "1 intent gate",
 		"1 result gate", "1 intent review", "1 intent start.review", "1 result start.review", "1 result review",
 		"1 fact delivered", "1 intent accept.c1", "1 result accept.c1", "1 intent publish", "1 result publish",
 		"1 fact merged", "1 intent after_merge", "1 result after_merge", "1 intent agent.stop", "1 result agent.stop"},
@@ -520,8 +541,11 @@ func TestLoopHappyPath(t *testing.T) {
 	if r.p.Exists(".obor/state/done") {
 		t.Errorf("a done-file archive dir (gone with T-437)")
 	}
-	if got := strings.Join(r.stopped(), ","); got != "pj-o1 w1:p1" {
+	if got := strings.Join(r.workerStops(), ","); got != "pj-o1 w1:p1" {
 		t.Errorf("stops %q; want pj-o1 in its submitted pane", got)
+	}
+	if n := len(r.stopped()) - len(r.workerStops()); n != 1 {
+		t.Errorf("integrator stops %d (%q), want 1: after its verdict, no job left for it (T-672)", n, r.stopped())
 	}
 	r.noLead()
 	if n := len(r.prompts()); n != 0 {

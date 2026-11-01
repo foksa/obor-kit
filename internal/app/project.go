@@ -36,7 +36,7 @@ func (a *App) load(root string) (*proj, error) {
 		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[Key]json.RawMessage{}, exec: map[Key]time.Time{}, scratch: make(chan struct{}, 1),
-		held: map[string]string{}, ended: map[string]bool{},
+		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
 		reg: newRegistry(), folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)
@@ -93,6 +93,7 @@ func (p *proj) foldRecord(r Record) {
 	p.foldWatch(r)
 	p.foldReview(r)
 	p.foldWake(r)
+	p.foldRoles(r)
 	if p.folded.lr.live {
 		_ = p.syncLanes() // a failed write is tried again (the check's pass logs it)
 	}

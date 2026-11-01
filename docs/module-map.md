@@ -59,7 +59,8 @@ Adding a kind = one package + a config entry.
   project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665), `dispatch.go`, `messages.go`, `mergewatch.go`,
-  `stopped.go`, `stopwake.go`, `nightly.go`, `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
+  `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
+  `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go`: one concern each.
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,

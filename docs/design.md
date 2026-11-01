@@ -130,6 +130,17 @@ consult the role.** A `SessionStart` hook prints `obor whoami` (role, lane, task
 session context, plus `obor: role text: <kit>/templates/agents/<role>.md[, project: docs/agents/<role>.md] — read it
 before acting` (lead: `run /obor:lead`; T-204).
 
+**Role agents are stopped once done** (T-672, owner 2026-11-01: idle role agents hold memory). Nothing of a stopped
+role agent is resumed: its next use starts fresh. A stop is `launch.Stop` (`obor restart <agent> --stop`): the agent
+quits, its labelled pane stays at a shell, as for a worker after its merge. Serve stops the **integrator** once a job's
+verdict is recorded and no other job is open or queued for it (each job starts a fresh session anyway, T-602: a stopped
+integrator with no open job is the normal state, nothing is raised, `obor status` shows it `stopped`), and the
+**reviewer** once its review cycle closes (the `RV-<n> closed` commit), never before: its verify runs in the same
+session. The **advisor** and the **deep dive** are the lead's: once the advisor's answer needs no follow-up, or a deep
+dive's verify approves, `obor restart <agent> --stop`; neither is kept for a later, unrelated question. A brief to a
+stopped role agent but the integrator starts it fresh with the brief as its first prompt. State: `docs/state-model.md`
+row 53.
+
 ## Setup (`obor init`, `obor setup`; Go `internal/setup` since T-250)
 `obor init [--name] [--prefix]` (T-608) sets a project up with no questions: herdr reachable (else FAIL first),
 config with the detected commands, lanes for the CLIs on PATH, the git hooks layer (T-623), panes and roles, the plugin (`claude plugin
@@ -425,7 +436,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   The own project is refused. A repeated call id gets the stored reply.
 - **Briefs:** `obor restart <role-agent> --fresh --prompt "<brief>"` (the start carries the brief) records fact
   `briefed` once the restart succeeded; `obor brief <role-agent> "<text>"` records it with a line `[obor <caller>]
-  <text>` delivered to the role agent once its pane is idle (a verify into the running session). A role agent is any
+  <text>` delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its
+  labelled pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A role agent is any
   agent of the config but the lead, the integrator and the workers. Once that pane has worked after the brief (after
   its line was delivered) and is idle again, serve records and posts `[obor] <agent> finished (briefed <age> ago)` to the lead's
   session: one line per brief, nothing for task or merge flow. A turn that ends on an API error (the StopFailure

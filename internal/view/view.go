@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -108,7 +109,7 @@ type Job struct {
 }
 
 // Role is a role agent on no lane: its role and agent name, its pane's status and for how long (seconds; Status "":
-// serve sees no pane of it), the brief it is on (nil: none) and its current recorded session.
+// serve sees no pane of it; RoleStopped: serve stopped it), the brief it is on (nil: none) and its current recorded session.
 type Role struct {
 	Role    string           `json:"role"`
 	Agent   string           `json:"agent"`
@@ -152,6 +153,9 @@ type Input struct {
 	Now    time.Time
 	Events int
 }
+
+// RoleStopped is a Role's Status when serve stopped the agent once its work was done and no pane runs it (T-672).
+const RoleStopped = "stopped"
 
 // roleNames is the roles a Role row is listed for (the worker's are the lanes, the lead is the reader).
 var roleNames = []string{"integrator", "reviewer", "deep_dive", "advisor"}
@@ -259,6 +263,9 @@ func roles(p *checks.LaneTable, ps app.ProjectStatus) []Role {
 			if a.Name == agent && a.Lane == "" {
 				r.Status, r.Age, r.Session = a.Status, a.Age, a.Session
 			}
+		}
+		if r.Status == "" && slices.Contains(ps.Stopped, agent) {
+			r.Status = RoleStopped // serve stopped it once its work was done (T-672): not missing
 		}
 		for _, b := range ps.Briefs {
 			if b.To == agent {

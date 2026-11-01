@@ -140,7 +140,7 @@ func serveSection(st view.Project, now time.Time) []string {
 }
 
 // laneSection is one line per lane, serve's open tasks on no lane (not dropped, not waiting: the queue lists those)
-// and the agents on no lane.
+// and the agents on no lane (a role agent serve stopped: "agent <name>: stopped").
 func laneSection(st view.Project, now time.Time) []string {
 	var b strings.Builder
 	shown := map[string]bool{}
@@ -159,6 +159,11 @@ func laneSection(st view.Project, now time.Time) []string {
 	for _, a := range st.Agents {
 		if a.Lane == "" {
 			fmt.Fprintf(&b, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+		}
+	}
+	for _, r := range st.Roles {
+		if r.Status == view.RoleStopped { // serve stopped it once its work was done (T-672): its next use starts it fresh
+			fmt.Fprintf(&b, "agent %s: stopped\n", r.Agent)
 		}
 	}
 	return textLines(b.String())
