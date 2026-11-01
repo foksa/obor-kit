@@ -6,10 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-01: **v0.17.2 tagged locally** by `make release V=0.17.2` (T-636..T-641: `obor review`, two-command
-  release); owner: `make ship` (push main + tag, publish, installer), then `obor serve restart` in obor-kit,
-  axis-alies, axis-maps. RV-69 closed; unreviewed since: T-639 (verified in RV-69), T-640, T-641 (release scripts).
-  axis-maps: its lead not started yet (owner: `obor lead` in wA:p1). Nothing in flight.
+- 2026-11-01: **v0.17.2 released** (`make release` + owner `make ship`; all three serves restarted on it). Since:
+  T-642 (release refuses unreviewed code), T-643 (release/ship step rewrite, RV-70). RV-70 closed; nothing
+  unreviewed. axis-maps: its lead not started yet (owner: `obor lead` in wA:p1). Nothing in flight.
 - 2026-10-31 session 13, evening: **v0.17.0 released** (tag pushed, GitHub release published, `~/.obor/kit` at
   v0.17.0). Merged today T-595..T-626; RV-64..66 closed; DD-v0.17 + verify approved (V2 → T-626, V1/V3 docs done).
   axis-alies migrated (54543f08) and was told to follow UPGRADE-v0.17 (githooks, serve install, restarts). Nothing
@@ -155,3 +154,6 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (RV-69 verify, accepted: low) `obor review --rm` in the instant between `review.fire` and the launch's return answers
   `NO REVIEW REQUEST` instead of "claimed" (wording only; nothing is cancelled). The review-started lead line's own
   append is unchecked: if only that append fails, the lead misses the line (a failing log fails the needs-you too).
+- (RV-70 verify, accepted: low, owner's one-maintainer setup) `make ship` with origin's main ahead and not fetched
+  stops on the push rejection instead of skipping main (lead decision on T-643: no fetch); the non-atomic push may
+  have pushed the tag first, which is harmless (the tag is the release). Fetch, then re-run ship.
