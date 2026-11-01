@@ -158,3 +158,5 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (RV-70 verify, accepted: low, owner's one-maintainer setup) `make ship` with origin's main ahead and not fetched
   stops on the push rejection instead of skipping main (lead decision on T-643: no fetch); the non-atomic push may
   have pushed the tag first, which is harmless (the tag is the release). Fetch, then re-run ship.
+- (DD-routing #1 (b), deferred) If workers still re-ask after T-655's template line: keep the lead's hold decision
+  across attempts in serve (a decision stays in every later job of the task until it merges). Lead's call then.
