@@ -14,15 +14,17 @@ import (
 )
 
 // Queue is what waits (T-664, the owner: "not only what is going on but also what is queued"), as typed arrays the
-// text renderers word: the merge loop's tasks with their stage and the next one to gate, the dispatches waiting and on
-// what, the review request, the lines and briefs not done, the pause and the next nightly run.
+// text renderers word: who holds serve's worktree (Scratch, serve's own word: T-669), the merge loop's tasks with their
+// stage and the next one to get the scratch, the dispatches waiting and on what, the review request, the lines and
+// briefs not done, the pause and the next nightly run.
 type Queue struct {
-	Merge   []MergeItem  `json:"merge"`
-	Waiting []WaitItem   `json:"waiting"`
-	Review  []ReviewItem `json:"review"`
-	Outbox  []OutboxItem `json:"outbox"`
-	Pause   *Pause       `json:"pause"`
-	Nightly *Nightly     `json:"nightly"`
+	Scratch *app.ScratchStatus `json:"scratch"`
+	Merge   []MergeItem        `json:"merge"`
+	Waiting []WaitItem         `json:"waiting"`
+	Review  []ReviewItem       `json:"review"`
+	Outbox  []OutboxItem       `json:"outbox"`
+	Pause   *Pause             `json:"pause"`
+	Nightly *Nightly           `json:"nightly"`
 }
 
 // The merge loop's stages, in the order a task goes through them (MergeItem.Stage); held is a task the owner decides.
@@ -34,15 +36,18 @@ const (
 	StageHeld      = "held"      // needs-you or failed: the owner decides
 )
 
-// MergeItem is one task in the merge loop: serve's state, its stage, its open integrator job, and Next: it gets the
-// scratch next (the lowest task id among the submitted ones while no gate or publish holds the scratch: "by id").
+// MergeItem is one task in the merge loop, in the merge loop's order: serve's state, its stage, its open integrator
+// job, and, when its next step needs the scratch, what serve's scheduler says of it (T-669: copied, never predicted):
+// Next, it gets the scratch next; else WaitsOn the task it waits for and Why (app.ScratchWait).
 type MergeItem struct {
-	Task  string `json:"task"`
-	Lane  string `json:"lane,omitempty"`
-	State string `json:"state"`
-	Stage string `json:"stage"`
-	Next  bool   `json:"next,omitempty"`
-	Job   *Job   `json:"job,omitempty"`
+	Task    string `json:"task"`
+	Lane    string `json:"lane,omitempty"`
+	State   string `json:"state"`
+	Stage   string `json:"stage"`
+	Next    bool   `json:"next,omitempty"`
+	WaitsOn string `json:"waits_on,omitempty"`
+	Why     string `json:"why,omitempty"`
+	Job     *Job   `json:"job,omitempty"`
 }
 
 // What a waiting dispatch waits on (WaitItem.WaitsOn).
@@ -103,12 +108,17 @@ type Nightly struct {
 	Next int64  `json:"next"`
 }
 
-// queue is v's queue at now: from serve's tasks, review request, lines and briefs (ps), the specs stored and the tasks
+// queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
+// lines and briefs (ps), the specs stored and the tasks
 // the store saw dispatched (a spec of neither is never dispatched), and merge.nightly_at.
 func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
 	dispatched map[string]bool, now time.Time) Queue {
-	q := Queue{Merge: []MergeItem{}, Waiting: []WaitItem{}, Review: []ReviewItem{}, Outbox: []OutboxItem{},
-		Pause: v.Paused, Nightly: nightly(nightlyAt, now)}
+	q := Queue{Scratch: ps.Scratch, Merge: []MergeItem{}, Waiting: []WaitItem{}, Review: []ReviewItem{},
+		Outbox: []OutboxItem{}, Pause: v.Paused, Nightly: nightly(nightlyAt, now)}
+	waits := map[string]app.ScratchWait{}
+	for _, w := range ps.ScratchQueue {
+		waits[w.Task] = w
+	}
 	known := map[string]bool{}
 	for _, t := range v.Tasks {
 		known[t.Task] = true
@@ -121,20 +131,13 @@ func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]
 			continue
 		}
 		if stage := stageOf(t, v); stage != "" {
-			m := MergeItem{Task: t.Task, Lane: t.Lane, State: t.State, Stage: stage}
+			w := waits[t.Task]
+			m := MergeItem{Task: t.Task, Lane: t.Lane, State: t.State, Stage: stage, Next: w.Next, WaitsOn: w.WaitsOn,
+				Why: w.Why}
 			if stage == StageReview && t.Job != "" {
 				m.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
 			q.Merge = append(q.Merge, m)
-		}
-	}
-	sortTasks(q.Merge, func(m MergeItem) string { return m.Task })
-	if !scratchHeld(v) {
-		for i := range q.Merge {
-			if q.Merge[i].Stage == StageSubmitted {
-				q.Merge[i].Next = true
-				break
-			}
 		}
 	}
 	for task, s := range specs {
@@ -193,22 +196,6 @@ func stageOf(t app.TaskStatus, v *Project) string {
 		return StageHeld
 	}
 	return ""
-}
-
-// scratchHeld: a gate or publish holds the scratch (its effect runs, or its intent waits): the merge loop gives it to
-// the next submitted task, the lowest id, only once it is free.
-func scratchHeld(v *Project) bool {
-	for _, r := range v.Running {
-		if r.Step == app.StepGate || r.Step == app.StepPublish {
-			return true
-		}
-	}
-	for _, p := range v.Pending {
-		if p.Step == app.StepGate || p.Step == app.StepPublish {
-			return true
-		}
-	}
-	return false
 }
 
 // sortTasks sorts items by their task id (idOf), numerically: T-9 before T-10.

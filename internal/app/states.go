@@ -8,7 +8,7 @@ import (
 // The merge loop's states as one table (docs/state-model.md "States" and "Transitions": the code mirrors it, row by
 // row). A state's row says what each function decides for it: pick its next step, stepName that step's name, verdict
 // the integrator's verdicts it takes, unsendable whether the lead may send it back, resume what obor resume does with a
-// needs-you that left it, scratchBusy whether it holds the scratch, drive whether a merge outside the app may have
+// needs-you that left it, scratch whether it holds the scratch, uses whether its step needs it, drive whether a merge outside the app may have
 // landed it, drop whether it ended already. A new state is one row here (and one test, TestState<Name>Row<N>).
 type stateRow struct {
 	pick     func(a *App, p *proj, mt mtask) step // its next step (under mu); nil, or no pick: it waits
@@ -16,9 +16,10 @@ type stateRow struct {
 	verdicts []verdictRule                        // the integrator's verdicts on the job it has out, in the order a refusal names them
 	send     sendRule                             // the lead's sendback (unsendable)
 	resume   func(mt mtask, cause string) resumeRule
-	scratch  bool // its conflict is open in the scratch: no other task is gated (scratchBusy)
-	landed   bool // a merge outside the app (by hand in git) may have landed it: drive checks before its step (row 34)
-	ended    bool // terminal: no drop
+	scratch  bool   // its merge is open in the scratch: no other task is gated (scratchHolder)
+	uses     string // its step needs the scratch: ScratchGating (a gate) or ScratchPublishing ("": none; scratchWait)
+	landed   bool   // a merge outside the app (by hand in git) may have landed it: drive checks before its step (row 34)
+	ended    bool   // terminal: no drop
 }
 
 // verdictRule is one verdict a state takes and how it folds.
@@ -51,7 +52,7 @@ var states map[string]stateRow
 func init() {
 	states = map[string]stateRow{
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
-		stSubmitted: {pick: (*App).pickGate, name: gateName, send: sendSettles, landed: true},
+		stSubmitted: {pick: (*App).pickGate, name: gateName, send: sendSettles, landed: true, uses: ScratchGating},
 		// rows 18–20: an accept bound to the patch is kept, else a review job
 		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(StepReview, mt.reviews+1) },
 			send: sendYes, landed: true},
@@ -74,14 +75,14 @@ func init() {
 			}},
 		}},
 		// rows 30, 18: gate the merge the integrator committed in the scratch (it holds the scratch itself)
-		stResolved: {pick: (*App).pickGate, name: gateName, send: sendSettles, scratch: true},
+		stResolved: {pick: (*App).pickGate, name: gateName, send: sendSettles, scratch: true, uses: ScratchGating},
 		// row 22: the owner decides (unless a merge outside the app took the lane meanwhile)
 		stFail: {pick: (*App).pickFail, send: sendSettles, landed: true},
 		// rows 20, 26, 33, 35: publish it
 		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(StepPublish, mt.pubs+1) },
-			send: sendSettles},
+			send: sendSettles, uses: ScratchPublishing},
 		// rows 32, 18: gate the candidate again on the new target
-		stMoved: {pick: (*App).pickGate, name: gateName, send: sendSettles},
+		stMoved: {pick: (*App).pickGate, name: gateName, send: sendSettles, uses: ScratchGating},
 		// rows 33–34: the target holds the candidate
 		stPublished: {pick: (*App).pickPublished, send: sendSettles},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt

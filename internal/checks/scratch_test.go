@@ -940,3 +940,31 @@ func TestScratchOwnCommitsSkipProjectCommitHooks(t *testing.T) {
 		t.Errorf("the merge commit's parents %q, want the submitted %s on the target", parents, sha)
 	}
 }
+
+// T-669 (RV-75 #4): serve's gate tells GateInput.Command each command it starts: a partial merge its guard then its
+// class's check (check_affected), never check; a full merge check.
+func TestGateReportsItsCommands(t *testing.T) {
+	t.Parallel()
+	partial := testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard",
+		"classes": []any{map[string]any{"name": "any", "paths": []any{"**"}, "checks": []any{"check_affected"}}}})
+	for _, tc := range []struct {
+		name  string
+		edits []func(map[string]any)
+		want  string
+	}{
+		{"partial", []func(map[string]any){partial, cmd("guard", "echo 1 pass"), cmd("check_affected", "echo 2 pass"),
+			cmd("check", "echo 3 pass")}, "guard check_affected"},
+		{"full", []func(map[string]any){cmd("check", "echo 3 pass")}, "check"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y := newSx(t, tc.edits...)
+			in := lane(y.submit())
+			var got []string
+			in.Command = func(name string) { got = append(got, name) }
+			y.green(in)
+			if s := strings.Join(got, " "); s != tc.want {
+				t.Errorf("commands told %q, want %q", s, tc.want)
+			}
+		})
+	}
+}

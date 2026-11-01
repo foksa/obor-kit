@@ -33,7 +33,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 		defer a.effects.Done()
 		effect(ctx)
 		a.mu.Lock()
-		p.running = Key{}
+		p.running, p.runCmd = Key{}, ""
 		a.mu.Unlock()
 		<-p.scratch
 		a.wake()
@@ -188,18 +188,6 @@ func (a *App) where(p *proj, agent string) Where {
 	return a.whereIs(p, agent)
 }
 
-// scratchBusy: another task of p holds the scratch, a conflict open or resolved there (rule: one merge in the scratch
-// at a time), also while a needs-you pauses that work (RV-38 #9). It is released when the task abandons it (reject,
-// regate, a new attempt) or merges.
-func (p *proj) scratchBusy(task string) bool {
-	for t, mt := range p.folded.loop {
-		if t != task && states[mt.kept()].scratch {
-			return true
-		}
-	}
-	return false
-}
-
 // submitID is the identity of submit step (submit, submit.N) of attempt: its pin's name, <attempt>[.N].
 func submitID(attempt int, step string) string {
 	id := strconv.Itoa(attempt)
@@ -249,6 +237,13 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	}
 	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepGate, mt.gates+1)}, Class: ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
+	g.Command = func(name string) { // obor status' running line names it (T-669)
+		a.mu.Lock()
+		if p.running == in.Key {
+			p.runCmd = name
+		}
+		a.mu.Unlock()
+	}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		row, _, err := specOf(p, mt.task) // the current rev: the gate puts it into the merge's message (T-521)
 		if err != nil {

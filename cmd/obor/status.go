@@ -208,13 +208,17 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 		app.Age(max(now.Sub(time.Unix(fc.At, 0)), 0)), fc.Summary)}
 }
 
-// queueSection is what waits (T-664), one line per item, in the order of urgency: the merge loop's tasks with their
-// stage (the next to gate marked "by id"), the dispatches waiting and on what (--after tasks, a lane of their level, a
+// queueSection is what waits (T-664), one line per item, in the order of urgency: a merge open in serve's worktree
+// (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage (the
+// next to get the scratch, or what it waits on: serve's scheduler says), the dispatches waiting and on what (--after tasks, a lane of their level, a
 // spec never dispatched), the review request (or "review due"), the lead's watches, the lines not typed yet and the
 // briefs in progress, the pause and the next nightly check.
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
+	if s := q.Scratch; s != nil && s.Why != app.ScratchGating && s.Why != app.ScratchPublishing {
+		out = append(out, "scratch "+s.Task+": "+s.Why)
+	}
 	for _, m := range q.Merge {
 		out = append(out, mergeLine(m))
 	}
@@ -259,7 +263,8 @@ func queueSection(st view.Project, now time.Time) []string {
 }
 
 // mergeLine is a merge-loop task's queue line: its lane, its stage (serve's state when it says more), the next to get
-// the scratch, an integrator job out and whether it was fetched.
+// the scratch or the task it waits for and why (serve's scheduler, T-669), an integrator job out and whether it was
+// fetched.
 func mergeLine(m view.MergeItem) string {
 	line := "merge " + m.Task
 	if m.Lane != "" {
@@ -271,9 +276,9 @@ func mergeLine(m view.MergeItem) string {
 	}
 	switch {
 	case m.Next:
-		line += ", next (by id)"
-	case m.Stage == view.StageSubmitted:
-		line += ", waits for the scratch"
+		line += ", next"
+	case m.WaitsOn != "":
+		line += ", waits for " + m.WaitsOn + " (" + m.Why + ")"
 	}
 	if j := m.Job; j != nil {
 		fetched := "not fetched"

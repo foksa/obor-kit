@@ -209,9 +209,10 @@ type proj struct {
 	badLoop, badLanes bool
 	// scratch is the token of serve's worktree (capacity 1): a gate, a publish or a resolved verdict's check holds it
 	// while it runs. running is the key of the merge loop's gate or publish running in its own goroutine (Task "":
-	// none; under mu).
+	// none; under mu); runCmd the command its gate runs now (GateInput.Command; "": none started yet).
 	scratch chan struct{}
 	running Key
+	runCmd  string
 	// exec: the effects running now, each with when its start began (App.do). obor status' running line lists the
 	// command steps among them; an open intent not here is pending (T-662). Under mu.
 	exec map[Key]time.Time

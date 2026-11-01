@@ -361,17 +361,26 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	return nil
 }
 
-// runningCommand is the configured command r runs, for the running line: the project's checking step for a gate or the
-// nightly check, commands.after_merge for after_merge; "" for a step of git alone (publish) or an unset command.
+// runningCommand is the configured command r runs, for the running line: for a gate the command serve says it runs
+// now (T-669: the class's, the guard or check; its name when not configured; "" while unknown, never a guess), the
+// full check for the nightly check, commands.after_merge for after_merge; "" for a step of git alone (publish) or an
+// unset command.
 func runningCommand(p *checks.LaneTable, r app.RunningStep) string {
 	name := ""
 	switch r.Step {
-	case app.StepGate, app.StepNightly:
+	case app.StepGate:
+		if name = r.Command; name == "" {
+			return ""
+		}
+	case app.StepNightly:
 		name = "check"
 	case app.StepAfterMerge:
 		name = app.StepAfterMerge
 	}
-	cmd, _ := p.Cfg.Command(name)
+	cmd, ok := p.Cfg.Command(name)
+	if !ok && r.Step == app.StepGate {
+		return name
+	}
 	return cmd.Cmd
 }
 
