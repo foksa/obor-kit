@@ -152,3 +152,6 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (RV-69 #2, accepted: low) A serve crash between the reviewer's launch and `review.started` leaves that review
   untracked (no started/finished line; a later request could fresh-start the same RV). Exactly-once across a crash
   needs an uncertain-launch state; not worth it now. T-639 at least reports failed appends after a launch.
+- (RV-69 verify, accepted: low) `obor review --rm` in the instant between `review.fire` and the launch's return answers
+  `NO REVIEW REQUEST` instead of "claimed" (wording only; nothing is cancelled). The review-started lead line's own
+  append is unchecked: if only that append fails, the lead misses the line (a failing log fails the needs-you too).
