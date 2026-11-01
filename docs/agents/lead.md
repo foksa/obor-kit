@@ -62,11 +62,11 @@ docs there).
   `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
   axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
-  (`RELEASING.md`): on main `VERSION`, plugin `version` + `docs/UPGRADE-v<x.y>.md` (committed); in a scratch worktree at
-  main set marketplace `name` `obor-kit`, `make release`, commit with `bin/checksums.txt`, `git tag -a v<x.y.z>`; copy
-  `bin/checksums.txt` to main; `OBOR_ALLOW_PUSH=1 git push origin main v<x.y.z>`; the owner runs `make publish` in the
-  scratch worktree (the classifier refuses the lead's upload); check `install.sh` in a scratch HOME. A pushed tag
-  never moves. Then `obor send <project> "<what changed>"` to the adopting leads.
+  (`RELEASING.md`, T-640): on main write `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and commit it; then
+  `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
+  `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog back on main). The owner
+  runs `make ship` (push, `make publish`, `install.sh`); the classifier refuses the lead's push. A pushed tag never
+  moves. Then `obor send <project> "<what changed>"` to the adopting leads.
 - Before each tag: a Codex smoke on C-01 with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --types luna
   --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
   like T-461; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix

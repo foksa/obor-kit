@@ -6,23 +6,26 @@ Install (a new machine; re-running is the upgrade):
 curl -fsSL https://raw.githubusercontent.com/foksa/obor-kit/main/install.sh | sh
 ```
 
-Everything that stays goes on main first: `VERSION`, the plugin `version` and `docs/UPGRADE-v<x.y>.md` (step 1, committed
-on main). Only the marketplace `name` flip, `make release` and the tag happen in a scratch worktree at that commit
-(`git worktree add --detach <dir> main`), so main keeps marketplace `obor-kit-dev` (RV-64 #4). Afterwards copy
-`bin/checksums.txt` from the tag to main and commit it; nothing else of the tag's commit goes to main.
+The lead, in a clean checkout on main:
 
-1. On main: update `VERSION` and `.claude-plugin/plugin.json`'s `version` (the plugin version keys Claude's cache dir,
-   so the two must match), write the release's `docs/UPGRADE-v<x.y>.md` at tag time from `git log v<prev>..` (every
-   merge's spec is in its message), not task by task: a guide written mid-milestone misses the last merges (DD-v0.14
-   U1). Review and commit on main.
-   In the scratch worktree at that commit: set `.claude-plugin/marketplace.json`'s `name` to `obor-kit` (main's is
-   `obor-kit-dev`, the dev checkout's; the tag ships the name users install, and `make publish` refuses a tag that
-   does not say `obor-kit`).
-2. Run `make release`. It creates four files in `dist/` and updates `bin/checksums.txt`. The checksum file is cumulative: each release replaces that version's four entries and keeps entries for every other version.
-3. In the scratch worktree commit the marketplace name and the updated `bin/checksums.txt`, tag that commit `v$(VERSION)` and push
-   the tag, then run `make publish`: `scripts/publish` checks the tag's `VERSION`, plugin version and `bin/checksums.txt`
-   against the four `dist/obor-$(VERSION)-<os>-<arch>` files (darwin/linux × arm64/amd64), then `gh release create`
-   uploads exactly those four to the GitHub release for that tag. Publishing is its own explicit step; nothing else calls it.
-   A pushed tag never moves: a release that needs other bytes or another catalog is a new (patch) version (RV-63 #4:
-   publish checks the local tag, so a moved local tag could upload bytes the remote tag's catalog rejects).
-4. Restart serve after a schema change: a release that changes the store's schema (`docs/state-model.md`) needs `obor serve` restarted on every project at once, because a running serve keeps the old schema in memory.
+1. Write `docs/UPGRADE-v<x.y>.md` with a `## v<x.y.z>` heading — the release's guide, at tag time from
+   `git log v<prev>..` (every merge's spec is in its message), not task by task: a guide written mid-milestone misses
+   the last merges (DD-v0.14 U1). Commit it on main.
+2. `make release V=x.y.z` (`DRY=1` prints the steps and changes nothing). It refuses off main, on a dirty tree, when
+   `V` is not above `VERSION`, or when the guide has no `v<x.y.z>` heading; then it sets `VERSION` and the plugin
+   `version`, runs the full `make check` (a failure commits nothing), and commits them on main. In a scratch worktree
+   at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
+   commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
+   worktree. A re-run resumes where it stopped (the version commit, the tag and the catalog commit are not redone); a
+   local tag whose bytes differ is refused, and a pushed tag never moves.
+
+The owner:
+
+3. `make ship` (with `OBOR_ALLOW_PUSH=1` inside): pushes main and the tag, runs `scripts/publish` (the GitHub release),
+   then `install.sh` on this machine. Each step is skipped when it is already done (origin has the tag, the GitHub
+   release exists, the installed `obor` is this version).
+4. `obor serve restart` in each project: a project picks the new kit up at restart.
+
+Guarantees: main keeps marketplace `obor-kit-dev` (only the tag ships `obor-kit`); `scripts/publish` uploads exactly
+the four binaries the tag's `bin/checksums.txt` names, and the catalog stays cumulative. A pushed tag never moves: a
+release that needs other bytes or another catalog is a new (patch) version.

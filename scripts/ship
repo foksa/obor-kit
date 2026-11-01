@@ -1,0 +1,83 @@
+#!/bin/sh
+# ship <x.y.z>: the owner's one command after `make release V=<x.y.z>` (RELEASING.md). From the main checkout:
+#   git push origin main v<version> (with OBOR_ALLOW_PUSH=1, the release tag's own bytes and never moved),
+#   scripts/publish (the GitHub release), install.sh (this machine's kit at the newest tag).
+# Each step is skipped when it is already done (origin has the tag, the GitHub release exists, the installed obor is
+# this version); the last line is the one follow-up: `obor serve restart` in each project. POSIX sh.
+set -eu
+
+usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
+[ "$#" -le 1 ] || usage
+v=${1:-}
+if [ -z "$v" ]; then v=$(tr -d '[:space:]' < VERSION); fi
+printf '%s\n' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || usage
+
+tag="v$v"
+platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
+
+fail() { echo "FAIL $*" >&2; exit 1; }
+say() { echo "ship: $*"; }
+
+[ -f Makefile ] && [ -f VERSION ] && [ -f install.sh ] ||
+  fail "not at a kit checkout's root: run make ship there"
+
+git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1 || fail "no tag $tag: run make release V=$v first"
+branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
+[ "$branch" = main ] || fail "on ${branch:-a detached HEAD}, not main: make ship runs on main"
+[ -z "$(git status --porcelain)" ] || fail "the working tree is dirty: commit first (make ship pushes, it does not commit)"
+[ "$(tr -d '[:space:]' < VERSION)" = "$v" ] || fail "VERSION is $(cat VERSION), not $v: make ship ships the checked-out version"
+
+# main is pushable when it has the release's catalog: the copy-back commit scripts/release makes.
+tagcat=$(git show "$tag:bin/checksums.txt" 2> /dev/null) || fail "no bin/checksums.txt at $tag: run make release V=$v first"
+tagv=$(printf '%s\n' "$tagcat" | grep -F "dist/obor-$v-" || true)
+[ "$(printf '%s\n' "$tagv" | grep -c . || true)" = 4 ] || fail "bin/checksums.txt at $tag has no four lines for $v"
+havev=$(git show HEAD:bin/checksums.txt 2> /dev/null | grep -F "dist/obor-$v-" || true)
+[ "$havev" = "$tagv" ] || fail "main's bin/checksums.txt has no $tag catalog: commit it first (make release V=$v does)"
+for pl in $platforms; do
+  f="dist/obor-$v-$pl"
+  [ -f "$f" ] || fail "missing $f: run make release V=$v (or check the tag out and build it there)"
+done
+# The tag's own checks (scripts/publish's) run before it leaves this machine: a pushed tag never moves.
+tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
+tagplug=$(git show "$tag:.claude-plugin/plugin.json" 2> /dev/null |
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) || tagplug=
+tagmarket=$(git show "$tag:.claude-plugin/marketplace.json" 2> /dev/null | tr -d '\n' |
+  sed -n 's/^[^"]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || tagmarket=
+[ "$tagver" = "$v" ] || fail "VERSION at $tag is '$tagver', not $v"
+[ "$tagplug" = "$v" ] || fail ".claude-plugin/plugin.json version at $tag is '$tagplug', not $v"
+[ "$tagmarket" = obor-kit ] || fail ".claude-plugin/marketplace.json name at $tag is '$tagmarket', not obor-kit"
+
+remote=$(git ls-remote origin refs/heads/main "refs/tags/$tag" 2> /dev/null) || remote=
+lmain=$(git rev-parse refs/heads/main)
+ltag=$(git rev-parse "refs/tags/$tag")
+rmain=$(printf '%s\n' "$remote" | awk '$2 == "refs/heads/main" { print $1; exit }')
+rtag=$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag" '$2 == r { print $1; exit }')
+if [ "$rmain" = "$lmain" ] && [ "$rtag" = "$ltag" ]; then
+  say "origin has main and $tag: push skipped"
+else
+  [ -z "$rtag" ] || [ "$rtag" = "$ltag" ] ||
+    fail "origin has $tag at $rtag, not the local $ltag: a pushed tag never moves (a changed release is a new patch version)"
+  OBOR_ALLOW_PUSH=1 git push origin main "$tag" || fail "git push origin main $tag failed"
+  say "pushed main and $tag"
+fi
+
+command -v gh > /dev/null 2>&1 || fail "gh not found: install GitHub's CLI to publish the release"
+if gh release view "$tag" > /dev/null 2>&1; then
+  say "the GitHub release for $tag exists: publish skipped"
+else
+  sh scripts/publish "$v" || fail "scripts/publish $v failed"
+  say "published $tag"
+fi
+
+installed=
+if command -v obor > /dev/null 2>&1; then
+  installed=$(cd / && obor version 2> /dev/null | awk 'NR == 1 { print $2 }') || installed=
+fi
+if [ "$installed" = "$tag" ]; then
+  say "the installed obor is $tag: install skipped"
+else
+  sh install.sh || fail "install.sh failed"
+  say "installed the kit (install.sh): obor $tag"
+fi
+
+say "next: obor serve restart in each project (each picks the new kit up at restart)"
