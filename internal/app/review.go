@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"obor/internal/config"
@@ -27,6 +28,15 @@ import (
 // step failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
 // dropped or rejected ends the request with the lead's line "[obor] review request ended: T-b dropped" (fact message
 // {review: the request's seq}, whose fold ends it).
+//
+// One review cycle is open at a time (RV-69 #3): the last review serve started (fact review.started, so a replay
+// keeps it) is open until an "RV-<n> closed" commit for it (or a later one) is on the integration branch, read in git
+// at the call and at firing. While one is open, obor review refuses a new request ("RV-69 is open (not closed): close
+// it first"), and a request that comes due waits (obor status: "waiting RV-69 to close"): a fresh start would replace
+// the session its verify needs. A request a pass claimed (RV-69 #1: to fire it, or for its ended line) cannot change
+// until the claim ends: obor review's replace and --rm are refused while it holds (reviewClaim). A crash between the
+// reviewer's launch and fact review.started is accepted (RV-69 #2): the launch is not exactly-once; a failing append
+// after the launch is a needs-you "<RV-xx>: started but not recorded: <error>".
 
 // MethodReview is the app socket's review request: Call.After the tasks it waits for, Call.Note the lead's note,
 // Call.Clear ends the open request; none of them: the open request listed, else a request to start now.
@@ -76,15 +86,26 @@ type ReviewGit interface {
 	Detach(ctx context.Context, dir, sha string) error
 }
 
-// reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and whether a pass is
-// firing it now (reviewPass' claim, not folded).
+// reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
+// waits for once due (held: the last pass's git read, not folded; "": none).
 type reviewReq struct {
-	seq    int64
-	at     time.Time
-	after  []string
-	note   string
-	by     string
-	firing bool
+	seq   int64
+	at    time.Time
+	after []string
+	note  string
+	by    string
+	held  string
+}
+
+// reviewClaim is a pass's claim of the open review request (live). what is "starting" from the claim until the
+// reviewer's start returned (its fire fact appended and folded first), "ending" until its ended line is ("": no
+// claim; under App.mu). mu orders a claim against obor review's changes: reviewCall holds it from its check through
+// its fact's append and fold, reviewPass while it claims, so a change is either folded before a claim or refused
+// during one. claimed is a test hook: it runs once a pass claimed, before the claim's first append (nil: none).
+type reviewClaim struct {
+	mu      sync.Mutex
+	what    string
+	claimed func()
 }
 
 // lastReview is the newest review the log started: its fact's seq, its id and the head it reviews (seq 0: none).
@@ -193,7 +214,8 @@ func reviewConfig(root string) (reviewSetup, error) {
 // gets the stored reply. --rm: REVIEW REQUEST ENDED (fact review.rm), or NO REVIEW REQUEST. No --after, no note and a
 // request open: it is listed (reviewList). Else a request (fact review.request): REVIEW REQUESTED (now | after
 // T-a,T-b), " (replaces the request of <age> ago)" when one was open; a task neither dispatched nor specified, a task
-// of --after dropped or rejected already, or no reviewer configured: refused, nothing recorded.
+// of --after dropped or rejected already, no reviewer configured, or a review open (reviewOpen): refused, nothing
+// recorded. A pass's claim held (reviewClaim): --rm and a request are refused.
 func (a *App) reviewCall(c Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(MethodReview + ": a call id is required")
@@ -209,8 +231,10 @@ func (a *App) reviewCall(c Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("review: the lead or the owner requests a review, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
+	p.rv.mu.Lock() // no pass claims the request from this check to this call's fact's fold
+	defer p.rv.mu.Unlock()
 	a.mu.Lock()
-	open := p.folded.review
+	open, claim, started := p.folded.review, p.rv.what, p.folded.reviewed
 	var since time.Duration
 	if open != nil {
 		since = a.opt.Now().Sub(open.at)
@@ -232,15 +256,23 @@ func (a *App) reviewCall(c Call) (string, error) {
 	switch {
 	case c.Clear && open == nil:
 		return "NO REVIEW REQUEST", nil
+	case len(c.After) == 0 && c.Note == "" && open != nil && !c.Clear:
+		return a.reviewList(p), nil
+	case claim != "":
+		return "", fmt.Errorf("review: obor serve is %s the review request now: nothing changed (try again once it is done)", claim)
 	case c.Clear:
 		step, d.Reply = StepReviewRm, "REVIEW REQUEST ENDED"
-	case len(c.After) == 0 && c.Note == "" && open != nil:
-		return a.reviewList(p), nil
 	case end != "":
 		return "", fmt.Errorf("review: %s already", end)
 	default:
-		if _, err := reviewConfig(p.root); err != nil {
+		s, err := reviewConfig(p.root)
+		if err != nil {
 			return "", fmt.Errorf("review: %v", err)
+		}
+		if id, err := a.reviewOpenNow(p, s.branch, started); err != nil {
+			return "", fmt.Errorf("review: %v", err)
+		} else if id != "" {
+			return "", fmt.Errorf("%s is open (not closed): close it first", id)
 		}
 		for _, task := range unknown {
 			_, ok, err := specOf(p, task)
@@ -284,6 +316,9 @@ func (p *proj) reviewStatus(now time.Time) string {
 			if w := p.reviewWaits(q.after); len(w) > 0 {
 				s += ", waiting " + strings.Join(w, ",")
 			}
+		}
+		if q.held != "" {
+			s += ", waiting " + q.held + " to close"
 		}
 		s += ")"
 		if q.note != "" {
@@ -352,41 +387,93 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	return fmt.Sprintf("review due: %d merges since %s", len(merges), cmp.Or(prev, "the first commit (no RV closed yet)")), nil
 }
 
-// reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. A
-// pass claims the request under mu before it records (fired: its fact ends it; an ended line: its fold does).
+// reviewOpen is the id of started, the last review serve started, while no "RV-<n> closed" commit on branch closes it
+// or a later one ("": none open, or none started).
+func reviewOpen(ctx context.Context, g ReviewGit, branch string, started lastReview) (string, error) {
+	n, err := strconv.Atoi(strings.TrimPrefix(started.id, "RV-"))
+	if started.seq == 0 || err != nil {
+		return "", nil
+	}
+	last, err := g.Last(ctx, branch)
+	if err != nil {
+		return "", err
+	}
+	if next, _, _ := previousReview(last); n >= next {
+		return started.id, nil
+	}
+	return "", nil
+}
+
+// reviewOpenNow is reviewOpen for obor review's call, on the merge loop's git (none: no review is started, none open).
+func (a *App) reviewOpenNow(p *proj, branch string, started lastReview) (string, error) {
+	fx, err := a.opt.Loop(p.root)
+	if err != nil || fx.Review == nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return reviewOpen(ctx, fx.Review, branch, started)
+}
+
+// reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. Due:
+// every --after task merged, no review open in git (reviewOpen; one open: the request waits, held) and the reviewer
+// idle. A pass claims the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until
+// the start returned; an ended line, its fold does.
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
-	q := p.folded.review
-	run := q != nil && !q.firing && p.merging && p.out.lead() != "" && fx.Review != nil && fx.Agents != nil
+	q, started := p.folded.review, p.folded.reviewed
+	run := q != nil && p.rv.what == "" && p.merging && p.out.lead() != "" && fx.Review != nil && fx.Agents != nil
+	ready := run && p.reviewOutcome(q.after) == "" && len(p.reviewWaits(q.after)) == 0
 	a.mu.Unlock()
 	if !run {
 		return
 	}
 	setup, cfgErr := reviewConfig(p.root)
+	open, checked := "", ready && cfgErr == nil
+	if checked {
+		var err error
+		if open, err = reviewOpen(ctx, fx.Review, setup.branch, started); err != nil {
+			a.logf("review of %s: is the last review closed: %v", p.name, err)
+			return
+		}
+	}
+	p.rv.mu.Lock()
 	a.mu.Lock()
-	if q != p.folded.review || q.firing {
+	if q != p.folded.review || p.rv.what != "" || p.folded.reviewed != started {
 		a.mu.Unlock()
+		p.rv.mu.Unlock()
 		return
 	}
 	end := p.reviewOutcome(q.after)
-	due := end == "" && len(p.reviewWaits(q.after)) == 0 && (cfgErr != nil || a.reviewerIdle(p, setup.agent))
-	if end != "" || due {
-		q.firing = true
+	merged := end == "" && len(p.reviewWaits(q.after)) == 0
+	q.held = ""
+	if merged && open != "" {
+		q.held = open
 	}
-	a.mu.Unlock()
+	due := merged && open == "" && (cfgErr != nil || checked && a.reviewerIdle(p, setup.agent))
 	switch {
 	case end != "":
-		m := Message{To: p.out.lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
-		a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m)
+		p.rv.what = "ending"
 	case due:
-		if a.record(p, Record{Task: ReviewTask, Step: StepReviewFire, Kind: KindFact}, ReviewData{Request: q.seq}) {
-			a.fireReview(ctx, p, fx, q, setup, cfgErr)
-		}
-	default:
+		p.rv.what = "starting"
+	}
+	claimed, hook := p.rv.what != "", p.rv.claimed
+	a.mu.Unlock()
+	p.rv.mu.Unlock()
+	if !claimed {
 		return
 	}
+	if hook != nil {
+		hook()
+	}
+	if end != "" {
+		m := Message{To: p.out.lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
+		a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m)
+	} else if a.record(p, Record{Task: ReviewTask, Step: StepReviewFire, Kind: KindFact}, ReviewData{Request: q.seq}) {
+		a.fireReview(ctx, p, fx, q, setup, cfgErr)
+	}
 	a.mu.Lock()
-	q.firing = false
+	p.rv.what = ""
 	a.mu.Unlock()
 	a.wake()
 }
@@ -408,7 +495,8 @@ func (a *App) reviewerIdle(p *proj, agent string) bool {
 
 // fireReview starts the review of the fired request q: the facts, the detached worktree, the reviewer's fresh start
 // on the brief, its brief recorded, fact review.started and the lead's line; a step failing records needs-you
-// {<id>: <error>} instead and starts nothing.
+// {<id>: <error>} instead and starts nothing. A fact after the launch the log refuses is logged and a needs-you
+// {<id>: started but not recorded: <error>} (RV-69 #2: the review runs, serve does not know it).
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s reviewSetup, cfgErr error) {
 	id, line, brief, tasks, head, err := a.prepareReview(ctx, fx.Review, q, s, cfgErr)
 	if err == nil {
@@ -422,9 +510,19 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
 		return
 	}
-	a.record(p, Record{Task: ReviewTask, Step: StepReviewStarted, Kind: KindFact},
-		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks})
-	a.recordBrief(p, s.agent, "obor", "", "")
+	var lost error
+	if !a.record(p, Record{Task: ReviewTask, Step: StepReviewStarted, Kind: KindFact},
+		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
+		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+StepReviewStarted))
+	}
+	if _, ok := a.recordBrief(p, s.agent, "obor", "", ""); !ok && lost == nil {
+		lost = cmp.Or(p.log.Err(), errors.New("the event log refused the brief"))
+	}
+	if lost != nil {
+		reason := id + ": started but not recorded: " + lost.Error()
+		a.logf("FAIL review of %s: %s", p.name, reason)
+		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
+	}
 	a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, Message{To: p.out.lead(), From: "obor", Line: line})
 }
 
@@ -489,12 +587,14 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s re
 	if len(tasks) == 0 {
 		line = "[obor] review " + id + " started at " + short + " (no merges since " + cmp.Or(prev, "the start") + ")"
 	}
-	return id, line, reviewBrief(id, s, short, prev, prevSHA, scope, files, q.note), tasks, head, nil
+	return id, line, reviewBrief(id, s, short, last, scope, files, q.note), tasks, head, nil
 }
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in and
-// the lead's note appended (its out of scope and contracts).
-func reviewBrief(id string, s reviewSetup, short, prev, prevSHA string, scope, files []string, note string) string {
+// the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
+// none): its file is deleted at close (RV-69 #4), so the brief names what is kept, the close commit and BACKLOG.
+func reviewBrief(id string, s reviewSetup, short, last string, scope, files []string, note string) string {
+	_, prev, prevSHA := previousReview(last)
 	inScope := strings.Join(scope, ", ")
 	if inScope == "" {
 		inScope = "no merges"
@@ -518,8 +618,8 @@ func reviewBrief(id string, s reviewSetup, short, prev, prevSHA string, scope, f
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review %s. %s is at %s. In scope: %s; files: %s.", id, s.branch, short, inScope, fileList)
 	if prev != "" {
-		fmt.Fprintf(&b, " Previous review: %s (git show <its removal's parent>:%s/%s.md, or the file while open) — don't repeat its findings.",
-			prev, s.reviews, prev)
+		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s; its accepted findings are the BACKLOG lines that name %s)"+
+			" — don't repeat them.", prev, last, prev)
 	} else {
 		b.WriteString(" Previous review: none.")
 	}

@@ -27,11 +27,16 @@ the review worktree at the head, starts a fresh reviewer session with the brief 
 `obor restart <reviewer> --fresh --prompt` does), records the brief, and tells you
 `[obor] review RV-xx started at <sha7> (T-a, T-b, …)`. A `--after` task dropped or rejected ends the request
 (`[obor] review request ended: T-b dropped`); a step that fails starts nothing and is a needs-you
-(`review: RV-xx: <error>`; a new `obor review` ends it). The brief serve sends:
+(`review: RV-xx: <error>`; a new `obor review` ends it). One review cycle is open at a time: the review serve started
+is open until its `RV-xx closed` commit (§5) is on the integration branch. While it is open `obor review` is refused
+(`FAIL RV-xx is open (not closed): close it first`) and a request that comes due waits (`obor status`: `waiting RV-xx
+to close`): a fresh start would replace the session §4 needs. While serve is starting or ending a request it claimed,
+`obor review` and `--rm` are refused (try again once it is done). A fact serve fails to record after the reviewer
+started is a needs-you (`review: RV-xx: started but not recorded: <error>`). The brief serve sends:
 ```
 Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>.
-Previous review: <RV-prev> (git show <its removal's parent>:<reviews>/<RV-prev>.md, or the file while open) — don't
-repeat its findings. For every finding give severity, likelihood (does a real config or workflow hit it,
+Previous review: <RV-prev> (its close commit: <subject>; its accepted findings are the BACKLOG lines that name
+<RV-prev>) — don't repeat them. For every finding give severity, likelihood (does a real config or workflow hit it,
 or only a constructed one?), file:line, probe/evidence, suggested fix and its cost in added code, and an
 Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked. Write
 only <reviews>/<RV-xx>.md in your worktree. Do not commit.

@@ -184,6 +184,7 @@ type proj struct {
 	retry      map[Key]retry        // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
+	rv         reviewClaim          // a pass's claim of the open review request (review.go)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
@@ -236,7 +237,7 @@ type folded struct {
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
 	watches map[string]*mergeWatch // the open watches of a task's merge by task (mergewatch.go; lining is live)
-	// review: the open review request (review.go; nil: none; firing is live); reviewed: the last review started.
+	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
