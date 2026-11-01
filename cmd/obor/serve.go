@@ -126,6 +126,9 @@ func mergeLoop(env project.Env, panes herdr.Panes) func(root string) (*app.Loop,
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root}
+		if exe, err := os.Executable(); err == nil {
+			l.Restart = serveRestarter(cfg, env, exe)
+		}
 		return l, nil
 	}
 }

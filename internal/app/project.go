@@ -231,9 +231,10 @@ func (p *proj) setLanes(ls []Lane) {
 }
 
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
-// review requests'), not a task's.
+// review requests', a failed self-restart's), not a task's.
 func projectKey(task string) bool {
-	return task == LoopTask || task == NightlyTask || task == MsgTask || task == DiskTask || task == ReviewTask
+	return task == LoopTask || task == NightlyTask || task == MsgTask || task == DiskTask || task == ReviewTask ||
+		task == ServeTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

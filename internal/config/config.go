@@ -93,6 +93,9 @@ type Command struct {
 	Paths   []string `json:"paths,omitzero"`
 	When    []string `json:"when,omitzero"`
 	At      string   `json:"at,omitempty"`
+	// RestartServe (after_merge's, T-652): once the command ran green, serve restarts itself on the new build
+	// (launchd's kickstart -k). Default false: a project on the installed binary has nothing to pick up.
+	RestartServe bool `json:"restart_serve,omitempty"`
 }
 
 type command Command // Command without its JSON methods

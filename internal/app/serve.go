@@ -177,6 +177,7 @@ func (a *App) loadProject() {
 	a.p = p
 	a.reconcile(p) // its identity table from the panes known now (none before the first snapshot)
 	a.mu.Unlock()
+	a.endServeNeeds(p)
 }
 
 // projAt is the served project when root is its root (nil: not loaded yet, or another project's root; under mu).

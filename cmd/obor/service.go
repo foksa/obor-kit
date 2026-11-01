@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"obor/internal/app"
@@ -78,4 +82,37 @@ func serveService(verb, cwd string, env project.Env) int {
 func servePID(root string) int {
 	pid, _ := strconv.Atoi(project.NewLock(app.FlockFile(root)).Holder())
 	return pid
+}
+
+// serveRestarter is serve's self-restart after a green after_merge (app.Loop.Restart, T-652): `<exe> serve restart`
+// in the project, in a session of its own (detached: launchd's kickstart -k ends this serve and its process group,
+// not the restart), waited for so a failure is serve's to report. Only launchd's serve restarts itself: off darwin,
+// not installed, or this serve not the agent's process (one in a pane) is an error, nothing run. Not run under ctx:
+// the restart ends this serve, and with it ctx, while it runs.
+func serveRestarter(cfg *config.Config, env project.Env, exe string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		s := serviceOf(cfg, env)
+		if !s.Supported() {
+			return errors.New("serve runs under launchd on macOS only: restart it by hand")
+		}
+		pid, loaded := s.PID(ctx)
+		switch {
+		case !loaded:
+			return fmt.Errorf("%s is not installed (obor serve install)", s.Label())
+		case pid != os.Getpid():
+			return fmt.Errorf("this serve (pid %d) is not launchd's %s (pid %d): restart it by hand", os.Getpid(),
+				s.Label(), pid)
+		}
+		cmd := exec.Command(exe, "serve", "restart")
+		cmd.Dir = cfg.Root
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			if out := strings.TrimPrefix(strings.TrimSpace(string(b)), "FAIL obor serve restart: "); out != "" {
+				return errors.New(out)
+			}
+			return err
+		}
+		return nil
+	}
 }
