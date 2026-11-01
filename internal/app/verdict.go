@@ -70,8 +70,10 @@ type Call struct {
 	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
 	Until int64 `json:"until,omitempty"`
 	Clear bool  `json:"clear,omitempty"`
-	// send's (messages.go): the sender project's name; To is a brief's role agent.
-	From string `json:"from,omitempty"`
+	// send's (messages.go): the sender project's name; To is a brief's role agent. Prompt is a fresh start's first
+	// prompt (obor restart --fresh --prompt): a brief without a line, recorded as the start's text (T-665).
+	From   string `json:"from,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
 	// stopped's (stopped.go): the API error that ended the agent's turn and its details (T-532).
 	Error   string `json:"error,omitempty"`
 	Details string `json:"details,omitempty"`

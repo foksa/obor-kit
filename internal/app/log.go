@@ -438,13 +438,15 @@ func (a *App) backup(c Call) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	a.prunePrompts(p, now)
 	pruneStopFailure(root, now)
 	return "BACKUP " + path, nil
 }
 
 // Backup is obor nightly's backup of root's database (keeping the newest 7): through the serve at sock when it has
 // the project loaded, else directly on a read-only open (WAL: a consistent copy while another serve writes). A
-// project without a database ("": serve never loaded it) has nothing to back up.
+// project without a database ("": serve never loaded it) has nothing to back up. The prompts table's 14-day prune
+// (T-665) is serve's, its one writer: a read-only backup here prunes nothing.
 func Backup(ctx context.Context, sock, root string, now time.Time) (string, error) {
 	if reply, err := Verdict(ctx, sock, MethodBackup, Call{Root: root}); err == nil {
 		return reply, nil

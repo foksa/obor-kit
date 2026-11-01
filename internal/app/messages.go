@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/store"
 )
 
 // Lines to a project's agents (T-466; docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
@@ -842,7 +843,7 @@ func (a *App) briefCall(c Call) (string, error) {
 	if from == "" {
 		from = "owner"
 	}
-	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID)
+	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
 	}
@@ -851,10 +852,11 @@ func (a *App) briefCall(c Call) (string, error) {
 }
 
 // recordBrief records fact briefed of the role agent to from from (note "": the restart's or a review's fresh start
-// carried the brief; call "": no call): its reply, false when the log refused it. The new brief ends the agent's
-// undelivered brief lines (T-575; its fact's supersedes, T-580). Without a note, a pane already identified as
-// the agent's may be working on it: that work is noted at once.
-func (a *App) recordBrief(p *proj, to, from, note, call string) (string, bool) {
+// carried the brief; call "": no call; prompt: that start's first prompt, its text when there is no line): its reply,
+// false when the log refused it. The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes,
+// T-580). Without a note, a pane already identified as the agent's may be working on it: that work is noted at once.
+// The text sent is a row of the project's prompts table (T-665): the line for a brief, the start's prompt for a start.
+func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (its typing set: it may have landed) stays; a lead line is
@@ -881,10 +883,15 @@ func (a *App) recordBrief(p *proj, to, from, note, call string) (string, bool) {
 		}
 		m.Reply += fmt.Sprintf(" (replaces %d undelivered %s)", len(old), briefs)
 	}
-	ok := a.record(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, m)
+	seq, ok := a.recordSeq(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, m)
 	p.out.claim.Unlock()
 	if !ok {
 		return "", false
+	}
+	if m.Line != "" {
+		a.prompt(p, seq, store.PromptBrief, to, "", "", m.Line)
+	} else {
+		a.prompt(p, seq, store.PromptStart, to, "", "", prompt)
 	}
 	if m.Line == "" { // the restart's start carried the brief: the agent may be working on it already
 		a.mu.Lock()

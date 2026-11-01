@@ -273,8 +273,21 @@ func TestBackup(t *testing.T) {
 	h := newHarness(t)
 	h.connect()
 	h.tick(11 * time.Minute) // a record to back up
+	// T-665: the nightly backup prunes the prompts older than 14 days, keeps the rest.
+	for _, r := range []store.PromptRow{
+		{Seq: 1, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
+		{Seq: 2, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-24T12:00:00Z", Text: "fresh"},
+	} {
+		if err := store.WritePrompt(h.a.p.log.db, r); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if reply, err := h.a.backup(Call{Root: h.root}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
 		t.Fatalf("serve's backup = %q, %v", reply, err)
+	}
+	if rows, err := store.ReadPrompts(h.a.p.log.db, store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
+		rows[0].Text != "fresh" {
+		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (14 days kept)", rows, err)
 	}
 	if recs, err := ReadLog(backupRoot(t, filepath.Join(BackupDir(h.root), "obor-2026-10-24.db"))); err != nil || len(recs) == 0 {
 		t.Errorf("serve's backup log = %+v, %v; want its records", recs, err)

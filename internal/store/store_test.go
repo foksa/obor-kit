@@ -427,7 +427,8 @@ func TestOpenRWRefusesPreV012(t *testing.T) {
 				db.Close()
 				t.Fatalf("OpenRW accepted schema version %s", version)
 			}
-			want := "schema version " + version + " is older than this obor (6): upgrade through v0.12.0 first"
+			want := "schema version " + version + " is older than this obor (" + strconv.Itoa(SchemaVersion) +
+				"): upgrade through v0.12.0 first"
 			if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "\n") {
 				t.Errorf("error = %q, want one line with %q", err, want)
 			}

@@ -342,11 +342,17 @@ func (a *App) advance(ctx context.Context) {
 
 // record appends the fact r with data and folds it; false when the log failed.
 func (a *App) record(p *proj, r Record, data any) bool {
+	_, ok := a.recordSeq(p, r, data)
+	return ok
+}
+
+// recordSeq is record, also returning the record's seq (0 when the log failed).
+func (a *App) recordSeq(p *proj, r Record, data any) (int64, bool) {
 	r.Data, _ = json.Marshal(data) // plain structs: cannot fail
 	r, err := p.log.Append(r, a.opt.Now())
 	if err != nil {
 		a.logf("FAIL event log of %s: %v", p.name, err)
-		return false
+		return 0, false
 	}
 	a.mu.Lock()
 	p.foldRecord(r)
@@ -358,9 +364,9 @@ func (a *App) record(p *proj, r Record, data any) bool {
 	a.logf("%s %s %s (attempt %d)", p.name, r.Task, r, r.Attempt)
 	if err != nil {
 		a.logf("FAIL lane rows of %s: %v", p.name, err)
-		return false
+		return 0, false
 	}
-	return true
+	return r.Seq, true
 }
 
 // do runs effect under the log's Do for in and folds its intent (once written: the effect ran) and its result. An

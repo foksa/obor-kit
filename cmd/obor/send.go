@@ -93,7 +93,7 @@ func briefCmd(args []string) int {
 		fmt.Fprintln(out, noConfig)
 		return 1
 	}
-	reply, err := brief(context.Background(), cfg, args[0], args[1], project.OSEnv)
+	reply, err := brief(context.Background(), cfg, args[0], args[1], "", project.OSEnv)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
@@ -102,15 +102,16 @@ func briefCmd(args []string) int {
 	return 0
 }
 
-// brief is the brief request for agent (text "": a fresh start carried it); agent must be a role's agent other than
-// the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor, an agents entry …).
-func brief(ctx context.Context, cfg *config.Config, agent, text string, env project.Env) (string, error) {
+// brief is the brief request for agent (text "": a fresh start carried it; prompt: that start's first prompt, its text
+// in the project's prompts table); agent must be a role's agent other than the lead's, the integrator's and a
+// worker's (reviewer, deep_dive, advisor, an agents entry …).
+func brief(ctx context.Context, cfg *config.Config, agent, text, prompt string, env project.Env) (string, error) {
 	if !roleAgent(cfg, agent) {
 		return "", fmt.Errorf("%s is no role agent of this project (reviewer, deep_dive, advisor …; not the lead, the integrator or a worker)", agent)
 	}
 	cwd, _ := os.Getwd()
 	c := caller(env, cwd, cfg)
-	c.To, c.Note = agent, text
+	c.To, c.Note, c.Prompt = agent, text, prompt
 	return app.Verdict(ctx, app.SocketPath(cfg.Root), app.MethodBrief, c)
 }
 

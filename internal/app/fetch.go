@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"obor/internal/config"
+	"obor/internal/store"
 )
 
 // Jobs by fetch (docs/state-model.md rows 5–8 and 16–17). Every agent fetches its
@@ -98,10 +99,14 @@ func (a *App) jobNext(c Call) (string, error) {
 		if base, _ := stepN(key.Step); base == StepReview || base == StepResolve {
 			agent = p.integrator
 		}
-		if !delivered && !a.record(p, Record{Task: key.Task, Attempt: key.Attempt, Step: StepDelivered, Kind: KindFact},
-			FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
-				Via: viaMCP, Call: c.CallID, Rev: rev}) {
-			return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
+		if !delivered {
+			seq, ok := a.recordSeq(p, Record{Task: key.Task, Attempt: key.Attempt, Step: StepDelivered, Kind: KindFact},
+				FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
+					Via: viaMCP, Call: c.CallID, Rev: rev})
+			if !ok {
+				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
+			}
+			a.prompt(p, seq, store.PromptJob, agent, JobID(key), key.Task, text)
 		}
 		a.wake()
 	}
