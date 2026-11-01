@@ -305,7 +305,7 @@ function parse(hash) {
 }
 
 let nav = 0;          // bumps on every navigation: a slow answer never draws over another page
-let current = null;   // { route, draw }: the page shown, to redraw on new records
+let current = null;   // { r, draw, my }: the page shown, to redraw on new records and on the refresh
 async function go() {
   const my = ++nav;
   stopLive();
@@ -315,21 +315,37 @@ async function go() {
   crumbs(r, def.crumb(r));
   app.innerHTML = '<p class="loading">loading…</p>';
   window.scrollTo(0, 0);
+  // Every draw takes a ticket when it starts: an answer that lands after a later-started draw painted is dropped, so
+  // the long poll's redraw and the refresh never paint an older read over a newer one.
+  let started = 0, painted = 0;
   const draw = async (refresh) => {
+    const ticket = ++started;
     const html = await def.page(r);
     if (my !== nav) return false;
+    if (ticket < painted) return true;
+    painted = ticket;
     paint(html, refresh);
     return true;
   };
   current = { r, draw, my };
+  const ctl = new AbortController();
+  poller = ctl;
+  // The cursor is taken before the page's first read: a record that lands between the two is newer than the cursor,
+  // so the long poll redraws the page (RV-76 #1). It only moves forward; when the read fails, a project seen before
+  // keeps its cursor, and one never seen gets it from the live loop, which then draws again.
+  if (r.project) {
+    try { await takeCursor(r.project, ctl.signal); } catch (e) { /* kept, or taken by live */ }
+  }
+  if (my !== nav) return;
   try {
     if (!(await draw(false))) return;
   } catch (e) {
     if (my === nav) app.innerHTML = `<div class="banner t-bad">could not load this page: ${esc(e.message)}</div>`;
   }
   if (my !== nav) return;
-  if (r.project) live(my, r.project);
-  else landingLoop(my);
+  const st = { poll: true, drawn: true };
+  if (r.project) live(my, r.project, ctl, draw, st);
+  refreshLoop(my, draw, st);
 }
 window.addEventListener("hashchange", go);
 // A click on a link to the page already shown changes no hash: draw it again rather than nothing.
@@ -379,51 +395,95 @@ function unfold(el) {
 // One /api/events long poll per project page: any newer record redraws the page (state moves with the log).
 const liveEl = document.getElementById("live");
 let poller = null;
-const cursors = {};   // project → the newest seq seen
+const cursors = {};   // project → the newest seq its shown pages are drawn past; only moves forward
+const REFRESH_MS = 5000; // the shown page is read again this often: pane, connection and running state log no record
+const RETRY_MS = 3000;   // a failed poll or redraw is tried again after this
 function setLive(state, text) {
   liveEl.className = state;
   liveEl.querySelector("span").textContent = text;
-  liveEl.title = state === "on" ? "live: new records redraw the page" : text;
+  liveEl.title = state === "on" ? "live: new records and a refresh every few seconds redraw the page" : text;
+}
+// mark is the live mark from the poll's and the last draw's outcome: stale when either failed.
+function mark(st) {
+  if (!st.poll) setLive("stale", "reconnecting");
+  else if (!st.drawn) setLive("stale", "refresh failed");
+  else setLive("on", "live");
 }
 function stopLive() { if (poller) { poller.abort(); poller = null; } }
-async function live(my, project) {
-  const ctl = new AbortController();
-  poller = ctl;
-  if (cursors[project] === undefined) {
-    try {
-      const v = await api("/api/view?project=" + enc(project), ctl.signal);
-      cursors[project] = (v.events || []).reduce((m, e) => Math.max(m, e.seq || 0), 0);
-    } catch (e) { cursors[project] = 0; }
-  }
-  setLive("on", "live");
+// advance moves a project's cursor forward to seq, never back.
+function advance(project, seq) {
+  if (cursors[project] === undefined || seq > cursors[project]) cursors[project] = seq;
+}
+// takeCursor reads the project's newest worded record as its cursor (an unworded record past it only redraws once).
+async function takeCursor(project, signal) {
+  const v = await api("/api/view?project=" + enc(project), signal);
+  advance(project, (v.events || []).reduce((m, e) => Math.max(m, e.seq || 0), 0));
+}
+// live is one /api/events long poll per project page: a record past the cursor redraws the page, and only a redraw
+// that succeeded moves the cursor past it (a failed one is tried again).
+async function live(my, project, ctl, draw, st) {
+  const alive = () => !ctl.signal.aborted && my === nav;
   let last = 0;
-  while (!ctl.signal.aborted && my === nav) {
-    let page;
-    try {
-      page = await api(`/api/events?project=${enc(project)}&since=${cursors[project]}`, ctl.signal);
-    } catch (e) {
-      if (ctl.signal.aborted || my !== nav) return;
-      setLive("stale", "reconnecting");
-      await sleep(3000);
-      continue;
+  let target = 0; // the seq a pending redraw moves the cursor to (0: none pending)
+  mark(st);
+  while (alive()) {
+    if (cursors[project] === undefined) {
+      try { await takeCursor(project, ctl.signal); } catch (e) {
+        if (!alive()) return;
+        st.poll = false; mark(st);
+        await sleep(RETRY_MS);
+        continue;
+      }
+      target = cursors[project]; // the page shown may be older than the cursor just taken: draw it again
     }
-    if (my !== nav) return;
-    setLive("on", "live");
-    if ((page.seq || 0) <= cursors[project]) continue;
-    cursors[project] = page.seq;
+    if (!target) {
+      let page;
+      try {
+        page = await api(`/api/events?project=${enc(project)}&since=${cursors[project]}`, ctl.signal);
+      } catch (e) {
+        if (!alive()) return;
+        st.poll = false; mark(st);
+        await sleep(RETRY_MS);
+        continue;
+      }
+      if (!alive()) return;
+      st.poll = true; mark(st);
+      if ((page.seq || 0) <= cursors[project]) continue;
+      target = page.seq;
+    }
     const wait = 1200 - (Date.now() - last); // a burst of records redraws once
     if (wait > 0) await sleep(wait);
-    if (my !== nav) return;
+    if (!alive()) return;
     last = Date.now();
-    try { await current.draw(true); } catch (e) { setLive("stale", "redraw failed"); }
+    try {
+      if (!(await draw(true))) return;
+      st.drawn = true;
+      advance(project, target);
+      target = 0;
+    } catch (e) {
+      if (!alive()) return;
+      st.drawn = false; mark(st);
+      await sleep(RETRY_MS);
+      continue;
+    }
+    mark(st);
   }
 }
-async function landingLoop(my) {
-  setLive("on", "live");
+// refreshLoop reads the shown page again every REFRESH_MS: what changes without a record (an agent's pane, serve's
+// connection, a running command, a restart) shows up; a failed read turns the live mark stale.
+async function refreshLoop(my, draw, st) {
+  mark(st);
   while (my === nav) {
-    await sleep(8000);
+    await sleep(REFRESH_MS);
     if (my !== nav) return;
-    try { await current.draw(true); setLive("on", "live"); } catch (e) { setLive("stale", "reconnecting"); }
+    try {
+      if (!(await draw(true))) return;
+      st.drawn = true;
+    } catch (e) {
+      if (my !== nav) return;
+      st.drawn = false;
+    }
+    mark(st);
   }
 }
 
@@ -585,7 +645,7 @@ function renderProject(p, v) {
       <div class="lead"><span>${agentLink(p, x.agent)}</span>
         ${x.brief ? `<span class="sub2">brief ${x.brief.worked ? "being worked" : x.brief.delivered ? "delivered" :
           "not delivered"} · ${rel(x.brief.since)}</span>` : ""}</div>
-      <span>${x.status ? pill(x.status === "done" ? "idle" : x.status, x.status) : ""}</span>
+      <span>${x.status ? pill(x.status === "done" ? "idle" : x.status, x.status) : pill("idle", "no pane")}</span>
       <span class="r muted small">${x.age ? dur(x.age) : ""}</span>
     </div>`).join("");
   const freeLine = free.length ? `<p class="quiet">${dot("free")} ${free.length} lane${free.length > 1 ? "s" : ""} free:
@@ -719,22 +779,31 @@ function milestone(rec) {
   return rec.line ? ["idle", rec.line] : null;
 }
 
-// stageOf is the task's place in dispatched → working → submitted → gate → review → merged, with its tone.
-const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merged"];
+// stageOfTask is the task's place in dispatched → working → submitted → gate → review → merging → merged, with its
+// tone. Accepted and published are merging (the publish), never merged: merged is the merged fact alone, every step
+// done.
+const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merging", "merged"];
+const STATE_STEP = { waiting: 0, dispatched: 0, working: 1, submitted: 2, resolved: 3, moved: 3, red: 3, green: 4,
+  "awaiting-accept": 4, conflict: 4, resolving: 4, accepted: 5, published: 5 };
+// recordStep is the step a record shows the task reached, by the indices of STATE_STEP (-1: none).
+function recordStep(r) {
+  const step = r.step || "";
+  if (r.kind === "fact") return { dispatch: 0, delivered: 1, sendback: 1, submitted: 2 }[step] ?? -1;
+  if (r.kind !== "result") return -1;
+  if (step.startsWith("accept") || step.startsWith("publish")) return 5;
+  if (step.startsWith("gate")) return / pass /.test(r.line || "") ? 4 : 3;
+  if (step.startsWith("review")) return 4;
+  return -1;
+}
 function stageOfTask(t) {
   const recs = t.records || [];
-  if (recs.some((r) => r.kind === "fact" && r.step === "merged")) return { i: 6, tone: "ok", state: "merged" };
-  const st = t.state || "";
-  const map = { waiting: 0, dispatched: 1, working: 1, submitted: 2, resolved: 3, moved: 3, red: 3, green: 4,
-    "awaiting-accept": 4, conflict: 4, resolving: 4, accepted: 5, published: 5 };
-  if (st in map) return { i: map[st], tone: tone(st === "submitted" ? "submitted" : st), state: st };
-  // needs-you, fail or ended: the furthest milestone its records reached, held there.
-  let i = 0;
-  for (const r of recs) {
-    const m = r.kind === "fact" && r.step === "dispatch" ? 1 : r.kind === "fact" && r.step === "submitted" ? 3 :
-      r.kind === "result" && r.step.startsWith("gate") ? 4 : r.kind === "result" && r.step.startsWith("accept") ? 5 : 0;
-    i = Math.max(i, m);
+  if (recs.some((r) => r.kind === "fact" && r.step === "merged")) {
+    return { i: TASK_STEPS.length, tone: "ok", state: "merged" };
   }
+  const st = t.state || "";
+  if (st in STATE_STEP) return { i: STATE_STEP[st], tone: tone(st), state: st };
+  // needs-you, fail or ended: the furthest step its records reached, held there.
+  const i = recs.reduce((m, r) => Math.max(m, recordStep(r)), 0);
   return { i, tone: st ? tone(st) : "idle", state: st || (recs.length ? "ended" : "") };
 }
 function steps(t) {
