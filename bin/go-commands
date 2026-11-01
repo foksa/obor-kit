@@ -4,6 +4,7 @@ whoami
 config
 pause
 watch
+review
 run
 dispatch
 drop

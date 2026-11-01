@@ -31,7 +31,8 @@ type statusModel struct {
 	NeedsYou  []needsYouJSON      `json:"needs_you"`
 	FullCheck *fullCheckJSON      `json:"full_check"`
 	Paused    *pauseJSON          `json:"paused"`
-	Messages  []app.MessageStatus `json:"messages"` // the lines not typed yet
+	Messages  []app.MessageStatus `json:"messages"`         // the lines not typed yet
+	Review    string              `json:"review,omitempty"` // the open review request, or "review due: …" (T-638)
 	facts     []app.Record        // serve's facts in force for the project (--facts)
 }
 
@@ -173,6 +174,7 @@ func buildStatus(p *checks.LaneTable, ss app.Status, err error) statusModel {
 		st.Serve.Merging, st.Serve.LogError = ps.Merging, ps.LogError
 		st.Tasks, st.Agents = append(st.Tasks, ps.Tasks...), append(st.Agents, ps.Agents...)
 		st.Messages = append(st.Messages, ps.Messages...)
+		st.Review = ps.Review
 		st.facts = ps.Facts
 		for _, f := range ps.Facts {
 			if f.Step == app.StepNeedsYou {
@@ -317,6 +319,9 @@ func writeStatus(w io.Writer, st statusModel, now time.Time) {
 	}
 	for _, m := range st.Messages {
 		fmt.Fprintf(w, "undelivered to %s (from %s, %s): %s\n", m.To, app.Dash(m.From), app.Age(time.Duration(m.Age)*time.Second), m.Line)
+	}
+	if st.Review != "" {
+		fmt.Fprintln(w, st.Review)
 	}
 	if fc := st.FullCheck; fc == nil {
 		fmt.Fprintln(w, "full check: none yet")
