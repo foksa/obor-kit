@@ -33,7 +33,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   `ReadLanesAt`), `specs` (T-440: each task's spec and rev; `obor spec set` is a serve request, readers use
   `store.ReadSpecAt` / `ReadSpecsAt`; the gate puts the current rev into every merge's message, T-521), `prompts`
   (T-665: the text of every job, brief and start prompt serve sent, by the seq of the fact it belongs to; serve writes
-  it, readers use `store.ReadPromptsAt` / `ReadPrompts`, pruned to 14 days at the nightly backup). The agents'
+  it, readers use `store.ReadPromptsAt` / `ReadPrompts`, pruned to 14 days at the nightly backup; `store.OpenAt` is the
+  read-only handle a reader that runs several queries holds, as obor web's event poll does). The agents'
   sessions (T-577) are `events` facts on task key `session` (`sessions.go`: `store.Session`, readers
   `ReadSessionsAt` / `CurrentAt` / `TranscriptAt` for launch and the hooks).
 
@@ -101,10 +102,14 @@ joins serve's status answer (none when serve is down, with its error), the git l
 store (read-only: specs, events) into one `view.Project`: serve, running and pending, the lanes (state column, spec
 rev, open job), serve's tasks and agents, the role agents, needs-you, the full check, the pause, the lines, the queue
 (merge loop with stages and the next by id, waiting dispatches: after | lane | never dispatched, the review request,
-the outbox, pause, nightly) and the newest worded events (seq, ts, task, line). It may import base, core and the
-adapters; only entry packages import it. **Every reader of project state goes through `view.Build`**: `obor status`
-(`--json` prints `view.Project` as is), `obor monitor` and the web UI render the same struct, so a field added for one
-appears in all of them; no second builder.
+the outbox, pause, nightly) and the newest worded events (seq, ts, task, line). `view.Load` is that build for one
+project at a root (serve's answer, the lane table, the store), as `obor web` builds every project the machine knows.
+`view.Detail` is the drill-down the API serves and nothing else: a task's state, spec, report, gate line and log,
+needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
+jobs; a job's text (a `prompts` row). `EventsSince` pages the log by seq for the page's long poll. It may import base,
+core and the adapters; only entry packages import it. **Every reader of project state goes through `view.Build`**:
+`obor status` (`--json` prints `view.Project` as is), `obor monitor` and `obor web` render the same struct, so a field
+added for one appears in all of them; no second builder.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
@@ -115,3 +120,7 @@ thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands
 `answer`, `resume`, `sendback`, `drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
+- `web` (`internal/web`, T-667): `obor web`'s read-only HTTP server over the read model — the API (`/api/projects`,
+  `/api/view`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq) and one
+  embedded HTML page (`embed`, vanilla JS, no build step), standard library only. Localhost only, no verbs; its own
+  process, never inside serve.

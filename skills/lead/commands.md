@@ -24,6 +24,16 @@ It redraws on every new record and at least every 2 s (elapsed times), says `ser
 restarts and reconnects by itself, and ends on Ctrl-C. Read-only, any role: the lane's states are serve's and git's,
 never the monitor's own. `obor setup monitor` (idempotent: an existing pane is reused) is how a project gets one later.
 
+## obor web (T-667)
+`obor web` serves a read-only page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen
+127.0.0.1:<port>` for another loopback port; a host that is not loopback is refused). Its own process, never inside
+serve; Ctrl-C ends it. The landing page lists the projects with their needs-you count and queue length; a project page
+puts its lanes and queue beside its needs-you and live events; a task, an agent or a job opens as its own page — the
+task's state, spec rev, report, gate line and log, needs-you, records and the text of every job; the agent's sessions
+(transcript path and last write, never contents), briefs, lines and jobs; a job's whole prompt text in monospace.
+Read-only: no verb goes through the browser, so answer a needs-you with the command the page shows, as before. Localhost
+only: remote access is an SSH tunnel.
+
 ## obor watch (T-523, T-528, T-666)
 Clean merges stay quiet for you; a merge you must act on (restart serve after it, dispatch by hand, tell the owner)
 is a watch, never a shell loop over `git log` or a background wait. A "when Y, do X" whose Y is a merge is a watch

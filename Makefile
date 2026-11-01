@@ -62,12 +62,11 @@ check check-affected:
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
-# Test support (herdrtest, testkit) is excepted. The prompts table's readers too (T-665: store.ReadPrompts,
-# ReadPromptsAt): their consumer is T-667's web UI, which reads the store directly; remove then.
+# Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
+# (obor web reads with a store handle it opens itself, view.Load's).
 deadcode:
 	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
-	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPrompts$$' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
 

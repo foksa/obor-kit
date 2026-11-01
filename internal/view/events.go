@@ -47,6 +47,44 @@ func events(db *sql.DB, n int, s Serve) []Event {
 	return out[:min(n, len(out))]
 }
 
+// EventsPage is the API's event cursor (T-667): the worded records newer than the since it was asked for, oldest first,
+// and Seq, the newest record read — the next since (unchanged when nothing is newer).
+type EventsPage struct {
+	Seq    int64   `json:"seq"`
+	Events []Event `json:"events"`
+}
+
+// EventsSince is the log's records newer than since, at most limit, as EventsPage: the client's long poll, one page per
+// read (a record the event list does not word still advances Seq). No store: the page's cursor, no events.
+func EventsSince(db *sql.DB, since int64, limit int) (EventsPage, error) {
+	page := EventsPage{Seq: since, Events: []Event{}}
+	if db == nil || limit <= 0 {
+		return page, nil
+	}
+	rows, err := db.Query(`SELECT seq, ts, task, kind, step, data FROM events WHERE seq > ? ORDER BY seq LIMIT ?`,
+		since, limit)
+	if err != nil {
+		return page, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r app.Record
+		var data []byte
+		if err := rows.Scan(&r.Seq, &r.TS, &r.Task, &r.Kind, &r.Step, &data); err != nil {
+			return page, err
+		}
+		if len(data) > 0 {
+			r.Data = data
+		}
+		page.Seq = r.Seq
+		if line := eventLine(r); line != "" {
+			at, _ := time.Parse(time.RFC3339, r.TS)
+			page.Events = append(page.Events, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, At: at})
+		}
+	}
+	return page, rows.Err()
+}
+
 // eventData is what the view reads of a record's data: each kind of record fills the fields it has.
 type eventData struct {
 	Lane    string   `json:"lane"`

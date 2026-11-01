@@ -24,6 +24,7 @@ setup
 init
 status
 monitor
+web
 restart
 lead
 serve

@@ -81,6 +81,8 @@ func main() {
 		exit(status(args))
 	case "monitor":
 		exit(monitorCmd(args))
+	case "web":
+		exit(webCmd(args))
 	case "config":
 		exit(configCmd(args))
 	case "hook":
@@ -175,6 +177,7 @@ var commands = map[string][]string{
 	"init":            nil,
 	"status":          nil,
 	"monitor":         nil,
+	"web":             nil,
 	"config":          {"get", "validate"},
 	"hook":            {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},
 	"version":         nil,
