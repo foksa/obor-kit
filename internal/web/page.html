@@ -337,13 +337,16 @@ async function go() {
     try { await takeCursor(r.project, ctl.signal); } catch (e) { /* kept, or taken by live */ }
   }
   if (my !== nav) return;
+  // drawn is the first draw's real outcome (RV-76 #1): a page that failed to load is not live until a redraw succeeds.
+  let drawn = false;
   try {
     if (!(await draw(false))) return;
+    drawn = true;
   } catch (e) {
     if (my === nav) app.innerHTML = `<div class="banner t-bad">could not load this page: ${esc(e.message)}</div>`;
   }
   if (my !== nav) return;
-  const st = { poll: true, drawn: true };
+  const st = { poll: true, drawn };
   if (r.project) live(my, r.project, ctl, draw, st);
   refreshLoop(my, draw, st);
 }

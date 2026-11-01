@@ -36,7 +36,7 @@ func TestPageScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"transitionAfterFirstRead", "changeWithoutRecord", "failedRedrawRetried",
-		"cursorKeptPerProject", "pipeline", "stoppedRole"} {
+		"cursorKeptPerProject", "failedFirstDraw", "pipeline", "stoppedRole"} {
 		t.Run(name, func(t *testing.T) {
 			out, err := exec.Command(node, file, name).CombinedOutput()
 			if err != nil {
