@@ -57,6 +57,14 @@ func atShell(r *concRig) {
 	r.a.mu.Unlock()
 }
 
+// atAgent puts the integrator's pane w1:p9 back to running an agent, as herdr reports it once a fresh start is in.
+func atAgent(r *concRig) {
+	r.a.mu.Lock()
+	o := r.a.obs["w1:p9"]
+	o.pane.Agent, o.pane.Status = "claude", "idle"
+	r.a.mu.Unlock()
+}
+
 func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
 	r := newConcRig(t)
 	p := r.proj("pj")
@@ -128,7 +136,7 @@ func TestRoleStopIntegratorWaitsForIdle(t *testing.T) {
 }
 
 // The next job after a stop starts the integrator fresh: no job.lost, no needs-you, and status no longer shows it
-// stopped once its start is in.
+// stopped once its start is in and herdr reports the pane running it.
 func TestRoleStopNextJobStartsFresh(t *testing.T) {
 	r := newConcRig(t)
 	p := r.proj("pj")
@@ -159,6 +167,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 			t.Errorf("record %s %s on the way to the fresh start", rec.Task, rec)
 		}
 	}
+	atAgent(r) // herdr reports the fresh start in w1:p9: the pane is no longer at its shell
 	if got := r.a.Status().Project.Stopped; len(got) != 0 {
 		t.Errorf("status stopped %q after the start, want none", got)
 	}

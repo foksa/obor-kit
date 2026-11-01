@@ -264,7 +264,8 @@ func roleRows(st view.Project, o renderOpts, p palette) []string {
 	return out
 }
 
-// roleStatus is a role's pane status, "no pane" when serve sees none ("stopped" when serve stopped it, T-672).
+// roleStatus is a role's pane status, "no pane" when serve sees none ("stopped" when serve or the lead stopped it,
+// T-672, T-677).
 func roleStatus(r view.Role) string {
 	if r.Status == "" {
 		return "no pane"
