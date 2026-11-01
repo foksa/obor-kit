@@ -24,6 +24,7 @@ func (a *App) load(root string) (*proj, error) {
 	if name == "" {
 		name = filepath.Base(root)
 	}
+	start := time.Now()
 	log, recs, err := a.openLog(root)
 	if err != nil {
 		return nil, err
@@ -48,8 +49,8 @@ func (a *App) load(root string) (*proj, error) {
 	// every other pending intent is the loop's to run again, its effect checking first what happened (a prompt is
 	// sent again: prompt.go).
 	settled := a.settleEnded(p, "")
-	a.logf("project %s (%s): %d records replayed, %d tasks with watchdog facts, %d merge tasks, %d lanes, %d pending intents (%d settled)",
-		name, root, len(recs), len(p.folded.active), len(p.folded.loop), len(p.folded.lr.rows), pending, settled)
+	a.logf("project %s (%s): replayed %d records in %.2f s, %d tasks with watchdog facts, %d merge tasks, %d lanes, %d pending intents (%d settled)",
+		name, root, len(recs), time.Since(start).Seconds(), len(p.folded.active), len(p.folded.loop), len(p.folded.lr.rows), pending, settled)
 	return p, nil
 }
 

@@ -109,9 +109,6 @@ type Options struct {
 	Retry time.Duration // the first wait before subscribing again after a subscribe error (2 s)
 	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s; T-596)
 	RetryMax time.Duration
-	// LoadWait is how long a socket request waits for the project's first load, its replay (10 s; T-656): serve
-	// listens before it loads, so a call made meanwhile waits instead of being refused.
-	LoadWait time.Duration
 	Now      func() time.Time
 	Out      io.Writer // one line per connect, stream end, herdr gone and back, and fact (nil: none)
 	// Refresh: the stream ended with err only so the app works from a new snapshot (herdr's Code refresh): it
@@ -163,7 +160,7 @@ type App struct {
 	life      context.Context    // the daemon's lifetime: the socket requests' effects run under it
 	stop      context.CancelFunc // ends life (Serve's end)
 	reqs      sync.WaitGroup     // the socket requests being answered (Serve's end waits for them)
-	loaded    chan struct{}      // closed at the project's first load: a request waits for the replay on it (T-656)
+	loaded    chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
 	loadOnce  sync.Once          // closes loaded once
 	verdicts  sync.Mutex         // the integrator's verdicts are answered one at a time
 	loopMu    sync.Mutex         // loopStatus's decision and its record are one step (the merge loop and the check both call it)

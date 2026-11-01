@@ -84,9 +84,10 @@ below, T-524).
 - **F — pure fact.** One record, no outside effect. Replay: it is there or not; if not, nothing happened and the
   caller retries (an MCP call id returns the stored reply). A notify after a fact is not recorded; replay notifies
   again. A client whose reply is lost (a reset, a close, or a serve that crashed before answering) retries the same
-  request and call id with backoff for about 30 s (`ask`): the restarted serve replays and answers from its store.
-  After the budget the client gets the last refusal, and that means the call may have landed: its reply is still
-  stored for that id, so the same id is the only way to learn it.
+  request and call id every 500 ms until its own deadline (`verdictAsk`, the deadlines `app.Verdict`'s table, T-659):
+  the restarted serve replays and answers from its store. After the deadline the client gets the last error, and
+  that means the call may have landed: its reply is still stored for that id, so the same id is the only way to learn
+  it.
 - **S — start/stop, checked via the snapshot.** Replay reads `session.snapshot`: agent in the pane (start) or none
   (stop) → the effect happened, write the result; else do it again (Start no-ops on a pane with an agent).
 - **G — git effect, a function of durable inputs.** Each step's effect reads only shas in the app's records and the
