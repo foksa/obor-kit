@@ -9,7 +9,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - 2026-11-01 morning: **v0.17.1 released** (published, `~/.obor/kit` at v0.17.1; axis-alies and axis-maps serves
   restarted on it). Merged after the tag, for v0.17.2 when the owner wants it: T-636 (RV-68 #1 #2), T-637 (needs-line
   tests wait on events). axis-maps: obor init done, its lead not started yet (owner: `obor lead` in wA:p1). Nothing in
-  flight. Unreviewed since RV-68: T-636, T-637.
+  flight. Unreviewed since RV-68: T-636, T-637. T-638 (`obor review`) on O-01, watched; when it merges: rebuild + serve restart, then `obor review` = RV-69 (T-636..T-638), then v0.17.2.
 - 2026-10-31 session 13, evening: **v0.17.0 released** (tag pushed, GitHub release published, `~/.obor/kit` at
   v0.17.0). Merged today T-595..T-626; RV-64..66 closed; DD-v0.17 + verify approved (V2 → T-626, V1/V3 docs done).
   axis-alies migrated (54543f08) and was told to follow UPGRADE-v0.17 (githooks, serve install, restarts). Nothing
