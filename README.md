@@ -51,7 +51,8 @@ again.
 
 ## Set up a project
 
-In the project's repository, inside herdr:
+In the project's directory (an empty one works: init runs `git init` and makes the first commit), inside herdr,
+from a shell in a herdr workspace of its own or one where none of another project's panes run:
 
 ```sh
 obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, agent panes, obor serve
@@ -59,7 +60,7 @@ obor init       # the plugin, the git hooks, .obor/config.json, lane worktrees, 
 
 `obor init` detects the check commands, picks the lanes and role types, installs the plugin and the git hooks and its
 `obor serve` launchd agent, then prints each step and the file to change (`.obor/config.json`). Run it once on a
-machine with `claude` on PATH.
+machine with `claude` on PATH. With no pane of the project open yet, init creates a herdr workspace for it.
 
 After that:
 

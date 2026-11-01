@@ -135,7 +135,9 @@ before acting` (lead: `run /obor:lead`; T-204).
 config with the detected commands, lanes for the CLIs on PATH, the git hooks layer (T-623), panes and roles, the plugin (`claude plugin
 marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), obor.events, `obor serve install`, then a
 summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
-the repair path. `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
+the repair path. Placement (T-628, T-632, T-634): a workspace or tab is the project's when every pane in it with a
+known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
+a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
 contract is the package doc). Role names, env values and worktree defaults come from `internal/roles`. `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` links obor.events in herdr from `<kit>/herdr-plugin`

@@ -54,6 +54,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-67-verify-2 #2, owner 11-01: ship + document) init placement infers ownership from pane cwds: (a) a workspace
+  whose only pane is a shell cd'd into the project counts as the project's; (b) on a rerun after an earlier
+  misplacement S-01 can follow O-01's clean tab inside a mixed workspace. Documented (README, design Setup); a stored
+  project→workspace identity only if it bites.
 - (RV-67-verify #1, accepted) `obor init` appends its lines to an existing `.gitignore` in a repo with commits (by
   design, printed, not committed); byte-identical pre-existing template files in an unborn repo count as init's
   (constructed).
