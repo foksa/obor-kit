@@ -43,7 +43,7 @@ func (a *App) check(ctx context.Context, full bool) {
 func (a *App) decideLanes(ctx context.Context, p *proj) {
 	ls, err := a.lanes.Lanes(p.root)
 	if p.merging {
-		a.loopStatus(p, &p.badLanes, err)
+		a.loopStatus(ctx, p, &p.badLanes, err)
 	}
 	if err != nil {
 		a.logf("lanes of %s: %v", p.root, err)

@@ -45,7 +45,8 @@ import (
 // call of job delivery). The oldest first and one per agent per pass, under deliver.<seq> (P, a wake's transport:
 // prompt.go). A refusal before any byte went out (no inbox record, a refused dial, a refused typing) is fact
 // failed{step: deliver.<seq>}, and the line stays queued and is delivered again on a later pass, also after a restart
-// (RV-50 #1); a delivery a crash cut (its intent pending) is delivered again too: a line may reach its agent twice,
+// (RV-50 #1); a post serve's own stop cut before a byte records nothing (T-660) and waits the same. A delivery a crash
+// cut (its intent pending) is delivered again too: a line may reach its agent twice,
 // never not at all. A typed line herdr refuses because the pane is blocked (blocked, agent_blocked) is such a refusal,
 // retried on a later pass; a posted one cannot land in a dialog at all (a session behind an open permission dialog reads it
 // when its turn continues, and it cannot answer the dialog). A line waiting longer than msgWait is the project's
@@ -524,6 +525,7 @@ func (a *App) inboxedAt(agent string, w Where) bool {
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
 // one) or, post "", types it into target (its pane) under its delivery key (P, transmit). Refused before a byte went
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
+// A post serve's own stop cut before a byte (T-660): nothing recorded, the line still queued.
 func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post, target string) {
 	key := Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
 	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its typing claim
@@ -547,6 +549,10 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 			return sentResult(began, err)
 		})
 	if err != nil && !began { // nothing went out: the next pass delivers it
+		if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
+			a.shutDown(MsgTask + " " + StepFailed + "{" + key.Step + ": " + err.Error() + "}")
+			return
+		}
 		a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
 			FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step})
 	}
@@ -580,9 +586,17 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 				return sentResult(began, err)
 			})
 		if err != nil && !began && !recovered { // nothing went out: the next pass posts them again, as one
-			for _, q := range lines {
-				a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
-					FactData{Machine: Machine, Reason: key(q.seq).Step + ": " + err.Error(), Step: key(q.seq).Step})
+			if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
+				what := MsgTask + " " + StepFailed + "{" + key(head).Step + ": " + err.Error() + "}"
+				if len(lines) > 1 { // one line is named as its own record; a batched post says how many it was
+					what += fmt.Sprintf(" for %d lines", len(lines))
+				}
+				a.shutDown(what)
+			} else {
+				for _, q := range lines {
+					a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
+						FactData{Machine: Machine, Reason: key(q.seq).Step + ": " + err.Error(), Step: key(q.seq).Step})
+				}
 			}
 		}
 		if err != nil { // the post's result is not in the log: its members wait with it

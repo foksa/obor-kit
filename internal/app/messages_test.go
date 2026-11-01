@@ -24,12 +24,23 @@ type rigInbox struct {
 	refused  bool
 	partial  bool
 	once     bool // refused and partial end after the next post (failOnce)
+	cutting  bool // the next post waits for serve's ctx and fails with its error (cut)
 }
 
-func (in *rigInbox) Post(_ context.Context, _, agent, line string) (bool, error) {
+func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, error) {
+	in.mu.Lock()
+	in.attempts = append(in.attempts, agent+": "+line)
+	cut := in.cutting
+	if cut {
+		in.cutting = false
+	}
+	in.mu.Unlock()
+	if cut { // a post serve's own stop cut before a byte went out (T-660), as its inbox's ctx ends
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	in.attempts = append(in.attempts, agent+": "+line)
 	switch {
 	case in.none[agent]:
 		return false, errors.New("no session recorded for " + agent)
@@ -93,6 +104,14 @@ func (in *rigInbox) ok() {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	in.refused, in.partial, in.once = false, false, false
+}
+
+// cut makes the next post alone wait for serve's ctx and fail with its error before a byte went out: a delivery serve's
+// own stop cut (T-660).
+func (in *rigInbox) cut(on bool) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.cutting = on
 }
 
 // count is how many posts of line to agent went out; tries how many were tried.
