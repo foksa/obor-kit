@@ -105,7 +105,7 @@ func TestReleaseRefusesFlipTouchingPlugin(t *testing.T) {
 	if f.hasTag("v1.2.4") {
 		t.Error("the ambiguous flip was tagged")
 	}
-	if f.Exists(filepath.Join(f.tmp, "obor-release-1.2.4")) {
+	if f.Exists(f.scratch("1.2.4")) {
 		t.Error("the scratch worktree is still there")
 	}
 }

@@ -34,11 +34,16 @@ const devMarketplace = `{
 const v0172Marketplace = `{"name": "obor-kit","owner":{"name": "obor-kit"},"plugins":[{"name": "obor-kit","source":"./"}]}`
 
 // releaseFixture is a kit copy ready for a release of 1.2.4 from VERSION 1.2.3: the Makefile, both scripts, the guide
-// with its v1.2.4 heading, an old catalog, and a fake go. tmp is the TMPDIR its scratch worktree goes to.
+// with its v1.2.4 heading, an old catalog, and a fake go. tmp is the TMPDIR its temporary files go to.
 type releaseFixture struct {
 	*testkit.Project
 	tmp string
 	log string
+}
+
+// scratch is where release's scratch worktree lives: this repo's own git dir (T-648).
+func (f *releaseFixture) scratch(v string) string {
+	return filepath.Join(f.Root, ".git", "obor-release-"+v)
 }
 
 func newReleaseFixture(t *testing.T) *releaseFixture {
@@ -138,7 +143,7 @@ func (f *releaseFixture) untouched(t *testing.T, v, head string) {
 	if f.Exists(f.log) {
 		t.Errorf("go ran: %s", readFile(t, f.log))
 	}
-	if f.Exists(filepath.Join(f.tmp, "obor-release-"+v)) {
+	if f.Exists(f.scratch(v)) {
 		t.Errorf("the scratch worktree was created")
 	}
 	if got := strings.TrimSpace(f.Read("VERSION")); got != "1.2.3" {
@@ -422,11 +427,35 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	if got := f.Git(f.Root, "status", "--porcelain"); got != "" {
 		t.Errorf("main is dirty after the release: %q", got)
 	}
-	if f.Exists(filepath.Join(f.tmp, "obor-release-1.2.4")) {
+	if f.Exists(f.scratch("1.2.4")) {
 		t.Error("the scratch worktree is still there")
 	}
 	if log := readFile(t, f.log); !strings.Contains(log, "build ") || !strings.Contains(log, "test ") {
 		t.Errorf("the release did not run the full make check (go got: %s)", log)
+	}
+}
+
+// T-648: the scratch worktree lives in this repo's own git dir, so a directory some other checkout left at that path
+// is not this release's: it is left untouched and the refusal names it.
+func TestMakeReleaseKeepsForeignScratch(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	dir := f.scratch("1.2.4")
+	file := filepath.Join(dir, "someone-elses.txt")
+	writeFile(t, file, "keep me\n")
+
+	out, failed := f.release(t, "V=1.2.4")
+	if !failed || !strings.Contains(out, dir) || !strings.Contains(out, "is not this repo's worktree") {
+		t.Fatalf("a foreign directory at the scratch path must be refused by name (failed %v):\n%s", failed, out)
+	}
+	if got := readFile(t, file); got != "keep me\n" {
+		t.Errorf("the foreign directory's file is %q, want it untouched", got)
+	}
+	if f.hasTag("v1.2.4") {
+		t.Error("the refused release made the tag")
+	}
+	if got := f.Git(f.Root, "worktree", "list", "--porcelain"); strings.Count(got, "worktree ") != 1 {
+		t.Errorf("the refused release registered a worktree:\n%s", got)
 	}
 }
 
@@ -470,6 +499,10 @@ func TestMakeReleaseResumes(t *testing.T) {
 	}
 	if got := f.Git(f.Root, "status", "--porcelain"); got != "" {
 		t.Errorf("main is dirty after the resume: %q", got)
+	}
+	// T-648: a re-run with the tag already there cleans up its own worktree and leaves none behind.
+	if f.Exists(f.scratch("1.2.4")) {
+		t.Error("the re-run left a scratch worktree")
 	}
 }
 

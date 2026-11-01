@@ -10,9 +10,9 @@
 #   check         the full `make check`, run only when the bump is not committed   fail: undo the bump
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
-#                 make: a scratch worktree detached at HEAD under $TMPDIR, marketplace name obor-kit, `make release`
-#                 (the four binaries and bin/checksums.txt), commit, tag     fail: remove the scratch worktree; an
-#                 existing tag is never touched
+#                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
+#                 `make release` (the four binaries and bin/checksums.txt), commit, tag     fail: remove the scratch
+#                 worktree; an existing tag is never touched
 #   copy-back     done: main's bin/checksums.txt has the tag's four lines and main's four dist files match them
 #                 make: all four files checked against the tag's catalog first, then copied and the catalog committed
 #                 fail: bin/checksums.txt's index and tree back to HEAD
@@ -38,7 +38,6 @@ vre=$(printf '%s' "$v" | sed 's/\./\\./g')
 guide="docs/UPGRADE-v${v%.*}.md"
 platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 tmpdir=${TMPDIR:-/tmp}
-scratch="${tmpdir%/}/obor-release-$v"
 
 fail() { echo "FAIL $*" >&2; exit 1; }
 say() { echo "release: $*"; }
@@ -74,11 +73,26 @@ undo_bump() { restore VERSION .claude-plugin/plugin.json; }
 undo_catalog() { restore bin/checksums.txt; }
 undo_scratch() { remove_scratch || true; }
 
-# remove_scratch: the scratch worktree gone (from git's worktree list and the disk).
+# scratch_listed: git's worktree list has the scratch path for this repo.
+scratch_listed() {
+  git worktree list --porcelain | awk -v p="$scratch" '
+    /^worktree / { if (substr($0, 10) == p) found = 1 }
+    END { exit !found }'
+}
+
+# remove_scratch: the scratch worktree gone (from git's worktree list and the disk). git only removes a worktree it
+# lists for this repo, and this script only ever runs that on a path it made (RV-71 #1): never rm -rf.
 remove_scratch() {
-  git worktree remove --force "$scratch" > /dev/null 2>&1 || rm -rf "$scratch"
+  [ -e "$scratch" ] || { git worktree prune > /dev/null 2>&1 || true; return 0; }
+  git worktree remove --force "$scratch" > /dev/null 2>&1 || return 1
   git worktree prune > /dev/null 2>&1 || true
   [ ! -e "$scratch" ]
+}
+
+# not_ours: the refusal for a scratch path that exists but is not this repo's worktree: someone else's directory is
+# not ours to delete.
+not_ours() {
+  fail "$scratch exists and is not this repo's worktree: it is not ours to remove, clear it by hand and re-run"
 }
 
 # gt a b: a is greater than b, comparing x.y.z numerically.
@@ -182,6 +196,13 @@ copyback_done() {
 branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
 [ "$branch" = main ] || fail "on ${branch:-a detached HEAD}, not main: make release runs on main"
 
+# The scratch worktree lives in this repo's own git dir, so two checkouts releasing the same version never share a path
+# (RV-71 #1). git prints the common dir relative to the cwd in a plain checkout; pwd -P gives the physical path, the way
+# git worktree list prints the worktrees it holds.
+common=$(git rev-parse --git-common-dir)
+common=$(cd "$common" && pwd -P)
+scratch="$common/obor-release-$v"
+
 cur=$(tr -d '[:space:]' < VERSION)
 if [ "$cur" != "$v" ]; then
   gt "$v" "$cur" || fail "VERSION is $cur: V=$v must be greater (a released version is never rewritten; a change is a new patch version)"
@@ -270,7 +291,11 @@ elif [ "$dry" = 1 ]; then
 else
   undo=undo_scratch
   sha=$(git rev-parse HEAD)
-  [ ! -e "$scratch" ] || remove_scratch || fail "cannot clear the scratch worktree $scratch"
+  if [ -e "$scratch" ]; then
+    scratch_listed || not_ours
+    remove_scratch || fail "cannot remove the scratch worktree $scratch"
+  fi
+
   git worktree add -q --detach "$scratch" "$sha" || fail "cannot add the scratch worktree $scratch"
   market="$scratch/.claude-plugin/marketplace.json"
   tmp=$(mktemp "$tmpdir/obor-marketplace.XXXXXX")
@@ -337,6 +362,7 @@ if [ -e "$scratch" ]; then
   if [ "$dry" = 1 ]; then
     say "would: remove the worktree $scratch"
   else
+    scratch_listed || not_ours
     remove_scratch || fail "cannot remove the scratch worktree $scratch"
     say "removed the worktree $scratch"
   fi

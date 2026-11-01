@@ -136,7 +136,7 @@ func TestReleaseTagFailureRemovesScratch(t *testing.T) {
 	if got := f.Git(f.Root, "log", "--format=%s", "-1"); got != "obor v1.2.4: VERSION, plugin version" {
 		t.Fatalf("precondition: the version commit is not there: %q", got)
 	}
-	if f.Exists(filepath.Join(f.tmp, "obor-release-1.2.4")) {
+	if f.Exists(f.scratch("1.2.4")) {
 		t.Error("the scratch worktree is still on disk")
 	}
 	if got := f.Git(f.Root, "worktree", "list", "--porcelain"); strings.Count(got, "worktree ") != 1 {
@@ -171,7 +171,7 @@ func copyBackFailed(t *testing.T) (f *releaseFixture, reject, head string) {
 	if !failed || !strings.Contains(out, "cannot commit bin/checksums.txt on main") {
 		t.Fatalf("precondition: the copy-back commit must be rejected (failed %v):\n%s", failed, out)
 	}
-	if !f.hasTag("v1.2.4") || !f.Exists(filepath.Join(f.tmp, "obor-release-1.2.4")) {
+	if !f.hasTag("v1.2.4") || !f.Exists(f.scratch("1.2.4")) {
 		t.Fatalf("precondition: the tag and the scratch worktree are there:\n%s", out)
 	}
 	return f, reject, f.Git(f.Root, "rev-parse", "HEAD")
@@ -203,7 +203,7 @@ func TestReleaseCopyBackRejectedCommitResumes(t *testing.T) {
 	if n := strings.Count(readFile(t, f.log), "\n"); n != goCalls {
 		t.Errorf("the re-run rebuilt (%d more go calls)", n-goCalls)
 	}
-	if f.Exists(filepath.Join(f.tmp, "obor-release-1.2.4")) {
+	if f.Exists(f.scratch("1.2.4")) {
 		t.Error("the scratch worktree is still there after the copy-back")
 	}
 	f.clean(t, "after the re-run")
@@ -220,10 +220,10 @@ func TestReleaseCopyBackChecksBeforeWriting(t *testing.T) {
 		want    []string
 	}{
 		{"mismatched", func(t *testing.T, f *releaseFixture) {
-			writeFile(t, filepath.Join(f.tmp, "obor-release-1.2.4", "dist", "obor-1.2.4-linux-amd64"), "other bytes\n")
+			writeFile(t, filepath.Join(f.scratch("1.2.4"), "dist", "obor-1.2.4-linux-amd64"), "other bytes\n")
 		}, []string{"obor-release-1.2.4/dist/obor-1.2.4-linux-amd64 is sha256", "git tag -d v1.2.4"}},
 		{"missing", func(t *testing.T, f *releaseFixture) {
-			for _, p := range []string{filepath.Join(f.tmp, "obor-release-1.2.4", "dist", "obor-1.2.4-linux-amd64"),
+			for _, p := range []string{filepath.Join(f.scratch("1.2.4"), "dist", "obor-1.2.4-linux-amd64"),
 				filepath.Join(f.Root, "dist", "obor-1.2.4-linux-amd64")} {
 				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 					t.Fatal(err)
