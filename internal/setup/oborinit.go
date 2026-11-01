@@ -16,8 +16,8 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
-//	lanes      O-01 opus, S-01 sonnet (setup lane); roles.integrator and roles.reviewer keep their type when its
-//	           kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
+//	lanes      O-01 opus, S-01 sonnet (setup lane); roles.lead, roles.integrator and roles.reviewer keep their type
+//	           when its kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
 //	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
 //	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
@@ -436,12 +436,12 @@ func (s *Setup) detectedLine() string {
 
 // --- roles ------------------------------------------------------------------------------------------------------
 
-// initRoleTypes keeps the integrator's and the reviewer's type when it is a lane type whose kind's CLI is on PATH,
-// else sets it to opus: "integrator opus, reviewer sol" (a change written "reviewer sol → opus").
+// initRoleTypes keeps the lead's, the integrator's and the reviewer's type when it is a lane type whose kind's CLI is
+// on PATH, else sets it to opus: "lead opus, integrator opus, reviewer sol" (a change written "reviewer sol → opus").
 func (s *Setup) initRoleTypes() (string, error) {
 	var parts []string
 	changed := false
-	for _, role := range []string{"integrator", "reviewer"} {
+	for _, role := range []string{"lead", "integrator", "reviewer"} {
 		rc, _ := s.cfg.Role(role)
 		lt, _ := s.cfg.LaneType(rc.Type)
 		if rc.Type != "" && lt.Kind != "" {

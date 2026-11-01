@@ -91,7 +91,7 @@ func (x *initFx) agents(t *testing.T) map[string]string {
 	return got
 }
 
-// One run sets the whole project up: config (name, prefix), O-01 opus and S-01 sonnet with worktrees, the
+// One run sets the whole project up: config (name, prefix), O-01 opus and S-01 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
 // obor.events linked, four agents in their tabs, serve installed; the summary says each step done, then next: obor
 // lead.
@@ -745,6 +745,40 @@ func (x *initFx) paneOf(name string) string {
 		}
 	}
 	return ""
+}
+
+// T-644: a config with no roles.lead gets opus (obor lead refuses an untyped lead); a type the user set stays, and a
+// rerun changes nothing.
+func TestOborInitSetsTheLeadsType(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, true)
+	out := x.init(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc, _ := cfg.Role("lead"); rc.Type != "opus" {
+		t.Errorf("lead type %q, want opus", rc.Type)
+	}
+	has(t, summary(out, "lanes"), "lead unset → opus", "lanes step")
+
+	before := x.Read(".obor/config.json")
+	x.init(t)
+	if x.Read(".obor/config.json") != before {
+		t.Errorf("config changed on a rerun")
+	}
+
+	x.editConfig(t, []string{"roles", "lead", "type"}, "sonnet")
+	out = x.init(t)
+	if cfg, err = config.Load(x.Root); err != nil {
+		t.Fatal(err)
+	}
+	if lead := cfg.Data.Roles.Lead; lead == nil || lead.Type != "sonnet" {
+		t.Errorf("a kept lead type: %+v", lead)
+	}
+	if got := summary(out, "lanes"); !strings.Contains(got, "lead sonnet") || strings.Contains(got, "lead sonnet →") {
+		t.Errorf("lanes step %q", got)
+	}
 }
 
 // A new config's prefix steers clear of another project's running agents (<prefix>-…); an explicit one is kept.
