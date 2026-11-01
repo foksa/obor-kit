@@ -199,9 +199,9 @@ func (a *App) reviewText(p *proj, mt mtask) (string, error) {
 	return fmt.Sprintf("Review %s for obor serve (attempt %d, lane %s): the gate is green (%s).\n%s"+
 		"Candidate: %s, the target %s plus the lane, pinned at refs/obor/candidate/%s; %s\nPatch hash: %s\n"+
 		"The worker's report:\n%s\n"+
-		"%s%sAnswer with one obor tool: accept (patch %s, a note optional) | sendback (why: what to fix) | reject (why).",
+		"%s%s",
 		mt.task, mt.attempt, mt.lane, c.Checks, spec, c.SHA, c.Target, mt.task, diffText(c), c.Patch, mt.report,
-		questionsText(mt.report), decisionText(mt), c.Patch), nil
+		questionsText(mt.report), decisionText(mt)), nil
 }
 
 // questionsText is the review job's part for the report's Open questions: section (T-649; "": it leaves nothing
@@ -240,13 +240,11 @@ func decisionText(mt mtask) string {
 	return mt.decision + "\n"
 }
 
-// resolveText is the resolve job (row 25): the conflict and where it is open.
+// resolveText is the resolve job (row 25): the conflict and where it is open. The steps are the role text's.
 func resolveText(mt mtask) string {
 	line, _, _ := strings.Cut(mt.line, "(resolve there")
-	return fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s"+
-		"Resolve the conflict in that worktree and commit the merge there (git commit -m \"Merge %s: <one line>\"), "+
-		"then call the obor resolved tool. Cannot: git merge --abort there, then the obor reject tool (why).",
-		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt), mt.task)
+	return fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): %s\n%s",
+		mt.task, mt.attempt, mt.lane, strings.TrimSpace(line), decisionText(mt))
 }
 
 // subjectOf is the subject text of the lane's commit and its merge (T-355): the task spec's title (the store's, T-440;

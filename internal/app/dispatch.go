@@ -867,12 +867,13 @@ type roleFile struct{ title, path string }
 
 // roleTexts is the work job's role texts as they are now: the obor kit's templates/agents/worker.md and the project's
 // worker doc (<paths.agents>/worker.md) when the main checkout has one. Each comes under a line naming its path; one
-// larger than roleTextMax is not inlined, its path is returned in read instead.
+// larger than roleTextMax is not inlined, its path is returned in read instead. An empty "## This project" section
+// (the template's fill-in note and nothing else) is not sent.
 func roleTexts(cfg *config.Config, kit string) (text string, read []string, err error) {
 	files := []roleFile{{"Your role text", filepath.Join(kit, "templates", "agents", "worker.md")}}
 	doc := filepath.Join(cfg.Root, cfg.Data.Paths["agents"], "worker.md")
 	if _, err := os.Stat(doc); err == nil {
-		files = append(files, roleFile{"This project's worker rules (where they differ from the role text, they win)", doc})
+		files = append(files, roleFile{"This project's worker rules", doc})
 	}
 	var parts []string
 	for _, f := range files {
@@ -880,13 +881,39 @@ func roleTexts(cfg *config.Config, kit string) (text string, read []string, err 
 		if err != nil {
 			return "", nil, fmt.Errorf("cannot read the role text %s", f.path)
 		}
-		if len(b) > roleTextMax {
+		body := dropEmptyProjectSection(string(b))
+		if len(body) > roleTextMax {
 			read = append(read, f.path)
 			continue
 		}
-		parts = append(parts, f.title+" ("+f.path+"):\n"+string(b))
+		parts = append(parts, f.title+" ("+f.path+"):\n"+body)
 	}
 	return strings.Join(parts, "\n\n"), read, nil
+}
+
+// dropEmptyProjectSection removes a trailing "## This project" section that holds only blank lines and HTML comments
+// (the template's fill-in note for a new project): an empty section is not sent in the job.
+func dropEmptyProjectSection(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(l) != "## This project" {
+			continue
+		}
+		comment := false
+		for _, rest := range lines[i+1:] {
+			t := strings.TrimSpace(rest)
+			switch {
+			case comment:
+				comment = !strings.Contains(t, "-->")
+			case strings.HasPrefix(t, "<!--"):
+				comment = !strings.Contains(t, "-->")
+			case t != "":
+				return text
+			}
+		}
+		return strings.TrimRight(strings.Join(lines[:i], "\n"), " \t\n")
+	}
+	return text
 }
 
 // watchWork is the work job's delivery timer (rows 6–8, under mu): delivered once the worker's job_next fetched it

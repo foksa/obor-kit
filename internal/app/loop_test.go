@@ -505,10 +505,13 @@ func TestLoopHappyPath(t *testing.T) {
 	}
 	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane O-01): the gate is green (rc=0)",
 		"No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + report,
-		"Answer with one obor tool: accept (patch "} {
+		"Patch hash: "} {
 		if !strings.Contains(job, want) {
 			t.Errorf("review job has no %q:\n%s", want, job)
 		}
+	}
+	if strings.Contains(job, "Answer with one obor tool") {
+		t.Errorf("review job repeats the role text's verbs:\n%s", job)
 	}
 	if r.p.Git(r.p.Root, "rev-parse", "main") != base {
 		t.Fatal("main moved before the accept")
@@ -625,11 +628,13 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	r.submit()
 	job := r.waitJob("pj-int", "T-1/1/resolve")
 	scratch := filepath.Join(r.p.Base, "proj-wt", "merge")
-	for _, want := range []string{"Resolve T-1's merge for obor serve", "CONFLICT in " + scratch, "shared.txt",
-		"then call the obor resolved tool"} {
+	for _, want := range []string{"Resolve T-1's merge for obor serve", "CONFLICT in " + scratch, "shared.txt"} {
 		if !strings.Contains(job, want) {
 			t.Errorf("resolve job has no %q:\n%s", want, job)
 		}
+	}
+	if strings.Contains(job, "obor resolved tool") || strings.Contains(job, "git commit -m") {
+		t.Errorf("resolve job repeats the role text's steps:\n%s", job)
 	}
 	if strings.Contains(job, "--ff-retry") {
 		t.Errorf("resolve job names obor merge --ff-retry:\n%s", job)

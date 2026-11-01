@@ -2,7 +2,7 @@
 
 The role texts of an obor swarm. They ship with the kit and are read in place: a project's own `docs/agents/<role>.md`
 (`paths.agents`) holds only what differs there, under a pointer line. The session start prints both paths for obor
-roles (`obor: role text: …`); the worker prompt names them; `/obor:role <name>` reads them for a role taken by hand.
+roles (`obor: role text: …`); the work job carries them; `/obor:role <name>` reads them for a role taken by hand.
 
 | Text | Role | Typical model |
 |---|---|---|
