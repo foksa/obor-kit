@@ -11,7 +11,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   `Type:` line), T-695 (`type:effort` everywhere; `opus-high` type replaced by `opus:high`), T-696..T-698 (opencode
   per-agent XDG_STATE_HOME, pinned model, no model guessing), T-690..T-694 + T-699/T-700 (internal/app split into
   port/event/wire, needs-you owner, mtask attempt group, aliases gone). Research: Gemini review + Fable advice +
-  app-split deep dive in docs/research. Nothing in flight. **Next:** owner's call on v0.19.0 (write
+  app-split deep dive in docs/research. **v0.19.0 shipped** (401a4b0d; T-701 fixed the affected test on the post-split graph). obor-kit and axis-alies serves
+  restarted on it, axis-alies lead told, monitors restarted. **Held: axis-maps** serve not restarted: its `deepseek` type
+  has no `--model` and no opencode.json model, so v0.19 lanes would start on opencode's default model; adding
+  `--model opencode-go/deepseek-v4.1-flash` needs the owner's OK, then restart its serve and tell axis-lead. In flight:
+  T-702 (internal/app parallel-test flake sweep, S-01). Earlier next was: owner's call on v0.19.0 (write
   docs/UPGRADE-v0.19.md + docs/releases/v0.19.0.md; projects need serve restart; lead/deep-dive role type is now
   `opus:high`); open: herdr ~100 % CPU cause unknown; deep dive steps 6-7 not now.
 - 2026-11-02 early: **v0.18.0 tagged** (10a24b7c; monitoring release: `internal/view`, `obor web`, prompts table,
