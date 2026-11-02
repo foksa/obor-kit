@@ -83,6 +83,7 @@ func refusedRig(t *testing.T) (*loopRig, string) {
 // T-497: a needs-you fact is posted to the lead once, besides the owner's notification; later passes and a restart
 // post no second line.
 func TestNeedsYouIsPostedToTheLeadOnce(t *testing.T) {
+	t.Parallel()
 	r, line := refusedRig(t)
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
@@ -106,6 +107,7 @@ func TestNeedsYouIsPostedToTheLeadOnce(t *testing.T) {
 // T-497: with no inbox record for the lead the line is queued (obor status lists it) and the owner's notification is
 // unchanged; a restart queues no second one, and the record posts it once.
 func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
@@ -137,6 +139,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 
 // T-497: the needs-you of a lead line waiting over a day notifies the owner but queues no line to the lead.
 func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
@@ -157,6 +160,7 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 // T-497: needsLines passes running at once (the merge loop's and the watchdog's) queue one line per needs-you: while
 // the first one's record is still being written, the others queue nothing; a refused record is tried again.
 func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.disp.set(func(d *dispatchFakes) {
 		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
@@ -207,6 +211,7 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 // T-621: a needs-you line still unanswered is posted to the lead again 30 min after it, then every 60, the same line
 // with " (again, <its age>)".
 func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
+	t.Parallel()
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
@@ -232,6 +237,7 @@ func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 
 // T-621: what ends a needs-you ends its repeats: resumed at 45 after one repeat, nothing follows.
 func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
+	t.Parallel()
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
 	// The repeat counts from the first line's delivery: the clock moves only once that is recorded (else, under load,
@@ -252,6 +258,7 @@ func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
 // T-621: a replay starts the clock from the needs-you fact's time: a restart at 40 posts the repeat the first line
 // owed at 30 (once, not every missed one), and the next is 60 min after that, not 30 after the restart.
 func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
+	t.Parallel()
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
@@ -291,6 +298,7 @@ func undeliveredRig(t *testing.T) (*loopRig, int64) {
 // T-624: while the lead has no inbox record the first line waits undelivered; two repeat intervals later still only
 // that line is queued. Once it is delivered at t, the first repeat is due at t + 30 and the next at t + 30 + 60.
 func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
+	t.Parallel()
 	r, seq := undeliveredRig(t)
 	r.advance(2 * time.Hour) // two repeat intervals and more, nothing delivered
 	if n, w := len(r.needsLineFacts()), r.waiting(); n != 1 || len(w) != 1 {
@@ -316,6 +324,7 @@ func TestNeedsYouLineRepeatWaitsForTheDeliveryOfThePreviousLine(t *testing.T) {
 // T-624: a repeat waiting undelivered blocks the next one too (the deadline counts from delivery, not queuing), and a
 // restart keeps both facts: no line is queued behind a waiting one after the replay.
 func TestNeedsYouLineRepeatReplayKeepsTheWait(t *testing.T) {
+	t.Parallel()
 	r, seq := undeliveredRig(t)
 	r.inbox.record("pj-lead")
 	r.waitFor("the first line posted", func() bool { return len(r.waiting()) == 0 })

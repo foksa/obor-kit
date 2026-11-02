@@ -87,6 +87,7 @@ func resetIn(d time.Duration) func(r *loopRig) string {
 // before, nor while its pane is blocked; a replay after T wakes it no second time; still stopped 30 min after the
 // wake → the alarm: the needs-you's reason says so and the owner is notified, once.
 func TestStopWakeAtReset(t *testing.T) {
+	t.Parallel()
 	r, reason := limitStop(t, "rate_limit", resetIn(time.Hour))
 	r.later(time.Hour + time.Minute) // T+1m
 	if n := r.wakes(); n != 0 {
@@ -122,7 +123,9 @@ func TestStopWakeAtReset(t *testing.T) {
 // T-568: serve down over the reset: a restart before T wakes the worker at T+2m; one after T+2m wakes it once at
 // its start.
 func TestStopWakeAcrossRestarts(t *testing.T) {
+	t.Parallel()
 	t.Run("restart before T", func(t *testing.T) {
+		t.Parallel()
 		r, _ := limitStop(t, "rate_limit", resetIn(time.Hour))
 		r.stop()
 		r.clock.Add(30 * time.Minute)
@@ -136,6 +139,7 @@ func TestStopWakeAcrossRestarts(t *testing.T) {
 		r.waitFor("the wake at T+2m", func() bool { return r.wakes() == 1 })
 	})
 	t.Run("restart after T", func(t *testing.T) {
+		t.Parallel()
 		r, _ := limitStop(t, "rate_limit", resetIn(time.Hour))
 		r.stop()
 		r.clock.Add(3 * time.Hour)
@@ -151,6 +155,7 @@ func TestStopWakeAcrossRestarts(t *testing.T) {
 
 // T-568: the woken worker's next turn ends its stop as before (its hook's turn request): no alarm, no more wakes.
 func TestStopWakeNewTurnNoAlarm(t *testing.T) {
+	t.Parallel()
 	r, reason := limitStop(t, "rate_limit", resetIn(time.Hour))
 	r.later(time.Hour + 2*time.Minute)
 	r.waitFor("the wake", func() bool { return r.wakes() == 1 })
@@ -167,6 +172,7 @@ func TestStopWakeNewTurnNoAlarm(t *testing.T) {
 
 // T-568: a stop that is no usage limit (billing_error) gets no wake: its needs-you stays as it is.
 func TestStopWakeNotALimit(t *testing.T) {
+	t.Parallel()
 	r, reason := limitStop(t, "billing_error", func(*loopRig) string { return "credit balance too low" })
 	for range 4 {
 		r.later(31 * time.Minute)
@@ -178,6 +184,7 @@ func TestStopWakeNotALimit(t *testing.T) {
 
 // T-568: a usage limit whose reset is unknown (429, no time) wakes the worker every 30 min from the stop, each once.
 func TestStopWakeUnknownReset(t *testing.T) {
+	t.Parallel()
 	r, _ := limitStop(t, "rate_limit", func(*loopRig) string { return "429 Too Many Requests" })
 	r.later(29 * time.Minute)
 	if n := r.wakes(); n != 0 {
@@ -196,6 +203,7 @@ func TestStopWakeUnknownReset(t *testing.T) {
 // T-568: a Codex stop's reset is its rollout's full rate-limit window (resets_at): the stop fact carries it, and the
 // worker is woken (typed) at that time + 2m, not before.
 func TestStopWakeCodexRateLimits(t *testing.T) {
+	t.Parallel()
 	reset := time.Date(2026, 10, 24, 13, 0, 0, 0, time.UTC) // the rig's clock starts at 12:00
 	full := `{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":100.0,` +
 		`"window_minutes":300,"resets_at":` + strconv.FormatInt(reset.Unix(), 10) + `},"secondary":null}}}` + "\n"
@@ -254,6 +262,7 @@ func notified(r *loopRig, suffix string) int {
 // the wake → the lead's line says so and the owner is notified, once; its next turn in the rollout ends the stop
 // (fact turned) and the finished line follows when it is idle.
 func TestRoleWakeCodexReviewer(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	reset := r.clock.Now().Add(time.Hour)
 	rollout := filepath.Join(t.TempDir(), "rollout-2026-10-24T12-00-00-r1.jsonl")
@@ -369,7 +378,9 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 // finished line), it is woken (posted) once at T+2m, not before; its next turn's hook ends the stop and its finished
 // line follows the work. With no brief open: the stopped line only, never a wake.
 func TestRoleWakeClaude(t *testing.T) {
+	t.Parallel()
 	t.Run("brief open", func(t *testing.T) {
+		t.Parallel()
 		r := claudeRoleStop(t, true, "rate_limit", resetIn(time.Hour))
 		r.later(time.Hour + time.Minute)
 		if n := r.inbox.count("pj-rev", roleContinue); n != 0 || finishedLines(r) != 0 {
@@ -394,6 +405,7 @@ func TestRoleWakeClaude(t *testing.T) {
 		}
 	})
 	t.Run("no brief", func(t *testing.T) {
+		t.Parallel()
 		r := claudeRoleStop(t, false, "rate_limit", resetIn(time.Hour))
 		for range 4 {
 			r.later(31 * time.Minute)
@@ -411,6 +423,7 @@ func TestRoleWakeClaude(t *testing.T) {
 // T-569: a briefed role agent's stop that is no usage limit (billing_error) ends its brief as before: no wake, no
 // finished line, no alarm.
 func TestRoleWakeNotALimit(t *testing.T) {
+	t.Parallel()
 	r := claudeRoleStop(t, true, "billing_error", func(*loopRig) string { return "credit balance too low" })
 	for range 4 {
 		r.later(31 * time.Minute)
@@ -425,6 +438,7 @@ func TestRoleWakeNotALimit(t *testing.T) {
 // branch, or its check failing, they happen as on the target branch. A Claude worker (the wake posted to its inbox)
 // and a Codex worker (typed), each with the checkout held by a branch or by a failing check.
 func TestStopWakeBehindCheckout(t *testing.T) {
+	t.Parallel()
 	type stopRig struct {
 		*loopRig
 		wakes  func() int
@@ -461,7 +475,9 @@ func TestStopWakeBehindCheckout(t *testing.T) {
 	for kind, mk := range stopped {
 		for name, checkErr := range checks {
 			t.Run(kind+"/"+name, func(t *testing.T) {
+				t.Parallel()
 				t.Run("known reset", func(t *testing.T) {
+					t.Parallel()
 					r := mk(t, true, checkErr)
 					r.later(time.Hour + time.Minute)
 					if n := r.wakes(); n != 0 {
@@ -477,6 +493,7 @@ func TestStopWakeBehindCheckout(t *testing.T) {
 					return
 				}
 				t.Run("unknown reset", func(t *testing.T) {
+					t.Parallel()
 					r := mk(t, false, checkErr)
 					r.later(29 * time.Minute)
 					if n := r.wakes(); n != 0 {
@@ -490,6 +507,7 @@ func TestStopWakeBehindCheckout(t *testing.T) {
 					r.mustStillHold(checkErr)
 				})
 				t.Run("missed deadline", func(t *testing.T) {
+					t.Parallel()
 					r := mk(t, false, checkErr)
 					r.stop()
 					r.clock.Add(3 * time.Hour)

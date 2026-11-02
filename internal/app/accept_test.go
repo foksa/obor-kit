@@ -58,6 +58,7 @@ func pickGreenOnce(t *testing.T, h *harness, f *schedScratch, replay bool) *mtas
 }
 
 func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, gate1, gate2, kind string
 	}{
@@ -70,6 +71,7 @@ func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
 				name = c.name + "/replay"
 			}
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				h, f := seedSched(t, true)
 				first := InputLane
 				if c.kind == InputResolved {
@@ -93,8 +95,10 @@ func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
 }
 
 func TestAcceptSameSpecRevKept(t *testing.T) {
+	t.Parallel()
 	for _, replay := range []bool{false, true} {
 		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
+			t.Parallel()
 			h, f := seedSched(t, true)
 			acceptAt(t, h, f, nth(StepGate, 2), InputLane, 1, "candidate1")
 			movedGreen(t, h, nth(StepGate, 3), InputMoved, 1)
@@ -110,6 +114,7 @@ func TestAcceptSameSpecRevKept(t *testing.T) {
 // A log written before the fix: kept recorded after a green gate of a new rev. It replays to the review, not to an
 // accept of the old rev.
 func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
+	t.Parallel()
 	h, f := seedSched(t, true)
 	acceptAt(t, h, f, nth(StepGate, 2), InputLane, 1, "candidate1")
 	movedGreen(t, h, nth(StepGate, 3), InputMoved, 2)

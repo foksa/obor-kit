@@ -16,6 +16,7 @@ func (r *concRig) dropCall(name, task, id string) (string, error) {
 // obor drop of a task serve holds (T-388): a needs-you with no job open ends in dropped, which survives a replay; the
 // needs-you leaves the facts in force; only the lead or the owner may drop, and not twice.
 func TestDropNeedsYouTask(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	r.add("pq", "T-3", StepNeedsYou, KindFact, FactData{Lane: "O-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
 	r.run()
@@ -79,6 +80,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 // A drop with a review job open ends the job: the integrator's later verdict is refused as superseded, and a drop
 // while T-1's gate holds the scratch is refused until the gate has settled.
 func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	r.fakes["pr"].holdPub = "T-4"
 	r.run()
@@ -131,6 +133,7 @@ func (r *concRig) entered2(name string) string { return r.entered(name) }
 // (the lane adapter's Free with --discard), then records dropped: the lane row clears. A refused Free ends the drop
 // with nothing recorded: the task and its row as they were.
 func TestDropByLane(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	dispatchT2(r)
 	r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "target", Head: "target"})

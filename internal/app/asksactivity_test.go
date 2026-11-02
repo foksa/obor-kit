@@ -27,9 +27,11 @@ func askSeed(t *testing.T) (*harness, *proj) {
 // blocked, exited), never its open question (RV-54 #1, state model row 12), on the status path (working) and the
 // sampled path (a child runs, a transcript write); the question stays after a replay and obor answer still takes it.
 func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
+	t.Parallel()
 	for _, companion := range []string{"stalled", "blocked", "pane exited"} {
 		for _, activity := range []string{"working", "child", "transcript"} {
 			t.Run(companion+"/"+activity, func(t *testing.T) {
+				t.Parallel()
 				h, p := askSeed(t)
 				if companion != "stalled" {
 					h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, FactData{Lane: "O-01", Reason: companion})
@@ -88,6 +90,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 // TestResumeKeepsTheAsksRetry: a resumed fact drops the notification retries of the facts it ends, not the open
 // question's.
 func TestResumeKeepsTheAsksRetry(t *testing.T) {
+	t.Parallel()
 	p := &proj{folded: folded{active: map[string][]Record{}}, retry: map[Key]retry{}}
 	stall := Record{Seq: 1, Task: "T-1", Step: StepStalled, Kind: KindFact, Data: []byte(`{"reason":"idle"}`)}
 	ask := Record{Seq: 2, Task: "T-1", Step: StepNeedsYou, Kind: KindFact, Data: []byte(`{"reason":"asks: may I?"}`)}

@@ -91,6 +91,7 @@ func gateDone(r *concRig, task, outcome string) {
 // the job (T-396), but the start goes on in its step: no result before the launch's, a drop is refused, and the merge
 // loop's shutdown waits for the launch.
 func TestDeliveryKeepsTheStartOwned(t *testing.T) {
+	t.Parallel()
 	r, p, f := heldRig(t, "pj-o-02")
 	dispatchT2(r)
 	r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "b"})
@@ -137,12 +138,14 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 // run: one pass starts it once (the second task's step waits for the first's start); the second job then waits for
 // the first job's verdict (T-602: nothing typed into the session the first job runs in, no second start).
 func TestIntegratorStartsOneAtATime(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, first, second, job string }{
 		{"review + review", outGreen, outGreen, "review"},
 		{"review + resolve", outGreen, outConflict, "resolve"},
 		{"resolve + review", outConflict, outGreen, "review"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r, p, f := heldRig(t, "")
 			gateDone(r, "T-1", c.first)
 			gateDone(r, "T-5", c.second)

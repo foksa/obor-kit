@@ -9,6 +9,7 @@ import (
 // needs-you in force too, so the pending notification of one is settled as "not run", as one whose fact cleared
 // (resumed) before the task ended always was; nothing is shown for it afterwards.
 func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name    string
 		replay  bool
@@ -25,6 +26,7 @@ func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 		{"cleared replay dropped", true, StepDropped, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app("pq"), r.proj("pq")
 			r.add("pq", "T-3", StepNeedsYou, KindFact, FactData{Lane: "O-03", Reason: "pane exited"})

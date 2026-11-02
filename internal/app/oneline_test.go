@@ -22,6 +22,7 @@ import (
 // prompt_extra is many lines, as a written note may be: it rides in the job's text, which job_next fetches (the real
 // templates/worker-prompt.txt), never on the start.
 func TestTypedDispatchStartsOnOneLine(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t, testkit.Set("lane_types.opus.prompt_extra", "Also read docs/notes.md.\nThen start."))
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {

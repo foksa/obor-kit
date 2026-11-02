@@ -48,6 +48,7 @@ func newRestartRig(t *testing.T, cmd string, flag bool, err error) *restartRig {
 // The flag set: after_merge's result is recorded before the restart is asked for; the new serve's replay neither
 // merges again nor reruns the after-merge command (nor restarts again), and it goes on with the worker's stop.
 func TestSelfRestartAfterMerge(t *testing.T) {
+	t.Parallel()
 	r := newRestartRig(t, "true", true, nil)
 	r.start()
 	r.submit()
@@ -85,6 +86,7 @@ func TestSelfRestartAfterMerge(t *testing.T) {
 
 // Without the flag (and with it, when after_merge did not run green): no restart.
 func TestSelfRestartNotAsked(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		flag bool
@@ -108,6 +110,7 @@ func TestSelfRestartNotAsked(t *testing.T) {
 // A restart that fails: serve goes on (the worker's stop runs) and the lead is told
 // "serve restart after T-1 failed: <err>"; the next serve's start ends it.
 func TestSelfRestartFails(t *testing.T) {
+	t.Parallel()
 	r := newRestartRig(t, "true", true, errors.New("obor.serve.pj is not installed (obor serve install)"))
 	r.start()
 	r.submit()

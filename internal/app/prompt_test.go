@@ -138,6 +138,7 @@ func refuseOnce(p *proj, step string) {
 }
 
 func TestPromptFreshDelivered(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	if !h.step(t, fx) { // work
 		t.Fatal("work job not sent")
@@ -160,6 +161,7 @@ func TestPromptFreshDelivered(t *testing.T) {
 // RV-40 #3 (TestRV40PromptResultLost, fixed): the send succeeds, its result's write fails: the next pass writes the
 // result, nothing is typed again and no failure is counted.
 func TestPromptResultLost(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	refuseOnce(h.proj(), StepWork)
 	if h.step(t, fx) {
@@ -175,6 +177,7 @@ func TestPromptResultLost(t *testing.T) {
 // A transport error (or a failed Enter) after typing began: sent, final under its key (the delivery timers catch a
 // lost wake).
 func TestPromptTransportAfterTyping(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	f.outcomes = []boxOutcome{{typed: true, err: errors.New("herdr agent.prompt: connection reset")}}
 	if !h.step(t, fx) {
@@ -190,6 +193,7 @@ func TestPromptTransportAfterTyping(t *testing.T) {
 
 // Refused before typing (herdr's refusal): counted, sent again under its key, no second intent.
 func TestPromptRefusedBeforeTyping(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	f.outcomes = []boxOutcome{{err: errors.New("agent_blocked")}}
 	if h.step(t, fx) || h.count(KindFact, StepFailed) != 1 {
@@ -208,6 +212,7 @@ func TestPromptRefusedBeforeTyping(t *testing.T) {
 // RV-40 #4 (TestRV40ResumeUndeliveredClears, fixed): after two delivery waits obor resume sends work.2; the old
 // job's text still in the box is cleared first, so the box holds work.2 once.
 func TestPromptResumeClears(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	h.step(t, fx) // work
 	h.now = h.now.Add(deliveryWait)
@@ -229,6 +234,7 @@ func TestPromptResumeClears(t *testing.T) {
 // log's fact typing after it: the replay sends the wake once more under its key, and the worker's job_next delivers
 // the job.
 func TestPromptReplayResends(t *testing.T) {
+	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	raw, _ := json.Marshal(promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
 	h.log(Record{Task: "T-1", Attempt: 1, Step: StepWork, Kind: KindIntent, Class: ClassPrompt, Data: raw})
@@ -267,6 +273,7 @@ func mustJSON(v any) json.RawMessage {
 // The integrator's typed wakes go through the same helper: a resolve job (its start done) to an integrator whose box may hold another
 // task's unsent job is cleared first; its result lost, it is not typed again. The job goes to its pane (the registry's).
 func TestPromptIntegratorJob(t *testing.T) {
+	t.Parallel()
 	h, s := seedSched(t, true)
 	f := &boxPrompter{box: map[string]string{"w1:p9": "[obor job T-2/1/review]"}}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: s, Agents: s, Typer: f}, nil }
@@ -305,6 +312,7 @@ func TestPromptIntegratorJob(t *testing.T) {
 
 // Row 4's replay (RV-40 #2): a pending agent.start reads the snapshot's session id, never the transcript file.
 func TestStartReplay(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name                string
 		ran                 bool
@@ -323,6 +331,7 @@ func TestStartReplay(t *testing.T) {
 		{name: "no session id now: cannot tell", ran: true, atIntent: "old", agentNow: true, refused: "cannot tell"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, fx, _, ag := promptRig(t, false)
 			d := startData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
 			raw, _ := json.Marshal(d)
@@ -355,6 +364,7 @@ func TestStartReplay(t *testing.T) {
 // found); the start succeeds, its result's write fails: the next pass writes the result and does not start a second
 // agent, even while the snapshot still shows the old session.
 func TestStartResultLost(t *testing.T) {
+	t.Parallel()
 	h, fx, _, ag := promptRig(t, false)
 	ag.lag = true
 	o := h.a.obs["w1:p1"]

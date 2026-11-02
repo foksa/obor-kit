@@ -38,6 +38,7 @@ func deliveredResults(t *testing.T, p *proj) int {
 // TestLeadLinesOnePost (T-651): the lines queued for the lead go out as one post, one per row in order, each with
 // its delivery fact; a worker's line stays its own post.
 func TestLeadLinesOnePost(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
@@ -66,6 +67,7 @@ func TestLeadLinesOnePost(t *testing.T) {
 
 // TestLeadLinesBatchReplay: a restart finds every line of the batch delivered.
 func TestLeadLinesBatchReplay(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
@@ -87,6 +89,7 @@ func TestLeadLinesBatchReplay(t *testing.T) {
 // TestLeadLinesFailedPost: a post refused before a byte leaves all lines undelivered and the next pass posts them
 // as one.
 func TestLeadLinesFailedPost(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
@@ -192,6 +195,7 @@ func lostLeadResult(t *testing.T, a *App, p *proj, l *linerSpy) int64 {
 // TestLeadLateResultNewLine: [A]'s result append fails; B queues; the next pass writes A's kept result (nothing
 // transmitted for A) and posts B on its own; each delivered once.
 func TestLeadLateResultNewLine(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	l := &linerSpy{}
@@ -216,6 +220,7 @@ func TestLeadLateResultNewLine(t *testing.T) {
 // TestLeadLateResultNewLineReplay: the same with a restart between: A's post (its intent pending, may have landed) goes
 // again with exactly its member, B on its own; each settled by one result, nothing queued, nothing posted again.
 func TestLeadLateResultNewLineReplay(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	l := &linerSpy{}
@@ -244,6 +249,7 @@ func TestLeadLateResultNewLineReplay(t *testing.T) {
 // TestLeadLinesTwoTargets: a line queued for the old lead and one for the new: two posts, each to its own target with
 // its own line.
 func TestLeadLinesTwoTargets(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	seqA := leadSend(t, a, p, "A")
@@ -267,6 +273,7 @@ func TestLeadLinesTwoTargets(t *testing.T) {
 // TestLeadLinesOldTargetNoInbox: the old lead has no inbox record: its line waits (the 24 h needs-you as before); the
 // new lead's line goes out.
 func TestLeadLinesOldTargetNoInbox(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	a.opt.Inboxed = func(agent string) (string, bool) { return "", agent != "pj-lead" }

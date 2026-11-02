@@ -181,6 +181,7 @@ func woke(t *testing.T) *loopRig {
 // Delivery (rows 7–8): no job_next within 5 min of the job's wake → one retry; none 5 min after it → the owner; the
 // fetch, or the verdict, is delivery and stops the timer.
 func TestJobDelivery(t *testing.T) {
+	t.Parallel()
 	t.Run("undelivered: retry, then needs-you", func(t *testing.T) {
 		t.Parallel()
 		r := woke(t)
@@ -243,6 +244,7 @@ func TestJobDelivery(t *testing.T) {
 // (the same job id), then 10 more → the owner. The integrator exiting with a job open → started again and the job
 // sent anew under a new key (the old job id refused); exiting again → the owner.
 func TestJobStalled(t *testing.T) {
+	t.Parallel()
 	t.Run("idle: nudge, then needs-you", func(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
@@ -313,6 +315,7 @@ func TestJobStalled(t *testing.T) {
 // a repeated call id gets the stored reply. obor resume (the lead's): its default for held is reprompt, a new job,
 // the old job id refused; a repeated call id gets the stored reply, a resume with no needs-you is refused.
 func TestHoldAndResume(t *testing.T) {
+	t.Parallel()
 	t.Run("resume reprompts", func(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
@@ -389,6 +392,7 @@ func TestHoldAndResume(t *testing.T) {
 // publish is published again; after_merge: TestLoopAfterMergeFailure. A reprompt with no integrator job in the
 // attempt is refused.
 func TestResumeRegate(t *testing.T) {
+	t.Parallel()
 	t.Run("red past K", func(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, "echo 1 pass")
@@ -443,6 +447,7 @@ func TestResumeRegate(t *testing.T) {
 // Crash rows (T-338's table) of the timers and resume: the retry and the re-sent job are prompts (T-524: a pending one
 // reaches the integrator once more on replay, the timers go on), unblocked a fact (refused: the resume is given again).
 func TestJobRecovery(t *testing.T) {
+	t.Parallel()
 	for _, before := range []bool{true, false} {
 		point := "result lost"
 		kind := app.KindResult

@@ -102,6 +102,7 @@ func gone(pid int) bool {
 }
 
 func TestSelfRestartEndsServeAndItsGateGroup(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	h, g := gateGroupHarness(t, dir)
 	ctx, cancel := context.WithCancel(context.Background())

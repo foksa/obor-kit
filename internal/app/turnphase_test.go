@@ -16,6 +16,7 @@ import (
 
 // TestTurnDecide is the table itself, row by row (stopped.go).
 func TestTurnDecide(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		in   turnCase
@@ -153,6 +154,7 @@ func (r *turnRig) replayed() {
 // RV-60 #1: a Codex role's next turn starts while herdr still says idle → the stop ends, the brief stays open, no
 // finished line; that turn's task_complete → the finished line, once.
 func TestTurnCodexStartWhileIdle(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, "codex")
 	r.turn = agents.Turn{ID: "new"} // task_started; the pane still idle
 	r.deliver()
@@ -174,6 +176,7 @@ func TestTurnCodexStartWhileIdle(t *testing.T) {
 // RV-60 #1: the resumed turn starts, then hits its limit too → a second stop, the brief open, its wake due after the
 // new reset (and not before).
 func TestTurnCodexStartThenLimit(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, "codex")
 	r.turn = agents.Turn{ID: "new"}
 	r.deliver()
@@ -217,6 +220,7 @@ func typedTo(l *linerSpy, line string) int {
 // Control: the Codex role is seen working first (its start read with it), then idle with the turn's end → the
 // finished line once.
 func TestTurnCodexWorkingFirst(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, "codex")
 	r.status("working")
 	r.turn = agents.Turn{ID: "new"}
@@ -237,6 +241,7 @@ func TestTurnCodexWorkingFirst(t *testing.T) {
 // RV-60 #3: a Claude role's start hook was missed (serve down, the request timed out); its work is seen while the
 // stop is in force, then its Stop hook → the stop ends and the finished line follows, once.
 func TestTurnClaudeMissedStart(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, "claude")
 	r.status("working")
 	r.deliver() // the work logged (fact worked); held by the stop
@@ -260,6 +265,7 @@ func TestTurnClaudeMissedStart(t *testing.T) {
 
 // Control: the Claude role's start hook, then its Stop hook (no status seen between) → the finished line once.
 func TestTurnClaudeStartThenStop(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, "claude")
 	if reply := r.hook(false); reply != "TURN pj-rev (the stop of its brief ended)" {
 		t.Fatalf("start hook: %q", reply)
@@ -285,7 +291,9 @@ func TestTurnClaudeStartThenStop(t *testing.T) {
 
 // An aborted turn after the stop, its work seen → finished; a turn that ends on a new error at once → a new stop.
 func TestTurnCodexAbortedAndNewError(t *testing.T) {
+	t.Parallel()
 	t.Run("aborted after work", func(t *testing.T) {
+		t.Parallel()
 		r := newTurnRig(t, "codex")
 		r.status("working")
 		r.status("idle")
@@ -297,6 +305,7 @@ func TestTurnCodexAbortedAndNewError(t *testing.T) {
 		r.replayed()
 	})
 	t.Run("new error at once", func(t *testing.T) {
+		t.Parallel()
 		r := newTurnRig(t, "codex")
 		r.turn = agents.Turn{ID: "new", Ended: true, Error: "usage_limit_exceeded", Details: "again",
 			Reset: r.now.Add(3 * time.Hour)}
@@ -311,9 +320,11 @@ func TestTurnCodexAbortedAndNewError(t *testing.T) {
 // Workers have no brief: their hooks' start and end of the resumed turn each end the stop (fact resumed); a Codex
 // worker's rollout the same, by its next turn's start or its end. No brief is made or read.
 func TestTurnWorkerPhases(t *testing.T) {
+	t.Parallel()
 	for _, ended := range []bool{false, true} {
 		name := map[bool]string{false: "start", true: "end"}[ended]
 		t.Run("hook "+name, func(t *testing.T) {
+			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
 			addRecord(t, h, "T-1", StepWork, KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
 			h.connect()
@@ -332,6 +343,7 @@ func TestTurnWorkerPhases(t *testing.T) {
 			}
 		})
 		t.Run("rollout "+name, func(t *testing.T) {
+			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
 			addRecord(t, h, "T-1", StepWork, KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
 			h.connect()

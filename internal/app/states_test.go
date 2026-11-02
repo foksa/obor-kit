@@ -68,6 +68,7 @@ func needsOf(cause string) Record {
 }
 
 func TestStatesOneRowPerState(t *testing.T) {
+	t.Parallel()
 	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stFail, stAccepted,
 		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stNeedsYou}
 	var got []string
@@ -82,6 +83,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 }
 
 func TestStateSubmittedRow18(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stSubmitted}, name: StepSubmit, send: "T-1 is submitted; retry when it settles",
 		landed: true})
 	checkRow(t, rowWant{mt: mtask{state: stSubmitted, input: "abc", gates: 1}, name: "gate.2",
@@ -89,10 +91,12 @@ func TestStateSubmittedRow18(t *testing.T) {
 }
 
 func TestStateGreenRow19(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stGreen, reviews: 1}, name: "review.2", landed: true})
 }
 
 func TestStateAwaitingAcceptRow26(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stAwaiting, job: "review"}, name: "review", open: true, landed: true,
 		verdicts: map[string]string{MethodAccept: stAccepted, MethodSendback: stWorking, MethodReject: stRejected}})
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
@@ -101,50 +105,60 @@ func TestStateAwaitingAcceptRow26(t *testing.T) {
 }
 
 func TestStateRedRow21(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stRed}, name: "a step (red)", send: "T-1 is red; retry when it settles",
 		landed: true})
 }
 
 func TestStateConflictRow23(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stConflict}, name: "resolve", send: "T-1 is conflict; retry when it settles",
 		scratch: true, landed: true})
 }
 
 func TestStateResolvingRow30(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stResolving, job: "resolve.2"}, name: "resolve.2", open: true, scratch: true,
 		landed: true, verdicts: map[string]string{MethodResolved: stResolved, MethodReject: stFail}})
 }
 
 func TestStateResolvedRow18(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stResolved, gates: 1}, name: "gate.2",
 		send: "T-1 is resolved; retry when it settles", scratch: true})
 }
 
 func TestStateFailRow22(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stFail}, name: "a step (fail)", send: "T-1 is fail; retry when it settles",
 		landed: true})
 }
 
 func TestStateAcceptedRow33(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stAccepted}, name: "publish", send: "T-1 is accepted; retry when it settles"})
 }
 
 func TestStateMovedRow32(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stMoved, input: "abc", gates: 2}, name: "gate.3",
 		send: "T-1 is moved; retry when it settles"})
 }
 
 func TestStatePublishedRow34(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stPublished}, name: "a step (published)",
 		send: "T-1 is published; retry when it settles"})
 }
 
 func TestStateMergedRow38(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stMerged, after: len(afterSteps)}, waits: true, name: "a step (merged)",
 		send: "T-1 is merged", ended: true, cause: "after_merge failed", resume: resumeRule{noReprompt: true}})
 }
 
 func TestStateRejectedRow29(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stRejected, needs: needsOf(causeRejected)}, waits: true,
 		name: "a step (rejected)", send: "T-1 is rejected", ended: true, cause: causeRejected,
 		resume: resumeRule{closed: true}})
@@ -154,11 +168,13 @@ func TestStateRejectedRow29(t *testing.T) {
 }
 
 func TestStateDroppedRow44(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stDropped}, waits: true, name: "a step (dropped)", send: "T-1 is dropped",
 		ended: true})
 }
 
 func TestStateWaitingRow2a(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stWaiting}, name: "the dispatch", send: "T-1 is waiting",
 		cause: causeAfter, resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
 	// pick: nothing while a task it waits for is open; a step once all are merged (one with no loop record: the step
@@ -218,11 +234,13 @@ func TestStateWaitingRow2a(t *testing.T) {
 }
 
 func TestStateDispatchedRow3(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stDispatched}, name: "the dispatch", send: "T-1 is dispatched",
 		cause: "lane", resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
 }
 
 func TestStateWorkingRow24(t *testing.T) {
+	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stWorking}, name: "the fix", send: "T-1 is working", landed: true,
 		cause: causeUndelivered, resume: resumeRule{to: ResumeRetry, retry: true}})
 	// a dispatched attempt's work job: obor resume's default by cause
@@ -231,6 +249,7 @@ func TestStateWorkingRow24(t *testing.T) {
 }
 
 func TestStateNeedsYouRow40(t *testing.T) {
+	t.Parallel()
 	// the state it left is kept: a resolve job held stays open, in the scratch
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, job: "resolve", needs: needsOf(causeHeld),
 		lane: "O-01", agent: "o-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,

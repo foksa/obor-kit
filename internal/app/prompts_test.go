@@ -38,6 +38,7 @@ func (r *loopRig) deliveredSeq(t *testing.T, job string) int64 {
 // A fetched job is one row with the exact text job_next gave, keyed by its delivered fact; a refetch with the same
 // text adds no row.
 func TestPromptsOfAFetchedJob(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -69,6 +70,7 @@ func TestPromptsOfAFetchedJob(t *testing.T) {
 
 // A brief is a row of its briefed fact (the line it types); a --prompt start is one too (its first prompt, kind start).
 func TestPromptsOfABriefAndAStart(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
 
@@ -130,6 +132,7 @@ func dropPrompts(t *testing.T, root string) {
 
 // A failed prompt write is logged and never fails the job: the agent still gets its job and the delivery is recorded.
 func TestPromptWriteFailureKeepsTheJob(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -167,6 +170,7 @@ func (r *loopRig) spec(callID, text string) string {
 // A review job whose patch changed: the moved target re-gates the candidate and sends the next review job (review.2),
 // whose fetch is a row of its own; the old job's row stays (T-670).
 func TestPromptsReviewJobAfterAChangedPatch(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.start()
@@ -194,6 +198,7 @@ func TestPromptsReviewJobAfterAChangedPatch(t *testing.T) {
 // A work job fetched again after the lead set a new spec rev has a new text: the table keeps both rows, the newest the
 // new text and the rev it was built from (T-670); a third, identical refetch adds none.
 func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -231,6 +236,7 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 
 // A fix job fetched again after the spec rev changed: its text carries the new spec, and the table keeps both rows.
 func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
+	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil {
 		t.Fatal(err)
@@ -261,6 +267,7 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 // A review job fetched again after the lead changed the spec it reviews (the gate merged rev 1): its text says so, and
 // the table keeps both rows, the newest the new text.
 func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -308,6 +315,7 @@ func TestPromptsReviewJobRefetchedAfterASpecChange(t *testing.T) {
 // A refetch after serve restarted with the spec unchanged adds no row: the newest row is read from the store, not kept
 // in the process (T-670).
 func TestPromptsRefetchAfterARestart(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")

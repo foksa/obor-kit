@@ -14,6 +14,7 @@ import (
 // merge, a re-dispatch of the lane and a drop the table equals the fold's rows and what the log says, and a replay
 // writes the same table.
 func TestLaneRowsProjectTheLog(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	h.connect()
@@ -98,6 +99,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 // T-439: obor mcp's task_done names only the caller's lane: serve resolves it to its row's task; a lane with no row
 // is refused, nothing recorded.
 func TestTaskDoneByLane(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{}, nil }

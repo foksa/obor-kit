@@ -35,6 +35,7 @@ func (r *concRig) attempt(name, task string) int {
 // any merge-loop cause (T-619) the task goes back to its worker as the next attempt, its job, candidate and needs-you
 // ended; any other state is refused by name with nothing recorded.
 func TestLeadSendback(t *testing.T) {
+	t.Parallel()
 	sub := func(r *concRig) {
 		r.add("pq", "T-6", StepSubmitted, KindFact, submitData{Lane: "O-06", Agent: "pq-o-06"})
 		r.add("pq", "T-6", StepSubmit, KindResult, submitOut{SHA: "s6"})
@@ -97,6 +98,7 @@ func TestLeadSendback(t *testing.T) {
 		{"no task", func(*concRig) {}, "", "", "sendback: T-6 is not open in obor serve", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			c.prep(r)
 			if c.state != "" && (r.state("pq", "T-6") != c.state || r.factsOf("pq", "T-6") != c.facts) {
@@ -153,6 +155,7 @@ func TestLeadSendback(t *testing.T) {
 // integrator's hold, sendbacks past K, a red gate) obor sendback ends the hold and starts the next attempt, the worker's
 // fix job carrying the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
 func TestLeadSendbackFromNeedsYou(t *testing.T) {
+	t.Parallel()
 	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
 	for _, c := range []struct {
 		name      string
@@ -165,6 +168,7 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 		{"red", causeRed, full, K},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedQuestions(t, c.report)
 			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
 				t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
@@ -200,6 +204,7 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 // T-619: K still counts the integrator's sendbacks: one more below K starts the next attempt and increments the count;
 // at K a further sendback goes to the owner, no attempt.
 func TestIntegratorSendbackStillCounts(t *testing.T) {
+	t.Parallel()
 	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
 	for _, c := range []struct {
 		name      string
@@ -211,6 +216,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 		{"at K", K, stFail, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedQuestions(t, full)
 			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting {
 				t.Fatalf("precondition: T-1 %s; want the review job out", mt.state)
@@ -241,6 +247,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 // The reviewer's probe (RV-45 #1): the lead sends back T-4 with its review job out; the integrator's accept of the old
 // candidate is refused, nothing is published, and the worker gets its fix job from serve.
 func TestLeadSendbackEndsTheReview(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	if r.state("pr", "T-4") != stAwaiting {
 		t.Fatalf("precondition: T-4 %s; want awaiting-accept", r.state("pr", "T-4"))
@@ -277,6 +284,7 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 // A sendback while the task's gate runs is refused until it settles; the worker and the integrator may not send a
 // task back as the lead, and a sendback says why.
 func TestLeadSendbackRefusals(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	r.run()
 	defer r.stop()

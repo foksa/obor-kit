@@ -13,6 +13,7 @@ import (
 // Two passes logging a brief's seen work at once (the merge loop's and the watchdog's) record its fact worked once:
 // the brief is claimed under mu while its fact is recorded (T-615 attempt 3; the gate saw two).
 func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	db, err := store.OpenRW(DBFile(root))
 	if err != nil {

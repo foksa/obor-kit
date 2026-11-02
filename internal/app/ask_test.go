@@ -73,6 +73,7 @@ func askCall(id string) app.Call {
 
 // A reply lost to a crash after the app recorded the verdict: the retry carries the same call id and gets the stored reply.
 func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
+	t.Parallel()
 	sock, seen := fakeApp(t, func(n int) string {
 		if n == 1 {
 			return "" // the app went away after recording the verdict
@@ -91,6 +92,7 @@ func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
 // A serve that crashes after recording the call and restarts seconds later: the client keeps the same call id through
 // the refusals and gets the reply the restarted serve replays from its store (docs/state-model.md, class F, N3).
 func TestAskSurvivesServeRestart(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 	if err != nil {
 		t.Fatal(err)
@@ -193,6 +195,7 @@ func callID(line []byte) string {
 // T-656: a verdict waits out a serve that is not there yet (a restart: the socket file of the old serve refused or
 // gone) until the new one answers. `obor status`, a read, fails at once instead.
 func TestAskVerdictWaitsForServe(t *testing.T) {
+	t.Parallel()
 	const delay = 300 * time.Millisecond
 	for _, c := range []struct {
 		name string
@@ -209,6 +212,7 @@ func TestAskVerdictWaitsForServe(t *testing.T) {
 		{"no socket file", func(*testing.T, string) {}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 			if err != nil {
 				t.Fatal(err)
@@ -251,6 +255,7 @@ func TestAskVerdictWaitsForServe(t *testing.T) {
 
 // A read does not wait: obor status reports a serve that is not there at once, not after the verdicts' bound.
 func TestAskStatusDoesNotWaitForServe(t *testing.T) {
+	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock") // a restart: no socket until the new serve has loaded (T-659)
 	start := time.Now()
 	if _, err := app.Ask(context.Background(), sock); err == nil || !strings.Contains(err.Error(), "no such file") {
@@ -281,6 +286,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 
 // The retries stop at the caller's deadline.
 func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
+	t.Parallel()
 	sock, seen := fakeApp(t, func(int) string { return "" }) // every connection is dropped unanswered
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -298,6 +304,7 @@ func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
 
 // A refusal is the app's answer, not a lost reply: it is returned once, not retried.
 func TestAskDoesNotRetryRefusal(t *testing.T) {
+	t.Parallel()
 	sock, seen := fakeApp(t, func(int) string { return `{"error":"no job open for T-1"}` })
 	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
 	if err == nil || !strings.Contains(err.Error(), "no job open for T-1") || reply != "" {
@@ -310,6 +317,7 @@ func TestAskDoesNotRetryRefusal(t *testing.T) {
 
 // A live answer that does not come in time is not retried: the caller gave up on it.
 func TestAskDoesNotRetryTimeout(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "ask") // short: a unix socket path is limited
 	if err != nil {
 		t.Fatal(err)

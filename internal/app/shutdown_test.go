@@ -28,6 +28,7 @@ func (r *loopRig) msgFailed() int {
 // msg failed{deliver.<seq>: … operation was canceled}) records no fact failed: nothing went out, nothing was refused.
 // The intent stays pending and the next serve's replay delivers the line once.
 func TestShutdownDeliveryNotRecorded(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.cut(true) // the next post alone waits for serve's ctx and fails as a cancellation
 	r.start()
@@ -66,6 +67,7 @@ func TestShutdownDeliveryNotRecorded(t *testing.T) {
 // loop needs-you{loop: … context canceled}) records no loop needs-you and no resumed after it: serve's own
 // cancellation is not a failure of the loop. A real error still records as before (T-425).
 func TestShutdownLoopNotRecorded(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	set := func(err error) {
 		r.mu.Lock()

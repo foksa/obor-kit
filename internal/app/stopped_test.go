@@ -25,6 +25,7 @@ func (r *loopRig) stoppedCallWith(agent, role, lane, callID, errText, details st
 // T-584: the plugin's exact StopFailure error shape reaches the OpenCode Reset through both stoppedCall paths:
 // worker NeedsYou and a briefed role's roleStop keep the reset; billing_error does not. Claude remains the control.
 func TestOpenCodeStoppedReset(t *testing.T) {
+	t.Parallel()
 	const details = "You exceeded your current quota; resets at 6pm (provider.rate-limit)|1793365200"
 	for _, c := range []struct {
 		name, agentKind, role, errText, details string
@@ -37,6 +38,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 		{"Claude worker control", "claude", "worker", "rate_limit", "Claude AI usage limit reached|1793365200", false, true, 1793365200},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			var r *loopRig
 			if c.roleAgent {
 				r = lineRig(t, "idle", "idle")
@@ -94,6 +96,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 // the lead's line "[obor] <agent> stopped: <error> (<details>)" instead of the brief's finished line; a repeated call
 // id gets the stored reply and records nothing. Its next brief (a later turn) ends with the finished line again.
 func TestStoppedRoleAgentLine(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
 	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
@@ -185,6 +188,7 @@ func stoppedWorker(t *testing.T) *loopRig {
 // "[obor] needs-you T-1 (O-01): …"; its working status does not end it, nor does an idle wait stall it; its next
 // turn's hook (the turn request) ends it: fact resumed.
 func TestStoppedWorkerNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := stoppedWorker(t)
 	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 {
 		t.Fatalf("stopped facts %d, want 1: %q", n, r.steps())
@@ -234,6 +238,7 @@ func TestStoppedWorkerNeedsYou(t *testing.T) {
 // failing) the stop is in force all the same; after a replay (serve cut right after stopped) it is still, and an
 // identical retry of the call gets the same reply and records nothing, the needs-you in force once.
 func TestStoppedWorkerOneRecordReplay(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -272,6 +277,7 @@ func TestStoppedWorkerOneRecordReplay(t *testing.T) {
 // T-540 (RV-56 #3): serve restarts while herdr still shows the stopped turn working (the same snapshot, seen anew
 // later than the stop): the stop stays.
 func TestStoppedWorkerRestartSameWorking(t *testing.T) {
+	t.Parallel()
 	r := stoppedWorker(t)
 	r.later(5 * time.Second)
 	r.stop()
@@ -289,6 +295,7 @@ func TestStoppedWorkerRestartSameWorking(t *testing.T) {
 // T-540 (RV-56 #3): two turns within one second, the clock not moved: idle, working again, then the next turn's
 // UserPromptSubmit (the turn request) ends the stop.
 func TestStoppedWorkerNextTurnSameSecond(t *testing.T) {
+	t.Parallel()
 	r := stoppedWorker(t)
 	r.workerIs("idle")
 	r.workerIs("working")
@@ -383,6 +390,7 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 // nothing: codexStopped); more idle checks and a replay record nothing more; a later turn's start in the rollout (the
 // pane working) ends it: fact resumed, and its clean end records nothing.
 func TestStoppedCodexUsageLimit(t *testing.T) {
+	t.Parallel()
 	r := codexStopped(t)
 	line := "pj-lead: [obor] needs-you T-1 (O-01): " + r.reason
 	r.waitFor("the needs-you line posted", func() bool {
@@ -432,6 +440,7 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 // T-563: once per turn. The Codex worker's stop ended another way (here a turn request) while its rollout's last turn
 // is still the one that ended on the limit: later idle checks, and a replay, record no second stop for that turn.
 func TestStoppedCodexOncePerTurn(t *testing.T) {
+	t.Parallel()
 	r := codexStopped(t)
 	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-o1 (the stop of T-1 ended)" {
 		t.Fatalf("turn: %q, %v", reply, err)
@@ -455,8 +464,10 @@ func TestStoppedCodexOncePerTurn(t *testing.T) {
 // RV-59 #2: the Codex worker's next turn starts, then writes more than the adapter's first read (one 300 KiB output)
 // while serve is down (a replay) or its herdr connection is lost (a reconnect): the stop still ends on that start.
 func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {
+	t.Parallel()
 	next := cdxStarted2 + `{"type":"response_item","payload":{"output":"` + strings.Repeat("x", 300<<10) + `"}}` + "\n"
 	t.Run("replay", func(t *testing.T) {
+		t.Parallel()
 		r := codexStopped(t)
 		r.stop()
 		r.append(next)
@@ -471,6 +482,7 @@ func TestStoppedCodexNextTurnPastTheTail(t *testing.T) {
 		}
 	})
 	t.Run("reconnect", func(t *testing.T) {
+		t.Parallel()
 		r := codexStopped(t)
 		if r.inForce() != 1 || r.has("0 fact resumed") {
 			t.Fatalf("precondition: the stop in force before the reconnect: %q", r.steps())

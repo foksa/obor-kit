@@ -188,6 +188,7 @@ func (r *reviewRig) needs() []string {
 }
 
 func TestReviewRequest(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		run  func(t *testing.T, r *reviewRig)
@@ -507,6 +508,9 @@ func TestReviewRequest(t *testing.T) {
 			}
 		}},
 	} {
-		t.Run(tc.name, func(t *testing.T) { tc.run(t, newReviewRig(t)) })
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t, newReviewRig(t))
+		})
 	}
 }

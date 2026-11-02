@@ -34,6 +34,7 @@ func (f *startJobFakes) Type(_ context.Context, _, text string, _ bool) (bool, e
 // numbered job after job.lost and the owner's reprompt; an integrator that runs (idle, no other job out) is started
 // fresh as well (T-602).
 func TestStartJobIntegrator(t *testing.T) {
+	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
 			r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
@@ -78,6 +79,7 @@ func TestStartJobIntegrator(t *testing.T) {
 			running: true, job: "review", start: "start.review"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			for _, s := range row.setup {
@@ -143,6 +145,7 @@ func TestStartJobIntegrator(t *testing.T) {
 // T-393, T-396: a start alone hands out no job (no lookup beside the open job); the job's intent, which its step
 // writes before the start, does, with the job's patch.
 func TestStartJobOtherPatch(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
@@ -219,8 +222,10 @@ func (f *startEffects) Type(_ context.Context, agent, text string, clear bool) (
 // RV-42 #2 (the reviewer's probe, fixed outcome, T-393): a fresh integrator's job is fetchable while the start that
 // carries its wake runs, and no second wake is typed.
 func TestIntegratorJobFetchableDuringStart(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{StepReview, StepResolve} {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			outcome := outGreen
@@ -259,6 +264,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 
 // RV-42 #2's control: the worker's early fetch during its start, delivered, the work step sent with nothing typed.
 func TestWorkerEarlyFetchDuringStart(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	r.add("pj", "T-2", StepDispatched, KindFact, dispatchData{Lane: "O-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-o-02"})

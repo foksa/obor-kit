@@ -37,6 +37,7 @@ func diskFacts(r *loopRig) []app.Record {
 // T-564: free space below the bound is the project's needs-you naming the volume and the cache, above it ends it;
 // one record per transition, none per tick. A gate waits while it is low and runs after.
 func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
+	t.Parallel()
 	const gib = 1 << 30
 	f := &diskFake{}
 	f.free.Store(2 * gib)

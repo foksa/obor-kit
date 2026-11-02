@@ -43,6 +43,7 @@ func projectRoot(t *testing.T) string {
 // A load that fails (no config yet) leaves serve with no project and says why; the next loadProject loads it, and a
 // later one does not load it again (the same project goes on).
 func TestLoadProjectRetriesAFailedLoad(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	cfg := filepath.Join(root, ".obor", "config.json")
 	if err := os.Rename(cfg, cfg+".off"); err != nil {
@@ -71,6 +72,7 @@ func TestLoadProjectRetriesAFailedLoad(t *testing.T) {
 
 // An append failure shows in the project's status (log_error) while it stays; a later good append clears it.
 func TestLogAppendErrorInStatus(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	a := rootApp(root, &bytes.Buffer{})
 	a.loadProject()
@@ -217,8 +219,10 @@ func reloadProj(t *testing.T, h *harness) *proj {
 // submitted T-2 is not gated (the gate would reset the worktree holding T-1's resolution). T-1 resumed, its resolved
 // verdict pins with T-1's own input (submit's s1); once T-1's resolution is gated green, T-2 is.
 func TestPausedScratchReservation(t *testing.T) {
+	t.Parallel()
 	for _, cause := range []string{causeHeld, "retry.resolve failed", "start.resolve failed"} {
 		t.Run(cause, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedSched(t, true)
 			ctx := context.Background()
 			if cause != "start.resolve failed" { // the resolve job is out
@@ -271,8 +275,10 @@ func TestPausedScratchReservation(t *testing.T) {
 
 // RV-38 #9: abandoning the paused work releases the scratch: regate, reject, a new attempt.
 func TestPausedScratchReleased(t *testing.T) {
+	t.Parallel()
 	for _, release := range []string{"regate", "reject", "sendback"} {
 		t.Run(release, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedSched(t, true)
 			ctx := context.Background()
 			f.Launch(ctx, Launch{})
@@ -307,6 +313,7 @@ func TestPausedScratchReleased(t *testing.T) {
 // Without an integrator role the project is observe-only (no merge loop, Merging false, so Owns is false and the
 // heartbeat's done lanes wait: serve down); with one, the loop runs.
 func TestMergeLoopNeedsIntegrator(t *testing.T) {
+	t.Parallel()
 	for _, serve := range []bool{false, true} {
 		h, f := seedSched(t, serve)
 		p := h.a.p
@@ -425,6 +432,7 @@ func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
 // RV-38-verify #12: a socket resolved runs its effect under the daemon's lifetime (with a request deadline):
 // Serve canceled, the blocked effect's ctx is canceled and Serve returns only after the effect has ended.
 func TestSocketEffectEndsWithServe(t *testing.T) {
+	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	b := &blockScratch{schedScratch: f, entered: make(chan context.Context, 1)}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: b, Agents: f, Typer: f}, nil }
@@ -487,6 +495,7 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 // T-659: Loaded is closed only once the project's log is replayed (obor serve binds its socket then), and a request
 // that reaches an app before its load is answered at once, never held for the replay.
 func TestLoadedAfterReplay(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	out := &bytes.Buffer{}
 	a := rootApp(root, out)
@@ -551,6 +560,7 @@ const mergeOffReply = "merge loop off for pj (no integrator role)"
 // effect or record (no Scratch call, no new record, T-1 still resolving), a call id answered while on gets its stored
 // reply; turned on again, the same resolved is answered.
 func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
+	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	call := listenMem(t, h)
 	held := Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "h1", Job: job, Note: "ask"}
@@ -592,8 +602,10 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 // RV-38-verify #13: all six calls on a job (or needs-you) open before the merge loop is turned off are refused while off
 // (no Scratch call, no new record, no state change) and answered once it is on again.
 func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
+	t.Parallel()
 	for _, method := range []string{MethodAccept, MethodSendback, MethodReject, MethodHold, MethodResume, MethodResolved} {
 		t.Run(method, func(t *testing.T) {
+			t.Parallel()
 			var h *harness
 			var f *schedScratch
 			var job string

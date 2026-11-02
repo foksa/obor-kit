@@ -13,6 +13,7 @@ import (
 // old log (T-509: asked, then merged; its lane row still naming it) has no fact in force and posts no line or repeat.
 // An asks of an open task still repeats as today.
 func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
+	t.Parallel()
 	asks := app.FactData{Lane: "O-01", Agent: "pj-o1", Reason: "asks: which colour?"}
 	submitted := map[string]any{"lane": "O-01", "agent": "pj-o1"}
 	for _, c := range []struct {

@@ -79,6 +79,7 @@ func (h *harness) t1() mtask {
 }
 
 func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
+	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
 	h.waitCall(Call{CallID: "d1"}) // level medium: waits for a sonnet or deepseek lane
@@ -114,6 +115,7 @@ func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
 }
 
 func TestWaitStaleDependencyFailedRecordsNothing(t *testing.T) {
+	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
 	h.waitCall(Call{CallID: "d1", After: []string{"T-2"}})
@@ -136,6 +138,7 @@ func TestWaitStaleDependencyFailedRecordsNothing(t *testing.T) {
 }
 
 func TestWaitStaleRefusalRecordsNothing(t *testing.T) {
+	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
 	h.waitCall(Call{CallID: "d1", Lane: "S-01", After: []string{"T-2"}})
@@ -166,6 +169,7 @@ func TestWaitStaleRefusalRecordsNothing(t *testing.T) {
 }
 
 func TestWaitSelectionNotReplacedDispatches(t *testing.T) {
+	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
 	h.waitCall(Call{CallID: "d1"})

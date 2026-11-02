@@ -47,6 +47,7 @@ func (h *harness) current(agent string) string {
 // fact, the newest its current one; a repeat of a session records none; a replay folds the same; the store's readers
 // (launch, the hooks) read the same facts.
 func TestSessionFacts(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.connect()
 	if got := h.sessions("pj-o-01"); len(got) != 0 {
@@ -86,7 +87,9 @@ func TestSessionFacts(t *testing.T) {
 // session; one whose herdr session differs is still identified by its label, or its start, as before, and the
 // difference is logged once (not adopted).
 func TestSessionIdentityCrossCheck(t *testing.T) {
+	t.Parallel()
 	t.Run("label", func(t *testing.T) {
+		t.Parallel()
 		h, out := newIdentHarness(t)
 		h.connect()
 		h.session("pj-o-01", "s1", "", time.Now().Unix())
@@ -103,6 +106,7 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 		eqs(t, h.current("pj-o-01"), "s1", "not adopted")
 	})
 	t.Run("start", func(t *testing.T) {
+		t.Parallel()
 		h, out := newIdentHarness(t)
 		h.pane("w1:p1").Label, h.pane("w1:p1").Session = "", "s-herdr"
 		h.started("pj-o-01", "w1:p1", "t1", "")
@@ -118,6 +122,7 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 
 // T-577: obor status shows an identified agent's current session: its id, transcript and start.
 func TestSessionInStatus(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.connect()
 	now := time.Now().Unix()
@@ -164,6 +169,7 @@ func (h *harness) refused(agent, id string, at int64) string {
 // such a duplicate replays with one owner; the registry-failure shape (two starts, one rollout) records the id for
 // the agent that reported it first only.
 func TestSessionOneOwner(t *testing.T) {
+	t.Parallel()
 	h, out := newIdentHarness(t)
 	h.connect()
 	now := time.Now().Unix()
@@ -189,6 +195,7 @@ func TestSessionOneOwner(t *testing.T) {
 	})
 
 	t.Run("replay of a log with a duplicate", func(t *testing.T) {
+		t.Parallel()
 		h2, _ := newIdentHarness(t)
 		h2.connect()
 		dir := t.TempDir()
@@ -227,6 +234,7 @@ func TestSessionOneOwner(t *testing.T) {
 	})
 
 	t.Run("registry failure: two starts, one rollout", func(t *testing.T) {
+		t.Parallel()
 		h3, _ := newIdentHarness(t)
 		h3.connect()
 		// both searches found the first start's rollout: the true owner reports it first, the other after

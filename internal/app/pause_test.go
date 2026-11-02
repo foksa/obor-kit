@@ -22,6 +22,7 @@ func (r *loopRig) pause(role, callID string, c app.Call) (string, error) {
 // reason and a waiting task stays waiting; --clear records unpaused and the waiting task dispatches; status shows the
 // pause in force; a repeated call id gets the stored reply; a worker cannot pause.
 func TestPauseGatesDispatch(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if _, err := r.pause("worker", "p0", app.Call{Note: "no"}); err == nil || !strings.Contains(err.Error(), "the lead or the owner") {
 		t.Errorf("a worker's pause: %v, want refused", err)
@@ -87,6 +88,7 @@ func TestPauseGatesDispatch(t *testing.T) {
 
 // T-465: a pause survives a restart (the fact is folded on replay); a pause past its end no longer holds.
 func TestPauseReplayAndExpiry(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.start()
 	if _, err := r.pause("", "p1", app.Call{Note: "kept"}); err != nil {
@@ -118,6 +120,7 @@ func TestPauseReplayAndExpiry(t *testing.T) {
 
 // RV-49 #3: a --types dispatch under a held pause is refused with the reason and records nothing.
 func TestPauseRefusesTypesDispatch(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if reply, err := r.pause("lead", "p1", app.Call{Note: "quota"}); err != nil || reply != "PAUSED until cleared" {
 		t.Fatalf("pause: %q, %v", reply, err)

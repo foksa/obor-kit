@@ -102,6 +102,7 @@ func (r *loopRig) setConfig(path string, v any) {
 // working. A repeated call id gets the stored reply, a new one the same job with no second record, an older job id
 // superseded{current}; another agent's call is refused, another lane has none.
 func TestFetchWorkJob(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -188,6 +189,7 @@ func TestFetchWorkJob(t *testing.T) {
 // No fetch 5 min after the start's wake → the wake typed (retry.work, the line cleared first; the worker working is
 // no delivery); 5 more → needs-you{job not delivered}.
 func TestFetchUndelivered(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -245,6 +247,7 @@ func fetched(t *testing.T) (*loopRig, string) {
 // The integrator's start carries its job's wake; its review job is a wake, fetched by job_next (no status rule), and
 // accepted as today.
 func TestFetchReviewJob(t *testing.T) {
+	t.Parallel()
 	r, text := fetched(t)
 	r.mu.Lock()
 	var prompt string
@@ -273,6 +276,7 @@ func TestFetchReviewJob(t *testing.T) {
 // call id gets the stored reply; once submitted, another task_done is refused. The guards: the caller's role and
 // agent, the report (empty, a section missing).
 func TestFetchFixAndTaskDone(t *testing.T) {
+	t.Parallel()
 	r, _ := fetched(t)
 	if reply, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 		t.Fatalf("sendback: %q, %v", reply, err)
@@ -338,6 +342,7 @@ func TestFetchFixAndTaskDone(t *testing.T) {
 // (T-511: the Stop hook's turn after the report is no answer): obor answer (answer_test.go) or its submission does. A
 // full report then submits, and the question ends with it.
 func TestFetchBlockedAsks(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -389,6 +394,7 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 // An unfetched fix job: its wake again after 5 min, the owner after 5 more; obor resume (its default: retry) sends it
 // anew as fix.2, whose fetch delivers it.
 func TestFetchFixUndelivered(t *testing.T) {
+	t.Parallel()
 	r, _ := fetched(t)
 	if _, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil {
 		t.Fatal(err)
@@ -419,6 +425,7 @@ func TestFetchFixUndelivered(t *testing.T) {
 // T-437: a lane type's obsolete jobs: typed changes nothing: its worker's start carries the wake and its job_next
 // fetches the work job; the integrator fetches too.
 func TestFetchObsoleteTypedKind(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t, testkit.Set("lane_types.opus.jobs", "typed"))
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -440,6 +447,7 @@ func TestFetchObsoleteTypedKind(t *testing.T) {
 // Replay with a wake pending: the crash came after the typing of the retry's wake began; the replay sends the wake once
 // more (T-524: harmless twice) and the worker's job_next gets the job.
 func TestFetchReplayWake(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -466,6 +474,7 @@ func TestFetchReplayWake(t *testing.T) {
 // T-437: a Codex and an OpenCode lane finish as a Claude lane does: the start carries the work job's wake, job_next
 // fetches it, task_done (its report) submits the task, and the merge loop takes it to merged.
 func TestFetchCodexOpenCodeFinishByTaskDone(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"codex", "opencode"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()

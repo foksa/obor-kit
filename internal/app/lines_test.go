@@ -142,8 +142,10 @@ func (p *proj) briefCount() int {
 // TestRefusedLineReplay: a line refused before typing stays queued across a restart (orderly and SIGKILL) and is
 // typed once after it, for each kind of line (RV-50 #1).
 func TestRefusedLineReplay(t *testing.T) {
+	t.Parallel()
 	for _, kind := range lineKinds {
 		t.Run(kind+"/reload", func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			queueLine(t, a, p, kind, now)
@@ -169,6 +171,7 @@ func TestRefusedLineReplay(t *testing.T) {
 			}
 		})
 		t.Run(kind+"/kill", func(t *testing.T) {
+			t.Parallel()
 			calls := killedLines(t, kind, "refused")
 			if !lineTyped(calls, kind) {
 				t.Fatalf("after SIGKILL: want the %s line typed once, got %v", kind, calls)
@@ -181,8 +184,10 @@ func TestRefusedLineReplay(t *testing.T) {
 // after the restart (T-524: a line is never lost; it may reach its agent twice); a line queued without a delivery is
 // typed once (control).
 func TestRefusedLineRetryKilled(t *testing.T) {
+	t.Parallel()
 	for _, kind := range lineKinds {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			if calls := killedLines(t, kind, "retry"); !lineTyped(calls, kind) {
 				t.Fatalf("a retry cut while typing: want the %s line delivered once after the restart, got %v", kind,
 					calls)
@@ -190,6 +195,7 @@ func TestRefusedLineRetryKilled(t *testing.T) {
 		})
 	}
 	t.Run("queued control", func(t *testing.T) {
+		t.Parallel()
 		if calls := killedLines(t, "send", "queued"); !lineTyped(calls, "send") {
 			t.Fatalf("a queued line: want one delivery, got %v", calls)
 		}
@@ -240,6 +246,7 @@ func killedLines(t *testing.T, kind, mode string) []string {
 // refused, then its retry hangs once typing began; queued: nothing delivered; worked (no line queued): a fresh
 // start's brief whose work a pass saw. Then it writes kill-ready and waits.
 func TestRefusedLineKillChild(t *testing.T) {
+	t.Parallel()
 	root := os.Getenv("LINE_ROOT")
 	if root == "" {
 		t.Skip("killedLines's child only")
@@ -279,9 +286,11 @@ func park() {
 // TestBriefCompletionReplay: a brief whose work serve saw before a restart (orderly and SIGKILL) gets its
 // finished line when its agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3).
 func TestBriefCompletionReplay(t *testing.T) {
+	t.Parallel()
 	for _, note := range []string{"verify finding 1", ""} {
 		form := map[bool]string{true: "verify", false: "fresh"}[note != ""]
 		t.Run(form+"/reload", func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: note, Role: "lead"}); err != nil {
@@ -311,6 +320,7 @@ func TestBriefCompletionReplay(t *testing.T) {
 		})
 	}
 	t.Run("fresh/kill", func(t *testing.T) {
+		t.Parallel()
 		calls := killedLines(t, "", "worked")
 		if !lineTyped(calls, "finished") {
 			t.Fatalf("want one finished line after SIGKILL, got %v", calls)
@@ -320,6 +330,7 @@ func TestBriefCompletionReplay(t *testing.T) {
 
 // TestWorkedNotNewerBrief: the recorded work of a brief does not arm a newer brief that replaced it.
 func TestWorkedNotNewerBrief(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	l := &linerSpy{}
@@ -348,6 +359,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 // TestBriefKeepsAStartedDelivery (T-575): a line whose delivery is in flight (its intent is pending: it may have
 // landed) is not superseded by a newer brief.
 func TestBriefKeepsAStartedDelivery(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // the brief's line waits
@@ -392,6 +404,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 // TestBriefSupersededEndsNeedsYou (T-575): the 24 h needs-you of a brief line ends when a newer brief supersedes it;
 // the newer brief's own line waits as usual.
 func TestBriefSupersededEndsNeedsYou(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
@@ -422,8 +435,10 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 // append after the new brief's, a restart right after it keeps the old line retired (never delivered), with a line
 // or a fresh start's brief; a retry of the new brief's call id gets the stored reply.
 func TestBriefSupersedeSurvivesACrash(t *testing.T) {
+	t.Parallel()
 	for _, note := range []string{"second", ""} {
 		t.Run("note="+note, func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			lineStatus(a, "w:rev", "working", now) // brief A waits
@@ -495,6 +510,7 @@ func (d *duringSpy) Post(ctx context.Context, _, agent, line string) (bool, erro
 // before its claim is not transmitted, and only the newer one is delivered; the inverse, a line claimed first, is
 // kept by the newer brief and delivered once, and the newer brief after it.
 func TestBriefRetiresARoutedLine(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
@@ -528,6 +544,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	}
 
 	t.Run("claimed first", func(t *testing.T) {
+		t.Parallel()
 		now := time.Now()
 		a, p := lineApp(t, lineRoot(t), &now)
 		lineStatus(a, "w:rev", "working", now)
@@ -559,6 +576,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 // TestBriefSupersedesSeveralLines (T-580): every undelivered brief line of the agent is retired by the one briefed
 // fact, live and on replay.
 func TestBriefSupersedesSeveralLines(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
@@ -613,6 +631,7 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 
 // TestOlderSupersededFactReplays (T-580): an older log's fact superseded{seq, by} still retires its line on replay.
 func TestOlderSupersededFactReplays(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
@@ -632,9 +651,11 @@ func TestOlderSupersededFactReplays(t *testing.T) {
 // TestLinesBehindCheckout: a main checkout off the target branch holds dispatch, not the lines: each kind of
 // line is typed into its idle pane, and a line waiting 25 h has its needs-you (RV-50 #2).
 func TestLinesBehindCheckout(t *testing.T) {
+	t.Parallel()
 	off := func(context.Context) error { return errors.New("main checkout is on release/v0.12, not main") }
 	for _, kind := range lineKinds {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			queueLine(t, a, p, kind, now)
@@ -650,6 +671,7 @@ func TestLinesBehindCheckout(t *testing.T) {
 		})
 	}
 	t.Run("needs-you", func(t *testing.T) {
+		t.Parallel()
 		now := time.Now()
 		a, p := lineApp(t, lineRoot(t), &now)
 		queueLine(t, a, p, "brief", now)
@@ -670,6 +692,7 @@ func TestLinesBehindCheckout(t *testing.T) {
 // finished line once the agent is idle on reconnect, for a brief with a text and a fresh start's brief (RV-50 #3,
 // the retained observation → reload probes).
 func TestBriefWorkDurableAtOnce(t *testing.T) {
+	t.Parallel()
 	working := func(a *App, p *proj) {
 		pane := a.obs["w:rev"].pane
 		pane.Status = "working"
@@ -692,6 +715,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 		{"fresh/brief", "", nil}, // the pane works already when the fresh start's brief is recorded
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			if c.seen == nil {
@@ -730,6 +754,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 // TestFinishedLineAgeFromTyping: a finished line's age counts from when the brief's line was typed, also across a
 // restart, not from when the brief was recorded (a brief queued for an hour is not "briefed 1h ago").
 func TestFinishedLineAgeFromTyping(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // busy: the brief waits
@@ -782,8 +807,10 @@ func (s *inboxSpy) Post(_ context.Context, _, agent, line string) (bool, error) 
 // neither typed into the old lead's idle pane after the lead is renamed and serve restarts, nor lost: it is posted
 // once its inbox is recorded (V1).
 func TestQueuedLeadLineAfterRename(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"send", "finished"} {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			a.opt.Inboxed = func(string) (string, bool) { return "", false }
@@ -829,6 +856,7 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 // TestBriefOfAgentSinceLead: a brief waiting for a role agent that has since become the lead keeps the
 // inbox path: never typed, posted once its inbox is recorded (V1's kept protection).
 func TestBriefOfAgentSinceLead(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // busy: the brief's line waits
@@ -864,6 +892,7 @@ func TestBriefOfAgentSinceLead(t *testing.T) {
 // TestRunningLeadHint: the queued send's reply names `obor restart <lead>` (obor lead starts nothing for a
 // running lead), and the upgrade guide and state-model row 47 say the same (V2).
 func TestRunningLeadHint(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	a.opt.Inboxed = func(string) (string, bool) { return "", false }
@@ -890,6 +919,7 @@ func TestRunningLeadHint(t *testing.T) {
 // TestBriefStatus (T-664): the app's status lists a role agent's open brief: not delivered while its line is queued,
 // delivered once typed, worked on once its pane worked; none once it finished.
 func TestBriefStatus(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	if got := a.Status().Project.Briefs; len(got) != 0 {
