@@ -13,9 +13,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"obor/internal/project"
 	"obor/internal/web"
 )
 
@@ -60,9 +62,42 @@ func webCmd(args []string) int {
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}()
+	var followed atomic.Bool
+	if changed := binaryWatch(project.OSEnv); changed != nil {
+		go watchBinary(ctx, changed, func() { followed.Store(true); _ = srv.Close() })
+	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		errf("obor web: %v", err)
 		return 1
 	}
-	return 0
+	if !followed.Load() {
+		return 0
+	}
+	// A new obor binary (T-719): the same address again, so the owner's URL stays (an unset port would change); the
+	// page's long poll reconnects.
+	if err := selfExec(project.KitRoot(project.OSEnv), []string{"web", "--listen", ln.Addr().String()}); err != nil {
+		errf("obor web: following the new obor binary: %v", err)
+		return 1
+	}
+	return 0 // only a test's selfExec returns nil
+}
+
+// webFollowEvery is how often obor web asks whether a new obor binary is there (T-719); a test shortens it.
+var webFollowEvery = 30 * time.Second
+
+// watchBinary calls follow once changed says a new obor binary is there, asking every webFollowEvery until ctx ends.
+func watchBinary(ctx context.Context, changed func() bool, follow func()) {
+	t := time.NewTicker(webFollowEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if changed() {
+				follow()
+				return
+			}
+		}
+	}
 }

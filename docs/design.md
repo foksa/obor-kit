@@ -307,7 +307,8 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   shutdown, and it exits 0 — and launchd's `KeepAlive` starts the new build, which replays a done step (no second merge
   or command; work in flight folds as at any restart). No `launchctl kickstart -k` on itself: that signal is not known
   to be a TERM, and a SIGKILL would orphan a gate's process groups; `obor serve restart` keeps kickstart for a restart
-  by hand. Only launchd's serve restarts itself (one in a pane, or not installed: an error). Calls during a restart
+  by hand. launchd's serve exits for launchd to start it again; any other serve (in a pane, on Linux, launchd's agent
+  not installed) execs the kit's shim itself once it has ended (T-719, below). Calls during a restart
   (T-659): serve binds its socket only once its log is replayed (it logs `replayed N records in X s`), so no call is
   admitted to wait; a caller retries a refused/missing socket or a lost reply every 500 ms with the same call id until
   its own deadline (`app.Verdict`'s table: a CLI verdict or MCP tool 15 s, a hook's turn/SessionStart 8 s,
@@ -319,6 +320,22 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   the next serve start ends it. Two windows lose only the restart, never a result (accepted): serve dies
   between the step's result and the restart, or the result was written late (an effect whose log write failed): serve
   keeps the old binary until `obor serve restart` by hand.
+- Following a new obor binary (T-719; `internal/selfexec`): serve, `obor monitor` and `obor web` each watch the binary
+  the kit's shim would run now (`<kit>/dist/obor` when executable, else `~/.obor/bin/obor-<VERSION>-<os>-<arch>`; kit
+  root `project.KitRoot`). It counts as new when it is another file (dev/inode) than the running one, executable, at
+  least 5 s old, and its `version` exits 0 within 2 s; a process not started on the kit's candidate (a test binary, a
+  lane's own build) never follows, and after the exec the running binary is the candidate, so there is no loop. A
+  rollback counts as much as an upgrade (no version order); a kit checked out at a new tag before its binary is fetched
+  names a missing file: no trigger until it is there. Serve asks on its 30 s tick and takes the self-restart above: at
+  once when idle (no effect running, no nightly, no verdict call admitted), else once it is, at the latest after
+  10 minutes; `obor status` and the monitor show `restarting serve` meanwhile, and a failed restart is a needs-you
+  `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
+  does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
+  the flock goes with the exec, and the new serve takes it and removes a leftover socket (this also makes
+  `restart_serve` work off launchd). The monitor asks every 2 s, leaves the alternate screen and execs `obor monitor`
+  (one flicker); web asks every 30 s and execs `obor web --listen <the address it bound>`, so its URL stays and the
+  page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
+  candidate speaking another herdr protocol restarts into today's warning.
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies T-373)
 Both workspaces share one machine, so heavy test runs take a slot from one **machine-wide** slot dir shared with

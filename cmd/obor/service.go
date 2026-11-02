@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/selfexec"
 	"obor/internal/service"
 )
 
@@ -82,27 +82,27 @@ func servePID(root string) int {
 	return pid
 }
 
-// serveRestarter is serve's self-restart after a green after_merge (app.Loop.Restart, T-652, T-656): it ends serve the
-// way a signal does — stop cancels the daemon's context, running gates end their process groups, serve returns and
-// exits 0 — and launchd's KeepAlive starts the new build. Not `launchctl kickstart -k` on itself: that signal is not
-// known to be a TERM (a SIGKILL would orphan a gate's process groups), while a graceful exit is the path launchd
-// restarts anyway. Only launchd's serve restarts itself: off darwin, not installed, or this serve not the agent's
-// process (one in a pane) is an error, nothing ended — restart it by hand then (`obor serve restart`).
-func serveRestarter(cfg *config.Config, env project.Env, stop context.CancelFunc) func(context.Context) error {
+// serveRestarter is serve's self-restart (app.Loop.Restart): after a green after_merge (T-652, T-656) and on a new
+// obor binary (T-719). It ends serve the way a signal does — end.stop cancels the daemon's context, running gates end
+// their process groups, serve returns — and then: launchd's serve exits 0 and launchd's KeepAlive starts the shim,
+// which runs the new build; any other serve (in a pane, on Linux, launchd's agent not installed) execs the kit's shim
+// itself, same pid, same pane (serve, after its end). Not `launchctl kickstart -k` on itself: that signal is not known
+// to be a TERM (a SIGKILL would orphan a gate's process groups), while a graceful exit is the path launchd restarts
+// anyway. A kit without its shim is an error, nothing ended: restart it by hand then.
+func serveRestarter(cfg *config.Config, env project.Env, end *serveEnd) func(context.Context) error {
 	return func(ctx context.Context) error {
-		s := serviceOf(cfg, env)
-		if !s.Supported() {
-			return errors.New("serve runs under launchd on macOS only: restart it by hand")
+		if s := serviceOf(cfg, env); s.Supported() {
+			if pid, loaded := s.PID(ctx); loaded && pid == os.Getpid() {
+				end.stop()
+				return nil
+			}
 		}
-		pid, loaded := s.PID(ctx)
-		switch {
-		case !loaded:
-			return fmt.Errorf("%s is not installed (obor serve install)", s.Label())
-		case pid != os.Getpid():
-			return fmt.Errorf("this serve (pid %d) is not launchd's %s (pid %d): restart it by hand", os.Getpid(),
-				s.Label(), pid)
+		shim := selfexec.Shim(project.KitRoot(env))
+		if fi, err := os.Stat(shim); err != nil || fi.Mode()&0o111 == 0 {
+			return fmt.Errorf("no kit shim %s to exec: restart serve by hand", shim)
 		}
-		stop()
+		end.exec.Store(true)
+		end.stop()
 		return nil
 	}
 }

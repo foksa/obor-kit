@@ -29,6 +29,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
 - `version`: build version line.
+- `selfexec`: a long-running obor process follows a new obor binary (T-719): `Candidate` (the binary the kit's shim
+  would run now), `Watch.Changed`, `Exec` (the shim, in place). Callers: serve, monitor, web.
 - `store`: the project's SQLite database (`.obor/state/obor.db`) and the rules of one writer: `store.OpenRW` for
   serve (WAL, `synchronous=FULL`, one connection, schema version in `meta`), `store.OpenRO` for hooks and CLIs
   (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`). Tables: `events` (T-435),
