@@ -255,6 +255,32 @@ func CheckEffort(kind, effort string) error {
 	return checkEffort(k, effort)
 }
 
+// StateHomeVar is the variable a kind's StartEnv may point at its agent's own state dir (OpenCode, T-696). The pane's
+// shell only exports it for the agent's start (herdr starts the CLI itself, so it cannot go on its command): launch
+// saves the pane's own value first and a later start of another kind restores it (T-697).
+const StateHomeVar = "XDG_STATE_HOME"
+
+// SavedStateHomeVar is the pane shell's variable holding what XDG_STATE_HOME was before an agent's start exported its
+// own: "n" for unset, else "y" and the value. launch writes it before exporting; setup seeds it in a fresh pane's env,
+// where XDG_STATE_HOME is set at creation (T-697).
+const SavedStateHomeVar = "OBOR_XDG_STATE_WAS"
+
+// ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697).
+type ArgsChecker interface {
+	CheckEffort(args []string, effort string) error
+}
+
+// CheckEffortArgs is CheckEffort and, for a kind that checks its args too (ArgsChecker), why args cannot carry effort.
+func CheckEffortArgs(kind string, args []string, effort string) error {
+	if err := CheckEffort(kind, effort); err != nil || effort == "" {
+		return err
+	}
+	if c, ok := kinds[kind].(ArgsChecker); ok {
+		return c.CheckEffort(args, effort)
+	}
+	return nil
+}
+
 // checkEffort is CheckEffort for a kind at hand.
 func checkEffort(k Kind, effort string) error {
 	kind := k.Name()
