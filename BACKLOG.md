@@ -100,6 +100,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-84 2nd verify #3, accepted: rare) `obor stop`: if unregister or the marker write fails after serve exited,
+  the prior pause is lost (persist it in a recovery record before shutting serve down, ~20-50 lines).
+- (RV-84 2nd verify #4, accepted: rare) macOS: an installed but unloaded plist plus a pane serve: stop exits the
+  serve but leaves the plist (run the ownership-checked Uninstall even when unloaded, ~3-10 lines). Next time
+  cmd/obor/sleep.go is touched.
 - (RV-84 verify, accepted) `obor stop`: a pause cleared by another client during the stop transition is not
   guarded; a serve-owned stopping state would be (design concern), not worth it for a convenience command now.
 - (T-684 concern) `patience()` lets one hung test eat the whole package deadline, so parallel siblings fail on the
