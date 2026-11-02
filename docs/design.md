@@ -468,7 +468,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
   pane at a shell, T-672) is started fresh in that pane with the line as its first prompt, once serve holds merges
   (T-734). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
-  refused for them. Any other role agent may also take its first prompt as a start's, `obor restart <role-agent>
+  refused for them, and a running one starts fresh as `obor restart <role-agent> --stop`, then `obor brief`. Any other
+  role agent may also take its first prompt as a start's, `obor restart <role-agent>
   --fresh --prompt "<brief>"` (the start carries the brief), recording the same fact once the restart succeeded
   (T-466). A role agent is any agent of the config but the lead, the integrator and the workers. Once that pane has
   worked after the brief (after its line was delivered) and is idle again, serve records and posts
