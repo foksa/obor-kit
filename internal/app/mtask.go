@@ -214,10 +214,8 @@ func (mt *mtask) sendback(note string) {
 // question, obor answer) to be sent.
 func (mt *mtask) next(note string, answer bool) {
 	mt.attempt++
-	mt.state, mt.line, mt.fixed, mt.fixes, mt.fails, mt.work = stWorking, note, false, 0, nil, ""
-	mt.answer, mt.decision = answer, ""
-	mt.gates, mt.reviews, mt.resolves, mt.pubs, mt.submits, mt.input = 0, 0, 0, 0, 0, ""
-	mt.cand, mt.gateRev, mt.accepted, mt.kind, mt.job, mt.patch, mt.delivered, mt.lost = Candidate{}, 0, "", "", "", "", false, 0
+	mt.state = stWorking
+	mt.attemptVars = attemptVars{line: note, answer: answer}
 }
 
 // jobKey is the key of the attempt's last integrator job.

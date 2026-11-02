@@ -133,46 +133,50 @@ type mtask struct {
 	attempt           int
 	state             string
 	sendbacks         int
-	gates, reviews    int // the step counters of the attempt (the last N used)
-	resolves, pubs    int
-	submits           int
-	input             string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
-	cand              Candidate          // the attempt's last green candidate
-	gateRev           int                // the spec rev in cand's merge message (T-521; 0: none)
-	accepted          string             // the patch hash the integrator accepted in this attempt
-	resolved          string             // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
-	line              string             // the last gate or publish line, or the integrator's note
-	why, cause        string             // stFail: the needs-you's reason and cause
-	kind              string             // the attempt's last gate's kind: lane, resolved, moved
-	job               string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
-	patch             string             // the patch hash that job was prompted with (its intent's JobData)
-	delivered         bool               // the integrator took that job (fact delivered)
-	lost              int                // how often the integrator exited with a job open since the last resume
-	fixed             bool               // stWorking: the fix job of this attempt is out
-	answer            bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
-	decision          string             // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
-	fixes             int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
-	report            string             // the last submission's report (task_done's)
-	after             int                // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
-	head              string             // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
-	mergedSeq         int64              // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
-	dropped           string             // stDropped: obor drop's why
-	fails             map[string]failure // counted failures per step key since the attempt began or the last resume
-	needs             Record             // the needs-you fact in force (Seq 0: none)
-	left              string             // the state the last needs-you left: obor resume's retry goes back to it
+	attemptVars              // what a new attempt resets (next)
+	resolved          string // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
+	why, cause        string // stFail: the needs-you's reason and cause
+	report            string // the last submission's report (task_done's)
+	after             int    // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
+	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
+	mergedSeq         int64  // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
+	dropped           string // stDropped: obor drop's why
+	needs             Record // the needs-you fact in force (Seq 0: none)
+	left              string // the state the last needs-you left: obor resume's retry goes back to it
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
-	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done; the work
-	// job's step ("": not sent in this attempt, or sent anew after obor resume).
+	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done.
 	disp                    dispatchData
 	at                      time.Time
 	dispSeq                 int64
 	base, refused           string
 	prepares, starts, works int
 	started                 bool
-	work                    string
 	startAt                 time.Time // when the last start that started its agent was written
 	specRev                 int       // the spec rev the worker's last fetched job carried (0: none)
+}
+
+// attemptVars are the fields of mtask a new attempt resets: next replaces them in one assignment.
+type attemptVars struct {
+	gates, reviews int // the step counters of the attempt (the last N used)
+	resolves, pubs int
+	submits        int
+	input          string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
+	cand           Candidate          // the attempt's last green candidate
+	gateRev        int                // the spec rev in cand's merge message (T-521; 0: none)
+	accepted       string             // the patch hash the integrator accepted in this attempt
+	line           string             // the last gate or publish line, or the integrator's note
+	kind           string             // the attempt's last gate's kind: lane, resolved, moved
+	job            string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
+	patch          string             // the patch hash that job was prompted with (its intent's JobData)
+	delivered      bool               // the integrator took that job (fact delivered)
+	lost           int                // how often the integrator exited with a job open since the last resume
+	fixed          bool               // stWorking: the fix job of this attempt is out
+	answer         bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
+	decision       string             // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
+	fixes          int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
+	fails          map[string]failure // counted failures per step key since the attempt began or the last resume
+	work           string             // a dispatched attempt's work job step ("": not sent in this attempt, or sent anew after obor resume)
 }
 
 // failure is one step's counted failures in an attempt: how many, and the last one's reason and time (obor status'

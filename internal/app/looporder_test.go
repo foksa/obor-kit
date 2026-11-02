@@ -12,7 +12,7 @@ const orderTries = 64
 // T-2's dispatch is the newer (seq 7 after T-1's 3): name order and dispatch order disagree.
 func twoInLane() *proj {
 	mk := func(task string, seq int64) *mtask {
-		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, work: StepWork, dispSeq: seq}
+		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, attemptVars: attemptVars{work: StepWork}, dispSeq: seq}
 	}
 	return &proj{merging: true, log: &Log{}, ended: map[string]bool{}, held: map[string]string{},
 		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2", 7), "T-1": mk("T-1", 3)}, calls: map[string]string{}}}

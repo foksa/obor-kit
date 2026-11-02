@@ -86,21 +86,21 @@ func TestStateSubmittedRow18(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stSubmitted}, name: StepSubmit, send: "T-1 is submitted; retry when it settles",
 		landed: true})
-	checkRow(t, rowWant{mt: mtask{state: stSubmitted, input: "abc", gates: 1}, name: "gate.2",
+	checkRow(t, rowWant{mt: mtask{state: stSubmitted, attemptVars: attemptVars{input: "abc", gates: 1}}, name: "gate.2",
 		send: "T-1 is submitted; retry when it settles", landed: true})
 }
 
 func TestStateGreenRow19(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stGreen, reviews: 1}, name: "review.2", landed: true})
+	checkRow(t, rowWant{mt: mtask{state: stGreen, attemptVars: attemptVars{reviews: 1}}, name: "review.2", landed: true})
 }
 
 func TestStateAwaitingAcceptRow26(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stAwaiting, job: "review"}, name: "review", open: true, landed: true,
+	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, name: "review", open: true, landed: true,
 		verdicts: map[string]string{MethodAccept: stAccepted, MethodSendback: stWorking, MethodReject: stRejected}})
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
-	checkRow(t, rowWant{mt: mtask{state: stAwaiting, job: "review", sendbacks: K}, name: "review", open: true,
+	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
 		landed: true, verdicts: map[string]string{MethodAccept: stAccepted, MethodSendback: stFail, MethodReject: stRejected}})
 }
 
@@ -118,13 +118,13 @@ func TestStateConflictRow23(t *testing.T) {
 
 func TestStateResolvingRow30(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stResolving, job: "resolve.2"}, name: "resolve.2", open: true, scratch: true,
+	checkRow(t, rowWant{mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve.2"}}, name: "resolve.2", open: true, scratch: true,
 		landed: true, verdicts: map[string]string{MethodResolved: stResolved, MethodReject: stFail}})
 }
 
 func TestStateResolvedRow18(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stResolved, gates: 1}, name: "gate.2",
+	checkRow(t, rowWant{mt: mtask{state: stResolved, attemptVars: attemptVars{gates: 1}}, name: "gate.2",
 		send: "T-1 is resolved; retry when it settles", scratch: true})
 }
 
@@ -141,7 +141,7 @@ func TestStateAcceptedRow33(t *testing.T) {
 
 func TestStateMovedRow32(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stMoved, input: "abc", gates: 2}, name: "gate.3",
+	checkRow(t, rowWant{mt: mtask{state: stMoved, attemptVars: attemptVars{input: "abc", gates: 2}}, name: "gate.3",
 		send: "T-1 is moved; retry when it settles"})
 }
 
@@ -244,14 +244,14 @@ func TestStateWorkingRow24(t *testing.T) {
 	checkRow(t, rowWant{mt: mtask{state: stWorking}, name: "the fix", send: "T-1 is working", landed: true,
 		cause: causeUndelivered, resume: resumeRule{to: ResumeRetry, retry: true}})
 	// a dispatched attempt's work job: obor resume's default by cause
-	checkRow(t, rowWant{mt: mtask{state: stWorking, work: "work"}, name: "the fix", send: "T-1 is working",
+	checkRow(t, rowWant{mt: mtask{state: stWorking, attemptVars: attemptVars{work: "work"}}, name: "the fix", send: "T-1 is working",
 		landed: true, cause: causeUndelivered})
 }
 
 func TestStateNeedsYouRow40(t *testing.T) {
 	t.Parallel()
 	// the state it left is kept: a resolve job held stays open, in the scratch
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, job: "resolve", needs: needsOf(causeHeld),
+	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(causeHeld),
 		lane: "O-01", agent: "o-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,
 		cause: causeHeld})
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "O-01",
