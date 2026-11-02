@@ -72,14 +72,15 @@ func (r *followRig) ticks(n int) {
 	r.waitFor("a pass", func() bool { _, p := app.Counts(r.app); return p > passes })
 }
 
-// down is herdr gone under a connected serve: it waits until serve says it is disconnected.
+// down is herdr gone under a connected serve: it waits until serve says it is disconnected and has logged herdr gone
+// (its next subscribe failed: a restart before that ends serve without the line).
 func (r *followRig) down() {
 	r.t.Helper()
 	if !r.app.Status().Connected {
 		r.t.Fatal("precondition: serve is not connected to herdr")
 	}
 	r.srv.Die()
-	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
+	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected && strings.Contains(r.out.String(), "herdr: gone") })
 }
 
 // neverBack: herdr did not come back (serve logged no connect after the gone line).
@@ -198,8 +199,10 @@ func TestFollowBinaryHerdrDownAtStart(t *testing.T) {
 	t.Parallel()
 	r := newFollowRig(t, nil)
 	r.srv.Die()
-	r.isNew.Store(1)
 	r.launch()
+	// The new binary appears once serve has seen herdr gone: a follow tick may come before serve's first subscribe.
+	r.waitFor("herdr gone", func() bool { return strings.Contains(r.out.String(), "herdr: gone") })
+	r.isNew.Store(1)
 	r.waitFor("the restart to end serve", r.ended)
 	r.cancel = nil
 	if checks, _ := app.Counts(r.app); checks != 0 || strings.Contains(r.out.String(), "herdr: connected") {

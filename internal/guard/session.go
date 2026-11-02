@@ -124,10 +124,11 @@ type Began struct {
 	Pane, Lane, Task                  string
 }
 
-// sessionKind is the kind agent runs as by cfg (its lane's, role's or agents entry's type), else agents.Default.
+// sessionKind is the kind agent runs as: its type's (project.RunningType: a lane agent's, its lane's open dispatch's,
+// T-739; else its lane's, role's or agents entry's configured type), else agents.Default.
 func sessionKind(cfg *config.Config, agent, cwd string) string {
 	if info, ok := project.AgentLookup(cfg, agent, cwd); ok {
-		if lt, ok := cfg.LaneType(info.Type); ok && lt.Kind != "" {
+		if lt, ok := cfg.LaneType(project.RunningType(cfg, info)); ok && lt.Kind != "" {
 			return lt.Kind
 		}
 	}
@@ -166,11 +167,12 @@ func roleText(role, kit, top, agents string) string {
 	return "obor: role text: " + text + project + " — read it before acting"
 }
 
-// laneKind is the kind of the configured lane named lane ("" when it is not one).
+// laneKind is the kind the configured lane named lane runs now (project.RunningType: its open dispatch's type, else
+// its configured one, T-739; "" when it is not a lane or the type has none).
 func laneKind(cfg *config.Config, lane string) string {
 	for _, l := range cfg.Lanes() {
 		if l.Name == lane {
-			lt, _ := cfg.LaneType(l.Type)
+			lt, _ := cfg.LaneType(project.RunningType(cfg, config.AgentInfo{Role: "worker", Lane: l.Name, Type: l.Type}))
 			return lt.Kind
 		}
 	}

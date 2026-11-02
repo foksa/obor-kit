@@ -204,10 +204,10 @@ func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 	return ""
 }
 
-// agentKind is agent's kind as the config starts it: its type's kind, else agents.Default (a restore pane runs no
-// agent, so herdr names no kind).
+// agentKind is agent's kind as its restart starts it: the kind of the type it runs now (project.RunningType: a lane
+// agent's, its open dispatch's, T-739), else agents.Default (a restore pane runs no agent, so herdr names no kind).
 func agentKind(cfg *config.Config, info config.AgentInfo) string {
-	if lt, ok := cfg.LaneType(info.Type); ok && lt.Kind != "" {
+	if lt, ok := cfg.LaneType(project.RunningType(cfg, info)); ok && lt.Kind != "" {
 		return lt.Kind
 	}
 	return agents.Default

@@ -16,3 +16,18 @@ func AgentLookup(cfg *config.Config, agent, at string) (config.AgentInfo, bool) 
 	rows, _ := store.ReadLanesAt(cfg.Root)
 	return cfg.AgentLookup(agent, at, func(lane string) string { return rows[lane].Agent })
 }
+
+// RunningType is the lane type an agent of info runs now (T-739): a lane agent's is the type its lane's open dispatch
+// runs (the row holds a task; store.LaneTypeRef: a dispatch recorded before T-721 names none, info.Type, the
+// configured one); no lane, no row or no task in it: info.Type. The session hook's kind, the plugin marker and a
+// restore's resume read a lane's kind through it, so a pool lane runs the kind its dispatch chose.
+func RunningType(cfg *config.Config, info config.AgentInfo) string {
+	if info.Lane == "" {
+		return info.Type
+	}
+	if row, ok, _ := store.ReadLaneAt(cfg.Root, info.Lane); ok && row.Task != "" {
+		typ, _ := config.ParseTypeRef(store.LaneTypeRef(row.Type, info.Type))
+		return typ
+	}
+	return info.Type
+}

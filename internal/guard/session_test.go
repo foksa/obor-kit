@@ -330,6 +330,56 @@ func TestSessionWritesOpencodePluginMarker(t *testing.T) {
 	}
 }
 
+// T-739 (RV-88 #2): on a pool (untyped) lane the session's kind and the plugin marker follow the type its open
+// dispatch runs: an OpenCode dispatch is kind opencode with a marker, a Claude dispatch kind claude without one. A
+// typed lane is unchanged; with no open dispatch the configured type rules (untyped: the default kind).
+func TestSessionKindIsTheDispatchs(t *testing.T) {
+	t.Parallel()
+	start := func(f hfx, cwd string) Began {
+		t.Helper()
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-1"})
+		var out bytes.Buffer
+		began, ok := SessionStart(b, f.Env("OBOR_STATE_HOME="+f.Base+"/state"), &out, herdrLabel(f.Env()))
+		if !ok {
+			t.Fatalf("no session began:\n%s", out.String())
+		}
+		return began
+	}
+	const marker = ".obor/state/lanes/O-01.plugin"
+	for _, c := range []struct {
+		name, laneType, rowType string
+		armed                   bool
+		kind                    string
+	}{
+		{"pool lane, OpenCode dispatch", "", "oc", true, "opencode"},
+		{"pool lane, OpenCode dispatch with an effort", "", "oc:high", true, "opencode"},
+		{"pool lane, Claude dispatch", "", "opus", true, "claude"},
+		{"pool lane, no open dispatch", "", "", false, "claude"},
+		{"typed OpenCode lane, legacy dispatch", "oc", "", true, "opencode"},
+		{"typed OpenCode lane, its own dispatch", "oc", "oc", true, "opencode"},
+		{"typed Claude lane, its own dispatch", "opus", "opus", true, "claude"},
+		{"typed OpenCode lane, no open dispatch", "oc", "", false, "opencode"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f, o1 := sessionFx(t, false)
+			f.Config(testkit.Set("lane_types.oc", `{"kind":"opencode"}`), testkit.Set("lanes.O-01", c.laneType))
+			if c.armed {
+				f.State("O-01", `{"task":"T-05","branch":"task/T-05","base":"main","type":"`+c.rowType+`"}`)
+			}
+			if f.Exists(marker) {
+				t.Fatal("precondition: a marker before the session")
+			}
+			if began := start(f, o1); began.Kind != c.kind || began.Lane != "O-01" {
+				t.Errorf("began %+v, want kind %s on lane O-01", began, c.kind)
+			}
+			if got, want := f.Exists(marker), c.kind == "opencode"; got != want {
+				t.Errorf("plugin marker written: %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 // bash plugin case_session_env_unchanged
 func TestSessionWithOborAgentIgnoresOtherRecords(t *testing.T) {
 	f, o1 := sessionFx(t, true)
