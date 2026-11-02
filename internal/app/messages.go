@@ -494,6 +494,7 @@ func (a *App) logWorked(p *proj) {
 // recorded (T-651, T-654), each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
+	a.closeSettled(ctx, p)
 	if fx.Typer == nil && fx.Inbox == nil {
 		return
 	}
@@ -554,6 +555,28 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 	a.roleWakes(ctx, p, fx)
 	a.msgNeedsYou(p, now)
+}
+
+// closeSettled closes unsent every settled open delivery of p (T-749, RV-91 #1): a line whose question was settled
+// while its own delivery's intent is in the log with no result (a serve restart cut it) gets result retiredResult,
+// whatever its agent's pane (busy, not identified, ambiguous, its lane released) and whatever route it would take;
+// it then leaves obor status and its needs-you. Through App.do: a result this process kept unwritten (the effect
+// ran) is written instead, and a delivery whose effect runs now (its claim before its intent, or its transmit) is
+// left to its outcome. A close the log refuses is tried again at the next pass.
+func (a *App) closeSettled(ctx context.Context, p *proj) {
+	a.mu.Lock()
+	var keys []event.Key
+	for _, q := range p.queuedLines() {
+		k := event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
+		if q.state == lineSendingSettled && q.post == q.seq && p.exec[k].IsZero() && p.log.Open(k) {
+			keys = append(keys, k)
+		}
+	}
+	a.mu.Unlock()
+	for _, k := range keys {
+		_, _ = a.do(ctx, p, event.Intent{Key: k, Class: event.ClassPrompt},
+			func(context.Context) (any, error) { return retiredResult, nil })
+	}
 }
 
 // goneAfter is how long a worked brief's agent may stay unidentified with its pane still running an agent before its

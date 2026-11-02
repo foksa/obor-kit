@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,7 +53,7 @@ func lineRec(t *testing.T, h *harness, r event.Record, data any) {
 
 // claimIntent records line seq's delivery intent: its delivery began (sending).
 func claimIntent(t *testing.T, h *harness, seq int64) {
-	lineRec(t, h, event.Record{Task: event.MsgTask, Attempt: 1, Step: deliverKey(seq), Kind: event.KindIntent,
+	lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindIntent,
 		Class: event.ClassPrompt}, lineData{To: "pj-o-01"})
 }
 
@@ -99,7 +100,7 @@ func TestLineStateTable(t *testing.T) {
 		do func(t *testing.T, h *harness, seq int64)
 	}{
 		"delivered": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
-			lineRec(t, h, event.Record{Task: event.MsgTask, Attempt: 1, Step: deliverKey(seq), Kind: event.KindResult}, "sent")
+			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult}, "sent")
 		}},
 		"refused before a byte": {lineRefused, func(t *testing.T, h *harness, seq int64) {
 			lineRec(t, h, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
@@ -107,7 +108,7 @@ func TestLineStateTable(t *testing.T) {
 					Via: viaInbox})
 		}},
 		"error after a byte": {lineDelivered, func(t *testing.T, h *harness, seq int64) {
-			lineRec(t, h, event.Record{Task: event.MsgTask, Attempt: 1, Step: deliverKey(seq), Kind: event.KindResult},
+			lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindResult},
 				"sent: broken pipe")
 		}},
 		"settled": {lineSettled, func(t *testing.T, h *harness, _ int64) { submitT1(t, h) }},
@@ -334,28 +335,168 @@ func TestRV90Drop(t *testing.T) {
 	}
 }
 
+// blockingPoster posts nothing until release closes: started is closed once its first Post began (a delivery whose
+// effect is in flight).
+type blockingPoster struct {
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (b *blockingPoster) Post(context.Context, string, string, string) (bool, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return true, nil
+}
+
+// closedUnsent: line seq's delivery has result retired in h's log, and no other result.
+func closedUnsent(h *harness, seq int64) (closed bool, others []string) {
+	for _, r := range h.records() {
+		if r.Kind != event.KindResult || r.Step != deliverKey(seq) {
+			continue
+		}
+		if strings.Contains(string(r.Data), retiredResult) {
+			closed = true
+		} else {
+			others = append(others, string(r.Data))
+		}
+	}
+	return closed, others
+}
+
+// msgNeeds is the needs-you facts of h's lines.
+func msgNeeds(h *harness) []string {
+	var out []string
+	for _, f := range h.a.Status().Project.Facts {
+		if f.Task == event.MsgTask && f.Step == event.StepNeedsYou {
+			out = append(out, f.Fact().Reason)
+		}
+	}
+	return out
+}
+
 // A line settled while its delivery was open (a crash cut it: its intent pending, no result) is never sent again:
-// the next pass closes its delivery unsent (result retired), live and on replay.
+// the next pass closes its delivery unsent (result retired), whatever its worker's pane (T-749, RV-91 #1: idle,
+// working, not identified, two panes claiming it, its lane released), live and on replay; it leaves obor status and
+// raises no needs-you, even past msgWait.
 func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		pane  func(h *harness) // the worker's pane before the pass
+		where string           // the precondition: pj-o-01's place in the identity table, as h.where says it (prefix)
+	}{
+		{"idle", func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" }) }, "identified w1:p1"},
+		{"working", func(*harness) {}, "identified w1:p1"},
+		{"not identified", func(h *harness) { h.remove("w1:p1", port.EventClosed) }, "unavailable"},
+		{"ambiguous", func(h *harness) { // a second pane with the same proof (its session)
+			tw := h.twin()
+			tw.Session = h.pane("w1:p1").Session
+			h.add(tw)
+		}, "ambiguous"},
+		{"lane released", func(h *harness) {
+			h.freeLanes()
+			h.remove("w1:p1", port.EventExited)
+		}, "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h, seq := answerIn(t, lineSendingSettled)
+			tc.pane(h)
+			if w := h.where("pj-o-01"); !strings.HasPrefix(w, tc.where) {
+				t.Fatalf("precondition: pj-o-01 is %q, want %s", w, tc.where)
+			}
+			if ms := h.a.Status().Project.Messages; len(ms) != 1 {
+				t.Fatalf("precondition: status lines %+v, want the settled answer shown", ms)
+			}
+			h.now = h.now.Add(msgWait + time.Minute) // it would raise its needs-you if it stayed
+			in, typer := &kindSpy{}, &linerSpy{}
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+			if len(in.calls) != 0 || len(typer.calls) != 0 {
+				t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
+			}
+			if _, ok := lineAt(h, h.proj(), seq); ok {
+				t.Error("the settled line is still queued after the pass")
+			}
+			if ms := h.a.Status().Project.Messages; len(ms) != 0 {
+				t.Errorf("status lines %+v; want the closed answer gone", ms)
+			}
+			if n := msgNeeds(h); len(n) != 0 {
+				t.Errorf("needs-you of the lines %q; want none for a closed line", n)
+			}
+			if closed, others := closedUnsent(h, seq); !closed || len(others) != 0 {
+				t.Errorf("retired result %v, other results %q; want its delivery closed unsent only", closed, others)
+			}
+			if _, ok := lineAt(h, replayed(t, h), seq); ok {
+				t.Error("replay brought the closed line back")
+			}
+		})
+	}
+}
+
+// A serve restart replays the settled open delivery (sending, settled); the new serve's first pass closes it, its
+// worker still working, and a replay after that keeps it closed (T-749).
+func TestSettledOpenDeliveryClosedAfterReplay(t *testing.T) {
+	t.Parallel()
 	h, seq := answerIn(t, lineSendingSettled)
-	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	h.a.closeLog()
+	a := New(Options{Root: h.root, Now: func() time.Time { return h.now }}, h.panes, h.lanes)
+	p, err := a.load(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := lineAt(&harness{a: a}, p, seq); !ok || s != lineSendingSettled {
+		t.Fatalf("precondition: replayed line in state %d (queued %v), want sending settled", s, ok)
+	}
+	h.now = h.now.Add(msgWait + time.Minute)
 	in, typer := &kindSpy{}, &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: typer})
+	a.deliver(context.Background(), p, &Loop{Inbox: in, Typer: typer})
 	if len(in.calls) != 0 || len(typer.calls) != 0 {
-		t.Errorf("posted %q, typed %q; want the settled answer not sent again", in.calls, typer.calls)
+		t.Errorf("posted %q, typed %q; want nothing sent", in.calls, typer.calls)
 	}
-	if _, ok := lineAt(h, h.proj(), seq); ok {
-		t.Error("the settled line is still queued after the pass")
+	if _, ok := lineAt(&harness{a: a}, p, seq); ok {
+		t.Error("the replayed settled line is still queued after the pass")
 	}
-	closed := false
-	for _, r := range h.records() {
-		closed = closed || r.Kind == event.KindResult && r.Step == deliverKey(seq) && strings.Contains(string(r.Data), retiredResult)
-	}
-	if !closed {
-		t.Error("no retired result closes its delivery")
+	p.log.Close()
+	if closed, others := closedUnsent(h, seq); !closed || len(others) != 0 {
+		t.Errorf("retired result %v, other results %q; want its delivery closed unsent only", closed, others)
 	}
 	if _, ok := lineAt(h, replayed(t, h), seq); ok {
-		t.Error("replay brought the closed line back")
+		t.Error("a second replay brought the closed line back")
+	}
+}
+
+// A delivery whose effect is in flight (its post runs now) when its question is settled is left to its outcome: a
+// pass meanwhile closes nothing, and the post's result (sent) is what ends the line (T-749).
+func TestSettledInFlightDeliveryLeftAlone(t *testing.T) {
+	t.Parallel()
+	h := busyAnswered(t)
+	seq := answerSeq(t, h)
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	post := &blockingPoster{started: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: post, Typer: &linerSpy{}})
+	}()
+	<-post.started
+	submitT1(t, h)
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+		t.Fatalf("precondition: the in-flight line in state %d (queued %v), want sending settled", s, ok)
+	}
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: &kindSpy{}, Typer: &linerSpy{}})
+	if closed, others := closedUnsent(h, seq); closed || len(others) != 0 {
+		t.Errorf("retired result %v, other results %q while its post runs; want none", closed, others)
+	}
+	if s, ok := lineAt(h, h.proj(), seq); !ok || s != lineSendingSettled {
+		t.Errorf("the in-flight line in state %d (queued %v); want it left sending settled", s, ok)
+	}
+	close(post.release)
+	<-done
+	if closed, others := closedUnsent(h, seq); closed || len(others) != 1 || others[0] != `"sent"` {
+		t.Errorf("retired result %v, other results %q; want the post's result sent only", closed, others)
+	}
+	if _, ok := lineAt(h, h.proj(), seq); ok {
+		t.Error("the delivered line is still queued")
 	}
 }
