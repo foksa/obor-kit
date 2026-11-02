@@ -13,6 +13,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   **Owner next:** `make ship`, then `obor serve restart` in axis-alies and axis-maps; then the lead: `obor send` both
   leads what changed (docs/UPGRADE-v0.18.md), restart their monitors (aa-monitor w2:p24, axis-monitor wA:p7).
   Later (owner): `obor drive`/`obor land` (Later candidates). Owner ended the day after this release.
+  After the tag: nightly RED on govulncheck (five go1.27.1 net/http server vulns, reachable via `obor web`;
+  localhost plain HTTP, so no real risk) → T-681 `toolchain go1.27.3` in go.mod, merged f19aedc, nightly GREEN.
+  It ships in v0.18.1 or the next release (owner's call; one unreviewed merge since RV-76).
 - 2026-11-01 evening: **v0.17.5 released** (v0.17.3/v0.17.4 tagged, never published); all three serves on it;
   `obor monitor` panes in each project's system tab. Lead on opus-high (config; applies at the next lead restart).
   In flight: T-662 (running vs pending), T-663 (monitor fits rows), both RV-74 display fixes, unreviewed.
