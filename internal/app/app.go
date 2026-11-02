@@ -45,6 +45,8 @@ type Options struct {
 	// Inboxed: agent's session inbox is recorded (its SessionStart hook's <agent>.inbox, T-485), and the session that
 	// recorded it ("": none named). A lead line waits, untried, while it is not; nil: always tried.
 	Inboxed func(agent string) (session string, ok bool)
+	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop, T-711; nil: refused).
+	Exit func()
 }
 
 // notifyRetry is the first wait before a failed notification is sent again; it doubles with each failure up to

@@ -60,7 +60,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		errf("FAIL obor serve: %s is stopped (obor stop): obor start wakes it", repo.Root)
 		return 1
 	}
-	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it (T-656).
+	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it (T-656), and so
+	// does the socket's exit request (obor stop, T-711).
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	root := repo.Root
@@ -99,7 +100,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		}
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, stop),
-		Inboxed: inboxed(env)},
+		Inboxed: inboxed(env), Exit: stop},
 		panes, laneTable{})
 	served := make(chan struct{})
 	go func() {

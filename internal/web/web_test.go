@@ -588,7 +588,7 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 	if _, err := config.Load(p.Root); err == nil {
 		t.Fatal("precondition: config.Load refuses the unknown key")
 	}
-	if err := project.MarkStopped(p.Root, "test", time.Now()); err != nil {
+	if err := project.WriteStopMarker(p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	h := (&Server{Projects: func() []project.Project { return []project.Project{{Name: "proj", Root: p.Root}} }}).Handler()

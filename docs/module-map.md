@@ -21,7 +21,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
-  project (`stopped.go`, T-709: `Stopped`, `MarkStopped`, `ClearStopped`, `Unregister`: obor stop / obor start).
+  project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, monitor, web: an unknown
   key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
   `TaskFromBranch`.
@@ -64,7 +64,7 @@ Adding a kind = one package + a config entry.
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `dispatch.go`, `messages.go`, `mergewatch.go`,
   `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
-  `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
+  `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go` (`JobID`): one concern each.
 - `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,

@@ -31,6 +31,10 @@ const (
 	MethodBrief    = "brief"    // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
 	MethodStopped  = "stopped"  // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
 	MethodTurn     = "turn"     // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
+	// MethodExit (the owner's or the lead's; obor stop, T-711): serve ends gracefully, as a signal ends it and as its
+	// self-restart does (T-652, T-656): Call.Root its project, Call.Note why. The reply is EXITING; the caller confirms
+	// serve down by its serve.flock and socket.
+	MethodExit = "exit"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from

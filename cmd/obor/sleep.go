@@ -4,7 +4,9 @@ package main
 // is not in the machine's project list, and its hooks stand down (project.Stopped); its files stay.
 //
 // obor stop is one guarded transition (T-710, RV-84): serve must answer, it is paused first so nothing new starts,
-// and STOPPED is said only once serve is confirmed down. A refusal after the pause clears the pause it set.
+// and STOPPED is said only once serve is confirmed down. The pause is always stop's own, untimed (T-711): a pause in
+// force before it is replaced and recorded in the marker; a refusal after the pause, and obor start, restore that
+// pause while it has not expired, else clear. obor start fails until stop's pause is ended, and its rerun completes it.
 
 import (
 	"context"
@@ -28,7 +30,7 @@ import (
 const (
 	stopUsage  = `usage: obor stop ["<why>"] [--force]`
 	startUsage = "usage: obor start"
-	// stopPause is the why of the pause obor stop sets: obor start clears a pause in force with this why only.
+	// stopPause is the why of the pause obor stop sets: obor start ends a pause in force with this why only.
 	stopPause = "stopping (obor stop)"
 )
 
@@ -115,12 +117,14 @@ func (s *sleeper) load() bool {
 func (s *sleeper) name() string { return s.Cfg.ProjectName() }
 
 // stop is obor stop's one transition, in order: (0) not from a worker (OBOR_ROLE worker or a lane's cwd); (1) serve
-// answers for the project (else: start serve first); (2) serve paused, so nothing new is dispatched (a pause in force
-// already is kept); (3) the tasks in progress, asked of serve: refused, or with --force each dropped through serve
-// (any drop failing refuses); (4) herdr's panes listed (an error refuses) and every agent obor started in the project
-// stopped but the caller's own; (5) serve ended (launchd's: uninstalled; one in a pane or run by hand: refused, it has
-// no exit call) and confirmed down (its socket and lock gone); (6) the project unregistered and the marker written.
-// A refusal after (2) clears the pause (2) set. A stopped project's stop says so and does nothing.
+// answers for the project (else: start serve first); (2) serve paused by stop's own untimed pause, so nothing new is
+// dispatched (a pause in force already is replaced, and recorded); (3) the tasks in progress, asked of serve: refused,
+// or with --force each dropped through serve — never the lane whose agent runs in the caller's own pane
+// (HERDR_PANE_ID, T-711), and any drop failing refuses; (4) herdr's panes listed (an error refuses) and every agent
+// obor started in the project stopped but the caller's own; (5) serve ended (launchd's agent uninstalled; one in a
+// pane or run by hand asked to exit over its socket) and confirmed down (its socket and lock gone); (6) the project
+// unregistered and the marker written, with the replaced pause. A refusal after (2) restores the replaced pause while
+// it has not expired, else clears stop's. A stopped project's stop says so and does nothing.
 func (s *sleeper) stop(ctx context.Context) int {
 	root := s.Cfg.Root
 	repo, _ := project.Find(s.Cwd)
@@ -143,30 +147,24 @@ func (s *sleeper) stop(ctx context.Context) int {
 		return 1
 	}
 	c := caller(s.Env, s.Cwd, s.Cfg)
-	paused := false // the pause in force is this stop's: a refusal clears it
-	if ps.Paused != nil {
-		s.say("pause: %q in force (kept)", ps.Paused.Why)
-	} else {
-		p := c
-		p.CallID, p.Note = wire.NewCallID(), stopPause
-		reply, err := s.call(ctx, wire.MethodPause, p)
-		if err != nil {
-			fmt.Fprintf(s.Out, "FAIL pause: %v\n", err)
-			return 1
-		}
-		paused = true
-		s.say("pause: %s", reply)
+	m := project.StopMarker{Why: s.Why} // the pause stop replaces: a refusal and obor start restore it
+	if ps.Paused != nil && ps.Paused.Why != stopPause {
+		m.PauseWhy, m.PauseUntil = ps.Paused.Why, ps.Paused.Until
+		s.say("pause: %q in force (until %s): replaced by obor stop's, restored by obor start while it holds",
+			m.PauseWhy, untilLine(m.PauseUntil))
 	}
+	p := c
+	p.CallID, p.Note = wire.NewCallID(), stopPause
+	reply, err := s.call(ctx, wire.MethodPause, p)
+	if err != nil {
+		fmt.Fprintf(s.Out, "FAIL pause: %v\n", err)
+		return 1
+	}
+	s.say("pause: %s", reply)
 	refuse := func(format string, a ...any) int {
 		fmt.Fprintf(s.Out, "FAIL "+format+"\n", a...)
-		if paused {
-			p := c
-			p.CallID, p.Clear = wire.NewCallID(), true
-			if reply, err := s.call(ctx, wire.MethodPause, p); err != nil {
-				s.say("pause: not cleared (%v): obor pause --clear", err)
-			} else {
-				s.say("pause: %s", reply)
-			}
+		if err := s.endStopPause(ctx, c, m); err != nil {
+			s.say("pause: obor stop's not ended (%v): obor pause --clear", err)
 		}
 		return 1
 	}
@@ -177,6 +175,13 @@ func (s *sleeper) stop(ctx context.Context) int {
 	busy := openTasks(ps)
 	if len(busy) > 0 && !s.Force {
 		return refuse("tasks in progress: %s: finish or drop them, or obor stop --force (drops each)", busyList(busy))
+	}
+	switch own, err := s.ownLane(ctx, busy); {
+	case err != nil:
+		return refuse("%v", err)
+	case own != "":
+		return refuse("lane %s's agent runs in this pane (%s): obor stop would stop its own caller: run it from the "+
+			"owner's or the lead's pane", own, s.Env.Get("HERDR_PANE_ID"))
 	}
 	for _, b := range busy {
 		d := c // as obor drop calls it
@@ -196,7 +201,7 @@ func (s *sleeper) stop(ctx context.Context) int {
 	if err := s.stopAgents(ctx); err != nil {
 		return refuse("%v", err)
 	}
-	if err := s.stopServe(ctx); err != nil {
+	if err := s.stopServe(ctx, c); err != nil {
 		return refuse("%v", err)
 	}
 
@@ -209,7 +214,8 @@ func (s *sleeper) stop(ctx context.Context) int {
 	default:
 		s.say("projects: %s not in %s (already)", s.name(), project.ProjectsFile(s.Env))
 	}
-	if err := project.MarkStopped(root, s.Why, s.now()); err != nil {
+	m.At = s.now()
+	if err := project.WriteStopMarker(root, m); err != nil {
 		fmt.Fprintf(s.Out, "FAIL the marker: %v\n", err)
 		return 1
 	}
@@ -218,16 +224,22 @@ func (s *sleeper) stop(ctx context.Context) int {
 	return 0
 }
 
-// start is obor start's steps: the marker removed, serve's launchd agent installed, the project registered, and
-// obor stop's pause cleared once serve answers (a pause with another why stays). Agents start on first use.
+// start is obor start's steps: the marker moved aside (serve may start now; a rerun finds it there), serve's launchd
+// agent installed, the project registered, and obor stop's pause ended once serve answers — the pause it replaced
+// restored while that has not expired, else cleared (a pause with another why stays) — then the marker removed.
+// Serve not answering, or the pause not ended, fails with a retry line: obor start again completes it. Agents start
+// on first use.
 func (s *sleeper) start(ctx context.Context) int {
 	root := s.Cfg.Root
-	switch removed, err := project.ClearStopped(root); {
+	m, moved, pending, err := project.BeginStart(root)
+	switch {
 	case err != nil:
 		fmt.Fprintf(s.Out, "FAIL the marker: %v\n", err)
 		return 1
-	case removed:
-		s.say("marker: %s removed", project.StoppedFile(root))
+	case moved:
+		s.say("marker: %s moved to %s", filepath.Base(project.StoppedFile(root)), project.StartingFile(root))
+	case pending:
+		s.say("marker: %s (an earlier obor start's)", project.StartingFile(root))
 	default:
 		s.say("marker: none (already)")
 	}
@@ -242,31 +254,35 @@ func (s *sleeper) start(ctx context.Context) int {
 	default:
 		line, err := svc.Install(sctx)
 		if err != nil {
-			fmt.Fprintf(s.Out, "FAIL obor serve install: %v\n", err)
+			fmt.Fprintf(s.Out, "FAIL obor serve install: %v (obor start again)\n", err)
 			return 1
 		}
 		s.say("serve: %s", line)
 	}
 	switch changed, err := project.Register(root, s.Env); {
 	case err != nil:
-		fmt.Fprintf(s.Out, "FAIL the project list: %v\n", err)
+		fmt.Fprintf(s.Out, "FAIL the project list: %v (obor start again)\n", err)
 		return 1
 	case changed:
 		s.say("projects: %s added to %s", s.name(), project.ProjectsFile(s.Env))
 	default:
 		s.say("projects: %s in %s (already)", s.name(), project.ProjectsFile(s.Env))
 	}
-	if !s.clearStopPause(ctx) {
+	if !s.startPause(ctx, m) {
+		return 1
+	}
+	if err := project.EndStart(root); err != nil {
+		fmt.Fprintf(s.Out, "FAIL the marker: %v (obor start again)\n", err)
 		return 1
 	}
 	s.say("STARTED %s (agents start on first use)", s.name())
 	return 0
 }
 
-// clearStopPause clears the pause obor stop set, once serve answers (within Wait): a pause with another why is not
-// stop's and stays. Serve not answering by then is a line naming the command, not a failure (off darwin serve is the
-// user's to run). false: serve refused the clear (FAIL said).
-func (s *sleeper) clearStopPause(ctx context.Context) bool {
+// startPause ends obor stop's pause once serve answers (within Wait): m's pause restored while it holds, else
+// cleared; a pause in force with another why is not stop's and stays. false: serve did not answer, or refused (FAIL
+// said, with the retry).
+func (s *sleeper) startPause(ctx context.Context, m project.StopMarker) bool {
 	var ps *wire.ProjectStatus
 	var err error
 	for deadline := time.Now().Add(s.wait()); ; time.Sleep(200 * time.Millisecond) {
@@ -276,21 +292,86 @@ func (s *sleeper) clearStopPause(ctx context.Context) bool {
 	}
 	switch {
 	case err != nil:
-		s.say("pause: serve does not answer yet (%v): once it runs, obor pause --clear ends obor stop's pause", err)
-		return true
+		fmt.Fprintf(s.Out, "FAIL obor serve does not answer for %s (%v): obor stop's pause holds; once serve runs "+
+			"(obor serve, or obor serve install), obor start again\n", s.Cfg.Root, err)
+		return false
 	case ps.Paused == nil || ps.Paused.Why != stopPause:
 		s.say("pause: none of obor stop's (already)")
 		return true
 	}
-	c := caller(s.Env, s.Cwd, s.Cfg)
+	if err := s.endStopPause(ctx, caller(s.Env, s.Cwd, s.Cfg), m); err != nil {
+		fmt.Fprintf(s.Out, "FAIL pause: obor stop's not ended (%v): obor start again\n", err)
+		return false
+	}
+	return true
+}
+
+// endStopPause ends obor stop's pause in force: the pause m records restored (its why and end) while it has not
+// expired, else the pause cleared.
+func (s *sleeper) endStopPause(ctx context.Context, c wire.Call, m project.StopMarker) error {
+	c.CallID = wire.NewCallID()
+	if m.PauseWhy != "" && (m.PauseUntil == 0 || m.PauseUntil > s.now().Unix()) {
+		c.Note, c.Until = m.PauseWhy, m.PauseUntil
+		reply, err := s.call(ctx, wire.MethodPause, c)
+		if err != nil {
+			return err
+		}
+		s.say("pause: %q restored: %s", m.PauseWhy, reply)
+		return nil
+	}
 	c.Clear = true
 	reply, err := s.call(ctx, wire.MethodPause, c)
 	if err != nil {
-		fmt.Fprintf(s.Out, "FAIL pause clear: %v\n", err)
-		return false
+		return err
+	}
+	if m.PauseWhy != "" {
+		s.say("pause: %q expired (until %s): not restored", m.PauseWhy, untilLine(m.PauseUntil))
 	}
 	s.say("pause: %s", reply)
-	return true
+	return nil
+}
+
+// untilLine is a pause's end as local time, or "cleared".
+func untilLine(until int64) string {
+	if until == 0 {
+		return "cleared"
+	}
+	return time.Unix(until, 0).Format("2006-01-02 15:04")
+}
+
+// ownLane is the lane among busy whose agent runs in the caller's own herdr pane (HERDR_PANE_ID; T-711): its label is
+// that lane's agent or its cwd in that lane. "": none, or no pane of the caller's. An error: herdr's panes not
+// listed, so the caller's pane is not known.
+func (s *sleeper) ownLane(ctx context.Context, busy []busyTask) (string, error) {
+	own := s.Env.Get("HERDR_PANE_ID")
+	lanes := map[string]bool{}
+	for _, b := range busy {
+		if b.Lane != "" {
+			lanes[b.Lane] = true
+		}
+	}
+	if own == "" || len(lanes) == 0 {
+		return "", nil
+	}
+	panes, err := s.H.Panes(ctx)
+	if err != nil {
+		return "", fmt.Errorf("herdr's panes not listed (%v): the caller's pane %s is not known; obor stop again once "+
+			"herdr answers", err, own)
+	}
+	for _, p := range panes {
+		if p.ID != own {
+			continue
+		}
+		if info, ok := project.AgentLookup(s.Cfg, p.Label, ""); p.Label != "" && ok && lanes[info.Lane] {
+			return info.Lane, nil
+		}
+		for _, l := range s.Cfg.Lanes() {
+			if lanes[l.Name] && p.Cwd != "" && project.LabelOurs(s.Cfg, p.Label, p.Cwd, l.Dir) {
+				return l.Name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // status is serve's status of this project (2 s): an error when serve does not answer, or answers for another root
@@ -369,33 +450,41 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 	return nil
 }
 
-// stopServe ends the project's running serve and confirms it down: launchd's (its agent's pid is the one serve.flock
-// names) is uninstalled; any other (in a pane, or run by hand, on any OS) is refused, since serve has no exit call
-// to ask it over its socket. Down is serve.flock no longer held and serve.sock not answering, within Wait.
-func (s *sleeper) stopServe(ctx context.Context) error {
+// stopServe ends the project's running serve and confirms it down: launchd's agent, when loaded, is uninstalled
+// first (it ends launchd's serve, and no launchd serve takes over the lock); a serve that is not launchd's (in a pane,
+// or run by hand, on any OS) is then asked to exit over its socket (wire.MethodExit: its graceful exit, T-652's).
+// Down is serve.flock no longer held and serve.sock not answering, within Wait.
+func (s *sleeper) stopServe(ctx context.Context, c wire.Call) error {
 	root := s.Cfg.Root
 	svc := serviceOf(s.Cfg, s.Env)
 	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	pid, launchd := servePID(root), false
-	if svc.Supported() && pid != 0 {
-		lpid, loaded := svc.PID(sctx)
-		launchd = loaded && lpid == pid
+	pid, launchd, how := servePID(root), false, "its exit"
+	if svc.Supported() {
+		if lpid, loaded := svc.PID(sctx); loaded {
+			launchd = pid != 0 && lpid == pid
+			line, err := svc.Uninstall(sctx)
+			if err != nil {
+				return fmt.Errorf("obor serve uninstall: %v", err)
+			}
+			s.say("serve: %s", line)
+			how = "its uninstall"
+		}
 	}
 	if !launchd {
-		return fmt.Errorf("obor serve (pid %d) is not launchd's: it runs in a pane or by hand and has no exit call: "+
-			"stop it there yourself (Ctrl-C)", pid)
+		c.CallID, c.Note = wire.NewCallID(), "obor stop: "+s.Why
+		reply, err := s.call(ctx, wire.MethodExit, c)
+		if err != nil {
+			return fmt.Errorf("obor serve (pid %d) not ended: its exit: %v", pid, err)
+		}
+		s.say("serve: %s (pid %d)", reply, pid)
+		how = "its exit"
 	}
-	line, err := svc.Uninstall(sctx)
-	if err != nil {
-		return fmt.Errorf("obor serve uninstall: %v", err)
-	}
-	s.say("serve: %s", line)
 	lock, sock := project.NewLock(app.FlockFile(root)), wire.SocketPath(root)
 	for deadline := time.Now().Add(s.wait()); lock.Held() || answers(sock); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("obor serve (pid %d) still holds %s or %s %s after its uninstall", pid, lock.Path, sock,
-				s.wait())
+			return fmt.Errorf("obor serve (pid %d) still holds %s or %s %s after %s", pid, lock.Path, sock,
+				s.wait(), how)
 		}
 	}
 	s.say("serve: down (pid %d: %s and %s released)", pid, filepath.Base(lock.Path), filepath.Base(sock))

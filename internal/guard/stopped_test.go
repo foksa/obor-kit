@@ -37,7 +37,7 @@ func TestHooksStandDownInAStoppedProject(t *testing.T) {
 			deny, stop, prompt, session, turned, failed)
 	}
 
-	if err := project.MarkStopped(f.Root, "test", time.Now()); err != nil {
+	if err := project.WriteStopMarker(f.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	deny, stop, prompt, session, turned, failed = acts()

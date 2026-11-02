@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -39,6 +40,8 @@ type sleepServe struct {
 	dropErr error
 	calls   []string // "<method> <task|lane|note|clear>"
 	asks    int
+	// onExit is serve's graceful exit on the exit request (nil: it answers, nothing ends).
+	onExit func()
 }
 
 func (f *sleepServe) ask(context.Context) (wire.Status, error) {
@@ -60,8 +63,17 @@ func (f *sleepServe) call(_ context.Context, method string, c wire.Call) (string
 		return "PAUSE CLEARED", nil
 	case method == wire.MethodPause:
 		f.calls = append(f.calls, "pause "+c.Note)
-		f.paused = &event.Pause{Why: c.Note}
+		f.paused = &event.Pause{Why: c.Note, Until: c.Until}
+		if c.Until != 0 {
+			return "PAUSED until " + time.Unix(c.Until, 0).Format("15:04"), nil
+		}
 		return "PAUSED until cleared", nil
+	case method == wire.MethodExit:
+		f.calls = append(f.calls, "exit")
+		if f.onExit != nil {
+			f.onExit()
+		}
+		return "EXITING", nil
 	case method == wire.MethodDrop:
 		if c.CallID == "" || !c.Force || !strings.Contains(c.Note, "obor stop --force") {
 			return "", errors.New("bad drop call")
@@ -209,18 +221,74 @@ func TestStopRefusesATaskInProgress(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-710: a pause in force before obor stop is kept: not replaced, and not cleared by a refusal.
-func TestStopKeepsAPauseInForce(t *testing.T) {
+// T-711 (RV-84 #3): a timed pause in force before obor stop is replaced by stop's own untimed one; a refusal restores
+// it (its why and end) while it has not expired, and clears stop's once it has.
+func TestStopReplacesATimedPause(t *testing.T) {
 	t.Parallel()
-	_, s, out, _, f := sleepFx(t)
-	f.paused = &event.Pause{Why: "owner's break"}
-	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}}
-	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), `pause: "owner's break" in force (kept)`) {
+	now := time.Now()
+	for _, c := range []struct {
+		name string
+		at   time.Time // the refusal's now
+		want string    // the last call
+	}{
+		{"unexpired", now, "pause owner's break"},
+		{"expired", now.Add(2 * time.Hour), "pause --clear"},
+	} {
+		_, s, out, _, f := sleepFx(t)
+		until := now.Add(time.Hour).Unix()
+		f.paused = &event.Pause{Why: "owner's break", Until: until}
+		f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}}
+		s.Now = func() time.Time { return c.at }
+		if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), `pause: "owner's break" in force (until `) {
+			t.Errorf("%s: exit %d\n%s", c.name, rc, out)
+		}
+		if len(f.calls) != 2 || f.calls[0] != "pause "+stopPause || f.calls[1] != c.want {
+			t.Errorf("%s: calls %q: want stop's own pause, then %q", c.name, f.calls, c.want)
+		}
+		switch {
+		case c.want == "pause --clear" && f.paused != nil:
+			t.Errorf("%s: pause %+v left in force", c.name, f.paused)
+		case c.want != "pause --clear" && (f.paused == nil || f.paused.Why != "owner's break" || f.paused.Until != until):
+			t.Errorf("%s: pause %+v, want the owner's restored until %d", c.name, f.paused, until)
+		}
+	}
+}
+
+// T-711 (RV-84 #1): the caller's own herdr pane runs the agent of a busy lane (its label pj-o-01; its cwd the main
+// checkout, OBOR_ROLE unset: the owner's identity otherwise): obor stop --force refuses before any drop, clears its
+// pause and does nothing; so it does when the pane's cwd is in the lane under a label of no agent.
+func TestStopRefusesTheCallersLane(t *testing.T) {
+	t.Parallel()
+	p, s, out, stops, f := sleepFx(t)
+	fk := p.Herdr()
+	s.H = &herdr.Socket{Path: herdrtest.Serve(t, fk).Path}
+	fk.Agent("w1:p1", "pj-o-01", "working", p.Root).Label = "pj-o-01"
+	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
+	s.Force = true
+	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "O-01", State: "working"}}
+	if r := caller(s.Env, s.Cwd, s.Cfg); r.Role != "" {
+		t.Fatalf("precondition: the caller resolves to role %q, want the owner's", r.Role)
+	}
+	if rc := s.stop(context.Background()); rc != 1 ||
+		!strings.Contains(out.String(), "FAIL lane O-01's agent runs in this pane (w1:p1)") {
 		t.Errorf("exit %d\n%s", rc, out)
 	}
-	if len(f.calls) != 0 || f.paused == nil || f.paused.Why != "owner's break" {
-		t.Errorf("calls %q, pause %+v: want the owner's pause untouched", f.calls, f.paused)
+	pausedThenCleared(t, f, out)
+	if len(f.calls) != 2 {
+		t.Errorf("calls %q: want only the pause and its clear (no drop)", f.calls)
 	}
+	nothingDone(t, p, s, *stops, f)
+
+	out.Reset()
+	f.calls = nil
+	fk.Agent("w1:p1", "", "working", p.LaneDir("O-01")).Label = "someone"
+	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL lane O-01's agent runs in this pane") {
+		t.Errorf("cwd in the lane: exit %d\n%s", rc, out)
+	}
+	if len(f.calls) != 2 {
+		t.Errorf("cwd in the lane: calls %q: want only the pause and its clear (no drop)", f.calls)
+	}
+	nothingDone(t, p, s, *stops, f)
 }
 
 // T-710 (RV-84 #3): with --force a drop serve refuses refuses obor stop — no "not dropped" and go on — and clears the
@@ -255,26 +323,65 @@ func TestStopRefusedWhenHerdrFails(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-710 (RV-84 #4): a serve that is not launchd's (in a pane: serve.flock names another pid than launchd's agent; off
-// darwin, any) is refused after the agents stop: serve has no exit call; launchd's agent left installed, the pause
-// cleared, no marker.
-func TestStopRefusesAPaneServe(t *testing.T) {
+// paneServe makes serve one in a pane (not launchd's, any OS; on darwin a fake launchctl with no agent loaded):
+// serve.flock held by this process naming pid 999 until serve's exit request, which releases it when exits.
+func paneServe(t *testing.T, s *sleeper, f *sleepServe, exits bool) *project.Lock {
+	t.Helper()
+	fakeLaunchctl(t)
+	held := project.NewLock(app.FlockFile(s.Cfg.Root))
+	if ok, err := held.Try(); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	t.Cleanup(func() { _ = held.Unlock() })
+	if err := held.Write([]byte("999\n")); err != nil {
+		t.Fatal(err)
+	}
+	if exits {
+		f.onExit = func() { _ = held.Unlock() }
+	}
+	return held
+}
+
+// T-711 (RV-84 #4): a serve that is not launchd's (in a pane or run by hand, any OS) is asked to exit over its socket
+// and confirmed down (serve.flock released, no socket): STOPPED, the marker written, the project unregistered.
+func TestStopEndsAPaneServe(t *testing.T) {
 	p, s, out, _, f := sleepFx(t)
-	_, state := fakeLaunchctl(t)
-	svc := launchdServe(t, s, state, "999")
-	if rc := s.stop(context.Background()); rc != 1 ||
-		!strings.Contains(out.String(), "FAIL obor serve (pid 999) is not launchd's: it runs in a pane or by hand") ||
-		!strings.Contains(out.String(), "stop it there yourself") {
+	held := paneServe(t, s, f, true)
+	if !held.Held() {
+		t.Fatal("precondition: serve.flock not held")
+	}
+	if rc := s.stop(context.Background()); rc != 0 {
+		t.Fatalf("exit %d\n%s", rc, out)
+	}
+	if strings.Join(f.calls, "|") != "pause "+stopPause+"|exit" {
+		t.Errorf("calls %q: want the pause, then the exit", f.calls)
+	}
+	for _, w := range []string{"serve: EXITING (pid 999)", "serve: down (pid 999: serve.flock and serve.sock released)",
+		"STOPPED proj"} {
+		if !strings.Contains(out.String(), w) {
+			t.Errorf("no %q line:\n%s", w, out)
+		}
+	}
+	if !project.Stopped(p.Root) {
+		t.Error("no marker")
+	}
+	if _, ok := project.RootOf("proj", s.Env); ok {
+		t.Error("the project is still in the machine's list")
+	}
+}
+
+// T-711: a serve in a pane that answers its exit but keeps serve.flock is not confirmed down: refused, the pause
+// cleared, no marker.
+func TestStopRefusesAPaneServeThatStaysUp(t *testing.T) {
+	p, s, out, _, f := sleepFx(t)
+	paneServe(t, s, f, false)
+	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL obor serve (pid 999) still holds") ||
+		!strings.Contains(out.String(), "after its exit") {
 		t.Errorf("exit %d\n%s", rc, out)
 	}
 	pausedThenCleared(t, f, out)
 	if project.Stopped(p.Root) {
 		t.Error("marker written")
-	}
-	if svc.Supported() {
-		if _, err := os.Stat(svc.PlistPath()); err != nil {
-			t.Errorf("launchd's agent uninstalled: %v", err)
-		}
 	}
 }
 
@@ -418,7 +525,7 @@ func TestStopStepsAndStart(t *testing.T) {
 	}
 }
 
-// T-710: obor start leaves a pause that is not obor stop's, and says so when serve does not answer yet.
+// T-710: obor start leaves a pause that is not obor stop's.
 func TestStartClearsOnlyTheStopsPause(t *testing.T) {
 	_, s, out, _, f := sleepFx(t)
 	fakeLaunchctl(t)
@@ -429,10 +536,79 @@ func TestStartClearsOnlyTheStopsPause(t *testing.T) {
 	if len(f.calls) != 0 || f.paused == nil {
 		t.Errorf("calls %q, pause %+v: want the owner's pause kept", f.calls, f.paused)
 	}
-	f.up = false
-	out.Reset()
-	if rc := s.start(context.Background()); rc != 0 || !strings.Contains(out.String(), "pause: serve does not answer yet") {
-		t.Errorf("serve down: exit %d\n%s", rc, out)
+}
+
+// T-711 (RV-84 #3, #7): a timed pause in force is replaced by obor stop's own untimed one and recorded in the marker;
+// obor start with serve not answering fails (exit 1, the retry line), stop's pause still in force; its rerun, serve
+// up, completes it: the owner's pause restored while it has not expired, cleared once it has; the marker gone, and a
+// third start sends nothing.
+func TestStopAndStartRestoreATimedPause(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		name    string
+		startAt time.Time
+	}{{"unexpired", now}, {"expired", now.Add(2 * time.Hour)}} {
+		p, s, out, _, f := sleepFx(t)
+		paneServe(t, s, f, true)
+		until := now.Add(time.Hour).Unix()
+		f.paused = &event.Pause{Why: "owner's break", Until: until}
+		s.Now = func() time.Time { return now }
+		if rc := s.stop(context.Background()); rc != 0 {
+			t.Fatalf("%s: stop: exit %d\n%s", c.name, rc, out)
+		}
+		if f.paused == nil || f.paused.Why != stopPause || f.paused.Until != 0 {
+			t.Fatalf("%s: pause %+v after stop, want stop's own, untimed", c.name, f.paused)
+		}
+		if m := p.Read(".obor/state/stopped"); !strings.Contains(m, "pause: owner's break\n") ||
+			!strings.Contains(m, fmt.Sprintf("pause_until: %d\n", until)) {
+			t.Errorf("%s: marker without the replaced pause:\n%s", c.name, m)
+		}
+
+		f.up, f.calls = false, nil
+		s.Now = func() time.Time { return c.startAt }
+		out.Reset()
+		if rc := s.start(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL obor serve does not answer") ||
+			!strings.Contains(out.String(), "obor start again") || strings.Contains(out.String(), "STARTED") {
+			t.Errorf("%s: start, serve down: exit %d\n%s", c.name, rc, out)
+		}
+		if f.paused == nil || f.paused.Why != stopPause {
+			t.Errorf("%s: pause %+v after the failed start, want stop's", c.name, f.paused)
+		}
+		if project.Stopped(p.Root) {
+			t.Errorf("%s: the marker is in place: serve could not start", c.name)
+		}
+		if _, err := os.Stat(project.StartingFile(p.Root)); err != nil {
+			t.Errorf("%s: no starting file for the rerun: %v", c.name, err)
+		}
+
+		f.up = true
+		out.Reset()
+		if rc := s.start(context.Background()); rc != 0 || !strings.Contains(out.String(), "STARTED proj") ||
+			!strings.Contains(out.String(), "(an earlier obor start's)") {
+			t.Fatalf("%s: start again: exit %d\n%s", c.name, rc, out)
+		}
+		switch c.name {
+		case "unexpired":
+			if f.paused == nil || f.paused.Why != "owner's break" || f.paused.Until != until ||
+				!strings.Contains(out.String(), `pause: "owner's break" restored`) {
+				t.Errorf("%s: pause %+v, want the owner's restored until %d\n%s", c.name, f.paused, until, out)
+			}
+		default:
+			if f.paused != nil || len(f.calls) != 1 || f.calls[0] != "pause --clear" ||
+				!strings.Contains(out.String(), "expired") {
+				t.Errorf("%s: pause %+v, calls %q: want stop's cleared, the owner's not restored\n%s", c.name, f.paused,
+					f.calls, out)
+			}
+		}
+		if _, err := os.Stat(project.StartingFile(p.Root)); !os.IsNotExist(err) {
+			t.Errorf("%s: starting file left: %v", c.name, err)
+		}
+		out.Reset()
+		f.calls = nil
+		if rc := s.start(context.Background()); rc != 0 || !strings.Contains(out.String(), "marker: none (already)") ||
+			len(f.calls) != 0 {
+			t.Errorf("%s: start a third time: exit %d, calls %q\n%s", c.name, rc, f.calls, out)
+		}
 	}
 }
 
@@ -451,7 +627,7 @@ func TestStoppedProjectWithANewerConfig(t *testing.T) {
 		strings.Contains(stdout, project.StoppedLine) {
 		t.Errorf("status (running): exit %d\n%s---\n%s", rc, stdout, stderr)
 	}
-	if err := project.MarkStopped(p.Root, "test", time.Now()); err != nil {
+	if err := project.WriteStopMarker(p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	rc, stdout, stderr = run(t, p.Root, env, "status")
@@ -475,7 +651,7 @@ func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	if rc, stdout, _ := run(t, p.Root, env, "whoami"); rc != 0 || strings.Contains(stdout, project.StoppedLine) {
 		t.Errorf("whoami (running): exit %d, says stopped:\n%s", rc, stdout)
 	}
-	if err := project.MarkStopped(p.Root, "test", time.Now()); err != nil {
+	if err := project.WriteStopMarker(p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	if rc, stdout, stderr := run(t, p.Root, env, "whoami"); rc != 0 || !strings.HasPrefix(stdout, project.StoppedLine+"\n") {
