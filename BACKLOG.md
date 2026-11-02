@@ -83,6 +83,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (T-684 concern) `patience()` lets one hung test eat the whole package deadline, so parallel siblings fail on the
+  1 s floor (one failure read as eight at v0.18.1). A per-wait cap (~60 s) keeps failures local. Small; next test task.
 - (RV-77 design concern, logged) `scripts/ship` counts a release done by draft state and asset names only, not its
   title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
 - (v0.18.0 release, 11-02) `TestStopForceTerminates` failed once under the full check (60 ms waits for a fake agent;
