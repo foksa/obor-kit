@@ -69,7 +69,8 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 Before a release, `obor review` and close it; `make release` refuses otherwise; `UNREVIEWED` only on the owner's word.
 Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
 "<out of scope, contracts>"]`, serve starts it (`review-brief.md`). Reviewer and deep dive are role panes, never lanes;
-verifies: `obor brief <reviewer> "<text>"` in the same session. Serve stops the reviewer once the review is closed
+verifies: `obor brief <reviewer> "<text>"` in the same session. At most two review rounds per feature; then accept the rest in `BACKLOG.md`
+(`review-brief.md` §3). Serve stops the reviewer once the review is closed
 (`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
 `obor restart <deep-dive> --stop`; the next one starts clean. A brief to a stopped role agent starts it fresh.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names

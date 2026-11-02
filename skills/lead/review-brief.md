@@ -51,6 +51,8 @@ Read `<review worktree>/<reviews>/<RV-xx>.md` there; do not copy or commit it. T
 one test each, and carries what it needs from the finding: the file is not on the branch). Unlikely and the fix adds
 complexity → no fix: accept it in `BACKLOG.md` with one line why, or remove the case instead (refuse the config) when
 that makes the code smaller. A probe that proves a constructed case is not by itself a reason to add code.
+At most two review rounds per feature (owner 2026-11-02): after the second verify, what is still open is accepted
+in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is likely and its fix is small.
 
 ## 4. Verification (same session — never `/new` the reviewer)
 After the fix tasks merge, detach the review worktree at the new head (`git -C <review worktree> checkout -q --detach
