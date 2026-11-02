@@ -339,7 +339,8 @@ func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
 // LoadReader is Load for the readers (obor status, obor monitor, obor web; T-709): a key this binary does not know (a
 // long-running obor web older than the config) is ignored, and warn names it, instead of failing the page. Every other
-// error is Load's; obor config validate (Load) keeps refusing such a config.
+// error is Load's; obor config validate (Load) keeps refusing such a config. The readers and serve (LoadDaemon, T-377)
+// are lenient, validate strict: that is the contract (T-710).
 func LoadReader(root string) (cfg *Config, warn string, err error) {
 	c, unknown, err := read(root)
 	if err != nil || len(unknown) == 0 {
