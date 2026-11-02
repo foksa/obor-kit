@@ -9,9 +9,6 @@ import (
 // back above it. A gate or a nightly would only fail on a full disk (the RED line looked like a test failure), so
 // neither starts while it is in force; they start once space is back, as a deferred one does.
 
-// DiskTask is the task key of a project's low-disk needs-you: the project's, not a task's.
-const DiskTask = "disk"
-
 // diskLow is the free space below which the disk is low (a constant, no config key).
 const diskLow = 5 << 30
 

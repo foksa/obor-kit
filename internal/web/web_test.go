@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -38,15 +39,15 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
 	p.Dispatched("O-01")
 	p.Submit("O-01", "Summary: built it.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none.")
-	addEvent(t, p.Root, "T-01", app.StepGate, app.KindResult, app.ClassGit, map[string]any{
+	addEvent(t, p.Root, "T-01", event.StepGate, event.KindResult, event.ClassGit, map[string]any{
 		"outcome": "green", "line": "GREEN T-01 (ok 212 tests, 71s)", "spec_rev": 1,
 		"candidate": map[string]any{"sha": "cafe1234", "checks": "212 tests"}})
 	transcript := p.Write("transcript.jsonl", `{"type":"user"}`+"\n")
 	now := time.Now()
-	addEvent(t, p.Root, store.SessionTask, store.StepSession, app.KindFact, app.ClassFact, store.Session{
+	addEvent(t, p.Root, store.SessionTask, store.StepSession, event.KindFact, event.ClassFact, store.Session{
 		Agent: "pj-o1", Kind: "claude", ID: "sid-1", Transcript: transcript, Pane: "w1:p1", Lane: "O-01", Task: "T-01",
 		Started: now.Add(-time.Hour).Unix(), Source: "hook"})
-	addEvent(t, p.Root, app.MsgTask, app.StepMessage, app.KindFact, app.ClassFact, app.Message{
+	addEvent(t, p.Root, event.MsgTask, event.StepMessage, event.KindFact, event.ClassFact, event.Message{
 		To: "pj-o1", From: "pj-lead", Line: "[obor pj-lead] work on T-01"})
 	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-o1", Kind: store.PromptJob, Job: "T-01/1/work", Task: "T-01",
 		TS: now.UTC().Format(time.RFC3339), Text: "the whole job prompt"})
@@ -59,7 +60,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 			Tasks: []app.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Job: "T-01/1/work",
 				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", After: []string{"T-01"},
 				Why: "dispatch T-02: no free lane"}},
-			Facts:   []app.Record{fact(t, 1, "T-01", app.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"})},
+			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"})},
 			Answers: map[int64]string{1: `obor answer T-01 "<text>"`}}}
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -83,13 +84,13 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 }
 
 // fact is a needs-you record of task, as serve's status lists it.
-func fact(t *testing.T, seq int64, task string, d app.FactData) app.Record {
+func fact(t *testing.T, seq int64, task string, d event.FactData) event.Record {
 	t.Helper()
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return app.Record{Seq: seq, Task: task, Step: app.StepNeedsYou, Kind: app.KindFact, Data: b}
+	return event.Record{Seq: seq, Task: task, Step: event.StepNeedsYou, Kind: event.KindFact, Data: b}
 }
 
 // addEvent appends one record to the project's store, as serve does (the next seq, now).
@@ -137,7 +138,7 @@ func newestSeq(t *testing.T, root string) int64 {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	recs, err := app.RecentEvents(db, 1)
+	recs, err := event.RecentEvents(db, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +322,7 @@ func TestAgentPageOfRoles(t *testing.T) {
 	p.Config(testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
 		testkit.Set("roles.advisor", map[string]any{"type": "opus"}))
 	// the reviewer was sent a line (its history); the advisor has none.
-	addEvent(t, p.Root, app.MsgTask, app.StepMessage, app.KindFact, app.ClassFact, app.Message{
+	addEvent(t, p.Root, event.MsgTask, event.StepMessage, event.KindFact, event.ClassFact, event.Message{
 		To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] review T-01"})
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -477,7 +478,7 @@ func TestLongPollAnswersWithANewRecord(t *testing.T) {
 		done <- page
 	}()
 	time.Sleep(100 * time.Millisecond) // the poll is held: the record below is what ends it
-	addEvent(t, p.Root, "T-01", app.StepSendback, app.KindFact, app.ClassFact, map[string]any{"note": "fix x"})
+	addEvent(t, p.Root, "T-01", event.StepSendback, event.KindFact, event.ClassFact, map[string]any{"note": "fix x"})
 	select {
 	case page := <-done:
 		if page.Seq <= since || len(page.Events) == 0 || page.Events[len(page.Events)-1].Seq != since+1 {

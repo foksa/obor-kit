@@ -25,7 +25,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 		return false
 	}
 	a.mu.Lock()
-	p.running = Key{mt.task, mt.attempt, step}
+	p.running = Key{Task: mt.task, Attempt: mt.attempt, Step: step}
 	a.scratched++
 	a.mu.Unlock()
 	a.effects.Add(1)
@@ -46,7 +46,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 // its row holds the task (a crash, then the lane reused: its stop is skipped).
 func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	step := afterSteps[mt.after]
-	in := Intent{Key: Key{mt.task, mt.attempt, step}, Class: ClassGit}
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: step}, Class: ClassGit}
 	var effect func(context.Context) (any, error)
 	ran := "" // after_merge's line when it ran in this pass (a stored result: "")
 	switch step {
@@ -69,9 +69,6 @@ func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	}
 	return true
 }
-
-// ServeTask is the task key of a failed self-restart's needs-you (T-652): the project's serve, not a task's.
-const ServeTask = "serve"
 
 // restartServe restarts serve on the new build after task's green after_merge, when the project's
 // commands.after_merge.restart_serve is set (T-652). The step's result is in the log already, so the new serve finds
@@ -201,7 +198,7 @@ func submitID(attempt int, step string) string {
 // gate never reads the live lane again). A refusal (no lane dir, not on a branch, already in the target) is final:
 // the owner decides, as for a gate's fail.
 func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepSubmit, mt.submits+1)}, Class: ClassGit,
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepSubmit, mt.submits+1)}, Class: ClassGit,
 		Data: submitData{Lane: mt.lane, Agent: mt.agent}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		title, err := titleOf(p, mt.task)
@@ -235,7 +232,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		// T-403: the submitted sha, never the old candidate (one merge commit per task); the subject rule stays (T-360).
 		g.Kind, g.Input = InputMoved, mt.input
 	}
-	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepGate, mt.gates+1)}, Class: ClassGit,
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepGate, mt.gates+1)}, Class: ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
 	g.Command = func(name string) { // obor status' running line names the command while it runs (T-669); "" between two (T-673)
 		a.mu.Lock()
@@ -289,7 +286,7 @@ func gateResult(task string, o GateOutcome) gateOut {
 // publish fast-forwards the target to the accepted candidate (row 33): merged, already in the target (a crash after
 // the fast-forward), moved (re-gate) or held (the main checkout has local changes to the merge's files: the owner).
 func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepPublish, mt.pubs+1)}, Class: ClassGit, Data: mt.cand}
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepPublish, mt.pubs+1)}, Class: ClassGit, Data: mt.cand}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		o, err := fx.Scratch.Publish(ctx, mt.cand)
 		if err != nil {
@@ -324,7 +321,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 
 // unpin deletes a rejected task's pins (G: an absent pin is not an error), before the owner is told.
 func (a *App) unpin(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{mt.task, mt.attempt, StepUnpin}, Class: ClassGit}
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: StepUnpin}, Class: ClassGit}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		return "unpinned", fx.Scratch.Unpin(ctx, mt.task)
 	}); err != nil {

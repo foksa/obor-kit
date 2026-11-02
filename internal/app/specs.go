@@ -71,7 +71,7 @@ func (a *App) specSet(c Call) (string, error) {
 	default:
 		by = "lead"
 	}
-	rev, changed, err := store.SetSpec(p.log.db, c.Task, c.Spec, by, a.opt.Now())
+	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, by, a.opt.Now())
 	if err != nil {
 		return "", err
 	}
@@ -89,7 +89,9 @@ func (a *App) specSet(c Call) (string, error) {
 }
 
 // specOf is task's stored spec in p (ok false: none).
-func specOf(p *proj, task string) (store.SpecRow, bool, error) { return store.ReadSpec(p.log.db, task) }
+func specOf(p *proj, task string) (store.SpecRow, bool, error) {
+	return store.ReadSpec(p.log.DB(), task)
+}
 
 // titleOf is task's spec title in the store (T-440); "" when it has no spec or no title (not an error), and then
 // subjectOf falls back to the report's summary. A read error is returned: the step fails, is retried and counted

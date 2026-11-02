@@ -184,7 +184,7 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 			if len(f.typed) != 0 {
 				t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
 			}
-			if p.log.Open(Key{"T-5", 1, c.job}) || p.log.Done(Key{"T-5", 1, c.job}) {
+			if p.log.Open(Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(Key{Task: "T-5", Attempt: 1, Step: c.job}) {
 				t.Errorf("T-5's %s recorded while T-1's job is out", c.job)
 			}
 		})

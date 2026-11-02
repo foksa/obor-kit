@@ -128,7 +128,7 @@ func (h *harness) result(step string) string {
 // refuseOnce makes pj's log refuse the first append of a result of step.
 func refuseOnce(p *proj, step string) {
 	first := true
-	p.log.refuse = func(r Record) error {
+	p.log.Refuse = func(r Record) error {
 		if first && r.Kind == KindResult && r.Step == step {
 			first = false
 			return errors.New("result append failed")
@@ -244,7 +244,7 @@ func TestPromptReplayResends(t *testing.T) {
 		Merge: true, Step: StepWork})})
 	reloadProj(t, h) // the crash
 	h.proj().dispatching = true
-	if !h.proj().log.Open(Key{"T-1", 1, StepWork}) || h.result(StepWork) != "" {
+	if !h.proj().log.Open(Key{Task: "T-1", Attempt: 1, Step: StepWork}) || h.result(StepWork) != "" {
 		t.Fatalf("precondition: the work job's prompt is pending after the replay (result %s)", h.result(StepWork))
 	}
 	if !h.step(t, fx) {
@@ -373,7 +373,7 @@ func TestStartResultLost(t *testing.T) {
 	if h.step(t, fx) {
 		t.Fatal("precondition: the result write failed")
 	}
-	r, _ := h.proj().log.Intent(Key{"T-1", 1, StepStartWork})
+	r, _ := h.proj().log.Intent(Key{Task: "T-1", Attempt: 1, Step: StepStartWork})
 	var d startData
 	_ = json.Unmarshal(r.Data, &d)
 	if !d.Ran || d.Session != "old" {

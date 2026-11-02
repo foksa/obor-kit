@@ -54,7 +54,7 @@ transcript). `Install` and `Transcript` take the environment (config dirs: `XDG_
 Adding a kind = one package + a config entry.
 
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
-  run, the serve flock), `project.go` (load, log, fold), `log.go`, `panes.go` (herdr events to projects),
+  run, the serve flock), `project.go` (load, log, fold), `log.go` (the backup), `panes.go` (herdr events to projects),
   `watchdog.go`, `notify.go`, `status.go`; the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
   unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
@@ -69,6 +69,11 @@ Adding a kind = one package + a config entry.
   `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup` and their inputs and outcomes). Adapters import it instead of `app`; `app` keeps type and const
   aliases of it until a later task removes them (`app/ports.go`).
+- `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
+  `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
+  types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
+  `Dump`, `RecentEvents`, `DBFile`) and `Merge`/`ReadMerges`. It imports `store` only. `app` keeps type, var and const
+  aliases of it until a later task removes them (`app/events.go`).
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
   result after).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap

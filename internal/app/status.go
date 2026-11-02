@@ -70,10 +70,6 @@ type ProjectStatus struct {
 	Stopped []string `json:"stopped,omitempty"`
 }
 
-// StepServeRestart is the running line's item for a pending self-restart (T-657): serve ends itself on the new build
-// once after_merge ran green (T-652).
-const StepServeRestart = "restart"
-
 // RunningStep is one step that runs without an agent, as obor status' running line lists it (T-657): the merge loop's
 // gate, publish (the merge) or after_merge, its nightly check, or a pending self-restart. Since is when the effect
 // started (Unix seconds): the elapsed time the line shows (T-662: not the intent's time, which a replay's is older).
@@ -296,11 +292,11 @@ func (p *proj) runningSteps(open []Record) []RunningStep {
 		if !ok {
 			continue
 		}
-		at, running := p.exec[r.key()]
+		at, running := p.exec[r.Key()]
 		if !running {
 			continue
 		}
-		out = append(out, RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.key()), Since: at.Unix()})
+		out = append(out, RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.Key()), Since: at.Unix()})
 	}
 	if !p.restarting.IsZero() {
 		out = append(out, RunningStep{Step: StepServeRestart, Since: p.restarting.Unix()})
@@ -318,7 +314,7 @@ func (p *proj) pendingSteps(open []Record) []PendingStep {
 		if !ok {
 			continue
 		}
-		if _, running := p.exec[r.key()]; running {
+		if _, running := p.exec[r.Key()]; running {
 			continue
 		}
 		ps := PendingStep{Step: step, Task: task, Since: recordTime(r).Unix()}

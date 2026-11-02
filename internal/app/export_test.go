@@ -35,9 +35,9 @@ func Refuse(a *App, root string, refuse func(Record) error) {
 	a.mu.Lock()
 	p := a.projAt(root)
 	a.mu.Unlock()
-	p.log.mu.Lock()
-	p.log.refuse = refuse
-	p.log.mu.Unlock()
+	p.log.Mu.Lock()
+	p.log.Refuse = refuse
+	p.log.Mu.Unlock()
 }
 
 // Quiet is the stall timer of task's watch in a's project at root: its baseline (zero: none) and the newest

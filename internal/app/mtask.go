@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"time"
 )
 
 // foldLoop folds r into p's merge-loop tasks.
@@ -92,7 +91,7 @@ func (p *proj) foldLoop(r Record) {
 				mt.specRev = rev
 			}
 			switch job := r.Fact().Job; {
-			case mt.state == stDispatched && mt.work != "" && job == JobID(Key{mt.task, mt.attempt, mt.work}):
+			case mt.state == stDispatched && mt.work != "" && job == JobID(Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}):
 				mt.state = stWorking
 			case mt.job != "" && job == JobID(mt.jobKey()):
 				mt.delivered = true
@@ -221,14 +220,8 @@ func (mt *mtask) next(note string, answer bool) {
 	mt.cand, mt.gateRev, mt.accepted, mt.kind, mt.job, mt.patch, mt.delivered, mt.lost = Candidate{}, 0, "", "", "", "", false, 0
 }
 
-// recordTime is r's time stamp (zero when unreadable).
-func recordTime(r Record) time.Time {
-	t, _ := time.Parse(time.RFC3339, r.TS)
-	return t
-}
-
 // jobKey is the key of the attempt's last integrator job.
-func (mt *mtask) jobKey() Key { return Key{mt.task, mt.attempt, mt.job} }
+func (mt *mtask) jobKey() Key { return Key{Task: mt.task, Attempt: mt.attempt, Step: mt.job} }
 
 // openJob: the attempt's last integrator job is open, the one a verdict answers (docs/state-model.md "Jobs"): it is
 // out (awaiting-accept, resolving), or a needs-you left it out. A verdict result, job.lost, unblocked{reprompt|regate}

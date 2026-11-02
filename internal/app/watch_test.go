@@ -826,7 +826,7 @@ func TestNotifyShownTwiceWhenItsResultIsLost(t *testing.T) {
 	h.tick(9 * minute)
 	p := h.a.p
 	appends := 0
-	p.log.refuse = func(Record) error { // the third append from here (the result) fails
+	p.log.Refuse = func(Record) error { // the third append from here (the result) fails
 		if appends++; appends == 3 {
 			return errors.New("disk I/O error")
 		}

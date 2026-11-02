@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/spec"
 	"obor/internal/store"
 )
@@ -161,13 +162,13 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	for _, r := range recs { // newest first: the last submission and gate win
 		base, _ := app.StepN(r.Step)
 		switch {
-		case r.Kind == app.KindFact && r.Step == app.StepSubmitted && t.Report == "":
+		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
 			t.Report = dataString(r.data, "report")
-		case r.Kind == app.KindResult && base == app.StepGate && t.GateLine == "":
+		case r.Kind == event.KindResult && base == event.StepGate && t.GateLine == "":
 			t.GateLine = dataString(r.data, "line")
 			t.GatedRev = int(dataNumber(r.data, "spec_rev"))
 			t.GateLog = gateLog(task)
-		case r.Kind == app.KindFact && r.Step == app.StepDispatched && t.Lane == "" && t.Agent == "":
+		case r.Kind == event.KindFact && r.Step == event.StepDispatched && t.Lane == "" && t.Agent == "":
 			// The lane was freed (the task merged, its row cleared): where its newest dispatch put it.
 			t.Lane, t.Agent = dataString(r.data, "lane"), dataString(r.data, "agent")
 		}
@@ -294,7 +295,7 @@ func taskRecords(db *sql.DB, task string, n int) ([]taskRecord, error) {
 		if len(data) > 0 {
 			r.data = data
 		}
-		r.Line, _ = eventLine(app.Record{Task: task, Step: r.Step, Kind: r.Kind, Data: r.data})
+		r.Line, _ = eventLine(event.Record{Task: task, Step: r.Step, Kind: r.Kind, Data: r.data})
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -303,7 +304,7 @@ func taskRecords(db *sql.DB, task string, n int) ([]taskRecord, error) {
 // agentLines is the newest n lines posted to agent (message facts with that To), newest first.
 func agentLines(db *sql.DB, agent string, n int) ([]AgentLine, error) {
 	rows, err := db.Query(`SELECT seq, ts, data FROM events WHERE kind = ? AND step = ?
-		AND json_extract(data, '$.to') = ? ORDER BY seq DESC LIMIT ?`, app.KindFact, app.StepMessage, agent, n)
+		AND json_extract(data, '$.to') = ? ORDER BY seq DESC LIMIT ?`, event.KindFact, event.StepMessage, agent, n)
 	if err != nil {
 		return nil, err
 	}

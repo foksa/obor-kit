@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/config"
 	"obor/internal/spec"
 	"obor/internal/store"
@@ -176,12 +177,12 @@ func stageOf(t app.TaskStatus, v *Project) string {
 	switch t.State {
 	case "submitted":
 		for _, r := range v.Running {
-			if r.Task == t.Task && r.Step == app.StepGate {
+			if r.Task == t.Task && r.Step == event.StepGate {
 				return StageGating
 			}
 		}
 		for _, p := range v.Pending {
-			if p.Task == t.Task && p.Step == app.StepGate {
+			if p.Task == t.Task && p.Step == event.StepGate {
 				return StageGating
 			}
 		}
@@ -250,8 +251,8 @@ func dispatchedTasks(db *sql.DB) map[string]bool {
 	if db == nil {
 		return out
 	}
-	rows, err := db.Query("SELECT DISTINCT task FROM events WHERE kind = ? AND step IN (?, ?, ?)", app.KindFact,
-		app.StepDispatched, app.StepWaiting, app.StepMerged)
+	rows, err := db.Query("SELECT DISTINCT task FROM events WHERE kind = ? AND step IN (?, ?, ?)", event.KindFact,
+		event.StepDispatched, event.StepWaiting, event.StepMerged)
 	if err != nil {
 		return out
 	}

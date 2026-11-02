@@ -85,7 +85,7 @@ func TestLogAppendErrorInStatus(t *testing.T) {
 		t.Fatalf("precondition: no log error; got %q", e)
 	}
 	// The insert fails in SQLite itself, as a full disk's would.
-	if _, err := p.log.db.Exec(`CREATE TRIGGER full BEFORE INSERT ON events
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER full BEFORE INSERT ON events
 		BEGIN SELECT RAISE(ABORT, 'no space left on device'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLogAppendErrorInStatus(t *testing.T) {
 	if e := a.Status().Project.LogError; !strings.Contains(e, "no space left on device") {
 		t.Errorf("log_error %q; want the append's error", e)
 	}
-	if _, err := p.log.db.Exec("DROP TRIGGER full"); err != nil {
+	if _, err := p.log.DB().Exec("DROP TRIGGER full"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.log.Append(Record{Task: "T-1", Attempt: 1, Step: "x", Kind: KindFact}, time.Now()); err != nil {

@@ -107,7 +107,7 @@ func (r *reviewRig) started() {
 
 // refuseStep makes the event log refuse every fact of step (nil: none refused).
 func (r *reviewRig) refuseStep(step string) {
-	r.p.log.refuse = func(rec Record) error {
+	r.p.log.Refuse = func(rec Record) error {
 		if rec.Step == step {
 			return errors.New("disk full")
 		}
@@ -226,7 +226,7 @@ func TestReviewRequest(t *testing.T) {
 			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(StepReviewStarted) != 1 {
 				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(StepReviewStarted))
 			}
-			rows, err := store.ReadPrompts(r.p.log.db, store.PromptQuery{Agent: "pj-rev"}, 10)
+			rows, err := store.ReadPrompts(r.p.log.DB(), store.PromptQuery{Agent: "pj-rev"}, 10)
 			if err != nil || len(rows) != 1 || rows[0].Kind != store.PromptStart || rows[0].Text != l.Prompt ||
 				rows[0].Task != "" {
 				t.Errorf("the review start's prompt row: %+v %v; want its first prompt (T-665)", rows, err)
@@ -386,7 +386,7 @@ func TestReviewRequest(t *testing.T) {
 			if r.p.folded.review == nil || r.p.folded.review.seq != old || r.facts(StepReviewRequest) != 1 || r.facts(StepReviewRm) != 0 {
 				t.Fatalf("the claim's request changed: %+v", r.p.folded.review)
 			}
-			r.p.rv.claimed, r.p.log.refuse = nil, nil
+			r.p.rv.claimed, r.p.log.Refuse = nil, nil
 			if got := r.mustCall("r4", nil, "new", false); !strings.HasPrefix(got, "REVIEW REQUESTED (now) (replaces") {
 				t.Errorf("replace after the claim: %q", got)
 			}
@@ -408,7 +408,7 @@ func TestReviewRequest(t *testing.T) {
 			if rmErr == nil || !strings.Contains(rmErr.Error(), "is starting the review request now") {
 				t.Fatalf("--rm during the claim: %v", rmErr)
 			}
-			r.p.rv.claimed, r.p.log.refuse = nil, nil
+			r.p.rv.claimed, r.p.log.Refuse = nil, nil
 			if got := r.mustCall("r3", nil, "", true); got != "REVIEW REQUEST ENDED" {
 				t.Errorf("--rm after the claim: %q", got)
 			}

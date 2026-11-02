@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -189,7 +190,7 @@ func nightly(o checks.Options) *app.Nightly {
 	}
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.Data.Merge.NightlyAt,
-		Due: func(merges []app.Merge, fresh bool) (bool, error) { return checks.NightlyDue(root, merges, fresh) },
+		Due: func(merges []event.Merge, fresh bool) (bool, error) { return checks.NightlyDue(root, merges, fresh) },
 		Last: func() (string, string, error) {
 			sha, _, verdict, err := checks.LastFullCheck(root)
 			return sha, verdict, err
@@ -243,7 +244,7 @@ func serveDump(w io.Writer, cwd string) int {
 		return 1
 	}
 	root := repo.Root
-	if err := app.Dump(w, root); err != nil {
+	if err := event.Dump(w, root); err != nil {
 		errf("FAIL obor serve dump %s: %v", root, err)
 		return 1
 	}

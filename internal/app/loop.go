@@ -55,28 +55,12 @@ type Loop struct {
 // K is how often a task is sent back before the owner decides (rule 3).
 const K = 2
 
-// The merge loop's steps (the integrator's jobs: StepReview, StepResolve; its verdicts: <method>.<call id>).
+// The merge loop's steps are in internal/app/event (the integrator's jobs: StepReview, StepResolve; its verdicts:
+// <method>.<call id>); these are the prefixes of its own.
 const (
-	StepSubmitted  = "submitted"    // fact: the worker's task_done submits the task (data: submitData, its report)
-	StepSubmit     = "submit"       // intent/result (G), submit.N: the lane's commit pinned → submitOut
-	StepGate       = "gate"         // intent/result (G), gate.N within an attempt: gateIn → gateOut
-	StepKept       = "accept.kept"  // fact: the re-gated patch is the one accepted
-	StepSendback   = "sendback"     // fact: the gate is red, back to the worker (data: noteData)
-	StepFix        = "fix"          // prompt intent (P) of the new attempt: the worker's fix job (data: noteData)
-	StepPublish    = "publish"      // intent/result (G), publish.N: the candidate → gateOut
-	StepMoved      = "target.moved" // fact: the target moved under the candidate
-	StepMerged     = "merged"       // fact (data: mergedData)
-	StepAfterMerge = "after_merge"  // intent/result (G): commands.after_merge
-	StepStop       = "agent.stop"   // intent/result (S): the lane's worker stopped (data: stopData)
-	StepUnpin      = "unpin"        // intent/result (G): a rejected task's pins deleted
-	StepDelivered  = "delivered"    // fact: the agent fetched its job (job_next)
-	StepDropped    = "dropped"      // fact: the lead dropped the task (obor drop): terminal, no more steps (data: FactData{Reason, Agent})
-	StepLost       = "job.lost"     // fact: the integrator exited with the job open: it is started, the job sent anew
-	StepUnblocked  = "unblocked"    // fact: obor resume ended the needs-you (data: FactData, Reason regate|reprompt|retry)
-	StepFailed     = "failed"       // fact: a step's effect failed, counted (data: FactData, Step the step's key)
-	stepStart      = "start."       // intent/result (S) start.<job step>[.N]: the integrator started for that job
-	stepRetry      = "retry."       // prompt intent (P) retry.<job step>: the job again, not delivered in time
-	stepNudge      = "nudge."       // prompt intent (P) nudge.<job step>: the job again, the integrator idle with it
+	stepStart = "start." // intent/result (S) start.<job step>[.N]: the integrator started for that job
+	stepRetry = "retry." // prompt intent (P) retry.<job step>: the job again, not delivered in time
+	stepNudge = "nudge." // prompt intent (P) nudge.<job step>: the job again, the integrator idle with it
 )
 
 // What obor resume does with a needs-you (docs/state-model.md row 40): gate the task again, send the integrator its
@@ -91,9 +75,6 @@ const (
 // default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
 const (
-	// CauseHeld is causeHeld, exported: the integrator's hold, the one cause obor monitor lists as an event of its own
-	// (T-658: "held T-xx: why"; every cause is in obor status' needs-you line).
-	CauseHeld            = "held"
 	causeHeld            = CauseHeld
 	causeUndelivered     = "job not delivered"
 	causeStalled         = "job stalled"
@@ -239,11 +220,6 @@ type (
 	}
 	noteData struct {
 		Note string `json:"note"`
-	}
-	mergedData struct {
-		Head    string `json:"head,omitempty"`
-		Outside bool   `json:"outside,omitempty"` // a merge outside the app landed it (by hand in git)
-		Full    bool   `json:"full,omitempty"`    // the gate's candidate ran the full check (Candidate.Full)
 	}
 )
 
@@ -485,9 +461,6 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 // startSettle is how long after an agent's start herdr's agent_not_found for it is transient (failed): herdr's own
 // startup bound.
 const startSettle = 30 * time.Second
-
-// LoopTask is the task key of a project's loop error (T-377): a needs-you of the project, not of a task.
-const LoopTask = "loop"
 
 // loopStatus notes that a pass over p failed (err) or did not (nil) at one source (the loop's adapters, the lanes
 // read): a failure is recorded as a needs-you "loop: <error>" once per distinct error (the owner is notified, the
@@ -738,7 +711,7 @@ func (a *App) pickMerged(p *proj, mt mtask) step {
 // pickWorking sends the fix job of a sent-back attempt and watches its delivery (row 24); a dispatched attempt waits
 // for its task_done.
 func (a *App) pickWorking(p *proj, mt mtask) step {
-	fix := Key{mt.task, mt.attempt, nth(StepFix, max(mt.fixes, 1))}
+	fix := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepFix, max(mt.fixes, 1))}
 	switch {
 	case mt.work != "":
 		return nil // a dispatched attempt: its task_done submits it
@@ -760,7 +733,7 @@ func (a *App) pickRejected(p *proj, mt mtask) step {
 	switch {
 	case mt.needs.Seq != 0:
 		return nil
-	case !p.log.Done(Key{mt.task, mt.attempt, StepUnpin}):
+	case !p.log.Done(Key{Task: mt.task, Attempt: mt.attempt, Step: StepUnpin}):
 		return func(ctx context.Context, fx *Loop) bool { return a.unpin(ctx, p, fx, mt) }
 	}
 	return func(context.Context, *Loop) bool {

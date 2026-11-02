@@ -27,12 +27,7 @@ const (
 	MethodResume   = "resume"   // the lead's or the owner's: end the task's needs-you (Call.To: regate, reprompt, retry, "")
 )
 
-// Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same
-// attempt: review.2, resolve.2 …); their data is JobData.
-const (
-	StepReview  = "review"  // awaiting-accept: accept, sendback or reject
-	StepResolve = "resolve" // resolving: resolved or reject
-)
+// The integrator's job steps (StepReview, StepResolve) are in internal/app/event; their data is JobData.
 
 // JobData is a review or resolve prompt intent's data: the candidate's patch hash an accept must name.
 type JobData struct {
@@ -345,9 +340,9 @@ func (a *App) sendbackDecide(p *proj, method string, c Call) (mtask, string, err
 		return mtask{}, "", fmt.Errorf("%s %s: %s is running; retry when it settles", method, c.Task, p.held[c.Task])
 	case p.running.Task == c.Task:
 		return mtask{}, "", fmt.Errorf("%s: %s has %s running; retry when it settles", method, c.Task, p.running.Step)
-	case p.log.Open(Key{c.Task, mt.attempt, nth(StepGate, mt.gates+1)}):
+	case p.log.Open(Key{Task: c.Task, Attempt: mt.attempt, Step: nth(StepGate, mt.gates+1)}):
 		return mtask{}, "", fmt.Errorf("%s: %s has %s pending; retry when it settles", method, c.Task, nth(StepGate, mt.gates+1))
-	case p.log.Open(Key{c.Task, mt.attempt, nth(StepPublish, mt.pubs+1)}):
+	case p.log.Open(Key{Task: c.Task, Attempt: mt.attempt, Step: nth(StepPublish, mt.pubs+1)}):
 		return mtask{}, "", fmt.Errorf("%s: %s has %s pending; retry when it settles", method, c.Task, nth(StepPublish, mt.pubs+1))
 	}
 	why := mt.unsendable()
@@ -667,9 +662,9 @@ func (a *App) dropDecide(p *proj, c *Call) (mtask, error) {
 		return mtask{}, fmt.Errorf("drop %s: %s is running; retry when it settles", c.Task, p.held[c.Task])
 	case p.running.Task == c.Task:
 		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, p.running.Step)
-	case p.log.Open(Key{c.Task, mt.attempt, nth(StepGate, mt.gates+1)}):
+	case p.log.Open(Key{Task: c.Task, Attempt: mt.attempt, Step: nth(StepGate, mt.gates+1)}):
 		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, nth(StepGate, mt.gates+1))
-	case p.log.Open(Key{c.Task, mt.attempt, nth(StepPublish, mt.pubs+1)}):
+	case p.log.Open(Key{Task: c.Task, Attempt: mt.attempt, Step: nth(StepPublish, mt.pubs+1)}):
 		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, nth(StepPublish, mt.pubs+1))
 	}
 	p.ended[c.Task] = true

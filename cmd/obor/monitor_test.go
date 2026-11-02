@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -109,40 +110,40 @@ func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 	// The lane's task dispatched 4 minutes ago: working, its elapsed time counted from the row.
 	p.State("O-01", map[string]any{"lane": "O-01", "task": "T-01", "branch": "task/T-01",
 		"dispatched_at": now.Add(-4 * time.Minute).Unix()})
-	addEvent(t, p.Root, now.Add(-9*time.Minute), app.KindFact, "T-01", app.StepDispatched,
+	addEvent(t, p.Root, now.Add(-9*time.Minute), event.KindFact, "T-01", event.StepDispatched,
 		map[string]any{"lane": "O-01"})
-	addEvent(t, p.Root, now.Add(-8*time.Minute), app.KindFact, "T-01", app.StepSubmitted,
+	addEvent(t, p.Root, now.Add(-8*time.Minute), event.KindFact, "T-01", event.StepSubmitted,
 		map[string]any{"lane": "O-01", "report": "Summary: x"})
-	addEvent(t, p.Root, now.Add(-7*time.Minute), app.KindResult, "T-01", app.StepGate,
+	addEvent(t, p.Root, now.Add(-7*time.Minute), event.KindResult, "T-01", event.StepGate,
 		map[string]any{"outcome": "green", "line": "GREEN T-01"})
-	addEvent(t, p.Root, now.Add(-6*time.Minute), app.KindResult, "T-01", "gate.2",
+	addEvent(t, p.Root, now.Add(-6*time.Minute), event.KindResult, "T-01", "gate.2",
 		map[string]any{"outcome": "red", "line": "RED T-01: e2e failed"})
-	addEvent(t, p.Root, now.Add(-5*time.Minute), app.KindResult, "T-01", "accept.c1",
+	addEvent(t, p.Root, now.Add(-5*time.Minute), event.KindResult, "T-01", "accept.c1",
 		map[string]any{"job": "T-01/1/review", "note": "ok"})
-	addEvent(t, p.Root, now.Add(-4*time.Minute), app.KindFact, "T-01", app.StepSendback,
+	addEvent(t, p.Root, now.Add(-4*time.Minute), event.KindFact, "T-01", event.StepSendback,
 		map[string]any{"note": "fix the test"})
-	addEvent(t, p.Root, now.Add(-3*time.Minute), app.KindFact, "T-01", app.StepNeedsYou,
+	addEvent(t, p.Root, now.Add(-3*time.Minute), event.KindFact, "T-01", event.StepNeedsYou,
 		map[string]any{"lane": "O-01", "reason": "held: decide", "cause": "held"})
-	addEvent(t, p.Root, now.Add(-2*time.Minute), app.KindFact, "T-01", app.StepMerged,
+	addEvent(t, p.Root, now.Add(-2*time.Minute), event.KindFact, "T-01", event.StepMerged,
 		map[string]any{"head": "abcdef0123456789"})
-	addEvent(t, p.Root, now.Add(-100*time.Second), app.KindFact, "review", app.StepReviewRequest,
+	addEvent(t, p.Root, now.Add(-100*time.Second), event.KindFact, "review", event.StepReviewRequest,
 		map[string]any{"after": []string{"T-01"}})
-	addEvent(t, p.Root, now.Add(-90*time.Second), app.KindFact, "review", app.StepReviewStarted,
+	addEvent(t, p.Root, now.Add(-90*time.Second), event.KindFact, "review", event.StepReviewStarted,
 		map[string]any{"id": "RV-3", "head": "abcdef0123456789"})
-	addEvent(t, p.Root, now.Add(-80*time.Second), app.KindFact, app.MsgTask, app.StepMessage,
+	addEvent(t, p.Root, now.Add(-80*time.Second), event.KindFact, event.MsgTask, event.StepMessage,
 		map[string]any{"to": "pj-lead", "line": "[obor other] hi"})
 	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
 		Tasks: []app.TaskStatus{{Task: "T-02", State: "waiting", After: []string{"T-01"},
 			Why: "dispatch T-02: no free lane of the types"}},
-		Facts: []app.Record{
-			{Seq: 1, TS: now.Add(-4 * time.Minute).UTC().Format(time.RFC3339), Task: "T-09", Step: app.StepNeedsYou,
-				Kind: app.KindFact, Data: json.RawMessage(`{"lane":"O-09","reason":"asks: may I?"}`)},
+		Facts: []event.Record{
+			{Seq: 1, TS: now.Add(-4 * time.Minute).UTC().Format(time.RFC3339), Task: "T-09", Step: event.StepNeedsYou,
+				Kind: event.KindFact, Data: json.RawMessage(`{"lane":"O-09","reason":"asks: may I?"}`)},
 		},
 		Watches: []app.WatchStatus{{Task: "T-02", By: "pj-lead", Note: "restart serve, then release",
 			Since: now.Add(-3 * time.Minute).Unix()}},
 		Answers: map[int64]string{1: `obor answer T-09 "<text>"`},
-		Paused:  &app.Pause{Why: "quota", Caller: "pj-lead"},
+		Paused:  &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Review:  "review request since 3m (now)",
 	}}
 	return p, serveStatus(t, app.SocketPath(p.Root), ss)
@@ -223,9 +224,9 @@ func TestMonitorPendingLine(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	st := view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
 		Pending: []app.PendingStep{
-			{Step: app.StepAfterMerge, Task: "T-1", Since: now.Add(-time.Hour).Unix(),
+			{Step: event.StepAfterMerge, Task: "T-1", Since: now.Add(-time.Hour).Unix(),
 				Error: "git I/O: index.lock exists", FailedAt: now.Add(-4 * time.Minute).Unix()},
-			{Step: app.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
+			{Step: event.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
 		}}
 	sec := queueRows(st, renderOpts{now: now, cols: 100}, palette{})
 	want := "  pending: after_merge T-1 (failed 4m ago: git I/O: index.lock exists) · gate T-2 (queued)"
@@ -272,7 +273,7 @@ func TestMonitorFitsTerminal(t *testing.T) {
 		t.Fatalf("precondition: the event line is %d runes, not longer than the terminal's 80", n)
 	}
 	p, _ := monitorFx(t, now)
-	addEvent(t, p.Root, now.Add(-70*time.Second), app.KindFact, app.MsgTask, app.StepMessage,
+	addEvent(t, p.Root, now.Add(-70*time.Second), event.KindFact, event.MsgTask, event.StepMessage,
 		map[string]any{"to": "pj-lead", "line": strings.Repeat("x", 100)})
 	m := monitorOf(t, p, now, 14)
 	m.width = func() int { return 80 }
@@ -384,7 +385,7 @@ func TestMonitorRedrawsOnRecordsAndTime(t *testing.T) {
 	if _, drawn := m.tick(); drawn {
 		t.Error("a frame drawn though nothing changed")
 	}
-	addEvent(t, p.Root, clock, app.KindFact, "T-01", app.StepSubmitted, map[string]any{"lane": "O-01"})
+	addEvent(t, p.Root, clock, event.KindFact, "T-01", event.StepSubmitted, map[string]any{"lane": "O-01"})
 	if _, drawn := m.tick(); !drawn {
 		t.Error("no frame on a new record")
 	}

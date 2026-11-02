@@ -23,8 +23,8 @@ import (
 // runs, or a start that did not carry the wake, gets the job's wake typed (send); a job whose prompt failed is sent
 // again under its key.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
-	key := Key{mt.task, mt.attempt, jobStep}
-	start := Key{mt.task, mt.attempt, stepStart + jobStep}
+	key := Key{Task: mt.task, Attempt: mt.attempt, Step: jobStep}
+	start := Key{Task: mt.task, Attempt: mt.attempt, Step: stepStart + jobStep}
 	for n := 2; p.log.Done(start); n++ {
 		start.Step = nth(stepStart+jobStep, n)
 	}

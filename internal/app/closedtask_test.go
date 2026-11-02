@@ -158,7 +158,7 @@ func TestRejectSettlesWatchdogNotification(t *testing.T) {
 			if _, pending := p.log.Intent(k); pending {
 				t.Error("the notification of the rejected task's watchdog fact is still pending")
 			}
-			if got := string(p.log.results[k].Data); got != `"not run: T-4 rejected"` {
+			if got := string(p.log.Results[k].Data); got != `"not run: T-4 rejected"` {
 				t.Errorf("its result = %s, want not run", got)
 			}
 			a.notify(context.Background())
@@ -202,7 +202,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 				a, p = r.reload(c.proj)
 			}
 			if _, pending := p.log.Intent(k); !pending {
-				t.Errorf("the notification of the merge-loop needs-you was settled: %s", p.log.results[k].Data)
+				t.Errorf("the notification of the merge-loop needs-you was settled: %s", p.log.Results[k].Data)
 			}
 			a.needsLines()
 			lines := 0

@@ -168,7 +168,7 @@ func (h *harness) stop(f *idAgents) (string, error) {
 // wake sends pj-o-01's work job T-1/1/work (send) through fx; true: sent.
 func (h *harness) wake(fx *Loop) bool {
 	return h.a.send(context.Background(), h.proj(), fx, mtask{task: "T-1", attempt: 1, lane: "O-01", agent: "pj-o-01"},
-		Key{"T-1", 1, StepWork}, "T-1/1/work", promptData{Agent: "pj-o-01"}, wakeText, "work job")
+		Key{Task: "T-1", Attempt: 1, Step: StepWork}, "T-1/1/work", promptData{Agent: "pj-o-01"}, wakeText, "work job")
 }
 
 // brief records a brief to agent (line "": its start carried it).
@@ -786,10 +786,10 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	h.a.connected = false
 	h.a.mu.Unlock()
 	f := &idAgents{}
-	if h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt) || p.log.Done(Key{"T-1", 1, StepStop}) ||
+	if h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt) || p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}) ||
 		len(f.stops) != 0 {
 		t.Fatalf("disconnected: stops %q, result %v; want no stop, the step pending", f.stops,
-			p.log.Done(Key{"T-1", 1, StepStop}))
+			p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}))
 	}
 	h.connect()
 	if line, err := h.stop(f); err != nil || !slices.Equal(f.stops, []string{"pj-o-01 w1:p1"}) {
@@ -1184,9 +1184,9 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 		t.Fatalf("precondition: %d stops, want one", f.stops)
 	}
 	eqs(t, h.where("pj-o-01"), "ambiguous w1:p1 w1:p3", "after")
-	if advanced || p.log.Done(Key{"T-1", 1, StepStop}) || mt.after != before {
+	if advanced || p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}) || mt.after != before {
 		t.Errorf("advanced %v, result %v, after %d (was %d): want the stop pending", advanced,
-			p.log.Done(Key{"T-1", 1, StepStop}), mt.after, before)
+			p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}), mt.after, before)
 	}
 }
 

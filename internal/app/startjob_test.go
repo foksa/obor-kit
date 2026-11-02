@@ -114,7 +114,7 @@ func TestStartJobIntegrator(t *testing.T) {
 				if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) || !f.launches[0].Fresh {
 					t.Fatalf("launches %+v, want one fresh with the first prompt %q", f.launches, wakeLine(job))
 				}
-				same(t, done(p, Key{"T-1", 1, row.start}), true, row.start+" done")
+				same(t, done(p, Key{Task: "T-1", Attempt: 1, Step: row.start}), true, row.start+" done")
 				same(t, early.State+" "+early.Job, "job "+job, "job_next during the start")
 			}
 			same(t, len(f.typed), row.typed, "Typer calls")
@@ -122,7 +122,7 @@ func TestStartJobIntegrator(t *testing.T) {
 			if row.typed > 0 {
 				want = `"sent"`
 			}
-			same(t, resultOf(p, Key{"T-1", 1, row.job}), want, row.job+" result")
+			same(t, resultOf(p, Key{Task: "T-1", Attempt: 1, Step: row.job}), want, row.job+" result")
 			if row.start != "" {
 				same(t, deliveredOf(r, job), 1, "delivered facts of "+job)
 				r.a.mu.Lock()
@@ -170,9 +170,9 @@ func TestStartJobOtherPatch(t *testing.T) {
 }
 
 func resultOf(p *proj, k Key) string {
-	p.log.mu.Lock()
-	defer p.log.mu.Unlock()
-	return string(p.log.results[k].Data)
+	p.log.Mu.Lock()
+	defer p.log.Mu.Unlock()
+	return string(p.log.Results[k].Data)
 }
 
 func done(p *proj, k Key) bool { return p.log.Done(k) }
@@ -284,8 +284,8 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	fx := &Loop{Agents: f, Typer: f, Kit: r.kit}
 	mt := *p.folded.loop["T-2"]
 	d := startData{Agent: mt.agent, Pane: "w1:p2"}
-	if !r.a.startWorker(context.Background(), p, fx, mt, Key{mt.task, mt.attempt, StepStartWork}, d,
-		Key{mt.task, mt.attempt, StepWork}) {
+	if !r.a.startWorker(context.Background(), p, fx, mt, Key{Task: mt.task, Attempt: mt.attempt, Step: StepStartWork}, d,
+		Key{Task: mt.task, Attempt: mt.attempt, Step: StepWork}) {
 		t.Fatal("start failed")
 	}
 	if !r.a.sendWork(context.Background(), p, fx, *p.folded.loop[mt.task], StepWork) {

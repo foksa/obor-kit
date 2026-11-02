@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/view"
 )
 
@@ -144,7 +145,7 @@ func headerLine(st view.Project, o renderOpts, p palette) string {
 			if r.Task != "" {
 				item += " " + r.Task
 			}
-			if r.Step != app.StepServeRestart {
+			if r.Step != event.StepServeRestart {
 				item += " " + p.dim(elapsed(o.now.Sub(time.Unix(r.Since, 0))))
 			}
 			items = append(items, item)

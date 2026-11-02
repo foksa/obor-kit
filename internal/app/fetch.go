@@ -42,9 +42,9 @@ func (mt *mtask) workerJob() (Key, bool) {
 	}
 	switch {
 	case (st == stDispatched || st == stWorking) && mt.work != "":
-		return Key{mt.task, mt.attempt, mt.work}, true
+		return Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}, true
 	case st == stWorking && mt.fixed:
-		return Key{mt.task, mt.attempt, nth(StepFix, mt.fixes)}, true
+		return Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepFix, mt.fixes)}, true
 	}
 	return Key{}, false
 }

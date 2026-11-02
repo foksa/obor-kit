@@ -59,8 +59,6 @@ import (
 const (
 	MethodStopped = "stopped" // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
 	MethodTurn    = "turn"    // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
-	StepStopped   = "stopped" // fact: an agent's turn ended on an API error (data: stoppedData)
-	StepTurned    = "turned"  // fact: a briefed role agent's stop ended with its next turn (data: turnedData)
 
 	causeStopped = "stopped" // a watchdog needs-you's cause: the worker's turn ended on an API error
 )

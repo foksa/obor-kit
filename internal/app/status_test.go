@@ -68,10 +68,10 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 	gated, published := logNow.Add(30*time.Second), logNow.Add(2*time.Minute)
 	night := logNow.Add(3 * time.Minute)
 	p := &proj{exec: map[Key]time.Time{
-		{"T-1", 1, StepGate + ".2"}:                   gated,
-		{"T-3", 0, StepPublish + ".2"}:                published,
-		{NightlyTask, 0, StepNightly + ".2026-11-01"}: night,
-		{"T-5", 0, StepStop}:                          published, // a start: no command the line shows
+		{Task: "T-1", Attempt: 1, Step: StepGate + ".2"}:                   gated,
+		{Task: "T-3", Attempt: 0, Step: StepPublish + ".2"}:                published,
+		{Task: NightlyTask, Attempt: 0, Step: StepNightly + ".2026-11-01"}: night,
+		{Task: "T-5", Attempt: 0, Step: StepStop}:                          published, // a start: no command the line shows
 	}, folded: newFolded()}
 	want := []RunningStep{
 		{Step: StepGate, Task: "T-1", Since: gated.Unix()},
@@ -161,7 +161,7 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 	}
 	// T-2's after_merge runs now, three minutes after its intent: running from that start, out of the pending line.
 	started := logNow.Add(3 * time.Minute)
-	p.exec[Key{"T-2", 0, StepAfterMerge}] = started
+	p.exec[Key{Task: "T-2", Attempt: 0, Step: StepAfterMerge}] = started
 	if got, want := p.runningSteps(open), []RunningStep{{Step: StepAfterMerge, Task: "T-2", Since: started.Unix()}}; len(got) != 1 || got[0] != want[0] {
 		t.Errorf("running steps %+v, want after_merge T-2 from %d (its intent's time is %d)", got, started.Unix(), logNow.Unix())
 	}

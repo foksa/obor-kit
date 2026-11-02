@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/event"
 )
 
 // TestEventLineBad: the wording and the bad flag of the records a gate, a hold, a question and a merge word.
@@ -21,21 +21,21 @@ func TestEventLineBad(t *testing.T) {
 		wantLine string
 		wantBad  bool
 	}{
-		{"a green gate whose summary counts a fail", app.KindResult, app.StepGate,
+		{"a green gate whose summary counts a fail", event.KindResult, event.StepGate,
 			`{"outcome":"green","line":"check 25 pass, 0 fail"}`,
 			"gate T-1 pass (check 25 pass, 0 fail)", false},
-		{"a red gate", app.KindResult, app.StepGate,
+		{"a red gate", event.KindResult, event.StepGate,
 			`{"outcome":"red","line":"RED T-1: e2e failed"}`,
 			"gate T-1 fail (RED T-1: e2e failed)", true},
-		{"a hold", app.KindFact, app.StepNeedsYou,
+		{"a hold", event.KindFact, event.StepNeedsYou,
 			`{"cause":"held","reason":"held: decide"}`,
 			"held T-1: decide", true},
-		{"a question", app.KindFact, app.StepNeedsYou,
+		{"a question", event.KindFact, event.StepNeedsYou,
 			`{"reason":"asks: may I?"}`, "", false},
-		{"a merge", app.KindFact, app.StepMerged,
+		{"a merge", event.KindFact, event.StepMerged,
 			`{"head":"abcdef0123"}`, "merged T-1 abcdef0", false},
 	} {
-		line, bad := eventLine(app.Record{Task: "T-1", Kind: c.kind, Step: c.step, Data: json.RawMessage(c.data)})
+		line, bad := eventLine(event.Record{Task: "T-1", Kind: c.kind, Step: c.step, Data: json.RawMessage(c.data)})
 		if line != c.wantLine || bad != c.wantBad {
 			t.Errorf("%s: line %q bad %v, want %q bad %v", c.name, line, bad, c.wantLine, c.wantBad)
 		}

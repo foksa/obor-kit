@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -44,13 +45,13 @@ func matchLine(t *testing.T, text, re, what string) {
 }
 
 // fact is a needs-you of task with data d, as serve's status lists it.
-func fact(t *testing.T, seq int64, task string, d app.FactData) app.Record {
+func fact(t *testing.T, seq int64, task string, d event.FactData) event.Record {
 	t.Helper()
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return app.Record{Seq: seq, Task: task, Step: app.StepNeedsYou, Kind: app.KindFact, Data: b}
+	return event.Record{Seq: seq, Task: task, Step: event.StepNeedsYou, Kind: event.KindFact, Data: b}
 }
 
 // Serve up: its start and age, each lane with serve's task state and agent, serve's open tasks (not dropped) and agents
@@ -70,21 +71,21 @@ func TestStatusOverServe(t *testing.T) {
 	p.Write(".obor/pause", "-\nold file\n") // T-465: no reader; serve's pause is the one
 	since := now.Add(-2 * time.Hour).UTC()
 	ss := app.Status{Since: since.Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true, Paused: &app.Pause{Why: "quota", Caller: "pj-lead"},
+		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01", Status: "idle"},
 			{Pane: "w1:p9", Name: "pj-int", Agent: "claude", Status: "working", Age: 300}},
 		Tasks: []app.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working"},
 			{Task: "T-05", Lane: "O-09", Attempt: 2, State: "needs-you"}, {Task: "T-04", Lane: "O-09", State: "dropped"},
 			{Task: "T-09", Attempt: 1, State: "waiting", After: []string{"T-03"}, Why: "dispatch T-09: lane O-01 is working on T-01"}},
-		Facts: []app.Record{
-			fact(t, 1, "T-01", app.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"}),
-			fact(t, 2, "T-05", app.FactData{Lane: "O-09", Reason: "gate red after 2 sendbacks", Merge: true, Cause: "red"}),
-			fact(t, 3, "T-06", app.FactData{Lane: "O-08", Reason: "rejected by the integrator: no", Merge: true, Cause: "rejected"}),
-			fact(t, 4, "T-07", app.FactData{Lane: "O-07", Reason: "stalled"}),
-			fact(t, 5, "T-08", app.FactData{Lane: "O-06", Reason: "job not delivered: …", Merge: true, Cause: "job not delivered"}),
-			fact(t, 6, app.LoopTask, app.FactData{Reason: "loop: lanes: broken"}),
-			fact(t, 8, app.MsgTask, app.FactData{Reason: "line to pj-lead from other waiting over 1d for its delivery: [obor other] hi"}),
-			{Seq: 7, Task: "T-01", Step: app.StepStalled, Kind: app.KindFact}, // not a needs-you: not listed
+		Facts: []event.Record{
+			fact(t, 1, "T-01", event.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"}),
+			fact(t, 2, "T-05", event.FactData{Lane: "O-09", Reason: "gate red after 2 sendbacks", Merge: true, Cause: "red"}),
+			fact(t, 3, "T-06", event.FactData{Lane: "O-08", Reason: "rejected by the integrator: no", Merge: true, Cause: "rejected"}),
+			fact(t, 4, "T-07", event.FactData{Lane: "O-07", Reason: "stalled"}),
+			fact(t, 5, "T-08", event.FactData{Lane: "O-06", Reason: "job not delivered: …", Merge: true, Cause: "job not delivered"}),
+			fact(t, 6, event.LoopTask, event.FactData{Reason: "loop: lanes: broken"}),
+			fact(t, 8, event.MsgTask, event.FactData{Reason: "line to pj-lead from other waiting over 1d for its delivery: [obor other] hi"}),
+			{Seq: 7, Task: "T-01", Step: event.StepStalled, Kind: event.KindFact}, // not a needs-you: not listed
 		},
 		Messages: []app.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 90000},
 			{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] verify 3", Age: 120}},
@@ -340,8 +341,8 @@ func TestStatusShowsWaiting(t *testing.T) {
 // --facts adds one line per fact in force: its seq, time, task, step{reason} and lane.
 func TestStatusFactLine(t *testing.T) {
 	var buf bytes.Buffer
-	writeFacts(&buf, "", []app.Record{{Seq: 7, TS: "2026-10-28T10:00:00Z", Task: "T-1", Step: app.StepNeedsYou,
-		Kind: app.KindFact, Data: json.RawMessage(`{"lane":"O-01","reason":"held"}`)}})
+	writeFacts(&buf, "", []event.Record{{Seq: 7, TS: "2026-10-28T10:00:00Z", Task: "T-1", Step: event.StepNeedsYou,
+		Kind: event.KindFact, Data: json.RawMessage(`{"lane":"O-01","reason":"held"}`)}})
 	if got := buf.String(); !strings.HasPrefix(got, "fact #7 2026-10-28T10:00:00Z T-1 ") || !strings.HasSuffix(got, "(O-01)\n") {
 		t.Errorf("fact line %q", got)
 	}
@@ -391,23 +392,23 @@ func TestStatusRunningLine(t *testing.T) {
 		want    string
 	}{
 		{"nothing open", nil, "running: nothing"},
-		{"gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check",
+		{"gate", []app.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check",
 			Since: now.Add(-2*time.Minute - 14*time.Second).Unix()}}, "running: gate T-656 (make -s check, 2m14s)"},
 		// T-669 (RV-75 #4), T-673: a partial gate shows the class's command serve says it runs; between two commands
 		// (the runner clears it as each ends) none, so the line names no command either.
-		{"partial gate", []app.RunningStep{{Step: app.StepGate, Task: "T-656", Command: "check_affected",
+		{"partial gate", []app.RunningStep{{Step: event.StepGate, Task: "T-656", Command: "check_affected",
 			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (make -s check-affected, 14s)"},
-		{"gate between two commands", []app.RunningStep{{Step: app.StepGate, Task: "T-656",
+		{"gate between two commands", []app.RunningStep{{Step: event.StepGate, Task: "T-656",
 			Since: now.Add(-14 * time.Second).Unix()}}, "running: gate T-656 (14s)"},
 		{"two steps at once", []app.RunningStep{
-			{Step: app.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
-			{Step: app.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
+			{Step: event.StepGate, Task: "T-656", Command: "check", Since: now.Add(-2*time.Minute - 14*time.Second).Unix()},
+			{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-12 * time.Second).Unix()}},
 			"running: gate T-656 (make -s check, 2m14s) · after_merge T-655 (make build, 12s)"},
-		{"publish", []app.RunningStep{{Step: app.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
+		{"publish", []app.RunningStep{{Step: event.StepPublish, Task: "T-4", Since: now.Add(-5 * time.Second).Unix()}},
 			"running: publish T-4 (5s)"},
-		{"nightly check", []app.RunningStep{{Step: app.StepNightly, Since: now.Add(-90 * time.Second).Unix()}},
+		{"nightly check", []app.RunningStep{{Step: event.StepNightly, Since: now.Add(-90 * time.Second).Unix()}},
 			"running: nightly check (make -s check, 1m30s)"},
-		{"restarting serve", []app.RunningStep{{Step: app.StepServeRestart, Since: now.Unix()}},
+		{"restarting serve", []app.RunningStep{{Step: event.StepServeRestart, Since: now.Unix()}},
 			"running: restarting serve"},
 	} {
 		ss := app.Status{Connected: true, Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Running: c.running}}
@@ -420,11 +421,11 @@ func TestStatusRunningLine(t *testing.T) {
 			t.Errorf("%s: the line under serve's = %q, want %q\n%s", c.name, lines[1], c.want, text)
 		}
 		for _, r := range st.Running { // --json: the same command the text names
-			if r.Step != app.StepServeRestart && r.Step != app.StepPublish && r.Command != "" &&
+			if r.Step != event.StepServeRestart && r.Step != event.StepPublish && r.Command != "" &&
 				!strings.Contains(lines[1], "("+r.Command+", ") {
 				t.Errorf("%s: --json running %+v, its command not on the text line %q", c.name, r, lines[1])
 			}
-			if r.Step == app.StepGate && r.Command == "" && strings.Contains(lines[1], "make") {
+			if r.Step == event.StepGate && r.Command == "" && strings.Contains(lines[1], "make") {
 				t.Errorf("%s: --json has no command, the text guesses one: %q", c.name, lines[1])
 			}
 		}
@@ -439,23 +440,23 @@ func TestStatusPendingLine(t *testing.T) {
 	p.Config()
 	now := time.Now().Truncate(time.Second)
 	pending := []app.PendingStep{
-		{Step: app.StepAfterMerge, Task: "T-655", Since: now.Add(-time.Hour).Unix(),
+		{Step: event.StepAfterMerge, Task: "T-655", Since: now.Add(-time.Hour).Unix(),
 			Error: "git I/O: index.lock exists", FailedAt: now.Add(-3 * time.Minute).Unix()},
-		{Step: app.StepGate, Task: "T-656", Since: now.Add(-time.Minute).Unix()},
+		{Step: event.StepGate, Task: "T-656", Since: now.Add(-time.Minute).Unix()},
 	}
 	ss := app.Status{Connected: true, Project: &app.ProjectStatus{Name: "pj", Root: p.Root,
-		Running: []app.RunningStep{{Step: app.StepGate, Task: "T-654", Since: now.Add(-time.Minute).Unix()}},
+		Running: []app.RunningStep{{Step: event.StepGate, Task: "T-654", Since: now.Add(-time.Minute).Unix()}},
 		Pending: pending}}
 	st, text := statusOf(t, p, ss, nil, now)
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	if len(lines) < 3 || lines[2] != "pending: after_merge T-655 (failed 3m ago: git I/O: index.lock exists) · gate T-656 (queued)" {
 		t.Errorf("the line under the running one = %q, want the two pending steps:\n%s", lines, text)
 	}
-	if len(st.Pending) != 2 || st.Pending[0].Error != pending[0].Error || st.Pending[1].Step != app.StepGate {
+	if len(st.Pending) != 2 || st.Pending[0].Error != pending[0].Error || st.Pending[1].Step != event.StepGate {
 		t.Errorf("--json pending %+v, want serve's two steps", st.Pending)
 	}
 	// A reason keeps its first line only.
-	ss.Project.Pending = []app.PendingStep{{Step: app.StepAfterMerge, Task: "T-655", FailedAt: now.Unix(),
+	ss.Project.Pending = []app.PendingStep{{Step: event.StepAfterMerge, Task: "T-655", FailedAt: now.Unix(),
 		Error: "FAIL T-655\nsecond line"}}
 	_, text = statusOf(t, p, ss, nil, now)
 	if !strings.Contains(text, "pending: after_merge T-655 (failed 0s ago: FAIL T-655)") {
@@ -475,10 +476,10 @@ func TestStatusShort(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
-		Running:  []app.RunningStep{{Step: app.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
+		Running:  []app.RunningStep{{Step: event.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
 		Tasks:    []app.TaskStatus{{Task: "T-2", Lane: "O-02", Attempt: 1, State: "working"}},
 		Messages: []app.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
-		Facts:    []app.Record{fact(t, 1, "T-3", app.FactData{Lane: "O-03", Reason: "stalled"})},
+		Facts:    []event.Record{fact(t, 1, "T-3", event.FactData{Lane: "O-03", Reason: "stalled"})},
 	}}
 	st, _ := statusOf(t, p, ss, nil, now)
 	var b bytes.Buffer
@@ -533,7 +534,7 @@ func TestStatusQueue(t *testing.T) {
 	p.Spec("T-20", "# T-20 — never sent\n")
 	now := time.Now().Truncate(time.Second)
 	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true, Paused: &app.Pause{Why: "quota", Caller: "pj-lead"},
+		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-int", Agent: "claude", Status: "idle", Age: 120,
 			Session: "s1"}},
 		Tasks: []app.TaskStatus{
@@ -735,7 +736,7 @@ func TestStatusStoppedRole(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	ss := app.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
 		Name: "proj", Root: p.Root, Merging: true, Agents: []app.AgentStatus{}, Tasks: []app.TaskStatus{},
-		Facts: []app.Record{}, Stopped: []string{"pj-int"}}}
+		Facts: []event.Record{}, Stopped: []string{"pj-int"}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	roles := map[string]string{}
 	for _, r := range st.Roles {
@@ -762,7 +763,7 @@ func TestStatusStoppedRoleTextJSONMonitor(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	ss := app.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
 		Name: "proj", Root: p.Root, Merging: true, Agents: []app.AgentStatus{}, Tasks: []app.TaskStatus{},
-		Facts: []app.Record{}, Stopped: []string{"pj-advisor"}}}
+		Facts: []event.Record{}, Stopped: []string{"pj-advisor"}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	r := roleRowOf(t, st, "pj-advisor")
 	if r == nil {
@@ -814,11 +815,11 @@ func TestStatusEventsBad(t *testing.T) {
 	p := testkit.New(t)
 	p.Config()
 	now := time.Now().Truncate(time.Second)
-	addEvent(t, p.Root, now.Add(-3*time.Minute), app.KindResult, "T-1", app.StepGate,
+	addEvent(t, p.Root, now.Add(-3*time.Minute), event.KindResult, "T-1", event.StepGate,
 		map[string]any{"outcome": "green", "line": "check 25 pass, 0 fail"})
-	addEvent(t, p.Root, now.Add(-2*time.Minute), app.KindResult, "T-2", app.StepGate,
+	addEvent(t, p.Root, now.Add(-2*time.Minute), event.KindResult, "T-2", event.StepGate,
 		map[string]any{"outcome": "red", "line": "e2e failed"})
-	addEvent(t, p.Root, now.Add(-time.Minute), app.KindFact, "T-3", app.StepNeedsYou,
+	addEvent(t, p.Root, now.Add(-time.Minute), event.KindFact, "T-3", event.StepNeedsYou,
 		map[string]any{"reason": "held: decide", "cause": "held"})
 	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Merging: true}}

@@ -56,7 +56,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
 	same(t, len(f.launches), 1, "starts while T-1's job is out")
-	same(t, p.log.Open(Key{"T-5", 1, StepReview}) || done(p, Key{"T-5", 1, StepReview}), false, "T-5's review recorded")
+	same(t, p.log.Open(Key{Task: "T-5", Attempt: 1, Step: StepReview}) || done(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), false, "T-5's review recorded")
 
 	if _, err := r.a.verdict(ctx, MethodAccept, Call{Root: p.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
 		CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
@@ -81,7 +81,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	}
 	same(t, len(f.launches), 2, "starts (one per job)")
 	same(t, len(f.typed), 0, "typed wakes")
-	same(t, resultOf(p, Key{"T-5", 1, StepReview}), `"sent (start prompt)"`, "T-5's review result")
+	same(t, resultOf(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), `"sent (start prompt)"`, "T-5's review result")
 }
 
 // The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
@@ -172,7 +172,7 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
 	same(t, len(f.launches), 1, "starts while T-1's job is out")
-	same(t, p.log.Open(Key{"T-5", 1, StepReview}) || done(p, Key{"T-5", 1, StepReview}), false,
+	same(t, p.log.Open(Key{Task: "T-5", Attempt: 1, Step: StepReview}) || done(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), false,
 		"T-5's review recorded")
 
 	// T-1's verdict, then its turn's end: T-5 starts fresh, not forced.
@@ -275,9 +275,9 @@ func TestFreshIntegratorReplay(t *testing.T) {
 		t.Fatal("the replayed job step failed")
 	}
 	same(t, len(f.launches), 0, "starts on the replay")
-	same(t, done(p, Key{"T-1", 1, "start.review"}), true, "start.review done")
+	same(t, done(p, Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
 	same(t, len(f.typed), 1, "typed wakes")
-	same(t, resultOf(p, Key{"T-1", 1, StepReview}), `"sent"`, "T-1's review result")
+	same(t, resultOf(p, Key{Task: "T-1", Attempt: 1, Step: StepReview}), `"sent"`, "T-1's review result")
 
 	r.add("pj", "T-1", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
 	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})

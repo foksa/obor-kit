@@ -53,18 +53,11 @@ import (
 // when its turn continues, and it cannot answer the dialog). A line waiting longer than msgWait is the project's
 // needs-you until no such line waits.
 
-// MsgTask is the task key of a project's lines: their facts, deliveries and needs-you.
-const MsgTask = "msg"
-
 const (
 	MethodSend  = "send"  // Call.Root the target project, Call.From the sender project, Call.Note the text
 	MethodBrief = "brief" // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
 
-	StepMessage    = "message"    // fact: a line to type (data: Message)
-	StepBriefed    = "briefed"    // fact: a role agent was briefed (data: Message; Line "" when its start carried it)
-	StepWorked     = "worked"     // fact: a briefed agent's pane worked since its brief (data: workedData)
-	StepSuperseded = "superseded" // fact (older logs; now briefed's supersedes): a brief ends a line (data: supersededData)
-	stepDeliver    = "deliver."   // prompt intent/result (P) deliver.<seq>: the line of fact <seq> delivered (posted or typed)
+	stepDeliver = "deliver." // prompt intent/result (P) deliver.<seq>: the line of fact <seq> delivered (posted or typed)
 )
 
 // msgWait is how long a line may wait for its delivery before it needs the owner.
@@ -77,24 +70,6 @@ const (
 	needsAgain      = 30 * time.Minute
 	needsAgainEvery = 60 * time.Minute
 )
-
-// Message is a line fact's data: the agent it goes to and the line typed, who sent it, the brief it ends, and the
-// call that recorded it with its reply.
-type Message struct {
-	To     string `json:"to"`
-	Line   string `json:"line,omitempty"`
-	From   string `json:"from,omitempty"`
-	Ends   string `json:"ends,omitempty"`
-	Needs  int64  `json:"needs,omitempty"`  // the seq of the needs-you fact this line announces
-	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a watch's line: the task or comma list watched
-	Watch  int64  `json:"watch,omitempty"`  // the seq of the watch fact this line ends (mergewatch.go)
-	Review int64  `json:"review,omitempty"` // the seq of the review request this line ends (review.go)
-	Stop   int64  `json:"stop,omitempty"`   // the seq of the role agent's stop this alarm line is for (stopwake.go)
-	Call   string `json:"call,omitempty"`
-	Reply  string `json:"reply,omitempty"`
-	// Supersedes: briefed's, the seqs of the agent's undelivered brief lines this brief ends (T-580)
-	Supersedes []int64 `json:"supersedes,omitempty"`
-}
 
 // MessageStatus is one line not yet delivered (obor status): to whom, from whom, the line, and its age in seconds.
 type MessageStatus struct {

@@ -23,7 +23,7 @@ func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string, re
 		return
 	}
 	if kind == store.PromptJob {
-		newest, err := store.ReadPrompts(p.log.db, store.PromptQuery{Job: job}, 1)
+		newest, err := store.ReadPrompts(p.log.DB(), store.PromptQuery{Job: job}, 1)
 		if err != nil {
 			a.logf("FAIL prompts of %s: %v", p.name, err)
 			return
@@ -32,7 +32,7 @@ func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string, re
 			return
 		}
 	}
-	err := store.WritePrompt(p.log.db, store.PromptRow{Seq: seq, Agent: agent, Kind: kind, Job: job, Task: task,
+	err := store.WritePrompt(p.log.DB(), store.PromptRow{Seq: seq, Agent: agent, Kind: kind, Job: job, Task: task,
 		TS: a.opt.Now().UTC().Format(time.RFC3339), Rev: rev, Text: text})
 	if err != nil {
 		a.logf("FAIL prompts of %s: %v", p.name, err)
@@ -42,7 +42,7 @@ func (a *App) prompt(p *proj, seq int64, kind, agent, job, task, text string, re
 // prunePrompts drops the prompts older than promptKeep, now's 14 days (serve's nightly backup): a failed prune is
 // logged, the backup stands.
 func (a *App) prunePrompts(p *proj, now time.Time) {
-	n, err := store.PrunePrompts(p.log.db, now.Add(-promptKeep))
+	n, err := store.PrunePrompts(p.log.DB(), now.Add(-promptKeep))
 	switch {
 	case err != nil:
 		a.logf("FAIL prompts of %s: %v", p.name, err)

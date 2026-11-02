@@ -42,16 +42,6 @@ import (
 // Call.Clear ends the open request; none of them: the open request listed, else a request to start now.
 const MethodReview = "review"
 
-// ReviewTask is the task key of a project's review requests and of a failed start's needs-you.
-const ReviewTask = "review"
-
-const (
-	StepReviewRequest = "review.request" // fact: a review is requested (data: ReviewData)
-	StepReviewRm      = "review.rm"      // fact: obor review --rm ended it (data: ReviewData)
-	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
-	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
-)
-
 // reviewDue is how many merges since the last review make obor status say a review is due (more than it).
 const reviewDue = 3
 

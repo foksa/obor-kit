@@ -449,7 +449,7 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 				t.Fatalf("precondition: brief A queued, got %d", len(p.queuedLines()))
 			}
 			briefed := false
-			p.log.refuse = func(r Record) error { // the crash cut: nothing after the new brief reaches the log
+			p.log.Refuse = func(r Record) error { // the crash cut: nothing after the new brief reaches the log
 				if briefed {
 					return errors.New("cut")
 				}
