@@ -213,7 +213,7 @@ func answerPath(r event.Record, mt mtask) string {
 		cmds = append(cmds, `obor sendback `+d.Lane+` "<why>"`)
 	}
 	resume := "obor resume " + r.Task
-	if _, err := mt.resumeTo(r.Task, ""); err == nil && d.Cause == causeHeld { // the decision goes to the integrator's next job (T-511)
+	if _, err := mt.resumeTo(r.Task, ""); err == nil && d.Cause == event.CauseHeld { // the decision goes to the integrator's next job (T-511)
 		cmds = append(cmds, resume+` ["<decision>"]`)
 	} else if err == nil {
 		cmds = append(cmds, resume)

@@ -316,14 +316,14 @@ func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
 	var lane string
 	held := false
 	if mt := p.folded.loop[c.Task]; mt != nil {
-		lane, held = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == causeHeld
+		lane, held = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == event.CauseHeld
 	}
 	a.mu.Unlock()
 	if held {
 		return "", fmt.Errorf("hold: %s is held already (the owner is told)", c.Task)
 	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
-		event.FactData{Lane: lane, Machine: Machine, Reason: "held: " + c.Note, Merge: true, Cause: causeHeld, Job: JobID(job),
+		event.FactData{Lane: lane, Machine: Machine, Reason: "held: " + c.Note, Merge: true, Cause: event.CauseHeld, Job: JobID(job),
 			Call: c.CallID}) {
 		return "", fmt.Errorf("hold: the event log of %s refused it", p.name)
 	}

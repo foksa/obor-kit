@@ -225,7 +225,7 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	same(t, fetch("n1", "").Job, "T-1/1/review", "unnamed, nothing held: the oldest open job")
 	same(t, fetch("n2", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named: that job, though an older one is open")
 
-	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: event.CauseHeld, Reason: "held: why"})
 	same(t, fetch("n3", "").Job, "T-5/1/resolve.2", "unnamed, the older job held: the open one not held")
 	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
 	jr := fetch("n5", "T-1/1/review")
@@ -282,7 +282,7 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	same(t, len(f.typed), 1, "typed wakes")
 	same(t, resultOf(p, event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}), `"sent"`, "T-1's review result")
 
-	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: event.CauseHeld, Reason: "held: why"})
 	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 	if !runNext(r, p, "T-5", f) {
 		t.Fatal("T-5's job held by T-1's needs-you")

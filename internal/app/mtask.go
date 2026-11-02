@@ -257,7 +257,7 @@ func (mt *mtask) unblock(d event.FactData) {
 	if d.Note != "" { // the integrator's next job carries it (decisionText)
 		mt.decision = "Lead's decision (obor resume, " + Dash(d.Cause) + "): " + d.Note
 		switch d.Cause {
-		case causeHeld:
+		case event.CauseHeld:
 			mt.decision = "Lead's decision on your hold: " + d.Note
 		}
 	}

@@ -71,7 +71,6 @@ const (
 // default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
 const (
-	causeHeld            = event.CauseHeld
 	causeUndelivered     = "job not delivered"
 	causeStalled         = "job stalled"
 	causeRed             = "red"
@@ -88,7 +87,7 @@ const (
 )
 
 var resumeDefault = map[string]string{
-	causeHeld: wire.ResumeReprompt, causeUndelivered: wire.ResumeReprompt, causeStalled: wire.ResumeReprompt,
+	event.CauseHeld: wire.ResumeReprompt, causeUndelivered: wire.ResumeReprompt, causeStalled: wire.ResumeReprompt,
 	causeRed: wire.ResumeRegate, causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate,
 }
 
