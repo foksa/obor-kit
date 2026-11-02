@@ -78,8 +78,8 @@ func (a *App) holder(p *proj) string {
 // Admission (T-730): a start that reads the main checkout (a review's start, obor review verify, a brief to a hold
 // agent) passes one serve-owned point first. It waits while a publish runs (the head it reads is the published one),
 // and once admitted no publish starts (scratchStep refuses one) until its brief is recorded and released: from then
-// the hold above keeps the code still while the agent works. The admission and a publish's start are decided under
-// App.mu, so one of them is first. A call waits at most admitWait; the merge loop's review start does not wait, it
+// the hold above keeps the code still while the agent works. The admission, the hold and a publish's start are decided
+// together under App.mu at the publish's actual start (scratchStep, T-733), so one of them is first. A call waits at most admitWait; the merge loop's review start does not wait, it
 // tries again on the pass after the publish (the publish's end wakes the loop).
 
 // admitWait bounds a call's wait for the running publish: well inside the socket's 10 s deadline, so the brief's git
@@ -120,13 +120,32 @@ func (a *App) unadmit(p *proj) {
 	a.wake()
 }
 
-// holdPublish decides task's publish (under mu): held (it waits for role), or not; capped is the role a publish goes
-// ahead despite, once (its line to the lead), else "".
+// holding: task's publish waits for a working role now (under mu): pickAccepted's cheap filter. It starts the hold's
+// clock but decides no cap: scratchStep's holdPublish, at the publish's start, is the decision that counts (T-733).
+func (a *App) holding(p *proj, task string) bool {
+	_, _, held := a.holdState(p, task)
+	return held
+}
+
+// holdPublish decides task's publish at its start (under mu, with p.running: scratchStep): held (it waits for role),
+// or not; capped is the role a publish goes ahead despite, once (its line to the lead), else "".
 func (a *App) holdPublish(p *proj, task string) (held bool, capped string) {
-	role := a.holder(p)
+	role, h, held := a.holdState(p, task)
+	if role == "" || held || h.told {
+		return held, ""
+	}
+	h.told = true
+	p.holds[task] = h
+	return false, role
+}
+
+// holdState is task's hold now (under mu): the working role ("": none, the hold is dropped), its hold (its clock
+// started at the first check that saw the role working) and whether it still waits (inside holdCap).
+func (a *App) holdState(p *proj, task string) (role string, h mergeHold, held bool) {
+	role = a.holder(p)
 	if role == "" {
 		delete(p.holds, task)
-		return false, ""
+		return "", mergeHold{}, false
 	}
 	now := a.opt.Now()
 	h, ok := p.holds[task]
@@ -134,16 +153,8 @@ func (a *App) holdPublish(p *proj, task string) (held bool, capped string) {
 		h.since = now
 	}
 	h.role = role
-	switch {
-	case now.Sub(h.since) < holdCap:
-		p.holds[task] = h
-		return true, ""
-	case h.told:
-		return false, ""
-	}
-	h.told = true
 	p.holds[task] = h
-	return false, role
+	return role, h, now.Sub(h.since) < holdCap
 }
 
 // holdLine records the lead's line of a publish that went ahead after holdCap: false when the log refused it.

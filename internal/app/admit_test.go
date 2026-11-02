@@ -404,3 +404,113 @@ func TestAdmitInterleaving(t *testing.T) {
 			pub, started, startedHead(t, h), brief)
 	}
 }
+
+// selectPublish is the loop's step for T-1 (accepted, its publish due), selected under mu as drive does; it is run
+// later, after the caller's interleaving.
+func (r *admitRig) selectPublish() step {
+	r.h.t.Helper()
+	a := r.h.a
+	a.mu.Lock()
+	s := a.next(a.p, a.p.folded.loop["T-1"])
+	a.mu.Unlock()
+	if s == nil {
+		r.h.t.Fatal("precondition: no step selected for T-1")
+	}
+	return s
+}
+
+// T-733: a brief admitted, recorded and released between the publish's selection and its execution holds the publish
+// (scratchStep decides the hold at the start, not pickAccepted at the selection); the next pass picks it again.
+func TestHoldDecidedAtPublishStart(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, holder string
+		gap          func(t *testing.T, r *admitRig)
+	}{
+		{"deep dive brief", "deep_dive", func(t *testing.T, r *admitRig) {
+			if _, err := r.h.a.briefCall(wire.Call{Root: r.h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive", Note: "look at x"}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"reviewer brief", "reviewer", func(t *testing.T, r *admitRig) {
+			if _, err := r.h.a.briefCall(wire.Call{Root: r.h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-rev", Note: "look at y"}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"verify", "reviewer", func(t *testing.T, r *admitRig) {
+			r.git.merges = []string{"aaaaaaa1 Merge T-0: x"}
+			if _, err := r.h.a.verifyCall(wire.Call{Root: r.h.root, CallID: "v1", Role: "lead", Agent: "pj-lead", After: []string{"T-0"}}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newAdmitRig(t, false)
+			h, ctx := r.h, context.Background()
+			s := r.selectPublish()
+			c.gap(t, r)
+			h.a.mu.Lock()
+			admits, holder := h.a.p.admits, h.a.holder(h.a.p)
+			h.a.mu.Unlock()
+			if admits != 0 || holder != c.holder {
+				t.Fatalf("precondition: admits %d, holder %q; want the admission released, %s holding", admits, holder, c.holder)
+			}
+			s(ctx, r.fx)
+			h.a.effects.Wait()
+			if n := len(r.s.began); n != 0 || countStep(t, h, nth(event.StepPublish, 1)) != 0 || h.state("T-1") != stAccepted {
+				t.Fatalf("publish T-1 started despite the %s's open brief: %d publishes, %d records, T-1 %s", c.holder, n,
+					countStep(t, h, nth(event.StepPublish, 1)), h.state("T-1"))
+			}
+			if got, want := h.taskHold("T-1"), "merge held: "+c.holder+" working"; got != want {
+				t.Errorf("status hold = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// T-733: with no brief in the gap the selected publish starts; a hold past holdCap still lets the selected publish go,
+// with the lead's one line.
+func TestHoldAtPublishStartGoesAhead(t *testing.T) {
+	t.Parallel()
+	t.Run("no brief", func(t *testing.T) {
+		t.Parallel()
+		r := newAdmitRig(t, false)
+		h, ctx := r.h, context.Background()
+		r.selectPublish()(ctx, r.fx)
+		h.a.effects.Wait()
+		if n := len(r.s.began); n != 1 || countStep(t, h, nth(event.StepPublish, 1)) == 0 {
+			t.Fatalf("no brief: %d publishes begun, %d records; want the publish started", n, countStep(t, h, nth(event.StepPublish, 1)))
+		}
+		h.pass(ctx)
+		if got := h.state("T-1"); got != stMerged {
+			t.Errorf("no brief: T-1 %s, want merged", got)
+		}
+	})
+	t.Run("cap", func(t *testing.T) {
+		t.Parallel()
+		r := newAdmitRig(t, false)
+		h, ctx := r.h, context.Background()
+		h.work("w1:rev", true)
+		h.pass(ctx) // the hold's clock starts
+		if got := h.state("T-1"); got != stAccepted || len(r.s.began) != 0 {
+			t.Fatalf("precondition: T-1 %s, %d publishes; want held", got, len(r.s.began))
+		}
+		h.now = h.now.Add(holdCap)
+		s := r.selectPublish()
+		if got := h.leadLinesWith("went ahead"); len(got) != 0 {
+			t.Fatalf("the cap's line before the publish's start: %q", got)
+		}
+		s(ctx, r.fx)
+		h.a.effects.Wait()
+		h.pass(ctx)
+		if n := len(r.s.began); n != 1 || h.state("T-1") != stMerged {
+			t.Fatalf("30m held: %d publishes, T-1 %s; want one, merged", n, h.state("T-1"))
+		}
+		want := []string{"[obor] merge of T-1 went ahead: reviewer still working after 30m"}
+		if got := h.leadLinesWith("went ahead"); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("lead lines = %q, want %q", got, want)
+		}
+	})
+}

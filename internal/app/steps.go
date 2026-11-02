@@ -19,7 +19,9 @@ import (
 // scratchStep starts effect, mt's gate or publish (key step), in its own goroutine holding p's scratch (docs/state-model.md
 // "Concurrency"): every other step of p goes on meanwhile; the task waits until the
 // effect's records are folded, then the goroutine wakes the loop. A resolved verdict's check holding the scratch: the
-// next pass. False: the task waits.
+// next pass. A publish starts only when, under the same lock that sets p.running, no start is admitted and no
+// reviewer or deep dive holds the merge (holdPublish: past its cap it goes ahead with the lead's line, T-733); held,
+// it waits for the next pass. False: the task waits.
 func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, effect func(context.Context)) bool {
 	select {
 	case p.scratch <- struct{}{}:
@@ -28,17 +30,28 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	}
 	base, _ := event.StepN(step)
 	a.mu.Lock()
-	if base == event.StepPublish && p.admits > 0 { // a start reading the main checkout was admitted first (T-730)
-		a.mu.Unlock()
-		<-p.scratch
-		return false
+	capped := ""
+	if base == event.StepPublish { // the publish's start decides, with p.running below (T-733): not pickAccepted's filter
+		held := p.admits > 0 // a start reading the main checkout was admitted first (T-730)
+		if !held {
+			held, capped = a.holdPublish(p, mt.task) // a brief admitted and released since the selection holds it
+		}
+		if held { // the next pass picks it again
+			a.mu.Unlock()
+			<-p.scratch
+			return false
+		}
 	}
 	p.running = event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}
 	if base == event.StepPublish {
 		p.published = make(chan struct{})
 	}
 	a.scratched++
+	lead := p.out.lead()
 	a.mu.Unlock()
+	if capped != "" && lead != "" { // went ahead after holdCap: the lead's line first
+		a.holdLine(p, mt.task, capped)
+	}
 	a.effects.Add(1)
 	go func() {
 		defer a.effects.Done()
