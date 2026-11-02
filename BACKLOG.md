@@ -10,12 +10,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   (RV-85 closed, `obor review close`'s first use): T-712 stop clears input, T-713 role agents on the web overview +
   monitor config reload, T-714 agents' long-running processes, T-715 ship notifies leads, T-716 `obor review
   verify|close` + brief reports real findings only, T-720 checks wait while load > 2×cores, T-725..T-727 RV-85 fixes.
-  Merged, not yet reviewed: T-717 (release log + flaky rerun). **In flight**: T-718 gating on O-02 (merge hold while
-  reviewer/deep dive work; both move to the main checkout); T-728 on S-01 (bg label only for the call that started
+  Merged, not yet reviewed: T-717 (release log + flaky rerun). **Merged**: T-718 (merge hold while reviewer/deep dive work; both in the main checkout). **In flight**: T-728 on S-01 (bg label only for the call that started
   it, RV-85 #3 remainder). **Queued**: T-719 (self re-exec of serve/monitor/web, Fable advice) after T-718; the lane
   pool T-721 → T-722 → T-723 → T-724 (docs/research/untyped-lanes-advice-fable.md) after T-719. Watches carry the
-  next steps: after T-718: `git worktree remove` ~/Work/obor-kit-wt/review and deep-dive (check clean), restart
-  ob-terra and ob-deep-dive in the main checkout (`obor setup role …`); review T-717/T-718/T-719/T-728 together
+  next steps: T-718 done: review and deep-dive worktrees removed (their old files kept in docs/reviews/), ob-terra
+  and ob-deep-dive panes re-placed in the main checkout; release notes must tell other leads they may remove theirs; review T-717/T-718/T-719/T-728 together
   (`obor review`, then `obor review verify`, `obor review close`; at most two rounds); after the pool: obor-kit lanes
   become L-01..L-04 untyped (no pinned lane; Codex only for reviews), remove the 8 old lane worktrees after checking
   each is clean and merged, then v0.20.0 (UPGRADE-v0.20 from T-724, releases/v0.20.0.md, `make release`, owner
