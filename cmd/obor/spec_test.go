@@ -73,7 +73,7 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir()}, "spec", "set", "T-07", draft); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), callDown}, "spec", "set", "T-07", draft); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}

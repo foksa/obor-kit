@@ -148,12 +148,18 @@ const answerWait = 20 * time.Second
 
 // start runs a server on pipes with env and cwd; the client writes requests and reads the one line of each answer.
 func start(t *testing.T, env project.Env, cwd string) *client {
+	return startCtx(t, context.Background(), env, cwd)
+}
+
+// startCtx is start with ctx, which its tool calls have: a short one ends a call to a serve that is not running at
+// once, not at the deadline table's 15 s (T-685).
+func startCtx(t *testing.T, ctx context.Context, env project.Env, cwd string) *client {
 	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		err := Serve(context.Background(), Options{Env: env, Cwd: cwd, In: inR, Out: outW})
+		err := Serve(ctx, Options{Env: env, Cwd: cwd, In: inR, Out: outW})
 		outW.Close()
 		done <- err
 	}()
@@ -555,7 +561,11 @@ func TestMalformedLineAndUnknownMethod(t *testing.T) {
 func TestToolErrorsAreResults(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	c := start(t, f.worker(), f.lane)
+	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running at once, not
+	// at the deadline table's 15 s (T-685). The answers after it need no serve.
+	down, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	c := startCtx(t, down, f.worker(), f.lane)
 	if got := c.tool(1, "job_next", nil); !got.IsError || !strings.Contains(got.Content[0].Text, "obor serve is not running") {
 		t.Errorf("serve down: %+v; want a tool error naming it", got)
 	}

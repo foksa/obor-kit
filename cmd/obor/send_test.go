@@ -166,7 +166,7 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 		t.Errorf("a worker's fresh start recorded a brief: %+v", got)
 	}
 	serve.stop()
-	down := append(env[:len(env):len(env)], "OBOR_STATE_HOME="+p.Base+"/none")
+	down := append(env[:len(env):len(env)], "OBOR_STATE_HOME="+p.Base+"/none", callDown)
 	rc, stdout, _ = run(t, p.Root, down, "restart", "pj-rev", "--fresh", "--prompt", "again")
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
 	if rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-rev") ||

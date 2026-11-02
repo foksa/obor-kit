@@ -75,7 +75,7 @@ func TestPauseRequest(t *testing.T) {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + p.Base + "/none"}, "pause", "x"); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + p.Base + "/none", callDown}, "pause", "x"); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}

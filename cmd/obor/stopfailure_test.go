@@ -21,6 +21,7 @@ func TestStopFailureHook(t *testing.T) {
 	lane := p.LaneDir("O-01")
 	logPath := filepath.Join(p.Root, ".obor/state/stop-failure.log")
 	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01"}
+	down := append(append([]string(nil), env...), callDown) // the first call: no serve yet (T-685)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "StopFailure", "cwd": lane, "error": "rate_limit",
 		"error_details": "429 Too Many Requests"})
 	logLines := func() []map[string]any {
@@ -43,7 +44,7 @@ func TestStopFailureHook(t *testing.T) {
 	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
-	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
+	if rc, stdout, _, _ := shimRun(t, lane, string(event), down, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	ls := logLines()
@@ -96,13 +97,14 @@ func TestTurnHooks(t *testing.T) {
 	p := servedProject(t)
 	lane := p.LaneDir("O-01")
 	worker := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01"}
+	down := append(append([]string(nil), worker...), callDown) // the first turn: no serve yet (T-685)
 	event := func(name string, cwd ...string) string {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": append(cwd, lane)[0],
 			"prompt": "[obor job T-01/1/work] go"})
 		return string(b)
 	}
 
-	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
+	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), down, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
 		stdout != "" {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}

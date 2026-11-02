@@ -55,6 +55,9 @@ type Options struct {
 	// gitCtx ends the git calls: one running is killed with its process group (run.Group), a later one fails (nil:
 	// never). A session sets its own, Scratch the one each method is given.
 	gitCtx context.Context
+	// callCtx ends the run's socket calls, the nightly's backup (nil: the run's own). A test shortens a nightly with no
+	// serve, so its backup goes on at once instead of waiting out the deadline table (T-685).
+	callCtx context.Context
 }
 
 // Result is the result line and exit code.

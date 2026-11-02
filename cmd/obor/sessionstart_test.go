@@ -50,13 +50,15 @@ func TestSessionStartHookReports(t *testing.T) {
 	state := t.TempDir()
 	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01", "OBOR_LANE=O-01", "OBOR_STATE_HOME=" + state,
 		"HERDR_PANE_ID=w1:p3"}
+	// The first call goes to a serve that is not there: with a short deadline it ends at once (T-685).
+	down := append(append([]string(nil), env...), callDown)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-77",
 		"transcript_path": "/claude/projects/x/sid-77.jsonl", "source": "startup"})
 
 	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
-	rc, _, stderr, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start")
+	rc, _, stderr, _ := shimRun(t, lane, string(event), down, oborBin, "hook", "session-start")
 	if rc != 0 {
 		t.Errorf("serve down: exit %d, want 0", rc)
 	}
