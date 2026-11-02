@@ -573,13 +573,16 @@ func (p Paths) Get(name string) string { return p.Values[name] }
 type RoleConfig struct {
 	Role        roles.Role
 	Agent, Type string
+	Effort      string // the effort roles.<role>.type names after the type (`opus:high`, T-695); "": the type's args
 	Worktree    string
 	Configured  bool
 }
 
-// AgentInfo is the role, lane, launch type, and cwd resolved for a configured agent.
+// AgentInfo is the role, lane, launch type, and cwd resolved for a configured agent, and the effort its role's type
+// reference names ("": the type's args; T-695).
 type AgentInfo struct {
 	Role, Lane, Type, Cwd string
+	Effort                string
 }
 
 // Lanes is the configured lanes in config order.
@@ -605,11 +608,12 @@ func (c *Config) LaneType(name string) (LaneType, bool) {
 	return lt, ok
 }
 
-// LaunchArgs are the type's launch args: args, then the settings as its kind takes them (agents.Kind.Start: Claude's
-// --settings <settings>; a kind obor has no bridge for: args alone). Every agent but a lead starts with
+// LaunchArgs are the type's launch args: args (with effort: the kind sets it in place of the args' own, T-695), then
+// the settings as its kind takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge
+// for: args alone). Every agent but a lead starts with
 // {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead
 // keeps auto memory, T-471); the type's settings overlay those keys.
-func (lt LaneType) LaunchArgs(lead bool) []string {
+func (lt LaneType) LaunchArgs(lead bool, effort string) []string {
 	settings := lt.Settings
 	if !lead {
 		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
@@ -621,7 +625,41 @@ func (lt LaneType) LaunchArgs(lead bool) []string {
 	if !ok {
 		return append([]string(nil), lt.Args...)
 	}
-	return k.Start(agents.Start{Args: lt.Args, Settings: settings})
+	return k.Start(agents.Start{Args: lt.Args, Settings: settings, Effort: effort})
+}
+
+// StartEnv is the environment a start of this type with effort needs beyond the pane's (agents.Kind.StartEnv:
+// OpenCode's model and effort); read and env read its config. nil for a kind obor has no bridge for.
+func (lt LaneType) StartEnv(effort string, read agents.ReadFile, env func(string) string) (map[string]string, error) {
+	k, ok := agents.Lookup(lt.Kind)
+	if !ok {
+		return nil, nil
+	}
+	return k.StartEnv(agents.Start{Args: lt.Args, Effort: effort, Read: read, Env: env})
+}
+
+// ParseTypeRef splits a type reference `<type>[:<effort>]` (T-695: a spec's Type: line, dispatch --types, a difficulty
+// level's list, roles.<role>.type): the lane type and the effort ("": the type's own args).
+func ParseTypeRef(ref string) (typ, effort string) {
+	typ, effort, _ = strings.Cut(ref, ":")
+	return typ, effort
+}
+
+// CheckTypeRef is why ref names no lane type of this config or an effort its kind does not take (agents.CheckEffort);
+// nil when it is fine.
+func (c *Config) CheckTypeRef(ref string) error {
+	typ, effort := ParseTypeRef(ref)
+	lt, ok := c.LaneType(typ)
+	if !ok {
+		return fmt.Errorf("%s is not a lane type of this project (lane types: %s)", Compact(typ), strings.Join(c.LaneTypeNames(), ", "))
+	}
+	if _, has := strings.CutPrefix(ref, typ+":"); has && effort == "" {
+		return fmt.Errorf("%s names no effort after the colon", Compact(ref))
+	}
+	if err := agents.CheckEffort(lt.Kind, effort); err != nil {
+		return fmt.Errorf("%s: %v", ref, err)
+	}
+	return nil
 }
 
 // Command is commands.<name>; ok false when unset (absent, null or no cmd).
@@ -645,7 +683,8 @@ func (c *Config) Role(name string) (RoleConfig, bool) {
 		rc.Agent = role.AgentName(c.Data.Prefix, "", "")
 	}
 	if e := c.Data.Roles.entry(name); e != nil {
-		rc.Configured, rc.Type = true, e.Type
+		rc.Configured = true
+		rc.Type, rc.Effort = ParseTypeRef(e.Type)
 		if e.Agent != "" {
 			rc.Agent = e.Agent
 		}
@@ -719,7 +758,7 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 			if rc.Worktree != "" {
 				cwd = filepath.Join(c.LanesDir(), rc.Worktree)
 			}
-			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Cwd: cwd}, true
+			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: cwd}, true
 		}
 	}
 	if e, ok := c.Data.Agents.M[agent]; ok {
@@ -788,9 +827,9 @@ func ParseClock(s string) (hour, minute int, ok bool) {
 
 // DifficultyDefault is the lane types of each difficulty level when .obor/config.json's `difficulty` does not name
 // the level (a spec's `Difficulty:` line picks the level, dispatch the lane): hard wants opus at effort high
-// (opus-high), simple the cheap types. A project that lacks a type of a level skips it (DifficultyLevelTypes).
+// (opus:high, a type reference: any opus lane, started at effort high; T-695), simple the cheap types. A project that lacks a type of a level skips it (DifficultyLevelTypes).
 var DifficultyDefault = map[string][]string{
-	"hard":   {"opus-high", "opus"},
+	"hard":   {"opus:high"},
 	"medium": {"sonnet", "deepseek"},
 	"simple": {"deepseek", "sonnet", "haiku"},
 }
@@ -837,11 +876,11 @@ func (c *Config) DifficultyList(level string) []string {
 	return listed
 }
 
-// laneTypes keeps the types of listed that at least one configured lane has.
+// laneTypes keeps the type references of listed whose type at least one configured lane has.
 func (c *Config) laneTypes(listed []string) []string {
 	var out []string
 	for _, t := range listed {
-		if c.HasLaneOfType(t) {
+		if typ, _ := ParseTypeRef(t); c.HasLaneOfType(typ) {
 			out = append(out, t)
 		}
 	}

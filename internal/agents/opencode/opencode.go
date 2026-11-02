@@ -4,7 +4,10 @@
 package opencode
 
 import (
+	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"obor/internal/agents"
@@ -18,9 +21,10 @@ const name = "opencode"
 
 func (kind) Name() string { return name }
 
-// Start: the type's args, then --prompt <prompt>. OpenCode takes no settings and has no resume.
+// Start: the type's args but their --model/-m (OpenCode's TUI takes none: StartEnv carries the model), then
+// --prompt <prompt>. OpenCode takes no settings and has no resume.
 func (kind) Start(in agents.Start) []string {
-	out := append([]string(nil), in.Args...)
+	out, _ := splitModel(in.Args)
 	if in.Prompt != "" && in.Resume == "" {
 		out = append(out, "--prompt", in.Prompt)
 	}
@@ -28,6 +32,101 @@ func (kind) Start(in agents.Start) []string {
 }
 
 func (kind) NotReady(string) string { return "" }
+
+// ConfigVar is OpenCode's variable holding config JSON layered over its config files: a start's model and effort
+// reach the TUI through it (T-695).
+const ConfigVar = "OPENCODE_CONFIG_CONTENT"
+
+// efforts are the variant names OpenCode gives a model's reasoning levels. They are per model (opencode 2.2.0:
+// `opencode api GET /api/model` lists deepseek-v4.1-flash's as low, high, max; its own fallback list is none, minimal,
+// low) and its help lists none, so this is the union obor accepts; a variant the model lacks starts its default.
+var efforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+func (kind) Efforts() []string { return efforts }
+
+// StartEnv: ConfigVar {"model":"<provider>/<model>[#<effort>]"} when the start names a model or an effort, else
+// ConfigVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has no --model flag
+// (2.2.0: only `opencode run` and `mini` take --model provider/model#variant), but its config's model takes the same
+// form, and the TUI starts with the config's model and variant (live 2026-11-02: the footer showed "· max"). The model
+// is the type's --model/-m, else the user config's model, else the model the TUI used last (its state's model.json),
+// as the TUI itself picks one. An effort with no model anywhere is an error. The TUI's own remembered variant of a
+// model (picked in it, kept in model.json) wins over the config's.
+func (kind) StartEnv(in agents.Start) (map[string]string, error) {
+	_, model := splitModel(in.Args)
+	if model == "" && in.Effort == "" {
+		return map[string]string{ConfigVar: ""}, nil
+	}
+	if model == "" {
+		model = configuredModel(in.Read, in.Env)
+	}
+	if model == "" {
+		return nil, fmt.Errorf("opencode: effort %s needs a model: name one in the lane type's args (--model provider/model) or pick one in opencode", in.Effort)
+	}
+	if in.Effort != "" {
+		model, _, _ = strings.Cut(model, "#")
+		model += "#" + in.Effort
+	}
+	b, _ := json.Marshal(map[string]string{"model": model})
+	return map[string]string{ConfigVar: string(b)}, nil
+}
+
+// splitModel is args without their --model/-m (with its word, or either spelling with =), and the model they named.
+func splitModel(args []string) (rest []string, model string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case (a == "--model" || a == "-m") && i+1 < len(args):
+			model = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--model="):
+			model = strings.TrimPrefix(a, "--model=")
+		case strings.HasPrefix(a, "-m="):
+			model = strings.TrimPrefix(a, "-m=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return rest, model
+}
+
+// configuredModel is the model OpenCode starts with when nothing names one: the user config's "model"
+// (<XDG_CONFIG_HOME|~/.config>/opencode/opencode.json, then .jsonc when it parses as JSON), else the first of the
+// TUI's recent models (<XDG_STATE_HOME|~/.local/state>/opencode/model.json); "" when neither is readable.
+func configuredModel(read agents.ReadFile, env func(string) string) string {
+	if read == nil || env == nil {
+		return ""
+	}
+	dir := func(xdg, fallback string) string {
+		if d := env(xdg); d != "" {
+			return filepath.Join(d, name)
+		}
+		if env("HOME") == "" {
+			return ""
+		}
+		return filepath.Join(env("HOME"), fallback, name)
+	}
+	if conf := dir("XDG_CONFIG_HOME", ".config"); conf != "" {
+		for _, f := range []string{"opencode.json", "opencode.jsonc"} {
+			var c struct {
+				Model string `json:"model"`
+			}
+			if b, err := read(filepath.Join(conf, f)); err == nil && json.Unmarshal(b, &c) == nil && c.Model != "" {
+				return c.Model
+			}
+		}
+	}
+	if state := dir("XDG_STATE_HOME", filepath.Join(".local", "state")); state != "" {
+		var m struct {
+			Recent []struct{ ProviderID, ModelID string } `json:"recent"`
+		}
+		if b, err := read(filepath.Join(state, "model.json")); err == nil && json.Unmarshal(b, &m) == nil &&
+			len(m.Recent) > 0 && m.Recent[0].ProviderID != "" && m.Recent[0].ModelID != "" {
+			return m.Recent[0].ProviderID + "/" + m.Recent[0].ModelID
+		}
+	}
+	return ""
+}
 
 // Stop: /exit, typed with Enter (live 2026-10-17); its slash-command popup takes that Enter, a second one runs it (once
 // the agent has exited it reaches the shell as an empty line). When it did not exit: Escape (the popup), then Ctrl+U,

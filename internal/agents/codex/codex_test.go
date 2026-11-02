@@ -225,3 +225,26 @@ func TestSessionMeta(t *testing.T) {
 		}
 	}
 }
+
+// T-695: Start with an effort sets -c model_reasoning_effort=<effort> once, in place of the args' own (each spelling);
+// without one the args are as given.
+func TestStartEffort(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	for _, args := range [][]string{
+		{"-m", "luna", "-c", "model_reasoning_effort=high", "-s", "workspace-write"},
+		{"-m", "luna", "--config", "model_reasoning_effort = high", "-s", "workspace-write"},
+		{"-m", "luna", "-c=model_reasoning_effort=high", "-s", "workspace-write"},
+		{"-m", "luna", "--config=model_reasoning_effort=high", "-s", "workspace-write"},
+		{"-m", "luna", "-s", "workspace-write"},
+	} {
+		got := k.Start(agents.Start{Args: args, Effort: "xhigh"})
+		want := []string{"-m", "luna", "-s", "workspace-write", "-c", "model_reasoning_effort=xhigh", "-c", "check_for_update_on_startup=false"}
+		if !slices.Equal(got, want) {
+			t.Errorf("Start(%q, xhigh) = %q, want %q", args, got, want)
+		}
+	}
+	args := []string{"-m", "luna", "-c", "model_reasoning_effort=high"}
+	if got := k.Start(agents.Start{Args: args}); !slices.Equal(got[:4], args) || len(got) != 6 {
+		t.Errorf("no effort: args as given: %q", got)
+	}
+}

@@ -116,6 +116,16 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	r.start()
 	r.mustDispatch("d1")
 	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+	// A notification is at least once: its result is recorded after herdr shows it, and a restart before that sends it
+	// again. Under load (parallel tests) the stop below came in between: wait for the recorded result.
+	r.waitFor("the notification's result", func() bool {
+		for _, rec := range r.records() {
+			if rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "notify.") {
+				return true
+			}
+		}
+		return false
+	})
 	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 })
 	w := r.waiting()[0]
 	if w.To != "pj-lead" || !strings.HasPrefix(w.Line, "[obor] needs-you T-1 (O-01): lane: lane_setup in O-01: rc 1: boom") {

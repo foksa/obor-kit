@@ -36,12 +36,12 @@ func MCPConfig(kit string) string {
 	return string(b)
 }
 
-// Start is the type's args, then --settings <settings>, then --resume <sid>, with obor's --mcp-config pair spliced in
+// Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>, T-695), then --settings <settings>, then --resume <sid>, with obor's --mcp-config pair spliced in
 // before the strict flag (the flag stops --mcp-config's variadic value), then one `--` when a config flag could take
 // the prompt, then the prompt. The prompt is positional, never a config value; a resume carries none. The only `--` is
 // obor's own (config validate refuses one in the args).
 func (kind) Start(in agents.Start) []string {
-	args := append([]string(nil), in.Args...)
+	args := withEffort(in.Args, in.Effort)
 	if in.Settings != nil {
 		args = append(args, "--settings", compact(in.Settings))
 	}
@@ -67,6 +67,33 @@ func (kind) Start(in agents.Start) []string {
 		out = append(out, prompt)
 	}
 	return out
+}
+
+// efforts are Claude Code's --effort values, as `claude --help` lists them (2.x, 2026-11-02: "Effort level for the
+// current session (low, medium, high, xhigh, max)").
+var efforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+func (kind) Efforts() []string { return efforts }
+
+// StartEnv: none; the effort is a flag.
+func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
+
+// withEffort is args without their --effort (either spelling), then --effort effort; args as they are for effort "".
+func withEffort(args []string, effort string) []string {
+	if effort == "" {
+		return append([]string(nil), args...)
+	}
+	out := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--effort" && i+1 < len(args):
+			i++
+		case strings.HasPrefix(a, "--effort="):
+		default:
+			out = append(out, a)
+		}
+	}
+	return append(out, "--effort", effort)
 }
 
 // compact is v as one line of JSON, HTML characters as they are (config.Compact).

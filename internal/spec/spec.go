@@ -174,7 +174,7 @@ func Difficulty(text string) (level string, ok bool) {
 }
 
 // Types is the lane types of the spec's optional `Type: <type>[, <type>…]` line: the first non-blank line after the
-// `Difficulty:` line. nil when there is no such line (a `Type:` elsewhere is ignored).
+// `Difficulty:` line. Each is a type reference, `<type>[:<effort>]` as written (config.ParseTypeRef, T-695). nil when there is no such line (a `Type:` elsewhere is ignored).
 func Types(text string) []string {
 	rest, _, found := difficultyLine(text)
 	if !found {

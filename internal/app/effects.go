@@ -36,6 +36,9 @@ type Launch struct {
 	Fresh, Force     bool
 	// Prompt is the CLI's first prompt for a fresh session: a job's wake.
 	Prompt string
+	// Effort is the effort to start with (a dispatch's type reference, T-695), replacing the type's; "": a role's
+	// configured effort (roles.<role>.type), else the type's args.
+	Effort string
 }
 
 // Typer types text into an agent's pane as it is (a job's wake with its [obor job <id>] tag, or a line carrying its
@@ -90,8 +93,12 @@ type Rect struct {
 type Plugin struct{ ID, Root string }
 
 // AgentEnv is whose env and cwd a pane's shell is set to: the agent's name, its role (a role name; "" for none), its
-// lane ("" for none) and the directory it works in ("" keeps the shell's).
-type AgentEnv struct{ Agent, Role, Lane, Cwd string }
+// lane ("" for none) and the directory it works in ("" keeps the shell's); Vars the start's own variables
+// (agents.Kind.StartEnv, T-695; "" unsets one).
+type AgentEnv struct {
+	Agent, Role, Lane, Cwd string
+	Vars                   map[string]string
+}
 
 // Start is one agent start in its pane (obor setup pane / role, obor restart): the agent's env and cwd are the
 // pane shell's already.

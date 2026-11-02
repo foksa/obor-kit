@@ -26,7 +26,8 @@ Role not running now: `deep_dive` (`roles.deep_dive`: type `opus`, worktree `~/W
 
 ## Start commands
 Panes and agents come from `obor setup`; the lane type's `kind` and `args` in `.obor/config.json` are the launch line,
-so a model change is a config edit, not a new command:
+so a model change is a config edit, not a new command. An effort needs no type of its own: `roles.*.type` and the
+`difficulty` lists take `<type>:<effort>` (`opus:high`), which replaces the effort in the type's args:
 ```
 obor setup lane S-02 sonnet                       # worktree + lanes.S-02 (type from lane_types)
 obor setup pane O-01 --new-tab "opus lanes"       # first lane of a tab; the next ones: --tab <tab-id>

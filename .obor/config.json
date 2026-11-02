@@ -142,7 +142,9 @@
       "kind": "opencode",
       "args": [
         "--auto",
-        "--standalone"
+        "--standalone",
+        "--model",
+        "opencode-go/deepseek-v4.1-flash"
       ],
       "max": 2,
       "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
@@ -158,17 +160,6 @@
         "workspace-write",
         "-a",
         "never"
-      ]
-    },
-    "opus-high": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "opus",
-        "--effort",
-        "high",
-        "--permission-mode",
-        "auto"
       ]
     }
   },
@@ -190,11 +181,11 @@
     },
     "lead": {
       "agent": "ob-lead",
-      "type": "opus-high",
+      "type": "opus:high",
       "handoff_tokens": 500000
     },
     "deep_dive": {
-      "type": "opus-high",
+      "type": "opus:high",
       "worktree": "deep-dive"
     },
     "integrator": {

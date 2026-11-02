@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -113,6 +114,9 @@ func Args(r Request) []string {
 	if r.Prompt != "" {
 		args = append(args, "--prompt", r.Prompt)
 	}
+	if r.Effort != "" {
+		args = append(args, "--effort", r.Effort)
+	}
 	return args
 }
 
@@ -153,6 +157,12 @@ func ParseRequest(args []string) (Request, error) {
 				return Request{}, fmt.Errorf("--prompt needs a value")
 			}
 			r.Prompt = v
+		case "--effort":
+			v, ok := value()
+			if !ok {
+				return Request{}, fmt.Errorf("--effort needs a value")
+			}
+			r.Effort = v
 		default:
 			if strings.HasPrefix(a, "-") || r.Agent != "" {
 				return Request{}, fmt.Errorf("unexpected argument %q", a)
@@ -214,6 +224,7 @@ type target struct {
 	entry app.PaneInfo // the pane as pane list shows it
 	panes []app.PaneInfo
 	kind  string
+	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 }
 
 // resolve is who and where (shared by Restart and Stop); nothing is typed.
@@ -455,15 +466,20 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 		return app.Started{Line: line}, err
 	}
 
+	// The effort (T-695): the request's (a dispatch's type reference), else the role's (roles.<role>.type), else the
+	// type's args; it applies to a resume too, so a role's session keeps the effort it was started with.
+	effort := req.Effort
+	if effort == "" {
+		effort = t.info.Effort
+	}
+	args, err := l.args(t, effort)
+	if err != nil {
+		return app.Started{}, err
+	}
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
 		return app.Started{}, err
 	}
 	if err := l.setEnv(ctx, t); err != nil {
-		return app.Started{}, err
-	}
-
-	args, err := l.args(t)
-	if err != nil {
 		return app.Started{}, err
 	}
 	if sid != "" {
@@ -560,7 +576,7 @@ type AgentEnv = app.AgentEnv
 // shell may hold the env of the agent that ran there before).
 func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
 	return l.setEnv(ctx, &target{agent: e.Agent, known: true, pane: pane,
-		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}})
+		info: config.AgentInfo{Role: e.Role, Lane: e.Lane, Cwd: e.Cwd}, env: e.Vars})
 }
 
 // setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
@@ -625,6 +641,18 @@ func envLine(t *target) string {
 	if t.info.Cwd != "" {
 		line = "cd " + shellQuote(t.info.Cwd) + " && " + line
 	}
+	keys := make([]string, 0, len(t.env))
+	for k := range t.env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if v := t.env[k]; v != "" {
+			line += " && export " + k + "=" + shellQuote(v)
+		} else {
+			line += " && unset " + k
+		}
+	}
 	return line
 }
 
@@ -669,8 +697,10 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// args are the type's launch args (config.LaneType.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280).
-func (l *Launcher) args(t *target) ([]string, error) {
+// args are the type's launch args (config.LaneType.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280)
+// with effort in place of the type's ("": the type's, T-695), and t.env the start's own env (agents.Kind.StartEnv:
+// OpenCode's model and effort) for the env line. An effort the start cannot carry is a Fail (nothing stopped yet).
+func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	lt := config.LaneType{Kind: t.kind}
 	switch {
 	case t.info.Type != "":
@@ -678,7 +708,19 @@ func (l *Launcher) args(t *target) ([]string, error) {
 	case t.info.Role == "":
 		return nil, nil
 	}
-	return lt.LaunchArgs(t.info.Role == "lead"), nil
+	if err := agents.CheckEffort(lt.Kind, effort); err != nil {
+		return nil, project.Failf("%s: %v", t.agent, err)
+	}
+	env := l.Env
+	if env == nil {
+		env = project.OSEnv
+	}
+	vars, err := lt.StartEnv(effort, os.ReadFile, env.Get)
+	if err != nil {
+		return nil, project.Failf("%s: %v", t.agent, err)
+	}
+	t.env = vars
+	return lt.LaunchArgs(t.info.Role == "lead", effort), nil
 }
 
 // holds: pane holds agent's herdr name.

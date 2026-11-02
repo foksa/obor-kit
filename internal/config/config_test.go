@@ -347,7 +347,7 @@ func TestLaunchArgs(t *testing.T) {
 		{"worker, explicit settings overlay the defaults", own, false, `--model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false,"x":1}`},
 		{"codex: no --settings", cx, false, "-m luna -c check_for_update_on_startup=false"},
 	} {
-		if got := strings.Join(c.lt.LaunchArgs(c.lead), " "); got != c.want {
+		if got := strings.Join(c.lt.LaunchArgs(c.lead, ""), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}

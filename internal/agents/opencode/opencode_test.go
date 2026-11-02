@@ -1,12 +1,14 @@
 package opencode_test
 
 import (
+	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"obor/internal/agents"
-	_ "obor/internal/agents/opencode"
+	"obor/internal/agents/opencode"
 )
 
 // T-495: OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
@@ -22,10 +24,12 @@ func TestKind(t *testing.T) {
 		in   agents.Start
 		want []string
 	}{
-		{"fresh, prompt", agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Prompt: "go"}, []string{"-m", "x", "--prompt", "go"}},
-		{"fresh, no prompt", agents.Start{Kit: "/kit", Args: []string{"-m", "x"}}, []string{"-m", "x"}},
-		{"a resume is no resume: nothing added", agents.Start{Kit: "/kit", Args: []string{"-m", "x"}, Resume: "s", Prompt: "go"},
-			[]string{"-m", "x"}},
+		{"fresh, prompt", agents.Start{Kit: "/kit", Args: []string{"--auto"}, Prompt: "go"}, []string{"--auto", "--prompt", "go"}},
+		{"fresh, no prompt", agents.Start{Kit: "/kit", Args: []string{"--auto"}}, []string{"--auto"}},
+		{"a resume is no resume: nothing added", agents.Start{Kit: "/kit", Args: []string{"--auto"}, Resume: "s", Prompt: "go"},
+			[]string{"--auto"}},
+		{"the model is no flag of the TUI: dropped (StartEnv carries it)", agents.Start{Args: []string{"--auto", "-m", "p/x",
+			"--model=p/y"}, Effort: "high"}, []string{"--auto"}},
 	} {
 		if got := k.Start(c.in); !slices.Equal(got, c.want) {
 			t.Errorf("%s: Start = %q, want %q", c.name, got, c.want)
@@ -90,5 +94,57 @@ func TestKind(t *testing.T) {
 	}
 	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {
 		t.Errorf("InboxRecord = %s, want none", r)
+	}
+}
+
+// T-695: an effort reaches OpenCode's config as the model's variant (OPENCODE_CONFIG_CONTENT's
+// "model":"<provider>/<model>#<effort>"): the model from the type's args, else the user config's, else the TUI's last
+// one; none and no effort unsets the variable; an effort with no model anywhere is an error.
+func TestStartEnvEffortReachesTheConfig(t *testing.T) {
+	k, _ := agents.Lookup("opencode")
+	files := map[string]string{}
+	read := func(p string) ([]byte, error) {
+		if b, ok := files[p]; ok {
+			return []byte(b), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	env := func(k string) string { return map[string]string{"HOME": "/h"}[k] }
+	start := func(args []string, effort string) (string, bool, error) {
+		m, err := k.StartEnv(agents.Start{Args: args, Effort: effort, Read: read, Env: env})
+		v, set := m[opencode.ConfigVar]
+		if err == nil && (!set || len(m) != 1) {
+			t.Errorf("StartEnv(%q, %q) = %v: want %s and nothing else", args, effort, m, opencode.ConfigVar)
+		}
+		return v, set, err
+	}
+	if v, _, err := start([]string{"--auto", "--model", "p/m"}, "high"); err != nil || v != `{"model":"p/m#high"}` {
+		t.Errorf("args' model with effort: %q, %v", v, err)
+	}
+	if v, _, err := start([]string{"-m=p/m#low"}, "max"); err != nil || v != `{"model":"p/m#max"}` {
+		t.Errorf("the effort replaces the model's own variant: %q, %v", v, err)
+	}
+	if v, _, err := start([]string{"--model", "p/m"}, ""); err != nil || v != `{"model":"p/m"}` {
+		t.Errorf("args' model, no effort: %q, %v", v, err)
+	}
+	if v, set, err := start([]string{"--auto"}, ""); err != nil || !set || v != "" {
+		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset", v, set, err)
+	}
+	if _, _, err := start([]string{"--auto"}, "high"); err == nil || !strings.Contains(err.Error(), "needs a model") {
+		t.Errorf("effort with no model anywhere: %v; want an error", err)
+	}
+	files["/h/.local/state/opencode/model.json"] = `{"recent":[{"providerID":"go","modelID":"ds"},{"providerID":"o","modelID":"x"}]}`
+	if v, _, err := start([]string{"--auto"}, "high"); err != nil || v != `{"model":"go/ds#high"}` {
+		t.Errorf("the TUI's last model: %q, %v", v, err)
+	}
+	files["/h/.config/opencode/opencode.json"] = `{"model":"cfg/m"}`
+	if v, _, err := start([]string{"--auto"}, "low"); err != nil || v != `{"model":"cfg/m#low"}` {
+		t.Errorf("the user config's model before the TUI's: %q, %v", v, err)
+	}
+	if err := agents.CheckEffort("opencode", "high"); err != nil {
+		t.Errorf("CheckEffort(opencode, high): %v", err)
+	}
+	if err := agents.CheckEffort("opencode", "turbo"); err == nil {
+		t.Error("CheckEffort(opencode, turbo): want a refusal")
 	}
 }

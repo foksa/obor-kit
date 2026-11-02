@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"obor/internal/app"
+	"obor/internal/testkit"
 )
 
 // T-689: a spec's `Type:` line (under Difficulty) puts its lane types first in the dispatch order; the level's types
@@ -94,5 +95,51 @@ func TestSpecTypeSpecSetRefusesAnUnknownType(t *testing.T) {
 	}
 	if err := set("s2", "sonnet, deepseek"); err != nil {
 		t.Errorf("spec set with known types: %v", err)
+	}
+}
+
+// RV-79 #1: a spec's Type: types count before the "no lane type of level" refusal. The rig's only lane O-01 is a haiku
+// lane, a type no level lists, so medium (and its fallbacks) has none.
+func haikuRig(t *testing.T) *loopRig {
+	t.Helper()
+	r := newDispatchRig(t, testkit.Set("lane_types.haiku", map[string]any{"kind": "claude"}),
+		testkit.Set("lanes.O-01", map[string]any{"type": "haiku", "agent": "pj-o1"}))
+	r.setLane(func(l *app.Lane) { l.Type, l.Agent = "haiku", "pj-o1" })
+	return r
+}
+
+func TestSpecTypeAloneDispatchesWithNoLevelLane(t *testing.T) {
+	r := haikuRig(t)
+	r.start()
+	r.specType("haiku")
+	reply, err := r.dispatchLevel("d1")
+	if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+		t.Fatalf("Type: haiku, no medium lane: %q, %v; want O-01 with no fallback note", reply, err)
+	}
+	if d := r.factData("T-1", app.StepDispatched); d["lane"] != "O-01" || d["level"] != "medium" {
+		t.Errorf("dispatch fact %v, want medium on O-01", d)
+	}
+}
+
+func TestSpecTypeAloneWaitsWhenItsLaneIsBusy(t *testing.T) {
+	r := haikuRig(t)
+	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
+	r.start()
+	r.specType("haiku")
+	const want = "WAITING T-1 (queued): waiting for a medium lane (haiku)"
+	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, want) {
+		t.Fatalf("Type: haiku with its lane busy: %q, %v; want %q", reply, err, want)
+	}
+}
+
+func TestNoSpecTypeAndNoLevelLaneIsRefused(t *testing.T) {
+	r := haikuRig(t)
+	r.start()
+	r.specLevel("medium")
+	if _, err := r.dispatchLevel("d1"); err == nil || !strings.Contains(err.Error(), "no lane type of level medium") {
+		t.Errorf("no Type:, no medium lane: %v; want the refusal", err)
+	}
+	if n := r.taskStep("T-1", "fact dispatch") + r.taskStep("T-1", "fact waiting"); n != 0 {
+		t.Errorf("a refused dispatch recorded %d facts", n)
 	}
 }

@@ -195,3 +195,30 @@ func TestReset(t *testing.T) {
 		}
 	}
 }
+
+// T-695: Start with an effort sets --effort <effort> once, in place of the args' own (either spelling); without one the
+// args are as given; a second Start over the first's argv (launch: config.LaneType.LaunchArgs, then the start) keeps
+// one --effort.
+func TestStartEffort(t *testing.T) {
+	k := kind(t)
+	got := k.Start(agents.Start{Args: []string{"--model", "opus", "--effort", "medium", "--permission-mode", "auto"}, Effort: "high"})
+	if want := []string{"--model", "opus", "--permission-mode", "auto", "--effort", "high"}; !slices.Equal(got, want) {
+		t.Errorf("Start with effort = %q, want %q", got, want)
+	}
+	if got := k.Start(agents.Start{Args: []string{"--effort=low", "--model", "opus"}, Effort: "max"}); !slices.Equal(got,
+		[]string{"--model", "opus", "--effort", "max"}) {
+		t.Errorf("--effort=low replaced: %q", got)
+	}
+	if got := k.Start(agents.Start{Args: []string{"--model", "opus", "--effort", "medium"}}); !slices.Equal(got,
+		[]string{"--model", "opus", "--effort", "medium"}) {
+		t.Errorf("no effort: args as given: %q", got)
+	}
+	first := k.Start(agents.Start{Args: []string{"--effort", "medium"}, Settings: map[string]any{"x": 1}, Effort: "high"})
+	again := k.Start(agents.Start{Args: first, Prompt: "go", Effort: "high"})
+	if n := strings.Count(strings.Join(again, " "), "--effort"); n != 1 || !slices.Contains(again, "high") {
+		t.Errorf("Start over Start's argv = %q: want one --effort high", again)
+	}
+	if !slices.Equal(k.Efforts(), []string{"low", "medium", "high", "xhigh", "max"}) {
+		t.Errorf("Efforts = %q", k.Efforts())
+	}
+}

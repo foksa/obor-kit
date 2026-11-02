@@ -6,6 +6,7 @@
 package agents
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -23,6 +24,11 @@ type Kind interface {
 	Start(in Start) []string
 	// NotReady is why a just-started agent cannot take a prompt yet, from its screen ("": nothing of this kind's).
 	NotReady(screen string) string
+	// Efforts are the effort values Start.Effort takes, from the CLI's own help (T-695); nil: this kind takes none.
+	Efforts() []string
+	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it): OpenCode's model
+	// and effort reach its config this way. An error: the start cannot carry in.Effort (it says why).
+	StartEnv(in Start) (map[string]string, error)
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
 	Stop() Stop
@@ -68,6 +74,11 @@ type Start struct {
 	Resume   string         // the session id to resume ("": fresh)
 	Prompt   string         // the first prompt of a fresh start, one line ("": none)
 	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
+	// Effort is the effort to start with (a type reference's `:<effort>`, T-695): the kind sets it, replacing the one
+	// Args set; "": Args as given.
+	Effort string
+	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
+	Env func(string) string
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
@@ -222,6 +233,31 @@ func Skills(name string) bool {
 func Resumes(name string) bool {
 	k, ok := kinds[name]
 	return ok && k.Caps().Resume
+}
+
+// CheckEffort is why the kind named kind cannot start with effort ("" takes any kind): an unknown kind, a kind that
+// takes no effort, or a value not among its Efforts (T-695: obor spec set, dispatch and config validate refuse it).
+func CheckEffort(kind, effort string) error {
+	if effort == "" {
+		return nil
+	}
+	k, ok := kinds[kind]
+	if !ok {
+		return fmt.Errorf("kind %s has no bridge, so no effort", kind)
+	}
+	return checkEffort(k, effort)
+}
+
+// checkEffort is CheckEffort for a kind at hand.
+func checkEffort(k Kind, effort string) error {
+	kind := k.Name()
+	switch {
+	case len(k.Efforts()) == 0:
+		return fmt.Errorf("kind %s takes no effort (%q)", kind, effort)
+	case !slices.Contains(k.Efforts(), effort):
+		return fmt.Errorf("effort %q is not one of %s's (%s)", effort, kind, strings.Join(k.Efforts(), ", "))
+	}
+	return nil
 }
 
 // Programs are k's executables: Headless.Programs, else its Name().

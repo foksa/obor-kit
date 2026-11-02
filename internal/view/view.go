@@ -88,6 +88,7 @@ type Lane struct {
 	TaskState   string  `json:"task_state,omitempty"` // serve's state of the task
 	Attempt     int     `json:"attempt,omitempty"`
 	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
+	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
 	// Column is the state column of obor status and obor monitor (T-657): held, gating, merging, gate pending,
@@ -230,7 +231,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps app.ProjectSt
 	}
 	for _, t := range ps.Tasks {
 		if t.Lane == s.Lane && t.Task == s.Task {
-			l.TaskState, l.Attempt, l.Running = t.State, t.Attempt, t.Running
+			l.TaskState, l.Attempt, l.Running, l.Effort = t.State, t.Attempt, t.Running, t.Effort
 			if t.Job != "" {
 				l.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
