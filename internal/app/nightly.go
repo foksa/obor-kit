@@ -176,7 +176,7 @@ func (a *App) handGreen(p *proj, n *Nightly) {
 		return
 	}
 	if verdict == "GREEN" {
-		a.record(p, Record{Task: NightlyTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
+		a.settleNeeds(p, NightlyTask, "")
 	}
 }
 
@@ -227,31 +227,21 @@ func (a *App) nightlyVerdict(p *proj, out NightlyOut) {
 		a.nightlyNeedsYou(p, redPrefix+out.SHA[:min(7, len(out.SHA))])
 		return
 	}
-	a.mu.Lock()
-	held := len(p.folded.active[NightlyTask]) > 0
-	a.mu.Unlock()
-	if !held {
-		a.mu.Lock()
-		p.night.unsettled = nil
-		a.mu.Unlock()
-		return
-	}
-	a.record(p, Record{Task: NightlyTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
+	a.nightlySettled(p, "")
 }
 
 // nightlyNeedsYou records the nightly's needs-you reason, ending another in force; the same one in force: nothing.
 func (a *App) nightlyNeedsYou(p *proj, reason string) {
+	a.nightlySettled(p, reason)
+}
+
+// nightlySettled settles the nightly's needs-you (reason "" ends it) and, once the log took it, drops the result
+// that waited for it (a record folds that away itself; a settle with nothing to record leaves it).
+func (a *App) nightlySettled(p *proj, reason string) {
+	if !a.settleNeeds(p, NightlyTask, reason) {
+		return
+	}
 	a.mu.Lock()
-	held, same := len(p.folded.active[NightlyTask]) > 0, p.has(NightlyTask, StepNeedsYou, reason)
-	if same {
-		p.night.unsettled = nil
-	}
+	p.night.unsettled = nil
 	a.mu.Unlock()
-	if same {
-		return
-	}
-	if held && !a.record(p, Record{Task: NightlyTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}) {
-		return
-	}
-	a.record(p, Record{Task: NightlyTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
 }

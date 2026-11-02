@@ -463,21 +463,30 @@ func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 	if err != nil {
 		reason = "loop: " + err.Error()
 	}
-	held := len(p.folded.active[LoopTask]) > 0
-	same := p.has(LoopTask, StepNeedsYou, reason)
 	ok := !p.badLoop && !p.badLanes
 	a.mu.Unlock()
-	switch {
-	case err != nil && same, err == nil && (!ok || !held):
+	if err == nil && !ok { // another source still holds the loop: nothing to end yet
 		return
-	case err != nil:
-		if held { // another error: the old fact ends
-			a.record(p, Record{Task: LoopTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
-		}
-		a.record(p, Record{Task: LoopTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
-	default:
-		a.record(p, Record{Task: LoopTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
 	}
+	a.settleNeeds(p, LoopTask, reason)
+}
+
+// settleNeeds makes reason the one needs-you in force for task on p: "" ends the one in force (resumed); the same
+// reason already in force, or "" with none in force, is nothing; another reason ends the old one first. True when the
+// log took it (or there was nothing to record), false when a record was refused (the caller may try again).
+func (a *App) settleNeeds(p *proj, task, reason string) bool {
+	a.mu.Lock()
+	held, same := len(p.folded.active[task]) > 0, reason != "" && p.has(task, StepNeedsYou, reason)
+	a.mu.Unlock()
+	switch {
+	case same, reason == "" && !held:
+		return true
+	case held && !a.record(p, Record{Task: task, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}):
+		return false
+	case reason != "":
+		return a.record(p, Record{Task: task, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
+	}
+	return true
 }
 
 // needsYou records the merge loop's needs-you for mt: the owner decides (obor resume, by cause).

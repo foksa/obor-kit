@@ -100,25 +100,13 @@ func (a *App) restartServe(ctx context.Context, p *proj, fx *Loop, task string) 
 	if ctx.Err() != nil { // this serve is stopping anyway
 		return
 	}
-	a.mu.Lock()
-	held := len(p.folded.active[ServeTask]) > 0
-	a.mu.Unlock()
-	if held && !a.record(p, Record{Task: ServeTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}) {
-		return
-	}
-	a.record(p, Record{Task: ServeTask, Step: StepNeedsYou, Kind: KindFact},
-		FactData{Machine: Machine, Reason: "serve restart after " + task + " failed: " + err.Error()})
+	a.settleNeeds(p, ServeTask, "serve restart after "+task+" failed: "+err.Error())
 }
 
 // endServeNeeds ends a failed self-restart's needs-you at a serve's start (a new serve runs: the restart the owner
 // was asked for happened).
 func (a *App) endServeNeeds(p *proj) {
-	a.mu.Lock()
-	held := len(p.folded.active[ServeTask]) > 0
-	a.mu.Unlock()
-	if held {
-		a.record(p, Record{Task: ServeTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
-	}
+	a.settleNeeds(p, ServeTask, "")
 }
 
 // lanePassed is why mt's lane is no longer the task's ("" while its row holds the task): after-merge work on the lane

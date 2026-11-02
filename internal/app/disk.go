@@ -58,12 +58,11 @@ func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 					reason += "; Go build cache " + c + " (go clean -cache)"
 				}
 			}
-			a.record(p, Record{Task: DiskTask, Step: StepNeedsYou, Kind: KindFact},
-				FactData{Machine: Machine, Reason: reason})
+			a.settleNeeds(p, DiskTask, reason)
 		}
 		held = true // the reading decides; keeping the record is best effort
 	case held:
-		held = !a.record(p, Record{Task: DiskTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine})
+		held = !a.settleNeeds(p, DiskTask, "")
 	}
 	return held
 }
