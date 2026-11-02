@@ -181,6 +181,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := s.initDifficulty(); err != nil {
+		return err
+	}
 	var made, had []string
 	// Two untyped pool lanes: a task's Type:/Difficulty: picks the model per dispatch (T-724).
 	for _, l := range [][2]string{{"L-01", ""}, {"L-02", ""}} {
@@ -508,6 +511,32 @@ func (s *Setup) initRoleTypes() (string, error) {
 		}
 	}
 	return strings.Join(parts, ", "), nil
+}
+
+// initDifficulty writes `difficulty` from the kinds init detected (RV-88 #1): the built-in lists keep only the types
+// of the Claude kind, which init requires on PATH. A non-Claude type (deepseek on OpenCode) joins a list only when the
+// user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its first simple task
+// to a CLI that cannot start. An existing `difficulty` is kept.
+func (s *Setup) initDifficulty() error {
+	if s.cfg.Data.Difficulty != nil {
+		return nil
+	}
+	out := map[string][]string{}
+	for level, listed := range config.DifficultyDefault {
+		for _, ref := range listed {
+			typ, _ := config.ParseTypeRef(ref)
+			if lt, ok := s.cfg.LaneType(typ); ok && lt.Kind == agents.Default {
+				out[level] = append(out[level], ref)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	if err := s.editConfig([]string{"difficulty"}, out); err != nil {
+		return err
+	}
+	return s.load()
 }
 
 // --- plugin -----------------------------------------------------------------------------------------------------

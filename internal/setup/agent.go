@@ -176,7 +176,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	// starts nothing (no type without a dispatch).
 	untyped := a.lane != "" && a.typ == ""
 	if untyped && !a.noStart {
-		return project.Failf("lane %s has no type (untyped pool lane): --start needs one, a dispatch gives it (obor config set lanes.%s <type> to pin it)", a.lane, a.lane)
+		return project.Failf("lane %s has no type (untyped pool lane): --start needs one, a dispatch gives it (edit .obor/config.json to pin it: \"lanes\": {\"%s\": \"<type>\"}; for an object-form lane change only type)", a.lane, a.lane)
 	}
 	lt, _ := s.cfg.LaneType(a.typ)
 	if lt.Kind == "" && !untyped {

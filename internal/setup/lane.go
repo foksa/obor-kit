@@ -40,7 +40,7 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	configured := s.cfg.HasLane(lane)
 	if configured && have != typ {
 		if have == "" {
-			return project.Failf("lane %s is already configured untyped (obor config set lanes.%s %s to pin it)", lane, lane, typ)
+			return project.Failf("lane %s is already configured untyped (edit .obor/config.json to pin it: \"lanes\": {\"%s\": \"%s\"}; for an object-form lane change only type)", lane, lane, typ)
 		}
 		return project.Failf("lane %s is already configured with type %s", lane, have)
 	}

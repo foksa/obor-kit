@@ -712,7 +712,7 @@ func TestLaneWithoutATypeMakesAnUntypedPoolLane(t *testing.T) {
 	}
 	out = x.ok(t, "lane", "L-01")
 	has(t, out, "skip config lanes.L-01 (already untyped)", "an untyped rerun")
-	x.failing(t, "FAIL lane L-01 is already configured untyped (obor config set lanes.L-01 opus to pin it)", "lane", "L-01", "opus")
+	x.failing(t, "FAIL lane L-01 is already configured untyped (edit .obor/config.json to pin it: \"lanes\": {\"L-01\": \"opus\"}; for an object-form lane change only type)", "lane", "L-01", "opus")
 	x.ok(t, "lane", "O-01", "opus")
 	x.failing(t, "FAIL lane O-01 is already configured with type opus", "lane", "O-01")
 	if out, rc := x.run(t, "lane"); rc != 1 || !strings.Contains(last(out), "usage: obor setup lane <LANE> [<type>] |") {
@@ -726,7 +726,7 @@ func TestPaneOnAnUntypedLaneNeverStarts(t *testing.T) {
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
 	x.reset()
-	x.failing(t, "FAIL lane L-01 has no type (untyped pool lane): --start needs one, a dispatch gives it (obor config set lanes.L-01 <type> to pin it)",
+	x.failing(t, "FAIL lane L-01 has no type (untyped pool lane): --start needs one, a dispatch gives it (edit .obor/config.json to pin it: \"lanes\": {\"L-01\": \"<type>\"}; for an object-form lane change only type)",
 		"pane", "L-01", "--tab", "w1:t1", "--start")
 	if got := strings.Join(x.reqs(), "\n"); strings.Contains(got, "pane.split") || strings.Contains(got, "agent.start") {
 		t.Errorf("a refused --start touched herdr: %s", got)

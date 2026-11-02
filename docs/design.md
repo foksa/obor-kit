@@ -468,7 +468,7 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
 - **Briefs:** `obor brief <role-agent> "<text>"` records fact `briefed` with a line `[obor <caller>] <text>`
   delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
   pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A brief to the reviewer or
-  the deep dive (the hold roles) is admitted first and holds publishes while it is open, so their fresh start waits
+  the deep dive (the hold roles) is admitted first and holds publishes while it is open (at most 30 minutes, see the merge hold), so their fresh start waits
   until serve holds merges (T-730, T-734); a brief to any other role agent (advisor, researcher …) holds no publish
   and is not admitted first (T-737). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
   refused for them, and a running one starts fresh as `obor restart <role-agent> --stop`, then `obor brief`. Any other

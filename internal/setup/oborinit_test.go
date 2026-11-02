@@ -995,3 +995,51 @@ func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 		t.Errorf("L-01 %q, L-02 %q; want already, done", summary(out, "L-01"), summary(out, "L-02"))
 	}
 }
+
+// RV-88 #1: obor init writes `difficulty` from the kinds it detected (Claude), so no level lists deepseek (OpenCode)
+// on a machine that never opted in; an existing `difficulty` (a user's opt-in) is kept on a rerun.
+func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
+	t.Parallel()
+	x := newInitFx(t, false)
+	x.init(t)
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Data.Difficulty) == 0 {
+		t.Fatalf("difficulty not written:\n%s", x.Read(".obor/config.json"))
+	}
+	if _, ok := cfg.LaneType("deepseek"); !ok {
+		t.Fatal("precondition: deepseek is a lane type of the default config")
+	}
+	for level, list := range cfg.Data.Difficulty {
+		for _, ref := range list {
+			if typ, _ := config.ParseTypeRef(ref); typ == "deepseek" {
+				t.Errorf("level %s lists %s without OpenCode opted in", level, ref)
+			}
+		}
+	}
+	if got := cfg.Data.Difficulty["simple"]; strings.Join(got, ",") != "sonnet,haiku" {
+		t.Errorf("simple = %v, want sonnet,haiku", got)
+	}
+
+	// Opted in: the user lists deepseek; a rerun keeps it.
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"difficulty"},
+		map[string][]string{"simple": {"deepseek", "sonnet"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Write(".obor/config.json", string(doc))
+	x.reset()
+	x.init(t)
+	cfg, err = config.Load(x.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Data.Difficulty["simple"]; strings.Join(got, ",") != "deepseek,sonnet" {
+		t.Errorf("an existing difficulty was changed: simple = %v", got)
+	}
+	if _, set := cfg.Data.Difficulty["hard"]; set {
+		t.Errorf("rerun added levels to an existing difficulty: %v", cfg.Data.Difficulty)
+	}
+}
