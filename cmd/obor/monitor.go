@@ -20,8 +20,8 @@ import (
 	"time"
 	"unsafe"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/view"
@@ -127,7 +127,7 @@ func (m *monitor) tick() (text string, drawn bool) {
 // after the last row.
 func (m *monitor) frame(now time.Time) string {
 	ctx, cancel := context.WithTimeout(context.Background(), monitorAsk)
-	ss, err := app.Ask(ctx, app.SocketPath(m.root))
+	ss, err := wire.Ask(ctx, wire.SocketPath(m.root))
 	restarting := false
 	switch {
 	case err == nil:

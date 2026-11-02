@@ -28,9 +28,6 @@ import (
 // retries. obor serve is the only dispatcher (T-408); a loop without the dispatch adapters (Loop.Lane, Loop.Specs)
 // refuses the request and ignores a dispatched task until its task_done submits it.
 
-// MethodDispatch is the app socket's dispatch request: Call.Task onto Call.Lane, or the first free lane of Call.Types.
-const MethodDispatch = "dispatch"
-
 // The causes of the dispatch's needs-you; obor resume retries each (the step runs again, a refused one under its next
 // key, an undelivered job sent anew).
 const (

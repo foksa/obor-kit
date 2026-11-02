@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/store"
 	"obor/internal/testkit"
@@ -25,13 +25,13 @@ import (
 // statusServe is a fake app socket at path answering every status request with ss (changing ss between calls is the
 // next answer).
 type statusServe struct {
-	ss   app.Status
+	ss   wire.Status
 	ln   net.Listener
 	path string
 }
 
 // serveStatus answers on path (created): the answer is s.ss at the time of the request.
-func serveStatus(t *testing.T, path string, ss app.Status) *statusServe {
+func serveStatus(t *testing.T, path string, ss wire.Status) *statusServe {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -132,21 +132,21 @@ func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 		map[string]any{"id": "RV-3", "head": "abcdef0123456789"})
 	addEvent(t, p.Root, now.Add(-80*time.Second), event.KindFact, event.MsgTask, event.StepMessage,
 		map[string]any{"to": "pj-lead", "line": "[obor other] hi"})
-	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []app.TaskStatus{{Task: "T-02", State: "waiting", After: []string{"T-01"},
+		Tasks: []wire.TaskStatus{{Task: "T-02", State: "waiting", After: []string{"T-01"},
 			Why: "dispatch T-02: no free lane of the types"}},
 		Facts: []event.Record{
 			{Seq: 1, TS: now.Add(-4 * time.Minute).UTC().Format(time.RFC3339), Task: "T-09", Step: event.StepNeedsYou,
 				Kind: event.KindFact, Data: json.RawMessage(`{"lane":"O-09","reason":"asks: may I?"}`)},
 		},
-		Watches: []app.WatchStatus{{Task: "T-02", By: "pj-lead", Note: "restart serve, then release",
+		Watches: []wire.WatchStatus{{Task: "T-02", By: "pj-lead", Note: "restart serve, then release",
 			Since: now.Add(-3 * time.Minute).Unix()}},
 		Answers: map[int64]string{1: `obor answer T-09 "<text>"`},
 		Paused:  &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Review:  "review request since 3m (now)",
 	}}
-	return p, serveStatus(t, app.SocketPath(p.Root), ss)
+	return p, serveStatus(t, wire.SocketPath(p.Root), ss)
 }
 
 // TestMonitorSections: at 40 rows the sections read top to bottom — serve's line and `running: nothing`, needs-you in
@@ -223,7 +223,7 @@ func TestMonitorPendingLine(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
 	st := view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
-		Pending: []app.PendingStep{
+		Pending: []wire.PendingStep{
 			{Step: event.StepAfterMerge, Task: "T-1", Since: now.Add(-time.Hour).Unix(),
 				Error: "git I/O: index.lock exists", FailedAt: now.Add(-4 * time.Minute).Unix()},
 			{Step: event.StepGate, Task: "T-2", Since: now.Add(-time.Minute).Unix()},
@@ -329,9 +329,9 @@ func TestMonitorReconnects(t *testing.T) {
 	o1 := p.Lane("O-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
-	ss := app.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
-		Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Merging: true}}
-	srv := serveStatus(t, app.SocketPath(p.Root), ss)
+	ss := wire.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true}}
+	srv := serveStatus(t, wire.SocketPath(p.Root), ss)
 	clock := now
 	m := monitorOf(t, p, now, 24)
 	m.now = func() time.Time { return clock }
@@ -373,8 +373,8 @@ func TestMonitorRedrawsOnRecordsAndTime(t *testing.T) {
 	o1 := p.Lane("O-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
-	serveStatus(t, app.SocketPath(p.Root), app.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
-		Project: &app.ProjectStatus{Name: "pj", Root: p.Root}})
+	serveStatus(t, wire.SocketPath(p.Root), wire.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root}})
 	clock := now
 	m := monitorOf(t, p, now, 24)
 	m.now = func() time.Time { return clock }
@@ -417,7 +417,7 @@ func TestMonitorShowsLaneWait(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	p, srv := monitorFx(t, now)
 	p.Spec("T-30", "# T-30 — later\n")
-	srv.ss.Project.Tasks = append(srv.ss.Project.Tasks, app.TaskStatus{Task: "T-03", Attempt: 1, State: "waiting",
+	srv.ss.Project.Tasks = append(srv.ss.Project.Tasks, wire.TaskStatus{Task: "T-03", Attempt: 1, State: "waiting",
 		Level: "medium", Types: []string{"sonnet", "deepseek"}})
 	m := monitorOf(t, p, now, 40)
 	text := m.frame(now)

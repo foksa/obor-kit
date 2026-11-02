@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -53,11 +53,11 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 		TS: now.UTC().Format(time.RFC3339), Text: "the whole job prompt"})
 	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-o1", Kind: store.PromptBrief, TS: now.UTC().Format(time.RFC3339),
 		Text: "the brief's line"})
-	ss := app.Status{Since: now.Add(-2 * time.Hour).UTC().Format(time.RFC3339), Connected: true,
-		Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
-			Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
+	ss := wire.Status{Since: now.Add(-2 * time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
+			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
 				Status: "working", Session: "sid-1"}},
-			Tasks: []app.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Job: "T-01/1/work",
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Job: "T-01/1/work",
 				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", After: []string{"T-01"},
 				Why: "dispatch T-02: no free lane"}},
 			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"})},
@@ -334,9 +334,9 @@ func TestAgentPageOfRoles(t *testing.T) {
 	}
 	defer db.Close()
 	now := time.Now()
-	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
-		Project: &app.ProjectStatus{Name: "pj", Root: p.Root,
-			Agents: []app.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
 				Status: "working"}},
 			Stopped: []string{"pj-rev", "pj-advisor"}}}
 	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})

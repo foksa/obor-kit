@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/spec"
 	"obor/internal/store"
@@ -160,7 +159,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		t.Records, found = append(t.Records, r.TaskRecord), true
 	}
 	for _, r := range recs { // newest first: the last submission and gate win
-		base, _ := app.StepN(r.Step)
+		base, _ := event.StepN(r.Step)
 		switch {
 		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
 			t.Report = dataString(r.data, "report")

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -18,7 +18,7 @@ func answerCmd(args []string) int {
 		fmt.Fprintln(out, `FAIL usage: obor answer <T-xx> "<text>"`)
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, app.MethodAnswer, func(cfg *config.Config, c *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodAnswer, func(cfg *config.Config, c *wire.Call) error {
 		c.Task, c.Note = args[0], args[1]
 		return taskIDs(cfg, args[0])
 	})
@@ -28,11 +28,11 @@ func answerCmd(args []string) int {
 // (project.DetectRole: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent
 // as no role), a new call id and the project; cwd is the session's. Serve decides which callers each request takes:
 // the owner (no role), the lead, the integrator, a worker.
-func caller(env project.Env, cwd string, cfg *config.Config) app.Call {
+func caller(env project.Env, cwd string, cfg *config.Config) wire.Call {
 	repo, _ := project.Find(cwd)
 	role := project.DetectRole(repo, cfg, env).Role
 	if role == "none" {
 		role = ""
 	}
-	return app.Call{Agent: env.Get("OBOR_AGENT"), Role: role, CallID: app.NewCallID(), Root: cfg.Root}
+	return wire.Call{Agent: env.Get("OBOR_AGENT"), Role: role, CallID: wire.NewCallID(), Root: cfg.Root}
 }

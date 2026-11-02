@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -16,12 +16,12 @@ import (
 // its refusal. The integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only
 // (T-437, T-470).
 func resumeCmd(args []string) int {
-	c, ok := app.ResumeArgs(args)
+	c, ok := wire.ResumeArgs(args)
 	if !ok {
 		fmt.Fprintln(out, `FAIL usage: obor resume <T-xx> [regate|reprompt] ["<decision>"]`)
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, app.MethodResume, func(cfg *config.Config, id *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodResume, func(cfg *config.Config, id *wire.Call) error {
 		if err := taskIDs(cfg, args[0]); err != nil {
 			return err
 		}
@@ -34,7 +34,7 @@ func resumeCmd(args []string) int {
 // request is every CLI request to obor serve: the config (load), the caller's identity (caller), the command's fields
 // (fill: its error is the FAIL line, nothing sent), sent to the serve holding the call's project (obor send's is
 // another project's). Serve's reply printed (exit 0), or FAIL: no config, serve down or its refusal (exit 1).
-func request(ctx context.Context, env project.Env, method string, fill func(*config.Config, *app.Call) error) int {
+func request(ctx context.Context, env project.Env, method string, fill func(*config.Config, *wire.Call) error) int {
 	_, cfg, rc := load()
 	if rc != 0 {
 		fmt.Fprintln(out, noConfig)
@@ -46,7 +46,7 @@ func request(ctx context.Context, env project.Env, method string, fill func(*con
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
 	}
-	reply, err := app.Verdict(ctx, app.SocketPath(c.Root), method, c)
+	reply, err := wire.Verdict(ctx, wire.SocketPath(c.Root), method, c)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1

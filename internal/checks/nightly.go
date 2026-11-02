@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 )
 
@@ -19,7 +19,7 @@ import (
 // branch: commands.lane_setup, then check,
 // check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
 // skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
-// NIGHTLY then backs up the project's database (app.Backup). Writes .obor/state/last-full-check
+// NIGHTLY then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for NightlyDue and serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
 // merge.window_wait s).
 func Nightly(o Options, label string) Result {
@@ -99,12 +99,12 @@ func (s *session) nightly(label string) *Result {
 	s.releaseSlot()
 	s.reset(sha) // no command artifacts left behind
 	if label == "NIGHTLY" {
-		sock := app.SocketPath(s.Cfg.Root)
+		sock := wire.SocketPath(s.Cfg.Root)
 		ctx := s.callCtx
 		if ctx == nil {
 			ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
 		}
-		switch reply, err := app.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
+		switch reply, err := wire.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
 		case err != nil:
 			failed = append(failed, "backup")
 			evidence = append(evidence, "backup: "+err.Error())

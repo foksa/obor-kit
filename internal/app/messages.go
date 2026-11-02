@@ -54,9 +54,6 @@ import (
 // needs-you until no such line waits.
 
 const (
-	MethodSend  = "send"  // Call.Root the target project, Call.From the sender project, Call.Note the text
-	MethodBrief = "brief" // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
-
 	stepDeliver = "deliver." // prompt intent/result (P) deliver.<seq>: the line of fact <seq> delivered (posted or typed)
 )
 
@@ -70,14 +67,6 @@ const (
 	needsAgain      = 30 * time.Minute
 	needsAgainEvery = 60 * time.Minute
 )
-
-// MessageStatus is one line not yet delivered (obor status): to whom, from whom, the line, and its age in seconds.
-type MessageStatus struct {
-	To   string `json:"to"`
-	From string `json:"from,omitempty"`
-	Line string `json:"line"`
-	Age  int64  `json:"age"`
-}
 
 // outbox is one project's lines to its agents (proj.out; T-610): leadAgent, the lead's agent (roles.lead.agent), and
 // leadKind, its kind as configured (its role's type, else agents.Default): its lines' inbox; msgs, the lines not

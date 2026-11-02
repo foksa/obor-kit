@@ -21,10 +21,6 @@ import (
 // herdr's agent_session is a cross-check only: the identity (registry.go) and launch's resume read the recorded
 // session first, and a herdr value that differs is logged, not adopted.
 
-// MethodSession is the app socket's session request: Call.Agent's session Call.Session began (Call.Kind,
-// Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task).
-const MethodSession = "session"
-
 // refusedMark is in the error of a session request serve refused because another agent holds the session (T-586).
 const refusedMark = "session already held by "
 

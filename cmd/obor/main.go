@@ -21,7 +21,7 @@ import (
 	_ "obor/internal/agents/claude"
 	_ "obor/internal/agents/codex"
 	_ "obor/internal/agents/opencode"
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/guard"
 	"obor/internal/project"
@@ -260,7 +260,7 @@ func hook(args []string) int {
 }
 
 // stopFailure is the StopFailure hook (T-532): the log line (guard.StopFailure), then one request to the project's
-// serve (app.MethodStopped) with the agent, its error and details, under the call's deadline (app.Verdict's table:
+// serve (wire.MethodStopped) with the agent, its error and details, under the call's deadline (wire.Verdict's table:
 // 5 s, retried through a serve restart; T-659). Serve down, a refusal or a session with no agent name: a line on
 // stderr, nothing else; the hook always exits 0.
 func stopFailure(input []byte, env project.Env) {
@@ -271,34 +271,34 @@ func stopFailure(input []byte, env project.Env) {
 	if !ok || s.Agent == "" {
 		return
 	}
-	c := app.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: app.NewCallID(), Error: s.Error,
+	c := wire.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: wire.NewCallID(), Error: s.Error,
 		Details: s.Details}
-	if _, err := app.Verdict(context.Background(), app.SocketPath(s.Root), app.MethodStopped, c); err != nil {
+	if _, err := wire.Verdict(context.Background(), wire.SocketPath(s.Root), wire.MethodStopped, c); err != nil {
 		fmt.Fprintln(os.Stderr, "obor stop-failure hook: serve not told:", err)
 	}
 }
 
 // turn is a worker's or role agent's UserPromptSubmit or Stop hook (ended) telling the project's serve its next turn
-// began or ended (app.MethodTurn, T-540, T-569; the phase: T-571): a stop in force (its last turn ended on an API
-// error) ends. The call's deadline is app.Verdict's (8 s, retried through a serve restart; T-659). Serve down, a
+// began or ended (wire.MethodTurn, T-540, T-569; the phase: T-571): a stop in force (its last turn ended on an API
+// error) ends. The call's deadline is wire.Verdict's (8 s, retried through a serve restart; T-659). Serve down, a
 // refusal, the lead or no role: nothing (no line: the hook's own output is its verdict).
 func turn(input []byte, env project.Env, ended bool) {
 	s, ok := guard.Turn(input, env)
 	if !ok {
 		return
 	}
-	c := app.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: app.NewCallID(), Ended: ended}
-	_, _ = app.Verdict(context.Background(), app.SocketPath(s.Root), app.MethodTurn, c)
+	c := wire.Call{Root: s.Root, Agent: s.Agent, Role: s.Role, Lane: s.Lane, CallID: wire.NewCallID(), Ended: ended}
+	_, _ = wire.Verdict(context.Background(), wire.SocketPath(s.Root), wire.MethodTurn, c)
 }
 
-// sessionBegan is the SessionStart hook telling the project's serve the agent's session began (app.MethodSession,
+// sessionBegan is the SessionStart hook telling the project's serve the agent's session began (wire.MethodSession,
 // T-577): its id and transcript. Serve down or a refusal: nothing is recorded (the hook's log line says so), and a
 // restart resumes the agent's last recorded session, else herdr's (T-607).
 func sessionBegan(b guard.Began, log io.Writer) {
-	ctx := context.Background() // the call's deadline is app.Verdict's (8 s; T-659)
-	c := app.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
+	ctx := context.Background() // the call's deadline is wire.Verdict's (8 s; T-659)
+	c := wire.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
 		Lane: b.Lane, Task: b.Task, Started: time.Now().Unix(), Source: "SessionStart hook"}
-	if _, err := app.Verdict(ctx, app.SocketPath(b.Root), app.MethodSession, c); err != nil {
+	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.MethodSession, c); err != nil {
 		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)\n",
 			b.ID, b.Agent, err, b.Agent, b.Agent)
 	}

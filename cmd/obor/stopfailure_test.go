@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
 
@@ -41,7 +41,7 @@ func TestStopFailureHook(t *testing.T) {
 		return out
 	}
 
-	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
+	if _, err := os.Stat(wire.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
 	if rc, stdout, _, _ := shimRun(t, lane, string(event), down, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
@@ -53,7 +53,7 @@ func TestStopFailureHook(t *testing.T) {
 		t.Fatalf("serve down: log %v, want one line with the error, its details, the agent and a time", ls)
 	}
 
-	_, serve := startFakeServe(t, p.Root, app.Status{}, "STOPPED pj-o-01 (needs-you T-01)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "STOPPED pj-o-01 (needs-you T-01)", "")
 	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve up: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
@@ -62,7 +62,7 @@ func TestStopFailureHook(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != app.MethodStopped || c.Agent != "pj-o-01" || c.Role != "worker" || c.Lane != "O-01" ||
+	if serve.methods[0] != wire.MethodStopped || c.Agent != "pj-o-01" || c.Role != "worker" || c.Lane != "O-01" ||
 		c.Error != "rate_limit" || c.Details != "429 Too Many Requests" || c.CallID == "" || c.Root != p.Root {
 		t.Errorf("serve got %s %+v", serve.methods[0], c)
 	}
@@ -71,7 +71,7 @@ func TestStopFailureHook(t *testing.T) {
 	}
 
 	// A refusal: still exit 0, nothing on stdout.
-	startFakeServe(t, p.Root, app.Status{}, "", "stopped: no served project")
+	startFakeServe(t, p.Root, wire.Status{}, "", "stopped: no served project")
 	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve refusing: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
@@ -109,13 +109,13 @@ func TestTurnHooks(t *testing.T) {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 
-	_, serve := startFakeServe(t, p.Root, app.Status{}, "TURN pj-o-01 (no stop)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-o-01 (no stop)", "")
 	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
 		stdout != "" {
 		t.Errorf("user-prompt-submit: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != app.MethodTurn || calls[0].Agent != "pj-o-01" || calls[0].Role != "worker" ||
+	if len(calls) != 1 || serve.methods[0] != wire.MethodTurn || calls[0].Agent != "pj-o-01" || calls[0].Role != "worker" ||
 		calls[0].Lane != "O-01" || calls[0].Root != p.Root || calls[0].Ended {
 		t.Fatalf("after user-prompt-submit serve got %v %+v, want one turn request", serve.methods, calls)
 	}
@@ -125,7 +125,7 @@ func TestTurnHooks(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) {
 		t.Errorf("stop: exit %d, stdout %q; want the block verdict", rc, stdout)
 	}
-	if calls, _ = serve.requests(); len(calls) != 2 || serve.methods[1] != app.MethodTurn || calls[1].Agent != "pj-o-01" ||
+	if calls, _ = serve.requests(); len(calls) != 2 || serve.methods[1] != wire.MethodTurn || calls[1].Agent != "pj-o-01" ||
 		!calls[1].Ended {
 		t.Fatalf("after stop serve got %v %+v, want a second turn request, its end", serve.methods, calls)
 	}
@@ -146,7 +146,7 @@ func TestTurnHooks(t *testing.T) {
 		t.Fatalf("the reviewer's hooks sent %v, want two turn requests", serve.methods[2:])
 	}
 	for i, c := range calls[2:] {
-		if serve.methods[2+i] != app.MethodTurn || c.Agent != "pj-rev" || c.Role != "reviewer" || c.Root != p.Root ||
+		if serve.methods[2+i] != wire.MethodTurn || c.Agent != "pj-rev" || c.Role != "reviewer" || c.Root != p.Root ||
 			c.Ended != (i == 1) {
 			t.Errorf("the reviewer's hook %d sent %s %+v, want a turn request (the second its end)", i, serve.methods[2+i], c)
 		}
@@ -177,13 +177,13 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 		}
 	}
 
-	_, serve := startFakeServe(t, p.Root, app.Status{}, "TURN pj-o-01 (no stop)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-o-01 (no stop)", "")
 	run(lane, "user-prompt-submit", turn(lane))
 	run(lane, "stop", stop(lane))
 	run(lane, "stop-failure", failure(lane))
 	calls, _ := serve.requests()
-	if len(calls) != 3 || serve.methods[0] != app.MethodTurn || serve.methods[1] != app.MethodTurn ||
-		serve.methods[2] != app.MethodStopped {
+	if len(calls) != 3 || serve.methods[0] != wire.MethodTurn || serve.methods[1] != wire.MethodTurn ||
+		serve.methods[2] != wire.MethodStopped {
 		t.Fatalf("serve got %v %+v, want two turns and a stopped", serve.methods, calls)
 	}
 	for _, c := range calls {

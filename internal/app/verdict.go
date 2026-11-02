@@ -16,71 +16,11 @@ import (
 // and resolved, and hold (the job stays open, the owner decides); and the owner's resume of a needs-you (row 40). They
 // are validated and recorded here; the merge loop (loop.go) acts on them.
 
-// Verdict methods of the app socket.
-const (
-	MethodAccept   = "accept"   // the candidate whose patch hash it names may be published
-	MethodSendback = "sendback" // back to the worker with the integrator's notes
-	MethodReject   = "reject"   // drop the patch (a resolve job: the resolve failed)
-	MethodResolved = "resolved" // the conflict is merged in the scratch: gate it again
-	MethodHold     = "hold"     // the owner must decide: needs-you{held: why}, the job stays open
-	MethodDrop     = "drop"     // the lead's or the owner's: end the task for good (Call.Note: why), whatever it waits for
-	MethodResume   = "resume"   // the lead's or the owner's: end the task's needs-you (Call.To: regate, reprompt, retry, "")
-)
-
 // The integrator's job steps (StepReview, StepResolve) are in internal/app/event; their data is JobData.
 
 // JobData is a review or resolve prompt intent's data: the candidate's patch hash an accept must name.
 type JobData struct {
 	Patch string `json:"patch,omitempty"`
-}
-
-// Call is one verdict request: who calls (OBOR_AGENT, OBOR_ROLE), from which project, its call id, and the task and
-// job it answers. Job "" answers the task's current job. Patch is accept's; Note is accept's note and the why of a
-// sendback, reject or hold; To is resume's regate, reprompt or retry ("": the default for the needs-you's cause).
-// Lane, Types and Force are a dispatch's: the lane it names, else the first free lane of the types; force also takes a
-// dirty-free lane and stops the agent's background tasks.
-type Call struct {
-	Root   string `json:"root"`
-	Agent  string `json:"agent"`
-	Role   string `json:"role"`
-	CallID string `json:"call_id"`
-	Task   string `json:"task"`
-	Job    string `json:"job,omitempty"`
-	Patch  string `json:"patch,omitempty"`
-	Note   string `json:"note,omitempty"`
-	To     string `json:"to,omitempty"`
-	// A dispatch's.
-	Lane  string   `json:"lane,omitempty"`
-	Types []string `json:"types,omitempty"`
-	Force bool     `json:"force,omitempty"`
-	After []string `json:"after,omitempty"` // the tasks it waits for (obor dispatch --after)
-	Level string   `json:"level,omitempty"` // set with Types by a waiting task's re-dispatch: the spec's level they came from
-	// A drop's (by Lane, T-439): discard the lane's uncommitted changes and unmerged commits.
-	Discard bool `json:"discard,omitempty"`
-	// The MCP job tools': the caller's herdr pane; task_done's report.
-	Pane   string `json:"pane,omitempty"`
-	Report string `json:"report,omitempty"`
-	// spec_set's (specs.go): the spec's text.
-	Spec string `json:"spec,omitempty"`
-	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
-	Until int64 `json:"until,omitempty"`
-	Clear bool  `json:"clear,omitempty"`
-	// send's (messages.go): the sender project's name; To is a brief's role agent. Prompt is a fresh start's first
-	// prompt (obor restart --fresh --prompt): a brief without a line, recorded as the start's text (T-665).
-	From   string `json:"from,omitempty"`
-	Prompt string `json:"prompt,omitempty"`
-	// stopped's (stopped.go): the API error that ended the agent's turn and its details (T-532).
-	Error   string `json:"error,omitempty"`
-	Details string `json:"details,omitempty"`
-	// turn's (stopped.go): the hook is the turn's end (Stop); false: its start (UserPromptSubmit; T-571).
-	Ended bool `json:"ended,omitempty"`
-	// session's (sessions.go): the session id, its transcript file, the agent's kind, when it started (Unix seconds)
-	// and who reports it; Pane, Lane and Task are where it started.
-	Session    string `json:"session,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Started    int64  `json:"started,omitempty"`
-	Source     string `json:"source,omitempty"`
 }
 
 // verdictData is a verdict's intent data; verdictResult its result, the stored reply.
@@ -443,23 +383,6 @@ func (a *App) resume(c Call) (string, error) {
 	}
 	a.wake()
 	return resumeReply(c.Task, to, d.Cause), nil
-}
-
-// ResumeArgs is obor resume's arguments, <T-xx> [regate|reprompt] ["<decision>"], as a call's Task, To and Note:
-// regate and reprompt are the reserved modes, any other nonblank last argument is the decision (obor resume T-xx
-// "yes", RV-54 #4). False: not that form.
-func ResumeArgs(args []string) (Call, bool) {
-	if len(args) == 0 || args[0] == "" {
-		return Call{}, false
-	}
-	c, rest := Call{Task: args[0]}, args[1:]
-	if len(rest) > 0 && (rest[0] == ResumeRegate || rest[0] == ResumeReprompt) {
-		c.To, rest = rest[0], rest[1:]
-	}
-	if len(rest) == 1 && strings.TrimSpace(rest[0]) != "" {
-		c.Note, rest = rest[0], nil
-	}
-	return c, len(rest) == 0
 }
 
 // resumeTo is the target obor resume takes for task's needs-you in mt with to ("": the cause's default), or the

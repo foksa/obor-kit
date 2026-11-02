@@ -1,6 +1,6 @@
 // Package mcp is obor's stdio MCP server: the job tools, JSON-RPC 2.0 over stdin and
 // stdout, one message per line, hand-rolled (no SDK, go.mod unchanged). The tools are filtered by OBOR_ROLE, and each
-// tool call is one request on obor serve's app socket (an app.Verdict Call; T-470: the only path of the integrator's
+// tool call is one request on obor serve's app socket (an wire.Verdict Call; T-470: the only path of the integrator's
 // verdicts): the app decides, the server only renders its reply. `obor mcp` runs it; `obor mcp --check` checks it.
 package mcp
 
@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/version"
 )
@@ -232,28 +232,28 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rp
 	if err != nil {
 		return errorResult(t.name + ": not in an obor project (no .obor/config.json)"), nil
 	}
-	c := app.Call{Agent: s.env.Get("OBOR_AGENT"), Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
-		Pane: s.env.Get("HERDR_PANE_ID"), CallID: app.NewCallID(), Root: root.Root}
+	c := wire.Call{Agent: s.env.Get("OBOR_AGENT"), Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
+		Pane: s.env.Get("HERDR_PANE_ID"), CallID: wire.NewCallID(), Root: root.Root}
 	switch t.method {
-	case app.MethodJobNext:
+	case wire.MethodJobNext:
 		c.Job = args["job"] // the wake's job id (T-602): that job when it is open, else superseded{current}
-	case app.MethodTaskDone:
+	case wire.MethodTaskDone:
 		if c.Lane == "" {
 			return errorResult(t.name + ": OBOR_LANE is not set: task_done is the worker's tool"), nil
 		}
 		c.Report = args["report"] // serve resolves the lane to its task (T-439)
-	case app.MethodAccept:
+	case wire.MethodAccept:
 		c.Task, c.Job, c.Patch, c.Note = s.task, s.job, args["patch"], args["note"]
-	case app.MethodResolved:
+	case wire.MethodResolved:
 		c.Task, c.Job = s.task, s.job
 	default: // sendback, reject, hold: the why is the call's note
 		c.Task, c.Job, c.Note = s.task, s.job, args["why"]
 	}
-	reply, err := app.Verdict(ctx, app.SocketPath(root.Root), t.method, c)
+	reply, err := wire.Verdict(ctx, wire.SocketPath(root.Root), t.method, c)
 	if err != nil {
 		return errorResult(err.Error()), nil
 	}
-	if t.method == app.MethodJobNext {
+	if t.method == wire.MethodJobNext {
 		text, task, job := renderJob(reply)
 		s.task, s.job = task, job
 		return textResult(text), nil
@@ -264,7 +264,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rp
 // renderJob is job_next's readable text and, for a job, its task and id — the verdict tools' call names them. The two
 // other states get their own one line, and a reply that is not a JobReply at all (an older serve) is passed through.
 func renderJob(reply string) (text, task, job string) {
-	var r app.JobReply
+	var r wire.JobReply
 	if err := json.Unmarshal([]byte(reply), &r); err != nil || r.State == "" {
 		return reply, "", ""
 	}

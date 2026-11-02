@@ -2,8 +2,8 @@ package checks
 
 import (
 	"fmt"
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 	"obor/internal/testkit"
 	"os"
@@ -166,7 +166,7 @@ func TestNightlyBackup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, cmd("check", "true"))
 	x.is(x.nightly("NIGHTLY"), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
-	x.gone(app.BackupDir(x.Root), "no database: no backup")
+	x.gone(wire.BackupDir(x.Root), "no database: no backup")
 
 	db, err := store.OpenRW(event.DBFile(x.Root))
 	if err != nil {
@@ -174,9 +174,9 @@ func TestNightlyBackup(t *testing.T) {
 	}
 	db.Close()
 	x.is(x.nightly("MILESTONE"), OK, `^MILESTONE GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
-	x.gone(app.BackupDir(x.Root), "MILESTONE: no backup")
+	x.gone(wire.BackupDir(x.Root), "MILESTONE: no backup")
 	x.is(x.nightly("NIGHTLY"), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, [0-9]+s\)$`)
-	if got, _ := filepath.Glob(filepath.Join(app.BackupDir(x.Root), "obor-*.db")); len(got) != 1 {
+	if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db")); len(got) != 1 {
 		t.Errorf("backups = %v, want one", got)
 	}
 }

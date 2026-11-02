@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
@@ -110,15 +110,15 @@ func eventLine(r event.Record) (string, bool) {
 		_ = json.Unmarshal(r.Data, &d)
 	}
 	if r.Kind == event.KindResult {
-		if base, _ := app.StepN(r.Step); base == event.StepGate {
+		if base, _ := event.StepN(r.Step); base == event.StepGate {
 			if d.Outcome == "green" {
 				return "gate " + r.Task + " pass (" + d.Line + ")", false
 			}
 			return "gate " + r.Task + " fail (" + d.Line + ")", true
 		}
-		if method, _, _ := strings.Cut(r.Step, "."); method == app.MethodAccept {
+		if method, _, _ := strings.Cut(r.Step, "."); method == wire.MethodAccept {
 			return "accepted " + r.Task, false
-		} else if method == app.MethodSendback {
+		} else if method == wire.MethodSendback {
 			return "sendback " + r.Task + noteIn(d.Note), false
 		}
 		return "", false

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -14,12 +15,12 @@ import (
 const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm`
 
 // reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
-// to obor serve (app.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
+// to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
 // <age> ago)], REVIEW REQUEST ENDED / NO REVIEW REQUEST for --rm; with no argument the open request (REVIEW REQUEST
 // since <age> …), else a request to start now. Serve starts the review once every --after task merged and the
 // reviewer is idle, and tells the lead. FAIL: serve down, its refusal or a usage error (exit 1).
 func reviewCmd(args []string) int {
-	var c app.Call
+	var c wire.Call
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--rm" && len(args) == 1:
@@ -36,7 +37,7 @@ func reviewCmd(args []string) int {
 			return 1
 		}
 	}
-	return request(context.Background(), project.OSEnv, app.MethodReview, func(cfg *config.Config, call *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodReview, func(cfg *config.Config, call *wire.Call) error {
 		if err := taskIDs(cfg, c.After...); err != nil {
 			return err
 		}

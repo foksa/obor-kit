@@ -270,10 +270,7 @@ func TestWatchedSetDropEndsIt(t *testing.T) {
 	if reply, err := r.watch("w1", "T-1,T-2,T-3", false); err != nil || reply != "WATCHING T-1,T-2,T-3" {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
-	if reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-2", Note: "superseded"}); err != nil || reply != "DROPPED T-2" {
-		t.Fatalf("drop: %q, %v", reply, err)
-	}
+	r.dropSettled("T-2", "superseded")
 	const line = "[obor] T-2 dropped: superseded (watch T-1,T-2,T-3 ended)"
 	r.waitFor("the dropped line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	if reply, err := r.watch("w2", "", false); err != nil || reply != "NO WATCHES" {
@@ -399,14 +396,27 @@ func TestWatchNoteOnTheDroppedLine(t *testing.T) {
 	if reply, err := r.watchNote("w1", "T-1,T-2", note); err != nil || reply != "WATCHING T-1,T-2" {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
-	if reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-2", Note: "superseded"}); err != nil || reply != "DROPPED T-2" {
-		t.Fatalf("drop: %q, %v", reply, err)
-	}
+	r.dropSettled("T-2", "superseded")
 	const line = "[obor] T-2 dropped: superseded (watch T-1,T-2 ended) — " + note
 	r.waitFor("the dropped line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if l := r.watchLines(); len(l) != 1 || l[0] != line {
 		t.Errorf("watch lines %q, want one %q", l, line)
+	}
+}
+
+// dropSettled is the lead's drop of task once the failing step seedFailed left running has settled: serve refuses a
+// drop while a step runs ("retry when it settles"), and under load the step outlasts the test's first call.
+func (r *loopRig) dropSettled(task, note string) {
+	r.t.Helper()
+	var reply string
+	var err error
+	r.waitFor("the drop of "+task+" accepted", func() bool {
+		reply, err = app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+			CallID: "x1", Task: task, Note: note})
+		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
+	})
+	if err != nil || reply != "DROPPED "+task {
+		r.t.Fatalf("drop: %q, %v", reply, err)
 	}
 }

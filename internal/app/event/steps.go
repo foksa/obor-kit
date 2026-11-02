@@ -1,5 +1,10 @@
 package event
 
+import (
+	"strconv"
+	"strings"
+)
+
 // The steps a record names (Record.Step) and the task keys of the project-level facts (Record.Task). The comment of
 // each says which kind of record it is and what its data is; the data types of the merge loop's own steps are
 // package app's.
@@ -105,3 +110,13 @@ const (
 	StepStopped = "stopped" // fact: an agent's turn ended on an API error (data: stoppedData)
 	StepTurned  = "turned"  // fact: a briefed role agent's stop ended with its next turn (data: turnedData)
 )
+
+// StepN splits step.N into step and N (N 1 when it has none). view reads a step's base through it: one split.
+func StepN(step string) (string, int) {
+	if i := strings.LastIndexByte(step, '.'); i > 0 {
+		if n, err := strconv.Atoi(step[i+1:]); err == nil && n > 1 {
+			return step[:i], n
+		}
+	}
+	return step, 1
+}

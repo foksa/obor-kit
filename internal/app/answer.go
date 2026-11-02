@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// MethodAnswer is the lead's or the owner's answer to a worker's question (obor answer <T-xx> "<text>",
+// The answer request (MethodAnswer, in internal/app/wire) is the lead's or the owner's answer to a worker's question (obor answer <T-xx> "<text>",
 // docs/state-model.md row 16b): the worker's Blocked: report recorded needs-you{asks: …} (row 16a), which stays in
 // force while the worker waits, whatever its pane does (the Stop hook's turn after the report is no answer, T-511).
 // The answer is fact answered{to: the worker, line "[obor answer] <text>"} of the project's lines: its fold ends the
@@ -14,7 +14,6 @@ import (
 // takes one (deliver: posted to a Claude session's inbox, typed for the others), in the same attempt. Refused when the
 // task has no question in force: a plain note to a worker has no path (obor sendback is the other). An answer result
 // of an older log (answer.<call id>, a fix job of the next attempt) still folds as it did.
-const MethodAnswer = "answer"
 
 func answerReply(task, agent string) string {
 	return fmt.Sprintf("ANSWERED %s: obor serve sends %s the answer", task, agent)

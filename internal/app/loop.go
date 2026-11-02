@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"obor/internal/app/wire"
 )
 
 // The merge loop (docs/state-model.md rows 16–38, rules 3–5). A worker's task_done submits its task; submit
@@ -63,14 +65,6 @@ const (
 	stepNudge = "nudge." // prompt intent (P) nudge.<job step>: the job again, the integrator idle with it
 )
 
-// What obor resume does with a needs-you (docs/state-model.md row 40): gate the task again, send the integrator its
-// job anew (a new job id: the old one is refused), or try the failed step again (its pending intent).
-const (
-	ResumeRegate   = "regate"
-	ResumeReprompt = "reprompt"
-	ResumeRetry    = "retry"
-)
-
 // The causes of the merge loop's needs-you (FactData.Cause); resumeDefault is what obor resume does with each by
 // default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
@@ -113,24 +107,24 @@ const tries = 3
 
 // The states of a merge-loop task.
 const (
-	stSubmitted  = "submitted"       // submit it (pin the lane's commit), then gate it
-	stGreen      = "green"           // gate green: keep the accept, or a review job
-	stAwaiting   = "awaiting-accept" // the review job is out
-	stRed        = "red"             // gate red: a sendback, or the owner after K
-	stConflict   = "conflict"        // the merge conflicts in the scratch: a resolve job
-	stResolving  = "resolving"       // the resolve job is out
-	stResolved   = "resolved"        // gate the merge the integrator committed in the scratch
-	stFail       = "fail"            // the owner decides (why)
-	stAccepted   = "accepted"        // publish it
-	stMoved      = "moved"           // gate the candidate again on the new target
-	stPublished  = "published"       // the target holds the candidate
-	stMerged     = "merged"          // terminal (then after_merge)
-	stRejected   = "rejected"        // terminal; the owner is told
-	stDropped    = "dropped"         // terminal; the lead abandoned it (obor drop)
-	stWaiting    = "waiting"         // a dispatch waiting for its After tasks to merge (readiness rule 1)
-	stDispatched = "dispatched"      // a dispatch's steps: lane.prepare, agent.start, the work job
-	stWorking    = "working"         // the work job delivered, or sent back: the fix job; then task_done
-	stNeedsYou   = "needs-you"       // the owner decides; a task_done is the next attempt
+	stSubmitted  = "submitted"           // submit it (pin the lane's commit), then gate it
+	stGreen      = "green"               // gate green: keep the accept, or a review job
+	stAwaiting   = "awaiting-accept"     // the review job is out
+	stRed        = "red"                 // gate red: a sendback, or the owner after K
+	stConflict   = wire.ScratchConflict  // the merge conflicts in the scratch: a resolve job
+	stResolving  = wire.ScratchResolving // the resolve job is out
+	stResolved   = wire.ScratchResolved  // gate the merge the integrator committed in the scratch
+	stFail       = "fail"                // the owner decides (why)
+	stAccepted   = "accepted"            // publish it
+	stMoved      = "moved"               // gate the candidate again on the new target
+	stPublished  = "published"           // the target holds the candidate
+	stMerged     = "merged"              // terminal (then after_merge)
+	stRejected   = "rejected"            // terminal; the owner is told
+	stDropped    = "dropped"             // terminal; the lead abandoned it (obor drop)
+	stWaiting    = "waiting"             // a dispatch waiting for its After tasks to merge (readiness rule 1)
+	stDispatched = "dispatched"          // a dispatch's steps: lane.prepare, agent.start, the work job
+	stWorking    = "working"             // the work job delivered, or sent back: the fix job; then task_done
+	stNeedsYou   = "needs-you"           // the owner decides; a task_done is the next attempt
 )
 
 // mtask is one task in the merge loop, folded from its records.
@@ -229,16 +223,6 @@ func nth(step string, n int) string {
 		return step
 	}
 	return step + "." + strconv.Itoa(n)
-}
-
-// StepN splits step.N into step and N (N 1 when it has none). view reads a step's base through it: one split.
-func StepN(step string) (string, int) {
-	if i := strings.LastIndexByte(step, '.'); i > 0 {
-		if n, err := strconv.Atoi(step[i+1:]); err == nil && n > 1 {
-			return step[:i], n
-		}
-	}
-	return step, 1
 }
 
 // wake kicks the merge loop.

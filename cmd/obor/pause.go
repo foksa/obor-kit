@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -14,11 +14,11 @@ import (
 const pauseUsage = `FAIL usage: obor pause [--for <dur>] "<why>" | obor pause --clear`
 
 // pauseCmd is `obor pause [--for <dur>] "<why>" | --clear`, the lead's or the owner's: a request to obor serve that
-// records the project's pause (app.MethodPause): while it holds, dispatches are refused and waiting tasks wait; running
+// records the project's pause (wire.MethodPause): while it holds, dispatches are refused and waiting tasks wait; running
 // gates and merges finish. <dur> is a Go duration (90m, 3h). Serve's reply (PAUSED until …, PAUSE CLEARED, NOT
 // PAUSED), or FAIL: serve down, its refusal or a usage error (exit 1).
 func pauseCmd(args []string) int {
-	var c app.Call
+	var c wire.Call
 	switch {
 	case len(args) == 1 && args[0] == "--clear":
 		c.Clear = true
@@ -39,7 +39,7 @@ func pauseCmd(args []string) int {
 		fmt.Fprintln(out, pauseUsage)
 		return 1
 	}
-	return request(context.Background(), project.OSEnv, app.MethodPause, func(_ *config.Config, call *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodPause, func(_ *config.Config, call *wire.Call) error {
 		call.Note, call.Until, call.Clear = c.Note, c.Until, c.Clear
 		return nil
 	})
