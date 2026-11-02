@@ -236,7 +236,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil {
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
-	vars, err := lt.StartEnv(a.effort, os.ReadFile, s.Env.Get)
+	vars, stateDir, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get,
+		Home: project.StateHome(s.Env), Project: s.cfg.ProjectName(), Agent: a.name})
 	if err != nil {
 		return project.Failf("%s: %v", a.name, err)
 	}
@@ -290,6 +291,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		if err := l.SetEnv(ctx, pane, app.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {
 			return err
 		}
+	}
+	// A setup start is fresh: the kind's own state dir of the agent starts empty (T-696).
+	if err := project.FreshDir(stateDir); err != nil {
+		return project.Failf("%s: cannot empty its state dir %s: %v", a.name, stateDir, err)
 	}
 	run := func() error {
 		return l.Start(ctx, app.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,

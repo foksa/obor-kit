@@ -78,6 +78,8 @@ func (kind) Efforts() []string { return efforts }
 // StartEnv: none; the effort is a flag.
 func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
 
+func (kind) StateDir(agents.Start) string { return "" }
+
 // withEffort is args without their --effort (either spelling), then --effort effort; args as they are for effort "".
 func withEffort(args []string, effort string) []string {
 	if effort == "" {

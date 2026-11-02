@@ -225,6 +225,7 @@ type target struct {
 	panes []app.PaneInfo
 	kind  string
 	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
+	state string            // the kind's own state dir of the agent (agents.Kind.StateDir, T-696): a fresh start empties it
 }
 
 // resolve is who and where (shared by Restart and Stop); nothing is typed.
@@ -479,6 +480,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
 		return app.Started{}, err
 	}
+	// A fresh start empties the kind's own state dir of the agent, once its last start has exited; a resume keeps it
+	// (T-696).
+	if sid == "" {
+		if err := project.FreshDir(t.state); err != nil {
+			return app.Started{}, l.giveUp(ctx, t, "cannot empty %s's state dir %s: %v", t.agent, t.state, err)
+		}
+	}
 	if err := l.setEnv(ctx, t); err != nil {
 		return app.Started{}, err
 	}
@@ -715,11 +723,12 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	if env == nil {
 		env = project.OSEnv
 	}
-	vars, err := lt.StartEnv(effort, os.ReadFile, env.Get)
+	vars, state, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: env.Get,
+		Home: project.StateHome(env), Project: l.Cfg.ProjectName(), Agent: t.agent})
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	t.env = vars
+	t.env, t.state = vars, state
 	return lt.LaunchArgs(t.info.Role == "lead", effort), nil
 }
 

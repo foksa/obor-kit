@@ -628,14 +628,32 @@ func (lt LaneType) LaunchArgs(lead bool, effort string) []string {
 	return k.Start(agents.Start{Args: lt.Args, Settings: settings, Effort: effort})
 }
 
-// StartEnv is the environment a start of this type with effort needs beyond the pane's (agents.Kind.StartEnv:
-// OpenCode's model and effort); read and env read its config. nil for a kind obor has no bridge for.
-func (lt LaneType) StartEnv(effort string, read agents.ReadFile, env func(string) string) (map[string]string, error) {
+// StartEnv is the environment a start of this type needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model,
+// effort and own state dir), in a start's Effort, Read, Env, Home, Project and Agent (its Args are the type's), and the
+// kind's own state dir of the agent (agents.Kind.StateDir, T-696; "": none), which the caller empties on a fresh
+// start. nil and "" for a kind obor has no bridge for.
+func (lt LaneType) StartEnv(in agents.Start) (vars map[string]string, stateDir string, err error) {
 	k, ok := agents.Lookup(lt.Kind)
 	if !ok {
-		return nil, nil
+		return nil, "", nil
 	}
-	return k.StartEnv(agents.Start{Args: lt.Args, Effort: effort, Read: read, Env: env})
+	in.Args = lt.Args
+	vars, err = k.StartEnv(in)
+	if err != nil {
+		return nil, "", err
+	}
+	return vars, k.StateDir(in), nil
+}
+
+// ProjectName is the name the project answers to: its config's name, else its root's base name ("" for no config).
+func (c *Config) ProjectName() string {
+	switch {
+	case c == nil:
+		return ""
+	case c.Data.Name != "":
+		return c.Data.Name
+	}
+	return filepath.Base(c.Root)
 }
 
 // ParseTypeRef splits a type reference `<type>[:<effort>]` (T-695: a spec's Type: line, dispatch --types, a difficulty

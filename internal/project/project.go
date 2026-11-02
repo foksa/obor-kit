@@ -173,6 +173,18 @@ func StateHome(env Env) string {
 	return filepath.Join(env.Get("HOME"), ".obor")
 }
 
+// FreshDir empties dir (a kind's own state dir of an agent, agents.Kind.StateDir) for a fresh start: what an earlier
+// start left there must not survive (T-696: OpenCode's remembered variant). It is left there, empty, mode 0700.
+func FreshDir(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o700)
+}
+
 // KitRoot is the obor kit this binary belongs to: OBOR_PLUGIN_ROOT (bin/obor, scripts and the hook wrapper export
 // it), else the directory above the binary's (<kit>/dist/obor).
 func KitRoot(env Env) string {
