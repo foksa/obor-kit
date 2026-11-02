@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,12 +11,13 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
 )
 
-// The two steps of a review cycle after its start (T-716; skills/lead/review-brief.md §4–5): obor review verify briefs
+// The two steps of a review cycle after its start (T-716; skills/lead/review-brief.md §4–5): obor review verify asks serve to brief
 // the open review's reviewer to re-run its probes on the fixes, obor review close records the close commit and stops
 // the reviewer. The open review is the next review by git (the newest "RV-<n> closed" commit + 1) whose file
 // <reviews>/RV-<n>.md is in the main checkout (T-718: the reviewer runs there; serve holds merges while it works).
@@ -30,8 +30,9 @@ const (
 // reviewGitWait bounds a review command's git.
 const reviewGitWait = 60 * time.Second
 
-// openCycle is the open review of cfg: its setup, git on the main checkout, its id, the previous review's reviewed sha
-// ("": none) and the path of its review file. No review file in the main checkout: no open review.
+// openCycle is the open review of cfg (app.OpenReview): its setup, git on the main checkout, its id, the previous
+// review's id and reviewed sha ("": none) and the path of its review file. No review file in the main checkout: no
+// open review.
 type openCycle struct {
 	s       app.ReviewSetup
 	g       reviewGit
@@ -47,24 +48,16 @@ func openReview(ctx context.Context, cfg *config.Config) (openCycle, error) {
 		return openCycle{}, err
 	}
 	g := reviewGit{root: cfg.Root}
-	last, err := g.Last(ctx, s.Branch)
-	if err != nil {
-		return openCycle{}, err
-	}
-	n, prev, prevSHA := app.PreviousReview(last)
-	c := openCycle{s: s, g: g, id: "RV-" + strconv.Itoa(n), prev: prev, prevSHA: prevSHA}
-	c.file = filepath.Join(cfg.Root, s.Reviews, c.id+".md")
-	if _, err := os.Stat(c.file); err != nil {
-		return c, fmt.Errorf("no open review: no %s/%s.md in %s (%s is not written yet, or the last review is closed)",
-			s.Reviews, c.id, cfg.Root, c.id)
-	}
-	return c, nil
+	o, err := app.OpenReview(ctx, g, cfg.Root, s)
+	return openCycle{s: s, g: g, id: o.ID, prev: o.Prev, prevSHA: o.PrevSHA, file: o.File}, err
 }
 
-// reviewVerifyCmd is `obor review verify <T-a,…> [--findings 1,3] [--note "…"]`: the integration branch's head marked
-// as the reviewed one (app.ReviewedRef; T-718: no review worktree to detach), then the open review's reviewer briefed in its running session (obor brief) with
-// review-brief.md §4's text: the fix tasks with their merge shas, the findings to re-run (default: every finding), the
-// verify file. FAIL (exit 1): no open review, a task with no merge since the previous review, git or serve refusing.
+// reviewVerifyCmd is `obor review verify <T-a,…> [--findings 1,3] [--note "…"]`: one request to obor serve
+// (wire.MethodVerify, T-730). Serve, once no publish runs and none can start, reads the integration branch's head,
+// finds each fix task's merge since the previous review, marks the head reviewed (app.ReviewedRef) and briefs the open
+// review's reviewer with review-brief.md §4's text: the fix tasks with their merge shas, the findings to re-run
+// (default: every finding), the verify file. FAIL (exit 1): a usage error, serve down, or serve's refusal (no open
+// review, a task with no merge since the previous review, git refusing, a publish still running).
 func reviewVerifyCmd(args []string) int {
 	var tasks, findings []string
 	var note string
@@ -94,81 +87,13 @@ func reviewVerifyCmd(args []string) int {
 			return 1
 		}
 	}
-	_, cfg, rc := load()
-	if rc != 0 {
-		fmt.Fprintln(out, noConfig)
-		return 1
-	}
-	if err := taskIDs(cfg, tasks...); err != nil {
-		fmt.Fprintf(out, "FAIL %v\n", err)
-		return 1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), reviewGitWait)
-	defer cancel()
-	agent, text, err := verifyReview(ctx, cfg, tasks, findings, note)
-	if err != nil {
-		fmt.Fprintf(out, "FAIL %v\n", err)
-		return 1
-	}
-	reply, err := brief(ctx, cfg, agent, text, "", project.OSEnv)
-	if err != nil {
-		fmt.Fprintf(out, "FAIL %v\n", err)
-		return 1
-	}
-	fmt.Fprintln(out, reply)
-	return 0
-}
-
-// verifyReview finds the open review and each task's merge since the previous review, marks the integration branch's
-// head reviewed: the reviewer and the verify brief.
-func verifyReview(ctx context.Context, cfg *config.Config, tasks, findings []string, note string) (agent, text string,
-	err error) {
-	c, err := openReview(ctx, cfg)
-	if err != nil {
-		return "", "", err
-	}
-	head, err := c.g.Head(ctx, c.s.Branch)
-	if err != nil {
-		return "", "", err
-	}
-	merges, err := c.g.Merges(ctx, c.prevSHA, head)
-	if err != nil {
-		return "", "", err
-	}
-	fixed := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		sha := ""
-		for _, m := range merges { // oldest first: the last merge of the task wins
-			if h, subject, _ := strings.Cut(m, " "); strings.HasPrefix(subject, "Merge "+task+":") {
-				sha = h[:min(len(h), 7)]
-			}
+	return request(context.Background(), project.OSEnv, wire.MethodVerify, func(cfg *config.Config, call *wire.Call) error {
+		if err := taskIDs(cfg, tasks...); err != nil {
+			return err
 		}
-		if sha == "" {
-			since := cmp.Or(c.prev, "the first commit")
-			return "", "", fmt.Errorf("%s has no merge on %s since %s", task, c.s.Branch, since)
-		}
-		fixed = append(fixed, task+" ("+sha+")")
-	}
-	if err := c.g.Mark(ctx, head); err != nil {
-		return "", "", err
-	}
-	return c.s.Agent, verifyBrief(c.id, c.s, head[:min(len(head), 7)], fixed, findings, note), nil
-}
-
-// verifyBrief is review-brief.md §4's text: the fixes, the head, the findings to re-run (none: every finding), the
-// verify file, the lead's note last.
-func verifyBrief(id string, s app.ReviewSetup, short string, fixed, findings []string, note string) string {
-	which := "every finding"
-	if len(findings) > 0 {
-		which = "#" + strings.Join(findings, ", #")
-	}
-	text := fmt.Sprintf("The %s findings were fixed in %s; %s is at %s. Re-run your probes for %s and report fixed /"+
-		" incomplete / regressed per finding. Write %s/%s-verify.md. Do not commit.",
-		id, strings.Join(fixed, ", "), s.Branch, short, which, s.Reviews, id)
-	if note = strings.TrimSpace(note); note != "" {
-		text += "\nLead's note: " + note
-	}
-	return text
+		call.After, call.Findings, call.Note = tasks, findings, note
+		return nil
+	})
 }
 
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]…`: the open review's files deleted from the

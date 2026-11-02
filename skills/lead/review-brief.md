@@ -62,7 +62,8 @@ At most two review rounds per feature (owner 2026-11-02): after the second verif
 in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is likely and its fix is small.
 
 ## 4. Verification (same session — never `/new` the reviewer)
-After the fix tasks merge: `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]`. It marks the integration
+After the fix tasks merge: `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]`. It asks serve, which waits
+for a publish in flight (T-730: no merge moves the head between its read and the brief), then marks the integration
 branch's head reviewed (`refs/obor/reviewed`; nothing to detach: the reviewer reads the main checkout, held still
 while it works) and briefs the open review's reviewer in its same, still-running session (`obor brief`: serve delivers
 it once the pane is idle and tells you when it has finished). The open review is the next RV by git whose

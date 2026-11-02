@@ -792,7 +792,8 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 // briefCall answers the socket's brief request (the lead or the owner): Call.To, a role agent, is briefed; with a
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
-// reply. The lead hears once the agent has finished.
+// reply. The lead hears once the agent has finished. A brief to a hold agent (the reviewer, the deep dive) waits while
+// a publish runs and is recorded admitted (mergehold.go, T-730); a publish still running after admitWait: refused.
 func (a *App) briefCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodBrief + ": a call id is required")
@@ -815,6 +816,18 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 	from := c.Agent
 	if from == "" {
 		from = "owner"
+	}
+	a.mu.Lock()
+	hold := p.holdAgent(c.To)
+	a.mu.Unlock()
+	if hold { // a reviewer or deep dive reads the main checkout: admitted first (mergehold.go, T-730)
+		wait, cancel := context.WithTimeout(context.Background(), admitWait)
+		release, err := a.admit(wait, p)
+		cancel()
+		if err != nil {
+			return "", fmt.Errorf("brief: %v", err)
+		}
+		defer release() // after the brief is recorded: its open brief holds the merge from then on
 	}
 	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt)
 	if !ok {

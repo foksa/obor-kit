@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"obor/internal/app/event"
 	"time"
 
@@ -43,14 +45,79 @@ func holdAgents(cfg *config.Config) []holdAgent {
 	return out
 }
 
+// holdAgentsNow is the hold's agents by the current config (config.LoadDaemon, the load reconcile's names use), kept
+// in p.holders: a role renamed, added or removed while serve runs counts at the next check; a config that does not
+// load keeps the last good set (T-730; under mu).
+func (p *proj) holdAgentsNow() []holdAgent {
+	if cfg, err := config.LoadDaemon(p.root); err == nil {
+		p.holders = holdAgents(cfg)
+	}
+	return p.holders
+}
+
+// holdAgent: agent is one of the hold's agents by the current config (holdAgentsNow; under mu).
+func (p *proj) holdAgent(agent string) bool {
+	for _, h := range p.holdAgentsNow() {
+		if h.agent == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // holder is the first role whose agent works now ("": none) (under mu).
 func (a *App) holder(p *proj) string {
-	for _, h := range p.holders {
+	for _, h := range p.holdAgentsNow() {
 		if !a.roleIdle(p, h.agent) {
 			return h.role
 		}
 	}
 	return ""
+}
+
+// Admission (T-730): a start that reads the main checkout (a review's start, obor review verify, a brief to a hold
+// agent) passes one serve-owned point first. It waits while a publish runs (the head it reads is the published one),
+// and once admitted no publish starts (scratchStep refuses one) until its brief is recorded and released: from then
+// the hold above keeps the code still while the agent works. The admission and a publish's start are decided under
+// App.mu, so one of them is first. A call waits at most admitWait; the merge loop's review start does not wait, it
+// tries again on the pass after the publish (the publish's end wakes the loop).
+
+// admitWait bounds a call's wait for the running publish: well inside the socket's 10 s deadline, so the brief's git
+// and its record still fit.
+const admitWait = 6 * time.Second
+
+// publishing: the merge loop's publish runs now (under mu).
+func (p *proj) publishing() bool {
+	base, _ := event.StepN(p.running.Step)
+	return p.running.Task != "" && base == event.StepPublish
+}
+
+// admit waits until no publish runs, then admits one start: no publish starts until release, called once its brief is
+// recorded (or it failed). ctx ending the wait: an error naming the publish, nothing admitted.
+func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
+	for {
+		a.mu.Lock()
+		if !p.publishing() {
+			p.admits++
+			a.mu.Unlock()
+			return func() { a.unadmit(p) }, nil
+		}
+		task, done := p.running.Task, p.published
+		a.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("the publish of %s is still running: try again", task)
+		}
+	}
+}
+
+// unadmit ends one admission and wakes the loop: a publish it held may start.
+func (a *App) unadmit(p *proj) {
+	a.mu.Lock()
+	p.admits--
+	a.mu.Unlock()
+	a.wake()
 }
 
 // holdPublish decides task's publish (under mu): held (it waits for role), or not; capped is the role a publish goes

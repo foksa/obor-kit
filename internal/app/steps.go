@@ -26,8 +26,17 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	default:
 		return false
 	}
+	base, _ := event.StepN(step)
 	a.mu.Lock()
+	if base == event.StepPublish && p.admits > 0 { // a start reading the main checkout was admitted first (T-730)
+		a.mu.Unlock()
+		<-p.scratch
+		return false
+	}
 	p.running = event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}
+	if base == event.StepPublish {
+		p.published = make(chan struct{})
+	}
 	a.scratched++
 	a.mu.Unlock()
 	a.effects.Add(1)
@@ -35,6 +44,10 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 		defer a.effects.Done()
 		effect(ctx)
 		a.mu.Lock()
+		if p.published != nil { // the admissions waiting for it go on
+			close(p.published)
+			p.published = nil
+		}
 		p.running, p.runCmd = event.Key{}, ""
 		a.mu.Unlock()
 		<-p.scratch

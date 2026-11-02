@@ -31,59 +31,42 @@ func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	return p, p.Git(p.Root, "rev-parse", "HEAD")
 }
 
-// T-716: obor review verify marks the head reviewed (T-718: app.ReviewedRef, no worktree to detach) and briefs the reviewer with §4's text built from
-// the open RV, the fix tasks' merge shas, the findings and the verify file; with no open review, or a task not merged
-// since the previous review, it refuses and sends nothing.
+// T-716, T-730: obor review verify only asks serve (wire.MethodVerify: the fix tasks, the findings, the note) and
+// marks nothing itself: serve reads and marks the head at its admission point (internal/app). A usage error or a bad
+// finding number sends nothing.
 func TestReviewVerify(t *testing.T) {
 	t.Parallel()
-	p, head := reviewFixture(t)
+	p, _ := reviewFixture(t)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	marked := func() string { return p.Git(p.Root, "for-each-ref", "--format=%(objectname)", app.ReviewedRef) }
-	if at := marked(); at != "" {
-		t.Fatalf("precondition: %s is already at %s", app.ReviewedRef, at)
-	}
-	rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5")
-	if rc != 1 || !strings.HasPrefix(stdout, "FAIL no open review: no docs/reviews/RV-4.md in ") {
-		t.Errorf("no review file: exit %d, %q; want FAIL no open review", rc, stdout)
-	}
 	for _, args := range [][]string{{"review", "verify"}, {"review", "verify", "T-5", "--findings"}, {"review", "verify", "--note", "x"}} {
 		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review verify") {
 			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
 		}
 	}
-	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
-	if rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-6"); rc != 1 || stdout != "FAIL T-6 has no merge on main since RV-3\n" {
-		t.Errorf("a task not merged: exit %d, %q", rc, stdout)
+	if rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5", "--findings", "0"); rc != 1 || !strings.HasPrefix(stdout, "FAIL --findings:") {
+		t.Errorf("finding 0: exit %d, %q", rc, stdout)
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a refused verify sent %d requests", n)
 	}
-	if at := marked(); at != "" {
-		t.Errorf("a refused verify marked %s", at)
-	}
-	rc, stdout, _ = run(t, p.Root, env, "review", "verify", "T-5", "--findings", "1,3", "--note", "#2 accepted")
+	rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5,T-6", "--findings", "1,3", "--note", "#2 accepted")
 	if rc != 0 || stdout != "BRIEFED pj-rev\n" {
 		t.Fatalf("verify: exit %d, %q", rc, stdout)
 	}
-	if at := marked(); at != head {
-		t.Errorf("%s is at %q, want the head %s", app.ReviewedRef, at, head)
-	}
-	if !p.Exists(p.Path("docs/reviews/RV-4.md")) {
-		t.Errorf("the verify lost the review file")
-	}
 	calls, _ := serve.requests()
-	want := "The RV-4 findings were fixed in T-5 (" + head[:7] + "); main is at " + head[:7] + ". Re-run your probes for" +
-		" #1, #3 and report fixed / incomplete / regressed per finding. Write docs/reviews/RV-4-verify.md. Do not commit." +
-		"\nLead's note: #2 accepted"
-	if len(calls) != 1 || serve.methods[0] != wire.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != want {
-		t.Fatalf("the brief: %q %+v\nwant %q", serve.methods, calls, want)
+	if len(calls) != 1 || serve.methods[0] != wire.MethodVerify || strings.Join(calls[0].After, ",") != "T-5,T-6" ||
+		strings.Join(calls[0].Findings, ",") != "1,3" || calls[0].Note != "#2 accepted" || calls[0].CallID == "" {
+		t.Fatalf("the request: %q %+v", serve.methods, calls)
 	}
-	if rc, _, _ := run(t, p.Root, env, "review", "verify", "T-5"); rc != 0 {
-		t.Fatalf("verify without --findings: exit %d", rc)
+	if at := marked(); at != "" {
+		t.Errorf("the CLI marked %s at %s: serve marks it", app.ReviewedRef, at)
 	}
-	if calls, _ = serve.requests(); len(calls) != 2 || !strings.Contains(calls[1].Note, "Re-run your probes for every finding and") {
-		t.Errorf("no --findings: every finding: %+v", calls)
+	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "no open review: no docs/reviews/RV-4.md in "+p.Root)
+	env2 := []string{"OBOR_STATE_HOME=" + home2, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	if rc, stdout, _ := run(t, p.Root, env2, "review", "verify", "T-5"); rc != 1 || !strings.HasPrefix(stdout, "FAIL no open review: ") {
+		t.Errorf("serve refuses: exit %d, %q; want its FAIL", rc, stdout)
 	}
 }
 
