@@ -4,11 +4,7 @@
 package opencode
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,9 +20,8 @@ const name = "opencode"
 
 func (kind) Name() string { return name }
 
-// Start: the type's args but their --model/-m (OpenCode's TUI takes none: StartEnv carries the model), then
-// --prompt <prompt>. OpenCode takes no settings and has no resume. Its sessions live in its data dir
-// (<XDG_DATA_HOME|~/.local/share>/opencode), which StartEnv leaves as it is (T-696).
+// Start: the type's args but their --model/-m (OpenCode's TUI takes none: StartEnv carries the model to obor's plugin),
+// then --prompt <prompt>. OpenCode takes no settings and has no resume.
 func (kind) Start(in agents.Start) []string {
 	out, _ := splitModel(in.Args)
 	if in.Prompt != "" && in.Resume == "" {
@@ -37,9 +32,9 @@ func (kind) Start(in agents.Start) []string {
 
 func (kind) NotReady(string) string { return "" }
 
-// ConfigVar is OpenCode's variable holding config JSON layered over its config files: a start's model and effort
-// reach the TUI through it (T-695).
-const ConfigVar = "OPENCODE_CONFIG_CONTENT"
+// ModelVar is the variable obor's plugin (opencode/obor.js) reads the start's model and effort from,
+// provider/model[#variant]: it switches each new root session of the start to it (T-703).
+const ModelVar = "OBOR_OPENCODE_MODEL"
 
 // efforts are the variant names OpenCode gives a model's reasoning levels. They are per model (opencode 2.2.0:
 // `opencode api GET /api/model` lists deepseek-v4.1-flash's as low, high, max; its own fallback list is none, minimal,
@@ -47,41 +42,6 @@ const ConfigVar = "OPENCODE_CONFIG_CONTENT"
 var efforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 
 func (kind) Efforts() []string { return efforts }
-
-// StateVar is the variable naming OpenCode's state dir (<XDG_STATE_HOME|~/.local/state>/opencode): its model.json
-// keeps the TUI's recent models and each model's remembered variant, which beats the config's (T-696).
-const StateVar = agents.StateHomeVar
-
-// stateDirName is the directory under obor's state home that holds every OpenCode agent's own state dir.
-const stateDirName = "opencode-state"
-
-// StateRoot: <home>/opencode-state, where all OpenCode agents' state dirs live: a XDG_STATE_HOME under it is obor's
-// (agents.StateOwner, T-698), so a start of another kind unsets it and one of the user's own stays.
-func (kind) StateRoot(home string) string { return filepath.Join(home, stateDirName) }
-
-// StateDir: <Home>/opencode-state/<project>/<agent>, the agent's own XDG_STATE_HOME (T-696), so the variant a start
-// passes is not beaten by one remembered in the user's state, and obor never writes the user's own
-// (~/.local/state/opencode). Each element is pathElement of the name, so any configured name isolates, on a
-// case-insensitive filesystem too. "" when Home, Project or Agent is empty (StartEnv refuses such a start, T-697).
-func (k kind) StateDir(in agents.Start) string {
-	if in.Home == "" || in.Project == "" || in.Agent == "" {
-		return ""
-	}
-	return filepath.Join(k.StateRoot(in.Home), pathElement(in.Project), pathElement(in.Agent))
-}
-
-// pathElement is name as one path element: url.PathEscape of its lower case (a separator, / or \, becomes %2F or %5C; a
-// dots-only name has its dots escaped) and "-" and the first 8 hex digits of the sha256 of the exact name (T-698). The
-// digest keeps names that differ only by case, or by what a filesystem folds, apart; the readable part is for the
-// owner; the % escapes keep two names from sharing an element.
-func pathElement(name string) string {
-	e := url.PathEscape(strings.ToLower(name))
-	if e == "." || e == ".." {
-		e = strings.ReplaceAll(e, ".", "%2E")
-	}
-	sum := sha256.Sum256([]byte(name))
-	return e + "-" + hex.EncodeToString(sum[:4])
-}
 
 // CheckEffort: an effort needs the type's --model, as obor never guesses OpenCode's model (T-697).
 func (kind) CheckEffort(args []string, effort string) error {
@@ -91,34 +51,23 @@ func (kind) CheckEffort(args []string, effort string) error {
 	return nil
 }
 
-// StartEnv: StateVar the agent's own state dir (StateDir, T-696; a start without one is refused: it would run on the
-// owner's state), and ConfigVar {"model":"<provider>/<model>[#<effort>]"} when the type's args name a model, else
-// ConfigVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has no --model flag
-// (2.2.0: only `opencode run` and `mini` take --model provider/model#variant), but its config's model takes the same
-// form, and the TUI starts with the config's model and variant (live 2026-11-02: the footer showed "· max"). obor
-// never guesses a model (T-697): a type without --model sets none, so OpenCode's own precedence (project config,
-// global config, recent) stands, and an effort on it is an error. The TUI's own remembered variant of a model (picked
-// in it, kept in model.json) wins over the config's: in the agent's own state dir, emptied on a fresh start, there is
-// none.
+// StartEnv: ModelVar <provider>/<model>[#<effort>] when the type's args name a model (the effort replaces a #variant
+// the model names), else ModelVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has
+// no --model flag (2.2.0: only `opencode run` and `mini` take one) and, for a new session, ranks the variant it
+// remembers in its state (model.json) above the config's; obor's plugin switches the session in its prompt hook, after
+// the TUI's own pre-submit switch, so the start's model and variant win from the first turn (T-703 probe). obor never
+// guesses a model (T-697): a type without --model sets none, so OpenCode's own choice stands, and an effort on it is
+// an error.
 func (k kind) StartEnv(in agents.Start) (map[string]string, error) {
-	state := k.StateDir(in)
-	if state == "" {
-		return nil, fmt.Errorf("opencode: no state dir for the agent (home %q, project %q, agent %q): refusing to start on the owner's state",
-			in.Home, in.Project, in.Agent)
-	}
 	if err := k.CheckEffort(in.Args, in.Effort); err != nil {
 		return nil, err
 	}
-	out := map[string]string{StateVar: state, ConfigVar: ""}
-	if _, model := splitModel(in.Args); model != "" {
-		if in.Effort != "" {
-			model, _, _ = strings.Cut(model, "#")
-			model += "#" + in.Effort
-		}
-		b, _ := json.Marshal(map[string]string{"model": model})
-		out[ConfigVar] = string(b)
+	_, model := splitModel(in.Args)
+	if model != "" && in.Effort != "" {
+		model, _, _ = strings.Cut(model, "#")
+		model += "#" + in.Effort
 	}
-	return out, nil
+	return map[string]string{ModelVar: model}, nil
 }
 
 // splitModel is args without their --model/-m (with its word, or either spelling with =), and the model they named.

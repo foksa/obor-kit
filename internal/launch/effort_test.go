@@ -1,24 +1,17 @@
 package launch_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"obor/internal/agents"
-	"obor/internal/config"
 	"obor/internal/launch"
-	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
 // T-695: the effort a start runs at: the request's (a dispatch's type reference), else the role's type reference
 // (roles.<role>.type `opus:max`), else the type's args. The kind sets it once, in place of the args' own; OpenCode's
-// reaches its config through the env line (OPENCODE_CONFIG_CONTENT), which unsets it when the start names none.
+// reaches obor's plugin through the env line (OBOR_OPENCODE_MODEL, T-703), which unsets it when the start names none.
 func TestStartEffort(t *testing.T) {
 	t.Parallel()
 	const types = `{"opus":{"kind":"claude","args":["--model","opus","--effort","medium"]},` +
@@ -30,16 +23,16 @@ func TestStartEffort(t *testing.T) {
 		env, noEnv               string   // in, not in the env line
 	}{
 		{"a request's effort replaces the type's, once", "opus", "claude", "high",
-			[]string{"--effort high"}, []string{"medium"}, "", "OPENCODE_CONFIG_CONTENT"},
+			[]string{"--effort high"}, []string{"medium"}, "", "OBOR_OPENCODE_MODEL"},
 		{"the role's effort", "opus:max", "claude", "", []string{"--effort max"}, []string{"medium"}, "", ""},
 		{"the request's effort before the role's", "opus:max", "claude", "low", []string{"--effort low"}, []string{"max", "medium"}, "", ""},
 		{"no effort: the type's args", "opus", "claude", "", []string{"--effort medium"}, nil, "", ""},
 		{"codex: the role's effort", "luna:xhigh", "codex", "", []string{"-c model_reasoning_effort=xhigh"},
 			[]string{"model_reasoning_effort=high"}, "", ""},
-		{"opencode: the effort reaches its config as the model's variant", "oc:high", "opencode", "",
-			[]string{"--auto"}, []string{"--model", "go/ds", "high"}, `export OPENCODE_CONFIG_CONTENT='{"model":"go/ds#high"}'`, ""},
+		{"opencode: the model and effort reach the plugin as model#variant", "oc:high", "opencode", "",
+			[]string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
 		{"opencode, no model or effort: the variable unset", "bare", "opencode", "", []string{"--auto"}, nil,
-			"unset OPENCODE_CONFIG_CONTENT", "export OPENCODE"},
+			"unset OBOR_OPENCODE_MODEL", "export OBOR_OPENCODE_MODEL"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -108,95 +101,17 @@ func TestRequestArgsCarryTheEffort(t *testing.T) {
 	}
 }
 
-// resumingOpencode is OpenCode as if it resumed a session (Caps.Resume), to reach a resume of a kind with its own
-// state dir (T-696); OpenCode itself starts fresh every time (T-581).
-type resumingOpencode struct{ agents.Kind }
-
-func (resumingOpencode) Name() string { return "ocresume" }
-func (k resumingOpencode) Caps() agents.Caps {
-	c := k.Kind.Caps()
-	c.Resume = true
-	return c
-}
-
-func init() {
-	k, _ := agents.Lookup("opencode")
-	agents.Register(resumingOpencode{k})
-}
-
-// T-696: an OpenCode start's env line points XDG_STATE_HOME at the agent's own dir
-// (${OBOR_STATE_HOME}/opencode-state/<project>/<agent>): a fresh start empties it first (a variant an earlier start
-// remembered there is gone), a resume keeps what is there; the user's own ~/.local/state/opencode is not touched.
-func TestOpencodeStateDir(t *testing.T) {
+// T-703: the OpenCode agent's model reaches its plugin through the pane's shell, nothing else: the env lines of starts
+// typed at one pane's shell (run in a real sh) after what the pane held before, one row per case. No start sets or
+// unsets XDG_STATE_HOME (the T-696 per-agent state dir is gone) or OPENCODE_CONFIG_CONTENT, so a user's own stay.
+func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 	t.Parallel()
-	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"ocr":{"kind":"ocresume","args":["--auto","--model","go/ds"]}}`
-	for _, c := range []struct {
-		name, role string
-		req        launch.Request
-		kept       bool
-	}{
-		{"a fresh start empties the dir", "oc:high", launch.Request{Agent: "pj-rev", Fresh: true}, false},
-		{"a resume keeps it", "ocr:high", launch.Request{Agent: "pj-rev", Sid: "ses_1"}, true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
-			x.agent("w1:p7", "pj-rev", "opencode", "idle")
-			cfg, err := config.Load(x.p.Root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			env := x.env()
-			dir := filepath.Join(project.StateHome(env), "opencode-state", strings.ToLower(cfg.ProjectName())+"-"+hex8(cfg.ProjectName()), "pj-rev-"+hex8("pj-rev"))
-			user := filepath.Join(env.Get("HOME"), ".local", "state", "opencode", "model.json")
-			for _, f := range []string{filepath.Join(dir, "model.json"), user} {
-				if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(f, []byte(`{"variant":{"go/ds":"default"}}`), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			out, ok := x.restart(c.req)
-			if !ok {
-				t.Fatal(out)
-			}
-			if c.kept != strings.Contains(out, "resuming ses_1") {
-				t.Fatalf("resume %v, but the output says %q", c.kept, out)
-			}
-			line := strings.Join(x.calls("pane.send_input"), "\n")
-			if want := "export XDG_STATE_HOME=" + dir; !strings.Contains(line, want) {
-				t.Errorf("env line %q lacks %q", line, want)
-			}
-			if want := `export OPENCODE_CONFIG_CONTENT='{"model":"go/ds#high"}'`; !strings.Contains(line, want) {
-				t.Errorf("env line %q lacks %q", line, want)
-			}
-			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-				t.Fatalf("the state dir %s is not there after the start: %v", dir, err)
-			}
-			_, err = os.Stat(filepath.Join(dir, "model.json"))
-			if kept := err == nil; kept != c.kept {
-				t.Errorf("the dir's model.json kept %v, want %v", kept, c.kept)
-			}
-			if _, err := os.Stat(user); err != nil {
-				t.Errorf("the user's own state: %v", err)
-			}
-		})
-	}
-}
-
-// T-698: XDG_STATE_HOME is the OpenCode agent's alone, and obor's dirs are told by their prefix, not by saved
-// provenance. The env lines of starts typed at one pane's shell (run in a real sh) after what the pane held before:
-// one row per case.
-func TestOpencodeStateHomeIsTheOpencodeAgentsAlone(t *testing.T) {
-	t.Parallel()
-	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"cl":{"kind":"claude","args":[]},"cx":{"kind":"codex","args":[]}}`
+	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"bare":{"kind":"opencode","args":["--auto"]},"cl":{"kind":"claude","args":[]}}`
 	x := setup(t, testkit.Set("lane_types", types),
-		testkit.Set("roles", `{"reviewer":{"type":"oc"},"integrator":{"type":"cl"},"triage":{"type":"cx"},"advisor":{"type":"oc"}}`))
+		testkit.Set("roles", `{"reviewer":{"type":"oc:high"},"advisor":{"type":"bare"},"integrator":{"type":"cl"}}`))
 	x.agent("w1:p7", "pj-rev", "opencode", "idle")
-	x.agent("w1:p8", "pj-int", "claude", "idle")
-	x.agent("w1:p9", "pj-triage", "codex", "idle")
 	x.agent("w1:p6", "pj-advisor", "opencode", "idle")
+	x.agent("w1:p8", "pj-int", "claude", "idle")
 	lineOf := func(agent string) string {
 		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
 			t.Fatal(out)
@@ -213,9 +128,13 @@ func TestOpencodeStateHomeIsTheOpencodeAgentsAlone(t *testing.T) {
 		_, line, _ := strings.Cut(text[:m[0]], " && export ") // not the cd: the fixture's worktree is no directory
 		return "export " + line
 	}
-	oc, other, cl, cx := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int"), lineOf("pj-triage")
-	if !strings.Contains(oc, "export XDG_STATE_HOME=/") || strings.Contains(cl, "export XDG_STATE_HOME=/") || strings.Contains(cx, "export XDG_STATE_HOME=/") {
-		t.Fatalf("precondition: only the OpenCode line exports it:\n%s\n%s\n%s", oc, cl, cx)
+	oc, bare, cl := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int")
+	for _, l := range []string{oc, bare, cl} {
+		for _, v := range []string{"XDG_STATE_HOME", "OPENCODE_CONFIG_CONTENT"} {
+			if strings.Contains(l, v) {
+				t.Errorf("the env line %q names %s", l, v)
+			}
+		}
 	}
 	run := func(script string) string {
 		out, err := exec.Command("sh", "-c", script).CombinedOutput()
@@ -224,35 +143,15 @@ func TestOpencodeStateHomeIsTheOpencodeAgentsAlone(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	const show = "echo ${XDG_STATE_HOME-UNSET}"
-	for _, c := range []struct {
-		name, script string
-		want         string // "" : only that it is an obor dir (opencode-state)
-	}{
-		{"opencode start sets its dir", "unset XDG_STATE_HOME\n" + oc, ""},
-		{"claude after opencode in the pane: unset", oc + "\n" + cl, "UNSET"},
-		{"codex after opencode in the pane: unset", oc + "\n" + cx, "UNSET"},
-		{"claude with the user's own XDG_STATE_HOME: kept", "export XDG_STATE_HOME=/mine\n" + cl, "/mine"},
-		{"claude with none: still none", "unset XDG_STATE_HOME\n" + cl, "UNSET"},
-		{"a user's value that only looks like the root: kept", "export XDG_STATE_HOME=/mine/opencode-state/x\n" + cl, "/mine/opencode-state/x"},
-		{"opencode after opencode (other agent): replaced", oc + "\n" + other, ""},
+	const show = "echo ${OBOR_OPENCODE_MODEL-UNSET} ${XDG_STATE_HOME-UNSET} ${OPENCODE_CONFIG_CONTENT-UNSET}"
+	for _, c := range []struct{ name, script, want string }{
+		{"opencode with a model: set", "unset OBOR_OPENCODE_MODEL XDG_STATE_HOME OPENCODE_CONFIG_CONTENT\n" + oc, "go/ds#high UNSET UNSET"},
+		{"opencode without one after it: unset", oc + "\n" + bare, "UNSET UNSET UNSET"},
+		{"the user's own XDG_STATE_HOME and config content: kept", "export XDG_STATE_HOME=/mine OPENCODE_CONFIG_CONTENT=c\n" + oc,
+			"go/ds#high /mine c"},
 	} {
-		got := run(c.script + "\n" + show)
-		switch {
-		case c.want == "" && !strings.Contains(got, "opencode-state"):
-			t.Errorf("%s: XDG_STATE_HOME = %q, want an opencode-state dir", c.name, got)
-		case c.want != "" && got != c.want:
-			t.Errorf("%s: XDG_STATE_HOME = %q, want %q", c.name, got, c.want)
+		if got := run(c.script + "\n" + show); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
-	// replaced means the second agent's own dir, not the first's
-	first, second := run(oc+"\n"+show), run(oc+"\n"+other+"\n"+show)
-	if first == second || !strings.HasSuffix(second, "pj-advisor-"+hex8("pj-advisor")) {
-		t.Errorf("opencode after opencode: %q then %q, want the second agent's own dir", first, second)
-	}
-}
-
-func hex8(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:4])
 }

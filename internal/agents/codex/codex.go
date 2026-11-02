@@ -68,8 +68,6 @@ func (kind) Efforts() []string { return efforts }
 // StartEnv: none; the effort is a -c option.
 func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
 
-func (kind) StateDir(agents.Start) string { return "" }
-
 // withEffort is args without their effortKey option (`-c`/`--config` with its word, or either spelling with =), then
 // -c model_reasoning_effort=<effort>; args as they are for effort "".
 func withEffort(args []string, effort string) []string {

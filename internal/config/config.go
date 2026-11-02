@@ -628,21 +628,16 @@ func (lt LaneType) LaunchArgs(lead bool, effort string) []string {
 	return k.Start(agents.Start{Args: lt.Args, Settings: settings, Effort: effort})
 }
 
-// StartEnv is the environment a start of this type needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model,
-// effort and own state dir), in a start's Effort, Read, Env, Home, Project and Agent (its Args are the type's), and the
-// kind's own state dir of the agent (agents.Kind.StateDir, T-696; "": none), which the caller empties on a fresh
-// start. nil and "" for a kind obor has no bridge for.
-func (lt LaneType) StartEnv(in agents.Start) (vars map[string]string, stateDir string, err error) {
+// StartEnv is the environment a start of this type needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model
+// and effort, T-703), in a start's Effort, Read and Env (its Args are the type's). nil for a kind obor has no bridge
+// for.
+func (lt LaneType) StartEnv(in agents.Start) (map[string]string, error) {
 	k, ok := agents.Lookup(lt.Kind)
 	if !ok {
-		return nil, "", nil
+		return nil, nil
 	}
 	in.Args = lt.Args
-	vars, err = k.StartEnv(in)
-	if err != nil {
-		return nil, "", err
-	}
-	return vars, k.StateDir(in), nil
+	return k.StartEnv(in)
 }
 
 // ProjectName is the name the project answers to: its config's name, else its root's base name ("" for no config).

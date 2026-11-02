@@ -7,8 +7,6 @@ package agents
 
 import (
 	"fmt"
-	"maps"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -29,12 +27,8 @@ type Kind interface {
 	// Efforts are the effort values Start.Effort takes, from the CLI's own help (T-695); nil: this kind takes none.
 	Efforts() []string
 	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it): OpenCode's model
-	// and effort reach its config this way. An error: the start cannot carry in.Effort (it says why).
+	// and effort reach obor's plugin this way (T-703). An error: the start cannot carry in.Effort (it says why).
 	StartEnv(in Start) (map[string]string, error)
-	// StateDir is the agent's own state dir of this kind (T-696: OpenCode's XDG_STATE_HOME, where it remembers a model's
-	// variant), which StartEnv points the CLI at: a fresh start empties it first, a resume keeps it (the adapter does
-	// both); "": none (in.Home, in.Project or in.Agent unknown, or a kind with none).
-	StateDir(in Start) string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
 	Stop() Stop
@@ -85,9 +79,6 @@ type Start struct {
 	Effort string
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
-	// Home is obor's machine-wide state dir (${OBOR_STATE_HOME:-$HOME/.obor}), Project the project's name and Agent the
-	// agent's: where a kind's own state dir of the agent lives (StateDir; "" any: none).
-	Home, Project, Agent string
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
@@ -255,40 +246,6 @@ func CheckEffort(kind, effort string) error {
 		return fmt.Errorf("kind %s has no bridge, so no effort", kind)
 	}
 	return checkEffort(k, effort)
-}
-
-// StateHomeVar is the variable a kind's StartEnv may point at its agent's own state dir (OpenCode, T-696). The pane's
-// shell exports it for the agent's start (herdr's agent.start has no env, so the env line is the only route, as for
-// OBOR_*). obor's own dirs are recognisable by their prefix (StateRoots), so a start of any other kind unsets the
-// variable when it holds one (T-698) and leaves a value of the user's own alone: no provenance is saved.
-const StateHomeVar = "XDG_STATE_HOME"
-
-// StateOwner is a kind that gives its agents a state dir of its own (Kind.StateDir): StateRoot is the directory (under
-// obor's state home, home) all of them live in.
-type StateOwner interface {
-	StateRoot(home string) string
-}
-
-// StateRoots are the directories under home that hold the kinds' own state dirs, each without a trailing separator. A
-// value of StateHomeVar under one of them is obor's, not the user's.
-func StateRoots(home string) []string {
-	var out []string
-	for _, n := range slices.Sorted(maps.Keys(kinds)) {
-		if o, ok := kinds[n].(StateOwner); ok {
-			out = append(out, o.StateRoot(home))
-		}
-	}
-	return out
-}
-
-// OwnedStateHome reports whether v, a value of StateHomeVar, is under one of obor's state roots (StateRoots(home)).
-func OwnedStateHome(home, v string) bool {
-	for _, r := range StateRoots(home) {
-		if strings.HasPrefix(v, r+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
 }
 
 // ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697).

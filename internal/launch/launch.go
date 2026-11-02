@@ -225,8 +225,6 @@ type target struct {
 	panes []port.PaneInfo
 	kind  string
 	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
-	state string            // the kind's own state dir of the agent (agents.Kind.StateDir, T-696): a fresh start empties it
-	fresh bool              // the start is fresh: setEnv empties state first; a resume keeps it
 }
 
 // resolve is who and where (shared by Restart and Stop); nothing is typed.
@@ -481,7 +479,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
-	t.fresh = sid == "" // setEnv empties the kind's own state dir of the agent, its last start exited (T-696)
 	if err := l.setEnv(ctx, t); err != nil {
 		return port.Started{}, err
 	}
@@ -583,8 +580,6 @@ func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
 }
 
 // setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
-// A fresh start (t.fresh) first empties the kind's own state dir of the agent (t.state, T-696): the agent before it has
-// exited, the pane is at its shell.
 func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
 		prog := pi.Foreground()
@@ -593,17 +588,12 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		}
 		return project.Failf("%s runs another program (%s)", t.pane, prog)
 	}
-	if t.fresh {
-		if err := project.FreshDir(t.state); err != nil {
-			return l.giveUp(ctx, t, "cannot empty %s's state dir %s: %v", t.agent, t.state, err)
-		}
-	}
 	// The line echoes one of two words (T-601): the success word only when the whole line (its cd, its exports)
 	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
 	// the old env (RV-64 #3) — and its failure word when it failed, so a visible failure ends the wait at once instead
 	// of at the timeout.
 	okMark, badMark := envMark(), envMark()
-	if err := l.H.Type(ctx, t.pane, envLine(t, agents.StateRoots(project.StateHome(l.envOrOS())))+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
+	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
 		return project.Failf("herdr pane run %s (env) failed", t.pane)
 	}
 	failed := false
@@ -639,7 +629,7 @@ func (l *Launcher) envOrOS() project.Env {
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does.
-func envLine(t *target, roots []string) string {
+func envLine(t *target) string {
 	line := "export OBOR_AGENT=" + shellQuote(t.agent)
 	role := t.info.Role
 	if r, ok := roles.Lookup(role); ok {
@@ -665,34 +655,13 @@ func envLine(t *target, roots []string) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if k == agents.StateHomeVar {
-			continue // below: it is the agent's, not the pane's
-		}
 		if v := t.env[k]; v != "" {
 			line += " && export " + k + "=" + shellQuote(v)
 		} else {
 			line += " && unset " + k
 		}
 	}
-	return line + stateHomeLine(t.env[agents.StateHomeVar], roots)
-}
-
-// stateHomeLine is the end of the env line for XDG_STATE_HOME (T-698; herdr's agent.start has no env, so the pane's
-// shell is the only route). A start with a value of its own exports it. Any other start unsets the variable when the
-// shell's value is under one of obor's state roots (an earlier agent's own dir) and leaves a value of the user's own.
-func stateHomeLine(v string, roots []string) string {
-	k := agents.StateHomeVar
-	if v != "" {
-		return " && export " + k + "=" + shellQuote(v)
-	}
-	if len(roots) == 0 {
-		return ""
-	}
-	pats := make([]string, len(roots))
-	for i, r := range roots {
-		pats[i] = shellQuote(r) + "/*"
-	}
-	return ` && case "${` + k + `-}" in ` + strings.Join(pats, "|") + `) unset ` + k + `;; esac`
+	return line
 }
 
 // mark is a word the env line echoes (T-544, T-601: its success word, or its failure word when the line failed): the
@@ -750,13 +719,11 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	env := l.envOrOS()
-	vars, state, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: env.Get,
-		Home: project.StateHome(env), Project: l.Cfg.ProjectName(), Agent: t.agent})
+	vars, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: l.envOrOS().Get})
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	t.env, t.state = vars, state
+	t.env = vars
 	return lt.LaunchArgs(t.info.Role == "lead", effort), nil
 }
 
