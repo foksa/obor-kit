@@ -228,40 +228,49 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 	})
 	t.Run("load wait capped across alternating load", func(t *testing.T) {
 		t.Parallel()
+		// Fake clock: each poll advances it by one poll and runs the script, so no wall time decides the outcome.
 		const loadCap = 400 * time.Millisecond
+		const poll = 100 * time.Millisecond
 		load := &ctlLoad{v: 50}
 		s, busy := setup(t, load, loadCap)
-		if err := os.Remove(busy); err != nil { // stretch 1: load high, slot free
+		s.Poll = poll
+		clock := time.Unix(1000, 0)
+		polls := 0
+		var third time.Time
+		s.Now = func() time.Time { return clock }
+		s.After = func(d time.Duration) <-chan time.Time {
+			polls++
+			clock = clock.Add(d)
+			switch polls {
+			case 2: // stretch 2: slot busy, then load low (queued, not counted); the other order would let it claim the free slot
+				if err := os.WriteFile(busy, []byte("0 0\n"), 0o644); err != nil {
+					t.Error(err)
+				}
+				load.set(10)
+			case 5: // stretch 3: load high, then slot free
+				load.set(50)
+				if err := os.Remove(busy); err != nil {
+					t.Error(err)
+				}
+				third = clock
+			}
+			ch := make(chan time.Time, 1)
+			ch <- clock
+			return ch
+		}
+		if err := os.Remove(busy); err != nil { // stretch 1: load high, slot free (two polls: half the cap)
 			t.Fatal(err)
 		}
 		var w lockedBuffer
-		done := start(context.Background(), s, &w)
-		time.Sleep(loadCap / 2)
-		pending(t, done, "first load stretch, half the cap")
-		// stretch 2: slot busy, then load low (queued, not counted); the other order would let it claim the free slot
-		if err := os.WriteFile(busy, []byte("0 0\n"), 0o644); err != nil {
-			t.Fatal(err)
+		path, loaded, err := s.Acquire(context.Background(), "worker", os.Getpid(), &w)
+		if err != nil || path != busy || loaded != 50 {
+			t.Fatalf("acquire: %q %v %v; want %s claimed under load 50 once the cap ran out", path, loaded, err, busy)
 		}
-		load.set(10)
-		time.Sleep(300 * time.Millisecond)
-		pending(t, done, "queued at low load")
-		load.set(50) // stretch 3: load high, then slot free
-		if err := os.Remove(busy); err != nil {
-			t.Fatal(err)
+		if third.IsZero() {
+			t.Fatal("precondition: the script never reached the third stretch")
 		}
-		third := time.Now()
-		var r acquireResult
-		select {
-		case r = <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("no claim 5 s into the third stretch")
-		}
-		if r.err != nil || r.path != busy || r.loaded != 50 {
-			t.Fatalf("acquire: %+v; want %s claimed under load 50 once the cap ran out", r, busy)
-		}
-		// the rest of the cap is about loadCap/2: not at once (the queue counted), not a whole cap (the first stretch
-		// forgotten)
-		if took := r.at.Sub(third); took < loadCap/4 || took >= loadCap*9/10 {
+		// the rest of the cap is loadCap/2: not at once (the queue counted), not a whole cap (the first stretch forgotten)
+		if took := clock.Sub(third); took < loadCap/4 || took >= loadCap*9/10 {
 			t.Errorf("claimed %v into the third stretch; want about %v (the cap's rest)", took, loadCap/2)
 		}
 		got := w.String()
