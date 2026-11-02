@@ -170,3 +170,132 @@ func TestResumeStalledWorker(t *testing.T) {
 		t.Errorf("posted %q; want the decision reach pj-o-01", in.calls)
 	}
 }
+
+// busyAnswered is staleHerdr with pj-o-01 working: one pass holds the queued answer (precondition).
+func busyAnswered(t *testing.T) *harness {
+	t.Helper()
+	h := staleHerdr(t)
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	in := &kindSpy{}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
+	if len(in.calls) != 0 || len(h.lines()) != 1 || len(h.a.Status().Project.Messages) != 1 {
+		t.Fatalf("precondition: posted %q, queued %q; want the answer waiting for the busy worker", in.calls, h.lines())
+	}
+	return h
+}
+
+// settledThenIdle checks that after the question was settled the answer is in neither the queue nor obor status, and
+// that the worker idle again gets nothing.
+func settledThenIdle(t *testing.T, h *harness) {
+	t.Helper()
+	if q, ms := h.lines(), h.a.Status().Project.Messages; len(q) != 0 || len(ms) != 0 {
+		t.Errorf("queued %q, status lines %+v; want the answer ended", q, ms)
+	}
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
+	in, liner := &kindSpy{}, &linerSpy{}
+	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+	if len(in.calls) != 0 || len(liner.calls) != 0 {
+		t.Errorf("posted %q, typed %q at the next idle; want the settled answer never delivered", in.calls, liner.calls)
+	}
+}
+
+// An undelivered answer ends when its question is settled another way (T-746: axis-alies' 23-min-old answer was to be
+// delivered late into the working session): the worker submits (task_done), asks again (a new Blocked: report), or the
+// task is unblocked (obor resume of a merge-loop needs-you). One case per trigger.
+func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		rec  event.Record
+		data event.FactData
+	}{
+		{"submit", event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
+			event.FactData{Lane: "O-01", Agent: "pj-o-01", Merge: true}},
+		{"re-ask", event.Record{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact},
+			event.FactData{Lane: "O-01", Agent: "pj-o-01", Reason: reasonAsks + "and the probe too?"}},
+		{"unblock", event.Record{Task: "T-1", Attempt: 1, Step: event.StepUnblocked, Kind: event.KindFact},
+			event.FactData{Lane: "O-01", Agent: "pj-lead", Reason: wire.ResumeReprompt, Merge: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := busyAnswered(t)
+			if !h.a.record(h.proj(), tc.rec, tc.data) {
+				t.Fatal("fact not recorded")
+			}
+			settledThenIdle(t, h)
+		})
+	}
+}
+
+// A line whose delivery is in flight (claimed: typing) may have landed: a settling fact leaves it (as T-575 keeps a
+// brief's); an answer to another task is not this question's.
+func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
+	t.Parallel()
+	h := busyAnswered(t)
+	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
+		event.Message{To: "pj-o-02", From: "pj-lead", Line: "[obor answer] other", Task: "T-2"}) {
+		t.Fatal("answer not recorded")
+	}
+	h.a.mu.Lock()
+	for _, q := range h.proj().out.msgs {
+		if q.msg.Task == "T-1" {
+			q.typing = true // its delivery claimed
+		}
+	}
+	h.a.mu.Unlock()
+	h.a.record(h.proj(), event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
+		event.FactData{Lane: "O-01", Merge: true})
+	if q := h.lines(); len(q) != 2 {
+		t.Errorf("queued %q; want the in-flight answer and T-2's answer kept", q)
+	}
+}
+
+// A stalled worker's resume ends an older undelivered answer to the task but not its own decision; a later answer (or
+// resume) of the task ends that one in turn.
+func TestResumeStalledEndsOlderAnswer(t *testing.T) {
+	t.Parallel()
+	h, _, _ := answerSeed(t, reasonStalled, "", "", true)
+	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
+		event.Message{To: "pj-o-01", From: "pj-lead", Line: "[obor answer] old", Task: "T-1"}) {
+		t.Fatal("answer not recorded")
+	}
+	h.a.record(h.proj(), event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact},
+		event.FactData{Lane: "O-01", Reason: reasonStalled}) // stalled again, the old answer still queued
+	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] old"}) {
+		t.Fatalf("precondition: queued %q, want the old answer", got)
+	}
+	if _, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+		Note: "new decision"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] new decision"}) {
+		t.Errorf("after the resume: queued %q, want its decision alone", got)
+	}
+	h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
+		event.Message{To: "pj-o-01", From: "pj-lead", Line: "[obor answer] newer", Task: "T-1"})
+	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] newer"}) {
+		t.Errorf("after a newer answer: queued %q, want it alone", got)
+	}
+}
+
+// The end is folded: on replay the settled answer stays ended.
+func TestSettledAnswerEndsOnReplay(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	a, p := lineApp(t, lineRoot(t), &now)
+	lineStatus(a, "w:rev", "working", now)
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
+		event.Message{To: "pj-rev", From: "pj-lead", Line: "[obor answer] yes", Task: "T-1"})
+	if q := p.queuedLines(); len(q) != 1 {
+		t.Fatalf("precondition: queued %d lines, want the answer", len(q))
+	}
+	a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
+		event.FactData{Merge: true})
+	if q := p.queuedLines(); len(q) != 0 {
+		t.Errorf("live: queued %d lines, want none", len(q))
+	}
+	_, r := lineReload(t, a, p, &now)
+	if q := r.queuedLines(); len(q) != 0 {
+		t.Errorf("replay: queued %+v, want none", q)
+	}
+}

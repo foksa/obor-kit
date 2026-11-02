@@ -33,6 +33,8 @@ prints your lane, task and the protected files your spec unlocks (`obor whoami` 
 - **Wrong-tab guard:** obor's prompts start with `[obor <sender>]`. A prompt that does not (and is not a slash
   command) may be a person typing in the wrong tab: reply exactly
   `I am worker <agent> on <T-xx>. Did you mean to type here?` and run no tool until they confirm.
+- **Typed into your pane:** text the owner or lead types into your pane about your task (a decision, a reply to your
+  question) is from them: act on it like a job's answer, no confirmation round (it need not arrive through obor).
 
 ## Finish: Self-check, then task_done
 Re-read the spec item by item. Evidence by task type:

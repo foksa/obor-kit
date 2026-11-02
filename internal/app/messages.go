@@ -116,7 +116,8 @@ func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.brief
 // whether it is a lead line (fact message, posted to the inbox whatever today's lead name; fact briefed: a role
 // brief), whether it is a brief's line (fact briefed with a line: a newer brief ends it), and the seq of the delivery
 // intent whose post carries it (0: none; T-654: only that post's result settles it), and why the last delivery pass
-// held it ("": not held; T-746: obor status and the line's needs-you say it, not folded).
+// held it ("": not held; T-746: obor status and the line's needs-you say it, not folded), and whether it is an
+// answer's line (fact answered: retireAnswers ends it once its question is settled another way, T-746).
 type queued struct {
 	seq    int64
 	at     time.Time
@@ -126,6 +127,7 @@ type queued struct {
 	brief  bool
 	post   int64
 	held   string
+	answer bool
 }
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
@@ -189,6 +191,10 @@ func (d lineData) members(seq int64) []int64 {
 
 // foldMsg folds r, a record of the project's lines.
 func (p *proj) foldMsg(r event.Record) {
+	if r.Kind == event.KindFact && r.Task != event.MsgTask && (r.Step == event.StepSubmitted ||
+		r.Step == event.StepUnblocked || isAsk(r)) { // the question is settled another way: its answer ends (T-746)
+		p.retireAnswers(r.Task, 0)
+	}
 	if r.Task != event.MsgTask {
 		return
 	}
@@ -257,7 +263,8 @@ func (p *proj) foldMsg(r event.Record) {
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
 		p.folded.calls[verdictStep(wire.MethodAnswer, m.Call)] = m.Reply
-		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m}
+		p.retireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
+		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m, answer: true}
 		p.answered(m.Task)
 	case r.Kind == event.KindFact && r.Step == event.StepWorked:
 		var d workedData
@@ -302,6 +309,18 @@ func (p *proj) foldMsg(r event.Record) {
 					p.settleLine(q, r)
 				}
 			}
+		}
+	}
+}
+
+// retireAnswers ends task's undelivered answer lines but keep's (under mu; T-746): their question was settled another
+// way (the worker submitted or asked again, the task was unblocked, a newer answer or a stalled worker's resume came),
+// so a line is never delivered late and obor status lists it no more. A line whose delivery is in flight (typing, a
+// post) may have landed and stays, as T-575 keeps a brief's. Folded live and on replay alike.
+func (p *proj) retireAnswers(task string, keep int64) {
+	for seq, q := range p.out.msgs {
+		if q.answer && q.msg.Task == task && seq != keep && !q.typing && q.post == 0 {
+			delete(p.out.msgs, seq)
 		}
 	}
 }
