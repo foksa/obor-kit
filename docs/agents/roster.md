@@ -39,7 +39,7 @@ obor restart ob-fable                             # relaunch an agent from its c
 not typed: `obor dispatch <LANE> <T-xx>` (a request to obor serve) sends a one-line wake that names the job id and
 asks for the `job_next` tool; the agent calls `job_next` and finishes only with `task_done`, its report the argument (no done
 file), which frees the lane and starts serve's gate → review → merge.
-New lane: `obor setup lane <LANE> <type>`, or by hand `git worktree add ~/Work/obor-kit-wt/<LANE> -b task/<id> main`
+New lane: `obor setup lane <LANE> [<type>]` (no type: an untyped pool lane), or by hand `git worktree add ~/Work/obor-kit-wt/<LANE> -b task/<id> main`
 (or detached) plus a `lanes` entry in the config.
 
 ## Cost

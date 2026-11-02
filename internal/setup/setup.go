@@ -1,7 +1,7 @@
 // Package setup is `obor setup`: make a project obor-ready. Every subcommand is idempotent, prints what it did and
 // ends with OK … / FAIL … (exit 1).
 //
-//	lane <LANE> <type>  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
+//	lane <LANE> [<type>]  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
 //	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout), leaving
 //	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
 //	        only while that marker names the lane_setup configured now).
@@ -132,7 +132,7 @@ func Usage() string {
 		}
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
-	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where + " [--start]" +
+	return "usage: obor setup lane <LANE> [<type>] | pane <LANE> " + where + " [--start]" +
 		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | monitor | show | rename --name N --prefix P"
 }
 

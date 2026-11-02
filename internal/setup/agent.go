@@ -82,7 +82,7 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 		worker, _ := roles.Lookup("worker")
 		return s.start(ctx, agent{name: name, typ: l.Type, cwd: l.Dir, role: worker, lane: lane, noStart: !startNow}, w)
 	}
-	return project.Failf("unknown lane %s (obor setup lane %s <type> first)", lane, lane)
+	return project.Failf("unknown lane %s (obor setup lane %s [<type>] first)", lane, lane)
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {
@@ -172,8 +172,14 @@ func (s *Setup) copyFile(src, rel string) error {
 
 // start places a's pane, labels it and starts the agent (see the package doc); a running agent → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) error {
+	// An untyped lane (lanes.<LANE> = "") is a pool lane: its type comes with a dispatch, so a pane labels it and
+	// starts nothing (no type without a dispatch).
+	untyped := a.lane != "" && a.typ == ""
+	if untyped && !a.noStart {
+		return project.Failf("lane %s has no type (untyped pool lane): --start needs one, a dispatch gives it (obor config set lanes.%s <type> to pin it)", a.lane, a.lane)
+	}
 	lt, _ := s.cfg.LaneType(a.typ)
-	if lt.Kind == "" {
+	if lt.Kind == "" && !untyped {
 		return project.Failf("unknown lane type %s (not in lane_types with a kind)", a.typ)
 	}
 	if !config.AgentNameRE.MatchString(a.name) {
@@ -242,12 +248,14 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
-	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
-		return project.Failf("%s: %v (obor config validate)", a.name, err)
-	}
-	vars, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get})
-	if err != nil {
-		return project.Failf("%s: %v", a.name, err)
+	var vars map[string]string
+	if !untyped {
+		if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
+			return project.Failf("%s: %v (obor config validate)", a.name, err)
+		}
+		if vars, err = lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get}); err != nil {
+			return project.Failf("%s: %v", a.name, err)
+		}
 	}
 	var env []string
 	// An empty value goes to herdr too: the pane may inherit setup's own env (an OpenCode agent running setup), and an

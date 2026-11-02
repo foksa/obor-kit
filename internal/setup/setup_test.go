@@ -684,6 +684,63 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	}
 }
 
+// T-724: `obor setup lane <LANE>` with no type makes an untyped pool lane: worktree, links, lane_setup and the config
+// entry "" (it is a string, not null), and a typed rerun of it, like an untyped rerun of a typed lane, is refused.
+func TestLaneWithoutATypeMakesAnUntypedPoolLane(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("commands.lane_setup", "pwd > setup-ran"))
+	lane := x.LaneDir("L-01")
+	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.HasLane("L-01") {
+		t.Fatal("precondition: no lane dir, no lanes.L-01")
+	}
+	out := x.ok(t, "lane", "L-01")
+	if want := "OK lane L-01 (untyped) at " + lane; last(out) != want {
+		t.Errorf("last line %q, want %q", last(out), want)
+	}
+	cfg, err := config.Load(x.Root)
+	if err != nil || !cfg.HasLane("L-01") || cfg.Data.Lanes.M["L-01"].Type != "" {
+		t.Errorf("lanes.L-01 must be configured with no type: %v %+v", err, cfg.Data.Lanes.M)
+	}
+	if !regexp.MustCompile(`"L-01": ""`).MatchString(x.Read(".obor/config.json")) {
+		t.Errorf("config holds the empty string:\n%s", x.Read(".obor/config.json"))
+	}
+	if x.Read(lane+"/setup-ran") != lane+"\n" {
+		t.Error("lane_setup ran in the lane")
+	}
+	if _, err := os.Stat(filepath.Join(lane, ".git")); err != nil {
+		t.Errorf("worktree: %v", err)
+	}
+	out = x.ok(t, "lane", "L-01")
+	has(t, out, "skip config lanes.L-01 (already untyped)", "an untyped rerun")
+	x.failing(t, "FAIL lane L-01 is already configured untyped (obor config set lanes.L-01 opus to pin it)", "lane", "L-01", "opus")
+	x.ok(t, "lane", "O-01", "opus")
+	x.failing(t, "FAIL lane O-01 is already configured with type opus", "lane", "O-01")
+	if out, rc := x.run(t, "lane"); rc != 1 || !strings.Contains(last(out), "usage: obor setup lane <LANE> [<type>] |") {
+		t.Errorf("no lane name: exit %d, %q", rc, last(out))
+	}
+}
+
+// T-724: a pane on an untyped lane is labelled and starts nothing; --start refuses (no type without a dispatch).
+func TestPaneOnAnUntypedLaneNeverStarts(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.ok(t, "lane", "L-01")
+	x.reset()
+	x.failing(t, "FAIL lane L-01 has no type (untyped pool lane): --start needs one, a dispatch gives it (obor config set lanes.L-01 <type> to pin it)",
+		"pane", "L-01", "--tab", "w1:t1", "--start")
+	if got := strings.Join(x.reqs(), "\n"); strings.Contains(got, "pane.split") || strings.Contains(got, "agent.start") {
+		t.Errorf("a refused --start touched herdr: %s", got)
+	}
+	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
+	has(t, out, "no agent started", "a pane without --start")
+	got := strings.Join(x.reqs(), "\n")
+	has(t, got, "pane.split", "the pane is made")
+	has(t, got, "OBOR_LANE=L-01", "the lane's env")
+	if strings.Contains(got, "agent.start") {
+		t.Errorf("no agent starts: %s", got)
+	}
+}
+
 // bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup
 func TestLaneRefusesUnknownTypeTypeChangeAndFailingSetup(t *testing.T) {
 	t.Parallel()
@@ -1007,7 +1064,7 @@ func TestPaneNotReadyHints(t *testing.T) {
 func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.failing(t, "FAIL unknown lane O-09 (obor setup lane O-09 <type> first)", "pane", "O-09", "--tab", "w1:t1")
+	x.failing(t, "FAIL unknown lane O-09 (obor setup lane O-09 [<type>] first)", "pane", "O-09", "--tab", "w1:t1")
 	x.ok(t, "lane", "O-01", "opus")
 	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "O-01", "--tab", "w1:t1", "--new-tab", "x")
 	x.ok(t, "lane", "O-02", "opus")

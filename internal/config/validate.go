@@ -112,7 +112,7 @@ func (v *validator) laneArgs() {
 	}
 }
 
-// types: lanes and agents entries name a lane type (T-145); a role or lead that names one names a known one, with an
+// types: lanes entries name a lane type or "" for any (untyped pool lane), agents entries a lane type (T-145); a role or lead that names one names a known one, with an
 // effort its kind takes when it names one (`opus:high`, T-695).
 func (v *validator) types() {
 	check := func(path, t string, required bool) {
@@ -121,7 +121,7 @@ func (v *validator) types() {
 		}
 	}
 	for _, k := range v.d.Lanes.Keys {
-		check(".lanes"+key(k), v.d.Lanes.M[k].Type, true)
+		check(".lanes"+key(k), v.d.Lanes.M[k].Type, false) // "" is an untyped pool lane
 	}
 	for _, k := range v.d.Agents.Keys {
 		check(".agents"+key(k)+".type", v.d.Agents.M[k].Type, true)
