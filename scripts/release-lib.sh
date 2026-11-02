@@ -2,13 +2,27 @@
 # Needs $tag (v<version>). POSIX sh.
 
 # version_lt <a> <b>: version a (x.y.z) is below version b, comparing the parts numerically (false for anything that is
-# not x.y.z).
+# not x.y.z, both sides: a prerelease or malformed tag never becomes the changelog baseline, T-683).
 version_lt() {
   awk -v a="$1" -v b="$2" 'BEGIN {
-    if (split(a, x, ".") != 3 || split(b, y, ".") != 3) exit 1
+    if (a !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ || b !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) exit 1
+    split(a, x, "."); split(b, y, ".")
     for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit (x[i] + 0 < y[i] + 0) ? 0 : 1
     exit 1
   }'
+}
+
+# tag_notes: the release notes at the tag (docs/releases/v<version>.md), empty when the tag has no such file.
+tag_notes() {
+  git show "$tag:docs/releases/v${tag#v}.md" 2> /dev/null || true
+}
+
+# tag_notes_problem <notes>: why <notes> (tag_notes at $tag) is not a release's notes (empty when it is): something but
+# whitespace, so the body publish sends gh is not empty. scripts/publish and scripts/release refuse the same way (T-682,
+# T-683).
+tag_notes_problem() {
+  [ -n "$(printf '%s' "$1" | tr -d '[:space:]')" ] ||
+    echo "no docs/releases/v${tag#v}.md at $tag: write the release notes (a summary line, then - **Name:** bullets) and commit them on main before the tag"
 }
 
 # main_neutral <path>: a path main may change after a tag without making it stale: docs (docs/, any *.md) and the

@@ -3,7 +3,8 @@
 # paths are a literal list, not GOOS_LIST/GOARCH_LIST and not a glob, and each is checked against the tag's own
 # bin/checksums.txt before gh runs, so what is uploaded is what the tag's catalog names. The release carries a title
 # "obor <version>" and the notes of docs/releases/v<version>.md at the tag (T-682), plus a Full Changelog line to the
-# newest earlier GitHub release. POSIX sh.
+# newest earlier GitHub release; a tag without the notes, or a failed release list, refuses before anything is created
+# (T-683). POSIX sh.
 #   publish <version> --check: only the checks (scripts/ship runs them before it pushes the tag);
 #   publish <version> --upload <os-arch>…: the checks, then only those platforms' files to the existing release
 #   (scripts/ship, for a release that lacks some of its four assets).
@@ -68,16 +69,19 @@ if [ "$mode" = upload ]; then
 fi
 
 # notes: the release notes at the tag (docs/releases/v<version>.md), the file the lead writes with the UPGRADE guide.
-# They are read from the tag, not the working tree, so what is published is what was tagged.
-notes=$(git show "$tag:docs/releases/v$v.md" 2> /dev/null) || notes=
-[ -n "$(printf '%s' "$notes" | tr -d '[:space:]')" ] ||
-  fail "no docs/releases/v$v.md at $tag: write the release notes (a summary line, then - **Name:** bullets) and commit them on main before the tag"
+# They are read from the tag, not the working tree, so what is published is what was tagged; a tag without them is
+# refused (the same check scripts/release runs for an existing tag, release-lib.sh).
+notes=$(tag_notes)
+problem=$(tag_notes_problem "$notes")
+[ -z "$problem" ] || fail "$problem"
 
 # newest_release: the newest GitHub release tag below this one (empty when there is none). It reads the releases, not the
-# tags: a tag that was never released (v0.17.3, v0.17.4) is no baseline for the changelog link.
+# tags: a tag that was never released (v0.17.3, v0.17.4) is no baseline for the changelog link. A failed list is an
+# error, not an empty one (T-683): publishing without the line could not be repaired by a re-run.
 newest_release() {
+  releases=$(gh release list --limit 100 --json tagName --jq '.[].tagName' 2> /dev/null) || return 1
   best=
-  for rtag in $(gh release list --limit 100 --json tagName --jq '.[].tagName' 2> /dev/null); do
+  for rtag in $releases; do
     version_lt "${rtag#v}" "$v" || continue
     if [ -z "$best" ] || version_lt "${best#v}" "${rtag#v}"; then best=$rtag; fi
   done
@@ -88,7 +92,7 @@ if [ "$mode" = check ]; then exit 0; fi
 
 # The notes file gh gets: the tag's notes, then the Full Changelog line to the newest earlier release (when there is
 # one; the line is not in the file, publish adds it).
-prev=$(newest_release)
+prev=$(newest_release) || fail "gh release list failed: cannot pick the Full Changelog baseline (no release was created; re-run publish)"
 notesfile=$(mktemp "$tmpdir/obor-notes.XXXXXX")
 trap 'rm -f "$notesfile"' EXIT
 if [ -n "$prev" ]; then

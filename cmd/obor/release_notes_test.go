@@ -2,9 +2,12 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"obor/internal/testkit"
 )
 
 // Tests for T-682: a release gets a title `obor <x.y.z>` and the notes the lead writes in docs/releases/v<x.y.z>.md, plus
@@ -117,6 +120,22 @@ func TestMakePublishNotes(t *testing.T) {
 		}
 	})
 
+	t.Run("a final release beats a prerelease in the list", func(t *testing.T) {
+		t.Parallel()
+		f := newPublishFixture(t)
+		// RV-77 #3: a prerelease is not an x.y.z baseline; version_lt says so, so v1.2.2 wins over v1.2.2-rc1.
+		writeFile(t, f.releases, "v1.2.2-rc1\nv1.2.2\nv1.2.1\n")
+		writeFile(t, f.slug, "foksa/obor-kit\n")
+		out, failed, _ := f.publish(t)
+		if failed {
+			t.Fatalf("publish failed:\n%s", out)
+		}
+		want := tagNotes(t, f) + "\n\n**Full Changelog**: https://github.com/foksa/obor-kit/compare/v1.2.2...v1.2.3\n"
+		if got := readFile(t, f.notes); got != want {
+			t.Errorf("the published notes = %q, want the final v1.2.2 as the baseline: %q", got, want)
+		}
+	})
+
 	t.Run("the notes come from the tag, not the working tree", func(t *testing.T) {
 		t.Parallel()
 		f := newPublishFixture(t)
@@ -158,4 +177,140 @@ func TestMakePublishNotes(t *testing.T) {
 			t.Errorf("publish --check called gh: %s", readFile(t, f.log))
 		}
 	})
+}
+
+// RV-77 #1 (T-683): a failed `gh release list` refuses before anything is created (a created release without the Full
+// Changelog line is not repaired by re-running ship); the retry with a working list publishes with the line.
+func TestMakePublishRefusesFailedReleaseList(t *testing.T) {
+	t.Parallel()
+	f := newPublishFixture(t)
+	writeFile(t, f.releases, "v1.2.1\n")
+	writeFile(t, f.slug, "foksa/obor-kit\n")
+	writeFile(t, filepath.Join(f.Base, "list-fail"), "")
+
+	out, failed, gh := f.publish(t)
+	if !failed || !strings.Contains(out, "FAIL") || !strings.Contains(out, "gh release list failed") {
+		t.Fatalf("a failed release list must refuse (failed %v):\n%s", failed, out)
+	}
+	if strings.Contains(strings.Join(gh, "\n"), "release create") {
+		t.Errorf("publish created the release without knowing the Full Changelog baseline: %q", gh)
+	}
+	if _, err := os.Stat(f.notes); err == nil {
+		t.Errorf("publish wrote a release's notes despite the failure: %q", readFile(t, f.notes))
+	}
+
+	if err := os.Remove(filepath.Join(f.Base, "list-fail")); err != nil {
+		t.Fatal(err)
+	}
+	out, failed, gh = f.publish(t)
+	if failed {
+		t.Fatalf("the retry with a working list failed:\n%s", out)
+	}
+	if !strings.Contains(strings.Join(gh, "\n"), "release create v1.2.3") {
+		t.Errorf("the retry did not create the release: %q", gh)
+	}
+	want := strings.TrimRight(releaseNotes, "\n") +
+		"\n\n**Full Changelog**: https://github.com/foksa/obor-kit/compare/v1.2.1...v1.2.3\n"
+	if got := readFile(t, f.notes); got != want {
+		t.Errorf("the retry's notes = %q, want %q", got, want)
+	}
+}
+
+// tagWithoutNotes makes v a finished release tag whose tree lacks docs/releases/v<v>.md, then commits the notes on main
+// after it: a release tagged before T-682, resumed once the lead wrote the notes (RV-77 #2). Everything else of the tag
+// is finished (VERSION, plugin, marketplace, catalog, the four files), so the notes are the only reason to refuse.
+func tagWithoutNotes(t *testing.T, f *releaseFixture, v string) {
+	t.Helper()
+	notes := notesPath(v)
+	text := readFile(t, filepath.Join(f.Root, notes))
+	if err := os.Remove(filepath.Join(f.Root, notes)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.Root, "VERSION"), v+"\n")
+	plugin := readFile(t, filepath.Join(f.Root, ".claude-plugin", "plugin.json"))
+	writeFile(t, filepath.Join(f.Root, ".claude-plugin", "plugin.json"),
+		strings.Replace(plugin, `"version":"1.2.3"`, `"version":"`+v+`"`, 1))
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", "obor v"+v+": VERSION, plugin version")
+	// The four files and their catalog lines: dist/ is ignored, so main stays clean.
+	var fresh string
+	for _, pl := range publishPlatforms {
+		path := filepath.Join(f.Root, "dist", "obor-"+v+"-"+pl)
+		writeFile(t, path, "binary "+v+" "+pl)
+		fresh += fileSum(t, path) + "  dist/obor-" + v + "-" + pl + "\n"
+	}
+	// The tag's own commit: the marketplace name flipped and the catalog (tag_neutral), nothing else.
+	w := filepath.Join(f.Base, "tag-edit")
+	f.Git(f.Root, "worktree", "add", "-q", "--detach", w, "HEAD")
+	writeFile(t, filepath.Join(w, ".claude-plugin", "marketplace.json"), releaseMarketplace+"\n")
+	writeFile(t, filepath.Join(w, "bin", "checksums.txt"), readFile(t, filepath.Join(w, "bin", "checksums.txt"))+fresh)
+	f.Git(w, "add", "-A")
+	f.Git(w, "commit", "-q", "-m", "obor v"+v+": marketplace name, checksums")
+	f.Git(w, "tag", "-a", "v"+v, "-m", "obor v"+v)
+	f.Git(f.Root, "worktree", "remove", w)
+	writeFile(t, filepath.Join(f.Root, notes), text)
+	f.Git(f.Root, "add", "-A")
+	f.Git(f.Root, "commit", "-q", "-m", "docs: v"+v+" release notes")
+}
+
+// RV-77 #2 (T-683): resuming an existing tag whose tree has no notes is refused with the never-moves guidance, even when
+// the notes are committed on main after the tag: the immutable tag cannot be repaired, so a changed release is a new
+// patch version. --dry-run refuses the same way.
+func TestMakeReleaseExistingTagWithoutNotes(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	tagWithoutNotes(t, f, "1.2.4")
+	// Preconditions: the notes are committed on main and absent at the tag (else this is vacuous).
+	if !f.Exists(filepath.Join(f.Root, notesPath("1.2.4"))) {
+		t.Fatal("precondition: main has no notes file")
+	}
+	if exec.Command("git", "-C", f.Root, "cat-file", "-e", "v1.2.4:"+notesPath("1.2.4")).Run() == nil {
+		t.Fatal("precondition: the tag has the notes file")
+	}
+	head := f.Git(f.Root, "rev-parse", "HEAD")
+	tagBefore := f.Git(f.Root, "rev-parse", "v1.2.4")
+
+	for _, args := range [][]string{{"V=1.2.4"}, {"V=1.2.4", "DRY=1"}} {
+		out, failed := f.release(t, args...)
+		if !failed || !strings.Contains(out, "FAIL no docs/releases/v1.2.4.md at v1.2.4") ||
+			!strings.Contains(out, "release a new patch version") {
+			t.Errorf("%q: want a FAIL naming the missing tag's notes and the way out (failed %v):\n%s", args, failed, out)
+		}
+		if got := f.Git(f.Root, "rev-parse", "HEAD"); got != head {
+			t.Errorf("%q: HEAD moved from %s to %s", args, head, got)
+		}
+		if got := f.Git(f.Root, "rev-parse", "v1.2.4"); got != tagBefore {
+			t.Errorf("%q: the tag moved from %s to %s", args, tagBefore, got)
+		}
+		if f.Exists(f.log) {
+			t.Errorf("%q: go ran: %s", args, readFile(t, f.log))
+		}
+		if f.Exists(f.scratch("1.2.4")) {
+			t.Errorf("%q: the scratch worktree was created", args)
+		}
+	}
+}
+
+// RV-77 #3 (T-683): version_lt is false for anything but x.y.z on either side, as its comment says, so a prerelease or
+// malformed tag never wins the changelog baseline.
+func TestReleaseLibVersionLt(t *testing.T) {
+	t.Parallel()
+	dir := testkit.Dir(t)
+	writeFile(t, filepath.Join(dir, "release-lib.sh"), string(treeFile(t, "scripts/release-lib.sh")))
+	lt := func(a, b string) bool {
+		t.Helper()
+		return exec.Command("sh", "-c", `. "$1/release-lib.sh"; version_lt "$2" "$3"`, "sh", dir, a, b).Run() == nil
+	}
+	// Control: an x.y.z pair still compares (a version_lt that always failed would pass the cases below).
+	if !lt("0.18.0", "0.18.1") {
+		t.Fatalf("version_lt 0.18.0 0.18.1 is false, want true")
+	}
+	for _, a := range []string{"0.18.0-rc1", "0.18.0-garbage", "1.2"} {
+		if lt(a, "0.18.1") {
+			t.Errorf("version_lt %q 0.18.1 is true, want false: both operands must be x.y.z", a)
+		}
+	}
+	if lt("0.18.1", "0.18.0-rc1") {
+		t.Errorf("version_lt 0.18.1 0.18.0-rc1 is true, want false: both operands must be x.y.z")
+	}
 }
