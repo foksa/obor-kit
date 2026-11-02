@@ -876,7 +876,8 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
-// shell) and the agent in it are its intent's data. No pane in the lane for Gone: needs-you{no pane in lane}.
+// shell) and the agent in it are its intent's data. No pane in the lane for Gone: herdr's panes are read again (a cd in
+// one gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}.
 func (a *App) nextStart(p *proj, mt mtask) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
@@ -894,10 +895,19 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 		if now.Sub(since) < a.opt.Gone {
 			return nil
 		}
-		return func(context.Context, *Loop) bool {
+		return func(ctx context.Context, _ *Loop) bool {
 			a.mu.Lock()
 			delete(p.nopane, mt.task)
 			a.mu.Unlock()
+			// The snapshot's cwd can be stale (a cd in the pane gives no event, T-745): read herdr's panes again before
+			// the owner is told there is none. A pane in the lane now: the next pass starts the agent in it.
+			a.rereadPanes(ctx)
+			a.mu.Lock()
+			found := a.placement(p, mt.disp.Dir, mt.agent) != nil
+			a.mu.Unlock()
+			if found {
+				return true
+			}
 			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
 		}
 	}

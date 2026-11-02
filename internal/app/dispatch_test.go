@@ -748,6 +748,39 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			t.Errorf("a start with no pane: %q", r.steps())
 		}
 	})
+	// T-745: obor setup pane moved a pane into the lane after serve started (its shell cd'd there, and a cd gives no
+	// herdr event), so the snapshot keeps its old cwd. Herdr's panes are read again before the needs-you: the start goes
+	// ahead. When herdr has no pane in the lane either, the needs-you goes out as before.
+	t.Run("a pane moved into the lane", func(t *testing.T) {
+		t.Parallel()
+		r := newDispatchRig(t)
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root }) // the snapshot serve took: the pane is outside
+		r.start()
+		r.mustDispatch("d1")
+		r.waitStep("1 result lane.prepare")
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.lane }) // moved with no event: the snapshot's cwd is stale
+		r.passes()
+		r.later(time.Minute)
+		r.waitStep("1 result agent.start")
+		if r.hasPrefix("1 fact needs-you{no pane in lane") {
+			t.Errorf("needs-you with a pane in the lane: %q", r.steps())
+		}
+		r.waitStep("1 result work")
+	})
+	t.Run("herdr has no pane in the lane either", func(t *testing.T) {
+		t.Parallel()
+		r := newDispatchRig(t)
+		r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Cwd = r.p.Root })
+		r.start()
+		r.mustDispatch("d1")
+		r.waitStep("1 result lane.prepare")
+		r.passes()
+		r.later(time.Minute)
+		r.waitPrefix("1 fact needs-you{no pane in lane O-01")
+		if r.has("1 intent agent.start") {
+			t.Errorf("a start with no pane: %q", r.steps())
+		}
+	})
 }
 
 // Rows 6–8: no delivery 5 min after the work job → retry.work; 5 more → needs-you{job not delivered}; obor resume
