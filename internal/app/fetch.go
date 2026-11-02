@@ -97,7 +97,7 @@ func (a *App) jobNext(c Call) (string, error) {
 		}
 		r = JobReply{State: "job", Job: JobID(key), Task: key.Task, Attempt: key.Attempt, Step: key.Step, Text: text}
 		agent := mt.agent
-		if base, _ := stepN(key.Step); base == StepReview || base == StepResolve {
+		if base, _ := StepN(key.Step); base == StepReview || base == StepResolve {
 			agent = p.integrator
 		}
 		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
@@ -186,7 +186,7 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 // fetchText is the text of mt's job key (outside mu): the worker prompt with the spec, the fix job (with the spec when
 // its rev changed), the review or resolve job; and the spec rev a worker's job carries (0: none).
 func (a *App) fetchText(p *proj, mt mtask, key Key) (string, int, error) {
-	base, _ := stepN(key.Step)
+	base, _ := StepN(key.Step)
 	if base != StepWork && base != StepFix {
 		if base == StepReview {
 			text, err := a.reviewText(p, mt)

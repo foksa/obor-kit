@@ -62,7 +62,7 @@ func (p *proj) foldRoles(r Record) {
 	if rs.n == nil {
 		rs.n = map[string]int{}
 	}
-	switch step, _ := stepN(r.Step); {
+	switch step, _ := StepN(r.Step); {
 	case r.Task == RoleTask && r.Kind == KindResult && strings.HasPrefix(r.Step, stepRoleStop):
 		var out roleStopOut
 		if json.Unmarshal(r.Data, &out) != nil || out.Agent == "" {

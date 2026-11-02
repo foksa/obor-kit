@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 )
 
 // The lanes table (T-439): each lane's dispatched task, a projection serve rewrites from the event log's fold on load
@@ -66,13 +65,12 @@ func WriteLanes(db *sql.DB, rows []LaneRow) error {
 // database yet: none. An error: the database or its lanes table cannot be read (a serve not restarted since T-439
 // has no lanes table).
 func ReadLanesAt(root string) (map[string]LaneRow, error) {
-	path := File(root)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return map[string]LaneRow{}, nil
-	}
-	db, err := OpenRO(path)
+	db, err := openROAt(root)
 	if err != nil {
 		return nil, err
+	}
+	if db == nil {
+		return map[string]LaneRow{}, nil
 	}
 	defer db.Close()
 	rows, err := ReadLanes(db)
@@ -88,13 +86,12 @@ func ReadLanesAt(root string) (map[string]LaneRow, error) {
 
 // ReadLaneAt is lane's row in the project at root (ReadLanesAt): ok false when it has none.
 func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
-	path := File(root)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return LaneRow{}, false, nil
-	}
-	db, err := OpenRO(path)
+	db, err := openROAt(root)
 	if err != nil {
 		return LaneRow{}, false, err
+	}
+	if db == nil {
+		return LaneRow{}, false, nil
 	}
 	defer db.Close()
 	var r LaneRow
@@ -115,13 +112,12 @@ func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
 // fact end it, as do the lifecycle facts that begin another attempt — a task_done submission, a drop, a dispatch and
 // its lane.prepare result, and a sendback. A resumed fact does not: ordinary worker activity is not an answer (T-511).
 func HasBlockedReportAt(root, task string) (bool, error) {
-	path := File(root)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	db, err := OpenRO(path)
+	db, err := openROAt(root)
 	if err != nil {
 		return false, err
+	}
+	if db == nil {
+		return false, nil
 	}
 	defer db.Close()
 	var asked, ended int64

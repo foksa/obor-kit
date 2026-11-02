@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -258,6 +259,29 @@ func TestJobTextIsThePromptsRow(t *testing.T) {
 	}
 }
 
+// TestJobTextNeedsNoView (T-687): /api/job answers from the project's store alone: a view that cannot be built is no
+// error (the job's page needs neither the lane table, git nor serve's ask).
+func TestJobTextNeedsNoView(t *testing.T) {
+	_, _, s := fixture(t)
+	built := false
+	s.Build = func(context.Context, string) (view.Project, error) {
+		built = true
+		return view.Project{}, errors.New("no view")
+	}
+	r := get(t, s.Handler(), "/api/job?project=pj&job=T-01/1/work")
+	if r.Code != http.StatusOK {
+		t.Fatalf("job: %d %s", r.Code, r.Body.String())
+	}
+	var p view.Prompt
+	decode(t, r, &p)
+	if p.Text != "the whole job prompt" {
+		t.Errorf("job %+v, want the prompts row's text", p)
+	}
+	if built {
+		t.Errorf("/api/job built the project's view")
+	}
+}
+
 // TestAgentPage: an agent's page lists its sessions with the transcript path and when it was last written (never the
 // contents), its briefs, the lines it was sent and its jobs with their text.
 func TestAgentPage(t *testing.T) {
@@ -403,6 +427,8 @@ func TestUnknownProjectAndTaskAre404(t *testing.T) {
 		{"/api/task?project=pj", http.StatusBadRequest},
 		{"/api/agent?project=pj&agent=nobody", http.StatusNotFound},
 		{"/api/job?project=pj&job=T-999/1/work", http.StatusNotFound},
+		{"/api/job?project=nope&job=T-01/1/work", http.StatusNotFound},
+		{"/api/job?project=pj", http.StatusBadRequest},
 		{"/api/nothing?project=pj", http.StatusNotFound},
 	} {
 		if r := get(t, h, c.url); r.Code != c.code {

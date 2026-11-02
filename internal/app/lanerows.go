@@ -51,7 +51,7 @@ func (p *proj) foldLanes(r Record) {
 		}
 		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
 	case r.Kind == KindResult:
-		step, _ := stepN(r.Step)
+		step, _ := StepN(r.Step)
 		mt := p.folded.loop[r.Task]
 		if step != StepPrepare || mt == nil || mt.attempt != r.Attempt || mt.state != stDispatched {
 			return

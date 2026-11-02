@@ -191,7 +191,7 @@ func (a *App) where(p *proj, agent string) Where {
 // submitID is the identity of submit step (submit, submit.N) of attempt: its pin's name, <attempt>[.N].
 func submitID(attempt int, step string) string {
 	id := strconv.Itoa(attempt)
-	if _, n := stepN(step); n > 1 {
+	if _, n := StepN(step); n > 1 {
 		id += "." + strconv.Itoa(n)
 	}
 	return id

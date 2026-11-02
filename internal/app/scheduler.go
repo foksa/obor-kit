@@ -89,7 +89,7 @@ func runs(why string) bool { return why == ScratchGating || why == ScratchPublis
 
 // runningUse is what the running scratch step does: gating or publishing.
 func runningUse(step string) string {
-	if base, _ := stepN(step); base == StepPublish {
+	if base, _ := StepN(step); base == StepPublish {
 		return ScratchPublishing
 	}
 	return ScratchGating
@@ -123,7 +123,7 @@ func (p *proj) scratchQueue() (*ScratchStatus, []ScratchWait) {
 // the class's, the guard, the full check, lane_setup); "" when none runs now, between two commands too (T-673). Under
 // mu.
 func (p *proj) scratchCommand(k Key) string {
-	if base, _ := stepN(k.Step); k != p.running || base != StepGate {
+	if base, _ := StepN(k.Step); k != p.running || base != StepGate {
 		return ""
 	}
 	return p.runCmd

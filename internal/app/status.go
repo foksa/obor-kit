@@ -275,7 +275,7 @@ func commandStep(r Record) (step, task string, ok bool) {
 	if strings.HasPrefix(r.Step, StepNightly+".") {
 		return StepNightly, "", true
 	}
-	switch step, _ = stepN(r.Step); step {
+	switch step, _ = StepN(r.Step); step {
 	case StepGate, StepPublish, StepAfterMerge:
 		return step, r.Task, true
 	}
