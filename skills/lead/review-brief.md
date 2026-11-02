@@ -23,8 +23,8 @@ A review, from its request to its close: `obor review` builds and sends the brie
 it, `obor review` lists it, `obor review --rm` ends it). Serve starts the review once every `--after` task has merged
 (none given: now) and the reviewer (a role pane, `obor setup role reviewer`, in the main checkout; never a worker lane,
 never `obor dispatch` a review) is idle: it marks the head reviewed (`refs/obor/reviewed`), starts a fresh reviewer
-session with the brief below as its first prompt (as
-`obor restart <reviewer> --fresh --prompt` does), records the brief, and posts no line to you (T-650; `obor status`
+session with the brief below as its first prompt (as `obor brief <reviewer> "<text>"` does: a brief to the stopped
+agent starts it fresh), records the brief, and posts no line to you (T-650; `obor status`
 shows the review). A `--after` task dropped or rejected ends the request
 (`[obor] review request ended: T-b dropped`); a step that fails starts nothing and is a needs-you
 (`review: RV-xx: <error>`; a new `obor review` ends it). One review cycle is open at a time: the review serve started

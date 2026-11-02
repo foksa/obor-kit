@@ -464,14 +464,17 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   both projects; the v0.14 transition socket is gone, `docs/UPGRADE-v0.15.md`). That serve records
   fact `message` (task key `msg`) and posts `[obor <sender project>] <text>` to its lead's session.
   The own project is refused. A repeated call id gets the stored reply.
-- **Briefs:** `obor restart <role-agent> --fresh --prompt "<brief>"` (the start carries the brief) records fact
-  `briefed` once the restart succeeded; `obor brief <role-agent> "<text>"` records it with a line `[obor <caller>]
-  <text>` delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its
-  labelled pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A role agent is any
-  agent of the config but the lead, the integrator and the workers. Once that pane has worked after the brief (after
-  its line was delivered) and is idle again, serve records and posts `[obor] <agent> finished (briefed <age> ago)` to the lead's
-  session: one line per brief, nothing for task or merge flow. A turn that ends on an API error (the StopFailure
-  hook, T-532) ends the brief with `[obor] <agent> stopped: <error> (<details>)` instead.
+- **Briefs:** `obor brief <role-agent> "<text>"` records fact `briefed` with a line `[obor <caller>] <text>`
+  delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
+  pane at a shell, T-672) is started fresh in that pane with the line as its first prompt, once serve holds merges
+  (T-734). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
+  refused for them. Any other role agent may also take its first prompt as a start's, `obor restart <role-agent>
+  --fresh --prompt "<brief>"` (the start carries the brief), recording the same fact once the restart succeeded
+  (T-466). A role agent is any agent of the config but the lead, the integrator and the workers. Once that pane has
+  worked after the brief (after its line was delivered) and is idle again, serve records and posts
+  `[obor] <agent> finished (briefed <age> ago)` to the lead's session: one line per brief, nothing for task or merge
+  flow. A turn that ends on an API error (the StopFailure hook, T-532) ends the brief with
+  `[obor] <agent> stopped: <error> (<details>)` instead.
 - **Delivery** is one function in serve (`deliver`, each merge-loop pass): the oldest line per agent, the lead's queued lines as one post per target, one per row (T-651); a post's result settles exactly the lines its intent names (T-654). The lines
   survive a restart (the log) and a crash may deliver one twice, never not at all (T-524); `obor status` lists the ones
   not delivered yet, and one waiting over 24 h is the project's needs-you. Mechanics: `docs/state-model.md` row 47.
