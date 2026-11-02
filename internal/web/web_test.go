@@ -608,3 +608,52 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 		t.Errorf("/api/projects: %+v, want the project without an error", entries)
 	}
 }
+
+// TestOverviewShowsWorkingRoles (T-713): a project whose only work is a working deep dive lists it in /api/projects
+// (busy stays the lane count); a role with a brief waiting counts; a stopped role and an idle one are not listed; and
+// the page script shows the roles on the card.
+func TestOverviewShowsWorkingRoles(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config(testkit.Set("roles.deep_dive", map[string]any{"type": "opus"}),
+		testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
+		testkit.Set("roles.advisor", map[string]any{"type": "opus"}))
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deep, rev, adv := cfg.AgentName("deep_dive", ""), cfg.AgentName("reviewer", ""), cfg.AgentName("advisor", "")
+	now := time.Now()
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+			Agents:  []wire.AgentStatus{{Pane: "w1:p1", Name: deep, Agent: "claude", Status: "working", Age: 540}},
+			Stopped: []string{rev},
+			Briefs:  []wire.BriefStatus{{To: adv}}}}
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: now, Events: 20})
+	if len(v.Roles) < 3 {
+		t.Fatalf("precondition: the view lists the three roles: %+v", v.Roles)
+	}
+	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
+		Build: func(context.Context, string) (view.Project, error) { return v, nil }}
+	var entries []ProjectsEntry
+	decode(t, get(t, s.Handler(), "/api/projects"), &entries)
+	if len(entries) != 1 || entries[0].Busy != 0 {
+		t.Fatalf("/api/projects: %+v, want one project with no busy lane", entries)
+	}
+	got := map[string]string{}
+	for _, r := range entries[0].Roles {
+		got[r.Role] = r.Status
+	}
+	if len(got) != 2 || got["deep_dive"] != "working" {
+		t.Errorf("roles %v, want the working deep dive and the advisor with a brief only", got)
+	}
+	if _, ok := got["advisor"]; !ok {
+		t.Errorf("roles %v: the advisor has a brief waiting and counts", got)
+	}
+	if _, ok := got["reviewer"]; ok {
+		t.Errorf("roles %v: the stopped reviewer is listed", got)
+	}
+	if page := get(t, s.Handler(), "/").Body.String(); !strings.Contains(page, "p.roles") {
+		t.Error("the page does not read the overview's roles")
+	}
+}

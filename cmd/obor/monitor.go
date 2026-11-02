@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -50,9 +51,10 @@ type frameWriter interface {
 type monitor struct {
 	root   string
 	cfg    *config.Config
-	warn   string     // config.LoadReader's warning ("": none)
-	height func() int // the terminal's rows
-	width  func() int // the terminal's columns
+	warn   string       // config.LoadReader's warning ("": none)
+	cfgAt  [2]time.Time // mtimes of .obor/config.json and .obor/local.json when cfg was read (T-713)
+	height func() int   // the terminal's rows
+	width  func() int   // the terminal's columns
 	now    func() time.Time
 	color  bool // paint the frame (a tty and no NO_COLOR)
 
@@ -78,7 +80,7 @@ func monitorCmd(args []string) int {
 	}
 	rows, _ := terminalSize()
 	tty := rows > 0
-	m := &monitor{root: cfg.Root, cfg: cfg, warn: warn, height: terminalRows, width: terminalCols, now: time.Now,
+	m := &monitor{root: cfg.Root, cfg: cfg, warn: warn, cfgAt: configMtimes(cfg.Root), height: terminalRows, width: terminalCols, now: time.Now,
 		color: tty && os.Getenv("NO_COLOR") == ""}
 	defer m.close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -142,6 +144,7 @@ func (m *monitor) frame(now time.Time) string {
 	if m.db == nil {
 		m.db = openStore(m.root) // nil until the store is written: no specs, no events
 	}
+	m.reloadConfig()
 	table := checks.NewLaneTable(m.cfg)
 	table.Now = now.Unix()
 	st := view.Build(view.Input{Status: ss, Err: err, Lanes: table, DB: m.db, Now: now, Events: monitorEvents,
@@ -153,6 +156,33 @@ func (m *monitor) frame(now time.Time) string {
 	lines := fitFrame(st, renderOpts{name: projectName(m.root), now: now, restarting: restarting, color: m.color},
 		m.rows(), m.cols())
 	return strings.Join(lines, "\n")
+}
+
+// configMtimes is the modification times of the config files (zero: missing).
+func configMtimes(root string) (at [2]time.Time) {
+	for i, name := range []string{"config.json", "local.json"} {
+		if fi, err := os.Stat(filepath.Join(root, ".obor", name)); err == nil {
+			at[i] = fi.ModTime()
+		}
+	}
+	return at
+}
+
+// reloadConfig reads the config again when .obor/config.json or .obor/local.json changed since it was read (T-713: a
+// role added while the monitor runs shows up). It reads as the readers do (an unknown field warns); a read that fails
+// keeps the last good config and says so in the frame's notes, until a read succeeds.
+func (m *monitor) reloadConfig() {
+	at := configMtimes(m.root)
+	if at == m.cfgAt {
+		return
+	}
+	m.cfgAt = at
+	cfg, warn, err := config.LoadReader(m.root)
+	if err != nil {
+		m.warn = "WARN config not reloaded, keeping the last good one: " + strings.TrimPrefix(err.Error(), "obor: ")
+		return
+	}
+	m.cfg, m.warn = cfg, warn
 }
 
 // newest is the seq of the store's newest record (0: no store yet, or no records). A read that fails closes the store,
