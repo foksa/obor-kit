@@ -215,6 +215,9 @@ func TestReviewRequest(t *testing.T) {
 			l := r.agents.launches[0]
 			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (aaaaaaa), T-b (bbbbbbb); files: internal/app/x.go, docs/y.md.") ||
 				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "Write only reviews/RV-5.md") ||
+				// T-716: real findings only; constructed ones a one-line list without a fix.
+				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
+				!strings.Contains(l.Prompt, `goes in a short "Not reported (constructed)" list instead: one line each, no fix proposal.`) ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
 					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {

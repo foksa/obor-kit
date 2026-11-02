@@ -12,7 +12,8 @@ import (
 	"obor/internal/project"
 )
 
-const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm`
+const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
+	` | obor review verify … | obor review close …`
 
 // reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
 // to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
@@ -20,6 +21,12 @@ const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note 
 // since <age> …), else a request to start now. Serve starts the review once every --after task merged and the
 // reviewer is idle, and tells the lead. FAIL: serve down, its refusal or a usage error (exit 1).
 func reviewCmd(args []string) int {
+	if len(args) > 0 && args[0] == "verify" {
+		return reviewVerifyCmd(args[1:])
+	}
+	if len(args) > 0 && args[0] == "close" {
+		return reviewCloseCmd(args[1:])
+	}
 	var c wire.Call
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {

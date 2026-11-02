@@ -161,7 +161,7 @@ func (a *App) reviewClosed(ctx context.Context, p *proj, fx *Loop) (string, int6
 	if err != nil {
 		return "", 0
 	}
-	open, err := reviewOpen(ctx, fx.Review, s.branch, started)
+	open, err := reviewOpen(ctx, fx.Review, s.Branch, started)
 	if err != nil {
 		a.logf("review of %s: is %s closed: %v", p.name, started.id, err)
 		return "", 0
@@ -172,10 +172,10 @@ func (a *App) reviewClosed(ctx context.Context, p *proj, fx *Loop) (string, int6
 		p.rvRead = rvRead{seq: started.seq, at: now}
 		return "", 0
 	}
-	if p.out.brief(s.agent) != nil {
+	if p.out.brief(s.Agent) != nil {
 		return "", 0 // briefed since: stopped once that brief is finished
 	}
-	return s.agent, started.seq
+	return s.Agent, started.seq
 }
 
 // rvRead is when the reviewer's stop last read git and found the review of seq still open (live).

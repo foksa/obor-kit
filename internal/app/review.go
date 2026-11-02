@@ -172,30 +172,37 @@ func (p *proj) reviewWaits(after []string) []string {
 	return p.waiting(strings.Join(after, ","))
 }
 
-// reviewSetup is what a review of the project at root needs from its config: the reviewer agent, its worktree, the
-// reviews dir and the integration branch; an error names what is missing.
-type reviewSetup struct {
-	agent, worktree, reviews, branch string
+// ReviewSetup is what a review of a project needs from its config: the reviewer agent, its worktree (absolute), the
+// reviews dir and the integration branch.
+type ReviewSetup struct {
+	Agent, Worktree, Reviews, Branch string
 }
 
-func reviewConfig(root string) (reviewSetup, error) {
+// reviewConfig is ReviewConfig of the project at root.
+func reviewConfig(root string) (ReviewSetup, error) {
 	cfg, err := config.LoadDaemon(root)
 	if err != nil {
-		return reviewSetup{}, err
+		return ReviewSetup{}, err
 	}
+	return ReviewConfig(cfg)
+}
+
+// ReviewConfig is cfg's review setup (serve's review start; obor review verify and close, T-716); an error names what
+// is missing.
+func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
-	s := reviewSetup{agent: rc.Agent, reviews: cfg.Paths().Reviews, branch: cfg.Data.Branches.Main}
+	s := ReviewSetup{Agent: rc.Agent, Reviews: cfg.Paths().Reviews, Branch: cfg.Data.Branches.Main}
 	switch {
 	case !rc.Configured || rc.Agent == "":
 		return s, errors.New("no reviewer role (obor setup role reviewer)")
 	case rc.Worktree == "":
 		return s, errors.New("the reviewer has no worktree (roles.reviewer.worktree)")
-	case s.reviews == "":
+	case s.Reviews == "":
 		return s, errors.New("no reviews dir (paths.reviews)")
-	case s.branch == "":
+	case s.Branch == "":
 		return s, errors.New("no integration branch (branches.main)")
 	}
-	s.worktree = filepath.Join(cfg.LanesDir(), rc.Worktree)
+	s.Worktree = filepath.Join(cfg.LanesDir(), rc.Worktree)
 	return s, nil
 }
 
@@ -258,7 +265,7 @@ func (a *App) reviewCall(c wire.Call) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("review: %v", err)
 		}
-		if id, err := a.reviewOpenNow(p, s.branch, started); err != nil {
+		if id, err := a.reviewOpenNow(p, s.Branch, started); err != nil {
 			return "", fmt.Errorf("review: %v", err)
 		} else if id != "" {
 			return "", fmt.Errorf("%s is open (not closed): close it first", id)
@@ -357,15 +364,15 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	if err != nil {
 		return "", nil // reviews are not set up: none is due
 	}
-	last, err := g.Last(ctx, s.branch)
+	last, err := g.Last(ctx, s.Branch)
 	if err != nil {
 		return "", err
 	}
-	k, prev, from := previousReview(last)
+	k, prev, from := PreviousReview(last)
 	if n, _ := strconv.Atoi(strings.TrimPrefix(started.id, "RV-")); n >= k && started.head != "" {
 		prev, from = started.id, started.head // started, not closed yet: its findings are being fixed
 	}
-	head, err := g.Head(ctx, s.branch)
+	head, err := g.Head(ctx, s.Branch)
 	if err != nil {
 		return "", err
 	}
@@ -387,7 +394,7 @@ func reviewOpen(ctx context.Context, g ReviewGit, branch string, started lastRev
 	if err != nil {
 		return "", err
 	}
-	if next, _, _ := previousReview(last); n >= next {
+	if next, _, _ := PreviousReview(last); n >= next {
 		return started.id, nil
 	}
 	return "", nil
@@ -421,7 +428,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	open, checked := "", ready && cfgErr == nil
 	if checked {
 		var err error
-		if open, err = reviewOpen(ctx, fx.Review, setup.branch, started); err != nil {
+		if open, err = reviewOpen(ctx, fx.Review, setup.Branch, started); err != nil {
 			a.logf("review of %s: is the last review closed: %v", p.name, err)
 			return
 		}
@@ -439,7 +446,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	if merged && open != "" {
 		q.held = open
 	}
-	due := merged && open == "" && (cfgErr != nil || checked && a.reviewerIdle(p, setup.agent))
+	due := merged && open == "" && (cfgErr != nil || checked && a.reviewerIdle(p, setup.Agent))
 	switch {
 	case end != "":
 		p.rv.what = "ending"
@@ -487,10 +494,10 @@ func (a *App) reviewerIdle(p *proj, agent string) bool {
 // starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
 // <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
 // merges since the review's head.
-func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s reviewSetup, cfgErr error) {
+func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s ReviewSetup, cfgErr error) {
 	id, brief, tasks, head, err := a.prepareReview(ctx, fx.Review, q, s, cfgErr)
 	if err == nil {
-		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.agent, Fresh: true, Prompt: brief})
+		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.Agent, Fresh: true, Prompt: brief})
 	}
 	if err != nil {
 		reason := "next id: " + err.Error()
@@ -509,7 +516,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
-	if _, ok := a.recordBrief(p, s.agent, "obor", "", "", brief); !ok && lost == nil {
+	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief); !ok && lost == nil {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused the brief"))
 	}
 	if lost != nil {
@@ -522,9 +529,9 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 // closedRE is a review's close commit subject: "RV-<n> closed · <reviewed sha> · …".
 var closedRE = regexp.MustCompile(`^RV-([0-9]+) closed(?: · ([0-9a-f]+))?`)
 
-// previousReview is the next review's number, and the previous review's id and reviewed sha ("": none) by last, the
+// PreviousReview is the next review's number, and the previous review's id and reviewed sha ("": none) by last, the
 // newest close commit's subject ("": none yet, the next is RV-1).
-func previousReview(last string) (next int, prev, sha string) {
+func PreviousReview(last string) (next int, prev, sha string) {
 	m := closedRE.FindStringSubmatch(last)
 	if m == nil {
 		return 1, "", ""
@@ -539,18 +546,18 @@ var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
 // prepareReview collects a review's facts in order (the next id, the head, the merges and files since the previous
 // review's sha) and detaches the review worktree at the head: the id, the brief, the tasks and the head; an error from
 // the first step that fails (id "" when the id is not known yet).
-func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s reviewSetup, cfgErr error) (id,
+func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
-	last, err := g.Last(ctx, s.branch)
+	last, err := g.Last(ctx, s.Branch)
 	if err != nil {
 		return "", "", nil, "", err
 	}
-	n, _, prevSHA := previousReview(last)
+	n, _, prevSHA := PreviousReview(last)
 	id = "RV-" + strconv.Itoa(n)
 	if cfgErr != nil {
 		return id, "", nil, "", cfgErr
 	}
-	if head, err = g.Head(ctx, s.branch); err != nil {
+	if head, err = g.Head(ctx, s.Branch); err != nil {
 		return id, "", nil, "", err
 	}
 	merges, err := g.Merges(ctx, prevSHA, head)
@@ -561,7 +568,7 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s re
 	if err != nil {
 		return id, "", nil, "", err
 	}
-	if err = g.Detach(ctx, s.worktree, head); err != nil {
+	if err = g.Detach(ctx, s.Worktree, head); err != nil {
 		return id, "", nil, "", err
 	}
 	short := head[:min(len(head), 7)]
@@ -582,8 +589,8 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s re
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in and
 // the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
 // none): its file is deleted at close (RV-69 #4), so the brief names what is kept, the close commit and BACKLOG.
-func reviewBrief(id string, s reviewSetup, short, last string, scope, files []string, note string) string {
-	_, prev, prevSHA := previousReview(last)
+func reviewBrief(id string, s ReviewSetup, short, last string, scope, files []string, note string) string {
+	_, prev, prevSHA := PreviousReview(last)
 	inScope := strings.Join(scope, ", ")
 	if inScope == "" {
 		inScope = "no merges"
@@ -605,17 +612,18 @@ func reviewBrief(id string, s reviewSetup, short, last string, scope, files []st
 		fileList = "none"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Review %s. %s is at %s. In scope: %s; files: %s.", id, s.branch, short, inScope, fileList)
+	fmt.Fprintf(&b, "Review %s. %s is at %s. In scope: %s; files: %s.", id, s.Branch, short, inScope, fileList)
 	if prev != "" {
 		fmt.Fprintf(&b, " Previous review: %s (its close commit: %s; its accepted findings are the BACKLOG lines that name %s)"+
 			" — don't repeat them.", prev, last, prev)
 	} else {
 		b.WriteString(" Previous review: none.")
 	}
-	fmt.Fprintf(&b, " For every finding give severity, likelihood (does a real config or workflow hit it, or only a"+
-		" constructed one?), file:line, probe/evidence, suggested fix and its cost in added code, and an Extent line:"+
-		" every other entry point / branch that shares the root cause, each marked checked or unchecked. Write only"+
-		" %s/%s.md in your worktree. Do not commit.", s.reviews, id)
+	fmt.Fprintf(&b, " Report only findings a real config or workflow hits; for each give severity, likelihood (the real"+
+		" config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in added code, and an"+
+		" Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked."+
+		" A finding only a constructed case hits goes in a short \"Not reported (constructed)\" list instead: one line"+
+		" each, no fix proposal. Write only %s/%s.md in your worktree. Do not commit.", s.Reviews, id)
 	if note = strings.TrimSpace(note); note != "" {
 		b.WriteString("\nLead's note: " + note)
 	}
