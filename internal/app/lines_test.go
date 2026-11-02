@@ -375,7 +375,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	q := p.queuedLines()[0]
 	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
 		Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
-	if m := p.queuedAt(q.seq); m == nil || !m.typing {
+	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
 		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
 	}
 	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"})
@@ -385,7 +385,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if strings.Contains(reply, "replaces") {
 		t.Errorf("reply %q says it replaced a line whose delivery may have landed", reply)
 	}
-	if m := p.queuedAt(q.seq); m == nil || !m.typing {
+	if m := p.queuedAt(q.seq); m == nil || m.state != lineSending {
 		t.Errorf("the in-flight line was superseded: queued %+v", p.queuedLines())
 	}
 	if n := len(p.queuedLines()); n != 2 {
@@ -594,7 +594,7 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	}
 	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
 		event.FactData{Machine: Machine, Reason: step + ": refused", Step: step})
-	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).typing {
+	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).state != lineWaiting {
 		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
 	}
 	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b3", To: "pj-rev", Note: "third", Role: "lead"})

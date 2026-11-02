@@ -492,16 +492,29 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   a session without one removes it). Serve posts the line to the socket that record names (the auth line, then a
   `user` message; `cmd/obor`'s `poster`): no pane lookup, no idle rule. An idle lead starts a new turn with it, a busy
   one reads it between tool calls; it arrives as a message from another session, and the owner's half-typed draft
-  stays in the box. No record (or its socket gone) → the line waits, untried; a refused dial → fact `failed`, the
-  next pass. There is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of
+  stays in the box. No record → the line waits, untried; a refused dial (its socket gone) → fact `failed` with its
+  reason, shown in `obor status` and the needs-you, posted again at the next pass (a lead line is never typed). There
+  is no ack: `sent` means handed to the socket, as a typed line's means handed to herdr. A lead of
   another kind (Codex, OpenCode) has no inbox: `obor status` and the 24 h needs-you.
 - **Role agents' lines go as the pane's kind takes them** (T-499, `agents.Kind.Deliver`), only while that agent's pane
-  is idle or done (the rule of job delivery): a kind with an inbox (Claude) gets the line posted to its session as
-  the lead's is (no record → it waits, untried), any other kind (Codex, OpenCode) typed into its pane (`agent.prompt`,
-  `herdr.Panes.Type`), no Escape, no screen read, no clear. A typed line herdr refuses because the pane is blocked
-  (`blocked`, `agent_blocked`) is a refusal before typing: fact `failed`, retried at a later pass. For Claude the
-  inbox ends the dialog class (a typed line landing in a Claude Code dialog): a post cannot reach a dialog; a
-  session behind an open permission dialog reads it when its turn continues, and it cannot answer the dialog.
+  is idle or done (the rule of job delivery): a kind with an inbox (Claude) gets the line posted to its session when
+  its inbox record is the live session's in that pane, else typed into the pane as its job wakes are (T-746: a line
+  to an idle identified agent never waits on a missing or mismatched record); a post refused before a byte went out
+  (a dead socket: `os.Stat` passes, the dial refuses) makes the next attempt typed, the pane re-checked idle first
+  (T-748). Any other kind (Codex, OpenCode) is typed into its pane (`agent.prompt`, `herdr.Panes.Type`), no Escape,
+  no screen read, no clear. A typed line herdr refuses because the pane is blocked (`blocked`, `agent_blocked`) is a
+  refusal before typing: fact `failed`, retried at a later pass. For Claude the inbox ends the dialog class (a typed
+  line landing in a Claude Code dialog): a post cannot reach a dialog; a session behind an open permission dialog
+  reads it when its turn continues, and it cannot answer the dialog.
+- **A queued line is in one state** (T-748, RV-90; `queued.state`, its moves in one function): *waiting* (nothing
+  went out; why: the pass's hold — busy, not identified, no record — else its last refusal's reason, both in `obor
+  status` and the 24 h needs-you), *sending* (its delivery claimed or its intent in the log: a byte may have gone
+  out), *sent* (a result, also `sent: <error>` after a byte) and *retired* (it ends undelivered). A refusal before a
+  byte (fact `failed`) puts it back to waiting with its reason; replay folds the same records to the same state. An
+  answer's line retires once its question is settled another way — the worker submits or asks again, the task is
+  unblocked, dropped or rejected, a newer answer or resume comes (T-746): waiting, at once; sending, it is marked and
+  stays until its outcome (it may have landed, as T-575 keeps a brief's): sent, or retired by a refusal before a byte,
+  or by the next pass closing its open delivery unsent (result `retired: …`, a crash's cut delivery).
 - **Job wakes go the same way** (T-499, owner 2026-10-28): a worker's or the integrator's wake to a Claude session with
   an inbox record is posted, `[obor job <id>] call the obor job_next tool` as typed (no `ctrl+u`, the same intent and
   result, `docs/state-model.md` "Prompts": a wake is harmless twice, T-524). Another kind, a pane serve does not see, or a Claude

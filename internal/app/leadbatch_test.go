@@ -107,7 +107,7 @@ func TestLeadLinesFailedPost(t *testing.T) {
 		t.Errorf("%d delivery results after a refused post, want 0", n)
 	}
 	for _, q := range p.queuedLines() {
-		if q.typing {
+		if q.state != lineWaiting {
 			t.Errorf("line %d still claimed after the refusal", q.seq)
 		}
 	}

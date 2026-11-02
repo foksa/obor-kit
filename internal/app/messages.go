@@ -49,11 +49,19 @@ import (
 // line to an idle agent is never held on a missing or mismatched record); any other kind gets it typed into its pane
 // (the herdr call of job delivery). A line held (its agent busy, not identified; a lead line with no inbox record)
 // notes why (queued.held: obor status, the line's needs-you). The oldest first and one per agent per pass, under
-// deliver.<seq> (P, a wake's transport: prompt.go). A refusal before any byte went out (no inbox record, a refused
-// dial, a refused typing) is fact failed{step: deliver.<seq>}, and the line stays queued and is delivered again on a later pass, also after a restart
-// (RV-50 #1); a post serve's own stop cut before a byte records nothing (T-660) and waits the same. A delivery a crash
-// cut (its intent pending) is delivered again too: a line may reach its agent twice,
-// never not at all. A typed line herdr refuses because the pane is blocked (blocked, agent_blocked) is such a refusal,
+// deliver.<seq> (P, a wake's transport: prompt.go).
+//
+// A queued line is in one state (T-748, queued.state; its moves: lineState.next): waiting (nothing went out; why: the
+// pass's hold, else its last refusal's reason), sending (its delivery claimed or its intent in the log: a byte may
+// have gone out), sent and retired (both leave the outbox). A refusal before any byte went out (no inbox record, a
+// refused dial, a refused typing) is fact failed{step: deliver.<seq>, reason, via: inbox for a post}: the line waits
+// again with that reason (obor status, its needs-you) and is delivered again on a later pass, also after a restart
+// (RV-50 #1), typed when the refused one was a post to an idle identified agent (a lead line is posted again); a post
+// serve's own stop cut before a byte records nothing (T-660) and waits the same. An answer's line retires once its
+// question is settled another way (retireAnswers): waiting, at once; sending, it is marked, and then a refusal before a
+// byte retires it, a delivery sends it, and a later pass closes its open delivery unsent (result retiredResult). A
+// delivery a crash cut (its intent pending) is delivered again too: a line may reach its agent twice, never not at
+// all. A typed line herdr refuses because the pane is blocked (blocked, agent_blocked) is such a refusal,
 // retried on a later pass; a posted one cannot land in a dialog at all (a session behind an open permission dialog reads it
 // when its turn continues, and it cannot answer the dialog). A line waiting longer than msgWait is the project's
 // needs-you until no such line waits.
@@ -81,7 +89,7 @@ const (
 // agent. Its fields are under App.mu like the rest of proj; only this file names its maps (the other files read it
 // through lead, brief and allBriefs).
 //
-// claim makes a line's delivery claim (deliverLine: typing set) and a brief's supersede of the agent's undelivered
+// claim makes a line's delivery claim (deliverLine: its state sending) and a brief's supersede of the agent's undelivered
 // brief lines (briefCall: the choice to the append) exclude each other (RV-61 #3). Lock order: claim, then App.mu;
 // never claim while holding mu (briefCall's append takes mu inside it).
 type outbox struct {
@@ -112,23 +120,99 @@ func (o *outbox) brief(agent string) *brief { return o.briefs[agent] }
 // allBriefs is the open briefs by role agent, in no order (under App.mu).
 func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.briefs) }
 
-// queued is a line not delivered yet: its fact's seq and time, its data, whether its delivery may have begun (typing),
-// whether it is a lead line (fact message, posted to the inbox whatever today's lead name; fact briefed: a role
-// brief), whether it is a brief's line (fact briefed with a line: a newer brief ends it), and the seq of the delivery
-// intent whose post carries it (0: none; T-654: only that post's result settles it), and why the last delivery pass
-// held it ("": not held; T-746: obor status and the line's needs-you say it, not folded), and whether it is an
-// answer's line (fact answered: retireAnswers ends it once its question is settled another way, T-746).
+// queued is a line not delivered yet: its fact's seq and time, its data, whether it is a lead line (fact message,
+// posted to the inbox whatever today's lead name; fact briefed: a role brief), whether it is a brief's line (fact
+// briefed with a line: a newer brief ends it), whether it is an answer's line (fact answered: retireAnswers ends it
+// once its question is settled another way, T-746), where its delivery is (state, T-748), the seq of the delivery
+// intent whose post carries it (0: none; T-654: only that post's result settles it, and a post refused before a byte
+// goes again with exactly its members), why the last delivery pass held it ("": not held; T-746: not folded), and
+// its last refusal before a byte went out (refused: the reason; refusedPost: it was an inbox post, so the next
+// attempt to an idle identified agent types it; folded from fact failed). obor status and the line's needs-you say
+// why it waits (why).
 type queued struct {
-	seq    int64
-	at     time.Time
-	msg    event.Message
-	typing bool
-	lead   bool
-	brief  bool
-	post   int64
-	held   string
-	answer bool
+	seq         int64
+	at          time.Time
+	msg         event.Message
+	lead        bool
+	brief       bool
+	answer      bool
+	state       lineState
+	post        int64
+	held        string
+	refused     string
+	refusedPost bool
 }
+
+// lineState is where a queued line's delivery is (T-748: one field, its moves all in next; RV-90). A line sent or
+// retired leaves the outbox.
+type lineState uint8
+
+const (
+	lineWaiting        lineState = iota // nothing went out: a later pass delivers it (held, or refused before a byte)
+	lineSending                         // its delivery is claimed or its intent is in the log: a byte may have gone out
+	lineSendingSettled                  // sending, and its question was settled meanwhile: a refusal before a byte retires it
+	lineSent                            // delivered (a byte went out, an error after it too)
+	lineRetired                         // ended undelivered: its question settled another way, or a newer brief replaced it
+)
+
+// lineEvent is what moves a queued line (next).
+type lineEvent uint8
+
+const (
+	lineClaimed   lineEvent = iota // a delivery claims it (deliverLine, leadPost), or its intent is folded
+	lineDelivered                  // its post's result: sent, also "sent: <error>" after a byte went out
+	lineRefused                    // fact failed: refused before any byte went out
+	lineSettled                    // its question was settled another way (retireAnswers)
+	lineClosed                     // its intent's result "retired": closed unsent (a settled line's open delivery)
+)
+
+// next is the state a line in s moves to on e (T-748; the case → test table: messagestate_test.go).
+func (s lineState) next(e lineEvent) lineState {
+	switch {
+	case s == lineSent || s == lineRetired: // ended: nothing moves it
+		return s
+	case e == lineDelivered:
+		return lineSent
+	case e == lineClosed:
+		return lineRetired
+	case e == lineClaimed && s == lineWaiting:
+		return lineSending
+	case e == lineRefused && s == lineSendingSettled: // nothing went out and it is wanted no more
+		return lineRetired
+	case e == lineRefused:
+		return lineWaiting
+	case e == lineSettled && s == lineWaiting:
+		return lineRetired
+	case e == lineSettled: // a byte may have gone out: it may have landed, so it stays until its outcome (as T-575)
+		return lineSendingSettled
+	}
+	return s
+}
+
+// move applies e to q (under mu): a line sent or retired leaves the outbox.
+func (p *proj) move(q *queued, e lineEvent) {
+	q.state = q.state.next(e)
+	if q.state == lineSent || q.state == lineRetired {
+		delete(p.out.msgs, q.seq)
+	}
+}
+
+// why is why q waits, as obor status and its needs-you say it: the last pass's hold, else its last refusal.
+func (q *queued) why() string {
+	if q.held != "" {
+		return q.held
+	}
+	if q.refused != "" {
+		return "its delivery was refused before a byte went out: " + q.refused
+	}
+	return ""
+}
+
+// viaInbox is fact failed's Via for a line whose refused delivery was an inbox post (T-748): the next attempt types it.
+const viaInbox = "inbox"
+
+// retiredResult is the result that closes a settled line's open delivery unsent (lineClosed).
+const retiredResult = "retired: its question was settled while its delivery was open"
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
 // pane worked since (its line delivered; since its stop, when it had one), whether that work is in the log (fact
@@ -191,8 +275,7 @@ func (d lineData) members(seq int64) []int64 {
 
 // foldMsg folds r, a record of the project's lines.
 func (p *proj) foldMsg(r event.Record) {
-	if r.Kind == event.KindFact && r.Task != event.MsgTask && (r.Step == event.StepSubmitted ||
-		r.Step == event.StepUnblocked || isAsk(r)) { // the question is settled another way: its answer ends (T-746)
+	if settles(r) { // the question is settled another way: its answer ends (T-746, T-748)
 		p.retireAnswers(r.Task, 0)
 	}
 	if r.Task != event.MsgTask {
@@ -277,10 +360,12 @@ func (p *proj) foldMsg(r event.Record) {
 		var d supersededData
 		_ = json.Unmarshal(r.Data, &d)
 		delete(p.out.msgs, d.Seq)
-	case r.Kind == event.KindFact && r.Step == event.StepFailed:
-		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Fact().Step, stepDeliver), 10, 64)
+	case r.Kind == event.KindFact && r.Step == event.StepFailed: // refused before a byte: its reason kept (T-748)
+		d := r.Fact()
+		seq, _ := strconv.ParseInt(strings.TrimPrefix(d.Step, stepDeliver), 10, 64)
 		if q := p.out.msgs[seq]; q != nil {
-			q.typing = false
+			q.refused, q.refusedPost = strings.TrimPrefix(d.Reason, d.Step+": "), d.Via == viaInbox
+			p.move(q, lineRefused)
 		}
 	case strings.HasPrefix(r.Step, stepDeliver): // T-654: a post's result settles exactly the lines its intent names
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
@@ -291,7 +376,8 @@ func (p *proj) foldMsg(r event.Record) {
 			var members []int64
 			for _, m := range d.members(seq) {
 				if q := p.out.msgs[m]; q != nil && q.post == 0 { // a line delivered already is no member
-					q.typing, q.post = true, seq
+					q.post = seq
+					p.move(q, lineClaimed)
 					members = append(members, m)
 				}
 			}
@@ -313,27 +399,47 @@ func (p *proj) foldMsg(r event.Record) {
 	}
 }
 
-// retireAnswers ends task's undelivered answer lines but keep's (under mu; T-746): their question was settled another
-// way (the worker submitted or asked again, the task was unblocked, a newer answer or a stalled worker's resume came),
-// so a line is never delivered late and obor status lists it no more. A line whose delivery is in flight (typing, a
-// post) may have landed and stays, as T-575 keeps a brief's. Folded live and on replay alike.
+// settles: r settles its task's question another way (T-746, T-748): the worker submitted or asked again, the task
+// was unblocked, dropped or rejected.
+func settles(r event.Record) bool {
+	if r.Task == event.MsgTask {
+		return false
+	}
+	if r.Kind == event.KindResult {
+		m, _ := verdictMethod(r.Step)
+		return m == wire.MethodReject
+	}
+	return r.Kind == event.KindFact && (r.Step == event.StepSubmitted || r.Step == event.StepUnblocked ||
+		r.Step == event.StepDropped || isAsk(r))
+}
+
+// retireAnswers settles task's undelivered answer lines but keep's (under mu; T-746, T-748): their question was
+// settled another way (settles, or a newer answer or a stalled worker's resume came), so a line is never delivered
+// late and obor status lists it no more. A waiting line retires; a sending one may have landed and stays until its
+// outcome (as T-575 keeps a brief's): sent, or retired by a refusal before a byte or by its open delivery's close
+// (deliverLine). Folded live and on replay alike.
 func (p *proj) retireAnswers(task string, keep int64) {
 	for seq, q := range p.out.msgs {
-		if q.answer && q.msg.Task == task && seq != keep && !q.typing && q.post == 0 {
-			delete(p.out.msgs, seq)
+		if q.answer && q.msg.Task == task && seq != keep {
+			p.move(q, lineSettled)
 		}
 	}
 }
 
-// settleLine folds r, the result of the post that carried q, as q's delivery (under mu).
+// settleLine folds r, the result of the post that carried q, as q's delivery, or as its close unsent (retiredResult).
 func (p *proj) settleLine(q *queued, r event.Record) {
+	var res string
+	if _ = json.Unmarshal(r.Data, &res); res == retiredResult {
+		p.move(q, lineClosed)
+		return
+	}
 	if q.msg.Needs != 0 { // a needs-you line delivered: its next repeat counts from now (T-624)
 		p.out.delivered[q.msg.Needs] = event.RecordTime(r)
 	}
 	if b := p.out.briefs[q.msg.To]; b != nil && b.seq == q.seq { // the brief's line delivered: its age starts
 		b.at = event.RecordTime(r)
 	}
-	delete(p.out.msgs, q.seq)
+	p.move(q, lineDelivered)
 }
 
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
@@ -344,7 +450,7 @@ func (a *App) sawWork(p *proj, pane port.Pane) {
 	if !ok || b == nil || pane.Agent == "" || Ready(pane.Status) {
 		return
 	}
-	if q := p.out.msgs[b.seq]; q == nil || q.typing {
+	if q := p.out.msgs[b.seq]; q == nil || q.state != lineWaiting {
 		b.worked = true
 	}
 }
@@ -485,7 +591,8 @@ func (a *App) gone(p *proj, agent string, b *brief, w Where, now time.Time) bool
 // a lead line, or a ready agent whose kind has an inbox and whose inbox record is its pane's live session's), or
 // typed into its ready agent's pane (post "", target: the pane's address, never herdr's name, RV-53 #5): via. A ready
 // agent whose kind has an inbox but whose record cannot take the line gets it typed, as its job wakes are (T-746: a
-// line to an idle worker is delivered, never held on a session mismatch). ok false: held, no intent, nothing typed
+// line to an idle worker is delivered, never held on a session mismatch); so does one whose last post of the line was
+// refused before a byte went out (T-748: a refused dial of a dead socket is not tried again and again). ok false: held, no intent, nothing typed
 // (delivered already, a lead line whose inbox is not recorded, its agent not identified (two panes claim it, or none
 // proves it) or not ready); the line's held notes why (obor status, its needs-you).
 func (a *App) route(p *proj, fx *Loop, q queued) (post, target string, ok bool) {
@@ -523,7 +630,7 @@ func (a *App) routeOf(p *proj, fx *Loop, q queued) (post, target, held string) {
 	}
 	post, inboxed := a.via(fx, p, w, to)
 	switch {
-	case post != "" && inboxed:
+	case post != "" && inboxed && !(q.refusedPost && fx.Typer != nil): // after a refused post: typed (T-748)
 		return post, to, ""
 	case fx.Typer != nil:
 		return "", w.Pane.ID, ""
@@ -598,13 +705,15 @@ func (p *proj) liveSession(agent string, pane port.Pane) string {
 // A post serve's own stop cut before a byte (T-660): nothing recorded, the line still queued.
 func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post, target string) {
 	key := event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
-	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its typing claim
+	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its claim (sending)
 	// keeps any brief from superseding it from here on (the line may reach the pane).
 	p.out.claim.Lock()
 	a.mu.Lock()
 	m := p.out.msgs[q.seq]
+	closing := false
 	if m != nil {
-		m.typing = true
+		closing = m.state == lineSendingSettled // settled while a delivery was open (a crash cut it): closed unsent
+		p.move(m, lineClaimed)
 	}
 	a.mu.Unlock()
 	p.out.claim.Unlock()
@@ -614,6 +723,9 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	began := false
 	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: lineData{To: q.msg.To}},
 		func(ctx context.Context) (any, error) {
+			if closing {
+				return retiredResult, nil
+			}
 			if post == startRoute { // the stopped agent's fresh start in its pane carries the line (T-672)
 				_, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.msg.To, Pane: target, Fresh: true, Prompt: q.msg.Line})
 				if err != nil {
@@ -630,8 +742,12 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 			a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
 			return
 		}
+		via := "" // a refused post: the next attempt types it (T-748)
+		if post != "" && post != startRoute {
+			via = viaInbox
+		}
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
-			event.FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step})
+			event.FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step, Via: via})
 	}
 }
 
@@ -693,7 +809,7 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 	}
 }
 
-// leadPost is the post deliverLead makes next of qs (one target's lines), its members claimed (typing): the open post
+// leadPost is the post deliverLead makes next of qs (one target's lines), its members claimed (sending): the open post
 // of a line of qs (its key's seq, its members still queued), else every line of qs not delivered yet under the
 // oldest's seq. recovered: the open post's result is kept unwritten (App.do writes it, nothing is transmitted).
 func (a *App) leadPost(p *proj, qs []queued, key func(int64) event.Key) (head int64, lines []queued, recovered bool) {
@@ -725,7 +841,7 @@ func (a *App) leadPost(p *proj, qs []queued, key func(int64) event.Key) (head in
 		}
 	}
 	for _, q := range lines {
-		p.out.msgs[q.seq].typing = true
+		p.move(p.out.msgs[q.seq], lineClaimed)
 	}
 	return head, lines, recovered
 }
@@ -739,8 +855,9 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 		if now.Sub(q.at) >= msgWait {
 			reason = fmt.Sprintf("line to %s from %s waiting over %s for its delivery: %s", q.msg.To, q.msg.From,
 				Age(msgWait), q.msg.Line)
-			if q.held != "" { // why the last pass held it (T-746; two panes claiming its agent among them)
-				reason += " (held: " + q.held + ")"
+			if why := q.why(); why != "" { // why the last pass held it (T-746; two panes claiming its agent among
+				// them), or its last refusal (T-748)
+				reason += " (held: " + why + ")"
 			}
 			break
 		}
@@ -942,13 +1059,13 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
-	// bring one back). A line whose delivery is claimed (its typing set: it may have landed) stays; a lead line is
+	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
 	// never superseded. The outbox's claim from the choice to the append: no delivery claims a chosen line meanwhile.
 	p.out.claim.Lock()
 	a.mu.Lock()
 	var old []int64
 	for _, q := range p.queuedLines() {
-		if q.brief && q.msg.To == to && q.msg.To != p.out.leadAgent && !q.typing {
+		if q.brief && q.msg.To == to && q.msg.To != p.out.leadAgent && q.state == lineWaiting {
 			old = append(old, q.seq)
 		}
 	}
@@ -1038,7 +1155,7 @@ func (p *proj) messageStatus(now time.Time) []wire.MessageStatus {
 	out := []wire.MessageStatus{}
 	for _, q := range p.queuedLines() {
 		out = append(out, wire.MessageStatus{To: q.msg.To, From: q.msg.From, Line: q.msg.Line,
-			Age: int64(now.Sub(q.at) / time.Second), Held: q.held})
+			Age: int64(now.Sub(q.at) / time.Second), Held: q.why()})
 	}
 	return out
 }
