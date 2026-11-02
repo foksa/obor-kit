@@ -90,21 +90,18 @@ func (a *App) observe(pane port.Pane, now time.Time) {
 	a.obs[pane.ID] = &seen{pane: pane, since: since}
 }
 
-// rereadPanes reads herdr's panes again into the snapshot: a pane's cwd changes with no event (a cd in its shell, obor
-// setup pane moving it into a lane), so the snapshot the stream gave can keep it out of the lane (T-745). One call, the
-// same source the snapshot is built from; a pane it no longer lists is left as known (an event says it went). An error
-// leaves the snapshot as it was: the caller decides on what it knows.
-func (a *App) rereadPanes(ctx context.Context) {
+// rereadPanes reads herdr's panes again, as a list: a pane's cwd changes with no event (a cd in its shell, obor setup
+// pane moving it into a lane), so the snapshot the stream gave can keep it out of the lane (T-745). One call, the same
+// source the snapshot is built from. The list answers one question only, which pane is in a lane's dir now: it is never
+// applied to the snapshot, whose panes and fields stay the stream's (RV-89 #2). An error (herdr restarting, a timeout,
+// the context ending) leaves the caller on what it knows, with nothing recorded (RV-89 #1).
+func (a *App) rereadPanes(ctx context.Context) ([]port.Pane, error) {
 	snap, err := a.panes.Snapshot(ctx)
 	if err != nil {
 		a.logf("herdr: panes: %v", err)
-		return
+		return nil, err
 	}
-	a.mu.Lock()
-	for _, pane := range snap.Panes {
-		a.observe(pane, a.opt.Now())
-	}
-	a.mu.Unlock()
+	return snap.Panes, nil
 }
 
 // event applies one herdr event; when the pane was or is in the project, it reconciles the project's identity table,
