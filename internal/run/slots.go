@@ -243,7 +243,8 @@ func (s Slots) Try(prio string, pid int) (path, wait string, err error) {
 }
 
 // Acquire tries until it gets a slot, a wait line on w every Report; ErrNoDir, or the context's error. Before each
-// try it waits while the machine load is above LoadLimit, at most LoadCap; loaded is the load it claimed under once
+// try it waits while the machine load is above LoadLimit, at most LoadCap in all (the load waits summed, the slot
+// waits not counted); loaded is the load it claimed under once
 // that cap ran out (0: claimed below the limit).
 func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (path string, loaded float64, err error) {
 	poll, report, loadCap := s.Poll, s.Report, s.LoadCap
@@ -256,14 +257,20 @@ func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (
 	if loadCap <= 0 {
 		loadCap = DefaultLoadCap
 	}
-	start := time.Now()
-	var next time.Time
+	// waited sums the load waits only (T-726): time queued for a slot, or for a merge, does not use up LoadCap.
+	var waited time.Duration
+	var next, loadSince time.Time
 	for {
 		wait := ""
 		loaded = 0
+		if !loadSince.IsZero() {
+			waited += time.Since(loadSince)
+			loadSince = time.Time{}
+		}
 		if l, over := s.overloaded(); over {
-			if time.Since(start) < loadCap {
+			if waited < loadCap {
 				wait = "waiting: machine load " + FormatLoad(l) + " (> " + FormatLoad(s.LoadLimit) + ")"
+				loadSince = time.Now()
 			} else {
 				loaded = l
 			}
