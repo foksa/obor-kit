@@ -677,9 +677,10 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 }
 
 // pickAccepted publishes the candidate (row 33) once the scratch is free and no reviewer or deep dive holds the merge
-// (holdPublish, T-718); one that went ahead after the hold's cap tells the lead first.
+// (holdPublish, T-718) and no start reading the main checkout is admitted (T-730: scratchStep decides that again at
+// the start); one that went ahead after the hold's cap tells the lead first.
 func (a *App) pickAccepted(p *proj, mt mtask) step {
-	if holder, _ := p.scratchWait(mt); holder != "" {
+	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 {
 		return nil
 	}
 	held, capped := a.holdPublish(p, mt.task)
