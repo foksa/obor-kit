@@ -660,9 +660,8 @@ type shipFixture struct {
 	ghlog    string
 	verfile  string
 	instlog  string
-	labels   string // launchctl list's output for the stub
 	ghstate  string // the stub gh's release: release, assets, draft
-	projects string // `obor projects`' output for the stub (T-646)
+	upgrades string // the log of the stub's `obor projects --upgrade` calls (T-715)
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -674,7 +673,6 @@ func newShipFixture(t *testing.T) *shipFixture {
 		ghlog:          filepath.Join(f.Base, "gh.log"),
 		verfile:        filepath.Join(f.Base, "installed-version"),
 		instlog:        filepath.Join(f.Base, "install.log"),
-		labels:         filepath.Join(f.Base, "launchctl-list"),
 		ghstate:        filepath.Join(f.Base, "gh-state"),
 	}
 	f.Git(f.Base, "init", "-q", "--bare", s.origin)
@@ -711,17 +709,19 @@ case "$1 $2" in
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
-	// obor: its version line, and `obor projects` as the machine's project list prints it (T-646).
-	s.projects = filepath.Join(f.Base, "projects-out")
+	// obor: its version line, and `obor projects --upgrade --notify <file>` (T-715): logs the call and the notes file's
+	// text; fails (exit 1) while upgrade-broken exists.
+	s.upgrades = filepath.Join(f.Base, "upgrades")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
 if [ "$1" = projects ]; then
-  cat "`+s.projects+`" 2> /dev/null
+  [ "$2" = --upgrade ] && [ "$3" = --notify ] || exit 2
+  echo "projects $2 $3 notes: $(cat "$4")" >> "`+s.upgrades+`"
+  [ ! -f "`+filepath.Join(f.Base, "upgrade-broken")+`" ] || { echo "FAIL axis-alies: serve restart: boom"; exit 1; }
+  echo "axis-alies: serve restart: ok"
   exit 0
 fi
 echo "obor $(cat "`+s.verfile+`")"
 `)
-	// launchctl list: the labels the follow-up line reads (none until a test writes them).
-	writeExec(t, filepath.Join(f.Root, "stub", "launchctl"), "#!/bin/bash\ncat \""+s.labels+"\" 2> /dev/null\n")
 	// install.sh installs v1.2.4 unless install-broken exists (an install that does not land).
 	writeExec(t, filepath.Join(f.Root, "install.sh"), "#!/bin/sh\necho ran >> \""+s.instlog+"\"\n"+
 		"[ -f \""+filepath.Join(f.Base, "install-broken")+"\" ] || printf '%s\\n' v1.2.4 > \""+s.verfile+"\"\n")
@@ -749,7 +749,7 @@ func TestMakeShip(t *testing.T) {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
 	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4", "installed the kit",
-		"restart serve: obor serve restart in each project"} {
+		"axis-alies: serve restart: ok", "restarted the serves, monitors and web"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ship does not say %q:\n%s", want, out)
 		}
@@ -771,14 +771,11 @@ func TestMakeShip(t *testing.T) {
 
 	ghBefore, instBefore := gh, readFile(t, f.instlog)
 	head := f.Git(f.Root, "rev-parse", "HEAD")
-	// launchd's view of this machine's serves: the follow-up names those projects instead of saying "each project".
-	writeFile(t, f.labels, "PID\tStatus\tLabel\n-\t0\tcom.apple.something\n123\t0\tobor.serve.obor-kit\n456\t0\tobor.serve.axis-alies\n")
 	out, failed = f.make(t, "ship")
 	if failed {
 		t.Fatalf("the second ship failed:\n%s", out)
 	}
-	for _, want := range []string{"push skipped", "publish skipped", "install skipped",
-		"restart serve: obor serve restart in obor-kit, axis-alies"} {
+	for _, want := range []string{"push skipped", "publish skipped", "install skipped", "restarted the serves"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the second ship does not say %q:\n%s", want, out)
 		}
@@ -794,28 +791,36 @@ func TestMakeShip(t *testing.T) {
 	}
 }
 
-// T-646: the restart reminder names the projects of the machine's list of obor projects, through obor projects, when
-// that list exists (not launchd's labels): only the ones whose serve is up.
-func TestMakeShipRestartNamesTheProjectList(t *testing.T) {
+// T-715: ship ends with `obor projects --upgrade --notify <the tag's docs/releases/v<version>.md>` (the notes at the
+// tag, not main's); a follow-through that does not go through fails the ship, naming the repair.
+func TestMakeShipFollowThrough(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
 	if out, failed := f.release(t, "V=1.2.4"); failed {
 		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
 	}
-	writeFile(t, filepath.Join(f.Base, "home", ".obor", "projects.json"), "{}\n")
-	writeFile(t, f.projects, "obor-kit /w/obor-kit serve up\naxis-alies /w/axis-alies serve up\nquiet /w/quiet serve down\n")
-	// launchd knows another project: the list wins, so its reminder is not the one printed.
-	writeFile(t, f.labels, "PID\tStatus\tLabel\n123\t0\tobor.serve.launchd-only\n")
+	notes := f.Git(f.Root, "show", "v1.2.4:docs/releases/v1.2.4.md")
+	if strings.TrimSpace(notes) == "" {
+		t.Fatalf("precondition: the tag has release notes, got %q", notes)
+	}
+	writeFile(t, filepath.Join(f.Base, "upgrade-broken"), "")
 	out, failed := f.make(t, "ship")
-	if failed {
-		t.Fatalf("make ship failed:\n%s", out)
+	if !failed || !strings.Contains(out, "FAIL axis-alies: serve restart: boom") ||
+		!strings.Contains(out, "obor projects --upgrade (no --notify") {
+		t.Errorf("a failing follow-through must fail the ship naming the repair (failed %v):\n%s", failed, out)
 	}
-	if want := "restart serve: obor serve restart in obor-kit, axis-alies"; !strings.Contains(out, want) {
-		t.Errorf("ship does not say %q:\n%s", want, out)
+	if err := os.Remove(filepath.Join(f.Base, "upgrade-broken")); err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"launchd-only", "quiet"} {
-		if strings.Contains(out, name) {
-			t.Errorf("the reminder names %s (a launchd label, a serve that is down):\n%s", name, out)
-		}
+	out, failed = f.make(t, "ship")
+	if failed || !strings.Contains(out, "told the leads") {
+		t.Fatalf("the second ship (everything else skipped) must run the follow-through (failed %v):\n%s", failed, out)
+	}
+	log := readFile(t, f.upgrades)
+	if n := strings.Count(log, "projects --upgrade --notify notes: "); n != 2 {
+		t.Errorf("the follow-through ran %d times over two ships, want 2:\n%s", n, log)
+	}
+	if !strings.Contains(log, strings.Fields(notes)[0]) {
+		t.Errorf("the follow-through was not given the tag's notes %q:\n%s", notes, log)
 	}
 }
