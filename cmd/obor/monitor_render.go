@@ -215,6 +215,9 @@ func laneRows(st view.Project, o renderOpts, p palette) []string {
 		if j := l.Job; j != nil {
 			r.job = jobStep(j.ID) + " (" + map[bool]string{true: "fetched", false: "not fetched"}[j.Delivered] + ")"
 		}
+		if l.Effort != "" { // T-695: the effort the task's dispatch named
+			r.job = strings.TrimSpace(r.job + " effort " + l.Effort)
+		}
 		rows = append(rows, r)
 		lw, cw, tw = max(lw, textWidth(r.lane)), max(cw, textWidth(r.col)), max(tw, textWidth(r.task))
 		sw, aw = max(sw, textWidth(r.since)), max(aw, textWidth(r.agent))

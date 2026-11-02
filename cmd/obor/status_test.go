@@ -862,3 +862,33 @@ func TestStatusEventsBad(t *testing.T) {
 		}
 	}
 }
+
+// T-695: the effort a task's dispatch named is on its lane's line and in --json (lanes[].effort); a task without one
+// shows none.
+func TestStatusShowsTheEffort(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-01")
+	o2 := p.Lane("O-02", "task/T-02")
+	p.Config()
+	p.Commit(o1)
+	p.Commit(o2)
+	now := time.Now()
+	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &app.ProjectStatus{
+		Name: "pj", Root: p.Root, Merging: true,
+		Tasks: []app.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Effort: "high"},
+			{Task: "T-02", Lane: "O-02", Attempt: 1, State: "working"}}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	if len(st.Lanes) != 2 {
+		t.Fatalf("precondition: two lanes, got %+v", st.Lanes)
+	}
+	matchLine(t, text, `^O-01 +opus .*serve: working \(attempt 1\)  effort: high$`, "O-01 at effort high")
+	matchLine(t, text, `^O-02 +opus .*serve: working \(attempt 1\)$`, "O-02 with no effort")
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"effort":"high"`) || st.Lanes[0].Effort != "high" || st.Lanes[1].Effort != "" {
+		t.Errorf("--json lanes %+v: want O-01's effort high, O-02's none", st.Lanes)
+	}
+}

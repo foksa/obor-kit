@@ -21,7 +21,6 @@
   "lane_links": ["reference", "public/assets"],
   "protected_files": ["src/engine/types.ts"],
   "lane_types": {
-    "opus-high": { "kind": "claude", "args": ["--model", "opus", "--effort", "high", "--permission-mode", "auto"], "max": 4 },
     "opus": { "kind": "claude", "args": ["--model", "opus", "--effort", "medium", "--permission-mode", "auto"], "max": 4 },
     "sonnet": { "kind": "claude", "args": ["--model", "sonnet", "--effort", "medium", "--permission-mode", "auto"] },
     "haiku": { "kind": "claude", "args": ["--model", "haiku", "--permission-mode", "auto"] },

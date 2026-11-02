@@ -15,11 +15,11 @@ import (
 
 const noConfig = "FAIL no usable .obor/config.json (obor config validate)"
 
-const dispatchUsage = "usage: obor dispatch <T-xx> [--types <a,b>] [--after <T-yy,T-zz>] [--force]"
+const dispatchUsage = "usage: obor dispatch <T-xx> [--types <type[:effort],…>] [--after <T-yy,T-zz>] [--force]"
 
 // dispatchCmd is `obor dispatch <T-xx> [--types a,b] [--after …] [--force]`: a socket request to obor serve, the only
 // dispatcher (T-408). The lane types come from the level of the spec's Difficulty line (config difficulty); --types
-// overrides them. It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane
+// overrides them; each may name an effort (`opus:high`: an opus lane, its agent started at effort high, T-695). It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane
 // of the level is free (T-538), either followed by "; idle: <LANE> (<type>), …" while lanes stay free (T-483); or its
 // refusal (exit 1: FAIL). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {

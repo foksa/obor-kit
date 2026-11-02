@@ -137,7 +137,8 @@ type TaskStatus struct {
 	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for
 	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
 	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its lane types came from
-	Types   []string `json:"types,omitempty"`   // waiting: the lane types it takes
+	Types   []string `json:"types,omitempty"`   // waiting: the lane types it takes (type references, T-695)
+	Effort  string   `json:"effort,omitempty"`  // dispatched: the effort its lane's agent starts with ("": the type's; T-695)
 	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`
@@ -201,7 +202,7 @@ func (a *App) Status() Status {
 				ps.Facts = append(ps.Facts, mt.needs)
 			}
 			if mt.state != stMerged {
-				ts := TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state}
+				ts := TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state, Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}

@@ -68,9 +68,10 @@ type (
 		Target string   `json:"target"`
 		Redo   bool     `json:"redo,omitempty"`
 		Force  bool     `json:"force,omitempty"`
-		Level  string   `json:"level,omitempty"` // the spec's difficulty level the types came from
-		Types  []string `json:"types,omitempty"`
-		After  []string `json:"after,omitempty"` // waiting: the tasks it waits for
+		Level  string   `json:"level,omitempty"`  // the spec's difficulty level the types came from
+		Types  []string `json:"types,omitempty"`  // type references, `<type>[:<effort>]` (T-695)
+		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its type's args; T-695)
+		After  []string `json:"after,omitempty"`  // waiting: the tasks it waits for
 		Caller string   `json:"caller,omitempty"`
 		Call   string   `json:"call,omitempty"`
 		Reply  string   `json:"reply"`
@@ -189,7 +190,7 @@ func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err er
 func specFirst(cfg *config.Config, text string, types []string) []string {
 	var out []string
 	for _, t := range spec.Types(text) {
-		if cfg.HasLaneOfType(t) {
+		if typ, _ := config.ParseTypeRef(t); cfg.HasLaneOfType(typ) {
 			out = append(out, t)
 		}
 	}
@@ -260,6 +261,13 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
+	for _, t := range c.Types { // an effort its kind does not take (T-695); an unknown type finds no lane below
+		if _, effort := config.ParseTypeRef(t); effort != "" || strings.HasSuffix(t, ":") {
+			if err := cfg.CheckTypeRef(t); err != nil {
+				return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
+			}
+		}
+	}
 	ls, err := a.lanes.Lanes(p.root)
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
@@ -314,9 +322,10 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	a.mu.Unlock()
 	agent := laneAgent(l, pane, names)
 	caller := callerOf(c)
+	effort := effortFor(c.Types, l.Type)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
-		Level: c.Level, Types: c.Types, Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + idleNote(ls, l.Name, held) + note}
+		Level: c.Level, Types: c.Types, Effort: effort, Caller: caller, Call: c.CallID,
+		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + effortNote(effort) + idleNote(ls, l.Name, held) + note}
 	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepDispatched, Kind: KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
@@ -397,8 +406,27 @@ func idleNote(ls []Lane, taken string, held map[string]string) string {
 	return "; idle: " + strings.Join(idle, ", ")
 }
 
+// effortFor is the effort of the first type reference of types naming lane type typ ("": none names one; T-695).
+func effortFor(types []string, typ string) string {
+	for _, t := range types {
+		if lt, effort := config.ParseTypeRef(t); lt == typ {
+			return effort
+		}
+	}
+	return ""
+}
+
+// effortNote is a dispatch reply's " effort <effort>" (T-695); "" for none.
+func effortNote(effort string) string {
+	if effort == "" {
+		return ""
+	}
+	return " effort " + effort
+}
+
 // pickLane is c's lane in ls: the lane it names, else the lane that holds c.Task (working or blocked on it: a redo,
-// whatever its type, T-545), else the first lane of its first type that has a free one (types in the order given,
+// whatever its type, T-545), else the first lane of its first type (a type reference's type: opus:high matches an opus
+// lane, T-695) that has a free one (types in the order given,
 // lanes in config order) (dirty-free with force) and not held for another task's dispatch; else why not.
 func pickLane(ls []Lane, c Call, held map[string]string) (Lane, string) {
 	if c.Lane != "" {
@@ -420,8 +448,9 @@ func pickLane(ls []Lane, c Call, held map[string]string) (Lane, string) {
 		}
 	}
 	for _, t := range c.Types {
+		typ, _ := config.ParseTypeRef(t)
 		for _, l := range ls {
-			if l.Type == t && held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
+			if l.Type == typ && held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
 				l.Dir = filepath.Clean(l.Dir)
 				return l, ""
 			}
@@ -781,7 +810,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 			}
 		}
 		s, err := fx.Agents.Launch(ctx, Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
-			Prompt: first})
+			Prompt: first, Effort: mt.disp.Effort})
 		switch {
 		case err != nil && startRefused(err):
 			return startOut{Refused: err.Error()}, nil

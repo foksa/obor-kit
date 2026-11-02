@@ -112,7 +112,8 @@ func (v *validator) laneArgs() {
 	}
 }
 
-// types: lanes and agents entries name a lane type (T-145); a role or lead that names one names a known one.
+// types: lanes and agents entries name a lane type (T-145); a role or lead that names one names a known one, with an
+// effort its kind takes when it names one (`opus:high`, T-695).
 func (v *validator) types() {
 	check := func(path, t string, required bool) {
 		if _, ok := v.d.LaneTypes.M[t]; !ok && (required || t != "") {
@@ -127,7 +128,7 @@ func (v *validator) types() {
 	}
 	for _, role := range roles.All() {
 		if e := v.d.Roles.entry(role.Name); e != nil {
-			check(".roles."+role.Name+".type", e.Type, false)
+			v.typeRef(".roles."+role.Name+".type", e.Type)
 		}
 	}
 }
@@ -309,7 +310,8 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	return out
 }
 
-// difficulty: each level of .difficulty is hard, medium or simple and names lane types the config has (the built-in
+// difficulty: each level of .difficulty is hard, medium or simple and names lane types the config has (each may name
+// an effort, T-695) (the built-in
 // default skips the types a project lacks; a project's own list is checked).
 func (v *validator) difficulty() {
 	keys := make([]string, 0, len(v.d.Difficulty))
@@ -323,9 +325,24 @@ func (v *validator) difficulty() {
 			continue
 		}
 		for i, t := range v.d.Difficulty[k] {
-			if _, ok := v.d.LaneTypes.M[t]; !ok {
-				v.fail(".difficulty"+key(k)+idx(i), Compact(t)+" is not a key of lane_types")
-			}
+			v.typeRef(".difficulty"+key(k)+idx(i), t)
 		}
+	}
+}
+
+// typeRef: a type reference `<type>[:<effort>]` (T-695) at path names a key of lane_types and, with an effort, one
+// its kind takes (config.CheckTypeRef); "" passes (a role without a type).
+func (v *validator) typeRef(path, ref string) {
+	if ref == "" {
+		return
+	}
+	if typ, _ := ParseTypeRef(ref); v.d.LaneTypes.M[typ].Kind == "" {
+		if _, ok := v.d.LaneTypes.M[typ]; !ok {
+			v.fail(path, Compact(typ)+" is not a key of lane_types")
+		}
+		return // a type without a kind fails at .lane_types
+	}
+	if err := v.c.CheckTypeRef(ref); err != nil {
+		v.fail(path, err.Error())
 	}
 }

@@ -135,6 +135,18 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .difficulty.medium[1]: "ghost" is not a key of lane_types`}},
 		{name: "difficulty with an unknown level", edits: []edit{set("difficulty", map[string]any{"easy": []any{"opus"}})},
 			want: []string{"FAIL .difficulty.easy: is not a level: use hard, medium or simple"}},
+		// T-695: a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
+		{name: "difficulty mixes types and type:effort", edits: []edit{set("lane_types.luna", map[string]any{"kind": "codex"}),
+			set("difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
+			set("roles.lead", map[string]any{"type": "opus:max"}), set("roles.reviewer", map[string]any{"type": "luna:minimal"})}},
+		{name: "difficulty with an effort its kind lacks", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
+			want: []string{`FAIL .difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
+		{name: "difficulty with an unknown type and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
+			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a key of lane_types`}},
+		{name: "a role type with an effort its kind lacks", edits: []edit{set("roles.lead", map[string]any{"type": "opus:turbo"})},
+			want: []string{`FAIL .roles.lead.type: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
+		{name: "a role type with a colon and no effort", edits: []edit{set("roles.integrator", map[string]any{"type": "opus:"})},
+			want: []string{`FAIL .roles.integrator.type: "opus:" names no effort after the colon`}},
 		{name: "lane type without kind", edits: []edit{set("lane_types.opus", map[string]any{"args": []any{}})},
 			want: []string{"FAIL .lane_types.opus.kind: required (claude, codex, …)"}},
 		{name: "lane type args with a bare --", edits: []edit{set("lane_types.opus.args", []any{"--model", "opus", "--"})},
@@ -482,6 +494,37 @@ func TestValidateTemplatesAndKitConfig(t *testing.T) {
 	}
 }
 
+// T-695: a type reference is `<type>[:<effort>]`; CheckTypeRef refuses an unknown type, an empty effort and one its
+// kind does not take; a role's type splits into Type and Effort (AgentInfo carries the effort).
+func TestTypeRef(t *testing.T) {
+	for _, c := range []struct{ ref, typ, effort string }{
+		{"opus", "opus", ""}, {"opus:high", "opus", "high"}, {"luna:xhigh", "luna", "xhigh"}, {"opus:", "opus", ""},
+	} {
+		if typ, effort := config.ParseTypeRef(c.ref); typ != c.typ || effort != c.effort {
+			t.Errorf("ParseTypeRef(%q) = %q, %q; want %q, %q", c.ref, typ, effort, c.typ, c.effort)
+		}
+	}
+	p := newProject(t)
+	p.Config(set("roles.lead", map[string]any{"type": "opus:high", "agent": "ob-lead"}))
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref, refusal := range map[string]string{"opus": "", "opus:high": "", "opus:bad": `effort "bad" is not one of claude's`,
+		"ghost": `"ghost" is not a lane type of this project (lane types: opus)`, "opus:": "names no effort"} {
+		err := cfg.CheckTypeRef(ref)
+		if refusal == "" && err != nil || refusal != "" && (err == nil || !strings.Contains(err.Error(), refusal)) {
+			t.Errorf("CheckTypeRef(%q) = %v, want %q", ref, err, refusal)
+		}
+	}
+	if rc, _ := cfg.Role("lead"); rc.Type != "opus" || rc.Effort != "high" {
+		t.Errorf("Role(lead) = type %q effort %q, want opus, high", rc.Type, rc.Effort)
+	}
+	if info, ok := cfg.AgentLookup("ob-lead", "", nil); !ok || info.Type != "opus" || info.Effort != "high" {
+		t.Errorf("AgentLookup(ob-lead) = %+v, %v; want type opus, effort high", info, ok)
+	}
+}
+
 // T-538/T-629: a level's lane types are the project's difficulty entry, else the built-in default, keeping only the
 // types a configured lane has; a level left with none falls back to medium's list, then hard's. A name that is no
 // level has none.
@@ -500,16 +543,21 @@ func TestDifficultyTypes(t *testing.T) {
 		want, own  map[string]string // DifficultyTypes, DifficultyLevelTypes (before the fallback)
 	}{
 		{"claude-only lanes: each level keeps what it has", map[string]any{"O-01": "opus", "S-01": "sonnet"}, nil,
-			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"},
-			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"}},
-		{"a lane of every type a level lists: as listed", map[string]any{"O-01": "opus-high", "O-02": "opus", "S-01": "sonnet",
+			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"},
+			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"}},
+		{"a lane of every type a level lists: as listed", map[string]any{"O-01": "opus", "S-01": "sonnet",
 			"T-01": "deepseek", "H-01": "haiku"}, nil,
-			map[string]string{"hard": "opus-high,opus", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"},
-			map[string]string{"hard": "opus-high,opus", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"}},
+			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"},
+			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"}},
 		{"simple names only a type with no lane: falls back to medium's sonnet", map[string]any{"O-01": "opus", "S-01": "sonnet"},
 			map[string]any{"simple": []string{"luna"}},
-			map[string]string{"hard": "opus", "medium": "sonnet", "simple": "sonnet"},
-			map[string]string{"hard": "opus", "medium": "sonnet", "simple": ""}},
+			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"},
+			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": ""}},
+		{"a level list mixing type:effort and types keeps those with a lane, efforts and all (T-695)",
+			map[string]any{"O-01": "opus", "S-01": "sonnet"},
+			map[string]any{"hard": []string{"luna:xhigh", "opus:high", "sonnet"}},
+			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"},
+			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"}},
 		{"a level with no lane and no fallback lane: empty", map[string]any{"O-01": "haiku"},
 			map[string]any{"simple": []string{"luna"}},
 			map[string]string{"hard": "", "medium": "", "simple": ""},
@@ -549,7 +597,7 @@ func TestDifficultyTypes(t *testing.T) {
 	if got := strings.Join(cfg.DifficultyList("medium"), ","); got != "haiku" {
 		t.Errorf("DifficultyList(medium) = %q, want the project's haiku", got)
 	}
-	if got := strings.Join(cfg.DifficultyList("hard"), ","); got != "opus-high,opus" {
-		t.Errorf("DifficultyList(hard) = %q, want the built-in opus-high,opus", got)
+	if got := strings.Join(cfg.DifficultyList("hard"), ","); got != "opus:high" {
+		t.Errorf("DifficultyList(hard) = %q, want the built-in opus:high", got)
 	}
 }

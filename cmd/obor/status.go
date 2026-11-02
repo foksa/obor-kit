@@ -163,7 +163,7 @@ func laneSection(st view.Project, now time.Time) []string {
 }
 
 // laneLine is l's line: its lane, type, branch, the state column (T-657), the task's age and id, then serve's state of
-// the task, a dirty or warned worktree and the agent.
+// the task, the effort its dispatch named (T-695), a dirty or warned worktree and the agent.
 func laneLine(l view.Lane) string {
 	ago := "-"
 	if l.DoneAge != nil {
@@ -173,6 +173,9 @@ func laneLine(l view.Lane) string {
 		l.Column, ago, orDash(l.Task))
 	if l.TaskState != "" {
 		line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
+	}
+	if l.Effort != "" {
+		line += "  effort: " + l.Effort
 	}
 	if l.Dirty && l.State != "dirty-free" {
 		line += "  dirty"

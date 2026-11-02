@@ -42,6 +42,9 @@ decisions and the second strike of a fix chain; Sol for batch reviews (the expen
   crash/replay, concurrency, a cross-package redesign. Wide but mechanical (a rename with a script), one function with
   a full test table, or a probe plus a mapping onto existing calls is medium, however risky its deployment: the
   lead carries the deploy risk, not the lane's model.
+- Effort beside the type (T-695, owner 2026-11-02): wherever a type is named (spec `Type:`, `--types`, `difficulty`,
+  `roles.*.type`), `opus:high` is an opus lane at effort high; no lane type per effort (the lead and deep dive run on
+  `opus:high`).
 
 ## Merge classes
 - Before committing `.obor/config.json` on main: `go test ./internal/checks -run TestOborKitConfig ./internal/config`

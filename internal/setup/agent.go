@@ -3,11 +3,14 @@ package setup
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -46,6 +49,7 @@ func parseWhere(args []string) (where, error) {
 // agent is who to start: its herdr name, lane type, cwd, role and lane ("" for a role).
 type agent struct {
 	name, typ, cwd string
+	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
 	role           roles.Role
 	lane           string
 }
@@ -98,7 +102,7 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if rc.Type == "" {
 		return project.Failf("roles.%s.type is not set (a lane_types key)", role.Name)
 	}
-	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, cwd: s.root, role: role}
+	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role}
 	worktree := ""
 	if role.Cwd == roles.CwdRoleWorktree {
 		worktree = rc.Worktree
@@ -229,7 +233,19 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
+	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil {
+		return project.Failf("%s: %v (obor config validate)", a.name, err)
+	}
+	vars, err := lt.StartEnv(a.effort, os.ReadFile, s.Env.Get)
+	if err != nil {
+		return project.Failf("%s: %v", a.name, err)
+	}
 	var env []string
+	for _, k := range slices.Sorted(maps.Keys(vars)) {
+		if vars[k] != "" { // a new pane's shell holds no earlier start's variable to unset
+			env = append(env, k+"="+vars[k])
+		}
+	}
 	if a.role.EnvValue != "" {
 		env = append(env, "OBOR_ROLE="+a.role.EnvValue)
 	}
@@ -268,10 +284,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args := lt.LaunchArgs(a.role.Name == "lead")
+	args := lt.LaunchArgs(a.role.Name == "lead", a.effort)
 	l := s.Starter(s.cfg)
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
-		if err := l.SetEnv(ctx, pane, app.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd}); err != nil {
+		if err := l.SetEnv(ctx, pane, app.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {
 			return err
 		}
 	}

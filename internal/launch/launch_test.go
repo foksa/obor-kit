@@ -847,7 +847,7 @@ func TestStartFirstPrompt(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
 	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]},` +
-		`"oc":{"kind":"opencode","args":["-m","x"]}}`
+		`"oc":{"kind":"opencode","args":["--auto"]}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, role, typ, kind string
@@ -869,8 +869,8 @@ func TestStartFirstPrompt(t *testing.T) {
 		{"codex, resume carries no wake", "reviewer", "luna", "codex", launch.Request{Prompt: wake}, true,
 			"-- resume sid-1 -m gpt-6-luna " + codexUpdate + " " + codexMCP},
 		{"opencode, wake after --prompt", "reviewer", "oc", "opencode", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- -m x --prompt " + wake},
-		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- -m x"},
+			"-- --auto --prompt " + wake},
+		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- --auto"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

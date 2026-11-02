@@ -2,6 +2,7 @@ package agents_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,29 @@ func TestSkills(t *testing.T) {
 		if got := agents.Skills(c.kind); got != c.want {
 			t.Errorf("Skills(%q) = %v, want %v", c.kind, got, c.want)
 		}
+	}
+}
+
+// noEffort is a kind that takes no effort (no registered kind is one).
+type noEffort struct{ agents.Kind }
+
+func (noEffort) Name() string      { return "plain" }
+func (noEffort) Efforts() []string { return nil }
+
+// T-695: an effort is checked per kind: each kind's own list, a value outside it refused naming the list, a kind with
+// no effort and an unknown kind refused, "" always fine.
+func TestCheckEffort(t *testing.T) {
+	for _, c := range []struct{ kind, effort, refusal string }{
+		{"claude", "xhigh", ""}, {"claude", "max", ""}, {"claude", "minimal", "not one of claude's (low, medium, high, xhigh, max)"},
+		{"codex", "minimal", ""}, {"codex", "max", "not one of codex's (minimal, low, medium, high, xhigh)"},
+		{"opencode", "max", ""}, {"cursor", "high", "has no bridge"}, {"cursor", "", ""}, {"claude", "", ""},
+	} {
+		err := agents.CheckEffort(c.kind, c.effort)
+		if c.refusal == "" && err != nil || c.refusal != "" && (err == nil || !strings.Contains(err.Error(), c.refusal)) {
+			t.Errorf("CheckEffort(%s, %q) = %v, want %q", c.kind, c.effort, err, c.refusal)
+		}
+	}
+	if err := agents.CheckKindEffort(noEffort{}, "high"); err == nil || !strings.Contains(err.Error(), "kind plain takes no effort") {
+		t.Errorf("a kind with no effort: %v", err)
 	}
 }

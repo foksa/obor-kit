@@ -242,9 +242,9 @@ func TestStartArgsTable(t *testing.T) {
 			"-c", `mcp_servers.obor.env={OBOR_NO_SELF_HOST="1"}`,
 			"-c", `mcp_servers.obor.default_tools_approval_mode="approve"`,
 			"-c", "check_for_update_on_startup=false", prompt}},
-		{"OpenCode: --prompt, no registration", "opencode", []string{"--model", "m"}, prompt,
-			[]string{"--model", "m", "--prompt", prompt}},
-		{"OpenCode resume", "opencode", []string{"--model", "m"}, "", []string{"--model", "m"}},
+		{"OpenCode: --prompt, no registration", "opencode", []string{"--auto"}, prompt,
+			[]string{"--auto", "--prompt", prompt}},
+		{"OpenCode resume", "opencode", []string{"--auto"}, "", []string{"--auto"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

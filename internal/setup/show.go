@@ -40,7 +40,8 @@ func (s *Setup) printTable() {
 
 // levelLine is one level of the table: each type the project has for the level, in order, with its own model and
 // effort and its own lanes — "deepseek (opencode): D-01, D-02 | sonnet (sonnet, effort medium): S-01" — and "no lane"
-// as the lanes of a type no configured lane has: "opus-high (opus, effort high): no lane" (T-653). A type the project
+// as the lanes of a type no configured lane has: "haiku (haiku): no lane" (T-653). A type reference names its effort
+// (`opus:high (opus, effort high): O-01`, T-695). A type the project
 // has no lane_type for is never named (T-647). A level none of whose types has a lane names the T-631 fallback
 // ("… | no simple lane: fallback sonnet"), and one with no lane anywhere says the task waits.
 func (s *Setup) levelLine(level string) string {
@@ -72,8 +73,8 @@ func (s *Setup) levelLine(level string) string {
 	return line + ": a " + level + " task waits for one"
 }
 
-// typeDetail is a lane type as the table shows it after the type's name: its model and effort as its args name them
-// ("(opus, effort high)"); nothing for a type whose args name neither.
+// typeDetail is a type reference as the table shows it after its name: its type's model and effort, the reference's
+// effort before the args' ("(opus, effort high)", T-695); nothing when neither names one.
 func (s *Setup) typeDetail(name string) string {
 	if detail := s.typeModelEffort(name); detail != "" {
 		return " (" + detail + ")"
@@ -83,12 +84,16 @@ func (s *Setup) typeDetail(name string) string {
 
 // typeModelEffort is a lane type's model and effort as its args name them ("opus, effort high"), the kind in the
 // model's place when the args name no model ("opencode"): the table shows what runs and never guesses a model.
-func (s *Setup) typeModelEffort(name string) string {
+func (s *Setup) typeModelEffort(ref string) string {
+	name, effort := config.ParseTypeRef(ref)
 	lt, ok := s.cfg.LaneType(name)
 	if !ok {
 		return ""
 	}
-	model, effort := lt.Model(), lt.Effort()
+	if effort == "" {
+		effort = lt.Effort()
+	}
+	model := lt.Model()
 	if model == "" {
 		model = lt.Kind
 	}
@@ -103,11 +108,13 @@ func (s *Setup) typeModelEffort(name string) string {
 	return ""
 }
 
-// existingTypes keeps the types the project has a lane_type for, in order: the table never names one it lacks.
+// existingTypes keeps the type references whose type the project has a lane_type for, in order: the table never names
+// one it lacks.
 func (s *Setup) existingTypes(types []string) []string {
 	var out []string
 	for _, t := range types {
-		if _, ok := s.cfg.LaneType(t); ok {
+		typ, _ := config.ParseTypeRef(t)
+		if _, ok := s.cfg.LaneType(typ); ok {
 			out = append(out, t)
 		}
 	}
@@ -121,8 +128,9 @@ func (s *Setup) fallbackTypes(level string) []string {
 	return s.existingTypes(types)
 }
 
-// lanesOfType is one type's configured lanes, by lane name, as "O-01, S-01" ("" when none).
-func (s *Setup) lanesOfType(typ string) string {
+// lanesOfType is the configured lanes of a type reference's type, by lane name, as "O-01, S-01" ("" when none).
+func (s *Setup) lanesOfType(ref string) string {
+	typ, _ := config.ParseTypeRef(ref)
 	var names []string
 	for _, l := range s.cfg.Lanes() {
 		if l.Type == typ {
@@ -143,11 +151,15 @@ func (s *Setup) lanesOfTypes(types []string) string {
 	return strings.Join(names, ", ")
 }
 
-// rolesLine is the lead's, the integrator's and the reviewer's types: "lead opus (opus, effort medium), …".
+// rolesLine is the lead's, the integrator's and the reviewer's types, then every other configured role's (deep dive,
+// triage, advisor) as type references: "lead opus:high (opus, effort high), integrator opus (opus, effort medium), …".
 func (s *Setup) rolesLine() string {
 	var parts []string
-	for _, role := range []string{"lead", "integrator", "reviewer"} {
+	for _, role := range []string{"lead", "integrator", "reviewer", "deep_dive", "triage", "advisor"} {
 		rc, _ := s.cfg.Role(role)
+		if !rc.Configured && role != "lead" && role != "integrator" && role != "reviewer" {
+			continue
+		}
 		if rc.Type == "" {
 			parts = append(parts, role+" - (roles."+role+".type not set)")
 			continue
@@ -156,15 +168,19 @@ func (s *Setup) rolesLine() string {
 			parts = append(parts, role+" - (roles."+role+".type is not a lane_type)")
 			continue
 		}
-		parts = append(parts, role+" "+rc.Type+s.typeDetail(rc.Type))
+		ref := rc.Type
+		if rc.Effort != "" {
+			ref += ":" + rc.Effort
+		}
+		parts = append(parts, role+" "+ref+s.typeDetail(ref))
 	}
 	return strings.Join(parts, ", ")
 }
 
-// hasType reports whether types holds t.
+// hasType reports whether a type reference of types names lane type t.
 func hasType(types []string, t string) bool {
 	for _, x := range types {
-		if x == t {
+		if typ, _ := config.ParseTypeRef(x); typ == t {
 			return true
 		}
 	}

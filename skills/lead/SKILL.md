@@ -35,10 +35,11 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   protected unlocks apply at the guard's next call).
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
-  with a full oracle); `obor spec set` refuses one without. An optional `Type: <lane type>[, …]` line right under it (e.g. `opus` vs `opus-high`) puts those types ahead of the level's: a free lane of the named type wins, else the level's first free lane; `--types` overrides it. `obor dispatch <T-xx>` takes the first free lane of the
+  with a full oracle); `obor spec set` refuses one without. An optional `Type: <lane type>[, …]` line right under it (e.g. `opus` vs `sonnet`) puts those types ahead of the level's: a free lane of the named type wins, else the level's first free lane; `--types` overrides it. `obor dispatch <T-xx>` takes the first free lane of the
   level's types that have a lane (config `difficulty`; a level with no lane at all uses medium's, then hard's, and the
   reply says so); none free: the task waits for one, never for a higher level, and the reply says so.
-  `--types a,b` overrides the level (smoke tests, Haiku). Add `--after T-yy[,T-zz]` and serve dispatches it once
+  `--types a,b` overrides the level (smoke tests, Haiku). Wherever a type is named (`Type:`, `--types`, config
+  `difficulty`, `roles.*.type`), `<type>:<effort>` names the effort too: `opus:high` runs on an opus lane at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
   those are merged and a lane is free. A second `obor dispatch` of a waiting task replaces its request. `--force` takes a
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
 - "When Y, do X" is never only chat: an `--after` dispatch; when Y is a merge, a watch with `--note "<what to do>"`

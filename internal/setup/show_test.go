@@ -15,23 +15,22 @@ func TestSetupShowPrintsTheTable(t *testing.T) {
 	t.Parallel()
 	x := newFx(t,
 		testkit.Set("lane_types", `{
-			"opus-high": {"kind": "claude", "args": ["--model", "opus", "--effort", "high"]},
 			"opus": {"kind": "claude", "args": ["--model", "opus", "--effort", "medium"]},
 			"sonnet": {"kind": "claude", "args": ["--model", "sonnet", "--effort", "medium"]},
 			"deepseek": {"kind": "opencode", "args": []},
 			"terra": {"kind": "codex", "args": ["-m", "gpt-6.1-terra", "-c", "model_reasoning_effort=high"]}}`),
 		testkit.Set("lanes", `{"O-01": "opus", "S-01": "sonnet"}`),
-		testkit.Set("roles", `{"lead": {"type": "opus"}, "integrator": {"type": "opus"},
-			"reviewer": {"type": "terra"}}`),
+		testkit.Set("roles", `{"lead": {"type": "opus:high"}, "integrator": {"type": "opus"},
+			"reviewer": {"type": "terra:xhigh"}, "deep_dive": {"type": "opus:max"}}`),
 		testkit.Set("setup", `{"confirmed": false}`))
 	before := x.Read(".obor/config.json")
 	out := x.ok(t, "show")
 	want := strings.Join([]string{
 		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):",
-		"  hard   → opus-high (opus, effort high): no lane | opus (opus, effort medium): O-01",
+		"  hard   → opus:high (opus, effort high): O-01",
 		"  medium → sonnet (sonnet, effort medium): S-01 | deepseek (opencode): no lane",
 		"  simple → deepseek (opencode): no lane | sonnet (sonnet, effort medium): S-01",
-		"roles: lead opus (opus, effort medium), integrator opus (opus, effort medium), reviewer terra (gpt-6.1-terra, effort high)",
+		"roles: lead opus:high (opus, effort high), integrator opus (opus, effort medium), reviewer terra:xhigh (gpt-6.1-terra, effort xhigh), deep_dive opus:max (opus, effort max)",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",
 		"",
@@ -104,15 +103,15 @@ func TestSetupShowLanesStayUnderTheirType(t *testing.T) {
 		testkit.Set("lane_types", `{
 			"sonnet": {"kind": "claude", "args": ["--model", "sonnet", "--effort", "medium"]},
 			"deepseek": {"kind": "opencode", "args": ["--auto"]},
-			"opus-high": {"kind": "claude", "args": ["--model", "opus", "--effort", "high"]},
+			"haiku": {"kind": "claude", "args": ["--model", "haiku"]},
 			"opus": {"kind": "claude", "args": ["--model", "opus", "--effort", "medium"]}}`),
 		testkit.Set("lanes", `{"S-01": "sonnet", "S-02": "sonnet", "D-01": "deepseek", "D-02": "deepseek",
 			"O-01": "opus"}`),
-		testkit.Set("difficulty", `{"hard": ["opus-high", "opus"], "medium": ["deepseek", "sonnet"],
+		testkit.Set("difficulty", `{"hard": ["opus:high", "haiku", "sonnet:low"], "medium": ["deepseek", "sonnet"],
 			"simple": ["deepseek", "sonnet"]}`))
 	out := x.ok(t, "show")
-	for _, want := range []string{
-		"  hard   → opus-high (opus, effort high): no lane | opus (opus, effort medium): O-01\n",
+	for _, want := range []string{ // T-695: a level mixing type:effort and types; each reference's effort shown
+		"  hard   → opus:high (opus, effort high): O-01 | haiku (haiku): no lane | sonnet:low (sonnet, effort low): S-01, S-02\n",
 		"  medium → deepseek (opencode): D-01, D-02 | sonnet (sonnet, effort medium): S-01, S-02\n",
 		"  simple → deepseek (opencode): D-01, D-02 | sonnet (sonnet, effort medium): S-01, S-02\n",
 	} {
@@ -198,7 +197,7 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 	tail := strings.Join([]string{
 		"",
 		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):",
-		"  hard   → opus-high (opus, effort high): no lane | opus (opus, effort medium): O-01",
+		"  hard   → opus:high (opus, effort high): O-01",
 		"  medium → sonnet (sonnet, effort medium): S-01 | deepseek (opencode): no lane",
 		"  simple → deepseek (opencode): no lane | sonnet (sonnet, effort medium): S-01 | haiku (haiku): no lane",
 		"roles: lead opus (opus, effort medium), integrator opus (opus, effort medium), reviewer sol (gpt-6.1-sol, effort high)",

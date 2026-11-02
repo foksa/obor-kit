@@ -18,7 +18,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	const prompt = "You are a worker.\n\nRead AGENTS.md.\r\n\r\nGo.\nMore."
 	const one = "You are a worker. Read AGENTS.md. Go. More."
 	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]},` +
-		`"oc":{"kind":"opencode","args":["-m","x"]}}`
+		`"oc":{"kind":"opencode","args":["--auto"]}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, typ, kind string
@@ -26,7 +26,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	}{
 		{"claude", "opus", "claude", "-- --model opus" + settings + " "},
 		{"codex", "luna", "codex", "-- -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
-		{"opencode", "oc", "opencode", "-- -m x --prompt "},
+		{"opencode", "oc", "opencode", "-- --auto --prompt "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

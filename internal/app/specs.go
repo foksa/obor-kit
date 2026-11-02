@@ -53,10 +53,13 @@ func (a *App) specSet(c Call) (string, error) {
 			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
 		}
 		names := cfg.LaneTypeNames()
-		for _, t := range types {
-			if !slices.Contains(names, t) {
+		for _, t := range types { // `<type>[:<effort>]` (T-695)
+			if typ, _ := config.ParseTypeRef(t); !slices.Contains(names, typ) {
 				return "", fmt.Errorf("spec set %s: \"Type: %s\" names a lane type this project does not have (lane types: %s)", c.Task, t,
 					strings.Join(names, ", "))
+			}
+			if err := cfg.CheckTypeRef(t); err != nil {
+				return "", fmt.Errorf("spec set %s: \"Type: %s\": %v", c.Task, t, err)
 			}
 		}
 	}

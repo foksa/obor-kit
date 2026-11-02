@@ -95,6 +95,9 @@ You give the difficulty; obor picks the lane. The spec's `Difficulty: hard|mediu
   `--after` adds `WAITING T-xx after T-yy (queued)`.
 - `obor dispatch <T-xx> --types a,b` — overrides the level (smoke tests, Haiku, which is in no level); no free lane of
   those types is a refusal, not a wait.
+- Effort: any type named here (`Type:`, `--types`, config `difficulty`, `roles.*.type`) may be `<type>:<effort>`
+  (`opus:high`, `luna:xhigh`): it matches lanes of the type and starts the agent at that effort, shown in the reply
+  (`DISPATCHED T-xx → O-01 (queued) effort high`) and `obor status`; an effort the kind lacks is refused.
 - A spec with no level and no `--types`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
 - A second `obor dispatch` of a waiting task replaces its request (new `--types`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).

@@ -27,14 +27,15 @@ func EnvVarsTOML() string {
 	return string(b)
 }
 
-// Start: `resume <sid>` before the type's args, then obor's server (with a kit), then the update check off (T-570),
+// Start: `resume <sid>` before the type's args (with in.Effort: their model_reasoning_effort replaced by
+// -c model_reasoning_effort=<effort>, T-695), then obor's server (with a kit), then the update check off (T-570),
 // then the prompt (a resume carries none). Codex takes no settings.
 func (kind) Start(in agents.Start) []string {
 	var out []string
 	if in.Resume != "" {
 		out = append(out, "resume", in.Resume)
 	}
-	out = append(out, in.Args...)
+	out = append(out, withEffort(in.Args, in.Effort)...)
 	if in.Kit != "" {
 		out = append(out,
 			"-c", `mcp_servers.obor.command="`+filepath.Join(in.Kit, "bin", "obor")+`"`,
@@ -53,6 +54,43 @@ func (kind) Start(in agents.Start) []string {
 		out = append(out, in.Prompt)
 	}
 	return out
+}
+
+// effortKey is Codex's reasoning effort setting.
+const effortKey = "model_reasoning_effort"
+
+// efforts are Codex's model_reasoning_effort values: `codex --help` lists none, so they are the values of its config
+// reference for model_reasoning_effort (minimal, low, medium, high, xhigh; owner's list, T-695).
+var efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
+
+func (kind) Efforts() []string { return efforts }
+
+// StartEnv: none; the effort is a -c option.
+func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
+
+// withEffort is args without their effortKey option (`-c`/`--config` with its word, or either spelling with =), then
+// -c model_reasoning_effort=<effort>; args as they are for effort "".
+func withEffort(args []string, effort string) []string {
+	if effort == "" {
+		return append([]string(nil), args...)
+	}
+	isEffort := func(word string) bool {
+		key, _, ok := strings.Cut(word, "=")
+		return ok && strings.TrimSpace(key) == effortKey
+	}
+	out := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case (a == "-c" || a == "--config") && i+1 < len(args) && isEffort(args[i+1]):
+			i++
+		case strings.HasPrefix(a, "-c=") && isEffort(strings.TrimPrefix(a, "-c=")),
+			strings.HasPrefix(a, "--config=") && isEffort(strings.TrimPrefix(a, "--config=")):
+		default:
+			out = append(out, a)
+		}
+	}
+	return append(out, "-c", effortKey+"="+effort)
 }
 
 // updateCheck is Codex's setting for the update check it runs on startup.

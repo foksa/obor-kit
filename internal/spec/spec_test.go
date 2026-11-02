@@ -134,6 +134,7 @@ func TestTypes(t *testing.T) {
 		{"# T-1 — A\n\nDifficulty: medium\nType: opus-high\n", []string{"opus-high"}},
 		{"# T-1 — A\n\nDifficulty: hard\nType: opus-high, opus\n", []string{"opus-high", "opus"}},
 		{"# T-1 — A\n\nDifficulty: hard\n\n\nType:  opus ,opus-high\n", []string{"opus", "opus-high"}},
+		{"# T-1 — A\n\nDifficulty: hard\nType: opus:high, sonnet ,luna:xhigh\n", []string{"opus:high", "sonnet", "luna:xhigh"}}, // T-695
 		{"# T-1 — A\n\nDifficulty: hard\nwhy\nType: opus\n", nil},
 		{"# T-1 — A\n\nType: opus\nDifficulty: hard\n", nil},
 		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\nType: opus\n", nil},

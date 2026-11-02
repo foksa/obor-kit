@@ -12,7 +12,8 @@ Update when an agent is started, renamed, re-modelled or retired. Find panes wit
 
 ## Start commands
 Split a pane with role env and cwd, then start the agent in it (the lane types in `.obor/config.json` give the args;
-`obor dispatch` resets and prompts an already running lane agent):
+a role's `type` may name an effort, `opus:high`, in place of the args' own; `obor dispatch` resets and prompts an
+already running lane agent):
 ```
 herdr pane split <pane> --direction right|down --cwd <lane> --env OBOR_ROLE=worker --env OBOR_LANE=<LANE>
 herdr agent start {{prefix}}-o1 --kind claude --pane <new-pane> -- --model opus --effort medium \
