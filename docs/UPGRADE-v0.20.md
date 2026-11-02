@@ -16,11 +16,12 @@ There is no `obor config set`: edit `.obor/config.json` by hand.
    merged, rejected or dropped.
 2. **Blank the lanes you want pooled** in `.obor/config.json`: `"lanes": {"L-01": ""}`. A lane in object form
    (`{"type": "opus", "agent": ...}`) changes only its `type`; keep `agent`.
-3. **Restart the reviewer and the deep dive.** Old sessions still run in their old worktrees, and `obor brief` to a
-   running role does not restart it. Per role: `obor restart <reviewer> --stop` and `obor restart <deep-dive> --stop`,
-   then `obor setup role reviewer` (and `obor setup role deep_dive`, only if `roles.deep_dive` is configured; this adds the reviews ignore to `.gitignore` and
-   places the pane in the main checkout), then `obor brief` starts them fresh. Remove the old review and deep-dive
-   worktrees afterwards.
+3. **Restart the reviewer (and the deep dive, if you have one).** Old sessions still run in their old worktrees, and
+   `obor brief` to a running role does not restart it. Reviewer: `obor restart <reviewer> --stop`, then
+   `obor setup role reviewer` (adds the reviews ignore to `.gitignore` and places the pane in the main checkout).
+   Only if `roles.deep_dive` is configured: the same with `obor restart <deep-dive> --stop` and
+   `obor setup role deep_dive`. The next `obor brief` starts each fresh. Then remove the old review (and deep-dive)
+   worktrees.
 4. **Dispatch caps changed.** `max` caps open worker dispatches of the type, enforced at dispatch only; role
    agents never count, and `obor setup` does not check it. Raise `max` if dispatch now starves.
 5. **Merge hold.** While a reviewer or deep dive works, serve holds merges, for at most 30 minutes; then the publish
