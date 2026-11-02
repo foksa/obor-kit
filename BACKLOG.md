@@ -16,7 +16,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   Later (owner): `obor drive`/`obor land` (Later candidates). Owner ended the day after this release.
   After the tag: nightly RED on govulncheck (five go1.27.1 net/http server vulns, reachable via `obor web`;
   localhost plain HTTP, so no real risk) → T-681 `toolchain go1.27.3` in go.mod, merged f19aedc, nightly GREEN.
-  It ships in v0.18.1 or the next release (owner's call; one unreviewed merge since RV-76).
+  It ships in v0.18.1 or the next release (owner's call). T-682 merged c89eb04: releases get title + notes from
+  `docs/releases/v<x.y.z>.md` (the lead writes it with the UPGRADE guide; release/ship refuse without it). GitHub
+  releases v0.16.0..v0.18.0 backfilled by hand. T-681 + T-682 unreviewed since RV-76: review before v0.18.1.
 - 2026-11-01 evening: **v0.17.5 released** (v0.17.3/v0.17.4 tagged, never published); all three serves on it;
   `obor monitor` panes in each project's system tab. Lead on opus-high (config; applies at the next lead restart).
   In flight: T-662 (running vs pending), T-663 (monitor fits rows), both RV-74 display fixes, unreviewed.
