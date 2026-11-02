@@ -13,7 +13,8 @@
 #            checks first)                                       fail: stop with the repair command
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop
 # A pushed tag never moves. The last line is the one follow-up: `obor serve restart` in the projects whose serve this
-# machine knows (obor projects, else launchd's labels; the generic line when it knows none). POSIX sh.
+# machine knows (obor projects, else launchd's labels; the generic line when it knows none), then the leads are told what
+# changed (obor projects --notify, T-715). POSIX sh.
 set -eu
 
 usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
@@ -136,6 +137,17 @@ else
   say "installed the kit (install.sh): obor $tag"
 fi
 
+# --- notify the leads (T-715)
+# `obor projects --notify <notes>`: the release notes (docs/releases/v<version>.md at the tag) to each project's lead but
+# this kit's. A send that fails is reported and the rest go out; the failure ends ship after the reminder below, with the
+# repair command.
+notes=$(mktemp "${TMPDIR:-/tmp}/ship-notes.XXXXXX") || fail "cannot create a temp file"
+trap 'rm -f "$notes"' EXIT
+git show "$tag:docs/releases/$tag.md" > "$notes" 2> /dev/null || fail "no docs/releases/$tag.md at $tag"
+told=1
+obor projects --notify "$notes" && told=0
+[ "$told" = 0 ] && say "told the leads of this machine's projects"
+
 # serve_projects: the projects whose serve runs, by the machine's list of obor projects (obor projects, T-646: the list
 # obor serve and obor init keep) when it exists, else by launchd's labels (obor.serve.<name>); empty elsewhere.
 serve_projects() {
@@ -155,3 +167,5 @@ if [ -n "$projects" ]; then
 else
   echo "restart serve: obor serve restart in each project"
 fi
+[ "$told" = 0 ] ||
+  fail "a lead was not told (above): obor projects --notify <the notes: git show $tag:docs/releases/$tag.md>"

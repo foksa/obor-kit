@@ -663,6 +663,7 @@ type shipFixture struct {
 	labels   string // launchctl list's output for the stub
 	ghstate  string // the stub gh's release: release, assets, draft
 	projects string // `obor projects`' output for the stub (T-646)
+	notified string // the log of the stub's `obor projects --notify` calls (T-715)
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -713,7 +714,13 @@ esac
 	writeFile(t, s.verfile, "v1.2.3\n")
 	// obor: its version line, and `obor projects` as the machine's project list prints it (T-646).
 	s.projects = filepath.Join(f.Base, "projects-out")
+	s.notified = filepath.Join(f.Base, "notified")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
+if [ "$1" = projects ] && [ "$2" = --notify ]; then
+  echo "projects --notify notes: $(cat "$3")" >> "`+s.notified+`"
+  [ ! -f "`+filepath.Join(f.Base, "notify-broken")+`" ] || { echo "FAIL axis-alies: send: serve down"; exit 1; }
+  exit 0
+fi
 if [ "$1" = projects ]; then
   cat "`+s.projects+`" 2> /dev/null
   exit 0
@@ -791,6 +798,44 @@ func TestMakeShip(t *testing.T) {
 	}
 	if got := readFile(t, f.instlog); got != instBefore {
 		t.Errorf("the second ship installed again: %q", got)
+	}
+}
+
+// T-715: ship ends by telling the leads: `obor projects --notify <the tag's docs/releases/v<version>.md>`; a send that
+// fails fails the ship (after the restart reminder), naming the repair.
+func TestMakeShipNotifiesTheLeads(t *testing.T) {
+	t.Parallel()
+	f := newShipFixture(t)
+	if out, failed := f.release(t, "V=1.2.4"); failed {
+		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
+	}
+	notes := f.Git(f.Root, "show", "v1.2.4:docs/releases/v1.2.4.md")
+	if strings.TrimSpace(notes) == "" {
+		t.Fatalf("precondition: the tag has release notes, got %q", notes)
+	}
+	writeFile(t, filepath.Join(f.Base, "notify-broken"), "")
+	out, failed := f.make(t, "ship")
+	if !failed || !strings.Contains(out, "FAIL axis-alies: send: serve down") ||
+		!strings.Contains(out, "obor projects --notify <the notes") ||
+		!strings.Contains(out, "restart serve: obor serve restart in each project") {
+		t.Errorf("a failing notify must fail the ship naming the repair, after the reminder (failed %v):\n%s", failed, out)
+	}
+	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {
+		t.Fatal(err)
+	}
+	out, failed = f.make(t, "ship")
+	if failed || !strings.Contains(out, "told the leads") {
+		t.Fatalf("the second ship must notify (failed %v):\n%s", failed, out)
+	}
+	log := readFile(t, f.notified)
+	if n := strings.Count(log, "projects --notify notes: "); n != 2 {
+		t.Errorf("notify ran %d times over two ships, want 2:\n%s", n, log)
+	}
+	if !strings.Contains(log, strings.Fields(notes)[0]) {
+		t.Errorf("notify was not given the tag's notes %q:\n%s", notes, log)
+	}
+	if strings.Contains(out, "restarted the serves") {
+		t.Errorf("ship claims to restart serves:\n%s", out)
 	}
 }
 

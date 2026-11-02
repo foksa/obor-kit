@@ -75,8 +75,11 @@ docs there).
   `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
   then `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
   `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog back on main). The owner
-  runs `make ship` (push, `make publish`, `install.sh`); the classifier refuses the lead's push. A pushed tag never
-  moves. Then `obor send <project> "<what changed>"` to the adopting leads.
+  runs `make ship` (push, `make publish`, `install.sh`, then `obor projects --notify`: every other project's lead is
+  told "obor v<x.y.z> is installed. <the release notes>"); the classifier refuses the lead's push. A pushed tag never
+  moves. No `obor send` of what changed follows ship; the serve restarts do (RELEASING.md step 4). A release
+  whose projects need a config change says so in its notes, and you `obor send` that change to the project's lead
+  before shipping.
 - Other projects' repos are their leads' (axis-alies lead 2026-11-02): never commit there yourself, not even an
   owner-approved config change; `obor send <project> "<the exact change and why>"` and the lead applies it. Hold a
   serve restart that needs the change until that lead confirms it.

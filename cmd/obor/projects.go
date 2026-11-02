@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"obor/internal/app"
 	"obor/internal/project"
@@ -10,7 +11,12 @@ import (
 // projectsCmd is `obor projects`: the obor projects this machine knows by name, the list obor serve (at its start) and
 // obor init keep (T-646): "<name> <root> serve <up|down>", one per line, by name, a stale entry left out. Serve is up
 // while the project's serve holds its lock.
+//
+// obor projects --notify <file> tells every project's lead (notify.go, T-715).
 func projectsCmd(args []string) int {
+	if len(args) != 0 && strings.HasPrefix(args[0], "-") {
+		return projectsNotify(args)
+	}
 	if len(args) != 0 {
 		fmt.Fprintln(out, "FAIL usage: obor projects")
 		return 1
