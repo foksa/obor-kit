@@ -241,12 +241,6 @@ func same(a, now port.AgentInfo, name string) bool {
 	return now.Name == "" || now.Name == a.Name || now.Name == name
 }
 
-// recorded is agent's recorded session id ("": none): its current session in serve's store (T-577), nothing else.
-func (l *Launcher) recorded(agent string) string {
-	s, _ := l.session(agent)
-	return s.ID
-}
-
 // session is agent's current recorded session (Sessions, else serve's store).
 func (l *Launcher) session(agent string) (store.Session, bool) {
 	switch {

@@ -11,7 +11,7 @@ import (
 	"obor/internal/project"
 )
 
-const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh | --sid <id>] [--force] | " +
+const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh | --sid <id>] [--force] [--type <type>] | " +
 	"obor restart <agent> --stop [--pane <id>] [--force] | " +
 	"obor restart <role-agent> --fresh --prompt \"<brief>\""
 

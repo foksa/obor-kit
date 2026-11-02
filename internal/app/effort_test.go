@@ -53,8 +53,8 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	if row, ok := r.p.Row("O-01"); !ok || row.Task != "T-1" || row.Type != "opus:high" {
 		t.Errorf("lane row %+v (%v), want T-1 with type opus:high (T-721)", row, ok)
 	}
-	if l, _ := r.launchOf("pj-o1"); l.Effort != "high" || !l.Fresh {
-		t.Errorf("worker start %+v, want a fresh start at effort high", l)
+	if l, _ := r.launchOf("pj-o1"); l.Effort != "high" || !l.Fresh || l.Type != "opus" {
+		t.Errorf("worker start %+v, want a fresh start of the dispatch's type opus at effort high (T-722)", l)
 	}
 	if st := r.taskStatus("T-1"); st.Effort != "high" {
 		t.Errorf("status %+v, want effort high", st)
@@ -92,8 +92,8 @@ func TestEffortPlainTypeNamesNone(t *testing.T) {
 		t.Errorf("dispatch fact %v, want no effort (the type's args) and type opus (T-721)", d)
 	}
 	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
-	if l, _ := r.launchOf("pj-o1"); l.Effort != "" {
-		t.Errorf("worker start %+v, want no effort", l)
+	if l, _ := r.launchOf("pj-o1"); l.Effort != "" || l.Type != "opus" {
+		t.Errorf("worker start %+v, want the dispatch's type opus (T-722) and no effort", l)
 	}
 }
 

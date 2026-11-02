@@ -26,7 +26,7 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 	if err != nil {
 		return "", err
 	}
-	t, err := l.resolve(ctx, agent, pane)
+	t, err := l.resolve(ctx, agent, pane, "")
 	if err != nil {
 		return "", err
 	}

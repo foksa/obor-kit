@@ -6,14 +6,15 @@
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_AGENT, OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE
 //	         (no lane: unset) and the cwd as obor setup gives them; an unknown agent gets OBOR_AGENT only, in the pane's
-//	         cwd. Kind and args from the lane / role / lead / agents entry type (lane_types: args, then --settings for
-//	         claude); no type: the kind herdr reports for the pane, else claude, no args.
+//	         cwd. Kind and args from the dispatch's type (the launch's, else a lane agent's lane row type, T-722), else
+//	         the lane / role / lead / agents entry type (lane_types: args, then --settings for claude); no type: the
+//	         kind herdr reports for the pane, else claude, no args.
 //	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
 //	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
 //	Session  the recorded sid, else the one herdr reports for the pane; --sid <id>; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
 //	         recorded Claude sid must have its transcript under the start cwd; none anywhere (never prompted, T-627):
-//	         starts fresh, said.
+//	         starts fresh, said. A session of another kind than the dispatch's type (T-722): starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
@@ -118,6 +119,9 @@ func Args(r Request) []string {
 	if r.Effort != "" {
 		args = append(args, "--effort", r.Effort)
 	}
+	if r.Type != "" {
+		args = append(args, "--type", r.Type)
+	}
 	return args
 }
 
@@ -164,6 +168,12 @@ func ParseRequest(args []string) (Request, error) {
 				return Request{}, fmt.Errorf("--effort needs a value")
 			}
 			r.Effort = v
+		case "--type":
+			v, ok := value()
+			if !ok {
+				return Request{}, fmt.Errorf("--type needs a value")
+			}
+			r.Type = v
 		default:
 			if strings.HasPrefix(a, "-") || r.Agent != "" {
 				return Request{}, fmt.Errorf("unexpected argument %q", a)
@@ -221,15 +231,19 @@ type target struct {
 	known bool // the config knows it (lane, role, agents entry, lane cwd)
 	info  config.AgentInfo
 	sid   string // recorded session id
-	pane  string
-	entry port.PaneInfo // the pane as pane list shows it
-	panes []port.PaneInfo
-	kind  string
-	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
+	// sidKind is the recorded session's kind ("": not recorded); dispatched: the type is a dispatch's (the launch's or
+	// the lane row's, T-722), not the configured one.
+	sidKind    string
+	dispatched bool
+	pane       string
+	entry      port.PaneInfo // the pane as pane list shows it
+	panes      []port.PaneInfo
+	kind       string
+	env        map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 }
 
-// resolve is who and where (shared by Restart and Stop); nothing is typed.
-func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, error) {
+// resolve is who and where (shared by Restart and Stop) with typ the launch's type ("": none); nothing is typed.
+func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*target, error) {
 	t := &target{agent: agent}
 	if l.Cfg != nil {
 		t.info, t.known = project.AgentLookup(l.Cfg, agent, "")
@@ -247,7 +261,8 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, er
 			}
 		}
 	}
-	t.sid = l.recorded(agent)
+	rec, _ := l.session(agent)
+	t.sid, t.sidKind = rec.ID, rec.Kind
 	if !t.known && t.sid == "" && pane == "" {
 		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
 	}
@@ -282,6 +297,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, er
 	if err := l.inProject(ctx, t); err != nil {
 		return nil, err
 	}
+	l.dispatchType(t, typ)
 	if t.info.Type != "" {
 		lt, ok := l.Cfg.LaneType(t.info.Type)
 		if !ok || lt.Kind == "" {
@@ -309,6 +325,22 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane string) (*target, er
 		}
 	}
 	return t, nil
+}
+
+// dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
+// kind): typ, the launch's (its effort is the launch's own), else a lane agent's lane row type with its effort;
+// neither: the configured type and effort stay.
+func (l *Launcher) dispatchType(t *target, typ string) {
+	effort := ""
+	if typ == "" && t.info.Lane != "" && l.Cfg != nil {
+		row, _, _ := store.ReadLaneAt(l.Cfg.Root, t.info.Lane)
+		if typ, effort = config.ParseTypeRef(row.Type); typ != "" {
+			l.say("type %s (lane %s's dispatch)", row.Type, t.info.Lane)
+		}
+	}
+	if typ != "" {
+		t.info.Type, t.info.Effort, t.dispatched = typ, effort, true
+	}
 }
 
 func (l *Launcher) ps(args ...string) ([]byte, error) {
@@ -400,7 +432,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	t, err := l.resolve(ctx, req.Agent, req.Pane)
+	t, err := l.resolve(ctx, req.Agent, req.Pane, req.Type)
 	if err != nil {
 		return port.Started{}, err
 	}
@@ -448,6 +480,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			sid = ""
 		}
 		fresh := false
+		// A dispatch's type of another kind than the session's (T-722: the lane's last task ran another kind): that
+		// session is not this kind's to resume, so a new one.
+		if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Kind}[src]; sid != "" && t.dispatched &&
+			was != "" && was != t.kind {
+			l.say("session %s is %s's, the type %s is %s's: new session", sid, was, t.info.Type, t.kind)
+			sid, fresh = "", true
+		}
 		if sid != "" && src == "record" {
 			var err error
 			if fresh, err = l.checkTranscript(t, sid); err != nil {

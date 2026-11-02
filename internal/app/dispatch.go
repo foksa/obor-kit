@@ -807,8 +807,9 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 					"reports no session id): look at the pane, then obor resume " + mt.task}, nil
 			}
 		}
+		typ, _ := config.ParseTypeRef(mt.disp.Type) // the dispatch's type, not the lane's configured one (T-722)
 		s, err := fx.Agents.Launch(ctx, port.Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
-			Prompt: first, Effort: mt.disp.Effort})
+			Prompt: first, Effort: mt.disp.Effort, Type: typ})
 		switch {
 		case err != nil && startRefused(err):
 			return startOut{Refused: err.Error()}, nil
