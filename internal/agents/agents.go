@@ -29,6 +29,10 @@ type Kind interface {
 	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it): OpenCode's model
 	// and effort reach its config this way. An error: the start cannot carry in.Effort (it says why).
 	StartEnv(in Start) (map[string]string, error)
+	// StateDir is the agent's own state dir of this kind (T-696: OpenCode's XDG_STATE_HOME, where it remembers a model's
+	// variant), which StartEnv points the CLI at: a fresh start empties it first, a resume keeps it (the adapter does
+	// both); "": none (in.Home, in.Project or in.Agent unknown, or a kind with none).
+	StateDir(in Start) string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
 	Stop() Stop
@@ -79,6 +83,9 @@ type Start struct {
 	Effort string
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
+	// Home is obor's machine-wide state dir (${OBOR_STATE_HOME:-$HOME/.obor}), Project the project's name and Agent the
+	// agent's: where a kind's own state dir of the agent lives (StateDir; "" any: none).
+	Home, Project, Agent string
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.

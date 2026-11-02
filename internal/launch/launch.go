@@ -225,6 +225,8 @@ type target struct {
 	panes []port.PaneInfo
 	kind  string
 	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
+	state string            // the kind's own state dir of the agent (agents.Kind.StateDir, T-696): a fresh start empties it
+	fresh bool              // the start is fresh: setEnv empties state first; a resume keeps it
 }
 
 // resolve is who and where (shared by Restart and Stop); nothing is typed.
@@ -479,6 +481,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
+	t.fresh = sid == "" // setEnv empties the kind's own state dir of the agent, its last start exited (T-696)
 	if err := l.setEnv(ctx, t); err != nil {
 		return port.Started{}, err
 	}
@@ -580,6 +583,8 @@ func (l *Launcher) SetEnv(ctx context.Context, pane string, e AgentEnv) error {
 }
 
 // setEnv: env and cwd as obor setup gives them; the pane's shell keeps them for the agent. Typed only at the shell.
+// A fresh start (t.fresh) first empties the kind's own state dir of the agent (t.state, T-696): the agent before it has
+// exited, the pane is at its shell.
 func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	if pi, err := l.H.ProcessInfo(ctx, t.pane); err == nil && !pi.AtShell() {
 		prog := pi.Foreground()
@@ -587,6 +592,11 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 			prog = "unknown"
 		}
 		return project.Failf("%s runs another program (%s)", t.pane, prog)
+	}
+	if t.fresh {
+		if err := project.FreshDir(t.state); err != nil {
+			return l.giveUp(ctx, t, "cannot empty %s's state dir %s: %v", t.agent, t.state, err)
+		}
 	}
 	// The line echoes one of two words (T-601): the success word only when the whole line (its cd, its exports)
 	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
@@ -715,11 +725,12 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	if env == nil {
 		env = project.OSEnv
 	}
-	vars, err := lt.StartEnv(effort, os.ReadFile, env.Get)
+	vars, state, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: env.Get,
+		Home: project.StateHome(env), Project: l.Cfg.ProjectName(), Agent: t.agent})
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	t.env = vars
+	t.env, t.state = vars, state
 	return lt.LaunchArgs(t.info.Role == "lead", effort), nil
 }
 

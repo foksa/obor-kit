@@ -43,7 +43,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 T-495): **what** differs per agent CLI, as data and pure functions; standard library only,
 imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `Start(Start) []string`
 (fresh/resume argv, MCP registration, first prompt; `Start.Read` is the adapter's file read, a `--mcp-config` path),
-`NotReady(screen)`, `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
+`NotReady(screen)`, `StartEnv`/`StateDir` (a start's own env; OpenCode's per-agent `XDG_STATE_HOME`
+`<state home>/opencode-state/<project>/<agent>`, emptied by the adapter on a fresh start, T-696), `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
 Install` (MCP registration, plugin link), `Transcript(env, cwd, sid)`, `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,

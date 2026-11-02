@@ -1,10 +1,15 @@
 package launch_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"obor/internal/agents"
+	"obor/internal/config"
 	"obor/internal/launch"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -97,5 +102,82 @@ func TestRequestArgsCarryTheEffort(t *testing.T) {
 	back, err := launch.ParseRequest(launch.Args(r))
 	if err != nil || back != r {
 		t.Errorf("ParseRequest(Args(%+v)) = %+v, %v", r, back, err)
+	}
+}
+
+// resumingOpencode is OpenCode as if it resumed a session (Caps.Resume), to reach a resume of a kind with its own
+// state dir (T-696); OpenCode itself starts fresh every time (T-581).
+type resumingOpencode struct{ agents.Kind }
+
+func (resumingOpencode) Name() string { return "ocresume" }
+func (k resumingOpencode) Caps() agents.Caps {
+	c := k.Kind.Caps()
+	c.Resume = true
+	return c
+}
+
+func init() {
+	k, _ := agents.Lookup("opencode")
+	agents.Register(resumingOpencode{k})
+}
+
+// T-696: an OpenCode start's env line points XDG_STATE_HOME at the agent's own dir
+// (${OBOR_STATE_HOME}/opencode-state/<project>/<agent>): a fresh start empties it first (a variant an earlier start
+// remembered there is gone), a resume keeps what is there; the user's own ~/.local/state/opencode is not touched.
+func TestOpencodeStateDir(t *testing.T) {
+	t.Parallel()
+	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"ocr":{"kind":"ocresume","args":["--auto","--model","go/ds"]}}`
+	for _, c := range []struct {
+		name, role string
+		req        launch.Request
+		kept       bool
+	}{
+		{"a fresh start empties the dir", "oc:high", launch.Request{Agent: "pj-rev", Fresh: true}, false},
+		{"a resume keeps it", "ocr:high", launch.Request{Agent: "pj-rev", Sid: "ses_1"}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
+			x.agent("w1:p7", "pj-rev", "opencode", "idle")
+			cfg, err := config.Load(x.p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := x.env()
+			dir := filepath.Join(project.StateHome(env), "opencode-state", cfg.ProjectName(), "pj-rev")
+			user := filepath.Join(env.Get("HOME"), ".local", "state", "opencode", "model.json")
+			for _, f := range []string{filepath.Join(dir, "model.json"), user} {
+				if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(f, []byte(`{"variant":{"go/ds":"default"}}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, ok := x.restart(c.req)
+			if !ok {
+				t.Fatal(out)
+			}
+			if c.kept != strings.Contains(out, "resuming ses_1") {
+				t.Fatalf("resume %v, but the output says %q", c.kept, out)
+			}
+			line := strings.Join(x.calls("pane.send_input"), "\n")
+			if want := "export XDG_STATE_HOME=" + dir; !strings.Contains(line, want) {
+				t.Errorf("env line %q lacks %q", line, want)
+			}
+			if want := `export OPENCODE_CONFIG_CONTENT='{"model":"go/ds#high"}'`; !strings.Contains(line, want) {
+				t.Errorf("env line %q lacks %q", line, want)
+			}
+			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+				t.Fatalf("the state dir %s is not there after the start: %v", dir, err)
+			}
+			_, err = os.Stat(filepath.Join(dir, "model.json"))
+			if kept := err == nil; kept != c.kept {
+				t.Errorf("the dir's model.json kept %v, want %v", kept, c.kept)
+			}
+			if _, err := os.Stat(user); err != nil {
+				t.Errorf("the user's own state: %v", err)
+			}
+		})
 	}
 }

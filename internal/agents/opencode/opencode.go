@@ -22,7 +22,8 @@ const name = "opencode"
 func (kind) Name() string { return name }
 
 // Start: the type's args but their --model/-m (OpenCode's TUI takes none: StartEnv carries the model), then
-// --prompt <prompt>. OpenCode takes no settings and has no resume.
+// --prompt <prompt>. OpenCode takes no settings and has no resume. Its sessions live in its data dir
+// (<XDG_DATA_HOME|~/.local/share>/opencode), which StartEnv leaves as it is (T-696).
 func (kind) Start(in agents.Start) []string {
 	out, _ := splitModel(in.Args)
 	if in.Prompt != "" && in.Resume == "" {
@@ -44,20 +45,48 @@ var efforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max
 
 func (kind) Efforts() []string { return efforts }
 
-// StartEnv: ConfigVar {"model":"<provider>/<model>[#<effort>]"} when the start names a model or an effort, else
-// ConfigVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has no --model flag
-// (2.2.0: only `opencode run` and `mini` take --model provider/model#variant), but its config's model takes the same
-// form, and the TUI starts with the config's model and variant (live 2026-11-02: the footer showed "· max"). The model
-// is the type's --model/-m, else the user config's model, else the model the TUI used last (its state's model.json),
-// as the TUI itself picks one. An effort with no model anywhere is an error. The TUI's own remembered variant of a
-// model (picked in it, kept in model.json) wins over the config's.
-func (kind) StartEnv(in agents.Start) (map[string]string, error) {
-	_, model := splitModel(in.Args)
-	if model == "" && in.Effort == "" {
-		return map[string]string{ConfigVar: ""}, nil
+// StateVar is the variable naming OpenCode's state dir (<XDG_STATE_HOME|~/.local/state>/opencode): its model.json
+// keeps the TUI's recent models and each model's remembered variant, which beats the config's (T-696).
+const StateVar = "XDG_STATE_HOME"
+
+// StateDir: <Home>/opencode-state/<Project>/<Agent>, the agent's own XDG_STATE_HOME (T-696), so the variant a start
+// passes is not beaten by one remembered in the user's state, and obor never writes the user's own
+// (~/.local/state/opencode). "" when Home, Project or Agent is unknown or is no plain name.
+func (kind) StateDir(in agents.Start) string {
+	if in.Home == "" || !plainName(in.Project) || !plainName(in.Agent) {
+		return ""
 	}
-	if model == "" {
+	return filepath.Join(in.Home, "opencode-state", in.Project, in.Agent)
+}
+
+// plainName: s is one path element (no separator, not . or ..).
+func plainName(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, `/\`)
+}
+
+// StartEnv: ConfigVar {"model":"<provider>/<model>[#<effort>]"} when the start names a model or an effort, else
+// ConfigVar unset (the pane's shell may hold an earlier start's); and StateVar the agent's own state dir (StateDir,
+// T-696) when there is one. OpenCode's interactive TUI has no --model flag (2.2.0: only `opencode run` and `mini` take
+// --model provider/model#variant), but its config's model takes the same form, and the TUI starts with the config's
+// model and variant (live 2026-11-02: the footer showed "· max"). The model is the type's --model/-m, else the user
+// config's model, else the model the TUI used last (the user's state's model.json, read, never written), as the TUI
+// itself picks one; with its own state dir the agent's TUI remembers no last model, so that model is named even
+// without an effort. An effort with no model anywhere is an error. The TUI's own remembered variant of a model (picked
+// in it, kept in model.json) wins over the config's: in the agent's own state dir, emptied on a fresh start, there is
+// none.
+func (k kind) StartEnv(in agents.Start) (map[string]string, error) {
+	out := map[string]string{}
+	state := k.StateDir(in)
+	if state != "" {
+		out[StateVar] = state
+	}
+	_, model := splitModel(in.Args)
+	if model == "" && (in.Effort != "" || state != "") {
 		model = configuredModel(in.Read, in.Env)
+	}
+	if model == "" && in.Effort == "" {
+		out[ConfigVar] = ""
+		return out, nil
 	}
 	if model == "" {
 		return nil, fmt.Errorf("opencode: effort %s needs a model: name one in the lane type's args (--model provider/model) or pick one in opencode", in.Effort)
@@ -67,7 +96,8 @@ func (kind) StartEnv(in agents.Start) (map[string]string, error) {
 		model += "#" + in.Effort
 	}
 	b, _ := json.Marshal(map[string]string{"model": model})
-	return map[string]string{ConfigVar: string(b)}, nil
+	out[ConfigVar] = string(b)
+	return out, nil
 }
 
 // splitModel is args without their --model/-m (with its word, or either spelling with =), and the model they named.
