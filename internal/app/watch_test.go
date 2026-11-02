@@ -36,6 +36,11 @@ func (f *fakePanes) Subscribe(context.Context) (*port.Stream, error) {
 	return nil, errors.New("not in the table")
 }
 
+// Snapshot is no answer, like Subscribe: the table's rows work from the snapshot connect gave them.
+func (f *fakePanes) Snapshot(context.Context) (port.Snapshot, error) {
+	return port.Snapshot{}, errors.New("not in the table")
+}
+
 func (f *fakePanes) Busy(_ context.Context, pane string) (bool, error) {
 	f.asked = append(f.asked, pane)
 	return f.busy, f.busyErr

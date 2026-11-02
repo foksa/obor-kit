@@ -90,6 +90,23 @@ func (a *App) observe(pane port.Pane, now time.Time) {
 	a.obs[pane.ID] = &seen{pane: pane, since: since}
 }
 
+// rereadPanes reads herdr's panes again into the snapshot: a pane's cwd changes with no event (a cd in its shell, obor
+// setup pane moving it into a lane), so the snapshot the stream gave can keep it out of the lane (T-745). One call, the
+// same source the snapshot is built from; a pane it no longer lists is left as known (an event says it went). An error
+// leaves the snapshot as it was: the caller decides on what it knows.
+func (a *App) rereadPanes(ctx context.Context) {
+	snap, err := a.panes.Snapshot(ctx)
+	if err != nil {
+		a.logf("herdr: panes: %v", err)
+		return
+	}
+	a.mu.Lock()
+	for _, pane := range snap.Panes {
+		a.observe(pane, a.opt.Now())
+	}
+	a.mu.Unlock()
+}
+
 // event applies one herdr event; when the pane was or is in the project, it reconciles the project's identity table,
 // notes the work the pane shows for its agent's brief, then decides for the project.
 func (a *App) event(ctx context.Context, ev port.Event) {

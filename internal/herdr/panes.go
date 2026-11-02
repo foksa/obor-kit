@@ -101,6 +101,16 @@ func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
 	return out
 }
 
+// Snapshot is herdr's session now, as the subscription's Snapshot: the same source (session.snapshot), for a pane whose
+// cwd changed with no event (a cd in it: T-745).
+func (p Panes) Snapshot(ctx context.Context) (port.Snapshot, error) {
+	s, err := p.S.Snapshot(ctx)
+	if err != nil {
+		return port.Snapshot{}, err
+	}
+	return p.appSnapshot(s), nil
+}
+
 // Activity is when pane's agent last wrote its transcript; known is false when herdr reports no session for it, or
 // for a kind whose transcripts obor cannot find, or when the file is not there (unknown, not inactive).
 func (p Panes) Activity(ctx context.Context, pane string) (last time.Time, known bool) {

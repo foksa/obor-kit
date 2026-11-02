@@ -61,6 +61,10 @@ type Stream struct {
 // Panes is herdr, as the core uses it.
 type Panes interface {
 	Subscribe(ctx context.Context) (*Stream, error)
+	// Snapshot reads herdr's session now: one session.snapshot, the same source Subscribe's Snapshot is built from.
+	// A pane's cwd can change with no event (a cd in it, obor setup pane moving it into a lane), so the snapshot the
+	// stream gave can be stale (T-745).
+	Snapshot(ctx context.Context) (Snapshot, error)
 	// Busy: the agent in pane still runs a child besides the agent CLI (a command, a background job). An error means
 	// unknown, not idle.
 	Busy(ctx context.Context, pane string) (bool, error)
