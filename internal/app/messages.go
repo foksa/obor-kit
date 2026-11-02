@@ -643,16 +643,8 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 			break
 		}
 	}
-	held, same := len(p.folded.active[MsgTask]) > 0, reason != "" && p.has(MsgTask, StepNeedsYou, reason)
 	a.mu.Unlock()
-	switch {
-	case same, reason == "" && !held:
-		return
-	case held && !a.record(p, Record{Task: MsgTask, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}):
-		return
-	case reason != "":
-		a.record(p, Record{Task: MsgTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
-	}
+	a.settleNeeds(p, MsgTask, reason)
 }
 
 // needsLines queues a line to p's lead for each needs-you fact in force naming it and the commands that answer it
