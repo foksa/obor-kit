@@ -116,6 +116,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-88, accepted) #4/B redo of a pooled task with an ordered --types list (opus,sonnet) is refused when the first type is at max instead of trying the next: unlikely (lead redo with a list at cap), fails safe; fix 10-25 lines, share pickLane's ordered choice
+- (RV-88, accepted) #3/A a legacy (pre-v0.20) lane blanked while its task is still open loses the task's type (cap count 0): documented in UPGRADE-v0.20 step 1; durable snapshot 30-70 lines, not worth it for a one-time migration
 - (RV-87, accepted) #2 replayed worked brief with a closed pane ends after the 1-min grace, not on the first pass: unlikely (serve restart + pane closed), costs a minute; fix 30-70 lines
 - (RV-87, accepted) verify: docs/design.md ~471 says a hold-role brief holds publishes while open without the 30-min cap (stated at ~241-245): one line, fold into the next task that edits docs/design.md
 - (RV-86, accepted) #4 bg label lost for later commands in a background shell (make build && go test): display only, likely; third round on the bg label (RV-85 #3, T-728); fix ~15-30 lines if it bites
