@@ -66,8 +66,9 @@ docs there).
   `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
   axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
-  (`RELEASING.md`, T-640): on main write `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and commit it; then
-  `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
+  (`RELEASING.md`, T-640): on main write `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
+  `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
+  then `make release V=x.y.z` does the rest (version commit, full check, scratch worktree with marketplace `name`
   `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog back on main). The owner
   runs `make ship` (push, `make publish`, `install.sh`); the classifier refuses the lead's push. A pushed tag never
   moves. Then `obor send <project> "<what changed>"` to the adopting leads.
