@@ -148,8 +148,8 @@ func (f *schedScratch) Type(context.Context, string, string, bool) (bool, error)
 }
 
 // seedSched is project pj with an integrator (serve false: without, so no merge loop), lane O-01's T-1 submitted at
-// sha s1 and gated into a conflict.
-func seedSched(t *testing.T, serve bool) (*harness, *schedScratch) {
+// sha s1 and gated into a conflict. before, when given, acts on the harness's snapshot before the connect takes it.
+func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *schedScratch) {
 	h := newHarness(t)
 	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`
 	if !serve {
@@ -160,6 +160,9 @@ func seedSched(t *testing.T, serve bool) (*harness, *schedScratch) {
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	for _, fn := range before {
+		fn(h)
 	}
 	h.connect()
 	h.a.mu.Lock()

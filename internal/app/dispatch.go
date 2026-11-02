@@ -877,7 +877,8 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
 // shell) and the agent in it are its intent's data. No pane in the lane for Gone: herdr's panes are read again (a cd in
-// one gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}.
+// one gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}. A failed
+// read is no answer: nothing is recorded and the next pass reads again.
 func (a *App) nextStart(p *proj, mt mtask) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
@@ -896,19 +897,30 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 			return nil
 		}
 		return func(ctx context.Context, _ *Loop) bool {
-			a.mu.Lock()
-			delete(p.nopane, mt.task)
-			a.mu.Unlock()
 			// The snapshot's cwd can be stale (a cd in the pane gives no event, T-745): read herdr's panes again before
-			// the owner is told there is none. A pane in the lane now: the next pass starts the agent in it.
-			a.rereadPanes(ctx)
-			a.mu.Lock()
-			found := a.placement(p, mt.disp.Dir, mt.agent) != nil
-			a.mu.Unlock()
-			if found {
-				return true
+			// the owner is told there is none. A failed or canceled read records nothing, so the task keeps waiting on
+			// the same clock and the next pass tries again (RV-89 #1).
+			panes, err := a.rereadPanes(ctx)
+			if err != nil {
+				return false
 			}
-			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
+			// The list answers which pane is in the lane now, and nothing else: a pane the stream closed since the read
+			// is not raised again, and every other field and pane stays the stream's (RV-89 #2). One the stream still
+			// has: its cwd is what changed, and the next pass starts the agent in it.
+			a.mu.Lock()
+			o := a.paneIn(p, panes, mt.disp.Dir, mt.agent)
+			closed := o != nil && a.obs[o.ID] == nil // the stream closed it since the read: that wins
+			if o != nil && !closed {
+				a.obs[o.ID].pane.Cwd = o.Cwd
+			}
+			if !closed { // the read settled the wait: a pane to start in, or none to wait for
+				delete(p.nopane, mt.task)
+			}
+			a.mu.Unlock()
+			if o == nil {
+				return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
+			}
+			return !closed
 		}
 	}
 	delete(p.nopane, mt.task)
@@ -920,25 +932,38 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool { return a.startWorker(ctx, p, fx, mt, key, d, work) }
 }
 
-// placement is the pane of p's workspace to start the agent of the lane at dir in: the one the table identifies as one
-// of names (whoIs, DD-v0.13 A5: the lane's agent, not a second session someone opened there), else the lowest-id one
-// there running an agent, else the lowest-id one there (at its shell); nil: none (under mu). A place to launch into
-// (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
+// placement is paneIn over the snapshot (under mu): the pane of p's workspace to start the lane at dir's agent in; nil:
+// none. A place to launch into (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
 func (a *App) placement(p *proj, dir string, names ...string) *seen {
-	var best *seen
-	bestRank := 0
+	panes := make([]port.Pane, 0, len(a.obs))
 	for _, o := range a.obs {
-		if !inDir(o.pane.Cwd, dir) || a.projectOf(o.pane) != p {
+		panes = append(panes, o.pane)
+	}
+	if pane := a.paneIn(p, panes, dir, names...); pane != nil {
+		return a.obs[pane.ID]
+	}
+	return nil
+}
+
+// paneIn is the pane of panes (the snapshot's, or a fresh read's) to start the lane at dir's agent in: the one the table
+// identifies as one of names (whoIs, DD-v0.13 A5: the lane's agent, not a second session someone opened there), else the
+// lowest-id one there running an agent, else the lowest-id one there (at its shell); nil: none (under mu). A place to
+// launch into (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
+func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *port.Pane {
+	var best *port.Pane
+	bestRank := 0
+	for i := range panes {
+		if !inDir(panes[i].Cwd, dir) || a.projectOf(panes[i]) != p {
 			continue
 		}
 		r := 1
-		if agent, ok := p.reg.whoIs(o.pane); ok && agent != "" && slices.Contains(names, agent) {
+		if agent, ok := p.reg.whoIs(panes[i]); ok && agent != "" && slices.Contains(names, agent) {
 			r = 3
-		} else if o.pane.Agent != "" {
+		} else if panes[i].Agent != "" {
 			r = 2
 		}
-		if best == nil || r > bestRank || r == bestRank && o.pane.ID < best.pane.ID {
-			best, bestRank = o, r
+		if best == nil || r > bestRank || r == bestRank && panes[i].ID < best.ID {
+			best, bestRank = &panes[i], r
 		}
 	}
 	return best

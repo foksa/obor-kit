@@ -78,9 +78,10 @@ func (f *startAgents) Stop(context.Context, string, string, bool) (string, error
 }
 
 // promptRig is T-1 dispatched onto O-01 (lane prepared, rows removed; started: its worker started too), the switch
-// on, with a boxPrompter and startAgents.
-func promptRig(t *testing.T, started bool) (*harness, *Loop, *boxPrompter, *startAgents) {
-	h, s := seedSched(t, true)
+// on, with a boxPrompter and startAgents. before, when given, acts on the harness's snapshot before the connect takes
+// it.
+func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *boxPrompter, *startAgents) {
+	h, s := seedSched(t, true, before...)
 	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Target: "target", Branch: "task/T-1"})
 	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})

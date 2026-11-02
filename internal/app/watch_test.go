@@ -30,15 +30,38 @@ type fakePanes struct {
 	asked    []string // the panes Busy was asked about
 	turn     agents.Turn
 	turned   bool // Turn knows turn
+	// Snapshot's answer: snap when an error does not come first (nil snap, nil err: "not in the table", as for the
+	// table's rows); after runs once the answer is read, before it returns (a stream event landing in between);
+	// snaps counts the calls (T-747).
+	snap    *port.Snapshot
+	snapErr error
+	after   func()
+	snaps   int
 }
 
 func (f *fakePanes) Subscribe(context.Context) (*port.Stream, error) {
 	return nil, errors.New("not in the table")
 }
 
-// Snapshot is no answer, like Subscribe: the table's rows work from the snapshot connect gave them.
-func (f *fakePanes) Snapshot(context.Context) (port.Snapshot, error) {
-	return port.Snapshot{}, errors.New("not in the table")
+// Snapshot is the read a lane's start makes again (rereadPanes): snap's panes, unless the context or snapErr says
+// otherwise; a row that never set snap gets the error Subscribe gives.
+func (f *fakePanes) Snapshot(ctx context.Context) (port.Snapshot, error) {
+	f.snaps++
+	if err := ctx.Err(); err != nil {
+		return port.Snapshot{}, err
+	}
+	if f.snapErr != nil {
+		return port.Snapshot{}, f.snapErr
+	}
+	if f.snap == nil {
+		return port.Snapshot{}, errors.New("not in the table")
+	}
+	snap := *f.snap
+	snap.Panes = append([]port.Pane(nil), f.snap.Panes...)
+	if f.after != nil {
+		f.after()
+	}
+	return snap, nil
 }
 
 func (f *fakePanes) Busy(_ context.Context, pane string) (bool, error) {
