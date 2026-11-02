@@ -1391,6 +1391,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "Escape closes the dialog")
+		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 0, "no Enter into the exit dialog")
 		eqInt(t, len(x.calls("pane.send_keys keys=[1] pane_id=w1:p3")), 0, "no option chosen")
 		eq(t, failLine(out), "FAIL pj-o-01 has background tasks (finish them, or --force to stop them)", "result")
 		if ok || x.startCall() != "" || x.f.Panes[0].Screen != "" {
@@ -2815,6 +2816,21 @@ func TestStopEveryKind(t *testing.T) {
 	t.Run("opencode, the popup takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
+		p.OnQuit = ""
+		enters := 0
+		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
+		out, ok := x.stop("pj-o-01", "", false)
+		if !ok {
+			t.Fatal(out)
+		}
+		eqInt(t, enters, 1, "the second Enter sent")
+		eqInt(t, len(x.kills), 0, "no signal")
+		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+	})
+	// T-712: Claude Code's slash-command menu (many plugin commands) took the Enter in the owner's run: the second Enter submits.
+	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
+		t.Parallel()
+		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
 		p.OnQuit = ""
 		enters := 0
 		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }

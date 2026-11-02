@@ -83,7 +83,7 @@ func TestKind(t *testing.T) {
 	if why := k.NotReady("Updating to 2.0, restart codex"); why != "" {
 		t.Errorf("NotReady = %q, want none (Codex's screen)", why)
 	}
-	if s := k.Stop(); s.Quit != "/exit" || !slices.Equal(s.AfterEscape, []string{"ctrl+c"}) || s.SecondEnter ||
+	if s := k.Stop(); s.Quit != "/exit" || !slices.Equal(s.AfterEscape, []string{"ctrl+c"}) || !s.SecondEnter ||
 		!slices.Equal(s.ClearInput, []string{"ctrl+u"}) || s.Program != "" || s.Dialog == nil || s.Dialog.Option != "Exit and stop tasks" {
 		t.Errorf("Stop = %+v", s)
 	}

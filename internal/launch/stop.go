@@ -114,10 +114,12 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		if l.exited(ctx, t.pane, before.pgid) {
 			return true
 		}
-		if polls++; polls == 2 && recipe.SecondEnter {
+		n, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
+		// The second Enter submits a quit a completion menu took the first Enter for (T-712); never into the kind's exit
+		// dialog, where a bare Enter would pick its default option.
+		if polls++; polls == 2 && recipe.SecondEnter && !open {
 			_ = l.H.SendKeys(ctx, t.pane, "enter")
 		}
-		n, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
 		if !open {
 			return false
 		}
