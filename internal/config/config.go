@@ -913,3 +913,21 @@ func (c *Config) HasLaneOfType(typ string) bool {
 	}
 	return false
 }
+
+// PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A
+// lane is a worktree, so an untracked settings file of the main checkout is not there unless it is linked (T-705).
+func PluginEnabledIn(dir string) bool {
+	var settings struct {
+		Enabled map[string]any `json:"enabledPlugins"`
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil || json.Unmarshal(b, &settings) != nil {
+		return false
+	}
+	for k, v := range settings.Enabled {
+		if strings.HasPrefix(k, "obor@") && v == true {
+			return true
+		}
+	}
+	return false
+}

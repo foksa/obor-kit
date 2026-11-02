@@ -83,7 +83,11 @@ func TestValidate(t *testing.T) {
 			want: []string{`FAIL .lane_types.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "every supported kind is accepted", edits: []edit{
 			set("lane_types.a", map[string]any{"kind": "claude"}), set("lane_types.b", map[string]any{"kind": "codex"}),
-			set("lane_types.c", map[string]any{"kind": "opencode"})}},
+			set("lane_types.c", map[string]any{"kind": "opencode", "args": []any{"--model", "go/ds"}})}},
+		// T-705: an opencode type without --model warns (not fails): opencode's own default may not work.
+		{name: "an opencode type without --model warns", edits: []edit{
+			set("lane_types.oc", map[string]any{"kind": "opencode", "args": []any{"--auto"}})},
+			want: []string{`WARN lane_types.oc: opencode type without --model (opencode's own default may not work, and an effort needs one): add "--model", "opencode-go/deepseek-v4.1-flash" to its args`}},
 		{name: "empty kind is required", edits: []edit{set("lane_types.cur", map[string]any{"kind": ""})},
 			want: []string{"FAIL .lane_types.cur.kind: required (claude, codex, …)"}},
 		{name: "stop_hook.worker_max_blocks is obsolete", edits: []edit{set("stop_hook.worker_max_blocks", 3)},
@@ -147,7 +151,8 @@ func TestValidate(t *testing.T) {
 			set("lane_types.oc", map[string]any{"kind": "opencode", "args": []any{"--auto"}}),
 			set("lane_types.ocm", map[string]any{"kind": "opencode", "args": []any{"--model", "go/ds"}}),
 			set("difficulty", map[string]any{"hard": []any{"ocm:high", "oc:high", "oc"}})},
-			want: []string{`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model: add --model provider/model to the type's args`}},
+			want: []string{`WARN lane_types.oc: opencode type without --model (opencode's own default may not work, and an effort needs one): add "--model", "opencode-go/deepseek-v4.1-flash" to its args`,
+				`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model: add --model provider/model to the type's args`}},
 		{name: "difficulty with an unknown type and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
 			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a key of lane_types`}},
 		{name: "a role type with an effort its kind lacks", edits: []edit{set("roles.lead", map[string]any{"type": "opus:turbo"})},

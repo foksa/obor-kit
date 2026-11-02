@@ -5,6 +5,8 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -115,5 +117,22 @@ func TestEffortRefusals(t *testing.T) {
 	}
 	if err := set("s3", "opus:high"); err != nil {
 		t.Errorf("spec set Type: opus:high: %v", err)
+	}
+}
+
+// T-705: dispatch's reply warns when a Claude lane's worktree has no enabled obor plugin (its worker would have no
+// obor MCP tools), and still dispatches; a lane with the plugin enabled gets no warning (TestEffortPlainTypeNamesNone).
+func TestDispatchWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
+	r := effortRig(t)
+	r.start()
+	r.specLevel("medium")
+	settings := filepath.Join(r.p.LaneDir("O-01"), ".claude", "settings.json")
+	if err := os.Remove(settings); err != nil {
+		t.Fatalf("precondition: the lane had the plugin enabled: %v", err)
+	}
+	reply, err := r.dispatchLevel("d1", "opus")
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued)") ||
+		!strings.Contains(reply, "WARN lane O-01 has no enabled obor plugin") {
+		t.Fatalf("dispatch without the plugin: %q, %v; want DISPATCHED … and the WARN", reply, err)
 	}
 }

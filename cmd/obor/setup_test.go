@@ -21,7 +21,7 @@ func TestSetupPaneUsesTheHerdrSocket(t *testing.T) {
 	if rc, stdout, stderr := run(t, p.Root, env, "setup", "lane", "O-01", "opus"); rc != 0 {
 		t.Fatalf("setup lane: exit %d\n%s%s", rc, stdout, stderr)
 	}
-	rc, stdout, stderr := run(t, p.Root, env, "setup", "pane", "O-01", "--tab", "w1:t1")
+	rc, stdout, stderr := run(t, p.Root, env, "setup", "pane", "--start", "O-01", "--tab", "w1:t1")
 	if rc != 0 || !strings.Contains(stdout, "OK O-01: pj-o-01 in pane w1:n1") {
 		t.Fatalf("setup pane: exit %d\n%s%s", rc, stdout, stderr)
 	}

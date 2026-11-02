@@ -296,6 +296,13 @@ func (c *Config) warnings(o ValidateOptions) []string {
 			out = append(out, "WARN lane_types."+k+".jobs is obsolete: every kind fetches its jobs (T-437), remove it")
 		}
 	}
+	for _, k := range c.Data.LaneTypes.Keys { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
+		lt := c.Data.LaneTypes.M[k]
+		if kd, known := agents.Lookup(lt.Kind); known && kd.Caps().ModelArg && lt.Model() == "" {
+			out = append(out, "WARN lane_types."+k+": opencode type without --model (opencode's own default may not work, "+
+				"and an effort needs one): add \"--model\", \"opencode-go/deepseek-v4.1-flash\" to its args")
+		}
+	}
 	removed("roles.leads", c.Data.Roles.Leads != nil)              // v0.12.0, T-467: one lead per project
 	removed("done_file", c.Data.DoneFile != nil)                   // v0.12.0, T-470: task_done replaced the done file
 	removed("spec.files_heading", c.Data.Spec.FilesHeading != nil) // v0.13.0, T-496: the per-file guard went

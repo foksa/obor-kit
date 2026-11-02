@@ -50,6 +50,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -212,6 +213,11 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	add("plugin", state, "%s", what)
+	state, what, err = s.initPluginLinks()
+	if err != nil {
+		return err
+	}
+	add("plugin-links", state, "%s", what)
 
 	// events
 	mine, err := s.pluginDir()
@@ -592,6 +598,10 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 			return err
 		case s.running:
 			add(what, "already", "%s running (pane %s)", agent, s.placed)
+		case s.idle:
+			add(what, "already", "pane %s labelled %s, no agent (dispatch starts one)", s.placed, agent)
+		case !s.started:
+			add(what, "done", "pane %s labelled %s, no agent (dispatch starts one)", s.placed, agent)
 		default:
 			add(what, "done", "%s started in pane %s", agent, s.placed)
 		}
@@ -649,4 +659,46 @@ func (s *Setup) projectTabOf(ctx context.Context, pane string) string {
 		}
 	}
 	return ""
+}
+
+// --- plugin reaches the lanes (T-705) ----------------------------------------------------------------------------
+
+// initPluginLinks makes the project's .claude/settings.json reach every lane: lanes are worktrees, so a file the
+// repository does not track is not in them. Untracked → it joins lane_links (and .gitignore, which keeps git clean
+// from removing the links) and is linked into the existing lanes; tracked or absent → nothing to do.
+func (s *Setup) initPluginLinks() (state, what string, err error) {
+	if !s.settingsUntracked() {
+		return "already", pluginSettings + " is tracked or absent: lanes get it from git", nil
+	}
+	changed := false
+	if !slices.Contains(s.cfg.Data.LaneLinks, pluginSettings) {
+		links := append(slices.Clone(s.cfg.Data.LaneLinks), pluginSettings)
+		if err := s.editConfig([]string{"lane_links"}, links); err != nil {
+			return "", "", err
+		}
+		if err := s.load(); err != nil {
+			return "", "", err
+		}
+		changed = true
+	}
+	was := s.wrote
+	if err := s.gitignore(); err != nil {
+		return "", "", err
+	}
+	changed = changed || s.wrote != was
+	for _, l := range s.cfg.Lanes() {
+		dst := filepath.Join(l.Dir, pluginSettings)
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		if _, err := os.Stat(l.Dir); err != nil {
+			continue
+		}
+		if os.MkdirAll(filepath.Dir(dst), 0o755) != nil || os.Symlink(filepath.Join(s.root, pluginSettings), dst) != nil {
+			return "", "", project.Failf("cannot link %s", dst)
+		}
+		s.say("link %s → %s", dst, filepath.Join(s.root, pluginSettings))
+		changed = true
+	}
+	return doneOr(changed), pluginSettings + " is untracked: in lane_links, linked into the lanes (commit it to share it by git instead)", nil
 }

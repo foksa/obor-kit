@@ -17,6 +17,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/spec"
@@ -416,12 +417,16 @@ func readFullCheck(root string) *FullCheck {
 	return fc
 }
 
+// A Claude lane is missing it when its worktree has no .claude/settings.json enabling obor's plugin (T-705).
 // pluginMissing (T-307): a lane whose kind runs obor's hooks through obor's plugin (agents.HooksPlugin: opencode) has
 // no plugin marker newer than the dispatch that started its work (obor status warns: the lane runs with no obor
 // guard). None at all, or one older than the lane row's dispatched_at (a leftover from before this dispatch): missing.
 // No row: a marker at all is fresh, nothing to compare it against.
 func pluginMissing(p *checks.LaneTable, s checks.LaneStatus) bool {
 	lt, ok := p.Cfg.LaneType(s.Type)
+	if k, known := agents.Lookup(lt.Kind); ok && known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
+		return !config.PluginEnabledIn(s.Dir)
+	}
 	if k, known := agents.Lookup(lt.Kind); !ok || !known || k.Caps().Hooks != agents.HooksPlugin {
 		return false
 	}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -891,5 +893,24 @@ func TestStatusShowsTheEffort(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"effort":"high"`) || st.Lanes[0].Effort != "high" || st.Lanes[1].Effort != "" {
 		t.Errorf("--json lanes %+v: want O-01's effort high, O-02's none", st.Lanes)
+	}
+}
+
+// T-705: a working Claude lane whose worktree has no enabled obor plugin is warned no-plugin, as an opencode lane
+// without its marker is; the testkit's lanes have the plugin enabled.
+func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1, o2 := p.Lane("O-01", "task/T-01"), p.Lane("O-02", "task/T-02")
+	p.Config()
+	p.Commit(o1)
+	p.Commit(o2)
+	if err := os.Remove(filepath.Join(o2, ".claude", "settings.json")); err != nil {
+		t.Fatalf("precondition: O-02 had the settings file: %v", err)
+	}
+	_, text := statusOf(t, p, wire.Status{}, errors.New("obor serve is not running (dial: refused)"), time.Now())
+	matchLine(t, text, `^O-02 +opus +task/T-02 +working +- +\(T-02\)  warning: no-plugin$`, "O-02 without the plugin")
+	if strings.Contains(text, "O-01 ") && strings.Contains(strings.SplitN(strings.SplitN(text, "O-01 ", 2)[1], "\n", 2)[0], "no-plugin") {
+		t.Errorf("O-01 (plugin enabled) warned:\n%s", text)
 	}
 }

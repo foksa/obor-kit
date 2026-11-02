@@ -158,6 +158,7 @@ func (p *Project) Lane(name, branch string) string {
 	default:
 		p.Git(p.Root, "worktree", "add", "-q", "-b", branch, dir, "main")
 	}
+	p.enablePlugin(dir)
 	return dir
 }
 
@@ -504,4 +505,29 @@ func (p *Project) Herdr() *herdrtest.Fake {
 		p.herdr = herdrtest.New()
 	}
 	return p.herdr
+}
+
+// enablePlugin gives lane dir the project settings a real lane has (T-705: obor's plugin enabled, as obor init links
+// them), excluded from git so the lane stays clean.
+func (p *Project) enablePlugin(dir string) {
+	p.t.Helper()
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		p.t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"enabledPlugins":{"obor@obor-kit":true}}`+"\n"), 0o644); err != nil {
+		p.t.Fatal(err)
+	}
+	exclude := filepath.Join(p.Root, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+		p.t.Fatal(err)
+	}
+	f, err := os.OpenFile(exclude, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("/.claude/\n.claude/\n"); err != nil {
+		p.t.Fatal(err)
+	}
 }

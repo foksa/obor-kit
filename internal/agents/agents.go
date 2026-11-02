@@ -172,13 +172,15 @@ const (
 
 // Caps are a kind's capabilities.
 type Caps struct {
-	Hooks      HookTransport
-	Inbox      bool // Deliver posts over the session's inbox socket
-	Resume     bool // Start honours Resume
-	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
-	Transcript bool // Transcript finds the session file
-	Turns      bool // LastTurn reads the session's turns from its transcript (T-563)
-	Sessions   bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	Hooks         HookTransport
+	Inbox         bool // Deliver posts over the session's inbox socket
+	Resume        bool // Start honours Resume
+	Skills        bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
+	Transcript    bool // Transcript finds the session file
+	Turns         bool // LastTurn reads the session's turns from its transcript (T-563)
+	Sessions      bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	ProjectPlugin bool // loads obor's plugin from the project's .claude/settings.json (a worktree needs the file too, T-705)
+	ModelArg      bool // its own default model may not work: a lane type should name one (--model, T-705)
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
 	VersionVar string
 }
