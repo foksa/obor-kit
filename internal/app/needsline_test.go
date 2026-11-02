@@ -3,6 +3,7 @@ package app_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -34,6 +35,17 @@ func (r *loopRig) needsLineFacts() []event.Record {
 		}
 	}
 	return out
+}
+
+// waitLinesDelivered waits until the first n needs-you lines are delivered: recorded, their delivery results in the
+// log and folded (nothing waiting). A repeat counts from that folded result's time (T-624), so the clock moves only
+// after it; waiting on the fake inbox's post count instead is not enough, it counts the post before the result is
+// recorded (T-702).
+func (r *loopRig) waitLinesDelivered(n int) {
+	r.t.Helper()
+	r.waitFor(fmt.Sprintf("%d needs-you lines delivered", n), func() bool {
+		return len(r.needsLineFacts()) == n && len(r.lineResults()) >= n && len(r.waiting()) == 0
+	})
 }
 
 // againLines is the needs-you lines that repeat fact seq: the lines ending in " (again, <age>)".
@@ -228,6 +240,7 @@ func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.waitLinesDelivered(1) // the repeat counts from its recorded delivery
 	r.advance(29 * time.Minute)
 	if got := r.againLines(seq); len(got) != 0 {
 		t.Fatalf("at 29 min: again lines %q, want none", got)
@@ -237,6 +250,8 @@ func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 	if got := r.againLines(seq)[0]; got != line+" (again, 30m)" {
 		t.Errorf("at 30 min: line %q, want the same line with (again, 30m)", got)
 	}
+	// The next repeat counts from this one's recorded delivery.
+	r.waitLinesDelivered(2)
 	r.advance(59 * time.Minute) // 89
 	if got := r.againLines(seq); len(got) != 1 {
 		t.Fatalf("at 89 min: again lines %q, want still one", got)
@@ -256,8 +271,10 @@ func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
 	// The repeat counts from the first line's delivery: the clock moves only once that is recorded (else, under load,
 	// the delivery is stamped at 30 and the repeat is not due until 60).
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.waitLinesDelivered(1)
 	r.advance(30 * time.Minute)
 	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
+	r.waitLinesDelivered(2)
 	r.advance(15 * time.Minute) // 45
 	r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
 	r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
@@ -275,10 +292,12 @@ func TestNeedsYouLineRepeatsReplayFromTheFactTime(t *testing.T) {
 	r, line := refusedRig(t)
 	seq := r.needsYou().Seq
 	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.waitLinesDelivered(1)
 	r.stop()
 	r.clock.Add(40 * time.Minute)
 	r.start()
 	r.waitFor("the repeat after the restart", func() bool { return len(r.againLines(seq)) == 1 })
+	r.waitLinesDelivered(2)
 	if got := r.againLines(seq)[0]; got != line+" (again, 40m)" {
 		t.Errorf("after a restart at 40 min: line %q, want (again, 40m)", got)
 	}
