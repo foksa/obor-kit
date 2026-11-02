@@ -520,6 +520,7 @@ func effortNote(effort string) string {
 // first; a typed one: its type when c names it, at c's effort), else its type or c's first, else for each type of c in
 // order, skipped at its max (full), the first lane in config order whose type is it (a typed lane is a reservation for
 // its type) or empty (the pool), free (dirty-free with force) and not held for another task's dispatch; else why not.
+// A redo that changes the type it runs is held to the new type's max like a fresh dispatch of that type (T-742).
 // A type reference's type matches (opus:high: an opus or untyped lane, T-695); a named or held typed lane keeps the
 // effort c gives its type.
 func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[string]string, ran string) (port.Lane, string, string) {
@@ -543,19 +544,26 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[stri
 			l.Dir = filepath.Clean(l.Dir)
 			explicit := c.Level == "" && len(c.Types) > 0
 			names := slices.ContainsFunc(c.Types, func(t string) bool { typ, _ := config.ParseTypeRef(t); return typ == l.Type })
+			var ref string
 			switch {
 			case explicit && l.Type == "":
-				return l, c.Types[0], ""
+				ref = c.Types[0]
 			case explicit && l.Type != "" && names:
-				return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
+				ref = config.TypeRef(l.Type, effortFor(c.Types, l.Type))
 			case ran != "":
 				return l, ran, ""
 			case l.Type != "":
-				return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
+				ref = config.TypeRef(l.Type, effortFor(c.Types, l.Type))
 			case len(c.Types) > 0:
-				return l, c.Types[0], ""
+				ref = c.Types[0]
 			}
-			return l, "", ""
+			// T-742: a redo that changes the type it runs respects the new type's max, like a fresh dispatch of it (the
+			// task's own open dispatch stays out of the count, T-568).
+			ranType, _ := config.ParseTypeRef(ran)
+			if typ, _ := config.ParseTypeRef(ref); typ != "" && typ != ranType && full[typ] != "" {
+				return port.Lane{}, "", noLane(full, c.Types)
+			}
+			return l, ref, ""
 		}
 	}
 	for _, t := range c.Types {
@@ -570,16 +578,22 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[stri
 			}
 		}
 	}
+	return port.Lane{}, "", noLane(full, c.Types)
+}
+
+// noLane is pickLane's refusal when none of types gets a lane: the types, and those at their max (full).
+func noLane(full map[string]string, types []string) string {
 	var at []string
-	for _, t := range c.Types {
+	for _, t := range types {
 		if typ, _ := config.ParseTypeRef(t); full[typ] != "" && !slices.Contains(at, full[typ]) {
 			at = append(at, full[typ])
 		}
 	}
+	why := "no free lane of the types " + strings.Join(types, ",")
 	if len(at) > 0 {
-		return port.Lane{}, "", "no free lane of the types " + strings.Join(c.Types, ",") + " (" + strings.Join(at, ", ") + ")"
+		why += " (" + strings.Join(at, ", ") + ")"
 	}
-	return port.Lane{}, "", "no free lane of the types " + strings.Join(c.Types, ",")
+	return why
 }
 
 // dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), or a needs-you it left.

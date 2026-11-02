@@ -70,6 +70,20 @@ func (r *loopRig) setPoolLane(i int, state, task string) {
 	r.lanes.mu.Unlock()
 }
 
+// seedStopped writes task's open dispatch of type typ on lane to the log of the stopped app, left by a stop (a
+// needs-you): its dispatch stays open toward typ's max (T-568) and runs no dispatch step (a redo is its next).
+func (r *loopRig) seedStopped(task, lane, typ string) {
+	r.t.Helper()
+	d, _ := json.Marshal(map[string]any{"lane": lane, "agent": "pj-o1", "type": typ, "level": "medium",
+		"types": []string{typ}})
+	stop, _ := json.Marshal(event.FactData{Lane: lane, Reason: "stopped: api error", Merge: true, Cause: "stopped"})
+	if err := app.WriteLog(r.p.Root, time.Now(),
+		event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
+		event.Record{Task: task, Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact, Data: stop}); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
 func TestPoolPicksALaneAndAType(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -251,5 +265,74 @@ func TestPoolRedoOnAnUntypedLaneKeepsItsDispatchedType(t *testing.T) {
 	const want = "WAITING T-3 (queued): opus at its max 1 (hard: opus:high); idle: O-02 (-)"
 	if reply, err := r.dispatchOf("T-3"); err != nil || reply != want {
 		t.Errorf("T-3 beside T-1's redo: %q, %v; want %q", reply, err, want)
+	}
+}
+
+// T-742 (RV-88 B): a redo that changes the type it runs respects the new type's max. T-1 is a stopped pooled task whose
+// dispatch ran sonnet on O-01 and left a needs-you; T-2's stopped opus dispatch is opus's one at its max 1. The redo
+// --types opus would start a second opus worker: it is refused exactly as a fresh opus dispatch is.
+func TestPoolRedoChangingItsTypeRespectsTheNewTypesMax(t *testing.T) {
+	t.Parallel()
+	r := newPoolRig(t)
+	r.setPoolLane(0, "working", "T-1")
+	r.seedStopped("T-1", "O-01", "sonnet")
+	r.seedStopped("T-2", "O-02", "opus:high")
+	r.start()
+	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
+	r.waitFor("T-2's needs-you", func() bool { return r.taskStatus("T-2").State == "needs-you" })
+	reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1", Task: "T-1",
+		Types: []string{"opus"}})
+	const want = "dispatch T-1: no free lane of the types opus (opus at its max 1)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("redo of the sonnet task --types opus with opus at its max: %q, %v; want the refusal %q", reply, err, want)
+	}
+	if n := r.taskStep("T-1", "fact dispatch"); n != 1 {
+		t.Errorf("T-1 dispatched %d times, want its first only (the redo refused): %q", n, r.steps())
+	}
+}
+
+// T-742: below opus's max, the same redo that changes its type goes on opus.
+func TestPoolRedoChangingItsTypeGoesBelowTheNewTypesMax(t *testing.T) {
+	t.Parallel()
+	r := newPoolRig(t)
+	r.setPoolLane(0, "working", "T-1")
+	r.seedStopped("T-1", "O-01", "sonnet")
+	r.start()
+	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
+	reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1", Task: "T-1",
+		Types: []string{"opus"}})
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) as opus") {
+		t.Fatalf("redo of the sonnet task --types opus below opus's max: %q, %v; want O-01 as opus", reply, err)
+	}
+	if types := r.redoTypes(); len(types) != 2 || types[1] != "opus" {
+		t.Errorf("T-1's dispatch facts' types %v, want the redo's opus after the first", types)
+	}
+}
+
+// T-742: a redo that keeps its type is unchanged: the task's own open opus dispatch is not counted against opus's max
+// (1), so the redo goes.
+func TestPoolRedoKeepingItsTypeStaysOutOfItsMax(t *testing.T) {
+	t.Parallel()
+	r := newPoolRig(t)
+	r.setPoolLane(0, "working", "T-1")
+	r.seedStopped("T-1", "O-01", "opus:high")
+	r.start()
+	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
+	// Precondition: T-1's own open opus:high dispatch is the loop's only one: if it counted itself, opus would be at its max.
+	if d := r.factData("T-1", event.StepDispatched); d["type"] != "opus:high" {
+		t.Fatalf("precondition: T-1's dispatch %v ran no opus", d)
+	}
+	for _, st := range r.app.Status().Project.Tasks {
+		if st.Task != "T-1" {
+			t.Fatalf("precondition: %s is in the loop too, so opus may hold another dispatch", st.Task)
+		}
+	}
+	reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1", Task: "T-1",
+		Types: []string{"opus"}})
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) as opus") {
+		t.Fatalf("redo of T-1 --types opus keeping opus: %q, %v; want O-01 as opus", reply, err)
+	}
+	if types := r.redoTypes(); len(types) != 2 || types[1] != "opus" {
+		t.Errorf("T-1's dispatch facts' types %v, want the redo's opus after the first", types)
 	}
 }
