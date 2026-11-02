@@ -57,7 +57,7 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	writeExec(t, filepath.Join(dir, "scripts", "publish"), string(treeFile(t, "scripts/publish")))
 	writeFile(t, filepath.Join(dir, "scripts", "release-lib.sh"), string(treeFile(t, "scripts/release-lib.sh")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
-	writeFile(t, filepath.Join(dir, ".gitignore"), ".task-done.md\ndist/\n")
+	writeFile(t, filepath.Join(dir, ".gitignore"), ".task-done.md\ndist/\n.obor/state/\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), devMarketplace+"\n")
 	writeFile(t, filepath.Join(dir, "docs", "UPGRADE-v1.2.md"), "# Upgrading obor from v1.1 to v1.2\n\n## v1.2.4 (patch)\n")
@@ -82,7 +82,18 @@ if [ -n "$out" ]; then
   printf '%s/%s\n' "$GOOS" "$GOARCH" > "$out"
 fi
 case $out in dist/obor-*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
-[ "$1" != test ] || [ ! -f "`+filepath.Join(p.Base, "go-fail")+`" ]
+# go-fail-once: the first go test fails with the file's text as its output and removes the file (a flaky package);
+# go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails.
+if [ "$1" = test ]; then
+  for m in go-fail-once go-fail; do
+    if [ -f "`+p.Base+`/$m" ]; then
+      cat "`+p.Base+`/$m"
+      [ "$m" != go-fail-once ] || rm -f "`+p.Base+`/$m"
+      exit 1
+    fi
+  done
+fi
+[ "$1" != vet ] || [ ! -f "`+filepath.Join(p.Base, "go-vet-fail")+`" ]
 `)
 	for k, v := range map[string]string{"user.name": "obor test", "user.email": "obor-test@example.invalid", "commit.gpgsign": "false"} {
 		p.Git(dir, "config", k, v)
@@ -515,7 +526,7 @@ func TestMakeReleaseCheckFailsAndResumes(t *testing.T) {
 	f.Write(filepath.Join(f.Base, "go-fail"), "")
 	head := f.Git(f.Root, "rev-parse", "HEAD")
 	out, failed := f.release(t, "V=1.2.4")
-	if !failed || !strings.Contains(out, "make check failed: nothing is committed") {
+	if !failed || !strings.Contains(out, "make check failed") || !strings.Contains(out, "nothing is committed") {
 		t.Fatalf("a red check must stop the release and commit nothing (failed %v):\n%s", failed, out)
 	}
 	if got := f.Git(f.Root, "rev-parse", "HEAD"); got != head {

@@ -16,6 +16,11 @@
 #   copy-back     done: main's bin/checksums.txt has the tag's four lines and main's four dist files match them
 #                 make: all four files checked against the tag's catalog first, then copied and the catalog committed
 #                 fail: bin/checksums.txt's index and tree back to HEAD
+# The check step reruns a failed go test package once (T-717): when `make check` fails only in go test, the failed
+# packages run again in one `go test`; all pass → the release goes on with a FLAKY line per failed test, recorded in
+# .obor/state/flakes.jsonl (obor flakes); any fails again → refused, naming the tests. A failure outside go test (build,
+# vet, gofmt, deadcode) refuses at once. The whole run (not --dry-run) is also written to
+# .obor/state/logs/release-<version>.log (appended on a re-run), and every FAIL line names that log.
 # The scratch worktree is removed once the copy-back is done. A tag is never moved (a changed release is a new patch
 # version). --dry-run prints the steps and changes nothing. POSIX sh, like scripts/publish.
 set -eu
@@ -39,7 +44,9 @@ guide="docs/UPGRADE-v${v%.*}.md"
 platforms="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 tmpdir=${TMPDIR:-/tmp}
 
-fail() { echo "FAIL $*" >&2; exit 1; }
+# log: this run's own full log (set below once the run starts; a --dry-run has none).
+log=
+fail() { echo "FAIL $*${log:+ (full log: $log)}" >&2; exit 1; }
 say() { echo "release: $*"; }
 
 # shellcheck source=scripts/release-lib.sh
@@ -52,6 +59,72 @@ say() { echo "release: $*"; }
 # (T-643); this shell keeps it for the tag message.
 plain_make() {
   env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED make "$@"
+}
+
+# run_check: the full `make check` (T-717). Its output goes to the terminal and to a scratch file this function reads; a
+# red check that is only go test packages is rerun once (one `go test <pkgs>`, no -count): all pass → FLAKY lines and flake
+# records and the release goes on; else the release is refused. Anything outside go test refuses at once.
+run_check() {
+  chk=$(mktemp "$tmpdir/obor-check.XXXXXX")
+  chkst=$(mktemp "$tmpdir/obor-check-status.XXXXXX")
+  { crc=0; plain_make check 2>&1 || crc=$?; echo "$crc" > "$chkst"; } | tee "$chk"
+  crc=$(cat "$chkst"); rm -f "$chkst"
+  if [ "$crc" = 0 ]; then rm -f "$chk"; return 0; fi
+  undone="nothing is committed (VERSION and the plugin version are back as they were)"
+  if grep -Eq '^FAIL (make build|gofmt|go vet|deadcode)' "$chk"; then
+    step=$(grep -E '^FAIL (make build|gofmt|go vet|deadcode)' "$chk" | head -n 1)
+    rm -f "$chk"
+    fail "make check failed ($step), not in go test, so no rerun: $undone"
+  fi
+  failed=$(failed_tests < "$chk")
+  if [ -z "$failed" ] || grep -Eq '^FAIL[[:space:]].*\[(build|setup) failed\]' "$chk"; then
+    rm -f "$chk"
+    fail "make check failed outside the go test results (no failed test package to rerun): $undone"
+  fi
+  pkgs=$(printf '%s\n' "$failed" | awk '{ print $1 }' | sort -u | tr '\n' ' ')
+  say "make check failed in go test only; rerunning once: $pkgs"
+  rerun=$(mktemp "$tmpdir/obor-rerun.XXXXXX")
+  rrc=0
+  # shellcheck disable=SC2086
+  { env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED "${GO:-go}" test ${CHECK_CPUS:+-p "$CHECK_CPUS"} $pkgs 2>&1 \
+    || echo "go test rerun exit $?" > "$rerun.rc"; } | tee "$rerun"
+  [ ! -f "$rerun.rc" ] || rrc=1
+  rm -f "$rerun.rc"
+  if [ "$rrc" != 0 ]; then
+    again=$(failed_tests < "$rerun")
+    rm -f "$chk" "$rerun"
+    [ -n "$again" ] || again=$failed
+    fail "make check failed and the failed packages failed again on rerun: $(printf '%s\n' "$again" | awk '{ print $1 " " $2 }' | tr '\n' ';'): $undone"
+  fi
+  rm -f "$chk" "$rerun"
+  printf '%s\n' "$failed" | while read -r pkg test; do
+    echo "FLAKY: $pkg $test (failed, passed on rerun)"
+    record_flake "$pkg" "$test"
+  done
+}
+
+# failed_tests: from go test output on stdin, one "<pkg> <test>" line per failed top-level test, in order (<test> is
+# "(package)" for a package that failed without a test line: a panic, a timeout). A "--- FAIL: <name>" line belongs to the
+# next "FAIL<TAB><pkg>" line.
+failed_tests() {
+  awk '
+    /^--- FAIL: / { pend[++n] = $3; next }
+    $1 == "FAIL" && NF >= 2 {
+      if (n == 0) print $2, "(package)"
+      for (i = 1; i <= n; i++) print $2, pend[i]
+      n = 0
+    }'
+}
+
+# record_flake <pkg> <test>: one line in obor's flake log (internal/checks/flakes.go), as the checks write it: the test
+# name (the package for a package without a test line), check "check", task "release", the sha, retried and passed.
+record_flake() {
+  name=$2
+  [ "$name" != "(package)" ] || name=$1
+  mkdir -p .obor/state || return 0
+  printf '{"time":%s,"test":"%s","check":"check","task":"release","sha":"%s","load":null,"retried":true,"passed_on_retry":true}\n' \
+    "$(date +%s)" "$name" "$(git rev-parse HEAD 2> /dev/null || true)" >> .obor/state/flakes.jsonl ||
+    echo "warning: flake log: cannot write .obor/state/flakes.jsonl"
 }
 
 # undo: the running step's undo, run when the script exits non-zero; a step sets it before its first change and clears
@@ -188,6 +261,25 @@ copyback_done() {
 [ -f Makefile ] && [ -f VERSION ] && [ -f .claude-plugin/plugin.json ] ||
   fail "not at a kit checkout's root: run make release V=$v there"
 
+# The whole run goes to the terminal and to .obor/state/logs/release-<version>.log (T-717): the script runs itself again
+# with stdout and stderr in one pipe to tee, and passes its exit status on (a plain pipe would lose it). A re-run
+# appends, so an earlier failed run's log stays. OBOR_RELEASE_LOGGED marks the inner run.
+if [ "$dry" = 0 ]; then
+  log=".obor/state/logs/release-$v.log"
+  if [ -z "${OBOR_RELEASE_LOGGED:-}" ]; then
+    mkdir -p .obor/state/logs || fail "cannot create .obor/state/logs"
+    stfile=$(mktemp "$tmpdir/obor-release-status.XXXXXX")
+    {
+      rc=0
+      printf '== release %s %s ==\n' "$v" "$(date '+%Y-%m-%d %H:%M:%S')"
+      OBOR_RELEASE_LOGGED=1 sh "$0" "$@" 2>&1 || rc=$?
+      echo "$rc" > "$stfile"
+    } | tee -a "$log"
+    rc=$(cat "$stfile"); rm -f "$stfile"
+    exit "${rc:-1}"
+  fi
+fi
+
 branch=$(git symbolic-ref --quiet --short HEAD 2> /dev/null) || branch=
 [ "$branch" = main ] || fail "on ${branch:-a detached HEAD}, not main: make release runs on main"
 
@@ -268,7 +360,7 @@ else
     mv "$tmp" .claude-plugin/plugin.json || fail "cannot set the plugin version in .claude-plugin/plugin.json"
   tmp=
   say "VERSION and the plugin version set to $v; running make check"
-  plain_make check || fail "make check failed: nothing is committed (VERSION and the plugin version are back as they were)"
+  run_check
   git add VERSION .claude-plugin/plugin.json
   git commit -q -m "obor v$v: VERSION, plugin version" ||
     fail "cannot commit the version bump on main: VERSION and the plugin version are back at HEAD's (index and tree)"
