@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (owner): **opencode model/variant via obor's plugin, for obor only** (no separate project, no picker:
+  people have `/model`, `/effort`): T-703 probes `ctx.session.switchModel` on a real pane and, if it holds, replaces
+  the per-agent `XDG_STATE_HOME` workaround (docs/research/opencode-model-selection.md). **Researcher role**: Sonnet,
+  main checkout (no worktree), writes `docs/research/` only (T-704); research may also run on a worker lane when the
+  result should be reviewed; subagents only for quick lookups in the lead's turn.
 - 2026-11-02 (owner): **internal/app split**: deep dive steps 1-5 (docs/research/app-split-deep-dive.md) as T-690..T-694
   on Sonnet (owner: Sonnet instead of DeepSeek), after T-686/T-689; steps 6-7 not now; aliases removed in a later
   task. **Spec `Type:` line** (T-689): an optional lane type beside `Difficulty:`, preferred at dispatch, else the
