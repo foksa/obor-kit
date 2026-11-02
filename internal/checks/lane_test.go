@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/testkit"
 )
@@ -43,8 +43,8 @@ func laneAdapter(t *testing.T, p *testkit.Project, git string) Lane {
 }
 
 // laneInput is the lane.prepare step of task T-01 in lane O-01 at laneAt.
-func laneInput(lane, target string) app.PrepareInput {
-	return app.PrepareInput{Task: "T-01", Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target,
+func laneInput(lane, target string) port.PrepareInput {
+	return port.PrepareInput{Task: "T-01", Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target,
 		Agent: "pj-o-01", At: laneAt}
 }
 
@@ -57,7 +57,7 @@ func TestLanePrepare(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if want := (app.Prepared{Base: target, Head: target}); got != want {
+	if want := (port.Prepared{Base: target, Head: target}); got != want {
 		t.Errorf("prepared %+v, want %+v", got, want)
 	}
 	if got := p.Git(lane, "rev-parse", "HEAD"); got != target {
@@ -129,9 +129,9 @@ func TestLanePrepareRefused(t *testing.T) {
 				in.Dir = filepath.Join(p.Base, "no-such-lane")
 			}
 			_, err := laneAdapter(t, p, "").Prepare(context.Background(), in)
-			var refused app.Refused
+			var refused port.Refused
 			if !errors.As(err, &refused) {
-				t.Fatalf("prepare: %v; want an app.Refused", err)
+				t.Fatalf("prepare: %v; want an port.Refused", err)
 			}
 			if !strings.Contains(refused.Line, c.want) {
 				t.Errorf("refusal %q lacks %q", refused.Line, c.want)
@@ -153,7 +153,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 			if _, err := laneAdapter(t, p, shim).Prepare(context.Background(), in); err == nil {
 				t.Fatal("prepare with a failing git call: no error")
 			} else {
-				var refused app.Refused
+				var refused port.Refused
 				if errors.As(err, &refused) {
 					t.Errorf("git failure is a refusal %q, want a plain error to retry", refused.Line)
 				}
@@ -167,7 +167,7 @@ func TestLanePrepareRepeats(t *testing.T) {
 			if err != nil {
 				t.Fatalf("second repeat: %v", err)
 			}
-			if want := (app.Prepared{Base: target, Head: target}); first != want || second != want {
+			if want := (port.Prepared{Base: target, Head: target}); first != want || second != want {
 				t.Errorf("repeats prepared %+v, %+v; want %+v", first, second, want)
 			}
 		})
@@ -206,10 +206,10 @@ func TestLaneFree(t *testing.T) {
 			if c.dirty {
 				p.Write(filepath.Join(lane, "scratch.txt"), "x\n")
 			}
-			in := app.FreeInput{Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target, Discard: c.discard}
+			in := port.FreeInput{Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target, Discard: c.discard}
 			line, err := l.Free(context.Background(), in)
 			if c.refusal != "" {
-				var refused app.Refused
+				var refused port.Refused
 				if !errors.As(err, &refused) || !strings.Contains(refused.Line, c.refusal) {
 					t.Fatalf("free: %v; want refused with %q", err, c.refusal)
 				}

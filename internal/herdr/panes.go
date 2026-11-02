@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 )
 
 // ErrUnknown is Busy's error when herdr cannot tell whether a child runs under the pane's agent: the pane's
@@ -23,7 +23,7 @@ import (
 // unknown activity (the app does: any Busy error is unknown).
 var ErrUnknown = errors.New("herdr: unknown activity")
 
-// Panes is app.Panes over the herdr socket.
+// Panes is port.Panes over the herdr socket.
 type Panes struct {
 	S *Socket
 	// PS is the machine's process table, lines "pid ppid pgid" (nil: `ps -A -o pid=,ppid=,pgid=`).
@@ -32,12 +32,12 @@ type Panes struct {
 	Home string
 }
 
-var _ app.Panes = Panes{}
+var _ port.Panes = Panes{}
 
 // Subscribe is a Stream as the core sees it: lifecycle and status events (output watches are not the core's yet).
 // It pings first: a herdr on another protocol is refused with a clear error. An EventStatus carries the pane as read
 // after the event in New (name, workspace, cwd and transcript too), like an EventCreated.
-func (p Panes) Subscribe(ctx context.Context) (*app.Stream, error) {
+func (p Panes) Subscribe(ctx context.Context) (*port.Stream, error) {
 	s, err := Dial(ctx, p.S.Path)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (p Panes) Subscribe(ctx context.Context) (*app.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, done := make(chan app.Event), make(chan struct{})
+	c, done := make(chan port.Event), make(chan struct{})
 	var once sync.Once
 	go func() {
 		defer close(c)
@@ -62,33 +62,33 @@ func (p Panes) Subscribe(ctx context.Context) (*app.Stream, error) {
 			}
 		}
 	}()
-	return &app.Stream{Snapshot: p.appSnapshot(st.Snapshot), C: c, Err: st.Err,
+	return &port.Stream{Snapshot: p.appSnapshot(st.Snapshot), C: c, Err: st.Err,
 		Close: func() { once.Do(func() { close(done); st.Close() }) }}, nil
 }
 
-func (p Panes) appEvent(ev Event) app.Event {
+func (p Panes) appEvent(ev Event) port.Event {
 	switch ev.Kind {
 	case EventStatus:
-		return app.Event{Kind: app.EventStatus, Pane: ev.Pane, Status: ev.Status, Agent: ev.Agent, New: p.appPane(ev.Now)}
+		return port.Event{Kind: port.EventStatus, Pane: ev.Pane, Status: ev.Status, Agent: ev.Agent, New: p.appPane(ev.Now)}
 	case EventCreated:
 		pane := p.appPane(ev.Now)
 		pane.Label, pane.Terminal = ev.New.Label, ev.New.Terminal
-		return app.Event{Kind: app.EventCreated, Pane: ev.Pane, New: pane}
+		return port.Event{Kind: port.EventCreated, Pane: ev.Pane, New: pane}
 	case EventClosed:
-		return app.Event{Kind: app.EventClosed, Pane: ev.Pane}
+		return port.Event{Kind: port.EventClosed, Pane: ev.Pane}
 	}
-	return app.Event{Kind: app.EventExited, Pane: ev.Pane}
+	return port.Event{Kind: port.EventExited, Pane: ev.Pane}
 }
 
 // appPane is a pane as herdr reports it (its agent entry, or the pane's fields when no agent runs). An agent entry has
 // no label of its own: Label is the pane's, set by a Stream's reread and the snapshot.
-func (p Panes) appPane(a Agent) app.Pane {
-	return app.Pane{ID: a.Pane, Workspace: a.Workspace, Cwd: a.Cwd, Agent: a.Kind, Status: a.Status,
+func (p Panes) appPane(a Agent) port.Pane {
+	return port.Pane{ID: a.Pane, Workspace: a.Workspace, Cwd: a.Cwd, Agent: a.Kind, Status: a.Status,
 		Transcript: p.transcript(a), Session: a.Session, Label: a.Label}
 }
 
-func (p Panes) appSnapshot(s Snapshot) app.Snapshot {
-	out := app.Snapshot{Workspaces: map[string]string{}}
+func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
+	out := port.Snapshot{Workspaces: map[string]string{}}
 	for _, w := range s.Workspaces {
 		out.Workspaces[w.ID] = w.Label
 	}
@@ -281,7 +281,7 @@ func (p Panes) Notify(ctx context.Context, title, body string) error {
 	return p.S.Notify(ctx, title, body)
 }
 
-var _ app.Typer = Panes{}
+var _ port.Typer = Panes{}
 
 // Type types text into pane (agent.prompt, no wait): a job's wake with its [obor job <id>] tag, or serve's line as it
 // is. The agent's own proof of delivery (a job's job_next) counts, not herdr's answer. clear: the input line is

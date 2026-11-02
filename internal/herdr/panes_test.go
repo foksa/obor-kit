@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 )
@@ -128,7 +128,7 @@ func TestPanesSubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	want := app.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/O-01", Agent: "claude", Status: "idle",
+	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/O-01", Agent: "claude", Status: "idle",
 		Label: "pj-o-01", Session: "5e1d0c2b-aaaa"}
 	if st.Snapshot.Workspaces["w1"] != "pj" || len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
@@ -140,9 +140,9 @@ func TestPanesSubscribe(t *testing.T) {
 	// Status and lifecycle events come on separate subscriptions: their order is not defined.
 	working := want
 	working.Status = "working" // a status event carries the pane's label too
-	want2 := map[app.Event]bool{
-		{Kind: app.EventStatus, Pane: "w1:p1", Status: "working", Agent: "claude", New: working}: true,
-		{Kind: app.EventExited, Pane: "w1:p2"}:                                                   true,
+	want2 := map[port.Event]bool{
+		{Kind: port.EventStatus, Pane: "w1:p1", Status: "working", Agent: "claude", New: working}: true,
+		{Kind: port.EventExited, Pane: "w1:p2"}:                                                   true,
 	}
 	for range 2 {
 		if ev := nextApp(t, st); !want2[ev] {
@@ -157,14 +157,14 @@ func TestPanesSubscribe(t *testing.T) {
 		"label": "pj-renamed", "cwd": "/proj-wt/O-01"}})
 	relabelled := working
 	relabelled.Label = "pj-renamed"
-	if ev := nextApp(t, st); ev.Kind != app.EventStatus || ev.New != relabelled {
+	if ev := nextApp(t, st); ev.Kind != port.EventStatus || ev.New != relabelled {
 		t.Errorf("relabel event = %+v, want a status event for %+v", ev, relabelled)
 	}
 	// a new pane carries its label (herdr may drop an agent's name; the label is obor's agent name too)
 	f.Shell("w1:p4", "pj-sol", "/tmp")
 	srv.Push("pane_created", map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p4",
 		"label": "pj-sol", "cwd": "/tmp"}})
-	if ev := nextApp(t, st); ev.Kind != app.EventCreated || ev.New.ID != "w1:p4" || ev.New.Label != "pj-sol" {
+	if ev := nextApp(t, st); ev.Kind != port.EventCreated || ev.New.ID != "w1:p4" || ev.New.Label != "pj-sol" {
 		t.Errorf("created event = %+v, want w1:p4 labelled pj-sol", ev)
 	}
 	st.Close()
@@ -175,7 +175,7 @@ func TestPanesSubscribe(t *testing.T) {
 	}
 }
 
-func nextApp(t *testing.T, st *app.Stream) app.Event {
+func nextApp(t *testing.T, st *port.Stream) port.Event {
 	t.Helper()
 	select {
 	case ev, ok := <-st.C:
@@ -186,7 +186,7 @@ func nextApp(t *testing.T, st *app.Stream) app.Event {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no event within 5 s")
 	}
-	return app.Event{}
+	return port.Event{}
 }
 
 // T-563: Turn reads the last turn of a Codex agent's rollout (found from its session id, or the path herdr reports)
@@ -526,7 +526,7 @@ func TestPanesSessionWithoutTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	got := map[string]app.Pane{}
+	got := map[string]port.Pane{}
 	for _, p := range st.Snapshot.Panes {
 		got[p.ID] = p
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
@@ -185,7 +185,7 @@ func (s *Setup) pluginDir() (string, error) {
 // time, so a symlink in between buys nothing): not linked → link; another kit's copy → re-link. Then herdr's resume
 // setting. plugins is herdr's plugin list, read once by the caller (T-613 #4: a list error is the step's error, never
 // "linked"); the caller checked the kit has the plugin.
-func (s *Setup) events(ctx context.Context, mine string, plugins []app.Plugin) error {
+func (s *Setup) events(ctx context.Context, mine string, plugins []port.Plugin) error {
 	defer s.resumeHint()
 	if eventsLinked(mine, plugins) {
 		s.say("herdr-plugin: obor.events linked (%s)", mine)
@@ -217,7 +217,7 @@ func (s *Setup) events(ctx context.Context, mine string, plugins []app.Plugin) e
 
 // eventsLinked: herdr runs this kit's obor.events (mine is its herdr-plugin dir; a plugin with no root counts: herdr
 // did not say where it is).
-func eventsLinked(mine string, plugins []app.Plugin) bool {
+func eventsLinked(mine string, plugins []port.Plugin) bool {
 	physical := project.Physical(mine)
 	for _, p := range plugins {
 		if p.ID == "obor.events" && (p.Root == "" || project.Physical(p.Root) == physical) {

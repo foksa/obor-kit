@@ -24,11 +24,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
-var _ app.PaneControl = (*Socket)(nil)
+var _ port.PaneControl = (*Socket)(nil)
 
 // Kind is what went wrong in a herdr call.
 type Kind int
@@ -70,8 +70,8 @@ func Reached(err error) bool {
 	return !errors.As(err, &e) || e.reached
 }
 
-// NotFound, Unavailable and ErrorCode let the core read an *Error without importing herdr (app.NotFound,
-// app.NotRunning, app.ErrorCode).
+// NotFound, Unavailable and ErrorCode let the core read an *Error without importing herdr (port.NotFound,
+// port.NotRunning, port.ErrorCode).
 func (e *Error) NotFound() bool    { return e.Kind == NotFound }
 func (e *Error) Unavailable() bool { return e.Kind == Unavailable }
 func (e *Error) ErrorCode() string { return e.Code }
@@ -1075,16 +1075,16 @@ func (st *Stream) Close() {
 }
 
 // Agent and Pane are what agent.list/agent.get and pane.list/pane.get answer: the core's types, so a *Socket is an
-// app.PaneControl.
+// port.PaneControl.
 type (
-	Agent = app.AgentInfo
-	Pane  = app.PaneInfo
+	Agent = port.AgentInfo
+	Pane  = port.PaneInfo
 )
 
 // Process and ProcessInfo are pane.process_info: the shell and the processes of the pane's foreground process group.
 type (
-	Process     = app.Process
-	ProcessInfo = app.ProcessInfo
+	Process     = port.Process
+	ProcessInfo = port.ProcessInfo
 )
 
 // wire is herdr's JSON for an agent or a pane (both carry the same agent fields).
@@ -1151,9 +1151,9 @@ func trimSlash(p string) string {
 
 // Rect, Plugin and TabInfo are the core's types (pane.layout, plugin.list, tab.list), so setup need not import herdr.
 type (
-	Rect    = app.Rect
-	Plugin  = app.Plugin
-	TabInfo = app.TabInfo
+	Rect    = port.Rect
+	Plugin  = port.Plugin
+	TabInfo = port.TabInfo
 )
 
 // layoutAnswer is herdr's answer to pane.layout.

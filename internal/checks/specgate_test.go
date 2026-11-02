@@ -3,7 +3,7 @@ package checks
 import (
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 )
 
 // T-521: the gate puts the stored spec (GateInput.Spec, SpecRev) into every lane candidate's merge message, after
@@ -29,7 +29,7 @@ func TestGateSpecInMessage(t *testing.T) {
 			in := lane(y.submit())
 			in.Spec, in.SpecRev = c.spec, 3
 			o := y.gate(in)
-			if o.Kind != app.OutcomeGreen {
+			if o.Kind != port.OutcomeGreen {
 				t.Fatalf("gate: %s %q; want green\n%s", o.Kind, o.Line, y.out.String())
 			}
 			cand := o.Candidate
@@ -50,7 +50,7 @@ func TestGateSpecInMessage(t *testing.T) {
 			}
 			want += "\n\nCo-Authored-By: Test <test@example.invalid>" // the trailer stays last
 			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", cand.SHA), want, "the merge's message")
-			if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != app.PublishMerged {
+			if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 				t.Fatalf("publish: %+v %v", o, err)
 			}
 			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", "main"), want, "main's merge message")
@@ -74,7 +74,7 @@ func TestGateResolvedSpecInMessage(t *testing.T) {
 	if body := y.Git(y.Root, "log", "-1", "--format=%b", res); body != "" {
 		t.Fatalf("precondition: the resolution's message has a body %q", body)
 	}
-	in := app.GateInput{Task: "T-05", Lane: "O-01", Kind: app.InputResolved, Input: res, Spec: spec, SpecRev: 2}
+	in := port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputResolved, Input: res, Spec: spec, SpecRev: 2}
 	c := y.green(in)
 	if c.SHA == res {
 		t.Fatalf("candidate %s is the resolution: its message was not amended", c.SHA)

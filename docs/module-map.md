@@ -64,7 +64,11 @@ Adding a kind = one package + a config entry.
   `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
   `pause.go`, `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
-  `effects.go`: one concern each.
+  `effects.go` (`JobID`): one concern each.
+- `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,
+  `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
+  `Scratch`, `LaneSetup` and their inputs and outcomes). Adapters import it instead of `app`; `app` keeps type and const
+  aliases of it until a later task removes them (`app/ports.go`).
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
   result after).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap

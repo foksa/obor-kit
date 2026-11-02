@@ -82,14 +82,25 @@ func TestAffectedGoOborKit(t *testing.T) {
 		t.Fatalf("affected.Go: %+v, %v; want a package list", res, err)
 	}
 	got, stdout := res.Pkgs, strings.Join(res.Pkgs, "\n")
-	for _, p := range []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/herdr", "obor/internal/setup"} {
+	for _, p := range []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/setup"} {
 		if !slices.Contains(got, p) {
 			t.Errorf("%s not selected by an internal/app change:\n%s", p, stdout)
 		}
 	}
-	for _, p := range []string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version"} {
+	for _, p := range []string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version",
+		"obor/internal/herdr"} {
 		if slices.Contains(got, p) {
 			t.Errorf("%s selected by an internal/app change:\n%s", p, stdout)
+		}
+	}
+	// The ports leaf (T-690): herdr imports it, not app, so a port change selects herdr and an app change does not.
+	pres, err := affected.Go(root, []string{"internal/app/port/effects.go"}, nil)
+	if err != nil || pres.Full != "" {
+		t.Fatalf("affected.Go port: %+v, %v; want a package list", pres, err)
+	}
+	for _, p := range []string{"obor/internal/app/port", "obor/internal/herdr", "obor/internal/app"} {
+		if !slices.Contains(pres.Pkgs, p) {
+			t.Errorf("%s not selected by an internal/app/port change:\n%s", p, strings.Join(pres.Pkgs, "\n"))
 		}
 	}
 	// project.Find resolves a lane to the main checkout's config, so read this tree's own file.

@@ -55,7 +55,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/run"
@@ -320,7 +320,7 @@ func (s *Setup) configExists() bool {
 
 // uniquePrefix is p, else p2 … p9, the first no running agent's name starts with (<prefix>-): another project's
 // agents keep theirs.
-func uniquePrefix(p string, running []app.AgentInfo) string {
+func uniquePrefix(p string, running []port.AgentInfo) string {
 	taken := func(c string) bool {
 		for _, a := range running {
 			if strings.HasPrefix(a.Name, c+"-") {

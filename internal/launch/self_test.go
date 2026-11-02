@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
@@ -55,13 +55,13 @@ func (x *fx) self(own string, scheduled bool, req launch.Request, stop bool, tun
 
 // idleAfter makes pane p's agent go idle after n agent looks; *got counts them.
 type idleAfter struct {
-	app.PaneControl
+	port.PaneControl
 	p   *herdrtest.Pane
 	n   int
 	got *int
 }
 
-func (w idleAfter) Agent(ctx context.Context, target string) (app.AgentInfo, error) {
+func (w idleAfter) Agent(ctx context.Context, target string) (port.AgentInfo, error) {
 	if target == w.p.ID {
 		if *w.got++; *w.got > w.n {
 			w.p.Status = "idle"
@@ -125,7 +125,7 @@ func TestRestartOwnPane(t *testing.T) {
 		x.sid("pj-o-01", "sid-1")
 		a := x.agent("w1:p3", "pj-o-01", "claude", "working")
 		got := 0
-		x.wrap = func(h app.PaneControl) app.PaneControl { return idleAfter{h, a, 3, &got} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 3, &got} }
 		out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-o-01"}, false, func(l *launch.Launcher) {
 			l.Sched = time.Minute
 		})
@@ -197,18 +197,18 @@ func TestRestartOwnPane(t *testing.T) {
 // polled runs hook before the n-th agent look of pane p (its error, if any, is the call's: herdr unavailable), and
 // keeps p's agent status at each /exit typed into p.
 type polled struct {
-	app.PaneControl
+	port.PaneControl
 	p      *herdrtest.Pane
 	got    *int
 	hook   func(n int) error
 	atExit *[]string
 }
 
-func (w polled) Agent(ctx context.Context, target string) (app.AgentInfo, error) {
+func (w polled) Agent(ctx context.Context, target string) (port.AgentInfo, error) {
 	if target == w.p.ID {
 		*w.got++
 		if err := w.hook(*w.got); err != nil {
-			return app.AgentInfo{}, err
+			return port.AgentInfo{}, err
 		}
 	}
 	return w.PaneControl.Agent(ctx, target)
@@ -246,7 +246,7 @@ func TestRestartSelfFreshHandoff(t *testing.T) {
 				t.Fatalf("the detached argv: %+v, %v", req, err)
 			}
 			got := 0
-			x.wrap = func(h app.PaneControl) app.PaneControl { return idleAfter{h, a, 2, &got} }
+			x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 2, &got} }
 			out, ok, spawns = x.self("w1:p3", true, req, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 			if !ok || len(spawns) != 0 {
 				t.Fatalf("the detached run: %v, spawns %v\n%s", ok, spawns, out)
@@ -267,7 +267,7 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 	// status at each /exit.
 	run := func(x *fx, a *herdrtest.Pane, req launch.Request, stop bool, sched time.Duration, hook func(n int) error) (out string, ok bool, got int, atExit []string) {
 		x.t.Helper()
-		x.wrap = func(h app.PaneControl) app.PaneControl { return polled{h, a, &got, hook, &atExit} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return polled{h, a, &got, hook, &atExit} }
 		out, ok, spawns := x.self("w1:p3", true, req, stop, func(l *launch.Launcher) { l.Sched = sched })
 		if len(spawns) != 0 {
 			x.t.Errorf("not scheduled again: %v", spawns)
@@ -506,7 +506,7 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 		x.t.Helper()
 		a := x.agent(k.pane, k.agent, k.kind, "working")
 		a.Session = "sid-1"
-		x.wrap = func(h app.PaneControl) app.PaneControl {
+		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return polled{h, a, &got, func(n int) error {
 				switch {
 				case n == 2:
@@ -642,12 +642,12 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 // callerFg gives pane p's foreground to the caller (`obor restart`, pid 77) for its next n process-info
 // looks, then back to the shell; left counts the looks still to come.
 type callerFg struct {
-	app.PaneControl
+	port.PaneControl
 	p    *herdrtest.Pane
 	left *int
 }
 
-func (w callerFg) ProcessInfo(ctx context.Context, pane string) (app.ProcessInfo, error) {
+func (w callerFg) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if *w.left > 0 {
 		*w.left--
 		w.p.Foreground, w.p.Procs = 77, []herdr.Process{{PID: 77, Argv0: "obor"}}
@@ -674,7 +674,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		x.sid("pj-o-01", "sid-1")
 		a := x.agent("w1:p3", "pj-o-01", "claude", "working")
 		got := 0
-		x.wrap = func(h app.PaneControl) app.PaneControl { return idleAfter{h, a, 2, &got} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return idleAfter{h, a, 2, &got} }
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-o-01"}, false, func(l *launch.Launcher) { l.Sched = time.Minute })
 		if !ok || got <= 2 {
 			t.Fatalf("waited until idle (%d looks), then restarted:\n%s", got, out)
@@ -700,7 +700,7 @@ func TestWaitScheduledTable(t *testing.T) {
 		x := setup(t)
 		p := x.shell("w1:p3", "pj-o-01", x.lane)
 		left := 4
-		x.wrap = func(h app.PaneControl) app.PaneControl { return callerFg{h, p, &left} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, p, &left} }
 		out, ok, _ := x.self("w1:p3", true, launch.Request{Agent: "pj-o-01", Fresh: true}, false, nil)
 		if left != 0 {
 			t.Fatalf("precondition: the caller held the foreground for every planned look (%d left)\n%s", left, out)
@@ -739,7 +739,7 @@ func TestWaitScheduledTable(t *testing.T) {
 				x.wait = shortWait
 				p := x.shell("w1:p3", "pj-o-01", x.lane)
 				left := 1 << 30
-				x.wrap = func(h app.PaneControl) app.PaneControl { return callerFg{h, p, &left} }
+				x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, p, &left} }
 				out, ok, _ := x.self("w1:p3", true, c.req, c.stop, nil)
 				if ok {
 					t.Errorf("not run:\n%s", out)
@@ -757,7 +757,7 @@ func TestWaitScheduledTable(t *testing.T) {
 			x := setup(t)
 			p := x.shell("w1:p3", "pj-o-01", x.lane)
 			left := held
-			x.wrap = func(h app.PaneControl) app.PaneControl { return callerFg{h, p, &left} }
+			x.wrap = func(h port.PaneControl) port.PaneControl { return callerFg{h, p, &left} }
 			out, ok, spawns := x.self("w1:p3", true, launch.Request{Agent: "pj-o-01"}, true, nil)
 			if !ok || len(spawns) != 0 || left != 0 {
 				t.Fatalf("held %d: stopped, not scheduled again (%v, %d looks left):\n%s", held, spawns, left, out)

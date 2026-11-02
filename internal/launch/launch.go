@@ -42,7 +42,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -54,7 +54,7 @@ type Launcher struct {
 	Cfg  *config.Config
 	Env  project.Env
 	Kit  string // the obor kit (Codex's MCP registration points at <Kit>/bin/obor); "": project.KitRoot(Env)
-	H    app.PaneControl
+	H    port.PaneControl
 	Out  io.Writer     // progress lines
 	Wait time.Duration // for an agent to exit after /exit, the shell to run the env line (default OBOR_RESTART_WAIT, else 20 s)
 	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
@@ -89,10 +89,10 @@ type Launcher struct {
 	Open func(pids []int) []string
 }
 
-// Request is one `obor restart` (the core's app.Launch: Launcher is an app.Agents).
-type Request = app.Launch
+// Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
+type Request = port.Launch
 
-var _ app.Agents = (*Launcher)(nil)
+var _ port.Agents = (*Launcher)(nil)
 
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
 // ParseRequest reads that back. The pair owns the whole mapping, so a new Request field cannot be carried on one
@@ -221,8 +221,8 @@ type target struct {
 	info  config.AgentInfo
 	sid   string // recorded session id
 	pane  string
-	entry app.PaneInfo // the pane as pane list shows it
-	panes []app.PaneInfo
+	entry port.PaneInfo // the pane as pane list shows it
+	panes []port.PaneInfo
 	kind  string
 	env   map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 }
@@ -386,37 +386,37 @@ func (l *Launcher) Restart(ctx context.Context, req Request) (string, error) {
 	return s.Line, err
 }
 
-// Launch is Restart (app.Agents): its line, and the agent it started there with the session id herdr reported for it
+// Launch is Restart (port.Agents): its line, and the agent it started there with the session id herdr reported for it
 // (the identity serve records for a later rename, T-418; none for a scheduled restart of the caller's own pane).
-func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error) {
+func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error) {
 	if !config.AgentNameRE.MatchString(req.Agent) {
-		return app.Started{}, project.Failf("bad agent name %q", req.Agent)
+		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
 	}
 	if req.Sid != "" && req.Fresh {
-		return app.Started{}, project.Failf("pass --sid or --fresh, not both")
+		return port.Started{}, project.Failf("pass --sid or --fresh, not both")
 	}
 	waited, err := l.waitScheduled(ctx, req.Agent, req.Pane)
 	if err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	t, err := l.resolve(ctx, req.Agent, req.Pane)
 	if err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	if waited {
 		if err := l.sameAgent(ctx, t); err != nil {
-			return app.Started{}, err
+			return port.Started{}, err
 		}
 	}
 	end, err := l.begin(ctx, t.agent, t.info.Lane)
 	if err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	defer end()
 
 	// Another pane holds the herdr name: herdr would refuse the start. No moves: FAIL before anything is stopped.
 	if a, err := l.H.Agent(ctx, t.agent); err == nil && a.Pane != "" && a.Pane != t.pane {
-		return app.Started{}, project.Failf("pane %s holds the name %s: restart it there (obor restart %s)",
+		return port.Started{}, project.Failf("pane %s holds the name %s: restart it there (obor restart %s)",
 			a.Pane, t.agent, t.agent)
 	}
 
@@ -450,20 +450,20 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 		if sid != "" && src == "record" {
 			var err error
 			if fresh, err = l.checkTranscript(t, sid); err != nil {
-				return app.Started{}, err
+				return port.Started{}, err
 			}
 			if fresh {
 				sid = ""
 			}
 		}
 		if sid == "" && !req.Fresh && !fresh {
-			return app.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
+			return port.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
 		}
 	}
 	// The caller's own pane (T-264): schedule a detached run; that run waited for the agent to go idle (waitScheduled).
 	if l.ownPane(t) && !waited {
 		line, err := l.schedule(t, req, false)
-		return app.Started{Line: line}, err
+		return port.Started{Line: line}, err
 	}
 
 	// The effort (T-695): the request's (a dispatch's type reference), else the role's (roles.<role>.type), else the
@@ -474,13 +474,13 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 	}
 	args, err := l.args(t, effort)
 	if err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	if err := l.setEnv(ctx, t); err != nil {
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
@@ -494,17 +494,17 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (app.Started, error)
 	var se *StartError
 	switch {
 	case errors.As(err, &se) && se.NotReady:
-		return app.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
+		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (%s)", t.pane, se.Hint)
 	case errors.As(err, &se):
-		return app.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
+		return port.Started{}, l.giveUp(ctx, t, "start failed in %s (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart %s --pane %s again or start it by hand)",
 			t.pane, t.agent, t.pane)
 	case err != nil:
-		return app.Started{}, err
+		return port.Started{}, err
 	}
 	if sid == "" {
 		sid = "new"
 	}
-	return app.Started{Line: fmt.Sprintf("RESTARTED %s (pane %s, session %s)", t.agent, t.pane, sid), Pane: t.pane,
+	return port.Started{Line: fmt.Sprintf("RESTARTED %s (pane %s, session %s)", t.agent, t.pane, sid), Pane: t.pane,
 		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
 }
 
@@ -569,8 +569,8 @@ func transcriptElsewhere(wild string) (bool, error) {
 	return false, nil
 }
 
-// AgentEnv is app.AgentEnv.
-type AgentEnv = app.AgentEnv
+// AgentEnv is port.AgentEnv.
+type AgentEnv = port.AgentEnv
 
 // SetEnv types the env line of e at pane's shell, as a restart does (obor setup in a pane that already exists: its
 // shell may hold the env of the agent that ran there before).

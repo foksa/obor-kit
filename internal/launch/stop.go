@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -199,7 +199,7 @@ func (l *Launcher) finish(ctx context.Context, t *target, before group, running 
 type group struct {
 	shell, pgid int
 	leader      string
-	members     []app.Process
+	members     []port.Process
 }
 
 func (l *Launcher) group(ctx context.Context, pane string) (group, error) {

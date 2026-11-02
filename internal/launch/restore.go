@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -42,7 +42,7 @@ const panesTimeout = 5 * time.Second
 // Restorer is the restore hook's world: the environment, the panes and the clock.
 type Restorer struct {
 	Env project.Env
-	H   app.PaneControl  // only its Panes
+	H   port.PaneControl // only its Panes
 	Now func() time.Time // nil: time.Now
 	// Restart is `obor restart` in the loaded project: the result line, or the error (project.Fail) it failed with.
 	Restart func(ctx context.Context, cfg *config.Config, req Request, out io.Writer) (string, error)
@@ -116,7 +116,7 @@ func (p *Restorer) Restore(ctx context.Context) {
 
 // restoreMonitor starts the monitor again in its pane: the pane runs no agent and is at its shell (nothing runs there:
 // a monitor that survives needs nothing). It has no session to resume, so nothing is recorded.
-func (p *Restorer) restoreMonitor(cfg *config.Config, pane app.PaneInfo, w io.Writer) {
+func (p *Restorer) restoreMonitor(cfg *config.Config, pane port.PaneInfo, w io.Writer) {
 	now := p.stamp()
 	switch {
 	case pane.Kind != "":
@@ -144,7 +144,7 @@ func (p *Restorer) atShell(pane string) bool {
 	return err == nil && pi.AtShell()
 }
 
-func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane app.PaneInfo, limit time.Duration, w io.Writer) {
+func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port.PaneInfo, limit time.Duration, w io.Writer) {
 	now, agent := p.stamp(), pane.Label
 	if pane.Kind != "" {
 		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, agent, pane.ID, pane.Kind)

@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
@@ -115,7 +115,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 	if err := l.whenIdle(ctx, t, word); err != nil {
 		return true, err
 	}
-	if _, err := l.H.Agent(ctx, t.pane); !app.NotFound(err) {
+	if _, err := l.H.Agent(ctx, t.pane); !port.NotFound(err) {
 		return true, nil
 	}
 	if l.atShell(ctx, t.pane) {
@@ -140,7 +140,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 func (l *Launcher) sameAgent(ctx context.Context, t *target) error {
 	a, err := l.H.Agent(ctx, t.pane)
 	switch {
-	case app.NotFound(err):
+	case port.NotFound(err):
 		return nil
 	case err != nil:
 		return l.giveUp(ctx, t, "cannot confirm pane %s runs %s: %v: not stopped", t.pane, t.agent, err)
@@ -164,7 +164,7 @@ func (l *Launcher) whenIdle(ctx context.Context, t *target, word string) error {
 	if l.until(ctx, d, func() bool {
 		a, err := l.H.Agent(ctx, t.pane)
 		switch {
-		case app.NotFound(err):
+		case port.NotFound(err):
 			return true
 		case err != nil:
 			last = err

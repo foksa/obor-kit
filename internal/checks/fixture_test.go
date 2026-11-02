@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/run"
@@ -36,8 +36,8 @@ type fx struct {
 	env                  []string // project.Env (OBOR_GATE, OBOR_FULL)
 	environ              []string // more command environment
 	load                 []float64
-	cand                 app.Candidate // the last green gate's (gate)
-	spec                 string        // the task's stored spec gate passes (GateInput.Spec; "": none)
+	cand                 port.Candidate // the last green gate's (gate)
+	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
 	sig                  chan int
 	mu                   sync.Mutex
 }
@@ -127,15 +127,15 @@ func (x *fx) gateCtx(ctx context.Context, lane, task, summary string) Result {
 	if err != nil {
 		return Result{Code: Fail, Line: err.Error()}
 	}
-	o, err := s.Gate(ctx, app.GateInput{Task: task, Lane: lane, Kind: app.InputLane, Input: sha, Summary: summary,
+	o, err := s.Gate(ctx, port.GateInput{Task: task, Lane: lane, Kind: port.InputLane, Input: sha, Summary: summary,
 		Spec: x.spec})
 	switch {
 	case err != nil:
 		return Result{Code: Fail, Line: err.Error()}
-	case o.Kind == app.OutcomeGreen:
+	case o.Kind == port.OutcomeGreen:
 		x.cand = o.Candidate
 		return Result{Code: OK, Line: o.Line}
-	case o.Kind == app.OutcomeRed:
+	case o.Kind == port.OutcomeRed:
 		return Result{Code: Red, Line: o.Line}
 	}
 	return Result{Code: Fail, Line: o.Line}

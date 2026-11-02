@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 )
 
-// Scratch is obor serve's merge gate over real git (app.Scratch). It works in
+// Scratch is obor serve's merge gate over real git (port.Scratch). It works in
 // serve's own worktree, merge.scratch_dir, which only obor serve writes: every gate starts by resetting it, so there
 // is no merge window, no lock and no ownership proof. Each step is a function of its inputs (shas the
 // app records, the pins under refs/obor/), never of the worktree's state. An outcome is final for its step; an error
@@ -25,7 +25,7 @@ import (
 // group).
 type Scratch struct{ Options }
 
-var _ app.Scratch = Scratch{}
+var _ port.Scratch = Scratch{}
 
 // submittedRefs pins a submitted lane head, the gate's input: refs/obor/submitted/<task>/<submit id>, one per submit
 // step. candidateRefs a green gate's merge, one per task; resolvedRefs the merge the integrator resolved in serve's
@@ -56,14 +56,14 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 		}
 	}
 	if fi, err := os.Stat(dir); dir == "" || err != nil || !fi.IsDir() {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL no lane %s", lane)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL no lane %s", lane)}
 	}
 	branch, err := s.call(dir, "branch", "--show-current")
 	if err != nil {
 		return "", err
 	}
 	if branch == "" {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL %s is not on a branch", dir)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL %s is not on a branch", dir)}
 	}
 	st, err := s.call(dir, "status", "--porcelain")
 	if err != nil {
@@ -88,7 +88,7 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 	if in, err := s.ancestor(dir, head, target); err != nil {
 		return "", err
 	} else if in {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL %s is already in the target", branch)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL %s is already in the target", branch)}
 	}
 	if err := s.dropFlatPin(task); err != nil {
 		return "", err
@@ -103,63 +103,63 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 // sha, never the old candidate, T-403) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
 // resolved one is checked as committed. Green: the merge committed and pinned at refs/obor/candidate/<task>. The merge
 // commit's date is its newer parent's, so a repeat makes the same commit.
-func (s Scratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, error) {
+func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
 		s.Out = io.Discard
 	}
 	branch, target, err := s.target()
 	if err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	dir := s.dir()
 	if err := s.worktree(dir, target); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	base := target
 	switch in.Kind {
-	case app.InputLane, app.InputMoved:
-	case app.InputResolved:
+	case port.InputLane, port.InputMoved:
+	case port.InputResolved:
 		base = in.Input
 	default:
-		return app.GateOutcome{}, fmt.Errorf("gate %s: unknown input kind %q", in.Task, in.Kind)
+		return port.GateOutcome{}, fmt.Errorf("gate %s: unknown input kind %q", in.Task, in.Kind)
 	}
 	if _, err := s.call(dir, "reset", "-q", "--hard", base); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	if _, err := s.call(dir, "clean", "-fdq"); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	linkLaneLinks(s.Cfg, s.Cfg.Root, dir)
 
 	r := newRunner(ctx, &s.Options, dir, in.Task, "serve-changed-files")
 	r.onCommand = in.Command // obor status' running line names the command while it runs, none between two (T-669, T-673)
 	defer r.releaseSlot()
-	c := app.Candidate{Task: in.Task, Lane: in.Lane, SHA: in.Input}
+	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: in.Input}
 	rev := ""
-	if in.Kind == app.InputResolved {
+	if in.Kind == port.InputResolved {
 		if r.pre, err = s.call(dir, "merge-base", target, in.Input); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 		if c.Target, err = s.call(dir, "rev-parse", in.Input+"^1"); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 		if c.SHA, err = s.specResolved(dir, in); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 		rev = r.pre + ".." + c.SHA
 	} else {
 		r.pre, c.Target, rev = target, target, target+"..."+in.Input
 		if _, err := s.call(dir, "merge", "-q", "--no-commit", "--no-ff", in.Input); err != nil {
 			if open, verr := s.exists(dir, "MERGE_HEAD"); verr != nil || !open {
-				return app.GateOutcome{}, err
+				return port.GateOutcome{}, err
 			}
 			out, err := s.call(dir, "diff", "--name-only", "--diff-filter=U")
 			if err != nil {
-				return app.GateOutcome{}, err
+				return port.GateOutcome{}, err
 			}
 			files := lines(out)
-			return app.GateOutcome{Kind: app.OutcomeConflict, Files: files, Dir: dir,
+			return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
 				Line: fmt.Sprintf("CONFLICT in %s: %s", dir, strings.Join(files, " "))}, nil
 		}
 	}
@@ -169,44 +169,44 @@ func (s Scratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, e
 	if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
 		return *o, err
 	}
-	if o, err := gateHalt(&r, r.runChecks(in.Kind != app.InputResolved)); o != nil || err != nil {
+	if o, err := gateHalt(&r, r.runChecks(in.Kind != port.InputResolved)); o != nil || err != nil {
 		return *o, err
 	}
 	r.releaseSlot()
 
-	if in.Kind != app.InputResolved {
+	if in.Kind != port.InputResolved {
 		msg := "Merge " + in.Task + ": " + in.Summary + specBody(in)
-		if in.Kind == app.InputMoved {
+		if in.Kind == port.InputMoved {
 			// T-360: a moved target keeps the task's subject rule; where the merge went is in the body.
 			msg += "\n\nMerged onto the moved " + branch + " at " + target
 		}
 		msg += s.trailer()
 		if c.SHA, err = s.commit(dir, msg, target, in.Input); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 	}
 	if _, err := s.call(s.Cfg.Root, "update-ref", candidateRefs+in.Task, c.SHA); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	diff, err := s.call(s.Cfg.Root, "diff", c.Target, c.SHA)
 	if err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	c.Patch = fmt.Sprintf("%x", sha256.Sum256([]byte(diff)))
-	if len(diff) <= app.InlineDiff {
+	if len(diff) <= port.InlineDiff {
 		c.Diff = diff // the review job carries it (T-602)
 	}
 	if c.Stat, err = s.call(s.Cfg.Root, "diff", "--stat", c.Target, c.SHA); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	c.Checks, c.Full = r.check+r.gate, !r.class.Partial
-	return app.GateOutcome{Kind: app.OutcomeGreen, Candidate: c,
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
 		Line: fmt.Sprintf("GREEN %s (%s, %s)", in.Task, c.Checks, r.mode)}, nil
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
 // store's rev at gate time); "" when none is stored (a task dispatched before T-440).
-func specBody(in app.GateInput) string {
+func specBody(in port.GateInput) string {
 	if strings.TrimSpace(in.Spec) == "" {
 		return ""
 	}
@@ -216,7 +216,7 @@ func specBody(in app.GateInput) string {
 // specResolved puts in.Spec into the message of the resolved merge checked out in dir (specBody, after its subject):
 // the merge is amended with it (same parents, tree and author; the committer date the merge's, so a repeat makes the
 // same commit). No spec stored: the merge as committed. The candidate's sha.
-func (s Scratch) specResolved(dir string, in app.GateInput) (string, error) {
+func (s Scratch) specResolved(dir string, in port.GateInput) (string, error) {
 	body := specBody(in)
 	if body == "" {
 		return in.Input, nil
@@ -240,8 +240,8 @@ func (s Scratch) specResolved(dir string, in app.GateInput) (string, error) {
 
 // gateHalt is h, how r's checks stopped, as a gate outcome: red or fail are final (nothing to clean: the next gate resets), git I/O, the check
 // slot and a signal are errors; nil, nil when h is.
-func gateHalt(r *runner, h *halt) (*app.GateOutcome, error) {
-	o := &app.GateOutcome{}
+func gateHalt(r *runner, h *halt) (*port.GateOutcome, error) {
+	o := &port.GateOutcome{}
 	switch {
 	case h == nil:
 		return nil, nil
@@ -251,9 +251,9 @@ func gateHalt(r *runner, h *halt) (*app.GateOutcome, error) {
 		return o, h.err
 	case h.red != nil:
 		what, evidence := r.redLine(*h.red)
-		o.Kind, o.Line = app.OutcomeRed, fmt.Sprintf("RED %s (%s)%s", h.red.name, what, evidence)
+		o.Kind, o.Line = port.OutcomeRed, fmt.Sprintf("RED %s (%s)%s", h.red.name, what, evidence)
 	default:
-		o.Kind, o.Line = app.OutcomeFail, "FAIL "+h.fail
+		o.Kind, o.Line = port.OutcomeFail, "FAIL "+h.fail
 	}
 	return o, nil
 }
@@ -289,12 +289,12 @@ func (s Scratch) Resolved(ctx context.Context, task, input string) (string, erro
 	s.gitCtx = ctx
 	dir := s.dir()
 	if _, err := os.Stat(dir); err != nil {
-		return "", app.Refused{Line: "FAIL no serve worktree " + dir}
+		return "", port.Refused{Line: "FAIL no serve worktree " + dir}
 	}
 	if open, err := s.exists(dir, "MERGE_HEAD"); err != nil {
 		return "", err
 	} else if open {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL merge in progress in %s: commit the resolution first", dir)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL merge in progress in %s: commit the resolution first", dir)}
 	}
 	head, err := s.call(dir, "rev-parse", "HEAD")
 	if err != nil {
@@ -307,19 +307,19 @@ func (s Scratch) Resolved(ctx context.Context, task, input string) (string, erro
 	if in, err := s.ancestor(dir, head, target); err != nil {
 		return "", err
 	} else if in {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL no resolved merge in %s (commit it there)", dir)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL no resolved merge in %s (commit it there)", dir)}
 	}
 	out, err := s.call(dir, "rev-list", "--parents", "-n", "1", head)
 	if err != nil {
 		return "", err
 	}
 	if parents := strings.Fields(out); len(parents) != 3 || parents[2] != input {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL HEAD of %s is not %s's merge of %s (resolve that conflict there)",
+		return "", port.Refused{Line: fmt.Sprintf("FAIL HEAD of %s is not %s's merge of %s (resolve that conflict there)",
 			dir, task, input)}
 	} else if in, err := s.ancestor(dir, parents[1], target); err != nil {
 		return "", err
 	} else if !in {
-		return "", app.Refused{Line: fmt.Sprintf("FAIL HEAD of %s is not a merge onto %s", dir, target)}
+		return "", port.Refused{Line: fmt.Sprintf("FAIL HEAD of %s is not a merge onto %s", dir, target)}
 	}
 	if _, err := s.call(s.Cfg.Root, "update-ref", resolvedRefs+task, head); err != nil {
 		return "", err
@@ -330,64 +330,64 @@ func (s Scratch) Resolved(ctx context.Context, task, input string) (string, erro
 // Publish fast-forwards the target to c.SHA when it is still c.Target and deletes the task's pins. Already: the
 // target holds c (a repeat after the fast-forward). Hold: uncommitted changes in the main checkout touch merged files;
 // decided before any write, so a lock in the main checkout can only be an error.
-func (s Scratch) Publish(ctx context.Context, c app.Candidate) (app.PublishOutcome, error) {
+func (s Scratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
 	s.gitCtx = ctx
 	root := s.Cfg.Root
 	// A fast-forward refused while the target moved goes round once more: Already or Moved then.
 	for range 2 {
 		_, head, err := s.target()
 		if err != nil {
-			return app.PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		}
 		if in, err := s.ancestor(root, c.SHA, head); err != nil {
-			return app.PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		} else if in {
-			return app.PublishOutcome{Kind: app.PublishAlready}, s.Unpin(ctx, c.Task)
+			return port.PublishOutcome{Kind: port.PublishAlready}, s.Unpin(ctx, c.Task)
 		}
 		if head != c.Target {
-			return app.PublishOutcome{Kind: app.PublishMoved, Head: head}, nil
+			return port.PublishOutcome{Kind: port.PublishMoved, Head: head}, nil
 		}
 		out, err := s.call(root, "diff", "--no-renames", "--name-only", c.Target, c.SHA)
 		if err != nil {
-			return app.PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		}
 		if paths := lines(out); len(paths) > 0 {
 			st, err := s.call(root, append([]string{"--literal-pathspecs", "status", "--porcelain", "--"}, paths...)...)
 			if err != nil {
-				return app.PublishOutcome{}, err
+				return port.PublishOutcome{}, err
 			}
 			if st != "" {
 				var files []string
 				for _, l := range lines(st) {
 					files = append(files, l[min(3, len(l)):])
 				}
-				return app.PublishOutcome{Kind: app.PublishHold, Files: files}, nil
+				return port.PublishOutcome{Kind: port.PublishHold, Files: files}, nil
 			}
 		}
 		// ff-only moves the checked-out branch: off the target it would publish elsewhere (the loop pauses, T-425).
 		if b, err := s.call(root, "branch", "--show-current"); err != nil {
-			return app.PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		} else if b != s.Cfg.Data.Branches.Main {
-			return app.PublishOutcome{}, fmt.Errorf("publish %s: the main checkout %s is not on %s", c.Task, root, s.Cfg.Data.Branches.Main)
+			return port.PublishOutcome{}, fmt.Errorf("publish %s: the main checkout %s is not on %s", c.Task, root, s.Cfg.Data.Branches.Main)
 		}
 		_, ffErr := s.call(root, "merge", "-q", "--ff-only", c.SHA)
 		if ffErr == nil {
-			return app.PublishOutcome{Kind: app.PublishMerged}, s.Unpin(ctx, c.Task)
+			return port.PublishOutcome{Kind: port.PublishMerged}, s.Unpin(ctx, c.Task)
 		}
 		if _, now, err := s.target(); err != nil {
-			return app.PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		} else if now == c.Target {
-			return app.PublishOutcome{}, ffErr
+			return port.PublishOutcome{}, ffErr
 		}
 	}
-	return app.PublishOutcome{}, fmt.Errorf("publish %s: the target keeps moving", c.Task)
+	return port.PublishOutcome{}, fmt.Errorf("publish %s: the target keeps moving", c.Task)
 }
 
 // AfterMerge runs commands.after_merge in the main checkout for the published c when its "when" globs match the
 // merged files (none: always). The run's full output goes to .obor/state/logs/<task>-after_merge.log (green or failed,
 // T-414). A failing command is the WARN line. Its intent (G) is the once: a cut before its result runs it again
 // (after_merge is idempotent, T-525).
-func (s Scratch) AfterMerge(ctx context.Context, c app.Candidate) (string, error) {
+func (s Scratch) AfterMerge(ctx context.Context, c port.Candidate) (string, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
 		s.Out = io.Discard
@@ -418,7 +418,7 @@ func (s Scratch) AfterMerge(ctx context.Context, c app.Candidate) (string, error
 // afterMergeRun runs commands.after_merge in the main checkout for the published c and returns its result line. The
 // checkout must be at c.SHA on a branch (publish fast-forwards it; a later merge or a checkout moved it away): else a
 // WARN line and no run.
-func (s Scratch) afterMergeRun(ctx context.Context, c app.Candidate) (string, error) {
+func (s Scratch) afterMergeRun(ctx context.Context, c port.Candidate) (string, error) {
 	branch, err := s.call(s.Cfg.Root, "branch", "--show-current")
 	if err != nil {
 		return "", err
