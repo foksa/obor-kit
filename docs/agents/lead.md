@@ -75,6 +75,9 @@ docs there).
   `obor-kit`, the four binaries and `bin/checksums.txt`, `git tag -a v<x.y.z>`, the catalog back on main). The owner
   runs `make ship` (push, `make publish`, `install.sh`); the classifier refuses the lead's push. A pushed tag never
   moves. Then `obor send <project> "<what changed>"` to the adopting leads.
+- Other projects' repos are their leads' (axis-alies lead 2026-11-02): never commit there yourself, not even an
+  owner-approved config change; `obor send <project> "<the exact change and why>"` and the lead applies it. Hold a
+  serve restart that needs the change until that lead confirms it.
 - Before each tag: a Codex smoke on C-01 with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --types luna
   --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
   like T-461; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
