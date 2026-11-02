@@ -48,8 +48,10 @@ type Options struct {
 	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop, T-711; nil: refused).
 	Exit func()
 	// Binary: the obor binary the kit's shim would run now is another file than this serve's (selfexec, T-719; nil:
-	// not watched). Asked once per tick; serve then restarts itself on it (follow.go).
+	// not watched). Asked once per Follow; serve then restarts itself on it (follow.go).
 	Binary func() bool
+	// Follow is how often the binary watch asks Binary (30 s): its own timer, herdr connected or not (T-737).
+	Follow time.Duration
 }
 
 // notifyRetry is the first wait before a failed notification is sent again; it doubles with each failure up to
@@ -84,6 +86,7 @@ type App struct {
 	obs       map[string]*seen  // by pane id: every pane of the last snapshot and the events since
 	stopped   bool              // Serve has ended: the socket takes no more requests
 	checks    int               // full checks done (a tick's, a connect's), for the tests to wait on
+	follows   int               // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
 	passes    int               // merge loop passes done, for the tests to wait on
 	scratched int               // scratch effects started in their own goroutine, for the tests to wait on
 

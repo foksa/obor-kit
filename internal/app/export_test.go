@@ -60,6 +60,13 @@ func Counts(a *App) (checks, passes int) {
 	return a.checks, a.passes
 }
 
+// Follows is how many binary-watch ticks a has counted (Options.Follow).
+func Follows(a *App) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.follows
+}
+
 // WriteLog appends recs (stamped now) to the event log of root, whose serve is stopped (a crash left them).
 func WriteLog(root string, now time.Time, recs ...event.Record) error {
 	db, err := store.OpenRW(event.DBFile(root))

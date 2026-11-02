@@ -62,10 +62,30 @@ func (r *followRig) restartingShown() bool {
 	return false
 }
 
-// ticks waits for n more watchdog ticks.
+// ticks waits for n more ticks of the binary watch (Options.Follow, T-737) and then one more merge-loop pass, so
+// the pass of the last tick is done.
 func (r *followRig) ticks(n int) {
-	checks, _ := app.Counts(r.app)
-	r.waitFor("ticks", func() bool { c, _ := app.Counts(r.app); return c >= checks+n })
+	r.t.Helper()
+	follows := app.Follows(r.app)
+	r.waitFor("ticks", func() bool { return app.Follows(r.app) >= follows+n })
+	_, passes := app.Counts(r.app)
+	r.waitFor("a pass", func() bool { _, p := app.Counts(r.app); return p > passes })
+}
+
+// down is herdr gone under a connected serve: it waits until serve says it is disconnected.
+func (r *followRig) down() {
+	r.t.Helper()
+	if !r.app.Status().Connected {
+		r.t.Fatal("precondition: serve is not connected to herdr")
+	}
+	r.srv.Die()
+	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
+}
+
+// neverBack: herdr did not come back (serve logged no connect after the gone line).
+func (r *followRig) neverBack() bool {
+	out := r.out.String()
+	return strings.Contains(out, "herdr: gone") && !strings.Contains(out, "herdr: back") && !r.app.Status().Connected
 }
 
 // Idle: no restart while the binary is the same; a new one restarts serve on the next tick, once.
@@ -171,3 +191,79 @@ func TestFollowBinaryRestartFails(t *testing.T) {
 		t.Errorf("needs-you recorded %d times, want 1: %q", n, r.steps())
 	}
 }
+
+// T-737 (RV-87 #1): the binary watch runs on its own timer, not on the watchdogs' tick, which counts only while herdr
+// is connected. A serve started without herdr follows a new binary.
+func TestFollowBinaryHerdrDownAtStart(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	r.srv.Die()
+	r.isNew.Store(1)
+	r.launch()
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if checks, _ := app.Counts(r.app); checks != 0 || strings.Contains(r.out.String(), "herdr: connected") {
+		t.Fatalf("precondition: herdr was there (%d checks):\n%s", checks, r.out)
+	}
+	if r.calls.Load() != 1 || !r.neverBack() {
+		t.Errorf("restarts %d, herdr never back %v; want 1 with herdr down throughout:\n%s", r.calls.Load(),
+			r.neverBack(), r.out)
+	}
+}
+
+// T-737: herdr's stream lost after the connect: serve still follows a new binary.
+func TestFollowBinaryStreamLost(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	r.start()
+	r.ticks(3)
+	if r.calls.Load() != 0 {
+		t.Fatalf("precondition: restarted %d times on the same binary", r.calls.Load())
+	}
+	r.down()
+	r.isNew.Store(1)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || !r.neverBack() {
+		t.Errorf("restarts %d, herdr never back %v; want 1 with herdr down:\n%s", r.calls.Load(), r.neverBack(), r.out)
+	}
+}
+
+// T-737: a busy restart pending while herdr is down still goes at its 10-minute deadline (the gate is cut).
+func TestFollowBinaryDeadlineWhileDown(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	release := make(chan struct{})
+	defer close(release)
+	r.scratch.arm("Gate", func(ctx context.Context) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return ctx.Err()
+	})
+	r.start()
+	r.submit()
+	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("serve restarted with the gate running, want it to wait")
+	}
+	r.down()
+	r.ticks(3)
+	if r.calls.Load() != 0 || !r.restartingShown() {
+		t.Fatalf("herdr down, gate running, before the deadline: restarts %d, restarting shown %v; want 0, true",
+			r.calls.Load(), r.restartingShown())
+	}
+	r.clock.Add(followWait)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || r.has("1 result gate") || !r.neverBack() {
+		t.Errorf("restarts %d, gate result %v, herdr never back %v; want 1, the gate cut, herdr down:\n%s",
+			r.calls.Load(), r.has("1 result gate"), r.neverBack(), r.out)
+	}
+}
+
+// followWait is follow.go's: the wait for an idle moment before the restart goes anyway.
+const followWait = 10 * time.Minute

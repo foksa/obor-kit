@@ -208,6 +208,14 @@ func (r *loopRig) workerStops() []string {
 // app's first full check.
 func (r *loopRig) start() {
 	r.t.Helper()
+	r.launch()
+	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
+	r.sock = (&rig{t: r.t, app: r.app}).listen()
+}
+
+// launch runs the app as start does, without waiting for a check and without its socket (herdr may be down).
+func (r *loopRig) launch() {
+	r.t.Helper()
 	switch recs, _ := event.ReadLog(r.p.Root); {
 	case r.disp != nil || len(recs) > 0: // the dispatch rig dispatches; a test that wrote the log has its records
 	case r.early:
@@ -222,7 +230,7 @@ func (r *loopRig) start() {
 		tick = r.tick
 	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Follow: tick, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {
@@ -252,8 +260,6 @@ func (r *loopRig) start() {
 		_ = r.app.Serve(ctx)
 	}()
 	r.t.Cleanup(r.stop)
-	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
-	r.sock = (&rig{t: r.t, app: r.app}).listen()
 }
 
 // stop ends the app; Serve returns once its merge loop has stopped.

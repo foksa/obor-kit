@@ -23,6 +23,9 @@ func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 	if opt.Tick <= 0 {
 		opt.Tick = 30 * time.Second
 	}
+	if opt.Follow <= 0 {
+		opt.Follow = 30 * time.Second
+	}
 	if opt.Retry <= 0 {
 		opt.Retry = 2 * time.Second
 	}
@@ -55,7 +58,8 @@ func (a *App) logf(format string, args ...any) {
 // under the stream) never ends it (T-596): one line when herdr goes away, subscribes again with a backoff (Retry
 // doubling up to RetryMax), one line when it is back, then it works from the fresh snapshot; the socket requests
 // and the merge loop's goroutine go on meanwhile. It returns once the merge loop has stopped and the socket requests
-// in progress, canceled, have ended (their process groups cleaned up).
+// in progress, canceled, have ended (their process groups cleaned up). The binary watch (follow.go) has its own timer,
+// herdr connected or not (T-737).
 func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
@@ -68,6 +72,13 @@ func (a *App) Serve(ctx context.Context) error {
 			a.mergeLoop(ctx)
 		}()
 		defer wg.Wait()
+		if a.opt.Binary != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				a.followTicks(ctx)
+			}()
+		}
 	}
 	wait, down := a.opt.Retry, false
 	var ended error // the last stream's end, not logged yet (nil: none, or a refresh)
