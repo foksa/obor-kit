@@ -1,5 +1,12 @@
 # Upgrading an obor project from v0.17 to v0.18
 
+## v0.18.1 (patch)
+Re-run the installer, then `obor serve restart` in each project. No config change.
+- **Built with Go 1.27.3**: `go.mod` pins `toolchain go1.27.3`, which fixes five net/http server issues govulncheck
+  reports for go1.27.1 (reachable through `obor web`; it serves plain HTTP on localhost, so no real exposure) (T-681).
+- Kit maintainers: every GitHub release gets the title `obor <x.y.z>` and the notes of `docs/releases/v<x.y.z>.md`,
+  plus a Full Changelog link; `make release` and `make ship` refuse without that file (T-682).
+
 ## v0.18.0 (monitoring)
 Re-run the installer, then `obor serve restart` in each project (the store adds its `prompts` table at start; nothing
 to migrate by hand). Restart the monitor in each project's `system` tab (Ctrl-C, `obor monitor`) for its new look;
