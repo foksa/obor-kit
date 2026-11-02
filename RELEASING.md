@@ -25,7 +25,8 @@ The lead, in a clean checkout on main:
    worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
    whose evidence holds (the `obor v<x.y.z>: …` version commit, the tag, main's catalog with the four files matching it)
    and a failed step is undone (the bump's or the catalog's index and tree back to `HEAD`, the scratch worktree removed),
-   so the re-run starts from a clean tree. An existing tag is never touched: one whose bytes differ, or that predates
+   so the re-run starts from a clean tree. An existing tag is never touched: one whose bytes differ, whose tree has no
+   non-blank `docs/releases/v<x.y.z>.md` (notes committed on main after the tag do not repair it), or that predates
    code merged on main after it (anything but docs and `bin/checksums.txt`), is refused — release a new patch version.
 
 The owner:
@@ -42,5 +43,7 @@ The owner:
 
 Guarantees: main keeps marketplace `obor-kit-dev` (only the tag ships `obor-kit`); `scripts/publish` titles each GitHub
 release `obor <x.y.z>` with the notes of `docs/releases/v<x.y.z>.md` at the tag and a Full Changelog link to the newest
-earlier release; it uploads exactly the four binaries the tag's `bin/checksums.txt` names, and the catalog stays
-cumulative. A pushed tag never moves: a release that needs other bytes or another catalog is a new (patch) version.
+earlier numbered release — a failed `gh release list` stops it before it creates anything, and a prerelease or
+non-`x.y.z` tag is never that baseline; it uploads exactly the four binaries the tag's `bin/checksums.txt` names, and the
+catalog stays cumulative. A pushed tag never moves: a release that needs other bytes or another catalog is a new
+(patch) version.

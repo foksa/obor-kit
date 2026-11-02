@@ -306,7 +306,7 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	writeExec(t, filepath.Join(dir, "stub", "gh"), `#!/bin/bash
 printf '%s\n' "$*" | sed 's/--notes-file [^ ]*/--notes-file <notes>/' >> "`+log+`"
 case "$1 $2" in
-  "release list") cat "`+f.releases+`" 2> /dev/null ;;
+  "release list") [ ! -f "`+filepath.Join(p.Base, "list-fail")+`" ] || exit 1; cat "`+f.releases+`" 2> /dev/null || true ;;
   "repo view") cat "`+f.slug+`" 2> /dev/null ;;
   "release create")
     prev=

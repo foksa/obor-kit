@@ -139,7 +139,9 @@ bump_done() {
   git log --first-parent --format=%s HEAD | grep -q "^obor v$vre: "
 }
 
-# check_tag: the existing local tag is this release's, or the release stops (the tag is never touched).
+# check_tag: the existing local tag is this release's, or the release stops (the tag is never touched). The tag's notes
+# are checked too (T-683, the same check publish runs): notes committed on main after the tag cannot repair the tag, and
+# ship would refuse them later.
 check_tag() {
   tagver=$(git show "$tag:VERSION" 2> /dev/null | tr -d '[:space:]') || tagver=
   tagplug=$(plugin_version "$tag")
@@ -149,6 +151,8 @@ check_tag() {
   fi
   problem=$(tag_market_problem)
   [ -z "$problem" ] || fail ".claude-plugin/marketplace.json $problem: $(never_moves)"
+  problem=$(tag_notes_problem "$(tag_notes)")
+  [ -z "$problem" ] || fail "$problem: $(never_moves)"
   require_fresh_tag
 }
 
