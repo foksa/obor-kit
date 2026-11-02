@@ -6,6 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- **Reviewer type**: `opus:high` since 2026-11-02 (Codex usage limit, resets 2026-11-04 08:00). After the reset set
+  `roles.reviewer.type` to `terra:xhigh` (owner: wants to see how Terra's usage moves at xhigh) and report the Codex
+  rate_limits from the newest rollout before and after its first review.
 - Next release (v0.19.1) notes to write: T-702 (test races), T-703 (opencode model via obor.js; state-dir workaround
   gone), T-704 (researcher role, Sonnet, main checkout), T-705 (init: plugin in lanes, setup pane starts no agent,
   opencode --model in init), T-706/T-707 (RV-83 fixes). Tell codex-image-tool's lead when installed.
