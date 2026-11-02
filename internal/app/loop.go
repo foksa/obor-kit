@@ -676,21 +676,15 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 	}
 }
 
-// pickAccepted publishes the candidate (row 33) once the scratch is free and no reviewer or deep dive holds the merge
-// (holdPublish, T-718) and no start reading the main checkout is admitted (T-730: scratchStep decides that again at
-// the start); one that went ahead after the hold's cap tells the lead first.
+// pickAccepted publishes the candidate (row 33) once the scratch is free, no start reading the main checkout is
+// admitted (T-730) and no reviewer or deep dive holds the merge (holdPublish, T-718). These are a cheap filter at
+// selection: scratchStep decides the admissions and the hold (its cap and the lead's line) again at the publish's
+// actual start, under the same lock that sets p.running (T-733).
 func (a *App) pickAccepted(p *proj, mt mtask) step {
-	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 {
-		return nil
-	}
-	held, capped := a.holdPublish(p, mt.task)
-	if held {
+	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 || a.holding(p, mt.task) {
 		return nil
 	}
 	return func(ctx context.Context, fx *Loop) bool {
-		if capped != "" && p.out.lead() != "" {
-			a.holdLine(p, mt.task, capped)
-		}
 		return a.scratchStep(ctx, p, mt, nth(event.StepPublish, mt.pubs+1), func(ctx context.Context) { a.publish(ctx, p, fx, mt) })
 	}
 }
