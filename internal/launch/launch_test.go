@@ -410,7 +410,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -503,7 +503,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus --settings {\"x\":1}] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[--model opus --settings {\"x\":1} /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
@@ -514,9 +514,9 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[/obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
-		out:   "args (claude): none",
+		out:   "args (claude): /obor:lead",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -3183,5 +3183,50 @@ func TestRestartLockHeld(t *testing.T) {
 	lock.Unlock()
 	if probe.Held() {
 		t.Error("held after Unlock")
+	}
+}
+
+// T-729: a fresh start without --prompt gets its role's first prompt (the lead's /obor:lead); --prompt wins, a resume
+// carries none, a role without a Prompt and a kind without skills start bare.
+func TestFreshStartRolePrompt(t *testing.T) {
+	t.Parallel()
+	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]}}`
+	for _, c := range []struct {
+		name, agent, role, typ, kind string
+		req                          launch.Request
+		resume                       bool
+		prompt                       string // the expected first prompt ("": none)
+	}{
+		{"lead, fresh", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true}, false, "/obor:lead"},
+		{"lead, --prompt wins", "pj-lead", "lead", "opus", "claude", launch.Request{Fresh: true, Prompt: "x"}, false, "x"},
+		{"lead, resume carries none", "pj-lead", "lead", "opus", "claude", launch.Request{}, true, ""},
+		{"reviewer, no Prompt in its role", "pj-rev", "reviewer", "opus", "claude", launch.Request{Fresh: true}, false, ""},
+		{"lead on a kind without skills", "pj-lead", "lead", "luna", "codex", launch.Request{Fresh: true}, false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, testkit.Set("lane_types", types),
+				testkit.Set("roles", `{"lead":{"type":"`+c.typ+`"},"reviewer":{"type":"`+c.typ+`"}}`))
+			a := x.agent("w1:p7", c.agent, c.kind, "idle")
+			a.Session = "sid-1"
+			c.req.Agent = c.agent
+			out, ok := x.restart(c.req)
+			if !ok {
+				t.Fatal(out)
+			}
+			call := x.startCall()
+			if c.resume && !strings.Contains(call, "sid-1") {
+				t.Fatalf("want a resume of sid-1, got %s", call)
+			}
+			if c.prompt == "" {
+				if strings.Contains(call, "/obor:lead") || strings.Contains(call, " x] ") {
+					t.Fatalf("want no first prompt, got %s", call)
+				}
+				return
+			}
+			if !strings.Contains(call, " "+c.prompt+"] ") {
+				t.Fatalf("want first prompt %q last in the args, got %s", c.prompt, call)
+			}
+		})
 	}
 }

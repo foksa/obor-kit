@@ -489,6 +489,11 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	prompt := req.Prompt
 	if sid != "" {
 		prompt = "" // a resume carries no first prompt
+	} else if prompt == "" {
+		// A fresh start without --prompt gets its role's first prompt (T-729), e.g. the lead's /obor:lead.
+		if r, ok := roles.Lookup(t.info.Role); ok {
+			prompt = r.StartPrompt(t.kind)
+		}
 	}
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,
 		Resume: sid, Prompt: prompt, Lane: t.info.Lane})
