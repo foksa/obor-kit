@@ -44,6 +44,18 @@ func (s *Setup) agentsDir() string {
 	return "docs/agents"
 }
 
+// reviewsDir is paths.reviews (default docs/reviews): where the reviewer writes its open reviews (T-731).
+func (s *Setup) reviewsDir() string {
+	if r := s.cfg.Paths().Reviews; r != "" {
+		return r
+	}
+	return "docs/reviews"
+}
+
+// reviewsIgnore is the .gitignore line for the reviews dir, a directory line: a broad `git add -A` never stages an open
+// review, which `obor review close` refuses (T-731).
+func (s *Setup) reviewsIgnore() string { return strings.Trim(s.reviewsDir(), "/") + "/" }
+
 // initProject writes what init writes (config, .gitignore lines, the docs; each only when missing) and loads the
 // config. name "": the root's base; prefix "": defaultPrefix of the name.
 func (s *Setup) initProject(name, prefix string) error {
@@ -162,19 +174,23 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	return doc, nil
 }
 
-// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts, T-440). lane_links too:
-// obor serve cleans the scratch with git clean, which keeps only ignored files.
-func (s *Setup) gitignore() error {
+// gitignore appends the lines obor needs, each once (.obor/drafts/: the lead's spec drafts, T-440; paths.reviews: an
+// open review, T-731). lane_links too: obor serve cleans the scratch with git clean, which keeps only ignored files.
+func (s *Setup) gitignore() error { return s.ignoreLines(s.gitignoreLines()...) }
+
+// ignoreLines appends lines to .gitignore, each once. A line already there with or without its trailing slash (git
+// ignores the directory either way) is not added again (T-731).
+func (s *Setup) ignoreLines(lines ...string) error {
 	path := filepath.Join(s.root, ".gitignore")
 	text, _ := os.ReadFile(path)
 	have := map[string]bool{}
 	for _, l := range strings.Split(string(text), "\n") {
-		have[l] = true
+		have[strings.TrimRight(l, "/")] = true
 	}
 	var add []string
-	for _, l := range s.gitignoreLines() {
-		if l != "" && !have[l] {
-			have[l] = true
+	for _, l := range lines {
+		if k := strings.TrimRight(l, "/"); l != "" && !have[k] {
+			have[k] = true
 			add = append(add, l)
 		}
 	}
@@ -197,7 +213,8 @@ func (s *Setup) gitignore() error {
 
 // gitignoreLines are the lines init puts in .gitignore.
 func (s *Setup) gitignoreLines() []string {
-	return append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run"}, s.cfg.Data.LaneLinks...)
+	return append([]string{".obor/state/", ".obor/drafts/", ".obor/local.json", ".task-run", s.reviewsIgnore()},
+		s.cfg.Data.LaneLinks...)
 }
 
 // initBranch is the branch gitInit makes: branches.main from a config in dir, else main.

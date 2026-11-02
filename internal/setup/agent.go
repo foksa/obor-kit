@@ -113,8 +113,13 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 		return err
 	}
 	s.oldWorktreeHint(rc.OldWorktree())
-	if role.Name == "triage" {
+	switch role.Name {
+	case "triage":
 		if err := s.copyFile(filepath.Join(s.Kit, "templates", "BUGS.md"), "docs/BUGS.md"); err != nil {
+			return err
+		}
+	case "reviewer", "deep_dive": // T-731: the reviews dir is gitignored, also in a project init made before it was
+		if err := s.ignoreLines(s.reviewsIgnore()); err != nil {
 			return err
 		}
 	}

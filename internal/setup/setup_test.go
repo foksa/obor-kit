@@ -495,6 +495,89 @@ func TestInitAddsGitignoreLinesOnce(t *testing.T) {
 	}
 }
 
+// T-731: init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
+// review, which `obor review close` would refuse.
+func TestInitGitignoresTheReviewsDir(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, reviews string
+		fresh         bool
+	}{
+		{"default path", "", true},
+		{"custom path", "notes/rv", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			var x *fx
+			if c.fresh {
+				x = bare(t)
+			} else {
+				x = newFx(t, testkit.Set("paths.reviews", c.reviews))
+			}
+			want := "docs/reviews/"
+			if c.reviews != "" {
+				want = c.reviews + "/"
+			}
+			if count(x.Read(".gitignore"), strings.TrimSuffix(want, "/")) != 0 {
+				t.Fatalf("precondition: %s not ignored:\n%s", want, x.Read(".gitignore"))
+			}
+			out, err := x.projectStep(t, "", "")
+			if err != nil {
+				t.Fatalf("project step: %v\n%s", err, out)
+			}
+			has(t, out, ".gitignore += "+want, "the reviews dir said")
+			if count(x.Read(".gitignore"), want) != 1 {
+				t.Errorf("%s once:\n%s", want, x.Read(".gitignore"))
+			}
+			if _, err := gitIn(x.Root, "check-ignore", "-q", strings.TrimSuffix(want, "/")+"/RV-1.md"); err != nil {
+				t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
+			}
+		})
+	}
+}
+
+// T-731: obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: init made
+// before the line was ignored leaves it out.
+func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}, "deep_dive": {"type": "opus"}}`))
+	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
+		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
+	}
+	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+	has(t, out, ".gitignore += docs/reviews/", "the reviewer's setup said")
+	if count(x.Read(".gitignore"), "docs/reviews/") != 1 {
+		t.Errorf("docs/reviews/ once:\n%s", x.Read(".gitignore"))
+	}
+	if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
+		t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
+	}
+	gi := x.Read(".gitignore")
+	out = x.ok(t, "role", "deep_dive", "--new-tab", "deep-dive")
+	hasNot(t, out, ".gitignore +=", "the deep dive adds nothing")
+	if x.Read(".gitignore") != gi {
+		t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
+	}
+}
+
+// T-731: a reviews line already there, with or without its trailing slash, is left alone (the line is git's either way).
+func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
+	t.Parallel()
+	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
+		t.Run(line, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
+			gi := x.Read(".gitignore")
+			out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+			hasNot(t, out, ".gitignore +=", "an existing line is not added again")
+			if x.Read(".gitignore") != gi {
+				t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
+			}
+		})
+	}
+}
+
 // T-310: init no longer writes the .obor-plugin ignore line T-309 added: the opencode marker lives in the state dir
 // (which init already ignores), so no project needs the line.
 func TestInitDoesNotWriteThePluginMarkerLine(t *testing.T) {

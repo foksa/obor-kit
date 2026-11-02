@@ -25,7 +25,8 @@
 //	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root (the reviewer
 //	        and the deep dive too, T-718: no worktree of their own; an old one, roles.<role>.worktree or review /
 //	        deep-dive, is named with its `git worktree remove` line, never removed). triage also copies
-//	        templates/BUGS.md to docs/BUGS.md if missing.
+//	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
+//	        docs/reviews) to the main checkout's .gitignore, once (T-731).
 //	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
 //	        pre-push and githooks/_hook) or, when there is something to chain, <kit>/githooks/chain (every hook git
 //	        runs, all through githooks/_hook; T-623: a recorded obor.hooksChain or a hook in .git/hooks the small set
