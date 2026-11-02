@@ -146,6 +146,168 @@ func TestAcquireWaitsForLoad(t *testing.T) {
 	})
 }
 
+// ctlLoad is a load reader the test sets while Acquire runs.
+type ctlLoad struct {
+	mu sync.Mutex
+	v  float64
+}
+
+func (c *ctlLoad) set(v float64) { c.mu.Lock(); c.v = v; c.mu.Unlock() }
+func (c *ctlLoad) read() (float64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.v, true
+}
+
+// acquireResult is one Acquire's outcome and when it returned.
+type acquireResult struct {
+	path   string
+	loaded float64
+	err    error
+	at     time.Time
+}
+
+// T-726 (RV-85 #2): LoadCap bounds the time spent waiting on the load, summed over its stretches; time queued for a
+// slot does not use it up, and a cancelled context ends either wait.
+func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
+	t.Parallel()
+	// one slot, held by a live holder (0) until the test frees it; a wait line every poll
+	setup := func(t *testing.T, load *ctlLoad, loadCap time.Duration) (Slots, string) {
+		s := Slots{Dir: t.TempDir(), Max: 1, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
+			Poll: 5 * time.Millisecond, Report: time.Nanosecond, LoadLimit: 20, LoadCap: loadCap, Load: load.read}
+		busy := filepath.Join(s.Dir, "slot-0")
+		if err := os.WriteFile(busy, []byte("0 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return s, busy
+	}
+	start := func(ctx context.Context, s Slots, w *lockedBuffer) chan acquireResult {
+		done := make(chan acquireResult, 1)
+		go func() {
+			path, loaded, err := s.Acquire(ctx, "worker", os.Getpid(), w)
+			done <- acquireResult{path, loaded, err, time.Now()}
+		}()
+		return done
+	}
+	pending := func(t *testing.T, done chan acquireResult, what string) {
+		t.Helper()
+		select {
+		case r := <-done:
+			t.Fatalf("%s: Acquire returned %+v", what, r)
+		default:
+		}
+	}
+	t.Run("queued past the cap at low load, the load rises as the slot frees: waits for the load", func(t *testing.T) {
+		t.Parallel()
+		load := &ctlLoad{v: 10}
+		s, busy := setup(t, load, 200*time.Millisecond)
+		var w lockedBuffer
+		done := start(context.Background(), s, &w)
+		time.Sleep(400 * time.Millisecond) // queued for twice the cap
+		pending(t, done, "slot busy")
+		if got := w.String(); !strings.Contains(got, "waiting for a check slot (1 running)\n") || strings.Contains(got, "machine load") {
+			t.Fatalf("precondition: wait lines %q, want slot waits only", got)
+		}
+		load.set(50)
+		if err := os.Remove(busy); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(60 * time.Millisecond) // well inside the cap
+		pending(t, done, "load 50 after the slot freed")
+		load.set(10)
+		r := <-done
+		if r.err != nil || r.path != busy {
+			t.Fatalf("acquire: %+v, want %s", r, busy)
+		}
+		if r.loaded != 0 {
+			t.Errorf("claimed under load %v; want after the load dropped", r.loaded)
+		}
+		if got := w.String(); !strings.Contains(got, "waiting: machine load 50 (> 20)\n") {
+			t.Errorf("wait lines %q: no load wait line", got)
+		}
+	})
+	t.Run("load wait capped across alternating load", func(t *testing.T) {
+		t.Parallel()
+		const loadCap = 400 * time.Millisecond
+		load := &ctlLoad{v: 50}
+		s, busy := setup(t, load, loadCap)
+		if err := os.Remove(busy); err != nil { // stretch 1: load high, slot free
+			t.Fatal(err)
+		}
+		var w lockedBuffer
+		done := start(context.Background(), s, &w)
+		time.Sleep(loadCap / 2)
+		pending(t, done, "first load stretch, half the cap")
+		// stretch 2: slot busy, then load low (queued, not counted); the other order would let it claim the free slot
+		if err := os.WriteFile(busy, []byte("0 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		load.set(10)
+		time.Sleep(300 * time.Millisecond)
+		pending(t, done, "queued at low load")
+		load.set(50) // stretch 3: load high, then slot free
+		if err := os.Remove(busy); err != nil {
+			t.Fatal(err)
+		}
+		third := time.Now()
+		var r acquireResult
+		select {
+		case r = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no claim 5 s into the third stretch")
+		}
+		if r.err != nil || r.path != busy || r.loaded != 50 {
+			t.Fatalf("acquire: %+v; want %s claimed under load 50 once the cap ran out", r, busy)
+		}
+		// the rest of the cap is about loadCap/2: not at once (the queue counted), not a whole cap (the first stretch
+		// forgotten)
+		if took := r.at.Sub(third); took < loadCap/4 || took >= loadCap*9/10 {
+			t.Errorf("claimed %v into the third stretch; want about %v (the cap's rest)", took, loadCap/2)
+		}
+		got := w.String()
+		if !strings.Contains(got, "waiting: machine load 50 (> 20)\n") || !strings.Contains(got, "waiting for a check slot (1 running)\n") {
+			t.Errorf("wait lines %q: want a load wait and a slot wait", got)
+		}
+	})
+	t.Run("a cancelled context ends both waits", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name string
+			load float64
+			free bool
+			line string
+		}{
+			{"slot wait", 10, false, "waiting for a check slot (1 running)\n"},
+			{"load wait", 50, true, "waiting: machine load 50 (> 20)\n"},
+		} {
+			load := &ctlLoad{v: tc.load}
+			s, busy := setup(t, load, time.Hour)
+			if tc.free {
+				if err := os.Remove(busy); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			var w lockedBuffer
+			done := start(ctx, s, &w)
+			time.Sleep(50 * time.Millisecond)
+			pending(t, done, tc.name)
+			if got := w.String(); !strings.HasPrefix(got, tc.line) {
+				t.Fatalf("%s precondition: wait lines %q, want %q", tc.name, got, tc.line)
+			}
+			cancel()
+			select {
+			case r := <-done:
+				if r.path != "" || r.err != context.Canceled {
+					t.Errorf("%s: acquire %+v, want the context's error", tc.name, r)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s: Acquire still waiting 5 s after the cancel", tc.name)
+			}
+		}
+	})
+}
+
 // SlotsFor's load limit: LoadFactor × NumCPU by default, checks.load_limit (0 too), CHECK_LOAD_LIMIT over both (a
 // value that is not a non-negative number ignored).
 func TestSlotsForLoadLimit(t *testing.T) {
