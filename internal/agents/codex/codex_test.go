@@ -58,7 +58,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("NotReady(%q) = %q, want %q", screen, got, want)
 		}
 	}
-	if s := k.Stop(); s.Quit != "/quit" || s.SecondEnter || s.AfterEscape != nil || s.ClearInput != nil || s.Dialog != nil {
+	if s := k.Stop(); s.Quit != "/quit" || s.SecondEnter || s.AfterEscape != nil || !slices.Equal(s.ClearInput, []string{"ctrl+u"}) || s.Dialog != nil {
 		t.Errorf("Stop = %+v", s)
 	}
 	h := k.Headless()

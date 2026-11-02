@@ -60,6 +60,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		return nil
 	}
 	recipe := recipeOf(running)
+	restored := false // AfterEscape ran: the interrupted prompt is already cleared
 	if status := t.entry.Status; status == "working" || status == "blocked" {
 		if !force {
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
@@ -78,6 +79,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		}
 		for _, k := range recipe.AfterEscape { // the kind's interrupted prompt, put back into the input, cleared
 			_ = l.H.SendKeys(ctx, t.pane, k)
+			restored = true
 		}
 	}
 	// The agent leads the pane's foreground group (T-217): its exit is that pid gone, even when the MCP servers it
@@ -96,6 +98,12 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 			return err
 		}
 		return l.finish(ctx, t, before, running)
+	}
+	if !restored {
+		// A person may have typed into the input: the quit typed after it would be sent as part of that text (T-712).
+		for _, k := range recipe.ClearInput {
+			_ = l.H.SendKeys(ctx, t.pane, k)
+		}
 	}
 	if err := l.H.Type(ctx, t.pane, quit); err != nil {
 		return project.Failf("herdr pane run %s %s failed", t.pane, quit)

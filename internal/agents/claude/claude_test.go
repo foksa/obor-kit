@@ -84,7 +84,7 @@ func TestKind(t *testing.T) {
 		t.Errorf("NotReady = %q, want none (Codex's screen)", why)
 	}
 	if s := k.Stop(); s.Quit != "/exit" || !slices.Equal(s.AfterEscape, []string{"ctrl+c"}) || s.SecondEnter ||
-		s.ClearInput != nil || s.Program != "" || s.Dialog == nil || s.Dialog.Option != "Exit and stop tasks" {
+		!slices.Equal(s.ClearInput, []string{"ctrl+u"}) || s.Program != "" || s.Dialog == nil || s.Dialog.Option != "Exit and stop tasks" {
 		t.Errorf("Stop = %+v", s)
 	}
 	// DD-v0.13 B1: the dialog's option and its key, as Claude Code numbers them ("2. Exit…" or "2) Exit…").

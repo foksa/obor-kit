@@ -119,7 +119,7 @@ func (kind) NotReady(screen string) string {
 	return ""
 }
 
-func (kind) Stop() agents.Stop { return agents.Stop{Quit: "/quit"} }
+func (kind) Stop() agents.Stop { return agents.Stop{Quit: "/quit", ClearInput: []string{"ctrl+u"}} }
 
 // Headless: `codex exec` (alias e, T-470, owner 2026-10-27); exec also as a later word, as codex's optional prompt
 // precedes its subcommand (`codex "hello" exec hi`); the alias is too short to count there. ValueOpts: codex --help.

@@ -186,7 +186,7 @@ func (kind) NotReady(string) string { return "" }
 // With background tasks running, /exit opens a dialog ("Exit and stop tasks / Move to background / Stay"), its
 // options numbered.
 func (kind) Stop() agents.Stop {
-	return agents.Stop{Quit: "/exit", AfterEscape: []string{"ctrl+c"}, Dialog: &exitDialog}
+	return agents.Stop{Quit: "/exit", AfterEscape: []string{"ctrl+c"}, ClearInput: []string{"ctrl+u"}, Dialog: &exitDialog}
 }
 
 var exitDialog = agents.Dialog{Option: "Exit and stop tasks", Key: regexp.MustCompile(`([1-9])[.)] *Exit and stop tasks`)}
