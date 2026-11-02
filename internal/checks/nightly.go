@@ -128,9 +128,9 @@ func (s *session) nightly(label string) *Result {
 	}
 	s.printLines(details)
 	if verdict == "GREEN" {
-		return result(OK, "%s GREEN %s on %s (%s)", label, sha[:min(7, len(sha))], s.target, summary)
+		return result(OK, "%s GREEN %s on %s (%s)%s", label, sha[:min(7, len(sha))], s.target, summary, s.loaded)
 	}
-	return result(Red, "%s RED %s on %s (%s) — %s", label, sha[:min(7, len(sha))], s.target, summary,
+	return result(Red, "%s RED %s on %s (%s)%s — %s", label, sha[:min(7, len(sha))], s.target, summary, s.loaded,
 		strings.Join(evidence, " | "))
 }
 

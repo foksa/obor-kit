@@ -56,6 +56,7 @@ type Data struct {
 	Merge            Merge               `json:"merge"`
 	MCP              MCP                 `json:"mcp"`
 	Slots            *Slots              `json:"slots,omitempty"`
+	Checks           *Checks             `json:"checks,omitempty"`
 	StopHook         any                 `json:"stop_hook,omitempty"` // removed in v0.12.0 (T-465): validate warns
 	Limits           *Limits             `json:"limits,omitempty"`
 	Heartbeat        any                 `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
@@ -283,6 +284,14 @@ type Slots struct {
 	Max           *int   `json:"max,omitempty"`
 	MergeBlockMax *int   `json:"merge_block_max,omitempty"`
 	CPUs          *int   `json:"cpus,omitempty"` // CHECK_CPUS: the CPUs one check may use (default cores / max, at least 1)
+}
+
+// Checks holds the settings of every check run (obor run's heavy commands, the gates).
+type Checks struct {
+	// LoadLimit (T-720): a check waits for its slot while the machine's 1-minute load average is above it, at most
+	// 15 min, then runs marked "(run under load <x>)". Default 2 × the CPU count (run.LoadFactor); 0 never waits.
+	// Env CHECK_LOAD_LIMIT overrides it.
+	LoadLimit *float64 `json:"load_limit,omitempty"`
 }
 
 // Cache holds only a removed key (prompt-cache awareness went with obor status --herdr, T-463).

@@ -36,6 +36,7 @@ type fx struct {
 	env                  []string // project.Env (OBOR_GATE, OBOR_FULL)
 	environ              []string // more command environment
 	load                 []float64
+	slotLoad             float64        // > 0: the slots see this machine load above their limit, their load wait cut short (T-720)
 	cand                 port.Candidate // the last green gate's (gate)
 	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
 	sig                  chan int
@@ -91,11 +92,15 @@ func (x *fx) opts() Options {
 	// (T-685).
 	callCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	x.t.Cleanup(cancel)
+	slots := &run.Slots{Dir: x.slots, Max: 2, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
+		Poll: 20 * time.Millisecond, Report: time.Hour}
+	if l := x.slotLoad; l > 0 {
+		slots.LoadLimit, slots.LoadCap, slots.Load = 1, time.Millisecond, func() (float64, bool) { return l, true }
+	}
 	return Options{
 		Cfg: cfg, Env: x.Env(x.env...), Environ: append(environ, x.environ...), Out: &x.out, PID: os.Getpid(),
 		Interrupted: x.sig, LoadPoll: 10 * time.Millisecond, callCtx: callCtx,
-		Slots: &run.Slots{Dir: x.slots, Max: 2, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
-			Poll: 20 * time.Millisecond, Report: time.Hour},
+		Slots: slots,
 		Load: func() (float64, bool) {
 			x.mu.Lock()
 			defer x.mu.Unlock()

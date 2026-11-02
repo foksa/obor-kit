@@ -188,6 +188,11 @@ func TestValidate(t *testing.T) {
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got 0"}},
 		{name: "slots.cpus negative", edits: []edit{set("slots.cpus", -2)},
 			want: []string{"FAIL .slots.cpus: must be a positive integer, got -2"}},
+		// T-720
+		{name: "checks.load_limit fine", edits: []edit{set("checks.load_limit", 12.5)}},
+		{name: "checks.load_limit 0 (never wait) fine", edits: []edit{set("checks.load_limit", 0)}},
+		{name: "checks.load_limit negative", edits: []edit{set("checks.load_limit", -1)},
+			want: []string{"FAIL .checks.load_limit: must be a non-negative number (a load average; 0: never wait), got -1"}},
 		// bash config.test.sh case_validate_lane_role_namespace_collisions
 		{name: "lane named like the reviewer worktree", edits: []edit{set("roles.reviewer", `{"type": "opus"}`), set("lanes.review", "opus")},
 			want: []string{`FAIL .lanes.review: name collides with role worktree "review"`}},
@@ -297,6 +302,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},
 		{set("slots.cpus", 2.5), "cpus"},
+		{set("checks.load_limit", "20"), "load_limit"},
+		{set("checks.loadlimit", 20), `unknown field "loadlimit"`},
 	} {
 		p := newProject(t)
 		p.Config(c.edit)
