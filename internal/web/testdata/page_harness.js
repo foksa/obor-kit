@@ -312,10 +312,11 @@ const scenarios = {
     check(html().includes(">stopped<") && !html().includes("no pane"), "the agent page shows stopped, not no pane");
   },
 
-  // T-714: an agent's long-running background processes on the overview card (a count), the project page (under the
-  // lane's and the lead's rows) and the agent page.
+  // T-714, T-727: an agent's long-running processes on the overview card (a count), the project page (under the
+  // lane's and the lead's rows: bg for a recorded background call, running for a long foreground command) and the
+  // agent page.
   async background() {
-    const conv = { pid: 42, command: "python convert.py", label: "convert maps", age: 900 };
+    const conv = { pid: 42, command: "python convert.py", background: true, label: "convert maps", age: 900 };
     server.routes["/api/projects"] = () => [{ name: "proj", root: "/r", up: true, busy: 1, free: 0, needs_you: 0,
       queue: 0, running: [], roles: [], background: 2 }];
     await navigate("#/");
@@ -330,11 +331,12 @@ const scenarios = {
     await tick(100);
     const page = html();
     check(page.includes("bg: convert maps · 15m"), "the lane's row shows the process by its description: " + page);
-    check(page.includes("bg: sleep 600 · 45s") && page.includes("ld"), "the lead's own row shows its process by its command");
+    check(page.includes("running sleep 600 · 45s") && !page.includes("bg: sleep 600") && page.includes("ld"),
+      "the lead's own row shows its unrecorded process as running, by its command: " + page);
     await navigate("#/a/proj/w1");
     await tick(100);
     check(html().includes("Background processes") && html().includes("convert maps") &&
-      html().includes("python convert.py"), "the agent page lists the process: " + html());
+      html().includes("python convert.py") && html().includes("bg: 15m"), "the agent page lists the process as bg: " + html());
   },
 };
 

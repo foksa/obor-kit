@@ -592,11 +592,12 @@ async function projectPage(r) {
 
 const FREE = new Set(["free", "dirty-free"]);
 
-// bgHTML is an agent's long-running background processes (T-714): one line each, its description or command and how
-// long it has run.
+// bgHTML is an agent's long-running processes (T-714, T-727): one line each, bg (a recorded background call) or
+// running (a long foreground command), its description or command and how long it has run.
+const bgKind = (b) => (b.background ? "bg:" : "running");
 function bgHTML(list) {
-  return (list || []).map((b) => `<span class="sub2 ell bg" title="${esc("pid " + b.pid + ": " + b.command)}">bg: ${
-    esc(b.label || b.command)} · ${dur(b.age)}</span>`).join("");
+  return (list || []).map((b) => `<span class="sub2 ell bg" title="${esc("pid " + b.pid + ": " + b.command)}">${
+    bgKind(b)} ${esc(b.label || b.command)} · ${dur(b.age)}</span>`).join("");
 }
 const roleName = (r) => String(r || "").replace(/_/g, " ");
 
@@ -889,7 +890,7 @@ function renderAgent(p, a) {
   if (a.lane) meta.push(`lane <b class="mono">${esc(a.lane)}</b>`);
   const out = [`<div class="head"><h1>${esc(a.agent)}</h1><div class="meta">${meta.join('<span class="muted">·</span>')}</div></div>`];
   if ((a.background || []).length) out.push(`<section><h2>Background processes <span class="count">${a.background.length}</span></h2><div class="card list">${
-    a.background.map((b) => `<div class="li"><span class="muted small">${dur(b.age)}</span><span class="txt">${
+    a.background.map((b) => `<div class="li"><span class="muted small">${bgKind(b)} ${dur(b.age)}</span><span class="txt">${
       b.label ? esc(b.label) + ` <span class="muted small mono">${esc(b.command)}</span>` : `<span class="mono">${esc(b.command)}</span>`}</span></div>`).join("")}</div></section>`);
   if ((a.jobs || []).length) out.push(`<section><h2>Jobs <span class="count">${a.jobs.length}</span></h2><div class="card">${
     a.jobs.map((j, i) => prompt(p, j, "job:" + j.seq, i === 0 && j.text.length < 6000, true)).join("")}</div></section>`);

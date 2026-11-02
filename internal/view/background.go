@@ -1,10 +1,12 @@
 package view
 
-// The agents' long-running background processes (T-714): Claude Code's background Bash shells lead their own
-// sessions, outside the pane's process group herdr's process-info lists (internal/launch/stop.go), but they stay
-// descendants of the agent's process. One `ps` per build lists the machine's processes; each agent serve sees with a
-// pane is its pane's foreground leader (herdr process-info, as stop takes it), and its descendants that have run
-// longer than BackgroundMin, the agent's own helpers left out, are its background processes.
+// The agents' long-running processes (T-714, T-727): Claude Code's background Bash shells lead their own sessions,
+// outside the pane's process group herdr's process-info lists (internal/launch/stop.go), but they stay descendants of
+// the agent's process. One `ps` per scan lists the machine's processes, indexed once by parent (ProcIndex) for all the
+// scan's agents; each agent serve sees with a pane is its pane's foreground leader (herdr process-info, as stop takes
+// it), and its descendants that have run longer than BackgroundMin, the agent's own helpers left out, are its long
+// processes. Only one that runs a recorded background Bash call (run_in_background, obor's PreToolUse hook) is
+// background work (`bg`); any other is a long foreground command (`running`).
 
 import (
 	"context"
@@ -12,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"obor/internal/app/port"
@@ -30,13 +33,15 @@ const helperSlack = 10 * time.Second
 // commandMax is how many characters of a command the views show.
 const commandMax = 60
 
-// Background is one long-running process of an agent: its pid, its command (shortened), the description of the
-// background Bash call that started it when obor's hook recorded one ("" otherwise) and how long it has run (seconds).
+// Background is one long-running process of an agent: its pid, its command (shortened), whether it runs a background
+// Bash call obor's hook recorded (T-727: false is a long foreground command), that call's description ("" otherwise)
+// and how long it has run (seconds).
 type Background struct {
-	PID     int    `json:"pid"`
-	Command string `json:"command"`
-	Label   string `json:"label,omitempty"`
-	Age     int64  `json:"age"`
+	PID        int    `json:"pid"`
+	Command    string `json:"command"`
+	Background bool   `json:"background"`
+	Label      string `json:"label,omitempty"`
+	Age        int64  `json:"age"`
 }
 
 // Text is what a line shows of b: its description, else its command.
@@ -45,6 +50,15 @@ func (b Background) Text() string {
 		return b.Label
 	}
 	return b.Command
+}
+
+// Line is what a view shows of b, its age (app.Age) given: `bg: <description or command> · 15m` for a recorded
+// background call, `running <command> · 15m` for any other long process (T-727).
+func (b Background) Line(age string) string {
+	if b.Background {
+		return "bg: " + b.Text() + " · " + age
+	}
+	return "running " + b.Text() + " · " + age
 }
 
 // Proc is one row of the process table: pid, parent, how long it has run and its full command.
@@ -135,25 +149,40 @@ func oborMCP(command string) bool {
 	return false
 }
 
-// Descendants is the background processes of the agent with pid agent in procs: walking down from it, a shell with
+// ProcIndex is a process table indexed for Descendants: each process's children and each pid's row. NewProcIndex
+// builds it once per scan; every agent of the scan walks the same index.
+type ProcIndex struct {
+	kids  map[int][]Proc
+	byPID map[int]Proc
+}
+
+// indexBuilds counts NewProcIndex calls (a test reads it: one index per scan).
+var indexBuilds atomic.Int64
+
+// NewProcIndex is procs indexed by parent and by pid.
+func NewProcIndex(procs []Proc) *ProcIndex {
+	indexBuilds.Add(1)
+	x := &ProcIndex{kids: make(map[int][]Proc, len(procs)), byPID: make(map[int]Proc, len(procs))}
+	for _, p := range procs {
+		x.kids[p.PPID] = append(x.kids[p.PPID], p)
+		x.byPID[p.PID] = p
+	}
+	return x
+}
+
+// Descendants is the long-running processes of the agent with pid agent in x: walking down from it, a shell with
 // children is passed through and any other process is one entry (its own children are its business), kept when it has
 // run longer than min. Left out, with all they started — the agent's own helpers: a direct child of the agent that is
 // no shell (an agent runs commands through a shell; what it starts itself is its MCP servers, language servers, Claude
 // Code's caffeinate per turn), a direct child that started with the agent (within helperSlack of its own start: an MCP
 // server wrapped in a shell) and obor's own MCP server anywhere. Each entry's ancestors up to the agent (the shell that
 // wraps a Bash tool call) come with it, to match a recorded call against. None when agent is not in procs.
-func Descendants(procs []Proc, agent int, min time.Duration) []Found {
-	kids := map[int][]Proc{}
-	var self *Proc
-	for i, p := range procs {
-		kids[p.PPID] = append(kids[p.PPID], p)
-		if p.PID == agent {
-			self = &procs[i]
-		}
-	}
-	if self == nil || agent <= 1 {
+func (x *ProcIndex) Descendants(agent int, min time.Duration) []Found {
+	self, ok := x.byPID[agent]
+	if !ok || agent <= 1 {
 		return nil
 	}
+	kids := x.kids
 	var out []Found
 	var walk func(pid int, chain []string)
 	walk = func(pid int, chain []string) {
@@ -175,16 +204,16 @@ func Descendants(procs []Proc, agent int, min time.Duration) []Found {
 	return out
 }
 
-// Found is a background process and the commands of the shells between it and the agent.
+// Found is a long-running process and the commands of the shells between it and the agent.
 type Found struct {
 	Proc
 	Chain []string
 }
 
-// label is the description of the newest call in calls whose command f runs: the call's command (whitespace folded)
-// is in f's command or in a shell's that wraps it (Claude's shell quotes it: a ' as '\”), or f's command is in the
-// call's (a call of several commands). "" when none matches.
-func label(f Found, calls []project.BackgroundCall) string {
+// match is the newest call in calls whose command f runs: the call's command (whitespace folded) is in f's command or
+// in a shell's that wraps it (Claude's shell quotes it: a ' as '\”), or f's command is in the call's (a call of several
+// commands). ok is false when none matches: f is no recorded background call.
+func match(f Found, calls []project.BackgroundCall) (call project.BackgroundCall, ok bool) {
 	cmd := fold(f.Command)
 	for i := len(calls) - 1; i >= 0; i-- {
 		want := fold(calls[i].Command)
@@ -192,15 +221,15 @@ func label(f Found, calls []project.BackgroundCall) string {
 			continue
 		}
 		if strings.Contains(cmd, want) || len(cmd) >= 8 && strings.Contains(want, cmd) {
-			return calls[i].Description
+			return calls[i], true
 		}
 		for _, sh := range f.Chain {
 			if strings.Contains(fold(strings.ReplaceAll(sh, `'\''`, `'`)), want) {
-				return calls[i].Description
+				return calls[i], true
 			}
 		}
 	}
-	return ""
+	return project.BackgroundCall{}, false
 }
 
 // fold is s with its whitespace runs as one space.
@@ -229,14 +258,16 @@ func AgentPID(pi port.ProcessInfo) int {
 	return pi.FgPGID
 }
 
-// BackgroundOf is each agent's background processes, by agent name: for every agent with a pane, its pane's process
-// info (info) and its descendants in procs, labelled from root's recorded calls of that agent (or, with no agent name
-// recorded, of its pane). An agent with none is not in the map.
+// BackgroundOf is each agent's long-running processes, by agent name: for every agent with a pane, its pane's process
+// info (info) and its descendants in procs (one ProcIndex for all the agents), matched against root's recorded
+// background calls of that agent (or, with no agent name recorded, of its pane): a match is background, with the
+// call's description. An agent with none is not in the map.
 func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, procs []Proc,
 	info func(context.Context, string) (port.ProcessInfo, error)) map[string][]Background {
 	out := map[string][]Background{}
 	var calls []project.BackgroundCall
 	read := false
+	var x *ProcIndex
 	for _, a := range agents {
 		if a.Name == "" || a.Pane == "" {
 			continue
@@ -245,7 +276,14 @@ func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, p
 		if err != nil {
 			continue
 		}
-		found := Descendants(procs, AgentPID(pi), BackgroundMin)
+		pid := AgentPID(pi)
+		if pid == 0 {
+			continue
+		}
+		if x == nil {
+			x = NewProcIndex(procs)
+		}
+		found := x.Descendants(pid, BackgroundMin)
 		if len(found) == 0 {
 			continue
 		}
@@ -259,8 +297,9 @@ func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, p
 			}
 		}
 		for _, f := range found {
-			out[a.Name] = append(out[a.Name], Background{PID: f.PID, Command: shorten(f.Command), Label: label(f, mine),
-				Age: int64(f.Age / time.Second)})
+			c, bg := match(f, mine)
+			out[a.Name] = append(out[a.Name], Background{PID: f.PID, Command: shorten(f.Command), Background: bg,
+				Label: c.Description, Age: int64(f.Age / time.Second)})
 		}
 	}
 	return out
@@ -287,17 +326,26 @@ func (v Project) AgentBackground(agent string) []Background {
 	return nil
 }
 
-// BackgroundCount is how many background processes v's agents have (obor web's overview card).
+// BackgroundCount is how many recorded background processes v's agents have (obor web's overview card, `N bg`; a
+// long foreground command is not counted, T-727).
 func (v Project) BackgroundCount() int {
-	n := 0
+	lists := [][]Background{}
 	for _, l := range v.Lanes {
-		n += len(l.Background)
+		lists = append(lists, l.Background)
 	}
 	for _, r := range v.Roles {
-		n += len(r.Background)
+		lists = append(lists, r.Background)
 	}
 	if v.Lead != nil {
-		n += len(v.Lead.Background)
+		lists = append(lists, v.Lead.Background)
+	}
+	n := 0
+	for _, bs := range lists {
+		for _, b := range bs {
+			if b.Background {
+				n++
+			}
+		}
 	}
 	return n
 }

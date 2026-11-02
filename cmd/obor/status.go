@@ -170,11 +170,11 @@ func laneSection(st view.Project, now time.Time) []string {
 	return textLines(b.String())
 }
 
-// writeBackground is one line per background process of an agent, under its line (T-714): `  bg: <description or
-// command> · 15m`.
+// writeBackground is one line per long-running process of an agent, under its line (T-714, T-727): `  bg:
+// <description or command> · 15m` for a recorded background call, `  running <command> · 15m` for another.
 func writeBackground(w io.Writer, bs []view.Background) {
 	for _, bg := range bs {
-		fmt.Fprintf(w, "  bg: %s · %s\n", oneLine(bg.Text()), app.Age(time.Duration(bg.Age)*time.Second))
+		fmt.Fprintf(w, "  %s\n", oneLine(bg.Line(app.Age(time.Duration(bg.Age)*time.Second))))
 	}
 }
 
