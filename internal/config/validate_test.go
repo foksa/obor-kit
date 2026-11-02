@@ -545,7 +545,7 @@ func TestTypeRef(t *testing.T) {
 }
 
 // T-538/T-629: a level's lane types are the project's difficulty entry, else the built-in default, keeping only the
-// types a configured lane has; a level left with none falls back to medium's list, then hard's. A name that is no
+// types a configured lane can run (one of the type, or an untyped lane; T-723); a level left with none falls back to medium's list, then hard's. A name that is no
 // level has none.
 func TestDifficultyTypes(t *testing.T) {
 	types := []edit{
@@ -577,6 +577,10 @@ func TestDifficultyTypes(t *testing.T) {
 			map[string]any{"hard": []string{"luna:xhigh", "opus:high", "sonnet"}},
 			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"},
 			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"}},
+		{"an untyped lane runs every lane type: each level as listed, a type no lane_types has skipped (T-723)",
+			map[string]any{"O-01": "opus", "L-01": ""}, map[string]any{"simple": []string{"gemini", "luna"}},
+			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "luna"},
+			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "luna"}},
 		{"a level with no lane and no fallback lane: empty", map[string]any{"O-01": "haiku"},
 			map[string]any{"simple": []string{"luna"}},
 			map[string]string{"hard": "", "medium": "", "simple": ""},

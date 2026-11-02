@@ -306,7 +306,8 @@ func mergeLine(m view.MergeItem) string {
 }
 
 // waitLine is a waiting dispatch's queue line after "queued <T-xx>: ": its --after tasks and its last refusal, the lane
-// of its level it waits for, or its spec stored and never dispatched.
+// it waits for (its level and types; the reason when it is not a free lane: "opus at its max 4", T-723), or its spec
+// stored and never dispatched.
 func waitLine(w view.WaitItem, now time.Time) string {
 	switch w.WaitsOn {
 	case view.WaitsAfter:
@@ -325,7 +326,11 @@ func waitLine(w view.WaitItem, now time.Time) string {
 	if w.Level == "" {
 		return "waiting for a lane" + why(w.Why)
 	}
-	return fmt.Sprintf("waiting for a %s lane (%s)", w.Level, strings.Join(w.Types, ", ")) + why(w.Why)
+	level := fmt.Sprintf(" (%s: %s)", w.Level, strings.Join(w.Types, ", "))
+	if w.Why == "" || w.Why == app.LaneWaitFree {
+		return app.LaneWaitFree + level
+	}
+	return "waiting" + level + why(w.Why)
 }
 
 // pauseLine is the pause in force as the queue section words it.

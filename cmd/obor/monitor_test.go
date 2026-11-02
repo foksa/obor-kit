@@ -421,7 +421,7 @@ func TestMonitorShowsLaneWait(t *testing.T) {
 		Level: "medium", Types: []string{"sonnet", "deepseek"}})
 	m := monitorOf(t, p, now, 40)
 	text := m.frame(now)
-	lane := strings.Index(text, "queued T-03: waiting for a medium lane (sonnet, deepseek)")
+	lane := strings.Index(text, "queued T-03: waiting for a free lane (medium: sonnet, deepseek)")
 	never := strings.Index(text, "queued T-30: spec r1 stored")
 	events := strings.Index(text, "dispatched T-01")
 	if lane < 0 || never < 0 {

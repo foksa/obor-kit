@@ -53,7 +53,7 @@ func TestSpecTypeWaitsForEitherWhenAllAreBusy(t *testing.T) {
 	r.lanes.mu.Unlock()
 	r.start()
 	r.specType("deepseek")
-	const want = "WAITING T-1 (queued): waiting for a medium lane (deepseek, sonnet)"
+	const want = "WAITING T-1 (queued): waiting for a free lane (medium: deepseek, sonnet)"
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, want) {
 		t.Fatalf("all busy: %q, %v; want %q", reply, err, want)
 	}
@@ -100,7 +100,7 @@ func TestSpecTypeSpecSetRefusesAnUnknownType(t *testing.T) {
 	}
 }
 
-// RV-79 #1: a spec's Type: types count before the "no lane type of level" refusal. The rig's only lane O-01 is a haiku
+// RV-79 #1: a spec's Type: types count before the "no such lane type for level" refusal. The rig's only lane O-01 is a haiku
 // lane, a type no level lists, so medium (and its fallbacks) has none.
 func haikuRig(t *testing.T) *loopRig {
 	t.Helper()
@@ -128,7 +128,7 @@ func TestSpecTypeAloneWaitsWhenItsLaneIsBusy(t *testing.T) {
 	r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
 	r.start()
 	r.specType("haiku")
-	const want = "WAITING T-1 (queued): waiting for a medium lane (haiku)"
+	const want = "WAITING T-1 (queued): waiting for a free lane (medium: haiku)"
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, want) {
 		t.Fatalf("Type: haiku with its lane busy: %q, %v; want %q", reply, err, want)
 	}
@@ -138,7 +138,7 @@ func TestNoSpecTypeAndNoLevelLaneIsRefused(t *testing.T) {
 	r := haikuRig(t)
 	r.start()
 	r.specLevel("medium")
-	if _, err := r.dispatchLevel("d1"); err == nil || !strings.Contains(err.Error(), "no lane type of level medium") {
+	if _, err := r.dispatchLevel("d1"); err == nil || !strings.Contains(err.Error(), "no such lane type for level medium") {
 		t.Errorf("no Type:, no medium lane: %v; want the refusal", err)
 	}
 	if n := r.taskStep("T-1", "fact dispatch") + r.taskStep("T-1", "fact waiting"); n != 0 {

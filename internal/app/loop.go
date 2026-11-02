@@ -146,7 +146,7 @@ type mtask struct {
 	needs             event.Record // the needs-you fact in force (Seq 0: none)
 	left              string       // the state the last needs-you left: obor resume's retry goes back to it
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
-	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
+	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done.
 	disp                    dispatchData
 	at                      time.Time
