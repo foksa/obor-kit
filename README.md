@@ -80,7 +80,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 | `obor answer` · `resume` · `sendback` · `drop` | act on a needs-you |
 | `obor restart <agent> [--fresh]` | restart an agent in its pane |
 | `obor pause [--for 3h] "<why>"` | stop dispatching (quota, waiting on you) |
-| `obor stop ["<why>"] [--force]` · `obor start` | put the project to sleep (its agents, serve and its entry in `obor projects` go; files and config stay; hooks stand down) and wake it; `--force` drops the tasks in progress |
+| `obor stop ["<why>"] [--force]` · `obor start` | put the project to sleep (its agents, serve and its entry in `obor projects` go; files and config stay; hooks stand down) and wake it. Stop pauses serve first and says STOPPED only once serve is confirmed down; it refuses (clearing its pause) from a worker lane, with serve down (start it first), with a task in progress (`--force` drops each through serve; a failed drop refuses), when herdr does not answer, or when serve is not launchd's (stop that one in its pane). Start also clears the stop's pause |
 
 The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templates/agents/`.
 
