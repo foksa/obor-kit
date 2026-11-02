@@ -100,7 +100,7 @@ func (l *Launcher) waitScheduled(ctx context.Context, agent, pane string) (waite
 	if op == "stop" {
 		word = "stop"
 	}
-	t, err := l.resolve(ctx, agent, pane)
+	t, err := l.resolve(ctx, agent, pane, "")
 	if err != nil {
 		return false, err
 	}

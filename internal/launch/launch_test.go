@@ -570,6 +570,8 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 		{"force", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Force: true}, "pj-o-01 --pane w1:p3 --force"},
 		{"every combinable field", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Fresh: true, Force: true, Prompt: "go"},
 			"pj-o-01 --pane w1:p3 --fresh --force --prompt go"},
+		{"type and effort (T-722)", launch.Request{Agent: "pj-o-01", Fresh: true, Effort: "high", Type: "luna"},
+			"pj-o-01 --fresh --effort high --type luna"},
 		{"no pane", launch.Request{Agent: "pj-lead"}, "pj-lead"},
 		{"fresh with a first prompt", launch.Request{Agent: "pj-w", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"},
 			"pj-w --fresh --prompt [obor job T-1/1/work] call the obor job_next tool"},

@@ -38,6 +38,9 @@ type Launch struct {
 	// Effort is the effort to start with (a dispatch's type reference, T-695), replacing the type's; "": a role's
 	// configured effort (roles.<role>.type), else the type's args.
 	Effort string
+	// Type is the lane type to start with (a dispatch's choice, T-722), in place of the agent's configured one
+	// (lanes.<LANE>.type); "": a lane agent's lane row type (its last dispatch's), else the configured one.
+	Type string
 }
 
 // Typer types text into an agent's pane as it is (a job's wake with its [obor job <id>] tag, or a line carrying its
