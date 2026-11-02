@@ -46,6 +46,9 @@ type Slots struct {
 	LoadLimit float64
 	LoadCap   time.Duration          // how long Acquire waits for the load (default 15 min)
 	Load      func() (float64, bool) // the load average (nil: SystemLoad); ok false: unknown, no wait
+	// Now and After are Acquire's clock and poll wait (nil: time.Now, time.After); tests drive them (T-736).
+	Now   func() time.Time
+	After func(time.Duration) <-chan time.Time
 }
 
 // DefaultLoadCap is how long a check waits for the machine load to drop before it runs anyway.
@@ -258,19 +261,26 @@ func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (
 		loadCap = DefaultLoadCap
 	}
 	// waited sums the load waits only (T-726): time queued for a slot, or for a merge, does not use up LoadCap.
+	now, after := s.Now, s.After
+	if now == nil {
+		now = time.Now
+	}
+	if after == nil {
+		after = time.After
+	}
 	var waited time.Duration
 	var next, loadSince time.Time
 	for {
 		wait := ""
 		loaded = 0
 		if !loadSince.IsZero() {
-			waited += time.Since(loadSince)
+			waited += now().Sub(loadSince)
 			loadSince = time.Time{}
 		}
 		if l, over := s.overloaded(); over {
 			if waited < loadCap {
 				wait = "waiting: machine load " + FormatLoad(l) + " (> " + FormatLoad(s.LoadLimit) + ")"
-				loadSince = time.Now()
+				loadSince = now()
 			} else {
 				loaded = l
 			}
@@ -280,14 +290,14 @@ func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (
 				return path, loaded, err
 			}
 		}
-		if now := time.Now(); !now.Before(next) {
+		if t := now(); !t.Before(next) {
 			fmt.Fprintln(w, wait)
-			next = now.Add(report)
+			next = t.Add(report)
 		}
 		select {
 		case <-ctx.Done():
 			return "", 0, ctx.Err()
-		case <-time.After(poll):
+		case <-after(poll):
 		}
 	}
 }
