@@ -62,7 +62,10 @@ type (
 		Level  string   `json:"level,omitempty"`  // the spec's difficulty level the types came from
 		Types  []string `json:"types,omitempty"`  // type references, `<type>[:<effort>]` (T-695)
 		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its type's args; T-695)
-		After  []string `json:"after,omitempty"`  // waiting: the tasks it waits for
+		// Type is the type reference the dispatch chose, `<type>[:<effort>]` (T-721): the lane row's type. "": a record
+		// from before T-721 (a reader takes the config's lane type) or a waiting one.
+		Type   string   `json:"type,omitempty"`
+		After  []string `json:"after,omitempty"` // waiting: the tasks it waits for
 		Caller string   `json:"caller,omitempty"`
 		Call   string   `json:"call,omitempty"`
 		Reply  string   `json:"reply"`
@@ -317,7 +320,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	caller := callerOf(c)
 	effort := effortFor(c.Types, l.Type)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
-		Level: c.Level, Types: c.Types, Effort: effort, Caller: caller, Call: c.CallID,
+		Level: c.Level, Types: c.Types, Effort: effort, Type: config.TypeRef(l.Type, effort), Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + effortNote(effort) + idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
@@ -870,18 +873,19 @@ func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key,
 }
 
 // workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now: the prompt
-// template, then the worker's role texts (T-603: one read of them instead of two turns).
+// template (its prompt_extra the dispatch's type's), then the worker's role texts (T-603: one read of them instead of two turns).
 func workText(p *proj, mt mtask, kit string) (string, error) {
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
 	}
-	var lt config.LaneType
+	typ, _ := config.ParseTypeRef(mt.disp.Type) // the lane row's type (T-721)
 	for _, l := range cfg.Lanes() {
-		if l.Name == mt.lane {
-			lt, _ = cfg.LaneType(l.Type)
+		if l.Name == mt.lane && typ == "" { // a dispatch from before T-721: the config's lane type
+			typ = l.Type
 		}
 	}
+	lt, _ := cfg.LaneType(typ)
 	text, err := workerPrompt(cfg, kit, mt.task, lt)
 	if err != nil {
 		return "", err

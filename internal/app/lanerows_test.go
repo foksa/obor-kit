@@ -15,7 +15,8 @@ import (
 
 // T-439: serve's lanes table is the projection of its fold: after a dispatch (its lane.prepare), a submission, a
 // merge, a re-dispatch of the lane and a drop the table equals the fold's rows and what the log says, and a replay
-// writes the same table.
+// writes the same table. T-721: the row carries its dispatch's type reference; a dispatch recorded before T-721 has
+// none (its row's type is empty, a reader takes the config's lane type), the next dispatch's row has its own.
 func TestLaneRowsProjectTheLog(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -77,11 +78,11 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	table("merged: the row stays", row)
 
 	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
-		Branch: "task/T-2", Target: "b2"})
+		Branch: "task/T-2", Target: "b2", Effort: "high", Type: "opus:high"})
 	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
 	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2", Head: "b2"})
 	row2 := store.LaneRow{Lane: "O-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-o-01", Base: "b2", Head: "b2",
-		DispatchedAt: h.now.Add(-2 * time.Minute).Unix()}
+		DispatchedAt: h.now.Add(-2 * time.Minute).Unix(), Type: "opus:high"}
 	table("the lane re-dispatched", row2)
 
 	// A replay of the same log writes the same table (the projection is idempotent).

@@ -12,16 +12,41 @@ import (
 
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, agent, base: the
 // target sha, head: merge-base(HEAD, target)) and when it was dispatched (unix seconds). Finished is when the attempt's
-// task_done was recorded (unix seconds; 0: the task awaits it).
+// task_done was recorded (unix seconds; 0: the task awaits it). Type is the type reference its dispatch chose,
+// `<type>[:<effort>]` (T-721; "": a dispatch recorded before T-721, the config's lane type is the reader's fallback).
 type LaneRow struct {
 	Lane, Task, Branch, Agent string
 	Base, Head                string
 	DispatchedAt, Finished    int64
+	Type                      string
+}
+
+// laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since
+// T-721, read by a newer CLI) has no type column, its rows read none.
+func laneCols(db *sql.DB) (string, error) {
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('lanes') WHERE name = 'type'").Scan(&n); err != nil {
+		return "", fmt.Errorf("lanes: %w", err)
+	}
+	typ := "type"
+	if n == 0 {
+		typ = "''"
+	}
+	return "lane, task, branch, agent, base, head, dispatched_at, finished, " + typ, nil
+}
+
+// scanLane reads one row of laneCols' select list into r.
+func scanLane(scan func(...any) error, r *LaneRow) error {
+	return scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt, &r.Finished, &r.Type)
 }
 
 // ReadLanes is db's lane rows, by lane.
 func ReadLanes(db *sql.DB) ([]LaneRow, error) {
-	rows, err := db.Query("SELECT lane, task, branch, agent, base, head, dispatched_at, finished FROM lanes ORDER BY lane")
+	cols, err := laneCols(db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("SELECT " + cols + " FROM lanes ORDER BY lane")
 	if err != nil {
 		return nil, fmt.Errorf("lanes: %w", err)
 	}
@@ -29,8 +54,7 @@ func ReadLanes(db *sql.DB) ([]LaneRow, error) {
 	var out []LaneRow
 	for rows.Next() {
 		var r LaneRow
-		if err := rows.Scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt,
-			&r.Finished); err != nil {
+		if err := scanLane(rows.Scan, &r); err != nil {
 			return nil, fmt.Errorf("lanes: %w", err)
 		}
 		out = append(out, r)
@@ -49,9 +73,9 @@ func WriteLanes(db *sql.DB, rows []LaneRow) error {
 		return fmt.Errorf("lanes: %w", err)
 	}
 	for _, r := range rows {
-		if _, err := tx.Exec(`INSERT INTO lanes (lane, task, branch, agent, base, head, dispatched_at, finished)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base, r.Head, r.DispatchedAt,
-			r.Finished); err != nil {
+		if _, err := tx.Exec(`INSERT INTO lanes (lane, task, branch, agent, base, head, dispatched_at, finished, type)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base, r.Head, r.DispatchedAt,
+			r.Finished, r.Type); err != nil {
 			return fmt.Errorf("lanes: row %s: %w", r.Lane, err)
 		}
 	}
@@ -94,9 +118,12 @@ func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
 		return LaneRow{}, false, nil
 	}
 	defer db.Close()
+	cols, err := laneCols(db)
+	if err != nil {
+		return LaneRow{}, false, err
+	}
 	var r LaneRow
-	err = db.QueryRow("SELECT lane, task, branch, agent, base, head, dispatched_at, finished FROM lanes WHERE lane = ?",
-		lane).Scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt, &r.Finished)
+	err = scanLane(db.QueryRow("SELECT "+cols+" FROM lanes WHERE lane = ?", lane).Scan, &r)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return LaneRow{}, false, nil

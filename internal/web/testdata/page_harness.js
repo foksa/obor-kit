@@ -338,6 +338,18 @@ const scenarios = {
     check(html().includes("Long-running processes") && html().includes("convert maps") &&
       html().includes("python convert.py") && html().includes("bg: 15m"), "the agent page lists the process as bg: " + html());
   },
+
+  // T-721: a busy lane's row shows the type its task's dispatch chose, before its effort.
+  async laneType() {
+    server.routes["/api/view"] = () => viewWith({
+      lanes: [{ lane: "O-01", state: "working", column: "working", task: "T-1", agent: "w1", type: "sonnet",
+        effort: "high" }] });
+    await navigate("#/p/proj");
+    await tick(100);
+    const page = html();
+    check(page.includes("T-1"), "precondition: the lane's row is drawn: " + page);
+    check(page.includes(" · sonnet · effort high"), "the lane's row shows its dispatch's type and effort: " + page);
+  },
 };
 
 (async () => {

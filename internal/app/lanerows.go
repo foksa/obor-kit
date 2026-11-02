@@ -68,7 +68,7 @@ func (p *proj) foldLanes(r event.Record) {
 			}
 		}
 		p.folded.lr.rows[mt.disp.Lane] = store.LaneRow{Lane: mt.disp.Lane, Task: r.Task, Branch: mt.disp.Branch,
-			Agent: mt.disp.Agent, Base: d.Base, Head: d.Head, DispatchedAt: mt.at.Unix()}
+			Agent: mt.disp.Agent, Base: d.Base, Head: d.Head, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
 	}
 }
 

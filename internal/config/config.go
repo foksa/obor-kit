@@ -705,6 +705,15 @@ func ParseTypeRef(ref string) (typ, effort string) {
 	return typ, effort
 }
 
+// TypeRef is the type reference of lane type typ with effort (ParseTypeRef's inverse): typ alone without an effort or
+// a type.
+func TypeRef(typ, effort string) string {
+	if typ == "" || effort == "" {
+		return typ
+	}
+	return typ + ":" + effort
+}
+
 // CheckTypeRef is why ref names no lane type of this config or an effort its kind does not take (agents.CheckEffort);
 // nil when it is fine.
 func (c *Config) CheckTypeRef(ref string) error {

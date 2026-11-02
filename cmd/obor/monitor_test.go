@@ -193,7 +193,7 @@ func TestMonitorSections(t *testing.T) {
 	if f := strings.Fields(lane); len(f) < 6 || f[2] != "working" || f[3] != "T-01" || f[4] != "4m" {
 		t.Errorf("the lane line %q, want working, its task T-01 and 4m in that state", lane)
 	}
-	if !strings.HasSuffix(lane, "-") || strings.Contains(lane, "agent") {
+	if f := strings.Fields(lane); len(f) < 6 || f[5] != "-" || strings.Contains(lane, "agent") { // T-721: the type follows
 		t.Errorf("the lane line %q: no agent runs in the lane, want its place held by -", lane)
 	}
 	// Section order: serve's lines, needs-you, the lanes, the review and watches and queue, the events.

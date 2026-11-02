@@ -114,6 +114,30 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 	}
 }
 
+// T-721: the job's prompt_extra is the type's its dispatch chose (the lane row's), not the config's lane type; a
+// dispatch recorded before T-721 (no type) takes the config's lane type's.
+func TestWorkTextPromptExtraIsTheDispatchsType(t *testing.T) {
+	t.Parallel()
+	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
+	cfg := `{"name":"pj","paths":{"agents":"doc/roles"},"lanes":{"O-01":"opus"},"lane_types":{
+		"opus":{"kind":"claude","prompt_extra":"Opus extra."},"sonnet":{"kind":"claude","prompt_extra":"Sonnet extra."}}}`
+	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
+	text, err := workText(p, mtask{task: "T-9", lane: "O-01", disp: dispatchData{Lane: "O-01", Type: "sonnet:high"}}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Sonnet extra.") || strings.Contains(text, "Opus extra.") {
+		t.Errorf("a sonnet:high dispatch on an opus lane: want sonnet's prompt_extra only:\n%s", text)
+	}
+	text, err = workText(p, mtask{task: "T-9", lane: "O-01", disp: dispatchData{Lane: "O-01"}}, kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Opus extra.") || strings.Contains(text, "Sonnet extra.") {
+		t.Errorf("a dispatch with no type: want the lane's configured opus prompt_extra only:\n%s", text)
+	}
+}
+
 // The kit's own prompt template names no role text: the job carries it.
 func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 	t.Parallel()

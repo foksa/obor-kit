@@ -649,7 +649,7 @@ function renderProject(p, v) {
         <span class="sub2 ell">${agentLink(p, l.agent)}${l.agent_status ? " · " + esc(l.agent_status) : ""}${
           job ? " · job " + job : ""}${l.warning ? " · " + pill("fail", l.warning) : ""}${l.op ? " · " + esc(l.op) : ""}</span>${bgHTML(l.background)}</div>
       <span>${pill(l.column)}</span>
-      <span class="sub2 hide-sm">${l.spec_rev ? "spec r" + l.spec_rev : ""}${l.attempt > 1 ? " · attempt " + l.attempt : ""}${l.effort ? " · effort " + esc(l.effort) : ""}</span>
+      <span class="sub2 hide-sm">${l.spec_rev ? "spec r" + l.spec_rev : ""}${l.attempt > 1 ? " · attempt " + l.attempt : ""}${l.task && l.type ? " · " + esc(l.type) : ""}${l.effort ? " · effort " + esc(l.effort) : ""}</span>
       <span class="r muted small">${rel(l.since, "for")}</span>
     </div>`;
   }).join("");
