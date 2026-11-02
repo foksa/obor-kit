@@ -10,8 +10,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   new monitor, watch --note, role agents stop when done, deduped job prompts). RV-75 and RV-76 closed. Codex smoke
   T-679 passed. Nothing in flight, no watches; ob-int and ob-terra stopped by serve, ob-fable and ob-deep-dive by the
   lead. `obor web` runs in pane `ob-web` (system tab, http://127.0.0.1:8787/).
-  **Owner next:** `make ship`, then `obor serve restart` in axis-alies and axis-maps; then the lead: `obor send` both
-  leads what changed (docs/UPGRADE-v0.18.md), restart their monitors (aa-monitor w2:p24, axis-monitor wA:p7).
+  **Shipped** 2026-11-02 07:05 (GitHub release v0.18.0, kit installed); all three serves restarted on it, both axis
+  monitors restarted on 0.18.0, both axis leads sent the summary (axis-maps: queued, its lead has no recorded
+  session; delivered once `obor restart axis-lead` or `obor lead` there).
   Later (owner): `obor drive`/`obor land` (Later candidates). Owner ended the day after this release.
   After the tag: nightly RED on govulncheck (five go1.27.1 net/http server vulns, reachable via `obor web`;
   localhost plain HTTP, so no real risk) → T-681 `toolchain go1.27.3` in go.mod, merged f19aedc, nightly GREEN.
