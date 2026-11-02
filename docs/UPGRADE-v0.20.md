@@ -4,7 +4,8 @@
 Re-run the installer, then `obor serve restart` in each project and restart its `obor monitor` and `obor web`
 panes once (v0.19 binaries cannot follow a new binary). From v0.20 on, monitor and web restart themselves on a new
 binary within a minute; serve does too when idle, and while a gate, nightly or other work runs it waits for that,
-at most 10 minutes after it noticed the binary (a failed restart is a needs-you).
+at most 10 minutes after it noticed the binary, then restarts even if that work still runs (a failed restart is a
+needs-you).
 
 - **Untyped lanes pool the work**: `lanes.<LANE>` may be `""` (any type). A task's `Type:` and `Difficulty:` pick the
   model and effort per dispatch, and a free untyped lane takes it; the worktree, pane and label are reused. To pool a
