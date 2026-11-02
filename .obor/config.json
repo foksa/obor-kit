@@ -47,11 +47,13 @@
   "difficulty": {
     "medium": [
       "deepseek",
-      "sonnet"
+      "sonnet",
+      "opus"
     ],
     "simple": [
       "deepseek",
-      "sonnet"
+      "sonnet",
+      "opus"
     ]
   },
   "protected_files": [
