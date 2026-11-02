@@ -38,15 +38,13 @@ The owner:
    object) and a main containing that commit; the GitHub release is not a draft and has the four assets (a release
    missing some gets only those, via `scripts/publish --upload`; a draft stops with the `gh release edit` command); the
    installed `obor` is this version. Ship publishes main up to the release; later merges wait for the next release.
-   Ship's last step is the follow-through, `obor projects --upgrade --notify <notes>` (the lead can run it alone, with
-   or without `--notify`): in each project of `obor projects` it runs `obor serve restart` (a project picks the new kit
-   up at restart), then gives Ctrl-C and the same command again to every herdr pane whose foreground is an `obor
-   monitor` or `obor web` of another binary than the installed one (other panes are never touched), then tells each
-   project's lead but the kit's own, with `obor send`, "obor v<x.y.z> is installed and your serve is restarted.
-   <docs/releases/v<x.y.z>.md at the tag>". One line per step; a project or pane that fails is reported and the rest go
-   on, and ship then fails with the repair (`obor projects --upgrade`: the leads are told already). Stopped projects are
-   not in the list. No config advice is generated: a release whose projects need a config change says so in its notes,
-   and the lead sends that change to the project's lead before shipping.
+   Its last step tells the leads: `obor projects --notify <notes>` (the lead can run it alone) sends `obor send
+   <project> "obor v<x.y.z> is installed. <docs/releases/v<x.y.z>.md at the tag>"` to each registered project's lead
+   but the kit's own, one line per project; a send that fails is reported, the rest go out, and ship then fails with the
+   repair command. No config advice is generated: a release whose projects need a config change says so in its
+   notes, and the lead sends that change to the project's lead before shipping.
+4. `obor serve restart` in each project (`make ship` names the ones launchd knows): a project picks the new kit up
+   at restart.
 
 Guarantees: main keeps marketplace `obor-kit-dev` (only the tag ships `obor-kit`); `scripts/publish` titles each GitHub
 release `obor <x.y.z>` with the notes of `docs/releases/v<x.y.z>.md` at the tag and a Full Changelog link to the newest

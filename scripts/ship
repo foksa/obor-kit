@@ -12,8 +12,9 @@
 #            run: scripts/publish (no release), or scripts/publish --upload of the missing assets only (its byte
 #            checks first)                                       fail: stop with the repair command
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop
-# A pushed tag never moves. The last step is the follow-through: `obor serve restart` in the projects whose serve this
-# machine knows, the monitors and web on the old binary, and the leads told (`obor projects --upgrade --notify`, T-715). POSIX sh.
+# A pushed tag never moves. The last line is the one follow-up: `obor serve restart` in the projects whose serve this
+# machine knows (obor projects, else launchd's labels; the generic line when it knows none), then the leads are told what
+# changed (obor projects --notify, T-715). POSIX sh.
 set -eu
 
 usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
@@ -136,16 +137,35 @@ else
   say "installed the kit (install.sh): obor $tag"
 fi
 
-# --- follow-through (T-715)
-# `obor projects --upgrade --notify <notes>`: in each project of the machine's list `obor serve restart`, then Ctrl-C and
-# the same command again for every herdr pane running an `obor monitor` or `obor web` of an older binary, then the
-# release notes (docs/releases/v<version>.md at the tag) to each project's lead but this kit's. A step that fails is
-# reported and the rest go on; the release itself is done by then, so the repair is the line it prints.
+# --- notify the leads (T-715)
+# `obor projects --notify <notes>`: the release notes (docs/releases/v<version>.md at the tag) to each project's lead but
+# this kit's. A send that fails is reported and the rest go out; the failure ends ship after the reminder below, with the
+# repair command.
 notes=$(mktemp "${TMPDIR:-/tmp}/ship-notes.XXXXXX") || fail "cannot create a temp file"
 trap 'rm -f "$notes"' EXIT
 git show "$tag:docs/releases/$tag.md" > "$notes" 2> /dev/null || fail "no docs/releases/$tag.md at $tag"
-if obor projects --upgrade --notify "$notes"; then
-  say "restarted the serves, monitors and web of this machine and told the leads"
+told=1
+obor projects --notify "$notes" && told=0
+[ "$told" = 0 ] && say "told the leads of this machine's projects"
+
+# serve_projects: the projects whose serve runs, by the machine's list of obor projects (obor projects, T-646: the list
+# obor serve and obor init keep) when it exists, else by launchd's labels (obor.serve.<name>); empty elsewhere.
+serve_projects() {
+  list=${OBOR_STATE_HOME:-$HOME/.obor}/projects.json
+  if [ -f "$list" ] && command -v obor > /dev/null 2>&1; then
+    obor projects 2> /dev/null | awk '$NF == "up" { printf "%s%s", (n++ ? ", " : ""), $1 }'
+    return 0
+  fi
+  command -v launchctl > /dev/null 2>&1 || return 0
+  launchctl list 2> /dev/null |
+    awk '$3 ~ /^obor\.serve\./ { sub(/^obor\.serve\./, "", $3); printf "%s%s", (n++ ? ", " : ""), $3 }'
+}
+
+projects=$(serve_projects)
+if [ -n "$projects" ]; then
+  echo "restart serve: obor serve restart in $projects"
 else
-  fail "the follow-through above did not all go through: fix it, then obor projects --upgrade (no --notify: the leads are told already)"
+  echo "restart serve: obor serve restart in each project"
 fi
+[ "$told" = 0 ] ||
+  fail "a lead was not told (above): obor projects --notify <the notes: git show $tag:docs/releases/$tag.md>"
