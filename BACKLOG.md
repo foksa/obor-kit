@@ -102,6 +102,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (2026-11-02, T-714) A worker blocked on "the gate's RED is not my diff, re-gate" can only be answered
+  (`obor answer`), and an answer saying "the lead re-gates" leaves both waiting: serve needs task_done, the worker
+  waits for the lead; `obor resume T-x regate` refuses (no merge-loop needs-you). Fix idea: such a Blocked report's
+  needs-you offers `obor resume T-x regate` (re-run the gate on the submitted diff, no worker turn).
 - (RV-84 2nd verify #3, accepted: rare) `obor stop`: if unregister or the marker write fails after serve exited,
   the prior pause is lost (persist it in a recovery record before shutting serve down, ~20-50 lines).
 - (RV-84 2nd verify #4, accepted: rare) macOS: an installed but unloaded plist plus a pane serve: stop exits the
