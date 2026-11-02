@@ -3,6 +3,9 @@ package app_test
 import (
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"sync"
 	"testing"
@@ -20,11 +23,11 @@ func (r *loopRig) advance(d time.Duration) {
 }
 
 // needsLineFacts is the message facts of the project's log that announce a needs-you.
-func (r *loopRig) needsLineFacts() []app.Record {
-	var out []app.Record
+func (r *loopRig) needsLineFacts() []event.Record {
+	var out []event.Record
 	for _, rec := range r.records() {
-		if rec.Task == app.MsgTask && rec.Kind == app.KindFact && rec.Step == app.StepMessage {
-			var m app.Message
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepMessage {
+			var m event.Message
 			if json.Unmarshal(rec.Data, &m) == nil && m.Needs != 0 {
 				out = append(out, rec)
 			}
@@ -37,7 +40,7 @@ func (r *loopRig) needsLineFacts() []app.Record {
 func (r *loopRig) againLines(seq int64) []string {
 	var out []string
 	for _, rec := range r.needsLineFacts() {
-		var m app.Message
+		var m event.Message
 		if json.Unmarshal(rec.Data, &m) == nil && m.Needs == seq && strings.Contains(m.Line, " (again, ") {
 			out = append(out, m.Line)
 		}
@@ -51,22 +54,22 @@ func refusedRig(t *testing.T) (*loopRig, string) {
 	t.Helper()
 	r := newDispatchRig(t)
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
 	r.waitFor("needs-you fact folded into status", func() bool {
 		for _, f := range r.app.Status().Project.Facts {
-			if f.Step == app.StepNeedsYou {
+			if f.Step == event.StepNeedsYou {
 				return true
 			}
 		}
 		return false
 	})
-	var fact app.Record
+	var fact event.Record
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Step == app.StepNeedsYou {
+		if f.Step == event.StepNeedsYou {
 			fact = f
 		}
 	}
@@ -111,7 +114,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	r := newDispatchRig(t)
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")
@@ -120,7 +123,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	// again. Under load (parallel tests) the stop below came in between: wait for the recorded result.
 	r.waitFor("the notification's result", func() bool {
 		for _, rec := range r.records() {
-			if rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "notify.") {
+			if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "notify.") {
 				return true
 			}
 		}
@@ -153,12 +156,12 @@ func TestWaitingLineNeedsYouQueuesNoLine(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	if _, err := r.line(app.MethodSend, "s1", app.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.advance(25 * time.Hour)
 	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") + "}"
-	r.waitFor("the line's needs-you", func() bool { return r.taskStep(app.MsgTask, want) == 1 })
+	r.waitFor("the line's needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
 	r.waitFor("the notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	r.advance(0)
 	r.advance(0)
@@ -173,13 +176,13 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
 	})
 	r.start()
 	var held, release = make(chan struct{}), make(chan struct{})
 	var first, refused sync.Once
-	app.Refuse(r.app, r.p.Root, func(rec app.Record) error {
-		if rec.Task != app.MsgTask || rec.Step != app.StepMessage {
+	app.Refuse(r.app, r.p.Root, func(rec event.Record) error {
+		if rec.Task != event.MsgTask || rec.Step != event.StepMessage {
 			return nil
 		}
 		var err error
@@ -297,7 +300,7 @@ func undeliveredRig(t *testing.T) (*loopRig, int64) {
 	r := newDispatchRig(t)
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")

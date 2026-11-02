@@ -2,6 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -19,11 +22,11 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	h.connect()
 	a, p := h.a, h.proj()
-	add := func(task string, attempt int, step, kind string, d any) Record {
+	add := func(task string, attempt int, step, kind string, d any) event.Record {
 		t.Helper()
 		h.now = h.now.Add(time.Minute)
 		raw, _ := json.Marshal(d)
-		r, err := p.log.Append(Record{Task: task, Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
+		r, err := p.log.Append(event.Record{Task: task, Attempt: attempt, Step: step, Kind: kind, Data: raw}, h.now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,26 +60,26 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	}
 	table("load: no records")
 
-	disp := add("T-1", 1, StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	disp := add("T-1", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Branch: "task/T-1", Target: "b1"})
 	table("dispatched, not prepared")
-	add("T-1", 1, StepPrepare, KindIntent, PrepareInput{})
-	add("T-1", 1, StepPrepare, KindResult, prepareOut{Base: "b1", Head: "h1"})
-	at := recordTime(disp).Unix()
+	add("T-1", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
+	add("T-1", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	at := event.RecordTime(disp).Unix()
 	row := store.LaneRow{Lane: "O-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-o-01", Base: "b1", Head: "h1",
 		DispatchedAt: at}
 	table("prepared: awaits task_done", row)
 
-	sub := add("T-1", 1, StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Report: "r"})
-	row.Finished = recordTime(sub).Unix()
+	sub := add("T-1", 1, event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Report: "r"})
+	row.Finished = event.RecordTime(sub).Unix()
 	table("submitted: finished", row)
-	add("T-1", 1, StepMerged, KindFact, mergedData{})
+	add("T-1", 1, event.StepMerged, event.KindFact, event.MergedData{})
 	table("merged: the row stays", row)
 
-	add("T-2", 1, StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	add("T-2", 1, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Branch: "task/T-2", Target: "b2"})
-	add("T-2", 1, StepPrepare, KindIntent, PrepareInput{})
-	add("T-2", 1, StepPrepare, KindResult, prepareOut{Base: "b2", Head: "b2"})
+	add("T-2", 1, event.StepPrepare, event.KindIntent, port.PrepareInput{})
+	add("T-2", 1, event.StepPrepare, event.KindResult, prepareOut{Base: "b2", Head: "b2"})
 	row2 := store.LaneRow{Lane: "O-01", Task: "T-2", Branch: "task/T-2", Agent: "pj-o-01", Base: "b2", Head: "b2",
 		DispatchedAt: h.now.Add(-2 * time.Minute).Unix()}
 	table("the lane re-dispatched", row2)
@@ -92,7 +95,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	table("replayed", row2)
 	defer a.closeLog()
 
-	add("T-2", 1, StepDropped, KindFact, FactData{Lane: "O-01", Reason: "abandoned", Merge: true})
+	add("T-2", 1, event.StepDropped, event.KindFact, event.FactData{Lane: "O-01", Reason: "abandoned", Merge: true})
 	table("dropped: the row clears")
 }
 
@@ -108,11 +111,11 @@ func TestTaskDoneByLane(t *testing.T) {
 	h.a.mu.Lock()
 	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	if _, err := h.a.taskDone(Call{Root: h.root, Role: "worker", Agent: "pj-o-01", Lane: "O-02", CallID: "c0",
+	if _, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-o-01", Lane: "O-02", CallID: "c0",
 		Report: "Summary: x"}); err == nil || err.Error() != "task_done: lane O-02 holds no task in obor serve" {
 		t.Errorf("a lane with no row: %v", err)
 	}
-	_, err := h.a.taskDone(Call{Root: h.root, Role: "worker", Agent: "pj-o-01", Lane: "O-01", CallID: "c1",
+	_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-o-01", Lane: "O-01", CallID: "c1",
 		Report: "Summary: x"})
 	if err == nil || err.Error() == "task_done: lane O-01 holds no task in obor serve" {
 		t.Errorf("O-01's row holds T-1: the call reaches the report check, got %v", err)

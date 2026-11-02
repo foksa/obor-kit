@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 )
@@ -9,7 +11,7 @@ import (
 // answerSeed is the harness with T-1 dispatched in lane O-01 (the lane adapters faked), its loop state set to state
 // and its attempt's job to job, then the needs-you of cause recorded (a watchdog's when watch: no merge-loop fact). It
 // returns the fact in force.
-func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *proj, Record) {
+func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *proj, event.Record) {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.withLead()
@@ -19,14 +21,14 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Branch: "task/T-1", Target: "b"})
-	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	mt := p.folded.loop["T-1"]
 	if watch {
-		h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, FactData{Lane: "O-01", Reason: cause})
+		h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "O-01", Reason: cause})
 		return h, p, p.folded.active["T-1"][0]
 	}
 	mt.state, mt.job = state, job
@@ -41,12 +43,12 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 
 // runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs) with
 // a one-word decision for the placeholder (RV-54 #4), obor drop and obor sendback as their CLIs call serve.
-func runAnswer(h *harness, fact Record, cmd string) (string, error) {
-	c := Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
+func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
+	c := wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
 	args := strings.Fields(strings.NewReplacer(`["<decision>"]`, "yes", `"<why>"`, "").Replace(cmd))
 	switch {
 	case len(args) > 2 && args[1] == "resume":
-		rc, ok := ResumeArgs(args[2:])
+		rc, ok := wire.ResumeArgs(args[2:])
 		if !ok {
 			return "", &usageError{cmd}
 		}
@@ -62,7 +64,7 @@ func runAnswer(h *harness, fact Record, cmd string) (string, error) {
 		return h.a.drop(c)
 	case len(args) == 3 && args[1] == "sendback": // obor sendback <LANE>: the CLI asks serve for the lane's task
 		c.Task, c.Note = fact.Task, "please fix"
-		return h.a.verdict(context.Background(), MethodSendback, c)
+		return h.a.verdict(context.Background(), wire.MethodSendback, c)
 	}
 	return "", &usageError{cmd}
 }
@@ -85,23 +87,23 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		watch             bool
 		want              string
 	}{
-		{causeHeld, stAwaiting, StepReview, false, sb + `obor resume T-1 ["<decision>"]` + drop},
+		{causeHeld, stAwaiting, event.StepReview, false, sb + `obor resume T-1 ["<decision>"]` + drop},
 		{causeRed, stRed, "", false, sb + resume + drop},
-		{causeUndelivered, stAwaiting, StepReview, false, sb + resume + drop},
-		{causeStalled, stAwaiting, StepReview, false, sb + resume + drop},
+		{causeUndelivered, stAwaiting, event.StepReview, false, sb + resume + drop},
+		{causeStalled, stAwaiting, event.StepReview, false, sb + resume + drop},
 		{causeGate, stFail, "", false, sb + resume + drop},
 		{causePublish, stFail, "", false, sb + resume + drop},
-		{causeSendbacks, stFail, StepReview, false, sb + resume + " regate | " + resume + " reprompt" + drop},
-		{causeResolveRejected, stFail, StepResolve, false, sb + resume + " regate | " + resume + " reprompt" + drop},
+		{causeSendbacks, stFail, event.StepReview, false, sb + resume + " regate | " + resume + " reprompt" + drop},
+		{causeResolveRejected, stFail, event.StepResolve, false, sb + resume + " regate | " + resume + " reprompt" + drop},
 		{causeFix, stWorking, "", false, sb + resume + " regate" + drop},
 		{causeLane, stDispatched, "", false, sb + resume + drop},
 		{causeStart, stDispatched, "", false, sb + resume + drop},
 		{causeNoPane, stDispatched, "", false, sb + resume + drop},
 		{causeAfter, stWaiting, "", false, resume + ` | obor drop T-1 "<why>"`}, // no lane: no obor sendback
 		{"submit" + failedSuffix, stSubmitted, "", false, sb + resume + drop},
-		{"review" + failedSuffix, stAwaiting, StepReview, false, sb + resume + drop},
-		{StepAfterMerge + failedSuffix, stMerged, "", false, resume},
-		{StepStop + failedSuffix, stMerged, "", false, resume},
+		{"review" + failedSuffix, stAwaiting, event.StepReview, false, sb + resume + drop},
+		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
+		{event.StepStop + failedSuffix, stMerged, "", false, resume},
 		{causeRejected, stRejected, "", false, `obor drop O-01 "<why>"`},
 		{"stalled", "", "", true, `its pane, or obor drop O-01 "<why>"`},
 		{"blocked", "", "", true, `its pane, or obor drop O-01 "<why>"`},
@@ -133,8 +135,8 @@ func TestAnswerPathEveryCause(t *testing.T) {
 			}
 		})
 	}
-	for _, task := range []string{LoopTask, NightlyTask, MsgTask} { // a project's fact: fix what it names
-		if path := answerPath(Record{Task: task, Step: StepNeedsYou, Kind: KindFact}, mtask{}); path != "" {
+	for _, task := range []string{event.LoopTask, event.NightlyTask, event.MsgTask} { // a project's fact: fix what it names
+		if path := answerPath(event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, mtask{}); path != "" {
 			t.Errorf("%s: suggests %q, want none", task, path)
 		}
 	}
@@ -155,8 +157,8 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{"T-1", "approved"}, "", "approved", true},
 		{[]string{"T-1", "retry"}, "", "retry", true}, // not a reserved mode: a decision, the cause's default
 		{[]string{"T-1", "yes please"}, "", "yes please", true},
-		{[]string{"T-1", "regate"}, ResumeRegate, "", true},
-		{[]string{"T-1", "reprompt", "yes"}, ResumeReprompt, "yes", true},
+		{[]string{"T-1", "regate"}, wire.ResumeRegate, "", true},
+		{[]string{"T-1", "reprompt", "yes"}, wire.ResumeReprompt, "yes", true},
 		{[]string{"T-1", "regate", "yes", "more"}, "", "", false},
 		{[]string{"T-1", "yes", "more"}, "", "", false},
 		{[]string{"T-1", " "}, "", "", false},
@@ -164,7 +166,7 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{""}, "", "", false},
 		{nil, "", "", false},
 	} {
-		got, ok := ResumeArgs(c.args)
+		got, ok := wire.ResumeArgs(c.args)
 		if ok != c.ok || ok && (got.Task != c.args[0] || got.To != c.to || got.Note != c.note) {
 			t.Errorf("ResumeArgs(%q) = %+v, %v; want to %q, note %q, %v", c.args, got, ok, c.to, c.note, c.ok)
 		}

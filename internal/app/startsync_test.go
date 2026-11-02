@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"sync"
 	"testing"
@@ -30,7 +33,7 @@ type heldStart struct {
 	typed          []string // agent and job of each prompt
 }
 
-func (f *heldStart) Launch(ctx context.Context, l Launch) (Started, error) {
+func (f *heldStart) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
 	if f.agent != "" && l.Agent != f.agent {
 		return f.concScratch.Launch(ctx, l)
 	}
@@ -43,7 +46,7 @@ func (f *heldStart) Launch(ctx context.Context, l Launch) (Started, error) {
 	<-f.release
 	if strings.HasSuffix(l.Agent, "-int") {
 		f.a.mu.Lock()
-		f.a.obs["w1:p9"] = &seen{pane: Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.root, Label: l.Agent, Agent: "claude",
+		f.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.root, Label: l.Agent, Agent: "claude",
 			Status: "idle"}, since: f.a.opt.Now()}
 		f.a.mu.Unlock()
 	}
@@ -51,7 +54,7 @@ func (f *heldStart) Launch(ctx context.Context, l Launch) (Started, error) {
 	f.inflight--
 	f.returned = true
 	f.mu.Unlock()
-	return Started{Line: "STARTED " + l.Agent}, nil
+	return port.Started{Line: "STARTED " + l.Agent}, nil
 }
 
 func (f *heldStart) Type(_ context.Context, agent, text string, _ bool) (bool, error) {
@@ -82,8 +85,8 @@ func heldRig(t *testing.T, agent string) (*concRig, *proj, *heldStart) {
 
 // gateDone records task's lane gate with outcome (green, conflict): its integrator job is next.
 func gateDone(r *concRig, task, outcome string) {
-	r.add("pj", task, StepGate, KindIntent, gateIn{Kind: InputLane, Input: "s"})
-	r.add("pj", task, StepGate, KindResult, gateOut{Outcome: outcome, Candidate: Candidate{Task: task, SHA: "c",
+	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Input: "s"})
+	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: task, SHA: "c",
 		Target: "b", Patch: "p"}})
 }
 
@@ -94,7 +97,7 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	t.Parallel()
 	r, p, f := heldRig(t, "pj-o-02")
 	dispatchT2(r)
-	r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	r.run()
 	select {
 	case <-f.entered:
@@ -102,14 +105,14 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 		t.Fatal("T-2's start never began")
 	}
 
-	raw, err := r.a.jobNext(Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "fetched"})
-	var job JobReply
+	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "fetched"})
+	var job wire.JobReply
 	_ = json.Unmarshal([]byte(raw), &job)
 	if err != nil || job.State != "job" || job.Job != "T-2/1/work" {
 		t.Fatalf("job_next during the start: %s, %v; want T-2/1/work", raw, err)
 	}
 	time.Sleep(200 * time.Millisecond) // a delivery shortcut would have ended the start by now
-	if n := r.count("pj", "T-2", KindResult, StepStartWork); n != 0 {
+	if n := r.count("pj", "T-2", event.KindResult, event.StepStartWork); n != 0 {
 		t.Errorf("the start's result written while its launch runs (%d)", n)
 	}
 	if a := r.dropWithin("pj", "T-2", "drop"); a.err == nil || !strings.Contains(a.err.Error(), "is running; retry when it settles") {
@@ -184,7 +187,7 @@ func TestIntegratorStartsOneAtATime(t *testing.T) {
 			if len(f.typed) != 0 {
 				t.Errorf("typed %q; want nothing while T-1's job is out", f.typed)
 			}
-			if p.log.Open(Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(Key{Task: "T-5", Attempt: 1, Step: c.job}) {
+			if p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) || p.log.Done(event.Key{Task: "T-5", Attempt: 1, Step: c.job}) {
 				t.Errorf("T-5's %s recorded while T-1's job is out", c.job)
 			}
 		})

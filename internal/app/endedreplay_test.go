@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
@@ -25,13 +27,13 @@ type logRec struct {
 // writeLog appends recs to T-1's log of a stopped app.
 func (r *loopRig) writeLog(recs []logRec) {
 	r.t.Helper()
-	var out []app.Record
+	var out []event.Record
 	for _, x := range recs {
 		var raw json.RawMessage
 		if x.data != nil {
 			raw, _ = json.Marshal(x.data)
 		}
-		out = append(out, app.Record{Task: "T-1", Attempt: x.attempt, Step: x.step, Kind: x.kind, Class: x.cls, Data: raw})
+		out = append(out, event.Record{Task: "T-1", Attempt: x.attempt, Step: x.step, Kind: x.kind, Class: x.cls, Data: raw})
 	}
 	if err := app.WriteLog(r.p.Root, time.Now(), out...); err != nil {
 		r.t.Fatal(err)
@@ -41,7 +43,7 @@ func (r *loopRig) writeLog(recs []logRec) {
 // resultOf is the data of T-1's result of step at attempt ("": none).
 func (r *loopRig) resultOf(attempt int, step string) string {
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindResult && rec.Attempt == attempt && rec.Step == step {
+		if rec.Kind == event.KindResult && rec.Attempt == attempt && rec.Step == step {
 			return string(rec.Data)
 		}
 	}
@@ -51,22 +53,22 @@ func (r *loopRig) resultOf(attempt int, step string) string {
 func TestReplayEndedTaskIntents(t *testing.T) {
 	t.Parallel()
 	submitted := func(n int) logRec {
-		return logRec{n, app.StepSubmitted, app.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}}
+		return logRec{n, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}}
 	}
-	submit := logRec{1, app.StepSubmit, app.KindIntent, app.ClassGit, map[string]any{"lane": "O-01", "agent": "pj-o1"}}
+	submit := logRec{1, event.StepSubmit, event.KindIntent, event.ClassGit, map[string]any{"lane": "O-01", "agent": "pj-o1"}}
 	work := func(n int) logRec {
-		return logRec{n, app.StepWork, app.KindIntent, app.ClassPrompt, map[string]any{"agent": "pj-o1",
+		return logRec{n, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-o1",
 			"job": "T-1/" + string(rune('0'+n)) + "/work"}}
 	}
-	refused := logRec{1, app.StepFailed, app.KindFact, "", app.FactData{Lane: "O-01", Merge: true, Step: app.StepWork,
+	refused := logRec{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Step: event.StepWork,
 		Reason: "work: refused"}}
 	dropped := func(n int) logRec {
-		return logRec{n, app.StepDropped, app.KindFact, "", app.FactData{Lane: "O-01", Merge: true, Reason: "why"}}
+		return logRec{n, event.StepDropped, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Reason: "why"}}
 	}
 	merged := func(n int) logRec {
-		return logRec{n, app.StepMerged, app.KindFact, "", map[string]any{"outside": true}}
+		return logRec{n, event.StepMerged, event.KindFact, "", map[string]any{"outside": true}}
 	}
-	start := logRec{1, app.StepStartWork, app.KindIntent, app.ClassStart, map[string]any{"lane": "O-01",
+	start := logRec{1, event.StepStartWork, event.KindIntent, event.ClassStart, map[string]any{"lane": "O-01",
 		"agent": "pj-o1", "pane": "w1:p1"}}
 	for _, c := range []struct {
 		name    string
@@ -76,17 +78,17 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 		want    string // its result after the replay
 		settled int    // results the first replay writes
 	}{
-		{"dropped task's submit (G)", []logRec{submitted(1), submit, dropped(1)}, 1, app.StepSubmit,
+		{"dropped task's submit (G)", []logRec{submitted(1), submit, dropped(1)}, 1, event.StepSubmit,
 			`"not run: T-1 dropped"`, 1},
-		{"dropped task's typed work (P)", []logRec{work(1), submitted(1), dropped(1)}, 1, app.StepWork,
+		{"dropped task's typed work (P)", []logRec{work(1), submitted(1), dropped(1)}, 1, event.StepWork,
 			`"not run: T-1 dropped"`, 1},
-		{"dropped task's earlier agent.start (S)", []logRec{start, submitted(2), dropped(2)}, 1, app.StepStartWork,
+		{"dropped task's earlier agent.start (S)", []logRec{start, submitted(2), dropped(2)}, 1, event.StepStartWork,
 			`"not run: T-1 dropped"`, 1},
 		{"merged task's earlier refused work (P)", []logRec{work(1), refused, submitted(2), merged(2)}, 1,
-			app.StepWork, `"not run: T-1 merged"`, 1},
-		{"merged task's submit (G)", []logRec{submitted(1), submit, merged(1)}, 1, app.StepSubmit,
+			event.StepWork, `"not run: T-1 merged"`, 1},
+		{"merged task's submit (G)", []logRec{submitted(1), submit, merged(1)}, 1, event.StepSubmit,
 			`"not run: T-1 merged"`, 1},
-		{"open task's submit (G): re-run", []logRec{submitted(1), submit}, 1, app.StepSubmit, `{"sha":`, 0},
+		{"open task's submit (G): re-run", []logRec{submitted(1), submit}, 1, event.StepSubmit, `{"sha":`, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -117,10 +119,10 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 				if out := r.p.Git(r.p.Root, "for-each-ref", "refs/obor/"); out != "" {
 					t.Errorf("a pin was written: %s", out)
 				}
-			} else if c.step == app.StepSubmit && r.p.Git(r.lane, "rev-parse", "HEAD") == head {
+			} else if c.step == event.StepSubmit && r.p.Git(r.lane, "rev-parse", "HEAD") == head {
 				t.Errorf("the open task's submit did not run again: lane HEAD unchanged: %q", r.steps())
 			}
-			if c.step == app.StepWork && len(r.prompts()) != 0 {
+			if c.step == event.StepWork && len(r.prompts()) != 0 {
 				t.Errorf("a work prompt was typed again: %d", len(r.prompts()))
 			}
 			r.stop()
@@ -141,23 +143,23 @@ func TestDropSettlesOpenIntents(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.writeLog([]logRec{
-		{1, app.StepSubmitted, app.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}},
-		{1, app.StepNeedsYou, app.KindFact, "", app.FactData{Lane: "O-01", Merge: true, Cause: "gate", Reason: "owner"}},
-		{1, app.StepWork, app.KindIntent, app.ClassPrompt, map[string]any{"agent": "pj-o1", "job": "T-1/1/work"}},
-		{1, app.StepFailed, app.KindFact, "", app.FactData{Lane: "O-01", Merge: true, Step: app.StepWork,
+		{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}},
+		{1, event.StepNeedsYou, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Cause: "gate", Reason: "owner"}},
+		{1, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-o1", "job": "T-1/1/work"}},
+		{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Step: event.StepWork,
 			Reason: "work: refused"}},
 	})
 	r.start()
 	r.passes()
-	if r.resultOf(1, app.StepWork) != "" || len(r.open()) != 1 {
+	if r.resultOf(1, event.StepWork) != "" || len(r.open()) != 1 {
 		t.Fatalf("precondition: the work intent open while the needs-you holds: %q", r.steps())
 	}
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Agent: "ob-lead",
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "ob-lead",
 		Role: "lead", CallID: "d1", Task: "T-1", Note: "why"})
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
-	if got := r.resultOf(1, app.StepWork); got != `"not run: T-1 dropped"` || len(r.open()) != 0 {
+	if got := r.resultOf(1, event.StepWork); got != `"not run: T-1 dropped"` || len(r.open()) != 0 {
 		t.Errorf("after the drop: work's result %s, open %q; want not run, none open", got, r.open())
 	}
 	r.passes()

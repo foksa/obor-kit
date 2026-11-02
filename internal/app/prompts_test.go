@@ -2,10 +2,11 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 
-	"obor/internal/app"
 	"obor/internal/store"
 )
 
@@ -27,7 +28,7 @@ func (r *loopRig) promptRows(t *testing.T, q store.PromptQuery) []store.PromptRo
 func (r *loopRig) deliveredSeq(t *testing.T, job string) int64 {
 	t.Helper()
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindFact && rec.Step == app.StepDelivered && rec.Fact().Job == job {
+		if rec.Kind == event.KindFact && rec.Step == event.StepDelivered && rec.Fact().Job == job {
 			return rec.Seq
 		}
 	}
@@ -74,7 +75,7 @@ func TestPromptsOfABriefAndAStart(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.start()
 
-	if reply, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil ||
+	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEFED pj-rev") {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
@@ -87,7 +88,7 @@ func TestPromptsOfABriefAndAStart(t *testing.T) {
 		t.Errorf("the brief's row seq %d, want its briefed fact %d", rows[0].Seq, seq)
 	}
 
-	if reply, err := r.line(app.MethodBrief, "s1", app.Call{To: "pj-rev", Prompt: "Review the module map"}); err != nil ||
+	if reply, err := r.line(wire.MethodBrief, "s1", wire.Call{To: "pj-rev", Prompt: "Review the module map"}); err != nil ||
 		!strings.HasPrefix(reply, "BRIEF RECORDED for pj-rev") {
 		t.Fatalf("--prompt start: %q, %v", reply, err)
 	}
@@ -106,7 +107,7 @@ func (r *loopRig) briefedSeq(t *testing.T, n int) int64 {
 	t.Helper()
 	seen := 0
 	for _, rec := range r.records() {
-		if rec.Task == app.MsgTask && rec.Kind == app.KindFact && rec.Step == app.StepBriefed {
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepBriefed {
 			if seen++; seen == n {
 				return rec.Seq
 			}
@@ -120,7 +121,7 @@ func (r *loopRig) briefedSeq(t *testing.T, n int) int64 {
 // write fails as one to a broken store would.
 func dropPrompts(t *testing.T, root string) {
 	t.Helper()
-	db, err := store.OpenRW(app.DBFile(root))
+	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
 		t.Fatalf("open the store: %v", err)
 	}
@@ -159,7 +160,7 @@ const (
 // spec sets spec as T-1's spec, by the lead with call id.
 func (r *loopRig) spec(callID, text string) string {
 	r.t.Helper()
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Agent: "pj-lead",
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: "lead", CallID: callID, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set %s: %v", callID, err)
@@ -178,7 +179,7 @@ func TestPromptsReviewJobAfterAChangedPatch(t *testing.T) {
 	first := r.waitJob("pj-int", "T-1/1/review")
 	r.p.Write("shared.txt", "1\n2\nmain\n4\n5\n6\n7\n8\n9\n10\n") // in the patch's context: its text changes
 	r.p.Git(r.p.Root, "commit", "-qam", "main edit near the lane's")
-	if _, err := r.verdict(app.MethodAccept, "c1", r.patch(first), ""); err != nil {
+	if _, err := r.verdict(wire.MethodAccept, "c1", r.patch(first), ""); err != nil {
 		t.Fatal(err)
 	}
 	second := r.waitJob("pj-int", "T-1/1/review.2")
@@ -238,7 +239,7 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 	t.Parallel()
 	r, _ := fetched(t)
-	if _, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil {
+	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {
 		t.Fatal(err)
 	}
 	r.integratorStops()

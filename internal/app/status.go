@@ -6,20 +6,22 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"sort"
 	"strings"
 	"time"
 )
 
 // Status is the app's state now.
-func (a *App) Status() Status {
+func (a *App) Status() wire.Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.opt.Now()
-	st := Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected}
+	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected}
 	if p := a.p; p != nil {
-		ps := ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []AgentStatus{}, Tasks: []TaskStatus{},
-			Facts: []Record{}}
+		ps := wire.ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
+			Facts: []event.Record{}}
 		if err := p.log.Err(); err != nil {
 			ps.LogError = err.Error()
 		} else if p.folded.lr.err != nil {
@@ -29,7 +31,7 @@ func (a *App) Status() Status {
 			if o.pane.Agent == "" || a.projectOf(o.pane) != p {
 				continue
 			}
-			as := AgentStatus{Machine: Machine, Workspace: a.spaces[o.pane.Workspace], Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
+			as := wire.AgentStatus{Machine: Machine, Workspace: a.spaces[o.pane.Workspace], Pane: o.pane.ID, Name: a.shownAs(p, o.pane),
 				Agent: o.pane.Agent, Status: o.pane.Status, Age: int64(now.Sub(o.since) / time.Second)}
 			if l, ok := p.laneOf(o.pane.Cwd); ok {
 				as.Lane, as.Task = l.Name, l.Task
@@ -50,7 +52,7 @@ func (a *App) Status() Status {
 				ps.Facts = append(ps.Facts, mt.needs)
 			}
 			if mt.state != stMerged {
-				ts := TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state, Effort: mt.disp.Effort}
+				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state, Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}
@@ -80,13 +82,13 @@ func (a *App) Status() Status {
 			ps.Review = s
 		}
 		if q := p.folded.review; q != nil {
-			ps.ReviewRequest = &ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
+			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}
 		}
 		ps.Briefs = p.briefStatus()
 		ps.Stopped = a.stoppedRoles(p)
 		for _, f := range ps.Facts {
-			if f.Step != StepNeedsYou {
+			if f.Step != event.StepNeedsYou {
 				continue
 			}
 			if ans := p.answerPath(f); ans != "" {
@@ -101,7 +103,7 @@ func (a *App) Status() Status {
 		ps.Pending = p.pendingSteps(open)
 		ps.Scratch, ps.ScratchQueue = p.scratchQueue()
 		if ps.ScratchQueue == nil {
-			ps.ScratchQueue = []ScratchWait{}
+			ps.ScratchQueue = []wire.ScratchWait{}
 		}
 		sets := make([]string, 0, len(p.folded.watches))
 		for set := range p.folded.watches {
@@ -110,7 +112,7 @@ func (a *App) Status() Status {
 		sort.Slice(sets, func(i, j int) bool { return p.folded.watches[sets[i]].seq < p.folded.watches[sets[j]].seq })
 		for _, set := range sets {
 			w := p.folded.watches[set]
-			ps.Watches = append(ps.Watches, WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
+			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
@@ -122,12 +124,12 @@ func (a *App) Status() Status {
 // commandStep is a record's step as the running and pending lines show it (T-657, T-662): the merge loop's command
 // steps — gate, publish the merge, after_merge, the nightly check — by their base name, the nightly one with no task.
 // false: another step's record (a prompt, a start) runs no command the lines show.
-func commandStep(r Record) (step, task string, ok bool) {
-	if strings.HasPrefix(r.Step, StepNightly+".") {
-		return StepNightly, "", true
+func commandStep(r event.Record) (step, task string, ok bool) {
+	if strings.HasPrefix(r.Step, event.StepNightly+".") {
+		return event.StepNightly, "", true
 	}
-	switch step, _ = StepN(r.Step); step {
-	case StepGate, StepPublish, StepAfterMerge:
+	switch step, _ = event.StepN(r.Step); step {
+	case event.StepGate, event.StepPublish, event.StepAfterMerge:
 		return step, r.Task, true
 	}
 	return "", "", false
@@ -137,8 +139,8 @@ func commandStep(r Record) (step, task string, ok bool) {
 // steps whose effect runs now (p.exec, T-662) and, last, a pending self-restart (p.restarting). Since is the start of
 // that execution, not the intent's write time (a replay's is older). An intent with a result is no open intent; an
 // open one not running is pending. Under mu.
-func (p *proj) runningSteps(open []Record) []RunningStep {
-	var out []RunningStep
+func (p *proj) runningSteps(open []event.Record) []wire.RunningStep {
+	var out []wire.RunningStep
 	for _, r := range open {
 		step, task, ok := commandStep(r)
 		if !ok {
@@ -148,10 +150,10 @@ func (p *proj) runningSteps(open []Record) []RunningStep {
 		if !running {
 			continue
 		}
-		out = append(out, RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.Key()), Since: at.Unix()})
+		out = append(out, wire.RunningStep{Step: step, Task: task, Command: p.scratchCommand(r.Key()), Since: at.Unix()})
 	}
 	if !p.restarting.IsZero() {
-		out = append(out, RunningStep{Step: StepServeRestart, Since: p.restarting.Unix()})
+		out = append(out, wire.RunningStep{Step: event.StepServeRestart, Since: p.restarting.Unix()})
 	}
 	return out
 }
@@ -159,8 +161,8 @@ func (p *proj) runningSteps(open []Record) []RunningStep {
 // pendingSteps is the steps that wait, in seq order (T-662): the merge loop's command steps whose intent has no result
 // and whose effect does not run now — one whose last try failed (Error, FailedAt: the failed fact's reason without its
 // step prefix, and its time) or one the next pass or a replay has yet to run (no error: queued). Under mu.
-func (p *proj) pendingSteps(open []Record) []PendingStep {
-	var out []PendingStep
+func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
+	var out []wire.PendingStep
 	for _, r := range open {
 		step, task, ok := commandStep(r)
 		if !ok {
@@ -169,9 +171,9 @@ func (p *proj) pendingSteps(open []Record) []PendingStep {
 		if _, running := p.exec[r.Key()]; running {
 			continue
 		}
-		ps := PendingStep{Step: step, Task: task, Since: recordTime(r).Unix()}
+		ps := wire.PendingStep{Step: step, Task: task, Since: event.RecordTime(r).Unix()}
 		switch {
-		case r.Task == NightlyTask:
+		case r.Task == event.NightlyTask:
 			if p.night.fails[r.Step] > 0 {
 				ps.Error, ps.FailedAt = strings.TrimPrefix(p.night.failedWhy, r.Step+": "), p.night.failedAt.Unix()
 			}
@@ -190,11 +192,11 @@ func (p *proj) pendingSteps(open []Record) []PendingStep {
 // worker's question obor answer; a merge-loop needs-you obor sendback when the task goes back (unsendable), obor resume
 // by default (a hold's with the owner's decision), else with each mode it takes (resumeTo), and obor drop unless the
 // task is merged (droppable); a stalled worker its pane or obor drop; a loop error none ("": fix what it names).
-func answerPath(r Record, mt mtask) string {
+func answerPath(r event.Record, mt mtask) string {
 	d := r.Fact()
 	drop := `obor drop ` + cmp.Or(d.Lane, r.Task) + ` "<why>"` // a waiting task has no lane: obor drop takes its task
 	switch {
-	case r.Task == ReviewTask: // a failed review start's: a new request ends it
+	case r.Task == event.ReviewTask: // a failed review start's: a new request ends it
 		return "obor review [--after T-a,T-b]"
 	case projectKey(r.Task): // a GREEN nightly ends a nightly's; a line typed, a line's
 		return ""
@@ -216,7 +218,7 @@ func answerPath(r Record, mt mtask) string {
 	} else if err == nil {
 		cmds = append(cmds, resume)
 	} else {
-		for _, to := range []string{ResumeRegate, ResumeReprompt} { // no default: the owner says which (retry is a default's)
+		for _, to := range []string{wire.ResumeRegate, wire.ResumeReprompt} { // no default: the owner says which (retry is a default's)
 			if _, err := mt.resumeTo(r.Task, to); err == nil {
 				cmds = append(cmds, resume+" "+to)
 			}
@@ -229,7 +231,7 @@ func answerPath(r Record, mt mtask) string {
 }
 
 // answerPath is answerPath of p's needs-you r in the state p's merge loop holds of its task (under mu).
-func (p *proj) answerPath(r Record) string {
+func (p *proj) answerPath(r event.Record) string {
 	var mt mtask
 	if m := p.folded.loop[r.Task]; m != nil {
 		mt = *m
@@ -269,8 +271,8 @@ func (a *App) Listen(ln net.Listener) {
 			if err != nil {
 				return
 			}
-			var req request
-			var ans answer
+			var req wire.Request
+			var ans wire.Answer
 			unreadable := json.Unmarshal(b, &req) != nil
 			switch {
 			case unreadable:
@@ -278,20 +280,20 @@ func (a *App) Listen(ln net.Listener) {
 			case req.Method == "status":
 				st := a.Status()
 				ans.Status = &st
-			case req.Method == MethodSpecSet || req.Method == MethodPause || req.Method == MethodSend || req.Method == MethodBrief ||
-				req.Method == MethodWatch || req.Method == MethodReview || req.Method == MethodStopped || req.Method == MethodTurn || req.Method == MethodSession:
+			case req.Method == wire.MethodSpecSet || req.Method == wire.MethodPause || req.Method == wire.MethodSend || req.Method == wire.MethodBrief ||
+				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
 				}
-				do := map[string]func(Call) (string, error){MethodSpecSet: a.specSet, MethodPause: a.pauseCall,
-					MethodSend: a.sendCall, MethodBrief: a.briefCall, MethodWatch: a.watchCall, MethodReview: a.reviewCall,
-					MethodStopped: a.stoppedCall, MethodTurn: a.turnCall, MethodSession: a.sessionCall}[req.Method]
+				do := map[string]func(wire.Call) (string, error){wire.MethodSpecSet: a.specSet, wire.MethodPause: a.pauseCall,
+					wire.MethodSend: a.sendCall, wire.MethodBrief: a.briefCall, wire.MethodWatch: a.watchCall, wire.MethodReview: a.reviewCall,
+					wire.MethodStopped: a.stoppedCall, wire.MethodTurn: a.turnCall, wire.MethodSession: a.sessionCall}[req.Method]
 				var err error
 				if ans.Reply, err = do(*req.Call); err != nil {
 					ans.Error = err.Error()
 				}
-			case req.Method == MethodBackup:
+			case req.Method == wire.MethodBackup:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
@@ -300,9 +302,9 @@ func (a *App) Listen(ln net.Listener) {
 				if ans.Reply, err = a.backup(*req.Call); err != nil {
 					ans.Error = err.Error()
 				}
-			case req.Method == MethodAccept || req.Method == MethodSendback || req.Method == MethodAnswer || req.Method == MethodReject ||
-				req.Method == MethodResolved || req.Method == MethodHold || req.Method == MethodResume || req.Method == MethodDrop ||
-				req.Method == MethodDispatch || req.Method == MethodJobNext || req.Method == MethodTaskDone:
+			case req.Method == wire.MethodAccept || req.Method == wire.MethodSendback || req.Method == wire.MethodAnswer || req.Method == wire.MethodReject ||
+				req.Method == wire.MethodResolved || req.Method == wire.MethodHold || req.Method == wire.MethodResume || req.Method == wire.MethodDrop ||
+				req.Method == wire.MethodDispatch || req.Method == wire.MethodJobNext || req.Method == wire.MethodTaskDone:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
@@ -310,15 +312,15 @@ func (a *App) Listen(ln net.Listener) {
 				var reply string
 				var err error
 				switch req.Method {
-				case MethodResume:
+				case wire.MethodResume:
 					reply, err = a.resume(*req.Call)
-				case MethodDrop:
+				case wire.MethodDrop:
 					reply, err = a.drop(*req.Call)
-				case MethodJobNext:
+				case wire.MethodJobNext:
 					reply, err = a.jobNext(*req.Call)
-				case MethodTaskDone:
+				case wire.MethodTaskDone:
 					reply, err = a.taskDone(*req.Call)
-				case MethodDispatch:
+				case wire.MethodDispatch:
 					ctx, cancel := context.WithTimeout(a.life, requestTimeout)
 					reply, err = a.dispatchCall(ctx, *req.Call)
 					cancel()

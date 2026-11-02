@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"obor/internal/app"
 )
 
 // fakeApp listens on a new unix socket and serves its connections one at a time: it reads the request line, records
@@ -66,8 +65,8 @@ func fakeApp(t *testing.T, reply func(n int) string) (sock string, seen func() [
 }
 
 // askCall is an integrator's accept of T-1 under call id id.
-func askCall(id string) app.Call {
-	return app.Call{Root: "/r", Agent: "pj-int", Role: "integrator", CallID: id, Task: "T-1", Job: "T-1/2/review",
+func askCall(id string) wire.Call {
+	return wire.Call{Root: "/r", Agent: "pj-int", Role: "integrator", CallID: id, Task: "T-1", Job: "T-1/2/review",
 		Patch: "p1", Note: "why"}
 }
 
@@ -80,7 +79,7 @@ func TestAskRetriesLostReplyWithSameCallID(t *testing.T) {
 		}
 		return `{"reply":"accepted T-1"}`
 	})
-	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	reply, err := wire.Verdict(context.Background(), sock, wire.MethodAccept, askCall("c1"))
 	if err != nil || reply != "accepted T-1" {
 		t.Fatalf("Verdict = %q, %v; want the stored reply", reply, err)
 	}
@@ -164,7 +163,7 @@ func TestAskSurvivesServeRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	start := time.Now()
-	reply, err := app.Verdict(ctx, sock, app.MethodAccept, askCall("c1"))
+	reply, err := wire.Verdict(ctx, sock, wire.MethodAccept, askCall("c1"))
 	if err != nil || reply != "accepted T-1" {
 		t.Fatalf("Verdict through the restart = %q, %v; want the stored reply", reply, err)
 	}
@@ -241,7 +240,7 @@ func TestAskVerdictWaitsForServe(t *testing.T) {
 				}
 			}()
 			start := time.Now()
-			reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+			reply, err := wire.Verdict(context.Background(), sock, wire.MethodAccept, askCall("c1"))
 			if err != nil || reply != "accepted T-1" {
 				t.Fatalf("Verdict through the restart = %q, %v; want the reply", reply, err)
 			}
@@ -258,7 +257,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock") // a restart: no socket until the new serve has loaded (T-659)
 	start := time.Now()
-	if _, err := app.Ask(context.Background(), sock); err == nil || !strings.Contains(err.Error(), "no such file") {
+	if _, err := wire.Ask(context.Background(), sock); err == nil || !strings.Contains(err.Error(), "no such file") {
 		t.Fatalf("Ask on a missing socket: %v; want the missing socket", err)
 	}
 	if d := time.Since(start); d > time.Second {
@@ -275,7 +274,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 		t.Fatalf("precondition: no socket file to refuse the dial: %v", err)
 	}
 	start = time.Now()
-	_, err = app.Ask(context.Background(), sock)
+	_, err = wire.Ask(context.Background(), sock)
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("Ask on a refused socket: %v; want the refusal", err)
 	}
@@ -291,7 +290,7 @@ func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if _, err := app.Verdict(ctx, sock, app.MethodAccept, askCall("c1")); err == nil {
+	if _, err := wire.Verdict(ctx, sock, wire.MethodAccept, askCall("c1")); err == nil {
 		t.Fatal("Verdict answered a call the app never answered")
 	}
 	if d := time.Since(start); d > 2*time.Second {
@@ -306,7 +305,7 @@ func TestAskRetriesStopAtCallerDeadline(t *testing.T) {
 func TestAskDoesNotRetryRefusal(t *testing.T) {
 	t.Parallel()
 	sock, seen := fakeApp(t, func(int) string { return `{"error":"no job open for T-1"}` })
-	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	reply, err := wire.Verdict(context.Background(), sock, wire.MethodAccept, askCall("c1"))
 	if err == nil || !strings.Contains(err.Error(), "no job open for T-1") || reply != "" {
 		t.Fatalf("Verdict = %q, %v; want the refusal", reply, err)
 	}
@@ -353,7 +352,7 @@ func TestAskDoesNotRetryTimeout(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if _, err := app.Verdict(ctx, sock, app.MethodAccept, askCall("c1")); err == nil {
+	if _, err := wire.Verdict(ctx, sock, wire.MethodAccept, askCall("c1")); err == nil {
 		t.Fatal("Verdict answered a call that never got a reply")
 	}
 	mu.Lock()
@@ -456,7 +455,7 @@ func TestVerdictLandsAfterRestartOnce(t *testing.T) {
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 3*time.Second, false)
 	start := time.Now()
-	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	reply, err := wire.Verdict(context.Background(), sock, wire.MethodAccept, askCall("c1"))
 	if err != nil || reply != "done c1" {
 		t.Fatalf("Verdict through a 3 s restart = %q, %v; want the reply", reply, err)
 	}
@@ -473,9 +472,9 @@ func TestStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 4*time.Second, false)
-	c := app.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1", Error: "rate_limit"}
+	c := wire.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1", Error: "rate_limit"}
 	start := time.Now()
-	if _, err := app.Verdict(context.Background(), sock, app.MethodStopped, c); err != nil {
+	if _, err := wire.Verdict(context.Background(), sock, wire.MethodStopped, c); err != nil {
 		t.Fatalf("stop-failure through a 4 s restart: %v; want it recorded", err)
 	}
 	if d := time.Since(start); d < 4*time.Second || d > 5*time.Second {
@@ -491,9 +490,9 @@ func TestStopFailureLandsNearItsDeadline(t *testing.T) {
 func TestTurnFailsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
-	c := app.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "t1"}
+	c := wire.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "t1"}
 	start := time.Now()
-	_, err := app.Verdict(context.Background(), sock, app.MethodTurn, c)
+	_, err := wire.Verdict(context.Background(), sock, wire.MethodTurn, c)
 	d := time.Since(start)
 	if err == nil {
 		t.Fatal("a turn with no serve answered")
@@ -522,7 +521,7 @@ func TestLostReplyAnsweredFromStore(t *testing.T) {
 			t.Fatal("precondition: the fake serve never bound its socket")
 		}
 	}
-	reply, err := app.Verdict(context.Background(), sock, app.MethodAccept, askCall("c1"))
+	reply, err := wire.Verdict(context.Background(), sock, wire.MethodAccept, askCall("c1"))
 	if err != nil || reply != "done c1" {
 		t.Fatalf("Verdict after a lost reply = %q, %v; want the stored reply", reply, err)
 	}

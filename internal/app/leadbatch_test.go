@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,7 +15,7 @@ func leadSends(t *testing.T, a *App, p *proj, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
 		id := strconv.Itoa(i)
-		if _, err := a.sendCall(Call{Root: p.root, CallID: "s" + id, From: "other", Note: "m" + id, Role: "lead"}); err != nil {
+		if _, err := a.sendCall(wire.Call{Root: p.root, CallID: "s" + id, From: "other", Note: "m" + id, Role: "lead"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -22,13 +24,13 @@ func leadSends(t *testing.T, a *App, p *proj, n int) {
 // delivered counts the delivery results recorded for the lead's lines in p's log.
 func deliveredResults(t *testing.T, p *proj) int {
 	t.Helper()
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := 0
 	for _, r := range recs {
-		if r.Kind == KindResult && r.Task == MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
 			n++
 		}
 	}
@@ -42,7 +44,7 @@ func TestLeadLinesOnePost(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	leadSends(t, a, p, 3)
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "check", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "check", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(p.queuedLines()); n != 4 {
@@ -139,7 +141,7 @@ func oneLeadPost(call string) bool {
 // leadSend queues one obor send line "[obor other] <note>" for the lead (as it is now), and is its seq.
 func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
 	t.Helper()
-	if _, err := a.sendCall(Call{Root: p.root, CallID: "s-" + note, From: "other", Note: note, Role: "lead"}); err != nil {
+	if _, err := a.sendCall(wire.Call{Root: p.root, CallID: "s-" + note, From: "other", Note: note, Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	qs := p.queuedLines()
@@ -149,13 +151,13 @@ func leadSend(t *testing.T, a *App, p *proj, note string) int64 {
 // deliveryResults counts the delivery results of p's log by their line's seq.
 func deliveryResults(t *testing.T, p *proj) map[int64]int {
 	t.Helper()
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := map[int64]int{}
 	for _, r := range recs {
-		if r.Kind == KindResult && r.Task == MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
+		if r.Kind == event.KindResult && r.Task == event.MsgTask && strings.HasPrefix(r.Step, stepDeliver) {
 			seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
 			out[seq]++
 		}
@@ -295,13 +297,13 @@ func TestLeadLinesOldTargetNoInbox(t *testing.T) {
 	}
 	now = now.Add(msgWait + time.Minute)
 	a.deliver(context.Background(), p, linerLoop(l))
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	needs := 0
 	for _, r := range recs {
-		if r.Task == MsgTask && r.Kind == KindFact && r.Step == StepNeedsYou &&
+		if r.Task == event.MsgTask && r.Kind == event.KindFact && r.Step == event.StepNeedsYou &&
 			strings.Contains(r.Fact().Reason, "line to pj-lead from other") {
 			needs++
 		}

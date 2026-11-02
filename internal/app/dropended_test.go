@@ -2,6 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +18,7 @@ func (r *concRig) addAt(name, task string, n int, step, kind string, d any) {
 	r.t.Helper()
 	a, p := r.app(name), r.proj(name)
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(Record{Task: task, Attempt: n, Step: step, Kind: kind, Data: raw}, a.opt.Now())
+	rec, err := p.log.Append(event.Record{Task: task, Attempt: n, Step: step, Kind: kind, Data: raw}, a.opt.Now())
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -26,8 +29,8 @@ func (r *concRig) addAt(name, task string, n int, step, kind string, d any) {
 
 // needsYouT7 leaves pq's T-7 needs-you at attempt 1: a submission of it records attempt 2.
 func needsYouT7(r *concRig) {
-	r.add("pq", "T-7", StepSubmitted, KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
-	r.add("pq", "T-7", StepNeedsYou, KindFact, FactData{Lane: "O-07", Merge: true, Cause: causeGate, Reason: "owner"})
+	r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+	r.add("pq", "T-7", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-07", Merge: true, Cause: causeGate, Reason: "owner"})
 }
 
 // raceDrop is the reviewer's probe (TestVerifyRV42DropAgainstDecidedSubmission): a submission of T-7 passes its guards
@@ -37,11 +40,11 @@ func needsYouT7(r *concRig) {
 func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	p := r.proj("pq")
 	now := r.app("pq").opt.Now()
-	lane := Lane{Name: "O-07", Task: "T-7", Agent: "pq-o-07"}
+	lane := port.Lane{Name: "O-07", Task: "T-7", Agent: "pq-o-07"}
 	r.app("pq").mu.Lock()
-	p.lanes = []Lane{lane}
+	p.lanes = []port.Lane{lane}
 	r.app("pq").mu.Unlock()
-	r.app("pq").lanes = &fakeLanes{lanes: []Lane{lane}}
+	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{lane}}
 	subAt, dropAt, subGo, dropGo := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	r.app("pq").opt.Now = func() time.Time {
@@ -58,7 +61,7 @@ func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 	defer func() { r.app("pq").opt.Now = func() time.Time { return now } }()
 	submitted, dropped := make(chan callAnswer, 1), make(chan callAnswer, 1)
 	go func() {
-		reply, err := r.app("pq").taskDone(Call{Root: p.root, Task: "T-7", Agent: "pq-o-07", Role: "worker", Lane: "O-07",
+		reply, err := r.app("pq").taskDone(wire.Call{Root: p.root, Task: "T-7", Agent: "pq-o-07", Role: "worker", Lane: "O-07",
 			CallID: "done", Report: "Summary: fixed\nSelf-check: passed\nSkipped: none\nOpen questions: none"})
 		submitted <- callAnswer{reply, err}
 	}()
@@ -101,11 +104,11 @@ func TestDroppedEndsTheTask(t *testing.T) {
 	}
 	// dropAfterNext records the race's outcome by hand: submitted at attempt 2, then dropped at attempt 1.
 	dropAfterNext := func(r *concRig) {
-		r.addAt("pq", "T-7", 2, StepSubmitted, KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+		r.addAt("pq", "T-7", 2, event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
 		if s := r.state("pq", "T-7"); s != stSubmitted {
 			r.t.Fatalf("precondition: T-7 is %s after its next attempt's submission, want submitted", s)
 		}
-		r.addAt("pq", "T-7", 1, StepDropped, KindFact, FactData{Lane: "O-07", Merge: true, Reason: "why"})
+		r.addAt("pq", "T-7", 1, event.StepDropped, event.KindFact, event.FactData{Lane: "O-07", Merge: true, Reason: "why"})
 	}
 	for _, c := range []struct {
 		name    string
@@ -119,25 +122,25 @@ func TestDroppedEndsTheTask(t *testing.T) {
 			if sub.err != nil || sub.reply != taskDoneReply {
 				t.Errorf("task_done: %q, %v; want submitted (recorded before the drop)", sub.reply, sub.err)
 			}
-			if n := r.count("pq", "T-7", KindFact, StepSubmitted); n != 2 {
+			if n := r.count("pq", "T-7", event.KindFact, event.StepSubmitted); n != 2 {
 				t.Errorf("precondition: %d submitted facts, want the race's second", n)
 			}
 		}, stDropped, 2},
 		{"dropped at N after submitted at N+1", func(t *testing.T, r *concRig) { dropAfterNext(r) }, stDropped, 2},
 		{"late gate result after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 2, StepSubmit, KindResult, submitOut{SHA: "s7"})
-			r.addAt("pq", "T-7", 2, StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-7",
+			r.addAt("pq", "T-7", 2, event.StepSubmit, event.KindResult, submitOut{SHA: "s7"})
+			r.addAt("pq", "T-7", 2, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-7",
 				SHA: "c7", Target: "b", Patch: "p"}})
 		}, stDropped, 2},
 		{"late verdict result after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 2, verdictStep(MethodAccept, "v9"), KindResult, verdictResult{Job: "T-7/2/review",
+			r.addAt("pq", "T-7", 2, verdictStep(wire.MethodAccept, "v9"), event.KindResult, verdictResult{Job: "T-7/2/review",
 				Reply: "ACCEPTED", Patch: "p"})
 		}, stDropped, 2},
 		{"dispatch after dropped", func(t *testing.T, r *concRig) {
 			dropAfterNext(r)
-			r.addAt("pq", "T-7", 3, StepDispatched, KindFact, dispatchData{Lane: "O-07", Agent: "pq-o-07",
+			r.addAt("pq", "T-7", 3, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-07", Agent: "pq-o-07",
 				Target: "target", Branch: "task/T-7"})
 		}, stDispatched, 3},
 	} {

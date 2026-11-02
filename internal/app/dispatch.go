@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,7 +100,7 @@ type (
 
 // dispatchCall answers the socket's dispatch request: a call id is required and a repeated one gets the stored reply,
 // as does a dispatch of a waiting task (whatever its call id).
-func (a *App) dispatchCall(ctx context.Context, c Call) (string, error) {
+func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {
@@ -108,7 +111,7 @@ func (a *App) dispatchCall(ctx context.Context, c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.folded.calls[verdictStep(MethodDispatch, c.CallID)]
+		reply, stored = p.folded.calls[verdictStep(wire.MethodDispatch, c.CallID)]
 	}
 	a.mu.Unlock()
 	switch {
@@ -136,7 +139,7 @@ func (a *App) dispatchCall(ctx context.Context, c Call) (string, error) {
 type noLaneError struct {
 	task, level string
 	types       []string
-	ls          []Lane
+	ls          []port.Lane
 	note        string // the level's fallback, when it has no lane of its own (T-629)
 }
 
@@ -153,7 +156,7 @@ func (e noLaneError) laneWait() string {
 // nor types (--types), else leaves it (a waiting task's request carries its level and types): the types a lane has,
 // and note the level's fallback types it used when none of its own types has one (T-629). Why not: no level in the
 // spec, or neither a `Type:` type nor a type of the level in the project (RV-79 #1: a named type alone dispatches).
-func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err error) {
+func resolveLevel(cfg *config.Config, c *wire.Call, text string) (note string, err error) {
 	if c.Lane != "" || len(c.Types) > 0 {
 		return "", nil
 	}
@@ -194,7 +197,7 @@ func specFirst(cfg *config.Config, text string, types []string) []string {
 // waitLane records fact waiting for c.Task's request (under a.verdicts) when no lane of its level is free (nl): the
 // reply WAITING <task> (queued): waiting for a <level> lane (<types>) and the lanes idle of other types. It replaces a
 // waiting fact of the task (a new request: types, after). The merge loop dispatches it when a lane of the level frees.
-func (a *App) waitLane(p *proj, c Call, nl noLaneError) (string, error) {
+func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
@@ -202,7 +205,7 @@ func (a *App) waitLane(p *proj, c Call, nl noLaneError) (string, error) {
 	}
 	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
 		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + idleNote(nl.ls, "", held) + nl.note}
-	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepWaiting, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -210,7 +213,7 @@ func (a *App) waitLane(p *proj, c Call, nl noLaneError) (string, error) {
 }
 
 // callerOf is who made c's request: its agent, else the owner.
-func callerOf(c Call) string {
+func callerOf(c wire.Call) string {
 	if c.Agent == "" {
 		return "owner"
 	}
@@ -220,7 +223,7 @@ func callerOf(c Call) string {
 // dispatchTask passes c's refusals (under a.verdicts) and records fact dispatch for
 // it: the reply DISPATCHED <task> → <lane> (queued) and the lanes still idle (idleNote). With c.After not all merged
 // it records fact waiting instead (waitTask). A refusal records nothing.
-func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (string, error) {
+func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
 	a.mu.Lock()
 	merging, pause := p.merging, p.paused(a.opt.Now())
 	a.mu.Unlock()
@@ -302,7 +305,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 			c.Task, mt.state)
 	}
 	a.mu.Lock()
-	var pane Pane
+	var pane port.Pane
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
 	names := cfg.LaneAgentAliases(l.Name, "")
 	if o := a.placement(p, l.Dir, append([]string{l.Agent}, names...)...); o != nil {
@@ -315,7 +318,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c Call) (stri
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + effortNote(effort) + idleNote(ls, l.Name, held) + note}
-	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepDispatched, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -350,7 +353,7 @@ func rowAgent(cfg *config.Config, lane, agent string) string {
 // something else, a shell's "notes", is not the worker's), else the lane's default name (roles.AgentName: the
 // configured agent, else <prefix>-<lane lower>). herdr's live agent name is never read (RV-52 #2): it never
 // overrides the label.
-func laneAgent(l Lane, pane Pane, names []string) string {
+func laneAgent(l port.Lane, pane port.Pane, names []string) string {
 	if l.Agent != "" {
 		return l.Agent
 	}
@@ -382,7 +385,7 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 
 // idleNote is a dispatch reply's tail "; idle: <LANE> (<type>), …": the lanes of ls still free after it (not taken,
 // not held for another task's dispatch; dirty-free is not idle); "" when none (T-483).
-func idleNote(ls []Lane, taken string, held map[string]string) string {
+func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	var idle []string
 	for _, l := range ls {
 		if l.State == "free" && l.Name != taken && held[l.Name] == "" {
@@ -417,18 +420,18 @@ func effortNote(effort string) string {
 // whatever its type, T-545), else the first lane of its first type (a type reference's type: opus:high matches an opus
 // lane, T-695) that has a free one (types in the order given,
 // lanes in config order) (dirty-free with force) and not held for another task's dispatch; else why not.
-func pickLane(ls []Lane, c Call, held map[string]string) (Lane, string) {
+func pickLane(ls []port.Lane, c wire.Call, held map[string]string) (port.Lane, string) {
 	if c.Lane != "" {
 		for _, l := range ls {
 			if l.Name == c.Lane {
 				if t := held[l.Name]; t != "" {
-					return Lane{}, "lane " + l.Name + " is dispatched to " + t
+					return port.Lane{}, "lane " + l.Name + " is dispatched to " + t
 				}
 				l.Dir = filepath.Clean(l.Dir)
 				return l, ""
 			}
 		}
-		return Lane{}, "unknown lane " + c.Lane + " (not in the config's lanes)"
+		return port.Lane{}, "unknown lane " + c.Lane + " (not in the config's lanes)"
 	}
 	for _, l := range ls {
 		if l.Task == c.Task && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
@@ -445,7 +448,7 @@ func pickLane(ls []Lane, c Call, held map[string]string) (Lane, string) {
 			}
 		}
 	}
-	return Lane{}, "no free lane of the types " + strings.Join(c.Types, ",")
+	return port.Lane{}, "no free lane of the types " + strings.Join(c.Types, ",")
 }
 
 // dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), or a needs-you it left.
@@ -459,7 +462,7 @@ func (m *mtask) redoable() bool {
 }
 
 // foldDispatch folds fact dispatch: a new attempt of the task, dispatched. A redo of a needs-you keeps the sendbacks.
-func (p *proj) foldDispatch(r Record) {
+func (p *proj) foldDispatch(r event.Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
 	at, _ := time.Parse(time.RFC3339, r.TS)
@@ -477,7 +480,7 @@ func (p *proj) foldDispatch(r Record) {
 // merged (a plain dispatch). Refused: a task it names is itself, unknown (no spec and no loop record), dropped or
 // rejected, or waiting (itself or through the tasks it waits for) for this one (a cycle); an unknown lane; the task
 // open in the loop (as a dispatch).
-func (a *App) waitTask(p *proj, c Call, ls []Lane) (string, error) {
+func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 	var open []string
 	for _, dep := range c.After {
 		_, spec, err := specOf(p, dep)
@@ -504,7 +507,7 @@ func (a *App) waitTask(p *proj, c Call, ls []Lane) (string, error) {
 	if len(open) == 0 {
 		return "", nil
 	}
-	if c.Lane != "" && !slices.ContainsFunc(ls, func(l Lane) bool { return l.Name == c.Lane }) {
+	if c.Lane != "" && !slices.ContainsFunc(ls, func(l port.Lane) bool { return l.Name == c.Lane }) {
 		return "", fmt.Errorf("dispatch %s: unknown lane %s (not in the config's lanes)", c.Task, c.Lane)
 	}
 	mt, held := a.held(p, c.Task)
@@ -515,7 +518,7 @@ func (a *App) waitTask(p *proj, c Call, ls []Lane) (string, error) {
 	caller := callerOf(c)
 	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
-	if !a.record(p, Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: StepWaiting, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -542,7 +545,7 @@ func (m *mtask) nextAttempt() int {
 }
 
 // foldWaiting folds fact waiting: the task waits for its After tasks (no lane held: the lane is the dispatch's).
-func (p *proj) foldWaiting(r Record) {
+func (p *proj) foldWaiting(r event.Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
 	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d}
@@ -618,7 +621,7 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	if !a.waitCurrent(p, mt) {
 		return false
 	}
-	_, err := a.dispatchTask(ctx, p, fx, Call{Root: p.root, Agent: d.Caller, CallID: d.Call, Task: mt.task,
+	_, err := a.dispatchTask(ctx, p, fx, wire.Call{Root: p.root, Agent: d.Caller, CallID: d.Call, Task: mt.task,
 		Lane: d.Lane, Level: d.Level, Types: d.Types, Force: d.Force})
 	if err == nil {
 		a.mu.Lock()
@@ -691,8 +694,10 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 	case !mt.started:
 		return a.nextStart(p, mt)
 	case mt.work == "":
-		return func(ctx context.Context, fx *Loop) bool { return a.sendWork(ctx, p, fx, mt, nth(StepWork, mt.works+1)) }
-	case p.log.Open(Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}): // its prompt failed: sent again under its key
+		return func(ctx context.Context, fx *Loop) bool {
+			return a.sendWork(ctx, p, fx, mt, nth(event.StepWork, mt.works+1))
+		}
+	case p.log.Open(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}): // its prompt failed: sent again under its key
 		return func(ctx context.Context, fx *Loop) bool { return a.sendWork(ctx, p, fx, mt, mt.work) }
 	}
 	return a.watchWork(p, mt)
@@ -702,12 +707,12 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 // lane_ready / lane_setup; its result is the lane's row (lanes.go). A refusal is final: needs-you{lane: why}.
 func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	d := mt.disp
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepPrepare, mt.prepares+1)}, Class: ClassGit,
-		Data: PrepareInput{Task: mt.task, Lane: d.Lane, Dir: d.Dir, Branch: d.Branch, Target: d.Target, Agent: d.Agent,
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPrepare, mt.prepares+1)}, Class: event.ClassGit,
+		Data: port.PrepareInput{Task: mt.task, Lane: d.Lane, Dir: d.Dir, Branch: d.Branch, Target: d.Target, Agent: d.Agent,
 			Redo: d.Redo, At: mt.at}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
-		out, err := fx.Lane.Prepare(ctx, in.Data.(PrepareInput))
-		var refused Refused
+		out, err := fx.Lane.Prepare(ctx, in.Data.(port.PrepareInput))
+		var refused port.Refused
 		if errors.As(err, &refused) {
 			return prepareOut{Refused: refused.Line}, nil
 		}
@@ -724,7 +729,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
 // shell) and the agent in it are its intent's data. No pane in the lane for Gone: needs-you{no pane in lane}.
 func (a *App) nextStart(p *proj, mt mtask) step {
-	key := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepStartWork, mt.starts+1)}
+	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
 	if r, ok := p.log.Intent(key); ok { // a pending start: its recorded snapshot
 		_ = json.Unmarshal(r.Data, &d)
@@ -749,8 +754,8 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 	}
 	delete(p.nopane, mt.task)
 	// The work job the start runs under: one open from an earlier start, else the next.
-	work := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepWork, mt.works+1)}
-	if mt.work != "" && !p.log.Done(Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}) {
+	work := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepWork, mt.works+1)}
+	if mt.work != "" && !p.log.Done(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}) {
 		work.Step = mt.work
 	}
 	return func(ctx context.Context, fx *Loop) bool { return a.startWorker(ctx, p, fx, mt, key, d, work) }
@@ -785,9 +790,9 @@ func (a *App) placement(p *proj, dir string, names ...string) *seen {
 // start; not started → it starts again (Restart stops what is there); cannot tell → refused: needs-you{start: cannot
 // tell …}, never a second start. A launch refusal (background tasks without force, the name held by another pane) is
 // final: needs-you{start: why}. It runs under work job's intent and carries its wake (startJob).
-func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key, d startData, work Key) bool {
+func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
 	replay := p.log.Open(key)
-	in := Intent{Key: key, Class: ClassStart, Data: d}
+	in := event.Intent{Key: key, Class: event.ClassStart, Data: d}
 	return a.startJob(ctx, p, mt, in, work, promptData{Agent: mt.agent}, func(ctx context.Context, first string) (any, error) {
 		if replay {
 			switch a.startSeen(p, d) {
@@ -798,7 +803,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 					"reports no session id): look at the pane, then obor resume " + mt.task}, nil
 			}
 		}
-		s, err := fx.Agents.Launch(ctx, Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
+		s, err := fx.Agents.Launch(ctx, port.Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
 			Prompt: first, Effort: mt.disp.Effort})
 		switch {
 		case err != nil && startRefused(err):
@@ -841,13 +846,13 @@ func (a *App) startSeen(p *proj, d startData) int {
 // startRefused: the launch refused for good: the agent has background tasks (no force), or its name is held by
 // another pane.
 func startRefused(err error) bool {
-	return ErrorCode(err) == "agent_name_taken" || strings.Contains(err.Error(), "has background tasks")
+	return port.ErrorCode(err) == "agent_name_taken" || strings.Contains(err.Error(), "has background tasks")
 }
 
 // sendWork sends the worker its work job's wake (row 5) under step (work, work.N), job <task>/<attempt>/<step>: a job
 // its start did not carry (startJob). A prompt that fails stays pending and is sent again under its key.
 func (a *App) sendWork(ctx context.Context, p *proj, fx *Loop, mt mtask, step string) bool {
-	key := Key{Task: mt.task, Attempt: mt.attempt, Step: step}
+	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}
 	at := a.opt.Now()
 	if !a.sendWorkJob(ctx, p, fx, mt, key, key, fmt.Sprintf("work job %s not sent to %s", JobID(key), mt.agent)) {
 		return false
@@ -859,7 +864,7 @@ func (a *App) sendWork(ctx context.Context, p *proj, fx *Loop, mt mtask, step st
 }
 
 // sendWorkJob types mt's work job's (job) wake under key (the job's own, or its retry).
-func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job Key, what string) bool {
+func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job event.Key, what string) bool {
 	return a.send(ctx, p, fx, mt, key, JobID(job), promptData{Agent: mt.agent}, wakeText, what)
 }
 
@@ -955,9 +960,9 @@ func dropEmptyProjectSection(text string) string {
 // (fact delivered: the task is working); undelivered for deliveryWait: retry.work, then the owner. The timer is not
 // recorded: a replay starts it afresh.
 func (a *App) watchWork(p *proj, mt mtask) step {
-	key := Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}
+	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}
 	t := a.timerOf(p, key)
-	return a.undelivered(p, mt, t, key, mt.agent, func(ctx context.Context, fx *Loop, retry Key) bool {
+	return a.undelivered(p, mt, t, key, mt.agent, func(ctx context.Context, fx *Loop, retry event.Key) bool {
 		return a.sendWorkJob(ctx, p, fx, mt, retry, key, fmt.Sprintf("work job %s not sent again to %s", JobID(key),
 			mt.agent))
 	})

@@ -3,6 +3,8 @@ package app
 import (
 	"cmp"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"time"
 )
 
@@ -22,21 +24,21 @@ func answerReply(task, agent string) string {
 // answer answers the lead's or the owner's obor answer (under a.verdicts): sendbackDecide's refusals (the caller, an
 // empty text, the task not open, a step of it running, no question in force), else fact answered. A repeated call id
 // gets the stored reply.
-func (a *App) answer(c Call) (string, error) {
+func (a *App) answer(c wire.Call) (string, error) {
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	mt, reply, err := a.sendbackDecide(p, MethodAnswer, c)
+	mt, reply, err := a.sendbackDecide(p, wire.MethodAnswer, c)
 	a.mu.Unlock()
 	if err != nil || reply != "" {
 		return reply, err
 	}
-	m := Message{To: mt.agent, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Note, Call: c.CallID,
+	m := event.Message{To: mt.agent, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Note, Call: c.CallID,
 		Task: c.Task}
 	m.Reply = answerReply(c.Task, mt.agent)
 	if note := a.unnamed(p, mt.agent, ""); note != "" {
 		m.Reply += " (" + note + ")"
 	}
-	if !a.record(p, Record{Task: MsgTask, Step: StepAnswered, Kind: KindFact}, m) {
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact}, m) {
 		return "", fmt.Errorf("answer: the event log of %s refused it", p.name)
 	}
 	a.logf("%s %s by %s", p.name, m.Reply, Dash(c.Agent))

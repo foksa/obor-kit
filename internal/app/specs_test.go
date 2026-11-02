@@ -2,11 +2,11 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/wire"
 	"slices"
 	"strings"
 	"testing"
 
-	"obor/internal/app"
 	"obor/internal/store"
 )
 
@@ -31,7 +31,7 @@ func TestSpecSet(t *testing.T) {
 		}
 	}
 	for _, role := range []string{"worker", "integrator"} {
-		reply, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root,
+		reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
 			Agent: "pj-o1", Role: role, CallID: "w-" + role, Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
 		if err == nil || !strings.Contains(err.Error(), "only the lead or the owner sets a spec") {
 			t.Errorf("spec set by role %q: %q, %v; want refused", role, reply, err)
@@ -41,7 +41,7 @@ func TestSpecSet(t *testing.T) {
 	if err != nil || !ok || row.Rev != 2 || row.Text != "# T-1 — B\n\nDifficulty: medium\n" || row.SetBy != "lead" {
 		t.Errorf("stored spec %+v, %v, %v; want rev 2 \"B\" set by lead", row, ok, err)
 	}
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root,
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
 		CallID: "o1", Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
 	if err != nil || reply != "SET T-1 rev 3" {
 		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)

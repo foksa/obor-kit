@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -236,13 +239,13 @@ func TestLoopFailureCountSurvivesRestart(t *testing.T) {
 	r.work("feature.txt", "feature\n")
 	r.submit()
 	failed := []byte(`{"lane":"O-01","reason":"gate: git I/O: index.lock exists","merge":true,"step":"gate"}`)
-	if err := app.WriteLog(r.p.Root, time.Now(), []app.Record{
-		{Task: "T-1", Attempt: 1, Step: "submitted", Kind: app.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
-		{Task: "T-1", Attempt: 1, Step: "submit", Kind: app.KindIntent, Class: app.ClassGit},
-		{Task: "T-1", Attempt: 1, Step: "submit", Kind: app.KindResult, Data: []byte(`{"sha":"` + r.p.Git(r.lane, "rev-parse", "HEAD") + `"}`)},
-		{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindIntent, Class: app.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
-		{Task: "T-1", Attempt: 1, Step: "failed", Kind: app.KindFact, Data: failed},
-		{Task: "T-1", Attempt: 1, Step: "failed", Kind: app.KindFact, Data: failed},
+	if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
+		{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
+		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindResult, Data: []byte(`{"sha":"` + r.p.Git(r.lane, "rev-parse", "HEAD") + `"}`)},
+		{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
+		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
 	}...); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +342,7 @@ func TestLoopFinalOutcomes(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
 		r.work("red.txt", "red\n")
-		r.setLane(func(l *app.Lane) { l.Agent = "" })
+		r.setLane(func(l *port.Lane) { l.Agent = "" })
 		r.p.State("O-01", map[string]any{"lane": "O-01", "task": "T-1", "branch": "task/T-1", "base": "main"})
 		r.submit() // before the start: in the log (no agent could call task_done)
 		r.start()
@@ -404,11 +407,11 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 				r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n"+sharedLines)
 				r.p.Git(scratch, "add", "shared.txt")
 				r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
-				if reply, err := r.verdict(app.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job "+job+")" {
+				if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job "+job+")" {
 					t.Fatalf("resolved after the resumed %s: %q, %v", step, reply, err)
 				}
 				text = r.waitJob("pj-int", "T-1/1/review")
-			} else if reply, err := r.verdict(app.MethodAccept, "c1", r.patch(text), ""); err != nil ||
+			} else if reply, err := r.verdict(wire.MethodAccept, "c1", r.patch(text), ""); err != nil ||
 				reply != "ACCEPT T-1 (job "+job+")" {
 				t.Fatalf("accept after the resumed %s: %q, %v", step, reply, err)
 			}
@@ -435,7 +438,7 @@ func TestLoopRejectUnpins(t *testing.T) {
 			if fail {
 				heal = r.armScratch("Unpin")
 			}
-			if reply, err := r.verdict(app.MethodReject, "c1", "", "not this"); err != nil || reply != "REJECT T-1 (job T-1/1/review)" {
+			if reply, err := r.verdict(wire.MethodReject, "c1", "", "not this"); err != nil || reply != "REJECT T-1 (job T-1/1/review)" {
 				t.Fatalf("reject: %q, %v", reply, err)
 			}
 			if fail {
@@ -465,7 +468,7 @@ func TestLoopSubmitRefused(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
-	r.scratch.arm("Submit", func(context.Context) error { return app.Refused{Line: "FAIL T-1: lane O-01 is not on a branch"} })
+	r.scratch.arm("Submit", func(context.Context) error { return port.Refused{Line: "FAIL T-1: lane O-01 is not on a branch"} })
 	r.start()
 	r.submit()
 	r.waitStep("1 fact needs-you{submit: FAIL T-1: lane O-01 is not on a branch}")
@@ -487,7 +490,7 @@ func TestLoopSubmitRefused(t *testing.T) {
 func (r *loopRig) startsWere(n int, force bool) {
 	r.t.Helper()
 	r.mu.Lock()
-	var starts []app.Launch
+	var starts []port.Launch
 	for _, l := range r.launches {
 		if l.Agent == "pj-int" {
 			starts = append(starts, l)

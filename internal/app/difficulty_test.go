@@ -3,11 +3,13 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/testkit"
 )
 
@@ -25,16 +27,16 @@ func newLevelRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 		testkit.Set("lanes.O-02", "sonnet"),
 	}, edits...)
 	r := newDispatchRig(t, edits...)
-	r.setLane(func(l *app.Lane) { l.Type = "deepseek" })
+	r.setLane(func(l *port.Lane) { l.Type = "deepseek" })
 	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, app.Lane{Name: "O-02", Dir: r.p.LaneDir("O-02"), Type: "sonnet", State: "free"})
+	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "O-02", Dir: r.p.LaneDir("O-02"), Type: "sonnet", State: "free"})
 	r.lanes.mu.Unlock()
 	return r
 }
 
 // dispatchLevel is the lead's dispatch of T-1 by its spec's level (no lane, no types).
 func (r *loopRig) dispatchLevel(callID string, types ...string) (string, error) {
-	return r.dispatchCall(app.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1", Types: types})
+	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1", Types: types})
 }
 
 func (r *loopRig) specLevel(level string) {
@@ -46,7 +48,7 @@ func (r *loopRig) specLevel(level string) {
 func (r *loopRig) factData(task, step string) map[string]any {
 	r.t.Helper()
 	for _, rec := range r.records() {
-		if rec.Task == task && rec.Kind == app.KindFact && rec.Step == step {
+		if rec.Task == task && rec.Kind == event.KindFact && rec.Step == step {
 			var d map[string]any
 			if err := json.Unmarshal(rec.Data, &d); err != nil {
 				r.t.Fatal(err)
@@ -67,7 +69,7 @@ func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
 	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") {
 		t.Fatalf("medium dispatch: %q, %v; want O-02 (sonnet)", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["level"] != "medium" || d["lane"] != "O-02" {
+	if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "O-02" {
 		t.Errorf("dispatch fact %v, want level medium on O-02", d)
 	}
 }
@@ -79,9 +81,9 @@ func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
 		testkit.Set("difficulty.simple", []string{"luna"}),
 		testkit.Set("lanes.O-02", map[string]any{"type": "sonnet", "agent": "pj-o1"}))
-	r.setLane(func(l *app.Lane) { l.Type = "opus" })
+	r.setLane(func(l *port.Lane) { l.Type = "opus" })
 	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, app.Lane{Name: "O-02", Dir: r.lane, Type: "sonnet", State: "free", Agent: "pj-o1"})
+	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "O-02", Dir: r.lane, Type: "sonnet", State: "free", Agent: "pj-o1"})
 	r.lanes.mu.Unlock()
 	r.start()
 	r.specLevel("simple") // luna: no lane; medium's sonnet is the fallback
@@ -90,7 +92,7 @@ func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 		!strings.Contains(reply, "(level simple has no lane: using sonnet)") {
 		t.Fatalf("simple dispatch with no simple lane: %q, %v", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["level"] != "simple" || d["lane"] != "O-02" {
+	if d := r.factData("T-1", event.StepDispatched); d["level"] != "simple" || d["lane"] != "O-02" {
 		t.Errorf("dispatch fact %v, want level simple on O-02", d)
 	}
 }
@@ -111,7 +113,7 @@ func TestDifficultyTakesTheNextTypeWhenTheFirstIsBusy(t *testing.T) {
 func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
-	r.setLane(func(l *app.Lane) { l.Type = "opus" }) // O-01 is a free opus (hard) lane; O-02 (sonnet) is busy
+	r.setLane(func(l *port.Lane) { l.Type = "opus" }) // O-01 is a free opus (hard) lane; O-02 (sonnet) is busy
 	r.lanes.mu.Lock()
 	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"
 	r.lanes.mu.Unlock()
@@ -136,7 +138,7 @@ func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
 	r.lanes.lanes[1].Type, r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "deepseek", "free", ""
 	r.lanes.mu.Unlock()
 	r.waitFor("the dispatch once a deepseek lane frees", func() bool { return r.taskStep("T-1", "fact dispatch") == 1 })
-	if d := r.factData("T-1", app.StepDispatched); d["lane"] != "O-02" || d["level"] != "simple" {
+	if d := r.factData("T-1", event.StepDispatched); d["lane"] != "O-02" || d["level"] != "simple" {
 		t.Errorf("dispatch fact %v, want simple on O-02", d)
 	}
 }
@@ -149,7 +151,7 @@ func TestDifficultyTypesOverrideTheLevel(t *testing.T) {
 	if reply, err := r.dispatchLevel("d1", "sonnet"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") {
 		t.Fatalf("--types sonnet: %q, %v; want O-02", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["level"] != nil {
+	if d := r.factData("T-1", event.StepDispatched); d["level"] != nil {
 		t.Errorf("dispatch fact %v, want no level (--types overrides it)", d)
 	}
 }
@@ -183,7 +185,7 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 	r := newLevelRig(t)
 	r.start()
 	for _, text := range []string{"# T-1 — A\n", "# T-1 — A\n\nDifficulty: easy\n", "# T-1 — A\n\nsome text\nDifficulty: hard\n"} {
-		_, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 			CallID: "s", Task: "T-1", Spec: text})
 		if err == nil || !strings.Contains(err.Error(), "hard, medium, simple") {
 			t.Errorf("spec set of %q: %v; want a refusal naming the levels", text, err)

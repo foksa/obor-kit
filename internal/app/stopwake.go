@@ -3,6 +3,9 @@ package app
 import (
 	"cmp"
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,8 +46,8 @@ const (
 
 // wakeDue is the time the stop f's latest wake is due at, as of now (ok false: none is due yet). Its Reset known:
 // wakeAfter past it. Unknown: the last whole wakeEvery since the stop.
-func wakeDue(f Record, now time.Time) (time.Time, bool) {
-	return wakeAt(f.Fact().Reset, recordTime(f), now)
+func wakeDue(f event.Record, now time.Time) (time.Time, bool) {
+	return wakeAt(f.Fact().Reset, event.RecordTime(f), now)
 }
 
 // wakeAt is wakeDue for a stop at since with reset (Unix seconds; 0: unknown).
@@ -61,14 +64,14 @@ func wakeAt(reset int64, since, now time.Time) (time.Time, bool) {
 }
 
 // continueKey is the key of task's wake due at due.
-func continueKey(task string, due time.Time) Key {
-	return Key{Task: task, Step: stepContinue + strconv.FormatInt(due.Unix(), 10)}
+func continueKey(task string, due time.Time) event.Key {
+	return event.Key{Task: task, Step: stepContinue + strconv.FormatInt(due.Unix(), 10)}
 }
 
 // wakeTo is one wake to send: the task ("": a role agent's), the job named, the agent, the key and the line.
 type wakeTo struct {
 	task, job, agent string
-	key              Key
+	key              event.Key
 	line             string
 }
 
@@ -84,9 +87,9 @@ func (a *App) stopWakes(ctx context.Context, p *proj, fx *Loop) {
 			continue
 		}
 		w := p.tasks[task]
-		if woke := p.folded.woke[task]; !woke.IsZero() && !woke.Before(recordTime(f)) && now.Sub(woke) >= wakeAlarm &&
+		if woke := p.folded.woke[task]; !woke.IsZero() && !woke.Before(event.RecordTime(f)) && now.Sub(woke) >= wakeAlarm &&
 			!p.alarmed(task) {
-			a.fact(p, task, w, verdict{step: StepNeedsYou, reason: f.Fact().Reason + stillStopped, cause: causeStopped,
+			a.fact(p, task, w, verdict{step: event.StepNeedsYou, reason: f.Fact().Reason + stillStopped, cause: causeStopped,
 				pane: w.agent})
 		}
 		due, ok := wakeDue(f, now)
@@ -131,7 +134,7 @@ func (a *App) sendWake(ctx context.Context, p *proj, fx *Loop, wk wakeTo) {
 	default:
 		post = ""
 	}
-	if _, err := a.do(ctx, p, Intent{Key: wk.key, Class: ClassPrompt, Data: promptData{Agent: wk.agent, Job: wk.job}},
+	if _, err := a.do(ctx, p, event.Intent{Key: wk.key, Class: event.ClassPrompt, Data: promptData{Agent: wk.agent, Job: wk.job}},
 		func(ctx context.Context) (any, error) {
 			return sentResult(fx.transmit(ctx, post, target, wk.line, true))
 		}); err == nil {
@@ -141,19 +144,19 @@ func (a *App) sendWake(ctx context.Context, p *proj, fx *Loop, wk wakeTo) {
 
 // foldWake keeps the time of task's first wake since its stops last ended, or of a role agent's stop's first wake (a
 // continue result; under mu, folded).
-func (p *proj) foldWake(r Record) {
-	if r.Kind != KindResult || !strings.HasPrefix(r.Step, stepContinue) {
+func (p *proj) foldWake(r event.Record) {
+	if r.Kind != event.KindResult || !strings.HasPrefix(r.Step, stepContinue) {
 		return
 	}
-	if r.Task == MsgTask {
+	if r.Task == event.MsgTask {
 		_, agent, _ := strings.Cut(strings.TrimPrefix(r.Step, stepContinue), ".")
-		if b := p.out.brief(agent); b != nil && b.stop != nil && b.stop.woke.IsZero() && !recordTime(r).Before(b.stop.at) {
-			b.stop.woke = recordTime(r)
+		if b := p.out.brief(agent); b != nil && b.stop != nil && b.stop.woke.IsZero() && !event.RecordTime(r).Before(b.stop.at) {
+			b.stop.woke = event.RecordTime(r)
 		}
 		return
 	}
 	if p.folded.woke[r.Task].IsZero() {
-		p.folded.woke[r.Task] = recordTime(r)
+		p.folded.woke[r.Task] = event.RecordTime(r)
 	}
 }
 
@@ -177,7 +180,7 @@ func (p *proj) alarmed(task string) bool {
 func (a *App) roleTurns(ctx context.Context, p *proj) {
 	type read struct {
 		agent      string
-		pane       Pane
+		pane       port.Pane
 		transcript string // its recorded transcript (sessions.go)
 	}
 	var reads []read
@@ -201,8 +204,8 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 		a.mu.Lock()
 		b := p.out.brief(rd.agent)
 		var fact any
-		step := StepStopped
-		_, done := p.folded.calls[verdictStep(MethodStopped, "turn."+t.ID)]
+		step := event.StepStopped
+		_, done := p.folded.calls[verdictStep(wire.MethodStopped, "turn."+t.ID)]
 		act := turnNone
 		if b != nil && (b.stop == nil || (b.stop.turn != "" && b.stop.turn != t.ID)) && counts(t, rd.pane.Status, done) {
 			act = turnDecide(turnCase{stopped: b.stop != nil, followed: b.followed, worked: b.worked, ended: t.Ended,
@@ -210,7 +213,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 		}
 		switch act {
 		case turnResume, turnFinish:
-			step, fact = StepTurned, turnedData{To: rd.agent, Brief: b.seq, Worked: act == turnFinish}
+			step, fact = event.StepTurned, turnedData{To: rd.agent, Brief: b.seq, Worked: act == turnFinish}
 		case turnStop:
 			d, said := newStop(rd.agent, t.Error, t.Details, "turn."+t.ID)
 			a.roleStop(p, &d, said, rd.pane.Agent, t.Reset)
@@ -218,7 +221,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 			fact = d
 		}
 		a.mu.Unlock()
-		if fact != nil && a.record(p, Record{Task: MsgTask, Step: step, Kind: KindFact}, fact) {
+		if fact != nil && a.record(p, event.Record{Task: event.MsgTask, Step: step, Kind: event.KindFact}, fact) {
 			a.logf("%s %s %s (turn %s)", p.name, step, rd.agent, t.ID)
 		}
 	}
@@ -229,7 +232,7 @@ func (a *App) roleTurns(ctx context.Context, p *proj) {
 func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	now := a.opt.Now()
 	var wakes []wakeTo
-	var alarms []Message
+	var alarms []event.Message
 	var shows []*roleStop
 	a.mu.Lock()
 	for agent, b := range p.out.allBriefs() {
@@ -238,13 +241,13 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 			continue
 		}
 		if !s.woke.IsZero() && now.Sub(s.woke) >= wakeAlarm && !s.alarmed {
-			alarms = append(alarms, Message{To: p.out.lead(), From: "obor", Line: s.line + stillStopped, Stop: s.seq})
+			alarms = append(alarms, event.Message{To: p.out.lead(), From: "obor", Line: s.line + stillStopped, Stop: s.seq})
 		}
 		if s.alarmed && !p.log.Done(alarmKey(s.seq)) {
 			shows = append(shows, &roleStop{seq: s.seq, line: s.line})
 		}
 		if due, ok := wakeAt(s.reset, s.at, now); ok {
-			key := Key{Task: MsgTask, Step: stepContinue + strconv.FormatInt(due.Unix(), 10) + "." + agent}
+			key := event.Key{Task: event.MsgTask, Step: stepContinue + strconv.FormatInt(due.Unix(), 10) + "." + agent}
 			if !p.log.Done(key) {
 				wakes = append(wakes, wakeTo{agent: agent, key: key, line: roleContinue})
 			}
@@ -255,13 +258,13 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 	sort.Slice(shows, func(i, j int) bool { return shows[i].seq < shows[j].seq })
 	sort.Slice(wakes, func(i, j int) bool { return wakes[i].agent < wakes[j].agent })
 	for _, m := range alarms {
-		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
+		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
 			shows = append(shows, &roleStop{seq: m.Stop, line: strings.TrimSuffix(m.Line, stillStopped)})
 		}
 	}
 	for _, s := range shows {
 		body := strings.TrimPrefix(s.line, "[obor] ") + stillStopped
-		_, _ = p.log.Do(ctx, Intent{Key: alarmKey(s.seq), Class: ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
+		_, _ = p.log.Do(ctx, event.Intent{Key: alarmKey(s.seq), Class: event.ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
 			if err := a.panes.Notify(ctx, "obor: "+p.name+" needs you", body); err != nil {
 				return nil, err
 			}
@@ -277,8 +280,8 @@ func (a *App) roleWakes(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // alarmKey is the key of the owner's notification of the role agent's stop seq still in force after its wake.
-func alarmKey(seq int64) Key {
-	return Key{Task: MsgTask, Step: stepAlarm + strconv.FormatInt(seq, 10)}
+func alarmKey(seq int64) event.Key {
+	return event.Key{Task: event.MsgTask, Step: stepAlarm + strconv.FormatInt(seq, 10)}
 }
 
 // roleAlarmed marks the role agent's stop seq as having its alarm line (a message fact's Stop; under mu, folded).

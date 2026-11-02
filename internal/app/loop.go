@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"strconv"
 	"strings"
 	"time"
@@ -27,13 +29,13 @@ import (
 
 // Loop is what the merge loop drives in one project.
 type Loop struct {
-	Scratch Scratch
-	Agents  Agents
+	Scratch port.Scratch
+	Agents  port.Agents
 	// Typer types job wakes and lines into agents' panes (nil: none typed; posted ones need Inbox).
-	Typer Typer
+	Typer port.Typer
 	// Lane prepares a dispatched lane (and frees a dropped one); Specs is what a dispatch reads; Kit is the
 	// obor kit (the worker prompt's template). Without Lane and Specs the app dispatches nothing (dispatch.go).
-	Lane  LaneSetup
+	Lane  port.LaneSetup
 	Specs Specs
 	Kit   string
 	// Checkout is nil while the main checkout is on the target branch, else why the project's pass pauses: a loop
@@ -69,7 +71,7 @@ const (
 // default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
 const (
-	causeHeld            = CauseHeld
+	causeHeld            = event.CauseHeld
 	causeUndelivered     = "job not delivered"
 	causeStalled         = "job stalled"
 	causeRed             = "red"
@@ -86,21 +88,21 @@ const (
 )
 
 var resumeDefault = map[string]string{
-	causeHeld: ResumeReprompt, causeUndelivered: ResumeReprompt, causeStalled: ResumeReprompt,
-	causeRed: ResumeRegate, causeGate: ResumeRegate, causePublish: ResumeRegate,
+	causeHeld: wire.ResumeReprompt, causeUndelivered: wire.ResumeReprompt, causeStalled: wire.ResumeReprompt,
+	causeRed: wire.ResumeRegate, causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate,
 }
 
 // resumeDefaultOf is what obor resume does by default with a needs-you of cause ("": the owner says which).
 func resumeDefaultOf(cause string) string {
 	if strings.HasSuffix(cause, failedSuffix) {
-		return ResumeRetry
+		return wire.ResumeRetry
 	}
 	return resumeDefault[cause]
 }
 
 // afterSteps are a merged task's steps, in order. An older log's dispatch.next (the legacy queue dispatch, T-408) and
 // archive (the done file's, before T-437) are none of them: their results fold as no step's.
-var afterSteps = []string{StepAfterMerge, StepStop}
+var afterSteps = []string{event.StepAfterMerge, event.StepStop}
 
 // tries is how many counted failures of one step make a needs-you (the failure rule: App.do).
 const tries = 3
@@ -133,16 +135,16 @@ type mtask struct {
 	attempt           int
 	state             string
 	sendbacks         int
-	attemptVars              // what a new attempt resets (next)
-	resolved          string // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
-	why, cause        string // stFail: the needs-you's reason and cause
-	report            string // the last submission's report (task_done's)
-	after             int    // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
-	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
-	mergedSeq         int64  // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
-	dropped           string // stDropped: obor drop's why
-	needs             Record // the needs-you fact in force (Seq 0: none)
-	left              string // the state the last needs-you left: obor resume's retry goes back to it
+	attemptVars                    // what a new attempt resets (next)
+	resolved          string       // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
+	why, cause        string       // stFail: the needs-you's reason and cause
+	report            string       // the last submission's report (task_done's)
+	after             int          // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
+	head              string       // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
+	mergedSeq         int64        // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
+	dropped           string       // stDropped: obor drop's why
+	needs             event.Record // the needs-you fact in force (Seq 0: none)
+	left              string       // the state the last needs-you left: obor resume's retry goes back to it
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// time; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done.
@@ -162,7 +164,7 @@ type attemptVars struct {
 	resolves, pubs int
 	submits        int
 	input          string             // submit's sha, the lane gate's and the moved gate's input ("": submit first)
-	cand           Candidate          // the attempt's last green candidate
+	cand           port.Candidate     // the attempt's last green candidate
 	gateRev        int                // the spec rev in cand's merge message (T-521; 0: none)
 	accepted       string             // the patch hash the integrator accepted in this attempt
 	line           string             // the last gate or publish line, or the integrator's note
@@ -211,10 +213,10 @@ type (
 		Refused string `json:"refused,omitempty"` // Scratch.Submit's final refusal
 	}
 	gateOut struct {
-		Outcome   string    `json:"outcome"` // a gate's green, red, conflict, fail; a publish's merged, moved, hold
-		Line      string    `json:"line"`
-		Candidate Candidate `json:"candidate"`
-		SpecRev   int       `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message (T-521)
+		Outcome   string         `json:"outcome"` // a gate's green, red, conflict, fail; a publish's merged, moved, hold
+		Line      string         `json:"line"`
+		Candidate port.Candidate `json:"candidate"`
+		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message (T-521)
 	}
 	noteData struct {
 		Note string `json:"note"`
@@ -295,13 +297,13 @@ func (a *App) advance(ctx context.Context) {
 }
 
 // record appends the fact r with data and folds it; false when the log failed.
-func (a *App) record(p *proj, r Record, data any) bool {
+func (a *App) record(p *proj, r event.Record, data any) bool {
 	_, ok := a.recordSeq(p, r, data)
 	return ok
 }
 
 // recordSeq is record, also returning the record's seq (0 when the log failed).
-func (a *App) recordSeq(p *proj, r Record, data any) (int64, bool) {
+func (a *App) recordSeq(p *proj, r event.Record, data any) (int64, bool) {
 	r.Data, _ = json.Marshal(data) // plain structs: cannot fail
 	r, err := p.log.Append(r, a.opt.Now())
 	if err != nil {
@@ -310,7 +312,7 @@ func (a *App) recordSeq(p *proj, r Record, data any) (int64, bool) {
 	}
 	a.mu.Lock()
 	p.foldRecord(r)
-	if r.Kind == KindFact && (r.Step == StepMerged || r.Step == StepDropped) {
+	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
 	err = p.laneRowsErr()
@@ -337,14 +339,14 @@ func (a *App) recordSeq(p *proj, r Record, data any) (int64, bool) {
 //
 // From the moment the effect runs until it returns its key is p.exec: obor status' running line lists those, and every
 // other open intent as pending (T-662).
-func (a *App) do(ctx context.Context, p *proj, in Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
+func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(context.Context) (any, error)) (json.RawMessage, error) {
 	data, _ := json.Marshal(in.Data)
-	intent := Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindIntent, Class: in.Class, Data: data}
+	intent := event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindIntent, Class: in.Class, Data: data}
 	a.mu.Lock()
 	raw, lost := p.unwritten[in.Key]
 	a.mu.Unlock()
 	if lost {
-		r, err := p.log.Append(Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindResult, Data: raw},
+		r, err := p.log.Append(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw},
 			a.opt.Now())
 		if err != nil {
 			a.logf("%s %s %s: its result: %v", p.name, in.Task, in.Step, err)
@@ -393,7 +395,7 @@ func (a *App) do(ctx context.Context, p *proj, in Intent, effect func(context.Co
 		a.logf("%s %s %s: %v", p.name, in.Task, in.Step, err)
 		return nil, err
 	}
-	p.foldRecord(Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: KindResult, Data: raw,
+	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
 		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // as the log wrote it (recordTime)
 	if err := p.laneRowsErr(); err != nil { // the result is in the log: the next pass finds it done and proceeds once the rows are written
 		a.logf("%s %s %s: lane rows: %v", p.name, in.Task, in.Step, err)
@@ -422,17 +424,17 @@ func (a *App) shutDown(what string) {
 // waits either way.
 func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err error) bool {
 	if cutByServe(ctx, err) { // serve is stopping: the step was cut, not failed (T-660)
-		a.shutDown(mt.task + " " + StepFailed + "{" + step + ": " + err.Error() + "}")
+		a.shutDown(mt.task + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
 		return false
 	}
 	a.mu.Lock()
 	cut := !a.connected || a.p != p
 	a.mu.Unlock()
-	if ErrorCode(err) == "agent_not_found" && !mt.startAt.IsZero() && a.opt.Now().Sub(mt.startAt) < startSettle {
+	if port.ErrorCode(err) == "agent_not_found" && !mt.startAt.IsZero() && a.opt.Now().Sub(mt.startAt) < startSettle {
 		cut = true
 	}
-	if cut || !a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepFailed, Kind: KindFact},
-		FactData{Lane: mt.lane, Machine: Machine, Reason: step + ": " + err.Error(), Merge: true, Step: step}) {
+	if cut || !a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepFailed, Kind: event.KindFact},
+		event.FactData{Lane: mt.lane, Machine: Machine, Reason: step + ": " + err.Error(), Merge: true, Step: step}) {
 		return false
 	}
 	a.mu.Lock()
@@ -440,7 +442,7 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 	tell := m.attempt == mt.attempt && m.fails[step].n >= tries && m.needs.Seq == 0
 	a.mu.Unlock()
 	if tell {
-		base, _ := StepN(step)
+		base, _ := event.StepN(step)
 		a.needsYou(p, &mt, base+failedSuffix, step+failedSuffix+": "+err.Error())
 	}
 	return false
@@ -456,7 +458,7 @@ const startSettle = 30 * time.Second
 // records nothing (T-660): it was not a failure, and the next serve's pass decides again.
 func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 	if err != nil && cutByServe(ctx, err) {
-		a.shutDown("loop " + StepNeedsYou + "{loop: " + err.Error() + "}")
+		a.shutDown("loop " + event.StepNeedsYou + "{loop: " + err.Error() + "}")
 		return
 	}
 	a.loopMu.Lock()
@@ -472,7 +474,7 @@ func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 	if err == nil && !ok { // another source still holds the loop: nothing to end yet
 		return
 	}
-	a.settleNeeds(p, LoopTask, reason)
+	a.settleNeeds(p, event.LoopTask, reason)
 }
 
 // settleNeeds makes reason the one needs-you in force for task on p: "" ends the one in force (resumed); the same
@@ -480,23 +482,23 @@ func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 // log took it (or there was nothing to record), false when a record was refused (the caller may try again).
 func (a *App) settleNeeds(p *proj, task, reason string) bool {
 	a.mu.Lock()
-	held, same := len(p.folded.active[task]) > 0, reason != "" && p.has(task, StepNeedsYou, reason)
+	held, same := len(p.folded.active[task]) > 0, reason != "" && p.has(task, event.StepNeedsYou, reason)
 	a.mu.Unlock()
 	switch {
 	case same, reason == "" && !held:
 		return true
-	case held && !a.record(p, Record{Task: task, Step: StepResumed, Kind: KindFact}, FactData{Machine: Machine}):
+	case held && !a.record(p, event.Record{Task: task, Step: event.StepResumed, Kind: event.KindFact}, event.FactData{Machine: Machine}):
 		return false
 	case reason != "":
-		return a.record(p, Record{Task: task, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
+		return a.record(p, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
 	}
 	return true
 }
 
 // needsYou records the merge loop's needs-you for mt: the owner decides (obor resume, by cause).
 func (a *App) needsYou(p *proj, mt *mtask, cause, reason string) bool {
-	return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepNeedsYou, Kind: KindFact},
-		FactData{Lane: mt.lane, Machine: Machine, Reason: reason, Merge: true, Cause: cause})
+	return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepNeedsYou, Kind: event.KindFact},
+		event.FactData{Lane: mt.lane, Machine: Machine, Reason: reason, Merge: true, Cause: cause})
 }
 
 // drive takes task as far as it goes now: one step after another until it waits for someone else (a verdict, a
@@ -518,7 +520,7 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 			return
 		}
 		if landed {
-			a.record(p, Record{Task: task, Attempt: mt.attempt, Step: StepMerged, Kind: KindFact}, mergedData{Outside: true})
+			a.record(p, event.Record{Task: task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact}, event.MergedData{Outside: true})
 			return
 		}
 	}
@@ -617,7 +619,7 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 		if a.diskIsLow(p, fx) {
 			return false // it would only fail; it starts once space is back
 		}
-		return a.scratchStep(ctx, p, mt, nth(StepGate, mt.gates+1), func(ctx context.Context) { a.gate(ctx, p, fx, mt) })
+		return a.scratchStep(ctx, p, mt, nth(event.StepGate, mt.gates+1), func(ctx context.Context) { a.gate(ctx, p, fx, mt) })
 	}
 }
 
@@ -626,19 +628,19 @@ func (a *App) pickGate(p *proj, mt mtask) step {
 func (a *App) pickGreen(p *proj, mt mtask) step {
 	if mt.accepted != "" && mt.accepted == mt.cand.Patch {
 		return func(context.Context, *Loop) bool {
-			return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepKept, Kind: KindFact},
+			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepKept, Kind: event.KindFact},
 				JobData{Patch: mt.cand.Patch})
 		}
 	}
 	return func(ctx context.Context, fx *Loop) bool {
-		return a.job(ctx, p, fx, mt, nth(StepReview, mt.reviews+1))
+		return a.job(ctx, p, fx, mt, nth(event.StepReview, mt.reviews+1))
 	}
 }
 
 // pickConflict sends a resolve job (row 23).
 func (a *App) pickConflict(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool {
-		return a.job(ctx, p, fx, mt, nth(StepResolve, mt.resolves+1))
+		return a.job(ctx, p, fx, mt, nth(event.StepResolve, mt.resolves+1))
 	}
 }
 
@@ -646,7 +648,7 @@ func (a *App) pickConflict(p *proj, mt mtask) step {
 func (a *App) pickRed(p *proj, mt mtask) step {
 	if mt.sendbacks < K {
 		return func(context.Context, *Loop) bool {
-			return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepSendback, Kind: KindFact},
+			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepSendback, Kind: event.KindFact},
 				noteData{Note: mt.line})
 		}
 	}
@@ -664,8 +666,8 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 			a.logf("merge loop of %s: %s: %v", p.name, mt.task, err)
 			return false
 		case landed: // the gate refused a lane a merge outside the app took meanwhile
-			return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepMerged, Kind: KindFact},
-				mergedData{Outside: true})
+			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact},
+				event.MergedData{Outside: true})
 		}
 		return a.needsYou(p, &mt, mt.cause, mt.why)
 	}
@@ -677,15 +679,15 @@ func (a *App) pickAccepted(p *proj, mt mtask) step {
 		return nil
 	}
 	return func(ctx context.Context, fx *Loop) bool {
-		return a.scratchStep(ctx, p, mt, nth(StepPublish, mt.pubs+1), func(ctx context.Context) { a.publish(ctx, p, fx, mt) })
+		return a.scratchStep(ctx, p, mt, nth(event.StepPublish, mt.pubs+1), func(ctx context.Context) { a.publish(ctx, p, fx, mt) })
 	}
 }
 
 // pickPublished records the merge (row 34).
 func (a *App) pickPublished(p *proj, mt mtask) step {
 	return func(context.Context, *Loop) bool {
-		return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepMerged, Kind: KindFact},
-			mergedData{Head: mt.cand.SHA, Full: mt.cand.Full})
+		return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact},
+			event.MergedData{Head: mt.cand.SHA, Full: mt.cand.Full})
 	}
 }
 
@@ -708,7 +710,7 @@ func (a *App) pickMerged(p *proj, mt mtask) step {
 // pickWorking sends the fix job of a sent-back attempt and watches its delivery (row 24); a dispatched attempt waits
 // for its task_done.
 func (a *App) pickWorking(p *proj, mt mtask) step {
-	fix := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepFix, max(mt.fixes, 1))}
+	fix := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepFix, max(mt.fixes, 1))}
 	switch {
 	case mt.work != "":
 		return nil // a dispatched attempt: its task_done submits it
@@ -718,7 +720,7 @@ func (a *App) pickWorking(p *proj, mt mtask) step {
 				JobID(fix)))
 		}
 	case !mt.fixed:
-		fix.Step = nth(StepFix, mt.fixes+1)
+		fix.Step = nth(event.StepFix, mt.fixes+1)
 	case !p.log.Open(fix):
 		return a.watchFix(p, mt, fix) // the same delivery timers as the work job's
 	}
@@ -730,7 +732,7 @@ func (a *App) pickRejected(p *proj, mt mtask) step {
 	switch {
 	case mt.needs.Seq != 0:
 		return nil
-	case !p.log.Done(Key{Task: mt.task, Attempt: mt.attempt, Step: StepUnpin}):
+	case !p.log.Done(event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepUnpin}):
 		return func(ctx context.Context, fx *Loop) bool { return a.unpin(ctx, p, fx, mt) }
 	}
 	return func(context.Context, *Loop) bool {

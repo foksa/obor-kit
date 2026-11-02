@@ -5,6 +5,8 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +30,7 @@ func stoppedRoot(t *testing.T) string {
 }
 
 // stoppedApp is an app on root, loaded and connected to one snapshot: the lead's pane and panes.
-func stoppedApp(t *testing.T, root string, panes ...Pane) (*App, *proj) {
+func stoppedApp(t *testing.T, root string, panes ...port.Pane) (*App, *proj) {
 	t.Helper()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	a := New(Options{Now: func() time.Time { return now }, Loop: func(string) (*Loop, error) { return &Loop{}, nil }},
@@ -39,15 +41,15 @@ func stoppedApp(t *testing.T, root string, panes ...Pane) (*App, *proj) {
 	}
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
-	all := append([]Pane{{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"}},
+	all := append([]port.Pane{{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"}},
 		panes...)
-	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: all})
+	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: all})
 	return a, p
 }
 
 // shell is a pane labelled agent that runs no agent: the pane launch.Stop leaves, whether serve or the lead stopped it.
-func shell(root, id, agent string) Pane {
-	return Pane{ID: id, Workspace: "w", Cwd: root, Label: agent}
+func shell(root, id, agent string) port.Pane {
+	return port.Pane{ID: id, Workspace: "w", Cwd: root, Label: agent}
 }
 
 // The advisor and the deep dive, which serve never stops, are stopped in status when the lead's stop left their pane at
@@ -57,7 +59,7 @@ func TestStoppedRolesLeadStopped(t *testing.T) {
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root, shell(root, "w:adv", "pj-advisor"), shell(root, "w:dd", "pj-deep-dive"))
 	for _, rec := range readLog(t, p.root) {
-		if rec.Task == RoleTask {
+		if rec.Task == event.RoleTask {
 			t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
 		}
 	}
@@ -75,7 +77,7 @@ func TestStoppedRolesAtShellWithoutServeStop(t *testing.T) {
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root, shell(root, "w:int", "pj-int"), shell(root, "w:rev", "pj-rev"))
 	for _, rec := range readLog(t, p.root) {
-		if rec.Task == RoleTask {
+		if rec.Task == event.RoleTask {
 			t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
 		}
 	}

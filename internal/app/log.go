@@ -2,13 +2,14 @@ package app
 
 import (
 	"fmt"
+	"obor/internal/app/wire"
 	"path/filepath"
 
 	"obor/internal/store"
 )
 
 // backup is MethodBackup: the backup of a project this serve has loaded.
-func (a *App) backup(c Call) (string, error) {
+func (a *App) backup(c wire.Call) (string, error) {
 	root := filepath.Clean(c.Root)
 	a.mu.Lock()
 	p := a.projAt(root)
@@ -17,11 +18,11 @@ func (a *App) backup(c Call) (string, error) {
 		return "", fmt.Errorf("backup: %s is not loaded by this serve", root)
 	}
 	now := a.opt.Now()
-	path, err := store.BackupDaily(p.log.DB(), BackupDir(root), now, backupKeep)
+	path, err := store.BackupDaily(p.log.DB(), wire.BackupDir(root), now, wire.BackupKeep)
 	if err != nil {
 		return "", err
 	}
 	a.prunePrompts(p, now)
-	pruneStopFailure(root, now)
+	wire.PruneStopFailure(root, now)
 	return "BACKUP " + path, nil
 }

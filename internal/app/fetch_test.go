@@ -3,11 +3,13 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/testkit"
 )
 
@@ -22,13 +24,13 @@ func fetchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 }
 
 // task is serve's status of task (zero: none).
-func (r *loopRig) task(task string) app.TaskStatus {
+func (r *loopRig) task(task string) wire.TaskStatus {
 	for _, t := range r.app.Status().Project.Tasks {
 		if t.Task == task {
 			return t
 		}
 	}
-	return app.TaskStatus{}
+	return wire.TaskStatus{}
 }
 
 // wake is the one line typed for job (the Prompter's tag, then the wake).
@@ -36,15 +38,15 @@ func wake(job string) string { return "[obor job " + job + "] call the obor job_
 
 // call is a job tool's socket request by agent (role, lane) with call id; job names the job it answers ("": none).
 func (r *loopRig) call(method, agent, role, lane, callID, job string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, method, app.Call{Root: r.p.Root, Agent: agent, Role: role, Lane: lane,
+	return wire.Verdict(context.Background(), r.sock, method, wire.Call{Root: r.p.Root, Agent: agent, Role: role, Lane: lane,
 		CallID: callID, Task: "T-1", Job: job})
 }
 
 // jobNext is job_next by agent with call id, its reply decoded.
-func (r *loopRig) jobNext(agent, role, lane, callID, job string) (app.JobReply, string, error) {
+func (r *loopRig) jobNext(agent, role, lane, callID, job string) (wire.JobReply, string, error) {
 	r.t.Helper()
-	raw, err := r.call(app.MethodJobNext, agent, role, lane, callID, job)
-	var jr app.JobReply
+	raw, err := r.call(wire.MethodJobNext, agent, role, lane, callID, job)
+	var jr wire.JobReply
 	if err == nil {
 		if err := json.Unmarshal([]byte(raw), &jr); err != nil {
 			r.t.Fatalf("job_next reply %q: %v", raw, err)
@@ -54,7 +56,7 @@ func (r *loopRig) jobNext(agent, role, lane, callID, job string) (app.JobReply, 
 }
 
 // workerNext is pj-o1's job_next from lane O-01.
-func (r *loopRig) workerNext(callID string) app.JobReply {
+func (r *loopRig) workerNext(callID string) wire.JobReply {
 	r.t.Helper()
 	jr, _, err := r.jobNext("pj-o1", "worker", "O-01", callID, "")
 	if err != nil {
@@ -78,7 +80,7 @@ func (r *loopRig) promptsTo(agent string) []string {
 func (r *loopRig) deliveries() []string {
 	var out []string
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindFact && rec.Step == app.StepDelivered {
+		if rec.Kind == event.KindFact && rec.Step == event.StepDelivered {
 			out = append(out, rec.Fact().Job+" "+rec.Fact().Via)
 		}
 	}
@@ -110,14 +112,14 @@ func TestFetchWorkJob(t *testing.T) {
 	eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
 	same(t, r.result("work"), `"sent (start prompt)"`, "the work job's result")
 	r.mu.Lock()
-	launches := append([]app.Launch(nil), r.launches...)
+	launches := append([]port.Launch(nil), r.launches...)
 	r.mu.Unlock()
 	if len(launches) != 1 || launches[0].Agent != "pj-o1" || launches[0].Prompt != wake("T-1/1/work") {
 		t.Errorf("launches %+v, want pj-o1's fresh start with the wake as its first prompt", launches)
 	}
-	var intent app.Record
+	var intent event.Record
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindIntent && rec.Step == "work" {
+		if rec.Kind == event.KindIntent && rec.Step == "work" {
 			intent = rec
 		}
 	}
@@ -146,7 +148,7 @@ func TestFetchWorkJob(t *testing.T) {
 	r.f.Agent("w1:p5", "pj-x", "idle", r.p.Root).Workspace = "w1"
 	r.push()
 	r.waitFor("pane w1:p5", func() bool { return len(r.app.Status().Project.Agents) == 2 })
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodJobNext, app.Call{Root: r.p.Root, Agent: "pj-o1",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root, Agent: "pj-o1",
 		Role: "worker", Lane: "O-01", CallID: "x5", Pane: "w1:p5"}); err == nil ||
 		!strings.Contains(err.Error(), "pane w1:p5 is not in lane O-01") {
 		t.Errorf("job_next from a pane outside the lane: %v", err)
@@ -278,7 +280,7 @@ func TestFetchReviewJob(t *testing.T) {
 func TestFetchFixAndTaskDone(t *testing.T) {
 	t.Parallel()
 	r, _ := fetched(t)
-	if reply, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
+	if reply, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 		t.Fatalf("sendback: %q, %v", reply, err)
 	}
 	r.integratorStops() // it ends its turn after the verdict, and serve stops it: no job is left for it (T-672)
@@ -328,7 +330,7 @@ func TestFetchFixAndTaskDone(t *testing.T) {
 	}
 	var d struct{ Call, Report string }
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindFact && rec.Step == app.StepSubmitted && rec.Attempt == 2 {
+		if rec.Kind == event.KindFact && rec.Step == event.StepSubmitted && rec.Attempt == 2 {
 			_ = json.Unmarshal(rec.Data, &d)
 		}
 	}
@@ -387,7 +389,7 @@ func TestFetchBlockedAsks(t *testing.T) {
 
 // callDone is agent's task_done for T-1 (role, lane O-01) with call id and report.
 func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodTaskDone, app.Call{Root: r.p.Root, Agent: agent, Role: role,
+	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: agent, Role: role,
 		Lane: "O-01", CallID: callID, Task: "T-1", Report: report})
 }
 
@@ -396,7 +398,7 @@ func (r *loopRig) callDone(agent, role, callID, report string) (string, error) {
 func TestFetchFixUndelivered(t *testing.T) {
 	t.Parallel()
 	r, _ := fetched(t)
-	if _, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil {
+	if _, err := r.verdict(wire.MethodSendback, "s1", "", "add a test"); err != nil {
 		t.Fatal(err)
 	}
 	r.waitStep("2 result fix")

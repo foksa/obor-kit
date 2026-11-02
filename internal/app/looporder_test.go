@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
+	"testing"
+)
 
 // The choices of one merge-loop task over p's loop map never follow Go's map order (T-615): a lane's task is its newest
 // dispatch's, the other choices are by task name. Each test has two tasks the choice could take and asks it many
@@ -12,9 +16,9 @@ const orderTries = 64
 // T-2's dispatch is the newer (seq 7 after T-1's 3): name order and dispatch order disagree.
 func twoInLane() *proj {
 	mk := func(task string, seq int64) *mtask {
-		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, attemptVars: attemptVars{work: StepWork}, dispSeq: seq}
+		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, attemptVars: attemptVars{work: event.StepWork}, dispSeq: seq}
 	}
-	return &proj{merging: true, log: &Log{}, ended: map[string]bool{}, held: map[string]string{},
+	return &proj{merging: true, log: &event.Log{}, ended: map[string]bool{}, held: map[string]string{},
 		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2", 7), "T-1": mk("T-1", 3)}, calls: map[string]string{}}}
 }
 
@@ -36,8 +40,8 @@ func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
 		if _, ok := p.folded.loop["T-2"].workerJob(); !ok {
 			t.Fatal("precondition: T-2 has a worker job open")
 		}
-		mt, k, ok, err := (&App{}).callerJob(p, Call{Role: "worker", Lane: "L1", Agent: "w1"})
-		if err != nil || !ok || mt.task != "T-1" || k != (Key{Task: "T-1", Attempt: 1, Step: StepWork}) {
+		mt, k, ok, err := (&App{}).callerJob(p, wire.Call{Role: "worker", Lane: "L1", Agent: "w1"})
+		if err != nil || !ok || mt.task != "T-1" || k != (event.Key{Task: "T-1", Attempt: 1, Step: event.StepWork}) {
 			t.Fatalf("callerJob = %s %v %v %v; want T-1's work job", mt.task, k, ok, err)
 		}
 	}
@@ -49,16 +53,16 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 		p := twoInLane()
 		p.integrator = "int"
 		for _, mt := range p.folded.loop {
-			mt.state, mt.job = stAwaiting, StepReview
+			mt.state, mt.job = stAwaiting, event.StepReview
 		}
 		if _, ok := p.folded.loop["T-2"].integratorJob(); !ok {
 			t.Fatal("precondition: T-2 has an integrator job open")
 		}
-		if _, ok := p.log.IntentOf(Key{Task: "T-2", Attempt: 1, Step: StepReview}); ok {
+		if _, ok := p.log.IntentOf(event.Key{Task: "T-2", Attempt: 1, Step: event.StepReview}); ok {
 			t.Fatal("precondition: no intent recorded (equal seqs)")
 		}
-		mt, k, ok, err := (&App{}).callerJob(p, Call{Role: "integrator", Agent: "int"})
-		if err != nil || !ok || mt.task != "T-1" || k != (Key{Task: "T-1", Attempt: 1, Step: StepReview}) {
+		mt, k, ok, err := (&App{}).callerJob(p, wire.Call{Role: "integrator", Agent: "int"})
+		if err != nil || !ok || mt.task != "T-1" || k != (event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}) {
 			t.Fatalf("callerJob = %s %v %v %v; want T-1's review job", mt.task, k, ok, err)
 		}
 	}
@@ -71,7 +75,7 @@ func TestDropByLaneTwoOpenTakesNewestDispatch(t *testing.T) {
 		if p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {
 			t.Fatal("precondition: T-2's dispatch is the newer, T-1 the first by name")
 		}
-		got, err := (&App{}).dropDecide(p, &Call{Lane: "L1", Note: "why", CallID: "d"})
+		got, err := (&App{}).dropDecide(p, &wire.Call{Lane: "L1", Note: "why", CallID: "d"})
 		if err != nil || got.task != "T-2" || !p.ended["T-2"] || p.ended["T-1"] {
 			t.Fatalf("dropDecide = %q %v (ended %v); want T-2 only", got.task, err, p.ended)
 		}

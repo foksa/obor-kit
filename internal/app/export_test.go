@@ -1,6 +1,7 @@
 package app
 
 import (
+	"obor/internal/app/event"
 	"time"
 
 	"obor/internal/store"
@@ -31,7 +32,7 @@ func Settled(a *App, root, task string) bool {
 
 // Refuse makes the event log of a's project at root refuse each append refuse returns an error for (crash tests: an
 // effect ran, its result never reached the log).
-func Refuse(a *App, root string, refuse func(Record) error) {
+func Refuse(a *App, root string, refuse func(event.Record) error) {
 	a.mu.Lock()
 	p := a.projAt(root)
 	a.mu.Unlock()
@@ -60,13 +61,13 @@ func Counts(a *App) (checks, passes int) {
 }
 
 // WriteLog appends recs (stamped now) to the event log of root, whose serve is stopped (a crash left them).
-func WriteLog(root string, now time.Time, recs ...Record) error {
-	db, err := store.OpenRW(DBFile(root))
+func WriteLog(root string, now time.Time, recs ...event.Record) error {
+	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	log, _, err := OpenLog(db)
+	log, _, err := event.OpenLog(db)
 	for _, r := range recs {
 		if err != nil {
 			break

@@ -1,6 +1,9 @@
 package app
 
 import (
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +17,7 @@ import (
 // session reports agent's session id (transcript tr, started at) to h's serve as the SessionStart hook does.
 func (h *harness) session(agent, id, tr string, at int64) string {
 	h.t.Helper()
-	reply, err := h.a.sessionCall(Call{Root: h.root, Agent: agent, Kind: "claude", Session: id, Transcript: tr,
+	reply, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: agent, Kind: "claude", Session: id, Transcript: tr,
 		Pane: "w1:p1", Lane: "O-01", Task: "T-1", Started: at, Source: "SessionStart hook"})
 	if err != nil {
 		h.t.Fatal(err)
@@ -96,9 +99,9 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 		h.connect()
 		eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "herdr's session is the record")
 
-		h.status("w1:p1", func(p *Pane) { p.Session = "s-herdr" })
+		h.status("w1:p1", func(p *port.Pane) { p.Session = "s-herdr" })
 		eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "a differing herdr session: by label")
-		h.status("w1:p1", func(p *Pane) { p.Status = "working" })
+		h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 		const line = "herdr reports session s-herdr for pj-o-01 at pane w1:p1; its recorded session is s1 (kept)"
 		if n := strings.Count(out.String(), line); n != 1 {
 			t.Errorf("logged %d times, want once:\n%s", n, out)
@@ -129,7 +132,7 @@ func TestSessionInStatus(t *testing.T) {
 	h.session("pj-o-01", "s1", "/t/s1.jsonl", now)
 	h.connect()
 	st := h.a.Status()
-	var got *AgentStatus
+	var got *wire.AgentStatus
 	for i, a := range st.Project.Agents {
 		if a.Pane == "w1:p1" {
 			got = &st.Project.Agents[i]
@@ -154,7 +157,7 @@ func has(t *testing.T, s, sub, what string) {
 // refused reports agent's session id to h's serve: the error ("" none).
 func (h *harness) refused(agent, id string, at int64) string {
 	h.t.Helper()
-	_, err := h.a.sessionCall(Call{Root: h.root, Agent: agent, Kind: "codex", Session: id, Started: at, Source: "codex transcript"})
+	_, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: agent, Kind: "codex", Session: id, Started: at, Source: "codex transcript"})
 	if err == nil {
 		return ""
 	}
@@ -209,7 +212,7 @@ func TestSessionOneOwner(t *testing.T) {
 		// the duplicate, as an older log may hold it: written to the log directly, after the owner's (the readers'
 		// newest fact of the id)
 		p := h2.proj()
-		if !h2.a.record(p, Record{Task: store.SessionTask, Step: store.StepSession, Kind: KindFact},
+		if !h2.a.record(p, event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact},
 			store.Session{Agent: "pj-b", ID: "zzzz0001", Transcript: dup, Started: now + 60}) {
 			t.Fatal("precondition: the duplicate is in the log")
 		}

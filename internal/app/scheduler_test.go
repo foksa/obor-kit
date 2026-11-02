@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,7 +12,7 @@ import (
 )
 
 // schedStatus is the scheduler's state obor status reports: the scratch's owner ("-": free) and the queue.
-func schedStatus(t *testing.T, h *harness) (string, []ScratchWait) {
+func schedStatus(t *testing.T, h *harness) (string, []wire.ScratchWait) {
 	t.Helper()
 	ps := h.a.Status().Project
 	if ps == nil {
@@ -38,11 +41,11 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 		t.Fatal("precondition: the merge loop runs")
 	}
 	for _, task := range []string{"T-9", "T-10"} {
-		addRecord(t, h, task, StepSubmitted, KindFact, submitData{Lane: "O-01"})
-		addRecord(t, h, task, StepSubmit, KindResult, submitOut{SHA: "s-" + task})
+		addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+		addRecord(t, h, task, event.StepSubmit, event.KindResult, submitOut{SHA: "s-" + task})
 	}
 	owner, q := schedStatus(t, h)
-	want := []ScratchWait{{Task: "T-10"}, {Task: "T-9"}} // the pass's order, by id as strings
+	want := []wire.ScratchWait{{Task: "T-10"}, {Task: "T-9"}} // the pass's order, by id as strings
 	if owner != "-" || !slices.Equal(q, want) {
 		t.Fatalf("scratch %s, queue %+v; want free, %+v", owner, q, want)
 	}
@@ -59,8 +62,8 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, true) // T-1's gate conflicted
 	ctx := context.Background()
-	addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
-	addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
+	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+	addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 	p := h.a.p
 	check := func(state, why string, resolved bool) {
 		t.Helper()
@@ -68,37 +71,37 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 			t.Fatalf("precondition: T-1 %s, want %s", got, state)
 		}
 		owner, q := schedStatus(t, h)
-		want := []ScratchWait{{Task: "T-2", WaitsOn: "T-1", Why: why}}
+		want := []wire.ScratchWait{{Task: "T-2", WaitsOn: "T-1", Why: why}}
 		if resolved { // T-1's own gate needs the scratch: listed, with nothing it waits for
-			want = []ScratchWait{{Task: "T-1"}, {Task: "T-2", WaitsOn: "T-1", Why: why}}
+			want = []wire.ScratchWait{{Task: "T-1"}, {Task: "T-2", WaitsOn: "T-1", Why: why}}
 		}
 		if owner != "T-1 "+why || !slices.Equal(q, want) {
 			t.Errorf("T-1 %s: scratch %s, queue %+v; want T-1 %s, %+v", state, owner, q, why, want)
 		}
 	}
-	check(stConflict, ScratchConflict, false)
-	f.Launch(ctx, Launch{})
+	check(stConflict, wire.ScratchConflict, false)
+	f.Launch(ctx, port.Launch{})
 	h.pass(ctx)
-	check(stResolving, ScratchResolving, false)
+	check(stResolving, wire.ScratchResolving, false)
 	if len(f.gated) != 0 {
 		t.Fatalf("resolving: gated %v; want none", f.gated)
 	}
 	h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
-	check(stNeedsYou, ScratchHeld, false)
+	check(stNeedsYou, wire.ScratchHeld, false)
 	h.pass(ctx)
 	if len(f.gated) != 0 {
 		t.Fatalf("held: gated %v; want none", f.gated)
 	}
-	if _, err := h.a.resume(Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
+	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	h.pass(ctx)
-	check(stResolving, ScratchResolving, false)
-	if _, err := h.a.verdict(ctx, MethodResolved, Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
+	check(stResolving, wire.ScratchResolving, false)
+	if _, err := h.a.verdict(ctx, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
 		CallID: "v", Job: JobID(p.folded.loop["T-1"].jobKey())}); err != nil {
 		t.Fatal(err)
 	}
-	check(stResolved, ScratchResolved, true)
+	check(stResolved, wire.ScratchResolved, true)
 	h.pass(ctx)
 	if !slices.Equal(f.gated, []string{"T-1", "T-2"}) {
 		t.Errorf("after T-1's resolution: gated %v; want [T-1 T-2]", f.gated)
@@ -112,7 +115,7 @@ type cmdScratch struct {
 	started, blank, blanked, release chan struct{}
 }
 
-func (f *cmdScratch) Gate(ctx context.Context, in GateInput) (GateOutcome, error) {
+func (f *cmdScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	in.Command("check_affected")
 	close(f.started)
 	<-f.blank
@@ -135,15 +138,15 @@ func TestRunningGateCommand(t *testing.T) {
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	addRecord(t, h, "T-3", StepSubmitted, KindFact, submitData{Lane: "O-01"})
-	addRecord(t, h, "T-3", StepSubmit, KindResult, submitOut{SHA: "s3"})
+	addRecord(t, h, "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+	addRecord(t, h, "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
 	h.a.advance(context.Background())
 	<-f.started
 	ps := h.a.Status().Project
-	if len(ps.Running) != 1 || ps.Running[0].Step != StepGate || ps.Running[0].Command != "check_affected" {
+	if len(ps.Running) != 1 || ps.Running[0].Step != event.StepGate || ps.Running[0].Command != "check_affected" {
 		t.Errorf("running %+v; want T-3's gate running check_affected", ps.Running)
 	}
-	if s := ps.Scratch; s == nil || *s != (ScratchStatus{Task: "T-3", Why: ScratchGating}) {
+	if s := ps.Scratch; s == nil || *s != (wire.ScratchStatus{Task: "T-3", Why: wire.ScratchGating}) {
 		t.Errorf("scratch %+v; want T-3 gating", s)
 	}
 	close(f.blank)
@@ -157,7 +160,7 @@ func TestRunningGateCommand(t *testing.T) {
 	if running.Task != "T-3" {
 		t.Fatalf("precondition: T-3's gate runs between its commands, running %+v", running)
 	}
-	if len(ps.Running) != 1 || ps.Running[0].Step != StepGate || ps.Running[0].Command != "" {
+	if len(ps.Running) != 1 || ps.Running[0].Step != event.StepGate || ps.Running[0].Command != "" {
 		t.Errorf("between two commands: running %+v; want T-3's gate with no command", ps.Running)
 	}
 	if ps := h.a.Status().Project; len(ps.Running) != 0 || ps.Scratch != nil {

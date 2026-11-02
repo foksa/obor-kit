@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"sort"
 	"strconv"
 	"strings"
@@ -114,7 +117,7 @@ func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.brief
 type queued struct {
 	seq    int64
 	at     time.Time
-	msg    Message
+	msg    event.Message
 	typing bool
 	lead   bool
 	brief  bool
@@ -177,18 +180,18 @@ func (d lineData) members(seq int64) []int64 {
 }
 
 // foldMsg folds r, a record of the project's lines.
-func (p *proj) foldMsg(r Record) {
-	if r.Task != MsgTask {
+func (p *proj) foldMsg(r event.Record) {
+	if r.Task != event.MsgTask {
 		return
 	}
 	switch {
-	case r.Kind == KindFact && (r.Step == StepMessage || r.Step == StepBriefed):
-		var m Message
+	case r.Kind == event.KindFact && (r.Step == event.StepMessage || r.Step == event.StepBriefed):
+		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
 		if m.Call != "" {
-			method := MethodSend
-			if r.Step == StepBriefed {
-				method = MethodBrief
+			method := wire.MethodSend
+			if r.Step == event.StepBriefed {
+				method = wire.MethodBrief
 			}
 			p.folded.calls[verdictStep(method, m.Call)] = m.Reply
 		}
@@ -205,11 +208,11 @@ func (p *proj) foldMsg(r Record) {
 			p.roleAlarmed(m.Stop)
 		}
 		if m.Line != "" {
-			p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: recordTime(r), msg: m, lead: r.Step == StepMessage,
-				brief: r.Step == StepBriefed}
+			p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m, lead: r.Step == event.StepMessage,
+				brief: r.Step == event.StepBriefed}
 		}
-		if r.Step == StepBriefed {
-			p.out.briefs[m.To] = &brief{seq: r.Seq, at: recordTime(r)}
+		if r.Step == event.StepBriefed {
+			p.out.briefs[m.To] = &brief{seq: r.Seq, at: event.RecordTime(r)}
 		}
 		for _, seq := range m.Supersedes { // delivered no more (its 24 h needs-you ends with it)
 			delete(p.out.msgs, seq)
@@ -217,24 +220,24 @@ func (p *proj) foldMsg(r Record) {
 		if m.Ends != "" {
 			delete(p.out.briefs, m.Ends)
 		}
-	case r.Kind == KindFact && r.Step == StepStopped: // a role agent's: the lead's line, ending its brief; a worker's:
+	case r.Kind == event.KindFact && r.Step == event.StepStopped: // a role agent's: the lead's line, ending its brief; a worker's:
 		// its task's needs-you (stopped.go)
 		var d stoppedData
 		_ = json.Unmarshal(r.Data, &d)
-		p.folded.calls[verdictStep(MethodStopped, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(wire.MethodStopped, d.Call)] = d.Reply
 		p.foldStop(r, d)
 		if d.Line != "" {
-			p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: recordTime(r), msg: d.Message, lead: true}
+			p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: d.Message, lead: true}
 		}
 		if d.Ends != "" {
 			delete(p.out.briefs, d.Ends)
 		}
 		if b := p.out.briefs[d.Agent]; b != nil && d.Brief != 0 && b.seq == d.Brief { // a usage limit: the brief stays
 			// open, stopped; the work before the stop is not its finish
-			b.stop = &roleStop{seq: r.Seq, at: recordTime(r), line: d.Line, turn: d.Turn, reset: d.Reset}
+			b.stop = &roleStop{seq: r.Seq, at: event.RecordTime(r), line: d.Line, turn: d.Turn, reset: d.Reset}
 			b.worked, b.logged, b.followed = false, false, false
 		}
-	case r.Kind == KindFact && r.Step == StepTurned:
+	case r.Kind == event.KindFact && r.Step == event.StepTurned:
 		var d turnedData
 		_ = json.Unmarshal(r.Data, &d)
 		if b := p.out.briefs[d.To]; b != nil && b.seq == d.Brief { // the turn's start: followed, its work not seen yet
@@ -242,24 +245,24 @@ func (p *proj) foldMsg(r Record) {
 			b.stop = nil
 			b.worked, b.logged, b.followed = d.Worked, d.Worked, !d.Worked
 		}
-	case r.Kind == KindFact && r.Step == StepAnswered:
-		var m Message
+	case r.Kind == event.KindFact && r.Step == event.StepAnswered:
+		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
-		p.folded.calls[verdictStep(MethodAnswer, m.Call)] = m.Reply
-		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: recordTime(r), msg: m}
+		p.folded.calls[verdictStep(wire.MethodAnswer, m.Call)] = m.Reply
+		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m}
 		p.answered(m.Task)
-	case r.Kind == KindFact && r.Step == StepWorked:
+	case r.Kind == event.KindFact && r.Step == event.StepWorked:
 		var d workedData
 		_ = json.Unmarshal(r.Data, &d)
 		if b := p.out.briefs[d.To]; b != nil && b.seq == d.Brief { // an older brief's work does not arm a newer one
 			b.worked, b.logged = true, true
 		}
-	case r.Kind == KindFact && r.Step == StepSuperseded: // an older log's: a newer brief ends an undelivered brief
+	case r.Kind == event.KindFact && r.Step == event.StepSuperseded: // an older log's: a newer brief ends an undelivered brief
 		// line, as briefed's supersedes does now
 		var d supersededData
 		_ = json.Unmarshal(r.Data, &d)
 		delete(p.out.msgs, d.Seq)
-	case r.Kind == KindFact && r.Step == StepFailed:
+	case r.Kind == event.KindFact && r.Step == event.StepFailed:
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Fact().Step, stepDeliver), 10, 64)
 		if q := p.out.msgs[seq]; q != nil {
 			q.typing = false
@@ -267,7 +270,7 @@ func (p *proj) foldMsg(r Record) {
 	case strings.HasPrefix(r.Step, stepDeliver): // T-654: a post's result settles exactly the lines its intent names
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
 		switch r.Kind {
-		case KindIntent:
+		case event.KindIntent:
 			var d lineData
 			_ = json.Unmarshal(r.Data, &d)
 			var members []int64
@@ -280,7 +283,7 @@ func (p *proj) foldMsg(r Record) {
 			if len(members) > 0 {
 				p.out.posts[seq] = members
 			}
-		case KindResult:
+		case event.KindResult:
 			members, ok := p.out.posts[seq]
 			if !ok {
 				members = []int64{seq}
@@ -296,19 +299,19 @@ func (p *proj) foldMsg(r Record) {
 }
 
 // settleLine folds r, the result of the post that carried q, as q's delivery (under mu).
-func (p *proj) settleLine(q *queued, r Record) {
+func (p *proj) settleLine(q *queued, r event.Record) {
 	if q.msg.Needs != 0 { // a needs-you line delivered: its next repeat counts from now (T-624)
-		p.out.delivered[q.msg.Needs] = recordTime(r)
+		p.out.delivered[q.msg.Needs] = event.RecordTime(r)
 	}
 	if b := p.out.briefs[q.msg.To]; b != nil && b.seq == q.seq { // the brief's line delivered: its age starts
-		b.at = recordTime(r)
+		b.at = event.RecordTime(r)
 	}
 	delete(p.out.msgs, q.seq)
 }
 
 // sawWork notes pane's status for an open brief of the agent whoIs finds in it (no label read, RV-53 #4): working
 // after the brief's line was delivered (or with no line) is the work the brief asked for (under mu, after reconcile).
-func (a *App) sawWork(p *proj, pane Pane) {
+func (a *App) sawWork(p *proj, pane port.Pane) {
 	agent, ok := p.reg.whoIs(pane)
 	b := p.out.briefs[agent]
 	if !ok || b == nil || pane.Agent == "" || Ready(pane.Status) {
@@ -345,7 +348,7 @@ func (a *App) logWorked(p *proj) {
 	a.mu.Unlock()
 	sort.Slice(worked, func(i, j int) bool { return worked[i].w.To < worked[j].w.To })
 	for _, c := range worked {
-		a.record(p, Record{Task: MsgTask, Step: StepWorked, Kind: KindFact}, c.w)
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepWorked, Kind: event.KindFact}, c.w)
 		a.mu.Lock()
 		c.b.logging = false
 		a.mu.Unlock()
@@ -366,17 +369,17 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.roleTurns(ctx, p)
 
 	a.mu.Lock()
-	var done []Message
+	var done []event.Message
 	for agent, b := range p.out.briefs {
 		if w := a.whereIs(p, agent); b.worked && b.stop == nil && w.State == Identified && Ready(w.Pane.Status) {
-			done = append(done, Message{To: p.out.leadAgent, From: "obor", Ends: agent,
+			done = append(done, event.Message{To: p.out.leadAgent, From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.at)))})
 		}
 	}
 	a.mu.Unlock()
 	sort.Slice(done, func(i, j int) bool { return done[i].Ends < done[j].Ends })
 	for _, m := range done {
-		a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m)
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 	}
 
 	a.mu.Lock()
@@ -497,7 +500,7 @@ func (a *App) inboxedAt(agent string, w Where) bool {
 // out: fact failed, no result, delivered again on a later pass; a byte went out and then an error: result "sent: …".
 // A post serve's own stop cut before a byte (T-660): nothing recorded, the line still queued.
 func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post, target string) {
-	key := Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
+	key := event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
 	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its typing claim
 	// keeps any brief from superseding it from here on (the line may reach the pane).
 	p.out.claim.Lock()
@@ -512,10 +515,10 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 		return
 	}
 	began := false
-	_, err := a.do(ctx, p, Intent{Key: key, Class: ClassPrompt, Data: lineData{To: q.msg.To}},
+	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: lineData{To: q.msg.To}},
 		func(ctx context.Context) (any, error) {
 			if post == startRoute { // the stopped agent's fresh start in its pane carries the line (T-672)
-				_, err := fx.Agents.Launch(ctx, Launch{Agent: q.msg.To, Pane: target, Fresh: true, Prompt: q.msg.Line})
+				_, err := fx.Agents.Launch(ctx, port.Launch{Agent: q.msg.To, Pane: target, Fresh: true, Prompt: q.msg.Line})
 				if err != nil {
 					return nil, fmt.Errorf("%s not started on its brief: %w", q.msg.To, err)
 				}
@@ -527,11 +530,11 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 		})
 	if err != nil && !began { // nothing went out: the next pass delivers it
 		if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
-			a.shutDown(MsgTask + " " + StepFailed + "{" + key.Step + ": " + err.Error() + "}")
+			a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
 			return
 		}
-		a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
-			FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step})
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
+			event.FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step})
 	}
 }
 
@@ -544,7 +547,9 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 // again as one at the next pass. Once the post's result is in the log each other member gets its own delivery
 // result "sent" (the log's per-line record; its fold settles nothing more).
 func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, post, target string) {
-	key := func(seq int64) Key { return Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(seq, 10)} }
+	key := func(seq int64) event.Key {
+		return event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(seq, 10)}
+	}
 	for {
 		head, lines, recovered := a.leadPost(p, qs, key)
 		if len(lines) == 0 {
@@ -556,7 +561,7 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 			members[i], text[i] = q.seq, q.msg.Line
 		}
 		began := false
-		_, err := a.do(ctx, p, Intent{Key: key(head), Class: ClassPrompt, Data: lineData{To: lines[0].msg.To, Lines: members}},
+		_, err := a.do(ctx, p, event.Intent{Key: key(head), Class: event.ClassPrompt, Data: lineData{To: lines[0].msg.To, Lines: members}},
 			func(ctx context.Context) (any, error) {
 				var err error
 				began, err = fx.transmit(ctx, post, target, strings.Join(text, "\n"), false)
@@ -564,15 +569,15 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 			})
 		if err != nil && !began && !recovered { // nothing went out: the next pass posts them again, as one
 			if cutByServe(ctx, err) { // serve is stopping: the post was cut, not refused (T-660)
-				what := MsgTask + " " + StepFailed + "{" + key(head).Step + ": " + err.Error() + "}"
+				what := event.MsgTask + " " + event.StepFailed + "{" + key(head).Step + ": " + err.Error() + "}"
 				if len(lines) > 1 { // one line is named as its own record; a batched post says how many it was
 					what += fmt.Sprintf(" for %d lines", len(lines))
 				}
 				a.shutDown(what)
 			} else {
 				for _, q := range lines {
-					a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact},
-						FactData{Machine: Machine, Reason: key(q.seq).Step + ": " + err.Error(), Step: key(q.seq).Step})
+					a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
+						event.FactData{Machine: Machine, Reason: key(q.seq).Step + ": " + err.Error(), Step: key(q.seq).Step})
 				}
 			}
 		}
@@ -581,7 +586,7 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 		}
 		for _, q := range lines {
 			if q.seq != head {
-				_, _ = a.do(ctx, p, Intent{Key: key(q.seq), Class: ClassPrompt, Data: lineData{To: q.msg.To}},
+				_, _ = a.do(ctx, p, event.Intent{Key: key(q.seq), Class: event.ClassPrompt, Data: lineData{To: q.msg.To}},
 					func(context.Context) (any, error) { return "sent", nil })
 			}
 		}
@@ -594,7 +599,7 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 // leadPost is the post deliverLead makes next of qs (one target's lines), its members claimed (typing): the open post
 // of a line of qs (its key's seq, its members still queued), else every line of qs not delivered yet under the
 // oldest's seq. recovered: the open post's result is kept unwritten (App.do writes it, nothing is transmitted).
-func (a *App) leadPost(p *proj, qs []queued, key func(int64) Key) (head int64, lines []queued, recovered bool) {
+func (a *App) leadPost(p *proj, qs []queued, key func(int64) event.Key) (head int64, lines []queued, recovered bool) {
 	p.out.claim.Lock()
 	defer p.out.claim.Unlock()
 	a.mu.Lock()
@@ -644,7 +649,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 		}
 	}
 	a.mu.Unlock()
-	a.settleNeeds(p, MsgTask, reason)
+	a.settleNeeds(p, event.MsgTask, reason)
 }
 
 // needsLines queues a line to p's lead for each needs-you fact in force naming it and the commands that answer it
@@ -658,7 +663,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 func (a *App) needsLines() {
 	a.mu.Lock()
 	type todo struct {
-		r     Record
+		r     event.Record
 		ans   string // the commands that answer it, in its task's state now
 		n     int    // the lines already recorded when the pass claimed it
 		again bool   // a repeat: the line ends in " (again, <age>)"
@@ -669,7 +674,7 @@ func (a *App) needsLines() {
 	now := a.opt.Now()
 	if p != nil && p.merging && p.out.leadAgent != "" {
 		for _, r := range p.needsYou() {
-			if r.Task == MsgTask || p.out.lining[r.Seq] {
+			if r.Task == event.MsgTask || p.out.lining[r.Seq] {
 				continue
 			}
 			if p.closed(r.Task) && !r.Fact().Merge { // T-635: a watchdog fact of a closed task (one older than its end's clear)
@@ -686,7 +691,7 @@ func (a *App) needsLines() {
 			}
 			base, ok := p.out.delivered[r.Seq]
 			if !ok { // no delivery recorded (an older log): the needs-you fact's time
-				base = recordTime(r)
+				base = event.RecordTime(r)
 			}
 			next := base.Add(needsAgain)
 			if n > 1 {
@@ -696,7 +701,7 @@ func (a *App) needsLines() {
 				continue
 			}
 			p.out.lining[r.Seq] = true
-			out = append(out, todo{r: r, ans: p.answerPath(r), n: n, again: true, age: now.Sub(recordTime(r))})
+			out = append(out, todo{r: r, ans: p.answerPath(r), n: n, again: true, age: now.Sub(event.RecordTime(r))})
 		}
 	}
 	a.mu.Unlock()
@@ -715,8 +720,8 @@ func (a *App) needsLines() {
 		if t.again {
 			line += " (again, " + Age(t.age) + ")"
 		}
-		m := Message{To: p.out.leadAgent, From: "obor", Line: line, Needs: t.r.Seq}
-		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
+		m := event.Message{To: p.out.leadAgent, From: "obor", Line: line, Needs: t.r.Seq}
+		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
 			queued = true
 		}
 		// The claim ends either way: an appended line is in lined (its fold), even when record is false for the lanes
@@ -752,14 +757,14 @@ func sendLine(from, text string) string {
 
 // sendCall answers the socket's send request (a lead or the owner of another project): the line for this project's
 // lead, posted to its Claude session. A call id is required and a repeated one gets the stored reply.
-func (a *App) sendCall(c Call) (string, error) {
+func (a *App) sendCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
-		return "", errors.New(MethodSend + ": a call id is required")
+		return "", errors.New(wire.MethodSend + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(MethodSend, c)
+	p, reply, stored := a.callProj(wire.MethodSend, c)
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodSend, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSend, c.Root)
 	case stored:
 		return reply, nil
 	case !a.merges(p):
@@ -771,13 +776,13 @@ func (a *App) sendCall(c Call) (string, error) {
 	case c.From == "":
 		return "", errors.New("send: the sender project is required")
 	}
-	m := Message{To: p.out.leadAgent, Line: sendLine(c.From, c.Note), From: c.From, Call: c.CallID,
+	m := event.Message{To: p.out.leadAgent, Line: sendLine(c.From, c.Note), From: c.From, Call: c.CallID,
 		Reply: "SENT to " + p.out.leadAgent + " in " + p.name + " (posted to its session)"}
 	if !a.inboxed(p.out.leadAgent) {
 		m.Reply = "SENT to " + p.out.leadAgent + " in " + p.name + " (queued: no session recorded for " + p.out.leadAgent +
 			"; `obor restart " + p.out.leadAgent + "` once it is idle registers it, or quit it and run `obor lead`)"
 	}
-	if !a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
 		return "", fmt.Errorf("send: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -788,14 +793,14 @@ func (a *App) sendCall(c Call) (string, error) {
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
 // reply. The lead hears once the agent has finished.
-func (a *App) briefCall(c Call) (string, error) {
+func (a *App) briefCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
-		return "", errors.New(MethodBrief + ": a call id is required")
+		return "", errors.New(wire.MethodBrief + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(MethodBrief, c)
+	p, reply, stored := a.callProj(wire.MethodBrief, c)
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodBrief, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodBrief, c.Root)
 	case stored:
 		return reply, nil
 	case !a.merges(p):
@@ -838,7 +843,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string,
 		}
 	}
 	a.mu.Unlock()
-	m := Message{To: to, From: from, Call: call, Supersedes: old,
+	m := event.Message{To: to, From: from, Call: call, Supersedes: old,
 		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
 	if note != "" {
 		m.Line = "[obor " + from + "] " + note
@@ -851,7 +856,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string,
 		}
 		m.Reply += fmt.Sprintf(" (replaces %d undelivered %s)", len(old), briefs)
 	}
-	seq, ok := a.recordSeq(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, m)
+	seq, ok := a.recordSeq(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m)
 	p.out.claim.Unlock()
 	if !ok {
 		return "", false
@@ -896,7 +901,7 @@ func (a *App) merges(p *proj) bool {
 }
 
 // callProj is the project at c.Root and the stored reply of c's call id for method, if any.
-func (a *App) callProj(method string, c Call) (p *proj, reply string, stored bool) {
+func (a *App) callProj(method string, c wire.Call) (p *proj, reply string, stored bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p = a.projAt(c.Root)
@@ -908,21 +913,21 @@ func (a *App) callProj(method string, c Call) (p *proj, reply string, stored boo
 
 // briefStatus is p's open briefs as obor status lists them, by agent (under mu): a brief whose line is still queued is
 // not delivered.
-func (p *proj) briefStatus() []BriefStatus {
-	var out []BriefStatus
+func (p *proj) briefStatus() []wire.BriefStatus {
+	var out []wire.BriefStatus
 	for agent, b := range p.out.allBriefs() {
 		_, queued := p.out.msgs[b.seq]
-		out = append(out, BriefStatus{To: agent, Since: b.at.Unix(), Delivered: !queued, Worked: b.worked})
+		out = append(out, wire.BriefStatus{To: agent, Since: b.at.Unix(), Delivered: !queued, Worked: b.worked})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To < out[j].To })
 	return out
 }
 
 // messageStatus is p's lines not delivered yet as obor status lists them (under mu).
-func (p *proj) messageStatus(now time.Time) []MessageStatus {
-	out := []MessageStatus{}
+func (p *proj) messageStatus(now time.Time) []wire.MessageStatus {
+	out := []wire.MessageStatus{}
 	for _, q := range p.queuedLines() {
-		out = append(out, MessageStatus{To: q.msg.To, From: q.msg.From, Line: q.msg.Line,
+		out = append(out, wire.MessageStatus{To: q.msg.To, From: q.msg.From, Line: q.msg.Line,
 			Age: int64(now.Sub(q.at) / time.Second)})
 	}
 	return out

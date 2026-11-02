@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/port"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -15,14 +16,14 @@ import (
 // restarted): nothing of the old one is evidence for it, so no pane of it "exited" and no lane "lost" its agent; the
 // lanes find their panes again by workspace label and cwd. Otherwise a known pane gone from it exited, and a pane
 // whose status and agent are unchanged keeps its timer.
-func (a *App) connect(ctx context.Context, snap Snapshot) {
+func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 	now := a.opt.Now()
 	a.mu.Lock()
 	if len(a.obs) > 0 && !shares(a.obs, snap.Panes) {
 		a.obs = map[string]*seen{}
 		if a.p != nil {
 			for _, w := range a.p.tasks {
-				w.agent, w.lost = Pane{}, time.Time{} // the next check resets the task's timers
+				w.agent, w.lost = port.Pane{}, time.Time{} // the next check resets the task's timers
 			}
 		}
 		a.logf("herdr: a new session (no pane id known): watching it afresh")
@@ -60,7 +61,7 @@ func (a *App) connect(ctx context.Context, snap Snapshot) {
 }
 
 // shares: a pane of panes is known.
-func shares(known map[string]*seen, panes []Pane) bool {
+func shares(known map[string]*seen, panes []port.Pane) bool {
 	for _, p := range panes {
 		if known[p.ID] != nil {
 			return true
@@ -81,7 +82,7 @@ func (a *App) projectPanes() int {
 }
 
 // observe stores pane as herdr reports it now; its timer restarts when its status or agent changed.
-func (a *App) observe(pane Pane, now time.Time) {
+func (a *App) observe(pane port.Pane, now time.Time) {
 	since := now
 	if o := a.obs[pane.ID]; o != nil && o.pane.Status == pane.Status && o.pane.Agent == pane.Agent {
 		since = o.since
@@ -91,10 +92,10 @@ func (a *App) observe(pane Pane, now time.Time) {
 
 // event applies one herdr event; when the pane was or is in the project, it reconciles the project's identity table,
 // notes the work the pane shows for its agent's brief, then decides for the project.
-func (a *App) event(ctx context.Context, ev Event) {
+func (a *App) event(ctx context.Context, ev port.Event) {
 	a.mu.Lock()
 	var p *proj // the project, when the pane was or is in it
-	add := func(pane Pane) {
+	add := func(pane port.Pane) {
 		if q := a.projectOf(pane); q != nil {
 			p = q
 		}
@@ -104,7 +105,7 @@ func (a *App) event(ctx context.Context, ev Event) {
 		add(old.pane)
 	}
 	switch ev.Kind {
-	case EventCreated, EventStatus:
+	case port.EventCreated, port.EventStatus:
 		pane := ev.New
 		if pane.ID == "" {
 			if old == nil {
@@ -118,7 +119,7 @@ func (a *App) event(ctx context.Context, ev Event) {
 		}
 		a.observe(pane, a.opt.Now())
 		add(pane)
-	case EventClosed, EventExited:
+	case port.EventClosed, port.EventExited:
 		delete(a.obs, ev.Pane)
 	}
 	if p == nil {
@@ -135,7 +136,7 @@ func (a *App) event(ctx context.Context, ev Event) {
 }
 
 // projectOf is the served project whose workspace holds pane (nil: none, the pane is ignored).
-func (a *App) projectOf(pane Pane) *proj {
+func (a *App) projectOf(pane port.Pane) *proj {
 	label, ok := a.spaces[pane.Workspace]
 	if !ok {
 		return nil
@@ -153,20 +154,20 @@ func inDir(dir, l string) bool {
 }
 
 // laneOf is the lane of p whose worktree holds dir, as last read.
-func (p *proj) laneOf(dir string) (Lane, bool) {
+func (p *proj) laneOf(dir string) (port.Lane, bool) {
 	for _, l := range p.lanes {
 		if inDir(dir, l.Dir) {
 			return l, true
 		}
 	}
-	return Lane{}, false
+	return port.Lane{}, false
 }
 
 // agentOf is lane l's agent where it runs (under mu): l.Agent by whereIs, Identified only in l's worktree (identified
 // elsewhere: Unavailable "outside the lane"), and how many of p's panes are in that worktree. A lane that names no
 // agent: the agent whoIs finds in its worktree (two or more: Ambiguous, their panes). No pane is taken for being an
 // agent's in the lane dir alone.
-func (a *App) agentOf(p *proj, l Lane) (Where, int) {
+func (a *App) agentOf(p *proj, l port.Lane) (Where, int) {
 	n := 0
 	var names, ids []string
 	for _, o := range a.obs {

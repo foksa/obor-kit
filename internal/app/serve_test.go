@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 	"os"
 	"path/filepath"
@@ -89,7 +92,7 @@ func TestLogAppendErrorInStatus(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT, 'no space left on device'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.log.Append(Record{Task: "T-1", Attempt: 1, Step: "x", Kind: KindFact}, time.Now()); err == nil {
+	if _, err := p.log.Append(event.Record{Task: "T-1", Attempt: 1, Step: "x", Kind: event.KindFact}, time.Now()); err == nil {
 		t.Fatal("precondition: the append failed")
 	}
 	if e := a.Status().Project.LogError; !strings.Contains(e, "no space left on device") {
@@ -98,7 +101,7 @@ func TestLogAppendErrorInStatus(t *testing.T) {
 	if _, err := p.log.DB().Exec("DROP TRIGGER full"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.log.Append(Record{Task: "T-1", Attempt: 1, Step: "x", Kind: KindFact}, time.Now()); err != nil {
+	if _, err := p.log.Append(event.Record{Task: "T-1", Attempt: 1, Step: "x", Kind: event.KindFact}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if e := a.Status().Project.LogError; e != "" {
@@ -117,25 +120,25 @@ type schedScratch struct {
 func (f *schedScratch) Submit(context.Context, string, string, string, string, string) (string, error) {
 	return "submitted", nil
 }
-func (f *schedScratch) Gate(_ context.Context, in GateInput) (GateOutcome, error) {
+func (f *schedScratch) Gate(_ context.Context, in port.GateInput) (port.GateOutcome, error) {
 	f.gated = append(f.gated, in.Task)
-	return GateOutcome{Kind: OutcomeGreen, Candidate: Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
 		Target: "b", Patch: "p"}}, nil
 }
 func (f *schedScratch) Resolved(_ context.Context, _, input string) (string, error) {
 	f.resolved = append(f.resolved, input)
 	return "resolution", nil
 }
-func (f *schedScratch) Publish(context.Context, Candidate) (PublishOutcome, error) {
-	return PublishOutcome{Kind: PublishMerged}, nil
+func (f *schedScratch) Publish(context.Context, port.Candidate) (port.PublishOutcome, error) {
+	return port.PublishOutcome{Kind: port.PublishMerged}, nil
 }
-func (f *schedScratch) Landed(context.Context, string) (bool, error)          { return false, nil }
-func (f *schedScratch) Unpin(context.Context, string) error                   { return nil }
-func (f *schedScratch) AfterMerge(context.Context, Candidate) (string, error) { return "ran", nil }
-func (f *schedScratch) Launch(context.Context, Launch) (Started, error) {
-	f.h.a.obs["w1:p9"] = &seen{pane: Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.h.root, Label: "pj-int",
+func (f *schedScratch) Landed(context.Context, string) (bool, error)               { return false, nil }
+func (f *schedScratch) Unpin(context.Context, string) error                        { return nil }
+func (f *schedScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
+func (f *schedScratch) Launch(context.Context, port.Launch) (port.Started, error) {
+	f.h.a.obs["w1:p9"] = &seen{pane: port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: f.h.root, Label: "pj-int",
 		Agent: "claude", Status: "idle"}, since: f.h.now}
-	return Started{Line: "started", Pane: "w1:p9", Kind: "claude"}, nil
+	return port.Started{Line: "started", Pane: "w1:p9", Kind: "claude"}, nil
 }
 func (f *schedScratch) Stop(context.Context, string, string, bool) (string, error) {
 	return "stopped", nil
@@ -165,10 +168,10 @@ func seedSched(t *testing.T, serve bool) (*harness, *schedScratch) {
 	if !serve {
 		return h, f
 	}
-	addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
-	addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-	addRecord(t, h, "T-1", StepGate, KindResult, gateOut{Outcome: outConflict})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict})
 	return h, f
 }
 
@@ -176,7 +179,7 @@ func addRecord(t *testing.T, h *harness, task, step, kind string, d any) {
 	t.Helper()
 	p := h.a.p
 	raw, _ := json.Marshal(d)
-	r, err := p.log.Append(Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
+	r, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,13 +229,13 @@ func TestPausedScratchReservation(t *testing.T) {
 			h, f := seedSched(t, true)
 			ctx := context.Background()
 			if cause != "start.resolve failed" { // the resolve job is out
-				f.Launch(ctx, Launch{})
+				f.Launch(ctx, port.Launch{})
 				h.pass(ctx)
 			}
 			p := h.a.p
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, cause)
-			addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
-			addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			p = reloadProj(t, h)
 			mt := p.folded.loop["T-1"]
 			want := stResolving
@@ -250,7 +253,7 @@ func TestPausedScratchReservation(t *testing.T) {
 			if len(f.gated) != 0 {
 				t.Fatalf("paused: gated %v; want none (T-1 holds the scratch)", f.gated)
 			}
-			if _, err := h.a.resume(Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
+			if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
@@ -258,7 +261,7 @@ func TestPausedScratchReservation(t *testing.T) {
 				t.Fatalf("resumed: T-1 %s, gated %v; want resolving, none", mt.state, f.gated)
 			}
 			job := JobID(p.folded.loop["T-1"].jobKey())
-			if _, err := h.a.verdict(ctx, MethodResolved, Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
+			if _, err := h.a.verdict(ctx, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
 				CallID: "v", Job: job}); err != nil {
 				t.Fatal(err)
 			}
@@ -281,27 +284,27 @@ func TestPausedScratchReleased(t *testing.T) {
 			t.Parallel()
 			h, f := seedSched(t, true)
 			ctx := context.Background()
-			f.Launch(ctx, Launch{})
+			f.Launch(ctx, port.Launch{})
 			h.pass(ctx)
 			p := h.a.p
 			h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
-			addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
-			addRecord(t, h, "T-2", StepSubmit, KindResult, submitOut{SHA: "s2"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			if !busy(p, "T-2") {
 				t.Fatal("precondition: the paused T-1 holds the scratch")
 			}
 			switch release {
 			case "regate":
-				if _, err := h.a.resume(Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", To: ResumeRegate}); err != nil {
+				if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", To: wire.ResumeRegate}); err != nil {
 					t.Fatal(err)
 				}
 			case "reject":
-				if _, err := h.a.verdict(ctx, MethodReject, Call{Root: h.root, Task: "T-1", Role: "integrator",
+				if _, err := h.a.verdict(ctx, wire.MethodReject, wire.Call{Root: h.root, Task: "T-1", Role: "integrator",
 					Agent: "pj-int", CallID: "v", Note: "cannot"}); err != nil {
 					t.Fatal(err)
 				}
 			case "sendback":
-				addRecord(t, h, "T-1", StepSendback, KindFact, noteData{Note: "fix"})
+				addRecord(t, h, "T-1", event.StepSendback, event.KindFact, noteData{Note: "fix"})
 			}
 			if busy(p, "T-2") {
 				t.Fatalf("%s: T-1 (%s, left %s) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].left)
@@ -327,8 +330,8 @@ func TestMergeLoopNeedsIntegrator(t *testing.T) {
 			}
 			continue
 		}
-		addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01"})
-		addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+		addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
 		h.pass(context.Background())
 		if len(f.gated) != 0 {
 			t.Errorf("no integrator: gated %v; want observe-only", f.gated)
@@ -360,24 +363,24 @@ func (l *memListener) Close() error   { l.once.Do(func() { close(l.done) }); ret
 func (l *memListener) Addr() net.Addr { return &net.UnixAddr{Name: "mem", Net: "unix"} }
 
 // send writes one request line to the app listening on l and returns the connection to read the answer from.
-func (l *memListener) send(t *testing.T, method string, c Call) net.Conn {
+func (l *memListener) send(t *testing.T, method string, c wire.Call) net.Conn {
 	t.Helper()
 	client, server := net.Pipe()
 	l.conns <- server
-	b, _ := json.Marshal(request{Method: method, Call: &c})
+	b, _ := json.Marshal(wire.Request{Method: method, Call: &c})
 	go func() { _, _ = client.Write(append(b, '\n')) }()
 	return client
 }
 
 // read is the answer on client.
-func read(t *testing.T, client net.Conn) answer {
+func read(t *testing.T, client net.Conn) wire.Answer {
 	t.Helper()
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 	b, err := bufio.NewReader(client).ReadBytes('\n')
 	if err != nil {
 		t.Fatalf("no answer: %v", err)
 	}
-	var ans answer
+	var ans wire.Answer
 	if err := json.Unmarshal(b, &ans); err != nil {
 		t.Fatal(err)
 	}
@@ -385,11 +388,11 @@ func read(t *testing.T, client net.Conn) answer {
 }
 
 // listenMem starts the real socket dispatch (Listen) on an in-memory listener; call is one request and its answer.
-func listenMem(t *testing.T, h *harness) func(method string, c Call) (string, error) {
+func listenMem(t *testing.T, h *harness) func(method string, c wire.Call) (string, error) {
 	ln := newMemListener()
 	t.Cleanup(func() { ln.Close() })
 	go h.a.Listen(ln)
-	return func(method string, c Call) (string, error) {
+	return func(method string, c wire.Call) (string, error) {
 		client := ln.send(t, method, c)
 		defer client.Close()
 		ans := read(t, client)
@@ -420,7 +423,7 @@ func (f *blockScratch) Resolved(ctx context.Context, _, _ string) (string, error
 func resolveJobHarness(t *testing.T) (*harness, *schedScratch, string) {
 	t.Helper()
 	h, f := seedSched(t, true)
-	f.Launch(context.Background(), Launch{})
+	f.Launch(context.Background(), port.Launch{})
 	h.pass(context.Background())
 	mt := h.a.p.folded.loop["T-1"]
 	if mt.state != stResolving || !mt.openJob() {
@@ -448,7 +451,7 @@ func TestSocketEffectEndsWithServe(t *testing.T) {
 		_ = h.a.Serve(ctx)
 	}()
 
-	client := ln.send(t, MethodResolved, Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
+	client := ln.send(t, wire.MethodResolved, wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int",
 		CallID: "v", Job: job})
 	defer client.Close()
 	answered := make(chan string, 1) // the answer is read as it comes: net.Pipe does not buffer the handler's write
@@ -509,7 +512,7 @@ func TestLoadedAfterReplay(t *testing.T) {
 	defer ln.Close()
 	go a.Listen(ln)
 	start := time.Now()
-	c := ln.send(t, MethodSpecSet, Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
+	c := ln.send(t, wire.MethodSpecSet, wire.Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
 	defer c.Close()
 	if ans := read(t, c); !strings.Contains(ans.Error, "no served project") {
 		t.Errorf("a request before the load: %+v; want the refusal", ans)
@@ -547,7 +550,7 @@ func serveHarness(t *testing.T, h *harness, on bool) *proj {
 // countRecords is the number of records in pj's event log.
 func countRecords(t *testing.T, h *harness) int {
 	t.Helper()
-	recs, err := ReadLog(h.root)
+	recs, err := event.ReadLog(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,16 +566,16 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	t.Parallel()
 	h, f, job := resolveJobHarness(t)
 	call := listenMem(t, h)
-	held := Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "h1", Job: job, Note: "ask"}
-	want, err := call(MethodHold, held)
+	held := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "h1", Job: job, Note: "ask"}
+	want, err := call(wire.MethodHold, held)
 	if err != nil {
 		t.Fatalf("precondition: hold while on: %v", err)
 	}
 
 	p := serveHarness(t, h, false)
 	n := countRecords(t, h)
-	resolved := Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "v", Job: job}
-	if reply, err := call(MethodResolved, resolved); err == nil || err.Error() != mergeOffReply || reply != "" {
+	resolved := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "v", Job: job}
+	if reply, err := call(wire.MethodResolved, resolved); err == nil || err.Error() != mergeOffReply || reply != "" {
 		t.Errorf("resolved while off: %q, %v; want the refusal %q", reply, err, mergeOffReply)
 	}
 	if len(f.resolved) != 0 {
@@ -585,12 +588,12 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 		t.Errorf("T-1 while off: %s (left %s, open %v); want unchanged: held, its resolve job open", mt.state, mt.left,
 			mt.openJob())
 	}
-	if reply, err := call(MethodHold, held); err != nil || reply != want {
+	if reply, err := call(wire.MethodHold, held); err != nil || reply != want {
 		t.Errorf("repeated hold h1 while off: %q, %v; want its stored reply %q", reply, err, want)
 	}
 
 	p = serveHarness(t, h, true)
-	reply, err := call(MethodResolved, resolved)
+	reply, err := call(wire.MethodResolved, resolved)
 	if err != nil || !strings.HasPrefix(reply, "RESOLVED T-1") || len(f.resolved) != 1 {
 		t.Errorf("resolved on again: %q, %v, Resolved %v; want it answered", reply, err, f.resolved)
 	}
@@ -603,20 +606,20 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 // (no Scratch call, no new record, no state change) and answered once it is on again.
 func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 	t.Parallel()
-	for _, method := range []string{MethodAccept, MethodSendback, MethodReject, MethodHold, MethodResume, MethodResolved} {
+	for _, method := range []string{wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodHold, wire.MethodResume, wire.MethodResolved} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 			var h *harness
 			var f *schedScratch
 			var job string
-			if method == MethodResolved || method == MethodResume {
+			if method == wire.MethodResolved || method == wire.MethodResume {
 				h, f, job = resolveJobHarness(t)
 			} else { // a review job: T-1 gated green, its review job out
 				h, f = seedSched(t, false)
 				serveHarness(t, h, true)
-				addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
-				addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
-				f.Launch(context.Background(), Launch{})
+				addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+				addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+				f.Launch(context.Background(), port.Launch{})
 				h.pass(context.Background())
 				mt := h.a.p.folded.loop["T-1"]
 				if mt.state != stAwaiting || !mt.openJob() {
@@ -624,12 +627,12 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 				}
 				job = JobID(mt.jobKey())
 			}
-			c := Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "c", Job: job, Note: "why",
+			c := wire.Call{Root: h.root, Task: "T-1", Role: "integrator", Agent: "pj-int", CallID: "c", Job: job, Note: "why",
 				Patch: "p"}
-			if method == MethodResume {
+			if method == wire.MethodResume {
 				p := h.a.p
 				h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
-				c = Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", To: ResumeRegate}
+				c = wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", To: wire.ResumeRegate}
 			}
 			call := listenMem(t, h)
 

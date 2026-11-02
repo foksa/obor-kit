@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/store"
 	"path/filepath"
 	"slices"
@@ -28,7 +30,7 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	h.lanes.lanes[0].Agent = "pj-o-01"
 	p := h.pane("w1:p1")
 	p.Label, p.Terminal, p.Session = "pj-o-01", "t1", "s1"
-	h.snap.Panes = append(h.snap.Panes, Pane{ID: "w1:p2", Workspace: "w1", Cwd: h.root, Terminal: "t2"})
+	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p2", Workspace: "w1", Cwd: h.root, Terminal: "t2"})
 	out := &bytes.Buffer{}
 	h.a.opt.Out = out
 	return h, out
@@ -71,8 +73,8 @@ func (h *harness) started(agent, pane, term, sid string) {
 	in, _ := json.Marshal(startData{Lane: "O-01", Agent: agent, Pane: pane})
 	res, _ := json.Marshal(startOut{Line: "STARTED " + agent, Agent: agent, Pane: pane, Terminal: term, Kind: "claude",
 		Session: sid})
-	h.log(Record{Task: "T-1", Attempt: 1, Step: StepStartWork, Kind: KindIntent, Class: ClassStart, Data: in},
-		Record{Task: "T-1", Attempt: 1, Step: StepStartWork, Kind: KindResult, Data: res})
+	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindIntent, Class: event.ClassStart, Data: in},
+		event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindResult, Data: res})
 }
 
 // where is whereIs(agent) in pj: "identified <pane> <source>", "ambiguous <panes>", "unavailable <why>".
@@ -126,14 +128,14 @@ func (h *harness) move(id, to string) {
 }
 
 // add puts pane into h.snap and sends its created event.
-func (h *harness) add(pane Pane) {
+func (h *harness) add(pane port.Pane) {
 	h.snap.Panes = append(h.snap.Panes, pane)
-	h.a.event(context.Background(), Event{Kind: EventCreated, Pane: pane.ID, New: pane})
+	h.a.event(context.Background(), port.Event{Kind: port.EventCreated, Pane: pane.ID, New: pane})
 }
 
 // twin is a second pane labelled pj-o-01 (w1:p3, terminal t3), no session.
-func (h *harness) twin() Pane {
-	return Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-01",
+func (h *harness) twin() port.Pane {
+	return port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-01",
 		Terminal: "t3"}
 }
 
@@ -147,8 +149,8 @@ func eqs(t *testing.T, got, want, what string) {
 // idAgents is an Agents recording each Stop's agent and pane.
 type idAgents struct{ stops []string }
 
-func (f *idAgents) Launch(context.Context, Launch) (Started, error) {
-	return Started{Line: "STARTED"}, nil
+func (f *idAgents) Launch(context.Context, port.Launch) (port.Started, error) {
+	return port.Started{Line: "STARTED"}, nil
 }
 func (f *idAgents) Stop(_ context.Context, agent, pane string, _ bool) (string, error) {
 	f.stops = append(f.stops, agent+" "+pane)
@@ -168,13 +170,13 @@ func (h *harness) stop(f *idAgents) (string, error) {
 // wake sends pj-o-01's work job T-1/1/work (send) through fx; true: sent.
 func (h *harness) wake(fx *Loop) bool {
 	return h.a.send(context.Background(), h.proj(), fx, mtask{task: "T-1", attempt: 1, lane: "O-01", agent: "pj-o-01"},
-		Key{Task: "T-1", Attempt: 1, Step: StepWork}, "T-1/1/work", promptData{Agent: "pj-o-01"}, wakeText, "work job")
+		event.Key{Task: "T-1", Attempt: 1, Step: event.StepWork}, "T-1/1/work", promptData{Agent: "pj-o-01"}, wakeText, "work job")
 }
 
 // brief records a brief to agent (line "": its start carried it).
 func (h *harness) brief(agent, line string) {
-	if !h.a.record(h.proj(), Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact},
-		Message{To: agent, From: "pj-lead", Line: line}) {
+	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact},
+		event.Message{To: agent, From: "pj-lead", Line: line}) {
 		h.t.Fatal("brief not recorded")
 	}
 }
@@ -207,7 +209,7 @@ func TestIdentStartByServe(t *testing.T) {
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 start", "before the session shows")
-	h.status("w1:p1", func(p *Pane) { p.Session = "s1" })
+	h.status("w1:p1", func(p *port.Pane) { p.Session = "s1" })
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "once the pane shows s1")
 
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
@@ -247,13 +249,13 @@ func TestIdentFreshSession(t *testing.T) {
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "before the fresh start")
 	h.sids(map[string]string{"pj-o-01": "s3"})
-	h.status("w1:p1", func(p *Pane) { p.Session = "s3" })
+	h.status("w1:p1", func(p *port.Pane) { p.Session = "s3" })
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "after the fresh start")
 	h.brief("pj-o-01", "")
 	if h.worked("pj-o-01") {
 		t.Fatal("precondition: an idle pane is no work")
 	}
-	h.status("w1:p1", func(p *Pane) { p.Status = "working" })
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
 	if !h.worked("pj-o-01") {
 		t.Error("work on the new session not marked for the brief")
 	}
@@ -276,7 +278,7 @@ func TestIdentHerdrRestartRestore(t *testing.T) {
 			if kind == "opencode" {
 				sess, src = "", "label"
 			}
-			h.snap = Snapshot{Workspaces: map[string]string{"w9": "pj"}, Panes: []Pane{{ID: "w9:p1", Workspace: "w9",
+			h.snap = port.Snapshot{Workspaces: map[string]string{"w9": "pj"}, Panes: []port.Pane{{ID: "w9:p1", Workspace: "w9",
 				Cwd: h.lane("O-01"), Agent: kind, Status: "idle", Label: "pj-o-01", Terminal: "t9", Session: sess}}}
 			h.connect()
 			eqs(t, h.where("pj-o-01"), "identified w9:p1 "+src, "where")
@@ -315,9 +317,9 @@ func TestIdentPaneReopened(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "")
 	h.connect()
-	h.remove("w1:p1", EventClosed)
+	h.remove("w1:p1", port.EventClosed)
 	eqs(t, h.where("pj-o-01"), "unavailable exited", "after the close")
-	h.add(Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Label: "pj-o-01",
+	h.add(port.Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Label: "pj-o-01",
 		Terminal: "t5", Session: "s5"})
 	eqs(t, h.where("pj-o-01"), "identified w1:p5 label", "the new pane")
 	st := h.a.Status()
@@ -351,7 +353,7 @@ func TestIdentNameDropped(t *testing.T) {
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
 	before := h.where("pj-o-01")
-	h.a.event(context.Background(), Event{Kind: EventStatus, Pane: "w1:p1", Status: "idle", Agent: "codex"}) // no metadata
+	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "codex"}) // no metadata
 	eqs(t, h.where("pj-o-01"), before, "after herdr dropped the name")
 	h.brief("pj-o-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
@@ -371,8 +373,8 @@ func TestIdentTwoLabels(t *testing.T) {
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "ambiguous w1:p1 w1:p3", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(KindIntent, StepWork) != 0 {
-		t.Errorf("typed %q, %d intents; want nothing", f.jobs, h.count(KindIntent, StepWork))
+	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
+		t.Errorf("typed %q, %d intents; want nothing", f.jobs, h.count(event.KindIntent, event.StepWork))
 	}
 	st := h.a.Status()
 	for _, as := range st.Project.Agents {
@@ -406,7 +408,7 @@ func TestIdentAtShell(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
-	h.status("w1:p1", func(p *Pane) { p.Agent, p.Status, p.Session = "", "", "" })
+	h.status("w1:p1", func(p *port.Pane) { p.Agent, p.Status, p.Session = "", "", "" })
 	eqs(t, h.where("pj-o-01"), "unavailable at its shell", "where")
 	f := &idAgents{}
 	line, err := h.stop(f)
@@ -428,13 +430,13 @@ func TestIdentMoveThenStop(t *testing.T) {
 	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
 	h.a.mu.Unlock()
 	f := &idAgents{}
-	mt := mtask{task: "T-1", attempt: 1, lane: "O-01", agent: "pj-o-01", after: slices.Index(afterSteps, StepStop)}
+	mt := mtask{task: "T-1", attempt: 1, lane: "O-01", agent: "pj-o-01", after: slices.Index(afterSteps, event.StepStop)}
 	if !h.a.afterStep(context.Background(), p, &Loop{Agents: f}, mt) {
 		t.Fatal("the stop step failed")
 	}
 	eqs(t, strings.Join(f.stops, ","), "pj-o-01 w1:p7", "Stop's agent and pane")
 	for _, r := range h.records() {
-		if r.Step == StepStop && strings.Contains(string(r.Data), "w1:p1") {
+		if r.Step == event.StepStop && strings.Contains(string(r.Data), "w1:p1") {
 			t.Errorf("the stop's %s names the old pane: %s", r.Kind, r.Data)
 		}
 	}
@@ -449,7 +451,7 @@ func TestIdentMoveAddressReused(t *testing.T) {
 	h.connect()
 	h.pane("w1:p1").Label = "notes"
 	h.move("w1:p1", "w1:p7")
-	h.add(Pane{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Terminal: "t8",
+	h.add(port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Terminal: "t8",
 		Session: "s8"})
 	eqs(t, h.where("pj-o-01"), "identified w1:p7 session", "where")
 	eqs(t, h.who("w1:p1"), "", "the unrelated agent")
@@ -516,7 +518,7 @@ func TestIdentOneLabelProven(t *testing.T) {
 	h.sids(map[string]string{"pj-o-01": "s1"})
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "ambiguous w1:p1 w1:p3", "before")
-	h.status("w1:p1", func(p *Pane) { p.Session = "s1" })
+	h.status("w1:p1", func(p *port.Pane) { p.Session = "s1" })
 	h.tick(0)
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "after the session shows")
 	want := "pane w1:p3 labelled pj-o-01 too, not its session"
@@ -619,9 +621,9 @@ func TestIdentReplayBriefWork(t *testing.T) {
 	h.pane("w1:p1").Status = "working"
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "where")
-	if !h.worked("pj-o-01") || h.count(KindFact, StepWorked) != 1 {
+	if !h.worked("pj-o-01") || h.count(event.KindFact, event.StepWorked) != 1 {
 		t.Errorf("worked %v, %d worked facts; want the work marked on the first snapshot", h.worked("pj-o-01"),
-			h.count(KindFact, StepWorked))
+			h.count(event.KindFact, event.StepWorked))
 	}
 }
 
@@ -639,10 +641,10 @@ func TestIdentAmbiguityDuringWake(t *testing.T) {
 	if h.wake(fx) || len(f.jobs) != 0 {
 		t.Fatalf("typed %q while ambiguous", f.jobs)
 	}
-	if h.count(KindIntent, StepWork) != 0 || h.count(KindFact, StepFailed) != 0 {
-		t.Errorf("%d intents, %d failed facts; want none", h.count(KindIntent, StepWork), h.count(KindFact, StepFailed))
+	if h.count(event.KindIntent, event.StepWork) != 0 || h.count(event.KindFact, event.StepFailed) != 0 {
+		t.Errorf("%d intents, %d failed facts; want none", h.count(event.KindIntent, event.StepWork), h.count(event.KindFact, event.StepFailed))
 	}
-	h.remove("w1:p3", EventClosed)
+	h.remove("w1:p3", port.EventClosed)
 	if !h.wake(fx) || !slices.Equal(f.jobs, []string{"T-1/1/work"}) || f.box["w1:p1"] == "" {
 		t.Errorf("after the ambiguity: typed %q into %v, want the job once into w1:p1", f.jobs, f.box)
 	}
@@ -661,7 +663,7 @@ func TestIdentAmbiguityEnds(t *testing.T) {
 	if len(l.calls) != 0 {
 		t.Fatalf("precondition: held while ambiguous, typed %q", l.calls)
 	}
-	h.remove("w1:p3", EventClosed)
+	h.remove("w1:p3", port.EventClosed)
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "where")
 	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
 	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) || len(h.lines()) != 0 {
@@ -677,7 +679,7 @@ func TestIdentNotConnected(t *testing.T) {
 	h.a.loadProject()
 	eqs(t, h.where("pj-o-01"), "unavailable not connected", "where")
 	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(KindIntent, StepWork) != 0 {
+	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 || h.count(event.KindIntent, event.StepWork) != 0 {
 		t.Errorf("wake typed %q before the first snapshot", f.jobs)
 	}
 	h.brief("pj-o-01", "[obor pj-lead] verify")
@@ -695,13 +697,13 @@ func TestIdentLeadTwoPanes(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.snap.Panes = append(h.snap.Panes,
-		Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t8"},
-		Pane{ID: "w1:p9", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t9"})
+		port.Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t8"},
+		port.Pane{ID: "w1:p9", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-lead", Terminal: "t9"})
 	h.connect()
 	eqs(t, h.where("pj-lead"), "ambiguous w1:p8 w1:p9", "the lead")
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
-	if !h.a.record(h.proj(), Record{Task: MsgTask, Step: StepMessage, Kind: KindFact},
-		Message{To: "pj-lead", From: "obor", Line: "[obor] hello"}) {
+	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+		event.Message{To: "pj-lead", From: "obor", Line: "[obor] hello"}) {
 		t.Fatal("line not recorded")
 	}
 	in := &inboxSpy{}
@@ -718,7 +720,7 @@ func TestIdentOutsideLane(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.connect()
 	seq := h.lastSeq()
-	h.status("w1:p1", func(p *Pane) { p.Cwd = filepath.Join(h.wt, "elsewhere") })
+	h.status("w1:p1", func(p *port.Pane) { p.Cwd = filepath.Join(h.wt, "elsewhere") })
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "where")
 	h.a.mu.Lock()
 	w, _ := h.a.agentOf(h.proj(), h.lanes.lanes[0])
@@ -744,10 +746,10 @@ func TestIdentOrderIndependent(t *testing.T) {
 		h.sids(map[string]string{"pj-lead": "s1"})
 		h.started("pj-o-01", "w1:p4", "t4", "")
 		h.snap.Panes = append(h.snap.Panes,
-			Pane{ID: "w1:p4", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Terminal: "t4"},
-			Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-02", Terminal: "t5"},
-			Pane{ID: "w1:p6", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-02", Terminal: "t6"},
-			Pane{ID: "w1:p7", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-01", Terminal: "t7"})
+			port.Pane{ID: "w1:p4", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude", Status: "idle", Terminal: "t4"},
+			port.Pane{ID: "w1:p5", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-02", Terminal: "t5"},
+			port.Pane{ID: "w1:p6", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-02", Terminal: "t6"},
+			port.Pane{ID: "w1:p7", Workspace: "w1", Cwd: h.root, Agent: "claude", Status: "idle", Label: "pj-o-01", Terminal: "t7"})
 		rand.New(rand.NewSource(int64(i))).Shuffle(len(h.snap.Panes), func(a, b int) {
 			h.snap.Panes[a], h.snap.Panes[b] = h.snap.Panes[b], h.snap.Panes[a]
 		})
@@ -776,20 +778,20 @@ func TestIdentStopWhileDisconnected(t *testing.T) {
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "before")
 	p := h.proj()
-	h.a.record(p, Record{Task: "T-1", Attempt: 1, Step: StepSubmitted, Kind: KindFact},
+	h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: "O-01", Agent: "pj-o-01"})
 	h.a.mu.Lock()
 	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
 	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
-	mt.after = slices.Index(afterSteps, StepStop)
+	mt.after = slices.Index(afterSteps, event.StepStop)
 	h.a.connected = false
 	h.a.mu.Unlock()
 	f := &idAgents{}
-	if h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt) || p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}) ||
+	if h.a.afterStep(context.Background(), p, &Loop{Agents: f}, *mt) || p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}) ||
 		len(f.stops) != 0 {
 		t.Fatalf("disconnected: stops %q, result %v; want no stop, the step pending", f.stops,
-			p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}))
+			p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}))
 	}
 	h.connect()
 	if line, err := h.stop(f); err != nil || !slices.Equal(f.stops, []string{"pj-o-01 w1:p1"}) {
@@ -858,7 +860,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.withLead()
-			h.snap.Panes = append(h.snap.Panes, Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude",
+			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude",
 				Status: "idle", Label: "pj-lead", Terminal: "t8", Session: tc.pane})
 			h.pane("w1:p1").Session = tc.pane
 			h.connect()
@@ -872,8 +874,8 @@ func TestIdentSessionUnknown(t *testing.T) {
 			}
 			h.a.opt.Inboxed = func(string) (string, bool) { return tc.rec, true }
 			if tc.agent == "pj-lead" {
-				if !h.a.record(h.proj(), Record{Task: MsgTask, Step: StepMessage, Kind: KindFact},
-					Message{To: tc.agent, From: "obor", Line: "[obor] hello"}) {
+				if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+					event.Message{To: tc.agent, From: "obor", Line: "[obor] hello"}) {
 					t.Fatal("line not recorded")
 				}
 			} else {
@@ -900,7 +902,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
-	h.snap.Panes = append(h.snap.Panes, Pane{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude",
+	h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude",
 		Status: "idle", Terminal: "t0"})
 	h.connect()
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "where")
@@ -926,7 +928,7 @@ func TestIdentIntegratorWithoutBridge(t *testing.T) {
 		t.Fatalf("precondition: integrator %q", h.proj().integrator)
 	}
 	f := &launchSpy{}
-	_, err := h.a.startIntegrator(context.Background(), f, h.root, Launch{Prompt: "x"})
+	_, err := h.a.startIntegrator(context.Background(), f, h.root, port.Launch{Prompt: "x"})
 	if err == nil || err.Error() != "integrator pj-int: its kind pi has no bridge (obor config validate)" || f.n != 0 {
 		t.Errorf("start: %v, %d launches; want refused, no launch", err, f.n)
 	}
@@ -938,9 +940,9 @@ type launchSpy struct {
 	n int
 }
 
-func (f *launchSpy) Launch(context.Context, Launch) (Started, error) {
+func (f *launchSpy) Launch(context.Context, port.Launch) (port.Started, error) {
 	f.n++
-	return Started{Line: "STARTED"}, nil
+	return port.Started{Line: "STARTED"}, nil
 }
 
 // T-504: the identity table's cases; each failed on the code it was found on.
@@ -1004,8 +1006,8 @@ func TestIdentBriefWorkByRegistry(t *testing.T) {
 	h.sids(map[string]string{"pj-o-01": "s1"})
 	h.connect()
 	h.brief("pj-o-01", "")
-	h.status("w1:p1", func(p *Pane) { p.Status = "working" })
-	h.status("w1:p1", func(p *Pane) { p.Status = "idle" })
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
+	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 	if !h.worked("pj-o-01") {
 		t.Error("work of the session-identified agent not marked")
 	}
@@ -1105,7 +1107,9 @@ type verifyStopRace struct {
 	stops  int
 }
 
-func (f *verifyStopRace) Launch(context.Context, Launch) (Started, error) { return Started{}, nil }
+func (f *verifyStopRace) Launch(context.Context, port.Launch) (port.Started, error) {
+	return port.Started{}, nil
+}
 func (f *verifyStopRace) Stop(context.Context, string, string, bool) (string, error) {
 	f.stops++
 	f.during()
@@ -1113,7 +1117,7 @@ func (f *verifyStopRace) Stop(context.Context, string, string, bool) (string, er
 }
 
 // stopWith runs the after-merge stop of pj-o-01 (stopWorker) through ag while lane O-01 holds T-1.
-func (h *harness) stopWith(ag Agents) (string, error) {
+func (h *harness) stopWith(ag port.Agents) (string, error) {
 	p := h.proj()
 	h.a.mu.Lock()
 	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o-01"}
@@ -1143,7 +1147,7 @@ func TestIdentStopBecomesAmbiguous(t *testing.T) {
 			eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "before")
 			f := &verifyStopRace{err: tc.err, during: func() { h.add(h.twin()) }}
 			if tc.gone {
-				f.during = func() { h.remove("w1:p1", EventClosed) }
+				f.during = func() { h.remove("w1:p1", port.EventClosed) }
 			}
 			line, err := h.stopWith(f)
 			if f.stops != 1 {
@@ -1170,12 +1174,12 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 	h.pane("w1:p1").Session = ""
 	h.connect()
 	p := h.proj()
-	h.a.record(p, Record{Task: "T-1", Attempt: 1, Step: StepSubmitted, Kind: KindFact},
+	h.a.record(p, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: "O-01", Agent: "pj-o-01"})
 	h.a.mu.Lock()
 	mt := p.folded.loop["T-1"]
 	mt.state = stPublished
-	mt.after = slices.Index(afterSteps, StepStop)
+	mt.after = slices.Index(afterSteps, event.StepStop)
 	before := mt.after
 	h.a.mu.Unlock()
 	f := &verifyStopRace{err: errors.New("stop refused before action"), during: func() { h.add(h.twin()) }}
@@ -1184,9 +1188,9 @@ func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
 		t.Fatalf("precondition: %d stops, want one", f.stops)
 	}
 	eqs(t, h.where("pj-o-01"), "ambiguous w1:p1 w1:p3", "after")
-	if advanced || p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}) || mt.after != before {
+	if advanced || p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}) || mt.after != before {
 		t.Errorf("advanced %v, result %v, after %d (was %d): want the stop pending", advanced,
-			p.log.Done(Key{Task: "T-1", Attempt: 1, Step: StepStop}), mt.after, before)
+			p.log.Done(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStop}), mt.after, before)
 	}
 }
 
@@ -1206,7 +1210,7 @@ func (f *verifyPost) Post(_ context.Context, _, agent, line string) (bool, error
 func (h *harness) deliverIntents() int {
 	n := 0
 	for _, r := range h.records() {
-		if r.Kind == KindIntent && strings.HasPrefix(r.Step, stepDeliver) {
+		if r.Kind == event.KindIntent && strings.HasPrefix(r.Step, stepDeliver) {
 			n++
 		}
 	}
@@ -1216,8 +1220,8 @@ func (h *harness) deliverIntents() int {
 // queuedLeadThenBrief queues a lead line, then a brief to pj-o-01 (a Codex pane, typed).
 func (h *harness) queuedLeadThenBrief() {
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
-	h.a.record(h.proj(), Record{Task: MsgTask, Step: StepMessage, Kind: KindFact},
-		Message{To: "pj-lead", Line: "[obor] lead line"})
+	h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+		event.Message{To: "pj-lead", Line: "[obor] lead line"})
 	h.brief("pj-o-01", "[obor] verify")
 }
 
@@ -1264,11 +1268,11 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 	}
 	eqs(t, h.where("pj-o-01"), "ambiguous w1:p1 w1:p3", "after the duplicate")
 	if len(lines.calls) != 0 || !slices.Equal(h.lines(), []string{"pj-o-01: [obor] verify"}) ||
-		h.deliverIntents() != 1 || h.count(KindFact, StepFailed) != 0 {
+		h.deliverIntents() != 1 || h.count(event.KindFact, event.StepFailed) != 0 {
 		t.Errorf("typed %q, queued %q, %d delivery intents, %d failed facts; want the brief held (the lead's intent only)",
-			lines.calls, h.lines(), h.deliverIntents(), h.count(KindFact, StepFailed))
+			lines.calls, h.lines(), h.deliverIntents(), h.count(event.KindFact, event.StepFailed))
 	}
-	h.remove("w1:p3", EventClosed)
+	h.remove("w1:p3", port.EventClosed)
 	f.during = func() {}
 	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: f, Typer: lines})
 	if !slices.Equal(lines.calls, []string{"w1:p1: [obor] verify"}) || len(h.lines()) != 0 {
@@ -1288,11 +1292,11 @@ func TestIdentRelabelledPane(t *testing.T) {
 	eqs(t, h.where("pj-o-01"), "unavailable no proof", "before the relabel: the label is notes")
 	relabelled := *h.pane("w1:p1")
 	relabelled.Label = "pj-o-01"
-	h.a.event(context.Background(), Event{Kind: EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
 	eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "after the relabel")
 	eqs(t, h.who("w1:p1"), "pj-o-01", "whoIs(w1:p1)")
 	// and a label cleared by the relabel is gone: the event's pane replaces what was known
 	relabelled.Label = ""
-	h.a.event(context.Background(), Event{Kind: EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
 	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1) after --clear")
 }

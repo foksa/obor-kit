@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,7 +64,7 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 	if kind == "codex" {
 		r.turn = agents.Turn{ID: "old", Ended: true, Error: "usage_limit_exceeded", Details: "limit",
 			Reset: now.Add(time.Hour)}
-	} else if _, err := r.a.stoppedCall(Call{Root: r.p.root, CallID: "limit", Agent: "pj-rev", Role: "reviewer",
+	} else if _, err := r.a.stoppedCall(wire.Call{Root: r.p.root, CallID: "limit", Agent: "pj-rev", Role: "reviewer",
 		Error: "rate_limit", Details: "limit|" + strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +80,7 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 func (r *turnRig) setKind() {
 	pane := r.a.obs["w:rev"].pane
 	pane.Agent = r.kind
-	r.a.event(context.Background(), Event{Kind: EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
+	r.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
 }
 
 // deliver is one delivery pass, the rollout's last turn r.turn (Codex).
@@ -92,7 +95,7 @@ func (r *turnRig) status(s string) { lineStatus(r.a, "w:rev", s, *r.now) }
 
 // hook is pj-rev's turn request: its Stop hook's (ended), else its UserPromptSubmit's.
 func (r *turnRig) hook(ended bool) string {
-	reply, err := r.a.turnCall(Call{Root: r.p.root, Agent: "pj-rev", Role: "reviewer", Ended: ended})
+	reply, err := r.a.turnCall(wire.Call{Root: r.p.root, Agent: "pj-rev", Role: "reviewer", Ended: ended})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -101,21 +104,21 @@ func (r *turnRig) hook(ended bool) string {
 
 // facts counts the log's facts of the lines with step whose data contains sub.
 func (r *turnRig) facts(step, sub string) int {
-	recs, err := ReadLog(r.p.root)
+	recs, err := event.ReadLog(r.p.root)
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	n := 0
 	for _, rec := range recs {
-		if rec.Task == MsgTask && rec.Kind == KindFact && rec.Step == step && strings.Contains(string(rec.Data), sub) {
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == step && strings.Contains(string(rec.Data), sub) {
 			n++
 		}
 	}
 	return n
 }
 
-func (r *turnRig) stops() int    { return r.facts(StepStopped, `"agent":"pj-rev"`) }
-func (r *turnRig) finished() int { return r.facts(StepMessage, "pj-rev finished") }
+func (r *turnRig) stops() int    { return r.facts(event.StepStopped, `"agent":"pj-rev"`) }
+func (r *turnRig) finished() int { return r.facts(event.StepMessage, "pj-rev finished") }
 
 // state is pj-rev's brief as the folds hold it: open, stopped (its turn), followed, worked.
 func (r *turnRig) state() string {
@@ -140,14 +143,14 @@ func (r *turnRig) state() string {
 // no new line or fact, the same state.
 func (r *turnRig) replayed() {
 	r.t.Helper()
-	state, stops, finished, turned := r.state(), r.stops(), r.finished(), r.facts(StepTurned, "")
+	state, stops, finished, turned := r.state(), r.stops(), r.finished(), r.facts(event.StepTurned, "")
 	r.a, r.p = lineReload(r.t, r.a, r.p, r.now)
 	r.setKind()
 	r.deliver()
 	r.deliver()
-	if r.state() != state || r.stops() != stops || r.finished() != finished || r.facts(StepTurned, "") != turned {
+	if r.state() != state || r.stops() != stops || r.finished() != finished || r.facts(event.StepTurned, "") != turned {
 		r.t.Errorf("after a replay: %s, %d stops, %d finished, %d turned; want %s, %d, %d, %d", r.state(), r.stops(),
-			r.finished(), r.facts(StepTurned, ""), state, stops, finished, turned)
+			r.finished(), r.facts(event.StepTurned, ""), state, stops, finished, turned)
 	}
 }
 
@@ -159,9 +162,9 @@ func TestTurnCodexStartWhileIdle(t *testing.T) {
 	r.turn = agents.Turn{ID: "new"} // task_started; the pane still idle
 	r.deliver()
 	r.deliver()
-	if s := r.state(); s != "open followed" || r.finished() != 0 || r.facts(StepTurned, "") != 1 {
+	if s := r.state(); s != "open followed" || r.finished() != 0 || r.facts(event.StepTurned, "") != 1 {
 		t.Fatalf("at the start: %s, %d finished, %d turned; want open followed, 0, 1", s, r.finished(),
-			r.facts(StepTurned, ""))
+			r.facts(event.StepTurned, ""))
 	}
 	r.replayed()
 	r.turn = agents.Turn{ID: "new", Ended: true} // task_complete
@@ -284,8 +287,8 @@ func TestTurnClaudeStartThenStop(t *testing.T) {
 		t.Fatalf("after the Stop hook: %s, %d finished; want closed, 1", s, r.finished())
 	}
 	r.replayed()
-	if reply := r.hook(true); reply != "TURN pj-rev (no stop)" || r.facts(StepTurned, "") != 2 {
-		t.Errorf("a later Stop hook: %q, %d turned facts; want no stop, 2", reply, r.facts(StepTurned, ""))
+	if reply := r.hook(true); reply != "TURN pj-rev (no stop)" || r.facts(event.StepTurned, "") != 2 {
+		t.Errorf("a later Stop hook: %q, %d turned facts; want no stop, 2", reply, r.facts(event.StepTurned, ""))
 	}
 }
 
@@ -326,9 +329,9 @@ func TestTurnWorkerPhases(t *testing.T) {
 		t.Run("hook "+name, func(t *testing.T) {
 			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
-			addRecord(t, h, "T-1", StepWork, KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
 			h.connect()
-			if _, err := h.a.stoppedCall(Call{Root: h.root, CallID: "limit", Agent: "pj-o-01", Role: "worker",
+			if _, err := h.a.stoppedCall(wire.Call{Root: h.root, CallID: "limit", Agent: "pj-o-01", Role: "worker",
 				Lane: "O-01", Error: "rate_limit", Details: "429"}); err != nil {
 				t.Fatal(err)
 			}
@@ -336,7 +339,7 @@ func TestTurnWorkerPhases(t *testing.T) {
 			if !p.stops("T-1") {
 				t.Fatal("precondition: T-1 stopped")
 			}
-			reply, err := h.a.turnCall(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", Ended: ended})
+			reply, err := h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", Ended: ended})
 			if err != nil || reply != "TURN pj-o-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
 				t.Errorf("%s hook: %q, %v, stopped %v, %d briefs; want the stop ended, none", name, reply, err,
 					p.stops("T-1"), p.briefCount())
@@ -345,7 +348,7 @@ func TestTurnWorkerPhases(t *testing.T) {
 		t.Run("rollout "+name, func(t *testing.T) {
 			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
-			addRecord(t, h, "T-1", StepWork, KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
 			h.connect()
 			p := h.proj()
 			h.a.mu.Lock()

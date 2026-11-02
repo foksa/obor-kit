@@ -3,11 +3,12 @@ package app_test
 import (
 	"context"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"obor/internal/app"
 	"obor/internal/testkit"
 )
 
@@ -21,7 +22,7 @@ type restartRig struct {
 	*loopRig
 	calls       atomic.Int32
 	resultFirst atomic.Bool
-	running     []app.RunningStep
+	running     []wire.RunningStep
 	err         error
 }
 
@@ -67,7 +68,7 @@ func TestSelfRestartAfterMerge(t *testing.T) {
 			r.steps())
 	}
 	// T-657: while the restart is in flight, a status answered says so.
-	if n := len(r.running); n != 1 || r.running[n-1].Step != app.StepServeRestart || r.running[n-1].Since == 0 {
+	if n := len(r.running); n != 1 || r.running[n-1].Step != event.StepServeRestart || r.running[n-1].Since == 0 {
 		t.Errorf("running line during the restart: %+v, want restarting serve", r.running)
 	}
 	if r.has("1 intent agent.stop") {
@@ -122,7 +123,7 @@ func TestSelfRestartFails(t *testing.T) {
 	}
 	r.waitFor("the needs-you in force", func() bool {
 		for _, f := range r.app.Status().Project.Facts {
-			if f.Task == app.ServeTask && f.Step == app.StepNeedsYou && f.Fact().Reason == want {
+			if f.Task == event.ServeTask && f.Step == event.StepNeedsYou && f.Fact().Reason == want {
 				return true
 			}
 		}
@@ -132,7 +133,7 @@ func TestSelfRestartFails(t *testing.T) {
 	r.start()
 	r.waitFor("the needs-you to end at the next start", func() bool {
 		for _, f := range r.app.Status().Project.Facts {
-			if f.Task == app.ServeTask {
+			if f.Task == event.ServeTask {
 				return false
 			}
 		}

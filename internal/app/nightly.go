@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ type Nightly struct {
 	At string // "HH:MM", local time
 	// Due: a partial merge of merges (the log's, in seq order) since the last full check, or the last one RED. fresh:
 	// the log has neither a merge nor a nightly run (a merges.log before the store is not read: due once, T-525).
-	Due func(merges []Merge, fresh bool) (bool, error)
+	Due func(merges []event.Merge, fresh bool) (bool, error)
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
 	// Last is the last full check's sha and verdict (last-full-check: GREEN | RED, "" none), a hand run's too (nil:
 	// not read).
@@ -50,7 +51,7 @@ type NightlyOut struct {
 // followed it, whether a run is going, the day's step Due last answered false for, and the project's merges (Due's
 // input).
 type nightlyState struct {
-	merges    []Merge
+	merges    []event.Merge
 	step      string
 	done      bool
 	fails     map[string]int
@@ -63,31 +64,31 @@ type nightlyState struct {
 
 // foldNightly folds r, a record of the nightly full check or a merged fact (its merges). Only nightly.<date> steps
 // are its runs: a notification of its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
-func (p *proj) foldNightly(r Record) {
-	if m, ok := merge(r); ok {
+func (p *proj) foldNightly(r event.Record) {
+	if m, ok := event.MergeOf(r); ok {
 		p.night.merges = append(p.night.merges, m)
 	}
-	if r.Task != NightlyTask {
+	if r.Task != event.NightlyTask {
 		return
 	}
 	n := &p.night
-	run := strings.HasPrefix(r.Step, StepNightly+".")
+	run := strings.HasPrefix(r.Step, event.StepNightly+".")
 	switch {
-	case r.Kind == KindIntent && run:
+	case r.Kind == event.KindIntent && run:
 		n.step, n.done = r.Step, false
-	case r.Kind == KindResult && run && r.Step == n.step:
+	case r.Kind == event.KindResult && run && r.Step == n.step:
 		n.done = true
 		var out NightlyOut
 		if json.Unmarshal(r.Data, &out) == nil && out.Verdict != "" {
 			n.unsettled = &out
 		}
-	case r.Kind == KindFact && r.Step == StepFailed:
+	case r.Kind == event.KindFact && r.Step == event.StepFailed:
 		if n.fails == nil {
 			n.fails = map[string]int{}
 		}
 		n.fails[r.Fact().Step]++
-		n.failedAt, n.failedWhy = recordTime(r), r.Fact().Reason
-	case r.Kind == KindFact && (r.Step == StepNeedsYou || r.Step == StepResumed):
+		n.failedAt, n.failedWhy = event.RecordTime(r), r.Fact().Reason
+	case r.Kind == event.KindFact && (r.Step == event.StepNeedsYou || r.Step == event.StepResumed):
 		n.unsettled = nil
 	}
 }
@@ -120,7 +121,7 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 		if !ok || now.Before(time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, now.Location())) {
 			return
 		}
-		step = StepNightly + "." + now.Format("2006-01-02")
+		step = event.StepNightly + "." + now.Format("2006-01-02")
 		if step == st.step || step == st.notDue {
 			return // today's has run, or failed tries times, or is not due
 		}
@@ -163,8 +164,8 @@ func (a *App) handGreen(p *proj, n *Nightly) {
 	}
 	a.mu.Lock()
 	red := false
-	for _, f := range p.folded.active[NightlyTask] {
-		red = red || f.Step == StepNeedsYou && strings.HasPrefix(f.Fact().Reason, redPrefix)
+	for _, f := range p.folded.active[event.NightlyTask] {
+		red = red || f.Step == event.StepNeedsYou && strings.HasPrefix(f.Fact().Reason, redPrefix)
 	}
 	a.mu.Unlock()
 	if !red {
@@ -176,13 +177,13 @@ func (a *App) handGreen(p *proj, n *Nightly) {
 		return
 	}
 	if verdict == "GREEN" {
-		a.settleNeeds(p, NightlyTask, "")
+		a.settleNeeds(p, event.NightlyTask, "")
 	}
 }
 
 // runNightly runs the nightly full check under step's intent, then records its needs-you or its failure.
 func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) {
-	in := Intent{Key: Key{Task: NightlyTask, Attempt: 0, Step: step}, Class: ClassGit, Data: struct {
+	in := event.Intent{Key: event.Key{Task: event.NightlyTask, Attempt: 0, Step: step}, Class: event.ClassGit, Data: struct {
 		At string `json:"at"`
 	}{n.At}}
 	raw, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
@@ -194,7 +195,7 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 	})
 	if err != nil {
 		if cutByServe(ctx, err) { // serve is stopping: the check was cut, not failed (T-660)
-			a.shutDown(NightlyTask + " " + StepFailed + "{" + step + ": " + err.Error() + "}")
+			a.shutDown(event.NightlyTask + " " + event.StepFailed + "{" + step + ": " + err.Error() + "}")
 			return
 		}
 		a.nightlyFailed(p, step, err)
@@ -208,15 +209,15 @@ func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) 
 
 // nightlyFailed counts err, the failure of step (fact failed); the tries-th is the needs-you{nightly failed: why}.
 func (a *App) nightlyFailed(p *proj, step string, err error) {
-	if !a.record(p, Record{Task: NightlyTask, Step: StepFailed, Kind: KindFact},
-		FactData{Machine: Machine, Reason: step + ": " + err.Error(), Step: step}) {
+	if !a.record(p, event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact},
+		event.FactData{Machine: Machine, Reason: step + ": " + err.Error(), Step: step}) {
 		return
 	}
 	a.mu.Lock()
 	tell := p.night.fails[step] >= tries
 	a.mu.Unlock()
 	if tell {
-		a.nightlyNeedsYou(p, StepNightly+failedSuffix+": "+err.Error())
+		a.nightlyNeedsYou(p, event.StepNightly+failedSuffix+": "+err.Error())
 	}
 }
 
@@ -238,7 +239,7 @@ func (a *App) nightlyNeedsYou(p *proj, reason string) {
 // nightlySettled settles the nightly's needs-you (reason "" ends it) and, once the log took it, drops the result
 // that waited for it (a record folds that away itself; a settle with nothing to record leaves it).
 func (a *App) nightlySettled(p *proj, reason string) {
-	if !a.settleNeeds(p, NightlyTask, reason) {
+	if !a.settleNeeds(p, event.NightlyTask, reason) {
 		return
 	}
 	a.mu.Lock()

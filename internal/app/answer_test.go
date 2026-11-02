@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
@@ -11,21 +13,21 @@ import (
 
 // answer is the lead's obor answer to T-1's worker with call id.
 func (r *loopRig) answer(role, callID, text string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodAnswer, app.Call{Root: r.p.Root, Agent: "pj-lead",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodAnswer, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: role, CallID: callID, Task: "T-1", Note: text})
 }
 
 // answerOf is the commands that answer the fact in force (obor status: serve's Answers; "": none).
-func (r *loopRig) answerOf(fact app.Record) string {
+func (r *loopRig) answerOf(fact event.Record) string {
 	return r.app.Status().Project.Answers[fact.Seq]
 }
 
 // needsYou is the one needs-you fact in force (fatal when there is none or more than one).
-func (r *loopRig) needsYou() app.Record {
+func (r *loopRig) needsYou() event.Record {
 	r.t.Helper()
-	var out []app.Record
+	var out []event.Record
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Step == app.StepNeedsYou {
+		if f.Step == event.StepNeedsYou {
 			out = append(out, f)
 		}
 	}
@@ -38,7 +40,7 @@ func (r *loopRig) needsYou() app.Record {
 // runPath runs, as the lead, the command of fact's answers (what obor status and the lead's needs-you line suggest)
 // that is obor <verb>, with text for its quoted placeholder (a resume's decision; the path names no mode, so the
 // cause's default). Fatal when the path suggests no such command.
-func (r *loopRig) runPath(fact app.Record, verb, callID, text string) (string, error) {
+func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string, error) {
 	r.t.Helper()
 	path := r.answerOf(fact)
 	for _, cmd := range strings.Split(path, " | ") {
@@ -47,9 +49,9 @@ func (r *loopRig) runPath(fact app.Record, verb, callID, text string) (string, e
 			continue
 		}
 		arg := strings.Fields(cmd[i:])[2] // the task, or the lane
-		c := app.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: arg, Note: text}
-		method := map[string]string{"answer": app.MethodAnswer, "resume": app.MethodResume,
-			"sendback": app.MethodSendback, "drop": app.MethodDrop}[verb]
+		c := wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: arg, Note: text}
+		method := map[string]string{"answer": wire.MethodAnswer, "resume": wire.MethodResume,
+			"sendback": wire.MethodSendback, "drop": wire.MethodDrop}[verb]
 		switch {
 		case verb == "sendback" && arg != "O-01", verb == "drop" && arg != "O-01" && arg != fact.Task:
 			r.t.Fatalf("%q names %s: neither T-1's lane O-01 nor the task", path, arg)
@@ -58,7 +60,7 @@ func (r *loopRig) runPath(fact app.Record, verb, callID, text string) (string, e
 		case verb == "drop" && arg == "O-01":
 			c.Task, c.Lane = "", arg
 		}
-		return app.Verdict(context.Background(), r.sock, method, c)
+		return wire.Verdict(context.Background(), r.sock, method, c)
 	}
 	r.t.Fatalf("answers %q suggest no obor %s", path, verb)
 	return "", nil
@@ -163,24 +165,24 @@ func TestAnswerAfterTheStopHooksTurn(t *testing.T) {
 // by lane needs the lane adapters: the dispatch rig's case (the plain rig has none).
 func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 	t.Parallel()
-	hold := func(r *loopRig) app.Record {
+	hold := func(r *loopRig) event.Record {
 		r.t.Helper()
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
 			Role: "integrator", CallID: "h1", Task: "T-1", Note: "the owner decides on internal/x.go"}); err != nil {
 			r.t.Fatal(err)
 		}
 		r.waitFor("the hold in force", func() bool { return r.facts() == 1 })
 		return r.needsYou()
 	}
-	red := func(t *testing.T) (*loopRig, app.Record) {
+	red := func(t *testing.T) (*loopRig, event.Record) {
 		r := newLoopRig(t, "echo 1 pass")
 		r.work("feature.txt", "feature\n")
 		r.submit()
-		if err := app.WriteLog(r.p.Root, time.Now(), []app.Record{
-			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: app.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindIntent, Class: app.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: app.KindFact,
+		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
+			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: event.KindFact,
 				Data: []byte(`{"lane":"O-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
 		}...); err != nil {
 			t.Fatal(err)
@@ -189,7 +191,7 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 		r.passes()
 		return r, r.needsYou()
 	}
-	ok := func(t *testing.T, r *loopRig, fact app.Record, verb, text, want string) {
+	ok := func(t *testing.T, r *loopRig, fact event.Record, verb, text, want string) {
 		t.Helper()
 		// T-565, T-576: a pass the needs-you's own step (or a delivery) kicked may still hold T-1 while its herdr call or
 		// effect runs; obor sendback, drop and resume answer only a task no step holds. Two passes: the second started
@@ -263,8 +265,8 @@ func TestAnswerOfAnOlderLogReplays(t *testing.T) {
 	r := asked(t)
 	r.stop()
 	r.writeLog([]logRec{
-		{1, "answer.a1", app.KindIntent, app.ClassFact, map[string]any{"caller": "pj-lead", "note": "yes"}},
-		{1, "answer.a1", app.KindResult, "", map[string]any{"reply": "ANSWERED T-1 (attempt 2): obor serve sends the worker the answer",
+		{1, "answer.a1", event.KindIntent, event.ClassFact, map[string]any{"caller": "pj-lead", "note": "yes"}},
+		{1, "answer.a1", event.KindResult, "", map[string]any{"reply": "ANSWERED T-1 (attempt 2): obor serve sends the worker the answer",
 			"note": "yes", "lead": true}},
 	})
 	r.start()

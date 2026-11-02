@@ -2,10 +2,10 @@ package app_test
 
 import (
 	"encoding/json"
+	"obor/internal/app/wire"
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/herdr/herdrtest"
 )
 
@@ -165,7 +165,7 @@ func TestBriefByKind(t *testing.T) {
 			r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = kind })
 			r.start()
 			const line = "[obor pj-lead] verify"
-			if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify"}); err != nil {
+			if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
 				t.Fatal(err)
 			}
 			r.waitFor("the brief delivered", func() bool {
@@ -193,7 +193,7 @@ func TestBriefQueuedWithoutAnInboxRecord(t *testing.T) {
 	r.inbox.unrecord("pj-rev")
 	r.start()
 	const line = "[obor pj-lead] verify"
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
 		t.Fatal(err)
 	}
 	r.passes()

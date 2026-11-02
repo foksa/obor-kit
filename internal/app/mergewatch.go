@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"sort"
 	"strings"
 	"time"
@@ -41,21 +43,21 @@ type mergeWatch struct {
 }
 
 // foldWatch folds r, a record of the project's watches.
-func (p *proj) foldWatch(r Record) {
-	if r.Task != WatchTask || r.Kind != KindFact || r.Step != StepWatch && r.Step != StepUnwatch {
+func (p *proj) foldWatch(r event.Record) {
+	if r.Task != event.WatchTask || r.Kind != event.KindFact || r.Step != event.StepWatch && r.Step != event.StepUnwatch {
 		return
 	}
 	var d WatchData
 	_ = json.Unmarshal(r.Data, &d)
 	if d.Call != "" {
-		p.folded.calls[verdictStep(MethodWatch, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(wire.MethodWatch, d.Call)] = d.Reply
 	}
 	if p.folded.watches == nil {
 		p.folded.watches = map[string]*mergeWatch{}
 	}
 	delete(p.folded.watches, d.Task)
-	if r.Step == StepWatch {
-		p.folded.watches[d.Task] = &mergeWatch{seq: r.Seq, at: recordTime(r), by: d.By, note: d.Note}
+	if r.Step == event.StepWatch {
+		p.folded.watches[d.Task] = &mergeWatch{seq: r.Seq, at: event.RecordTime(r), by: d.By, note: d.Note}
 	}
 }
 
@@ -137,14 +139,14 @@ func (p *proj) waiting(set string) []string {
 // line); ended already (all merged, one dropped or rejected), its outcome at once and nothing recorded; a task
 // neither dispatched nor specified, refused. --rm: UNWATCHED <set> (fact unwatch), or NOT WATCHING <set>. No task:
 // the open watches (watchList; NO WATCHES).
-func (a *App) watchCall(c Call) (string, error) {
+func (a *App) watchCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
-		return "", errors.New(MethodWatch + ": a call id is required")
+		return "", errors.New(wire.MethodWatch + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(MethodWatch, c)
+	p, reply, stored := a.callProj(wire.MethodWatch, c)
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodWatch, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodWatch, c.Root)
 	case stored:
 		return reply, nil
 	case !a.merges(p):
@@ -188,18 +190,18 @@ func (a *App) watchCall(c Call) (string, error) {
 	}
 	d := WatchData{Task: c.Task, By: by, Note: strings.Join(strings.Fields(c.Note), " "), Call: c.CallID,
 		Reply: "WATCHING " + c.Task}
-	step := StepWatch
+	step := event.StepWatch
 	switch {
 	case c.Clear && w == nil:
 		return "NOT WATCHING " + c.Task, nil
 	case c.Clear:
-		step, d.Reply = StepUnwatch, "UNWATCHED "+c.Task
+		step, d.Reply = event.StepUnwatch, "UNWATCHED "+c.Task
 	case end != "":
 		return end, nil
 	case w != nil:
 		return "WATCHING " + c.Task + " (since " + Age(since) + ")", nil
 	}
-	if !a.record(p, Record{Task: WatchTask, Step: step, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: event.WatchTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("watch: the event log of %s refused it", p.name)
 	}
 	a.wake() // a task that ended meanwhile gets its line at once
@@ -255,8 +257,8 @@ func (a *App) watchLines() {
 	sort.Slice(out, func(i, j int) bool { return out[i].w.seq < out[j].w.seq })
 	queued := false
 	for _, t := range out {
-		m := Message{To: p.out.lead(), From: "obor", Line: t.line, Task: t.set, Watch: t.w.seq}
-		if a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m) {
+		m := event.Message{To: p.out.lead(), From: "obor", Line: t.line, Task: t.set, Watch: t.w.seq}
+		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
 			queued = true
 		}
 		a.mu.Lock()

@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,12 +31,12 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
 		Report: report})
-	addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-	addRecord(t, h, "T-1", StepGate, KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
-		Candidate: Candidate{Task: "T-1", Lane: "O-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
+		Candidate: port.Candidate{Task: "T-1", Lane: "O-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
 	if mt := h.a.p.folded.loop["T-1"]; mt.state != stGreen || mt.report != report {
 		t.Fatalf("precondition: T-1 %s with report %q; want green with the submitted report", mt.state, mt.report)
 	}
@@ -67,24 +70,24 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 }
 
 // fixJob is the text of T-1's worker's open job (its job_next call).
-func fixJob(t *testing.T, h *harness) JobReply {
+func fixJob(t *testing.T, h *harness) wire.JobReply {
 	t.Helper()
-	return nextJob(t, h, Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
+	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
 }
 
 // reviewJob is the integrator's open job (its job_next call, under call id id).
-func reviewJob(t *testing.T, h *harness, id string) JobReply {
+func reviewJob(t *testing.T, h *harness, id string) wire.JobReply {
 	t.Helper()
-	return nextJob(t, h, Call{Root: h.root, Agent: "pj-int", Role: "integrator", CallID: id})
+	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-int", Role: "integrator", CallID: id})
 }
 
-func nextJob(t *testing.T, h *harness, c Call) JobReply {
+func nextJob(t *testing.T, h *harness, c wire.Call) wire.JobReply {
 	t.Helper()
 	raw, err := h.a.jobNext(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var jr JobReply
+	var jr wire.JobReply
 	if err := json.Unmarshal([]byte(raw), &jr); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +105,7 @@ func questionsPart(q string) string {
 func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 	t.Parallel()
 	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
-	long := strings.Repeat("a", InlineDiff+100)
+	long := strings.Repeat("a", port.InlineDiff+100)
 	for _, c := range []struct {
 		name, report, quote string // quote "": no open-questions part
 	}{
@@ -123,17 +126,17 @@ func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 			"may I edit the hook?"},
 		{"ended by a markdown heading", full + "\nOpen questions: may I edit the hook?\n## Notes\nnothing else",
 			"may I edit the hook?"},
-		{"long text cut like the diff", full + "\nOpen questions: " + long, long[:InlineDiff] +
+		{"long text cut like the diff", full + "\nOpen questions: " + long, long[:port.InlineDiff] +
 			"\n(cut at 15360 bytes: the whole section is in the report above)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, f := seedQuestions(t, c.report)
 			mt := pickGreenStep(t, h, f, false)
-			if mt.state != stAwaiting || mt.reviews != 1 || mt.job != StepReview {
+			if mt.state != stAwaiting || mt.reviews != 1 || mt.job != event.StepReview {
 				t.Fatalf("T-1 %s, reviews %d, job %q; want the review job out", mt.state, mt.reviews, mt.job)
 			}
-			if n := countStep(t, h, StepNeedsYou); n != 0 {
+			if n := countStep(t, h, event.StepNeedsYou); n != 0 {
 				t.Errorf("%d needs-you facts; want none", n)
 			}
 			jr := reviewJob(t, h, "j1")
@@ -163,13 +166,13 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 			t.Parallel()
 			const q = "should the hook change the config's schema?"
 			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
-			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting || mt.job != StepReview {
+			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting || mt.job != event.StepReview {
 				t.Fatalf("precondition: T-1 %s, job %q; want the review job out", mt.state, mt.job)
 			}
 			if jr := reviewJob(t, h, "j1"); jr.Job != "T-1/1/review" || !strings.Contains(jr.Text, questionsPart(q)) {
 				t.Fatalf("precondition: job %s does not carry the question:\n%s", jr.Job, jr.Text)
 			}
-			if _, err := h.a.verdict(context.Background(), MethodHold, Call{Root: h.root, Agent: "pj-int",
+			if _, err := h.a.verdict(context.Background(), wire.MethodHold, wire.Call{Root: h.root, Agent: "pj-int",
 				Role: "integrator", CallID: "h1", Task: "T-1", Job: "T-1/1/review",
 				Note: "the question changes the config contract"}); err != nil {
 				t.Fatal(err)
@@ -178,13 +181,13 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.Fact().Cause)
 			}
 			const decision = "keep the schema; add the field later"
-			reply, err := h.a.resume(Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
+			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
 				Note: decision})
 			if err != nil || reply != "RESUMED T-1: reprompt (held)" {
 				t.Fatalf("resume: %q, %v; want the reprompt of the hold", reply, err)
 			}
 			mt := pickGreenStep(t, h, f, replay)
-			if mt.state != stAwaiting || mt.reviews != 2 || mt.job != StepReview+".2" {
+			if mt.state != stAwaiting || mt.reviews != 2 || mt.job != event.StepReview+".2" {
 				t.Fatalf("after the resume: T-1 %s, reviews %d, job %q; want review.2 out", mt.state, mt.reviews, mt.job)
 			}
 			jr := reviewJob(t, h, "j2")
@@ -217,13 +220,13 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
-			addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
 				Reason: "open questions: " + q})
 			if c.resumed {
-				addRecord(t, h, "T-1", StepUnblocked, KindFact, FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
-					Reason: ResumeReprompt, Agent: "pj-lead", Call: "r1", Note: c.decision})
+				addRecord(t, h, "T-1", event.StepUnblocked, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+					Reason: wire.ResumeReprompt, Agent: "pj-lead", Call: "r1", Note: c.decision})
 			}
-			if n := countStep(t, h, StepNeedsYou); n != 1 {
+			if n := countStep(t, h, event.StepNeedsYou); n != 1 {
 				t.Fatalf("precondition: %d needs-you facts in the log; want the old hold", n)
 			}
 			p := h.a.p
@@ -234,7 +237,7 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 				t.Fatalf("folded: T-1 %s, needs %d; want green with no needs-you", mt.state, mt.needs.Seq)
 			}
 			mt := pickGreenStep(t, h, f, false)
-			if mt.state != stAwaiting || mt.job != StepReview {
+			if mt.state != stAwaiting || mt.job != event.StepReview {
 				t.Fatalf("T-1 %s, job %q; want the review job out", mt.state, mt.job)
 			}
 			jr := reviewJob(t, h, "j1")

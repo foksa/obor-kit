@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 )
@@ -14,20 +16,20 @@ func (r *concRig) closeTask(name, task, end string, live bool) {
 	a, p := r.app(name), r.proj(name)
 	switch {
 	case end != stRejected && live:
-		if !a.record(p, Record{Task: task, Attempt: 1, Step: end, Kind: KindFact}, nil) {
+		if !a.record(p, event.Record{Task: task, Attempt: 1, Step: end, Kind: event.KindFact}, nil) {
 			r.t.Fatal("the terminal fact was not recorded")
 		}
 	case end != stRejected:
-		r.add(name, task, end, KindFact, nil)
+		r.add(name, task, end, event.KindFact, nil)
 	case live:
-		if _, err := a.verdict(context.Background(), MethodReject, Call{Root: p.root, Agent: p.integrator,
+		if _, err := a.verdict(context.Background(), wire.MethodReject, wire.Call{Root: p.root, Agent: p.integrator,
 			Role: "integrator", Task: task, Job: task + "/1/review", Patch: "p", Note: "why", CallID: "rj"}); err != nil {
 			r.t.Fatalf("reject: %v", err)
 		}
 	default:
-		step := verdictStep(MethodReject, "rj")
-		r.add(name, task, step, KindIntent, verdictData{Job: task + "/1/review", Caller: p.integrator, Patch: "p", Note: "why"})
-		r.add(name, task, step, KindResult, verdictResult{Job: task + "/1/review", Patch: "p", Note: "why"})
+		step := verdictStep(wire.MethodReject, "rj")
+		r.add(name, task, step, event.KindIntent, verdictData{Job: task + "/1/review", Caller: p.integrator, Patch: "p", Note: "why"})
+		r.add(name, task, step, event.KindResult, verdictResult{Job: task + "/1/review", Patch: "p", Note: "why"})
 	}
 	if got := r.state(name, task); got != end {
 		r.t.Fatalf("%s is %s, want %s", task, got, end)
@@ -50,10 +52,10 @@ func (r *concRig) reload(name string) (*App, *proj) {
 }
 
 // pendingNotify appends the notification intent of fact f (interrupted before its send) and folds it.
-func pendingNotify(t *testing.T, a *App, p *proj, f Record) Key {
+func pendingNotify(t *testing.T, a *App, p *proj, f event.Record) event.Key {
 	t.Helper()
 	k := notifyKey(f)
-	in, err := p.log.Append(Record{Task: k.Task, Attempt: k.Attempt, Step: k.Step, Kind: KindIntent, Class: ClassFact},
+	in, err := p.log.Append(event.Record{Task: k.Task, Attempt: k.Attempt, Step: k.Step, Kind: event.KindIntent, Class: event.ClassFact},
 		a.opt.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -72,11 +74,11 @@ var closedCases = []struct {
 	name, proj, task, end string
 	live                  bool
 }{
-	{"live merged", "pq", "T-3", StepMerged, true},
-	{"live dropped", "pq", "T-3", StepDropped, true},
+	{"live merged", "pq", "T-3", event.StepMerged, true},
+	{"live dropped", "pq", "T-3", event.StepDropped, true},
 	{"live rejected", "pr", "T-4", stRejected, true},
-	{"replay merged", "pq", "T-3", StepMerged, false},
-	{"replay dropped", "pq", "T-3", StepDropped, false},
+	{"replay merged", "pq", "T-3", event.StepMerged, false},
+	{"replay dropped", "pq", "T-3", event.StepDropped, false},
 	{"replay rejected", "pr", "T-4", stRejected, false},
 }
 
@@ -97,16 +99,16 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 				r.closeTask(c.proj, c.task, c.end, c.live)
 			}
 			d := stoppedData{Agent: c.proj + "-o-0x", Error: "rate_limit",
-				NeedsYou: &FactData{Lane: "O-0x", Reason: "stopped: rate_limit"}, Message: Message{Task: c.task}}
-			if !a.record(p, Record{Task: MsgTask, Step: StepStopped, Kind: KindFact}, d) {
+				NeedsYou: &event.FactData{Lane: "O-0x", Reason: "stopped: rate_limit"}, Message: event.Message{Task: c.task}}
+			if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepStopped, Kind: event.KindFact}, d) {
 				t.Fatal("the stop was not recorded")
 			}
-			if r.count(c.proj, MsgTask, KindFact, StepStopped) != 1 {
+			if r.count(c.proj, event.MsgTask, event.KindFact, event.StepStopped) != 1 {
 				t.Fatal("precondition: the stopped fact is not in the log")
 			}
 			// a watchdog's own fact decided before the close, recorded after it (fold)
-			if !a.record(p, Record{Task: c.task, Attempt: 1, Step: StepStalled, Kind: KindFact},
-				FactData{Lane: "O-0x", Reason: "no activity"}) {
+			if !a.record(p, event.Record{Task: c.task, Attempt: 1, Step: event.StepStalled, Kind: event.KindFact},
+				event.FactData{Lane: "O-0x", Reason: "no activity"}) {
 				t.Fatal("the stalled fact was not recorded")
 			}
 			if !c.live {
@@ -146,7 +148,7 @@ func TestRejectSettlesWatchdogNotification(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app("pr"), r.proj("pr")
-			r.add("pr", "T-4", StepNeedsYou, KindFact, FactData{Lane: "O-04", Reason: "pane exited"})
+			r.add("pr", "T-4", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-04", Reason: "pane exited"})
 			if len(p.folded.active["T-4"]) != 1 {
 				t.Fatalf("precondition: watchdog facts of T-4: %v, want one", p.folded.active["T-4"])
 			}
@@ -174,7 +176,7 @@ func TestRejectSettlesWatchdogNotification(t *testing.T) {
 func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 	t.Parallel()
 	for _, c := range closedCases {
-		if c.end == StepDropped { // the loop runs no step of a dropped task: it has none
+		if c.end == event.StepDropped { // the loop runs no step of a dropped task: it has none
 			continue
 		}
 		t.Run(c.name, func(t *testing.T) {

@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,9 +16,9 @@ import (
 // typed into the session that runs.
 
 // greenTask gates task green in r's project pj with candidate c.
-func greenTask(r *concRig, task string, c Candidate) {
-	r.add("pj", task, StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-	r.add("pj", task, StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: c})
+func greenTask(r *concRig, task string, c port.Candidate) {
+	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: c})
 }
 
 // runNext runs task's next step in p with f as its agents and typer: whether it ran and returned true.
@@ -45,20 +48,20 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 		t.Fatalf("precondition: the integrator is not identified: %+v", w)
 	}
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("T-1's review job not started")
 	}
-	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 
 	// T-1's job is out: T-5's job waits, nothing started, typed or recorded for it.
 	if runNext(r, p, "T-5", f) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
 	same(t, len(f.launches), 1, "starts while T-1's job is out")
-	same(t, p.log.Open(Key{Task: "T-5", Attempt: 1, Step: StepReview}) || done(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), false, "T-5's review recorded")
+	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false, "T-5's review recorded")
 
-	if _, err := r.a.verdict(ctx, MethodAccept, Call{Root: p.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
+	if _, err := r.a.verdict(ctx, wire.MethodAccept, wire.Call{Root: p.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
 		CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +84,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 	}
 	same(t, len(f.launches), 2, "starts (one per job)")
 	same(t, len(f.typed), 0, "typed wakes")
-	same(t, resultOf(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), `"sent (start prompt)"`, "T-5's review result")
+	same(t, resultOf(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), `"sent (start prompt)"`, "T-5's review result")
 }
 
 // The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
@@ -95,7 +98,7 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 	var out strings.Builder
 	r.a.opt.Out = &out
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	for _, status := range []string{"working", "blocked"} {
 		t.Run(status, func(t *testing.T) {
 			f.launches = nil
@@ -140,8 +143,8 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 	r.a.opt.Out = &out
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
 	setStatus(r, "working")
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 
 	// Alternate both jobs while the clock is under Gone: neither starts, whichever job looked last.
 	step := r.a.opt.Gone / 5
@@ -172,11 +175,11 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 		t.Error("T-5's job went on while T-1's job is out")
 	}
 	same(t, len(f.launches), 1, "starts while T-1's job is out")
-	same(t, p.log.Open(Key{Task: "T-5", Attempt: 1, Step: StepReview}) || done(p, Key{Task: "T-5", Attempt: 1, Step: StepReview}), false,
+	same(t, p.log.Open(event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}) || done(p, event.Key{Task: "T-5", Attempt: 1, Step: event.StepReview}), false,
 		"T-5's review recorded")
 
 	// T-1's verdict, then its turn's end: T-5 starts fresh, not forced.
-	if _, err := r.a.verdict(context.Background(), MethodAccept, Call{Root: p.root, Task: "T-1", Agent: "pj-int",
+	if _, err := r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: p.root, Task: "T-1", Agent: "pj-int",
 		Role: "integrator", CallID: "a1", Job: "T-1/1/review", Patch: "p1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -201,28 +204,28 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
-	r.add("pj", "T-1", StepReview, KindResult, "sent")
-	r.add("pj", "T-5", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-05", Input: "s5"})
-	r.add("pj", "T-5", StepGate, KindResult, gateOut{Outcome: outConflict, Candidate: Candidate{Task: "T-5", SHA: "c5",
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindResult, "sent")
+	r.add("pj", "T-5", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-05", Input: "s5"})
+	r.add("pj", "T-5", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-5", SHA: "c5",
 		Target: "b", Patch: "p5"}})
-	r.add("pj", "T-5", nth(StepResolve, 2), KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})
-	r.add("pj", "T-5", nth(StepResolve, 2), KindResult, "sent")
-	fetch := func(id, job string) JobReply {
+	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})
+	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindResult, "sent")
+	fetch := func(id, job string) wire.JobReply {
 		t.Helper()
-		raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: id, Job: job})
+		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: id, Job: job})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var jr JobReply
+		var jr wire.JobReply
 		_ = json.Unmarshal([]byte(raw), &jr)
 		return jr
 	}
 	same(t, fetch("n1", "").Job, "T-1/1/review", "unnamed, nothing held: the oldest open job")
 	same(t, fetch("n2", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named: that job, though an older one is open")
 
-	r.add("pj", "T-1", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
 	same(t, fetch("n3", "").Job, "T-5/1/resolve.2", "unnamed, the older job held: the open one not held")
 	same(t, fetch("n4", "T-5/1/resolve.2").Job, "T-5/1/resolve.2", "named, an older job held")
 	jr := fetch("n5", "T-1/1/review")
@@ -236,10 +239,10 @@ func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 	r := newConcRig(t)
 	p := r.proj("pj")
 	for _, task := range []string{"T-1", "T-5"} {
-		greenTask(r, task, Candidate{Task: task, SHA: "c-" + task, Target: "b", Patch: "p-" + task})
-		r.add("pj", task, StepReview, KindIntent, promptData{Agent: "pj-int", Job: task + "/1/review",
+		greenTask(r, task, port.Candidate{Task: task, SHA: "c-" + task, Target: "b", Patch: "p-" + task})
+		r.add("pj", task, event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: task + "/1/review",
 			Patch: "p-" + task})
-		r.add("pj", task, StepReview, KindResult, "sent")
+		r.add("pj", task, event.StepReview, event.KindResult, "sent")
 	}
 	for _, task := range []string{"T-1", "T-5"} {
 		mt := p.folded.loop[task]
@@ -248,12 +251,12 @@ func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 		}
 	}
 	for i := 0; i < 20; i++ {
-		raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator",
+		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator",
 			CallID: "old" + strconv.Itoa(i)})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var jr JobReply
+		var jr wire.JobReply
 		_ = json.Unmarshal([]byte(raw), &jr)
 		if jr.Job != "T-1/1/review" {
 			t.Fatalf("call %d: the unnamed fetch got %q, want the oldest open job T-1/1/review", i, jr.Job)
@@ -267,20 +270,20 @@ func TestFreshIntegratorReplay(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
-	r.add("pj", "T-1", "start.review", KindIntent, startData{Agent: "pj-int"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
 	if !runNext(r, p, "T-1", f) {
 		t.Fatal("the replayed job step failed")
 	}
 	same(t, len(f.launches), 0, "starts on the replay")
-	same(t, done(p, Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
+	same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: "start.review"}), true, "start.review done")
 	same(t, len(f.typed), 1, "typed wakes")
-	same(t, resultOf(p, Key{Task: "T-1", Attempt: 1, Step: StepReview}), `"sent"`, "T-1's review result")
+	same(t, resultOf(p, event.Key{Task: "T-1", Attempt: 1, Step: event.StepReview}), `"sent"`, "T-1's review result")
 
-	r.add("pj", "T-1", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
-	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeHeld, Reason: "held: why"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 	if !runNext(r, p, "T-5", f) {
 		t.Fatal("T-5's job held by T-1's needs-you")
 	}
@@ -306,7 +309,7 @@ func TestReviewTextDiff(t *testing.T) {
 		{"too big", "", []string{"stat-line", "read it with git diff b c1."}, []string{"whole diff", "+the change"}},
 	} {
 		mt := *p.folded.loop["T-1"]
-		mt.cand = Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line", Diff: c.diff}
+		mt.cand = port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1", Stat: "stat-line", Diff: c.diff}
 		text, err := r.a.reviewText(p, mt)
 		if err != nil {
 			t.Fatal(err)
@@ -348,9 +351,9 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
-			greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-			r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
-			r.add("pj", "T-1", "start.review", KindIntent, c.at)
+			greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+			r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+			r.add("pj", "T-1", "start.review", event.KindIntent, c.at)
 			r.a.mu.Lock()
 			if c.now == "gone" {
 				delete(r.a.obs, "w1:p9")

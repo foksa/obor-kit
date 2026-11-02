@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +27,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 		return false
 	}
 	a.mu.Lock()
-	p.running = Key{Task: mt.task, Attempt: mt.attempt, Step: step}
+	p.running = event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}
 	a.scratched++
 	a.mu.Unlock()
 	a.effects.Add(1)
@@ -33,7 +35,7 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 		defer a.effects.Done()
 		effect(ctx)
 		a.mu.Lock()
-		p.running, p.runCmd = Key{}, ""
+		p.running, p.runCmd = event.Key{}, ""
 		a.mu.Unlock()
 		<-p.scratch
 		a.wake()
@@ -46,19 +48,19 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 // its row holds the task (a crash, then the lane reused: its stop is skipped).
 func (a *App) afterStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	step := afterSteps[mt.after]
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: step}, Class: ClassGit}
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: step}, Class: event.ClassGit}
 	var effect func(context.Context) (any, error)
 	ran := "" // after_merge's line when it ran in this pass (a stored result: "")
 	switch step {
-	case StepAfterMerge:
+	case event.StepAfterMerge:
 		in.Data = mt.cand
 		effect = func(ctx context.Context) (any, error) {
 			line, err := fx.Scratch.AfterMerge(ctx, mt.cand)
 			ran = line
 			return line, err
 		}
-	case StepStop:
-		in.Class, in.Data = ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
+	case event.StepStop:
+		in.Class, in.Data = event.ClassStart, stopData{Lane: mt.lane, Agent: mt.agent}
 		effect = func(ctx context.Context) (any, error) { return a.stopWorker(ctx, p, fx, mt) }
 	}
 	if _, err := a.do(ctx, p, in, effect); err != nil {
@@ -83,7 +85,7 @@ func (a *App) restartServe(ctx context.Context, p *proj, fx *Loop, task string) 
 		a.logf("%s %s: serve restart not tried: %v", p.name, task, err)
 		return
 	}
-	if cmd, _ := cfg.Command(StepAfterMerge); !cmd.RestartServe {
+	if cmd, _ := cfg.Command(event.StepAfterMerge); !cmd.RestartServe {
 		return
 	}
 	a.logf("%s %s: after_merge ran: restarting serve on the new build", p.name, task)
@@ -100,13 +102,13 @@ func (a *App) restartServe(ctx context.Context, p *proj, fx *Loop, task string) 
 	if ctx.Err() != nil { // this serve is stopping anyway
 		return
 	}
-	a.settleNeeds(p, ServeTask, "serve restart after "+task+" failed: "+err.Error())
+	a.settleNeeds(p, event.ServeTask, "serve restart after "+task+" failed: "+err.Error())
 }
 
 // endServeNeeds ends a failed self-restart's needs-you at a serve's start (a new serve runs: the restart the owner
 // was asked for happened).
 func (a *App) endServeNeeds(p *proj) {
-	a.settleNeeds(p, ServeTask, "")
+	a.settleNeeds(p, event.ServeTask, "")
 }
 
 // lanePassed is why mt's lane is no longer the task's ("" while its row holds the task): after-merge work on the lane
@@ -160,7 +162,7 @@ func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (stri
 		return "", errors.New(notIdentified(mt.agent, w) + ": " + err.Error())
 	case w.State == Unavailable && w.Why == notConnected:
 		return "", err
-	case w.State == Unavailable, NotFound(err):
+	case w.State == Unavailable, port.NotFound(err):
 		return "stopped: no agent (" + err.Error() + ")", nil
 	}
 	return "", err
@@ -176,7 +178,7 @@ func (a *App) where(p *proj, agent string) Where {
 // submitID is the identity of submit step (submit, submit.N) of attempt: its pin's name, <attempt>[.N].
 func submitID(attempt int, step string) string {
 	id := strconv.Itoa(attempt)
-	if _, n := StepN(step); n > 1 {
+	if _, n := event.StepN(step); n > 1 {
 		id += "." + strconv.Itoa(n)
 	}
 	return id
@@ -186,7 +188,7 @@ func submitID(attempt int, step string) string {
 // gate never reads the live lane again). A refusal (no lane dir, not on a branch, already in the target) is final:
 // the owner decides, as for a gate's fail.
 func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepSubmit, mt.submits+1)}, Class: ClassGit,
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepSubmit, mt.submits+1)}, Class: event.ClassGit,
 		Data: submitData{Lane: mt.lane, Agent: mt.agent}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		title, err := titleOf(p, mt.task)
@@ -195,7 +197,7 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		}
 		sha, err := fx.Scratch.Submit(ctx, mt.task, submitID(mt.attempt, in.Step), mt.lane,
 			subjectOf(title, mt.report), mt.agent)
-		var refused Refused
+		var refused port.Refused
 		if errors.As(err, &refused) { // final: the owner decides
 			return submitOut{Refused: refused.Line}, nil
 		}
@@ -212,15 +214,15 @@ func (a *App) submit(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // gate runs the attempt's next gate (row 18): submit's sha merged into the target, the resolved merge, or the
 // candidate on the moved target.
 func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	g := GateInput{Task: mt.task, Lane: mt.lane, Kind: InputLane, Input: mt.input}
+	g := port.GateInput{Task: mt.task, Lane: mt.lane, Kind: port.InputLane, Input: mt.input}
 	switch mt.state {
 	case stResolved:
-		g.Kind, g.Input = InputResolved, mt.resolved
+		g.Kind, g.Input = port.InputResolved, mt.resolved
 	case stMoved:
 		// T-403: the submitted sha, never the old candidate (one merge commit per task); the subject rule stays (T-360).
-		g.Kind, g.Input = InputMoved, mt.input
+		g.Kind, g.Input = port.InputMoved, mt.input
 	}
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepGate, mt.gates+1)}, Class: ClassGit,
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}, Class: event.ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}
 	g.Command = func(name string) { // obor status' running line names the command while it runs (T-669); "" between two (T-673)
 		a.mu.Lock()
@@ -235,7 +237,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		g.Spec, g.SpecRev = row.Text, row.Rev
-		if g.Kind != InputResolved { // a resolved gate writes no new subject
+		if g.Kind != port.InputResolved { // a resolved gate writes no new subject
 			g.Summary = subjectOf(spec.Title(row.Text), mt.report)
 		}
 		o, err := fx.Scratch.Gate(ctx, g)
@@ -253,19 +255,19 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // gateResult is the gate outcome o of task as its result.
-func gateResult(task string, o GateOutcome) gateOut {
+func gateResult(task string, o port.GateOutcome) gateOut {
 	switch o.Kind {
-	case OutcomeGreen:
+	case port.OutcomeGreen:
 		line := "GREEN " + task
 		if o.Candidate.Checks != "" {
 			line += " (" + o.Candidate.Checks + ")"
 		}
 		return gateOut{Outcome: outGreen, Line: line, Candidate: o.Candidate}
-	case OutcomeRed:
+	case port.OutcomeRed:
 		return gateOut{Outcome: outRed, Line: o.Line}
-	case OutcomeConflict:
+	case port.OutcomeConflict:
 		return gateOut{Outcome: outConflict, Line: fmt.Sprintf("CONFLICT in %s: %s", o.Dir, strings.Join(o.Files, ", "))}
-	case OutcomeFail:
+	case port.OutcomeFail:
 		return gateOut{Outcome: outFail, Line: o.Line}
 	}
 	return gateOut{Outcome: outFail, Line: fmt.Sprintf("FAIL %s: unknown gate outcome %q", task, o.Kind)}
@@ -274,21 +276,21 @@ func gateResult(task string, o GateOutcome) gateOut {
 // publish fast-forwards the target to the accepted candidate (row 33): merged, already in the target (a crash after
 // the fast-forward), moved (re-gate) or held (the main checkout has local changes to the merge's files: the owner).
 func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepPublish, mt.pubs+1)}, Class: ClassGit, Data: mt.cand}
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}, Class: event.ClassGit, Data: mt.cand}
 	_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		o, err := fx.Scratch.Publish(ctx, mt.cand)
 		if err != nil {
 			return nil, err
 		}
 		switch o.Kind {
-		case PublishMerged:
+		case port.PublishMerged:
 			return gateOut{Outcome: outMerged, Line: "MERGED " + mt.task}, nil
-		case PublishAlready:
+		case port.PublishAlready:
 			return gateOut{Outcome: outMerged, Line: "MERGED " + mt.task + " (already in the target)"}, nil
-		case PublishMoved:
+		case port.PublishMoved:
 			return gateOut{Outcome: outMoved, Line: fmt.Sprintf("MOVED %s: the target is at %s, not %s", mt.task, o.Head,
 				mt.cand.Target)}, nil
-		case PublishHold:
+		case port.PublishHold:
 			return gateOut{Outcome: outHold, Line: fmt.Sprintf("HOLD %s: the main checkout has local changes to %s",
 				mt.task, strings.Join(o.Files, ", "))}, nil
 		}
@@ -301,7 +303,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	moved := p.folded.loop[mt.task].state == stMoved
 	a.mu.Unlock()
 	if moved {
-		return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepMoved, Kind: KindFact},
+		return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMoved, Kind: event.KindFact},
 			noteData{Note: mt.line})
 	}
 	return true
@@ -309,7 +311,7 @@ func (a *App) publish(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 
 // unpin deletes a rejected task's pins (G: an absent pin is not an error), before the owner is told.
 func (a *App) unpin(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: StepUnpin}, Class: ClassGit}
+	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepUnpin}, Class: event.ClassGit}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		return "unpinned", fx.Scratch.Unpin(ctx, mt.task)
 	}); err != nil {
@@ -320,7 +322,7 @@ func (a *App) unpin(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 
 // fix sends the worker its fix job key (row 24; fix, fix.N after obor resume): what to fix, and to call task_done
 // again (a lane with no worker agent is a needs-you: next). Its delivery timers start (watchFix).
-func (a *App) fix(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key) bool {
+func (a *App) fix(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key) bool {
 	at := a.opt.Now()
 	if !a.sendFix(ctx, p, fx, mt, key, key) {
 		return false
@@ -332,7 +334,7 @@ func (a *App) fix(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key) boo
 }
 
 // sendFix types mt's fix job's (job) wake under key (the job's own, or its retry).
-func (a *App) sendFix(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job Key) bool {
+func (a *App) sendFix(ctx context.Context, p *proj, fx *Loop, mt mtask, key, job event.Key) bool {
 	return a.send(ctx, p, fx, mt, key, JobID(job), promptData{Agent: mt.agent, Note: mt.line}, wakeText,
 		fmt.Sprintf("fix job %s not sent", JobID(job)))
 }

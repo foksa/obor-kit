@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
 	"strings"
 	"sync"
 	"testing"
@@ -22,13 +23,13 @@ type nightlyFake struct {
 	runs int
 	asks int
 	// The last question's input: the merges and fresh Due was asked with.
-	merges []app.Merge
+	merges []event.Merge
 	fresh  bool
 }
 
 func (f *nightlyFake) nightly(at string) *app.Nightly {
 	return &app.Nightly{At: at,
-		Due: func(merges []app.Merge, fresh bool) (bool, error) {
+		Due: func(merges []event.Merge, fresh bool) (bool, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.asks++
@@ -53,10 +54,10 @@ func (f *nightlyFake) nightly(at string) *app.Nightly {
 }
 
 // nightlyFacts is the nightly's facts in force in r's status (T-1's watchdog has its own once the clock jumps).
-func nightlyFacts(r *loopRig) []app.Record {
-	var out []app.Record
+func nightlyFacts(r *loopRig) []event.Record {
+	var out []event.Record
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == app.NightlyTask {
+		if f.Task == event.NightlyTask {
 			out = append(out, f)
 		}
 	}
@@ -154,7 +155,7 @@ func TestNightlyOncePerDayAtItsTime(t *testing.T) {
 // only while the log has neither a merge nor a nightly run (a merges.log before the store is not read: due once).
 func TestNightlyDueFromMergedFacts(t *testing.T) {
 	t.Parallel()
-	asked := func(f *nightlyFake) ([]app.Merge, bool) {
+	asked := func(f *nightlyFake) ([]event.Merge, bool) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		return f.merges, f.fresh
@@ -269,14 +270,14 @@ func TestNightlyReplay(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name string
-		recs []app.Record
+		recs []event.Record
 		runs int
 	}{
-		{"pending intent runs again once", []app.Record{
-			{Task: app.NightlyTask, Step: "nightly.2026-11-10", Kind: app.KindIntent, Class: app.ClassGit}}, 1},
-		{"a day with a result runs none", []app.Record{
-			{Task: app.NightlyTask, Step: "nightly.2026-11-10", Kind: app.KindIntent, Class: app.ClassGit},
-			{Task: app.NightlyTask, Step: "nightly.2026-11-10", Kind: app.KindResult,
+		{"pending intent runs again once", []event.Record{
+			{Task: event.NightlyTask, Step: "nightly.2026-11-10", Kind: event.KindIntent, Class: event.ClassGit}}, 1},
+		{"a day with a result runs none", []event.Record{
+			{Task: event.NightlyTask, Step: "nightly.2026-11-10", Kind: event.KindIntent, Class: event.ClassGit},
+			{Task: event.NightlyTask, Step: "nightly.2026-11-10", Kind: event.KindResult,
 				Data: []byte(`{"sha":"abc1234def","verdict":"GREEN","line":"x"}`)}}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -302,13 +303,13 @@ func TestNightlyReplay(t *testing.T) {
 }
 
 // nightlyFact is a nightly fact of step with data d, as the store holds it.
-func nightlyFact(t *testing.T, step string, d app.FactData) app.Record {
+func nightlyFact(t *testing.T, step string, d event.FactData) event.Record {
 	t.Helper()
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return app.Record{Task: app.NightlyTask, Step: step, Kind: app.KindFact, Data: b}
+	return event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindFact, Data: b}
 }
 
 // DD-v0.12 A4: a RED nightly's needs-you in the store ends (resumed) once the last full check is GREEN, a hand run's
@@ -317,8 +318,8 @@ func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
 	t.Parallel()
 	f := &nightlyFake{due: false, last: "RED", outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "02:00")
-	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, app.StepNeedsYou,
-		app.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
+	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
+		event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
 		t.Fatal(err)
 	}
 	r.start()
@@ -352,8 +353,8 @@ func TestNightlyRetryAfterARestart(t *testing.T) {
 	r := nightlyRig(t, f, "02:00")
 	const step = "nightly.2026-11-10"
 	if err := app.WriteLog(r.p.Root, r.clock.Now().Add(-5*time.Minute),
-		app.Record{Task: app.NightlyTask, Step: step, Kind: app.KindIntent, Class: app.ClassGit},
-		nightlyFact(t, app.StepFailed, app.FactData{Machine: app.Machine, Reason: step + ": a git lock", Step: step}),
+		event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindIntent, Class: event.ClassGit},
+		nightlyFact(t, event.StepFailed, event.FactData{Machine: app.Machine, Reason: step + ": a git lock", Step: step}),
 	); err != nil {
 		t.Fatal(err)
 	}

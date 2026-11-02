@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -26,7 +29,7 @@ import (
 func (r *loopRig) crashAt(kind, step string) *atomic.Bool {
 	var crashed atomic.Bool
 	cancel := r.cancel
-	app.Refuse(r.app, r.p.Root, func(rec app.Record) error {
+	app.Refuse(r.app, r.p.Root, func(rec event.Record) error {
 		if crashed.Load() || rec.Kind == kind && rec.Step == step {
 			crashed.Store(true)
 			cancel()
@@ -42,7 +45,7 @@ func (r *loopRig) crashAt(kind, step string) *atomic.Bool {
 func (r *loopRig) appendIntent(step, class string) {
 	r.t.Helper()
 	if err := app.WriteLog(r.p.Root, time.Now(),
-		app.Record{Task: "T-1", Attempt: 1, Step: step, Kind: app.KindIntent, Class: class}); err != nil {
+		event.Record{Task: "T-1", Attempt: 1, Step: step, Kind: event.KindIntent, Class: class}); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -86,13 +89,13 @@ func (a *answers) pass() {
 				a.r.p.Git(scratch, "add", "shared.txt")
 				a.r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
 			}
-			_, err = a.r.verdict(app.MethodResolved, id, "", "")
+			_, err = a.r.verdict(wire.MethodResolved, id, "", "")
 		} else {
 			if a.beforeAccept != nil {
 				a.beforeAccept()
 				a.beforeAccept = nil
 			}
-			_, err = a.r.verdict(app.MethodAccept, id, a.r.patch(p.text), "")
+			_, err = a.r.verdict(wire.MethodAccept, id, a.r.patch(p.text), "")
 		}
 		if err == nil {
 			a.done[m[1]] = true
@@ -132,9 +135,9 @@ func (r *loopRig) fetch(agent, job string) (string, bool) {
 	if agent == "pj-int" {
 		role, lane = "integrator", ""
 	}
-	raw, err := app.Verdict(context.Background(), r.sock, app.MethodJobNext, app.Call{Root: r.p.Root, Agent: agent,
+	raw, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root, Agent: agent,
 		Role: role, Lane: lane, CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1))})
-	var jr app.JobReply
+	var jr wire.JobReply
 	if err != nil || json.Unmarshal([]byte(raw), &jr) != nil || jr.Job != job {
 		return "", false
 	}
@@ -143,7 +146,7 @@ func (r *loopRig) fetch(agent, job string) (string, bool) {
 
 func (r *loopRig) sent(job string) bool {
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindResult && app.JobID(app.Key{Task: rec.Task, Attempt: rec.Attempt, Step: rec.Step}) == job {
+		if rec.Kind == event.KindResult && app.JobID(event.Key{Task: rec.Task, Attempt: rec.Attempt, Step: rec.Step}) == job {
 			return true
 		}
 	}
@@ -203,18 +206,18 @@ var scenarios = map[string]scenario{
 func TestLoopRecovery(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct{ scenario, step, class string }{
-		{"lane", "submit", app.ClassGit},
-		{"lane", "gate", app.ClassGit},
-		{"lane", "start.review", app.ClassStart},
-		{"lane", "publish", app.ClassGit},
-		{"lane", "after_merge", app.ClassGit},
-		{"lane", "agent.stop", app.ClassStart},
-		{"moved", "gate.2", app.ClassGit},
-		{"resolved", "gate", app.ClassGit},
-		{"resolved", "start.resolve", app.ClassStart},
-		{"resolved", "gate.2", app.ClassGit},
-		{"resolved red", "gate.2", app.ClassGit},
-		{"resolved fail", "gate.2", app.ClassGit},
+		{"lane", "submit", event.ClassGit},
+		{"lane", "gate", event.ClassGit},
+		{"lane", "start.review", event.ClassStart},
+		{"lane", "publish", event.ClassGit},
+		{"lane", "after_merge", event.ClassGit},
+		{"lane", "agent.stop", event.ClassStart},
+		{"moved", "gate.2", event.ClassGit},
+		{"resolved", "gate", event.ClassGit},
+		{"resolved", "start.resolve", event.ClassStart},
+		{"resolved", "gate.2", event.ClassGit},
+		{"resolved red", "gate.2", event.ClassGit},
+		{"resolved fail", "gate.2", event.ClassGit},
 	} {
 		for _, before := range []bool{true, false} {
 			point := "result lost"
@@ -243,9 +246,9 @@ func TestLoopRecovery(t *testing.T) {
 					}
 				}
 				r.start()
-				kind := app.KindResult
+				kind := event.KindResult
 				if before {
-					kind = app.KindIntent
+					kind = event.KindIntent
 				}
 				crashed := r.crashAt(kind, row.step)
 				r.submit()
@@ -337,14 +340,14 @@ func TestLoopStartIntentBeforeEffect(t *testing.T) {
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
-	crashed := r.crashAt(app.KindIntent, "start.review")
+	crashed := r.crashAt(event.KindIntent, "start.review")
 	r.submit()
 	r.waitFor("the crash", crashed.Load)
 	r.stop()
 	if r.starts.Load() != 0 || len(r.prompts()) != 0 {
 		t.Fatalf("precondition: starts %d, prompts %d before the restart", r.starts.Load(), len(r.prompts()))
 	}
-	r.appendIntent("start.review", app.ClassStart)
+	r.appendIntent("start.review", event.ClassStart)
 	var early atomic.Bool
 	r.srv.Before(func(req herdrtest.Request) {
 		if req.Method == "agent.prompt" && r.starts.Load() == 0 {
@@ -370,7 +373,7 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
-	crashed := r.crashAt(app.KindResult, "after_merge")
+	crashed := r.crashAt(event.KindResult, "after_merge")
 	r.submit()
 	r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 	r.waitFor("the crash", crashed.Load)
@@ -379,13 +382,13 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 	d, _ := json.Marshal(map[string]any{"lane": "O-01", "dir": r.lane, "agent": "pj-o1", "branch": "task/T-06",
 		"target": "main", "reply": "DISPATCHED T-06 → O-01 (queued)"})
 	if err := app.WriteLog(r.p.Root, time.Now(),
-		app.Record{Task: "T-06", Attempt: 1, Step: app.StepDispatched, Kind: app.KindFact, Data: d},
-		app.Record{Task: "T-06", Attempt: 1, Step: app.StepPrepare, Kind: app.KindIntent, Class: app.ClassGit},
-		app.Record{Task: "T-06", Attempt: 1, Step: app.StepPrepare, Kind: app.KindResult,
+		event.Record{Task: "T-06", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
+		event.Record{Task: "T-06", Attempt: 1, Step: event.StepPrepare, Kind: event.KindIntent, Class: event.ClassGit},
+		event.Record{Task: "T-06", Attempt: 1, Step: event.StepPrepare, Kind: event.KindResult,
 			Data: json.RawMessage(`{"base":"main"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	r.setLane(func(l *app.Lane) { l.Task = "T-06" })
+	r.setLane(func(l *port.Lane) { l.Task = "T-06" })
 	r.start()
 	r.merged(1)
 	if len(r.workerStops()) != 0 || r.f.Pane("w1:p1").Name != "pj-o1" {
@@ -405,10 +408,10 @@ func (r *loopRig) open() []string {
 	for _, rec := range r.records() {
 		key := fmt.Sprint(rec.Task, " ", rec.Attempt, " ", rec.Step)
 		switch rec.Kind {
-		case app.KindIntent:
+		case event.KindIntent:
 			pending[key] = true
 			order = append(order, key)
-		case app.KindResult:
+		case event.KindResult:
 			delete(pending, key)
 		}
 	}
@@ -424,7 +427,7 @@ func (r *loopRig) open() []string {
 // result is the data of T-1's attempt-1 result of step.
 func (r *loopRig) result(step string) string {
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindResult && rec.Attempt == 1 && rec.Step == step {
+		if rec.Kind == event.KindResult && rec.Attempt == 1 && rec.Step == step {
 			return string(rec.Data)
 		}
 	}

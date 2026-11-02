@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,11 +47,11 @@ func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
 }
 
 // agentsSpy is an Agents that records every Launch and starts nothing.
-type agentsSpy struct{ launches []Launch }
+type agentsSpy struct{ launches []port.Launch }
 
-func (s *agentsSpy) Launch(_ context.Context, l Launch) (Started, error) {
+func (s *agentsSpy) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	s.launches = append(s.launches, l)
-	return Started{Line: "RESTARTED " + l.Agent}, nil
+	return port.Started{Line: "RESTARTED " + l.Agent}, nil
 }
 func (s *agentsSpy) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
 
@@ -107,7 +110,7 @@ func (r *reviewRig) started() {
 
 // refuseStep makes the event log refuse every fact of step (nil: none refused).
 func (r *reviewRig) refuseStep(step string) {
-	r.p.log.Refuse = func(rec Record) error {
+	r.p.log.Refuse = func(rec event.Record) error {
 		if rec.Step == step {
 			return errors.New("disk full")
 		}
@@ -127,7 +130,7 @@ func (r *reviewRig) tick() {
 
 // call is an obor review request from the lead.
 func (r *reviewRig) call(id string, after []string, note string, rm bool) (string, error) {
-	return r.a.reviewCall(Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", After: after, Note: note, Clear: rm})
+	return r.a.reviewCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", After: after, Note: note, Clear: rm})
 }
 
 func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) string {
@@ -141,13 +144,13 @@ func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) st
 
 // submitted opens task (attempt 1 on a lane); merged and dropped end it.
 func (r *reviewRig) submitted(task string) {
-	r.a.record(r.p, Record{Task: task, Attempt: 1, Step: StepSubmitted, Kind: KindFact}, submitData{Lane: "O-01"})
+	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, submitData{Lane: "O-01"})
 }
 func (r *reviewRig) merged(task string) {
-	r.a.record(r.p, Record{Task: task, Attempt: 1, Step: StepMerged, Kind: KindFact}, mergedData{Head: "cccccccdddd"})
+	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepMerged, Kind: event.KindFact}, event.MergedData{Head: "cccccccdddd"})
 }
 func (r *reviewRig) dropped(task string) {
-	r.a.record(r.p, Record{Task: task, Attempt: 1, Step: StepDropped, Kind: KindFact}, FactData{Reason: "superseded"})
+	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDropped, Kind: event.KindFact}, event.FactData{Reason: "superseded"})
 }
 
 // leadLines is the lines to the lead recorded so far.
@@ -163,13 +166,13 @@ func (r *reviewRig) leadLines() []string {
 
 // facts is the log's review facts by step.
 func (r *reviewRig) facts(step string) int {
-	recs, err := ReadLog(r.p.root)
+	recs, err := event.ReadLog(r.p.root)
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	n := 0
 	for _, rec := range recs {
-		if rec.Task == ReviewTask && rec.Kind == KindFact && rec.Step == step {
+		if rec.Task == event.ReviewTask && rec.Kind == event.KindFact && rec.Step == step {
 			n++
 		}
 	}
@@ -179,8 +182,8 @@ func (r *reviewRig) facts(step string) int {
 // needs is the review key's needs-you reasons in force.
 func (r *reviewRig) needs() []string {
 	var out []string
-	for _, f := range r.p.folded.active[ReviewTask] {
-		if f.Step == StepNeedsYou {
+	for _, f := range r.p.folded.active[event.ReviewTask] {
+		if f.Step == event.StepNeedsYou {
 			out = append(out, f.Fact().Reason)
 		}
 	}
@@ -223,8 +226,8 @@ func TestReviewRequest(t *testing.T) {
 			if lines := r.leadLines(); len(lines) != 0 {
 				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
 			}
-			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(StepReviewStarted) != 1 {
-				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(StepReviewStarted))
+			if r.p.out.brief("pj-rev") == nil || r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 1 {
+				t.Errorf("brief %v, request %v, started facts %d", r.p.out.brief("pj-rev"), r.p.folded.review, r.facts(event.StepReviewStarted))
 			}
 			rows, err := store.ReadPrompts(r.p.log.DB(), store.PromptQuery{Agent: "pj-rev"}, 10)
 			if err != nil || len(rows) != 1 || rows[0].Kind != store.PromptStart || rows[0].Text != l.Prompt ||
@@ -239,7 +242,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Fatal("precondition: no request open")
 			}
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(StepReviewFire) != 0 {
+			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 0 {
 				t.Fatalf("fired while pj-rev works: %+v", r.agents.launches)
 			}
 			lineStatus(r.a, "w:rev", "idle", r.now)
@@ -272,16 +275,16 @@ func TestReviewRequest(t *testing.T) {
 			r.mustCall("r1", nil, "", false)
 			seq := r.p.folded.review.seq
 			// A crash right after the firing fact: nothing else of the start ran.
-			r.a.record(r.p, Record{Task: ReviewTask, Step: StepReviewFire, Kind: KindFact}, ReviewData{Request: seq})
+			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, ReviewData{Request: seq})
 			r.reload()
-			if r.facts(StepReviewFire) != 1 {
+			if r.facts(event.StepReviewFire) != 1 {
 				t.Fatal("precondition: no firing fact")
 			}
 			r.pass()
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(StepReviewFire) != 1 || r.p.folded.review != nil {
+			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 1 || r.p.folded.review != nil {
 				t.Errorf("launches %+v, fire facts %d, request %v; want none started", r.agents.launches,
-					r.facts(StepReviewFire), r.p.folded.review)
+					r.facts(event.StepReviewFire), r.p.folded.review)
 			}
 		}},
 		{"second call replaces", func(t *testing.T, r *reviewRig) {
@@ -312,7 +315,7 @@ func TestReviewRequest(t *testing.T) {
 			}
 			r.merged("T-a")
 			r.pass()
-			if len(r.agents.launches) != 0 || r.p.folded.review != nil || r.facts(StepReviewRm) != 1 {
+			if len(r.agents.launches) != 0 || r.p.folded.review != nil || r.facts(event.StepReviewRm) != 1 {
 				t.Errorf("launches %+v, request %v", r.agents.launches, r.p.folded.review)
 			}
 		}},
@@ -324,8 +327,8 @@ func TestReviewRequest(t *testing.T) {
 			if _, err := r.call("r3", []string{}, "", false); err == nil || !strings.Contains(err.Error(), "RV-5 is open") {
 				t.Errorf("a request to start now with RV-5 open: %v", err)
 			}
-			if r.facts(StepReviewRequest) != 1 || r.p.folded.review != nil {
-				t.Errorf("request facts %d, request %v; want only r1, none open", r.facts(StepReviewRequest), r.p.folded.review)
+			if r.facts(event.StepReviewRequest) != 1 || r.p.folded.review != nil {
+				t.Errorf("request facts %d, request %v; want only r1, none open", r.facts(event.StepReviewRequest), r.p.folded.review)
 			}
 			r.git.last = "RV-5 closed · abcdef0 · approved"
 			if got := r.mustCall("r4", nil, "", false); got != "REVIEW REQUESTED (now)" {
@@ -345,13 +348,13 @@ func TestReviewRequest(t *testing.T) {
 		{"a queued request waits while RV-5 is open, then fires after its close commit", func(t *testing.T, r *reviewRig) {
 			r.started()
 			// A request already in the log (one obor review recorded before RV-5's start, or an older serve's).
-			r.a.record(r.p, Record{Task: ReviewTask, Step: StepReviewRequest, Kind: KindFact}, ReviewData{By: "pj-lead", Note: "next"})
+			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
 			if r.p.folded.review == nil || !r.a.reviewerIdle(r.p, "pj-rev") {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")
 			}
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(StepReviewFire) != 1 {
-				t.Fatalf("fired with RV-5 open: launches %d, fire facts %d", len(r.agents.launches), r.facts(StepReviewFire))
+			if len(r.agents.launches) != 1 || r.facts(event.StepReviewFire) != 1 {
+				t.Fatalf("fired with RV-5 open: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
 			}
 			if got := r.a.Status().Project.Review; got != "review request since 0s (now, waiting RV-5 to close), note: next" {
 				t.Errorf("status %q", got)
@@ -377,13 +380,13 @@ func TestReviewRequest(t *testing.T) {
 				_, err = r.call("r3", nil, "", true)
 				errs = append(errs, err)
 			}
-			r.refuseStep(StepReviewFire) // the claim ends without a firing: the old request stays open
+			r.refuseStep(event.StepReviewFire) // the claim ends without a firing: the old request stays open
 			r.pass()
 			want := "review: obor serve is starting the review request now: nothing changed (try again once it is done)"
 			if len(errs) != 2 || errs[0] == nil || errs[0].Error() != want || errs[1] == nil || errs[1].Error() != want {
 				t.Fatalf("replace and --rm during the claim: %v", errs)
 			}
-			if r.p.folded.review == nil || r.p.folded.review.seq != old || r.facts(StepReviewRequest) != 1 || r.facts(StepReviewRm) != 0 {
+			if r.p.folded.review == nil || r.p.folded.review.seq != old || r.facts(event.StepReviewRequest) != 1 || r.facts(event.StepReviewRm) != 0 {
 				t.Fatalf("the claim's request changed: %+v", r.p.folded.review)
 			}
 			r.p.rv.claimed, r.p.log.Refuse = nil, nil
@@ -395,15 +398,15 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launches %+v, want the new request's only", r.agents.launches)
 			}
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(StepReviewFire) != 1 {
-				t.Errorf("the old request fired after the replace: launches %d, fire facts %d", len(r.agents.launches), r.facts(StepReviewFire))
+			if len(r.agents.launches) != 1 || r.facts(event.StepReviewFire) != 1 {
+				t.Errorf("the old request fired after the replace: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
 			}
 		}},
 		{"--rm after a refused claim ends the request: nothing fires", func(t *testing.T, r *reviewRig) {
 			r.mustCall("r1", nil, "", false)
 			var rmErr error
 			r.p.rv.claimed = func() { _, rmErr = r.call("r2", nil, "", true) }
-			r.refuseStep(StepReviewFire)
+			r.refuseStep(event.StepReviewFire)
 			r.pass()
 			if rmErr == nil || !strings.Contains(rmErr.Error(), "is starting the review request now") {
 				t.Fatalf("--rm during the claim: %v", rmErr)
@@ -413,8 +416,8 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("--rm after the claim: %q", got)
 			}
 			r.pass()
-			if len(r.agents.launches) != 0 || r.facts(StepReviewFire) != 0 {
-				t.Errorf("fired after --rm: launches %d, fire facts %d", len(r.agents.launches), r.facts(StepReviewFire))
+			if len(r.agents.launches) != 0 || r.facts(event.StepReviewFire) != 0 {
+				t.Errorf("fired after --rm: launches %d, fire facts %d", len(r.agents.launches), r.facts(event.StepReviewFire))
 			}
 		}},
 		{"a replace during the ended line's claim is refused", func(t *testing.T, r *reviewRig) {
@@ -427,16 +430,16 @@ func TestReviewRequest(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "is ending the review request now") {
 				t.Errorf("replace during the ended line's claim: %v", err)
 			}
-			if lines := r.leadLines(); len(lines) != 1 || r.p.folded.review != nil || r.facts(StepReviewRequest) != 1 {
-				t.Errorf("lines %q, request %v, request facts %d", lines, r.p.folded.review, r.facts(StepReviewRequest))
+			if lines := r.leadLines(); len(lines) != 1 || r.p.folded.review != nil || r.facts(event.StepReviewRequest) != 1 {
+				t.Errorf("lines %q, request %v, request facts %d", lines, r.p.folded.review, r.facts(event.StepReviewRequest))
 			}
 		}},
 		{"a failing append after the launch is a needs-you", func(t *testing.T, r *reviewRig) {
 			r.mustCall("r1", nil, "", false)
-			r.refuseStep(StepReviewStarted)
+			r.refuseStep(event.StepReviewStarted)
 			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(StepReviewStarted) != 0 {
-				t.Fatalf("precondition: launches %d, started facts %d; want launched, not recorded", len(r.agents.launches), r.facts(StepReviewStarted))
+			if len(r.agents.launches) != 1 || r.facts(event.StepReviewStarted) != 0 {
+				t.Fatalf("precondition: launches %d, started facts %d; want launched, not recorded", len(r.agents.launches), r.facts(event.StepReviewStarted))
 			}
 			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: started but not recorded: disk full" {
 				t.Errorf("needs-you %q", n)
@@ -461,8 +464,8 @@ func TestReviewRequest(t *testing.T) {
 			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git checkout: your local changes would be overwritten" {
 				t.Errorf("needs-you %q", n)
 			}
-			if r.p.folded.review != nil || r.facts(StepReviewStarted) != 0 {
-				t.Errorf("request %v, started %d; want ended, none", r.p.folded.review, r.facts(StepReviewStarted))
+			if r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 0 {
+				t.Errorf("request %v, started %d; want ended, none", r.p.folded.review, r.facts(event.StepReviewStarted))
 			}
 			r.git.detachErr = nil
 			r.mustCall("r2", nil, "", false)

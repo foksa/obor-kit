@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 )
 
@@ -52,37 +54,37 @@ var states map[string]stateRow
 func init() {
 	states = map[string]stateRow{
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
-		stSubmitted: {pick: (*App).pickGate, name: gateName, send: sendSettles, landed: true, uses: ScratchGating},
+		stSubmitted: {pick: (*App).pickGate, name: gateName, send: sendSettles, landed: true, uses: wire.ScratchGating},
 		// rows 18–20: an accept bound to the patch is kept, else a review job
-		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(StepReview, mt.reviews+1) },
+		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(event.StepReview, mt.reviews+1) },
 			send: sendYes, landed: true},
 		// rows 19, 25–29, 31: the review job is out
 		stAwaiting: {pick: (*App).pickJob, name: jobName, send: sendYes, landed: true, verdicts: []verdictRule{
-			{MethodAccept, func(mt *mtask, v verdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
-			{MethodSendback, foldSendback},
-			{MethodReject, func(mt *mtask, v verdictResult) { mt.state, mt.line = stRejected, v.Note }},
+			{wire.MethodAccept, func(mt *mtask, v verdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
+			{wire.MethodSendback, foldSendback},
+			{wire.MethodReject, func(mt *mtask, v verdictResult) { mt.state, mt.line = stRejected, v.Note }},
 		}},
 		// rows 21–22: a sendback, or the owner after K
 		stRed: {pick: (*App).pickRed, send: sendSettles, landed: true},
 		// rows 18, 23: a resolve job
-		stConflict: {pick: (*App).pickConflict, name: func(mt mtask) string { return nth(StepResolve, mt.resolves+1) },
+		stConflict: {pick: (*App).pickConflict, name: func(mt mtask) string { return nth(event.StepResolve, mt.resolves+1) },
 			send: sendSettles, scratch: true, landed: true},
 		// rows 23, 25, 30–31: the resolve job is out
 		stResolving: {pick: (*App).pickJob, name: jobName, send: sendYes, scratch: true, landed: true, verdicts: []verdictRule{
-			{MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
-			{MethodReject, func(mt *mtask, v verdictResult) {
+			{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
+			{wire.MethodReject, func(mt *mtask, v verdictResult) {
 				mt.state, mt.why, mt.cause = stFail, "resolve rejected: "+v.Note, causeResolveRejected
 			}},
 		}},
 		// rows 30, 18: gate the merge the integrator committed in the scratch (it holds the scratch itself)
-		stResolved: {pick: (*App).pickGate, name: gateName, send: sendSettles, scratch: true, uses: ScratchGating},
+		stResolved: {pick: (*App).pickGate, name: gateName, send: sendSettles, scratch: true, uses: wire.ScratchGating},
 		// row 22: the owner decides (unless a merge outside the app took the lane meanwhile)
 		stFail: {pick: (*App).pickFail, send: sendSettles, landed: true},
 		// rows 20, 26, 33, 35: publish it
-		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(StepPublish, mt.pubs+1) },
-			send: sendSettles, uses: ScratchPublishing},
+		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
+			send: sendSettles, uses: wire.ScratchPublishing},
 		// rows 32, 18: gate the candidate again on the new target
-		stMoved: {pick: (*App).pickGate, name: gateName, send: sendSettles, uses: ScratchGating},
+		stMoved: {pick: (*App).pickGate, name: gateName, send: sendSettles, uses: wire.ScratchGating},
 		// rows 33–34: the target holds the candidate
 		stPublished: {pick: (*App).pickPublished, send: sendSettles},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt
@@ -96,16 +98,20 @@ func init() {
 		// row 2a: waiting for the tasks its dispatch names to merge, then dispatched (row 2); a needs-you (one of them
 		// dropped or rejected) is retried: it waits again
 		stWaiting: {pick: (*App).pickWaiting, name: func(mtask) string { return "the dispatch" },
-			resume: func(mtask, string) resumeRule { return resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true} }},
+			resume: func(mtask, string) resumeRule {
+				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
+			}},
 		// rows 2–9: the dispatch's steps; a needs-you of one is retried (row 40)
 		stDispatched: {pick: (*App).nextDispatch, name: func(mtask) string { return "the dispatch" },
-			resume: func(mtask, string) resumeRule { return resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true} }},
+			resume: func(mtask, string) resumeRule {
+				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
+			}},
 		// rows 6, 10–16, 21, 24: the fix job (a dispatched attempt: its task_done submits it); an undelivered fix job
 		// is sent anew by retry (row 40)
 		stWorking: {pick: (*App).pickWorking, name: func(mtask) string { return "the fix" }, landed: true,
 			resume: func(mt mtask, cause string) resumeRule {
 				if mt.work == "" && cause == causeUndelivered {
-					return resumeRule{to: ResumeRetry, retry: true}
+					return resumeRule{to: wire.ResumeRetry, retry: true}
 				}
 				return resumeRule{}
 			}},
@@ -118,9 +124,9 @@ func init() {
 // gateName names a gate state's step: submit first, then the attempt's next gate.
 func gateName(mt mtask) string {
 	if mt.state == stSubmitted && mt.input == "" {
-		return StepSubmit
+		return event.StepSubmit
 	}
-	return nth(StepGate, mt.gates+1)
+	return nth(event.StepGate, mt.gates+1)
 }
 
 // jobName names an open job's step: the job itself.

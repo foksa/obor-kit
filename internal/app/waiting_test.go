@@ -3,6 +3,9 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"slices"
 	"strings"
 	"testing"
@@ -16,13 +19,13 @@ import (
 // outside); T-3 is a task with a stored spec and no loop record.
 
 // seedT2 writes T-2's open attempt to the log of the stopped app: submitted on O-02, its submit refused (fail).
-func (r *loopRig) seedT2(more ...app.Record) {
+func (r *loopRig) seedT2(more ...event.Record) {
 	r.t.Helper()
 	sub, _ := json.Marshal(map[string]any{"lane": "O-02", "agent": "pj-o2"})
 	refused, _ := json.Marshal(map[string]any{"refused": "no commit"})
-	recs := append([]app.Record{{Task: "T-2", Attempt: 1, Step: app.StepSubmitted, Kind: app.KindFact, Data: sub},
-		{Task: "T-2", Attempt: 1, Step: app.StepSubmit, Kind: app.KindIntent, Class: app.ClassGit},
-		{Task: "T-2", Attempt: 1, Step: app.StepSubmit, Kind: app.KindResult, Data: refused}}, more...)
+	recs := append([]event.Record{{Task: "T-2", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: sub},
+		{Task: "T-2", Attempt: 1, Step: event.StepSubmit, Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-2", Attempt: 1, Step: event.StepSubmit, Kind: event.KindResult, Data: refused}}, more...)
 	if err := app.WriteLog(r.p.Root, time.Now(), recs...); err != nil {
 		r.t.Fatal(err)
 	}
@@ -54,22 +57,22 @@ const (
 
 // waitAfter is the lead's dispatch of T-1 onto O-01 after the tasks.
 func (r *loopRig) waitAfter(callID string, after ...string) (string, error) {
-	return r.dispatchCall(app.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
+	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
 		Lane: "O-01", After: after})
 }
 
 // taskStatus is task's row in obor serve status (Task "": not listed).
-func (r *loopRig) taskStatus(task string) app.TaskStatus {
+func (r *loopRig) taskStatus(task string) wire.TaskStatus {
 	for _, t := range r.app.Status().Project.Tasks {
 		if t.Task == task {
 			return t
 		}
 	}
-	return app.TaskStatus{}
+	return wire.TaskStatus{}
 }
 
 // startWithT2 starts the rig with T-2 seeded and waits until its needs-you is folded.
-func startWithT2(t *testing.T, more ...app.Record) *loopRig {
+func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 	t.Helper()
 	r := newDispatchRig(t)
 	r.seedT2(more...)
@@ -107,7 +110,7 @@ func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
 		t.Errorf("T-1 dispatch facts %d, want 1: %q", n, r.steps())
 	}
 	for _, rec := range r.records() {
-		if rec.Task == "T-1" && rec.Step == app.StepDispatched && rec.Attempt != 1 {
+		if rec.Task == "T-1" && rec.Step == event.StepDispatched && rec.Attempt != 1 {
 			t.Errorf("the dispatch's attempt %d, want the wait's 1", rec.Attempt)
 		}
 	}
@@ -148,8 +151,8 @@ func TestWaitingCrashAfterMerge(t *testing.T) {
 	wait, _ := json.Marshal(map[string]any{"lane": "O-01", "after": []string{"T-2"}, "caller": "pj-lead", "call": "d1",
 		"reply": "WAITING T-1 after T-2 (queued)"})
 	merged, _ := json.Marshal(map[string]any{"outside": true})
-	r.seedT2(app.Record{Task: "T-1", Attempt: 1, Step: app.StepWaiting, Kind: app.KindFact, Data: wait},
-		app.Record{Task: "T-2", Attempt: 1, Step: app.StepMerged, Kind: app.KindFact, Data: merged})
+	r.seedT2(event.Record{Task: "T-1", Attempt: 1, Step: event.StepWaiting, Kind: event.KindFact, Data: wait},
+		event.Record{Task: "T-2", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact, Data: merged})
 	r.start()
 	r.waitFor("T-1's work job", func() bool { return r.taskStep("T-1", "result work") == 1 })
 	r.stop()
@@ -180,7 +183,7 @@ func TestWaitingRefusals(t *testing.T) {
 			t.Errorf("after %v: %q, %v; want %q", c.after, reply, err, c.want)
 		}
 	}
-	if _, err := r.dispatchCall(app.Call{Root: r.p.Root, Role: "lead", CallID: "d0", Task: "T-1", Lane: "O-09",
+	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d0", Task: "T-1", Lane: "O-09",
 		After: []string{"T-2"}}); err == nil || !strings.Contains(err.Error(), "unknown lane O-09") {
 		t.Errorf("an unknown lane: %v", err)
 	}
@@ -188,18 +191,18 @@ func TestWaitingRefusals(t *testing.T) {
 	if n := r.taskStep("T-1", "fact waiting"); n != 0 {
 		t.Fatalf("a refusal recorded: %q", r.steps())
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d3", "T-3"); err != nil || reply != waitingAfter3 {
 		t.Errorf("after T-3 (a spec, no loop record): %q, %v", reply, err)
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "x1", Task: "T-1", Note: "redo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "x3", Task: "T-2", Note: "gone"}); err != nil {
 		t.Fatal(err)
 	}
@@ -210,8 +213,8 @@ func TestWaitingRefusals(t *testing.T) {
 	r.stop()
 	merged, _ := json.Marshal(map[string]any{"outside": true})
 	sub, _ := json.Marshal(map[string]any{"lane": "O-04", "agent": "pj-o4"})
-	if err := app.WriteLog(r.p.Root, time.Now(), app.Record{Task: "T-4", Attempt: 1, Step: app.StepSubmitted,
-		Kind: app.KindFact, Data: sub}, app.Record{Task: "T-4", Attempt: 1, Step: app.StepMerged, Kind: app.KindFact,
+	if err := app.WriteLog(r.p.Root, time.Now(), event.Record{Task: "T-4", Attempt: 1, Step: event.StepSubmitted,
+		Kind: event.KindFact, Data: sub}, event.Record{Task: "T-4", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
 		Data: merged}); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +232,7 @@ func TestWaitingDependencyDroppedLater(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "x1", Task: "T-2", Note: "gone"}); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +252,7 @@ func TestWaitingDropped(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "x1", Task: "T-1", Note: "not needed"})
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop of the waiting task: %q, %v", reply, err)
@@ -269,7 +272,7 @@ func TestWaitingDropped(t *testing.T) {
 func TestWaitingLaneBusy(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
-	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
+	r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +285,7 @@ func TestWaitingLaneBusy(t *testing.T) {
 	if n := strings.Count(r.out.String(), "T-1 waiting: dispatch T-1: lane O-01 is working on T-9"); n != 1 {
 		t.Errorf("the refusal logged %d times, want once:\n%s", n, r.out.String())
 	}
-	r.setLane(func(l *app.Lane) { l.State, l.Task = "free", "" })
+	r.setLane(func(l *port.Lane) { l.State, l.Task = "free", "" })
 	r.waitFor("T-1's work job", func() bool { return r.taskStep("T-1", "result work") == 1 })
 }
 
@@ -292,7 +295,7 @@ func TestWaitingLaneBusy(t *testing.T) {
 func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
-	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
+	r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +328,7 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 	if n := r.count(needs); n != 1 {
 		t.Errorf("needs-you %d times 30 min after the resume, want 1 (its hour starts again)", n)
 	}
-	r.setLane(func(l *app.Lane) { l.State, l.Task = "free", "" })
+	r.setLane(func(l *port.Lane) { l.State, l.Task = "free", "" })
 	r.waitFor("T-1's work job", func() bool { return r.taskStep("T-1", "result work") == 1 })
 }
 
@@ -334,7 +337,7 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 func TestWaitingForATaskMergedByHand(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +362,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
 	for _, task := range []string{"T-3", "T-4"} {
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 			CallID: "s-" + task, Task: task, Spec: "# " + task + "\n\nDifficulty: medium\n"}); err != nil {
 			t.Fatal(err)
 		}
@@ -367,7 +370,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-3"); err != nil { // T-1 after T-3
 		t.Fatal(err)
 	}
-	if _, err := r.dispatchCall(app.Call{Root: r.p.Root, Role: "lead", CallID: "d4", Task: "T-4", Lane: "O-01",
+	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d4", Task: "T-4", Lane: "O-01",
 		After: []string{"T-1"}}); err != nil { // T-4 after T-1
 		t.Fatal(err)
 	}
@@ -377,7 +380,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 		{"d3", "T-1", "dispatch T-3: T-1 waits for T-3 itself: a cycle never dispatches"},
 		{"d3b", "T-4", "dispatch T-3: T-4 waits for T-3 itself: a cycle never dispatches"},
 	} {
-		reply, err := r.dispatchCall(app.Call{Root: r.p.Root, Role: "lead", CallID: c.call, Task: "T-3", Lane: "O-01",
+		reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: c.call, Task: "T-3", Lane: "O-01",
 			After: []string{c.after}})
 		if err == nil || err.Error() != c.want {
 			t.Errorf("T-3 after %s: %q, %v; want %q", c.after, reply, err, c.want)

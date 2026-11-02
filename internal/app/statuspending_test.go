@@ -4,12 +4,12 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"obor/internal/app"
 )
 
 // TestStatusRunningGateWhileItsEffectRuns: a gate whose effect runs now is a running step, elapsed from that start (the
@@ -37,13 +37,13 @@ func TestStatusRunningGateWhileItsEffectRuns(t *testing.T) {
 	if st.Project == nil {
 		t.Fatal("serve holds no project")
 	}
-	var gate []app.RunningStep
+	var gate []wire.RunningStep
 	for _, s := range st.Project.Running {
 		if s.Task == "T-1" {
 			gate = append(gate, s)
 		}
 	}
-	if len(gate) != 1 || gate[0].Step != app.StepGate {
+	if len(gate) != 1 || gate[0].Step != event.StepGate {
 		t.Fatalf("running steps %+v, want one gate for T-1", st.Project.Running)
 	}
 	if want := r.clock.Now().Unix(); gate[0].Since != want {
@@ -68,13 +68,13 @@ func TestStatusPendingAfterMergeFailure(t *testing.T) {
 	r.waitFor("the needs-you in force", func() bool { return len(r.app.Status().Project.Facts) == 1 })
 	st := r.app.Status()
 	for _, s := range st.Project.Running {
-		if s.Task == "T-1" && s.Step == app.StepAfterMerge {
+		if s.Task == "T-1" && s.Step == event.StepAfterMerge {
 			t.Errorf("running steps %+v: after_merge waits for obor resume, it does not run", st.Project.Running)
 		}
 	}
-	var pending []app.PendingStep
+	var pending []wire.PendingStep
 	for _, p := range st.Project.Pending {
-		if p.Task == "T-1" && p.Step == app.StepAfterMerge {
+		if p.Task == "T-1" && p.Step == event.StepAfterMerge {
 			pending = append(pending, p)
 		}
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"obor/internal/app/wire"
 	"slices"
 	"strings"
 
@@ -18,13 +19,13 @@ import (
 
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
 // merge loop (a waiting task of it may dispatch now).
-func (a *App) specSet(c Call) (string, error) {
+func (a *App) specSet(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
-		return "", errors.New(MethodSpecSet + ": a call id and a task are required")
+		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	key := verdictStep(MethodSpecSet, c.CallID)
+	key := verdictStep(wire.MethodSpecSet, c.CallID)
 	reply, stored := "", false
 	if p != nil {
 		reply, stored = p.replies[key]
@@ -32,7 +33,7 @@ func (a *App) specSet(c Call) (string, error) {
 	a.mu.Unlock()
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodSpecSet, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSpecSet, c.Root)
 	case stored:
 		return reply, nil
 	case c.Role != "" && c.Role != "lead": // the owner (no role) too, as for dispatch (DD-v0.11 A3); a worker never (T-238)

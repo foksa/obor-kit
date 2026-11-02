@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"obor/internal/app/port"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
 // New is an app over panes and lanes.
-func New(opt Options, panes Panes, lanes Lanes) *App {
+func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 	if opt.Idle <= 0 {
 		opt.Idle = 10 * time.Minute
 	}
@@ -109,7 +110,7 @@ func (a *App) Serve(ctx context.Context) error {
 		a.mu.Unlock()
 		switch err := st.Err(); {
 		case ctx.Err() != nil || a.opt.Refresh(err):
-		case ErrorCode(err) != "": // herdr ended it with an answer (events_lost): it is there, say so now
+		case port.ErrorCode(err) != "": // herdr ended it with an answer (events_lost): it is there, say so now
 			a.logf("herdr stream ended: %v; subscribing again", err)
 		case err == nil:
 			ended = errors.New("closed")
@@ -142,7 +143,7 @@ func (a *App) closeLog() {
 
 // run handles one stream's events and the ticks until the stream or ctx ends. The stream's snapshot is applied
 // before: an event is never older than the snapshot it follows.
-func (a *App) run(ctx context.Context, st *Stream, tick <-chan time.Time) {
+func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
 	for {
 		select {
 		case <-ctx.Done():

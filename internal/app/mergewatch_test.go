@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
@@ -13,21 +15,21 @@ import (
 
 // watch is a watch request to the rig's serve from the lead (role lead, agent pj-lead).
 func (r *loopRig) watch(callID, task string, rm bool) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodWatch, app.Call{Root: r.p.Root, Role: "lead",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "lead",
 		Agent: "pj-lead", CallID: callID, Task: task, Clear: rm})
 }
 
 // watchNote is a watch request carrying the lead's note (T-666).
 func (r *loopRig) watchNote(callID, task, note string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodWatch, app.Call{Root: r.p.Root, Role: "lead",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "lead",
 		Agent: "pj-lead", CallID: callID, Task: task, Note: note})
 }
 
 // watchFacts is the watch and unwatch facts of the project's log; watchLines the lead lines a watch recorded.
-func (r *loopRig) watchFacts() []app.Record {
-	var out []app.Record
+func (r *loopRig) watchFacts() []event.Record {
+	var out []event.Record
 	for _, rec := range r.records() {
-		if rec.Task == app.WatchTask && rec.Kind == app.KindFact {
+		if rec.Task == event.WatchTask && rec.Kind == event.KindFact {
 			out = append(out, rec)
 		}
 	}
@@ -37,8 +39,8 @@ func (r *loopRig) watchFacts() []app.Record {
 func (r *loopRig) watchLines() []string {
 	var out []string
 	for _, rec := range r.records() {
-		var m app.Message
-		if rec.Task == app.MsgTask && rec.Step == app.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Watch != 0 {
+		var m event.Message
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Watch != 0 {
 			out = append(out, m.Line)
 		}
 	}
@@ -110,7 +112,7 @@ func TestWatchedDropPostsTheDroppedLine(t *testing.T) {
 	if reply, err := r.watch("w1", "T-1", false); err != nil || reply != "WATCHING T-1" {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
-	if reply, err := app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "x1", Task: "T-1", Note: "superseded\nby T-2"}); err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
@@ -140,7 +142,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 	if n := len(r.watchFacts()); n != 0 {
 		t.Errorf("%d watch facts recorded, want none", n)
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 		CallID: "s1", Task: "T-9", Spec: "# T-9\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +154,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 	if n := len(r.watchFacts()); n != 1 {
 		t.Errorf("%d watch facts, want 1 (a repeated call id records nothing)", n)
 	}
-	if _, err := app.Verdict(context.Background(), r.sock, app.MethodWatch, app.Call{Root: r.p.Root, Role: "worker",
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "worker",
 		Agent: "pj-o1", CallID: "w4", Task: "T-9"}); err == nil {
 		t.Error("a worker's watch accepted")
 	}
@@ -196,13 +198,13 @@ func TestUnwatchedMergePostsNothing(t *testing.T) {
 func (r *loopRig) seedFailed(tasks ...string) {
 	r.t.Helper()
 	r.p.Dispatched("O-01")
-	var recs []app.Record
+	var recs []event.Record
 	refused, _ := json.Marshal(map[string]any{"refused": "no commit"})
 	for i, task := range tasks {
 		sub, _ := json.Marshal(map[string]any{"lane": fmt.Sprintf("O-%02d", i+2), "agent": fmt.Sprintf("pj-o%d", i+2)})
-		recs = append(recs, app.Record{Task: task, Attempt: 1, Step: app.StepSubmitted, Kind: app.KindFact, Data: sub},
-			app.Record{Task: task, Attempt: 1, Step: app.StepSubmit, Kind: app.KindIntent, Class: app.ClassGit},
-			app.Record{Task: task, Attempt: 1, Step: app.StepSubmit, Kind: app.KindResult, Data: refused})
+		recs = append(recs, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: sub},
+			event.Record{Task: task, Attempt: 1, Step: event.StepSubmit, Kind: event.KindIntent, Class: event.ClassGit},
+			event.Record{Task: task, Attempt: 1, Step: event.StepSubmit, Kind: event.KindResult, Data: refused})
 	}
 	if err := app.WriteLog(r.p.Root, time.Now(), recs...); err != nil {
 		r.t.Fatal(err)
@@ -336,7 +338,7 @@ func TestWatchedSetRejectEndsIt(t *testing.T) {
 		t.Fatalf("watch: %q, %v", reply, err)
 	}
 	r.submit()
-	if reply, err := r.verdict(app.MethodReject, "j1", r.patch(r.waitJob("pj-int", "T-1/1/review")), "out of scope"); err != nil ||
+	if reply, err := r.verdict(wire.MethodReject, "j1", r.patch(r.waitJob("pj-int", "T-1/1/review")), "out of scope"); err != nil ||
 		!strings.HasPrefix(reply, "REJECT") {
 		t.Fatalf("reject: %q, %v", reply, err)
 	}
@@ -412,7 +414,7 @@ func (r *loopRig) dropSettled(task, note string) {
 	var reply string
 	var err error
 	r.waitFor("the drop of "+task+" accepted", func() bool {
-		reply, err = app.Verdict(context.Background(), r.sock, app.MethodDrop, app.Call{Root: r.p.Root, Role: "lead",
+		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
 			CallID: "x1", Task: task, Note: note})
 		return err == nil || !strings.Contains(err.Error(), "retry when it settles")
 	})

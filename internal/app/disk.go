@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"obor/internal/app/event"
 	"time"
 )
 
@@ -45,7 +46,7 @@ func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 	free, err := d.Free()
 	a.mu.Lock()
 	p.diskAt = a.opt.Now()
-	held := len(p.folded.active[DiskTask]) > 0
+	held := len(p.folded.active[event.DiskTask]) > 0
 	a.mu.Unlock()
 	switch {
 	case err != nil:
@@ -58,11 +59,11 @@ func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 					reason += "; Go build cache " + c + " (go clean -cache)"
 				}
 			}
-			a.settleNeeds(p, DiskTask, reason)
+			a.settleNeeds(p, event.DiskTask, reason)
 		}
 		held = true // the reading decides; keeping the record is best effort
 	case held:
-		held = !a.settleNeeds(p, DiskTask, "")
+		held = !a.settleNeeds(p, event.DiskTask, "")
 	}
 	return held
 }
