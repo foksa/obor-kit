@@ -1,0 +1,173 @@
+package app_test
+
+import (
+	"context"
+	"errors"
+	"obor/internal/app"
+	"obor/internal/app/event"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// T-719: serve follows a new obor binary: on its tick it asks Options.Binary and takes the self-restart path
+// (Loop.Restart), at once when idle, else once nothing runs or after 10 minutes; status shows it meanwhile.
+
+// followRig is a loop rig whose Binary says isNew and whose Restart counts its calls and gives err (nil: serve ends
+// gracefully, as a signal ends it).
+type followRig struct {
+	*loopRig
+	isNew, calls atomic.Int32
+	err          error
+}
+
+func newFollowRig(t *testing.T, err error) *followRig {
+	r := &followRig{err: err}
+	r.loopRig = newLoopRig(t, "echo 1 pass")
+	r.binary = func() bool { return r.isNew.Load() != 0 }
+	r.restart = func(context.Context) error {
+		r.calls.Add(1)
+		if r.err != nil {
+			return r.err
+		}
+		r.cancel()
+		return nil
+	}
+	r.work("feature.txt", "feature\n")
+	return r
+}
+
+// ended: the restart ended serve.
+func (r *followRig) ended() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// restartingShown: obor status' running line shows the pending self-restart.
+func (r *followRig) restartingShown() bool {
+	st := r.app.Status()
+	if st.Project == nil {
+		return false
+	}
+	for _, s := range st.Project.Running {
+		if s.Step == event.StepServeRestart {
+			return true
+		}
+	}
+	return false
+}
+
+// ticks waits for n more watchdog ticks.
+func (r *followRig) ticks(n int) {
+	checks, _ := app.Counts(r.app)
+	r.waitFor("ticks", func() bool { c, _ := app.Counts(r.app); return c >= checks+n })
+}
+
+// Idle: no restart while the binary is the same; a new one restarts serve on the next tick, once.
+func TestFollowBinaryIdle(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	r.start()
+	r.ticks(3)
+	if r.calls.Load() != 0 || r.restartingShown() {
+		t.Fatalf("the same binary: restarts %d, restarting shown %v; want none", r.calls.Load(), r.restartingShown())
+	}
+	r.isNew.Store(1)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 {
+		t.Errorf("restarts %d, want 1", r.calls.Load())
+	}
+}
+
+// A gate running: the restart waits for it (shown as restarting meanwhile) and goes once it has ended.
+func TestFollowBinaryWaitsForIdle(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	release := make(chan struct{})
+	r.scratch.arm("Gate", func(ctx context.Context) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	r.start()
+	r.submit()
+	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("serve restarted with the gate running, want it to wait")
+	}
+	r.ticks(3)
+	if r.calls.Load() != 0 {
+		t.Fatalf("restarted %d times while the gate runs, want 0", r.calls.Load())
+	}
+	r.scratch.arm("Gate", nil)
+	close(release)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || !r.has("1 result gate") {
+		t.Errorf("restarts %d, gate result %v; want 1 after the gate's result: %q", r.calls.Load(), r.has("1 result gate"),
+			r.steps())
+	}
+}
+
+// Never idle: after 10 minutes the restart goes anyway (the gate is cut, as at any restart).
+func TestFollowBinaryAfterTenMinutes(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	release := make(chan struct{})
+	defer close(release)
+	r.scratch.arm("Gate", func(ctx context.Context) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return ctx.Err()
+	})
+	r.start()
+	r.submit()
+	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("serve restarted with the gate running, want it to wait")
+	}
+	r.clock.Add(9 * time.Minute)
+	r.ticks(3)
+	if r.calls.Load() != 0 {
+		t.Fatalf("restarted after 9 minutes with the gate running, want not yet")
+	}
+	r.clock.Add(time.Minute)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || r.has("1 result gate") {
+		t.Errorf("restarts %d, gate result %v; want 1 with the gate cut", r.calls.Load(), r.has("1 result gate"))
+	}
+}
+
+// A restart that fails: one needs-you, the restarting line gone, no further try in this serve.
+func TestFollowBinaryRestartFails(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, errors.New("no kit shim /kit/bin/obor to exec: restart serve by hand"))
+	r.start()
+	r.isNew.Store(1)
+	const want = "serve restart on the new obor binary failed: no kit shim /kit/bin/obor to exec: restart serve by hand"
+	r.waitFor("the needs-you", func() bool { return r.has("0 fact needs-you{" + want + "}") })
+	r.ticks(3)
+	if r.calls.Load() != 1 || r.restartingShown() || r.ended() {
+		t.Errorf("restarts %d, restarting shown %v, ended %v; want 1, false, false", r.calls.Load(), r.restartingShown(),
+			r.ended())
+	}
+	if n := strings.Count(strings.Join(r.steps(), "\n"), "needs-you{"+want+"}"); n != 1 {
+		t.Errorf("needs-you recorded %d times, want 1: %q", n, r.steps())
+	}
+}

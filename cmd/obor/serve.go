@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/selfexec"
 )
 
 // serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
@@ -64,6 +66,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	// does the socket's exit request (obor stop, T-711).
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
+	end := &serveEnd{stop: stop}
 	root := repo.Root
 	sock := wire.SocketPath(root)
 	if err := herdr.CheckSocketPath(sock); err != nil {
@@ -99,8 +102,8 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 				version, protocol, herdr.Protocol)
 		}
 	}
-	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, stop),
-		Inboxed: inboxed(env), Exit: stop},
+	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
+		Inboxed: inboxed(env), Exit: stop, Binary: binaryWatch(env), Tick: serveTick},
 		panes, laneTable{})
 	served := make(chan struct{})
 	go func() {
@@ -126,15 +129,39 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	go a.Listen(ln)
 	fmt.Fprintf(flushWriter{}, "obor serve: running (project %s, socket %s)\n", root, sock)
 	<-served
-	return 0
+	if !end.exec.Load() {
+		return 0
+	}
+	// The self-restart of a serve launchd does not run (a pane, Linux; T-719): it has ended as at a signal, and now
+	// the same pid execs the kit's shim, which runs the binary it picks now. The flock goes with the exec (Go's files
+	// are close-on-exec); the socket is removed here, and a new serve removes a leftover once it holds the lock.
+	ln.Close()
+	_ = os.Remove(sock)
+	kit := project.KitRoot(env)
+	fmt.Fprintf(flushWriter{}, "obor serve: restarting in place (exec %s serve)\n", selfexec.Shim(kit))
+	if err := selfExec(kit, []string{"serve"}); err != nil {
+		errf("FAIL obor serve: the restart's exec of %s: %v", selfexec.Shim(kit), err)
+		return 1
+	}
+	return 0 // only a test's selfExec returns nil
+}
+
+// serveTick is the app's tick (0: its default, 30 s); a test shortens it.
+var serveTick time.Duration
+
+// serveEnd is how serve ends for its self-restart (T-656, T-719): stop ends it as a signal does; exec, set by the
+// restart, has serve exec the kit's shim once it has ended (a serve launchd does not restart).
+type serveEnd struct {
+	stop context.CancelFunc
+	exec atomic.Bool
 }
 
 // mergeLoop is the merge loop's adapters for a project: serve's scratch on its config as it is now (a merged config
 // change counts), launch for the integrator's start and the merged worker's stop, the herdr socket for the job
 // prompts and the lines it types (T-466), the session inbox for the lead's lines and for the lines and job wakes of a
 // kind with an inbox (T-485, T-499), and dispatch as state (dispatchLoop: obor serve is the only dispatcher, T-408).
-// stop ends serve for its self-restart (T-656).
-func mergeLoop(env project.Env, panes herdr.Panes, stop context.CancelFunc) func(root string) (*app.Loop, error) {
+// end ends serve for its self-restart (T-656, T-719).
+func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root string) (*app.Loop, error) {
 	var cache cacheDir // asked once: the Loop is built on every pass
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
@@ -152,7 +179,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, stop context.CancelFunc) func
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root}
-		l.Restart = serveRestarter(cfg, env, stop)
+		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil
 	}
 }

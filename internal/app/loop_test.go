@@ -56,6 +56,8 @@ type loopRig struct {
 	disk  *app.Disk      // the loop's Disk (nil: none); set before start
 	// restart is the loop's Restart, serve's self-restart (nil: none, T-652); set before start
 	restart func(ctx context.Context) error
+	// binary is Options.Binary, a new obor binary there (nil: not watched, T-719); set before start
+	binary func() bool
 	// exit is Options.Exit, the socket's exit request (nil: none, T-711); set before start
 	exit func()
 	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-o1 and the
@@ -220,7 +222,7 @@ func (r *loopRig) start() {
 		tick = r.tick
 	}
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: tick, Retry: 5 * time.Millisecond, RetryMax: 40 * time.Millisecond,
-		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Refresh: func(err error) bool {
+		Now: r.clock.Now, Out: r.out, Inboxed: r.inbox.recorded, Exit: r.exit, Binary: r.binary, Refresh: func(err error) bool {
 			var e *herdr.Error
 			return errors.As(err, &e) && e.Code == "refresh"
 		}, Loop: func(string) (*app.Loop, error) {

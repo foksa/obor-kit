@@ -47,6 +47,9 @@ type Options struct {
 	Inboxed func(agent string) (session string, ok bool)
 	// Exit ends serve gracefully, as a signal does (the socket's exit request, obor stop, T-711; nil: refused).
 	Exit func()
+	// Binary: the obor binary the kit's shim would run now is another file than this serve's (selfexec, T-719; nil:
+	// not watched). Asked once per tick; serve then restarts itself on it (follow.go).
+	Binary func() bool
 }
 
 // notifyRetry is the first wait before a failed notification is sent again; it doubles with each failure up to
@@ -96,6 +99,8 @@ type App struct {
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
+	admitted  int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
+	follow    follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
 }
 
 // proj is the served project: its herdr workspace is the one labelled Name. Its state is in two parts: folded, what a

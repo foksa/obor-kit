@@ -73,13 +73,12 @@ func TestServeServiceVerbs(t *testing.T) {
 	}
 }
 
-// serve's self-restart (T-652, T-656): only launchd's serve restarts itself, and it does so by a graceful exit —
-// the restarter cancels serve's context (serve ends, exits 0, launchd's KeepAlive starts the new build), not by
-// `launchctl kickstart -k` on itself. Not installed, or the agent's process another one (a serve in a pane): an error,
-// nothing cancelled, launchctl never kicked.
+// serveRestarter (T-656, T-719): launchd's own serve ends as a signal ends it (launchd starts the new build), never by
+// kickstart; any other serve (launchd's agent not installed, or another process: this one runs in a pane) ends and is
+// marked to exec the kit's shim; a kit without its shim is an error, nothing ended.
 func TestServeRestarter(t *testing.T) {
 	if runtime.GOOS != "darwin" {
-		t.Skip("launchd: darwin only")
+		t.Skip("launchd: darwin only (TestServeRestarterOffLaunchd covers the exec path everywhere)")
 	}
 	p := servedProject(t)
 	cfg, err := config.LoadDaemon(p.Root)
@@ -94,35 +93,83 @@ func TestServeRestarter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	home := t.TempDir()
-	env := project.Env(func(k string) (string, bool) {
-		if k == "HOME" {
-			return home, true
-		}
-		return os.LookupEnv(k)
-	})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	restart := serveRestarter(cfg, env, cancel)
+	env := kitEnv(t, true)
 	ran := func() string { b, _ := os.ReadFile(calls); return string(b) }
-	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not installed") ||
-		ctx.Err() != nil {
-		t.Errorf("not installed: %v, cancelled %v; want the error, serve running", err, ctx.Err())
+	try := func(what string, wantExec bool) {
+		t.Helper()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		end := &serveEnd{stop: cancel}
+		if err := serveRestarter(cfg, env, end)(context.Background()); err != nil || ctx.Err() == nil ||
+			end.exec.Load() != wantExec {
+			t.Errorf("%s: %v, cancelled %v, exec %v; want nil, serve's context ended, exec %v", what, err, ctx.Err(),
+				end.exec.Load(), wantExec)
+		}
 	}
+	try("not installed", true)
 	if err := os.WriteFile(pid, []byte("1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := restart(context.Background()); err == nil || !strings.Contains(err.Error(), "is not launchd's") ||
-		ctx.Err() != nil {
-		t.Errorf("another process: %v, cancelled %v; want the error, serve running", err, ctx.Err())
-	}
+	try("another process is launchd's (this one in a pane)", true)
 	if err := os.WriteFile(pid, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := restart(context.Background()); err != nil || ctx.Err() == nil {
-		t.Errorf("this serve: %v, cancelled %v; want nil and serve's context ended", err, ctx.Err())
-	}
+	try("this serve is launchd's", false)
 	if got := ran(); strings.Contains(got, "kickstart") {
 		t.Errorf("the restart kicked launchd instead of exiting gracefully:\n%s", got)
 	}
+}
+
+// Off launchd (Linux, or no agent: launchd is no restarter there) serve's restart ends it and marks the exec of the
+// kit's shim; a kit without bin/obor is an error and serve goes on.
+func TestServeRestarterOffLaunchd(t *testing.T) {
+	p := servedProject(t)
+	cfg, err := config.LoadDaemon(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir() // a launchctl that knows no agent (darwin); unused elsewhere
+	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte("#!/bin/sh\nexit 113\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	for _, c := range []struct {
+		name string
+		shim bool
+	}{{"the kit's shim there", true}, {"no shim", false}} {
+		ctx, cancel := context.WithCancel(context.Background())
+		end := &serveEnd{stop: cancel}
+		err := serveRestarter(cfg, kitEnv(t, c.shim), end)(context.Background())
+		switch {
+		case c.shim && (err != nil || ctx.Err() == nil || !end.exec.Load()):
+			t.Errorf("%s: %v, cancelled %v, exec %v; want nil, ended, exec", c.name, err, ctx.Err(), end.exec.Load())
+		case !c.shim && (err == nil || !strings.Contains(err.Error(), "no kit shim") || ctx.Err() != nil || end.exec.Load()):
+			t.Errorf("%s: %v, cancelled %v, exec %v; want the error, serve running", c.name, err, ctx.Err(), end.exec.Load())
+		}
+		cancel()
+	}
+}
+
+// kitEnv is the process env with HOME a temp dir and OBOR_PLUGIN_ROOT a temp kit (with an executable bin/obor when
+// shim).
+func kitEnv(t *testing.T, shim bool) project.Env {
+	t.Helper()
+	home, kit := t.TempDir(), t.TempDir()
+	if shim {
+		if err := os.MkdirAll(filepath.Join(kit, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(kit, "bin", "obor"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return project.Env(func(k string) (string, bool) {
+		switch k {
+		case "HOME":
+			return home, true
+		case "OBOR_PLUGIN_ROOT":
+			return kit, true
+		}
+		return os.LookupEnv(k)
+	})
 }

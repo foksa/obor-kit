@@ -108,6 +108,14 @@ func (p *proj) foldJob(r event.Record) {
 // owner (row 22). A resolved first pins the merge the integrator committed in the scratch (refused when there is
 // none): the verdict records its sha, the resolved gate's input.
 func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, error) {
+	a.mu.Lock()
+	a.admitted++ // serve's restart on a new binary waits for it (follow.go)
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.admitted--
+		a.mu.Unlock()
+	}()
 	a.verdicts.Lock() // one verdict at a time: two calls never both answer one job
 	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {

@@ -6,7 +6,8 @@ package main
 // screen with the cursor hidden (nothing it draws reaches the scrollback), redraws in place by cursor-home and a
 // clear-to-end-of-line per row, only when the frame's text changed, and refits at once on a resize. It looks at the
 // store for a new record every poll and redraws at least every 2 s (elapsed times), survives a serve restart ("serve
-// restarting…" until the socket answers again), and ends on Ctrl-C (no other keys). NO_COLOR or a pipe: plain frames.
+// restarting…" until the socket answers again), follows a new obor binary (T-719: every 2 s it asks; then it leaves
+// the alternate screen and execs the kit's shim, which enters it again), and ends on Ctrl-C (no other keys). NO_COLOR or a pipe: plain frames.
 // Read-only, any role; no TUI library.
 
 import (
@@ -67,6 +68,10 @@ type monitor struct {
 	// is gone for good reads as down again after monitorRestart.
 	seen bool
 	lost time.Time
+	// binary: a new obor binary is there to follow (nil: not watched, T-719); asked at most every monitorEvery, last
+	// at asked.
+	binary func() bool
+	asked  time.Time
 }
 
 // monitorCmd is `obor monitor`.
@@ -82,7 +87,7 @@ func monitorCmd(args []string) int {
 	rows, _ := terminalSize()
 	tty := rows > 0
 	m := &monitor{root: cfg.Root, cfg: cfg, warn: warn, cfgAt: configMtimes(cfg.Root), height: terminalRows, width: terminalCols, now: time.Now,
-		color: tty && os.Getenv("NO_COLOR") == ""}
+		color: tty && os.Getenv("NO_COLOR") == "", binary: binaryWatch(project.OSEnv)}
 	defer m.close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -92,20 +97,40 @@ func monitorCmd(args []string) int {
 	s := &screen{w: out, tty: tty}
 	s.enter()
 	defer s.leave()
-	m.run(ctx, s, winch)
+	if m.run(ctx, s, winch) {
+		return m.follow(s, project.KitRoot(project.OSEnv))
+	}
 	return 0
 }
 
+// follow execs the kit's shim as `obor monitor` on a new binary (T-719): the screen left and the store closed first
+// (the new one enters the alternate screen again: one flicker). It returns only when the exec failed.
+func (m *monitor) follow(s *screen, kit string) int {
+	s.leave()
+	m.close()
+	if err := selfExec(kit, []string{"monitor"}); err != nil {
+		errf("obor monitor: following the new obor binary: %v", err)
+		return 1
+	}
+	return 0 // only a test's selfExec returns nil
+}
+
 // run draws the view until ctx ends (Ctrl-C), a frame at once and then one for each new record, and at least every
-// monitorEvery; a resize (winch) refits it at once.
-func (m *monitor) run(ctx context.Context, s *screen, winch <-chan os.Signal) {
+// monitorEvery; a resize (winch) refits it at once. True: it ended for a new obor binary (m.binary).
+func (m *monitor) run(ctx context.Context, s *screen, winch <-chan os.Signal) bool {
 	for {
 		if text, drawn := m.tick(); drawn {
 			s.show(text, m.rows(), m.cols())
 		}
+		if m.binary != nil && m.now().Sub(m.asked) >= monitorEvery {
+			m.asked = m.now()
+			if m.binary() {
+				return true
+			}
+		}
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-winch:
 			m.drawn = time.Time{}
 		case <-time.After(monitorPoll):
@@ -295,6 +320,7 @@ type screen struct {
 	last string
 	size [2]int
 	any  bool // a frame was shown
+	in   bool // on the alternate screen (enter, until leave)
 }
 
 // enter switches a tty to the alternate screen and hides the cursor.
@@ -302,14 +328,16 @@ func (s *screen) enter() {
 	if s.tty {
 		fmt.Fprint(s.w, altOn)
 		_ = s.w.Flush()
+		s.in = true
 	}
 }
 
-// leave restores the cursor and the main screen.
+// leave restores the cursor and the main screen (once: a second leave writes nothing).
 func (s *screen) leave() {
-	if s.tty {
+	if s.in {
 		fmt.Fprint(s.w, altOff)
 		_ = s.w.Flush()
+		s.in = false
 	}
 }
 

@@ -51,8 +51,9 @@ type Loop struct {
 	// line; nil: none posted, T-485): nothing is typed into the pane the owner writes in.
 	Inbox Poster
 	// Restart restarts this serve on the new build (T-652, T-656): after a green after_merge of a project with
-	// commands.after_merge.restart_serve. The adapter ends serve as a signal does (it cancels, serve exits 0 and
-	// launchd starts it again) and returns nil once it did. Nil: never restarted.
+	// commands.after_merge.restart_serve, and on a new obor binary (Options.Binary, T-719). The adapter ends serve as
+	// a signal does (it cancels; then launchd starts it again, or serve execs the kit's shim itself) and returns nil
+	// once it did. Nil: never restarted.
 	Restart func(ctx context.Context) error
 }
 
@@ -262,6 +263,9 @@ func (a *App) advance(ctx context.Context) {
 	p := a.p
 	run := p != nil && p.merging && a.connected
 	a.mu.Unlock()
+	if p != nil && a.followBinary(ctx, p) { // a project with no merge loop follows a new binary too
+		return // serve ends now
+	}
 	if !run {
 		return
 	}

@@ -671,9 +671,7 @@ type shipFixture struct {
 	ghlog    string
 	verfile  string
 	instlog  string
-	labels   string // launchctl list's output for the stub
 	ghstate  string // the stub gh's release: release, assets, draft
-	projects string // `obor projects`' output for the stub (T-646)
 	notified string // the log of the stub's `obor projects --notify` calls (T-715)
 }
 
@@ -686,7 +684,6 @@ func newShipFixture(t *testing.T) *shipFixture {
 		ghlog:          filepath.Join(f.Base, "gh.log"),
 		verfile:        filepath.Join(f.Base, "installed-version"),
 		instlog:        filepath.Join(f.Base, "install.log"),
-		labels:         filepath.Join(f.Base, "launchctl-list"),
 		ghstate:        filepath.Join(f.Base, "gh-state"),
 	}
 	f.Git(f.Base, "init", "-q", "--bare", s.origin)
@@ -723,8 +720,7 @@ case "$1 $2" in
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
-	// obor: its version line, and `obor projects` as the machine's project list prints it (T-646).
-	s.projects = filepath.Join(f.Base, "projects-out")
+	// obor: its version line, and `obor projects --notify` (T-715).
 	s.notified = filepath.Join(f.Base, "notified")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
 if [ "$1" = projects ] && [ "$2" = --notify ]; then
@@ -732,14 +728,8 @@ if [ "$1" = projects ] && [ "$2" = --notify ]; then
   [ ! -f "`+filepath.Join(f.Base, "notify-broken")+`" ] || { echo "FAIL axis-alies: send: serve down"; exit 1; }
   exit 0
 fi
-if [ "$1" = projects ]; then
-  cat "`+s.projects+`" 2> /dev/null
-  exit 0
-fi
 echo "obor $(cat "`+s.verfile+`")"
 `)
-	// launchctl list: the labels the follow-up line reads (none until a test writes them).
-	writeExec(t, filepath.Join(f.Root, "stub", "launchctl"), "#!/bin/bash\ncat \""+s.labels+"\" 2> /dev/null\n")
 	// install.sh installs v1.2.4 unless install-broken exists (an install that does not land).
 	writeExec(t, filepath.Join(f.Root, "install.sh"), "#!/bin/sh\necho ran >> \""+s.instlog+"\"\n"+
 		"[ -f \""+filepath.Join(f.Base, "install-broken")+"\" ] || printf '%s\\n' v1.2.4 > \""+s.verfile+"\"\n")
@@ -767,7 +757,7 @@ func TestMakeShip(t *testing.T) {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
 	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4", "installed the kit",
-		"restart serve: obor serve restart in each project"} {
+		"serves, monitors and web follow the new binary within a minute"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ship does not say %q:\n%s", want, out)
 		}
@@ -789,14 +779,12 @@ func TestMakeShip(t *testing.T) {
 
 	ghBefore, instBefore := gh, readFile(t, f.instlog)
 	head := f.Git(f.Root, "rev-parse", "HEAD")
-	// launchd's view of this machine's serves: the follow-up names those projects instead of saying "each project".
-	writeFile(t, f.labels, "PID\tStatus\tLabel\n-\t0\tcom.apple.something\n123\t0\tobor.serve.obor-kit\n456\t0\tobor.serve.axis-alies\n")
 	out, failed = f.make(t, "ship")
 	if failed {
 		t.Fatalf("the second ship failed:\n%s", out)
 	}
 	for _, want := range []string{"push skipped", "publish skipped", "install skipped",
-		"restart serve: obor serve restart in obor-kit, axis-alies"} {
+		"serves, monitors and web follow the new binary within a minute"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the second ship does not say %q:\n%s", want, out)
 		}
@@ -813,7 +801,7 @@ func TestMakeShip(t *testing.T) {
 }
 
 // T-715: ship ends by telling the leads: `obor projects --notify <the tag's docs/releases/v<version>.md>`; a send that
-// fails fails the ship (after the restart reminder), naming the repair.
+// fails fails the ship (after the follow line, T-719), naming the repair.
 func TestMakeShipNotifiesTheLeads(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
@@ -828,7 +816,7 @@ func TestMakeShipNotifiesTheLeads(t *testing.T) {
 	out, failed := f.make(t, "ship")
 	if !failed || !strings.Contains(out, "FAIL axis-alies: send: serve down") ||
 		!strings.Contains(out, "obor projects --notify <the notes") ||
-		!strings.Contains(out, "restart serve: obor serve restart in each project") {
+		!strings.Contains(out, "serves, monitors and web follow the new binary within a minute") {
 		t.Errorf("a failing notify must fail the ship naming the repair, after the reminder (failed %v):\n%s", failed, out)
 	}
 	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {
@@ -847,31 +835,5 @@ func TestMakeShipNotifiesTheLeads(t *testing.T) {
 	}
 	if strings.Contains(out, "restarted the serves") {
 		t.Errorf("ship claims to restart serves:\n%s", out)
-	}
-}
-
-// T-646: the restart reminder names the projects of the machine's list of obor projects, through obor projects, when
-// that list exists (not launchd's labels): only the ones whose serve is up.
-func TestMakeShipRestartNamesTheProjectList(t *testing.T) {
-	t.Parallel()
-	f := newShipFixture(t)
-	if out, failed := f.release(t, "V=1.2.4"); failed {
-		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
-	}
-	writeFile(t, filepath.Join(f.Base, "home", ".obor", "projects.json"), "{}\n")
-	writeFile(t, f.projects, "obor-kit /w/obor-kit serve up\naxis-alies /w/axis-alies serve up\nquiet /w/quiet serve down\n")
-	// launchd knows another project: the list wins, so its reminder is not the one printed.
-	writeFile(t, f.labels, "PID\tStatus\tLabel\n123\t0\tobor.serve.launchd-only\n")
-	out, failed := f.make(t, "ship")
-	if failed {
-		t.Fatalf("make ship failed:\n%s", out)
-	}
-	if want := "restart serve: obor serve restart in obor-kit, axis-alies"; !strings.Contains(out, want) {
-		t.Errorf("ship does not say %q:\n%s", want, out)
-	}
-	for _, name := range []string{"launchd-only", "quiet"} {
-		if strings.Contains(out, name) {
-			t.Errorf("the reminder names %s (a launchd label, a serve that is down):\n%s", name, out)
-		}
 	}
 }
