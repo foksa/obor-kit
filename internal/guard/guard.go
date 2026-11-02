@@ -2,9 +2,12 @@
 // prompt.go) and the PreToolUse hook (`obor hook pre-tool-use`, run through bin/obor): the event JSON in,
 // allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
 // mvdan.cc/sh/v3/syntax (shell.go); a load run of tests (-count > 1, -race, two test commands at once) is denied for
-// every role (T-543); edits are checked against protected_files, the role table's write profile (a
-// reviewer or deep_dive edits only under paths.reviews / paths.research) and, for a worker, its lane's boundary: no
-// other worktree of this repo (the main checkout included), no other obor project, no final symlink out of the lane.
+// every role (T-543); writes — the editor tools and the Bash write targets alike (checkWrite, RV-83) — are checked
+// against protected_files and the role table's write profile (a reviewer or deep_dive writes only under paths.reviews /
+// paths.research, a researcher only under paths.research; a final symlink at its destination too), and an editor
+// tool of a worker against its lane's boundary: no other worktree of this repo (the main checkout included), no other
+// obor project, no final symlink out of the lane. A GitReadOnly role (reviewer, deep_dive, triage, advisor,
+// researcher) runs git reads only (gitRead).
 // Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run
 // headless (codex exec, claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
@@ -344,13 +347,14 @@ func (g *guard) checkLink(p string) {
 	deny(p + " is a symlink to " + t + where + " — a worker edits only inside its lane " + g.laneDir)
 }
 
-// checkProtectedArg: checkProtected for a path argument (a write) of a Bash command run in dir.
-func (g *guard) checkProtectedArg(arg, dir string) {
+// checkWriteArg: checkWrite for a path argument (a write target) of a Bash command run in dir. Read arguments are not
+// passed here.
+func (g *guard) checkWriteArg(arg, dir string) {
 	if !g.restricted || arg == "" {
 		return
 	}
 	if p, ok := g.phys(arg, dir); ok {
-		g.checkProtected(p)
+		g.checkWrite(p)
 	}
 }
 
@@ -362,56 +366,81 @@ func (g *guard) writeProfile() roles.WriteProfile {
 	return ""
 }
 
-// checkReviewsProfile: a reviewer / deep_dive writes inside this repo's worktrees only under paths.reviews (default
-// docs/reviews) and paths.research. Outside the repo (scratch, /tmp) is not limited.
-func (g *guard) checkReviewsProfile(p string) {
+// profiled: the write profile limits where the role writes (reviews / research).
+func profiled(wp roles.WriteProfile) bool {
+	return wp == roles.WriteReviewsOnly || wp == roles.WriteResearchOnly
+}
+
+// checkWrite is the one path policy of a write to the physical path p, used by every write route the guard sees (the
+// editor tools and the Bash write targets: redirections, tee, cp, mv, rm, sed -i, git checkout/restore paths; RV-83):
+// protected files, then the role's write profile, at p and — when p is a final symlink (phys leaves it intact) — at its
+// destination; a link that cannot be resolved is denied for a profiled role (RV-83 #3). Writes by an interpreter
+// (python -c, node -e) or a script file are not seen at all: an accident guard, not a sandbox.
+func (g *guard) checkWrite(p string) {
+	g.checkProtected(p)
+	wp := g.writeProfile()
+	if !profiled(wp) {
+		return
+	}
+	if why := g.profileDenial(wp, p); why != "" {
+		deny(why)
+	}
+	if fi, err := os.Lstat(p); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return
+	}
+	t, ok := g.linkDest(p)
+	if !ok {
+		deny(p + " is a symlink that cannot be resolved — a " + g.role + " writes only through paths it can resolve")
+	}
+	if why := g.profileDenial(wp, t); why != "" {
+		deny(p + " is a symlink to " + t + ": " + why)
+	}
+}
+
+// profileDenial is the deny reason of the write profile wp for the physical path p, "" when allowed. Inside this repo's
+// worktrees a reviewer / deep_dive writes only under paths.reviews (default docs/reviews) and paths.research, a
+// researcher only under paths.research (default docs/research). Outside the repo (scratch, /tmp) is not limited.
+func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	wt := g.wtOf(p)
 	if wt == "" {
-		return
+		return ""
 	}
 	r := rel(p, wt)
 	paths := g.cfg.Paths()
-	dirs := []string{paths.Reviews}
-	if dirs[0] == "" {
-		dirs[0] = "docs/reviews"
-	}
-	if research := paths.Get("research"); research != "" {
+	research := strings.Trim(paths.Get("research"), "/")
+	var dirs []string
+	instead := "report the change as a finding instead"
+	switch wp {
+	case roles.WriteReviewsOnly:
+		reviews := strings.Trim(paths.Reviews, "/")
+		if reviews == "" {
+			reviews = "docs/reviews"
+		}
+		dirs = append(dirs, reviews)
+		if research != "" {
+			dirs = append(dirs, research)
+		}
+	case roles.WriteResearchOnly:
+		if research == "" {
+			research = "docs/research"
+		}
 		dirs = append(dirs, research)
+		instead = "report the change in the findings doc instead"
+	default:
+		return ""
 	}
 	for _, d := range dirs {
-		d = strings.Trim(d, "/")
 		if strings.HasPrefix(r, d+"/") {
-			return
+			return ""
 		}
 	}
-	deny(r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " +
-		strings.Join(dirs, ", ") + "; report the change as a finding instead")
-}
-
-// checkResearchProfile: a researcher writes inside this repo's worktrees only under paths.research (default
-// docs/research). Outside the repo (scratch, /tmp) is not limited.
-func (g *guard) checkResearchProfile(p string) {
-	wt := g.wtOf(p)
-	if wt == "" {
-		return
-	}
-	r := rel(p, wt)
-	dir := strings.Trim(g.cfg.Paths().Get("research"), "/")
-	if dir == "" {
-		dir = "docs/research"
-	}
-	if strings.HasPrefix(r, dir+"/") {
-		return
-	}
-	deny(r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " + dir +
-		"; report the change in the findings doc instead")
+	return r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " +
+		strings.Join(dirs, ", ") + "; " + instead
 }
 
 // edit guards Edit / Write / MultiEdit / NotebookEdit.
 func (g *guard) edit() {
-	wp := g.writeProfile()
-	profile := wp == roles.WriteReviewsOnly || wp == roles.WriteResearchOnly
-	if !g.restricted && !profile {
+	if !g.restricted && !profiled(g.writeProfile()) {
 		return
 	}
 	if g.target == "" {
@@ -421,13 +450,7 @@ func (g *guard) edit() {
 	if !ok {
 		return
 	}
-	g.checkProtected(p)
-	switch wp {
-	case roles.WriteReviewsOnly:
-		g.checkReviewsProfile(p)
-	case roles.WriteResearchOnly:
-		g.checkResearchProfile(p)
-	}
+	g.checkWrite(p)
 	if g.role != "worker" || g.laneDir == "" {
 		return
 	}

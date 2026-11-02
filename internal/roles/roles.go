@@ -36,17 +36,18 @@ type Role struct {
 	Dispatchable bool
 	Prompt       string // the first prompt of a fresh start of a Claude agent in this role ("": none)
 	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
+	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files (RV-83 #2)
 }
 
 var table = []Role{
 	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
 	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdProject, Write: WriteNone},
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
-	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Worktree: "review", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly},
-	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Worktree: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true},
-	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true},
-	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true},
-	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true},
+	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Worktree: "review", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, GitReadOnly: true},
+	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Worktree: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
+	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
+	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
+	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true, GitReadOnly: true},
 }
 
 // All returns a copy in the stable setup/config order.

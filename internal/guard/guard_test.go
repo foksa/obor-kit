@@ -909,14 +909,14 @@ func TestCdOptionsMoveTheCwd(t *testing.T) {
 	f.Git(P, "worktree", "add", "-q", "--detach", R, "main")
 	os.MkdirAll(R+"/-sub", 0o755)
 	check(t, f.Project, []tc{
-		bash("reviewer", R, "cd -- '"+P+"' && git commit -am x", "git commit -a in the main checkout"),
-		bash("reviewer", R, "cd -P "+P+" && git commit -am x", "commit -a"),
-		bash("reviewer", R, "cd -L "+P+" && git commit -am x", "commit -a"),
-		bash("reviewer", R, "cd -LP -- "+P+"; git commit -am x", "commit -a"),
-		bash("reviewer", P, "cd -- '"+R+"' && git commit -am x", ""),
-		bash("reviewer", P, "cd -P "+R+" && git commit -am x", ""),
-		bash("reviewer", P, "cd -- "+R+"/-sub && git commit -am x", ""),
-		bash("reviewer", R, "cd -- '"+R+"' && git commit -am x", ""),
+		bash("integrator", R, "cd -- '"+P+"' && git commit -am x", "git commit -a in the main checkout"),
+		bash("integrator", R, "cd -P "+P+" && git commit -am x", "commit -a"),
+		bash("integrator", R, "cd -L "+P+" && git commit -am x", "commit -a"),
+		bash("integrator", R, "cd -LP -- "+P+"; git commit -am x", "commit -a"),
+		bash("integrator", P, "cd -- '"+R+"' && git commit -am x", ""),
+		bash("integrator", P, "cd -P "+R+" && git commit -am x", ""),
+		bash("integrator", P, "cd -- "+R+"/-sub && git commit -am x", ""),
+		bash("integrator", R, "cd -- '"+R+"' && git commit -am x", ""),
 	})
 }
 
@@ -927,22 +927,22 @@ func TestCdScopedBySubshellPipelineAndNestedShell(t *testing.T) {
 	P, R := f.P, f.Base+"/review"
 	f.Git(P, "worktree", "add", "-q", "--detach", R, "main")
 	check(t, f.Project, []tc{
-		bash("reviewer", P, "(cd '"+R+"'); git commit -am x", "git commit -a in the main checkout"),
-		bash("reviewer", P, "(cd "+R+") && git commit -am x", "commit -a"),
-		bash("reviewer", P, "cd "+R+" | cat; git commit -am x", "commit -a"),
-		bash("reviewer", P, "cd "+R+" | git commit -am x", "commit -a"),
-		bash("reviewer", P, "cd "+R+" & git commit -am x", "commit -a"),
-		bash("reviewer", P, "echo $(cd "+R+"); git commit -am x", "commit -a"),
-		bash("reviewer", P, "bash -c 'cd "+R+"'; git commit -am x", "commit -a"),
-		bash("reviewer", R, "(cd "+P+" && (cd "+R+") && git commit -am x)", "commit -a"),
-		bash("reviewer", P, "(cd "+R+" && git commit -am x)", ""),
-		bash("reviewer", P, "(cd "+R+"; git commit -am x); echo ok", ""),
-		bash("reviewer", R, "(cd '"+P+"'); git commit -am x", ""),
-		bash("reviewer", R, "cd "+P+" | cat; git commit -am x", ""),
-		bash("reviewer", R, "cd "+P+" & git commit -am x", ""),
-		bash("reviewer", P, "cd "+R+" && git status | cat && git commit -am x", ""),
-		bash("reviewer", P, "case x in x) cd "+R+";; esac; git commit -am x", ""),
-		bash("reviewer", P, "if true; then cd "+R+"; fi; git commit -am x", ""),
+		bash("integrator", P, "(cd '"+R+"'); git commit -am x", "git commit -a in the main checkout"),
+		bash("integrator", P, "(cd "+R+") && git commit -am x", "commit -a"),
+		bash("integrator", P, "cd "+R+" | cat; git commit -am x", "commit -a"),
+		bash("integrator", P, "cd "+R+" | git commit -am x", "commit -a"),
+		bash("integrator", P, "cd "+R+" & git commit -am x", "commit -a"),
+		bash("integrator", P, "echo $(cd "+R+"); git commit -am x", "commit -a"),
+		bash("integrator", P, "bash -c 'cd "+R+"'; git commit -am x", "commit -a"),
+		bash("integrator", R, "(cd "+P+" && (cd "+R+") && git commit -am x)", "commit -a"),
+		bash("integrator", P, "(cd "+R+" && git commit -am x)", ""),
+		bash("integrator", P, "(cd "+R+"; git commit -am x); echo ok", ""),
+		bash("integrator", R, "(cd '"+P+"'); git commit -am x", ""),
+		bash("integrator", R, "cd "+P+" | cat; git commit -am x", ""),
+		bash("integrator", R, "cd "+P+" & git commit -am x", ""),
+		bash("integrator", P, "cd "+R+" && git status | cat && git commit -am x", ""),
+		bash("integrator", P, "case x in x) cd "+R+";; esac; git commit -am x", ""),
+		bash("integrator", P, "if true; then cd "+R+"; fi; git commit -am x", ""),
 	})
 }
 
@@ -976,10 +976,12 @@ func TestRoleWorktreesUnderLanesDirAreNotLanes(t *testing.T) {
 	b, _ := json.Marshal(cfg)
 	f.Write(".obor/config.json", string(b))
 	check(t, f.Project, []tc{
-		bash("reviewer", V, "git commit -m x", ""),
-		bash("reviewer", V, "git checkout -b review-notes", ""),
+		bash("reviewer", V, "git commit -m x", "a reviewer doesn't run git commit"),
+		bash("reviewer", V, "git checkout -b review-notes", "a reviewer doesn't run git checkout"),
+		bash("reviewer", V, "git status", ""),
 		bash("-", V, "git commit -m x", ""),
-		bash("advisor", A, "git commit -m x", ""),
+		bash("advisor", A, "git commit -m x", "an advisor doesn't run git commit"),
+		bash("advisor", A, "git log -3", ""),
 		bash("reviewer", V, "echo x > src/core/types.ts", "src/core/types.ts is a protected file"),
 		edit("reviewer", V, "Edit", V+"/src/core/types.ts", "protected"),
 		bash("reviewer", V, "git push", "git push"),
@@ -996,20 +998,20 @@ func TestCpChecksItsTargetNotItsSources(t *testing.T) {
 	P, L, out := f.P, f.L, f.Base+"/outside"
 	f.Write(out+"/types.ts", "")
 	check(t, f.Project, []tc{
-		bash("reviewer", P, "cp src/core/types.ts /tmp/copy", ""),
-		bash("reviewer", P, "cp src/core/types.ts "+out+"/copy.ts", ""),
+		bash("integrator", P, "cp src/core/types.ts /tmp/copy", ""),
+		bash("integrator", P, "cp src/core/types.ts "+out+"/copy.ts", ""),
 		bash("integrator", P, "cp -p src/core/types.ts src/core/types.ts.bak", ""),
-		bash("reviewer", P, "cp -- src/core/types.ts src/core/other.ts "+out, ""),
-		bash("reviewer", P, "cp -t "+out+" src/core/types.ts", ""),
+		bash("integrator", P, "cp -- src/core/types.ts src/core/other.ts "+out, ""),
+		bash("integrator", P, "cp -t "+out+" src/core/types.ts", ""),
 		bash("-", L, "cp src/core/types.ts /tmp/copy", ""),
-		bash("reviewer", P, "cp /tmp/other.ts src/core/", ""),
-		bash("reviewer", P, "cp /tmp/x src/core/types.ts", "src/core/types.ts is a protected file"),
-		bash("reviewer", P, "cp -f -- /tmp/x src/core/types.ts", "protected"),
-		bash("reviewer", P, "cp "+out+"/types.ts src/core/", "protected"),
-		bash("reviewer", P, "cp -r "+out+"/types.ts src/core", "protected"),
-		bash("reviewer", P, "cp -t src/core "+out+"/types.ts", "protected"),
-		bash("reviewer", P, "cp --target-directory=src/core "+out+"/types.ts", "protected"),
-		bash("reviewer", P, "mv src/core/types.ts /tmp/x", "protected"),
+		bash("integrator", P, "cp /tmp/other.ts src/core/", ""),
+		bash("integrator", P, "cp /tmp/x src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("integrator", P, "cp -f -- /tmp/x src/core/types.ts", "protected"),
+		bash("integrator", P, "cp "+out+"/types.ts src/core/", "protected"),
+		bash("integrator", P, "cp -r "+out+"/types.ts src/core", "protected"),
+		bash("integrator", P, "cp -t src/core "+out+"/types.ts", "protected"),
+		bash("integrator", P, "cp --target-directory=src/core "+out+"/types.ts", "protected"),
+		bash("integrator", P, "mv src/core/types.ts /tmp/x", "protected"),
 	})
 }
 
@@ -1132,7 +1134,8 @@ func TestReviewerAndDeepDiveDefaultWorktreesAreNotLanes(t *testing.T) {
 	var cases []tc
 	for role, wt := range map[string]string{"reviewer": rev, "deep_dive": dd} {
 		cases = append(cases,
-			bash(role, wt, "git checkout -q --detach main", ""),
+			bash(role, wt, "git checkout -q --detach main", "doesn't run git checkout"), // the lead detaches it (RV-83 #2)
+			bash(role, wt, "git log -1", ""),
 			edit(role, wt, "Write", wt+"/notes.md", "outside the "+role+" write profile"),
 			edit(role, wt, "Write", wt+"/docs/reviews/notes.md", ""),
 			edit(role, wt, "Write", wt+"/src/core/types.ts", "protected"))
@@ -1179,7 +1182,8 @@ func TestReviewsWriteProfile(t *testing.T) {
 			edit(rv, P, "Edit", P+"/src/core/types.ts", "src/core/types.ts is a protected file"))
 	}
 	check(t, f.Project, append(cases,
-		bash("reviewer", P, "echo x > src/a/x.ts", ""), // Bash is not profiled (only protected files)
+		bash("reviewer", P, "echo x > src/a/x.ts", "src/a/x.ts is outside the reviewer write profile"), // RV-83 #1
+		bash("integrator", P, "echo x > src/a/x.ts", ""),
 		edit("integrator", P, "Edit", P+"/src/a/x.ts", ""),
 		edit("advisor", P, "Edit", P+"/src/a/x.ts", ""),
 	))
@@ -1257,7 +1261,7 @@ func TestOldBashBypassesDenied(t *testing.T) {
 		bash("integrator", L, "D="+P+"; cd $D && git commit -am x", "commit -a"),
 		bash("integrator", L, "D="+P+`; cd "$D" && git commit -am x`, "commit -a"),
 		// Writers: mv into a directory, git checkout/restore, symlinks.
-		bash("reviewer", P, "mv "+out+"/types.ts src/core", "src/core/types.ts is a protected file"),
+		bash("integrator", P, "mv "+out+"/types.ts src/core", "src/core/types.ts is a protected file"),
 		bash("integrator", P, "git checkout main -- src/core/types.ts", "protected"),
 		bash("integrator", P, "git restore --source main src/core/types.ts", "protected"),
 		bash("-", L, "echo x > link.ts", "src/core/types.ts is a protected file"),
@@ -1435,6 +1439,117 @@ func TestUnescapeAndFields(t *testing.T) {
 	}{{`a\ b`, false, "a b"}, {`\$x`, false, "$x"}, {"a\\\nb", false, "ab"}, {`\n\"`, true, `\n"`}, {`\$\\`, true, `$\`}} {
 		if got := unescape(c.in, c.quoted); got != c.want {
 			t.Errorf("unescape(%q, %v) = %q, want %q", c.in, c.quoted, got, c.want)
+		}
+	}
+}
+
+// RV-83 #1-3 (T-706): one path policy per role for every write route. A researcher (docs/research) and a reviewer /
+// deep_dive (docs/reviews) are held to their write profile by shell write targets as by the editor tools, a final
+// symlink is checked at its destination, and they run git reads only.
+func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P := f.P
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("paths.research", "docs/research"))
+	f.Write(P+"/internal/a.go", "package a\n")
+	for _, d := range []string{"docs/research", "docs/reviews"} {
+		os.MkdirAll(P+"/"+d, 0o755)
+		f.Write(P+"/"+d+"/a.md", "x\n")
+		link(t, P+"/"+d+"/l", P+"/internal/a.go")
+		link(t, P+"/"+d+"/loop", P+"/"+d+"/loop")
+	}
+	if fi, err := os.Lstat(P + "/docs/research/l"); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("precondition: docs/research/l is a symlink")
+	}
+	var cases []tc
+	for _, c := range []struct{ role, dir string }{{"researcher", "docs/research"}, {"reviewer", "docs/reviews"},
+		{"deep_dive", "docs/reviews"}} {
+		rl, d := c.role, c.dir
+		out := "outside the " + rl + " write profile"
+		cases = append(cases,
+			// Editor tools.
+			edit(rl, P, "Write", P+"/"+d+"/a.md", ""),
+			edit(rl, P, "Write", P+"/internal/a.go", "internal/a.go is "+out),
+			edit(rl, P, "Write", P+"/"+d+"/l", d+"/l is a symlink to "+P+"/internal/a.go: internal/a.go is "+out),
+			edit(rl, P, "Edit", P+"/"+d+"/loop", "is a symlink that cannot be resolved"),
+			// Shell write targets.
+			bash(rl, P, "printf x > internal/a.go", "internal/a.go is "+out),
+			bash(rl, P, "printf x >> "+d+"/a.md", ""),
+			bash(rl, P, "echo x | tee internal/a.go", "internal/a.go is "+out),
+			bash(rl, P, "cp "+d+"/a.md internal/", "internal/a.md is "+out),
+			bash(rl, P, "sed -i '' s/a/b/ internal/a.go", "internal/a.go is "+out),
+			bash(rl, P, "rm internal/a.go", "internal/a.go is "+out),
+			bash(rl, P, "sed -i s/a/b/ internal/a.go", "internal/a.go is "+out),
+			bash(rl, P, "sed -i '' s/a/b/ "+d+"/a.md", ""),
+			bash(rl, P, "mv internal/a.go "+d+"/", "internal/a.go is "+out),
+			bash(rl, P, "mv "+d+"/a.md "+d+"/", ""),
+			bash(rl, P, "mv "+d+"/a.md internal/b.go", "internal/b.go is "+out),
+			bash(rl, P, "printf x > "+d+"/l", d+"/l is a symlink to "+P+"/internal/a.go"),
+			bash(rl, P, "echo x | tee "+d+"/loop", "cannot be resolved"),
+			bash(rl, P, "printf x > src/core/types.ts", "src/core/types.ts is a protected file"),
+			// Reads and writes outside the repo.
+			bash(rl, P, "cat internal/a.go", ""),
+			bash(rl, P, "cp internal/a.go "+d+"/", ""),
+			bash(rl, P, "go vet ./... > /dev/null 2>&1", ""),
+			bash(rl, P, "printf x > "+f.Base+"/outside/scratch.txt", ""),
+			// git: reads only.
+			bash(rl, P, "git log", ""),
+			bash(rl, P, "git branch", ""),
+			bash(rl, P, "git branch -av", ""),
+			bash(rl, P, "git branch --list 'task/*'", ""),
+			bash(rl, P, "git config --get user.name", ""),
+			bash(rl, P, "git status --short", ""),
+			bash(rl, P, "git branch x", "doesn't run git branch x"),
+			bash(rl, P, "git branch -D x", "doesn't run git branch -D"),
+			bash(rl, P, "git branch -m x y", "doesn't run git branch"),
+			bash(rl, P, "git update-ref refs/heads/x HEAD", "doesn't run git update-ref"),
+			bash(rl, P, "git config --local x y", "doesn't run git config"),
+			bash(rl, P, "git config --unset x", "doesn't run git config"),
+			bash(rl, P, "git -C "+P+" tag v1", "doesn't run git tag"),
+			bash(rl, P, "git stash", "doesn't run git stash"),
+			bash(rl, P, "git fetch", "doesn't run git fetch"),
+			bash(rl, P, "git diff --output=internal/a.go", "doesn't run git diff"),
+		)
+	}
+	check(t, f.Project, append(cases,
+		// Roles without a profile keep their rules: the integrator commits and writes; the worker rules are unchanged.
+		bash("integrator", P, "printf x > internal/a.go", ""),
+		bash("integrator", P, "git branch x", ""),
+		bash("integrator", P, "git config --local x y", ""),
+		edit("integrator", P, "Write", P+"/docs/research/l", ""),
+		bash("worker", f.L, "git branch x", ""),
+		bash("worker", f.L, "git branch -D x", "workers don't run git branch -D"),
+		bash("worker", f.L, "git log", ""),
+		bash("advisor", P, "git commit -m x", "an advisor doesn't run git commit"),
+		bash("advisor", P, "git diff", ""),
+	))
+}
+
+// gitRead's forms that read only in some shapes (RV-83 #2).
+func TestGitReadForms(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		read bool
+	}{
+		{"status", true}, {"log --oneline -3", true}, {"show HEAD:x", true}, {"blame x", true}, {"grep x", true},
+		{"ls-files", true}, {"rev-parse HEAD", true}, {"branch", true}, {"branch -a", true}, {"branch -vv", true},
+		{"branch --show-current", true}, {"branch --contains HEAD", true}, {"branch -l t*", true},
+		{"branch --sort=-committerdate", true}, {"branch x", false}, {"branch -d x", false}, {"branch -c x y", false},
+		{"branch --set-upstream-to=o/x", false}, {"branch -f x HEAD", false},
+		{"config --get a.b", true}, {"config --list", true}, {"config -l", true}, {"config a.b", true},
+		{"config get a.b", true}, {"config a.b c", false}, {"config --local a.b c", false}, {"config set a.b c", false},
+		{"config --add a.b c", false}, {"config --unset a.b", false}, {"config --get --unset a.b", false},
+		{"remote", true}, {"remote -v", true}, {"remote get-url origin", true}, {"remote add o u", false},
+		{"remote set-url o u", false}, {"tag", true}, {"tag -l v*", true}, {"tag v1", false}, {"tag -d v1", false},
+		{"stash", false}, {"stash list", true}, {"stash show", true}, {"stash pop", false},
+		{"worktree list", true}, {"worktree add x", false}, {"reflog", true}, {"reflog expire --all", false},
+		{"diff --output=x", false}, {"log --output x", false},
+		{"update-ref r HEAD", false}, {"symbolic-ref HEAD r", false}, {"fetch", false}, {"pull", false},
+		{"gc", false}, {"notes add", false}, {"commit -m x", false}, {"add x", false},
+	} {
+		w := strings.Fields(c.cmd)
+		if got := gitRead(w[0], w[1:]); got != c.read {
+			t.Errorf("git %s: read %v, want %v", c.cmd, got, c.read)
 		}
 	}
 }
