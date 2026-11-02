@@ -163,8 +163,8 @@ func (e noLaneError) laneWait() string {
 
 // resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types; the spec's `Type:` types first) when it names neither a lane
 // nor types (--types), else leaves it (a waiting task's request carries its level and types): the types a lane has,
-// and note the level's fallback when none of its own types has one (T-629). Why not: no level in the spec, or none of
-// its types in the project.
+// and note the level's fallback types it used when none of its own types has one (T-629). Why not: no level in the
+// spec, or neither a `Type:` type nor a type of the level in the project (RV-79 #1: a named type alone dispatches).
 func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err error) {
 	if c.Lane != "" || len(c.Types) > 0 {
 		return "", nil
@@ -175,11 +175,12 @@ func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err er
 			"with --types a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
 	types, _ := cfg.DifficultyTypes(level)
-	if len(types) == 0 {
+	all := specFirst(cfg, text, types) // RV-79 #1: the spec's Type: types count before a refusal
+	if len(all) == 0 {
 		return "", fmt.Errorf("no lane type of level %s in this project (obor config get difficulty): dispatch with --types a,b", level)
 	}
-	c.Level, c.Types = level, specFirst(cfg, text, types)
-	if len(cfg.DifficultyLevelTypes(level)) == 0 {
+	c.Level, c.Types = level, all
+	if len(types) > 0 && len(cfg.DifficultyLevelTypes(level)) == 0 {
 		note = fmt.Sprintf(" (level %s has no lane: using %s)", level, strings.Join(types, ", "))
 	}
 	return note, nil
