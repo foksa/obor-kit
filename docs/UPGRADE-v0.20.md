@@ -1,7 +1,9 @@
 # Upgrading an obor project from v0.19 to v0.20
 
 ## v0.20.0 (lanes are a pool)
-Re-run the installer, then `obor serve restart` in each project.
+Re-run the installer, then `obor serve restart` in each project and restart its `obor monitor` and `obor web`
+panes once (v0.19 binaries cannot follow a new binary; from v0.20 on serve, monitor and web restart themselves on a
+new binary within a minute).
 
 - **Untyped lanes pool the work**: `lanes.<LANE>` may be `""` (any type). A task's `Type:` and `Difficulty:` pick the
   model and effort per dispatch, and a free untyped lane takes it; the worktree, pane and label are reused. To pool a
