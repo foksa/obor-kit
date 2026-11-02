@@ -1193,6 +1193,9 @@ sub:
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
 	}
+	if g.role == "researcher" && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
+		deny("a researcher doesn't run git " + sub + " — it writes only under docs/research and leaves them uncommitted; the lead commits (status, diff, log, show are fine)")
+	}
 	if g.role != "worker" {
 		// Non-workers may check out / restore, but not over a protected file.
 		if sub == "checkout" || sub == "restore" {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -605,5 +606,24 @@ func TestDifficultyTypes(t *testing.T) {
 	}
 	if got := strings.Join(cfg.DifficultyList("hard"), ","); got != "opus:high" {
 		t.Errorf("DifficultyList(hard) = %q, want the built-in opus:high", got)
+	}
+}
+
+// T-704: roles.researcher is a known role: a type validates, a type that is no lane_type fails, and a lane named like
+// its agent collides.
+func TestValidateAcceptsTheResearcherRole(t *testing.T) {
+	p := newProject(t)
+	if got := validate(t, p, set("roles.researcher", `{"type": "opus"}`)); len(got) != 0 {
+		t.Errorf("validate = %q, want none", got)
+	}
+	if got := validate(t, p, set("roles.researcher", `{"type": "nosuchtype"}`)); len(got) == 0 {
+		t.Error("validate accepts roles.researcher.type that is no lane_type")
+	}
+	got := validate(t, p, set("roles.researcher", `{"type": "opus"}`), func(c map[string]any) {
+		c["lanes"].(map[string]any)["RESEARCHER"] = "opus"
+	})
+	want := `FAIL .lanes.RESEARCHER: agent "pj-researcher" collides with a role agent`
+	if !slices.Contains(got, want) {
+		t.Errorf("validate = %q, want it to contain %q", got, want)
 	}
 }

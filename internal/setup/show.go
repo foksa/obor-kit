@@ -152,10 +152,10 @@ func (s *Setup) lanesOfTypes(types []string) string {
 }
 
 // rolesLine is the lead's, the integrator's and the reviewer's types, then every other configured role's (deep dive,
-// triage, advisor) as type references: "lead opus:high (opus, effort high), integrator opus (opus, effort medium), …".
+// triage, advisor, researcher) as type references: "lead opus:high (opus, effort high), integrator opus (opus, effort medium), …".
 func (s *Setup) rolesLine() string {
 	var parts []string
-	for _, role := range []string{"lead", "integrator", "reviewer", "deep_dive", "triage", "advisor"} {
+	for _, role := range []string{"lead", "integrator", "reviewer", "deep_dive", "triage", "advisor", "researcher"} {
 		rc, _ := s.cfg.Role(role)
 		if !rc.Configured && role != "lead" && role != "integrator" && role != "reviewer" {
 			continue

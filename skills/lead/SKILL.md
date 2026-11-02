@@ -82,7 +82,10 @@ none are typed into your pane. `obor status` lists the ones not delivered yet.
 ## Decide and record
 Direction-setting questions go to the user (ask the advisor before a hard-to-reverse decision; follow-ups and a
 requested change go to the same session; once its answer needs no follow-up, `obor restart <advisor> --stop`: it is
-never kept for a later, unrelated question, the next brief starts it clean). Owner away: decide
+never kept for a later, unrelated question, the next brief starts it clean). Research (reading docs, source,
+binaries; a findings doc) goes to the researcher: `obor brief <researcher> "…"`, it writes only `docs/research/` in the
+main checkout and you commit it; stop it when done. A result that should be reviewed and merged goes to a worker lane
+as a task whose deliverable is `docs/research/<topic>.md`; a subagent only for a quick lookup inside your own turn. Owner away: decide
 reversible calls. Decisions → `docs/decisions.md`; concerns and open items → `BACKLOG.md`. The second finding in
 one function or invariant (two strikes) ends probe-sized fixes: spec a whole-function rewrite with a case → test
 table. Fix specs list every entry point of the finding's Extent line, one test each. Models: the strongest for

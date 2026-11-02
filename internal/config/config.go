@@ -214,6 +214,7 @@ type Roles struct {
 	DeepDive   *RoleEntry `json:"deep_dive,omitempty"`
 	Triage     *RoleEntry `json:"triage,omitempty"`
 	Advisor    *RoleEntry `json:"advisor,omitempty"`
+	Researcher *RoleEntry `json:"researcher,omitempty"`
 	Leads      any        `json:"leads,omitempty"` // removed in v0.12.0 (T-467): validate warns
 }
 
@@ -239,7 +240,7 @@ func (c *Config) SetupConfirmed() bool {
 // entry is roles.<name>; nil when not configured.
 func (r *Roles) entry(name string) *RoleEntry {
 	return map[string]*RoleEntry{"lead": r.Lead, "integrator": r.Integrator, "worker": r.Worker, "reviewer": r.Reviewer,
-		"deep_dive": r.DeepDive, "triage": r.Triage, "advisor": r.Advisor}[name]
+		"deep_dive": r.DeepDive, "triage": r.Triage, "advisor": r.Advisor, "researcher": r.Researcher}[name]
 }
 
 // MCP is the mcp section: jobs was the switch of obor serve's jobs by fetch (app-mcp), always on since T-437.

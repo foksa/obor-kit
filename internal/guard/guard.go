@@ -388,9 +388,29 @@ func (g *guard) checkReviewsProfile(p string) {
 		strings.Join(dirs, ", ") + "; report the change as a finding instead")
 }
 
+// checkResearchProfile: a researcher writes inside this repo's worktrees only under paths.research (default
+// docs/research). Outside the repo (scratch, /tmp) is not limited.
+func (g *guard) checkResearchProfile(p string) {
+	wt := g.wtOf(p)
+	if wt == "" {
+		return
+	}
+	r := rel(p, wt)
+	dir := strings.Trim(g.cfg.Paths().Get("research"), "/")
+	if dir == "" {
+		dir = "docs/research"
+	}
+	if strings.HasPrefix(r, dir+"/") {
+		return
+	}
+	deny(r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " + dir +
+		"; report the change in the findings doc instead")
+}
+
 // edit guards Edit / Write / MultiEdit / NotebookEdit.
 func (g *guard) edit() {
-	profile := g.writeProfile() == roles.WriteReviewsOnly
+	wp := g.writeProfile()
+	profile := wp == roles.WriteReviewsOnly || wp == roles.WriteResearchOnly
 	if !g.restricted && !profile {
 		return
 	}
@@ -402,8 +422,11 @@ func (g *guard) edit() {
 		return
 	}
 	g.checkProtected(p)
-	if profile {
+	switch wp {
+	case roles.WriteReviewsOnly:
 		g.checkReviewsProfile(p)
+	case roles.WriteResearchOnly:
+		g.checkResearchProfile(p)
 	}
 	if g.role != "worker" || g.laneDir == "" {
 		return

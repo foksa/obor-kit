@@ -164,7 +164,7 @@ type Input struct {
 const RoleStopped = "stopped"
 
 // roleNames is the roles a Role row is listed for (the worker's are the lanes, the lead is the reader).
-var roleNames = []string{"integrator", "reviewer", "deep_dive", "advisor"}
+var roleNames = []string{"integrator", "reviewer", "deep_dive", "advisor", "researcher"}
 
 // Build is the project's view: serve's answer joined to the lane table and the store. Serve down: its error, no
 // agents and no roles (nothing stale), the lanes from git and the store alone.

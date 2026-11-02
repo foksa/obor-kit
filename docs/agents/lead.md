@@ -29,7 +29,9 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   (a review start does it itself). Keep one only while its context is still needed (a reviewer until its verify, an
   advisor with a follow-up pending); stop it right after.
 - Every agent run is an interactive agent in a herdr pane, never headless (`codex exec`, `claude -p`) or an in-process
-  subagent.
+  subagent, except a quick lookup inside the lead's own turn. Research goes to the researcher (`obor brief <researcher>
+  "…"`; it writes only `docs/research/` in the main checkout, the lead commits; stop it when done), or, when the result
+  should be reviewed and merged, to a worker lane as a task whose deliverable is `docs/research/<topic>.md`.
 
 ## Models and limits (user)
 Opus by default for anything non-trivial; Sonnet only for small, well-specified tasks and docs; Haiku for simple or
