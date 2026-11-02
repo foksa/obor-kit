@@ -950,26 +950,36 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 	hasNot(t, calls, "agent.start", "no agent start")
 }
 
-// bash setup.test.sh case_pane_refuses_a_type_at_its_max
-// T-741: max counts running agents in lanes of the type; a role agent of the type is not counted.
-func TestPaneRefusesATypeAtItsMax(t *testing.T) {
+// T-741: only dispatch enforces lane_types.<type>.max; setup places a lane pane and a role pane of a type at its max.
+func TestPaneIgnoresATypeAtItsMax(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("lane_types.opus.max", 2), testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
-	for _, l := range [][2]string{{"O-01", "opus"}, {"O-02", "opus"}, {"O-03", "opus"}, {"T-01", "luna"}} {
-		x.ok(t, "lane", l[0], l[1])
+	roles := testkit.Set("roles", `{"lead": {"type": "opus"}, "integrator": {"type": "opus"}}`)
+	setup := func(t *testing.T) *fx {
+		x := newFx(t, testkit.Set("lane_types.opus.max", 1), roles)
+		for _, l := range []string{"O-01", "O-02"} {
+			x.ok(t, "lane", l, "opus")
+		}
+		// opus is at its max of 1: a lane agent and a role agent run, and both would have counted before.
+		x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-int", x.Root})
+		x.reset()
+		return x
 	}
-	x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-int", x.Root}, [2]string{"pj-t-01", x.LaneDir("T-01")})
-	x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-o-02 pane_id=w1:n1",
-		"precondition: 1 opus lane agent (and a running opus integrator) is under the max of 2")
-
-	x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-o-03", x.LaneDir("O-03")}, [2]string{"pj-int", x.Root},
-		[2]string{"pj-t-01", x.LaneDir("T-01")})
-	x.reset()
-	x.failing(t, "FAIL lane type opus is at its max (2 of 2 agents running)", "pane", "--start", "O-02", "--tab", "w1:t1")
-	if got := x.reqs(); strings.Join(got, ",") != "agent.list" {
-		t.Errorf("nothing after the agent list: %v", got)
-	}
+	t.Run("a lane pane of a type at max is placed", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-o-02",
+			"started")
+	})
+	t.Run("a role pane of a type at max is placed", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		out, rc := x.run(t, "role", "lead", "--new-tab", "lead", "--start")
+		if rc != 0 {
+			t.Fatalf("exit %d\n%s", rc, out)
+		}
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead", "started")
+	})
 }
 
 // R-28 §2: the new pane is labelled the agent name before the start; a label another pane holds, or --pane labelled
@@ -1516,46 +1526,6 @@ func TestHerdrPluginRelinksAnotherKitsPlugin(t *testing.T) {
 func gitIn(dir string, args ...string) (string, error) {
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
 	return strings.TrimSpace(string(out)), err
-}
-
-// --- lead max ---------------------------------------------------------------------------------------------------------
-
-// T-741 (was RV-30 #2, T-273): a role pane is never refused by max, whether the running agents are lane agents at the
-// max or role agents of the type (the lead by its effective type included); a lane pane at max is refused as before.
-func TestRolePaneIsNeverRefusedByMax(t *testing.T) {
-	t.Parallel()
-	maxOpus := testkit.Set("lane_types.opus.max", 1)
-	roles := `{"lead": {"type": "opus"}, "integrator": {"type": "opus"}}`
-	t.Run("a role pane of a type already at max by its lane agents is placed", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, maxOpus, testkit.Set("roles", roles))
-		x.ok(t, "lane", "O-01", "opus")
-		x.running([2]string{"pj-o-01", x.LaneDir("O-01")})
-		x.reset()
-		out, rc := x.run(t, "role", "lead", "--new-tab", "lead", "--start")
-		if rc != 0 {
-			t.Fatalf("exit %d\n%s", rc, out)
-		}
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead", "started")
-	})
-	t.Run("a running opus role agent does not count against a lane pane", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, maxOpus, testkit.Set("roles", roles))
-		x.ok(t, "lane", "O-01", "opus")
-		x.running([2]string{"pj-int", x.Root})
-		x.reset()
-		x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start", "started")
-	})
-	t.Run("a lane pane at max is refused", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, maxOpus, testkit.Set("roles", roles))
-		x.ok(t, "lane", "O-01", "opus")
-		x.ok(t, "lane", "O-02", "opus")
-		x.running([2]string{"pj-o-01", x.LaneDir("O-01")})
-		x.reset()
-		x.failing(t, "FAIL lane type opus is at its max (1 of 1 agents running)", "pane", "--start", "O-02", "--tab", "w1:t1")
-	})
 }
 
 // --- agents (T-306, DD-v0.13 B1) -------------------------------------------------------------------------------------

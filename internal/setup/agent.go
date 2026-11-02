@@ -202,23 +202,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return nil
 		}
 	}
-	if lt.Max > 0 && a.lane != "" { // max caps worker lanes only: a role pane is never refused by it (T-741)
-		n := 0
-		dirs := map[string]bool{}
-		for _, l := range s.cfg.Lanes() {
-			if l.Type == a.typ {
-				dirs[l.Dir] = true
-			}
-		}
-		for _, r := range running {
-			if dirs[r.Cwd] {
-				n++
-			}
-		}
-		if n >= lt.Max {
-			return project.Failf("lane type %s is at its max (%d of %d agents running)", a.typ, n, lt.Max)
-		}
-	}
 	panes, err := s.H.Panes(ctx)
 	if err != nil {
 		return project.Failf("herdr pane list failed")
