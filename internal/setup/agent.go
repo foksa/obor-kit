@@ -202,12 +202,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return nil
 		}
 	}
-	if lt.Max > 0 {
+	if lt.Max > 0 && a.lane != "" { // max caps worker lanes only: a role pane is never refused by it (T-741)
 		n := 0
-		names := map[string]bool{}
-		for _, name := range s.cfg.RoleAgentsOfType(a.typ) {
-			names[name] = true
-		}
 		dirs := map[string]bool{}
 		for _, l := range s.cfg.Lanes() {
 			if l.Type == a.typ {
@@ -215,7 +211,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			}
 		}
 		for _, r := range running {
-			if dirs[r.Cwd] || names[r.Name] {
+			if dirs[r.Cwd] {
 				n++
 			}
 		}

@@ -19,7 +19,7 @@
 //	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).
 //	        Refuses a full tab
 //	        (limits.max_panes_per_tab, default 4) and a type at its max (lane_types.<type>.max: running agents in lanes
-//	        of that type and role agents of that type). A failed start with a trust dialog or a Codex self-update in the
+//	        of that type; a role pane is never refused by it, T-741). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root (the reviewer

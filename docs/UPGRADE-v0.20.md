@@ -21,8 +21,8 @@ There is no `obor config set`: edit `.obor/config.json` by hand.
    then `obor setup role reviewer` and `obor setup role deep_dive` (this adds the reviews ignore to `.gitignore` and
    places the pane in the main checkout), then `obor brief` starts them fresh. Remove the old review and deep-dive
    worktrees afterwards.
-4. **Dispatch caps changed.** `max` counts open dispatches plus the configured role agents of the type: three opus
-   roles and `max: 4` leave one opus slot. Raise `max` if dispatch now starves.
+4. **Dispatch caps changed.** `max` caps open worker dispatches of the type; role agents never count (nor does
+   `obor setup role` refuse a role pane at `max`).
 5. **Merge hold.** While a reviewer or deep dive works, serve holds merges, for at most 30 minutes; then the publish
    goes ahead and the lead gets one line.
 

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -972,24 +971,6 @@ func (c *Config) LaneTakes(typ string) bool {
 		}
 	}
 	return false
-}
-
-// RoleAgentsOfType is the agent names of the roles configured with lane type typ (the lead by its own type), sorted:
-// obor setup pane's count of a type's agents (T-723). A dispatch's lane_types max does not count them: it caps worker
-// tasks only (T-738).
-func (c *Config) RoleAgentsOfType(typ string) []string {
-	var out []string
-	for _, r := range roles.All() {
-		rc, _ := c.Role(r.Name)
-		if rc.Type != typ || r.Name != "lead" && !rc.Configured {
-			continue
-		}
-		if name := c.AgentName(r.Name, ""); !slices.Contains(out, name) {
-			out = append(out, name)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A
