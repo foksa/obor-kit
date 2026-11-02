@@ -19,7 +19,12 @@ The lead, in a clean checkout on main:
    empty, or when a merge after the last `RV-<n> closed` commit changes anything but docs (`docs/` or a `.md` file):
    run `obor review` and close it first. `UNREVIEWED="<why>"` overrides the last refusal (the owner's call only) and
    puts the reason in the tag message. Then it sets `VERSION` and
-   the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on main. In a scratch
+   the plugin `version`, runs the full `make check` (a failure commits nothing), and commits them on main. The whole run is also written to
+   `.obor/state/logs/release-<x.y.z>.log` (a re-run appends; `--dry-run` writes none), and every `FAIL` line names that log.
+   When `make check` fails only in `go test` packages, those packages run once more in one `go test <pkgs>`: if all
+   pass, the release goes on, prints `FLAKY: <pkg> <test> (failed, passed on rerun)` and records it in the flake log
+   (`obor flakes`); if any fails again it is refused, naming the tests. A failure outside `go test` (build, vet, gofmt,
+   deadcode) refuses at once, with no rerun. In a scratch
    worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
    worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
