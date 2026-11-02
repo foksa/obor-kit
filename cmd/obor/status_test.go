@@ -806,3 +806,59 @@ func roleRowOf(t *testing.T, st view.Project, agent string) *view.Role {
 	}
 	return nil
 }
+
+// T-688: --json's events carry bad only when true: a red gate and a hold do, a green gate whose summary counts a fail
+// does not (its record has no bad key at all).
+func TestStatusEventsBad(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	now := time.Now().Truncate(time.Second)
+	addEvent(t, p.Root, now.Add(-3*time.Minute), app.KindResult, "T-1", app.StepGate,
+		map[string]any{"outcome": "green", "line": "check 25 pass, 0 fail"})
+	addEvent(t, p.Root, now.Add(-2*time.Minute), app.KindResult, "T-2", app.StepGate,
+		map[string]any{"outcome": "red", "line": "e2e failed"})
+	addEvent(t, p.Root, now.Add(-time.Minute), app.KindFact, "T-3", app.StepNeedsYou,
+		map[string]any{"reason": "held: decide", "cause": "held"})
+	ss := app.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &app.ProjectStatus{Name: "pj", Root: p.Root, Merging: true}}
+	st, _ := statusOf(t, p, ss, nil, now)
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var js struct {
+		Events []map[string]json.RawMessage `json:"events"`
+	}
+	if err := json.Unmarshal(b, &js); err != nil {
+		t.Fatal(err)
+	}
+	// Newest first, then serve's own start (up here), which is no bad record.
+	want := []struct {
+		task string
+		bad  bool
+	}{{"T-3", true}, {"T-2", true}, {"T-1", false}, {"", false}}
+	if len(js.Events) != len(want) {
+		t.Fatalf("--json has %d events, want the three records and serve's start: %s", len(js.Events), b)
+	}
+	for i, w := range want {
+		e := js.Events[i]
+		task := ""
+		if raw, ok := e["task"]; ok {
+			if err := json.Unmarshal(raw, &task); err != nil {
+				t.Fatal(err)
+			}
+		}
+		raw, ok := e["bad"]
+		if task != w.task || ok != w.bad {
+			t.Errorf("event %d task %q, bad key %v; want %q, present %v", i, task, ok, w.task, w.bad)
+			continue
+		}
+		if ok {
+			var bad bool
+			if err := json.Unmarshal(raw, &bad); err != nil || !bad {
+				t.Errorf("event %d bad %s, want true", i, raw)
+			}
+		}
+	}
+}

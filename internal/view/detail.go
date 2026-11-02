@@ -294,7 +294,7 @@ func taskRecords(db *sql.DB, task string, n int) ([]taskRecord, error) {
 		if len(data) > 0 {
 			r.data = data
 		}
-		r.Line = eventLine(app.Record{Task: task, Step: r.Step, Kind: r.Kind, Data: r.data})
+		r.Line, _ = eventLine(app.Record{Task: task, Step: r.Step, Kind: r.Kind, Data: r.data})
 		out = append(out, r)
 	}
 	return out, rows.Err()

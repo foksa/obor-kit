@@ -302,12 +302,13 @@ func queueRows(st view.Project, o renderOpts, p palette) []string {
 	return out
 }
 
-// eventRows is EVENTS: the recent events, newest first, the local time dim, a failure or a hold in red.
+// eventRows is EVENTS: the recent events, newest first, the local time dim, an event the view marks bad (a red gate, a
+// hold) in red.
 func eventRows(st view.Project, o renderOpts, p palette) []string {
 	out := []string{title("EVENTS", o, p, nil)}
 	for _, e := range st.Events {
 		line := oneLine(e.Line)
-		if strings.Contains(line, " fail") || strings.HasPrefix(line, "held ") {
+		if e.Bad {
 			line = p.red(line)
 		}
 		out = append(out, "  "+p.dim(e.At.In(o.zone()).Format("15:04:05"))+"  "+line)
