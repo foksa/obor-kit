@@ -51,6 +51,8 @@ type dispatchFakes struct {
 // newDispatchRig is the merge loop's rig with the dispatch adapters and O-01 free; edits change the config further.
 func newDispatchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
+	// The live lane is typed sonnet: the config has that lane type (T-738 refuses a --types it lacks).
+	edits = append([]func(map[string]any){testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"})}, edits...)
 	r := newLoopRig(t, "echo 1 pass", edits...)
 	r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
 		fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}

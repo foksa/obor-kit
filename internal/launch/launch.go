@@ -328,13 +328,17 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 }
 
 // dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
-// kind): typ, the launch's (its effort is the launch's own), else a lane agent's lane row type with its effort;
-// neither: the configured type and effort stay.
+// kind): typ, the launch's (its effort is the launch's own), else the type a lane agent's row's dispatch runs with its
+// effort (store.LaneTypeRef: a row from before T-721 records none, the lane's configured type); neither: the
+// configured type and effort stay.
 func (l *Launcher) dispatchType(t *target, typ string) {
 	effort := ""
 	if typ == "" && t.info.Lane != "" && l.Cfg != nil {
 		row, _, _ := store.ReadLaneAt(l.Cfg.Root, t.info.Lane)
-		if typ, effort = config.ParseTypeRef(row.Type); typ != "" {
+		if row.Task != "" {
+			typ, effort = config.ParseTypeRef(store.LaneTypeRef(row.Type, t.info.Type))
+		}
+		if row.Type != "" {
 			l.say("type %s (lane %s's dispatch)", row.Type, t.info.Lane)
 		}
 	}

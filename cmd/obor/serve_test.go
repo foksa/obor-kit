@@ -15,6 +15,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/checks"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
@@ -201,7 +202,7 @@ func TestLaneTable(t *testing.T) {
 		{"dispatched anew", "working", func() { p.Dispatched("O-01") }},
 	} {
 		c.prep()
-		ls, err := laneTable{}.Lanes(p.Root)
+		ls, err := checks.Lanes{}.Lanes(p.Root)
 		if err != nil || len(ls) != 1 {
 			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
 		}

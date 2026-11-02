@@ -21,6 +21,18 @@ type LaneRow struct {
 	Type                      string
 }
 
+// LaneTypeRef is the one answer to "what type does this lane run now" (T-738): the type reference its open dispatch
+// recorded (a lane row's Type, a dispatch fact's type), else, for one recorded before T-721 (none), configured: the
+// lane's type in the config as it is read now. A legacy dispatch on a lane the config has since blanked is "": its
+// type is unknown and it counts toward no type's max. The cap count, a redo, the worker prompt, a restart and obor
+// status read a lane's type through it.
+func LaneTypeRef(recorded, configured string) string {
+	if recorded != "" {
+		return recorded
+	}
+	return configured
+}
+
 // laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since
 // T-721, read by a newer CLI) has no type column, its rows read none.
 func laneCols(db *sql.DB) (string, error) {

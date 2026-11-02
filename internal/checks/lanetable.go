@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/store"
@@ -130,17 +131,40 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 }
 
 // taskType is the lane type of lane l in state s (T-721): a working or done lane's is the type its row's dispatch
-// chose (the row holds its task; a row from before T-721 has none: the config's), any other lane's the config's
-// ("": an untyped lane).
+// runs (the row holds its task; store.LaneTypeRef: a row from before T-721 has none, the config's), any other lane's
+// the config's ("": an untyped lane).
 func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 	if s.State != "working" && s.State != "done" {
 		return l.Type
 	}
-	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task && row.Type != "" {
-		typ, _ := config.ParseTypeRef(row.Type)
+	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task {
+		typ, _ := config.ParseTypeRef(store.LaneTypeRef(row.Type, l.Type))
 		return typ
 	}
 	return l.Type
+}
+
+// Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while its branch is not
+// merged; its agent is its row's (the lanes table, read-only). Its type is the config's, the lane's reservation ("":
+// a pool lane), never the type its dispatch runs (T-738: that is the dispatch's, store.LaneTypeRef).
+type Lanes struct{}
+
+func (Lanes) Lanes(root string) ([]port.Lane, error) {
+	cfg, err := config.LoadDaemon(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []port.Lane
+	lp := NewLaneTable(cfg)
+	for i, s := range lp.States() {
+		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), Type: cfg.Lanes()[i].Type, State: s.State,
+			Agent: lp.Rows()[s.Lane].Agent}
+		if s.State == "working" || s.State == "done" {
+			l.Task = s.Task
+		}
+		out = append(out, l)
+	}
+	return out, nil
 }
 
 // Rows is the store's lanes table by lane, read once (read-only; no database or an unreadable one: none).

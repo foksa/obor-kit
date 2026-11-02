@@ -975,7 +975,8 @@ func (c *Config) LaneTakes(typ string) bool {
 }
 
 // RoleAgentsOfType is the agent names of the roles configured with lane type typ (the lead by its own type), sorted:
-// the role agents a type's lane_types max counts besides its workers (obor setup pane, dispatch; T-723).
+// obor setup pane's count of a type's agents (T-723). A dispatch's lane_types max does not count them: it caps worker
+// tasks only (T-738).
 func (c *Config) RoleAgentsOfType(typ string) []string {
 	var out []string
 	for _, r := range roles.All() {

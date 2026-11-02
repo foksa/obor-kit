@@ -100,7 +100,8 @@ Adding a kind = one package + a config entry.
   and `app.Typer`; `herdr/herdrtest` is its fake (test helper).
 - `checks`: git and the merge gate: lanes (`checks.Lane`, `LaneSetup`), serve's worktree `merge.scratch_dir` (submit,
   gate, resolved, publish, after_merge over pins under `refs/obor/`), nightly/milestone checks in their own worktree,
-  flakes, receipts, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence).
+  flakes, receipts, and the lane table (`LaneTable`: worktree facts for `obor status` and `app.Lanes`, merge evidence; `Lanes` is serve's
+  `app.Lanes` adapter, each lane's configured type, T-738).
   Implements `app.Scratch`.
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:

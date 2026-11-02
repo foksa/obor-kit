@@ -18,7 +18,6 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -104,7 +103,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
 		Inboxed: inboxed(env), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
-		panes, laneTable{})
+		panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
@@ -282,28 +281,6 @@ func serveDump(w io.Writer, cwd string) int {
 		return 1
 	}
 	return 0
-}
-
-// laneTable is port.Lanes from today's lane table: a lane's task is open while its branch is not merged; its agent is
-// its row's (the lanes table, read-only).
-type laneTable struct{}
-
-func (t laneTable) Lanes(root string) ([]port.Lane, error) {
-	cfg, err := config.LoadDaemon(root)
-	if err != nil {
-		return nil, err
-	}
-	var out []port.Lane
-	lp := checks.NewLaneTable(cfg)
-	for _, s := range lp.States() {
-		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), Type: s.Type, State: s.State,
-			Agent: lp.Rows()[s.Lane].Agent}
-		if s.State == "working" || s.State == "done" {
-			l.Task = s.Task
-		}
-		out = append(out, l)
-	}
-	return out, nil
 }
 
 // flushWriter writes through out and flushes at once.

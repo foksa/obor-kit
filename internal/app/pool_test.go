@@ -16,8 +16,8 @@ import (
 
 // T-723: lanes are a pool. For each type of a request in order (the spec's Type:, then the level's), a type at its
 // lane_types max is skipped, else the first free lane whose type is it or empty takes it: an untyped lane runs any
-// type, a typed lane only its own (a reservation). The cap counts the open dispatches whose row type is the type plus
-// the role agents configured with it. A freed lane goes to the waiting tasks oldest first, skipping those at cap.
+// type, a typed lane only its own (a reservation). The cap counts the open dispatches of the type, nothing else: role
+// agents configured with it do not count (T-738: the max caps worker tasks only). A freed lane goes to the waiting tasks oldest first, skipping those at cap.
 //
 // The rig: lane types opus (max 1) and sonnet (no max); lanes O-01 and O-02, both untyped and free.
 
@@ -116,10 +116,9 @@ func TestPoolPicksALaneAndAType(t *testing.T) {
 		spec: "Difficulty: hard\n", want: "WAITING T-1 (queued): opus at its max 1 (hard: opus:high); idle: O-02 (-)",
 		waiting: "WAITING T-1 (queued): opus at its max 1 (hard: opus:high); idle: O-02 (-)",
 	}, {
-		name:  "opus at its max by a role agent configured with it: it waits",
+		name:  "a role agent configured with opus does not count toward its max (T-738): it dispatches",
 		edits: []func(map[string]any){testkit.Set("roles.reviewer", map[string]any{"type": "opus"})},
-		spec:  "Difficulty: hard\n", want: "WAITING T-1 (queued): opus at its max 1 (hard: opus:high)",
-		waiting: "WAITING T-1 (queued): opus at its max 1 (hard: opus:high); idle: O-01 (-), O-02 (-)",
+		spec:  "Difficulty: hard\n", want: "DISPATCHED T-1 → O-01 (queued) as opus effort high", lane: "O-01", typ: "opus:high",
 	}, {
 		name: "a worker stopped on a usage limit still counts against its cap",
 		seed: func(r *loopRig) {
