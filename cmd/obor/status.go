@@ -40,7 +40,7 @@ func status(args []string) int {
 			return 2
 		}
 	}
-	_, cfg, rc := load()
+	cfg, warn, rc := loadReader()
 	if rc == 3 {
 		errf("obor status: not an obor project")
 		return 3
@@ -56,7 +56,7 @@ func status(args []string) int {
 		defer db.Close()
 	}
 	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: time.Now(),
-		Events: statusEvents})
+		Events: statusEvents, Notes: view.Notes(cfg.Root, warn)})
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
 	if !asJSON {
 		switch {
@@ -125,9 +125,12 @@ func statusSections(st view.Project, now time.Time) [][]string {
 		fullCheckSection(st, now)}
 }
 
-// serveSection is serve's line with the running line and the pending line under it.
+// serveSection is the project's notes, then serve's line with the running line and the pending line under it.
 func serveSection(st view.Project, now time.Time) []string {
 	var b strings.Builder
+	for _, n := range st.Notes { // the project's own lines first (T-709): an unknown config key, a stopped project
+		fmt.Fprintln(&b, n)
+	}
 	writeServe(&b, st.Serve, now)
 	writeRunning(&b, st, now)
 	writePending(&b, st, now)

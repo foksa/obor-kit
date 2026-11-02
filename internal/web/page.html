@@ -606,6 +606,7 @@ function renderProject(p, v) {
   if (s.up && !s.merging) warns.push(pill("idle", "merge loop off"));
   if (s.up && !s.herdr) warns.push(pill("blocked", "herdr not connected"));
   if (s.log_error) warns.push(pill("fail", "log: " + s.log_error));
+  for (const n of v.notes || []) warns.push(pill("pending", n)); // an unknown config key, a stopped project (T-709)
   const running = (v.running || []).map((x) => `<span class="pill t-ok">${esc(x.step)}${x.task ? " " : ""}${
     x.task ? taskLink(p, x.task) : ""}${x.command ? ` <span class="muted">${esc(x.command)}</span>` : ""}
     ${rel(x.since, "for")}</span>`).join(" ");

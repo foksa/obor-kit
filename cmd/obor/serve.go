@@ -56,6 +56,10 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		errf("FAIL obor serve: %s is not in an obor project (no .obor/config.json): run it in the project", cwd)
 		return 1
 	}
+	if project.Stopped(repo.Root) { // obor stop (T-709): nothing serves a sleeping project
+		errf("FAIL obor serve: %s is stopped (obor stop): obor start wakes it", repo.Root)
+		return 1
+	}
 	// stop ends serve the way a signal does: as a graceful shutdown, exit 0. The self-restart uses it (T-656).
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()

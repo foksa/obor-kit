@@ -50,6 +50,7 @@ type frameWriter interface {
 type monitor struct {
 	root   string
 	cfg    *config.Config
+	warn   string     // config.LoadReader's warning ("": none)
 	height func() int // the terminal's rows
 	width  func() int // the terminal's columns
 	now    func() time.Time
@@ -71,13 +72,13 @@ func monitorCmd(args []string) int {
 		errf("usage: obor monitor")
 		return 2
 	}
-	_, cfg, rc := load()
+	cfg, warn, rc := loadReader()
 	if rc != 0 {
 		return rc
 	}
 	rows, _ := terminalSize()
 	tty := rows > 0
-	m := &monitor{root: cfg.Root, cfg: cfg, height: terminalRows, width: terminalCols, now: time.Now,
+	m := &monitor{root: cfg.Root, cfg: cfg, warn: warn, height: terminalRows, width: terminalCols, now: time.Now,
 		color: tty && os.Getenv("NO_COLOR") == ""}
 	defer m.close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -143,7 +144,8 @@ func (m *monitor) frame(now time.Time) string {
 	}
 	table := checks.NewLaneTable(m.cfg)
 	table.Now = now.Unix()
-	st := view.Build(view.Input{Status: ss, Err: err, Lanes: table, DB: m.db, Now: now, Events: monitorEvents})
+	st := view.Build(view.Input{Status: ss, Err: err, Lanes: table, DB: m.db, Now: now, Events: monitorEvents,
+		Notes: view.Notes(m.root, m.warn)})
 	if !restarting {
 		st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, m.cfg, st.Serve.Up)
 	}

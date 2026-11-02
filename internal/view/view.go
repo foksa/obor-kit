@@ -46,6 +46,9 @@ type Project struct {
 	Queue     Queue                `json:"queue"`
 	Events    []Event              `json:"events"` // the newest worded records, newest first
 	Facts     []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
+	// Notes are the project's own lines above serve's (T-709): a config key this binary does not know, a stopped
+	// project (Notes builds them).
+	Notes []string `json:"notes,omitempty"`
 }
 
 // Running is one step that runs without an agent (wire.RunningStep, T-657) with the configured command it runs ("": a
@@ -158,6 +161,20 @@ type Input struct {
 	DB     *sql.DB
 	Now    time.Time
 	Events int
+	Notes  []string // the project's own lines (Notes)
+}
+
+// Notes is the project's own lines for Input.Notes: warn (config.LoadReader's, "" for none), then
+// project.StoppedLine when root is stopped (obor stop, T-709).
+func Notes(root, warn string) []string {
+	var out []string
+	if warn != "" {
+		out = append(out, warn)
+	}
+	if project.Stopped(root) {
+		out = append(out, project.StoppedLine)
+	}
+	return out
 }
 
 // RoleStopped is a Role's Status when its only labelled pane is at its shell: serve stopped the agent once its work was
@@ -173,7 +190,7 @@ func Build(in Input) Project {
 	p := in.Lanes
 	v := Project{Lanes: []Lane{}, Tasks: []wire.TaskStatus{}, Agents: []wire.AgentStatus{}, Roles: []Role{},
 		NeedsYou: []NeedsYou{}, Messages: []wire.MessageStatus{}, Running: []Running{}, Pending: []wire.PendingStep{},
-		Events: []Event{}}
+		Events: []Event{}, Notes: in.Notes}
 	var ps wire.ProjectStatus
 	if in.Err != nil {
 		v.Serve.Error = in.Err.Error()

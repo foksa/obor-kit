@@ -76,6 +76,9 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if r, err := project.Find(s.Dir); err == nil && project.Stopped(r.Root) {
+		return project.Failf("%s is stopped (obor stop): obor start wakes it", r.Root)
+	}
 	running, err := s.H.Agents(ctx)
 	if err != nil {
 		return project.Failf("herdr is not reachable (%v): start herdr, then obor init again", err)

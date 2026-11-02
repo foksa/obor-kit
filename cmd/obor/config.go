@@ -74,6 +74,9 @@ func whoami(args []string) int {
 		fmt.Fprint(out, config.Pretty(w.JSON()))
 		return 0
 	}
+	if project.Stopped(cfg.Root) { // obor stop (T-709): the hooks stand down
+		fmt.Fprintln(out, project.StoppedLine)
+	}
 	fmt.Fprintf(out, "role: %s\n", w.Role.Role)
 	if w.Role.Lane != "" {
 		fmt.Fprintf(out, "lane: %s\n", w.Role.Lane)

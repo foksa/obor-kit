@@ -80,6 +80,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 | `obor answer` · `resume` · `sendback` · `drop` | act on a needs-you |
 | `obor restart <agent> [--fresh]` | restart an agent in its pane |
 | `obor pause [--for 3h] "<why>"` | stop dispatching (quota, waiting on you) |
+| `obor stop ["<why>"] [--force]` · `obor start` | put the project to sleep (its agents, serve and its entry in `obor projects` go; files and config stay; hooks stand down) and wake it; `--force` drops the tasks in progress |
 
 The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templates/agents/`.
 

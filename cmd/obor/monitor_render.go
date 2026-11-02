@@ -93,7 +93,11 @@ func (o renderOpts) zone() *time.Location {
 // renderSections is st as sections, top to bottom (each: its lines, the first one its title, the header alone).
 func renderSections(st view.Project, o renderOpts) [][]string {
 	p := palette{o.color}
-	secs := [][]string{{headerLine(st, o, p)}}
+	head := []string{headerLine(st, o, p)}
+	for _, n := range st.Notes { // the project's own lines (T-709): an unknown config key, a stopped project
+		head = append(head, p.yellow(n))
+	}
+	secs := [][]string{head}
 	if s := needsSection(st, o, p); s != nil {
 		secs = append(secs, s)
 	}

@@ -7,7 +7,8 @@
 #                             nothing: git itself never runs .git/hooks once core.hooksPath is set)
 # Args and stdin pass through (pre-push, post-rewrite and reference-transaction read stdin). A chained hook's failure is
 # the result for the hooks whose result git uses (all but post-applypatch, post-checkout, post-commit, post-index-change,
-# post-merge and post-rewrite). Without .obor/config.json a hook only chains.
+# post-merge and post-rewrite). Without .obor/config.json, or in a stopped project (.obor/state/stopped), a hook only
+# chains.
 
 # obor_hook NAME [GIT ARGS…]: chain NAME's project hook, then obor's rule for NAME.
 obor_hook() {
@@ -34,6 +35,8 @@ obor_hook() {
     esac
   fi
   [ -f "$(dirname "$common")/.obor/config.json" ] || return 0
+  # A stopped project (obor stop, T-709): obor's rules stand down until obor start.
+  [ ! -f "$(dirname "$common")/.obor/state/stopped" ] || return 0
   case "$name" in
     pre-commit) obor_pre_commit ;;
     pre-push) obor_pre_push ;;
