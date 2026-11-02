@@ -90,6 +90,7 @@ func (r *concRig) diskFactsInForce(name string) []Record {
 // RV-59 #1, direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
 // reading, appends working again, records the needs-you.
 func TestRV59DiskRecordFailure(t *testing.T) {
+	t.Parallel()
 	const gib = uint64(1 << 30)
 	r := newConcRig(t)
 	p := r.proj("pj")
@@ -124,6 +125,7 @@ func TestRV59DiskRecordFailure(t *testing.T) {
 // target's (all pickGate). Once the log takes appends and space is back, the same pending gate runs and reuses its
 // intent.
 func TestRV59LowDiskPendingGate(t *testing.T) {
+	t.Parallel()
 	const gib = uint64(1 << 30)
 	for _, c := range []struct {
 		name  string
@@ -149,6 +151,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 		},
 	}} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			r.fakes["pj"].hold = "" // the gate is not held: its result is what the test counts
 			p := r.proj("pj")
@@ -203,6 +206,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 // nightly intent (a crash mid-run) nor a retry after a failed try starts the run; once appends work and space is back
 // it runs.
 func TestRV59LowDiskPendingNightly(t *testing.T) {
+	t.Parallel()
 	const gib = uint64(1 << 30)
 	const step = StepNightly + ".2026-10-25"
 	for _, c := range []struct {
@@ -230,6 +234,7 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 		},
 	}} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			c.seed(r, r.a.opt.Now())
 

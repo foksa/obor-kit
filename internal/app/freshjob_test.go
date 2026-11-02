@@ -37,6 +37,7 @@ func setStatus(r *concRig, status string) {
 }
 
 func TestFreshIntegratorPerJob(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	ctx := context.Background()
@@ -86,6 +87,7 @@ func TestFreshIntegratorPerJob(t *testing.T) {
 // The wait for an integrator that does not go idle after the last verdict is bounded (T-602): for Gone from the first
 // look the next job waits; past it the fresh start forces (stops the turn), with one log line.
 func TestFreshIntegratorIdleBound(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	now := r.a.opt.Now()
@@ -129,6 +131,7 @@ func TestFreshIntegratorIdleBound(t *testing.T) {
 // T-606 (RV-65 #1): the idle wait is the integrator's pane's, not a job's. Two queued jobs alternating across Gone
 // share one busy interval, so one of them forces a fresh start after one Gone; the other waits for its verdict.
 func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	now := r.a.opt.Now()
@@ -195,6 +198,7 @@ func TestFreshIntegratorIdleBoundTwoJobs(t *testing.T) {
 // job_next hands out the job the call names when it is open, else the oldest open one, never a held one (T-602): a
 // fresh session started for job B fetches B, also while an older job A is held (the T-598 resolve.2 shape).
 func TestJobNextNamedNotHeld(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
@@ -228,6 +232,7 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 // T-606: the unnamed job_next hands out the oldest open job on every call. Two sent jobs have no pending intent, so
 // their order must be the log's, not the map's: each call ranges the loop afresh and must still name the first.
 func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	for _, task := range []string{"T-1", "T-5"} {
@@ -259,6 +264,7 @@ func TestJobNextOldestNotTheMapsFirst(t *testing.T) {
 // A crash after the job's intent and its start's intent, before their results: the replay starts nothing again (the
 // integrator runs: its wake typed), and a needs-you that left another task's job does not hold the next job.
 func TestFreshIntegratorReplay(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
@@ -285,6 +291,7 @@ func TestFreshIntegratorReplay(t *testing.T) {
 
 // The review job carries a candidate's diff the gate kept, said to be the whole diff; without one, the git diff line.
 func TestReviewTextDiff(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	diff := "diff --git a/f b/f\n+the change\n"
@@ -321,6 +328,7 @@ func TestReviewTextDiff(t *testing.T) {
 // shows the session its intent saw, or none: a new session there means the start ran (no second start: the wake
 // typed); an unknown session cannot tell (the same).
 func TestFreshIntegratorPendingStart(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name          string
 		at            startData // the start's intent
@@ -337,6 +345,7 @@ func TestFreshIntegratorPendingStart(t *testing.T) {
 		{"unknown at the intent: cannot tell", startData{Agent: "pj-int", Pane: "w1:p9", Ran: true}, "old", false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})

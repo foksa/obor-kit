@@ -660,8 +660,10 @@ var rows = []row{
 }
 
 func TestWatchdogTable(t *testing.T) {
+	t.Parallel()
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			if tc.setup == nil {
 				h.connect()
@@ -705,6 +707,7 @@ func (h *harness) notifyIntents(seq int64) int {
 
 // T-331: the wait after a failed notification doubles and stops at 30 minutes.
 func TestNotifyWait(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		tries int
 		want  time.Duration
@@ -721,6 +724,7 @@ func TestNotifyWait(t *testing.T) {
 // T-331: a failing notification backs off, so two hours of failures write a bounded number of intents instead of one
 // a minute; the owner is told once when herdr answers again, and never twice.
 func TestNotifyRetryBacksOff(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.pane("w1:p1").Status = "blocked"
 	failing := true
@@ -766,6 +770,7 @@ func TestNotifyRetryBacksOff(t *testing.T) {
 // T-331/T-332: a failed notification's retry goes with its fact: cleared before the retry, or while the failing send
 // was in flight, it is never sent, even once herdr answers again.
 func TestNotifyRetryClearedWithItsFact(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		clear    func(h *harness)
@@ -776,6 +781,7 @@ func TestNotifyRetryClearedWithItsFact(t *testing.T) {
 		{"resumed while the send was in flight", func(h *harness) { h.status("w1:p1", func(p *Pane) { p.Status = "working" }) }, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			h.pane("w1:p1").Status = "blocked"
 			h.panes.notifyFn = func() error {
@@ -813,6 +819,7 @@ func TestNotifyRetryClearedWithItsFact(t *testing.T) {
 // RV-36-verify #12 (documented, docs/state-model.md): notifications are at least once. A notification shown whose
 // result fails to persist is shown again after the backoff (better twice than never), and then never again.
 func TestNotifyShownTwiceWhenItsResultIsLost(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.pane("w1:p1").Status = "blocked"
 	h.connect()
@@ -846,6 +853,7 @@ func TestNotifyShownTwiceWhenItsResultIsLost(t *testing.T) {
 // first send fails after the agent reports working (resumed clears both); herdr answers again for the next send. The
 // second fact cleared before its send started, so it is never sent.
 func TestNotifyClearWhileSeveralQueued(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.log(factRec("T-1", StepNeedsYou, "blocked"), factRec("T-1", StepNeedsYou, "pane exited"))
 	h.pane("w1:p1").Status = "blocked"

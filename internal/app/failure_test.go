@@ -191,6 +191,7 @@ var failRows = map[string]failRow{
 // Each error cell: pending (one intent, no result), tried again, a needs-you after 3 counted failures, no attempt
 // while it is in force (also after a restart: a failed prompt is not settled as sent), obor resume retries the step.
 func TestLoopFailureRule(t *testing.T) {
+	t.Parallel()
 	for name, row := range failRows {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -202,6 +203,7 @@ func TestLoopFailureRule(t *testing.T) {
 // Sol's probe TestRV37VerifyStopFailure, fixed: a stop that fails while the agent is still in its pane is pending,
 // and the stop is retried after a reload.
 func TestRV37VerifyStopFailure(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.mu.Lock()
@@ -229,6 +231,7 @@ func TestRV37VerifyStopFailure(t *testing.T) {
 // The failure count survives a restart: two failures recorded before it, one more after it is the third: the
 // needs-you, not a fresh count.
 func TestLoopFailureCountSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.submit()
@@ -254,6 +257,7 @@ func TestLoopFailureCountSurvivesRestart(t *testing.T) {
 
 // An attempt obor serve's stop cuts off, or one that ends while herdr is disconnected, is not counted.
 func TestLoopFailureNotCounted(t *testing.T) {
+	t.Parallel()
 	t.Run("ctx cut", func(t *testing.T) {
 		t.Parallel()
 		r := newLoopRig(t, "echo 1 pass")
@@ -301,6 +305,7 @@ func TestLoopFailureNotCounted(t *testing.T) {
 // The final cells beyond the ones the loop tests already reach (green, red, conflict, moved, a check's FAIL, merged,
 // already landed, ff refused, lane passed, stopped, started): each is a result and the task goes on.
 func TestLoopFinalOutcomes(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, step, want string
 		edits            []func(map[string]any)
@@ -356,6 +361,7 @@ func (notFound) NotFound() bool { return true }
 // fails three times, obor resume retries it and it is sent: the job is still the one a verdict answers (job
 // authorization is the folded task's open job, not a second record unblocked cleared).
 func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
+	t.Parallel()
 	for _, step := range []string{"retry.review", "nudge.review", "retry.resolve", "nudge.resolve"} {
 		t.Run(step, func(t *testing.T) {
 			t.Parallel()
@@ -417,6 +423,7 @@ func TestRV37V2ResumeRetryKeepsTheJob(t *testing.T) {
 // A reject unpins the task (the unpin step, G) before the owner is told; an unpin that fails is the failure rule's
 // (pending, counted, the owner after 3) and obor resume retries it.
 func TestLoopRejectUnpins(t *testing.T) {
+	t.Parallel()
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprint("unpin fails ", fail), func(t *testing.T) {
 			t.Parallel()
@@ -455,6 +462,7 @@ func TestLoopRejectUnpins(t *testing.T) {
 // Submit's Refused is final (a result, not a counted failure): no gate, the owner decides; obor resume's regate
 // submits again (submit.2), then the task goes on.
 func TestLoopSubmitRefused(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.scratch.arm("Submit", func(context.Context) error { return app.Refused{Line: "FAIL T-1: lane O-01 is not on a branch"} })

@@ -100,6 +100,7 @@ func questionsPart(q string) string {
 // A report's open questions no longer hold the task: the review job goes out at once, carrying the section verbatim
 // (cut like the diff); a section that leaves nothing open adds no part.
 func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
+	t.Parallel()
 	const full = "Summary: done.\nSelf-check: ok.\nSkipped: none."
 	long := strings.Repeat("a", InlineDiff+100)
 	for _, c := range []struct {
@@ -126,6 +127,7 @@ func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 			"\n(cut at 15360 bytes: the whole section is in the report above)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedQuestions(t, c.report)
 			mt := pickGreenStep(t, h, f, false)
 			if mt.state != stAwaiting || mt.reviews != 1 || mt.job != StepReview {
@@ -155,8 +157,10 @@ func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 // The integrator holds a question it may not decide: the lead gets the needs-you, and its resume sends the next review
 // job carrying the decision (row 40), live and after a replay of the log.
 func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
+	t.Parallel()
 	for _, replay := range []bool{false, true} {
 		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
+			t.Parallel()
 			const q = "should the hook change the config's schema?"
 			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
 			if mt := pickGreenStep(t, h, f, false); mt.state != stAwaiting || mt.job != StepReview {
@@ -197,6 +201,7 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 // An older log's hold of the open questions before review (T-604) still folds: the hold ends, the task is green and
 // gets its review job carrying the questions (and the lead's decision when the old log has one), live and on replay.
 func TestOldPreReviewHoldFolds(t *testing.T) {
+	t.Parallel()
 	const q = "should it use sqlite?"
 	for _, c := range []struct {
 		name     string
@@ -210,6 +215,7 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 		{"resumed, replay", true, true, "use sqlite, it is cgo-free"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
 			addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
 				Reason: "open questions: " + q})
@@ -245,6 +251,7 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 // T-616, T-649: an Open questions section whose first word is none, n/a, no or - leaves nothing open, whatever
 // follows; one that leaves something open comes back verbatim.
 func TestOpenQuestionsFirstWord(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		section string
 		open    bool

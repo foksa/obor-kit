@@ -10,6 +10,7 @@ import (
 // goes and one when it is back (however many retries in between), takes a dispatch over its own socket meanwhile
 // (prepared only once herdr is back: the merge loop needs a snapshot), and the fresh snapshot drives that dispatch.
 func TestServeWaitsForHerdr(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.start()
 	r.setSpec("s1", "# T-1 — Waits\n\nDifficulty: medium\n")
@@ -58,6 +59,7 @@ func TestServeWaitsForHerdr(t *testing.T) {
 
 // Herdr down when serve starts: serve waits for it (one gone line), and works once it is up.
 func TestServeStartsWithHerdrDown(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.srv.Die()
 	go func() {

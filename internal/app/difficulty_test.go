@@ -59,6 +59,7 @@ func (r *loopRig) factData(task, step string) map[string]any {
 }
 
 func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
 	r.specLevel("medium") // sonnet, deepseek: O-02 (sonnet) before O-01 (deepseek), though O-01 is first in the config
@@ -74,6 +75,7 @@ func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
 // T-629: a level whose listed types have no lane falls back to medium's list (sonnet before opus), and the reply says
 // so: a simple level naming a type no lane has runs on sonnet, never waiting for a deepseek no lane has.
 func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
 		testkit.Set("difficulty.simple", []string{"luna"}),
 		testkit.Set("lanes.O-02", map[string]any{"type": "sonnet", "agent": "pj-o1"}))
@@ -94,6 +96,7 @@ func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 }
 
 func TestDifficultyTakesTheNextTypeWhenTheFirstIsBusy(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.lanes.mu.Lock()
 	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"
@@ -106,6 +109,7 @@ func TestDifficultyTakesTheNextTypeWhenTheFirstIsBusy(t *testing.T) {
 }
 
 func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.setLane(func(l *app.Lane) { l.Type = "opus" }) // O-01 is a free opus (hard) lane; O-02 (sonnet) is busy
 	r.lanes.mu.Lock()
@@ -138,6 +142,7 @@ func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
 }
 
 func TestDifficultyTypesOverrideTheLevel(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
 	r.specLevel("hard") // opus: no lane of it; --types sonnet reaches O-02
@@ -150,6 +155,7 @@ func TestDifficultyTypesOverrideTheLevel(t *testing.T) {
 }
 
 func TestDifficultyTypesWithNoFreeLaneRefuse(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
 	r.specLevel("medium")
@@ -163,6 +169,7 @@ func TestDifficultyTypesWithNoFreeLaneRefuse(t *testing.T) {
 }
 
 func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t, testkit.Set("difficulty.medium", []string{"deepseek"}))
 	r.start()
 	r.specLevel("medium")
@@ -172,6 +179,7 @@ func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 }
 
 func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
 	for _, text := range []string{"# T-1 — A\n", "# T-1 — A\n\nDifficulty: easy\n", "# T-1 — A\n\nsome text\nDifficulty: hard\n"} {
@@ -186,6 +194,7 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 // A request that replaces a waiting one (new after, new types) is the task's waiting fact in force; the old one's
 // reason does not carry over; a lane that is free then dispatches it.
 func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
+	t.Parallel()
 	r := newLevelRig(t)
 	r.lanes.mu.Lock()
 	r.lanes.lanes[0].State, r.lanes.lanes[0].Task = "working", "T-9"

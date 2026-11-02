@@ -169,8 +169,10 @@ func acceptT4(r *concRig) {
 // does not start once DROPPED is returned: no effect, the task stays dropped. Control: the same step, not dropped,
 // runs its effect.
 func TestDropSelectedStep(t *testing.T) {
+	t.Parallel()
 	for _, c := range dropStartCases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			for _, dropped := range []bool{false, true} {
 				r := newConcRig(t)
 				r.fakes["pj"].hold = "" // a gate that runs returns at once
@@ -208,8 +210,10 @@ func TestDropSelectedStep(t *testing.T) {
 // Step first, a scratch step: a gate or publish started (it holds the scratch) refuses the drop; its result folds
 // and the task goes on. Not dropped: no dropped fact.
 func TestDropAfterScratchStepStarted(t *testing.T) {
+	t.Parallel()
 	for _, c := range dropStartCases[:2] {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			c.setup(r)
 			f := r.fakes[c.proj]
@@ -272,12 +276,14 @@ func (r *concRig) ended(name, task string) bool {
 // Step first (T-395's table): a drop while a selected step holds the task (gate, publish, start, a prompt) is
 // refused at once, naming the step, and changes nothing; once the step has returned, a drop goes through.
 func TestDropRefusedWhileStepHeld(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		i    int
 	}{{"gate", 0}, {"publish", 1}, {"start", 9}, {"start (review)", 6}} {
 		c := dropStartCases[c.i]
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			r.fakes["pj"].hold = ""
 			c.setup(r)
@@ -318,6 +324,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 // The reviewer's probe (RV-42-verify #1), rewritten to its outcome: a drop during a held integrator start whose agent
 // fetches its job early is refused at once, and the fetch answers: no lock cycle.
 func TestDropDuringEarlyFetch(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
@@ -390,6 +397,7 @@ func submitT7(r *concRig) (string, error) {
 // marked ended) records nothing; one recorded before the drop leaves the drop to go through. A submitted fact after
 // dropped, at the same or the next attempt, leaves the task dropped (live and on replay).
 func TestDropAndSubmission(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) *concRig {
 		r := newConcRig(t)
 		r.add("pq", "T-7", StepSubmitted, KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
@@ -397,6 +405,7 @@ func TestDropAndSubmission(t *testing.T) {
 		return r
 	}
 	t.Run("control: task_done submits", func(t *testing.T) {
+		t.Parallel()
 		r := setup(t)
 		if reply, err := submitT7(r); err != nil || reply != taskDoneReply {
 			t.Fatalf("task_done: %q, %v", reply, err)
@@ -406,6 +415,7 @@ func TestDropAndSubmission(t *testing.T) {
 		}
 	})
 	t.Run("drop first", func(t *testing.T) {
+		t.Parallel()
 		r := setup(t)
 		writing, release := r.pauseDrop("pq")
 		dropped := make(chan callAnswer, 1)
@@ -443,6 +453,7 @@ func TestDropAndSubmission(t *testing.T) {
 		}
 	})
 	t.Run("submission first", func(t *testing.T) {
+		t.Parallel()
 		r := setup(t)
 		if _, err := submitT7(r); err != nil {
 			t.Fatal(err)
@@ -482,6 +493,7 @@ func TestDropAndSubmission(t *testing.T) {
 // Mark, then record: while dropped is written the task is marked ended, and a selected step does not start; a write
 // that fails clears the mark (the step starts again) and the drop fails; a later drop goes through.
 func TestDropWriteFailure(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pq")
 	var during struct{ ended, began bool }

@@ -26,6 +26,7 @@ func schedStatus(t *testing.T, h *harness) (string, []ScratchWait) {
 // first is the scheduler's admission (here low disk refuses both), and copying that rule into status went stale. The
 // queue keeps the facts: no owner, the tasks in the pass's order, nothing they wait for.
 func TestScratchQueuePredictsNothing(t *testing.T) {
+	t.Parallel()
 	h, f := seedSched(t, false)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) {
@@ -55,6 +56,7 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 // scratch; a submitted task waits on it (and the pass does not gate it), as status says. At resolved the owner's own
 // gate needs the scratch and nothing holds it back: it is listed with nothing to wait for, never as next.
 func TestScratchOwnedByAnOpenMerge(t *testing.T) {
+	t.Parallel()
 	h, f := seedSched(t, true) // T-1's gate conflicted
 	ctx := context.Background()
 	addRecord(t, h, "T-2", StepSubmitted, KindFact, submitData{Lane: "O-02"})
@@ -123,6 +125,7 @@ func (f *cmdScratch) Gate(ctx context.Context, in GateInput) (GateOutcome, error
 // T-669 (RV-75 #4), T-673: a gate running reports the command its gate told (the class's), and the gating task owns the
 // scratch; between two commands the gate runs with no command; none once it ended.
 func TestRunningGateCommand(t *testing.T) {
+	t.Parallel()
 	h, sf := seedSched(t, false)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	f := &cmdScratch{schedScratch: sf, started: make(chan struct{}), blank: make(chan struct{}),

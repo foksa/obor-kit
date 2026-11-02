@@ -84,11 +84,13 @@ var closedCases = []struct {
 // watchdog needs-you in force under the closed task, live or on replay, nor does a watchdog's stalled fact: nothing
 // is notified, no lead line. Both of an open task still do.
 func TestStopAfterCloseNoFact(t *testing.T) {
+	t.Parallel()
 	for _, c := range append(closedCases, struct {
 		name, proj, task, end string
 		live                  bool
 	}{"open", "pq", "T-3", "", true}) {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app(c.proj), r.proj(c.proj)
 			if c.end != "" {
@@ -138,8 +140,10 @@ func TestStopAfterCloseNoFact(t *testing.T) {
 // T-636 (RV-68 #2): a reject settles the pending notification of its task's watchdog needs-you as "not run", live
 // and on replay, as a merge or drop does; nothing is shown for it.
 func TestRejectSettlesWatchdogNotification(t *testing.T) {
+	t.Parallel()
 	for _, live := range []bool{true, false} {
 		t.Run(map[bool]string{true: "live", false: "replay"}[live], func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app("pr"), r.proj("pr")
 			r.add("pr", "T-4", StepNeedsYou, KindFact, FactData{Lane: "O-04", Reason: "pane exited"})
@@ -168,11 +172,13 @@ func TestRejectSettlesWatchdogNotification(t *testing.T) {
 // T-636 (T-401's old case): a closed task's merge-loop needs-you in force (an after-merge step's, a reject's) keeps
 // its pending notification and posts its lead line, live and on replay; notify shows it once.
 func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
+	t.Parallel()
 	for _, c := range closedCases {
 		if c.end == StepDropped { // the loop runs no step of a dropped task: it has none
 			continue
 		}
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app(c.proj), r.proj(c.proj)
 			if p.out.leadAgent == "" || !p.merging {

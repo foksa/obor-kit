@@ -362,6 +362,7 @@ func (r *concRig) running(name, task string) string {
 // T-3 gates, and a verdict on pr's T-4 publishes it; pj's T-5 does not gate (one scratch). Released, T-1's gate folds
 // once (one intent, one result: its review job follows), then T-5 gates; pj's scratch calls never overlapped.
 func TestHeldGateBlocksNothingElse(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	r.add("pj", "T-2", StepDispatched, KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
 		"pj-wt", "O-02"), Agent: "pj-o-02", Target: "target", Branch: "task/T-2"})
@@ -430,6 +431,7 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 // T-369: a stop (a crash's cut) with T-1's gate running leaves its intent pending, no failure counted; a replay
 // re-runs the gate once under the same key: one intent, one result.
 func TestGateCutReplayRunsOnce(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	r.run()
 	if task := r.entered("pj"); task != "T-1" {
@@ -466,6 +468,7 @@ func TestGateCutReplayRunsOnce(t *testing.T) {
 // RV-48 #1: a failed lane-row write fails the step that caused it (no worker on a missing row) and shows in status;
 // once the write works the step goes on.
 func TestLaneRowWriteFailureStopsStep(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	defer r.a.closeLog()
 	dispatchT2(r)
@@ -503,6 +506,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 // result is folded but the row is neither missing nor stale for a worker. Removing the failure repairs the row and
 // the task goes on. The control is the failure removed: the worker starts.
 func TestLaneRowWriteFailurePersistent(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		prev bool // the lane holds a previous task's row (T-0) the failed writes cannot replace
@@ -512,6 +516,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			defer r.a.closeLog()
 			dispatchT2(r)
@@ -593,6 +598,7 @@ func dispatchFacts(t *testing.T, root, task string) int {
 // #3: a pause waits for a dispatch in admission (it holds a.verdicts); the dispatch is admitted before PAUSED returns,
 // and a dispatch after the pause is refused with its reason.
 func TestPauseWaitsForDispatchAdmission(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	defer r.a.closeLog()
 	p := r.proj("pj")
@@ -646,6 +652,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 
 // #4: a waiting task has no lane, so its needs-you names the task in the drop command, never <LANE>.
 func TestWaitingNeedsYouDropCommand(t *testing.T) {
+	t.Parallel()
 	raw, _ := json.Marshal(FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
 	r := Record{Seq: 1, Task: "T-8", Step: StepNeedsYou, Data: raw}
 	path := answerPath(r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
@@ -689,6 +696,7 @@ func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 // RV-49 #1 (T-468): the nightly's notification records (notify.<seq>, task key nightly) never move its run cursor: a
 // restart replays the run's own step, and a day with a result, or with tries failures, runs no further check.
 func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		build func(t *testing.T, r *concRig, p *proj, day string) // the log before the restart
@@ -726,6 +734,7 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 		}, true, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			now := r.a.opt.Now().Local()

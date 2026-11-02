@@ -105,6 +105,7 @@ func nightlyRig(t *testing.T, f *nightlyFake, at string) *loopRig {
 // T-464: serve's nightly runs once a day at or after merge.nightly_at, only while due; GREEN records no needs-you.
 // DD-v0.12 A5: a day not due is asked once (a merge later that day waits for the next day).
 func TestNightlyOncePerDayAtItsTime(t *testing.T) {
+	t.Parallel()
 	f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "13:00")
 	r.start()
@@ -152,12 +153,14 @@ func TestNightlyOncePerDayAtItsTime(t *testing.T) {
 // T-525: Due is asked with the log's merges, folded from fact merged (its sha, task and the gate's Full), and fresh
 // only while the log has neither a merge nor a nightly run (a merges.log before the store is not read: due once).
 func TestNightlyDueFromMergedFacts(t *testing.T) {
+	t.Parallel()
 	asked := func(f *nightlyFake) ([]app.Merge, bool) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		return f.merges, f.fresh
 	}
 	t.Run("fresh store", func(t *testing.T) {
+		t.Parallel()
 		f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
 		r := nightlyRig(t, f, "13:00")
 		r.start()
@@ -173,6 +176,7 @@ func TestNightlyDueFromMergedFacts(t *testing.T) {
 		}
 	})
 	t.Run("a merge", func(t *testing.T) {
+		t.Parallel()
 		f := &nightlyFake{due: false, outs: []app.NightlyOut{green}}
 		r := nightlyRig(t, f, "13:00")
 		r.scratch.full.Store(true)
@@ -200,6 +204,7 @@ func TestNightlyDueFromMergedFacts(t *testing.T) {
 // T-464: a RED nightly is the project's needs-you{full-check RED <sha7>} with a notification, once while it stays RED
 // on the same sha; the next GREEN one ends it.
 func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
+	t.Parallel()
 	f := &nightlyFake{due: true, outs: []app.NightlyOut{red}}
 	r := nightlyRig(t, f, "02:00")
 	r.start()
@@ -229,6 +234,7 @@ func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
 // A5: not at the next pass); the 3rd is the day's needs-you{nightly failed: …} and that day runs no more; the next
 // day tries again.
 func TestNightlyFailuresThenNeedsYou(t *testing.T) {
+	t.Parallel()
 	f := &nightlyFake{due: true, outs: []app.NightlyOut{{Line: "FAIL"}}}
 	r := nightlyRig(t, f, "02:00")
 	r.start()
@@ -260,6 +266,7 @@ func TestNightlyFailuresThenNeedsYou(t *testing.T) {
 // T-464: a restart replays the nightly per its intent/result (G): a pending intent (serve stopped mid-run) runs again
 // under its key, once; a day with a result runs none.
 func TestNightlyReplay(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		recs []app.Record
@@ -273,6 +280,7 @@ func TestNightlyReplay(t *testing.T) {
 				Data: []byte(`{"sha":"abc1234def","verdict":"GREEN","line":"x"}`)}}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
 			r := nightlyRig(t, f, "02:00")
 			r.p.Dispatched("O-01")
@@ -306,6 +314,7 @@ func nightlyFact(t *testing.T, step string, d app.FactData) app.Record {
 // DD-v0.12 A4: a RED nightly's needs-you in the store ends (resumed) once the last full check is GREEN, a hand run's
 // (obor nightly) too, though no partial merge makes serve's own nightly due; a restart does not bring it back.
 func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
+	t.Parallel()
 	f := &nightlyFake{due: false, last: "RED", outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "02:00")
 	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, app.StepNeedsYou,
@@ -338,6 +347,7 @@ func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
 // DD-v0.12 A5, against the store: a failed try in the log (serve restarted 5 min after it) is tried again 10 min after
 // that failure, not at the first pass.
 func TestNightlyRetryAfterARestart(t *testing.T) {
+	t.Parallel()
 	f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "02:00")
 	const step = "nightly.2026-11-10"

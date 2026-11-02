@@ -12,6 +12,7 @@ import (
 // has no bridge for is not dispatched (DD-v0.13 D1: every bridged kind takes a first prompt).
 
 func TestStartPromptDelivery(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name string
 		run  func(t *testing.T)

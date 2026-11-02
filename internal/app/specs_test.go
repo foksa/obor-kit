@@ -14,6 +14,7 @@ import (
 // text is the next rev; a repeated call id gets its stored reply; the owner (no role) sets one too (DD-v0.11 A3); every
 // other role is refused and stores nothing.
 func TestSpecSet(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.start()
 	if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
@@ -53,6 +54,7 @@ func TestSpecSet(t *testing.T) {
 // T-440: a dispatch reads the stored spec for Specs.Check (which refuses "": no stored spec, cmd/obor TestSpecs):
 // before the set the request is refused with nothing recorded, after it the same request dispatches.
 func TestDispatchNeedsStoredSpec(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.disp.refuse["T-1"] = "no spec for T-1 in obor serve's store" // what the real Check says to ""
 	r.start()
@@ -78,6 +80,7 @@ func TestDispatchNeedsStoredSpec(t *testing.T) {
 // T-440: a fix job carries the stored spec only when its rev is not the one the worker's last job carried (a widening
 // since); every gate gets the current rev to write into the candidate.
 func TestFixJobCarriesChangedSpec(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name    string
 		widen   bool
@@ -87,6 +90,7 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 		{"widened", true, "The spec of T-1 (rev 2"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
 			r.work("red.txt", "red\n")
 			r.start()

@@ -12,6 +12,7 @@ import (
 // its delivery only and keeps the state the verdict set. Fresh review and resolve jobs, every method, and the
 // numbered and recovery jobs (review.2 / resolve.2 after job.lost, the owner's reprompt).
 func TestEarlyVerdict(t *testing.T) {
+	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
 			r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
@@ -66,6 +67,7 @@ func TestEarlyVerdict(t *testing.T) {
 			job: "review.2", method: MethodSendback, state: stWorking, attempt: 2},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			for _, s := range row.setup {
@@ -135,6 +137,7 @@ func TestEarlyVerdict(t *testing.T) {
 // T-396: the worker's job is open before its start: a fetch and a task_done during the start are taken, and the
 // start's result after that keeps the submission (state submitted, the work step sent (start prompt), nothing typed).
 func TestEarlyTaskDone(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	p.dispatching = true
@@ -200,6 +203,7 @@ func seqOf(r *concRig, kind, step string) int64 {
 // T-396: a work job open before a start that was refused stays the job: after obor resume the next start carries the
 // same job's wake (no work.2), and its result sends it.
 func TestStartAgainSameJob(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	p.dispatching = true

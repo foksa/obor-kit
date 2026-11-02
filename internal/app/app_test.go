@@ -269,6 +269,7 @@ func eq(t *testing.T, got, want []string, what string) {
 }
 
 func TestIdleStallsThenNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Pane("w1:p2").Status = "working" // O-02 is not idle: only T-1 stalls
 	r.start()
@@ -309,6 +310,7 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 }
 
 func TestWorkingAgainResumes(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Pane("w1:p2").Status = "working"
 	r.start()
@@ -324,6 +326,7 @@ func TestWorkingAgainResumes(t *testing.T) {
 }
 
 func TestNotStalledWhileAChildRuns(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	// O-01's agent is pid 2: an MCP server in its own group (3, does not count) and a Bash tool command in a group of
 	// its own (50 → 51). O-02's agent is pid 7 with nothing under it: it stalls, so the watchdogs did look.
@@ -358,6 +361,7 @@ func TestNotStalledWhileAChildRuns(t *testing.T) {
 }
 
 func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	transcript := filepath.Join(t.TempDir(), "s.jsonl")
 	write(t, transcript, "{}\n")
@@ -394,6 +398,7 @@ func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 }
 
 func TestBlockedNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Pane("w1:p1").Status = "blocked"
 	r.f.Pane("w1:p2").Status = "working"
@@ -410,6 +415,7 @@ func TestBlockedNeedsYou(t *testing.T) {
 }
 
 func TestPaneExitedNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.submitted("T-2", "O-02") // T-2 is done: its pane closing is no alarm
 	r.start()
@@ -428,6 +434,7 @@ func TestPaneExitedNeedsYou(t *testing.T) {
 }
 
 func TestReconnectReadsANewSnapshot(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.start()
 	if n := r.count("session.snapshot"); n == 0 {
@@ -456,6 +463,7 @@ func TestReconnectReadsANewSnapshot(t *testing.T) {
 }
 
 func TestReplayAfterRestart(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Pane("w1:p2").Status = "working"
 	r.start()
@@ -479,6 +487,7 @@ func TestReplayAfterRestart(t *testing.T) {
 }
 
 func TestPaneInAnotherWorkspaceIgnored(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	// A pane of workspace "other" in O-01's worktree, idle; O-01's own pane is working, O-02's idle.
 	r.f.Pane("w1:p1").Status = "working"
@@ -507,6 +516,7 @@ func TestPaneInAnotherWorkspaceIgnored(t *testing.T) {
 }
 
 func TestStatusSocket(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Pane("w1:p2").Status = "working"
 	r.start()
@@ -541,6 +551,7 @@ func TestStatusSocket(t *testing.T) {
 // RV-36 #4: a workspace opened after the connect ends the stream (Code refresh); the app subscribes again at once,
 // with no stream-ended line, and its new snapshot registers the workspace's panes.
 func TestRefreshSubscribesAgainQuietly(t *testing.T) {
+	t.Parallel()
 	r := newRig(t)
 	r.f.Workspaces = []herdr.Workspace{{ID: "w2", Label: "other"}} // pj's workspace w1 is not open yet
 	r.f.Pane("w1:p2").Status = "working"

@@ -16,6 +16,7 @@ import (
 )
 
 func TestReady(t *testing.T) {
+	t.Parallel()
 	for status, want := range map[string]bool{"idle": true, "done": true, "working": false, "blocked": false, "unknown": false, "": false} {
 		if Ready(status) != want {
 			t.Errorf("Ready(%q) = %v, want %v", status, !want, want)
@@ -64,6 +65,7 @@ func fact(t *testing.T, task, step, reason string) Record {
 }
 
 func TestLogAppendAndReplay(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, recs := openLog(t, root)
 	if len(recs) != 0 {
@@ -90,6 +92,7 @@ func TestLogAppendAndReplay(t *testing.T) {
 
 // A failed insert is the append's error (Err, log_error) and leaves no record; the retry reuses its seq.
 func TestAppendInsertFailure(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	if _, err := l.db.Exec(`CREATE TRIGGER full BEFORE INSERT ON events
@@ -119,6 +122,7 @@ func TestAppendInsertFailure(t *testing.T) {
 func clock() time.Time { return logNow }
 
 func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	runs := 0
@@ -151,6 +155,7 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 
 // A failed effect writes no result: the intent is pending and a retry runs the effect again.
 func TestDoFailedEffectStaysPending(t *testing.T) {
+	t.Parallel()
 	l, _ := openLog(t, logRoot(t))
 	in := Intent{Key: Key{"T-1", 1, "prompt"}, Class: ClassPrompt}
 	if _, err := l.Do(context.Background(), in, clock, func(context.Context) (any, error) { return nil, errors.New("herdr down") }); err == nil {
@@ -170,6 +175,7 @@ func TestDoFailedEffectStaysPending(t *testing.T) {
 
 // A process killed after the effect and before its result: replay lists the intent as pending with its class.
 func TestDoCrashBetweenEffectAndResult(t *testing.T) {
+	t.Parallel()
 	if root := os.Getenv("OBOR_TEST_DO_CRASH"); root != "" {
 		db, err := store.OpenRW(DBFile(root))
 		if err != nil {
@@ -211,6 +217,7 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 
 // Dump writes the table as JSONL, one record per line in seq order, each line the record's JSON.
 func TestDump(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	want := []Record{
@@ -243,6 +250,7 @@ func TestDump(t *testing.T) {
 // Backup without a serve (no socket) copies the database directly; a project serve never loaded has nothing to back
 // up; a serve that has the project loaded takes the backup itself.
 func TestBackup(t *testing.T) {
+	t.Parallel()
 	sock := filepath.Join(t.TempDir(), "none.sock")
 	day := time.Date(2026, 10, 27, 3, 0, 0, 0, time.UTC)
 	// No serve listens on sock: the calls end at once (T-685), not at the deadline table's 15 s.

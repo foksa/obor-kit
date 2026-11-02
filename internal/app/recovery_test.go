@@ -201,6 +201,7 @@ var scenarios = map[string]scenario{
 // cut between it and its result, idempotent (T-525), the lane's work committed once), no prompt sent twice, one integrator start per job (T-602), before any job reaches it, and lane O-02 untouched. A red or failed
 // resolved gate replays on the same pinned resolution: one sendback, or one needs-you.
 func TestLoopRecovery(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct{ scenario, step, class string }{
 		{"lane", "submit", app.ClassGit},
 		{"lane", "gate", app.ClassGit},
@@ -332,6 +333,7 @@ func TestLoopRecovery(t *testing.T) {
 // integrator not running on restart: it is started once, carrying the review job's wake (T-524: every start under its
 // job carries it), nothing typed.
 func TestLoopStartIntentBeforeEffect(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -364,6 +366,7 @@ func TestLoopStartIntentBeforeEffect(t *testing.T) {
 // RV-37 #1 (Sol's probe TestRV37AfterMergeCrashThenLaneReused): after_merge ran, its result was lost, and while obor
 // serve was down the lane took T-06 (its dispatch in the log). The replay stops nothing: T-06's worker stays.
 func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -433,6 +436,7 @@ func (r *loopRig) result(step string) string {
 // each pass), not even once it would pass; obor resume retries it (T-340's default for a failed step), and the
 // needs-you ends.
 func TestLoopAfterMergeFailure(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	heal := r.armScratch("AfterMerge")

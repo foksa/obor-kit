@@ -81,6 +81,7 @@ func startWithT2(t *testing.T, more ...app.Record) *loopRig {
 // Row 2a: the request records fact waiting (no lane touched); the loop dispatches T-1 once T-2 is merged, by the
 // dispatch's own steps; a second request of the waiting task replaces its fact (T-538); status shows what it waits for.
 func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	reply, err := r.waitAfter("d1", "T-2")
 	if err != nil || reply != waitingAfter2 {
@@ -120,6 +121,7 @@ func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
 
 // Row 2a, replay: a waiting task survives a restart and dispatches exactly once after its dependency merges.
 func TestWaitingSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
@@ -141,6 +143,7 @@ func TestWaitingSurvivesRestart(t *testing.T) {
 // Row 2a, kill -9 between the merge and the dispatch: the log holds T-2's merged fact and T-1's waiting fact, no
 // dispatch; the replay dispatches once, and a second restart dispatches nothing more.
 func TestWaitingCrashAfterMerge(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	wait, _ := json.Marshal(map[string]any{"lane": "O-01", "after": []string{"T-2"}, "caller": "pj-lead", "call": "d1",
 		"reply": "WAITING T-1 after T-2 (queued)"})
@@ -164,6 +167,7 @@ func TestWaitingCrashAfterMerge(t *testing.T) {
 // record) or dropped, an unknown lane. One not in the loop yet but with a spec: it waits. All merged: a plain dispatch
 // at once.
 func TestWaitingRefusals(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	for _, c := range []struct {
 		after []string
@@ -220,6 +224,7 @@ func TestWaitingRefusals(t *testing.T) {
 // Row 2a → needs-you: a task T-1 waits for is dropped later: needs-you{after}, nothing dispatched; obor resume
 // retries: T-1 waits again (and is told again while T-2 stays dropped).
 func TestWaitingDependencyDroppedLater(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
@@ -239,6 +244,7 @@ func TestWaitingDependencyDroppedLater(t *testing.T) {
 
 // Row 44 for a waiting task: obor drop <T> ends it; its dependency's merge later dispatches nothing.
 func TestWaitingDropped(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
 		t.Fatal(err)
@@ -261,6 +267,7 @@ func TestWaitingDropped(t *testing.T) {
 // Row 2a with no free lane once its dependency merged: it keeps waiting (the refusal logged once), and dispatches when
 // the lane is free.
 func TestWaitingLaneBusy(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
@@ -283,6 +290,7 @@ func TestWaitingLaneBusy(t *testing.T) {
 // refusal for an hour is needs-you{after: …}, kept by a restart (the store's fact); obor resume sends it back to
 // waiting, its hour from the start.
 func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
@@ -324,6 +332,7 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 // DD-v0.12 A7 (a): a task T-1 waits for with no loop record (T-3: a spec, done by hand) counts as merged once the
 // target holds its merge evidence; until then T-1 waits.
 func TestWaitingForATaskMergedByHand(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
 		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
@@ -347,6 +356,7 @@ func TestWaitingForATaskMergedByHand(t *testing.T) {
 // DD-v0.12 A7 (b): a dispatch --after a task that waits (itself, or through what it waits for) for this one is refused:
 // a cycle never dispatches. Nothing is recorded.
 func TestWaitingCycleRefused(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	for _, task := range []string{"T-3", "T-4"} {
 		if _, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",

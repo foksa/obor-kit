@@ -47,6 +47,7 @@ func writeRoleFile(t *testing.T, path, text string) {
 }
 
 func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
+	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "# Worker here\nproject rules\n")
 	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
 	if err != nil {
@@ -66,6 +67,7 @@ func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
 }
 
 func TestWorkTextSkipsAMissingProjectDoc(t *testing.T) {
+	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
 	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
 	if err != nil {
@@ -80,6 +82,7 @@ func TestWorkTextSkipsAMissingProjectDoc(t *testing.T) {
 }
 
 func TestWorkTextNamesARoleTextTooLargeToCarry(t *testing.T) {
+	t.Parallel()
 	big := "# Role: worker\n" + strings.Repeat("K", roleTextMax)
 	p, kit := roleFixture(t, big, "# Worker here\nproject rules\n")
 	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
@@ -99,6 +102,7 @@ func TestWorkTextNamesARoleTextTooLargeToCarry(t *testing.T) {
 }
 
 func TestRoleTextAtTheCapIsInlined(t *testing.T) {
+	t.Parallel()
 	at := "# Role: worker\n" + strings.Repeat("K", roleTextMax-len("# Role: worker\n"))
 	p, kit := roleFixture(t, at, "")
 	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
@@ -112,6 +116,7 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 
 // The kit's own prompt template names no role text: the job carries it.
 func TestWorkerPromptNamesNoRoleText(t *testing.T) {
+	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +139,7 @@ func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 
 // T-674: only an empty "## This project" section is dropped from the job; a project's filled one is carried.
 func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
+	t.Parallel()
 	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
 	doc := "# Worker here\nproject rules\n\n## This project\n- run make build\n"
 	p, kit := roleFixture(t, kitRole, doc)
@@ -156,6 +162,7 @@ func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
 // docs/agents/worker.md) says each rule once, carries no empty "This project" section and does not tell a worker to
 // fetch the job it is reading.
 func TestWorkJobSaysEachRuleOnce(t *testing.T) {
+	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -222,6 +229,7 @@ func workJobText(t *testing.T, kit, cfg string) string {
 
 // T-678: the work job names the project's configured done_file_sections, once, not the defaults.
 func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
+	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +246,7 @@ func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
 
 // T-678: with the default config the work job names the default labels once.
 func TestWorkJobNamesTheDefaultReportSectionsOnce(t *testing.T) {
+	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -251,6 +260,7 @@ func TestWorkJobNamesTheDefaultReportSectionsOnce(t *testing.T) {
 
 // The fix job names the role texts for a worker started fresh, both paths (T-603, fix job: the texts are not repeated).
 func TestFixJobNamesBothRoleTexts(t *testing.T) {
+	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit\n", "# Worker here\nproject rules\n")
 	read, err := fixRead(p, kit)
 	if err != nil {
@@ -266,6 +276,7 @@ func TestFixJobNamesBothRoleTexts(t *testing.T) {
 }
 
 func TestFixJobNamesTheKitRoleTextAloneWithoutAProjectDoc(t *testing.T) {
+	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit\n", "")
 	read, err := fixRead(p, kit)
 	if err != nil {

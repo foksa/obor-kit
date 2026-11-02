@@ -58,6 +58,7 @@ func retryWake(t *testing.T, kind string, recorded bool) *loopRig {
 // A worker's retry wake: posted to a Claude session with an inbox record (none typed, no keys); typed to a Claude
 // session with none (the fallback), and to Codex and OpenCode whatever an inbox record says.
 func TestWakeByKind(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		kind     string
 		recorded bool
@@ -100,6 +101,7 @@ func TestWakeByKind(t *testing.T) {
 // pass under the same key and only once; after a restart (replay) it is not posted again. The refusal is the next post
 // alone (failOnce): how many passes run before the test looks is the loop's business, not the test's (T-565).
 func TestWakePostRefusedThenReplayed(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.inbox.record("pj-o1")
 	r.inbox.failOnce(false)
@@ -131,6 +133,7 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 // A posted wake that broke after a byte went out is sent (with the error): never posted again under its key, not after
 // a restart either.
 func TestWakePostPartialNotRepeated(t *testing.T) {
+	t.Parallel()
 	r := fetchRig(t)
 	r.inbox.record("pj-o1")
 	r.inbox.fail(true)
@@ -154,6 +157,7 @@ func TestWakePostPartialNotRepeated(t *testing.T) {
 // A brief to a Claude role agent is posted to its session (none typed); to Codex and OpenCode it is typed (none
 // posted); its work and idle end it as before.
 func TestBriefByKind(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"claude", "codex", "opencode"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
@@ -184,6 +188,7 @@ func TestBriefByKind(t *testing.T) {
 // A brief to a Claude role agent whose session has no inbox record stays queued, untried and not typed; once the
 // record is there it is posted, once.
 func TestBriefQueuedWithoutAnInboxRecord(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-rev")
 	r.start()

@@ -49,6 +49,7 @@ func (r *loopRig) resultOf(attempt int, step string) string {
 }
 
 func TestReplayEndedTaskIntents(t *testing.T) {
+	t.Parallel()
 	submitted := func(n int) logRec {
 		return logRec{n, app.StepSubmitted, app.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}}
 	}
@@ -137,6 +138,7 @@ func TestReplayEndedTaskIntents(t *testing.T) {
 // A task dropped live with a prompt refused before typing open: the drop settles it at once (no restart needed), and
 // nothing is typed afterwards.
 func TestDropSettlesOpenIntents(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.writeLog([]logRec{
 		{1, app.StepSubmitted, app.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}},

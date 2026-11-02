@@ -84,6 +84,7 @@ func (r *rig) verdicts() []string {
 }
 
 func TestVerdictRefusals(t *testing.T) {
+	t.Parallel()
 	r, sock := verdictRig(t)
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -123,6 +124,7 @@ func TestVerdictRefusals(t *testing.T) {
 }
 
 func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
+	t.Parallel()
 	r, sock := verdictRig(t)
 	ctx := context.Background()
 	reply, err := app.Verdict(ctx, sock, app.MethodSendback, r.call("c7", func(c *app.Call) { c.Job = "" }))
@@ -163,6 +165,7 @@ func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
 }
 
 func TestVerdictServeNotRunning(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	_, err := app.Verdict(ctx, filepath.Join(t.TempDir(), "none.sock"), app.MethodAccept, app.Call{})
@@ -182,6 +185,7 @@ func (a *agents) Launch(_ context.Context, req app.Launch) (app.Started, error) 
 func (a *agents) Stop(context.Context, string, string, bool) (string, error) { return "", nil }
 
 func TestStartIntegrator(t *testing.T) {
+	t.Parallel()
 	r, _ := verdictRig(t)
 	ag := &agents{}
 	p := r.f.Agent("w1:p9", "pj-int", "idle", r.root)

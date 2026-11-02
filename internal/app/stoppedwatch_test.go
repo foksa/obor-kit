@@ -12,6 +12,7 @@ import (
 // watchdog's next look — its task dispatched since that look, so no watch of it yet — still records its needs-you with
 // the task; the loop's open task stands in for the watch, as the next check's would.
 func TestStoppedBeforeTheNextCheck(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	f := &schedScratch{h: h}
@@ -78,6 +79,7 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 // watch of the current task is the one used. Of two tasks awaiting task_done on the lane, the newest dispatch is the
 // current one, though its name sorts later (T-615's rule).
 func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
+	t.Parallel()
 	old := func() *watch { return &watch{lane: Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-0"}} }
 	cur := func() *watch { return &watch{lane: Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-1"}} }
 	for _, c := range []struct {
@@ -95,6 +97,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			func(p *proj) *watch { p.tasks["T-1"] = cur(); delete(p.tasks, "T-2"); return nil }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 			f := &schedScratch{h: h}

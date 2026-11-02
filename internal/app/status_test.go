@@ -10,6 +10,7 @@ import (
 // RV-49 #4: a waiting task has no lane, so the drop its needs-you advertises names the task (obor drop <T-xx>, T-462),
 // whichever dependency ended the wait.
 func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
+	t.Parallel()
 	for _, reason := range []string{
 		"after: T-8 waits for T-1, which is dropped",
 		"after: T-8 waits for T-1, which is rejected",
@@ -28,6 +29,7 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 
 // A stalled worker's needs-you keeps its lane in the drop command.
 func TestAnswerPathLaneKeepsTheLane(t *testing.T) {
+	t.Parallel()
 	raw, _ := json.Marshal(FactData{Lane: "O-02", Reason: "stalled"})
 	path := answerPath(Record{Task: "T-8", Step: StepNeedsYou, Data: raw}, mtask{})
 	if !strings.Contains(path, `obor drop O-02 "<why>"`) {
@@ -40,6 +42,7 @@ func TestAnswerPathLaneKeepsTheLane(t *testing.T) {
 // start of each execution. An open intent whose effect does not run now is pending, not running; an intent with a
 // result, a prompt and a start are neither.
 func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	for _, r := range []Record{
@@ -118,6 +121,7 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 // reads queued when it never failed; an intent written before a restart is pending until its effect starts, then
 // running, elapsed from that start — not from the intent's older time.
 func TestPendingStepsWaitForTheirEffect(t *testing.T) {
+	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	failedAt := logNow.Add(time.Minute)

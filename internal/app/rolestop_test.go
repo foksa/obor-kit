@@ -66,6 +66,7 @@ func atAgent(r *concRig) {
 }
 
 func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	s := newStopSpy(r)
@@ -93,6 +94,7 @@ func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
 
 // A verdict with another job queued (a green task to review) does not stop the integrator; that job's verdict does.
 func TestRoleStopIntegratorWaitsForQueuedJob(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	s := newStopSpy(r)
@@ -118,6 +120,7 @@ func TestRoleStopIntegratorWaitsForQueuedJob(t *testing.T) {
 
 // The integrator still ends its turn after the verdict: it is stopped once idle, never cut off.
 func TestRoleStopIntegratorWaitsForIdle(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	s := newStopSpy(r)
@@ -138,6 +141,7 @@ func TestRoleStopIntegratorWaitsForIdle(t *testing.T) {
 // The next job after a stop starts the integrator fresh: no job.lost, no needs-you, and status no longer shows it
 // stopped once its start is in and herdr reports the pane running it.
 func TestRoleStopNextJobStartsFresh(t *testing.T) {
+	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
 	s := newStopSpy(r)
@@ -177,6 +181,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 // its first prompt, its briefed fact recorded and the line delivered by the start; a running advisor's brief is typed
 // as before, nothing started.
 func TestBriefToStoppedRoleAgent(t *testing.T) {
+	t.Parallel()
 	root := lineRoot(t)
 	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
@@ -249,6 +254,7 @@ func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) 
 // The reviewer runs on after its review's brief is finished (its verify goes to the same session) until the
 // review's "RV-<n> closed" commit, then it is stopped once; the advisor is never stopped by serve.
 func TestRoleStopReviewerOnClose(t *testing.T) {
+	t.Parallel()
 	r := newReviewRig(t)
 	r.started()
 	s := &reviewStopSpy{}
@@ -273,6 +279,7 @@ func TestRoleStopReviewerOnClose(t *testing.T) {
 
 // An advisor that finished its brief keeps running: serve stops it never (the lead does).
 func TestRoleStopAdvisorKeptRunning(t *testing.T) {
+	t.Parallel()
 	root := lineRoot(t)
 	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
@@ -315,6 +322,7 @@ func readLog(t *testing.T, root string) []Record {
 // A brief to a lane's worker whose labelled pane is at a shell (stopped after its merge) starts nothing (T-672
 // sendback: only a role agent is started on a brief; workers are dispatched): its line stays queued, nothing typed.
 func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
+	t.Parallel()
 	root := lineRoot(t)
 	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}},"lanes":{"O-01":{"agent":"pj-o1"}}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {

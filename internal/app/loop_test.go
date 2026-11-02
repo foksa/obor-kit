@@ -261,14 +261,18 @@ func (r *loopRig) stop() {
 
 // patience is how long a wait may take: the time left to the package's test deadline less a margin (the serve pass
 // runs on a fake clock, so only the poll is real time, and a loaded machine must slow a test, not fail it); 20 s
-// when the test has no deadline. Under 1 s left it is 1 s, so the wait ends in a t.Fatalf before the package panics.
+// when the test has no deadline. At most waitCap: a test whose event never comes fails its own wait after a minute
+// instead of hanging until the package's deadline, which the parallel tests beside it share. Under 1 s left it is
+// 1 s, so the wait ends in a t.Fatalf before the package panics.
+const waitCap = 60 * time.Second
+
 func (r *loopRig) patience() time.Duration {
 	d, ok := r.t.Deadline()
 	if !ok {
 		return 20 * time.Second
 	}
 	if left := time.Until(d) - 10*time.Second; left > time.Second {
-		return left
+		return min(left, waitCap)
 	}
 	return time.Second
 }
@@ -489,6 +493,7 @@ func (r *loopRig) noLead() {
 // From a task_done to merged with no one but the integrator in it: the integrator is not running, so it is
 // started for its review job; it accepts the patch the job names; the app publishes and runs the after-merge work.
 func TestLoopHappyPath(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -558,6 +563,7 @@ func TestLoopHappyPath(t *testing.T) {
 
 // A red gate goes back to the worker with the reasons; its next task_done is the next attempt. After K = 2 sendbacks a third red goes to the owner (one notification), not to the worker again.
 func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
 	r.work("red.txt", "red\n")
 	r.start()
@@ -620,6 +626,7 @@ func countReq(srv *herdrtest.Server, method string) int {
 // A conflict is a resolve job for the integrator (not the owner): it resolves and commits the merge in the scratch,
 // says resolved, the app gates that merge, then the review job, accept, merged.
 func TestLoopConflictResolvedThenMerged(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.p.Write("shared.txt", "main\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
@@ -671,7 +678,9 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 // an accept of the old patch or the old job, or a verdict on an answered job, is refused; a repeated call id gets its
 // stored reply.
 func TestLoopTargetMoved(t *testing.T) {
+	t.Parallel()
 	t.Run("identical patch", func(t *testing.T) {
+		t.Parallel()
 		r := newLoopRig(t, "echo 1 pass")
 		r.work("feature.txt", "feature\n")
 		r.start()
@@ -703,6 +712,7 @@ func TestLoopTargetMoved(t *testing.T) {
 		}
 	})
 	t.Run("changed patch", func(t *testing.T) {
+		t.Parallel()
 		r := newLoopRig(t, "echo 1 pass")
 		r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 		r.start()
@@ -745,6 +755,7 @@ func TestLoopTargetMoved(t *testing.T) {
 // T-403: a moved gate that conflicts is resolved against the submitted sha (the merge's second parent), then gated as
 // committed and merged; the old candidate does not go along.
 func TestLoopMovedConflictResolved(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("shared.txt", "lane\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.start()
@@ -782,6 +793,7 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 // An obor merge outside the app while the task waits for its accept (the cutover's race): reconciled to merged, no
 // publish and no after-merge work of its own; the integrator's late accept finds no job.
 func TestLoopMergedOutsideTheApp(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -808,6 +820,7 @@ func TestLoopMergedOutsideTheApp(t *testing.T) {
 // obor serve restarts while the task waits for its accept: the replay settles the review prompt (never sent again),
 // and the integrator's verb after the restart merges it.
 func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -831,6 +844,7 @@ func TestLoopRestartWhileAwaitingAccept(t *testing.T) {
 // "loop: <error>" and one notification however many passes fail, a changed error a new one, and the first pass that
 // works ends it.
 func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	setErr := func(err error) {
 		r.mu.Lock()
@@ -873,6 +887,7 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 // T-425: while the main checkout is off the target branch the project's pass pauses: one loop needs-you, the
 // task_done recorded (a request, T-437) but neither submitted nor gated; back on the branch the fact ends and the task gates.
 func TestLoopPausedOffTargetBranch(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	set := func(err error) {
 		r.mu.Lock()
@@ -905,6 +920,7 @@ func TestLoopPausedOffTargetBranch(t *testing.T) {
 // message carries it, and the gate writes no spec file. (A draft left in the main checkout's tasks dir holds the
 // publish: drafts live in .obor/drafts/.)
 func TestCommitSubjectFromStoredSpec(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	const committed = "# T-1 — Committed target title"
 	r.p.Write("docs/tasks/T-1.md", committed+"\n")

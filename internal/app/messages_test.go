@@ -235,6 +235,7 @@ func sentLine(from, text string) string {
 // delivery result is sent; a repeated call id gets the stored reply and records nothing; a worker cannot send; text and
 // sender are required.
 func TestSendPostedOnceToTheLead(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "working", "idle")
 	r.start()
 	for _, c := range []struct {
@@ -285,6 +286,7 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 // reply says how the lead registers; across a restart it stays queued; once the record exists it is posted once, and
 // a later restart posts it no more.
 func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
@@ -317,6 +319,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 // T-485: a post refused before a byte went out (a dead socket's dial) is fact failed and posted again on a later
 // pass, once; a post that began and then failed is "sent: <error>" and never posted again.
 func TestSendPostRefusedAndPartial(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.fail(false)
 	r.start()
@@ -363,6 +366,7 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 // T-466: a line waiting longer than 24 h (here: the lead has no inbox record) is the project's needs-you (a
 // notification, obor status's needs-you with no command to answer it); posted at last, it ends (resumed).
 func TestSendWaitingADayNeedsYou(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
@@ -401,6 +405,7 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 // and is idle again, the lead gets "[obor] <agent> finished (briefed <age> ago)" posted once. Idle right after the
 // typing is no finish; the lead itself cannot be briefed.
 func TestBriefFinishedLineToTheLead(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
 	if _, err := r.line(app.MethodBrief, "b0", app.Call{To: "pj-lead", Note: "x"}); err == nil || !strings.Contains(err.Error(), "is the lead") {
@@ -439,6 +444,7 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 // T-466: a brief without a line (obor restart --fresh --prompt: the start carried it) is recorded while the agent
 // already works on it; idle → the lead's finished line.
 func TestBriefOfAFreshStart(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	r.start()
 	reply, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev"})
@@ -461,6 +467,7 @@ func TestBriefOfAFreshStart(t *testing.T) {
 // the reply says so and how to start it; an identified pane's reply is the usual one. The lead's line needs no pane
 // (T-485): posted to its session.
 func TestLineToAnUnnamedPane(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "")
 	r.f.Agent("w1:p5", "", "idle", r.p.Root).Workspace = "w1" // the lead's pane, unnamed
 	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
@@ -489,6 +496,7 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 // pane by its label: its line is typed into the pane (by id: herdr has no name to address; a Codex pane, so typed,
 // T-499), its work and idle end the brief, and the lead gets the finished line.
 func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "")
 	r.f.Agent("w1:p5", "pj-lead", "idle", r.p.Root).Workspace = "w1"
 	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
@@ -512,6 +520,7 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 // T-575: a role agent with no inbox: brief A waits, then a fresh start's brief B (no line: the start carried it) ends
 // A; the inbox's arrival delivers nothing for A, before or after a restart of serve.
 func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	r.inbox.unrecord("pj-rev")
 	r.start()
@@ -559,6 +568,7 @@ func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
 
 // T-575: brief A waits; obor brief B ends it and is delivered once, and A is never delivered.
 func TestBriefSupersedesAQueuedBrief(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "working") // the reviewer is busy: brief A waits
 	r.start()
 	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "first"}); err != nil {
@@ -588,6 +598,7 @@ func TestBriefSupersedesAQueuedBrief(t *testing.T) {
 // T-575: the lead's lines are never superseded: a send to the lead and another brief's finished line stay queued
 // across a brief to a different role agent.
 func TestBriefLeavesLeadLinesQueued(t *testing.T) {
+	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	sol := r.f.Agent("w1:p7", "pj-sol", "working", r.p.Root)
 	sol.Workspace, sol.Label = "w1", "pj-sol"
@@ -635,6 +646,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 // DD-v0.12 A3: obor send and obor brief to a project without a merge loop (no integrator role) are refused as obor
 // dispatch is: nothing there would ever deliver the line.
 func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
+	t.Parallel()
 	r := newLoopRig(t, "")
 	r.setConfig("roles", map[string]any{"reviewer": map[string]any{}})
 	r.start()

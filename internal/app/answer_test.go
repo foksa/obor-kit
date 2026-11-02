@@ -91,6 +91,7 @@ func asked(t *testing.T) *loopRig {
 // in the same attempt: no fix job, no attempt 2. A worker cannot answer, an empty answer is refused, a repeated call
 // id gets the stored reply, and an answered task has no question left. The worker's full report submits attempt 1.
 func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
+	t.Parallel()
 	r := asked(t)
 	if f := r.app.Status().Project.Facts; len(f) != 1 {
 		t.Fatalf("precondition: facts in force %+v, want the asks fact", f)
@@ -136,6 +137,7 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 // ready, then working, then ready again) and it waits. That turn is no answer: the question stays in force, its
 // its answers' obor answer is accepted and reaches the worker; no stall is recorded while it waits.
 func TestAnswerAfterTheStopHooksTurn(t *testing.T) {
+	t.Parallel()
 	r := asked(t)
 	r.workerIs("idle")
 	r.passes()
@@ -160,6 +162,7 @@ func TestAnswerAfterTheStopHooksTurn(t *testing.T) {
 // the state that needs-you leaves. asks: TestAnswerSendsTheWorkerTheAnswer, TestAnswerAfterTheStopHooksTurn. A drop
 // by lane needs the lane adapters: the dispatch rig's case (the plain rig has none).
 func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
+	t.Parallel()
 	hold := func(r *loopRig) app.Record {
 		r.t.Helper()
 		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
@@ -256,6 +259,7 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 // An answer an older build recorded (answer.<call id>, before T-511) replays as it did: its fold ends the question,
 // starts attempt 2 and the worker's fix job is the answer.
 func TestAnswerOfAnOlderLogReplays(t *testing.T) {
+	t.Parallel()
 	r := asked(t)
 	r.stop()
 	r.writeLog([]logRec{

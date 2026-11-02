@@ -53,6 +53,7 @@ func shell(root, id, agent string) Pane {
 // The advisor and the deep dive, which serve never stops, are stopped in status when the lead's stop left their pane at
 // a shell: no role.stop result is in the log at all.
 func TestStoppedRolesLeadStopped(t *testing.T) {
+	t.Parallel()
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root, shell(root, "w:adv", "pj-advisor"), shell(root, "w:dd", "pj-deep-dive"))
 	for _, rec := range readLog(t, p.root) {
@@ -70,6 +71,7 @@ func TestStoppedRolesLeadStopped(t *testing.T) {
 // review never closed, a verdict never recorded): it is the pane that says so. The integrator stays no brief's to
 // start, though.
 func TestStoppedRolesAtShellWithoutServeStop(t *testing.T) {
+	t.Parallel()
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root, shell(root, "w:int", "pj-int"), shell(root, "w:rev", "pj-rev"))
 	for _, rec := range readLog(t, p.root) {
@@ -91,6 +93,7 @@ func TestStoppedRolesAtShellWithoutServeStop(t *testing.T) {
 
 // Two panes labelled with one agent: which runs it is unknown, so it is not called stopped.
 func TestStoppedRolesTwoLabelledPanesUnknown(t *testing.T) {
+	t.Parallel()
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root, shell(root, "w:adv1", "pj-advisor"), shell(root, "w:adv2", "pj-advisor"))
 	w := a.whereIs(p, "pj-advisor")
@@ -104,6 +107,7 @@ func TestStoppedRolesTwoLabelledPanesUnknown(t *testing.T) {
 
 // Herdr down: serve knows no pane, so a stop it cannot see is not called stopped either.
 func TestStoppedRolesHerdrDownUnknown(t *testing.T) {
+	t.Parallel()
 	root := stoppedRoot(t)
 	a, _ := stoppedApp(t, root, shell(root, "w:adv", "pj-advisor"))
 	if got := a.Status().Project.Stopped; !slices.Equal(got, []string{"pj-advisor"}) {
@@ -123,6 +127,7 @@ func TestStoppedRolesHerdrDownUnknown(t *testing.T) {
 
 // A configured role agent with no labelled pane is "no pane", not stopped: nothing was stopped, no pane is there.
 func TestStoppedRolesNoPane(t *testing.T) {
+	t.Parallel()
 	root := stoppedRoot(t)
 	a, p := stoppedApp(t, root)
 	if !p.roleAgent("pj-advisor") {

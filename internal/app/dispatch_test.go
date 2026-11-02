@@ -290,6 +290,7 @@ var dispatchSteps = []string{"1 fact dispatch", "1 intent lane.prepare", "1 resu
 // sends the work job's wake. The worker's job_next is delivery (working);
 // its task_done then submits the task, and the merge loop takes it to merged.
 func TestDispatchHappyPath(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.work("feature.txt", "feature\n")
 	r.start()
@@ -367,6 +368,7 @@ func TestDispatchHappyPath(t *testing.T) {
 
 // --types takes the first free lane of the types in config order.
 func TestDispatchByTypes(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.start()
 	if _, err := r.dispatch("d0", "", "opus"); err == nil || !strings.Contains(err.Error(), "no free lane of the types opus") {
@@ -383,6 +385,7 @@ func TestDispatchByTypes(t *testing.T) {
 // re-dispatch takes that lane, whatever its type, and lane.prepare keeps its branch. With no other lane of the level
 // free it is still the redo, not a wait for a lane that frees only when the task leaves it.
 func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
+	t.Parallel()
 	// drop ends T-1 with no lane: the lane, its branch and the work stay (obor drop <T-xx>, T-462).
 	drop := func(t *testing.T, r *loopRig) {
 		t.Helper()
@@ -400,6 +403,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 	}
 	for _, state := range []string{"working", "blocked"} {
 		t.Run("drop with the work kept, lane "+state+": the same lane, its branch kept", func(t *testing.T) {
+			t.Parallel()
 			r := newDispatchRig(t)
 			r.start()
 			if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
@@ -438,6 +442,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 		})
 	}
 	t.Run("no other lane of the level free: the redo, not a wait", func(t *testing.T) {
+		t.Parallel()
 		r := newLevelRig(t)
 		r.setLane(func(l *app.Lane) { l.Type = "deepseek" })
 		r.lanes.mu.Lock()
@@ -484,8 +489,10 @@ func (r *loopRig) addLanes(ls ...app.Lane) {
 // working lanes are not idle, and nothing is appended when none stay free. A waiting request takes none: every free
 // lane is listed.
 func TestDispatchNamesIdleLanes(t *testing.T) {
+	t.Parallel()
 	busy := []app.Lane{{Name: "O-03", Type: "sonnet", State: "dirty-free"}, {Name: "O-04", Type: "opus", State: "working"}}
 	t.Run("two free lanes: the other one is idle", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.addLanes(append([]app.Lane{{Name: "O-02", Type: "opus", State: "free"}}, busy...)...)
 		r.start()
@@ -496,6 +503,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 		r.waitStep("1 result work")
 	})
 	t.Run("the last free lane taken: no idle", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.addLanes(busy...)
 		r.start()
@@ -506,6 +514,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 		r.waitStep("1 result work")
 	})
 	t.Run("waiting: every free lane is idle", func(t *testing.T) {
+		t.Parallel()
 		r := startWithT2(t)
 		r.addLanes(append([]app.Lane{{Name: "O-02", Type: "opus", State: "free"}}, busy...)...)
 		reply, err := r.waitAfter("d1", "T-2")
@@ -517,6 +526,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 
 // Each refusal answers FAIL … (the error) and records nothing; a repeated call id gets the stored reply.
 func TestDispatchRefusals(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name  string
 		setup func(r *loopRig)
@@ -554,6 +564,7 @@ func TestDispatchRefusals(t *testing.T) {
 			want: "task/T-1 exists with commits not in the target"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
 			r := newDispatchRig(t)
 			if row.setup != nil {
 				row.setup(r)
@@ -577,6 +588,7 @@ func TestDispatchRefusals(t *testing.T) {
 		})
 	}
 	t.Run("task open, then the call id again", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.start()
 		r.mustDispatch("d1")
@@ -594,6 +606,7 @@ func TestDispatchRefusals(t *testing.T) {
 		}
 	})
 	t.Run("lane held by another task's dispatch", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
 		r.start()
@@ -611,6 +624,7 @@ func TestDispatchRefusals(t *testing.T) {
 // converges; agent.start (S) reads the snapshot: a new session in the pane is the start, the same one
 // starts again; the work job's wake rides on the start, never typed on replay.
 func TestDispatchCrashAtEachStep(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		method, where string
 		// want: what the fakes applied in all (prepares, starts), the calls of the method.
@@ -622,6 +636,7 @@ func TestDispatchCrashAtEachStep(t *testing.T) {
 		{"start", "after", 1, 1, 1},  // a new session: started, no second Restart
 	} {
 		t.Run(row.method+" "+row.where, func(t *testing.T) {
+			t.Parallel()
 			r := newDispatchRig(t)
 			r.disp.set(func(d *dispatchFakes) { d.cut[row.method] = row.where })
 			r.start()
@@ -654,7 +669,9 @@ func TestDispatchCrashAtEachStep(t *testing.T) {
 // one too. obor resume retries (its default): a refused step runs again under its next key, a failed one under its
 // own.
 func TestDispatchNeedsYouThenResume(t *testing.T) {
+	t.Parallel()
 	t.Run("prepare refused", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) {
 			d.fail["prepare"] = func() error { return app.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
@@ -677,6 +694,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		r.waitStep("1 result work")
 	})
 	t.Run("start refused", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) {
 			d.fail["start"] = func() error { return errors.New("pj-o1 has background tasks (--force stops them)") }
@@ -691,6 +709,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		r.waitStep("1 result work")
 	})
 	t.Run("three counted failures", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) { d.fail["prepare"] = func() error { return errors.New("git I/O") } })
 		r.start()
@@ -710,6 +729,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		}
 	})
 	t.Run("no pane in the lane", func(t *testing.T) {
+		t.Parallel()
 		r := newDispatchRig(t)
 		r.f.Locked(func() {
 			r.f.Panes = slices.DeleteFunc(r.f.Panes, func(p *herdrtest.Pane) bool { return p.ID == "w1:p1" })
@@ -729,6 +749,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 // Rows 6–8: no delivery 5 min after the work job → retry.work; 5 more → needs-you{job not delivered}; obor resume
 // sends the job anew (work.2), and its delivery makes the task working.
 func TestDispatchDelivery(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t)
 	r.start()
 	r.mustDispatch("d1")
@@ -764,6 +785,7 @@ func TestDispatchDelivery(t *testing.T) {
 // RV-51 #2: a waiting request that replaces a refused one (obor drop, then dispatch it again --after another task)
 // starts with no refusal: no inherited reason in status, and its own hour before the needs-you; also across a reload.
 func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
+	t.Parallel()
 	r := startWithT2(t)
 	r.setLane(func(l *app.Lane) { l.State, l.Task = "working", "T-9" })
 	if _, err := r.waitAfter("d1", "T-2"); err != nil {
@@ -814,6 +836,7 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 // agent in the config here). herdr's live agent name never counts: a label and a live name that are two of the
 // lane's aliases give the label, a live name with no label gives the default.
 func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name         string
 		rowAgent     string // the lane row's agent
@@ -831,6 +854,7 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 		{"neither", "", "", "", "pj-o-01"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
 			r := newDispatchRig(t, testkit.Set("lanes.O-01", map[string]any{"type": "opus"}))
 			r.setLane(func(l *app.Lane) { l.Agent = row.rowAgent })
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) {
@@ -865,6 +889,7 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 // T-587: serve restarted after `obor setup rename` replays a log whose dispatch fact names the old agent, so the lane's
 // row says hk-o1 again; the next dispatch still starts the worker by the lane's name under the config (pj-o-01).
 func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
+	t.Parallel()
 	r := newDispatchRig(t, testkit.Set("lanes.O-01", map[string]any{"type": "opus"}))
 	r.setLane(func(l *app.Lane) { l.Agent = "hk-o1" })
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "", "", "", "" }) // a shell

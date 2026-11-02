@@ -77,6 +77,7 @@ func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
 // task with a lane takes the lead's sendback (T-619). Each command, run on a fresh seed through obor resume's parser,
 // is accepted.
 func TestAnswerPathEveryCause(t *testing.T) {
+	t.Parallel()
 	const drop, resume = ` | obor drop O-01 "<why>"`, "obor resume T-1"
 	const sb = `obor sendback O-01 "<why>" | ` // a merge-loop needs-you's advice starts with it (T-619)
 	for _, row := range []struct {
@@ -142,6 +143,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 // RV-54 #4: obor resume's arguments: regate and reprompt are the reserved modes; any other nonblank last argument
 // is the decision, a single word too; nothing else parses.
 func TestResumeArgs(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		args     []string
 		to, note string

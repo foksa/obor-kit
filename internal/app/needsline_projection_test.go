@@ -52,6 +52,7 @@ func needsMessages(t *testing.T, p *proj) []Message {
 // RV-52-verify V1: a needs-you's line whose append succeeds while the lanes table's write fails (record false) stays
 // recorded: a later pass appends no second line, and once the table writes again the lead gets the line once.
 func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
 	in := &countPoster{}

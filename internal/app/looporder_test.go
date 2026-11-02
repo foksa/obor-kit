@@ -19,6 +19,7 @@ func twoInLane() *proj {
 }
 
 func TestLoopTasksSortedByName(t *testing.T) {
+	t.Parallel()
 	p := twoInLane()
 	p.folded.loop["T-10"] = &mtask{task: "T-10"}
 	for range orderTries {
@@ -29,6 +30,7 @@ func TestLoopTasksSortedByName(t *testing.T) {
 }
 
 func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
+	t.Parallel()
 	for range orderTries {
 		p := twoInLane()
 		if _, ok := p.folded.loop["T-2"].workerJob(); !ok {
@@ -42,6 +44,7 @@ func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
 }
 
 func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
+	t.Parallel()
 	for range orderTries {
 		p := twoInLane()
 		p.integrator = "int"
@@ -62,6 +65,7 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 }
 
 func TestDropByLaneTwoOpenTakesNewestDispatch(t *testing.T) {
+	t.Parallel()
 	for range orderTries {
 		p := twoInLane()
 		if p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {
@@ -75,6 +79,7 @@ func TestDropByLaneTwoOpenTakesNewestDispatch(t *testing.T) {
 }
 
 func TestHeldLaneOfTwoDispatchesIsNewestDispatch(t *testing.T) {
+	t.Parallel()
 	for range orderTries {
 		p := twoInLane()
 		if !p.folded.loop["T-1"].dispatching() || p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {

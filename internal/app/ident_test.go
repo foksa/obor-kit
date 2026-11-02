@@ -201,6 +201,7 @@ func (h *harness) lines() []string {
 // 1: serve's agent.start {w1:p1, t1, s1}: start before the pane shows s1, session once it does; the job wake is
 // posted to its session.
 func TestIdentStartByServe(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
@@ -222,6 +223,7 @@ func TestIdentStartByServe(t *testing.T) {
 // 2: the lead's obor restart pj-o-01 (no serve start): its recorded session s2 is the pane's session: identified by session; a
 // brief to it (a typed kind) is typed into w1:p1.
 func TestIdentRestartByLead(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.sids(map[string]string{"pj-o-01": "s2"})
 	p := h.pane("w1:p1")
@@ -238,6 +240,7 @@ func TestIdentRestartByLead(t *testing.T) {
 
 // 3: --fresh: session recorded s3 and the pane shows s3: identified by the new session; work after the brief is marked.
 func TestIdentFreshSession(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
 	h.sids(map[string]string{"pj-o-01": "s1"})
@@ -259,8 +262,10 @@ func TestIdentFreshSession(t *testing.T) {
 // 4: herdr restarted, obor plugin restore: new pane ids and terminals, the same label, the session record kept: identified by
 // session (by label for opencode, which records none); the lane sees no agent exit.
 func TestIdentHerdrRestartRestore(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"claude", "opencode"} {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			h, _ := newIdentHarness(t)
 			if kind == "claude" {
 				h.sids(map[string]string{"pj-o-01": "s1"})
@@ -288,6 +293,7 @@ func TestIdentHerdrRestartRestore(t *testing.T) {
 // 5: serve restarts with the panes alive: the start row {w1:p1, t1} replays; identified by start on the first pass,
 // and the after-merge stop addresses w1:p1.
 func TestIdentServeRestart(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label, h.pane("w1:p1").Session = "", "s7"
 	h.started("pj-o-01", "w1:p1", "t1", "")
@@ -305,6 +311,7 @@ func TestIdentServeRestart(t *testing.T) {
 // 6: the pane closed and another opened under the same label, no session record: identified by label; obor status
 // names it.
 func TestIdentPaneReopened(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "")
 	h.connect()
@@ -322,6 +329,7 @@ func TestIdentPaneReopened(t *testing.T) {
 
 // 7: started by hand (claude in a labelled shell), no record: identified by label; a brief is delivered to it.
 func TestIdentStartedByHand(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Agent, h.pane("w1:p1").Session = "codex", ""
 	h.connect()
@@ -337,6 +345,7 @@ func TestIdentStartedByHand(t *testing.T) {
 // 8: herdr drops the agent's name mid-task (app.Pane has no name field: nothing can read it): unchanged, and a typed
 // line still addresses the pane id (RV-53 #5).
 func TestIdentNameDropped(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Agent = "codex"
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
@@ -355,6 +364,7 @@ func TestIdentNameDropped(t *testing.T) {
 // 9: two panes labelled pj-o-01, no proof on either: Ambiguous, both named; the wake is not sent and nothing is
 // recorded; obor status says so.
 func TestIdentTwoLabels(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.snap.Panes = append(h.snap.Panes, h.twin())
@@ -375,6 +385,7 @@ func TestIdentTwoLabels(t *testing.T) {
 // 10: the pane moved to another tab (same terminal, new id): identified at the new id by the same proof; the stop
 // addresses it.
 func TestIdentPaneMoved(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.started("pj-o-01", "w1:p1", "t1", "")
@@ -391,6 +402,7 @@ func TestIdentPaneMoved(t *testing.T) {
 // 11: the pane at its shell (the agent exited, the terminal there): Unavailable "at its shell"; the stop is
 // "stopped: no agent", nothing signalled.
 func TestIdentAtShell(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
@@ -406,6 +418,7 @@ func TestIdentAtShell(t *testing.T) {
 // 12 (RV-53 #1): move → stop through the after-merge step: the start row says w1:p1, the pane moved to w1:p7; Stop
 // is called with w1:p7, never w1:p1, and the stop's intent records no pane.
 func TestIdentMoveThenStop(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
@@ -430,6 +443,7 @@ func TestIdentMoveThenStop(t *testing.T) {
 // 13: as 12, the old address reused by an unrelated agent in the lane, the moved pane relabelled notes: the start
 // proof still holds w1:p7; nothing goes to w1:p1.
 func TestIdentMoveAddressReused(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
@@ -448,6 +462,7 @@ func TestIdentMoveAddressReused(t *testing.T) {
 // 14 (RV-53 #2): a session claim and a label claim on one terminal: the lead's recorded session s1 is w1:p1's session, w1:p1 is
 // labelled pj-other: the lead owns t1, pj-other has no proof; whoIs(w1:p1) is the lead.
 func TestIdentSessionBeatsLabel(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Label = "pj-other"
@@ -470,6 +485,7 @@ func TestIdentSessionBeatsLabel(t *testing.T) {
 // 15 (RV-53 #2): row 6, then a second pane labelled pj-o-01 appears: Ambiguous (the old pane not kept), logged
 // once; deliveries are held.
 func TestIdentDuplicateLater(t *testing.T) {
+	t.Parallel()
 	h, out := newIdentHarness(t)
 	h.pane("w1:p1").Agent, h.pane("w1:p1").Session = "codex", ""
 	h.connect()
@@ -493,6 +509,7 @@ func TestIdentDuplicateLater(t *testing.T) {
 
 // 16: row 9, then w1:p1 shows recorded session s1: identified at w1:p1 by session; w1:p3 logged once as a stray label.
 func TestIdentOneLabelProven(t *testing.T) {
+	t.Parallel()
 	h, out := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.snap.Panes = append(h.snap.Panes, h.twin())
@@ -511,6 +528,7 @@ func TestIdentOneLabelProven(t *testing.T) {
 // 17: a start row {w1:p1, t1} whose pane now runs the integrator's session: pj-o-01 has none (the row retired,
 // logged), pj-int owns t1; the stop of pj-o-01 signals nothing.
 func TestIdentStartRowRetired(t *testing.T) {
+	t.Parallel()
 	h, out := newIdentHarness(t)
 	h.withLead()
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
@@ -536,6 +554,7 @@ func TestIdentStartRowRetired(t *testing.T) {
 // T-605 #1: a stale start row of hk-h1 (the config names no such agent) on w1:p1, labelled pj-o-01: the label wins,
 // and the stale row is retired in memory, logged once.
 func TestIdentUnnamedStartRetired(t *testing.T) {
+	t.Parallel()
 	h, out := newIdentHarness(t)
 	h.started("hk-h1", "w1:p1", "t1", "")
 	h.connect()
@@ -558,6 +577,7 @@ func TestIdentUnnamedStartRetired(t *testing.T) {
 // T-605 #2: nothing else in the ranking changes: a configured agent's start row still beats a label (pj-o-01's start
 // on w1:p1, labelled pj-o-02; both are lane agents of the config).
 func TestIdentNamedStartBeatsLabel(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
 		`{"name":"pj","lanes":{"O-01":{"agent":"pj-o-01"},"O-02":{"agent":"pj-o-02"}}}`)
@@ -572,6 +592,7 @@ func TestIdentNamedStartBeatsLabel(t *testing.T) {
 // T-605 #3: an unconfigured agent's recorded session gives no session proof either: hk-sol's record is w1:p1's session
 // s1, and it has a brief (a candidate), yet no pane proves it.
 func TestIdentUnnamedSessionNoProof(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
 	h.connect()
@@ -585,6 +606,7 @@ func TestIdentUnnamedSessionNoProof(t *testing.T) {
 // 18 (RV-53 #4): replay → brief work: a brief recorded, serve restarts, the first snapshot shows w1:p1 working with
 // no label, its recorded session s1: identified by session and the brief's work marked (and logged) on that first snapshot.
 func TestIdentReplayBriefWork(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
 	sids := map[string]string{"pj-o-01": "s1"}
@@ -606,6 +628,7 @@ func TestIdentReplayBriefWork(t *testing.T) {
 // 19 (RV-53 #3): a wake pending, two labels appear before the send: Ambiguous; the key stays pending, nothing typed
 // or recorded; sent once the ambiguity ends.
 func TestIdentAmbiguityDuringWake(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.connect()
@@ -627,6 +650,7 @@ func TestIdentAmbiguityDuringWake(t *testing.T) {
 
 // 20: row 9, then w1:p3 closed: identified at w1:p1 by label; the held brief is delivered on that pass.
 func TestIdentAmbiguityEnds(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Agent, h.pane("w1:p1").Session = "codex", ""
 	h.snap.Panes = append(h.snap.Panes, h.twin())
@@ -647,6 +671,7 @@ func TestIdentAmbiguityEnds(t *testing.T) {
 
 // 21: not connected (before the first snapshot): Unavailable "not connected"; nothing attempted, lines queued.
 func TestIdentNotConnected(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Agent = "codex"
 	h.a.loadProject()
@@ -666,6 +691,7 @@ func TestIdentNotConnected(t *testing.T) {
 // 22: the lead with two panes (a second opened by hand): the lead is Ambiguous, and its line is still posted by its
 // inbox record.
 func TestIdentLeadTwoPanes(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.snap.Panes = append(h.snap.Panes,
@@ -688,6 +714,7 @@ func TestIdentLeadTwoPanes(t *testing.T) {
 // 23: identified outside the lane dir (the agent cd'd elsewhere): agentOf(lane) has no agent; the watchdog treats the
 // lane as having none (no pane left in it: pane exited).
 func TestIdentOutsideLane(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.connect()
 	seq := h.lastSeq()
@@ -708,6 +735,7 @@ func TestIdentOutsideLane(t *testing.T) {
 // 24: the same claims in any order make the same table: the snapshot's panes shuffled (and Go's map order) over many
 // runs.
 func TestIdentOrderIndependent(t *testing.T) {
+	t.Parallel()
 	var first string
 	for i := range 40 {
 		h, _ := newIdentHarness(t)
@@ -742,6 +770,7 @@ func TestIdentOrderIndependent(t *testing.T) {
 // DD-v0.13 A2: the after-merge stop while serve is cut off from herdr (identified at w1:p1, then the stream ends) is
 // not settled as "no agent": no Stop, no result, the step pending; connected again, it stops w1:p1.
 func TestIdentStopWhileDisconnected(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
@@ -780,8 +809,10 @@ func (s *kindSpy) Post(_ context.Context, kind, agent, line string) (bool, error
 // names the identified pane's session (s1) or none; a record of another session (s9): the wake is typed into w1:p1,
 // the line held.
 func TestIdentInboxOfAnotherSession(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ rec, want string }{{"s1", "posted"}, {"", "posted"}, {"s9", "typed"}} {
 		t.Run("record "+tc.rec, func(t *testing.T) {
+			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.started("pj-o-01", "w1:p1", "t1", "s1")
 			h.connect()
@@ -813,6 +844,7 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 // herdr: its line is posted (even against another session's record: its record is its own latest SessionStart). A
 // role pane with no session: posted. A role pane whose session (s1) differs from the record's (s9): held.
 func TestIdentSessionUnknown(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, agent, pane, rec string
 		want                   string
@@ -823,6 +855,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 		{"role, known mismatch", "pj-o-01", "s1", "s9", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.withLead()
 			h.snap.Panes = append(h.snap.Panes, Pane{ID: "w1:p8", Workspace: "w1", Cwd: h.root, Agent: "claude",
@@ -865,6 +898,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 // DD-v0.13 A5: a second agent pane in the lane (w1:p0, sorting first, a session the owner opened) is not the
 // dispatch's place while the table identifies the lane's agent at w1:p1; with no agent identified, the rule as before.
 func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.snap.Panes = append(h.snap.Panes, Pane{ID: "w1:p0", Workspace: "w1", Cwd: h.lane("O-01"), Agent: "claude",
 		Status: "idle", Terminal: "t0"})
@@ -883,6 +917,7 @@ func TestIdentPlacementPrefersTheLaneAgent(t *testing.T) {
 // DD-v0.13 D1: the integrator's type names a kind obor has no bridge for: its start is refused (no Launch), naming
 // obor config validate.
 func TestIdentIntegratorWithoutBridge(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj",`+
 		`"roles":{"integrator":{"type":"cur"},"lead":{}},"lane_types":{"cur":{"kind":"pi","args":[]}}}`)
@@ -911,6 +946,7 @@ func (f *launchSpy) Launch(context.Context, Launch) (Started, error) {
 // T-504: the identity table's cases; each failed on the code it was found on.
 // #3: two panes labelled pj-o-01: the production send attempts no wake (no name fallback).
 func TestIdentAmbiguityStillPrompts(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.snap.Panes = append(h.snap.Panes, h.twin())
 	h.pane("w1:p1").Session = ""
@@ -926,6 +962,7 @@ func TestIdentAmbiguityStillPrompts(t *testing.T) {
 
 // #2: the lead's session and pj-other's label on one terminal: one owner, the lead.
 func TestIdentOnePaneTwoAgents(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Label = "pj-other"
@@ -937,6 +974,7 @@ func TestIdentOnePaneTwoAgents(t *testing.T) {
 
 // #2: a label identity, then a second pane labelled the same: refused, not the old pane kept.
 func TestIdentDuplicateLabelArrivesLater(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.connect()
@@ -947,6 +985,7 @@ func TestIdentDuplicateLabelArrivesLater(t *testing.T) {
 
 // #1: the start row says w1:p1, the pane moved to w1:p7: the stop addresses w1:p7.
 func TestIdentStopMovedPane(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.started("pj-o-01", "w1:p1", "t1", "s1")
 	h.connect()
@@ -959,6 +998,7 @@ func TestIdentStopMovedPane(t *testing.T) {
 
 // #4: an unlabelled pane identified by session works on its brief: worked.
 func TestIdentBriefWorkByRegistry(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label = ""
 	h.sids(map[string]string{"pj-o-01": "s1"})
@@ -973,6 +1013,7 @@ func TestIdentBriefWorkByRegistry(t *testing.T) {
 
 // #5: a typed brief addresses the identified pane's id (app.Pane has no herdr name to prefer).
 func TestIdentBriefUsesPaneAddress(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Agent = "codex"
 	h.connect()
@@ -988,8 +1029,10 @@ func TestIdentBriefUsesPaneAddress(t *testing.T) {
 // V1: pj-o-01's and the lead's recorded session are both w1:p1's session s1 (equal proof of t1): t1 is unowned whatever its
 // label names, a third label (pj-other) included; neither tied claimant is identified.
 func TestIdentEqualProofTerminal(t *testing.T) {
+	t.Parallel()
 	for _, label := range []string{"", "pj-o-01", "pj-lead", "pj-other"} {
 		t.Run("label="+label, func(t *testing.T) {
+			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.withLead()
 			h.pane("w1:p1").Label = label
@@ -1008,6 +1051,7 @@ func TestIdentEqualProofTerminal(t *testing.T) {
 // V1: the tie on t1, and serve's start of pj-other in w1:p1 (a lower-ranked start claim): t1 stays unowned; once the
 // lead's session is no longer s1 the tie ends and pj-o-01 owns t1 again by session.
 func TestIdentEqualProofStartClaim(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Label = ""
@@ -1039,6 +1083,7 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 
 // V1 control: without the tie, pj-other's start claim owns t1 (the start claim is a real proof).
 func TestIdentStartClaimWithoutTie(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Label = ""
@@ -1080,6 +1125,7 @@ func (h *harness) stopWith(ag Agents) (string, error) {
 // V2: pj-o-01 identified by label; a second labelled pane appears while its stop fails (a plain refusal, or a
 // not-found one): an error naming both panes, not "stopped: no agent". The pane gone instead: the no-agent success.
 func TestIdentStopBecomesAmbiguous(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, after string
 		err         error
@@ -1090,6 +1136,7 @@ func TestIdentStopBecomesAmbiguous(t *testing.T) {
 		{name: "gone", after: "unavailable exited", err: errors.New("stop refused before action"), gone: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			h, _ := newIdentHarness(t)
 			h.pane("w1:p1").Session = ""
 			h.connect()
@@ -1118,6 +1165,7 @@ func TestIdentStopBecomesAmbiguous(t *testing.T) {
 
 // V2: the same interleaving through afterStep and the log: the stop is not settled (no result), the step pending.
 func TestIdentStopAmbiguityWritesNoResult(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = ""
 	h.connect()
@@ -1175,6 +1223,7 @@ func (h *harness) queuedLeadThenBrief() {
 
 // V3: the lead's line posted first, its post moves pj-o-01's terminal t1 to w1:p7: the brief is typed into w1:p7.
 func TestIdentQueuedBriefMoveBeforeEffect(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Agent = "codex"
@@ -1196,6 +1245,7 @@ func TestIdentQueuedBriefMoveBeforeEffect(t *testing.T) {
 // V3: the lead's post reveals a second pane labelled pj-o-01: the brief stays queued, no delivery intent, nothing
 // typed; once the duplicate closes it is typed into w1:p1.
 func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Agent = "codex"
@@ -1231,6 +1281,7 @@ func TestIdentQueuedBriefAmbiguousBeforeEffect(t *testing.T) {
 // the stream delivers the label with the next event it rereads the pane for (a status event with the pane in New),
 // and the app takes it as it takes the rest of the pane.
 func TestIdentRelabelledPane(t *testing.T) {
+	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Label, h.pane("w1:p1").Session = "notes", ""
 	h.connect()
