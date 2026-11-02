@@ -1,6 +1,6 @@
 // obor (Go): every command in `commands` (whoami, config, status, pause, run, restart, lead, dispatch, drop,
 // answer, sendback, resume, send, projects, brief, spec, flakes, nightly,
-// milestone-check, plugin (the herdr plugin's restore hook), setup, has, serve, mcp, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
+// milestone-check, plugin (the herdr plugin's restore hook), setup, has, serve, mcp, stop, start, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
 // file) execs this binary for the commands in bin/go-commands.
 package main
 
@@ -137,6 +137,10 @@ func main() {
 		exit(serveCmd(args))
 	case "mcp":
 		exit(mcpCmd(args))
+	case "stop":
+		exit(stopCmd(args))
+	case "start":
+		exit(startCmd(args))
 	case "version":
 		if len(args) != 0 {
 			errf("usage: obor version")
@@ -168,6 +172,28 @@ func load() (*project.Repo, *config.Config, int) {
 		return nil, nil, 1
 	}
 	return repo, cfg, 0
+}
+
+// loadReader is load for the readers (obor status, obor monitor; T-709): a config key this binary does not know is
+// warn (config.LoadReader), not a failure.
+func loadReader() (cfg *config.Config, warn string, rc int) {
+	cwd, _ := os.Getwd()
+	repo, err := project.Find(cwd)
+	if err != nil {
+		errf("obor: not in a git repository (no .obor/config.json)")
+		return nil, "", 3
+	}
+	cfg, warn, err = config.LoadReader(repo.Root)
+	if err != nil {
+		msg := err.Error()
+		if errors.Is(err, config.ErrNoConfig) {
+			errf("%s", strings.TrimSuffix(msg, ": "+config.ErrNoConfig.Error()))
+			return nil, "", 3
+		}
+		errf("%s", msg)
+		return nil, "", 1
+	}
+	return cfg, warn, 0
 }
 
 // commands is what this binary implements: subcommand → its sub-subcommands (nil: takes none). `obor has` reads it,
@@ -204,6 +230,8 @@ var commands = map[string][]string{
 	"plugin":          {"restore"},
 	"serve":           {"status", "install", "uninstall", "restart"},
 	"mcp":             nil,
+	"stop":            nil,
+	"start":           nil,
 	"setup":           {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "opencode-plugin", "monitor"},
 }
 

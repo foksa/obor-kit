@@ -66,7 +66,7 @@ func paneConfig(cwd string) (cfg *config.Config, ok bool) {
 		return nil, false
 	}
 	repo, err := project.Find(cwd)
-	if err != nil {
+	if err != nil || project.Stopped(repo.Root) { // a stopped project (obor stop, T-709): nothing to restore
 		return nil, false
 	}
 	if cfg, err = config.Load(repo.Root); err != nil {

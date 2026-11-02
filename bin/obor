@@ -122,12 +122,13 @@ has_hook() {
   return "$rc"
 }
 
-# in_project <event json>: the event's cwd is in an obor project (.obor/config.json in its main checkout).
+# in_project <event json>: the event's cwd is in an obor project (.obor/config.json in its main checkout) that is not
+# stopped (obor stop, T-709: .obor/state/stopped).
 in_project() {
   local cwd root
   cwd=$(jq -r '.cwd // empty' <<< "$1" 2> /dev/null) || return 1
   [ -n "$cwd" ] && [ -d "$cwd" ] || return 1
-  root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ]
+  root=$(main_checkout "$cwd") && [ -f "$root/.obor/config.json" ] && [ ! -f "$root/.obor/state/stopped" ]
 }
 
 # hook <name>: run `obor hook <name>` on the first usable binary. None (missing, stale, hanging; user decision T-201:

@@ -577,3 +577,34 @@ func keys(m map[string]bool) []string {
 	slices.Sort(out)
 	return out
 }
+
+// T-709: a project whose config has a key this binary does not know (a long-running obor web older than the config:
+// "unknown field roles.researcher") is served with the warning among the view's notes instead of failing the page,
+// and a stopped project says so; the landing's row carries no error.
+func TestViewOfANewerConfigWarns(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config(testkit.Set("roles.zz_future", map[string]any{}))
+	if _, err := config.Load(p.Root); err == nil {
+		t.Fatal("precondition: config.Load refuses the unknown key")
+	}
+	if err := project.MarkStopped(p.Root, "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	h := (&Server{Projects: func() []project.Project { return []project.Project{{Name: "proj", Root: p.Root}} }}).Handler()
+	r := get(t, h, "/api/view?project=proj")
+	if r.Code != http.StatusOK {
+		t.Fatalf("/api/view: %d %s", r.Code, r.Body.String())
+	}
+	var v view.Project
+	decode(t, r, &v)
+	if len(v.Notes) != 2 || !strings.HasPrefix(v.Notes[0], "WARN ") || !strings.Contains(v.Notes[0], `"zz_future"`) ||
+		v.Notes[1] != project.StoppedLine {
+		t.Errorf("notes %q, want the unknown key's warning and the stopped line", v.Notes)
+	}
+	var entries []ProjectsEntry
+	decode(t, get(t, h, "/api/projects"), &entries)
+	if len(entries) != 1 || entries[0].Error != "" {
+		t.Errorf("/api/projects: %+v, want the project without an error", entries)
+	}
+}

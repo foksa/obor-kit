@@ -337,6 +337,18 @@ func LoadDaemon(root string) (*Config, error) {
 // other error is Load's: the hooks then fail closed (Fallback).
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
+// LoadReader is Load for the readers (obor status, obor monitor, obor web; T-709): a key this binary does not know (a
+// long-running obor web older than the config) is ignored, and warn names it, instead of failing the page. Every other
+// error is Load's; obor config validate (Load) keeps refusing such a config.
+func LoadReader(root string) (cfg *Config, warn string, err error) {
+	c, unknown, err := read(root)
+	if err != nil || len(unknown) == 0 {
+		return c, "", err
+	}
+	return c, "WARN " + strings.TrimPrefix(c.unknownErr.Error(), "obor: ") +
+		" ignored: this obor binary is older than the config (restart it; obor config validate)", nil
+}
+
 // Warn receives LoadDaemon's warnings.
 var Warn io.Writer = os.Stderr
 

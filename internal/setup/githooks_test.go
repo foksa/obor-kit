@@ -219,6 +219,19 @@ func TestGithooks(t *testing.T) {
 				t.Error("pushed")
 			}
 		}},
+		// T-709: a stopped project's git hooks stand down (obor stop wrote .obor/state/stopped): a lane commit and a
+		// push go through, the project's own hooks still chained.
+		{"a stopped project's hooks only chain", func(t *testing.T, x *hx) {
+			x.commits(t, x.lane, x.gitEnv(), 1, lane, "precondition: lane commit refused while running")
+			x.Write(".obor/state/stopped", "at: now\nwhy: test\n")
+			x.commits(t, x.lane, x.gitEnv(), 0, "", "lane commit in a stopped project")
+			remote := filepath.Join(x.Base, "remote.git")
+			x.Git(x.Base, "init", "-q", "--bare", remote)
+			x.Git(x.Root, "remote", "add", "origin", remote)
+			if rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Errorf("push in a stopped project: exit %d\n%s", rc, errOut)
+			}
+		}},
 		// bash case_pre_commit_refuses_in_lane_allows_with_obor_merge_and_in_main
 		{"pre-commit refuses in a lane, allows with OBOR_MERGE=1 and in main", func(t *testing.T, x *hx) {
 			x.commits(t, x.lane, x.gitEnv(), 1, lane, "lane commit")

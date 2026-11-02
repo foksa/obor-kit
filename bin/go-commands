@@ -29,3 +29,5 @@ restart
 lead
 serve
 mcp
+stop
+start

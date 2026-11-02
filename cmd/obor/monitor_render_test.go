@@ -18,6 +18,7 @@ import (
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/project"
 	"obor/internal/view"
 )
 
@@ -404,3 +405,17 @@ func (w *syncWrites) String() string {
 	return w.b.String()
 }
 func (w *syncWrites) count(sub string) int { return strings.Count(w.String(), sub) }
+
+// T-709: the view's notes (an unknown config key, a stopped project) are drawn under the header line, before the lanes.
+func TestMonitorDrawsNotes(t *testing.T) {
+	t.Parallel()
+	st := goldenView()
+	if strings.Contains(strings.Join(goldenFrame(st, 40, 120, false), "\n"), "project stopped") {
+		t.Fatal("precondition: no note without notes")
+	}
+	st.Notes = []string{`WARN .obor/config.json: unknown field "zz" ignored`, project.StoppedLine}
+	frame := goldenFrame(st, 40, 120, false)
+	if len(frame) < 3 || frame[1] != st.Notes[0] || frame[2] != project.StoppedLine {
+		t.Errorf("frame head %q, want the header then the two notes", frame[:3])
+	}
+}

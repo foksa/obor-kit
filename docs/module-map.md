@@ -20,8 +20,10 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 **base** — shared leaves, no obor state of their own.
 - `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
   `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`),
-  the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`).
-- `config`: effective config. `config.Load(root) (*Config, error)`; `Validate` (removed keys WARN), `TaskIDOK` /
+  the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
+  project (`stopped.go`, T-709: `Stopped`, `MarkStopped`, `ClearStopped`, `Unregister`: obor stop / obor start).
+- `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, monitor, web: an unknown
+  key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
   `TaskFromBranch`.
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
