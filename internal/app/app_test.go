@@ -55,11 +55,15 @@ func (c *clock) Move(d time.Duration, f func(now time.Time)) {
 type laneTable struct {
 	mu    sync.Mutex
 	lanes []port.Lane
+	real  port.Lanes // serve's own adapter in place of lanes (nil: lanes; T-738)
 }
 
-func (l *laneTable) Lanes(string) ([]port.Lane, error) {
+func (l *laneTable) Lanes(root string) ([]port.Lane, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.real != nil {
+		return l.real.Lanes(root)
+	}
 	return append([]port.Lane(nil), l.lanes...), nil
 }
 

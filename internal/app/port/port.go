@@ -74,8 +74,9 @@ type Panes interface {
 }
 
 // Lane is one lane of a project: its worktree, the task its branch holds open ("" for none) and the lane's worker
-// agent; for dispatch: its lane type and its status state (checks.LaneStatus: free,
-// dirty-free, working, done, …).
+// agent; for dispatch: its configured lane type (the lane's reservation, "" a pool lane; never the type its dispatch
+// runs, which is the dispatch's: store.LaneTypeRef, T-738) and its status state (checks.LaneStatus: free, dirty-free,
+// working, done, …).
 type Lane struct {
 	Name, Dir, Task string
 	Agent           string

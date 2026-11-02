@@ -128,7 +128,7 @@ func (r *serveRig) start() {
 			// the host is near the 5 GiB bound then fails to start its jobs; the guard has its own tests (internal/app).
 			l.Disk = nil
 			return l, nil
-		}}, panes, laneTable{})
+		}}, panes, checks.Lanes{})
 	go func() {
 		defer close(r.done)
 		_ = r.app.Serve(ctx)
