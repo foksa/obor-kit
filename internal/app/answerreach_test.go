@@ -239,7 +239,7 @@ func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
 	h.a.mu.Lock()
 	for _, q := range h.proj().out.msgs {
 		if q.msg.Task == "T-1" {
-			q.typing = true // its delivery claimed
+			q.state = lineSending // its delivery claimed
 		}
 	}
 	h.a.mu.Unlock()
