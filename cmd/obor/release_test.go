@@ -61,6 +61,7 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), devMarketplace+"\n")
 	writeFile(t, filepath.Join(dir, "docs", "UPGRADE-v1.2.md"), "# Upgrading obor from v1.1 to v1.2\n\n## v1.2.4 (patch)\n")
+	writeFile(t, filepath.Join(dir, "docs", "releases", "v1.2.4.md"), releaseNotes)
 	var catalog string
 	for _, pl := range publishPlatforms {
 		catalog += strings.Repeat("a", 64) + "  dist/obor-1.2.2-" + pl + "\n"
@@ -694,7 +695,15 @@ case "$1 $2" in
   "release create")
     : > "$st/release"
     shift 3
-    for a; do case $a in --*) ;; *) basename "$a" >> "$st/assets" ;; esac; done ;;
+    val=
+    for a; do
+      if [ -n "$val" ]; then val=; continue; fi
+      case $a in
+        --title | --notes-file) val=1 ;;
+        --*) ;;
+        *) basename "$a" >> "$st/assets" ;;
+      esac
+    done ;;
   "release upload")
     [ -f "$st/release" ] || exit 1
     shift 3
@@ -752,7 +761,8 @@ func TestMakeShip(t *testing.T) {
 		t.Errorf("origin's v1.2.4 = %s, want the local %s", got, want)
 	}
 	gh := readFile(t, f.ghlog)
-	if !strings.Contains(gh, "release create v1.2.4 --verify-tag dist/obor-1.2.4-darwin-arm64") {
+	if !strings.Contains(gh, "release create v1.2.4 --verify-tag --title obor 1.2.4 --notes-file ") ||
+		!strings.Contains(gh, "dist/obor-1.2.4-darwin-arm64") {
 		t.Errorf("gh was not given the release create:\n%s", gh)
 	}
 	if n := strings.Count(readFile(t, f.instlog), "\n"); n != 1 {

@@ -258,22 +258,39 @@ var publishPlatforms = []string{"darwin-arm64", "darwin-amd64", "linux-arm64", "
 // It is devMarketplace with only its top-level name flipped (T-645).
 var releaseMarketplace = strings.Replace(devMarketplace, `"name": "obor-kit-dev"`, `"name": "obor-kit"`, 1)
 
+// releaseNotes is a release's notes file (docs/releases/v1.2.3.md in publishFixture): a summary line, bold-led bullets
+// and an Upgrading line, no Full Changelog line (publish adds that).
+const releaseNotes = "A release of the kit.\n\n- **New:** something changed.\n- **Fixed:** a bug.\n\nUpgrading: re-run the installer.\n"
+
 // publishFixture is a repo shaped like a finished release of 1.2.3: the four dist files, bin/checksums.txt listing them,
-// VERSION and plugin.json at 1.2.3, all committed and tagged v1.2.3; a logging gh stub is first on PATH.
+// VERSION and plugin.json at 1.2.3, the release notes at docs/releases/v1.2.3.md, all committed and tagged v1.2.3; a
+// logging gh stub is first on PATH. The stub reads the releases to compare with from releases (one tag per line) and the
+// repo slug from slug, both outside the repo, and keeps the notes file gh release create got in notes.
 type publishFixture struct {
 	*testkit.Project
-	log string
+	log      string
+	notes    string
+	releases string
+	slug     string
 }
 
 func newPublishFixture(t *testing.T) *publishFixture {
 	t.Helper()
 	p := testkit.New(t)
 	dir := p.Root
+	f := &publishFixture{
+		Project:  p,
+		log:      filepath.Join(p.Base, "gh.log"),
+		notes:    filepath.Join(p.Base, "created-notes"),
+		releases: filepath.Join(p.Base, "releases"),
+		slug:     filepath.Join(p.Base, "slug"),
+	}
 	writeFile(t, filepath.Join(dir, "Makefile"), string(treeFile(t, "Makefile")))
 	writeExec(t, filepath.Join(dir, "scripts", "publish"), string(treeFile(t, "scripts/publish")))
 	writeFile(t, filepath.Join(dir, "scripts", "release-lib.sh"), string(treeFile(t, "scripts/release-lib.sh")))
 	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.3\n")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name":"obor","version":"1.2.3"}`+"\n")
+	writeFile(t, filepath.Join(dir, "docs", "releases", "v1.2.3.md"), releaseNotes)
 	// The tag's source parent: main's dev marketplace (T-645 compares the tag's against it).
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "marketplace.json"), devMarketplace+"\n")
 	p.Git(dir, "add", "-A")
@@ -285,12 +302,24 @@ func newPublishFixture(t *testing.T) *publishFixture {
 		catalog += fileSum(t, filepath.Join(dir, "dist", "obor-1.2.3-"+pl)) + "  dist/obor-1.2.3-" + pl + "\n"
 	}
 	writeFile(t, filepath.Join(dir, "bin", "checksums.txt"), catalog)
-	log := filepath.Join(dir, "gh.log")
-	writeExec(t, filepath.Join(dir, "stub", "gh"), "#!/bin/bash\nfor a; do echo \"$a\" >> \""+log+"\"; done\n")
+	log := f.log
+	writeExec(t, filepath.Join(dir, "stub", "gh"), `#!/bin/bash
+printf '%s\n' "$*" | sed 's/--notes-file [^ ]*/--notes-file <notes>/' >> "`+log+`"
+case "$1 $2" in
+  "release list") cat "`+f.releases+`" 2> /dev/null ;;
+  "repo view") cat "`+f.slug+`" 2> /dev/null ;;
+  "release create")
+    prev=
+    for a; do
+      [ "$prev" != --notes-file ] || cat "$a" > "`+f.notes+`"
+      prev=$a
+    done ;;
+esac
+`)
 	p.Git(dir, "add", "-A")
 	p.Git(dir, "commit", "-q", "-m", "release 1.2.3")
 	p.Git(dir, "tag", "v1.2.3")
-	return &publishFixture{Project: p, log: log}
+	return f
 }
 
 // fileSum is the sha256 hex of a file.
@@ -300,8 +329,8 @@ func fileSum(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// publish runs `make publish` (plus extra make args) and returns the output, whether it failed and gh's logged
-// arguments, one per line (nil when gh was not called).
+// publish runs `make publish` (plus extra make args) and returns the output, whether it failed and gh's calls, one line
+// each (the notes file's path as <notes>; nil when gh was not called).
 func (f *publishFixture) publish(t *testing.T, extra ...string) (string, bool, []string) {
 	t.Helper()
 	cmd := exec.Command("make", append([]string{"-s", "-C", f.Root, "publish"}, extra...)...)
@@ -312,6 +341,16 @@ func (f *publishFixture) publish(t *testing.T, extra ...string) (string, bool, [
 		return string(out), err != nil, nil
 	}
 	return string(out), err != nil, strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+// publishCheck runs `sh scripts/publish <v> --check` in the fixture (the tag checks ship runs before it pushes).
+func (f *publishFixture) publishCheck(t *testing.T, v string) (string, bool) {
+	t.Helper()
+	cmd := exec.Command("sh", "scripts/publish", v, "--check")
+	cmd.Dir = f.Root
+	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(f.Root, "stub")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	return string(out), err != nil
 }
 
 // wantFail asserts a failed publish: FAIL naming want, gh never called.
@@ -335,18 +374,20 @@ func (f *publishFixture) commitAll(t *testing.T) {
 
 // RV-63: make publish uploads exactly the four checked binaries of the tag: a literal platform list passed to gh as
 // explicit arguments (no glob, no GOOS_LIST override), each file's sha256 equal to its line in the tag's catalog.
+// T-682: the create carries the release's title and its notes from the tag.
 func TestMakePublish(t *testing.T) {
 	t.Parallel()
-	wantArgs := []string{"release", "create", "v1.2.3", "--verify-tag"}
+	create := "release create v1.2.3 --verify-tag --title obor 1.2.3 --notes-file <notes>"
 	for _, pl := range publishPlatforms {
-		wantArgs = append(wantArgs, "dist/obor-1.2.3-"+pl)
+		create += " dist/obor-1.2.3-" + pl
 	}
+	wantCalls := []string{"release list --limit 100 --json tagName --jq .[].tagName", create}
 	t.Run("control: release, commit catalog, tag, publish", func(t *testing.T) {
 		t.Parallel()
 		f := newPublishFixture(t)
 		out, failed, gh := f.publish(t)
-		if failed || !slices.Equal(gh, wantArgs) {
-			t.Errorf("publish failed %v, gh got %q; want %q\n%s", failed, gh, wantArgs, out)
+		if failed || !slices.Equal(gh, wantCalls) {
+			t.Errorf("publish failed %v, gh got %q; want %q\n%s", failed, gh, wantCalls, out)
 		}
 	})
 	t.Run("an extra .bak file is not uploaded", func(t *testing.T) {
@@ -357,8 +398,8 @@ func TestMakePublish(t *testing.T) {
 			t.Fatal("precondition: the extra file exists")
 		}
 		out, failed, gh := f.publish(t)
-		if failed || !slices.Equal(gh, wantArgs) {
-			t.Errorf("publish failed %v, gh got %q; want exactly %q\n%s", failed, gh, wantArgs, out)
+		if failed || !slices.Equal(gh, wantCalls) {
+			t.Errorf("publish failed %v, gh got %q; want exactly %q\n%s", failed, gh, wantCalls, out)
 		}
 	})
 	t.Run("GOOS_LIST/GOARCH_LIST overrides do not narrow the four", func(t *testing.T) {

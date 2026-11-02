@@ -1,6 +1,16 @@
 # release-lib.sh: what scripts/release and scripts/ship both prove about a release tag, sourced by both (T-643).
 # Needs $tag (v<version>). POSIX sh.
 
+# version_lt <a> <b>: version a (x.y.z) is below version b, comparing the parts numerically (false for anything that is
+# not x.y.z).
+version_lt() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    if (split(a, x, ".") != 3 || split(b, y, ".") != 3) exit 1
+    for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit (x[i] + 0 < y[i] + 0) ? 0 : 1
+    exit 1
+  }'
+}
+
 # main_neutral <path>: a path main may change after a tag without making it stale: docs (docs/, any *.md) and the
 # release's own bookkeeping on main (bin/checksums.txt, the copy-back commit).
 main_neutral() {

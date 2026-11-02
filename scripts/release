@@ -1,8 +1,8 @@
 #!/bin/sh
-# release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree and
-# docs/UPGRADE-v<x.y>.md holding a v<version> heading, it runs five steps. Each step first looks for its done evidence
-# (present: the step is skipped, so a re-run resumes where the last run stopped), and a step that fails runs its undo,
-# so the next run starts from a clean tree (T-643):
+# release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree,
+# docs/UPGRADE-v<x.y>.md holding a v<version> heading and docs/releases/v<version>.md holding the release notes, it runs
+# five steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
+# last run stopped), and a step that fails runs its undo, so the next run starts from a clean tree (T-643):
 #   review guard  done: no code merged since main's first-parent "RV-<n> closed" commit, or UNREVIEWED="<why>" (the
 #                 owner's call; it goes into the tag message)         fail: refuse, nothing changed
 #   bump          done: VERSION and the plugin version = <version> at HEAD, set by an "obor v<version>: …" commit on
@@ -93,15 +93,6 @@ remove_scratch() {
 # not ours to delete.
 not_ours() {
   fail "$scratch exists and is not this repo's worktree: it is not ours to remove, clear it by hand and re-run"
-}
-
-# gt a b: a is greater than b, comparing x.y.z numerically.
-gt() {
-  awk -v a="$1" -v b="$2" 'BEGIN {
-    if (split(a, x, ".") != 3 || split(b, y, ".") != 3) exit 1
-    for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit (x[i] + 0 > y[i] + 0) ? 0 : 1
-    exit 1
-  }'
 }
 
 # plugin_version <rev>: the "version" of .claude-plugin/plugin.json at rev.
@@ -205,12 +196,18 @@ scratch="$common/obor-release-$v"
 
 cur=$(tr -d '[:space:]' < VERSION)
 if [ "$cur" != "$v" ]; then
-  gt "$v" "$cur" || fail "VERSION is $cur: V=$v must be greater (a released version is never rewritten; a change is a new patch version)"
+  version_lt "$cur" "$v" || fail "VERSION is $cur: V=$v must be greater (a released version is never rewritten; a change is a new patch version)"
 fi
 
 [ -f "$guide" ] || fail "no $guide: write the release guide (with a v$v heading) and commit it on main first"
 grep -Eq "^#+[[:space:]]*v$vre([^0-9.]|\$)" "$guide" ||
   fail "$guide has no v$v heading: the guide names that version before the release"
+
+# The GitHub release's notes come from docs/releases/v<version>.md at the tag (T-682): the lead writes it with the guide.
+notes="docs/releases/v$v.md"
+[ -f "$notes" ] ||
+  fail "no $notes: write the release notes (a summary line, then - **Name:** bullets) and commit them on main first"
+grep -q '[^[:space:]]' "$notes" || fail "$notes is empty: it is the GitHub release's notes"
 
 dirty=$(git status --porcelain)
 [ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
