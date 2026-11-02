@@ -1,10 +1,6 @@
 package opencode_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -100,11 +96,11 @@ func TestKind(t *testing.T) {
 	}
 }
 
-// T-695, T-697: an effort reaches OpenCode's config as the model's variant (OPENCODE_CONFIG_CONTENT's
-// "model":"<provider>/<model>#<effort>"), the model being the type's --model/-m only: obor never guesses OpenCode's
-// model, so a type without one sets no inline model (the project's opencode.json, the global one and the recent model
-// keep their precedence, even when the user's files name a model) and an effort on it is refused.
-func TestStartEnvEffortReachesTheConfig(t *testing.T) {
+// T-695, T-697, T-703: the type's model and the effort reach obor's plugin as OBOR_OPENCODE_MODEL
+// <provider>/<model>#<effort>, the model being the type's --model/-m only: obor never guesses OpenCode's model, so a
+// type without one unsets the variable (OpenCode's own choice stands, even when the user's files name a model) and an
+// effort on it is refused. The variable is the only one set: no config content, no state dir.
+func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	k, _ := agents.Lookup("opencode")
 	// The user's files name models; none may be read (Read is a trap).
 	read := func(p string) ([]byte, error) {
@@ -113,25 +109,30 @@ func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 	}
 	env := func(k string) string { return map[string]string{"HOME": "/h"}[k] }
 	start := func(args []string, effort string) (string, bool, error) {
-		m, err := k.StartEnv(agents.Start{Args: args, Effort: effort, Read: read, Env: env,
-			Home: "/h/.obor", Project: "pj", Agent: "pj-o-01"})
-		v, set := m[opencode.ConfigVar]
-		if err == nil && (!set || len(m) != 2 || m[opencode.StateVar] == "") {
-			t.Errorf("StartEnv(%q, %q) = %v: want %s and %s and nothing else", args, effort, m, opencode.ConfigVar, opencode.StateVar)
+		m, err := k.StartEnv(agents.Start{Args: args, Effort: effort, Read: read, Env: env})
+		v, set := m[opencode.ModelVar]
+		if err == nil && (!set || len(m) != 1) {
+			t.Errorf("StartEnv(%q, %q) = %v: want %s and nothing else", args, effort, m, opencode.ModelVar)
 		}
 		return v, set, err
 	}
-	if v, _, err := start([]string{"--auto", "--model", "p/m"}, "high"); err != nil || v != `{"model":"p/m#high"}` {
+	if opencode.ModelVar != "OBOR_OPENCODE_MODEL" {
+		t.Errorf("ModelVar = %q: opencode/obor.js reads OBOR_OPENCODE_MODEL", opencode.ModelVar)
+	}
+	if v, _, err := start([]string{"--auto", "--model", "p/m"}, "high"); err != nil || v != "p/m#high" {
 		t.Errorf("args' model with effort: %q, %v", v, err)
 	}
-	if v, _, err := start([]string{"-m=p/m#low"}, "max"); err != nil || v != `{"model":"p/m#max"}` {
+	if v, _, err := start([]string{"-m=p/m#low"}, "max"); err != nil || v != "p/m#max" {
 		t.Errorf("the effort replaces the model's own variant: %q, %v", v, err)
 	}
-	if v, _, err := start([]string{"--model", "p/m"}, ""); err != nil || v != `{"model":"p/m"}` {
+	if v, _, err := start([]string{"--model=p/m#low"}, ""); err != nil || v != "p/m#low" {
+		t.Errorf("the model's own variant, no effort: %q, %v", v, err)
+	}
+	if v, _, err := start([]string{"--model", "p/m"}, ""); err != nil || v != "p/m" {
 		t.Errorf("args' model, no effort: %q, %v", v, err)
 	}
 	if v, set, err := start([]string{"--auto"}, ""); err != nil || !set || v != "" {
-		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset, no inline model", v, set, err)
+		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset", v, set, err)
 	}
 	_, _, err := start([]string{"--auto"}, "high")
 	if err == nil || !strings.Contains(err.Error(), "add --model") {
@@ -151,152 +152,5 @@ func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 	}
 	if err := agents.CheckEffort("opencode", "turbo"); err == nil {
 		t.Error("CheckEffort(opencode, turbo): want a refusal")
-	}
-}
-
-// T-696, T-697: every OpenCode start gets its own state dir, <Home>/opencode-state/<project>/<agent>, as XDG_STATE_HOME,
-// so a variant remembered in the user's state (~/.local/state/opencode/model.json) cannot beat the effort. A resume
-// gets the same dir. A project or agent name is path-escaped, so any configured name (with / or \, or ..) still has
-// its own dir inside the state dir; an empty home, project or agent is refused, never started on the owner's state.
-func TestStateDirPerProjectAndAgent(t *testing.T) {
-	k, _ := agents.Lookup("opencode")
-	in := agents.Start{Home: "/h/.obor", Project: "pj", Agent: "pj-d-01"}
-	if got := k.StateDir(in); got != "/h/.obor/opencode-state/pj-"+h8("pj")+"/pj-d-01-"+h8("pj-d-01") {
-		t.Errorf("StateDir = %q", got)
-	}
-	other := in
-	other.Agent = "pj-d-02"
-	if k.StateDir(other) == k.StateDir(in) {
-		t.Error("two agents share a state dir")
-	}
-	other = in
-	other.Project = "qq"
-	if got := k.StateDir(other); got != "/h/.obor/opencode-state/qq-"+h8("qq")+"/pj-d-01-"+h8("pj-d-01") {
-		t.Errorf("StateDir of another project = %q", got)
-	}
-	resume := in
-	resume.Resume = "ses_1"
-	if k.StateDir(resume) != k.StateDir(in) {
-		t.Error("a resume's state dir differs from the fresh start's")
-	}
-	seen := map[string]string{}
-	for _, name := range []string{"team/project", `team\project`, "..", ".", "a%2Fb", "a/b", "a b", "../x"} {
-		for _, c := range []struct {
-			what string
-			in   agents.Start
-		}{
-			{"project", agents.Start{Home: "/h", Project: name, Agent: "a"}},
-			{"agent", agents.Start{Home: "/h", Project: "pj", Agent: name}},
-		} {
-			m, err := k.StartEnv(c.in)
-			dir := m[opencode.StateVar]
-			if err != nil || dir == "" || k.StateDir(c.in) != dir {
-				t.Errorf("%s %q: StartEnv = %v, %v; want its state dir", c.what, name, m, err)
-				continue
-			}
-			rel, err := filepath.Rel("/h/opencode-state", dir)
-			parts := strings.Split(filepath.ToSlash(rel), "/")
-			if err != nil || len(parts) != 2 || slices.Contains(parts, "..") || slices.Contains(parts, ".") ||
-				strings.Contains(rel, `\`) {
-				t.Errorf("%s %q: dir %q is not <project>/<agent> inside the state dir (rel %q, %v)", c.what, name, dir, rel, err)
-			}
-			if prev, dup := seen[dir]; dup {
-				t.Errorf("%s %q and %s share the dir %q", c.what, name, prev, dir)
-			}
-			seen[dir] = c.what + " " + name
-		}
-	}
-	for _, bad := range []agents.Start{{Project: "pj", Agent: "a"}, {Home: "/h", Agent: "a"}, {Home: "/h", Project: "pj"}} {
-		if got := k.StateDir(bad); got != "" {
-			t.Errorf("StateDir(%+v) = %q, want none", bad, got)
-		}
-		if m, err := k.StartEnv(bad); err == nil || m != nil {
-			t.Errorf("StartEnv(%+v) = %v, %v; want a refusal, not an unisolated start", bad, m, err)
-		}
-	}
-
-	in.Args, in.Effort = []string{"--auto", "--model", "p/m"}, "high"
-	m, err := k.StartEnv(in)
-	if err != nil || m[opencode.StateVar] != "/h/.obor/opencode-state/pj-"+h8("pj")+"/pj-d-01-"+h8("pj-d-01") || m[opencode.ConfigVar] != `{"model":"p/m#high"}` || len(m) != 2 {
-		t.Errorf("StartEnv with a state dir = %v, %v; want %s the agent's dir and the model's variant", m, err, opencode.StateVar)
-	}
-	in.Args, in.Effort = []string{"--auto"}, ""
-	if m, err = k.StartEnv(in); err != nil || m[opencode.ConfigVar] != "" || m[opencode.StateVar] == "" {
-		t.Errorf("no model, no effort: %v, %v; want %s unset and the state dir", m, err, opencode.ConfigVar)
-	} else if _, set := m[opencode.ConfigVar]; !set {
-		t.Errorf("no model, no effort: %v; want %s unset", m, opencode.ConfigVar)
-	}
-}
-
-func h8(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:4])
-}
-
-// T-698: names that differ only by case, or by a separator, never share a dir, on a case-insensitive filesystem too
-// (macOS's default): the dirs StartEnv names are made in a temp dir and compared as files, not as strings.
-func TestStateDirsDifferOnACaseFoldingFilesystem(t *testing.T) {
-	k, _ := agents.Lookup("opencode")
-	home := t.TempDir()
-	// Precondition, for the log: whether this filesystem folds case (the assertions hold on either).
-	probe := filepath.Join(home, "Probe")
-	if err := os.Mkdir(probe, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	_, err := os.Stat(filepath.Join(home, "probe"))
-	t.Logf("filesystem folds case: %v", err == nil)
-	for _, c := range []struct {
-		name string
-		a, b agents.Start
-	}{
-		{"project Project/project", agents.Start{Home: home, Project: "Project", Agent: "a"}, agents.Start{Home: home, Project: "project", Agent: "a"}},
-		{"agent Agent/agent", agents.Start{Home: home, Project: "p", Agent: "Agent"}, agents.Start{Home: home, Project: "p", Agent: "agent"}},
-		{"project a/b and a%2Fb", agents.Start{Home: home, Project: "a/b", Agent: "a"}, agents.Start{Home: home, Project: "a%2Fb", Agent: "a"}},
-		{"project a/b and A/B", agents.Start{Home: home, Project: "a/b", Agent: "a"}, agents.Start{Home: home, Project: "A/B", Agent: "a"}},
-	} {
-		da, db := k.StateDir(c.a), k.StateDir(c.b)
-		if da == "" || db == "" || da == db {
-			t.Fatalf("%s: dirs %q, %q", c.name, da, db)
-		}
-		for _, d := range []string{da, db} {
-			if err := os.MkdirAll(d, 0o700); err != nil {
-				t.Fatal(err)
-			}
-		}
-		ia, err := os.Stat(da)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ib, err := os.Stat(db)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if os.SameFile(ia, ib) {
-			t.Errorf("%s: %s and %s are the same directory", c.name, da, db)
-		}
-	}
-	// Both are one element of the name's lower case and 8 hex digits of its exact digest.
-	if got := k.StateDir(agents.Start{Home: "/h", Project: "Project", Agent: "a"}); got != "/h/opencode-state/project-"+h8("Project")+"/a-"+h8("a") {
-		t.Errorf("StateDir = %q", got)
-	}
-}
-
-// T-698: obor's state roots tell obor's dirs from the user's: a value under <home>/opencode-state/ is obor's, one that
-// only starts alike or lies elsewhere is not.
-func TestOwnedStateHome(t *testing.T) {
-	for _, c := range []struct {
-		v    string
-		want bool
-	}{
-		{"/h/opencode-state/p-1/a-2", true},
-		{"/h/opencode-state", false},
-		{"/h/opencode-state-x/a", false},
-		{"/mine/.local/state", false},
-		{"/other/h/opencode-state/p/a", false},
-		{"", false},
-	} {
-		if got := agents.OwnedStateHome("/h", c.v); got != c.want {
-			t.Errorf("OwnedStateHome(/h, %q) = %v, want %v", c.v, got, c.want)
-		}
 	}
 }

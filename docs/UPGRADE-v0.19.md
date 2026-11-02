@@ -1,5 +1,17 @@
 # Upgrading an obor project from v0.18 to v0.19
 
+## v0.19.1 (opencode model through obor's plugin)
+Re-run the installer, then `obor serve restart` in each project. opencode panes already running keep their old start
+until their next restart.
+
+- **opencode's model and effort go through obor's plugin**: an opencode start no longer gets its own
+  `XDG_STATE_HOME` or `OPENCODE_CONFIG_CONTENT`; it exports `OBOR_OPENCODE_MODEL=<provider>/<model>[#<effort>]` (from
+  the type's `--model` and the effort), and `opencode/obor.js` switches each new root session to it before its first
+  turn, over a variant your own opencode remembers. Your own opencode windows (no such variable) are untouched. Needs
+  opencode 2.x; an older one logs a line and starts on its own model (T-703).
+- `~/.obor/opencode-state/` is no longer used: delete it. A pane shell that still exports an `XDG_STATE_HOME` under it
+  (started by v0.19.0) keeps it until the shell is restarted; harmless, opencode just keeps using that old dir.
+
 ## v0.19.0 (effort, spec lane types, opencode isolation)
 Re-run the installer, then `obor serve restart` in each project; restart the monitor; the lead picks up the new skill
 text at its next session.

@@ -1006,10 +1006,8 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1")
 	lines := x.envLines()
-	// Then (T-697) the restore of an XDG_STATE_HOME an OpenCode agent of that pane exported, before the marks.
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && case ") ||
-		!strings.Contains(lines[0], ") unset XDG_STATE_HOME;; esac") || !strings.Contains(lines[0], " && echo obor-env-") {
-		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE, unset an obor XDG_STATE_HOME", lines)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && echo obor-env-") {
+		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE, then the marks", lines)
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	if strings.Index(calls, "pane.send_input") > strings.Index(calls, "agent.start") || !strings.Contains(calls, "agent.start") {
@@ -1021,7 +1019,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "O-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && case ") || !strings.Contains(lines[0], " && echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
 	}
 

@@ -497,4 +497,13 @@ guard, not an older global kit's. The guard fails closed on a store it cannot re
 opened or read (a newer schema, any open error) denies a non-lead role's writes inside the repo, naming the store and
 "run this kit's binary"; no store yet, or no lane row, stays as before.
 The session-start hook writes `.obor/state/lanes/<LANE>.plugin` in the main checkout (T-310: never in the lane worktree), a marker holding the time the hook ran (T-307). `obor status` shows `no-plugin` for a working opencode lane whose marker is missing or older than the lane row's dispatch (`cmd/obor/status.go` `pluginMissing`), so a lane whose plugin never loaded for the current dispatch is flagged.
-The model of an opencode lane is a per-worktree `opencode.json` (git-excluded).
+The model and effort of an opencode start (T-703): the type's `--model provider/model[#variant]`, the effort as its
+variant, reach the plugin as `OBOR_OPENCODE_MODEL` on the env line (unset for a type without `--model`: opencode's own
+choice stands; an effort then is an error, T-697). The plugin's session `prompt` hook switches each new root session of
+its location to it, once (`ctx.session.switchModel`), before the first turn; a child session is never switched (it
+inherits its parent's model), and without the variable no hook is registered, so the owner's own opencode windows are
+untouched. Gated on opencode 2 with `switchModel` (else one line, nothing). The TUI has no `--model` and, for a new
+session, prefers the variant it remembers in its `model.json`; it switches the session to its pick just before it
+submits, and the prompt hook runs after that switch, so the start's model wins from the first turn (T-703 probe; a
+switch on `session.created` loses). This replaced T-696..T-698's per-agent `XDG_STATE_HOME` and
+`OPENCODE_CONFIG_CONTENT`: opencode runs on the owner's own state and config, which obor never writes.

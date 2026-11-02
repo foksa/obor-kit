@@ -8,6 +8,19 @@
 //	session.execution.started         → user-prompt-submit (prompt: the user text the session's inbox took since)
 //	session.execution.succeeded       → stop (its verdict is not acted on: opencode has no stop to block)
 //	session.execution.failed          → stop-failure (error, error_details as Claude Code sends them)
+//	session hook prompt               → the start's model (OBOR_OPENCODE_MODEL, below), not a Claude hook
+//
+// The start's model and effort (T-703): obor's opencode kind exports OBOR_OPENCODE_MODEL=<provider>/<model>[#<variant>]
+// for the start (the type's --model, the effort as its variant). With it set, the session hook prompt switches each new
+// root session of this location to it, once, before its first turn (ctx.session.switchModel); a child (a subagent's)
+// is never switched (it inherits its parent's model), and without the variable nothing is registered, so the owner's
+// own opencode windows, which load this plugin too, are untouched. T-703 probe (opencode 2.2.0, a --standalone TUI in a
+// pty, a fake provider): the TUI switches the session to its own pick (for a new session the variant it remembers in
+// model.json first) just before it submits; the prompt hook runs after that switch and before the turn, so the turn
+// runs on the plugin's model and variant, and so do the later turns (the TUI follows the session's switch). A switch on
+// session.created loses: the TUI's pre-submit switch comes after it. Gated on opencode 2 and switchModel being there;
+// else one line to stderr and nothing. The variable is read from the plugin's process env, which is the pane's under
+// --standalone (obor's lane types run it: its own server in the pane's process).
 //
 // opencode v2.2 plugin API (T-578 probe, opencode v2.2.0: its bundled source, and an isolated `opencode serve` with its
 // own HOME/XDG dirs and port, a fake provider and a logging plugin):
@@ -228,7 +241,51 @@ export function sessionHooks(cwd, transcript) {
     }
     return calls;
   }
-  return { event, own, isMine, start: (id) => ({ name: "session-start", event: { ...base("SessionStart", id), source: "startup" } }) };
+  return { event, own, isMine, isChild: (id) => children.has(id), start: (id) => ({ name: "session-start", event: { ...base("SessionStart", id), source: "startup" } }) };
+}
+
+// MODEL_VAR names the start's model for the plugin (agents/opencode.ModelVar).
+const MODEL_VAR = "OBOR_OPENCODE_MODEL";
+
+// modelRef is opencode's Model.Ref for <provider>/<model>[#<variant>]: {providerID, id, variant?}; null for "" or a
+// value without a provider and a model.
+export function modelRef(value) {
+  const [ref, variant] = String(value ?? "").trim().split("#", 2);
+  const i = ref.indexOf("/");
+  if (i <= 0 || i === ref.length - 1) return null;
+  return { providerID: ref.slice(0, i), id: ref.slice(i + 1), ...(variant ? { variant } : {}) };
+}
+
+// modelSwitch is the session prompt hook that switches each new root session to value (OBOR_OPENCODE_MODEL), once:
+// null when value is empty, and, after one line to warn, when it is malformed or this opencode is not 2.x with
+// ctx.session.switchModel. isChild(id) is what the session events know of a child; a session the store names a parent
+// of (ctx.session.get) is one too. A failed switch warns and leaves the turn to run.
+export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => console.error(line)) {
+  if (!value) return null;
+  const model = modelRef(value);
+  if (!model) {
+    warn(`obor: ${MODEL_VAR}=${value} is not provider/model[#variant]; the model is opencode's own`);
+    return null;
+  }
+  const version = String(ctx.app?.version ?? "");
+  if (version.split(".")[0] !== "2" || typeof ctx.session?.switchModel !== "function") {
+    warn(`obor: opencode ${version || "unknown"} has no session.switchModel (2.x); ${MODEL_VAR} is not applied`);
+    return null;
+  }
+  const seen = new Set();
+  return async (p) => {
+    const id = p?.sessionID;
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    try {
+      if (isChild(id)) return;
+      const info = typeof ctx.session.get === "function" ? await ctx.session.get({ sessionID: id }) : null;
+      if (info?.parentID) return;
+      await ctx.session.switchModel({ sessionID: id, model });
+    } catch (e) {
+      warn(`obor: switching session ${id} to ${value} failed: ${e?.message ?? e}`);
+    }
+  };
 }
 
 // hookEnv is the plugin's env without the pane-identity vars, plus OBOR_NO_SELF_HOST (the kit's own build runs).
@@ -268,8 +325,10 @@ function runHook(kit, name, event, cwd) {
 }
 
 // setup is the opencode 2.x entry (its runtime context; the published 1.18 types do not describe it): the guard
-// (tool hook execute.before), the session context (session hook context) and the session events (event.subscribe).
+// (tool hook execute.before), the session context (session hook context), the start's model (session hook prompt,
+// only with OBOR_OPENCODE_MODEL) and the session events (event.subscribe).
 async function setup(ctx) {
+  const model = process.env[MODEL_VAR];
   const cwd = ctx.location?.directory || process.cwd();
   if (!inProject(cwd)) return;
   const kit = kitFor(cwd);
@@ -302,6 +361,9 @@ async function setup(ctx) {
     const text = await started(c.sessionID);
     if (text && Array.isArray(c.system)) c.system.push({ type: "text", text });
   });
+  // prompt: the start's model, before a new root session's first turn (OBOR_OPENCODE_MODEL, T-703).
+  const switchModel = modelSwitch(ctx, model, sessions.isChild);
+  if (switchModel) await ctx.session.hook("prompt", switchModel);
   // The session events, one at a time in their order; an opencode without event.subscribe keeps the two hooks above.
   if (typeof ctx.event?.subscribe !== "function") return;
   (async () => {

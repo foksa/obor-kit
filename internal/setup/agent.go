@@ -236,22 +236,15 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
-	vars, stateDir, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get,
-		Home: project.StateHome(s.Env), Project: s.cfg.ProjectName(), Agent: a.name})
+	vars, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get})
 	if err != nil {
 		return project.Failf("%s: %v", a.name, err)
 	}
 	var env []string
+	// An empty value goes to herdr too: the pane may inherit setup's own env (an OpenCode agent running setup), and an
+	// empty OBOR_OPENCODE_MODEL is none to obor's plugin (T-703).
 	for _, k := range slices.Sorted(maps.Keys(vars)) {
-		if vars[k] != "" { // a new pane's shell holds no earlier start's variable to unset
-			env = append(env, k+"="+vars[k])
-		}
-	}
-	// An obor state dir the pane would inherit from setup's own env (an OpenCode agent running setup) is not for another
-	// kind: handed to herdr empty, which the XDG rule reads as unset (T-698; a value of the user's own stays). An OpenCode
-	// start's own dir is in env above.
-	if home := project.StateHome(s.Env); vars[agents.StateHomeVar] == "" && agents.OwnedStateHome(home, s.Env.Get(agents.StateHomeVar)) {
-		env = append(env, agents.StateHomeVar+"=")
+		env = append(env, k+"="+vars[k])
 	}
 	if a.role.EnvValue != "" {
 		env = append(env, "OBOR_ROLE="+a.role.EnvValue)
@@ -297,10 +290,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		if err := l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {
 			return err
 		}
-	}
-	// A setup start is fresh: the kind's own state dir of the agent starts empty (T-696).
-	if err := project.FreshDir(stateDir); err != nil {
-		return project.Failf("%s: cannot empty its state dir %s: %v", a.name, stateDir, err)
 	}
 	run := func() error {
 		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,

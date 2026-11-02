@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { toClaudeEvents, patchPaths, claudeError, errorDetails, databasePath } from "./obor.js";
+import { toClaudeEvents, patchPaths, claudeError, errorDetails, databasePath, modelRef, modelSwitch } from "./obor.js";
 
 const cwd = "/w/lane";
 const ev = (tool_name, tool_input) => ({ hook_event_name: "PreToolUse", session_id: "s1", cwd, tool_name, tool_input });
@@ -98,7 +98,9 @@ function feed() {
 // A checkout option makes the project a git repository: "obor" (an obor checkout: bin/obor and a plugin.json named
 // obor) or "other" (plugin.json named other), entered at its main checkout or, with lane, at its lane worktree; each
 // bin/obor stub also logs its name (kit, main or lane) to <base>/who.
-async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow" } = {}) {
+// model sets OBOR_OPENCODE_MODEL for the setup call (setup reads it first, before any await), version opencode's
+// version, and switched collects the ctx.session.switchModel calls (none: the context has no switchModel).
+async function stubPlugin(t, { project = true, checkout = "", lane = false, mode = "allow", model, version = "2.2.0", switched } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "obor-oc-"));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const kit = path.join(base, "kit");
@@ -142,13 +144,21 @@ esac
   const mod = await import(pathToFileURL(path.join(kit, "opencode", "obor.js")).href + "?" + base);
   const hooked = {};
   const events = feed();
-  await mod.default.setup({
+  const session = { hook: async (name, fn) => (hooked["session:" + name] = fn) };
+  if (switched) session.switchModel = async (a) => void switched.push(a);
+  const was = process.env.OBOR_OPENCODE_MODEL;
+  if (model === undefined) delete process.env.OBOR_OPENCODE_MODEL;
+  else process.env.OBOR_OPENCODE_MODEL = model;
+  const done = mod.default.setup({
     location: { directory: dir },
-    app: { name: "cli", version: "2.2.0", channel: "latest" },
+    app: { name: "cli", version, channel: "latest" },
     tool: { hook: async (name, fn) => (hooked["tool:" + name] = fn) },
-    session: { hook: async (name, fn) => (hooked["session:" + name] = fn) },
+    session,
     event: { subscribe: (opts) => ((hooked["event:subscribe"] = opts), events.iterable) },
   });
+  if (was === undefined) delete process.env.OBOR_OPENCODE_MODEL;
+  else process.env.OBOR_OPENCODE_MODEL = was;
+  await done;
   const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
   const event = (line) => JSON.parse(line.replace(/^\S+ \S+ \S+ /, ""));
   const who = () => (fs.existsSync(path.join(base, "who")) ? fs.readFileSync(path.join(base, "who"), "utf8").trim().split("\n") : []);
@@ -159,7 +169,7 @@ esac
 test("the default export is the 2.x entry only", async (t) => {
   const { mod } = await stubPlugin(t);
   assert.deepEqual(Object.keys(mod.default).sort(), ["id", "setup"]);
-  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "databasePath", "default", "errorDetails", "patchPaths", "sessionHooks", "toClaudeEvents"]);
+  assert.deepEqual(Object.keys(mod).sort(), ["claudeError", "databasePath", "default", "errorDetails", "modelRef", "modelSwitch", "patchPaths", "sessionHooks", "toClaudeEvents"]);
 });
 
 test("setup: the guard, the context and the session events through its tool, session and event hooks", async (t) => {
@@ -317,6 +327,104 @@ test("session events: another directory's session, a child session and an interr
   assert.deepEqual(names(), []);
   await emit(...turn(dir, "s1", wake), oc("session.execution.interrupted", { sessionID: "s1", reason: "user" }));
   assert.deepEqual(names(), ["session-start", "user-prompt-submit"], "precondition: this directory's session runs its hooks");
+});
+
+// T-703: the start's model (OBOR_OPENCODE_MODEL) as opencode's Model.Ref.
+test("modelRef: provider/model[#variant]; none for an empty or malformed value", () => {
+  assert.deepEqual(modelRef("opencode-go/deepseek-v4.1-flash#max"), { providerID: "opencode-go", id: "deepseek-v4.1-flash", variant: "max" });
+  assert.deepEqual(modelRef("p/m"), { providerID: "p", id: "m" });
+  assert.deepEqual(modelRef("p/org/m#high"), { providerID: "p", id: "org/m", variant: "high" }, "the model id keeps its own slashes");
+  for (const bad of ["", undefined, "m", "/m", "p/", "#high"]) assert.equal(modelRef(bad), null, String(bad));
+});
+
+// fakeSession is a ctx for modelSwitch: switchModel calls collected, get answering parents (session → parentID).
+function fakeSession({ version = "2.2.0", parents = {}, fail = false, noSwitch = false } = {}) {
+  const switched = [];
+  const session = { get: async ({ sessionID }) => ({ id: sessionID, ...(parents[sessionID] ? { parentID: parents[sessionID] } : {}) }) };
+  if (!noSwitch) {
+    session.switchModel = async (a) => {
+      if (fail) throw new Error("boom");
+      switched.push(a);
+    };
+  }
+  return { ctx: { app: { name: "cli", version, channel: "latest" }, session }, switched };
+}
+
+test("modelSwitch: each new root session switched once, before its turn; later prompts and other sessions", async () => {
+  const { ctx, switched } = fakeSession();
+  const warned = [];
+  const hook = modelSwitch(ctx, "go/ds#high", () => false, (l) => warned.push(l));
+  assert.equal(typeof hook, "function");
+  assert.deepEqual(switched, [], "precondition: nothing before a prompt");
+  await hook({ sessionID: "s1", prompt: { text: "wake" } });
+  assert.deepEqual(switched, [{ sessionID: "s1", model: { providerID: "go", id: "ds", variant: "high" } }]);
+  await hook({ sessionID: "s1", prompt: { text: "turn two" } });
+  assert.equal(switched.length, 1, "a later turn of the session: no second switch");
+  await hook({ sessionID: "s2", prompt: { text: "wake" } });
+  assert.deepEqual(switched.map((a) => a.sessionID), ["s1", "s2"], "another new root session: switched too");
+  assert.deepEqual(warned, []);
+});
+
+test("modelSwitch: never a child, whether the events or the store name its parent", async () => {
+  const { ctx, switched } = fakeSession({ parents: { c2: "s1" } });
+  const hook = modelSwitch(ctx, "go/ds", (id) => id === "c1");
+  await hook({ sessionID: "c1" });
+  await hook({ sessionID: "c2" });
+  assert.deepEqual(switched, [], "no child switched");
+  await hook({ sessionID: "s1" });
+  assert.deepEqual(switched, [{ sessionID: "s1", model: { providerID: "go", id: "ds" } }], "precondition: a root session is");
+});
+
+test("modelSwitch: nothing without the variable; one warning and nothing off opencode 2, without switchModel or for a malformed value", async () => {
+  const warned = [];
+  const warn = (l) => warned.push(l);
+  assert.equal(modelSwitch(fakeSession().ctx, "", undefined, warn), null);
+  assert.equal(modelSwitch(fakeSession().ctx, undefined, undefined, warn), null);
+  assert.deepEqual(warned, [], "no variable: not even a warning (the owner's own windows)");
+  for (const [name, ctx, value] of [
+    ["opencode 1.x", fakeSession({ version: "1.18.3" }).ctx, "go/ds"],
+    ["opencode 3.x", fakeSession({ version: "3.0.0" }).ctx, "go/ds"],
+    ["no version", { session: fakeSession().ctx.session }, "go/ds"],
+    ["no switchModel", fakeSession({ noSwitch: true }).ctx, "go/ds"],
+    ["malformed", fakeSession().ctx, "ds"],
+  ]) {
+    warned.length = 0;
+    assert.equal(modelSwitch(ctx, value, undefined, warn), null, name);
+    assert.equal(warned.length, 1, `${name}: one line`);
+    assert.match(warned[0], /^obor: .*OBOR_OPENCODE_MODEL/, name);
+  }
+});
+
+test("modelSwitch: a failed switch warns and lets the turn run", async () => {
+  const warned = [];
+  const hook = modelSwitch(fakeSession({ fail: true }).ctx, "go/ds", undefined, (l) => warned.push(l));
+  await hook({ sessionID: "s1" });
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /switching session s1 to go\/ds failed: boom/);
+});
+
+test("setup: the prompt hook only with OBOR_OPENCODE_MODEL on opencode 2 with switchModel; it switches the root session", async (t) => {
+  const switched = [];
+  const { hooked } = await stubPlugin(t, { model: "go/ds#max", switched });
+  assert.equal(typeof hooked["session:prompt"], "function");
+  await hooked["session:prompt"]({ sessionID: "s1", prompt: { text: "wake" } });
+  assert.deepEqual(switched, [{ sessionID: "s1", model: { providerID: "go", id: "ds", variant: "max" } }]);
+  for (const [name, opts] of [
+    ["no variable", { switched: [] }],
+    ["opencode 1.x", { model: "go/ds", version: "1.18.3", switched: [] }],
+    ["no switchModel", { model: "go/ds" }],
+    ["outside an obor project", { model: "go/ds", switched: [], project: false }],
+  ]) {
+    const errs = [];
+    const orig = console.error;
+    console.error = (l) => errs.push(l);
+    try {
+      const { hooked: h } = await stubPlugin(t, opts);
+      assert.equal(h["session:prompt"], undefined, name);
+    } finally {
+      console.error = orig;
+    }
+  }
 });
 
 test("claudeError: Claude Code's StopFailure errors for opencode's error types", () => {
