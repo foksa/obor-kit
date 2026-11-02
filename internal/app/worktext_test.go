@@ -266,7 +266,7 @@ func TestFixJobNamesBothRoleTexts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := fixText(mtask{task: "T-9", attempt: 2, line: "add a test"}, store.SpecRow{}, read)
+	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
 	want := "If this session did not get the work job (a fresh start), read " +
 		filepath.Join(kit, "templates", "agents", "worker.md") + " and " +
 		filepath.Join(p.root, "doc/roles/worker.md") + " first."
@@ -282,7 +282,7 @@ func TestFixJobNamesTheKitRoleTextAloneWithoutAProjectDoc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := fixText(mtask{task: "T-9", attempt: 2, line: "add a test"}, store.SpecRow{}, read)
+	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
 	want := "read " + filepath.Join(kit, "templates", "agents", "worker.md") + " first."
 	if !strings.Contains(text, want) {
 		t.Errorf("the fix job has no %q:\n%s", want, text)
