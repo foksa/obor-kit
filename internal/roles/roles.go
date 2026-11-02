@@ -15,7 +15,6 @@ type WriteProfile string
 const (
 	CwdProject        CwdRule      = "project"
 	CwdLane           CwdRule      = "lane"
-	CwdRoleWorktree   CwdRule      = "role-worktree"
 	WriteNone         WriteProfile = "none"
 	WriteAll          WriteProfile = "all"
 	WriteSpec         WriteProfile = "spec"
@@ -29,7 +28,6 @@ type Role struct {
 	Name         string
 	EnvValue     string
 	AgentSuffix  string
-	Worktree     string
 	Cwd          CwdRule
 	Write        WriteProfile
 	Stoppable    bool
@@ -43,8 +41,9 @@ var table = []Role{
 	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
 	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdProject, Write: WriteNone},
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
-	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Worktree: "review", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, GitReadOnly: true},
-	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Worktree: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
+	// The reviewer and the deep dive read the main checkout (T-718): serve holds its merges while they work.
+	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdProject, Write: WriteReviewsOnly, GitReadOnly: true},
+	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdProject, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
 	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true, GitReadOnly: true},

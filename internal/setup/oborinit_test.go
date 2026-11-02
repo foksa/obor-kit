@@ -130,6 +130,11 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if rc, _ := cfg.Role("reviewer"); rc.Type != "sol" {
 		t.Errorf("reviewer type %q, want the example's sol (codex on PATH)", rc.Type)
 	}
+	for _, wt := range []string{"review", "deep-dive"} { // T-718: the reviewer runs in the main checkout
+		if x.Exists(filepath.Join(cfg.LanesDir(), wt)) {
+			t.Errorf("init made a %s worktree", wt)
+		}
+	}
 	// T-646: init registers the project in the machine's list of obor projects by name.
 	if ps := project.Projects(x.Env()); len(ps) != 1 || ps[0] != (project.Project{Name: "proj", Root: x.Root}) {
 		t.Errorf("the machine's project list %+v, want proj at its root\n%s", ps, out)

@@ -114,6 +114,7 @@ type TaskStatus struct {
 	Attempt int      `json:"attempt"`
 	State   string   `json:"state"`
 	Running string   `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
+	Hold    string   `json:"hold,omitempty"`    // accepted: "merge held: <role> working" while its publish waits (T-718)
 	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for
 	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
 	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its lane types came from

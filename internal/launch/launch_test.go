@@ -438,8 +438,8 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
-		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree
-		name: "deep_dive role (T-179): its type, cwd its worktree, OBOR_ROLE=deep_dive",
+		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-718: the main checkout, no worktree
+		name: "deep_dive role (T-179, T-718): its type, cwd the root, OBOR_ROLE=deep_dive",
 		edit: []func(map[string]any){
 			testkit.Set("roles", `{"lead":{"type":"opus"},"deep_dive":{"type":"opus"}}`),
 			testkit.Set("lanes", `{"O-01":"opus"}`),
@@ -447,7 +447,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(filepath.Join(x.p.Base, "proj-wt", "deep-dive")) +
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) +
 				" && export OBOR_AGENT=pj-deep-dive OBOR_ROLE=deep_dive && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",

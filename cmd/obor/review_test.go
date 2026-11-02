@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app"
 	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
@@ -50,7 +51,7 @@ func TestReviewRequest(t *testing.T) {
 }
 
 // T-638: reviewGit on a fixture repo: the newest RV close, the head, the first-parent merges and files since a sha,
-// and a worktree detached at the head.
+// and the reviewed head marked (T-718: a ref, no worktree).
 func TestReviewGit(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -81,14 +82,13 @@ func TestReviewGit(t *testing.T) {
 	if f, err := g.Files(ctx, base[:7], head); err != nil || strings.Join(f, ",") != "a.txt" {
 		t.Errorf("files %q, %v", f, err)
 	}
-	dir := p.Lane("review", "")
-	if err := g.Detach(ctx, dir, head); err != nil {
+	if err := g.Mark(ctx, head); err != nil {
 		t.Fatal(err)
 	}
-	if at := p.Git(dir, "rev-parse", "HEAD"); at != head {
-		t.Errorf("review worktree at %s, want %s", at, head)
+	if at := p.Git(p.Root, "rev-parse", app.ReviewedRef); at != head {
+		t.Errorf("%s at %s, want %s", app.ReviewedRef, at, head)
 	}
-	if err := g.Detach(ctx, dir, "nope"); err == nil || !strings.Contains(err.Error(), "git checkout") {
+	if err := g.Mark(ctx, "nope"); err == nil || !strings.Contains(err.Error(), "git update-ref") {
 		t.Errorf("a bad sha: %v", err)
 	}
 }

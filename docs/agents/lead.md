@@ -62,9 +62,10 @@ decisions and the second strike of a fix chain; Sol for batch reviews (the expen
   exclusions marked "until T-xx wires it; remove then"; the wiring task removes them (T-341 hit the gate without it).
 
 ## Reviews
-Review files stay in the review worktree (`~/Work/obor-kit-wt/review/docs/reviews/`), never in main (owner
-2026-10-30); delete them there when the cycle closes, by file name (an `rm -rf <review>/docs` once deleted tracked
-docs there).
+Review files are in the main checkout's `docs/reviews/` (gitignored: never committed, owner 2026-10-30); the reviewer
+and the deep dive run in the main checkout since T-718 (serve holds merges while they work). `obor review close`
+deletes the cycle's files by name. The old worktrees `~/Work/obor-kit-wt/review` and `~/Work/obor-kit-wt/deep-dive`
+are unused: remove them with `git worktree remove` once nothing runs there.
 
 ## Releases (owner 2026-10-30, v0.16)
 - Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace

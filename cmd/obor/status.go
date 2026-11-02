@@ -151,7 +151,8 @@ func laneSection(st view.Project, now time.Time) []string {
 	for _, t := range st.Tasks {
 		// dropped stays in serve's list for good (--json has it); a waiting one is the queue's
 		if !shown[t.Task] && t.State != "dropped" && t.State != "waiting" {
-			fmt.Fprintf(&b, "task %s (%s): %s (attempt %d)%s\n", t.Task, app.Dash(t.Lane), t.State, t.Attempt, running(t.Running))
+			fmt.Fprintf(&b, "task %s (%s): %s (attempt %d)%s%s\n", t.Task, app.Dash(t.Lane), t.State, t.Attempt,
+				running(t.Running), hold(t.Hold))
 		}
 	}
 	for _, a := range st.Agents {
@@ -506,6 +507,14 @@ func why(line string) string {
 }
 
 // running is a task's running step as its status line ends ("": none).
+// hold is a task's merge hold for its line (T-718): ", merge held: <role> working" ("": none).
+func hold(h string) string {
+	if h == "" {
+		return ""
+	}
+	return ", " + h
+}
+
 func running(step string) string {
 	if step == "" {
 		return ""

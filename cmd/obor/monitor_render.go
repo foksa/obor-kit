@@ -57,6 +57,9 @@ func (p palette) state(col, s string) string {
 	case "held", "failed", "missing":
 		return p.red(s)
 	}
+	if strings.HasPrefix(col, "merge held") { // its publish waits for the reviewer or the deep dive (T-718)
+		return p.yellow(s)
+	}
 	return p.dim(s)
 }
 

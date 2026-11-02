@@ -93,11 +93,12 @@ type Lane struct {
 	TaskState   string  `json:"task_state,omitempty"` // serve's state of the task
 	Attempt     int     `json:"attempt,omitempty"`
 	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
+	Hold        string  `json:"hold,omitempty"`    // "merge held: <role> working" while its publish waits (T-718)
 	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
 	// Column is the state column of obor status and obor monitor (T-657): held, gating, merging, gate pending,
-	// publish pending, reviewing, else State.
+	// publish pending, the merge hold ("merge held: <role> working", T-718), reviewing, else State.
 	Column string `json:"column"`
 	// Since is when the state column began, as far as the view can tell (epoch seconds; nil: unknown, or a lane with
 	// no task): the held needs-you's fact, the gate or publish running on the task, the task_done's record (done), the
@@ -250,7 +251,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 	}
 	for _, t := range ps.Tasks {
 		if t.Lane == s.Lane && t.Task == s.Task {
-			l.TaskState, l.Attempt, l.Running, l.Effort = t.State, t.Attempt, t.Running, t.Effort
+			l.TaskState, l.Attempt, l.Running, l.Effort, l.Hold = t.State, t.Attempt, t.Running, t.Effort, t.Hold
 			if t.Job != "" {
 				l.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
@@ -303,7 +304,8 @@ func roles(p *checks.LaneTable, ps wire.ProjectStatus) []Role {
 }
 
 // column is l's state column (T-657): what serve does for its task now — held (needs-you), gating, merging
-// (publishing), reviewing (an integrator job is out) — else the lane table's state (done, working, free …). A gate or
+// (publishing), the merge hold ("merge held: reviewer working": its publish waits, T-718), reviewing (an integrator
+// job is out) — else the lane table's state (done, working, free …). A gate or
 // publish whose effect does not run now but whose intent waits reads `gate pending` / `publish pending` (T-662): it is
 // not progress, it is stuck work (a failed step, a replay the next pass has yet to run).
 func column(l Lane, v *Project) string {
@@ -329,6 +331,9 @@ func column(l Lane, v *Project) string {
 		case event.StepGate, event.StepPublish:
 			return p.Step + " pending"
 		}
+	}
+	if l.Hold != "" { // its publish waits for the reviewer or the deep dive (T-718)
+		return l.Hold
 	}
 	if l.TaskState == "awaiting-accept" || l.TaskState == "resolving" { // an integrator job is out
 		return "reviewing"

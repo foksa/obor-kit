@@ -56,6 +56,7 @@ func (a *App) Status() wire.Status {
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}
+				ts.Hold = a.heldBy(p, mt)
 				if mt.state == stWaiting {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types

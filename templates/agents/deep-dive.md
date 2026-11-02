@@ -15,10 +15,10 @@ section. The lead turns findings into tasks.
 
 ## Rules
 - Read-only on source; probes in a scratch dir. Fewer, verified findings beat many guesses. No subagents.
-- Runs in its own role pane (`obor setup role deep_dive`: a detached worktree, default `deep-dive`;
-  `OBOR_ROLE=deep_dive`), never a worker lane: obor never stops it as idle and `obor dispatch` refuses it. The lead
-  detaches the worktree at the commit to audit and briefs it with `obor restart <agent> --fresh --prompt "…"`;
-  follow-ups go to the same session with `obor brief <agent> "…"`.
+- Runs in its own role pane in the main checkout (`obor setup role deep_dive`, `OBOR_ROLE=deep_dive`), never a worker
+  lane: obor never stops it as idle and `obor dispatch` refuses it. Serve holds merges while it works (30 min at most),
+  so the code does not move under it. The lead briefs it with `obor restart <agent> --fresh --prompt "…"`; follow-ups
+  go to the same session with `obor brief <agent> "…"`.
 
 ## This project
 <!-- fill in: model/kind, areas that deserve emphasis, where the reviews live. -->

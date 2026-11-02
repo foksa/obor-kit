@@ -74,8 +74,8 @@ moved or whose name changed is left out).
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
 is no line to you (T-650): `obor status` shows the review.
-- After the fixes merged (T-716): `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]` detaches the review
-  worktree at the head and briefs the reviewer's same session to re-run its probes (the `obor brief` reply).
+- After the fixes merged (T-716): `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]` marks the head
+  reviewed (`refs/obor/reviewed`; T-718: no review worktree) and briefs the reviewer's same session to re-run its probes (the `obor brief` reply).
 - When a verify approves: `obor review close "<summary>" [--accept "<line>"]…` deletes the review's files, adds each
   accepted line to `BACKLOG.md`'s Open section naming the RV, commits `RV-xx closed · <sha> · approved · <summary>`
   (`CLOSED <subject>`) and stops the reviewer (its `STOPPED …` line last). Refused, nothing changed: no open review,

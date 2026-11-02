@@ -159,6 +159,10 @@ type proj struct {
 	reg   registry
 	out   outbox
 	night nightlyState
+	// holders: the configured reviewer and deep dive, whose work holds the merge loop's publish; holds: the tasks whose
+	// publish waits for one of them, by task (mergehold.go, T-718). Under mu.
+	holders []holdAgent
+	holds   map[string]mergeHold
 }
 
 // folded is a project's state that a replay of its event log alone rebuilds (T-615): foldRecord's folds write it, live
