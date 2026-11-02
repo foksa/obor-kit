@@ -37,7 +37,7 @@ func TestWorkerJobNextTwoJobsInLaneTakesFirstTaskByName(t *testing.T) {
 			t.Fatal("precondition: T-2 has a worker job open")
 		}
 		mt, k, ok, err := (&App{}).callerJob(p, Call{Role: "worker", Lane: "L1", Agent: "w1"})
-		if err != nil || !ok || mt.task != "T-1" || k != (Key{"T-1", 1, StepWork}) {
+		if err != nil || !ok || mt.task != "T-1" || k != (Key{Task: "T-1", Attempt: 1, Step: StepWork}) {
 			t.Fatalf("callerJob = %s %v %v %v; want T-1's work job", mt.task, k, ok, err)
 		}
 	}
@@ -54,11 +54,11 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 		if _, ok := p.folded.loop["T-2"].integratorJob(); !ok {
 			t.Fatal("precondition: T-2 has an integrator job open")
 		}
-		if _, ok := p.log.IntentOf(Key{"T-2", 1, StepReview}); ok {
+		if _, ok := p.log.IntentOf(Key{Task: "T-2", Attempt: 1, Step: StepReview}); ok {
 			t.Fatal("precondition: no intent recorded (equal seqs)")
 		}
 		mt, k, ok, err := (&App{}).callerJob(p, Call{Role: "integrator", Agent: "int"})
-		if err != nil || !ok || mt.task != "T-1" || k != (Key{"T-1", 1, StepReview}) {
+		if err != nil || !ok || mt.task != "T-1" || k != (Key{Task: "T-1", Attempt: 1, Step: StepReview}) {
 			t.Fatalf("callerJob = %s %v %v %v; want T-1's review job", mt.task, k, ok, err)
 		}
 	}

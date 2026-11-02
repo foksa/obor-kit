@@ -473,7 +473,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 	defer r.a.closeLog()
 	dispatchT2(r)
 	p, f := r.proj("pj"), r.fakes["pj"]
-	if _, err := p.log.db.Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 	fx, err := r.a.loopOf(p)
@@ -487,7 +487,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 	if got := r.status("pj").LogError; !strings.Contains(got, "injected lane-row failure") {
 		t.Errorf("status log_error = %q, want the lane-row error", got)
 	}
-	if _, err := p.log.db.Exec("DROP TRIGGER lanes_fail"); err != nil {
+	if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
 		t.Fatal(err)
 	}
 	r.a.drive(context.Background(), p, fx, "T-2")
@@ -524,11 +524,11 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 			if c.prev {
 				prev := []store.LaneRow{{Lane: "O-02", Task: "T-0", Branch: "task/T-0", Agent: "pj-o-02", Base: "b",
 					Head: "h", DispatchedAt: 1}}
-				if err := store.WriteLanes(p.log.db, prev); err != nil {
+				if err := store.WriteLanes(p.log.DB(), prev); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := p.log.db.Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
+			if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
 				t.Fatal(err)
 			}
 			fx, err := r.a.loopOf(p)
@@ -547,7 +547,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 					t.Fatalf("pass %d: worker started on a missing or stale lane row (restarts %d)", pass, f.restarts)
 				}
 			}
-			if _, err := p.log.db.Exec("DROP TRIGGER lanes_fail"); err != nil {
+			if _, err := p.log.DB().Exec("DROP TRIGGER lanes_fail"); err != nil {
 				t.Fatal(err)
 			}
 			r.a.drive(context.Background(), p, fx, "T-2")

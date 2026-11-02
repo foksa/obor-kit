@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/view"
 )
 
@@ -36,7 +37,7 @@ func goldenView() view.Project {
 	return view.Project{
 		Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true, PID: 4821, Launchd: "running",
 			SinceTime: now.Add(-6 * time.Hour)},
-		Running: []view.Running{{Step: app.StepGate, Task: "T-660", Command: "make -s check", Since: at(72 * time.Second)}},
+		Running: []view.Running{{Step: event.StepGate, Task: "T-660", Command: "make -s check", Since: at(72 * time.Second)}},
 		NeedsYou: []view.NeedsYou{{Task: "T-640", Lane: "O-02", Reason: "held: open questions: which table?",
 			Answer: `obor resume T-640 "<decision>" | obor drop O-02 "<why>"`, Since: at(48 * time.Minute)}},
 		Lanes: []view.Lane{

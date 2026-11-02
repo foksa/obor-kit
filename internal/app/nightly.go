@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"strings"
 	"time"
 
@@ -19,12 +18,6 @@ import (
 // counted failure (fact failed), tried again nightlyRetry after the last one, the tries-th the day's needs-you{nightly
 // failed: …}. A day not due is asked once (remembered in memory); a GREEN full check run by hand (obor nightly, obor
 // milestone-check: last-full-check) ends a RED one's needs-you too.
-
-// NightlyTask is the task key of a project's nightly full check: its steps and its needs-you, the project's.
-const NightlyTask = "nightly"
-
-// StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
-const StepNightly = "nightly"
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
 // another process holds, merge.window_wait).
@@ -50,41 +43,6 @@ type NightlyOut struct {
 	SHA     string `json:"sha"`
 	Verdict string `json:"verdict"` // GREEN | RED
 	Line    string `json:"line"`
-}
-
-// Merge is one merged fact of the merge loop's (a merge outside the app has no sha and is none): its task, sha, time
-// and whether its gate ran the full check (false in a log before T-525: partial).
-type Merge struct {
-	Task, SHA string
-	At        time.Time
-	Full      bool
-}
-
-// merge is r as a Merge (false: no merged fact, or a merge outside the app).
-func merge(r Record) (Merge, bool) {
-	if r.Kind != KindFact || r.Step != StepMerged {
-		return Merge{}, false
-	}
-	var d mergedData
-	if json.Unmarshal(r.Data, &d) != nil || d.Head == "" {
-		return Merge{}, false
-	}
-	return Merge{Task: r.Task, SHA: d.Head, At: recordTime(r), Full: d.Full}, true
-}
-
-// ReadMerges is root's merges, read-only in seq order (obor flakes); none when serve never made its store.
-func ReadMerges(root string) ([]Merge, error) {
-	recs, err := ReadLog(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	var ms []Merge
-	for _, r := range recs {
-		if m, ok := merge(r); ok {
-			ms = append(ms, m)
-		}
-	}
-	return ms, err
 }
 
 // nightlyState is the nightly full check's fold: its last intent's step and whether it has a result, the counted
@@ -224,7 +182,7 @@ func (a *App) handGreen(p *proj, n *Nightly) {
 
 // runNightly runs the nightly full check under step's intent, then records its needs-you or its failure.
 func (a *App) runNightly(ctx context.Context, p *proj, n *Nightly, step string) {
-	in := Intent{Key: Key{NightlyTask, 0, step}, Class: ClassGit, Data: struct {
+	in := Intent{Key: Key{Task: NightlyTask, Attempt: 0, Step: step}, Class: ClassGit, Data: struct {
 		At string `json:"at"`
 	}{n.At}}
 	raw, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {

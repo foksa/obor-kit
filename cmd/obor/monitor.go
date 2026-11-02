@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/view"
@@ -161,7 +162,7 @@ func (m *monitor) newest() int64 {
 			return 0
 		}
 	}
-	recs, err := app.RecentEvents(m.db, 1)
+	recs, err := event.RecentEvents(m.db, 1)
 	if err != nil {
 		m.closeDB()
 		return 0

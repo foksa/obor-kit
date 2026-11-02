@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -395,7 +396,7 @@ func writeRunning(w io.Writer, st view.Project, now time.Time) {
 		if r.Task != "" {
 			item += " " + r.Task
 		}
-		if r.Step != app.StepServeRestart {
+		if r.Step != event.StepServeRestart {
 			if r.Command != "" {
 				item += fmt.Sprintf(" (%s, %s)", r.Command, elapsed(now.Sub(time.Unix(r.Since, 0))))
 			} else {
@@ -447,9 +448,9 @@ const pendingErrMax = 80
 // self-restart, which say what they are.
 func runningName(step string) string {
 	switch step {
-	case app.StepNightly:
+	case event.StepNightly:
 		return "nightly check"
-	case app.StepServeRestart:
+	case event.StepServeRestart:
 		return "restarting serve"
 	}
 	return step
@@ -509,7 +510,7 @@ func running(step string) string {
 }
 
 // writeFacts is one line per fact in force: its seq, time, task, step{reason} and lane.
-func writeFacts(w io.Writer, indent string, recs []app.Record) {
+func writeFacts(w io.Writer, indent string, recs []event.Record) {
 	for _, f := range recs {
 		fmt.Fprintf(w, "%sfact #%d %s %s %s (%s)\n", indent, f.Seq, f.TS, f.Task, f, f.Fact().Lane)
 	}

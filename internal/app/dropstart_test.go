@@ -376,7 +376,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func()) {
 	p := r.proj(name)
 	writing, gate := make(chan struct{}), make(chan struct{})
-	p.log.refuse = func(rec Record) error {
+	p.log.Refuse = func(rec Record) error {
 		if rec.Step == StepDropped {
 			close(writing)
 			<-gate
@@ -497,7 +497,7 @@ func TestDropWriteFailure(t *testing.T) {
 	r := newConcRig(t)
 	p := r.proj("pq")
 	var during struct{ ended, began bool }
-	p.log.refuse = func(rec Record) error {
+	p.log.Refuse = func(rec Record) error {
 		if rec.Step != StepDropped {
 			return nil
 		}
@@ -528,7 +528,7 @@ func TestDropWriteFailure(t *testing.T) {
 		t.Error("a step does not start after the failed drop")
 	}
 	r.app("pq").release(p, "T-3")
-	p.log.refuse = nil
+	p.log.Refuse = nil
 	if a := r.dropWithin("pq", "T-3", "d2"); a.err != nil || a.reply != "DROPPED T-3" {
 		t.Errorf("a later drop: %q, %v", a.reply, a.err)
 	}

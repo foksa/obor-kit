@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
@@ -104,14 +104,14 @@ func recordSessions(t *testing.T, root string, ss ...store.Session) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	log, _, err := app.OpenLog(db)
+	log, _, err := event.OpenLog(db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range ss {
 		data, _ := json.Marshal(s)
-		if _, err := log.Append(app.Record{Task: store.SessionTask, Step: store.StepSession, Kind: app.KindFact,
-			Class: app.ClassFact, Data: data}, time.Now()); err != nil {
+		if _, err := log.Append(event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact,
+			Class: event.ClassFact, Data: data}, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

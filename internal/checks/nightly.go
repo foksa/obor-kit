@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/project"
 )
 
@@ -157,7 +158,7 @@ func LastFullCheck(root string) (sha string, epoch int64, verdict string, err er
 // answer, not the time (T-468): a merge published while the check ran is not in the sha it checked, though it is older
 // than its epoch. Only the partial merges after the checked sha's own merge are asked (the earlier ones are its
 // ancestors; none: all), and a sha git no longer has is skipped (--ignore-missing).
-func NightlyDue(root string, merges []app.Merge, fresh bool) (bool, error) {
+func NightlyDue(root string, merges []event.Merge, fresh bool) (bool, error) {
 	checked, _, verdict, err := LastFullCheck(root)
 	if err != nil || verdict == "RED" {
 		return verdict == "RED", err

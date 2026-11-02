@@ -15,6 +15,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -43,7 +44,7 @@ type Project struct {
 	Watches   []app.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
 	Queue     Queue               `json:"queue"`
 	Events    []Event             `json:"events"` // the newest worded records, newest first
-	Facts     []app.Record        `json:"-"`      // serve's facts in force (obor status --facts)
+	Facts     []event.Record      `json:"-"`      // serve's facts in force (obor status --facts)
 }
 
 // Running is one step that runs without an agent (app.RunningStep, T-657) with the configured command it runs ("": a
@@ -140,7 +141,7 @@ type FullCheck struct {
 	Summary string `json:"summary"`
 }
 
-// Pause is serve's pause in force (app.Pause): until (epoch seconds; null: until cleared), why, who paused.
+// Pause is serve's pause in force (event.Pause): until (epoch seconds; null: until cleared), why, who paused.
 type Pause struct {
 	Until  *int64 `json:"until"`
 	Reason string `json:"reason"`
@@ -193,7 +194,7 @@ func Build(in Input) Project {
 		v.Review, v.Watches = ps.Review, ps.Watches
 		v.Facts = ps.Facts
 		for _, f := range ps.Facts {
-			if f.Step == app.StepNeedsYou {
+			if f.Step == event.StepNeedsYou {
 				n := NeedsYou{Task: f.Task, Lane: f.Fact().Lane, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
 				if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
 					n.Since = t.Unix()
@@ -296,9 +297,9 @@ func column(l Lane, v *Project) string {
 			continue
 		}
 		switch r.Step {
-		case app.StepGate:
+		case event.StepGate:
 			return "gating"
-		case app.StepPublish:
+		case event.StepPublish:
 			return "merging"
 		}
 	}
@@ -307,7 +308,7 @@ func column(l Lane, v *Project) string {
 			continue
 		}
 		switch p.Step {
-		case app.StepGate, app.StepPublish:
+		case event.StepGate, event.StepPublish:
 			return p.Step + " pending"
 		}
 	}
@@ -380,17 +381,17 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 func runningCommand(p *checks.LaneTable, r app.RunningStep) string {
 	name := ""
 	switch r.Step {
-	case app.StepGate:
+	case event.StepGate:
 		if name = r.Command; name == "" {
 			return ""
 		}
-	case app.StepNightly:
+	case event.StepNightly:
 		name = "check"
-	case app.StepAfterMerge:
-		name = app.StepAfterMerge
+	case event.StepAfterMerge:
+		name = event.StepAfterMerge
 	}
 	cmd, ok := p.Cfg.Command(name)
-	if !ok && r.Step == app.StepGate {
+	if !ok && r.Step == event.StepGate {
 		return name
 	}
 	return cmd.Cmd

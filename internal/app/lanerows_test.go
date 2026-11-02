@@ -82,7 +82,7 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	table("the lane re-dispatched", row2)
 
 	// A replay of the same log writes the same table (the projection is idempotent).
-	if err := store.WriteLanes(p.log.db, nil); err != nil {
+	if err := store.WriteLanes(p.log.DB(), nil); err != nil {
 		t.Fatal(err)
 	}
 	h.a.closeLog()

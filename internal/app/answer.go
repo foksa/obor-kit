@@ -16,9 +16,6 @@ import (
 // of an older log (answer.<call id>, a fix job of the next attempt) still folds as it did.
 const MethodAnswer = "answer"
 
-// StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
-const StepAnswered = "answered"
-
 func answerReply(task, agent string) string {
 	return fmt.Sprintf("ANSWERED %s: obor serve sends %s the answer", task, agent)
 }

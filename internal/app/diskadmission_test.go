@@ -29,13 +29,13 @@ func (f *diskCount) disk() *Disk {
 // refuseLogs makes every event-log append of name's project fail with err; nil heals it.
 func (r *concRig) refuseLogs(name string, err error) {
 	p := r.proj(name)
-	p.log.mu.Lock()
-	defer p.log.mu.Unlock()
+	p.log.Mu.Lock()
+	defer p.log.Mu.Unlock()
 	if err == nil {
-		p.log.refuse = nil
+		p.log.Refuse = nil
 		return
 	}
-	p.log.refuse = func(Record) error { return err }
+	p.log.Refuse = func(Record) error { return err }
 }
 
 // concLoop is name's app's Loop (the rig's one fake for it).

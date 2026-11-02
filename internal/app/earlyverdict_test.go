@@ -75,7 +75,7 @@ func TestEarlyVerdict(t *testing.T) {
 			}
 			delete(r.a.obs, "w1:p9") // the integrator does not run: the step starts it
 			job := "T-1/1/" + row.job
-			key := Key{"T-1", 1, row.job}
+			key := Key{Task: "T-1", Attempt: 1, Step: row.job}
 			f := &startJobFakes{concScratch: r.fakes["pj"]}
 			var fetched JobReply
 			var verdictErr error
@@ -182,7 +182,7 @@ func TestEarlyTaskDone(t *testing.T) {
 	after := p.folded.loop["T-2"].state
 	r.a.mu.Unlock()
 	same(t, after, stSubmitted, "state after the start")
-	same(t, resultOf(p, Key{"T-2", 1, StepWork}), `"sent (start prompt)"`, "work result")
+	same(t, resultOf(p, Key{Task: "T-2", Attempt: 1, Step: StepWork}), `"sent (start prompt)"`, "work result")
 	same(t, len(f.typed), 0, "Prompter calls")
 }
 
@@ -228,7 +228,7 @@ func TestStartAgainSameJob(t *testing.T) {
 	if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine("T-2/1/work") {
 		t.Fatalf("launches %+v, want one carrying T-2/1/work", f.launches)
 	}
-	same(t, resultOf(p, Key{"T-2", 1, StepWork}), `"sent (start prompt)"`, "work result")
-	same(t, done(p, Key{"T-2", 1, nth(StepWork, 2)}), false, "work.2 done")
+	same(t, resultOf(p, Key{Task: "T-2", Attempt: 1, Step: StepWork}), `"sent (start prompt)"`, "work result")
+	same(t, done(p, Key{Task: "T-2", Attempt: 1, Step: nth(StepWork, 2)}), false, "work.2 done")
 	same(t, len(f.typed), 0, "Prompter calls")
 }

@@ -3,6 +3,7 @@ package checks
 import (
 	"fmt"
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/store"
 	"obor/internal/testkit"
 	"os"
@@ -167,7 +168,7 @@ func TestNightlyBackup(t *testing.T) {
 	x.is(x.nightly("NIGHTLY"), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, [0-9]+s\)$`)
 	x.gone(app.BackupDir(x.Root), "no database: no backup")
 
-	db, err := store.OpenRW(app.DBFile(x.Root))
+	db, err := store.OpenRW(event.DBFile(x.Root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,11 +220,11 @@ func TestNightlyDue(t *testing.T) {
 			if c.last != "" {
 				x.Write(".obor/state/last-full-check", shas.Replace(c.last))
 			}
-			var merges []app.Merge
+			var merges []event.Merge
 			for _, l := range lines(shas.Replace(c.merges)) {
 				f := strings.Fields(l)
 				at, _ := strconv.ParseInt(f[0], 10, 64)
-				merges = append(merges, app.Merge{Task: f[1], SHA: f[2], At: time.Unix(at, 0), Full: f[3] == "full"})
+				merges = append(merges, event.Merge{Task: f[1], SHA: f[2], At: time.Unix(at, 0), Full: f[3] == "full"})
 			}
 			if got, err := NightlyDue(x.Root, merges, c.fresh); err != nil || got != c.want {
 				t.Errorf("NightlyDue = %v, %v; want %v", got, err, c.want)
@@ -268,7 +269,7 @@ func TestNightlyKeepsConcurrentMergeDue(t *testing.T) {
 			}
 			x.Git(x.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-99: during the full check")
 			head := x.head(x.Root)
-			merges := []app.Merge{{Task: "T-99", SHA: head, At: time.Now()}} // serve's fact merged, partial
+			merges := []event.Merge{{Task: "T-99", SHA: head, At: time.Now()}} // serve's fact merged, partial
 			mergeAt := time.Now().Unix()
 			if !c.sameSecond {
 				time.Sleep(time.Until(time.Unix(mergeAt+1, 0)))

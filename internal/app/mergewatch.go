@@ -24,14 +24,6 @@ import (
 // listed), Call.Clear ends its watch.
 const MethodWatch = "watch"
 
-// WatchTask is the task key of a project's watch facts.
-const WatchTask = "watch"
-
-const (
-	StepWatch   = "watch"   // fact: the lead watches a set of tasks' merges (data: WatchData)
-	StepUnwatch = "unwatch" // fact: obor watch --rm ended it (data: WatchData)
-)
-
 // WatchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (T-666: what it
 // meant to do when the set ends; one line), and the call that recorded it with its reply.
 type WatchData struct {

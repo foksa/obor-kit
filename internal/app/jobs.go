@@ -145,7 +145,9 @@ func (a *App) watchFix(p *proj, mt mtask, key Key) step {
 }
 
 // retryKey is the key of job's retry.
-func retryKey(job Key) Key { return Key{job.Task, job.Attempt, stepRetry + job.Step} }
+func retryKey(job Key) Key {
+	return Key{Task: job.Task, Attempt: job.Attempt, Step: stepRetry + job.Step}
+}
 
 // sampleJob takes one sample of the ready integrator's activity (outside mu) for mt's delivered job: quiet with it for
 // Idle → one nudge (the quiet time counts again from it), then the owner.
@@ -155,7 +157,7 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 	a.mu.Lock()
 	_, due := t.sample(now, e, a.opt.Idle)
 	a.mu.Unlock()
-	nudge := Key{mt.task, mt.attempt, stepNudge + mt.job}
+	nudge := Key{Task: mt.task, Attempt: mt.attempt, Step: stepNudge + mt.job}
 	switch {
 	case !due:
 	case !p.log.Done(nudge):

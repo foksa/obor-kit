@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/herdr"
@@ -214,7 +215,7 @@ func (r *serveRig) waitFor(what string, ok func() bool) {
 
 // steps is the log as "<attempt> <kind> <step>[{reason}]" lines.
 func (r *serveRig) steps() []string {
-	recs, _ := app.ReadLog(r.p.Root)
+	recs, _ := event.ReadLog(r.p.Root)
 	var out []string
 	for _, rec := range recs {
 		out = append(out, strings.Join([]string{string(rune('0' + rec.Attempt)), rec.Kind, rec.String()}, " "))
@@ -293,7 +294,7 @@ func (r *serveRig) merged() {
 		r.t.Errorf("main has %d merges of T-1, want 1", n)
 	}
 	head := r.p.Git(r.p.Root, "rev-parse", "main")
-	if ms, err := app.ReadMerges(r.p.Root); err != nil || len(ms) != 1 || ms[0].Task != "T-1" || ms[0].SHA != head ||
+	if ms, err := event.ReadMerges(r.p.Root); err != nil || len(ms) != 1 || ms[0].Task != "T-1" || ms[0].SHA != head ||
 		r.p.Exists(".obor/state/merges.log") {
 		r.t.Errorf("merges %+v, %v, merges.log %v; want T-1's at %s, no merges.log", ms, err,
 			r.p.Exists(".obor/state/merges.log"), head)

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/spec"
@@ -308,7 +308,7 @@ func (r *flakeRule) load() {
 	}
 	r.loaded = true
 	r.merged = map[string]int64{}
-	if merges, err := app.ReadMerges(r.cfg.Root); err == nil {
+	if merges, err := event.ReadMerges(r.cfg.Root); err == nil {
 		for _, m := range merges {
 			if at := m.At.Unix(); at > r.merged[m.Task] {
 				r.merged[m.Task] = at

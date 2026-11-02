@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/launch"
 )
 
@@ -23,15 +24,15 @@ func TestColumn(t *testing.T) {
 		want    string
 	}{
 		{"gating", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
-			[]Running{{Step: app.StepGate, Task: "T-1"}}, nil, nil, "gating"},
+			[]Running{{Step: event.StepGate, Task: "T-1"}}, nil, nil, "gating"},
 		{"merging", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
-			[]Running{{Step: app.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
+			[]Running{{Step: event.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
 		{"gate pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
-			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-1"}}, nil, "gate pending"},
+			nil, []app.PendingStep{{Step: event.StepGate, Task: "T-1"}}, nil, "gate pending"},
 		{"publish pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
-			nil, []app.PendingStep{{Step: app.StepPublish, Task: "T-1"}}, nil, "publish pending"},
+			nil, []app.PendingStep{{Step: event.StepPublish, Task: "T-1"}}, nil, "publish pending"},
 		{"pending on another task", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, []app.PendingStep{{Step: app.StepGate, Task: "T-2"}}, nil, "working"},
+			nil, []app.PendingStep{{Step: event.StepGate, Task: "T-2"}}, nil, "working"},
 		{"reviewing", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
 			"reviewing"},
 		{"resolving", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
@@ -87,7 +88,7 @@ func TestQueueMerge(t *testing.T) {
 	if q.Scratch != ps.Scratch {
 		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
 	}
-	running := &Project{Tasks: tasks, Running: []Running{{Step: app.StepGate, Task: "T-10"}}}
+	running := &Project{Tasks: tasks, Running: []Running{{Step: event.StepGate, Task: "T-10"}}}
 	free := queue(running, app.ProjectStatus{}, "", nil, nil, now)
 	// No scratch, no scheduler facts: the stages are the facts, and nothing claims a place in line.
 	wantFree := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageGating},

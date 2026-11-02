@@ -106,7 +106,7 @@ func (p *proj) syncLanes() error {
 	if p.folded.lr.synced && p.folded.lr.err == nil && slices.Equal(rows, p.folded.lr.written) {
 		return nil
 	}
-	if p.folded.lr.err = store.WriteLanes(p.log.db, rows); p.folded.lr.err != nil {
+	if p.folded.lr.err = store.WriteLanes(p.log.DB(), rows); p.folded.lr.err != nil {
 		return p.folded.lr.err
 	}
 	p.folded.lr.written, p.folded.lr.synced = rows, true

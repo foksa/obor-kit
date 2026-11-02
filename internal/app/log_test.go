@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -95,7 +94,7 @@ func TestAppendInsertFailure(t *testing.T) {
 	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
-	if _, err := l.db.Exec(`CREATE TRIGGER full BEFORE INSERT ON events
+	if _, err := l.DB().Exec(`CREATE TRIGGER full BEFORE INSERT ON events
 		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +104,7 @@ func TestAppendInsertFailure(t *testing.T) {
 	if err := l.Err(); err == nil || !strings.Contains(err.Error(), "disk I/O error") {
 		t.Errorf("Err = %v, want the insert's error", err)
 	}
-	if _, err := l.db.Exec("DROP TRIGGER full"); err != nil {
+	if _, err := l.DB().Exec("DROP TRIGGER full"); err != nil {
 		t.Fatal(err)
 	}
 	if r, err := l.Append(fact(t, "T-2", StepStalled, "idle"), logNow); err != nil || r.Seq != 1 {
@@ -130,7 +129,7 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 		runs++
 		return map[string]string{"sha": "abc"}, nil
 	}
-	in := Intent{Key: Key{"T-1", 1, "publish"}, Class: ClassGit, Data: map[string]string{"target": "main"}}
+	in := Intent{Key: Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: ClassGit, Data: map[string]string{"target": "main"}}
 	got, err := l.Do(context.Background(), in, clock, effect)
 	if err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
 		t.Fatalf("Do = %s, %v, runs %d", got, err, runs)
@@ -157,7 +156,7 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 func TestDoFailedEffectStaysPending(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t, logRoot(t))
-	in := Intent{Key: Key{"T-1", 1, "prompt"}, Class: ClassPrompt}
+	in := Intent{Key: Key{Task: "T-1", Attempt: 1, Step: "prompt"}, Class: ClassPrompt}
 	if _, err := l.Do(context.Background(), in, clock, func(context.Context) (any, error) { return nil, errors.New("herdr down") }); err == nil {
 		t.Fatal("a failed effect returned no error")
 	}
@@ -186,7 +185,7 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 			os.Exit(2)
 		}
 		path := filepath.Join(root, "effect")
-		l.Do(context.Background(), Intent{Key: Key{"T-1", 2, "start"}, Class: ClassStart, Data: map[string]string{"pane": "w1:p1"}},
+		l.Do(context.Background(), Intent{Key: Key{Task: "T-1", Attempt: 2, Step: "start"}, Class: ClassStart, Data: map[string]string{"pane": "w1:p1"}},
 			clock, func(context.Context) (any, error) {
 				os.WriteFile(path, nil, 0o644)
 				os.Exit(3) // killed after the effect, before the result
@@ -212,38 +211,6 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 	if len(p) != 1 || p[0].Task != "T-1" || p[0].Attempt != 2 || p[0].Step != "start" || p[0].Class != ClassStart ||
 		string(p[0].Data) != `{"pane":"w1:p1"}` {
 		t.Errorf("pending = %+v", p)
-	}
-}
-
-// Dump writes the table as JSONL, one record per line in seq order, each line the record's JSON.
-func TestDump(t *testing.T) {
-	t.Parallel()
-	root := logRoot(t)
-	l, _ := openLog(t, root)
-	want := []Record{
-		{Seq: 1, TS: "2026-10-24T11:00:00Z", Task: "T-1", Attempt: 1, Step: "gate", Kind: KindIntent, Class: ClassGit,
-			Data: json.RawMessage(`{"kind":"lane","lane":"O-01"}`)},
-		{Seq: 2, TS: "2026-10-24T11:02:00Z", Task: "T-1", Attempt: 1, Step: "gate", Kind: KindResult,
-			Data: json.RawMessage(`{"outcome":"green"}`)},
-		{Seq: 3, TS: "2026-10-24T11:03:00Z", Task: "T-2", Step: StepResumed, Kind: KindFact},
-	}
-	if err := insert(l.db, want...); err != nil {
-		t.Fatal(err)
-	}
-	var dump bytes.Buffer
-	if err := Dump(&dump, root); err != nil {
-		t.Fatal(err)
-	}
-	var b []byte
-	for _, r := range want {
-		line, err := json.Marshal(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		b = append(append(b, line...), '\n')
-	}
-	if dump.String() != string(b) {
-		t.Errorf("dump =\n%s\nwant\n%s", dump.Bytes(), b)
 	}
 }
 
@@ -289,14 +256,14 @@ func TestBackup(t *testing.T) {
 		{Seq: 1, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
 		{Seq: 2, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-24T12:00:00Z", Text: "fresh"},
 	} {
-		if err := store.WritePrompt(h.a.p.log.db, r); err != nil {
+		if err := store.WritePrompt(h.a.p.log.DB(), r); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if reply, err := h.a.backup(Call{Root: h.root}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
 		t.Fatalf("serve's backup = %q, %v", reply, err)
 	}
-	if rows, err := store.ReadPrompts(h.a.p.log.db, store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
+	if rows, err := store.ReadPrompts(h.a.p.log.DB(), store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
 		rows[0].Text != "fresh" {
 		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (14 days kept)", rows, err)
 	}

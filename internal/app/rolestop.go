@@ -28,9 +28,6 @@ import (
 // The advisor and the deep dive are the lead's to stop (skills/lead/SKILL.md); a brief to any stopped role agent but
 // the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine).
 
-// RoleTask is the task key of serve's stops of role agents.
-const RoleTask = "roles"
-
 // stepRoleStop is the step prefix of a role agent's stop: stop.<agent>[.N].
 const stepRoleStop = "stop."
 

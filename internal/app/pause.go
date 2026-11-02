@@ -16,25 +16,6 @@ import (
 // ends the pause in force.
 const MethodPause = "pause"
 
-// PauseTask is the task key of a project's pause facts.
-const PauseTask = "pause"
-
-const (
-	StepPaused   = "paused"   // fact: the project is paused (data: Pause)
-	StepUnpaused = "unpaused" // fact: obor pause --clear ended it (data: Pause, the call's)
-)
-
-// Pause is a pause fact's data, and the pause in force in the status: why, until when (epoch seconds, 0: until
-// cleared), who paused and since when.
-type Pause struct {
-	Why    string `json:"why,omitempty"`
-	Until  int64  `json:"until,omitempty"`
-	Caller string `json:"caller,omitempty"`
-	Since  string `json:"since,omitempty"`
-	Call   string `json:"call,omitempty"`
-	Reply  string `json:"reply"`
-}
-
 // foldPause folds r, a record of the project's pause: the pause in force, and the reply of its call.
 func (p *proj) foldPause(r Record) {
 	if r.Task != PauseTask || r.Kind != KindFact || r.Step != StepPaused && r.Step != StepUnpaused {

@@ -31,15 +31,6 @@ import (
 // MethodDispatch is the app socket's dispatch request: Call.Task onto Call.Lane, or the first free lane of Call.Types.
 const MethodDispatch = "dispatch"
 
-// The dispatch's steps.
-const (
-	StepDispatched = "dispatch"     // fact: the request passed its refusals (data: dispatchData)
-	StepWaiting    = "waiting"      // fact: the request waits for its After tasks to merge (data: dispatchData)
-	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: PrepareInput → prepareOut
-	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: startData → startOut
-	StepWork       = "work"         // prompt intent (P), work.N after obor resume: the worker's job
-)
-
 // The causes of the dispatch's needs-you; obor resume retries each (the step runs again, a refused one under its next
 // key, an undelivered job sent anew).
 const (
@@ -704,7 +695,7 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 		return a.nextStart(p, mt)
 	case mt.work == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.sendWork(ctx, p, fx, mt, nth(StepWork, mt.works+1)) }
-	case p.log.Open(Key{mt.task, mt.attempt, mt.work}): // its prompt failed: sent again under its key
+	case p.log.Open(Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}): // its prompt failed: sent again under its key
 		return func(ctx context.Context, fx *Loop) bool { return a.sendWork(ctx, p, fx, mt, mt.work) }
 	}
 	return a.watchWork(p, mt)
@@ -714,7 +705,7 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 // lane_ready / lane_setup; its result is the lane's row (lanes.go). A refusal is final: needs-you{lane: why}.
 func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	d := mt.disp
-	in := Intent{Key: Key{mt.task, mt.attempt, nth(StepPrepare, mt.prepares+1)}, Class: ClassGit,
+	in := Intent{Key: Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepPrepare, mt.prepares+1)}, Class: ClassGit,
 		Data: PrepareInput{Task: mt.task, Lane: d.Lane, Dir: d.Dir, Branch: d.Branch, Target: d.Target, Agent: d.Agent,
 			Redo: d.Redo, At: mt.at}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
@@ -736,7 +727,7 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
 // shell) and the agent in it are its intent's data. No pane in the lane for Gone: needs-you{no pane in lane}.
 func (a *App) nextStart(p *proj, mt mtask) step {
-	key := Key{mt.task, mt.attempt, nth(StepStartWork, mt.starts+1)}
+	key := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
 	if r, ok := p.log.Intent(key); ok { // a pending start: its recorded snapshot
 		_ = json.Unmarshal(r.Data, &d)
@@ -761,8 +752,8 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 	}
 	delete(p.nopane, mt.task)
 	// The work job the start runs under: one open from an earlier start, else the next.
-	work := Key{mt.task, mt.attempt, nth(StepWork, mt.works+1)}
-	if mt.work != "" && !p.log.Done(Key{mt.task, mt.attempt, mt.work}) {
+	work := Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepWork, mt.works+1)}
+	if mt.work != "" && !p.log.Done(Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}) {
 		work.Step = mt.work
 	}
 	return func(ctx context.Context, fx *Loop) bool { return a.startWorker(ctx, p, fx, mt, key, d, work) }
@@ -859,7 +850,7 @@ func startRefused(err error) bool {
 // sendWork sends the worker its work job's wake (row 5) under step (work, work.N), job <task>/<attempt>/<step>: a job
 // its start did not carry (startJob). A prompt that fails stays pending and is sent again under its key.
 func (a *App) sendWork(ctx context.Context, p *proj, fx *Loop, mt mtask, step string) bool {
-	key := Key{mt.task, mt.attempt, step}
+	key := Key{Task: mt.task, Attempt: mt.attempt, Step: step}
 	at := a.opt.Now()
 	if !a.sendWorkJob(ctx, p, fx, mt, key, key, fmt.Sprintf("work job %s not sent to %s", JobID(key), mt.agent)) {
 		return false
@@ -967,7 +958,7 @@ func dropEmptyProjectSection(text string) string {
 // (fact delivered: the task is working); undelivered for deliveryWait: retry.work, then the owner. The timer is not
 // recorded: a replay starts it afresh.
 func (a *App) watchWork(p *proj, mt mtask) step {
-	key := Key{mt.task, mt.attempt, mt.work}
+	key := Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}
 	t := a.timerOf(p, key)
 	return a.undelivered(p, mt, t, key, mt.agent, func(ctx context.Context, fx *Loop, retry Key) bool {
 		return a.sendWorkJob(ctx, p, fx, mt, retry, key, fmt.Sprintf("work job %s not sent again to %s", JobID(key),

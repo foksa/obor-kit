@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
@@ -32,7 +33,7 @@ func events(db *sql.DB, n int, s Serve) []Event {
 		return out
 	}
 	if db != nil {
-		recs, _ := app.RecentEvents(db, n*eventsRead)
+		recs, _ := event.RecentEvents(db, n*eventsRead)
 		for _, r := range recs {
 			if line, bad := eventLine(r); line != "" {
 				at, _ := time.Parse(time.RFC3339, r.TS)
@@ -68,7 +69,7 @@ func EventsSince(db *sql.DB, since int64, limit int) (EventsPage, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var r app.Record
+		var r event.Record
 		var data []byte
 		if err := rows.Scan(&r.Seq, &r.TS, &r.Task, &r.Kind, &r.Step, &data); err != nil {
 			return page, err
@@ -103,13 +104,13 @@ type eventData struct {
 // dispatched, submitted, a gate's pass or fail with its summary, accepted, a sendback, a hold, a merge with its sha, a
 // review's request and start, or a line posted to an agent. A gate that is not green and a hold are the bad ones; a
 // green gate is not, however its summary counts its checks (T-688).
-func eventLine(r app.Record) (string, bool) {
+func eventLine(r event.Record) (string, bool) {
 	var d eventData
 	if len(r.Data) > 0 {
 		_ = json.Unmarshal(r.Data, &d)
 	}
-	if r.Kind == app.KindResult {
-		if base, _ := app.StepN(r.Step); base == app.StepGate {
+	if r.Kind == event.KindResult {
+		if base, _ := app.StepN(r.Step); base == event.StepGate {
 			if d.Outcome == "green" {
 				return "gate " + r.Task + " pass (" + d.Line + ")", false
 			}
@@ -122,35 +123,35 @@ func eventLine(r app.Record) (string, bool) {
 		}
 		return "", false
 	}
-	if r.Kind != app.KindFact {
+	if r.Kind != event.KindFact {
 		return "", false
 	}
 	switch r.Step {
-	case app.StepDispatched:
+	case event.StepDispatched:
 		return "dispatched " + r.Task + laneIn(d.Lane), false
-	case app.StepSubmitted:
+	case event.StepSubmitted:
 		return "submitted " + r.Task, false
-	case app.StepSendback:
+	case event.StepSendback:
 		return "sendback " + r.Task + noteIn(d.Note), false
-	case app.StepNeedsYou:
-		if d.Cause == app.CauseHeld {
+	case event.StepNeedsYou:
+		if d.Cause == event.CauseHeld {
 			return "held " + r.Task + noteIn(strings.TrimPrefix(d.Reason, "held: ")), true
 		}
-	case app.StepMerged:
+	case event.StepMerged:
 		if d.Head == "" {
 			return "merged " + r.Task + " (outside obor serve)", false
 		}
 		return "merged " + r.Task + " " + d.Head[:min(7, len(d.Head))], false
-	case app.StepReviewRequest:
+	case event.StepReviewRequest:
 		if len(d.After) > 0 {
 			return "review requested (after " + strings.Join(d.After, ",") + ")", false
 		}
 		return "review requested", false
-	case app.StepReviewStarted:
+	case event.StepReviewStarted:
 		return "review started " + d.ID, false
-	case app.StepReviewRm:
+	case event.StepReviewRm:
 		return "review request ended", false
-	case app.StepMessage:
+	case event.StepMessage:
 		return "line to " + d.To + ": " + d.Line, false
 	}
 	return "", false

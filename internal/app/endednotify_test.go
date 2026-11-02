@@ -72,7 +72,7 @@ func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 			if pending {
 				t.Error("the notification of the ended task's fact is still pending")
 			}
-			if got := string(p.log.results[k].Data); got != `"not run: T-3 `+c.end+`"` {
+			if got := string(p.log.Results[k].Data); got != `"not run: T-3 `+c.end+`"` {
 				t.Errorf("its result = %s, want not run", got)
 			}
 			if p.inForce(fact) {

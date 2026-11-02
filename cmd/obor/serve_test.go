@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
@@ -257,13 +258,13 @@ func TestServeDump(t *testing.T) {
 	if code := serveDump(&out, p.Root); code != 1 || out.Len() != 0 {
 		t.Fatalf("dump without a database = %d, %q; want 1 and nothing", code, out.String())
 	}
-	db, err := store.OpenRW(app.DBFile(p.Root))
+	db, err := store.OpenRW(event.DBFile(p.Root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	log, _, err := app.OpenLog(db)
+	log, _, err := event.OpenLog(db)
 	if err == nil {
-		_, err = log.Append(app.Record{Task: "T-1", Attempt: 1, Step: "submitted", Kind: app.KindFact,
+		_, err = log.Append(event.Record{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact,
 			Data: []byte(`{"lane":"O-01"}`)}, time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC))
 	}
 	db.Close()
