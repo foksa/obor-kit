@@ -6,6 +6,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-02 day: **v0.18.1 shipped** (Go 1.27.3, release notes; T-681..T-684). Since then merged and reviewed
+  (RV-79..RV-81 closed, d7e54704): T-685/T-686 (gate 158 → 115 s), T-687, T-688 (monitor bad flag), T-689 (spec
+  `Type:` line), T-695 (`type:effort` everywhere; `opus-high` type replaced by `opus:high`), T-696..T-698 (opencode
+  per-agent XDG_STATE_HOME, pinned model, no model guessing), T-690..T-694 + T-699/T-700 (internal/app split into
+  port/event/wire, needs-you owner, mtask attempt group, aliases gone). Research: Gemini review + Fable advice +
+  app-split deep dive in docs/research. Nothing in flight. **Next:** owner's call on v0.19.0 (write
+  docs/UPGRADE-v0.19.md + docs/releases/v0.19.0.md; projects need serve restart; lead/deep-dive role type is now
+  `opus:high`); open: herdr ~100 % CPU cause unknown; deep dive steps 6-7 not now.
 - 2026-11-02 early: **v0.18.0 tagged** (10a24b7c; monitoring release: `internal/view`, `obor web`, prompts table,
   new monitor, watch --note, role agents stop when done, deduped job prompts). RV-75 and RV-76 closed. Codex smoke
   T-679 passed. Nothing in flight, no watches; ob-int and ob-terra stopped by serve, ob-fable and ob-deep-dive by the
