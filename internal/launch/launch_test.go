@@ -538,8 +538,12 @@ func TestRestartWho(t *testing.T) {
 			if m == nil {
 				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
-			// A start without an XDG_STATE_HOME of its own ends the line with its restore (T-697).
-			eq(t, strings.TrimSuffix(runs[0][:len(runs[0])-len(m[0])], stateRestore), c.env(x), "env line (cwd, OBOR_AGENT, OBOR_ROLE, OBOR_LANE)")
+			// A start without an XDG_STATE_HOME of its own ends the line with the unset of obor's own dir (T-698).
+			body, unset, _ := strings.Cut(runs[0][:len(runs[0])-len(m[0])], stateUnsetPrefix)
+			if !strings.HasSuffix(unset, ") unset XDG_STATE_HOME;; esac") {
+				t.Errorf("the line ends %q, want the case that unsets an obor-owned XDG_STATE_HOME", unset)
+			}
+			eq(t, body, c.env(x), "env line (cwd, OBOR_AGENT, OBOR_ROLE, OBOR_LANE)")
 			eq(t, x.startCall(), c.start, "agent start (kind, pane, type args, resume)")
 			if c.out != "" {
 				contains(t, out, c.out, "output")
@@ -3133,6 +3137,6 @@ func TestRestartLockHeld(t *testing.T) {
 	}
 }
 
-// stateRestore is the end of the env line of a start that has no XDG_STATE_HOME of its own (T-697): it puts back what
-// the pane's shell had before an OpenCode agent's start exported its own.
-const stateRestore = ` && { [ -z "${OBOR_XDG_STATE_WAS+x}" ] || { case "$OBOR_XDG_STATE_WAS" in y*) export XDG_STATE_HOME="${OBOR_XDG_STATE_WAS#y}";; *) unset XDG_STATE_HOME;; esac; unset OBOR_XDG_STATE_WAS; }; }`
+// stateUnsetPrefix starts the end of the env line of a start that has no XDG_STATE_HOME of its own (T-698): it unsets
+// the variable when it holds one of obor's own state dirs, and leaves a user's.
+const stateUnsetPrefix = ` && case "${XDG_STATE_HOME-}" in `

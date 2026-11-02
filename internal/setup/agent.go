@@ -247,12 +247,11 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			env = append(env, k+"="+vars[k])
 		}
 	}
-	if vars[agents.StateHomeVar] != "" { // the pane's own XDG_STATE_HOME, saved for the next start of another kind to restore (T-697)
-		saved := "n"
-		if v := s.Env.Get(agents.StateHomeVar); v != "" {
-			saved = "y" + v
-		}
-		env = append(env, agents.SavedStateHomeVar+"="+saved)
+	// An obor state dir the pane would inherit from setup's own env (an OpenCode agent running setup) is not for another
+	// kind: handed to herdr empty, which the XDG rule reads as unset (T-698; a value of the user's own stays). An OpenCode
+	// start's own dir is in env above.
+	if home := project.StateHome(s.Env); vars[agents.StateHomeVar] == "" && agents.OwnedStateHome(home, s.Env.Get(agents.StateHomeVar)) {
+		env = append(env, agents.StateHomeVar+"=")
 	}
 	if a.role.EnvValue != "" {
 		env = append(env, "OBOR_ROLE="+a.role.EnvValue)

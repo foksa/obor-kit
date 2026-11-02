@@ -4,6 +4,8 @@
 package opencode
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -50,25 +52,35 @@ func (kind) Efforts() []string { return efforts }
 // keeps the TUI's recent models and each model's remembered variant, which beats the config's (T-696).
 const StateVar = agents.StateHomeVar
 
-// StateDir: <Home>/opencode-state/<Project>/<Agent>, the agent's own XDG_STATE_HOME (T-696), so the variant a start
+// stateDirName is the directory under obor's state home that holds every OpenCode agent's own state dir.
+const stateDirName = "opencode-state"
+
+// StateRoot: <home>/opencode-state, where all OpenCode agents' state dirs live: a XDG_STATE_HOME under it is obor's
+// (agents.StateOwner, T-698), so a start of another kind unsets it and one of the user's own stays.
+func (kind) StateRoot(home string) string { return filepath.Join(home, stateDirName) }
+
+// StateDir: <Home>/opencode-state/<project>/<agent>, the agent's own XDG_STATE_HOME (T-696), so the variant a start
 // passes is not beaten by one remembered in the user's state, and obor never writes the user's own
-// (~/.local/state/opencode). The project and agent elements are path-escaped (pathElement), so any configured name
-// isolates. "" when Home, Project or Agent is empty (StartEnv refuses such a start, T-697).
-func (kind) StateDir(in agents.Start) string {
+// (~/.local/state/opencode). Each element is pathElement of the name, so any configured name isolates, on a
+// case-insensitive filesystem too. "" when Home, Project or Agent is empty (StartEnv refuses such a start, T-697).
+func (k kind) StateDir(in agents.Start) string {
 	if in.Home == "" || in.Project == "" || in.Agent == "" {
 		return ""
 	}
-	return filepath.Join(in.Home, "opencode-state", pathElement(in.Project), pathElement(in.Agent))
+	return filepath.Join(k.StateRoot(in.Home), pathElement(in.Project), pathElement(in.Agent))
 }
 
-// pathElement is s as one path element: url.PathEscape (a separator, / or \, becomes %2F or %5C; a literal % becomes
-// %25, so two names never share an element), and the dots-only names . and .. with their dots escaped.
-func pathElement(s string) string {
-	s = url.PathEscape(s)
-	if s == "." || s == ".." {
-		return strings.ReplaceAll(s, ".", "%2E")
+// pathElement is name as one path element: url.PathEscape of its lower case (a separator, / or \, becomes %2F or %5C; a
+// dots-only name has its dots escaped) and "-" and the first 8 hex digits of the sha256 of the exact name (T-698). The
+// digest keeps names that differ only by case, or by what a filesystem folds, apart; the readable part is for the
+// owner; the % escapes keep two names from sharing an element.
+func pathElement(name string) string {
+	e := url.PathEscape(strings.ToLower(name))
+	if e == "." || e == ".." {
+		e = strings.ReplaceAll(e, ".", "%2E")
 	}
-	return s
+	sum := sha256.Sum256([]byte(name))
+	return e + "-" + hex.EncodeToString(sum[:4])
 }
 
 // CheckEffort: an effort needs the type's --model, as obor never guesses OpenCode's model (T-697).
