@@ -241,12 +241,12 @@ func laneRows(st view.Project, o renderOpts, p palette) []string {
 	return out
 }
 
-// bgRows is one dim row per background process of an agent, under its row (T-714): its description or command and how
-// long it has run.
+// bgRows is one dim row per long-running process of an agent, under its row (T-714, T-727): bg (a recorded background
+// call) or running (another), its description or command and how long it has run.
 func bgRows(bs []view.Background, p palette) []string {
 	out := make([]string, 0, len(bs))
 	for _, b := range bs {
-		out = append(out, "      "+p.dim("bg: "+oneLine(b.Text())+" · "+app.Age(time.Duration(b.Age)*time.Second)))
+		out = append(out, "      "+p.dim(oneLine(b.Line(app.Age(time.Duration(b.Age)*time.Second)))))
 	}
 	return out
 }

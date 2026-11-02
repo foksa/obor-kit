@@ -658,8 +658,8 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 	}
 }
 
-// T-714: /api/projects counts the agents' background processes for the overview card, /api/agent lists an agent's
-// own, and the page reads both.
+// T-714, T-727: /api/projects counts the agents' recorded background processes for the overview card (a long
+// foreground command is not counted), /api/agent lists an agent's own, and the page reads both.
 func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -673,9 +673,10 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	lead := cfg.AgentName("lead", "")
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Agents: []wire.AgentStatus{
 		{Pane: "w1:p1", Name: "pj-o1", Lane: "O-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
-	conv := view.Background{PID: 42, Command: "python convert.py", Label: "convert maps", Age: 900}
+	conv := view.Background{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}
 	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Events: 20,
-		Background: map[string][]view.Background{"pj-o1": {conv}, lead: {{PID: 7, Command: "sleep 600", Age: 45}}}})
+		Background: map[string][]view.Background{"pj-o1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
+			{PID: 8, Command: "go test ./...", Age: 300}}}})
 	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
 		Build: func(context.Context, string) (view.Project, error) { return v, nil }}
 	var entries []ProjectsEntry

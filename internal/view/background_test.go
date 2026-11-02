@@ -66,7 +66,7 @@ func fakeTable() []Proc {
 // no shell (caffeinate, an MCP server), one that started with it (a shell-wrapped MCP server, with what it started) or
 // obor's own MCP server.
 func TestDescendants(t *testing.T) {
-	found := Descendants(fakeTable(), 100, BackgroundMin)
+	found := NewProcIndex(fakeTable()).Descendants(100, BackgroundMin)
 	if len(found) != 1 {
 		t.Fatalf("found %+v, want only the long python", found)
 	}
@@ -76,20 +76,21 @@ func TestDescendants(t *testing.T) {
 	}
 	// Each exclusion holds on its own: with a 0 threshold the short sleep shows, the helpers still do not.
 	pids := map[int]bool{}
-	for _, f := range Descendants(fakeTable(), 100, 0) {
+	for _, f := range NewProcIndex(fakeTable()).Descendants(100, 0) {
 		pids[f.PID] = true
 	}
 	if !pids[104] || !pids[106] || pids[101] || pids[110] || pids[102] || pids[107] || pids[108] || pids[109] || pids[200] {
 		t.Errorf("no threshold: pids %v, want 104 and 106 only", pids)
 	}
-	if got := Descendants(fakeTable(), 999, 0); got != nil {
+	if got := NewProcIndex(fakeTable()).Descendants(999, 0); got != nil {
 		t.Errorf("an agent not in the table: %+v, want none", got)
 	}
 }
 
-// T-714: BackgroundOf takes each agent's process from its pane's process info (its foreground leader), labels a process
-// with the description of the recorded call it runs (matched by command, through the shell's quoting), and gives the
-// command shortened and the age; another agent's record does not label it; an agent at its shell has none.
+// T-714, T-727: BackgroundOf takes each agent's process from its pane's process info (its foreground leader), marks a
+// process that runs a recorded background call (matched by command, through the shell's quoting) as background with
+// the call's description, and gives the command shortened and the age; another agent's record does not mark it; an
+// agent at its shell has none; an unrecorded long child is a running foreground command, no bg.
 func TestBackgroundOf(t *testing.T) {
 	root := t.TempDir()
 	project.AppendBackground(root, project.BackgroundCall{At: 1, Agent: "w1", Command: "python convert.py --name 'a b'",
@@ -110,14 +111,55 @@ func TestBackgroundOf(t *testing.T) {
 	if len(got) != 1 || len(got["w1"]) != 1 {
 		t.Fatalf("background %+v, want one process of w1", got)
 	}
-	want := Background{PID: 104, Command: "python3 convert.py --name a b", Label: "convert maps", Age: 899}
+	want := Background{PID: 104, Command: "python3 convert.py --name a b", Background: true, Label: "convert maps", Age: 899}
 	if got["w1"][0] != want {
 		t.Errorf("w1: %+v, want %+v", got["w1"][0], want)
 	}
-	// No record of w1's: the command alone.
-	got = BackgroundOf(context.Background(), t.TempDir(), agents[:1], fakeTable(), info)
-	if b := got["w1"]; len(b) != 1 || b[0].Label != "" || b[0].Text() != "python3 convert.py --name a b" {
-		t.Errorf("unrecorded: %+v, want the command, no label", b)
+	if line := got["w1"][0].Line("15m"); line != "bg: convert maps · 15m" {
+		t.Errorf("recorded line %q, want bg", line)
+	}
+	// No record of w1's (only another agent's): a long foreground command, the command alone, running.
+	other := t.TempDir()
+	project.AppendBackground(other, project.BackgroundCall{At: 1, Agent: "other", Command: "python convert.py --name 'a b'"})
+	got = BackgroundOf(context.Background(), other, agents[:1], fakeTable(), info)
+	if b := got["w1"]; len(b) != 1 || b[0].Background || b[0].Label != "" ||
+		b[0].Line("15m") != "running python3 convert.py --name a b · 15m" {
+		t.Errorf("unrecorded: %+v, want running with the command, no bg", b)
+	}
+}
+
+// T-727: one scan builds one process index, whatever the number of agents: two agents with a long process each, one
+// NewProcIndex; an agent with no pane or at its shell builds none.
+func TestBackgroundOfOneIndexPerScan(t *testing.T) {
+	s := time.Second
+	procs := append(fakeTable(),
+		Proc{300, 1, 3600 * s, "claude"},
+		Proc{301, 300, 100 * s, "/bin/zsh -c eval 'go test ./...'"},
+		Proc{302, 301, 99 * s, "go test ./..."})
+	info := func(_ context.Context, pane string) (port.ProcessInfo, error) {
+		switch pane {
+		case "p1":
+			return port.ProcessInfo{ShellPID: 50, FgPGID: 100}, nil
+		case "p2":
+			return port.ProcessInfo{ShellPID: 70, FgPGID: 300}, nil
+		}
+		return port.ProcessInfo{ShellPID: 60, FgPGID: 60}, nil
+	}
+	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1"}, {Name: "w2", Pane: "p2"}}
+	before := indexBuilds.Load()
+	got := BackgroundOf(context.Background(), t.TempDir(), agents, procs, info)
+	if len(got["w1"]) != 1 || len(got["w2"]) != 1 || got["w2"][0].PID != 302 {
+		t.Fatalf("precondition: a process for each agent: %+v", got)
+	}
+	if n := indexBuilds.Load() - before; n != 1 {
+		t.Errorf("%d indexes built for two agents, want one", n)
+	}
+	before = indexBuilds.Load()
+	if got := BackgroundOf(context.Background(), t.TempDir(), []wire.AgentStatus{{Name: "w3", Pane: "p3"}}, procs, info); len(got) != 0 {
+		t.Errorf("an agent at its shell: %+v, want none", got)
+	}
+	if n := indexBuilds.Load() - before; n != 0 {
+		t.Errorf("%d indexes built with no agent process, want none", n)
 	}
 }
 
@@ -151,7 +193,7 @@ func TestBuildBackground(t *testing.T) {
 		{Name: "w1", Pane: "p1", Lane: "O-01", Status: "working"}, {Name: integ, Pane: "p2", Status: "idle"},
 		{Name: lead, Pane: "p3", Status: "working"}}}}
 	bg := map[string][]Background{"w1": {{PID: 1, Command: "a", Age: 40}}, integ: {{PID: 2, Command: "b", Age: 50}},
-		lead: {{PID: 3, Command: "c", Label: "l", Age: 60}}}
+		lead: {{PID: 3, Command: "c", Background: true, Label: "l", Age: 60}}}
 	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Background: bg})
 	if len(v.Lanes) != 1 || len(v.Lanes[0].Background) != 1 || v.Lanes[0].Background[0].PID != 1 {
 		t.Errorf("lane: %+v, want w1's process", v.Lanes)
@@ -168,15 +210,15 @@ func TestBuildBackground(t *testing.T) {
 	if v.Lead == nil || v.Lead.Agent != lead || len(v.Lead.Background) != 1 || v.Lead.Background[0].PID != 3 {
 		t.Errorf("lead: %+v, want its row with its process", v.Lead)
 	}
-	if n := v.BackgroundCount(); n != 3 {
-		t.Errorf("count %d, want 3", n)
+	if n := v.BackgroundCount(); n != 1 {
+		t.Errorf("count %d, want 1: only the lead's recorded background call, not the two running commands", n)
 	}
 	if got := v.AgentBackground(lead); len(got) != 1 || got[0].PID != 3 {
 		t.Errorf("AgentBackground(lead) = %+v", got)
 	}
 	b, _ := json.Marshal(v)
-	if !strings.Contains(string(b), `"background":[{"pid":1,"command":"a","age":40}]`) ||
-		!strings.Contains(string(b), `"label":"l"`) {
+	if !strings.Contains(string(b), `"background":[{"pid":1,"command":"a","background":false,"age":40}]`) ||
+		!strings.Contains(string(b), `"background":true,"label":"l"`) {
 		t.Errorf("json has no background per agent: %s", b)
 	}
 }
