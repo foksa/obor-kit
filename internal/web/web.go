@@ -73,7 +73,7 @@ func readOnly(h http.Handler) http.Handler {
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
 // its needs-you count, its queue length (the merge loop's tasks and the dispatches waiting), the steps running without
-// an agent, and why its view could not be built.
+// an agent, the role agents at work (T-713) and why its view could not be built.
 type ProjectsEntry struct {
 	Name     string         `json:"name"`
 	Root     string         `json:"root"`
@@ -83,6 +83,7 @@ type ProjectsEntry struct {
 	NeedsYou int            `json:"needs_you"`
 	Queue    int            `json:"queue"`
 	Running  []view.Running `json:"running"`
+	Roles    []view.Role    `json:"roles"`
 	Error    string         `json:"error,omitempty"`
 }
 
@@ -90,7 +91,7 @@ type ProjectsEntry struct {
 func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 	out := make([]ProjectsEntry, 0)
 	for _, p := range s.projects() {
-		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}}
+		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}, Roles: []view.Role{}}
 		ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 		v, err := s.build(ctx, p.Root)
 		cancel()
@@ -99,6 +100,11 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
 			e.Running = append(e.Running, v.Running...)
+			for _, r := range v.Roles {
+				if r.Status == "working" || r.Brief != nil { // a brief waiting to be delivered counts, as on the project page
+					e.Roles = append(e.Roles, r)
+				}
+			}
 			for _, l := range v.Lanes {
 				if l.State == "free" || l.State == "dirty-free" { // a free lane keeps its last branch's task
 					e.Free++

@@ -88,7 +88,7 @@ func monitorOf(t *testing.T, p *testkit.Project, now time.Time, height int) *mon
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &monitor{root: cfg.Root, cfg: cfg, now: func() time.Time { return now }, height: func() int { return height },
+	return &monitor{root: cfg.Root, cfg: cfg, cfgAt: configMtimes(cfg.Root), now: func() time.Time { return now }, height: func() int { return height },
 		width: func() int { return monitorWidth }}
 }
 
@@ -429,5 +429,55 @@ func TestMonitorShowsLaneWait(t *testing.T) {
 	}
 	if events < 0 || lane > events || never > events {
 		t.Errorf("the queue lines (%d, %d) not before the events (%d):\n%s", lane, never, events, text)
+	}
+}
+
+// TestMonitorFollowsConfigChanges (T-713): a role added to the config while the monitor runs shows in the next frame;
+// a config that no longer reads keeps the last good one and says so; the next good read clears the line.
+func TestMonitorFollowsConfigChanges(t *testing.T) {
+	t.Parallel()
+	now := time.Now().Truncate(time.Second)
+	p := testkit.New(t)
+	p.Config()
+	serveStatus(t, wire.SocketPath(p.Root), wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339),
+		Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root}})
+	m := monitorOf(t, p, now, 40)
+	before := m.frame(now)
+	if strings.Contains(before, "pj-deep") {
+		t.Fatalf("precondition: the frame lists the deep dive before the config has one:\n%s", before)
+	}
+	later := func(d time.Duration) { // mtime granularity: make the change visible to the check
+		for _, name := range []string{"config.json", "local.json"} {
+			f := filepath.Join(p.Root, ".obor", name)
+			if _, err := os.Stat(f); err == nil {
+				at := now.Add(d)
+				if err := os.Chtimes(f, at, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	p.Config(testkit.Set("roles.deep_dive", map[string]any{"type": "opus"}))
+	later(time.Minute)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := cfg.AgentName("deep_dive", "")
+	if agent == "" {
+		t.Fatal("precondition: the config names an agent for the deep dive")
+	}
+	after := m.frame(now)
+	if !strings.Contains(after, agent) {
+		t.Errorf("the frame after the config gained deep_dive lacks the role %q:\n%s", agent, after)
+	}
+	// a broken config: the last good one stays, and the frame says so
+	if err := os.WriteFile(filepath.Join(p.Root, ".obor", "config.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later(2 * time.Minute)
+	kept := m.frame(now)
+	if !strings.Contains(kept, agent) || !strings.Contains(kept, "keeping the last good") {
+		t.Errorf("a config that fails to read: want the role kept and the warning:\n%s", kept)
 	}
 }

@@ -558,7 +558,8 @@ async function landing() {
   if (!ps.length) return `<div class="head"><h1>Projects</h1></div>
     <p class="quiet">No obor project known on this machine yet — <code>obor init</code> or <code>obor serve</code> registers one.</p>`;
   const rows = ps.map((p) => {
-    const state = p.error ? "fail" : !p.up ? "down" : p.needs_you ? "needs-you" : p.busy ? "working" : "free";
+    const state = p.error ? "fail" : !p.up ? "down" : p.needs_you ? "needs-you" : p.busy || (p.roles || []).length ? "working" : "free";
+    const roles = (p.roles || []).map((x) => pill("working", roleName(x.role) + (x.status === "working" && x.age ? " " + dur(x.age) : x.status === "working" ? "" : " brief"))).join(" ");
     const running = (p.running || []).map((r) => pill("running", r.step + (r.task ? " " + r.task : ""))).join(" ");
     return `<a class="row" href="${href("p", p.name)}">
       <div class="lead"><div class="nowrap" style="display:flex;gap:9px;align-items:center">${dot(state)}
@@ -571,6 +572,7 @@ async function landing() {
         ${p.busy ? pill("working", p.busy + " busy") : ""}
         <span class="pill plain t-idle">${p.free} free</span>
         ${p.queue ? pill("waiting", p.queue + " queued") : ""}
+        ${roles}
         ${running}`}
       </div>
       <div class="r muted small">${p.up ? "serve up" : ""}</div>
