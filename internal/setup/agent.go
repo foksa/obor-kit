@@ -52,9 +52,11 @@ type agent struct {
 	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
 	role           roles.Role
 	lane           string
+	noStart        bool // label the pane and type its env, start no agent (T-705: a lane pane without --start)
 }
 
 func (s *Setup) pane(ctx context.Context, args []string) error {
+	args, startNow := withoutFlag(args, "--start")
 	if len(args) == 0 || args[0] == "" {
 		return errUsage
 	}
@@ -78,7 +80,7 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 			name = s.cfg.AgentName("worker", lane)
 		}
 		worker, _ := roles.Lookup("worker")
-		return s.start(ctx, agent{name: name, typ: l.Type, cwd: l.Dir, role: worker, lane: lane}, w)
+		return s.start(ctx, agent{name: name, typ: l.Type, cwd: l.Dir, role: worker, lane: lane, noStart: !startNow}, w)
 	}
 	return project.Failf("unknown lane %s (obor setup lane %s <type> first)", lane, lane)
 }
@@ -176,7 +178,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err != nil {
 		return project.Failf("herdr agent list failed (is herdr running?)")
 	}
-	s.placed, s.running = "", false
+	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
 		if r.Name == a.name || (a.lane != "" && r.Cwd == a.cwd) {
 			s.placed, s.running = r.Pane, true
@@ -220,6 +222,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	label := ""
 	for _, p := range panes {
+		if a.noStart && w.pane == "" && p.Label == a.name { // a rerun: the pane is there, labelled, with no agent (T-705)
+			s.placed, s.idle = p.ID, true
+			s.say("skip pane: %s already labelled %s (pane %s)", a.name, a.name, p.ID)
+			s.say("OK %s: pane %s", what, p.ID)
+			return nil
+		}
 		if p.Label == a.name && p.ID != w.pane {
 			return project.Failf("pane %s is already labelled %s (obor restart %s, or herdr pane rename %s --clear)", p.ID,
 				a.name, a.name, p.ID)
@@ -291,6 +299,18 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			return err
 		}
 	}
+	if a.noStart {
+		if label != a.name {
+			if err := s.H.RenamePane(ctx, pane, a.name); err != nil {
+				return project.Failf("herdr pane rename %s %s failed", pane, a.name)
+			}
+			s.say("labelled pane %s %s", pane, a.name)
+		}
+		s.say("pane %s ready for %s, no agent started (dispatch starts one; --start starts it now)", pane, a.name)
+		s.say("OK %s: pane %s", what, pane)
+		return nil
+	}
+	s.started = true
 	run := func() error {
 		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
 			Prompt: a.role.StartPrompt(lt.Kind)})
@@ -542,4 +562,18 @@ func (s *Setup) split(ctx context.Context, panes []port.PaneInfo, tab, cwd strin
 	}
 	s.say("split %s in tab %s: pane %s", target, tab, pane)
 	return pane, nil
+}
+
+// withoutFlag is args without the bare flag, and whether it was there.
+func withoutFlag(args []string, flag string) ([]string, bool) {
+	var rest []string
+	found := false
+	for _, a := range args {
+		if a == flag {
+			found = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return rest, found
 }

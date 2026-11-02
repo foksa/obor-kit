@@ -149,10 +149,17 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		t.Errorf("herdr plugins: %+v", x.h.Plugins)
 	}
 	// The fake numbers a new tab's pane n<k> and the tab t<k>.
+	// T-705: the worker lanes' panes are labelled and hold no agent (dispatch starts one); role panes run theirs.
 	panes := map[string]string{}
 	for _, p := range x.h.Panes {
-		if p.Name != "" {
-			panes[p.Name] = p.ID + " " + p.Tab
+		if p.Label != "" && p.Label != "proj-monitor" {
+			panes[p.Label] = p.ID + " " + p.Tab
+		}
+		if (p.Label == "proj-o-01" || p.Label == "proj-s-01") && (p.Name != "" || p.Kind != "") {
+			t.Errorf("lane pane %s holds an agent: %+v", p.Label, p)
+		}
+		if (p.Label == "proj-int" || p.Label == "proj-rev") && p.Name == "" {
+			t.Errorf("role pane %s holds no agent: %+v", p.Label, p)
 		}
 	}
 	o, s := panes["proj-o-01"], panes["proj-s-01"]
@@ -774,7 +781,7 @@ func TestOborInitReviewerOpusWithoutCodex(t *testing.T) {
 
 func (x *initFx) paneOf(name string) string {
 	for _, p := range x.h.Panes {
-		if p.Name == name {
+		if p.Label == name {
 			return p.ID
 		}
 	}
@@ -860,10 +867,11 @@ func TestOborInitListsPanesWaitingOnTheTrustDialog(t *testing.T) {
 	x.screen = "> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n"
 	x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
 	out := x.init(t)
-	if stateOf(out, "O-01") != "waiting" || stateOf(out, "reviewer") != "waiting" {
+	// T-705: a worker lane's pane holds no agent, so no dialog; the role panes start theirs.
+	if stateOf(out, "O-01") != "done" || stateOf(out, "reviewer") != "waiting" {
 		t.Errorf("O-01 %q, reviewer %q", summary(out, "O-01"), summary(out, "reviewer"))
 	}
-	has(t, out, "waiting on a \"Trust this folder?\" dialog: proj-o-01 (pane ", "waiting line")
+	has(t, out, "waiting on a \"Trust this folder?\" dialog: proj-int (pane ", "waiting line")
 	has(t, out, "press Enter in each, then obor init again", "waiting line")
 }
 

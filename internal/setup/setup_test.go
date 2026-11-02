@@ -686,7 +686,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	x := newFx(t)
 	x.ok(t, "lane", "O-01", "opus")
 	lane := x.LaneDir("O-01")
-	out := x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	out := x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
 	if last(out) != "OK O-01: pj-o-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -708,13 +708,13 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 100, 50, "w1:p1")
 	x.h.Tab("w1:t1", 100, 2, "w1:p2")
-	x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
 
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 50, 20, "w1:p1")
 	x.h.Tab("w1:t1", 150, 20, "w1:p2")
-	x.ok(t, "pane", "O-02", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-02,OBOR_LANE=O-02,OBOR_ROLE=worker} target_pane_id=w1:p2", "wide → right")
 }
 
@@ -730,7 +730,7 @@ func TestPaneSplitsTheLastOfTiedPanes(t *testing.T) {
 	if p1.W*p1.H != p2.W*p2.H {
 		t.Fatalf("precondition: areas %d and %d differ", p1.W*p1.H, p2.W*p2.H)
 	}
-	x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
 }
 
@@ -740,7 +740,7 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 	x := newFx(t, testkit.Set("lane_types.luna.args", []any{}))
 	x.ok(t, "lane", "T-01", "luna")
 	lane := x.LaneDir("T-01")
-	out := x.ok(t, "pane", "T-01", "--new-tab", "workers")
+	out := x.ok(t, "pane", "--start", "T-01", "--new-tab", "workers")
 	if last(out) != "OK T-01: pj-t-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -782,13 +782,13 @@ func TestPaneRefusesAFullTab(t *testing.T) {
 	x := newFx(t, testkit.Set("limits.max_panes_per_tab", 3))
 	x.ok(t, "lane", "O-01", "opus")
 	x.h.Tab("w1:t1", 200, 50, "w1:p2")
-	x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "pane.split ", "precondition: 2 of 3 panes is not full")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
 	x.reset()
-	x.failing(t, "FAIL tab w1:t1 is full (3 of 3 panes; --new-tab <label>)", "pane", "O-01", "--tab", "w1:t1")
+	x.failing(t, "FAIL tab w1:t1 is full (3 of 3 panes; --new-tab <label>)", "pane", "--start", "O-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "no split")
 	hasNot(t, calls, "agent.start", "no agent start")
@@ -802,13 +802,13 @@ func TestPaneRefusesATypeAtItsMax(t *testing.T) {
 		x.ok(t, "lane", l[0], l[1])
 	}
 	x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-t-01", x.LaneDir("T-01")}, [2]string{"other", "/elsewhere"})
-	x.ok(t, "pane", "O-02", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-o-02 pane_id=w1:n1",
 		"precondition: 1 of 2 opus agents is under the max")
 
 	x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-int", x.Root}, [2]string{"pj-t-01", x.LaneDir("T-01")})
 	x.reset()
-	x.failing(t, "FAIL lane type opus is at its max (2 of 2 agents running)", "pane", "O-02", "--tab", "w1:t1")
+	x.failing(t, "FAIL lane type opus is at its max (2 of 2 agents running)", "pane", "--start", "O-02", "--tab", "w1:t1")
 	if got := x.reqs(); strings.Join(got, ",") != "agent.list" {
 		t.Errorf("nothing after the agent list: %v", got)
 	}
@@ -821,7 +821,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "O-01", "opus")
-	out := x.ok(t, "pane", "O-01", "--pane", "w1:p1")
+	out := x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1")
 	has(t, out, "labelled pane w1:p1 pj-o-01", "said")
 	if x.h.Pane("w1:p1").Label != "pj-o-01" {
 		t.Error("label set in herdr")
@@ -830,14 +830,14 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 		"rename, the name-held check, then the start")
 
 	x.noAgents()
-	if out := x.ok(t, "pane", "O-01", "--pane", "w1:p1"); last(out) != "OK O-01: pj-o-01 in pane w1:p1" {
+	if out := x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1"); last(out) != "OK O-01: pj-o-01 in pane w1:p1" {
 		t.Errorf("own label on --pane → fine: %q", last(out))
 	}
 
 	x.noAgents()
 	x.reset()
 	x.failing(t, "FAIL pane w1:p1 is already labelled pj-o-01 (obor restart pj-o-01, or herdr pane rename w1:p1 --clear)",
-		"pane", "O-01", "--tab", "w1:t1")
+		"pane", "--start", "O-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "held label → no split")
 	hasNot(t, calls, "agent.start", "held label → no start")
@@ -846,12 +846,12 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	x.h.Pane("w1:q1").Label = "advisor"
 	x.reset()
 	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-o-01 (herdr pane rename w1:q1 --clear to reuse it)",
-		"pane", "O-01", "--pane", "w1:q1")
+		"pane", "--start", "O-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 
 	x.srv.Fail("pane.rename", "pane_not_found", "gone")
 	x.reset()
-	x.failing(t, "FAIL herdr pane rename w1:p1 pj-o-01 failed", "pane", "O-01", "--pane", "w1:p1")
+	x.failing(t, "FAIL herdr pane rename w1:p1 pj-o-01 failed", "pane", "--start", "O-01", "--pane", "w1:p1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "rename failed → no start")
 }
 
@@ -861,7 +861,7 @@ func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	x := newFx(t)
 	x.ok(t, "lane", "O-01", "opus")
 	x.running([2]string{"someone", x.LaneDir("O-01")})
-	out := x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	out := x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
 	if last(out) != "OK O-01: someone already running" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -893,14 +893,14 @@ func TestPaneNotReadyHints(t *testing.T) {
 		x.ok(t, "lane", "T-01", "luna")
 		x.screen = c.screen
 		x.srv.Fail("agent.start", c.fail.Code, c.fail.Message)
-		out := x.failing(t, c.want, "pane", "T-01", "--tab", "w1:t1")
+		out := x.failing(t, c.want, "pane", "--start", "T-01", "--tab", "w1:t1")
 		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name=pj-t-01 pane_id=w1:n1", "precondition: agent start ran")
 		has(t, out, "("+c.fail.Code+")", "herdr's error printed")
 	}
 	x := newFx(t)
 	x.ok(t, "lane", "T-01", "luna")
 	x.screen = "Trust this folder?"
-	x.ok(t, "pane", "T-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "T-01", "--tab", "w1:t1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "pane.read", "a start herdr took: no screen read")
 }
 
@@ -910,13 +910,13 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	x := newFx(t)
 	x.failing(t, "FAIL unknown lane O-09 (obor setup lane O-09 <type> first)", "pane", "O-09", "--tab", "w1:t1")
 	x.ok(t, "lane", "O-01", "opus")
-	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "O-01", "--tab", "w1:t1", "--new-tab", "x")
+	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "O-01", "--tab", "w1:t1", "--new-tab", "x")
 	x.ok(t, "lane", "O-02", "opus")
-	x.ok(t, "pane", "O-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
+	x.ok(t, "pane", "--start", "O-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
 	x.reset()
 	x.env = []string{"HERDR_PANE_ID=w1:q1"}
-	x.ok(t, "pane", "O-01")
+	x.ok(t, "pane", "--start", "O-01")
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:q1", "no --tab: the caller's tab")
 }
 
@@ -1017,7 +1017,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "O-01", "--pane", "w1:p1")
+	x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1")
 	lines = x.envLines()
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
@@ -1027,7 +1027,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "O-01", "--tab", "w1:t2")
+	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t2")
 	if lines := x.envLines(); len(lines) != 0 {
 		t.Errorf("a new pane got a typed env line: %q", lines)
 	}
@@ -1732,7 +1732,7 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 		args            []string
 		edit            func(map[string]any)
 	}{
-		{"setup pane", "pj-t-01", "T-01", []string{"pane", "T-01", "--tab", "w1:t1"}, func(map[string]any) {}},
+		{"setup pane", "pj-t-01", "T-01", []string{"pane", "--start", "T-01", "--tab", "w1:t1"}, func(map[string]any) {}},
 		{"setup role", "pj-rev", "review", []string{"role", "reviewer", "--tab", "w1:t1"},
 			testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
 	} {

@@ -29,7 +29,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			args := []string{"role", "reviewer", "--tab", "w1:t1"}
 			if c.role == "" {
 				x.ok(t, "lane", "O-01", "bare")
-				args = []string{"pane", "O-01", "--tab", "w1:t1"}
+				args = []string{"pane", "--start", "O-01", "--tab", "w1:t1"}
 			}
 			x.reset()
 			if out := x.ok(t, args...); !strings.HasPrefix(last(out), "OK ") {

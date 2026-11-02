@@ -280,6 +280,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if kind := unbridged(cfg, l.Type); kind != "" {
 		return "", fmt.Errorf("dispatch %s: lane %s's kind %s has no bridge (obor config validate)", c.Task, l.Name, kind)
 	}
+	note += pluginNote(cfg, l)
 	redo := l.Task == c.Task && (l.State == "working" || l.State == "blocked")
 	switch {
 	case redo:
@@ -993,4 +994,14 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (str
 		parts = append(parts, lt.PromptExtra)
 	}
 	return strings.ReplaceAll(strings.Join(parts, " "), "`", "'"), nil
+}
+
+// pluginNote warns, in dispatch's reply, that a Claude lane's worktree has no enabled obor plugin (T-705): its worker
+// would run without obor's hooks and MCP tools (no job_next).
+func pluginNote(cfg *config.Config, l port.Lane) string {
+	lt, ok := cfg.LaneType(l.Type)
+	if k, known := agents.Lookup(lt.Kind); !ok || !known || !k.Caps().ProjectPlugin || config.PluginEnabledIn(l.Dir) {
+		return ""
+	}
+	return fmt.Sprintf("\nWARN lane %s has no enabled obor plugin (%s/.claude/settings.json): obor setup lane or obor init links it", l.Name, l.Dir)
 }

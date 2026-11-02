@@ -5,7 +5,8 @@
 //	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout), leaving
 //	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
 //	        only while that marker names the lane_setup configured now).
-//	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>]  a pane for the lane's worker (agent
+//	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
+//	        with its env typed but no agent in it unless --start (T-705: dispatch starts a fresh worker anyway) (agent
 //	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
 //	        when it is the project's, else the project's busiest tab, T-628; a tab is the project's only when every
 //	        pane in it has a known cwd in the project, and with none a new tab, T-632), or a new tab in the project's
@@ -115,6 +116,8 @@ type Setup struct {
 	// start's last placement (obor init): the pane, and whether the agent was running already
 	placed  string
 	running bool
+	started bool      // and whether it started one (a pane without --start does not, T-705)
+	idle    bool      // a pane labelled for the agent was there already, no agent in it (a rerun without --start)
 	hints   *[]string // obor init: herdr's config hint goes here, to its summary, instead of out
 }
 
@@ -127,7 +130,7 @@ func Usage() string {
 		}
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
-	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where +
+	return "usage: obor setup lane <LANE> <type> | pane <LANE> " + where + " [--start]" +
 		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | monitor | show | rename --name N --prefix P"
 }
 

@@ -88,7 +88,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("%s: Reset = %v, %v; want %v, %v", c.name, got, limited, c.want, c.limited)
 		}
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, VersionVar: "OPENCODE_VERSION"}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksPlugin, ModelArg: true, VersionVar: "OPENCODE_VERSION"}) {
 		t.Errorf("Caps = %+v", c)
 	}
 	if r := k.InboxRecord(env(map[string]string{"CLAUDE_CODE_MESSAGING_SOCKET": "/s"})); r != nil {

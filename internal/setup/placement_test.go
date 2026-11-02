@@ -25,7 +25,7 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = lane, "wA"
 	x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
-	out := x.ok(t, "pane", "O-01")
+	out := x.ok(t, "pane", "--start", "O-01")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "pane.split cwd="+lane+" direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=wA:p1",
 		"the project's pane")
@@ -35,7 +35,7 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 	x.noAgents()
 	x.h.Pane("wA:n1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "O-01", "--new-tab", "workers")
+	x.ok(t, "pane", "--start", "O-01", "--new-tab", "workers")
 	calls = strings.Join(x.reqs(), "\n")
 	has(t, calls, "label=workers", "precondition: the new tab was made")
 	has(t, calls, "workspace_id=wA", "a new tab in the project's workspace")
@@ -63,7 +63,7 @@ func TestPlacementPicksTheProjectsBusiestWorkspace(t *testing.T) {
 	}
 	x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
-	x.ok(t, "pane", "O-01")
+	x.ok(t, "pane", "--start", "O-01")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "target_pane_id=wB:p2", "the largest pane of wB's tab (two of its panes, wA one) — the last of equals")
 	hasNot(t, calls, "target_pane_id=wA:p1", "not the workspace with one pane")
@@ -88,8 +88,8 @@ func TestPlacementTable(t *testing.T) {
 			t.Fatalf("precondition: %d panes, %d workspaces; want 1, 0", len(x.h.Panes), len(x.h.Workspaces))
 		}
 
-		out := x.ok(t, "pane", "O-01", "--new-tab", "workers")
-		out += x.ok(t, "pane", "O-02")
+		out := x.ok(t, "pane", "--start", "O-01", "--new-tab", "workers")
+		out += x.ok(t, "pane", "--start", "O-02")
 		calls := strings.Join(x.reqs(), "\n")
 		has(t, calls, "workspace.create cwd="+x.Root+" focus=false label=proj", "a workspace named after the project, in its root")
 		if n := strings.Count(calls, "workspace.create"); n != 1 {
@@ -121,7 +121,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p1").Workspace = x.Root, "wA"
 		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
 
-		out := x.ok(t, "pane", "O-01", "--new-tab", "workers")
+		out := x.ok(t, "pane", "--start", "O-01", "--new-tab", "workers")
 		calls := strings.Join(x.reqs(), "\n")
 		has(t, calls, "label=workers workspace_id=wA", "the new tab in wA")
 		hasNot(t, calls, "workspace.create", "no workspace made")
@@ -142,7 +142,7 @@ func TestPlacementTable(t *testing.T) {
 			t.Fatal("precondition: two panes with an unknown cwd")
 		}
 
-		x.ok(t, "pane", "O-01")
+		x.ok(t, "pane", "--start", "O-01")
 		calls := strings.Join(x.reqs(), "\n")
 		hasNot(t, calls, "pane.split", "the mixed tab is not split")
 		has(t, calls, "label=workers workspace_id=wA", "a new tab in the project's workspace")
@@ -164,7 +164,7 @@ func TestPlacementTable(t *testing.T) {
 			t.Fatalf("precondition: %d panes, %d workspaces; want 3, 0", len(x.h.Panes), len(x.h.Workspaces))
 		}
 
-		x.ok(t, "pane", "O-01")
+		x.ok(t, "pane", "--start", "O-01")
 		calls := strings.Join(x.reqs(), "\n")
 		has(t, calls, "workspace.create cwd="+x.Root+" focus=false label=proj", "a workspace of its own")
 		has(t, calls, "label=workers workspace_id=wn1", "the pane in a new tab of it")
@@ -187,7 +187,7 @@ func TestPlacementTable(t *testing.T) {
 			t.Fatal("precondition: wA:q1 has an unknown cwd")
 		}
 
-		x.ok(t, "pane", "O-01", "--new-tab", "workers")
+		x.ok(t, "pane", "--start", "O-01", "--new-tab", "workers")
 		calls := strings.Join(x.reqs(), "\n")
 		has(t, calls, "label=workers workspace_id=wA", "the new tab in wA")
 		hasNot(t, calls, "workspace.create", "wA is the project's: no workspace made")
@@ -203,7 +203,7 @@ func TestPlacementTable(t *testing.T) {
 		x.h.Pane("wA:q1").Workspace = "wA"
 		x.env = []string{"HERDR_PANE_ID=wA:q1", "HERDR_WORKSPACE_ID=wA"}
 
-		x.ok(t, "pane", "O-01")
+		x.ok(t, "pane", "--start", "O-01")
 		calls := strings.Join(x.reqs(), "\n")
 		has(t, calls, "target_pane_id=wA:p1", "the project's tab")
 		hasNot(t, calls, "target_pane_id=wA:q1", "not the caller's tab")
@@ -226,7 +226,7 @@ func TestPlacementHonoursAnExplicitTabIntoAMixedTab(t *testing.T) {
 		t.Fatal("precondition: wA:p2 has an unknown cwd")
 	}
 
-	x.ok(t, "pane", "O-01", "--tab", "wA:t1")
+	x.ok(t, "pane", "--start", "O-01", "--tab", "wA:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "pane.split", "a split of the named tab")
 	hasNot(t, calls, "target_pane_id=wA:p3", "not the other tab")
@@ -256,7 +256,7 @@ func TestPlacementSkipsAnotherProjectsLeadTab(t *testing.T) {
 	x.h.Pane("wA:p9").Cwd, x.h.Pane("wA:p9").Workspace = "/elsewhere/other", "wA"
 	x.env = []string{"HERDR_PANE_ID=wA:p9", "HERDR_WORKSPACE_ID=wA"}
 
-	x.ok(t, "pane", "O-01")
+	x.ok(t, "pane", "--start", "O-01")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "workspace.create cwd="+x.Root+" focus=false label=proj", "wA is mixed: a workspace of its own")
 	has(t, calls, "label=workers workspace_id=wn1", "the pane in a new tab there")
@@ -274,7 +274,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 		x.ok(t, "lane", "T-01", "luna")
 		x.h.NewPaneBusy = 2 * time.Second
 		begin := time.Now()
-		out := x.ok(t, "pane", "T-01", "--new-tab", "workers")
+		out := x.ok(t, "pane", "--start", "T-01", "--new-tab", "workers")
 		if d := time.Since(begin); d < x.h.NewPaneBusy {
 			t.Errorf("started after %s, before the pane's shell was up (%s)", d, x.h.NewPaneBusy)
 		}
@@ -293,7 +293,7 @@ func TestNewPaneShellIsWaitedFor(t *testing.T) {
 		// The 10 s bound would make this test take 10 s: the same comparison (busy outlasts the bound), shorter.
 		x.shellWait = 300 * time.Millisecond
 		x.failing(t, "FAIL pane w1:n1 is not an available shell after 300ms: start the agent there by hand "+
-			"(herdr agent start pj-t-01 --kind codex --pane w1:n1)", "pane", "T-01", "--new-tab", "workers")
+			"(herdr agent start pj-t-01 --kind codex --pane w1:n1)", "pane", "--start", "T-01", "--new-tab", "workers")
 		if p := x.h.Pane("w1:n1"); p.Kind != "" {
 			t.Errorf("no agent started: %+v", p)
 		}
