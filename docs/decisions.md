@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (lead): **Reviewer and deep dive start only through `obor brief`** (RV-86 #1b, T-734): `obor restart
+  <reviewer|deep-dive> --prompt` is refused, so serve's admission (wait for a publish, then hold merges) comes before
+  the role reads the main checkout. A fresh start is `obor restart <agent> --stop`, then `obor brief`. Docs: T-735.
 - 2026-11-02 (owner): **Lanes become a pool** (docs/research/untyped-lanes-advice-fable.md): untyped lanes, the task's
   `Type:`/`Difficulty:` picks model and effort per dispatch, worktrees reused, caps per type at dispatch; T-721..T-724
   after the current wave; obor-kit then runs L-01..L-04 untyped, no pinned lane (Codex only for reviews now). Until
