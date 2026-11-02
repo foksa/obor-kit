@@ -464,7 +464,7 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
   both projects; the v0.14 transition socket is gone, `docs/UPGRADE-v0.15.md`). That serve records
   fact `message` (task key `msg`) and posts `[obor <sender project>] <text>` to its lead's session.
   The own project is refused. A repeated call id gets the stored reply.
-- **Briefs:** `obor restart <advisor|researcher agent> --fresh --prompt "<brief>"` (the start carries the brief; refused for the reviewer and deep dive, T-734) records fact
+- **Briefs:** `obor restart <role-agent> --fresh --prompt "<brief>"` (the start carries the brief) records fact
   `briefed` once the restart succeeded; `obor brief <role-agent> "<text>"` records it with a line `[obor <caller>]
   <text>` delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its
   labelled pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A role agent is any
