@@ -100,6 +100,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-84 verify, accepted) `obor stop`: a pause cleared by another client during the stop transition is not
+  guarded; a serve-owned stopping state would be (design concern), not worth it for a convenience command now.
 - (T-684 concern) `patience()` lets one hung test eat the whole package deadline, so parallel siblings fail on the
   1 s floor (one failure read as eight at v0.18.1). A per-wait cap (~60 s) keeps failures local. Small; next test task.
 - (RV-77 design concern, logged) `scripts/ship` counts a release done by draft state and asset names only, not its
