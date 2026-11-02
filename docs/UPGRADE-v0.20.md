@@ -1,5 +1,8 @@
 # Upgrading an obor project from v0.19 to v0.20
 
+## v0.20.1 (answer delivery)
+Nothing to do beyond v0.20.0's steps below; v0.20.0 was not published on its own, so coming from v0.19 follow them.
+
 ## v0.20.0 (lanes are a pool)
 Re-run the installer, then `obor serve restart` in each project and restart its `obor monitor` and `obor web`
 panes once (v0.19 binaries cannot follow a new binary). From v0.20 on, monitor and web restart themselves on a new
