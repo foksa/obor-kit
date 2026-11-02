@@ -57,9 +57,6 @@ import (
 // counts once (its turn's call id) and only with the pane idle.
 
 const (
-	MethodStopped = "stopped" // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
-	MethodTurn    = "turn"    // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
-
 	causeStopped = "stopped" // a watchdog needs-you's cause: the worker's turn ended on an API error
 )
 

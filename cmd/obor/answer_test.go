@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
 
@@ -16,7 +16,7 @@ func TestAnswerRequest(t *testing.T) {
 	p := testkit.New(t)
 	o1 := p.Lane("O-01", "task/T-01")
 	p.Config()
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "ANSWERED T-01 (attempt 2): obor serve sends the worker the answer", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "ANSWERED T-01 (attempt 2): obor serve sends the worker the answer", "")
 	env := func(role string) []string {
 		return []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=" + role, "OBOR_AGENT=pj-lead", "OBOR_LANE="}
 	}
@@ -54,7 +54,7 @@ func TestAnswerRequest(t *testing.T) {
 		t.Error("two answers share a call id")
 	}
 
-	home2, _ := startFakeServe(t, p.Root, app.Status{}, "", "answer: T-01 has no open question")
+	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "answer: T-01 has no open question")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "answer", "T-01", "yes"); rc != 1 ||
 		stdout != "FAIL answer: T-01 has no open question\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)

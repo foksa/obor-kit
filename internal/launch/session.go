@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/store"
 )
@@ -242,7 +242,7 @@ func (l *Launcher) report(ctx context.Context, s store.Session) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, reportWait)
 	defer cancel()
-	_, err := app.Verdict(ctx, app.SocketPath(l.Cfg.Root), app.MethodSession, app.Call{Root: l.Cfg.Root,
+	_, err := wire.Verdict(ctx, wire.SocketPath(l.Cfg.Root), wire.MethodSession, wire.Call{Root: l.Cfg.Root,
 		Agent: s.Agent, Kind: s.Kind, Session: s.ID, Transcript: s.Transcript, Pane: s.Pane, Lane: s.Lane, Task: s.Task,
 		Started: s.Started, Source: s.Source})
 	return err

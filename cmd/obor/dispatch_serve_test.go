@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -22,7 +22,7 @@ import (
 // reply (or err), and records the requests.
 type fakeServe struct {
 	mu      sync.Mutex
-	calls   []app.Call
+	calls   []wire.Call
 	methods []string // the method of each call
 	n       int      // requests of any method
 	ln      net.Listener
@@ -32,13 +32,13 @@ type fakeServe struct {
 func (f *fakeServe) stop() { _ = f.ln.Close() }
 
 // startFakeServe is a fakeServe on root's socket, and a fresh state home.
-func startFakeServe(t *testing.T, root string, st app.Status, reply, errText string) (home string, f *fakeServe) {
+func startFakeServe(t *testing.T, root string, st wire.Status, reply, errText string) (home string, f *fakeServe) {
 	t.Helper()
-	return t.TempDir(), startFakeServeAt(t, app.SocketPath(root), st, reply, errText)
+	return t.TempDir(), startFakeServeAt(t, wire.SocketPath(root), st, reply, errText)
 }
 
 // startFakeServeAt is startFakeServe's server listening at sock (a previous one there is no longer reached).
-func startFakeServeAt(t *testing.T, sock string, st app.Status, reply, errText string) *fakeServe {
+func startFakeServeAt(t *testing.T, sock string, st wire.Status, reply, errText string) *fakeServe {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func startFakeServeAt(t *testing.T, sock string, st app.Status, reply, errText s
 			}
 			b, _ := bufio.NewReader(c).ReadBytes('\n')
 			var req struct {
-				Method string    `json:"method"`
-				Call   *app.Call `json:"call"`
+				Method string     `json:"method"`
+				Call   *wire.Call `json:"call"`
 			}
 			_ = json.Unmarshal(b, &req)
 			f.mu.Lock()
@@ -80,10 +80,10 @@ func startFakeServeAt(t *testing.T, sock string, st app.Status, reply, errText s
 	return f
 }
 
-func (f *fakeServe) requests() (calls []app.Call, n int) {
+func (f *fakeServe) requests() (calls []wire.Call, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]app.Call(nil), f.calls...), f.n
+	return append([]wire.Call(nil), f.calls...), f.n
 }
 
 // servedProject is a project whose merge loop is obor serve's (an integrator role), with lane O-01; edits change the
@@ -102,23 +102,23 @@ func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project
 func TestDispatchServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
 	for _, c := range []struct {
 		name string
 		args []string
-		want app.Call
+		want wire.Call
 	}{
-		{"level", []string{"dispatch", "T-07"}, app.Call{Task: "T-07"}},
-		{"level, force", []string{"dispatch", "T-07", "--force"}, app.Call{Task: "T-07", Force: true}},
-		{"types", []string{"dispatch", "T-07", "--types", "sonnet,opus"}, app.Call{Task: "T-07", Types: []string{"sonnet", "opus"}}},
+		{"level", []string{"dispatch", "T-07"}, wire.Call{Task: "T-07"}},
+		{"level, force", []string{"dispatch", "T-07", "--force"}, wire.Call{Task: "T-07", Force: true}},
+		{"types", []string{"dispatch", "T-07", "--types", "sonnet,opus"}, wire.Call{Task: "T-07", Types: []string{"sonnet", "opus"}}},
 		{"types, force first", []string{"dispatch", "--force", "--types", "opus", "T-07"},
-			app.Call{Task: "T-07", Types: []string{"opus"}, Force: true}},
+			wire.Call{Task: "T-07", Types: []string{"opus"}, Force: true}},
 		{"level, after", []string{"dispatch", "T-07", "--after", "T-05,T-06"},
-			app.Call{Task: "T-07", After: []string{"T-05", "T-06"}}},
+			wire.Call{Task: "T-07", After: []string{"T-05", "T-06"}}},
 		{"types, after first", []string{"dispatch", "--after", "T-05", "T-07", "--types", "opus"},
-			app.Call{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
+			wire.Call{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
 	} {
 		before, _ := serve.requests()
 		rc, stdout, stderr := run(t, p.Root, env, c.args...)
@@ -179,7 +179,7 @@ func TestDispatchServeRequest(t *testing.T) {
 	}
 
 	// Serve's refusal is the caller's FAIL.
-	home2, refusing := startFakeServe(t, p.Root, app.Status{}, "", "dispatch T-07: no spec for T-07 in obor serve's store (obor spec set T-07 <path>)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "dispatch T-07: no spec for T-07 in obor serve's store (obor spec set T-07 <path>)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "dispatch", "T-07"); rc != 1 ||
 		stdout != "FAIL dispatch T-07: no spec for T-07 in obor serve's store (obor spec set T-07 <path>)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
@@ -201,7 +201,7 @@ func TestDispatchServeRequest(t *testing.T) {
 func TestDispatchObsoleteSwitch(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t, testkit.Set("dispatch.serve", false))
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home}
 	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc != 1 || !strings.Contains(stderr, `unknown field "dispatch"`) {
 		t.Errorf("validate: exit %d, stderr %q; want an unknown field FAIL", rc, stderr)
@@ -221,7 +221,7 @@ func TestDispatchObsoleteSwitch(t *testing.T) {
 func TestDropServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "DROPPED T-01 from O-01 (abandoned)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DROPPED T-01 from O-01 (abandoned)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	rc, stdout, _ := run(t, p.Root, env, "drop", "O-01", "abandoned", "--discard", "--force")
 	if rc != 0 || stdout != "DROPPED T-01 from O-01 (abandoned)\n" {
@@ -259,7 +259,7 @@ func TestDropServeRequest(t *testing.T) {
 	}
 
 	// Serve's refusal is the caller's FAIL.
-	home2, refusing := startFakeServe(t, p.Root, app.Status{}, "", "drop: lane O-01 is dirty (--discard to drop its uncommitted changes)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "drop: lane O-01 is dirty (--discard to drop its uncommitted changes)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "drop", "O-01", "why"); rc != 1 ||
 		stdout != "FAIL drop: lane O-01 is dirty (--discard to drop its uncommitted changes)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
@@ -382,9 +382,9 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	p.Commit(p.LaneDir("O-01"))
-	status := func(root, state string) app.Status {
-		return app.Status{Connected: true, Project: &app.ProjectStatus{Root: root, Merging: true,
-			Tasks: []app.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: state}}}}
+	status := func(root, state string) wire.Status {
+		return wire.Status{Connected: true, Project: &wire.ProjectStatus{Root: root, Merging: true,
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: state}}}}
 	}
 	lane := func() string {
 		return p.Git(p.LaneDir("O-01"), "rev-parse", "HEAD") + " " + p.Git(p.LaneDir("O-01"), "status", "--porcelain")
@@ -392,7 +392,7 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 	before := lane()
 	for _, c := range []struct {
 		name    string
-		st      app.Status
+		st      wire.Status
 		down    bool
 		args    []string
 		errText string
@@ -428,14 +428,14 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 				t.Errorf("exit %d, %q (stderr %q); want %q", rc, stdout, stderr, c.want)
 			}
 			if serve != nil {
-				var sent []app.Call
+				var sent []wire.Call
 				calls, _ := serve.requests()
 				for _, call := range calls {
 					if call.Task != "" {
 						sent = append(sent, call)
 					}
 				}
-				want := app.Call{Root: p.Root, Agent: "pj-lead", Role: "lead", Task: "T-01", Note: "fix the edge case"}
+				want := wire.Call{Root: p.Root, Agent: "pj-lead", Role: "lead", Task: "T-01", Note: "fix the edge case"}
 				switch {
 				case !c.asked && len(sent) != 0:
 					t.Errorf("serve was asked to send back: %+v", sent)

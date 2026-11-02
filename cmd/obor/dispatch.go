@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
@@ -23,13 +23,13 @@ const dispatchUsage = "usage: obor dispatch <T-xx> [--types <type[:effort],…>]
 // of the level is free (T-538), either followed by "; idle: <LANE> (<type>), …" while lanes stay free (T-483); or its
 // refusal (exit 1: FAIL). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {
-	return request(context.Background(), project.OSEnv, app.MethodDispatch, func(cfg *config.Config, c *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodDispatch, func(cfg *config.Config, c *wire.Call) error {
 		return dispatchArgs(args, cfg, c)
 	})
 }
 
 // dispatchArgs is obor dispatch's arguments as the request's fields.
-func dispatchArgs(args []string, cfg *config.Config, c *app.Call) error {
+func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 	usage := errors.New(dispatchUsage)
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -69,7 +69,7 @@ func dispatchArgs(args []string, cfg *config.Config, c *app.Call) error {
 // (<why>), or its refusal (FAIL). `obor drop <T-xx> "<why>"` drops a task that holds no lane (a waiting one, T-462):
 // DROPPED <task>. Serve down: FAIL, nothing touched.
 func dropCmd(args []string) int {
-	var c app.Call
+	var c wire.Call
 	usage := func() int {
 		fmt.Fprintln(out, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`)
 		return 1
@@ -93,7 +93,7 @@ func dropCmd(args []string) int {
 	if c.Lane == "" || c.Note == "" {
 		return usage()
 	}
-	return request(context.Background(), project.OSEnv, app.MethodDrop, func(cfg *config.Config, id *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodDrop, func(cfg *config.Config, id *wire.Call) error {
 		switch {
 		case cfg.HasLane(c.Lane):
 		case cfg.TaskIDOK(c.Lane) && !c.Discard: // obor drop <T-xx>: no lane to free
@@ -116,7 +116,7 @@ func sendbackCmd(args []string) int {
 		return 1
 	}
 	lane, ctx := args[0], context.Background()
-	return request(ctx, project.OSEnv, app.MethodSendback, func(cfg *config.Config, c *app.Call) error {
+	return request(ctx, project.OSEnv, wire.MethodSendback, func(cfg *config.Config, c *wire.Call) error {
 		if !cfg.HasLane(lane) {
 			return fmt.Errorf("unknown lane %s (not in the config's lanes)", lane)
 		}
@@ -134,7 +134,7 @@ func sendbackCmd(args []string) int {
 
 // serveTask is the task obor serve's loop has open in lane ("" when none); an error when serve does not answer.
 func serveTask(ctx context.Context, cfg *config.Config, lane string) (string, error) {
-	ss, err := app.Ask(ctx, app.SocketPath(cfg.Root))
+	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
 	if err != nil {
 		return "", err
 	}

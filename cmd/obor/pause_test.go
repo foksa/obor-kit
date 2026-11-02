@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
 
@@ -16,7 +16,7 @@ func TestPauseRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "PAUSED until cleared", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "PAUSED until cleared", "")
 	env := func(role string) []string {
 		return []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=" + role, "OBOR_AGENT=pj-lead"}
 	}
@@ -53,8 +53,8 @@ func TestPauseRequest(t *testing.T) {
 	methods := append([]string(nil), serve.methods...)
 	serve.mu.Unlock()
 	for i, m := range methods {
-		if m != app.MethodPause {
-			t.Errorf("request %d: method %q, want %q", i+1, m, app.MethodPause)
+		if m != wire.MethodPause {
+			t.Errorf("request %d: method %q, want %q", i+1, m, wire.MethodPause)
 		}
 	}
 	if c := calls[0]; c.Note != "a -- in the middle" || c.Until != 0 || c.Clear || c.Role != "lead" || c.Agent != "pj-lead" ||
@@ -69,7 +69,7 @@ func TestPauseRequest(t *testing.T) {
 		t.Errorf("pause --clear: %+v", c)
 	}
 
-	home2, refusing := startFakeServe(t, p.Root, app.Status{}, "", "pause: the lead or the owner pauses, not pj-o1 (role worker)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "pause: the lead or the owner pauses, not pj-o1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "pause", "x"); rc != 1 ||
 		stdout != "FAIL pause: the lead or the owner pauses, not pj-o1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)

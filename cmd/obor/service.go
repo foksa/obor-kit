@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/service"
@@ -46,7 +47,7 @@ func serveService(verb, cwd string, env project.Env) int {
 	pane := 0
 	if verb == "install" && s.Supported() {
 		ask, stop := context.WithTimeout(ctx, 2*time.Second)
-		_, err := app.Ask(ask, app.SocketPath(cfg.Root))
+		_, err := wire.Ask(ask, wire.SocketPath(cfg.Root))
 		stop()
 		if pid := servePID(cfg.Root); err == nil && pid != 0 {
 			if lpid, _ := s.PID(ctx); lpid != pid {

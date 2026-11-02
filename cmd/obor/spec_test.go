@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 )
 
 // T-440: obor spec set is one socket request to obor serve: the file's text read once, the task, the caller and its
@@ -17,7 +17,7 @@ func TestSpecSetRequest(t *testing.T) {
 	const text = "# T-07 — Stored\n\n## Files you may touch\n`a.go`\n"
 	p.Write(".obor/drafts/T-07.md", text)
 	draft := filepath.Join(p.Root, ".obor/drafts/T-07.md")
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "SET T-07 rev 1", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "SET T-07 rev 1", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
 	for _, c := range []struct {
@@ -67,7 +67,7 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("a refused set asked serve (%d requests, %d before)", after, n)
 	}
 
-	home2, refusing := startFakeServe(t, p.Root, app.Status{}, "", "spec set: only the lead sets a spec, not pj-o1 (role worker)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "spec set: only the lead sets a spec, not pj-o1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "spec", "set", "T-07", draft); rc != 1 ||
 		stdout != "FAIL spec set: only the lead sets a spec, not pj-o1 (role worker)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)

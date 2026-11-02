@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
 
@@ -15,7 +15,7 @@ func TestReviewRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "REVIEW REQUESTED", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "REVIEW REQUESTED", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, args := range [][]string{{"review", "--rm", "--after", "T-1"}, {"review", "--after"}, {"review", "--note", ""},
 		{"review", "T-1"}} {

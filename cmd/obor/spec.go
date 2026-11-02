@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/spec"
@@ -39,7 +39,7 @@ func specCmd(args []string) int {
 // The caller is the session's (caller: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain
 // terminal, is sent as no role), and serve refuses every role but the lead and the owner.
 func specSet(task, path string) int {
-	return request(context.Background(), project.OSEnv, app.MethodSpecSet, func(cfg *config.Config, c *app.Call) error {
+	return request(context.Background(), project.OSEnv, wire.MethodSpecSet, func(cfg *config.Config, c *wire.Call) error {
 		if err := taskIDs(cfg, task); err != nil {
 			return err
 		}

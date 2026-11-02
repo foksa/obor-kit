@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/spec"
 	"obor/internal/store"
@@ -19,13 +19,13 @@ import (
 // stage and what each waits for (never which one goes next, T-673), the dispatches waiting and on what, the review
 // request, the lines and briefs not done, the pause and the next nightly run.
 type Queue struct {
-	Scratch *app.ScratchStatus `json:"scratch"`
-	Merge   []MergeItem        `json:"merge"`
-	Waiting []WaitItem         `json:"waiting"`
-	Review  []ReviewItem       `json:"review"`
-	Outbox  []OutboxItem       `json:"outbox"`
-	Pause   *Pause             `json:"pause"`
-	Nightly *Nightly           `json:"nightly"`
+	Scratch *wire.ScratchStatus `json:"scratch"`
+	Merge   []MergeItem         `json:"merge"`
+	Waiting []WaitItem          `json:"waiting"`
+	Review  []ReviewItem        `json:"review"`
+	Outbox  []OutboxItem        `json:"outbox"`
+	Pause   *Pause              `json:"pause"`
+	Nightly *Nightly            `json:"nightly"`
 }
 
 // The merge loop's stages, in the order a task goes through them (MergeItem.Stage); held is a task the owner decides.
@@ -112,11 +112,11 @@ type Nightly struct {
 // queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
 // lines and briefs (ps), the specs stored and the tasks
 // the store saw dispatched (a spec of neither is never dispatched), and merge.nightly_at.
-func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
+func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
 	dispatched map[string]bool, now time.Time) Queue {
 	q := Queue{Scratch: ps.Scratch, Merge: []MergeItem{}, Waiting: []WaitItem{}, Review: []ReviewItem{},
 		Outbox: []OutboxItem{}, Pause: v.Paused, Nightly: nightly(nightlyAt, now)}
-	waits := map[string]app.ScratchWait{}
+	waits := map[string]wire.ScratchWait{}
 	for _, w := range ps.ScratchQueue {
 		waits[w.Task] = w
 	}
@@ -173,7 +173,7 @@ func queue(v *Project, ps app.ProjectStatus, nightlyAt string, specs map[string]
 
 // stageOf is t's merge-loop stage ("": t is not in the merge loop: dispatched, working, merged or ended). A submitted
 // task whose gate runs or waits is gating.
-func stageOf(t app.TaskStatus, v *Project) string {
+func stageOf(t wire.TaskStatus, v *Project) string {
 	switch t.State {
 	case "submitted":
 		for _, r := range v.Running {

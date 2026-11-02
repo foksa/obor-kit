@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/view"
 )
 
@@ -51,7 +51,7 @@ func goldenView() view.Project {
 		Roles: []view.Role{
 			{Role: "integrator", Agent: "ob-int", Status: "idle", Age: 7200},
 			{Role: "reviewer", Agent: "ob-terra", Status: "working", Age: 300,
-				Brief: &app.BriefStatus{To: "ob-terra", Since: at(12 * time.Minute)}},
+				Brief: &wire.BriefStatus{To: "ob-terra", Since: at(12 * time.Minute)}},
 			{Role: "advisor", Agent: "ob-fable"},
 		},
 		Queue: view.Queue{

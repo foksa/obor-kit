@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/store"
@@ -232,7 +232,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	}
 	cmd, out := startServe(t, p.Root, env)
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		ss, err := app.Ask(context.Background(), app.SocketPath(p.Root)) // the CLI's own config read is strict
+		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root)) // the CLI's own config read is strict
 		if err == nil && ss.Project != nil && len(ss.Project.Agents) == 1 &&
 			ss.Project.Agents[0].Name == "pj-o-01" && ss.Project.Agents[0].Task == "T-01" {
 			break

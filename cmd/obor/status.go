@@ -12,6 +12,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -49,7 +50,7 @@ func status(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	ss, err := app.Ask(ctx, app.SocketPath(cfg.Root))
+	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
 	db := openStore(cfg.Root)
 	if db != nil {
 		defer db.Close()
@@ -218,7 +219,7 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
-	if s := q.Scratch; s != nil && s.Why != app.ScratchGating && s.Why != app.ScratchPublishing {
+	if s := q.Scratch; s != nil && s.Why != wire.ScratchGating && s.Why != wire.ScratchPublishing {
 		out = append(out, "scratch "+s.Task+": "+s.Why)
 	}
 	for _, m := range q.Merge {

@@ -6,32 +6,6 @@ import "sort"
 // who holds the scratch (scratchHolder) and what a task's scratch step waits on (scratchWait). pickGate, pickAccepted
 // and advance decide with them, and obor status reports the same (scratchQueue): the view copies it, never predicts.
 
-// Why a task holds the scratch, or what a task waiting for it waits on (ScratchStatus.Why, ScratchWait.Why).
-const (
-	ScratchGating     = "gating"     // its gate runs
-	ScratchPublishing = "publishing" // its publish runs
-	ScratchConflict   = stConflict   // its merge conflicts there: the resolve job is not sent yet
-	ScratchResolving  = stResolving  // its resolve job is out
-	ScratchResolved   = stResolved   // the integrator committed the merge there: its gate is next
-	ScratchHeld       = "held"       // a needs-you keeps one of the three above: the owner decides
-)
-
-// ScratchStatus is the task that holds the scratch and why (obor status; nil: the scratch is free).
-type ScratchStatus struct {
-	Task string `json:"task"`
-	Why  string `json:"why"`
-}
-
-// ScratchWait is one task whose next step needs the scratch (a gate or a publish), in the pass's order: WaitsOn the
-// task it waits for and Why (scratchWait: that task's ScratchStatus.Why, or gating / publishing for its step). Both
-// empty: nothing serve knows holds the scratch; no task is predicted to take it (T-673: the scheduler's rules are
-// more than status can copy).
-type ScratchWait struct {
-	Task    string `json:"task"`
-	WaitsOn string `json:"waits_on,omitempty"`
-	Why     string `json:"why,omitempty"`
-}
-
 // passOrder is the order a pass drives p's tasks in (advance): by id as strings (T-10 before T-9), the waiting ones
 // last (a task they wait for may merge in the same pass). Under mu.
 func (p *proj) passOrder() []string {

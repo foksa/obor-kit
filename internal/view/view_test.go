@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/launch"
 )
 
@@ -19,7 +19,7 @@ func TestColumn(t *testing.T) {
 		name    string
 		lane    Lane
 		running []Running
-		pending []app.PendingStep
+		pending []wire.PendingStep
 		needs   []NeedsYou
 		want    string
 	}{
@@ -28,11 +28,11 @@ func TestColumn(t *testing.T) {
 		{"merging", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
 			[]Running{{Step: event.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
 		{"gate pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
-			nil, []app.PendingStep{{Step: event.StepGate, Task: "T-1"}}, nil, "gate pending"},
+			nil, []wire.PendingStep{{Step: event.StepGate, Task: "T-1"}}, nil, "gate pending"},
 		{"publish pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
-			nil, []app.PendingStep{{Step: event.StepPublish, Task: "T-1"}}, nil, "publish pending"},
+			nil, []wire.PendingStep{{Step: event.StepPublish, Task: "T-1"}}, nil, "publish pending"},
 		{"pending on another task", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, []app.PendingStep{{Step: event.StepGate, Task: "T-2"}}, nil, "working"},
+			nil, []wire.PendingStep{{Step: event.StepGate, Task: "T-2"}}, nil, "working"},
 		{"reviewing", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
 			"reviewing"},
 		{"resolving", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
@@ -73,15 +73,15 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 // what each waits for, copied from its scheduler (never predicted: a task nothing waits behind says nothing more).
 func TestQueueMerge(t *testing.T) {
 	now := time.Now()
-	tasks := []app.TaskStatus{{Task: "T-10", State: "submitted"}, {Task: "T-3", State: "working"},
+	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted"}, {Task: "T-3", State: "working"},
 		{Task: "T-7", State: "needs-you"}, {Task: "T-8", State: "accepted"}, {Task: "T-9", State: "submitted"}}
-	ps := app.ProjectStatus{Scratch: &app.ScratchStatus{Task: "T-7", Why: app.ScratchHeld},
-		ScratchQueue: []app.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: app.ScratchHeld}, {Task: "T-8"},
-			{Task: "T-9", WaitsOn: "T-7", Why: app.ScratchHeld}}}
+	ps := wire.ProjectStatus{Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
+		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
+			{Task: "T-9", WaitsOn: "T-7", Why: wire.ScratchHeld}}}
 	q := queue(&Project{Tasks: tasks}, ps, "", nil, nil, now)
-	want := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld},
+	want := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: wire.ScratchHeld},
 		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish},
-		{Task: "T-9", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: app.ScratchHeld}}
+		{Task: "T-9", State: "submitted", Stage: StageSubmitted, WaitsOn: "T-7", Why: wire.ScratchHeld}}
 	if !slices.Equal(q.Merge, want) {
 		t.Errorf("merge %+v\nwant %+v", q.Merge, want)
 	}
@@ -89,7 +89,7 @@ func TestQueueMerge(t *testing.T) {
 		t.Errorf("scratch %+v, want serve's %+v", q.Scratch, ps.Scratch)
 	}
 	running := &Project{Tasks: tasks, Running: []Running{{Step: event.StepGate, Task: "T-10"}}}
-	free := queue(running, app.ProjectStatus{}, "", nil, nil, now)
+	free := queue(running, wire.ProjectStatus{}, "", nil, nil, now)
 	// No scratch, no scheduler facts: the stages are the facts, and nothing claims a place in line.
 	wantFree := []MergeItem{{Task: "T-10", State: "submitted", Stage: StageGating},
 		{Task: "T-7", State: "needs-you", Stage: StageHeld}, {Task: "T-8", State: "accepted", Stage: StagePublish},

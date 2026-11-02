@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/testkit"
 )
@@ -75,12 +75,12 @@ func (f *fixture) worker() project.Env {
 type fakeServe struct {
 	mu     sync.Mutex
 	reqs   []wireRequest
-	answer func(method string, c app.Call) (string, string)
+	answer func(method string, c wire.Call) (string, string)
 }
 
 type wireRequest struct {
-	Method string   `json:"method"`
-	Call   app.Call `json:"call"`
+	Method string    `json:"method"`
+	Call   wire.Call `json:"call"`
 }
 
 // serveFake listens at path and answers until the test ends.
@@ -402,15 +402,15 @@ func TestToolsListPerRole(t *testing.T) {
 func TestWorkerTools(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	a := &fakeServe{answer: func(method string, c app.Call) (string, string) {
+	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
 		switch method {
-		case app.MethodJobNext:
+		case wire.MethodJobNext:
 			return `{"state":"job","job":"T-01/1/work","task":"T-01","attempt":1,"step":"work","text":"do the work"}`, ""
 		default:
 			return "submitted", ""
 		}
 	}}
-	serveFake(t, app.SocketPath(f.root), a)
+	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.worker(), f.lane)
 
 	got := c.tool(1, "job_next", nil)
@@ -428,7 +428,7 @@ func TestWorkerTools(t *testing.T) {
 	if len(reqs) != 2 {
 		t.Fatalf("the app got %d requests; want 2: %+v", len(reqs), reqs)
 	}
-	for i, call := range []app.Call{reqs[0].Call, reqs[1].Call} {
+	for i, call := range []wire.Call{reqs[0].Call, reqs[1].Call} {
 		if call.Root != f.root || call.Agent != "pj-o-01" || call.Role != "worker" || call.Lane != "O-01" ||
 			call.Pane != "w1:p1" {
 			t.Errorf("call %d: %+v; want root %s, the agent, worker, O-01, w1:p1", i, call, f.root)
@@ -437,8 +437,8 @@ func TestWorkerTools(t *testing.T) {
 			t.Errorf("call %d: call id %q; want a fresh 16-hex id", i, call.CallID)
 		}
 	}
-	if reqs[0].Method != app.MethodJobNext || reqs[1].Method != app.MethodTaskDone {
-		t.Errorf("methods %s, %s; want %s, %s", reqs[0].Method, reqs[1].Method, app.MethodJobNext, app.MethodTaskDone)
+	if reqs[0].Method != wire.MethodJobNext || reqs[1].Method != wire.MethodTaskDone {
+		t.Errorf("methods %s, %s; want %s, %s", reqs[0].Method, reqs[1].Method, wire.MethodJobNext, wire.MethodTaskDone)
 	}
 	if reqs[0].Call.CallID == reqs[1].Call.CallID {
 		t.Errorf("two tool calls share the call id %s", reqs[0].Call.CallID)
@@ -461,7 +461,7 @@ func TestJobNextStates(t *testing.T) {
 	}
 	var mu sync.Mutex
 	next := 0
-	a := &fakeServe{answer: func(string, app.Call) (string, string) {
+	a := &fakeServe{answer: func(string, wire.Call) (string, string) {
 		mu.Lock()
 		defer mu.Unlock()
 		if next >= len(cases) {
@@ -470,7 +470,7 @@ func TestJobNextStates(t *testing.T) {
 		next++
 		return cases[next-1].reply, ""
 	}}
-	serveFake(t, app.SocketPath(f.root), a)
+	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.worker(), f.lane)
 	for i, tc := range cases {
 		if got := c.tool(i+1, "job_next", nil); got.IsError || got.Content[0].Text != tc.want {
@@ -484,13 +484,13 @@ func TestJobNextStates(t *testing.T) {
 func TestIntegratorVerdicts(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	a := &fakeServe{answer: func(method string, c app.Call) (string, string) {
-		if method == app.MethodJobNext {
+	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
+		if method == wire.MethodJobNext {
 			return `{"state":"job","job":"T-05/1/review","task":"T-05","attempt":1,"step":"review","text":"review it"}`, ""
 		}
 		return strings.ToUpper(method) + " T-05", ""
 	}}
-	serveFake(t, app.SocketPath(f.root), a)
+	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-int", "HERDR_PANE_ID=w1:p2"), f.root)
 	if got := c.tool(1, "job_next", nil); got.IsError || !strings.Contains(got.Content[0].Text, "T-05/1/review") {
 		t.Fatalf("job_next: %+v; want the review job", got)
@@ -575,14 +575,14 @@ func TestToolErrorsAreResults(t *testing.T) {
 	}
 
 	// The app's refusal reaches the agent as the tool's error text, unchanged.
-	a := &fakeServe{answer: func(method string, c app.Call) (string, string) {
+	a := &fakeServe{answer: func(method string, c wire.Call) (string, string) {
 		switch method {
-		case app.MethodJobNext:
+		case wire.MethodJobNext:
 			return `{"state":"job","job":"T-05/1/review","task":"T-05","attempt":1,"step":"review"}`, ""
 		}
 		return "", "accept: only the integrator (pj-int) gives verdicts, not pj-x (role integrator)"
 	}}
-	serveFake(t, app.SocketPath(f.root), a)
+	serveFake(t, wire.SocketPath(f.root), a)
 	i := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-x"), f.root)
 	i.tool(1, "job_next", nil)
 	if got := i.tool(2, "accept", map[string]any{"patch": "abc"}); !got.IsError ||

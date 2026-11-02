@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 )
 
 // The tool tables by role: the worker fetches its job and submits, the integrator fetches
@@ -12,25 +12,25 @@ import (
 // verdict.go); the tool only renders what the app answers.
 var (
 	jobNextTool = tool{name: toolJobNext, desc: "Your open obor job: its id, task, attempt, step and prompt text. Call " +
-		"it when a wake names a job; the same job comes back until a newer one replaces it.", method: app.MethodJobNext,
+		"it when a wake names a job; the same job comes back until a newer one replaces it.", method: wire.MethodJobNext,
 		args: []arg{{name: "job", desc: "the job id the wake names ([obor job <id>]): that job when it is open for " +
 			"you; omitted, your oldest open job"}}}
 	taskDoneTool = tool{name: toolTaskDone, desc: "Submit your task's work, your final report its argument (the " +
-		"review job quotes it). A refusal names what is missing.", method: app.MethodTaskDone,
+		"review job quotes it). A refusal names what is missing.", method: wire.MethodTaskDone,
 		args: []arg{{name: "report", desc: "your final report: Summary, Self-check, Skipped, Open questions " +
 			"(Concerns optional), each a Name: label", required: true}}}
 	acceptTool = tool{name: toolAccept, desc: "The integrator's verdict: the candidate whose patch hash you name may be " +
-		"published.", method: app.MethodAccept,
+		"published.", method: wire.MethodAccept,
 		args: []arg{{name: "patch", desc: "the candidate's patch hash (the review job names it)", required: true},
 			{name: "note", desc: "a note for the merge log"}}}
 	sendbackTool = tool{name: toolSendback, desc: "The integrator's verdict: back to the worker with your notes.",
-		method: app.MethodSendback, args: []arg{{name: "why", desc: "why, for the worker", required: true}}}
+		method: wire.MethodSendback, args: []arg{{name: "why", desc: "why, for the worker", required: true}}}
 	rejectTool = tool{name: toolReject, desc: "The integrator's verdict: drop the candidate.",
-		method: app.MethodReject, args: []arg{{name: "why", desc: "why, for the log", required: true}}}
+		method: wire.MethodReject, args: []arg{{name: "why", desc: "why, for the log", required: true}}}
 	resolvedTool = tool{name: toolResolved, desc: "The integrator's verdict: the conflict is merged in the scratch, " +
-		"gate it again.", method: app.MethodResolved}
+		"gate it again.", method: wire.MethodResolved}
 	holdTool = tool{name: toolHold, desc: "The integrator's verdict: the owner must decide; the job stays open.",
-		method: app.MethodHold, args: []arg{{name: "why", desc: "the decision the owner must make", required: true}}}
+		method: wire.MethodHold, args: []arg{{name: "why", desc: "the decision the owner must make", required: true}}}
 
 	workerTools     = []tool{jobNextTool, taskDoneTool}
 	integratorTools = []tool{jobNextTool, acceptTool, sendbackTool, rejectTool, resolvedTool, holdTool}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -28,7 +28,7 @@ func TestSendRequest(t *testing.T) {
 	q := testkit.New(t)
 	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
-	_, own := startFakeServe(t, p.Root, app.Status{}, "SENT (to the own project's serve)", "")
+	_, own := startFakeServe(t, p.Root, wire.Status{}, "SENT (to the own project's serve)", "")
 	home, err := os.MkdirTemp("", "hs") // short: a unix socket path is limited
 	if err != nil {
 		t.Fatal(err)
@@ -69,10 +69,10 @@ func TestSendRequest(t *testing.T) {
 		stdout != "FAIL no obor project named nobody (known: other)\n" {
 		t.Errorf("an unknown name with a known one: exit %d, %q", rc, stdout)
 	}
-	if _, err := os.Stat(app.SocketPath(q.Root)); err == nil {
+	if _, err := os.Stat(wire.SocketPath(q.Root)); err == nil {
 		t.Fatal("precondition: the target has no serve socket")
 	}
-	_, target := startFakeServe(t, q.Root, app.Status{}, "SENT to ot-lead in other (posted to its session)", "")
+	_, target := startFakeServe(t, q.Root, wire.Status{}, "SENT to ot-lead in other (posted to its session)", "")
 	for i, by := range []string{"other", "lead@other", filepath.Join(q.Root, "sub")} {
 		if rc, stdout, _ := run(t, p.Root, env, "send", by, "v0.12 is out"); rc != 0 ||
 			stdout != "SENT to ot-lead in other (posted to its session)\n" {
@@ -82,7 +82,7 @@ func TestSendRequest(t *testing.T) {
 		if len(calls) != i+1 {
 			t.Fatalf("send by %s: %d requests to the target's serve, want %d", by, len(calls), i+1)
 		}
-		if c := calls[i]; target.methods[i] != app.MethodSend || c.Root != q.Root || c.From != "proj" ||
+		if c := calls[i]; target.methods[i] != wire.MethodSend || c.Root != q.Root || c.From != "proj" ||
 			c.Note != "v0.12 is out" || c.Role != "lead" || c.Agent != "pj-lead" || c.CallID == "" {
 			t.Errorf("send by %s: request %s %+v", by, target.methods[i], c)
 		}
@@ -91,7 +91,7 @@ func TestSendRequest(t *testing.T) {
 		t.Errorf("the own project's serve got %+v", calls)
 	}
 
-	startFakeServe(t, q.Root, app.Status{}, "", "send: a lead or the owner sends, not pj-o1 (role worker)")
+	startFakeServe(t, q.Root, wire.Status{}, "", "send: a lead or the owner sends, not pj-o1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, env, "send", "other", "x"); rc != 1 ||
 		stdout != "FAIL send: a lead or the owner sends, not pj-o1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
@@ -105,7 +105,7 @@ func TestBriefRequest(t *testing.T) {
 	p := testkit.New(t)
 	p.Lane("O-01", "")
 	p.Config(testkit.Set("roles.reviewer", map[string]any{}))
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, c := range []struct {
 		args []string
@@ -129,7 +129,7 @@ func TestBriefRequest(t *testing.T) {
 		t.Errorf("brief: exit %d, %q", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != app.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != "verify finding 3" ||
+	if len(calls) != 1 || serve.methods[0] != wire.MethodBrief || calls[0].To != "pj-rev" || calls[0].Note != "verify finding 3" ||
 		calls[0].Root != p.Root || calls[0].Role != "lead" {
 		t.Errorf("requests %v %+v", serve.methods, calls)
 	}
@@ -146,7 +146,7 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 	f.Shell("w1:p3", "pj-rev", p.Root)
 	f.Shell("w1:p1", "pj-o-01", o1)
 	srv := herdrtest.Serve(t, f)
-	home, serve := startFakeServe(t, p.Root, app.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
 		"OBOR_STATE_HOME=" + home, "OBOR_RESTART_WAIT=1", "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
@@ -155,7 +155,7 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 		t.Fatalf("restart: exit %d\n%s", rc, stdout)
 	}
 	got, _ := serve.requests()
-	if len(got) != 1 || serve.methods[0] != app.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" ||
+	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" ||
 		got[0].Prompt != "review the module map" || got[0].Role != "lead" {
 		t.Errorf("requests %v %+v, want one brief of pj-rev without a text, its start's prompt with it", serve.methods, got)
 	}

@@ -16,10 +16,6 @@ import (
 // read-only. A dispatch needs a stored spec, the work job's text carries it (a fix job's too when its rev changed
 // since the worker's last job), and the gate writes the current rev into every candidate.
 
-// MethodSpecSet is the app socket's spec request: Call.Spec stored as Call.Task's spec (store.SetSpec), the reply
-// "SET <task> rev <n>" (or "UNCHANGED <task> rev <n>" when the text is the stored one).
-const MethodSpecSet = "spec_set"
-
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
 // merge loop (a waiting task of it may dispatch now).
 func (a *App) specSet(c Call) (string, error) {

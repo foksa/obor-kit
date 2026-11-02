@@ -12,10 +12,6 @@ import (
 // refused with its reason and a waiting task stays waiting (both through dispatchTask). Running gates, accepts and
 // merges finish. `obor pause --clear` records fact unpaused; a pause past its until ends by itself.
 
-// MethodPause is the app socket's pause request: Call.Note the why, Call.Until its end (0: until cleared); Call.Clear
-// ends the pause in force.
-const MethodPause = "pause"
-
 // foldPause folds r, a record of the project's pause: the pause in force, and the reply of its call.
 func (p *proj) foldPause(r Record) {
 	if r.Task != PauseTask || r.Kind != KindFact || r.Step != StepPaused && r.Step != StepUnpaused {

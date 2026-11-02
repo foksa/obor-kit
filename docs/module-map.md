@@ -55,8 +55,8 @@ transcript). `Install` and `Transcript` take the environment (config dirs: `XDG_
 Adding a kind = one package + a config entry.
 
 **core** — `app`: the only place with obor logic. Files by concern: `app.go` (types, options), `serve.go` (New, Serve,
-  run, the serve flock), `project.go` (load, log, fold), `log.go` (the backup), `panes.go` (herdr events to projects),
-  `watchdog.go`, `notify.go`, `status.go`; the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
+  run, the serve flock), `project.go` (load, log, fold), `log.go` (serve's side of the backup), `panes.go` (herdr events to projects),
+  `watchdog.go`, `notify.go`, `status.go` (the status snapshot and `Listen`: the socket's server half); the merge loop: `loop.go` (wake, advance, record, do, drive, the picks),
   `mtask.go` (loop state fold), `states.go` (the state table), `steps.go` (scratch/after steps, submit, gate, publish,
   unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
   project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
@@ -73,8 +73,14 @@ Adding a kind = one package + a config entry.
 - `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
-  `Dump`, `RecentEvents`, `DBFile`) and `Merge`/`ReadMerges`. It imports `store` only. `app` keeps type, var and const
+  `Dump`, `RecentEvents`, `DBFile`) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only. `app` keeps type, var and const
   aliases of it until a later task removes them (`app/events.go`).
+- `app/wire` (core, a leaf above `app/event`; T-692): the app socket's client half, what a caller can ask serve: every
+  `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
+  `NewCallID`, `JobReply`, `ResumeArgs` and `Resume*`, the status types (`Status`, `ProjectStatus`, `TaskStatus` …,
+  `Scratch*`) and the `Backup` client. It imports `app/event`, `store` and `project`, never `app`; `mcp`, `launch`,
+  `checks`, `view` and `web` import it instead of `app`. `app` keeps type, var and const aliases of it until a later task
+  removes them (`app/wire.go`). `Listen` and the handlers stay in `app`.
 - Task state and the per-project event log (the `events` table of `.obor/state/obor.db`; intent before an effect,
   result after).
 - Scheduler rules: readiness (`--after`), dispatch, accept/reject/sendback, moved target, the integrator slot (no cap

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/testkit"
 )
 
@@ -22,7 +22,7 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-oc",
 		"transcript_path": "/data/opencode/opencode.db", "source": "startup"})
 
-	_, serve := startFakeServe(t, p.Root, app.Status{}, "SESSION pj-o-01 sid-oc", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "SESSION pj-o-01 sid-oc", "")
 	if rc, _, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start"); rc != 0 {
 		t.Errorf("exit %d, want 0", rc)
 	}
@@ -31,7 +31,7 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != app.MethodSession || c.Agent != "pj-o-01" || c.Kind != "opencode" || c.Session != "sid-oc" ||
+	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-o-01" || c.Kind != "opencode" || c.Session != "sid-oc" ||
 		c.Transcript != "/data/opencode/opencode.db" || c.Lane != "O-01" || c.Root != p.Root {
 		t.Errorf("serve got %s %+v", serve.methods[0], c)
 	}
@@ -55,7 +55,7 @@ func TestSessionStartHookReports(t *testing.T) {
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": lane, "session_id": "sid-77",
 		"transcript_path": "/claude/projects/x/sid-77.jsonl", "source": "startup"})
 
-	if _, err := os.Stat(app.SocketPath(p.Root)); err == nil {
+	if _, err := os.Stat(wire.SocketPath(p.Root)); err == nil {
 		t.Fatal("precondition: no serve socket")
 	}
 	rc, _, stderr, _ := shimRun(t, lane, string(event), down, oborBin, "hook", "session-start")
@@ -72,7 +72,7 @@ func TestSessionStartHookReports(t *testing.T) {
 		t.Error("serve down: a .sid file was written")
 	}
 
-	_, serve := startFakeServe(t, p.Root, app.Status{}, "SESSION pj-o-01 sid-77", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "SESSION pj-o-01 sid-77", "")
 	if rc, _, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "session-start"); rc != 0 {
 		t.Errorf("serve up: exit %d, want 0", rc)
 	}
@@ -81,7 +81,7 @@ func TestSessionStartHookReports(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != app.MethodSession || c.Agent != "pj-o-01" || c.Kind != "claude" || c.Session != "sid-77" ||
+	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-o-01" || c.Kind != "claude" || c.Session != "sid-77" ||
 		c.Transcript != "/claude/projects/x/sid-77.jsonl" || c.Pane != "w1:p3" || c.Lane != "O-01" || c.Root != p.Root ||
 		c.Started == 0 {
 		t.Errorf("serve got %s %+v", serve.methods[0], c)

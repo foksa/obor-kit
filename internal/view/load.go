@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/store"
@@ -19,7 +19,7 @@ func Load(ctx context.Context, root string, now time.Time, events int) (Project,
 	if err != nil {
 		return Project{}, err
 	}
-	ss, err := app.Ask(ctx, app.SocketPath(cfg.Root))
+	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
 	db, _ := store.OpenAt(cfg.Root)
 	if db != nil {
 		defer db.Close()

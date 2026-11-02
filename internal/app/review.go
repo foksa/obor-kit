@@ -38,10 +38,6 @@ import (
 // reviewer's launch and fact review.started is accepted (RV-69 #2): the launch is not exactly-once; a failing append
 // after the launch is a needs-you "<RV-xx>: started but not recorded: <error>".
 
-// MethodReview is the app socket's review request: Call.After the tasks it waits for, Call.Note the lead's note,
-// Call.Clear ends the open request; none of them: the open request listed, else a request to start now.
-const MethodReview = "review"
-
 // reviewDue is how many merges since the last review make obor status say a review is due (more than it).
 const reviewDue = 3
 

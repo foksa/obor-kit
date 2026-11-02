@@ -18,6 +18,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -59,7 +60,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	root := repo.Root
-	sock := app.SocketPath(root)
+	sock := wire.SocketPath(root)
 	if err := herdr.CheckSocketPath(sock); err != nil {
 		errf("FAIL obor serve: %v", err)
 		return 1

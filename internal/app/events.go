@@ -21,6 +21,7 @@ var (
 	ReadLog    = event.ReadLog
 	DBFile     = event.DBFile
 	merge      = event.MergeOf
+	StepN      = event.StepN
 	recordTime = event.RecordTime
 )
 

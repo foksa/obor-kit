@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 )
 
 // sendCmd is `obor send <project> "<text>"`, a lead's or the owner's: a request to the target project's serve
-// (app.MethodSend), which posts "[obor <this project>] <text> (reply: obor send <this project> "…")" to that project's
+// (wire.MethodSend), which posts "[obor <this project>] <text> (reply: obor send <this project> "…")" to that project's
 // lead's Claude session (T-485).
 // <project> is a project this machine knows by name (obor projects), lead@<name> (the same: only a lead gets
 // messages), or a path into an obor project (T-646). Serve's reply (SENT to …), or FAIL: the own project, an unknown
@@ -29,7 +29,7 @@ func sendCmd(args []string) int {
 		return 1
 	}
 	ctx, env := context.Background(), project.OSEnv
-	return request(ctx, env, app.MethodSend, func(cfg *config.Config, c *app.Call) error {
+	return request(ctx, env, wire.MethodSend, func(cfg *config.Config, c *wire.Call) error {
 		root, err := sendTarget(args[0], env)
 		if err != nil {
 			return err
@@ -78,7 +78,7 @@ func unknownProject(name string, env project.Env) error {
 	return fmt.Errorf("no obor project named %s (known: %s)", name, strings.Join(known, ", "))
 }
 
-// briefCmd is `obor brief <role-agent> "<text>"`, the lead's or the owner's: a request to obor serve (app.MethodBrief)
+// briefCmd is `obor brief <role-agent> "<text>"`, the lead's or the owner's: a request to obor serve (wire.MethodBrief)
 // that types "[obor <caller>] <text>" into the role agent's pane once it is idle (a verify into the running session);
 // once that agent has worked on it and is idle again, serve posts "[obor] <agent> finished (briefed <age> ago)" to
 // the lead's session. A fresh brief goes by obor restart <role-agent> --fresh --prompt "<brief>", which records the same
@@ -112,7 +112,7 @@ func brief(ctx context.Context, cfg *config.Config, agent, text, prompt string, 
 	cwd, _ := os.Getwd()
 	c := caller(env, cwd, cfg)
 	c.To, c.Note, c.Prompt = agent, text, prompt
-	return app.Verdict(ctx, app.SocketPath(cfg.Root), app.MethodBrief, c)
+	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodBrief, c)
 }
 
 // roleAgent: agent is an agent of cfg (a role's or an agents entry) that serve sends no jobs to: not the lead, the

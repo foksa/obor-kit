@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -29,25 +29,25 @@ import (
 // last full check, the pause, the lines not typed yet, the review line, the lead's watches, the queue and the recent
 // events.
 type Project struct {
-	Serve     Serve               `json:"serve"`
-	Running   []Running           `json:"running"`
-	Pending   []app.PendingStep   `json:"pending"` // the open command steps whose effect does not run now
-	Lanes     []Lane              `json:"lanes"`
-	Tasks     []app.TaskStatus    `json:"tasks"`  // serve's open tasks
-	Agents    []app.AgentStatus   `json:"agents"` // the agents serve sees in the project
-	Roles     []Role              `json:"roles"`  // the role agents on no lane (integrator, reviewer, deep dive, advisor)
-	NeedsYou  []NeedsYou          `json:"needs_you"`
-	FullCheck *FullCheck          `json:"full_check"`
-	Paused    *Pause              `json:"paused"`
-	Messages  []app.MessageStatus `json:"messages"`          // the lines not typed yet
-	Review    string              `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
-	Watches   []app.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
-	Queue     Queue               `json:"queue"`
-	Events    []Event             `json:"events"` // the newest worded records, newest first
-	Facts     []event.Record      `json:"-"`      // serve's facts in force (obor status --facts)
+	Serve     Serve                `json:"serve"`
+	Running   []Running            `json:"running"`
+	Pending   []wire.PendingStep   `json:"pending"` // the open command steps whose effect does not run now
+	Lanes     []Lane               `json:"lanes"`
+	Tasks     []wire.TaskStatus    `json:"tasks"`  // serve's open tasks
+	Agents    []wire.AgentStatus   `json:"agents"` // the agents serve sees in the project
+	Roles     []Role               `json:"roles"`  // the role agents on no lane (integrator, reviewer, deep dive, advisor)
+	NeedsYou  []NeedsYou           `json:"needs_you"`
+	FullCheck *FullCheck           `json:"full_check"`
+	Paused    *Pause               `json:"paused"`
+	Messages  []wire.MessageStatus `json:"messages"`          // the lines not typed yet
+	Review    string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
+	Watches   []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
+	Queue     Queue                `json:"queue"`
+	Events    []Event              `json:"events"` // the newest worded records, newest first
+	Facts     []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
 }
 
-// Running is one step that runs without an agent (app.RunningStep, T-657) with the configured command it runs ("": a
+// Running is one step that runs without an agent (wire.RunningStep, T-657) with the configured command it runs ("": a
 // step of git alone, such as publish); the text renderers count its elapsed time from Since.
 type Running struct {
 	Step    string `json:"step"` // gate, publish, after_merge, nightly or restart
@@ -116,12 +116,12 @@ type Job struct {
 // serve sees no pane of it; RoleStopped: serve or the lead stopped it), the brief it is on (nil: none) and its current
 // recorded session.
 type Role struct {
-	Role    string           `json:"role"`
-	Agent   string           `json:"agent"`
-	Status  string           `json:"status,omitempty"`
-	Age     int64            `json:"age,omitempty"`
-	Brief   *app.BriefStatus `json:"brief,omitempty"`
-	Session string           `json:"session,omitempty"`
+	Role    string            `json:"role"`
+	Agent   string            `json:"agent"`
+	Status  string            `json:"status,omitempty"`
+	Age     int64             `json:"age,omitempty"`
+	Brief   *wire.BriefStatus `json:"brief,omitempty"`
+	Session string            `json:"session,omitempty"`
 }
 
 // NeedsYou is one needs-you fact in force.
@@ -151,7 +151,7 @@ type Pause struct {
 // Input is what Build joins: serve's answer (Err: it gave none), the lane table, the store (nil: none yet), the
 // clock and how many worded events to keep.
 type Input struct {
-	Status app.Status
+	Status wire.Status
 	Err    error
 	Lanes  *checks.LaneTable
 	DB     *sql.DB
@@ -170,10 +170,10 @@ var roleNames = []string{"integrator", "reviewer", "deep_dive", "advisor"}
 // agents and no roles (nothing stale), the lanes from git and the store alone.
 func Build(in Input) Project {
 	p := in.Lanes
-	v := Project{Lanes: []Lane{}, Tasks: []app.TaskStatus{}, Agents: []app.AgentStatus{}, Roles: []Role{},
-		NeedsYou: []NeedsYou{}, Messages: []app.MessageStatus{}, Running: []Running{}, Pending: []app.PendingStep{},
+	v := Project{Lanes: []Lane{}, Tasks: []wire.TaskStatus{}, Agents: []wire.AgentStatus{}, Roles: []Role{},
+		NeedsYou: []NeedsYou{}, Messages: []wire.MessageStatus{}, Running: []Running{}, Pending: []wire.PendingStep{},
 		Events: []Event{}}
-	var ps app.ProjectStatus
+	var ps wire.ProjectStatus
 	if in.Err != nil {
 		v.Serve.Error = in.Err.Error()
 	} else {
@@ -222,7 +222,7 @@ func Build(in Input) Project {
 
 // lane is s's row of the view: the lane table's facts, serve's task and agent in it, its state column and since when,
 // its task's spec rev and open job.
-func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps app.ProjectStatus, specs map[string]store.SpecRow) Lane {
+func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, specs map[string]store.SpecRow) Lane {
 	row := p.Rows()[s.Lane]
 	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
 		DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning), Op: restartOp(p.Root, s.Lane), Agent: row.Agent}
@@ -253,7 +253,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps app.ProjectSt
 
 // roles is one row per role agent on no lane that the config names (an optional role only when configured), with its
 // pane's status and session as serve sees it and its open brief.
-func roles(p *checks.LaneTable, ps app.ProjectStatus) []Role {
+func roles(p *checks.LaneTable, ps wire.ProjectStatus) []Role {
 	out := []Role{}
 	for _, name := range roleNames {
 		rc, ok := p.Cfg.Role(name)
@@ -378,7 +378,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 // now (T-669: the class's, the guard or check; its name when not configured; "" while unknown, never a guess), the
 // full check for the nightly check, commands.after_merge for after_merge; "" for a step of git alone (publish) or an
 // unset command.
-func runningCommand(p *checks.LaneTable, r app.RunningStep) string {
+func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	name := ""
 	switch r.Step {
 	case event.StepGate:

@@ -67,7 +67,8 @@ func TestAffectedGoCommand(t *testing.T) {
 }
 
 // T-351: what `make check-affected` selects, here on this repo's own tree and config: an internal/app change selects
-// the packages that import it (cmd/obor, herdr, queue) and none below it (T-347); and merge.affected_full in
+// only the packages that import it (cmd/obor; T-692: the socket and log leaves took mcp, launch, checks, view and web
+// out of its reach) and none below it (T-347); and merge.affected_full in
 // this tree's config lists the build and test-support paths T-347 hard-coded. affected.Go on the tree itself, not the
 // binary: the binary reads the main checkout's config (project.Find), which a lane or the merge scratch does not
 // control (T-573: an unmigrated main failed this test). TestAffectedGoCommand covers the command.
@@ -82,13 +83,14 @@ func TestAffectedGoOborKit(t *testing.T) {
 		t.Fatalf("affected.Go: %+v, %v; want a package list", res, err)
 	}
 	got, stdout := res.Pkgs, strings.Join(res.Pkgs, "\n")
-	for _, p := range []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/setup"} {
+	for _, p := range []string{"obor/internal/app", "obor/cmd/obor"} {
 		if !slices.Contains(got, p) {
 			t.Errorf("%s not selected by an internal/app change:\n%s", p, stdout)
 		}
 	}
 	for _, p := range []string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version",
-		"obor/internal/herdr"} {
+		"obor/internal/herdr", "obor/internal/setup", "obor/internal/mcp", "obor/internal/launch", "obor/internal/checks",
+		"obor/internal/view", "obor/internal/web"} {
 		if slices.Contains(got, p) {
 			t.Errorf("%s selected by an internal/app change:\n%s", p, stdout)
 		}
@@ -101,6 +103,17 @@ func TestAffectedGoOborKit(t *testing.T) {
 	for _, p := range []string{"obor/internal/app/port", "obor/internal/herdr", "obor/internal/app"} {
 		if !slices.Contains(pres.Pkgs, p) {
 			t.Errorf("%s not selected by an internal/app/port change:\n%s", p, strings.Join(pres.Pkgs, "\n"))
+		}
+	}
+	// The socket leaf (T-692): mcp, launch, checks, view and web import it, not app, so a wire change selects them.
+	wres, err := affected.Go(root, []string{"internal/app/wire/call.go"}, nil)
+	if err != nil || wres.Full != "" {
+		t.Fatalf("affected.Go wire: %+v, %v; want a package list", wres, err)
+	}
+	for _, p := range []string{"obor/internal/app/wire", "obor/internal/app", "obor/cmd/obor", "obor/internal/mcp", "obor/internal/launch",
+		"obor/internal/checks", "obor/internal/view", "obor/internal/web"} {
+		if !slices.Contains(wres.Pkgs, p) {
+			t.Errorf("%s not selected by an internal/app/wire change:\n%s", p, strings.Join(wres.Pkgs, "\n"))
 		}
 	}
 	// project.Find resolves a lane to the main checkout's config, so read this tree's own file.

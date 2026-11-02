@@ -20,6 +20,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -245,9 +246,9 @@ func (r *serveRig) job(job string) string {
 	n := 0
 	r.waitFor("job "+job+" fetched", func() bool {
 		n++
-		raw, err := app.Verdict(context.Background(), r.sock, app.MethodJobNext, app.Call{Root: r.p.Root,
+		raw, err := wire.Verdict(context.Background(), r.sock, wire.MethodJobNext, wire.Call{Root: r.p.Root,
 			Agent: "pj-int", Role: "integrator", CallID: job + "-" + strconv.Itoa(n)})
-		var jr app.JobReply
+		var jr wire.JobReply
 		if err != nil || json.Unmarshal([]byte(raw), &jr) != nil || jr.Job != job {
 			return false
 		}
@@ -266,13 +267,13 @@ func (r *serveRig) accept(callID, text string) {
 	if m == nil {
 		r.t.Fatalf("no patch hash in the review job:\n%s", text)
 	}
-	r.verdict(app.MethodAccept, callID, m[1], "ACCEPT T-1")
+	r.verdict(wire.MethodAccept, callID, m[1], "ACCEPT T-1")
 }
 
 // verdict is pj-int's verdict on T-1; its reply starts with want.
 func (r *serveRig) verdict(method, callID, patch, want string) {
 	r.t.Helper()
-	reply, err := app.Verdict(context.Background(), r.sock, method, app.Call{Root: r.p.Root, Agent: "pj-int",
+	reply, err := wire.Verdict(context.Background(), r.sock, method, wire.Call{Root: r.p.Root, Agent: "pj-int",
 		Role: "integrator", CallID: callID, Task: "T-1", Patch: patch})
 	if err != nil || !strings.HasPrefix(reply, want) {
 		r.t.Fatalf("%s: %q, %v; want %s…", method, reply, err, want)
@@ -351,7 +352,7 @@ func TestServeLoopConflictResolved(t *testing.T) {
 	r.p.Write(filepath.Join(r.serveDir(), "shared.txt"), "both\n"+sharedLines)
 	r.p.Git(r.serveDir(), "add", "shared.txt")
 	r.p.Git(r.serveDir(), "commit", "-qm", "Merge T-1: done.")
-	r.verdict(app.MethodResolved, "c1", "", "RESOLVED T-1")
+	r.verdict(wire.MethodResolved, "c1", "", "RESOLVED T-1")
 	r.accept("c2", r.job("T-1/1/review"))
 	r.merged()
 	if got := r.p.Read("shared.txt"); got != "both\n"+sharedLines {
