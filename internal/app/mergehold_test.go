@@ -233,3 +233,30 @@ func countTask(t *testing.T, h *harness, task string) int {
 	}
 	return n
 }
+
+// T-732: a worked brief whose reviewer exits at its shell before serve sees it idle ends (its finished line), and the
+// merge it held goes on at once, not after holdCap.
+func TestMergeHoldEndsWhenTheBriefedAgentIsGone(t *testing.T) {
+	t.Parallel()
+	h, _ := seedHold(t)
+	ctx := context.Background()
+	if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	h.work("w1:rev", true)
+	h.pass(ctx)
+	if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge held: reviewer working" {
+		t.Fatalf("brief worked on: T-1 %s, hold %q; want accepted, held by the reviewer", got, h.taskHold("T-1"))
+	}
+	h.status("w1:rev", func(p *port.Pane) { p.Agent, p.Status = "", "" }) // the agent exits: its pane at its shell
+	h.pass(ctx)
+	if got := h.state("T-1"); got != stMerged {
+		t.Errorf("reviewer gone: T-1 %s, want merged", got)
+	}
+	if n := len(h.leadLinesWith("[obor] pj-rev finished (briefed ")); n != 1 {
+		t.Errorf("finished lines %d, want 1", n)
+	}
+	if len(h.a.Status().Project.Briefs) != 0 {
+		t.Errorf("briefs %+v, want none open", h.a.Status().Project.Briefs)
+	}
+}

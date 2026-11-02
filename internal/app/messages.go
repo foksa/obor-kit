@@ -126,8 +126,9 @@ type queued struct {
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
 // pane worked since (its line delivered; since its stop, when it had one), whether that work is in the log (fact
-// worked; logging: being recorded), its agent's stop on a usage limit in force (nil: none; T-569), and whether a turn
-// that ended that stop is followed (its start seen, its end not yet: T-571, stopped.go turnDecide).
+// worked; logging: being recorded), its agent's stop on a usage limit in force (nil: none; T-569), whether a turn
+// that ended that stop is followed (its start seen, its end not yet: T-571, stopped.go turnDecide), and where its agent
+// was last seen (gone, T-732).
 type brief struct {
 	seq      int64
 	at       time.Time
@@ -136,6 +137,9 @@ type brief struct {
 	logging  bool // logWorked records its fact worked now (its claim, not folded)
 	stop     *roleStop
 	followed bool
+	term     string    // the terminal (termOf) its agent was last identified in ("": not seen since replay; T-732)
+	paneID   string    // that pane's id then
+	lost     time.Time // since when its agent is not identified while connected (zero: identified, or not connected)
 }
 
 // roleStop is a briefed role agent's stop on a usage limit (stopwake.go): its fact's seq and time, the lead's line, the
@@ -356,9 +360,9 @@ func (a *App) logWorked(p *proj) {
 }
 
 // deliver is one pass over p's lines: the seen work of briefs not in the log yet recorded (logWorked's retry), the
-// briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (none
-// while a stop is in force), the lead's lines posted as one per target when its inbox is recorded (T-651, T-654), each role agent's oldest
-// line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
+// briefed Codex agents' stops read from their transcripts (roleTurns), the finished briefs' lines recorded (idle, or
+// their agent gone: T-732; none while a stop is in force), the lead's lines posted as one per target when its inbox is
+// recorded (T-651, T-654), each role agent's oldest line delivered when its pane is idle (posted or typed as its kind takes it), the stopped role agents' wakes and
 // alarms (roleWakes), and the needs-you of lines waiting longer than msgWait.
 func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	if fx.Typer == nil && fx.Inbox == nil {
@@ -371,7 +375,9 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	var done []event.Message
 	for agent, b := range p.out.briefs {
-		if w := a.whereIs(p, agent); b.worked && b.stop == nil && w.State == Identified && Ready(w.Pane.Status) {
+		w := a.whereIs(p, agent)
+		gone := a.gone(p, agent, b, w, now) // noted on every pass: where its agent was last seen
+		if b.worked && b.stop == nil && (w.State == Identified && Ready(w.Pane.Status) || gone) {
 			done = append(done, event.Message{To: p.out.leadAgent, From: "obor", Ends: agent,
 				Line: fmt.Sprintf("[obor] %s finished (briefed %s ago)", agent, Age(now.Sub(b.at)))})
 		}
@@ -419,6 +425,37 @@ func (a *App) deliver(ctx context.Context, p *proj, fx *Loop) {
 	}
 	a.roleWakes(ctx, p, fx)
 	a.msgNeedsYou(p, now)
+}
+
+// goneAfter is how long a worked brief's agent may stay unidentified with its pane still running an agent before its
+// brief ends (T-732): a short reconnect, or a relabel after a serve restart, does not end it.
+const goneAfter = time.Minute
+
+// gone: agent of brief b, resolved now as w, is gone (under mu; T-732): its last pane runs no agent (at its shell, or
+// closed), its only labelled pane is at its shell (a brief replayed from the log: no pane seen yet), or no pane has
+// identified it for goneAfter while serve is connected. It notes where the agent is seen (b.term, b.paneID, b.lost).
+// Two panes claiming it (Ambiguous) are no gone agent.
+func (a *App) gone(p *proj, agent string, b *brief, w Where, now time.Time) bool {
+	switch {
+	case w.State == Identified:
+		b.term, b.paneID, b.lost = termOf(w.Pane), w.Pane.ID, time.Time{}
+		return false
+	case w.State == Ambiguous || w.Why == notConnected:
+		b.lost = time.Time{}
+		return false
+	}
+	if b.lost.IsZero() {
+		b.lost = now
+	}
+	if b.term != "" {
+		if o := a.terminal(p, b.term, b.paneID); o == nil || o.pane.Agent == "" {
+			return true
+		}
+	}
+	if _, ok := a.labelledShell(p, agent); ok {
+		return true
+	}
+	return now.Sub(b.lost) >= goneAfter
 }
 
 // route is how q's line goes out now (under mu): posted to its agent's session (post: the kind whose inbox takes it;
