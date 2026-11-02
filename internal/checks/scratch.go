@@ -201,7 +201,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	}
 	c.Checks, c.Full = r.check+r.gate, !r.class.Partial
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
-		Line: fmt.Sprintf("GREEN %s (%s, %s)", in.Task, c.Checks, r.mode)}, nil
+		Line: fmt.Sprintf("GREEN %s (%s, %s)%s", in.Task, c.Checks, r.mode, r.loaded)}, nil
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
@@ -251,7 +251,7 @@ func gateHalt(r *runner, h *halt) (*port.GateOutcome, error) {
 		return o, h.err
 	case h.red != nil:
 		what, evidence := r.redLine(*h.red)
-		o.Kind, o.Line = port.OutcomeRed, fmt.Sprintf("RED %s (%s)%s", h.red.name, what, evidence)
+		o.Kind, o.Line = port.OutcomeRed, fmt.Sprintf("RED %s (%s)%s%s", h.red.name, what, r.loaded, evidence)
 	default:
 		o.Kind, o.Line = port.OutcomeFail, "FAIL "+h.fail
 	}

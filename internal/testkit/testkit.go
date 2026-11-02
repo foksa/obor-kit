@@ -30,6 +30,7 @@ func Main(m *testing.M) {
 
 // Isolate keeps the tests away from the developer's shell: no OBOR_* / HERDR_* variables (but a herdr socket that is not there), no check-slot variables the
 // merge gate exports to `make check` (nor Claude's or Codex's config dirs), git without global or system config.
+// CHECK_LOAD_LIMIT is 0: no heavy command waits for the machine load (T-720).
 func Isolate() {
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -41,6 +42,8 @@ func Isolate() {
 	// obor reaches herdr over its socket: no socket here unless a test serves one (herdrtest.Serve), never the
 	// developer's own ($HOME/.config/herdr/herdr.sock).
 	os.Setenv("HERDR_SOCKET_PATH", "/nonexistent/herdr.sock")
+	// A heavy command's slot never waits for the machine load (T-720): the tests run while the machine is busy.
+	os.Setenv("CHECK_LOAD_LIMIT", "0")
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	// No detached `git maintenance run --auto` after a commit: it can still write .git/objects while the test's temp
@@ -101,8 +104,9 @@ func New(t testing.TB) *Project {
 // (HERDR_SOCKET_PATH=<Serve(t, Herdr()).Path>).
 func (p *Project) Env(kv ...string) project.Env {
 	m := map[string]string{
-		"HOME":            filepath.Join(p.Base, "home"),
-		"OBOR_STATE_HOME": filepath.Join(p.Base, "state-home"),
+		"HOME":             filepath.Join(p.Base, "home"),
+		"OBOR_STATE_HOME":  filepath.Join(p.Base, "state-home"),
+		"CHECK_LOAD_LIMIT": "0", // no wait for the machine load (T-720), as Isolate
 	}
 	for _, e := range kv {
 		k, v, _ := strings.Cut(e, "=")

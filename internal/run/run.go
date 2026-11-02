@@ -106,6 +106,7 @@ func Run(o Options) int {
 
 	environ := o.Environ
 	var receipt *laneRun
+	var loaded float64 // the load the slot was claimed under after the load wait ran out (T-720)
 	if c.Heavy {
 		slots := o.Slots
 		if slots == nil {
@@ -116,7 +117,8 @@ func Run(o Options) int {
 		if o.Env.Get("CHECK_PRIORITY") == "merge" {
 			prio = "merge"
 		}
-		path, err := slots.Acquire(ctx, prio, o.PID, o.Stderr)
+		path, l, err := slots.Acquire(ctx, prio, o.PID, o.Stderr)
+		loaded = l
 		if err != nil {
 			if ctx.Err() != nil {
 				return interrupted()
@@ -138,8 +140,10 @@ func Run(o Options) int {
 	case signal.Load() != 0:
 		return interrupted()
 	case timedOut:
-		fmt.Fprintf(o.Stderr, "obor run: %s timed out after %d s\n", c.Name, c.Timeout)
+		fmt.Fprintf(o.Stderr, "obor run: %s timed out after %d s%s\n", c.Name, c.Timeout, UnderLoad(loaded))
 		return 124
+	case loaded > 0:
+		fmt.Fprintf(o.Stderr, "obor run: %s exited %d%s\n", c.Name, rc, UnderLoad(loaded))
 	}
 	if rc == 0 && receipt != nil && len(o.Args) == 0 {
 		o.writeReceipt(receipt, c, time.Since(t0))

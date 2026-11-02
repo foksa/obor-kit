@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +30,10 @@ import (
 // A file whose holder is dead is reclaimed under the per-path guard dir <path>.reclaim (stale after 10 s). Held
 // (CHECK_SLOT_HELD, T-41): the parent already holds that file for this check; while its holder lives it is reused,
 // nothing claimed.
+//
+// Load (T-720): before claiming, Acquire waits while the machine's 1-minute load average is above LoadLimit
+// ("waiting: machine load <x> (> <limit>)"); after LoadCap of that it claims anyway and reports the load it claimed
+// under, so a red check there reads as possibly load. A held slot never waits (its holder did).
 type Slots struct {
 	Dir      string
 	Max      int
@@ -36,11 +42,19 @@ type Slots struct {
 	Held     string
 	Poll     time.Duration // between attempts (Acquire; default 1 s)
 	Report   time.Duration // between wait lines (Acquire; default 30 s)
+	// LoadLimit: Acquire waits while the 1-minute load average is above it; 0 never waits.
+	LoadLimit float64
+	LoadCap   time.Duration          // how long Acquire waits for the load (default 15 min)
+	Load      func() (float64, bool) // the load average (nil: SystemLoad); ok false: unknown, no wait
 }
 
-// SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_MERGE_BLOCK_MAX / CHECK_PROJECT, else
-// slots.dir / slots.max / slots.merge_block_max / name, else /tmp/obor-check-slots, 2, 900 s, "default" (a project
-// name with / or white space is "default" too).
+// DefaultLoadCap is how long a check waits for the machine load to drop before it runs anyway.
+const DefaultLoadCap = 15 * time.Minute
+
+// SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_MERGE_BLOCK_MAX / CHECK_PROJECT /
+// CHECK_LOAD_LIMIT, else slots.dir / slots.max / slots.merge_block_max / name / checks.load_limit, else
+// /tmp/obor-check-slots, 2, 900 s, "default", LoadFactor × NumCPU (a project name with / or white space is "default"
+// too; a load limit that is not a non-negative number is the default).
 func SlotsFor(cfg *config.Config, env project.Env) Slots {
 	var cs config.Slots
 	if cfg.Data.Slots != nil {
@@ -75,6 +89,15 @@ func SlotsFor(cfg *config.Config, env project.Env) Slots {
 		name = "default"
 	}
 	s.Marker = "merge-running-" + name
+	s.LoadLimit = float64(LoadFactor * runtime.NumCPU())
+	if c := cfg.Data.Checks; c != nil && c.LoadLimit != nil {
+		s.LoadLimit = *c.LoadLimit
+	}
+	if e := env.Get("CHECK_LOAD_LIMIT"); e != "" {
+		if f, err := strconv.ParseFloat(e, 64); err == nil && f >= 0 && !math.IsInf(f, 0) {
+			s.LoadLimit = f
+		}
+	}
 	return s
 }
 
@@ -219,20 +242,36 @@ func (s Slots) Try(prio string, pid int) (path, wait string, err error) {
 	return "", "waiting for a check slot (" + strconv.Itoa(s.running()) + " running)", nil
 }
 
-// Acquire tries until it gets a slot, a wait line on w every Report; ErrNoDir, or the context's error.
-func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (string, error) {
-	poll, report := s.Poll, s.Report
+// Acquire tries until it gets a slot, a wait line on w every Report; ErrNoDir, or the context's error. Before each
+// try it waits while the machine load is above LoadLimit, at most LoadCap; loaded is the load it claimed under once
+// that cap ran out (0: claimed below the limit).
+func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (path string, loaded float64, err error) {
+	poll, report, loadCap := s.Poll, s.Report, s.LoadCap
 	if poll <= 0 {
 		poll = time.Second
 	}
 	if report <= 0 {
 		report = 30 * time.Second
 	}
+	if loadCap <= 0 {
+		loadCap = DefaultLoadCap
+	}
+	start := time.Now()
 	var next time.Time
 	for {
-		path, wait, err := s.Try(prio, pid)
-		if path != "" || err != nil {
-			return path, err
+		wait := ""
+		loaded = 0
+		if l, over := s.overloaded(); over {
+			if time.Since(start) < loadCap {
+				wait = "waiting: machine load " + FormatLoad(l) + " (> " + FormatLoad(s.LoadLimit) + ")"
+			} else {
+				loaded = l
+			}
+		}
+		if wait == "" {
+			if path, wait, err = s.Try(prio, pid); path != "" || err != nil {
+				return path, loaded, err
+			}
 		}
 		if now := time.Now(); !now.Before(next) {
 			fmt.Fprintln(w, wait)
@@ -240,10 +279,28 @@ func (s Slots) Acquire(ctx context.Context, prio string, pid int, w io.Writer) (
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", 0, ctx.Err()
 		case <-time.After(poll):
 		}
 	}
+}
+
+// overloaded: a load limit is set, no live held slot (its holder waited), and the load is known and above the limit.
+func (s Slots) overloaded() (float64, bool) {
+	if s.LoadLimit <= 0 {
+		return 0, false
+	}
+	if s.Held != "" {
+		if _, ok := live(s.Held); ok {
+			return 0, false
+		}
+	}
+	read := s.Load
+	if read == nil {
+		read = SystemLoad
+	}
+	l, ok := read()
+	return l, ok && l > s.LoadLimit
 }
 
 // Release removes path when it still holds pid.

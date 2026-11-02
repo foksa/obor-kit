@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -34,6 +33,7 @@ type runner struct {
 	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE)
 	retried     string   // " after load <x>" once the load retry ran
 	redLoad     *float64 // the load a red check was retried at, for the flake log
+	loaded      string   // " (run under load <x>)" once a slot was claimed after the load wait ran out (T-720)
 	pre         string   // the target side of the merge
 	class       Class
 	mode        string            // class.Mode() once classified
@@ -176,10 +176,13 @@ func (r *runner) takeSlot() *halt {
 		sl := run.SlotsFor(r.Cfg, r.Env)
 		slots = &sl
 	}
-	path, err := slots.Acquire(r.ctx, "merge", r.PID, r.Out)
+	path, loaded, err := slots.Acquire(r.ctx, "merge", r.PID, r.Out)
 	switch {
 	case err == nil:
 		r.slot = path
+		if loaded > 0 {
+			r.loaded = run.UnderLoad(loaded)
+		}
 		return nil
 	case r.ctx.Err() != nil:
 		return interrupt(r.interrupted())
@@ -381,23 +384,7 @@ func (opt *Options) load() (float64, bool) {
 	if opt.Load != nil {
 		return opt.Load()
 	}
-	return systemLoad()
-}
-
-// systemLoad is the 1-min load average: /proc/loadavg, else sysctl vm.loadavg ("{ 1.23 1.10 0.98 }").
-func systemLoad() (float64, bool) {
-	text := ""
-	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-		text = string(b)
-	} else if b, err := exec.Command("sysctl", "-n", "vm.loadavg").Output(); err == nil {
-		text = strings.Trim(strings.TrimSpace(string(b)), "{}")
-	}
-	f := strings.Fields(text)
-	if len(f) == 0 {
-		return 0, false
-	}
-	v, err := strconv.ParseFloat(f[0], 64)
-	return v, err == nil
+	return run.SystemLoad()
 }
 
 // baselineDir is commands.baseline.dir made absolute, "" when unset or not a directory.
