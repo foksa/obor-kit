@@ -6,13 +6,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-03: **v0.20.1 tagged** (v0.20.0 never shipped on its own; v0.20.1 notes carry both; T-748/T-749 answer
+  delivery states, RV-91 closed). Owner runs `make ship`; then the post-ship checks below. Nothing in flight.
 - 2026-11-02 night: **v0.20.0 tagged** (lane pool, binaries followed by serve/monitor/web, reviews in the main checkout
   with the merge hold, answer delivery to the live session). RV-86..RV-90 closed (accepted lines in Open). obor-kit
   now runs untyped lanes L-01..L-04 (old O/S/C/D lanes and their worktrees removed; tab "lanes"). `max` caps worker
   tasks only (owner). Medium/simple specs carry no `Type: sonnet` (owner: DeepSeek first; Claude quota shared with
   axis). **Next:** owner runs `make ship`; then check axis-maps' stale deep-dive brief cleared on v0.20 (T-732) and
-  tell axis-alies their delivery fix is in v0.20.0, the rest in v0.20.1. **In flight:** T-748 on L-01 (queued-line
-  delivery states, RV-90 #1-#3, two strikes), watched: review → v0.20.1. No open owner decisions.
+  tell axis-alies their delivery fix is in v0.20.0, the rest in v0.20.1. No open owner decisions.
 - 2026-11-02 late (lead context 500k → fresh session): **v0.19.1 shipped** earlier; since then merged and reviewed
   (RV-85 closed, `obor review close`'s first use): T-712 stop clears input, T-713 role agents on the web overview +
   monitor config reload, T-714 agents' long-running processes, T-715 ship notifies leads, T-716 `obor review
