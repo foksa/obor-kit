@@ -335,7 +335,7 @@ const scenarios = {
       "the lead's own row shows its unrecorded process as running, by its command: " + page);
     await navigate("#/a/proj/w1");
     await tick(100);
-    check(html().includes("Background processes") && html().includes("convert maps") &&
+    check(html().includes("Long-running processes") && html().includes("convert maps") &&
       html().includes("python convert.py") && html().includes("bg: 15m"), "the agent page lists the process as bg: " + html());
   },
 };
