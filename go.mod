@@ -2,6 +2,8 @@ module obor
 
 go 1.27
 
+toolchain go1.27.3
+
 require (
 	modernc.org/sqlite v1.60.1
 	mvdan.cc/sh/v3 v3.14.1
