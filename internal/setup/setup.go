@@ -67,24 +67,24 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
 )
 
-// Herdr is what setup asks of herdr: the pane operations launch needs (app.PaneControl) and the ones setup makes
+// Herdr is what setup asks of herdr: the pane operations launch needs (port.PaneControl) and the ones setup makes
 // itself, the agents, a new tab or workspace, a tab's layout, a split, and the plugin registry; the herdr socket
 // client is it.
 type Herdr interface {
-	app.PaneControl
-	Agents(ctx context.Context) ([]app.AgentInfo, error)
-	Layout(ctx context.Context, pane string) ([]app.Rect, error)
+	port.PaneControl
+	Agents(ctx context.Context) ([]port.AgentInfo, error)
+	Layout(ctx context.Context, pane string) ([]port.Rect, error)
 	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
 	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)
 	NewWorkspace(ctx context.Context, label, cwd string) (string, error)
-	Tabs(ctx context.Context) ([]app.TabInfo, error)
-	Plugins(ctx context.Context) ([]app.Plugin, error)
+	Tabs(ctx context.Context) ([]port.TabInfo, error)
+	Plugins(ctx context.Context) ([]port.Plugin, error)
 	LinkPlugin(ctx context.Context, dir string) error
 	UnlinkPlugin(ctx context.Context, id string) error
 }
@@ -101,7 +101,7 @@ type Setup struct {
 	McpCheck func(project.Env) (string, error)
 	// Starter builds the agent starter for the project's config (cmd/obor passes a launch.Launcher: setup is an
 	// adapter and does not import launch).
-	Starter func(cfg *config.Config) app.Starter
+	Starter func(cfg *config.Config) port.Starter
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)

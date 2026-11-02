@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -39,7 +40,7 @@ type serveRig struct {
 	srv    *herdrtest.Server
 	starts atomic.Int32
 	// gate wraps the adapter's Gate (nil: the adapter's own).
-	gate func(ctx context.Context, s checks.Scratch, in app.GateInput) (app.GateOutcome, error)
+	gate func(ctx context.Context, s checks.Scratch, in port.GateInput) (port.GateOutcome, error)
 	// alive is the adapter's GitAlive (nil: the system's).
 	alive func(dir string) bool
 
@@ -92,7 +93,7 @@ type wrapped struct {
 	r *serveRig
 }
 
-func (w wrapped) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, error) {
+func (w wrapped) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	if w.r.gate != nil {
 		return w.r.gate(ctx, w.Scratch, in)
 	}
@@ -156,16 +157,16 @@ func (r *serveRig) stop() {
 }
 
 // Restart is the integrator's start: pj-int appears in the project's workspace and the app sees it.
-func (r *serveRig) Launch(_ context.Context, req app.Launch) (app.Started, error) {
+func (r *serveRig) Launch(_ context.Context, req port.Launch) (port.Started, error) {
 	r.starts.Add(1)
 	if req.Agent != "pj-int" {
-		return app.Started{}, errors.New("unexpected start of " + req.Agent)
+		return port.Started{}, errors.New("unexpected start of " + req.Agent)
 	}
 	if !r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "claude", "pj-int", "idle" }) {
 		in := r.f.Agent("w1:p9", "pj-int", "idle", r.p.Root)
 		in.Workspace, in.Label = "w1", "pj-int"
 	}
-	return app.Started{Line: "STARTED pj-int"}, r.seen("pj-int", true)
+	return port.Started{Line: "STARTED pj-int"}, r.seen("pj-int", true)
 }
 
 // Stop is the worker's stop: the agent leaves its pane and the app sees it gone.
@@ -422,8 +423,8 @@ func TestServeLoopCrashAfterGateCommit(t *testing.T) {
 	r := newServeRig(t)
 	r.p.Write(filepath.Join(r.lane, "feature.txt"), "feature\n")
 	var crashed atomic.Bool
-	var first app.GateOutcome
-	r.gate = func(ctx context.Context, s checks.Scratch, in app.GateInput) (app.GateOutcome, error) {
+	var first port.GateOutcome
+	r.gate = func(ctx context.Context, s checks.Scratch, in port.GateInput) (port.GateOutcome, error) {
 		o, err := s.Gate(ctx, in)
 		if err == nil && crashed.CompareAndSwap(false, true) {
 			first = o
@@ -435,7 +436,7 @@ func TestServeLoopCrashAfterGateCommit(t *testing.T) {
 	r.start()
 	<-r.done
 	r.cancel = nil
-	if !crashed.Load() || first.Kind != app.OutcomeGreen {
+	if !crashed.Load() || first.Kind != port.OutcomeGreen {
 		t.Fatalf("precondition: no green gate before the crash (%+v)", first)
 	}
 	if pin := r.p.Git(r.p.Root, "rev-parse", "refs/obor/candidate/T-1"); pin != first.Candidate.SHA {

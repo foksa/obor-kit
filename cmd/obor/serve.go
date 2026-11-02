@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr"
@@ -249,19 +250,19 @@ func serveDump(w io.Writer, cwd string) int {
 	return 0
 }
 
-// laneTable is app.Lanes from today's lane table: a lane's task is open while its branch is not merged; its agent is
+// laneTable is port.Lanes from today's lane table: a lane's task is open while its branch is not merged; its agent is
 // its row's (the lanes table, read-only).
 type laneTable struct{}
 
-func (t laneTable) Lanes(root string) ([]app.Lane, error) {
+func (t laneTable) Lanes(root string) ([]port.Lane, error) {
 	cfg, err := config.LoadDaemon(root)
 	if err != nil {
 		return nil, err
 	}
-	var out []app.Lane
+	var out []port.Lane
 	lp := checks.NewLaneTable(cfg)
 	for _, s := range lp.States() {
-		l := app.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), Type: s.Type, State: s.State,
+		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), Type: s.Type, State: s.State,
 			Agent: lp.Rows()[s.Lane].Agent}
 		if s.State == "working" || s.State == "done" {
 			l.Task = s.Task

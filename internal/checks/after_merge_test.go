@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 )
 
 // after_merge runs in the main checkout (the directory publish fast-forwards), never in serve's worktree: the marker
@@ -16,7 +16,7 @@ func TestScratchAfterMergeRunsInMainCheckout(t *testing.T) {
 		cmd("after_merge", map[string]any{"cmd": "touch after.marker"}))
 	cand := y.green(lane(y.submit()))
 	y.there(y.serve, "precondition: serve's worktree")
-	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != app.PublishMerged {
+	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 		t.Fatalf("precondition: publish %+v %v", o, err)
 	}
 	line, err := y.s.AfterMerge(ctx, cand)
@@ -31,7 +31,7 @@ func TestScratchAfterMergeFailedNamesItsLog(t *testing.T) {
 	y := newSx(t, cmd("check", "echo 1 pass"),
 		cmd("after_merge", map[string]any{"cmd": "echo broken; exit 2"}))
 	cand := y.green(lane(y.submit()))
-	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != app.PublishMerged {
+	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 		t.Fatalf("precondition: publish %+v %v", o, err)
 	}
 	line, err := y.s.AfterMerge(ctx, cand)
@@ -49,7 +49,7 @@ func TestScratchAfterMergeGreenLog(t *testing.T) {
 	y := newSx(t, cmd("check", "echo 1 pass"),
 		cmd("after_merge", map[string]any{"cmd": "echo after-merge-ran"}))
 	cand := y.green(lane(y.submit()))
-	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != app.PublishMerged {
+	if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 		t.Fatalf("precondition: publish %+v %v", o, err)
 	}
 	line, err := y.s.AfterMerge(ctx, cand)
@@ -78,7 +78,7 @@ func TestScratchAfterMergeMainNotAtMerge(t *testing.T) {
 		y := newSx(t, cmd("check", "echo 1 pass"),
 			cmd("after_merge", map[string]any{"cmd": "touch after.marker"}))
 		cand := y.green(lane(y.submit()))
-		if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != app.PublishMerged {
+		if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 			t.Fatalf("%s: precondition: publish %+v %v", c.name, o, err)
 		}
 		c.moved(y)

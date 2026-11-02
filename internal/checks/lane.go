@@ -8,13 +8,13 @@ import (
 	"os/exec"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	herdrun "obor/internal/run"
 )
 
-// Lane is app.LaneSetup for one project: the lane.prepare step of a dispatched task
+// Lane is port.LaneSetup for one project: the lane.prepare step of a dispatched task
 // and the lane a drop gives back. Its git is real, run in the lane's worktree with the caller's ctx.
 type Lane struct {
 	Cfg *config.Config
@@ -22,38 +22,38 @@ type Lane struct {
 	Git string    // the git binary ("" : git on PATH); a test puts a shim here that fails a chosen call
 }
 
-var _ app.LaneSetup = Lane{}
+var _ port.LaneSetup = Lane{}
 
 // Prepare puts in.Dir on in.Branch at in.Target (in.Redo: the branch is kept as it is) and runs lane_ready (then
 // lane_setup and lane_ready again when it was red). It returns the target sha the branch is based on and the lane's
 // head (merge-base(HEAD, target)): serve's lane row (T-439). Repeating it converges on the same state.
 // A final refusal: no lane dir, lane_setup red, lane_ready still red; git failures are plain errors (retry).
-func (l Lane) Prepare(ctx context.Context, in app.PrepareInput) (app.Prepared, error) {
+func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	if !project.IsDir(in.Dir) {
-		return app.Prepared{}, app.Refused{Line: "no lane dir " + in.Dir}
+		return port.Prepared{}, port.Refused{Line: "no lane dir " + in.Dir}
 	}
 	if !in.Redo {
 		if _, err := l.git(ctx, in.Dir, "checkout", "-q", "-B", in.Branch, in.Target); err != nil {
-			return app.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w", in.Branch, in.Target, in.Dir, err)
+			return port.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w", in.Branch, in.Target, in.Dir, err)
 		}
 	}
 	if err := LaneSetup(l.Cfg, in.Lane, in.Dir, l.Out); err != nil {
-		return app.Prepared{}, app.Refused{Line: err.Error()}
+		return port.Prepared{}, port.Refused{Line: err.Error()}
 	}
 	head, err := l.git(ctx, in.Dir, "merge-base", "HEAD", in.Target)
 	if err != nil {
-		return app.Prepared{}, fmt.Errorf("merge-base HEAD %s in %s: %w", in.Target, in.Dir, err)
+		return port.Prepared{}, fmt.Errorf("merge-base HEAD %s in %s: %w", in.Target, in.Dir, err)
 	}
-	return app.Prepared{Base: in.Target, Head: head}, nil
+	return port.Prepared{Base: in.Target, Head: head}, nil
 }
 
 // Free gives a dropped task's lane back (obor drop, T-439). Refused, nothing changed: no lane dir; uncommitted
 // changes or commits on in.Branch not in in.Target, unless in.Discard (then git reset --hard and git clean -fd, the
 // commits left with the deleted branch). Then the lane is detached at in.Target and in.Branch deleted (a branch that
 // is gone already is fine). Its line lists what it discarded ("" nothing).
-func (l Lane) Free(ctx context.Context, in app.FreeInput) (string, error) {
+func (l Lane) Free(ctx context.Context, in port.FreeInput) (string, error) {
 	if !project.IsDir(in.Dir) {
-		return "", app.Refused{Line: "no lane dir " + in.Dir}
+		return "", port.Refused{Line: "no lane dir " + in.Dir}
 	}
 	status, err := l.git(ctx, in.Dir, "status", "--porcelain")
 	if err != nil {
@@ -68,10 +68,10 @@ func (l Lane) Free(ctx context.Context, in app.FreeInput) (string, error) {
 	}
 	switch {
 	case status != "" && !in.Discard:
-		return "", app.Refused{Line: fmt.Sprintf("lane %s is dirty (--discard to drop its uncommitted changes):\n%s",
+		return "", port.Refused{Line: fmt.Sprintf("lane %s is dirty (--discard to drop its uncommitted changes):\n%s",
 			in.Lane, status)}
 	case commits != "" && !in.Discard:
-		return "", app.Refused{Line: fmt.Sprintf("%s has commits not in the target (--discard to drop them):\n%s",
+		return "", port.Refused{Line: fmt.Sprintf("%s has commits not in the target (--discard to drop them):\n%s",
 			in.Branch, commits)}
 	}
 	var lines []string
@@ -112,7 +112,7 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 }
 
 // LaneSetup (T-122): a lane that fails commands.lane_ready gets commands.lane_setup, and must pass lane_ready after.
-// No lane_ready: nothing runs. Its errors are final (app.Refused in Lane.Prepare).
+// No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare).
 func LaneSetup(cfg *config.Config, lane, dir string, w io.Writer) error {
 	ready, ok := herdrun.Command(cfg, "lane_ready")
 	if !ok {

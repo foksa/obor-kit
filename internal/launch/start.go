@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 	"obor/internal/store"
 )
 
-// Start, StartError and AgentEnv are the core's types (app.Starter), so setup starts agents without importing launch.
+// Start, StartError and AgentEnv are the core's types (port.Starter), so setup starts agents without importing launch.
 type (
-	Start      = app.Start
-	StartError = app.StartError
+	Start      = port.Start
+	StartError = port.StartError
 )
 
 // Start labels the pane, clears the agent's herdr name from it if herdr still holds it there, prints the launch line
@@ -36,10 +36,10 @@ func (l *Launcher) Start(ctx context.Context, s Start) error {
 
 // start is Start; it returns the agent the start ran in s.Pane as herdr showed it (its session id the identity a later
 // rename compares, T-418; none when herdr named no pane).
-func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
+func (l *Launcher) start(ctx context.Context, s Start) (port.AgentInfo, error) {
 	if s.Label != s.Agent {
 		if err := l.H.RenamePane(ctx, s.Pane, s.Agent); err != nil {
-			return app.AgentInfo{}, project.Failf("herdr pane rename %s %s failed", s.Pane, s.Agent)
+			return port.AgentInfo{}, project.Failf("herdr pane rename %s %s failed", s.Pane, s.Agent)
 		}
 		l.say("labelled pane %s %s", s.Pane, s.Agent)
 	}
@@ -48,7 +48,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
 	}
 	k, ok := agents.Lookup(s.Kind)
 	if !ok { // dispatch and obor config validate refuse such a lane type (DD-v0.13 D1)
-		return app.AgentInfo{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
+		return port.AgentInfo{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
 	kit := l.Kit
 	if kit == "" {
@@ -61,7 +61,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
 	}
 	l.say("args (%s): %s", s.Kind, shown)
 	a, err := l.started(ctx, s)
-	if app.ErrorCode(err) == "agent_name_taken" {
+	if port.ErrorCode(err) == "agent_name_taken" {
 		holder := ""
 		if a, gerr := l.H.Agent(ctx, s.Agent); gerr == nil {
 			holder = a.Pane
@@ -84,7 +84,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
 		return l.done(ctx, s, a)
 	}
 	l.say("%v", err)
-	if s.Prompt != "" && app.ErrorCode(err) != "agent_not_ready" {
+	if s.Prompt != "" && port.ErrorCode(err) != "agent_not_ready" {
 		if a, ok := l.busyStart(ctx, s); ok {
 			return l.done(ctx, s, a)
 		}
@@ -92,13 +92,13 @@ func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
 	// Only a failed start looks at the screen (a started agent's prompt delivery is judged by herdr alone).
 	screen, _ := l.H.Screen(ctx, s.Pane, 60)
 	if hint := notReady(screen, s.Kind, s.Agent, s.Pane); hint != "" {
-		return app.AgentInfo{}, &StartError{Err: err, NotReady: true, Hint: hint}
+		return port.AgentInfo{}, &StartError{Err: err, NotReady: true, Hint: hint}
 	}
-	if app.ErrorCode(err) == "agent_not_ready" {
+	if port.ErrorCode(err) == "agent_not_ready" {
 		// Started, but waiting at a startup dialog the screen does not name (live 2026-10-13): the agent runs.
-		return app.AgentInfo{}, &StartError{Err: err, NotReady: true, Hint: s.Agent + " waits at a startup dialog in pane " + s.Pane + ": answer it there"}
+		return port.AgentInfo{}, &StartError{Err: err, NotReady: true, Hint: s.Agent + " waits at a startup dialog in pane " + s.Pane + ": answer it there"}
 	}
-	return app.AgentInfo{}, &StartError{Err: err}
+	return port.AgentInfo{}, &StartError{Err: err}
 }
 
 // started runs herdr's agent start and returns once the agent runs in s.Pane and is named (the start's done condition,
@@ -107,9 +107,9 @@ func (l *Launcher) start(ctx context.Context, s Start) (app.AgentInfo, error) {
 // so it keeps the poll going, and no agent up within Up is an error. The call runs alongside the poll (T-387: an
 // agent busy on its first prompt is up although herdr may give up on it). started owns that call (T-405): before it
 // returns, the call is cancelled and joined, and its late answer is dropped.
-func (l *Launcher) started(ctx context.Context, s Start) (app.AgentInfo, error) {
+func (l *Launcher) started(ctx context.Context, s Start) (port.AgentInfo, error) {
 	type answer struct {
-		a   app.AgentInfo
+		a   port.AgentInfo
 		err error
 	}
 	pre, _ := l.H.Agent(ctx, s.Pane) // what the pane ran before the start: none, after the stop
@@ -134,7 +134,7 @@ func (l *Launcher) started(ctx context.Context, s Start) (app.AgentInfo, error) 
 		select {
 		case <-ctx.Done():
 			end()
-			return app.AgentInfo{}, ctx.Err()
+			return port.AgentInfo{}, ctx.Err()
 		case r := <-res:
 			answered = true
 			if r.err != nil || detected(r.a, s) {
@@ -143,7 +143,7 @@ func (l *Launcher) started(ctx context.Context, s Start) (app.AgentInfo, error) 
 			}
 		case <-bound.C:
 			end()
-			return app.AgentInfo{}, fmt.Errorf("herdr agent start %s: no %s agent came up in %s within %s", s.Agent, s.Kind, s.Pane, l.upWait())
+			return port.AgentInfo{}, fmt.Errorf("herdr agent start %s: no %s agent came up in %s within %s", s.Agent, s.Kind, s.Pane, l.upWait())
 		case <-tick.C:
 			if a, err := l.H.Agent(ctx, s.Pane); err == nil && up(pre, a, s) {
 				end()
@@ -155,14 +155,14 @@ func (l *Launcher) started(ctx context.Context, s Start) (app.AgentInfo, error) 
 
 // detected: herdr's answer a to s's start shows the agent running: s.Kind in s.Pane with a status (a pending launch
 // has no kind and status unknown).
-func detected(a app.AgentInfo, s Start) bool {
+func detected(a port.AgentInfo, s Start) bool {
 	return a.Pane == s.Pane && a.Kind == s.Kind && a.Status != "" && a.Status != "unknown"
 }
 
 // up: a is the agent s's start put in its pane, ready for obor. Its kind, and idle or done, or working on its first
 // prompt (T-387); and named s.Agent, or unnamed in a pane that ran no agent of the kind before (the caller names it:
 // an old agent herdr lost the name of is never taken for the new one).
-func up(pre, a app.AgentInfo, s Start) bool {
+func up(pre, a port.AgentInfo, s Start) bool {
 	switch {
 	case a.Pane != s.Pane || a.Kind != s.Kind:
 		return false
@@ -178,7 +178,7 @@ func up(pre, a app.AgentInfo, s Start) bool {
 // or idle/done after a short turn): started. herdr's start succeeds only once the agent is ready for input within its
 // 30 s bound, and an agent that works on its first prompt from the outset is not (T-387, live: Sonnet and Codex
 // workers busy on their wake at 30 s); herdr then keeps no name for it (named).
-func (l *Launcher) busyStart(ctx context.Context, s Start) (app.AgentInfo, bool) {
+func (l *Launcher) busyStart(ctx context.Context, s Start) (port.AgentInfo, bool) {
 	a, err := l.H.Agent(ctx, s.Pane)
 	if err != nil || a.Kind != s.Kind || (a.Status != "working" && a.Status != "idle" && a.Status != "done") {
 		return a, false
@@ -190,7 +190,7 @@ func (l *Launcher) busyStart(ctx context.Context, s Start) (app.AgentInfo, bool)
 // done is a start's success path, the one for Start and restart (T-582): the agent named (named), then a fresh start
 // of a kind that reports its session searches for it (searchRollout: the transcript its process holds open, T-588; a
 // resume reports none).
-func (l *Launcher) done(ctx context.Context, s Start, a app.AgentInfo) (app.AgentInfo, error) {
+func (l *Launcher) done(ctx context.Context, s Start, a port.AgentInfo) (port.AgentInfo, error) {
 	a, err := l.named(ctx, s, a)
 	if k, ok := agents.Lookup(s.Kind); err != nil || s.Resume != "" || !ok || !k.Caps().Sessions {
 		return a, err
@@ -205,13 +205,13 @@ func (l *Launcher) done(ctx context.Context, s Start, a app.AgentInfo) (app.Agen
 // finds agents by its identity table, not herdr's name): a refused rename is a warning line, the start stands. herdr
 // renames by pane, so the pane must still hold that agent (same: T-405): a pane that holds another
 // one now is renamed nothing, a Fail. It returns a, the agent started.
-func (l *Launcher) named(ctx context.Context, s Start, a app.AgentInfo) (app.AgentInfo, error) {
+func (l *Launcher) named(ctx context.Context, s Start, a port.AgentInfo) (port.AgentInfo, error) {
 	if a.Pane == "" || a.Name == s.Agent {
 		return a, nil
 	}
 	now, err := l.H.Agent(ctx, s.Pane)
 	if err != nil || !same(a, now, s.Agent) {
-		return app.AgentInfo{}, project.Failf("%s started in %s, but the pane holds %s now, not the agent started (session %s): renamed nothing",
+		return port.AgentInfo{}, project.Failf("%s started in %s, but the pane holds %s now, not the agent started (session %s): renamed nothing",
 			s.Agent, s.Pane, held(now, err), orNone(a.Session))
 	}
 	if now.Name == s.Agent {
@@ -231,7 +231,7 @@ func (l *Launcher) named(ctx context.Context, s Start, a app.AgentInfo) (app.Age
 // Accepted residual risk (owner, 2026-10-26, RV-44-verify-2): with no session in herdr's answer, an unnamed same-kind
 // agent that replaced this start's agent in the pane during the start (only by an action outside obor) is renamed;
 // obor's own drop / reuse wait for the start (T-405).
-func same(a, now app.AgentInfo, name string) bool {
+func same(a, now port.AgentInfo, name string) bool {
 	switch {
 	case now.Kind != a.Kind:
 		return false
@@ -264,9 +264,9 @@ func sameSid(live, sid string) bool {
 }
 
 // held is what a pane holds as herdr answered for it (now, err): its agent, or none.
-func held(now app.AgentInfo, err error) string {
+func held(now port.AgentInfo, err error) string {
 	switch {
-	case app.NotFound(err):
+	case port.NotFound(err):
 		return "no agent herdr knows"
 	case err != nil:
 		return "an agent herdr cannot tell (" + err.Error() + ")"

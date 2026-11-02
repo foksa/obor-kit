@@ -32,7 +32,7 @@ import (
 	"strconv"
 	"strings"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -119,7 +119,7 @@ func (r *renamer) stop(ctx context.Context) error {
 	}
 	running, err := r.H.Agents(ctx)
 	switch {
-	case app.NotRunning(err): // herdr is not running: no agent either
+	case port.NotRunning(err): // herdr is not running: no agent either
 	case err != nil:
 		return project.Failf("cannot ask herdr for the running agents: %v", err)
 	}

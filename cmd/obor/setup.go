@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/launch"
@@ -51,8 +51,8 @@ func serveInstaller(env project.Env) func(context.Context, *config.Config) (stri
 
 // launcherFor is how obor setup starts an agent (setup does not import launch): a launch.Launcher for the config it
 // loaded; tune (nil: none) adjusts it.
-func launcherFor(env project.Env, kit string, h app.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) app.Starter {
-	return func(cfg *config.Config) app.Starter {
+func launcherFor(env project.Env, kit string, h port.PaneControl, w io.Writer, tune func(*launch.Launcher)) func(*config.Config) port.Starter {
+	return func(cfg *config.Config) port.Starter {
 		l := &launch.Launcher{Cfg: cfg, Env: env, Kit: kit, H: h, Out: w}
 		if tune != nil {
 			tune(l)

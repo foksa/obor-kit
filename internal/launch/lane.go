@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
@@ -24,7 +24,7 @@ func (l *Launcher) PaneOf(ctx context.Context, agent, dir string) (string, error
 }
 
 // paneIn is PaneOf over a pane list already read (one listing, so a caller that holds one asks herdr nothing twice).
-func (l *Launcher) paneIn(panes []app.PaneInfo, agent, dir string) (string, error) {
+func (l *Launcher) paneIn(panes []port.PaneInfo, agent, dir string) (string, error) {
 	var labelled []string
 	cwds := map[string]string{}
 	for _, p := range panes {

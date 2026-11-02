@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/project"
 )
 
@@ -68,7 +68,7 @@ func (s *Setup) monitorSetup(ctx context.Context) (state, what string, err error
 // monitorPane is the monitor's new pane in the project's workspace: a pane of its "system" tab (split beside that
 // tab's largest project pane), or a new "system" tab when the project has none. Its cwd is the project root and it
 // runs no agent.
-func (s *Setup) monitorPane(ctx context.Context, panes []app.PaneInfo) (string, error) {
+func (s *Setup) monitorPane(ctx context.Context, panes []port.PaneInfo) (string, error) {
 	tabs, err := s.H.Tabs(ctx)
 	if err != nil {
 		return "", project.Failf("herdr tab list failed: %v", err)

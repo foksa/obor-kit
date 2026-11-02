@@ -93,8 +93,11 @@ func TestGoOborKit(t *testing.T) {
 		with, not []string
 	}{
 		{"internal/guard/guard.go", []string{"obor/internal/guard", "obor/cmd/obor"}, []string{"obor/internal/app"}},
-		{"internal/app/loop.go", []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/herdr", "obor/internal/setup"},
-			[]string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version"}},
+		{"internal/app/loop.go", []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/setup"},
+			[]string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version",
+				"obor/internal/herdr"}},
+		// T-690: herdr imports the ports leaf, not app: a port change selects it, an app change does not.
+		{"internal/app/port/effects.go", []string{"obor/internal/app/port", "obor/internal/app", "obor/internal/herdr"}, nil},
 	} {
 		res, err := Go(root, []string{c.file}, fullGlobs)
 		if err != nil || res.Full != "" {

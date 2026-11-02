@@ -109,6 +109,8 @@ func TestBoundaryRules(t *testing.T) {
 		{"internal/app", "internal/herdr", false},
 		{"internal/app", "internal/checks", false},
 		{"internal/app/store", "internal/app", true},
+		{"internal/herdr", "internal/app/port", true},
+		{"internal/app/port", "internal/herdr", false},
 		{"internal/app", "internal/store", true},
 		{"internal/store", "internal/app", false},
 		{"internal/store", "internal/version", true},

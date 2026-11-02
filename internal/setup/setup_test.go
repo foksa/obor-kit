@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
@@ -121,7 +121,7 @@ func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
 	s := &Setup{Kit: k, Dir: dir, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
-		Starter: func(cfg *config.Config) app.Starter {
+		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
 		}, Serve: x.serve}
 	rc := s.Run(context.Background(), args)

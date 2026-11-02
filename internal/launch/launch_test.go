@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
@@ -42,7 +42,7 @@ type fx struct {
 	srv    *herdrtest.Server // the fake herdr's socket: what the launch called
 	lane   string
 	claude string // CLAUDE_CONFIG_DIR
-	wrap   func(app.PaneControl) app.PaneControl
+	wrap   func(port.PaneControl) port.PaneControl
 	gone   map[string]bool                      // pids that are not alive (every other pid is)
 	onExit func()                               // what /exit does besides the fake herdr's OnQuit (nil: nothing)
 	kills  []string                             // kill hook calls: "<pgid> <signal>"
@@ -121,7 +121,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	if err != nil {
 		x.t.Fatal(err)
 	}
-	var h app.PaneControl = x.srv.Client()
+	var h port.PaneControl = x.srv.Client()
 	if x.onExit != nil {
 		h = exitHook{h, x.onExit}
 	}
@@ -1169,17 +1169,17 @@ func (x *fx) pendingStart(release chan struct{}, ended chan struct{}) {
 		rel()
 	}()
 	if ended != nil {
-		x.wrap = func(h app.PaneControl) app.PaneControl { return startEnds{h, ended} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return startEnds{h, ended} }
 	}
 }
 
 // startEnds closes ended when its agent start returns.
 type startEnds struct {
-	app.PaneControl
+	port.PaneControl
 	ended chan struct{}
 }
 
-func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (app.AgentInfo, error) {
+func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
 	defer close(s.ended)
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
 }
@@ -2038,7 +2038,7 @@ func TestStopForceTerminates(t *testing.T) {
 
 // lockSpy notes, when /exit is typed and when the agent is started, which of the restart locks it watches are held.
 type lockSpy struct {
-	app.PaneControl
+	port.PaneControl
 	locks []*project.Lock
 	seen  *[]string
 }
@@ -2056,7 +2056,7 @@ func (s lockSpy) Type(ctx context.Context, pane, text string) error {
 	return s.PaneControl.Type(ctx, pane, text)
 }
 
-func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...string) (app.AgentInfo, error) {
+func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
 	s.note("start")
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
 }
@@ -2069,7 +2069,7 @@ func TestOneRestartLock(t *testing.T) {
 	x.agent("w1:p3", "pj-o-01", "claude", "idle")
 	var seen []string
 	lane, agent := launch.RestartLock(x.p.Root, "O-01", ""), launch.RestartLock(x.p.Root, "", "pj-int")
-	x.wrap = func(h app.PaneControl) app.PaneControl { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
+	x.wrap = func(h port.PaneControl) port.PaneControl { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
 	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
 	if !ok {
 		t.Fatal(out)
@@ -2172,7 +2172,7 @@ func q(s string) string {
 
 // failCalls fails the pane calls of ops: "screen" (pane read) or "process-info".
 type failCalls struct {
-	app.PaneControl
+	port.PaneControl
 	ops map[string]bool
 	why error
 }
@@ -2184,9 +2184,9 @@ func (f failCalls) Screen(ctx context.Context, pane string, lines int) (string, 
 	return f.PaneControl.Screen(ctx, pane, lines)
 }
 
-func (f failCalls) ProcessInfo(ctx context.Context, pane string) (app.ProcessInfo, error) {
+func (f failCalls) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if f.ops["process-info"] {
-		return app.ProcessInfo{}, f.why
+		return port.ProcessInfo{}, f.why
 	}
 	return f.PaneControl.ProcessInfo(ctx, pane)
 }
@@ -2252,7 +2252,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		stuck(x)
-		x.wrap = func(h app.PaneControl) app.PaneControl {
+		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return failCalls{h, map[string]bool{"screen": true}, errors.New("herdr went away")}
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
@@ -2264,7 +2264,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		contains(t, out, "herdr went away", "why")
 		contains(t, out, "foreground: claude", "processes still given")
 
-		x.wrap = func(h app.PaneControl) app.PaneControl {
+		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return failCalls{h, map[string]bool{"process-info": true}, errors.New("herdr went away")}
 		}
 		out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
@@ -2285,7 +2285,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 
 // exitHook runs fn after each /exit typed into a pane.
 type exitHook struct {
-	app.PaneControl
+	port.PaneControl
 	fn func()
 }
 
@@ -2299,18 +2299,18 @@ func (e exitHook) Type(ctx context.Context, pane, text string) error {
 
 // procFix sets a pane's process info before each look (the fake's shell pid and foreground group).
 type procFix struct {
-	app.PaneControl
+	port.PaneControl
 	fix func(pane string)
 }
 
-func (p procFix) ProcessInfo(ctx context.Context, pane string) (app.ProcessInfo, error) {
+func (p procFix) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	p.fix(pane)
 	return p.PaneControl.ProcessInfo(ctx, pane)
 }
 
 // procInfo sets pane's process info before each look (its shell pid and foreground group).
 func (x *fx) procInfo(fix func(p *herdrtest.Pane)) {
-	x.wrap = func(h app.PaneControl) app.PaneControl {
+	x.wrap = func(h port.PaneControl) port.PaneControl {
 		return procFix{h, func(pane string) { x.f.Set(pane, fix) }}
 	}
 }
@@ -2736,7 +2736,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 // popup is opencode's slash-command popup: it takes the Enter typed with /exit (nothing happens, the text stays in
 // the input), and a separate Enter then runs the quit.
 type popup struct {
-	app.PaneControl
+	port.PaneControl
 	enters *int
 }
 
@@ -2760,7 +2760,7 @@ func (p popup) SendKeys(ctx context.Context, pane string, keys ...string) error 
 // slowAfterQuit holds the pane's process info past a short wait once the quit is typed: the exit poll's first look
 // eats the whole wait, so the second Enter can only come from the give-up.
 type slowAfterQuit struct {
-	app.PaneControl
+	port.PaneControl
 	quit *bool
 }
 
@@ -2771,7 +2771,7 @@ func (s slowAfterQuit) Type(ctx context.Context, pane, text string) error {
 	return s.PaneControl.Type(ctx, pane, text)
 }
 
-func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (app.ProcessInfo, error) {
+func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.ProcessInfo, error) {
 	if *s.quit {
 		time.Sleep(2 * shortWait)
 	}
@@ -2817,7 +2817,7 @@ func TestStopEveryKind(t *testing.T) {
 		x, p := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
 		p.OnQuit = ""
 		enters := 0
-		x.wrap = func(h app.PaneControl) app.PaneControl { return popup{h, &enters} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
 		out, ok := x.stop("pj-o-01", "", false)
 		if !ok {
 			t.Fatal(out)
@@ -2831,7 +2831,7 @@ func TestStopEveryKind(t *testing.T) {
 		x, _ := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
 		quit := false
-		x.wrap = func(h app.PaneControl) app.PaneControl { return slowAfterQuit{h, &quit} }
+		x.wrap = func(h port.PaneControl) port.PaneControl { return slowAfterQuit{h, &quit} }
 		out, ok := x.stop("pj-o-01", "", true)
 		if !ok {
 			t.Fatal(out)
