@@ -25,6 +25,7 @@ import (
 func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t, testkit.Set("lane_types.opus.prompt_extra", "Also read docs/notes.md.\nThen start."))
+	r.setLane(func(l *port.Lane) { l.Type = "opus" }) // the lane's type, as its config says: the dispatch's (T-721)
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {
 		t.Fatal(err)

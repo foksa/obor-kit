@@ -197,7 +197,7 @@ func needsSection(st view.Project, o renderOpts, p palette) []string {
 }
 
 // laneRows is LANES: one row per lane, columns aligned — state dot and column, lane, task, time in that state, agent
-// and its status, the spec's rev and the open job.
+// and its status, the spec's rev, the open job and the type and effort of its task's dispatch.
 func laneRows(st view.Project, o renderOpts, p palette) []string {
 	out := []string{title("LANES", o, p, nil)}
 	if len(st.Lanes) == 0 {
@@ -222,6 +222,9 @@ func laneRows(st view.Project, o renderOpts, p palette) []string {
 		}
 		if j := l.Job; j != nil {
 			r.job = jobStep(j.ID) + " (" + map[bool]string{true: "fetched", false: "not fetched"}[j.Delivered] + ")"
+		}
+		if l.Task != nil && l.Type != "" { // T-721: the type the task's dispatch chose
+			r.job = strings.TrimSpace(r.job + " " + l.Type)
 		}
 		if l.Effort != "" { // T-695: the effort the task's dispatch named
 			r.job = strings.TrimSpace(r.job + " effort " + l.Effort)

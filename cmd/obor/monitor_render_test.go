@@ -419,3 +419,23 @@ func TestMonitorDrawsNotes(t *testing.T) {
 		t.Errorf("frame head %q, want the header then the two notes", frame[:3])
 	}
 }
+
+// T-721: a lane with a task shows the type its dispatch chose, before its effort; a free lane shows none, whatever
+// its configured type.
+func TestMonitorLaneShowsTheDispatchsType(t *testing.T) {
+	task := "T-1"
+	st := view.Project{Lanes: []view.Lane{
+		{Lane: "O-01", Type: "sonnet", Task: &task, Column: "working", Effort: "high"},
+		{Lane: "O-02", Type: "opus", Column: "free"},
+	}}
+	rows := laneRows(st, renderOpts{now: goldenNow, cols: 80, loc: time.UTC}, palette{})
+	if len(rows) != 3 {
+		t.Fatalf("precondition: a title and two lane rows, got %q", rows)
+	}
+	if !strings.HasSuffix(rows[1], " sonnet effort high") {
+		t.Errorf("O-01's row %q, want its dispatch's type and effort", rows[1])
+	}
+	if strings.Contains(rows[2], "opus") {
+		t.Errorf("free O-02's row %q, want no type", rows[2])
+	}
+}

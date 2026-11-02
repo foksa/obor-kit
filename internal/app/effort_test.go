@@ -46,10 +46,13 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort high") {
 		t.Fatalf("hard dispatch: %q, %v; want O-01 at effort high", reply, err)
 	}
-	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "O-01" {
-		t.Errorf("dispatch fact %v, want effort high on O-01", d)
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "O-01" || d["type"] != "opus:high" {
+		t.Errorf("dispatch fact %v, want effort high and type opus:high on O-01 (T-721)", d)
 	}
 	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
+	if row, ok := r.p.Row("O-01"); !ok || row.Task != "T-1" || row.Type != "opus:high" {
+		t.Errorf("lane row %+v (%v), want T-1 with type opus:high (T-721)", row, ok)
+	}
 	if l, _ := r.launchOf("pj-o1"); l.Effort != "high" || !l.Fresh {
 		t.Errorf("worker start %+v, want a fresh start at effort high", l)
 	}
@@ -85,8 +88,8 @@ func TestEffortPlainTypeNamesNone(t *testing.T) {
 	if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
 		t.Fatalf("--types opus: %q, %v; want no effort in the reply", reply, err)
 	}
-	if d := r.factData("T-1", event.StepDispatched); d["effort"] != nil {
-		t.Errorf("dispatch fact %v, want no effort (the type's args)", d)
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != nil || d["type"] != "opus" {
+		t.Errorf("dispatch fact %v, want no effort (the type's args) and type opus (T-721)", d)
 	}
 	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
 	if l, _ := r.launchOf("pj-o1"); l.Effort != "" {

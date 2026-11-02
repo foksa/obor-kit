@@ -124,6 +124,62 @@ func TestLaneStates(t *testing.T) {
 	}
 }
 
+// ltSetType sets lane's row's type to typ (the type reference its dispatch chose, T-721).
+func ltSetType(t *testing.T, root, lane, typ string) {
+	t.Helper()
+	db, err := store.OpenRW(store.File(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := store.ReadLanes(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for i := range rows {
+		if rows[i].Lane == lane {
+			rows[i].Type, found = typ, true
+		}
+	}
+	if !found {
+		t.Fatalf("no row for %s", lane)
+	}
+	if err := store.WriteLanes(db, rows); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// T-721: a working or done lane's type is the one its row's dispatch chose (a reference's type: sonnet:low is
+// sonnet); a row with none (recorded before T-721) falls back to the config's lane type, as does a free lane whatever
+// its row says (a lane's type is its task's only while it holds it).
+func TestLaneTypeIsTheDispatchs(t *testing.T) {
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"O-01": "T-01", "O-02": "T-02", "O-03": "T-03",
+		"O-04": "T-04"})
+	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
+	ltCommit(t, dir("O-01"))
+	ltSubmit(t, p.Root, "O-01", "T-01", false, 0)
+	ltSetType(t, p.Root, "O-01", "sonnet:low")
+	ltCommit(t, dir("O-02"))
+	ltSubmit(t, p.Root, "O-02", "T-02", false, 0) // a row from before T-721: no type
+	ltSubmit(t, p.Root, "O-03", "T-03", true, 0)  // at main: merged, free
+	ltSetType(t, p.Root, "O-03", "sonnet")
+	ltCommit(t, dir("O-04"))
+	ltSubmit(t, p.Root, "O-04", "T-04", true, 0)
+	ltSetType(t, p.Root, "O-04", "sonnet:high")
+	got := map[string]string{}
+	for _, s := range p.States() {
+		got[s.Lane] = s.State + " " + s.Type
+	}
+	want := map[string]string{"O-01": "working sonnet", "O-02": "working opus", "O-03": "free opus",
+		"O-04": "done sonnet"}
+	for l, w := range want {
+		if got[l] != w {
+			t.Errorf("%s: %q, want %q", l, got[l], w)
+		}
+	}
+}
+
 // T-547, T-550: a "<id>:" subject is evidence whatever files it changes, except a commit that changes only files in the
 // legacy spec dir (paths.tasks, else docs/tasks): an upgrade's old "<id>: spec" commit is no evidence (T-290's
 // exclusion, kept for the deprecation period). "Merge <id>:" stays evidence.

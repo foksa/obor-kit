@@ -358,7 +358,7 @@ func (p *Project) eventAt(task, step string, data any, at time.Time) {
 
 // State writes lane's row in the store's lanes table (what obor serve projects from its log; T-439): v as JSON (a
 // JSON text string as is) with the row's keys lane, task, branch, agent (null: ""), base, head, dispatched_at,
-// finished; other keys are ignored. The row's lane is lane.
+// finished, type; other keys are ignored. The row's lane is lane.
 func (p *Project) State(lane string, v any) {
 	p.t.Helper()
 	text, ok := v.(string)
@@ -370,16 +370,16 @@ func (p *Project) State(lane string, v any) {
 		text = string(b)
 	}
 	var j struct {
-		Task, Branch, Base, Head string
-		Agent                    *string
-		DispatchedAt             int64 `json:"dispatched_at"`
-		Finished                 int64
+		Task, Branch, Base, Head, Type string
+		Agent                          *string
+		DispatchedAt                   int64 `json:"dispatched_at"`
+		Finished                       int64
 	}
 	if err := json.Unmarshal([]byte(text), &j); err != nil {
 		p.t.Fatal(err)
 	}
 	row := store.LaneRow{Lane: lane, Task: j.Task, Branch: j.Branch, Base: j.Base, Head: j.Head,
-		DispatchedAt: j.DispatchedAt, Finished: j.Finished}
+		DispatchedAt: j.DispatchedAt, Finished: j.Finished, Type: j.Type}
 	if j.Agent != nil {
 		row.Agent = *j.Agent
 	}

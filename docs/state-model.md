@@ -16,7 +16,8 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
   effect starts); a failed insert rolls back, so no partial record exists. Replay reads the rows in `seq` order.
 - A dispatch that waits is `obor dispatch … --after`, or one with no free lane of its level (row 2a).
 - The lane state is the same database's `lanes` table (T-439): `lane, task, branch, agent, base, head, dispatched_at,
-  finished`, a projection of the log, not a log. serve is its one writer: after the load's replay and after every
+  finished, type` (`type`: the type reference its dispatch chose, `<type>[:<effort>]`, T-721; empty for a dispatch
+  recorded before it, whose readers take the config's lane type), a projection of the log, not a log. serve is its one writer: after the load's replay and after every
   record that changes a row it rewrites the table from its fold (`internal/app/lanerows.go`). A successful
   `lane.prepare` puts its task on the lane (and off any other lane), a `dropped` fact takes it off, `finished` is when
   the attempt's `task_done` was recorded (0 while the task awaits it). After a merge the row stays until the lane's

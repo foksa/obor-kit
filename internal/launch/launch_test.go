@@ -49,6 +49,7 @@ type fx struct {
 	onKill func(pgid int, sig syscall.Signal)   // what a kill does (nil: nothing)
 	ps     func(args ...string) ([]byte, error) // the launcher's PS (nil: the real ps)
 	wait   time.Duration                        // the launcher's exit wait and idle wait (0: bound, the load-proof default)
+	up     time.Duration                        // the launcher's wait for a started agent to come up (0: wait)
 	poll   time.Duration                        // the launcher's pane poll interval (0: 1 ms)
 	// sessions: the recorded sessions the launcher reads (nil: serve's store); reported: the sessions it reported.
 	sessions map[string]store.Session
@@ -132,6 +133,10 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 	if wait == 0 {
 		wait = bound
 	}
+	up := x.up
+	if up == 0 {
+		up = wait
+	}
 	poll := x.poll
 	if poll == 0 {
 		poll = time.Millisecond
@@ -145,7 +150,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		background = func(search func()) { go search() }
 	}
 	return &launch.Launcher{Cfg: cfg, Env: x.env(), Kit: "/kit", H: h, Out: out,
-		Wait: wait, Idle: wait, Up: wait, Poll: poll, Rollout: rollout, Background: background, Log: x,
+		Wait: wait, Idle: wait, Up: up, Poll: poll, Rollout: rollout, Background: background, Log: x,
 		Kill: func(pgid int, sig syscall.Signal) error {
 			x.kills = append(x.kills, fmt.Sprintf("%d %s", pgid, sig))
 			if x.onKill != nil {
@@ -2432,7 +2437,8 @@ func TestStopLeftoverMCP(t *testing.T) {
 	t.Run("restart: leftovers stopped, then the start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.wait = shortWait
+		x.wait = shortWait // the exit wait is given up on (the leftovers keep the foreground)
+		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load (T-721)
 		x.sid("pj-o-01", "sid-1")
 		p := mcp(x)
 		x.onKill = func(int, syscall.Signal) { p.Foreground = 1 }

@@ -896,6 +896,42 @@ func TestStatusShowsTheEffort(t *testing.T) {
 	}
 }
 
+// T-721: a working lane's type is the one its dispatch chose (the lane row's), on its line and in --json
+// (lanes[].type); a row from before T-721 (no type) shows the config's lane type, as does a free lane.
+func TestStatusShowsTheDispatchsType(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-01")
+	o2 := p.Lane("O-02", "task/T-02")
+	p.Lane("O-03", "")
+	p.Config(testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude", "args": []any{}}))
+	p.Commit(o1)
+	p.Commit(o2)
+	p.State("O-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
+	p.State("O-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
+	now := time.Now()
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
+		Name: "pj", Root: p.Root, Merging: true,
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Effort: "high"},
+			{Task: "T-02", Lane: "O-02", Attempt: 1, State: "working"}}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	if len(st.Lanes) != 3 || st.Lanes[0].State != "working" || st.Lanes[1].State != "working" ||
+		st.Lanes[2].State != "free" {
+		t.Fatalf("precondition: O-01 and O-02 working, O-03 free; got %+v", st.Lanes)
+	}
+	matchLine(t, text, `^O-01 +sonnet .*effort: high$`, "O-01 of its dispatch's type sonnet")
+	matchLine(t, text, `^O-02 +opus `, "O-02 of the config's type (no type in its row)")
+	matchLine(t, text, `^O-03 +opus `, "O-03 free, of the config's type")
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"type":"sonnet"`) || st.Lanes[0].Type != "sonnet" || st.Lanes[1].Type != "opus" ||
+		st.Lanes[2].Type != "opus" {
+		t.Errorf("--json lanes %+v: want O-01's type sonnet, O-02's and O-03's opus", st.Lanes)
+	}
+}
+
 // T-705: a working Claude lane whose worktree has no enabled obor plugin is warned no-plugin, as an opencode lane
 // without its marker is; the testkit's lanes have the plugin enabled.
 func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {

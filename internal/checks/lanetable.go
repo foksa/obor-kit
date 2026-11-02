@@ -18,7 +18,8 @@ func NewLaneTable(cfg *config.Config) *LaneTable {
 	return &LaneTable{Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
 }
 
-// LaneStatus is one lane's row of the lane table.
+// LaneStatus is one lane's row of the lane table. Type is its lane type: the dispatch's while it holds a task
+// (taskType), else the config's.
 type LaneStatus struct {
 	Lane, Type, Dir string
 	Branch, Task    string // "" when detached / no task id in the branch
@@ -124,7 +125,22 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	default:
 		s.State = "working"
 	}
+	s.Type = p.taskType(l, s)
 	return s
+}
+
+// taskType is the lane type of lane l in state s (T-721): a working or done lane's is the type its row's dispatch
+// chose (the row holds its task; a row from before T-721 has none: the config's), any other lane's the config's
+// ("": an untyped lane).
+func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
+	if s.State != "working" && s.State != "done" {
+		return l.Type
+	}
+	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task && row.Type != "" {
+		typ, _ := config.ParseTypeRef(row.Type)
+		return typ
+	}
+	return l.Type
 }
 
 // Rows is the store's lanes table by lane, read once (read-only; no database or an unreadable one: none).
