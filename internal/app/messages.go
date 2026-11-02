@@ -44,11 +44,13 @@ import (
 // deliver posts each line to the lead into its Claude session's inbox socket (T-485: recorded by its SessionStart
 // hook; no pane, no idle rule, nothing typed into the pane the owner writes in) and delivers each role agent's line
 // when its pane is idle (Ready: the rule of job delivery, no Escape, no screen read) as the pane's kind takes it
-// (T-499, posted): a kind with an inbox (agents.Caps.Inbox) gets it posted to its session's inbox like the lead's, and
-// it waits, untried, while that session has no inbox record; any other kind gets it typed into its pane (the herdr
-// call of job delivery). The oldest first and one per agent per pass, under deliver.<seq> (P, a wake's transport:
-// prompt.go). A refusal before any byte went out (no inbox record, a refused dial, a refused typing) is fact
-// failed{step: deliver.<seq>}, and the line stays queued and is delivered again on a later pass, also after a restart
+// (T-499, posted): a kind with an inbox (agents.Caps.Inbox) gets it posted to its session's inbox like the lead's when
+// that inbox is the live session's in its pane (liveSession), else typed into its pane as its job wakes are (T-746: a
+// line to an idle agent is never held on a missing or mismatched record); any other kind gets it typed into its pane
+// (the herdr call of job delivery). A line held (its agent busy, not identified; a lead line with no inbox record)
+// notes why (queued.held: obor status, the line's needs-you). The oldest first and one per agent per pass, under
+// deliver.<seq> (P, a wake's transport: prompt.go). A refusal before any byte went out (no inbox record, a refused
+// dial, a refused typing) is fact failed{step: deliver.<seq>}, and the line stays queued and is delivered again on a later pass, also after a restart
 // (RV-50 #1); a post serve's own stop cut before a byte records nothing (T-660) and waits the same. A delivery a crash
 // cut (its intent pending) is delivered again too: a line may reach its agent twice,
 // never not at all. A typed line herdr refuses because the pane is blocked (blocked, agent_blocked) is such a refusal,
@@ -113,7 +115,9 @@ func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.brief
 // queued is a line not delivered yet: its fact's seq and time, its data, whether its delivery may have begun (typing),
 // whether it is a lead line (fact message, posted to the inbox whatever today's lead name; fact briefed: a role
 // brief), whether it is a brief's line (fact briefed with a line: a newer brief ends it), and the seq of the delivery
-// intent whose post carries it (0: none; T-654: only that post's result settles it).
+// intent whose post carries it (0: none; T-654: only that post's result settles it), and why the last delivery pass
+// held it ("": not held; T-746: obor status and the line's needs-you say it, not folded), and whether it is an
+// answer's line (fact answered: retireAnswers ends it once its question is settled another way, T-746).
 type queued struct {
 	seq    int64
 	at     time.Time
@@ -122,6 +126,8 @@ type queued struct {
 	lead   bool
 	brief  bool
 	post   int64
+	held   string
+	answer bool
 }
 
 // brief is a role agent's open brief: its fact's seq, when its line was delivered (else the fact's time), whether its
@@ -185,6 +191,10 @@ func (d lineData) members(seq int64) []int64 {
 
 // foldMsg folds r, a record of the project's lines.
 func (p *proj) foldMsg(r event.Record) {
+	if r.Kind == event.KindFact && r.Task != event.MsgTask && (r.Step == event.StepSubmitted ||
+		r.Step == event.StepUnblocked || isAsk(r)) { // the question is settled another way: its answer ends (T-746)
+		p.retireAnswers(r.Task, 0)
+	}
 	if r.Task != event.MsgTask {
 		return
 	}
@@ -253,7 +263,8 @@ func (p *proj) foldMsg(r event.Record) {
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
 		p.folded.calls[verdictStep(wire.MethodAnswer, m.Call)] = m.Reply
-		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m}
+		p.retireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
+		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m, answer: true}
 		p.answered(m.Task)
 	case r.Kind == event.KindFact && r.Step == event.StepWorked:
 		var d workedData
@@ -298,6 +309,18 @@ func (p *proj) foldMsg(r event.Record) {
 					p.settleLine(q, r)
 				}
 			}
+		}
+	}
+}
+
+// retireAnswers ends task's undelivered answer lines but keep's (under mu; T-746): their question was settled another
+// way (the worker submitted or asked again, the task was unblocked, a newer answer or a stalled worker's resume came),
+// so a line is never delivered late and obor status lists it no more. A line whose delivery is in flight (typing, a
+// post) may have landed and stays, as T-575 keeps a brief's. Folded live and on replay alike.
+func (p *proj) retireAnswers(task string, keep int64) {
+	for seq, q := range p.out.msgs {
+		if q.answer && q.msg.Task == task && seq != keep && !q.typing && q.post == 0 {
+			delete(p.out.msgs, seq)
 		}
 	}
 }
@@ -459,34 +482,56 @@ func (a *App) gone(p *proj, agent string, b *brief, w Where, now time.Time) bool
 }
 
 // route is how q's line goes out now (under mu): posted to its agent's session (post: the kind whose inbox takes it;
-// a lead line, or a ready agent whose kind has an inbox), or typed into its ready agent's pane (post "", target: the
-// pane's address, never herdr's name, RV-53 #5): via. ok false: held, no intent, nothing typed (delivered already, its
-// inbox not recorded or recorded by another session than its pane's, or its agent not identified (two panes claim
-// it, or none proves it) or not ready).
+// a lead line, or a ready agent whose kind has an inbox and whose inbox record is its pane's live session's), or
+// typed into its ready agent's pane (post "", target: the pane's address, never herdr's name, RV-53 #5): via. A ready
+// agent whose kind has an inbox but whose record cannot take the line gets it typed, as its job wakes are (T-746: a
+// line to an idle worker is delivered, never held on a session mismatch). ok false: held, no intent, nothing typed
+// (delivered already, a lead line whose inbox is not recorded, its agent not identified (two panes claim it, or none
+// proves it) or not ready); the line's held notes why (obor status, its needs-you).
 func (a *App) route(p *proj, fx *Loop, q queued) (post, target string, ok bool) {
-	if p.out.msgs[q.seq] == nil {
+	m := p.out.msgs[q.seq]
+	if m == nil {
 		return "", "", false
 	}
-	lead := q.lead || q.msg.To == p.out.leadAgent // a lead line, or a brief whose agent has since become the lead
-	w := a.whereIs(p, q.msg.To)
+	post, target, m.held = a.routeOf(p, fx, q)
+	return post, target, m.held == ""
+}
+
+// routeOf is route's choice for q (under mu): its post and target, or why it is held ("": it goes out).
+func (a *App) routeOf(p *proj, fx *Loop, q queued) (post, target, held string) {
+	to := q.msg.To
+	lead := q.lead || to == p.out.leadAgent // a lead line, or a brief whose agent has since become the lead
+	w := a.whereIs(p, to)
 	switch {
+	case lead && (fx.Inbox == nil || !a.inboxed(to)):
+		return "", "", "no inbox recorded for " + to + ": its SessionStart hook records one"
 	case lead && w.State != Identified: // a lead line goes out whatever its pane: through the lead's configured kind
-		return p.out.leadKind, q.msg.To, fx.Inbox != nil && a.inboxedAt(q.msg.To, Where{})
+		return p.out.leadKind, to, ""
 	case lead: // its record is its own latest SessionStart, fresher than herdr's view: no pane check (DD-v0.13 R1)
-		return w.Pane.Agent, q.msg.To, fx.Inbox != nil && a.inboxedAt(q.msg.To, Where{})
-	case q.brief && q.msg.To != p.integrator && fx.Agents != nil && w.State == Unavailable:
-		if pane, ok := a.shellPane(p, q.msg.To); ok { // a stopped role agent: started fresh on the brief (T-672)
-			return startRoute, pane.ID, true
+		return w.Pane.Agent, to, ""
+	case q.brief && to != p.integrator && fx.Agents != nil && w.State == Unavailable:
+		if pane, ok := a.shellPane(p, to); ok { // a stopped role agent: started fresh on the brief (T-672)
+			return startRoute, pane.ID, ""
 		}
-		return "", "", false
-	case w.State != Identified || !Ready(w.Pane.Status):
-		return "", "", false
+		return "", "", to + " is not running and no shell pane of it is there to start it in"
+	case w.State == Ambiguous:
+		return "", "", notIdentified(to, w)
+	case w.State != Identified:
+		return "", "", to + " is not identified: " + Dash(w.Why)
+	case !Ready(w.Pane.Status):
+		return "", "", fmt.Sprintf("%s is busy in pane %s (delivered once it is idle)", to, w.Pane.ID)
 	}
-	post, ok = a.via(fx, w, q.msg.To)
-	if post != "" {
-		return post, q.msg.To, ok
+	post, inboxed := a.via(fx, p, w, to)
+	switch {
+	case post != "" && inboxed:
+		return post, to, ""
+	case fx.Typer != nil:
+		return "", w.Pane.ID, ""
+	case post != "":
+		return "", "", fmt.Sprintf("no inbox recorded for the session in %s's pane %s, and serve types no lines", to,
+			w.Pane.ID)
 	}
-	return "", w.Pane.ID, ok
+	return "", "", "serve types no lines"
 }
 
 // needsLineWaits: a line announcing needs-you fact seq is queued, not delivered yet (under mu).
@@ -518,18 +563,33 @@ func posted(kind string) bool {
 
 // inboxed: agent's session inbox is recorded (Options.Inboxed; nil: assumed, the post says otherwise).
 func (a *App) inboxed(agent string) bool {
-	return a.inboxedAt(agent, Where{})
+	return a.inboxedAt(nil, agent, Where{})
 }
 
 // inboxedAt: agent's session inbox is recorded and, when w identifies agent's pane, the record's session is that
 // pane's or names none, or herdr reports none for the pane (DD-v0.13 A3: a record another session of that name wrote
 // is not this pane's; R1: an unknown session cannot tell).
-func (a *App) inboxedAt(agent string, w Where) bool {
+func (a *App) inboxedAt(p *proj, agent string, w Where) bool {
 	if a.opt.Inboxed == nil {
 		return true
 	}
 	session, ok := a.opt.Inboxed(agent)
-	return ok && (session == "" || w.State != Identified || w.Pane.Session == "" || sameSession(w.Pane.Session, session))
+	if !ok || session == "" || w.State != Identified || w.Pane.ID == "" { // Where{}: no pane to check (a lead line)
+		return ok
+	}
+	live := p.liveSession(agent, w.Pane)
+	return live == "" || sameSession(live, session)
+}
+
+// liveSession is the session running in pane, agent's (under mu; T-746): its recorded current session when that
+// session was reported from pane (its SessionStart hook ran there: first-hand, and fresher than herdr's view), else
+// herdr's agent_session for pane ("": unknown). herdr's value can be stale (axis-alies T-1421: it named a session
+// with no transcript while the pane ran the one its hook recorded), so it decides only when the record is not pane's.
+func (p *proj) liveSession(agent string, pane port.Pane) string {
+	if s, ok := p.session(agent); ok && s.Pane != "" && s.Pane == pane.ID {
+		return s.ID
+	}
+	return pane.Session
 }
 
 // deliverLine posts q's line to target's session through kind post's inbox (the lead, or an agent whose kind has
@@ -679,8 +739,8 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 		if now.Sub(q.at) >= msgWait {
 			reason = fmt.Sprintf("line to %s from %s waiting over %s for its delivery: %s", q.msg.To, q.msg.From,
 				Age(msgWait), q.msg.Line)
-			if w := a.whereIs(p, q.msg.To); w.State == Ambiguous && !q.lead && q.msg.To != p.out.leadAgent {
-				reason += " (" + notIdentified(q.msg.To, w) + ")"
+			if q.held != "" { // why the last pass held it (T-746; two panes claiming its agent among them)
+				reason += " (held: " + q.held + ")"
 			}
 			break
 		}
@@ -978,7 +1038,7 @@ func (p *proj) messageStatus(now time.Time) []wire.MessageStatus {
 	out := []wire.MessageStatus{}
 	for _, q := range p.queuedLines() {
 		out = append(out, wire.MessageStatus{To: q.msg.To, From: q.msg.From, Line: q.msg.Line,
-			Age: int64(now.Sub(q.at) / time.Second)})
+			Age: int64(now.Sub(q.at) / time.Second), Held: q.held})
 	}
 	return out
 }

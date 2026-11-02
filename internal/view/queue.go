@@ -91,8 +91,8 @@ const (
 	OutBrief = "brief" // a role agent's brief in progress
 )
 
-// OutboxItem is a line not delivered yet (To, From, Line, Since: its fact's time) or a brief in progress (To, Since,
-// Delivered: its line was, Worked: the agent's pane worked on it since).
+// OutboxItem is a line not delivered yet (To, From, Line, Since: its fact's time, Held: why serve holds it, T-746) or
+// a brief in progress (To, Since, Delivered: its line was, Worked: the agent's pane worked on it since).
 type OutboxItem struct {
 	Kind      string `json:"kind"`
 	To        string `json:"to"`
@@ -101,6 +101,7 @@ type OutboxItem struct {
 	Since     int64  `json:"since"`
 	Delivered bool   `json:"delivered,omitempty"`
 	Worked    bool   `json:"worked,omitempty"`
+	Held      string `json:"held,omitempty"`
 }
 
 // Nightly is the configured nightly check (merge.nightly_at): its local time and its next run (epoch seconds).
@@ -162,7 +163,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 	}
 	for _, m := range ps.Messages {
 		q.Outbox = append(q.Outbox, OutboxItem{Kind: OutLine, To: m.To, From: m.From, Line: m.Line,
-			Since: now.Unix() - m.Age})
+			Since: now.Unix() - m.Age, Held: m.Held})
 	}
 	for _, b := range ps.Briefs {
 		q.Outbox = append(q.Outbox, OutboxItem{Kind: OutBrief, To: b.To, Since: b.Since, Delivered: b.Delivered,

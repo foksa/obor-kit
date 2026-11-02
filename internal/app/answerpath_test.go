@@ -45,7 +45,7 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 // a one-word decision for the placeholder (RV-54 #4), obor drop and obor sendback as their CLIs call serve.
 func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
 	c := wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
-	args := strings.Fields(strings.NewReplacer(`["<decision>"]`, "yes", `"<why>"`, "").Replace(cmd))
+	args := strings.Fields(strings.NewReplacer(`["<decision>"]`, "yes", `"<decision>"`, "yes", `"<why>"`, "").Replace(cmd))
 	switch {
 	case len(args) > 2 && args[1] == "resume":
 		rc, ok := wire.ResumeArgs(args[2:])
@@ -105,7 +105,7 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
 		{event.StepStop + failedSuffix, stMerged, "", false, resume},
 		{causeRejected, stRejected, "", false, `obor drop O-01 "<why>"`},
-		{"stalled", "", "", true, `its pane, or obor drop O-01 "<why>"`},
+		{"stalled", "", "", true, `its pane, or obor resume T-1 "<decision>" | obor drop O-01 "<why>"`}, // T-746
 		{"blocked", "", "", true, `its pane, or obor drop O-01 "<why>"`},
 		{"pane exited", "", "", true, `its pane, or obor drop O-01 "<why>"`},
 	} {

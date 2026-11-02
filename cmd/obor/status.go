@@ -259,7 +259,12 @@ func queueSection(st view.Project, now time.Time) []string {
 	for _, o := range q.Outbox {
 		age := app.Age(max(now.Sub(time.Unix(o.Since, 0)), 0))
 		if o.Kind == view.OutLine {
-			out = append(out, fmt.Sprintf("undelivered to %s (from %s, %s): %s", o.To, app.Dash(o.From), age, o.Line))
+			held := ""
+			if o.Held != "" { // why serve holds it (T-746)
+				held = "; held: " + o.Held
+			}
+			out = append(out, fmt.Sprintf("undelivered to %s (from %s, %s%s): %s", o.To, app.Dash(o.From), age, held,
+				o.Line))
 			continue
 		}
 		state := "not delivered"

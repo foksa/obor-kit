@@ -192,7 +192,8 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 // verdict takes in the state mt of r's task (zero: the loop holds none), by the rules the verdict itself checks: a
 // worker's question obor answer; a merge-loop needs-you obor sendback when the task goes back (unsendable), obor resume
 // by default (a hold's with the owner's decision), else with each mode it takes (resumeTo), and obor drop unless the
-// task is merged (droppable); a stalled worker its pane or obor drop; a loop error none ("": fix what it names).
+// task is merged (droppable); a stalled worker its pane, obor resume with the decision (T-746) or obor drop; another
+// watchdog fact its pane or obor drop; a loop error none ("": fix what it names).
 func answerPath(r event.Record, mt mtask) string {
 	d := r.Fact()
 	drop := `obor drop ` + cmp.Or(d.Lane, r.Task) + ` "<why>"` // a waiting task has no lane: obor drop takes its task
@@ -204,10 +205,17 @@ func answerPath(r event.Record, mt mtask) string {
 	case strings.HasPrefix(d.Reason, reasonAsks):
 		return `obor answer ` + r.Task + ` "<text>"`
 	case !d.Merge:
-		if !mt.droppable(d.Lane != "") {
+		var cmds []string
+		if d.Reason == reasonStalled && mt.needs.Seq == 0 { // obor resume sends the stalled worker the decision (T-746)
+			cmds = append(cmds, `obor resume `+r.Task+` "<decision>"`)
+		}
+		if mt.droppable(d.Lane != "") {
+			cmds = append(cmds, drop)
+		}
+		if len(cmds) == 0 {
 			return "its pane"
 		}
-		return "its pane, or " + drop
+		return "its pane, or " + strings.Join(cmds, " | ")
 	}
 	var cmds []string
 	if mt.unsendable() == "" && d.Lane != "" { // obor sendback takes a lane: a waiting task's needs-you has none

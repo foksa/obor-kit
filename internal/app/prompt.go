@@ -43,7 +43,7 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.K
 	data.Job = job
 	a.mu.Lock()
 	w := a.whereIs(p, data.Agent)
-	post, inboxed := a.via(fx, w, data.Agent)
+	post, inboxed := a.via(fx, p, w, data.Agent)
 	a.mu.Unlock()
 	if w.State != Identified { // nothing sent, nothing recorded: the key stays pending (reconcile logs an ambiguity)
 		return false
@@ -71,10 +71,11 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.K
 
 // via is how a wake or a line reaches agent, identified at w (under mu): posted to its session's inbox as kind post
 // (w's pane's kind has one: posted) or typed into w's pane (post ""). inboxed: post's inbox can take it (fx.Inbox, and
-// agent's record is w's pane's session's or names none, DD-v0.13 A3); false for a typed one when fx has no Typer.
-func (a *App) via(fx *Loop, w Where, agent string) (post string, inboxed bool) {
+// agent's record is the session live in w's pane (liveSession, T-746) or names none, DD-v0.13 A3); false for a typed
+// one when fx has no Typer.
+func (a *App) via(fx *Loop, p *proj, w Where, agent string) (post string, inboxed bool) {
 	if w.State == Identified && posted(w.Pane.Agent) {
-		return w.Pane.Agent, fx.Inbox != nil && a.inboxedAt(agent, w)
+		return w.Pane.Agent, fx.Inbox != nil && a.inboxedAt(p, agent, w)
 	}
 	return "", fx.Typer != nil
 }
