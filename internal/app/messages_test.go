@@ -40,6 +40,11 @@ func (in *rigInbox) Post(ctx context.Context, _, agent, line string) (bool, erro
 		<-ctx.Done()
 		return false, ctx.Err()
 	}
+	// A post on an ended ctx fails before a byte goes out, as the real poster's dial does: a retry the stopping serve
+	// makes after a cut must not count as posted (a red TestShutdownDeliveryNotRecorded under load: posted twice).
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	switch {
