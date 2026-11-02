@@ -12,6 +12,23 @@ until their next restart.
 - `~/.obor/opencode-state/` is no longer used: delete it. A pane shell that still exports an `XDG_STATE_HOME` under it
   (started by v0.19.0) keeps it until the shell is restarted; harmless, opencode just keeps using that old dir.
 
+## v0.19.1 (patch)
+Re-run the installer, then `obor serve restart` in each project. No config change needed.
+- **`obor stop` / `obor start`**: put a project to sleep (stops its agents except your session, stops its serve, drops
+  it from `obor projects` and the web page; its hooks and git hooks stand down) and wake it again. Refuses with work
+  in progress unless `--force` (T-709..T-711).
+- **No idle agents after setup**: `obor init`, `obor setup pane` and `obor setup role` label panes and start no
+  agent; agents start on first use (`--start` for the old behaviour) (T-705, T-708).
+- **`obor init` in a new project**: an uncommitted `.claude/settings.json` reaches every lane (`lane_links`), and
+  status/dispatch flag a Claude lane without the obor plugin; the default opencode type names its model (T-705).
+- **opencode model and effort through obor's plugin**: obor's opencode plugin switches each new session to the
+  model and effort obor asked for; the per-agent `XDG_STATE_HOME` dirs of v0.19.0 are gone (`~/.obor/opencode-state`
+  can be deleted) (T-703, T-707).
+- **Researcher role** (`roles.researcher.type`): a role pane in the main checkout that writes only `docs/research/`
+  (T-704, T-706); every role's write profile now also covers shell writes and git commands (T-706).
+- `obor web`, `obor monitor` and `obor status` show a project whose config has fields this binary does not know,
+  with a warning (T-709).
+
 ## v0.19.0 (effort, spec lane types, opencode isolation)
 Re-run the installer, then `obor serve restart` in each project; restart the monitor; the lead picks up the new skill
 text at its next session.
