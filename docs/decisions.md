@@ -4,6 +4,13 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (owner): **Gemini codebase review** (docs/research/codebase-performance-and-test-review.md) judged by Fable
+  (docs/research/codebase-review-advice-fable.md; its 'proj split still to do' is wrong: T-600/T-610/T-615 did it).
+  Gate time is the slowest package plus 15 s waits on a missing serve, not fixtures or sleeps: T-685 (short test
+  deadlines), then T-686 (`t.Parallel()` in internal/app); T-687 three small cleanups. Rejected: guard emulator cut,
+  stop/wake removal (false premise), lane-state caching, review-as-task, LOC-driven test consolidation, indexes and
+  O(N) `Owned` (not measurable). Monitor caching dropped (measured 1.2-1.7 % CPU). Next architecture step: a deep dive
+  on splitting internal/app into packages (owner decides on its proposal). Open: herdr at ~100 % CPU, cause unknown.
 - 2026-11-01 (owner): **Monitoring is the next need** ("the kit is in great part feature complete, but I need
   monitoring: not only what is going on but also what is queued"); the 10-24 web-UI deferral is lifted. One read
   model `internal/view` feeds `obor status --json`, the monitor and `obor web` (read-only, localhost, stdlib, all
