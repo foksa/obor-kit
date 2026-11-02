@@ -271,6 +271,7 @@ setInterval(() => {
 // tone is a state's color: green working, amber waiting, red needs-you or failed, grey free or idle.
 function tone(state) {
   const s = String(state || "").toLowerCase();
+  if (/^merge held/.test(s)) return "wait"; // its publish waits for the reviewer or the deep dive (T-718)
   if (/held|needs-you|fail|red|blocked|conflict|down|missing|dropped/.test(s)) return "bad";
   if (/pending|waiting|submitted|done|queued|not fetched|stuck|review requested|ready/.test(s)) return "wait";
   if (/working|gating|merging|review|resolv|running|green|accepted|published|merged|live|up|brief/.test(s)) return "ok";

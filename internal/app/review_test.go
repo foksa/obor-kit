@@ -19,14 +19,14 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is a ReviewGit with fixed answers; detachErr fails the checkout. detached is every Detach "<dir>@<sha>".
+// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark. marked is every Mark's sha.
 type reviewGitFake struct {
-	last      string
-	merges    []string
-	from      []string // every Merges call's from
-	files     []string
-	detachErr error
-	detached  []string
+	last    string
+	merges  []string
+	from    []string // every Merges call's from
+	files   []string
+	markErr error
+	marked  []string
 }
 
 func (g *reviewGitFake) Last(context.Context, string) (string, error) { return g.last, nil }
@@ -38,11 +38,11 @@ func (g *reviewGitFake) Merges(_ context.Context, from, _ string) ([]string, err
 	return g.merges, nil
 }
 func (g *reviewGitFake) Files(context.Context, string, string) ([]string, error) { return g.files, nil }
-func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
-	if g.detachErr != nil {
-		return g.detachErr
+func (g *reviewGitFake) Mark(_ context.Context, sha string) error {
+	if g.markErr != nil {
+		return g.markErr
 	}
-	g.detached = append(g.detached, dir+"@"+sha)
+	g.marked = append(g.marked, sha)
 	return nil
 }
 
@@ -223,8 +223,11 @@ func TestReviewRequest(t *testing.T) {
 					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
-			if len(r.git.detached) != 1 || !strings.HasSuffix(r.git.detached[0], "/review@abcdef0123456789abcdef0123456789abcdef01") {
-				t.Errorf("detached %q, want the review worktree at the head", r.git.detached)
+			if len(r.git.marked) != 1 || r.git.marked[0] != "abcdef0123456789abcdef0123456789abcdef01" {
+				t.Errorf("marked %q, want the head (T-718: no review worktree)", r.git.marked)
+			}
+			if !strings.Contains(l.Prompt, "Write only reviews/RV-5.md (in the main checkout). Do not commit.") {
+				t.Errorf("the brief does not name the main checkout: %q", l.Prompt)
 			}
 			if lines := r.leadLines(); len(lines) != 0 {
 				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
@@ -352,7 +355,7 @@ func TestReviewRequest(t *testing.T) {
 			r.started()
 			// A request already in the log (one obor review recorded before RV-5's start, or an older serve's).
 			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
-			if r.p.folded.review == nil || !r.a.reviewerIdle(r.p, "pj-rev") {
+			if r.p.folded.review == nil || !r.a.roleIdle(r.p, "pj-rev") {
 				t.Fatal("precondition: no request open, or the reviewer is not idle")
 			}
 			r.pass()
@@ -457,20 +460,20 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launches %+v", r.agents.launches)
 			}
 		}},
-		{"a failing checkout is a needs-you, no restart", func(t *testing.T, r *reviewRig) {
-			r.git.detachErr = errors.New("git checkout: your local changes would be overwritten")
+		{"a failing mark is a needs-you, no restart", func(t *testing.T, r *reviewRig) {
+			r.git.markErr = errors.New("git update-ref: cannot lock ref")
 			r.mustCall("r1", nil, "", false)
 			r.pass()
 			if len(r.agents.launches) != 0 {
 				t.Errorf("launched %+v", r.agents.launches)
 			}
-			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git checkout: your local changes would be overwritten" {
+			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git update-ref: cannot lock ref" {
 				t.Errorf("needs-you %q", n)
 			}
 			if r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 0 {
 				t.Errorf("request %v, started %d; want ended, none", r.p.folded.review, r.facts(event.StepReviewStarted))
 			}
-			r.git.detachErr = nil
+			r.git.markErr = nil
 			r.mustCall("r2", nil, "", false)
 			if n := r.needs(); len(n) != 0 {
 				t.Errorf("needs-you %q after a new request, want ended", n)

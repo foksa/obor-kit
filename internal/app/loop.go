@@ -672,12 +672,20 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 	}
 }
 
-// pickAccepted publishes the candidate (row 33) once the scratch is free.
+// pickAccepted publishes the candidate (row 33) once the scratch is free and no reviewer or deep dive holds the merge
+// (holdPublish, T-718); one that went ahead after the hold's cap tells the lead first.
 func (a *App) pickAccepted(p *proj, mt mtask) step {
 	if holder, _ := p.scratchWait(mt); holder != "" {
 		return nil
 	}
+	held, capped := a.holdPublish(p, mt.task)
+	if held {
+		return nil
+	}
 	return func(ctx context.Context, fx *Loop) bool {
+		if capped != "" && p.out.lead() != "" {
+			a.holdLine(p, mt.task, capped)
+		}
 		return a.scratchStep(ctx, p, mt, nth(event.StepPublish, mt.pubs+1), func(ctx context.Context) { a.publish(ctx, p, fx, mt) })
 	}
 }

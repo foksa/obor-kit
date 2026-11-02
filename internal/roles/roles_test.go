@@ -30,24 +30,23 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		name         string
 		env          string
 		agent        string
-		worktree     string
 		cwd          CwdRule
 		write        WriteProfile
 		stoppable    bool
 		dispatchable bool
 	}{
-		{"lead", "lead", "pj-lead", "", CwdProject, WriteAll, false, false},
-		{"integrator", "integrator", "pj-int", "", CwdProject, WriteNone, false, false},
-		{"worker", "worker", "pj-o-01", "", CwdLane, WriteSpec, true, true},
-		{"reviewer", "reviewer", "pj-rev", "review", CwdRoleWorktree, WriteReviewsOnly, false, false},
-		{"deep_dive", "deep_dive", "pj-deep-dive", "deep-dive", CwdRoleWorktree, WriteReviewsOnly, false, false},
-		{"triage", "", "pj-triage", "", CwdProject, WriteNone, false, false},
-		{"advisor", "advisor", "pj-advisor", "", CwdProject, WriteNone, false, false},
-		{"researcher", "researcher", "pj-researcher", "", CwdProject, WriteResearchOnly, false, false},
+		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false},
+		{"integrator", "integrator", "pj-int", CwdProject, WriteNone, false, false},
+		{"worker", "worker", "pj-o-01", CwdLane, WriteSpec, true, true},
+		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false},
+		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false},
+		{"triage", "", "pj-triage", CwdProject, WriteNone, false, false},
+		{"advisor", "advisor", "pj-advisor", CwdProject, WriteNone, false, false},
+		{"researcher", "researcher", "pj-researcher", CwdProject, WriteResearchOnly, false, false},
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
-		if r.EnvValue != check.env || r.AgentName("pj", "O-01", "") != check.agent || r.Worktree != check.worktree ||
+		if r.EnvValue != check.env || r.AgentName("pj", "O-01", "") != check.agent ||
 			r.Cwd != check.cwd || r.Write != check.write || r.Stoppable != check.stoppable || r.Dispatchable != check.dispatchable {
 			t.Errorf("%s = %+v", check.name, r)
 		}

@@ -82,8 +82,8 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 	return lines(out), err
 }
 
-func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
-	_, err := gitIn(ctx, dir, "checkout", "-q", "--detach", sha)
+func (g reviewGit) Mark(ctx context.Context, sha string) error {
+	_, err := g.git(ctx, "update-ref", app.ReviewedRef, sha)
 	return err
 }
 

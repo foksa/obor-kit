@@ -106,29 +106,32 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 		return project.Failf("roles.%s.type is not set (a lane_types key)", role.Name)
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
-	worktree := ""
-	if role.Cwd == roles.CwdRoleWorktree {
-		worktree = rc.Worktree
-	}
-	if err := refuseRoleCollisions(s.cfg, role.Name, worktree, a.name); err != nil {
+	if err := refuseRoleCollisions(s.cfg, role.Name, a.name); err != nil {
 		return err
 	}
 	if err := refuseLaneName(s.cfg, role.Name, a.name); err != nil {
 		return err
 	}
-	if worktree != "" {
-		// Reviewer and deep dive (T-179): a detached worktree of their own, never a lane.
-		a.cwd = filepath.Join(s.cfg.LanesDir(), worktree)
-		if err := s.ensureWorktree(a.cwd); err != nil {
-			return err
-		}
-	}
+	s.oldWorktreeHint(rc.OldWorktree())
 	if role.Name == "triage" {
 		if err := s.copyFile(filepath.Join(s.Kit, "templates", "BUGS.md"), "docs/BUGS.md"); err != nil {
 			return err
 		}
 	}
 	return s.start(ctx, a, w)
+}
+
+// oldWorktreeHint names a role's old worktree for removal (T-718: the reviewer and the deep dive run in the main checkout
+// now), when it is still a worktree of this repo; it never removes it.
+func (s *Setup) oldWorktreeHint(name string) {
+	if name == "" {
+		return
+	}
+	dir := filepath.Join(s.cfg.LanesDir(), name)
+	if repo, err := project.Find(dir); err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
+		return
+	}
+	s.say("worktree %s is unused (the role runs in the main checkout): git -C %s worktree remove %s", dir, s.root, dir)
 }
 
 // refuseLaneName keeps a role's agent from a lane's bare lowercase name (o-01): no name of the lane since T-302, but

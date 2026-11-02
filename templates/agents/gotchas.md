@@ -43,8 +43,8 @@ otherwise.
 ## Codex CLI
 - Can self-update on start and exit to the shell → confirm the input box before prompting.
 - Can't write git metadata in worktrees → never commits (fine: the integrator commits).
-- Can't `git checkout` inside a linked worktree (the parent's `.git/worktrees/<wt>/index.lock`) → the lead detaches
-  the review worktree at the target commit before briefing.
+- Can't `git checkout` inside a linked worktree (the parent's `.git/worktrees/<wt>/index.lock`) → a reviewer or deep
+  dive never checks out: it reads the main checkout, which serve holds still while it works.
 - No network for installs.
 - First Codex start in a new repo shows a "Trust this folder?" dialog → `herdr agent start` reports `agent_not_ready`
   (blocked); answer it (Enter = trust) once per repo.

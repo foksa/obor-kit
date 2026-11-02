@@ -598,8 +598,22 @@ type RoleConfig struct {
 	Role        roles.Role
 	Agent, Type string
 	Effort      string // the effort roles.<role>.type names after the type (`opus:high`, T-695); "": the type's args
-	Worktree    string
-	Configured  bool
+	// Worktree is roles.<role>.worktree, else the reviewer's and the deep dive's old default (oldWorktrees): a name
+	// reserved under lanes_dir (no lane). The reviewer and the deep dive no longer run there (T-718: the main checkout;
+	// obor setup role names it for removal); another role configured with one still does (AgentLookup).
+	Worktree   string
+	Configured bool
+}
+
+// oldWorktrees is the worktree each role ran in by default before T-718; these roles run in the main checkout now.
+var oldWorktrees = map[string]string{"reviewer": "review", "deep_dive": "deep-dive"}
+
+// OldWorktree is the worktree the role no longer runs in (T-718: the reviewer's or the deep dive's Worktree; "": none).
+func (rc RoleConfig) OldWorktree() string {
+	if _, moved := oldWorktrees[rc.Role.Name]; moved {
+		return rc.Worktree
+	}
+	return ""
 }
 
 // AgentInfo is the role, lane, launch type, and cwd resolved for a configured agent, and the effort its role's type
@@ -724,7 +738,7 @@ func (c *Config) Role(name string) (RoleConfig, bool) {
 	if !ok {
 		return RoleConfig{}, false
 	}
-	rc := RoleConfig{Role: role, Worktree: role.Worktree}
+	rc := RoleConfig{Role: role, Worktree: oldWorktrees[name]}
 	if role.Name != "worker" {
 		rc.Agent = role.AgentName(c.Data.Prefix, "", "")
 	}
@@ -766,8 +780,8 @@ func (c *Config) roleAgents() []RoleConfig {
 	return out
 }
 
-// RoleWorktrees is the worktree name of every configured role: roles.<role>.worktree, else a table role's default
-// (reviewer → review, deep_dive → deep-dive). A linked worktree of such a name under lanes_dir is no lane.
+// RoleWorktrees is the old worktree name of every configured role (RoleConfig.Worktree: roles.<role>.worktree, else
+// reviewer → review, deep_dive → deep-dive). A linked worktree of such a name under lanes_dir is no lane.
 func (c *Config) RoleWorktrees() []string {
 	var out []string
 	for _, role := range roles.All() {
@@ -801,7 +815,7 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 	for _, rc := range c.roleAgents() {
 		if rc.Agent != "" && rc.Agent == agent {
 			cwd := c.Root
-			if rc.Worktree != "" {
+			if rc.Worktree != "" && rc.OldWorktree() == "" {
 				cwd = filepath.Join(c.LanesDir(), rc.Worktree)
 			}
 			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: cwd}, true

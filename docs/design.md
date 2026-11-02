@@ -149,7 +149,10 @@ summary (panes waiting on a trust dialog, the file to change, next: `obor lead`)
 the repair path. Placement (T-628, T-632, T-634): a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
 a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
-contract is the package doc). Role names, env values and worktree defaults come from `internal/roles`. `pane --tab`
+contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (the reviewer and the deep
+dive have no worktree of their own since T-718: their old `roles.<role>.worktree`, or the old default `review` /
+`deep-dive`, stays a reserved name under `lanes_dir`, and `obor setup role` prints its `git worktree remove` line,
+never removing it). `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` links obor.events in herdr from `<kit>/herdr-plugin`
 directly, re-linking it when herdr runs another kit's copy: herdr stores the path resolved at link time (a symlink in
@@ -234,6 +237,16 @@ full check and the pause.
   dispatch; **launch** a fresh worker (`agent.start`: `Agents.Launch(Launch{Fresh: true})` with env, label and type args) whose
   first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4, T-157). An undelivered wake is retried after 5 minutes, then becomes needs-you.
+- **merge hold** (T-718, owner 2026-11-02: fewer worktrees): the reviewer and the deep dive run in the main checkout,
+  like the advisor and the researcher, with no worktree of their own. So the code does not move under them, the merge
+  loop's publish (the step that moves the integration branch) waits while either one works: its agent has a brief open
+  (waiting for its delivery, or delivered and not finished) or its pane is not idle. Gates, jobs and dispatch go on;
+  only the publish waits. Capped: a task held 30 min is published anyway and the lead gets one line (`[obor] merge of
+  T-x went ahead: <role> still working after 30m`). `obor status`, the monitor and web show `merge held: <role>
+  working` on the waiting task. The hold is live state, never recorded: a replay folds the task accepted as before and
+  the next pass decides the hold afresh (its 30 min start again). The lead's doc commits during a review are accepted
+  (they touch no code). The reviewed sha a review's close commit names is the git ref `refs/obor/reviewed`, set at
+  the review's start and at each `obor review verify`.
 
 ## Machine load (v2.1, 2026-10-08 — requests from the axis-alies lead)
 Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies share it) turn timing-based tests RED.

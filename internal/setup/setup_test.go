@@ -643,8 +643,6 @@ func TestLaneAndRoleCollisionsRefused(t *testing.T) {
 			"FAIL lane O-01 agent pj-o1 collides with a role agent"},
 		{"new lane named like a role agent", []func(map[string]any){reviewer("o-01")}, false, []string{"lane", "O-01", "opus"},
 			"FAIL lane O-01 is named like role agent o-01"},
-		{"role worktree = lane", []func(map[string]any){reviewer(""), testkit.Set("lanes", `{"review": "opus"}`)}, false,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer worktree review collides with a configured lane"},
 		{"prefix-lower alias", []func(map[string]any){reviewer("pj-o-01"), o1}, false,
 			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent pj-o-01 collides with a configured lane agent"},
 		{"compact alias", []func(map[string]any){reviewer("pj-o1"), o1}, false,
@@ -779,7 +777,7 @@ func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
 	x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
@@ -940,34 +938,45 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 
 // --- role -------------------------------------------------------------------------------------------------------------
 
-// bash setup.test.sh case_role_reviewer_gets_a_detached_worktree_and_role_env,
-// case_role_deep_dive_gets_a_detached_worktree_role_env_and_named_agent (T-179)
-func TestRoleWorktreeRoles(t *testing.T) {
+// The reviewer and the deep dive run in the main checkout (T-718; before it, T-179: a detached worktree each): setup
+// role makes no worktree, and an old one (roles.<role>.worktree, else review / deep-dive) is named with its removal
+// line, never removed.
+func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		role, wt, agent, line, env string
+		old                        bool // the old worktree is there
 		edit                       func(map[string]any)
 	}{
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
-			testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
+			false, testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
+		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
+			true, testkit.Set("roles", `{"reviewer": {"type": "luna"}}`)},
 		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=pj-deep-dive,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
-			testkit.Set("roles", `{"deep_dive": {"type": "luna"}}`)},
+			true, testkit.Set("roles", `{"deep_dive": {"type": "luna"}}`)},
 		{"deep-dive", "dd", "pj-dd", "OK deep_dive: pj-dd in pane w1:n1", "{OBOR_AGENT=pj-dd,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
-			testkit.Set("roles", `{"deep_dive": {"type": "luna", "worktree": "dd", "agent": "pj-dd"}}`)},
+			true, testkit.Set("roles", `{"deep_dive": {"type": "luna", "worktree": "dd", "agent": "pj-dd"}}`)},
 	} {
 		x := newFx(t, c.edit)
 		wt := x.LaneDir(c.wt)
-		if x.Exists(wt) {
-			t.Fatal("precondition: no worktree")
+		if c.old {
+			x.Git(x.Root, "worktree", "add", "-q", "--detach", wt, "main")
+		}
+		if x.Exists(wt) != c.old {
+			t.Fatalf("precondition: %s worktree there = %v, want %v", c.wt, x.Exists(wt), c.old)
 		}
 		out := x.ok(t, "role", c.role, "--tab", "w1:t1", "--start")
 		if last(out) != c.line {
 			t.Errorf("%s: last line %q", c.role, last(out))
 		}
-		if x.Git(wt, "branch", "--show-current") != "" || x.Git(wt, "rev-parse", "HEAD") != x.Git(x.Root, "rev-parse", "main") {
-			t.Errorf("%s: worktree detached at main", c.role)
+		if x.Exists(wt) != c.old {
+			t.Errorf("%s: worktree %s there = %v after setup role, want %v (made or removed)", c.role, c.wt, x.Exists(wt), c.old)
 		}
-		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+wt+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
+		hint := "worktree " + wt + " is unused (the role runs in the main checkout): git -C " + x.Root + " worktree remove " + wt
+		if got := strings.Contains(out, hint); got != c.old {
+			t.Errorf("%s: removal hint shown = %v, want %v:\n%s", c.role, got, c.old, out)
+		}
+		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+x.Root+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
 		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-m gpt-6-luna ", c.role+" start")
 		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent+" pane_id=w1:n1", c.role+" start: the agent")
 		if cfg, _ := config.Load(x.Root); len(cfg.Data.Lanes.Keys) != 0 {

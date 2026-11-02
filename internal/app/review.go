@@ -9,7 +9,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,7 +24,8 @@ import (
 // --after task merged and the reviewer role agent is idle (no open brief, its pane idle or not running): fact
 // review.fire{request: its seq} first (its fold ends the request, so a replay never fires it again), then the facts
 // from git (ReviewGit: the next id, the integration branch's head, the merges and files since the previous review),
-// the review worktree detached at the head, and the reviewer's fresh start with the brief as its first prompt (the
+// the head marked as the reviewed one (ReviewGit.Mark; T-718: the reviewer reads the main checkout, whose merges serve
+// holds while it works: mergehold.go), and the reviewer's fresh start with the brief as its first prompt (the
 // path of `obor restart <reviewer> --fresh --prompt`, its brief recorded the same way: briefed with no line). Then
 // fact review.started{id, head, tasks}: no line to the lead (T-650; obor status counts from its head). Any step
 // failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
@@ -71,8 +71,8 @@ type ReviewGit interface {
 	Merges(ctx context.Context, from, to string) ([]string, error)
 	// Files is the files changed from from to to (from "": every file of to).
 	Files(ctx context.Context, from, to string) ([]string, error)
-	// Detach puts the worktree at dir on sha, detached.
-	Detach(ctx context.Context, dir, sha string) error
+	// Mark records sha as the open review's reviewed head (git ref ReviewedRef): obor review close names it.
+	Mark(ctx context.Context, sha string) error
 }
 
 // reviewReq is the open review request: its fact's seq and time, its tasks, note and asker, and the open review it
@@ -172,11 +172,15 @@ func (p *proj) reviewWaits(after []string) []string {
 	return p.waiting(strings.Join(after, ","))
 }
 
-// ReviewSetup is what a review of a project needs from its config: the reviewer agent, its worktree (absolute), the
-// reviews dir and the integration branch.
+// ReviewSetup is what a review of a project needs from its config: the reviewer agent, the reviews dir (in the main
+// checkout, T-718) and the integration branch.
 type ReviewSetup struct {
-	Agent, Worktree, Reviews, Branch string
+	Agent, Reviews, Branch string
 }
+
+// ReviewedRef is the git ref of the open review's reviewed head (T-718: it was the review worktree's HEAD): set at the
+// review's start and at each obor review verify, read by obor review close.
+const ReviewedRef = "refs/obor/reviewed"
 
 // reviewConfig is ReviewConfig of the project at root.
 func reviewConfig(root string) (ReviewSetup, error) {
@@ -195,14 +199,11 @@ func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	switch {
 	case !rc.Configured || rc.Agent == "":
 		return s, errors.New("no reviewer role (obor setup role reviewer)")
-	case rc.Worktree == "":
-		return s, errors.New("the reviewer has no worktree (roles.reviewer.worktree)")
 	case s.Reviews == "":
 		return s, errors.New("no reviews dir (paths.reviews)")
 	case s.Branch == "":
 		return s, errors.New("no integration branch (branches.main)")
 	}
-	s.Worktree = filepath.Join(cfg.LanesDir(), rc.Worktree)
 	return s, nil
 }
 
@@ -446,7 +447,7 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	if merged && open != "" {
 		q.held = open
 	}
-	due := merged && open == "" && (cfgErr != nil || checked && a.reviewerIdle(p, setup.Agent))
+	due := merged && open == "" && (cfgErr != nil || checked && a.roleIdle(p, setup.Agent))
 	switch {
 	case end != "":
 		p.rv.what = "ending"
@@ -474,9 +475,10 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.wake()
 }
 
-// reviewerIdle: agent has no open brief and its pane, when one runs it, is idle (none: its fresh start places it;
-// two claiming it: not idle) (under mu).
-func (a *App) reviewerIdle(p *proj, agent string) bool {
+// roleIdle: the role agent has no open brief and its pane, when one runs it, is idle (none: a fresh start places it;
+// two claiming it: not idle): the reviewer's for a review's start, the reviewer's and the deep dive's for the merge
+// hold (mergehold.go) (under mu).
+func (a *App) roleIdle(p *proj, agent string) bool {
 	if p.out.brief(agent) != nil {
 		return false
 	}
@@ -489,7 +491,7 @@ func (a *App) reviewerIdle(p *proj, agent string) bool {
 	return true
 }
 
-// fireReview starts the review of the fired request q: the facts, the detached worktree, the reviewer's fresh start
+// fireReview starts the review of the fired request q: the facts, the reviewed head marked, the reviewer's fresh start
 // on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
 // starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
 // <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
@@ -544,7 +546,7 @@ func PreviousReview(last string) (next int, prev, sha string) {
 var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
 
 // prepareReview collects a review's facts in order (the next id, the head, the merges and files since the previous
-// review's sha) and detaches the review worktree at the head: the id, the brief, the tasks and the head; an error from
+// review's sha) and marks the head reviewed (ReviewGit.Mark): the id, the brief, the tasks and the head; an error from
 // the first step that fails (id "" when the id is not known yet).
 func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
@@ -568,7 +570,7 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	if err != nil {
 		return id, "", nil, "", err
 	}
-	if err = g.Detach(ctx, s.Worktree, head); err != nil {
+	if err = g.Mark(ctx, head); err != nil {
 		return id, "", nil, "", err
 	}
 	short := head[:min(len(head), 7)]
@@ -623,7 +625,7 @@ func reviewBrief(id string, s ReviewSetup, short, last string, scope, files []st
 		" config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in added code, and an"+
 		" Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked."+
 		" A finding only a constructed case hits goes in a short \"Not reported (constructed)\" list instead: one line"+
-		" each, no fix proposal. Write only %s/%s.md in your worktree. Do not commit.", s.Reviews, id)
+		" each, no fix proposal. Write only %s/%s.md (in the main checkout). Do not commit.", s.Reviews, id)
 	if note = strings.TrimSpace(note); note != "" {
 		b.WriteString("\nLead's note: " + note)
 	}

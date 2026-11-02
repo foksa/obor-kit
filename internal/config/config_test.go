@@ -307,7 +307,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 		"pj-o-01":      {Role: "worker", Lane: "O-01", Type: "opus", Cwd: wt + "/O-01"},
 		"my-int":       {Role: "integrator", Cwd: root},
 		"pj-lead":      {Role: "lead", Type: "opus", Cwd: root},
-		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: filepath.Join(wt, "dd")},
+		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: root}, // T-718: its old worktree dd is unused
 		"adv":          {Type: "opus", Cwd: root},
 		"des":          {Role: "designer", Type: "opus", Cwd: filepath.Join(root, "sub")},
 		"far":          {Type: "opus", Cwd: "/tmp/y"},

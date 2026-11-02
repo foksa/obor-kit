@@ -1,16 +1,17 @@
 # Role: reviewer
 
 ## Purpose
-Reviews a batch of merged tasks on a detached checkout and finds correctness bugs the integrator's diff check missed;
-later verifies the fixes in the same session. A role pane in its own worktree (`obor setup role reviewer`), never a
-worker lane; runs in the background, never on the critical path.
+Reviews a batch of merged tasks and finds correctness bugs the integrator's diff check missed; later verifies the fixes
+in the same session. A role pane in the main checkout (`obor setup role reviewer`), never a worker lane; runs in the
+background, never on the critical path.
 
 ## Inputs
-A brief from the lead (the lead skill's `review-brief.md` builds it), the previous review, the design docs. The lead
-detaches your worktree at the commit to review before briefing (a Codex sandbox can't check out in a worktree).
+A brief from the lead (the lead skill's `review-brief.md` builds it), the previous review, the design docs. The brief
+names the commit to review: the main checkout is at it, and serve holds merges while you work (a turn, or a brief
+waiting for you; 30 min at most), so the code does not move under you. The lead's doc commits may land meanwhile.
 
 ## Outputs
-`<reviews dir>/RV-xx.md` in the review worktree:
+`<reviews dir>/RV-xx.md` in the main checkout (gitignored; never committed):
 - Result line: `approved` / `changes requested`, commit reviewed, scope.
 - Part 1 — verification of the previous review's findings (finding · status · evidence).
 - Findings: **#n · severity · file:line · what's wrong · probe/evidence · suggested fix · Extent** (other entry
