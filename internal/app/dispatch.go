@@ -160,7 +160,7 @@ func (e noLaneError) laneWait() string {
 	return fmt.Sprintf("waiting for a %s lane (%s)", e.level, strings.Join(e.types, ", "))
 }
 
-// resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types) when it names neither a lane
+// resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types; the spec's `Type:` types first) when it names neither a lane
 // nor types (--types), else leaves it (a waiting task's request carries its level and types): the types a lane has,
 // and note the level's fallback when none of its own types has one (T-629). Why not: no level in the spec, or none of
 // its types in the project.
@@ -177,11 +177,28 @@ func resolveLevel(cfg *config.Config, c *Call, text string) (note string, err er
 	if len(types) == 0 {
 		return "", fmt.Errorf("no lane type of level %s in this project (obor config get difficulty): dispatch with --types a,b", level)
 	}
-	c.Level, c.Types = level, types
+	c.Level, c.Types = level, specFirst(cfg, text, types)
 	if len(cfg.DifficultyLevelTypes(level)) == 0 {
 		note = fmt.Sprintf(" (level %s has no lane: using %s)", level, strings.Join(types, ", "))
 	}
 	return note, nil
+}
+
+// specFirst is types with the spec's `Type:` types in front (those a configured lane has): a free lane of a named
+// type wins, else the level's first free lane (T-689).
+func specFirst(cfg *config.Config, text string, types []string) []string {
+	var out []string
+	for _, t := range spec.Types(text) {
+		if cfg.HasLaneOfType(t) {
+			out = append(out, t)
+		}
+	}
+	for _, t := range types {
+		if !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // waitLane records fact waiting for c.Task's request (under a.verdicts) when no lane of its level is free (nl): the

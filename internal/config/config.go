@@ -841,15 +841,18 @@ func (c *Config) DifficultyList(level string) []string {
 func (c *Config) laneTypes(listed []string) []string {
 	var out []string
 	for _, t := range listed {
-		if c.hasLaneOfType(t) {
+		if c.HasLaneOfType(t) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-// hasLaneOfType reports whether a configured lane is of type typ.
-func (c *Config) hasLaneOfType(typ string) bool {
+// LaneTypeNames is the configured lane_types names, in config order.
+func (c *Config) LaneTypeNames() []string { return append([]string(nil), c.Data.LaneTypes.Keys...) }
+
+// HasLaneOfType reports whether a configured lane is of type typ.
+func (c *Config) HasLaneOfType(typ string) bool {
 	for _, k := range c.Data.Lanes.Keys {
 		if c.Data.Lanes.M[k].Type == typ {
 			return true

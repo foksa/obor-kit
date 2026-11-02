@@ -35,7 +35,7 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   protected unlocks apply at the guard's next call).
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
-  with a full oracle); `obor spec set` refuses one without. `obor dispatch <T-xx>` takes the first free lane of the
+  with a full oracle); `obor spec set` refuses one without. An optional `Type: <lane type>[, …]` line right under it (e.g. `opus` vs `opus-high`) puts those types ahead of the level's: a free lane of the named type wins, else the level's first free lane; `--types` overrides it. `obor dispatch <T-xx>` takes the first free lane of the
   level's types that have a lane (config `difficulty`; a level with no lane at all uses medium's, then hard's, and the
   reply says so); none free: the task waits for one, never for a higher level, and the reply says so.
   `--types a,b` overrides the level (smoke tests, Haiku). Add `--after T-yy[,T-zz]` and serve dispatches it once
