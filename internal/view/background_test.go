@@ -93,10 +93,12 @@ func TestDescendants(t *testing.T) {
 // agent at its shell has none; an unrecorded long child is a running foreground command, no bg.
 func TestBackgroundOf(t *testing.T) {
 	root := t.TempDir()
-	project.AppendBackground(root, project.BackgroundCall{At: 1, Agent: "w1", Command: "python convert.py --name 'a b'",
-		Description: "convert maps"})
-	project.AppendBackground(root, project.BackgroundCall{At: 2, Agent: "other", Command: "python convert.py --name 'a b'",
-		Description: "not mine"})
+	t0 := fixClock(t)
+	started := t0.Unix() - 899 - 2 // the call, two seconds before pid 104 started
+	project.AppendBackground(root, project.BackgroundCall{At: started, Agent: "w1", Session: "s1",
+		Command: "python convert.py --name 'a b'", Description: "convert maps"})
+	project.AppendBackground(root, project.BackgroundCall{At: started, Agent: "other", Session: "s1",
+		Command: "python convert.py --name 'a b'", Description: "not mine"})
 	info := func(_ context.Context, pane string) (port.ProcessInfo, error) {
 		switch pane {
 		case "p1":
@@ -106,7 +108,7 @@ func TestBackgroundOf(t *testing.T) {
 		}
 		return port.ProcessInfo{}, errors.New("no pane")
 	}
-	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"}}
+	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"}}
 	got := BackgroundOf(context.Background(), root, agents, fakeTable(), info)
 	if len(got) != 1 || len(got["w1"]) != 1 {
 		t.Fatalf("background %+v, want one process of w1", got)
@@ -120,11 +122,55 @@ func TestBackgroundOf(t *testing.T) {
 	}
 	// No record of w1's (only another agent's): a long foreground command, the command alone, running.
 	other := t.TempDir()
-	project.AppendBackground(other, project.BackgroundCall{At: 1, Agent: "other", Command: "python convert.py --name 'a b'"})
+	project.AppendBackground(other, project.BackgroundCall{At: started, Agent: "other", Session: "s1", Command: "python convert.py --name 'a b'"})
 	got = BackgroundOf(context.Background(), other, agents[:1], fakeTable(), info)
 	if b := got["w1"]; len(b) != 1 || b[0].Background || b[0].Label != "" ||
 		b[0].Line("15m") != "running python3 convert.py --name a b · 15m" {
 		t.Errorf("unrecorded: %+v, want running with the command, no bg", b)
+	}
+}
+
+// fixClock fixes the clock BackgroundOf reads for the test and returns it.
+func fixClock(t *testing.T) time.Time {
+	t0 := time.Unix(1_800_000_000, 0)
+	old := now
+	now = func() time.Time { return t0 }
+	t.Cleanup(func() { now = old })
+	return t0
+}
+
+// RV-85 verify #3: a record marks a process bg only when it is of the agent's current session and was recorded just
+// before the process started: a newer foreground run of the same command (the old record, long before its start),
+// a previous session's record and a record after the start are `running`; the matching one is bg.
+func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
+	t0 := fixClock(t)
+	start := t0.Unix() - 899 // pid 104 started now minus its age
+	cmd := "python convert.py --name 'a b'"
+	info := func(context.Context, string) (port.ProcessInfo, error) {
+		return port.ProcessInfo{ShellPID: 50, FgPGID: 100}, nil
+	}
+	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s2"}}
+	run := func(c project.BackgroundCall) Background {
+		root := t.TempDir()
+		c.Agent, c.Command = "w1", cmd
+		project.AppendBackground(root, c)
+		got := BackgroundOf(context.Background(), root, agents, fakeTable(), info)["w1"]
+		if len(got) != 1 || got[0].PID != 104 {
+			t.Fatalf("precondition: the long python: %+v", got)
+		}
+		return got[0]
+	}
+	if b := run(project.BackgroundCall{At: start - 3, Session: "s2", Description: "d"}); !b.Background || b.Label != "d" {
+		t.Errorf("same session, recorded just before the start: %+v, want bg", b)
+	}
+	if b := run(project.BackgroundCall{At: start - 3600, Session: "s2", Description: "d"}); b.Background || b.Label != "" {
+		t.Errorf("old record, newer foreground run of the same command: %+v, want running", b)
+	}
+	if b := run(project.BackgroundCall{At: start + 60, Session: "s2", Description: "d"}); b.Background {
+		t.Errorf("record after the start: %+v, want running", b)
+	}
+	if b := run(project.BackgroundCall{At: start - 3, Session: "s1", Description: "d"}); b.Background || b.Label != "" {
+		t.Errorf("a previous session's record: %+v, want running", b)
 	}
 }
 

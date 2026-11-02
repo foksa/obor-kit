@@ -890,7 +890,7 @@ function renderAgent(p, a) {
   if (a.task) meta.push(`on ${taskLink(p, a.task)}`);
   if (a.lane) meta.push(`lane <b class="mono">${esc(a.lane)}</b>`);
   const out = [`<div class="head"><h1>${esc(a.agent)}</h1><div class="meta">${meta.join('<span class="muted">·</span>')}</div></div>`];
-  if ((a.background || []).length) out.push(`<section><h2>Background processes <span class="count">${a.background.length}</span></h2><div class="card list">${
+  if ((a.background || []).length) out.push(`<section><h2>Long-running processes <span class="count">${a.background.length}</span></h2><div class="card list">${
     a.background.map((b) => `<div class="li"><span class="muted small">${bgKind(b)} ${dur(b.age)}</span><span class="txt">${
       b.label ? esc(b.label) + ` <span class="muted small mono">${esc(b.command)}</span>` : `<span class="mono">${esc(b.command)}</span>`}</span></div>`).join("")}</div></section>`);
   if ((a.jobs || []).length) out.push(`<section><h2>Jobs <span class="count">${a.jobs.length}</span></h2><div class="card">${

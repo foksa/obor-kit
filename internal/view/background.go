@@ -30,6 +30,17 @@ const BackgroundMin = 30 * time.Second
 // MCP servers, its language servers): such a child and its descendants are helpers, never shown.
 const helperSlack = 10 * time.Second
 
+// startWindow is how long before a process's start its background call may have been recorded (the hook records at
+// PreToolUse, the shell starts the process a moment later); startAfter is the slack the other way (ps's etime counts
+// whole seconds, the record's time too).
+const (
+	startWindow = 10 * time.Second
+	startAfter  = 2 * time.Second
+)
+
+// now is the clock BackgroundOf takes the processes' start from (a test sets it).
+var now = time.Now
+
 // commandMax is how many characters of a command the views show.
 const commandMax = 60
 
@@ -210,12 +221,17 @@ type Found struct {
 	Chain []string
 }
 
-// match is the newest call in calls whose command f runs: the call's command (whitespace folded) is in f's command or
+// match is the newest call in calls that f started: recorded within startWindow before f's start (at, now less its age)
+// and whose command f runs: the call's command (whitespace folded) is in f's command or
 // in a shell's that wraps it (Claude's shell quotes it: a ' as '\”), or f's command is in the call's (a call of several
 // commands). ok is false when none matches: f is no recorded background call.
-func match(f Found, calls []project.BackgroundCall) (call project.BackgroundCall, ok bool) {
+func match(f Found, calls []project.BackgroundCall, at time.Time) (call project.BackgroundCall, ok bool) {
 	cmd := fold(f.Command)
+	start := at.Add(-f.Age)
 	for i := len(calls) - 1; i >= 0; i-- {
+		if rec := time.Unix(calls[i].At, 0); rec.Before(start.Add(-startWindow)) || rec.After(start.Add(startAfter)) {
+			continue
+		}
 		want := fold(calls[i].Command)
 		if want == "" {
 			continue
@@ -260,8 +276,9 @@ func AgentPID(pi port.ProcessInfo) int {
 
 // BackgroundOf is each agent's long-running processes, by agent name: for every agent with a pane, its pane's process
 // info (info) and its descendants in procs (one ProcIndex for all the agents), matched against root's recorded
-// background calls of that agent (or, with no agent name recorded, of its pane): a match is background, with the
-// call's description. An agent with none is not in the map.
+// background calls of that agent's current session (or, with no agent name recorded, of its pane): one that started the
+// process, by command and by time (match), makes it background, with the call's description; a later foreground run
+// of the same command, or an earlier session's call, is `running` (RV-85 verify #3). An agent with none is not in the map.
 func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, procs []Proc,
 	info func(context.Context, string) (port.ProcessInfo, error)) map[string][]Background {
 	out := map[string][]Background{}
@@ -292,12 +309,14 @@ func BackgroundOf(ctx context.Context, root string, agents []wire.AgentStatus, p
 		}
 		var mine []project.BackgroundCall
 		for _, c := range calls {
-			if c.Agent == a.Name || c.Agent == "" && c.Pane == a.Pane {
+			if a.Session != "" && c.Session == a.Session &&
+				(c.Agent == a.Name || c.Agent == "" && c.Pane == a.Pane) {
 				mine = append(mine, c)
 			}
 		}
+		at := now()
 		for _, f := range found {
-			c, bg := match(f, mine)
+			c, bg := match(f, mine, at)
 			out[a.Name] = append(out[a.Name], Background{PID: f.PID, Command: shorten(f.Command), Background: bg,
 				Label: c.Description, Age: int64(f.Age / time.Second)})
 		}
