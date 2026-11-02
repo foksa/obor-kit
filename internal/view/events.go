@@ -11,12 +11,13 @@ import (
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
-// own start, which is no record), its time, its task and its line.
+// own start, which is no record), its time, its task, its line, and whether that line is bad news (T-688).
 type Event struct {
 	Seq  int64     `json:"seq"`
 	TS   string    `json:"ts"`
 	Task string    `json:"task,omitempty"`
 	Line string    `json:"line"`
+	Bad  bool      `json:"bad,omitempty"`
 	At   time.Time `json:"-"` // TS, parsed
 }
 
@@ -33,9 +34,9 @@ func events(db *sql.DB, n int, s Serve) []Event {
 	if db != nil {
 		recs, _ := app.RecentEvents(db, n*eventsRead)
 		for _, r := range recs {
-			if line := eventLine(r); line != "" {
+			if line, bad := eventLine(r); line != "" {
 				at, _ := time.Parse(time.RFC3339, r.TS)
-				out = append(out, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, At: at})
+				out = append(out, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, Bad: bad, At: at})
 			}
 		}
 	}
@@ -76,9 +77,9 @@ func EventsSince(db *sql.DB, since int64, limit int) (EventsPage, error) {
 			r.Data = data
 		}
 		page.Seq = r.Seq
-		if line := eventLine(r); line != "" {
+		if line, bad := eventLine(r); line != "" {
 			at, _ := time.Parse(time.RFC3339, r.TS)
-			page.Events = append(page.Events, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, At: at})
+			page.Events = append(page.Events, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, Bad: bad, At: at})
 		}
 	}
 	return page, rows.Err()
@@ -98,10 +99,11 @@ type eventData struct {
 	To      string   `json:"to"`
 }
 
-// eventLine is r as the event list words it ("" for a record the view does not list): dispatched, submitted, a gate's
-// pass or fail with its summary, accepted, a sendback, a hold, a merge with its sha, a review's request and start, or
-// a line posted to an agent.
-func eventLine(r app.Record) string {
+// eventLine is r as the event list words it and whether that line is bad news ("" for a record the view does not list):
+// dispatched, submitted, a gate's pass or fail with its summary, accepted, a sendback, a hold, a merge with its sha, a
+// review's request and start, or a line posted to an agent. A gate that is not green and a hold are the bad ones; a
+// green gate is not, however its summary counts its checks (T-688).
+func eventLine(r app.Record) (string, bool) {
 	var d eventData
 	if len(r.Data) > 0 {
 		_ = json.Unmarshal(r.Data, &d)
@@ -109,49 +111,49 @@ func eventLine(r app.Record) string {
 	if r.Kind == app.KindResult {
 		if base, _ := app.StepN(r.Step); base == app.StepGate {
 			if d.Outcome == "green" {
-				return "gate " + r.Task + " pass (" + d.Line + ")"
+				return "gate " + r.Task + " pass (" + d.Line + ")", false
 			}
-			return "gate " + r.Task + " fail (" + d.Line + ")"
+			return "gate " + r.Task + " fail (" + d.Line + ")", true
 		}
 		if method, _, _ := strings.Cut(r.Step, "."); method == app.MethodAccept {
-			return "accepted " + r.Task
+			return "accepted " + r.Task, false
 		} else if method == app.MethodSendback {
-			return "sendback " + r.Task + noteIn(d.Note)
+			return "sendback " + r.Task + noteIn(d.Note), false
 		}
-		return ""
+		return "", false
 	}
 	if r.Kind != app.KindFact {
-		return ""
+		return "", false
 	}
 	switch r.Step {
 	case app.StepDispatched:
-		return "dispatched " + r.Task + laneIn(d.Lane)
+		return "dispatched " + r.Task + laneIn(d.Lane), false
 	case app.StepSubmitted:
-		return "submitted " + r.Task
+		return "submitted " + r.Task, false
 	case app.StepSendback:
-		return "sendback " + r.Task + noteIn(d.Note)
+		return "sendback " + r.Task + noteIn(d.Note), false
 	case app.StepNeedsYou:
 		if d.Cause == app.CauseHeld {
-			return "held " + r.Task + noteIn(strings.TrimPrefix(d.Reason, "held: "))
+			return "held " + r.Task + noteIn(strings.TrimPrefix(d.Reason, "held: ")), true
 		}
 	case app.StepMerged:
 		if d.Head == "" {
-			return "merged " + r.Task + " (outside obor serve)"
+			return "merged " + r.Task + " (outside obor serve)", false
 		}
-		return "merged " + r.Task + " " + d.Head[:min(7, len(d.Head))]
+		return "merged " + r.Task + " " + d.Head[:min(7, len(d.Head))], false
 	case app.StepReviewRequest:
 		if len(d.After) > 0 {
-			return "review requested (after " + strings.Join(d.After, ",") + ")"
+			return "review requested (after " + strings.Join(d.After, ",") + ")", false
 		}
-		return "review requested"
+		return "review requested", false
 	case app.StepReviewStarted:
-		return "review started " + d.ID
+		return "review started " + d.ID, false
 	case app.StepReviewRm:
-		return "review request ended"
+		return "review request ended", false
 	case app.StepMessage:
-		return "line to " + d.To + ": " + d.Line
+		return "line to " + d.To + ": " + d.Line, false
 	}
-	return ""
+	return "", false
 }
 
 // laneIn is " (O-01)" for a dispatch's lane, "" without one.

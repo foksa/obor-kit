@@ -176,6 +176,41 @@ func TestMonitorSectionOrderAndNeedsYou(t *testing.T) {
 	}
 }
 
+// TestMonitorEventsRedByBad: an event row is painted red by the view's bad flag only: a green gate whose summary
+// counts a fail is not red, a red gate, a hold and any other event the view marks bad are (T-688).
+func TestMonitorEventsRedByBad(t *testing.T) {
+	t.Parallel()
+	now := goldenNow
+	st := view.Project{Events: []view.Event{
+		{At: now.Add(-2 * time.Second), Line: "gate T-1 pass (check 25 pass, 0 fail)"},
+		{At: now.Add(-time.Minute), Line: "gate T-2 fail (RED T-2: e2e failed)", Bad: true},
+		{At: now.Add(-2 * time.Minute), Line: "held T-3: decide", Bad: true},
+		{At: now.Add(-3 * time.Minute), Line: "stalled T-4", Bad: true},
+	}}
+	rows := eventRows(st, renderOpts{now: now, color: true, cols: 80, loc: time.UTC}, palette{on: true})
+	cases := []struct {
+		line string
+		red  bool
+	}{
+		{"gate T-1 pass (check 25 pass, 0 fail)", false},
+		{"gate T-2 fail (RED T-2: e2e failed)", true},
+		{"held T-3: decide", true},
+		{"stalled T-4", true},
+	}
+	if len(rows) != 1+len(cases) {
+		t.Fatalf("%d rows, want the title and one per event:\n%s", len(rows), strings.Join(rows, "\n"))
+	}
+	for i, c := range cases {
+		row := rows[i+1]
+		if !strings.Contains(row, c.line) {
+			t.Errorf("row %d %q, want %q", i, row, c.line)
+		}
+		if got := strings.Contains(row, "\033[31m"); got != c.red {
+			t.Errorf("row %d red %v, want %v: %q", i, got, c.red, row)
+		}
+	}
+}
+
 // TestMonitorClipsByDisplayWidth: a wide (two-column) rune counts two, an escape none, and the cut line ends in an
 // ellipsis within the width.
 func TestMonitorClipsByDisplayWidth(t *testing.T) {
