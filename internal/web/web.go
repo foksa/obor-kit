@@ -156,18 +156,24 @@ func (s *Server) agentAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a)
 }
 
-// jobAPI is /api/job?project=<name>&job=<id>: the job's prompt text.
+// jobAPI is /api/job?project=<name>&job=<id>: the job's prompt text (the project's root is all the lookup needs: no
+// view).
 func (s *Server) jobAPI(w http.ResponseWriter, r *http.Request) {
-	d, id, ok := s.detail(w, r, "job")
+	p, ok := s.project(w, r)
 	if !ok {
 		return
 	}
-	p, ok := d.Job(id)
+	id := r.URL.Query().Get("job")
+	if id == "" {
+		fail(w, http.StatusBadRequest, "missing job")
+		return
+	}
+	prompt, ok := view.Detail{Root: p.Root}.Job(id)
 	if !ok {
 		fail(w, http.StatusNotFound, "no such job: "+id)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, prompt)
 }
 
 // detail is the request's project's Detail and the value of param: ok false when the response is already written (an

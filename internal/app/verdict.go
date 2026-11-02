@@ -219,7 +219,7 @@ func (a *App) verdict(ctx context.Context, method string, c Call) (string, error
 	case c.Job != "" && c.Job != JobID(key):
 		return "", fmt.Errorf("%s: stale job %s (%s's job is %s)", method, c.Job, c.Task, JobID(key))
 	}
-	jobStep, _ := stepN(key.Step)
+	jobStep, _ := StepN(key.Step)
 	switch {
 	case method != MethodHold && !takes(jobSt, method):
 		return "", fmt.Errorf("%s: %s is a %s job (%s)", method, JobID(key), jobStep, accepts(jobSt))

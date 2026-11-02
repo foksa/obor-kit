@@ -255,8 +255,8 @@ func nth(step string, n int) string {
 	return step + "." + strconv.Itoa(n)
 }
 
-// stepN splits step.N into step and N (N 1 when it has none).
-func stepN(step string) (string, int) {
+// StepN splits step.N into step and N (N 1 when it has none). view reads a step's base through it: one split.
+func StepN(step string) (string, int) {
 	if i := strings.LastIndexByte(step, '.'); i > 0 {
 		if n, err := strconv.Atoi(step[i+1:]); err == nil && n > 1 {
 			return step[:i], n
@@ -476,7 +476,7 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 	tell := m.attempt == mt.attempt && m.fails[step].n >= tries && m.needs.Seq == 0
 	a.mu.Unlock()
 	if tell {
-		base, _ := stepN(step)
+		base, _ := StepN(step)
 		a.needsYou(p, &mt, base+failedSuffix, step+failedSuffix+": "+err.Error())
 	}
 	return false

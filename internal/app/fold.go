@@ -11,7 +11,7 @@ import (
 // the rows as they are. Another agent's row on the same pane or terminal goes: the start replaced what ran there.
 // The log holds it, so a replay has it; the table itself is derived (reconcile), never folded.
 func (p *proj) foldStart(r Record) {
-	if step, _ := stepN(r.Step); r.Kind != KindResult || step != StepStartWork && !strings.HasPrefix(step, stepStart) {
+	if step, _ := StepN(r.Step); r.Kind != KindResult || step != StepStartWork && !strings.HasPrefix(step, stepStart) {
 		return
 	}
 	var out startOut

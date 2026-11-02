@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +107,7 @@ func eventLine(r app.Record) string {
 		_ = json.Unmarshal(r.Data, &d)
 	}
 	if r.Kind == app.KindResult {
-		if baseStep(r.Step) == app.StepGate {
+		if base, _ := app.StepN(r.Step); base == app.StepGate {
 			if d.Outcome == "green" {
 				return "gate " + r.Task + " pass (" + d.Line + ")"
 			}
@@ -169,14 +168,4 @@ func noteIn(note string) string {
 		return ""
 	}
 	return ": " + note
-}
-
-// baseStep is a numbered step's step (gate.2 → gate; a verdict's accept.<call id> stays whole).
-func baseStep(step string) string {
-	if i := strings.LastIndexByte(step, '.'); i > 0 {
-		if _, err := strconv.Atoi(step[i+1:]); err == nil {
-			return step[:i]
-		}
-	}
-	return step
 }

@@ -47,7 +47,7 @@ func (p *proj) foldLoop(r Record) {
 	if mt == nil || r.Attempt != mt.attempt || mt.state == stDropped {
 		return // another attempt's record, or the task is dropped
 	}
-	step, n := stepN(r.Step)
+	step, n := StepN(r.Step)
 	switch r.Kind {
 	case KindFact:
 		switch r.Step {
@@ -239,7 +239,7 @@ func (mt *mtask) openJob() bool {
 
 // jobState is the state of the attempt's last job: out (open), or due to be sent.
 func (mt *mtask) jobState(open bool) string {
-	if base, _ := stepN(mt.job); base == StepResolve {
+	if base, _ := StepN(mt.job); base == StepResolve {
 		if open {
 			return stResolving
 		}

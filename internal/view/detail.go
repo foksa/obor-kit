@@ -159,10 +159,11 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		t.Records, found = append(t.Records, r.TaskRecord), true
 	}
 	for _, r := range recs { // newest first: the last submission and gate win
+		base, _ := app.StepN(r.Step)
 		switch {
 		case r.Kind == app.KindFact && r.Step == app.StepSubmitted && t.Report == "":
 			t.Report = dataString(r.data, "report")
-		case r.Kind == app.KindResult && baseStep(r.Step) == app.StepGate && t.GateLine == "":
+		case r.Kind == app.KindResult && base == app.StepGate && t.GateLine == "":
 			t.GateLine = dataString(r.data, "line")
 			t.GatedRev = int(dataNumber(r.data, "spec_rev"))
 			t.GateLog = gateLog(task)
