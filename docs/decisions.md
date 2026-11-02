@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (owner): **`lane_types.<type>.max` caps worker tasks only**: open dispatches of the type; role agents
+  (lead, integrator, reviewer, deep dive, advisor, researcher) never count, at dispatch or in `obor setup pane`
+  (RV-88 #7 showed three opus roles leaving one opus slot under `max: 4`). T-738 (dispatch), T-740 (setup, docs).
 - 2026-11-02 (lead): **Reviewer and deep dive start only through `obor brief`** (RV-86 #1b, T-734): `obor restart
   <reviewer|deep-dive> --prompt` is refused, so serve's admission (wait for a publish, then hold merges) comes before
   the role reads the main checkout. A fresh start is `obor restart <agent> --stop`, then `obor brief`. Docs: T-735.
