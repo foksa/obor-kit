@@ -449,8 +449,9 @@ func typeNote(l port.Lane, typ string) string {
 
 // capped is the types of types (type references) at their lane_types max (T-723), each with its reason "<type> at its
 // max <n>": the open dispatches that run it (dispatchesOf; not merged, rejected or dropped; a worker stopped on a usage
-// limit holds its dispatch, T-568), other than task's own, plus the role agents configured with it (setup's rule,
-// RoleAgentsOfType). A type without a max is limited only by the free lanes.
+// limit holds its dispatch, T-568), other than task's own, and nothing else: the max caps worker tasks only (owner,
+// 2026-11-02; role agents configured with the type do not count, T-738). A type without a max is limited only by the
+// free lanes.
 func (a *App) capped(p *proj, cfg *config.Config, task string, types []string) map[string]string {
 	full := map[string]string{}
 	for _, t := range types {
@@ -459,7 +460,7 @@ func (a *App) capped(p *proj, cfg *config.Config, task string, types []string) m
 		if !ok || lt.Max <= 0 || full[typ] != "" {
 			continue
 		}
-		if n := a.dispatchesOf(p, cfg, task, typ) + len(cfg.RoleAgentsOfType(typ)); n >= lt.Max {
+		if n := a.dispatchesOf(p, cfg, task, typ); n >= lt.Max {
 			full[typ] = fmt.Sprintf("%s at its max %d", typ, lt.Max)
 		}
 	}

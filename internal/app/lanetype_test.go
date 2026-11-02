@@ -188,3 +188,46 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// The owner's rule (2026-11-02): lane_types.<type>.max caps worker tasks only. With three role agents configured
+// with opus and opus's max 4, four opus dispatches are admitted on five free pool lanes and the fifth waits at the max.
+func TestTypeMaxCapsWorkerTasksOnly(t *testing.T) {
+	t.Parallel()
+	r := newPoolRig(t,
+		testkit.Set("lane_types.opus", map[string]any{"kind": "claude", "args": []any{}, "max": 4}),
+		testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
+		testkit.Set("roles.integrator", map[string]any{"type": "opus"}),
+		testkit.Set("roles.lead", map[string]any{"type": "opus"}),
+		testkit.Set("lanes.O-03", ""), testkit.Set("lanes.O-04", ""), testkit.Set("lanes.O-05", ""))
+	r.lanes.mu.Lock()
+	for _, name := range []string{"O-03", "O-04", "O-05"} {
+		r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: name, Dir: r.p.LaneDir(name), State: "free"})
+	}
+	r.lanes.mu.Unlock()
+	cfg, err := config.LoadDaemon(r.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roles := cfg.RoleAgentsOfType("opus"); len(roles) != 3 {
+		t.Fatalf("precondition: the role agents of type opus %v, want three", roles)
+	}
+	if lt, _ := cfg.LaneType("opus"); lt.Max != 4 || len(cfg.Lanes()) != 5 {
+		t.Fatalf("precondition: opus's max %d, lanes %v; want 4 and five lanes", lt.Max, cfg.Lanes())
+	}
+	r.start()
+	for i, task := range []string{"T-1", "T-2", "T-3", "T-4"} {
+		r.specOf(task, "# "+task+" — Hard\n\nDifficulty: hard\n")
+		want := "DISPATCHED " + task + " → O-0" + string(rune('1'+i)) + " (queued) as opus effort high"
+		if reply, err := r.dispatchOf(task); err != nil || !strings.HasPrefix(reply, want) {
+			t.Fatalf("dispatch %s, opus dispatch %d of max 4: %q, %v; want the prefix %q", task, i+1, reply, err, want)
+		}
+	}
+	r.specOf("T-5", "# T-5 — Hard\n\nDifficulty: hard\n")
+	const want = "WAITING T-5 (queued): opus at its max 4 (hard: opus:high); idle: O-05 (-)"
+	if reply, err := r.dispatchOf("T-5"); err != nil || reply != want {
+		t.Fatalf("the fifth opus dispatch: %q, %v; want %q", reply, err, want)
+	}
+	if n := r.taskStep("T-5", "fact dispatch"); n != 0 {
+		t.Errorf("T-5 dispatched past opus's max: %q", r.steps())
+	}
+}
