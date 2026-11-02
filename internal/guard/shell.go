@@ -11,6 +11,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/project"
+	"obor/internal/roles"
 )
 
 // Bash commands are parsed with mvdan.cc/sh/v3/syntax and walked statement by statement, in source order:
@@ -30,8 +31,9 @@ import (
 //     Nothing is evaluated (no environment reads beyond the above).
 //   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo for the main-checkout rule.
 //   - writers: > >> &> >| <> targets, tee, rm, mv and cp targets (incl. <dir>/<source basename>), sed -i, git
-//     checkout/restore paths (non-workers; workers can't run them at all); a symlink to a protected file is checked
-//     at its target.
+//     checkout/restore paths (non-workers; workers can't run them at all): each goes through checkWrite, the same
+//     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
+//   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads (RV-83 #2).
 //   - load runs of tests (T-543, every role): `go test` with -count > 1 or -race, a *.test binary with -test.count > 1
 //     or -test.race, sibling backgrounded test commands, or a literal fan-out above one under xargs / parallel.
 //
@@ -159,7 +161,7 @@ func (s *shell) redirs(rs []*syntax.Redirect) {
 			if r.Word != nil {
 				t := strings.Join(s.fields(r.Word), " ")
 				if strings.Trim(t, "0123456789") != "" || t == "" {
-					s.g.checkProtectedArg(t, s.cwd)
+					s.g.checkWriteArg(t, s.cwd)
 				}
 			}
 		}
@@ -763,16 +765,18 @@ loop:
 	case "cp":
 		s.copyTargets(W, k, name)
 	case "mv":
+		// Every operand is written (a source is removed), but a final directory only receives: copyTargets checks
+		// <dir>/<basename>.
 		for i := k + 1; i < n; i++ {
-			if !strings.HasPrefix(W[i], "-") {
-				g.checkProtectedArg(W[i], s.cwd)
+			if !strings.HasPrefix(W[i], "-") && !(i == n-1 && s.isDir(W[i])) {
+				g.checkWriteArg(W[i], s.cwd)
 			}
 		}
 		s.copyTargets(W, k, name)
 	case "tee", "rm":
 		for i := k + 1; i < n; i++ {
 			if !strings.HasPrefix(W[i], "-") {
-				g.checkProtectedArg(W[i], s.cwd)
+				g.checkWriteArg(W[i], s.cwd)
 			}
 		}
 	case "sed":
@@ -1055,19 +1059,25 @@ opts:
 		}
 		tdir = ops[len(ops)-1]
 		ops = ops[:len(ops)-1]
-		if name != "mv" {
-			g.checkProtectedArg(tdir, s.cwd)
-		}
-		if p, ok := s.g.phys(tdir, s.cwd); !ok {
-			return
-		} else if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+		if !s.isDir(tdir) {
+			g.checkWriteArg(tdir, s.cwd) // a file target; into a directory, the written path is <dir>/<basename>
 			return
 		}
 	}
 	for _, a := range ops {
 		a = strings.TrimSuffix(a, "/")
-		g.checkProtectedArg(strings.TrimSuffix(tdir, "/")+"/"+filepath.Base("/"+a), s.cwd)
+		g.checkWriteArg(strings.TrimSuffix(tdir, "/")+"/"+filepath.Base("/"+a), s.cwd)
 	}
+}
+
+// isDir: the path argument a (relative to the emulated cwd) is an existing directory.
+func (s *shell) isDir(a string) bool {
+	p, ok := s.g.phys(a, s.cwd)
+	if !ok {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // sed: with -i / --in-place, the files are the non-option args minus the script when no -e/-f gave it.
@@ -1078,6 +1088,9 @@ func (s *shell) sed(W []string, k int) {
 		switch a := W[i]; {
 		case strings.HasPrefix(a, "--in-place"):
 			inplace = true
+		case a == "-i" && i+1 < n && W[i+1] == "":
+			inplace = true
+			i++ // BSD sed's empty backup suffix (sed -i '' …), not the script
 		case a == "-e" || a == "-f" || a == "--expression" || a == "--file":
 			ei = true
 			i++
@@ -1107,7 +1120,7 @@ func (s *shell) sed(W []string, k int) {
 			scriptSeen = true
 			continue
 		}
-		s.g.checkProtectedArg(f, s.cwd)
+		s.g.checkWriteArg(f, s.cwd)
 	}
 }
 
@@ -1193,8 +1206,13 @@ sub:
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
 	}
-	if g.role == "researcher" && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
-		deny("a researcher doesn't run git " + sub + " — it writes only under docs/research and leaves them uncommitted; the lead commits (status, diff, log, show are fine)")
+	if r, ok := roles.Lookup(g.role); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
+		a := "a "
+		if strings.ContainsRune("aeiou", rune(g.role[0])) {
+			a = "an "
+		}
+		deny(a + g.role + " doesn't run git " + strings.Join(W[i:min(i+2, n)], " ") + " — it runs git reads only " +
+			"(status, log, diff, show, blame, grep, plain git branch, config --get) and leaves its files uncommitted; the lead commits")
 	}
 	if g.role != "worker" {
 		// Non-workers may check out / restore, but not over a protected file.
@@ -1206,7 +1224,7 @@ sub:
 					j++
 				case a == "--" || strings.HasPrefix(a, "-"):
 				default:
-					g.checkProtectedArg(a, dir)
+					g.checkWriteArg(a, dir)
 				}
 			}
 		}
@@ -1223,6 +1241,95 @@ sub:
 			}
 		}
 	}
+}
+
+// gitReads: git subcommands that only read (for a GitReadOnly role, RV-83 #2). branch, config, remote, tag, stash,
+// worktree and reflog read in some forms only (gitRead); every other subcommand counts as a write.
+var gitReads = []string{"status", "log", "diff", "show", "blame", "annotate", "grep", "ls-files", "ls-tree", "ls-remote",
+	"rev-parse", "rev-list", "cat-file", "describe", "shortlog", "merge-base", "show-ref", "for-each-ref", "name-rev",
+	"diff-tree", "diff-files", "diff-index", "range-diff", "whatchanged", "cherry", "check-ignore", "check-attr",
+	"count-objects", "var", "help", "version"}
+
+// gitRead: git <sub> <args> only reads. An --output option (diff, log, show write a file with it) is a write.
+func gitRead(sub string, args []string) bool {
+	for _, a := range args {
+		if a == "--output" || strings.HasPrefix(a, "--output=") {
+			return false
+		}
+	}
+	pos := positionals(args, nil)
+	switch sub {
+	case "branch":
+		return branchList(args)
+	case "config":
+		return configRead(args)
+	case "remote":
+		return len(pos) == 0 || oneOf(pos[0], "show", "get-url")
+	case "tag":
+		return len(args) == 0 || oneOf("-l", args...) || oneOf("--list", args...)
+	case "stash":
+		return len(pos) > 0 && oneOf(pos[0], "list", "show")
+	case "worktree":
+		return len(pos) > 0 && pos[0] == "list"
+	case "reflog":
+		return len(pos) == 0 || oneOf(pos[0], "show", "exists")
+	}
+	return oneOf(sub, gitReads...)
+}
+
+// branchList: git branch with no args, listing options only, or --list / -l with patterns.
+func branchList(args []string) bool {
+	list := false
+	var pos []string
+	for j := 0; j < len(args); j++ {
+		a := args[j]
+		switch {
+		case a == "--list":
+			list = true
+		case oneOf(a, "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"):
+			if j+1 < len(args) && !strings.HasPrefix(args[j+1], "-") {
+				j++
+			}
+		case oneOf(a, "--all", "--remotes", "--verbose", "--show-current", "--ignore-case", "--no-color", "--color",
+			"--column", "--no-column", "--abbrev", "--no-abbrev", "--omit-empty"):
+		case strings.HasPrefix(a, "--"):
+			k, _, _ := strings.Cut(a, "=")
+			if !strings.Contains(a, "=") || !oneOf(k, "--contains", "--no-contains", "--merged", "--no-merged",
+				"--points-at", "--sort", "--format", "--color", "--column", "--abbrev") {
+				return false
+			}
+		case len(a) > 1 && a[0] == '-':
+			if strings.Trim(a[1:], "arvli") != "" {
+				return false
+			}
+			list = list || strings.Contains(a, "l")
+		default:
+			pos = append(pos, a)
+		}
+	}
+	return len(pos) == 0 || list
+}
+
+// configRead: git config --get / --get-all / --get-regexp / --list (or the get / list subcommands, or one name alone),
+// with no write option.
+func configRead(args []string) bool {
+	for _, a := range args {
+		if oneOf(a, "--add", "--unset", "--unset-all", "--replace-all", "--rename-section", "--remove-section", "-e",
+			"--edit") {
+			return false
+		}
+	}
+	for _, a := range args {
+		if oneOf(a, "--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color", "--get-colorbool", "--list",
+			"-l") {
+			return true
+		}
+	}
+	pos := positionals(args, []string{"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"})
+	if len(pos) > 0 && oneOf(pos[0], "get", "list") {
+		return true
+	}
+	return len(pos) == 1 && !oneOf(pos[0], "set", "unset", "rename-section", "remove-section", "edit")
 }
 
 // isMain: the git command run in dir (with --git-dir / --work-tree, or GIT_DIR / GIT_WORK_TREE) works on the main
