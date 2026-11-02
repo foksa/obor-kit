@@ -245,7 +245,10 @@ func TestDump(t *testing.T) {
 func TestBackup(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "none.sock")
 	day := time.Date(2026, 10, 27, 3, 0, 0, 0, time.UTC)
-	if reply, err := Backup(context.Background(), sock, logRoot(t), day); reply != "" || err != nil {
+	// No serve listens on sock: the calls end at once (T-685), not at the deadline table's 15 s.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if reply, err := Backup(ctx, sock, logRoot(t), day); reply != "" || err != nil {
 		t.Errorf("backup without a database = %q, %v; want nothing", reply, err)
 	}
 
@@ -259,7 +262,7 @@ func TestBackup(t *testing.T) {
 	if err := os.WriteFile(stopFailure, []byte("{\"at\":\"2026-10-12T02:59:59Z\",\"error\":\"old\"}\n{\"at\":\"2026-10-26T03:00:00Z\",\"error\":\"fresh\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := Backup(context.Background(), sock, root, day)
+	reply, err := Backup(ctx, sock, root, day)
 	if err != nil || reply != "BACKUP "+path {
 		t.Fatalf("direct backup = %q, %v; want BACKUP %s", reply, err, path)
 	}

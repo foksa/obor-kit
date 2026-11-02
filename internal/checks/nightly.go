@@ -99,7 +99,11 @@ func (s *session) nightly(label string) *Result {
 	s.reset(sha) // no command artifacts left behind
 	if label == "NIGHTLY" {
 		sock := app.SocketPath(s.Cfg.Root)
-		switch reply, err := app.Backup(context.Background(), sock, s.Cfg.Root, time.Now()); {
+		ctx := s.callCtx
+		if ctx == nil {
+			ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
+		}
+		switch reply, err := app.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
 		case err != nil:
 			failed = append(failed, "backup")
 			evidence = append(evidence, "backup: "+err.Error())

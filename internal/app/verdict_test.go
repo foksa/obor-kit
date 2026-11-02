@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app"
 )
@@ -162,7 +163,9 @@ func TestVerdictRepeatedCallIDGetsStoredReply(t *testing.T) {
 }
 
 func TestVerdictServeNotRunning(t *testing.T) {
-	_, err := app.Verdict(context.Background(), filepath.Join(t.TempDir(), "none.sock"), app.MethodAccept, app.Call{})
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := app.Verdict(ctx, filepath.Join(t.TempDir(), "none.sock"), app.MethodAccept, app.Call{})
 	if err == nil || !strings.Contains(err.Error(), "obor serve is not running") {
 		t.Errorf("verdict without obor serve: %v", err)
 	}

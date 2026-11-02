@@ -43,6 +43,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 			t.Errorf("obor %v: exit %d, %q; want 1 and %q", args, rc, got, want)
 		}
 	}
+	down := append(append([]string(nil), env...), callDown) // no serve yet: the calls end at once
 	for _, c := range []struct {
 		args []string
 		want string
@@ -59,7 +60,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 		{[]string{"resume", "T-01", "the owner says yes"}, "FAIL obor serve is not running"}, // a decision, the cause's default
 		{[]string{"sendback", "T-01", "why"}, "FAIL unknown lane T-01"},                      // the lane form only
 	} {
-		check(env, c.want, c.args...)
+		check(down, c.want, c.args...)
 	}
 
 	var out bytes.Buffer

@@ -35,6 +35,10 @@ func TestMain(m *testing.M) {
 
 func build(t *testing.T) string { return oborBin }
 
+// callDown is the environment of a call to a serve that is not running: every deadline is 0.2 s, so the call's
+// retries end at once (T-685), not after the deadline table's 15 s.
+const callDown = "OBOR_CALL_DEADLINE=0.2"
+
 // run is the binary in dir with env added: its exit code, stdout and stderr. The command is killed after 60 s (and
 // WaitDelay, in case a grandchild holds the pipes) so a hang names the command instead of costing go test's timeout.
 func run(t *testing.T, dir string, env []string, args ...string) (int, string, string) {

@@ -187,7 +187,7 @@ func TestDispatchServeRequest(t *testing.T) {
 
 	// Serve down: FAIL, no fallback: the lane is as it was.
 	refusing.stop()
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir()}, "dispatch", "T-07"); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), callDown}, "dispatch", "T-07"); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
@@ -267,7 +267,7 @@ func TestDropServeRequest(t *testing.T) {
 
 	// Serve down: FAIL, the lane as it was.
 	refusing.stop()
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir()}, "drop", "O-01", "why"); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), callDown}, "drop", "O-01", "why"); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
@@ -418,8 +418,11 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 			if args == nil {
 				args = []string{"sendback", "O-01", "fix the edge case"}
 			}
-			rc, stdout, stderr := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"},
-				args...)
+			env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+			if c.down {
+				env = append(env, callDown)
+			}
+			rc, stdout, stderr := run(t, p.Root, env, args...)
 			ok := c.asked && c.errText == ""
 			if (rc == 0) != ok || !strings.HasPrefix(stdout, c.want) || stderr != "" {
 				t.Errorf("exit %d, %q (stderr %q); want %q", rc, stdout, stderr, c.want)

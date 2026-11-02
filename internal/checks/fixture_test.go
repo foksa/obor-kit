@@ -87,9 +87,13 @@ func (x *fx) opts() Options {
 	environ = append(environ, "GIT_AUTHOR_NAME=obor test", "GIT_AUTHOR_EMAIL=obor-test@example.invalid",
 		"GIT_COMMITTER_NAME=obor test", "GIT_COMMITTER_EMAIL=obor-test@example.invalid", "CHECK_SLOT_DIR="+x.slots,
 		"TMP_DIR="+x.Base)
+	// The socket calls end at once: no test here runs a serve, and a nightly's backup must not wait out its deadline
+	// (T-685).
+	callCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	x.t.Cleanup(cancel)
 	return Options{
 		Cfg: cfg, Env: x.Env(x.env...), Environ: append(environ, x.environ...), Out: &x.out, PID: os.Getpid(),
-		Interrupted: x.sig, LoadPoll: 10 * time.Millisecond,
+		Interrupted: x.sig, LoadPoll: 10 * time.Millisecond, callCtx: callCtx,
 		Slots: &run.Slots{Dir: x.slots, Max: 2, BlockMax: 900 * time.Second, Marker: "merge-running-proj",
 			Poll: 20 * time.Millisecond, Report: time.Hour},
 		Load: func() (float64, bool) {

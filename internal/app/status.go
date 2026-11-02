@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -540,15 +542,22 @@ func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
 
 // The deadlines of the socket's callers, the one table (T-659): a call is retried inside its own deadline, so a serve
 // restart that ends before it loses nothing. The hooks' are under their timeouts (10 s and 15 s); status has none: a
-// read fails at once.
+// read fails at once. OBOR_CALL_DEADLINE, in seconds (fractions allowed: 0.2), is every method's deadline when set: a
+// test's call to a serve that is not running ends in that time, not in the table's (T-685); unset, the table.
 const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
 )
 
-// callDeadline is method's deadline from the table above.
+// callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the table
+// above.
 func callDeadline(method string) time.Duration {
+	if s := os.Getenv("OBOR_CALL_DEADLINE"); s != "" {
+		if secs, err := strconv.ParseFloat(s, 64); err == nil && secs > 0 {
+			return time.Duration(secs * float64(time.Second))
+		}
+	}
 	switch method {
 	case MethodTurn, MethodSession:
 		return turnDeadline
