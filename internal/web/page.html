@@ -573,7 +573,8 @@ async function landing() {
         <span class="pill plain t-idle">${p.free} free</span>
         ${p.queue ? pill("waiting", p.queue + " queued") : ""}
         ${roles}
-        ${running}`}
+        ${running}
+        ${p.background ? pill("running", p.background + " bg") : ""}`}
       </div>
       <div class="r muted small">${p.up ? "serve up" : ""}</div>
     </a>`;
@@ -590,6 +591,13 @@ async function projectPage(r) {
 }
 
 const FREE = new Set(["free", "dirty-free"]);
+
+// bgHTML is an agent's long-running background processes (T-714): one line each, its description or command and how
+// long it has run.
+function bgHTML(list) {
+  return (list || []).map((b) => `<span class="sub2 ell bg" title="${esc("pid " + b.pid + ": " + b.command)}">bg: ${
+    esc(b.label || b.command)} · ${dur(b.age)}</span>`).join("");
+}
 const roleName = (r) => String(r || "").replace(/_/g, " ");
 
 function renderProject(p, v) {
@@ -637,20 +645,21 @@ function renderProject(p, v) {
       <span class="mono c-lane" style="display:flex;gap:8px;align-items:center">${dot(l.column)}${esc(l.lane)}</span>
       <div class="lead">${l.task ? `<span class="ell">${taskLink(p, l.task)}${l.title ? ` <span class="ttl">${ttl(l.title)}</span>` : ""}</span>` : '<span class="muted">no task</span>'}
         <span class="sub2 ell">${agentLink(p, l.agent)}${l.agent_status ? " · " + esc(l.agent_status) : ""}${
-          job ? " · job " + job : ""}${l.warning ? " · " + pill("fail", l.warning) : ""}${l.op ? " · " + esc(l.op) : ""}</span></div>
+          job ? " · job " + job : ""}${l.warning ? " · " + pill("fail", l.warning) : ""}${l.op ? " · " + esc(l.op) : ""}</span>${bgHTML(l.background)}</div>
       <span>${pill(l.column)}</span>
       <span class="sub2 hide-sm">${l.spec_rev ? "spec r" + l.spec_rev : ""}${l.attempt > 1 ? " · attempt " + l.attempt : ""}${l.effort ? " · effort " + esc(l.effort) : ""}</span>
       <span class="r muted small">${rel(l.since, "for")}</span>
     </div>`;
   }).join("");
   const roles = v.roles || [];
-  const active = roles.filter((x) => x.status || x.brief);
+  // the lead's own row when it has background processes (T-714)
+  const active = (v.lead && (v.lead.background || []).length ? [v.lead] : []).concat(roles.filter((x) => x.status || x.brief));
   const idleRoles = roles.filter((x) => !(x.status || x.brief));
   const rolesHTML = active.map((x) => `<div class="row roles">
       <span class="small" style="display:flex;gap:8px;align-items:center">${dot(x.status === "done" ? "idle" : x.status)}${esc(roleName(x.role))}</span>
       <div class="lead"><span>${agentLink(p, x.agent)}</span>
         ${x.brief ? `<span class="sub2">brief ${x.brief.worked ? "being worked" : x.brief.delivered ? "delivered" :
-          "not delivered"} · ${rel(x.brief.since)}</span>` : ""}</div>
+          "not delivered"} · ${rel(x.brief.since)}</span>` : ""}${bgHTML(x.background)}</div>
       <span>${x.status ? pill(x.status === "done" ? "idle" : x.status, x.status) : pill("idle", "no pane")}</span>
       <span class="r muted small">${x.age ? dur(x.age) : ""}</span>
     </div>`).join("");
@@ -879,6 +888,9 @@ function renderAgent(p, a) {
   if (a.task) meta.push(`on ${taskLink(p, a.task)}`);
   if (a.lane) meta.push(`lane <b class="mono">${esc(a.lane)}</b>`);
   const out = [`<div class="head"><h1>${esc(a.agent)}</h1><div class="meta">${meta.join('<span class="muted">·</span>')}</div></div>`];
+  if ((a.background || []).length) out.push(`<section><h2>Background processes <span class="count">${a.background.length}</span></h2><div class="card list">${
+    a.background.map((b) => `<div class="li"><span class="muted small">${dur(b.age)}</span><span class="txt">${
+      b.label ? esc(b.label) + ` <span class="muted small mono">${esc(b.command)}</span>` : `<span class="mono">${esc(b.command)}</span>`}</span></div>`).join("")}</div></section>`);
   if ((a.jobs || []).length) out.push(`<section><h2>Jobs <span class="count">${a.jobs.length}</span></h2><div class="card">${
     a.jobs.map((j, i) => prompt(p, j, "job:" + j.seq, i === 0 && j.text.length < 6000, true)).join("")}</div></section>`);
   if ((a.briefs || []).length) out.push(`<section><h2>Briefs <span class="count">${a.briefs.length}</span></h2><div class="card">${

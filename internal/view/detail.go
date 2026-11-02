@@ -75,6 +75,8 @@ type AgentDetail struct {
 	Briefs   []Prompt       `json:"briefs"`           // newest first
 	Lines    []AgentLine    `json:"lines"`            // newest first
 	Jobs     []Prompt       `json:"jobs"`             // newest first
+	// Background is its long-running background processes (T-714; Project.AgentBackground).
+	Background []Background `json:"background,omitempty"`
 }
 
 // AgentSession is one recorded session of an agent (store.Session) and when its transcript was last written (LastWrite,
@@ -191,6 +193,7 @@ func (d Detail) Agent(agent string) (AgentDetail, bool) {
 		return AgentDetail{}, false
 	}
 	found := false
+	a.Background = d.Project.AgentBackground(agent)
 	for _, s := range d.Project.Agents {
 		if s.Name == agent {
 			a.Status, a.Lane, a.Task, found = s.Status, s.Lane, s.Task, true

@@ -84,7 +84,9 @@ type ProjectsEntry struct {
 	Queue    int            `json:"queue"`
 	Running  []view.Running `json:"running"`
 	Roles    []view.Role    `json:"roles"`
-	Error    string         `json:"error,omitempty"`
+	// Background is how many long-running background processes the project's agents have (T-714).
+	Background int    `json:"background"`
+	Error      string `json:"error,omitempty"`
 }
 
 // projectsAPI is the machine's projects with their counts.
@@ -100,6 +102,7 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
 			e.Running = append(e.Running, v.Running...)
+			e.Background = v.BackgroundCount()
 			for _, r := range v.Roles {
 				if r.Status == "working" || r.Brief != nil { // a brief waiting to be delivered counts, as on the project page
 					e.Roles = append(e.Roles, r)

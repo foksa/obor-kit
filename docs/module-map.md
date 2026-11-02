@@ -19,7 +19,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 
 **base** — shared leaves, no obor state of their own.
 - `project`: find the project, main checkout, lane dirs, session role/agent. `project.Find(dir)`, `Env`; the file lock (`lock.go`: `Lock`),
-  `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`),
+  `LabelOurs` (whether a labelled pane is this project's), the sid files and the opencode plugin marker (`plugin.go`), the background Bash calls the PreToolUse hook records
+  (`background.go`, T-714),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, monitor, web: an unknown
@@ -123,6 +124,10 @@ rev, open job), serve's tasks and agents, the role agents, needs-you, the full c
 (merge loop with stages and the next by id, waiting dispatches: after | lane | never dispatched, the review request,
 the outbox, pause, nightly) and the newest worded events (seq, ts, task, line). `view.Load` is that build for one
 project at a root (serve's answer, the lane table, the store), as `obor web` builds every project the machine knows.
+`background.go` (T-714) is the agents' long-running background processes (`Input.Background`, by agent name;
+`ScanBackground`: one `ps` per build, each agent pane's foreground leader from herdr process-info, its descendants
+running > 30 s through its shells, helpers left out), labelled from the PreToolUse hook's records
+(`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`).
 `view.Detail` is the drill-down the API serves and nothing else: a task's state, spec, report, gate line and log,
 needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
 jobs; a job's text (a `prompts` row). `EventsSince` pages the log by seq for the page's long poll. It may import base,

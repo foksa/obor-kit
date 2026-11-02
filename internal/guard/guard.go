@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"obor/internal/config"
 	"obor/internal/project"
@@ -58,6 +59,7 @@ func Run(input []byte, env project.Env) (code int, reason string) {
 	}
 	if g.tool == "Bash" {
 		g.bash()
+		g.recordBackground()
 	} else {
 		g.edit()
 	}
@@ -68,16 +70,21 @@ func Run(input []byte, env project.Env) (code int, reason string) {
 type event struct {
 	ToolName  string `json:"tool_name"`
 	Cwd       string `json:"cwd"`
+	SessionID string `json:"session_id"`
 	ToolInput struct {
-		Command      string `json:"command"`
-		FilePath     string `json:"file_path"`
-		NotebookPath string `json:"notebook_path"`
+		Command         string `json:"command"`
+		FilePath        string `json:"file_path"`
+		NotebookPath    string `json:"notebook_path"`
+		RunInBackground bool   `json:"run_in_background"`
+		Description     string `json:"description"`
 	} `json:"tool_input"`
 }
 
 type guard struct {
 	env                    project.Env
 	tool, cwd, cmd, target string
+	background             bool   // a Bash call run in the background (run_in_background)
+	description, session   string // the Bash call's description, the hook's session id
 	repo                   *project.Repo
 	cfg                    *config.Config
 	broken                 error // the config does not load (cfg is config.Fallback): fail closed (DD-v0.13 A1)
@@ -150,7 +157,8 @@ func load(input []byte, env project.Env) *guard {
 	default:
 		return nil
 	}
-	g := &guard{env: env, tool: ev.ToolName, cwd: ev.Cwd, cmd: ev.ToolInput.Command, target: ev.ToolInput.FilePath}
+	g := &guard{env: env, tool: ev.ToolName, cwd: ev.Cwd, cmd: ev.ToolInput.Command, target: ev.ToolInput.FilePath,
+		background: ev.ToolInput.RunInBackground, description: ev.ToolInput.Description, session: ev.SessionID}
 	if g.target == "" {
 		g.target = ev.ToolInput.NotebookPath
 	}
@@ -481,3 +489,14 @@ func otherProject(p string) string {
 
 // bash guards a Bash command (shell.go).
 func (g *guard) bash() { g.script(g.cmd, g.cwd, 0) }
+
+// recordBackground records an allowed Bash call run in the background (T-714): its description and command with the
+// agent, pane and session, so obor status, monitor and web show the live process under its description
+// (project.AppendBackground: one append, no wait).
+func (g *guard) recordBackground() {
+	if !g.background || strings.TrimSpace(g.cmd) == "" {
+		return
+	}
+	project.AppendBackground(g.root, project.BackgroundCall{At: time.Now().Unix(), Agent: sessionAgent(g.cfg, g.detected, g.env),
+		Pane: g.env.Get("HERDR_PANE_ID"), Session: g.session, Description: g.description, Command: g.cmd})
+}

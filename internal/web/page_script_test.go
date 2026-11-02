@@ -12,7 +12,8 @@ import (
 // TestPageScript (T-676) runs the page's script in node against a fake browser (testdata/page_harness.js: a DOM, fetch
 // and a clock it advances), one scenario a subtest: a transition between the page's first read and its cursor is shown,
 // a change with no record shows after the periodic refresh, a failed redraw is retried, each project's cursor is kept
-// when navigating back, the task pipeline's step per stage and a stopped role agent's status. No node on PATH: skipped
+// when navigating back, the task pipeline's step per stage, a stopped role agent's status and the agents' background
+// processes (T-714). No node on PATH: skipped
 // (node is no runtime dependency; cmd/obor's opencode test does the same).
 func TestPageScript(t *testing.T) {
 	node, err := exec.LookPath("node")
@@ -36,7 +37,7 @@ func TestPageScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"transitionAfterFirstRead", "changeWithoutRecord", "failedRedrawRetried",
-		"cursorKeptPerProject", "failedFirstDraw", "pipeline", "stoppedRole"} {
+		"cursorKeptPerProject", "failedFirstDraw", "pipeline", "stoppedRole", "background"} {
 		t.Run(name, func(t *testing.T) {
 			out, err := exec.Command(node, file, name).CombinedOutput()
 			if err != nil {

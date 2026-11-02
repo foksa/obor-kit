@@ -657,3 +657,39 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 		t.Error("the page does not read the overview's roles")
 	}
 }
+
+// T-714: /api/projects counts the agents' background processes for the overview card, /api/agent lists an agent's
+// own, and the page reads both.
+func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-01")
+	p.Config()
+	p.Commit(o1)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := cfg.AgentName("lead", "")
+	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Agents: []wire.AgentStatus{
+		{Pane: "w1:p1", Name: "pj-o1", Lane: "O-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
+	conv := view.Background{PID: 42, Command: "python convert.py", Label: "convert maps", Age: 900}
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Events: 20,
+		Background: map[string][]view.Background{"pj-o1": {conv}, lead: {{PID: 7, Command: "sleep 600", Age: 45}}}})
+	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
+		Build: func(context.Context, string) (view.Project, error) { return v, nil }}
+	var entries []ProjectsEntry
+	decode(t, get(t, s.Handler(), "/api/projects"), &entries)
+	if len(entries) != 1 || entries[0].Background != 2 {
+		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
+	}
+	var a view.AgentDetail
+	decode(t, get(t, s.Handler(), "/api/agent?project=pj&agent=pj-o1"), &a)
+	if len(a.Background) != 1 || a.Background[0] != conv {
+		t.Errorf("agent background %+v, want %+v", a.Background, conv)
+	}
+	page := get(t, s.Handler(), "/").Body.String()
+	if !strings.Contains(page, "p.background") || !strings.Contains(page, "a.background") {
+		t.Error("the page does not read the overview's count or the agent's background")
+	}
+}

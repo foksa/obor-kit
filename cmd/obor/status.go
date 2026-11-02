@@ -56,7 +56,8 @@ func status(args []string) int {
 		defer db.Close()
 	}
 	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: time.Now(),
-		Events: statusEvents, Notes: view.Notes(cfg.Root, warn)})
+		Events: statusEvents, Notes: view.Notes(cfg.Root, warn),
+		Background: view.ScanBackground(ctx, cfg.Root, ss, err, project.OSEnv)})
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)
 	if !asJSON {
 		switch {
@@ -144,6 +145,7 @@ func laneSection(st view.Project, now time.Time) []string {
 	shown := map[string]bool{}
 	for _, l := range st.Lanes {
 		fmt.Fprintln(&b, laneLine(l))
+		writeBackground(&b, l.Background)
 		if l.TaskState != "" {
 			shown[*l.Task] = true
 		}
@@ -157,6 +159,7 @@ func laneSection(st view.Project, now time.Time) []string {
 	for _, a := range st.Agents {
 		if a.Lane == "" {
 			fmt.Fprintf(&b, "agent %s: %s %s\n", app.Dash(a.Name), a.Status, app.Age(time.Duration(a.Age)*time.Second))
+			writeBackground(&b, st.AgentBackground(a.Name))
 		}
 	}
 	for _, r := range st.Roles {
@@ -165,6 +168,14 @@ func laneSection(st view.Project, now time.Time) []string {
 		}
 	}
 	return textLines(b.String())
+}
+
+// writeBackground is one line per background process of an agent, under its line (T-714): `  bg: <description or
+// command> · 15m`.
+func writeBackground(w io.Writer, bs []view.Background) {
+	for _, bg := range bs {
+		fmt.Fprintf(w, "  bg: %s · %s\n", oneLine(bg.Text()), app.Age(time.Duration(bg.Age)*time.Second))
+	}
 }
 
 // laneLine is l's line: its lane, type, branch, the state column (T-657), the task's age and id, then serve's state of

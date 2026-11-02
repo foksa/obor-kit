@@ -34,9 +34,10 @@ type Project struct {
 	Running   []Running            `json:"running"`
 	Pending   []wire.PendingStep   `json:"pending"` // the open command steps whose effect does not run now
 	Lanes     []Lane               `json:"lanes"`
-	Tasks     []wire.TaskStatus    `json:"tasks"`  // serve's open tasks
-	Agents    []wire.AgentStatus   `json:"agents"` // the agents serve sees in the project
-	Roles     []Role               `json:"roles"`  // the role agents on no lane (integrator, reviewer, deep dive, advisor)
+	Tasks     []wire.TaskStatus    `json:"tasks"`          // serve's open tasks
+	Agents    []wire.AgentStatus   `json:"agents"`         // the agents serve sees in the project
+	Roles     []Role               `json:"roles"`          // the role agents on no lane (integrator, reviewer, deep dive, advisor)
+	Lead      *Role                `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
 	NeedsYou  []NeedsYou           `json:"needs_you"`
 	FullCheck *FullCheck           `json:"full_check"`
 	Paused    *Pause               `json:"paused"`
@@ -108,6 +109,8 @@ type Lane struct {
 	Title   string `json:"title,omitempty"`
 	// Job is the task's open job (nil: none).
 	Job *Job `json:"job,omitempty"`
+	// Background is the lane agent's long-running background processes (T-714; Input.Background).
+	Background []Background `json:"background,omitempty"`
 }
 
 // Job is an open job: its id (<task>/<attempt>/<step>) and whether its agent's job_next fetched it.
@@ -126,6 +129,8 @@ type Role struct {
 	Age     int64             `json:"age,omitempty"`
 	Brief   *wire.BriefStatus `json:"brief,omitempty"`
 	Session string            `json:"session,omitempty"`
+	// Background is the agent's long-running background processes (T-714; Input.Background).
+	Background []Background `json:"background,omitempty"`
 }
 
 // NeedsYou is one needs-you fact in force.
@@ -162,6 +167,8 @@ type Input struct {
 	Now    time.Time
 	Events int
 	Notes  []string // the project's own lines (Notes)
+	// Background is each agent's long-running background processes by agent name (ScanBackground; nil: none read).
+	Background map[string][]Background
 }
 
 // Notes is the project's own lines for Input.Notes: warn (config.LoadReader's, "" for none), then
@@ -220,7 +227,8 @@ func Build(in Input) Project {
 				v.NeedsYou = append(v.NeedsYou, n)
 			}
 		}
-		v.Roles = roles(p, ps)
+		v.Roles = roles(p, ps, in.Background)
+		v.Lead = lead(p, ps, in.Background)
 	}
 	if ps.Paused != nil {
 		v.Paused = &Pause{Reason: ps.Paused.Why, By: ps.Paused.Caller}
@@ -230,7 +238,11 @@ func Build(in Input) Project {
 	}
 	specs := readSpecs(in.DB)
 	for _, s := range p.States() {
-		v.Lanes = append(v.Lanes, lane(p, s, &v, ps, specs))
+		l := lane(p, s, &v, ps, specs)
+		if l.Agent != "" {
+			l.Background = in.Background[l.Agent]
+		}
+		v.Lanes = append(v.Lanes, l)
 	}
 	v.FullCheck = readFullCheck(p.Root)
 	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
@@ -271,7 +283,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 
 // roles is one row per role agent on no lane that the config names (an optional role only when configured), with its
 // pane's status and session as serve sees it and its open brief.
-func roles(p *checks.LaneTable, ps wire.ProjectStatus) []Role {
+func roles(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background) []Role {
 	out := []Role{}
 	for _, name := range roleNames {
 		rc, ok := p.Cfg.Role(name)
@@ -282,7 +294,7 @@ func roles(p *checks.LaneTable, ps wire.ProjectStatus) []Role {
 		if agent == "" {
 			continue
 		}
-		r := Role{Role: name, Agent: agent}
+		r := Role{Role: name, Agent: agent, Background: bg[agent]}
 		for _, a := range ps.Agents {
 			if a.Name == agent && a.Lane == "" {
 				r.Status, r.Age, r.Session = a.Status, a.Age, a.Session
@@ -300,6 +312,21 @@ func roles(p *checks.LaneTable, ps wire.ProjectStatus) []Role {
 		out = append(out, r)
 	}
 	return out
+}
+
+// lead is the lead's row (its status and session as serve sees its pane, its background processes); nil when the
+// config names no lead agent or serve sees no pane of it.
+func lead(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background) *Role {
+	agent := p.Cfg.AgentName("lead", "")
+	if agent == "" {
+		return nil
+	}
+	for _, a := range ps.Agents {
+		if a.Name == agent && a.Lane == "" {
+			return &Role{Role: "lead", Agent: agent, Status: a.Status, Age: a.Age, Session: a.Session, Background: bg[agent]}
+		}
+	}
+	return nil
 }
 
 // column is l's state column (T-657): what serve does for its task now — held (needs-you), gating, merging
