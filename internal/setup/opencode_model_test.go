@@ -48,3 +48,29 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 		})
 	}
 }
+
+// T-707 (RV-83 #4): OBOR_OPENCODE_MODEL is obor's own, for OpenCode starts only: a new pane for a Claude or Codex agent
+// gets it empty (none to obor's plugin) over a value setup's own env holds, and nothing else of the OpenCode kind's.
+func TestSetupNonOpencodePaneDropsTheInheritedModel(t *testing.T) {
+	t.Parallel()
+	const types = `{"cl":{"kind":"claude","args":["--model","opus"]},"cx":{"kind":"codex","args":["-m","gpt-6-luna"]},` +
+		`"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]}}`
+	for _, c := range []struct{ name, role, kind, want string }{
+		{"claude", "cl", "kind=claude", "OBOR_OPENCODE_MODEL=,"},
+		{"codex", "cx", "kind=codex", "OBOR_OPENCODE_MODEL=,"},
+		{"opencode keeps its own", "oc", "kind=opencode", "OBOR_OPENCODE_MODEL=go/ds,"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
+			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max")
+			x.reset()
+			x.ok(t, "role", "reviewer", "--tab", "w1:t1")
+			calls := strings.Join(x.reqs(), "\n")
+			has(t, calls, "pane.split", "precondition: a new pane")
+			has(t, calls, c.kind, "the start")
+			has(t, calls, c.want, "the model the pane is handed")
+			hasNot(t, calls, "inherited/m", "the inherited model")
+		})
+	}
+}

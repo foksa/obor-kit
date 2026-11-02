@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/opencode"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -714,6 +715,9 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	case t.info.Type != "":
 		lt, _ = l.Cfg.LaneType(t.info.Type)
 	case t.info.Role == "":
+		if t.kind != opencode.Name { // no type, no args; still not an earlier OpenCode start's model (T-707)
+			t.env = map[string]string{opencode.ModelVar: ""}
+		}
 		return nil, nil
 	}
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {

@@ -348,7 +348,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("pj-o-01", "sid-1"); x.shell("w1:p3", "pj-o-01", "").Session = "sid-1" },
 		req:  launch.Request{Agent: "pj-o-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=pj-o-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-o-01 (pane w1:p3, session sid-1)",
@@ -363,7 +363,7 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "o-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=o-01 OBOR_ROLE=worker OBOR_LANE=O-01"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=o-01 pane_id=w1:p3",
 		line:  "RESTARTED o-01 (pane w1:p3, session sid-1)",
@@ -377,7 +377,7 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "o-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=export OBOR_AGENT=o-01 && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=export OBOR_AGENT=o-01 && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--resume sid-1] kind=claude name=o-01 pane_id=w1:p3",
 		line:  "RESTARTED o-01 (pane w1:p3, session sid-1)",
@@ -387,7 +387,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("odd-name", "sid-1"); x.shell("w1:p3", "odd-name", x.lane) },
 		req:  launch.Request{Agent: "odd-name"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=odd-name OBOR_ROLE=worker OBOR_LANE=O-01"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=odd-name OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",
@@ -398,7 +398,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.sid("pj-int", "sid-i"); x.shell("w1:p5", "pj-int", "").Session = "sid-i" },
 		req:  launch.Request{Agent: "pj-int"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
@@ -408,7 +408,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
@@ -421,7 +421,7 @@ func TestRestartWho(t *testing.T) {
 		},
 		req: launch.Request{Agent: "triage"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p8 text=export OBOR_AGENT=triage && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p8 text=export OBOR_AGENT=triage && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--resume sid-t] kind=claude name=triage pane_id=w1:p8",
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
@@ -433,7 +433,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-triage", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-triage && unset OBOR_LANE OBOR_ROLE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-triage && unset OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
@@ -448,7 +448,7 @@ func TestRestartWho(t *testing.T) {
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(filepath.Join(x.p.Base, "proj-wt", "deep-dive")) +
-				" && export OBOR_AGENT=pj-deep-dive OBOR_ROLE=deep_dive && unset OBOR_LANE"
+				" && export OBOR_AGENT=pj-deep-dive OBOR_ROLE=deep_dive && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
@@ -462,7 +462,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "adv", Pane: "w1:p6", Sid: "s-adv"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root+"/sub") + " && export OBOR_AGENT=adv && unset OBOR_LANE OBOR_ROLE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root+"/sub") + " && export OBOR_AGENT=adv && unset OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model fable --permission-mode plan " + settings + " --resume s-adv] kind=claude name=adv pane_id=w1:p6",
 		line:  "RESTARTED adv (pane w1:p6, session s-adv)",
@@ -474,7 +474,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "des", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=des OBOR_ROLE=designer && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=des OBOR_ROLE=designer && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=des pane_id=w1:p6",
 		line:  "RESTARTED des (pane w1:p6, session new)",
@@ -488,7 +488,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-int", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p6",
 		line:  "RESTARTED pj-int (pane w1:p6, session new)",
@@ -501,7 +501,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--model opus --settings {\"x\":1}] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
@@ -512,7 +512,7 @@ func TestRestartWho(t *testing.T) {
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",

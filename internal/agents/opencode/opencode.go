@@ -18,6 +18,9 @@ type kind struct{}
 
 const name = "opencode"
 
+// Name is the kind's name (lane_types.<t>.kind).
+const Name = name
+
 func (kind) Name() string { return name }
 
 // Start: the type's args but their --model/-m (OpenCode's TUI takes none: StartEnv carries the model to obor's plugin),
