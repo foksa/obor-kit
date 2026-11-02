@@ -351,7 +351,8 @@ func resumeReply(task, to, cause string) string {
 // the stored reply; else the project's merge loop runs, the caller is not an agent of another role, the task has a
 // needs-you in force that is not a reject's, and c.To (or the cause's default) fits it: reprompt needs an integrator
 // job of the attempt, retry a failed step. One fact, unblocked{to, note: c.Note, the decision}; the merge loop goes on
-// from it, and the integrator's next job of the attempt carries the decision (decisionText, T-511).
+// from it, and the integrator's next job of the attempt carries the decision (decisionText, T-511). A task with no
+// merge-loop needs-you but the watchdog's needs-you{stalled} in force is resumeStalled's (T-746).
 func (a *App) resume(c wire.Call) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
@@ -363,12 +364,20 @@ func (a *App) resume(c wire.Call) (string, error) {
 	var reply string
 	var stored bool
 	var mt mtask
-	merging := false
+	merging, stalled, worker := false, false, ""
 	if p != nil {
 		merging = p.merging
 		reply, stored = p.folded.calls[verdictStep(wire.MethodResume, c.CallID)]
+		if !stored { // a stalled worker's resume is stored as the answer it records (resumeStalled)
+			reply, stored = p.folded.calls[verdictStep(wire.MethodAnswer, c.CallID)]
+		}
 		if m := p.folded.loop[c.Task]; m != nil {
 			mt = *m
+		}
+		stalled = p.has(c.Task, event.StepNeedsYou, reasonStalled)
+		worker = mt.agent
+		if w := p.tasks[c.Task]; w != nil && worker == "" {
+			worker = w.lane.Agent
 		}
 	}
 	a.mu.Unlock()
@@ -382,6 +391,9 @@ func (a *App) resume(c wire.Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
+	if mt.needs.Seq == 0 && stalled {
+		return a.resumeStalled(p, c, worker)
+	}
 	d := mt.needs.Fact()
 	to, err := mt.resumeTo(c.Task, c.To)
 	if err != nil {
@@ -394,6 +406,32 @@ func (a *App) resume(c wire.Call) (string, error) {
 	}
 	a.wake()
 	return resumeReply(c.Task, to, d.Cause), nil
+}
+
+// resumeStalled resumes task c.Task's watchdog needs-you{stalled} (T-746): its worker went quiet with its job open. The
+// decision (c.Note, required; c.To none or reprompt: regate and retry are the merge loop's) goes to worker as an
+// answer's line does: fact answered{to: worker, line "[obor answer] <decision>"}, whose fold ends the task's watchdog
+// facts (the needs-you with them) and whose line deliver sends at the worker's next idle.
+func (a *App) resumeStalled(p *proj, c wire.Call, worker string) (string, error) {
+	note := strings.TrimSpace(c.Note)
+	switch {
+	case c.To != "" && c.To != wire.ResumeReprompt:
+		return "", fmt.Errorf("resume: %s's worker stalled: reprompt it with the decision (obor resume %s \"<decision>\")",
+			c.Task, c.Task)
+	case note == "":
+		return "", fmt.Errorf("resume: say the decision for %s's stalled worker (obor resume %s \"<decision>\")", c.Task,
+			c.Task)
+	case worker == "":
+		return "", fmt.Errorf("resume: %s has no worker to send the decision to", c.Task)
+	}
+	m := event.Message{To: worker, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + note, Call: c.CallID,
+		Task: c.Task, Reply: resumeReply(c.Task, wire.ResumeReprompt, reasonStalled)}
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact}, m) {
+		return "", fmt.Errorf("resume: the event log of %s refused it", p.name)
+	}
+	a.logf("%s %s: obor serve sends %s the decision by %s", p.name, m.Reply, worker, Dash(c.Agent))
+	a.wake()
+	return m.Reply, nil
 }
 
 // resumeTo is the target obor resume takes for task's needs-you in mt with to ("": the cause's default), or the

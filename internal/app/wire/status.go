@@ -172,10 +172,12 @@ type ScratchWait struct {
 	Why     string `json:"why,omitempty"`
 }
 
-// MessageStatus is one line not yet delivered (obor status): to whom, from whom, the line, and its age in seconds.
+// MessageStatus is one line not yet delivered (obor status): to whom, from whom, the line, its age in seconds, and why
+// serve holds it ("": not held; T-746).
 type MessageStatus struct {
 	To   string `json:"to"`
 	From string `json:"from,omitempty"`
 	Line string `json:"line"`
 	Age  int64  `json:"age"`
+	Held string `json:"held,omitempty"`
 }

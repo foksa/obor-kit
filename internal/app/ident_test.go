@@ -808,8 +808,8 @@ func (s *kindSpy) Post(_ context.Context, kind, agent, line string) (bool, error
 }
 
 // DD-v0.13 A3 (and B1's kind): a wake and a line are posted, with the pane's kind, only when pj-o-01's inbox record
-// names the identified pane's session (s1) or none; a record of another session (s9): the wake is typed into w1:p1,
-// the line held.
+// names the identified pane's session (s1) or none; a record of another session (s9): the wake and the line are typed
+// into w1:p1 (T-746: a line to a ready agent is delivered, never held on a session mismatch).
 func TestIdentInboxOfAnotherSession(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ rec, want string }{{"s1", "posted"}, {"", "posted"}, {"s9", "typed"}} {
@@ -820,12 +820,12 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 			h.connect()
 			eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "where")
 			h.a.opt.Inboxed = func(string) (string, bool) { return tc.rec, true }
-			in, typed := &kindSpy{}, &boxPrompter{box: map[string]string{}}
+			in, typed, liner := &kindSpy{}, &boxPrompter{box: map[string]string{}}, &linerSpy{}
 			if !h.wake(&Loop{Inbox: in, Typer: typed}) {
 				t.Fatal("wake not sent")
 			}
 			h.brief("pj-o-01", "[obor pj-lead] verify")
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
 			if tc.want == "posted" {
 				if len(in.calls) != 2 || !strings.HasPrefix(in.calls[0], "claude pj-o-01: [obor job T-1/1/work]") ||
 					in.calls[1] != "claude pj-o-01: [obor pj-lead] verify" || len(typed.jobs) != 0 {
@@ -834,9 +834,10 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 				}
 				return
 			}
-			if len(in.calls) != 0 || !slices.Equal(typed.jobs, []string{"T-1/1/work"}) || len(h.lines()) != 1 {
-				t.Errorf("posted %q, typed %q, queued %q; want the wake typed, the line held", in.calls, typed.jobs,
-					h.lines())
+			if len(in.calls) != 0 || !slices.Equal(typed.jobs, []string{"T-1/1/work"}) ||
+				!slices.Equal(liner.calls, []string{"w1:p1: [obor pj-lead] verify"}) || len(h.lines()) != 0 {
+				t.Errorf("posted %q, typed %q and %q, queued %q; want the wake and the line typed into w1:p1", in.calls,
+					typed.jobs, liner.calls, h.lines())
 			}
 		})
 	}
@@ -844,7 +845,8 @@ func TestIdentInboxOfAnotherSession(t *testing.T) {
 
 // DD-v0.13 R1: a line is held only on a known mismatch. The lead's pane identified by label with no session from
 // herdr: its line is posted (even against another session's record: its record is its own latest SessionStart). A
-// role pane with no session: posted. A role pane whose session (s1) differs from the record's (s9): held.
+// role pane with no session: posted. A role pane whose session (s1) differs from the record's (s9): typed into its
+// pane (T-746: no longer held).
 func TestIdentSessionUnknown(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -854,7 +856,7 @@ func TestIdentSessionUnknown(t *testing.T) {
 		{"lead, no pane session", "pj-lead", "", "sess-lead", "pj-lead: [obor] hello"},
 		{"lead, other session", "pj-lead", "s1", "s9", "pj-lead: [obor] hello"},
 		{"role, no pane session", "pj-o-01", "", "s9", "claude pj-o-01: [obor] hello"},
-		{"role, known mismatch", "pj-o-01", "s1", "s9", ""},
+		{"role, known mismatch", "pj-o-01", "s1", "s9", "typed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -881,11 +883,12 @@ func TestIdentSessionUnknown(t *testing.T) {
 			} else {
 				h.brief(tc.agent, "[obor] hello")
 			}
-			in := &kindSpy{}
-			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
-			if tc.want == "" {
-				if len(in.calls) != 0 || len(h.lines()) != 1 {
-					t.Errorf("posted %q, queued %q; want the line held", in.calls, h.lines())
+			in, liner := &kindSpy{}, &linerSpy{}
+			h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
+			if tc.want == "typed" {
+				if len(in.calls) != 0 || !slices.Equal(liner.calls, []string{"w1:p1: [obor] hello"}) || len(h.lines()) != 0 {
+					t.Errorf("posted %q, typed %q, queued %q; want the line typed into w1:p1", in.calls, liner.calls,
+						h.lines())
 				}
 				return
 			}

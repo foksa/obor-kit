@@ -185,9 +185,9 @@ func TestBriefByKind(t *testing.T) {
 	}
 }
 
-// A brief to a Claude role agent whose session has no inbox record stays queued, untried and not typed; once the
-// record is there it is posted, once.
-func TestBriefQueuedWithoutAnInboxRecord(t *testing.T) {
+// A brief to a Claude role agent whose session has no inbox record is typed into its idle pane (T-746: as its job
+// wakes are; before, it waited untried), once, nothing posted, nothing left waiting.
+func TestBriefTypedWithoutAnInboxRecord(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-rev")
@@ -196,19 +196,9 @@ func TestBriefQueuedWithoutAnInboxRecord(t *testing.T) {
 	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
 		t.Fatal(err)
 	}
+	r.waitFor("the brief typed", func() bool { r.passes(); return r.typedTo("pj-rev", line) == 1 })
 	r.passes()
-	r.passes()
-	if w := r.waiting(); len(w) != 1 || w[0].To != "pj-rev" {
-		t.Fatalf("lines waiting %+v, want pj-rev's", w)
-	}
-	if n := r.inbox.tries("pj-rev", line) + r.typedTo("pj-rev", line); n != 0 {
-		t.Errorf("the brief tried %d times without a record, want none (queued)", n)
-	}
-	r.inbox.record("pj-rev")
-	r.waitFor("the brief posted", func() bool { r.passes(); return r.inbox.count("pj-rev", line) == 1 })
-	r.passes()
-	if n := r.inbox.tries("pj-rev", line); n != 1 || len(r.waiting()) != 0 || r.typedTo("pj-rev", line) != 0 {
-		t.Errorf("posted %d, waiting %+v, typed %d; want posted once, none waiting, none typed", n, r.waiting(),
-			r.typedTo("pj-rev", line))
+	if n, posted := r.typedTo("pj-rev", line), r.inbox.tries("pj-rev", line); n != 1 || posted != 0 || len(r.waiting()) != 0 {
+		t.Errorf("typed %d, posted %d, waiting %+v; want typed once, none posted, none waiting", n, posted, r.waiting())
 	}
 }

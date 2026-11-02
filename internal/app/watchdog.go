@@ -203,6 +203,10 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 	return v
 }
 
+// reasonStalled is the reason of the watchdog's needs-you on a stalled worker (needs-you{stalled}; obor resume ends it,
+// T-746).
+const reasonStalled = "stalled"
+
 // sample is the stall timer (rows 10, 12, 14), a state machine over observed quiet time. Its state per open task is
 // quietSince (zero: no baseline) and seenWrite, the newest transcript write accounted for (zero: not sampled yet; the
 // first sample only sets it, to the transcript's write or, none known, its own time, so an old transcript is never
@@ -229,7 +233,7 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 // age, the task's start or a pane's joining only reset it, never count.
 func (a *App) sample(p *proj, task string, w *watch, now time.Time, e *evidence, v *verdict) {
 	stalled := p.has(task, event.StepStalled, "idle")
-	escalated := p.has(task, event.StepNeedsYou, "stalled")
+	escalated := p.has(task, event.StepNeedsYou, reasonStalled)
 	asked := p.asks(task) || p.stops(task) // a stopped worker waits on its API error, not stalled (T-532)
 	active, due := w.sample(now, e, a.opt.Idle)
 	switch {
@@ -241,7 +245,7 @@ func (a *App) sample(p *proj, task string, w *watch, now time.Time, e *evidence,
 	case !stalled:
 		v.step, v.reason = event.StepStalled, "idle"
 	case !escalated:
-		v.step, v.reason = event.StepNeedsYou, "stalled"
+		v.step, v.reason = event.StepNeedsYou, reasonStalled
 	}
 }
 

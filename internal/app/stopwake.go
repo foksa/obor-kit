@@ -120,7 +120,7 @@ func (a *App) stopWakes(ctx context.Context, p *proj, fx *Loop) {
 func (a *App) sendWake(ctx context.Context, p *proj, fx *Loop, wk wakeTo) {
 	a.mu.Lock()
 	w := a.whereIs(p, wk.agent)
-	post, inboxed := a.via(fx, w, wk.agent)
+	post, inboxed := a.via(fx, p, w, wk.agent)
 	a.mu.Unlock()
 	if w.State != Identified || w.Pane.Status == "blocked" {
 		return

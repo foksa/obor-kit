@@ -388,7 +388,8 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.later(23 * time.Hour)
-	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") + "}"
+	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") +
+		" (held: no inbox recorded for pj-lead: its SessionStart hook records one)}" // why it waits (T-746)
 	if n := r.taskStep(event.MsgTask, want); n != 0 {
 		t.Fatalf("a needs-you before 24 h: %q", r.steps())
 	}
