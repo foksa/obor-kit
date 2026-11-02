@@ -98,7 +98,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 			"lead pane needs it")
 	}
 	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, H: r.h, Out: r.out, Starter: launcherFor(r.env, r.kit, r.h, r.out, r.tune)}
-	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead"})
+	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead", "--start"})
 }
 
 // leadOurs: the running agent with cwd is this project's lead, by the launcher's ownership rule (T-301, RV-19 #3:

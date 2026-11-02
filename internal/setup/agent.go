@@ -52,7 +52,7 @@ type agent struct {
 	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
 	role           roles.Role
 	lane           string
-	noStart        bool // label the pane and type its env, start no agent (T-705: a lane pane without --start)
+	noStart        bool // label the pane and type its env, start no agent (T-705/T-708: a pane without --start)
 }
 
 func (s *Setup) pane(ctx context.Context, args []string) error {
@@ -86,6 +86,7 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {
+	args, startNow := withoutFlag(args, "--start")
 	if len(args) == 0 {
 		return errUsage
 	}
@@ -104,7 +105,7 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if rc.Type == "" {
 		return project.Failf("roles.%s.type is not set (a lane_types key)", role.Name)
 	}
-	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role}
+	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
 	worktree := ""
 	if role.Cwd == roles.CwdRoleWorktree {
 		worktree = rc.Worktree
@@ -306,7 +307,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			}
 			s.say("labelled pane %s %s", pane, a.name)
 		}
-		s.say("pane %s ready for %s, no agent started (dispatch starts one; --start starts it now)", pane, a.name)
+		s.say("pane %s ready for %s, no agent started (started on first use; --start starts it now)", pane, a.name)
 		s.say("OK %s: pane %s", what, pane)
 		return nil
 	}

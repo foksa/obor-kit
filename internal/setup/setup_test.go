@@ -754,12 +754,30 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 	}
 }
 
+// T-708: setup role labels the pane and starts no agent; --start starts one.
+func TestSetupRoleStartsNoAgentWithoutStart(t *testing.T) {
+	t.Parallel()
+	count := func(x *fx) int { return strings.Count(strings.Join(x.reqs(), "\n"), "agent.start") }
+	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-rev", "the pane is labelled")
+	has(t, out, "no agent started (started on first use; --start starts it now)", "the no-agent line")
+	if n := count(x); n != 0 {
+		t.Errorf("role without --start: %d agent.start, want 0", n)
+	}
+	y := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+	y.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
+	if n := count(y); n != 1 {
+		t.Errorf("role with --start: %d agent.start, want 1", n)
+	}
+}
+
 // A new tab goes to the project's workspace (w1: its panes work in the root), not herdr's active one (T-137) and not
 // the caller's when that holds no pane of the project (T-632).
 func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
-	x.ok(t, "role", "reviewer", "--new-tab", "review")
+	x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
 
@@ -767,7 +785,7 @@ func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	x.h.Pane("w1:n1").Label = ""
 	x.reset()
 	x.env = []string{"HERDR_WORKSPACE_ID=w6"}
-	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+	out := x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
 	if last(out) != "OK reviewer: pj-rev in pane w1:n2" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -942,7 +960,7 @@ func TestRoleWorktreeRoles(t *testing.T) {
 		if x.Exists(wt) {
 			t.Fatal("precondition: no worktree")
 		}
-		out := x.ok(t, "role", c.role, "--tab", "w1:t1")
+		out := x.ok(t, "role", c.role, "--tab", "w1:t1", "--start")
 		if last(out) != c.line {
 			t.Errorf("%s: last line %q", c.role, last(out))
 		}
@@ -963,11 +981,11 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
-	x.failing(t, "FAIL roles.integrator.type is not set (a lane_types key)", "role", "integrator", "--pane", "w1:p3")
+	x.failing(t, "FAIL roles.integrator.type is not set (a lane_types key)", "role", "integrator", "--pane", "w1:p3", "--start")
 	x.Config(testkit.Set("lane_types", `{"opus": {"kind": "claude", "args": ["--model", "opus"]}}`),
 		testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
 	x.reset()
-	out := x.ok(t, "role", "integrator", "--pane", "w1:p3")
+	out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -1004,7 +1022,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
 	x.ok(t, "lane", "O-01", "opus")
 	x.reset()
-	x.ok(t, "role", "integrator", "--pane", "w1:p1")
+	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL && echo obor-env-") {
 		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE and OBOR_OPENCODE_MODEL, then the marks", lines)
@@ -1043,7 +1061,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
 		pane.OnRun = "fail"
-		x.failing(t, "FAIL the env line in w1:p3 failed (nothing started; check the pane)", "role", "integrator", "--pane", "w1:p3")
+		x.failing(t, "FAIL the env line in w1:p3 failed (nothing started; check the pane)", "role", "integrator", "--pane", "w1:p3", "--start")
 		lines := x.envLines()
 		if len(lines) != 1 {
 			t.Fatalf("one env line typed, got %q", lines)
@@ -1059,7 +1077,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
-		if out := x.ok(t, "role", "integrator", "--pane", "w1:p3"); last(out) != "OK integrator: pj-int in pane w1:p3" {
+		if out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start"); last(out) != "OK integrator: pj-int in pane w1:p3" {
 			t.Errorf("last line %q", last(out))
 		}
 		lines := x.envLines()
@@ -1092,7 +1110,7 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 func TestRoleLeadNewTabGetsRoleAndAgentEnv(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": {"type": "opus"}}`))
-	if out := x.ok(t, "role", "lead", "--new-tab", "lead"); last(out) != "OK lead: pj-lead in pane w1:n1" {
+	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
@@ -1104,7 +1122,7 @@ func TestRoleLeadNewTabGetsRoleAndAgentEnv(t *testing.T) {
 func TestLeadKeepsRemoteControl(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("roles", `{"lead": {"type": "opus"}}`))
-	if out := x.ok(t, "role", "lead", "--new-tab", "lead"); last(out) != "OK lead: pj-lead in pane w1:n1" {
+	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Fatalf("setup role lead: %q", out)
 	}
 	calls := strings.Join(x.reqs(), "\n")
@@ -1116,12 +1134,12 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.failing(t, "FAIL roles.triage.type is not set (a lane_types key)", "role", "triage", "--new-tab", "triage")
+	x.failing(t, "FAIL roles.triage.type is not set (a lane_types key)", "role", "triage", "--new-tab", "triage", "--start")
 	if x.Exists("docs/BUGS.md") {
 		t.Fatal("precondition: no BUGS.md after the FAIL")
 	}
 	x.Config(testkit.Set("roles", `{"triage": {"type": "opus"}}`))
-	if out := x.ok(t, "role", "triage", "--new-tab", "triage"); last(out) != "OK triage: pj-triage in pane w1:n1" {
+	if out := x.ok(t, "role", "triage", "--new-tab", "triage", "--start"); last(out) != "OK triage: pj-triage in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
@@ -1131,7 +1149,7 @@ func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 	x.Write("docs/BUGS.md", "mine\n")
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
-	x.ok(t, "role", "triage", "--new-tab", "triage")
+	x.ok(t, "role", "triage", "--new-tab", "triage", "--start")
 	if x.Read("docs/BUGS.md") != "mine\n" {
 		t.Error("BUGS.md not overwritten")
 	}
@@ -1372,7 +1390,7 @@ func TestLeadMaxCountsTheLeadByItsType(t *testing.T) {
 			x := newFx(t, maxOpus, testkit.Set("lane_types.sonnet", `{"kind": "claude"}`), testkit.Set("roles", c.roles))
 			x.running([2]string{c.running, x.Root})
 			x.reset()
-			out, rc := x.run(t, "role", "lead", "--new-tab", "lead")
+			out, rc := x.run(t, "role", "lead", "--new-tab", "lead", "--start")
 			if c.refused {
 				if rc != 1 || last(out) != atMax {
 					t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), atMax, out)
@@ -1733,7 +1751,7 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 		edit            func(map[string]any)
 	}{
 		{"setup pane", "pj-t-01", "T-01", []string{"pane", "--start", "T-01", "--tab", "w1:t1"}, func(map[string]any) {}},
-		{"setup role", "pj-rev", "review", []string{"role", "reviewer", "--tab", "w1:t1"},
+		{"setup role", "pj-rev", "review", []string{"role", "reviewer", "--tab", "w1:t1", "--start"},
 			testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
