@@ -222,6 +222,14 @@ func (r *loopRig) supersededLines() []supersededLine {
 	return out
 }
 
+// waitBriefDelivered waits until the one brief line is delivered: its result in the log and folded (nothing waiting).
+// The brief's age counts from that result's time, so the clock moves only after it; the fake inbox's or pane's count
+// of the line is earlier than the result record (T-702).
+func (r *loopRig) waitBriefDelivered() {
+	r.t.Helper()
+	r.waitFor("the brief's delivery recorded", func() bool { return len(r.lineResults()) >= 1 && len(r.waiting()) == 0 })
+}
+
 // waiting is the lines serve has not delivered yet (obor status).
 func (r *loopRig) waiting() []wire.MessageStatus { return r.app.Status().Project.Messages }
 
@@ -417,6 +425,7 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
 	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
+	r.waitBriefDelivered()
 	r.passes()
 	r.passes()
 	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
@@ -508,6 +517,7 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 		t.Fatalf("brief of the labelled pane: %q, %v; want the named pane's reply", reply, err)
 	}
 	r.waitFor("the brief typed into w1:p6", func() bool { return r.typedTo("w1:p6", "[obor pj-lead] look at x") == 1 })
+	r.waitBriefDelivered()
 	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "working" })
 	r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "working", "agent": "codex"})
 	r.waitFor("its work logged", func() bool { return r.taskStep(event.MsgTask, "fact worked") == 1 })
