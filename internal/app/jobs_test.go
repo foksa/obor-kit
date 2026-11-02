@@ -30,6 +30,21 @@ func (r *loopRig) integratorIs(status string) {
 	})
 }
 
+// integratorStops ends pj-int's turn after a verdict that left it no job, and waits for serve's stop of it (T-672):
+// its idle is gone again once the next pass stops it, so a wait on obor status's "idle" can miss it (T-684); the
+// stop's result record stays.
+func (r *loopRig) integratorStops() {
+	r.t.Helper()
+	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Status = "idle" })
+	r.waitFor("the stop of pj-int", func() bool {
+		if r.has("0 result stop.pj-int") {
+			return true
+		}
+		r.push()
+		return false
+	})
+}
+
 // integratorGone makes pj-int's agent exit and waits until the merge loop has seen it gone for T-1's open job, job
 // (its Gone grace counts from that pass, on the fake clock).
 func (r *loopRig) integratorGone(job string) {

@@ -235,7 +235,7 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 	if _, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil {
 		t.Fatal(err)
 	}
-	r.integratorIs("idle")
+	r.integratorStops()
 	r.waitStep("2 result fix")
 	first := r.workerNext("f1")
 	if first.Job != "T-1/2/fix" || !strings.Contains(first.Text, "add a test") {

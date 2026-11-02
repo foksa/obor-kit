@@ -277,7 +277,7 @@ func TestFetchFixAndTaskDone(t *testing.T) {
 	if reply, err := r.verdict(app.MethodSendback, "s1", "", "add a test"); err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 		t.Fatalf("sendback: %q, %v", reply, err)
 	}
-	r.integratorIs("idle") // it ends its turn after the verdict: the next job's fresh start waits for that (T-602)
+	r.integratorStops() // it ends its turn after the verdict, and serve stops it: no job is left for it (T-672)
 	r.waitStep("2 result fix")
 	eq(t, r.promptsTo("pj-o1"), []string{wake("T-1/2/fix")}, "typed to pj-o1")
 	jr := r.workerNext("f1")
