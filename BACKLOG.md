@@ -116,6 +116,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-90, accepted) #1 a pre-byte refused delivery leaves post set, so a settled answer is not retired and is sent later: fix in T-748 (v0.20.1)
+- (RV-90, accepted) #2 a refused inbox post keeps no reason (status Held empty) and never falls back to typing for an idle worker: fix in T-748 (v0.20.1)
+- (RV-90, accepted) #3 obor drop does not retire the task's undelivered answer; the lane's worker gets it later: fix in T-748 (v0.20.1)
+- (RV-90, accepted) obor drop fails while the lane's agent still runs (git checkout --detach exit 128, the FAIL text does not say why); stop the agent first. Seen 2026-11-02 dropping smoke T-743
 - (RV-89, accepted) #1 rest: a successful empty pane re-read followed by serve shutdown before the step applies it records needs-you{no pane in lane}: unlikely (shutdown in that interval); fix 3-8 lines (ctx.Err() check before the fact)
 - (RV-89, accepted) #2 rest: an older re-read can overwrite the lane pane's cwd from a newer stream event during the read: unlikely; fix 20-40 lines (per-pane observation generation)
 - (RV-88, accepted) #4/B redo of a pooled task with an ordered --types list (opus,sonnet) is refused when the first type is at max instead of trying the next: unlikely (lead redo with a list at cap), fails safe; fix 10-25 lines, share pickLane's ordered choice
