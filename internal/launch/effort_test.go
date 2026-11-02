@@ -23,12 +23,12 @@ func TestStartEffort(t *testing.T) {
 		env, noEnv               string   // in, not in the env line
 	}{
 		{"a request's effort replaces the type's, once", "opus", "claude", "high",
-			[]string{"--effort high"}, []string{"medium"}, "", "OBOR_OPENCODE_MODEL"},
+			[]string{"--effort high"}, []string{"medium"}, "unset OBOR_OPENCODE_MODEL", "export OBOR_OPENCODE_MODEL"},
 		{"the role's effort", "opus:max", "claude", "", []string{"--effort max"}, []string{"medium"}, "", ""},
 		{"the request's effort before the role's", "opus:max", "claude", "low", []string{"--effort low"}, []string{"max", "medium"}, "", ""},
 		{"no effort: the type's args", "opus", "claude", "", []string{"--effort medium"}, nil, "", ""},
 		{"codex: the role's effort", "luna:xhigh", "codex", "", []string{"-c model_reasoning_effort=xhigh"},
-			[]string{"model_reasoning_effort=high"}, "", ""},
+			[]string{"model_reasoning_effort=high"}, "unset OBOR_OPENCODE_MODEL", ""},
 		{"opencode: the model and effort reach the plugin as model#variant", "oc:high", "opencode", "",
 			[]string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
 		{"opencode, no model or effort: the variable unset", "bare", "opencode", "", []string{"--auto"}, nil,
@@ -106,9 +106,10 @@ func TestRequestArgsCarryTheEffort(t *testing.T) {
 // unsets XDG_STATE_HOME (the T-696 per-agent state dir is gone) or OPENCODE_CONFIG_CONTENT, so a user's own stay.
 func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 	t.Parallel()
-	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"bare":{"kind":"opencode","args":["--auto"]},"cl":{"kind":"claude","args":[]}}`
+	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"bare":{"kind":"opencode","args":["--auto"]},"cl":{"kind":"claude","args":[]},"cx":{"kind":"codex","args":[]}}`
 	x := setup(t, testkit.Set("lane_types", types),
-		testkit.Set("roles", `{"reviewer":{"type":"oc:high"},"advisor":{"type":"bare"},"integrator":{"type":"cl"}}`))
+		testkit.Set("roles", `{"reviewer":{"type":"oc:high"},"advisor":{"type":"bare"},"integrator":{"type":"cl"},"deep_dive":{"type":"cx"}}`))
+	x.agent("w1:p9", "pj-deep-dive", "codex", "idle")
 	x.agent("w1:p7", "pj-rev", "opencode", "idle")
 	x.agent("w1:p6", "pj-advisor", "opencode", "idle")
 	x.agent("w1:p8", "pj-int", "claude", "idle")
@@ -128,8 +129,8 @@ func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 		_, line, _ := strings.Cut(text[:m[0]], " && export ") // not the cd: the fixture's worktree is no directory
 		return "export " + line
 	}
-	oc, bare, cl := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int")
-	for _, l := range []string{oc, bare, cl} {
+	oc, bare, cl, cx := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int"), lineOf("pj-deep-dive")
+	for _, l := range []string{oc, bare, cl, cx} {
 		for _, v := range []string{"XDG_STATE_HOME", "OPENCODE_CONFIG_CONTENT"} {
 			if strings.Contains(l, v) {
 				t.Errorf("the env line %q names %s", l, v)
@@ -149,6 +150,9 @@ func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 		{"opencode without one after it: unset", oc + "\n" + bare, "UNSET UNSET UNSET"},
 		{"the user's own XDG_STATE_HOME and config content: kept", "export XDG_STATE_HOME=/mine OPENCODE_CONFIG_CONTENT=c\n" + oc,
 			"go/ds#high /mine c"},
+		// T-707 (RV-83 #4): another kind's start after an OpenCode one in the pane does not inherit its model.
+		{"opencode then claude: unset", oc + "\n" + cl, "UNSET UNSET UNSET"},
+		{"opencode then codex: unset", oc + "\n" + cx, "UNSET UNSET UNSET"},
 	} {
 		if got := run(c.script + "\n" + show); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)

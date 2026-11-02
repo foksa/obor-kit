@@ -129,7 +129,7 @@ func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w
-// direction=right env={OBOR_AGENT=pj-o-01,OBOR_ROLE=worker} target_pane_id=w1:p1".
+// direction=right env={OBOR_AGENT=pj-o-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1".
 func (x *fx) reqs() []string {
 	all := x.srv.Requests()
 	var out []string
@@ -691,7 +691,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
-		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=w1:p1",
+		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1",
 		"pane.rename label=pj-o-01 pane_id=w1:n1", "agent.get target=pj-o-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[--model opus " + settings + "] kind=claude name=pj-o-01 pane_id=w1:n1"}
 	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -709,13 +709,13 @@ func TestPaneSplitsTheLargestPane(t *testing.T) {
 	x.h.Tab("w1:t1", 100, 50, "w1:p1")
 	x.h.Tab("w1:t1", 100, 2, "w1:p2")
 	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
 
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 50, 20, "w1:p1")
 	x.h.Tab("w1:t1", 150, 20, "w1:p2")
 	x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-02,OBOR_LANE=O-02,OBOR_ROLE=worker} target_pane_id=w1:p2", "wide → right")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-02,OBOR_LANE=O-02,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "wide → right")
 }
 
 // T-557: panes of the same area go to the last one, as before; 50×20 and 100×10 are both 1000 cells.
@@ -731,7 +731,7 @@ func TestPaneSplitsTheLastOfTiedPanes(t *testing.T) {
 		t.Fatalf("precondition: areas %d and %d differ", p1.W*p1.H, p2.W*p2.H)
 	}
 	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_ROLE=worker} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
 }
 
 // bash setup.test.sh case_pane_new_tab_creates_a_tab_with_cwd_and_env
@@ -745,7 +745,7 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list",
-		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-t-01,OBOR_LANE=T-01,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
+		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-t-01,OBOR_LANE=T-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
 		"pane.rename label=pj-t-01 pane_id=w1:n1", "agent.get target=pj-t-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
 		"agent.start args=[-c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_AGENT\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-t-01 pane_id=w1:n1",
 		"pane.process_info pane_id=w1:n1"} // the fresh Codex start's pid: the rollout it holds is its session (T-588)
@@ -761,7 +761,7 @@ func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
 	x.ok(t, "role", "reviewer", "--new-tab", "review")
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
+	has(t, calls, "tab.create cwd="+x.LaneDir("review")+" env={OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
@@ -930,11 +930,11 @@ func TestRoleWorktreeRoles(t *testing.T) {
 		role, wt, agent, line, env string
 		edit                       func(map[string]any)
 	}{
-		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_ROLE=reviewer}",
+		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
 			testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
-		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=pj-deep-dive,OBOR_ROLE=deep_dive}",
+		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=pj-deep-dive,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
 			testkit.Set("roles", `{"deep_dive": {"type": "luna"}}`)},
-		{"deep-dive", "dd", "pj-dd", "OK deep_dive: pj-dd in pane w1:n1", "{OBOR_AGENT=pj-dd,OBOR_ROLE=deep_dive}",
+		{"deep-dive", "dd", "pj-dd", "OK deep_dive: pj-dd in pane w1:n1", "{OBOR_AGENT=pj-dd,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
 			testkit.Set("roles", `{"deep_dive": {"type": "luna", "worktree": "dd", "agent": "pj-dd"}}`)},
 	} {
 		x := newFx(t, c.edit)
@@ -1006,8 +1006,8 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1")
 	lines := x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && echo obor-env-") {
-		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE, then the marks", lines)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL && echo obor-env-") {
+		t.Fatalf("typed %q, want one env line: cd the root, export pj-int and integrator, unset OBOR_LANE and OBOR_OPENCODE_MODEL, then the marks", lines)
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	if strings.Index(calls, "pane.send_input") > strings.Index(calls, "agent.start") || !strings.Contains(calls, "agent.start") {
@@ -1019,7 +1019,7 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && echo obor-env-") {
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL && echo obor-env-") {
 		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
 	}
 
@@ -1096,7 +1096,7 @@ func TestRoleLeadNewTabGetsRoleAndAgentEnv(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-lead,OBOR_ROLE=lead} focus=false label=lead", "env")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-lead,OBOR_OPENCODE_MODEL=,OBOR_ROLE=lead} focus=false label=lead", "env")
 	has(t, calls, "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named as OBOR_AGENT, no Remote Control default (T-280)")
 }
 
@@ -1125,7 +1125,7 @@ func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-triage} focus=false label=triage", "agent env only")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-triage,OBOR_OPENCODE_MODEL=} focus=false label=triage", "agent env only")
 	hasNot(t, calls, "OBOR_ROLE", "triage is not a lead, worker or integrator")
 	has(t, x.Read("docs/BUGS.md"), "Severity", "BUGS.md from the template")
 	x.Write("docs/BUGS.md", "mine\n")

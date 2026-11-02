@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/opencode"
 	"obor/internal/roles"
 )
 
@@ -630,15 +631,24 @@ func (lt LaneType) LaunchArgs(lead bool, effort string) []string {
 }
 
 // StartEnv is the environment a start of this type needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model
-// and effort, T-703), in a start's Effort, Read and Env (its Args are the type's). nil for a kind obor has no bridge
-// for.
+// and effort, T-703), in a start's Effort, Read and Env (its Args are the type's). A start of any other kind (a kind
+// obor has no bridge for too) unsets OpenCode's model variable: obor's own, so an earlier OpenCode start in the pane
+// or the caller's env must not carry into it (RV-83 #4, T-707).
 func (lt LaneType) StartEnv(in agents.Start) (map[string]string, error) {
 	k, ok := agents.Lookup(lt.Kind)
 	if !ok {
-		return nil, nil
+		return map[string]string{opencode.ModelVar: ""}, nil
 	}
 	in.Args = lt.Args
-	return k.StartEnv(in)
+	vars, err := k.StartEnv(in)
+	if err != nil || lt.Kind == opencode.Name {
+		return vars, err
+	}
+	out := map[string]string{opencode.ModelVar: ""}
+	for key, v := range vars {
+		out[key] = v
+	}
+	return out, nil
 }
 
 // ProjectName is the name the project answers to: its config's name, else its root's base name ("" for no config).
