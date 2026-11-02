@@ -247,6 +247,13 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 			env = append(env, k+"="+vars[k])
 		}
 	}
+	if vars[agents.StateHomeVar] != "" { // the pane's own XDG_STATE_HOME, saved for the next start of another kind to restore (T-697)
+		saved := "n"
+		if v := s.Env.Get(agents.StateHomeVar); v != "" {
+			saved = "y" + v
+		}
+		env = append(env, agents.SavedStateHomeVar+"="+saved)
+	}
 	if a.role.EnvValue != "" {
 		env = append(env, "OBOR_ROLE="+a.role.EnvValue)
 	}

@@ -39,6 +39,7 @@ func TestSetupOpencodeStartsWithItsOwnEmptiedStateDir(t *testing.T) {
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "XDG_STATE_HOME="+dir, "the split's env")
+	has(t, calls, "OBOR_XDG_STATE_WAS=n", "the split's env: the pane had no XDG_STATE_HOME, saved for a later start of another kind (T-697)")
 	has(t, calls, "kind=opencode name=pj-o-01", "the start")
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		t.Fatalf("the state dir %s is not there after the start: %v", dir, err)

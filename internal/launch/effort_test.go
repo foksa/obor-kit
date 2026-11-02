@@ -230,6 +230,15 @@ func TestOpencodeStateHomeIsRestoredForAnotherKind(t *testing.T) {
 		if got := run(c.pre + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
 			t.Errorf("%s: the Claude agent after it sees XDG_STATE_HOME %q, want %q", c.name, got, c.want)
 		}
+		// A pane obor setup made for the OpenCode agent: herdr set XDG_STATE_HOME (and the setup's save of the pane's
+		// own, "n" or "y"<value>) at its creation; no OpenCode env line ran there.
+		seed := "OBOR_XDG_STATE_WAS=n"
+		if c.want != "UNSET" {
+			seed = "OBOR_XDG_STATE_WAS=y" + c.want
+		}
+		if got := run(c.pre + "\nXDG_STATE_HOME=/obor/state; " + seed + "\n" + cl + "\n" + show); got != c.want {
+			t.Errorf("%s: in a pane setup made for OpenCode, the Claude agent sees XDG_STATE_HOME %q, want %q", c.name, got, c.want)
+		}
 		if got := run(c.pre + "\n" + oc + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
 			t.Errorf("%s: after two OpenCode starts the Claude agent sees %q, want %q (the second must not save the first's)", c.name, got, c.want)
 		}

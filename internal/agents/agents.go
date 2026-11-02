@@ -260,6 +260,11 @@ func CheckEffort(kind, effort string) error {
 // saves the pane's own value first and a later start of another kind restores it (T-697).
 const StateHomeVar = "XDG_STATE_HOME"
 
+// SavedStateHomeVar is the pane shell's variable holding what XDG_STATE_HOME was before an agent's start exported its
+// own: "n" for unset, else "y" and the value. launch writes it before exporting; setup seeds it in a fresh pane's env,
+// where XDG_STATE_HOME is set at creation (T-697).
+const SavedStateHomeVar = "OBOR_XDG_STATE_WAS"
+
 // ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697).
 type ArgsChecker interface {
 	CheckEffort(args []string, effort string) error

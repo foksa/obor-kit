@@ -671,7 +671,7 @@ func envLine(t *target) string {
 
 // savedStateHome is the pane shell's own (unexported) variable holding what XDG_STATE_HOME was before an agent's start
 // exported its own: "n" for unset, else "y" and the value.
-const savedStateHome = "OBOR_XDG_STATE_WAS"
+const savedStateHome = agents.SavedStateHomeVar
 
 // stateHomeLine scopes XDG_STATE_HOME to the agent (T-697; herdr starts the CLI, so it cannot be set on the command
 // alone). With a value: the pane's own is saved once (not over an earlier agent's save), then the value exported.
