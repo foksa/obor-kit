@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (owner): **Lanes become a pool** (docs/research/untyped-lanes-advice-fable.md): untyped lanes, the task's
+  `Type:`/`Difficulty:` picks model and effort per dispatch, worktrees reused, caps per type at dispatch; T-721..T-724
+  after the current wave; obor-kit then runs L-01..L-04 untyped, no pinned lane (Codex only for reviews now). Until
+  then `opus` is last in medium and simple. **Checks wait while the machine is overloaded** (T-720). **Self re-exec**
+  of serve, monitor, web (T-719, Fable's advice); ship only notifies leads (T-715). **Reviewer and deep dive in the main
+  checkout, merges wait while they work** (T-718). **At most two review rounds per feature.**
 - 2026-11-02 (owner): **opencode model/variant via obor's plugin, for obor only** (no separate project, no picker:
   people have `/model`, `/effort`): T-703 probes `ctx.session.switchModel` on a real pane and, if it holds, replaces
   the per-agent `XDG_STATE_HOME` workaround (docs/research/opencode-model-selection.md). **Researcher role**: Sonnet,
