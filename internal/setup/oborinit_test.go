@@ -158,10 +158,18 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		if (p.Label == "proj-o-01" || p.Label == "proj-s-01") && (p.Name != "" || p.Kind != "") {
 			t.Errorf("lane pane %s holds an agent: %+v", p.Label, p)
 		}
-		if (p.Label == "proj-int" || p.Label == "proj-rev") && p.Name == "" {
-			t.Errorf("role pane %s holds no agent: %+v", p.Label, p)
+		if (p.Label == "proj-int" || p.Label == "proj-rev") && (p.Name != "" || p.Kind != "") {
+			t.Errorf("role pane %s holds an agent: %+v", p.Label, p)
 		}
 	}
+	// T-708: init starts no agent at all; it labels every pane it places.
+	for _, q := range x.reqs() {
+		if strings.HasPrefix(q, "agent.start") {
+			t.Errorf("init started an agent: %s", q)
+		}
+	}
+	has(t, out, "pane wn1:n4 labelled proj-int, no agent (started on first use)", "integrator line")
+	has(t, out, "labelled proj-rev, no agent (started on first use)", "reviewer line")
 	o, s := panes["proj-o-01"], panes["proj-s-01"]
 	i, r := panes[cfg.AgentName("integrator", "")], panes[cfg.AgentName("reviewer", "")]
 	tab := func(v string) string { return append(strings.Fields(v), "", "")[1] }
@@ -773,8 +781,9 @@ func TestOborInitReviewerOpusWithoutCodex(t *testing.T) {
 		t.Errorf("reviewer type %q, want opus", rc.Type)
 	}
 	has(t, summary(out, "lanes"), "reviewer sol → opus", "lanes step")
-	if a := x.h.Pane(x.paneOf(cfg.AgentName("reviewer", ""))); a == nil || a.Kind != "claude" {
-		t.Errorf("reviewer agent: %+v", a)
+	// T-708: the reviewer's pane is labelled and holds no agent; its type decides what the first review starts.
+	if a := x.h.Pane(x.paneOf(cfg.AgentName("reviewer", ""))); a == nil || a.Kind != "" || a.Name != "" {
+		t.Errorf("reviewer pane: %+v, want labelled with no agent", a)
 	}
 	has(t, out, "detected: claude on PATH;", "detected line")
 }
@@ -861,18 +870,22 @@ func TestOborInitPluginFailureIsRepairedByARerun(t *testing.T) {
 }
 
 // A pane held by the trust dialog is listed in the summary and is not fatal.
-func TestOborInitListsPanesWaitingOnTheTrustDialog(t *testing.T) {
+func TestOborInitStartsNoAgentSoNoPaneWaitsOnTheTrustDialog(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	x.screen = "> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n"
 	x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
 	out := x.init(t)
-	// T-705: a worker lane's pane holds no agent, so no dialog; the role panes start theirs.
-	if stateOf(out, "O-01") != "done" || stateOf(out, "reviewer") != "waiting" {
+	// T-708: init starts no agent, so no pane waits on a dialog and agent.start is never asked.
+	if stateOf(out, "O-01") != "done" || stateOf(out, "reviewer") != "done" {
 		t.Errorf("O-01 %q, reviewer %q", summary(out, "O-01"), summary(out, "reviewer"))
 	}
-	has(t, out, "waiting on a \"Trust this folder?\" dialog: proj-int (pane ", "waiting line")
-	has(t, out, "press Enter in each, then obor init again", "waiting line")
+	hasNot(t, out, "waiting on", "no trust dialog")
+	for _, q := range x.reqs() {
+		if strings.HasPrefix(q, "agent.start") {
+			t.Errorf("init asked herdr to start an agent: %s", q)
+		}
+	}
 }
 
 // Detected commands are written into the config where it has none, never over a value of the user's.

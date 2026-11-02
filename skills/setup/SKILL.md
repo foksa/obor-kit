@@ -27,7 +27,7 @@ obor setup role integrator --tab <tab-id>     # lead | integrator | reviewer
 obor setup role reviewer --new-tab review     # reviewer gets <lanes_dir>/<roles.reviewer.worktree>
 obor setup role triage --tab <tab-id>         # optional bug inbox: <prefix>-triage in the main checkout, docs/BUGS.md
 ```
-Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` likewise leaves its worker lanes' panes empty; role panes start. Panes get
+Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` uses an existing shell pane. `obor setup pane` labels the pane and types the env but starts no agent (dispatch starts a fresh worker anyway); add `--start` to start it now. `obor init` and `obor setup role` likewise label their panes and start no agent (each starts on first use: a job, a review, a brief); `--start` starts it now. Panes get
 `--cwd` the lane and `OBOR_ROLE` / `OBOR_LANE`; agents are named `<prefix>-<lane lower>` (`<prefix>-int`,
 `<prefix>-rev`, `<prefix>-lead`); Claude agents except leads start with `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
 (a lead keeps Remote Control and auto memory; lane-type settings overlay those keys).

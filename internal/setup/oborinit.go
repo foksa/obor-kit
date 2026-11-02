@@ -584,7 +584,7 @@ func exitText(err error) string {
 
 // --- panes ------------------------------------------------------------------------------------------------------
 
-// initPanes starts O-01, S-01, the integrator and the reviewer (each skipped when it runs): one summary line each
+// initPanes labels the panes of O-01, S-01, the integrator and the reviewer and starts no agent (T-708; each skipped when it runs): one summary line each
 // through add, and the agents a trust dialog holds ("name (pane id)").
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
 	var waiting []string
@@ -599,9 +599,9 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 		case s.running:
 			add(what, "already", "%s running (pane %s)", agent, s.placed)
 		case s.idle:
-			add(what, "already", "pane %s labelled %s, no agent (dispatch starts one)", s.placed, agent)
+			add(what, "already", "pane %s labelled %s, no agent (started on first use)", s.placed, agent)
 		case !s.started:
-			add(what, "done", "pane %s labelled %s, no agent (dispatch starts one)", s.placed, agent)
+			add(what, "done", "pane %s labelled %s, no agent (started on first use)", s.placed, agent)
 		default:
 			add(what, "done", "%s started in pane %s", agent, s.placed)
 		}

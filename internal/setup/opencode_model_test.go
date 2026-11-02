@@ -26,7 +26,7 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			t.Parallel()
 			x := newFx(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
 			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max", "XDG_STATE_HOME=/mine/state")
-			args := []string{"role", "reviewer", "--tab", "w1:t1"}
+			args := []string{"role", "reviewer", "--tab", "w1:t1", "--start"}
 			if c.role == "" {
 				x.ok(t, "lane", "O-01", "bare")
 				args = []string{"pane", "--start", "O-01", "--tab", "w1:t1"}
@@ -65,7 +65,7 @@ func TestSetupNonOpencodePaneDropsTheInheritedModel(t *testing.T) {
 			x := newFx(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
 			x.env = append(x.env, "OBOR_OPENCODE_MODEL=inherited/m#max")
 			x.reset()
-			x.ok(t, "role", "reviewer", "--tab", "w1:t1")
+			x.ok(t, "role", "reviewer", "--tab", "w1:t1", "--start")
 			calls := strings.Join(x.reqs(), "\n")
 			has(t, calls, "pane.split", "precondition: a new pane")
 			has(t, calls, c.kind, "the start")
