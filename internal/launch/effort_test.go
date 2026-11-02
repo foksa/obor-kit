@@ -2,6 +2,7 @@ package launch_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -179,5 +180,58 @@ func TestOpencodeStateDir(t *testing.T) {
 				t.Errorf("the user's own state: %v", err)
 			}
 		})
+	}
+}
+
+// T-697: XDG_STATE_HOME is the OpenCode agent's alone. The env lines of an OpenCode start and then a Claude start in
+// the same pane's shell (run in a real sh): the OpenCode agent sees its own state dir, and the Claude agent sees what
+// the pane had before (its own value, or none).
+func TestOpencodeStateHomeIsRestoredForAnotherKind(t *testing.T) {
+	t.Parallel()
+	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"cl":{"kind":"claude","args":[]}}`
+	x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"oc"},"integrator":{"type":"cl"}}`))
+	x.agent("w1:p7", "pj-rev", "opencode", "idle")
+	x.agent("w1:p8", "pj-int", "claude", "idle")
+	lineOf := func(agent string) string {
+		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
+			t.Fatal(out)
+		}
+		runs := x.calls("pane.send_input OBOR_AGENT=" + agent)
+		if len(runs) != 1 {
+			t.Fatalf("%s: one env line typed, got %q", agent, runs)
+		}
+		_, text, _ := strings.Cut(runs[0], " text=")
+		m := envMarksRE.FindStringIndex(text)
+		if m == nil {
+			t.Fatalf("%s: no marks at the end of %q", agent, text)
+		}
+		_, line, _ := strings.Cut(text[:m[0]], " && export ") // not the cd: the fixture's worktree is no directory
+		return "export " + line
+	}
+	oc, cl := lineOf("pj-rev"), lineOf("pj-int")
+	if !strings.Contains(oc, "export XDG_STATE_HOME=/") || strings.Contains(cl, "export XDG_STATE_HOME=/") {
+		t.Fatalf("precondition: only the OpenCode line exports it:\n%s\n%s", oc, cl)
+	}
+	for _, c := range []struct{ name, pre, want string }{
+		{"the pane had its own", "export XDG_STATE_HOME=/mine", "/mine"},
+		{"the pane had none", "unset XDG_STATE_HOME", "UNSET"},
+	} {
+		show := "echo ${XDG_STATE_HOME-UNSET}"
+		run := func(script string) string {
+			out, err := exec.Command("sh", "-c", script).CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", c.name, err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		if got := run(c.pre + "\n" + oc + "\n" + show); !strings.Contains(got, "opencode-state") {
+			t.Errorf("%s: the OpenCode agent's XDG_STATE_HOME = %q, want its own state dir", c.name, got)
+		}
+		if got := run(c.pre + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
+			t.Errorf("%s: the Claude agent after it sees XDG_STATE_HOME %q, want %q", c.name, got, c.want)
+		}
+		if got := run(c.pre + "\n" + oc + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
+			t.Errorf("%s: after two OpenCode starts the Claude agent sees %q, want %q (the second must not save the first's)", c.name, got, c.want)
+		}
 	}
 }

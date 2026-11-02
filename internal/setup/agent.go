@@ -233,7 +233,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
-	if err := agents.CheckEffort(lt.Kind, a.effort); err != nil {
+	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
 		return project.Failf("%s: %v (obor config validate)", a.name, err)
 	}
 	vars, stateDir, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get,

@@ -657,13 +657,34 @@ func envLine(t *target) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		if k == agents.StateHomeVar {
+			continue // below: it is the agent's, not the pane's
+		}
 		if v := t.env[k]; v != "" {
 			line += " && export " + k + "=" + shellQuote(v)
 		} else {
 			line += " && unset " + k
 		}
 	}
-	return line
+	return line + stateHomeLine(t.env[agents.StateHomeVar])
+}
+
+// savedStateHome is the pane shell's own (unexported) variable holding what XDG_STATE_HOME was before an agent's start
+// exported its own: "n" for unset, else "y" and the value.
+const savedStateHome = "OBOR_XDG_STATE_WAS"
+
+// stateHomeLine scopes XDG_STATE_HOME to the agent (T-697; herdr starts the CLI, so it cannot be set on the command
+// alone). With a value: the pane's own is saved once (not over an earlier agent's save), then the value exported.
+// Without: the saved one is put back (unset when the pane had none), so an agent of another kind and what it runs
+// do not inherit the previous agent's state dir.
+func stateHomeLine(v string) string {
+	k := agents.StateHomeVar
+	if v != "" {
+		return ` && { [ -n "${` + savedStateHome + `+x}" ] || if [ -n "${` + k + `+x}" ]; then ` + savedStateHome + `="y$` + k +
+			`"; else ` + savedStateHome + `=n; fi; } && export ` + k + "=" + shellQuote(v)
+	}
+	return ` && { [ -z "${` + savedStateHome + `+x}" ] || { case "$` + savedStateHome + `" in y*) export ` + k + `="${` +
+		savedStateHome + `#y}";; *) unset ` + k + `;; esac; unset ` + savedStateHome + `; }; }`
 }
 
 // mark is a word the env line echoes (T-544, T-601: its success word, or its failure word when the line failed): the
@@ -718,7 +739,7 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	case t.info.Role == "":
 		return nil, nil
 	}
-	if err := agents.CheckEffort(lt.Kind, effort); err != nil {
+	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
 	env := l.Env

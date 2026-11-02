@@ -1,7 +1,7 @@
 package opencode_test
 
 import (
-	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -97,24 +97,24 @@ func TestKind(t *testing.T) {
 	}
 }
 
-// T-695: an effort reaches OpenCode's config as the model's variant (OPENCODE_CONFIG_CONTENT's
-// "model":"<provider>/<model>#<effort>"): the model from the type's args, else the user config's, else the TUI's last
-// one; none and no effort unsets the variable; an effort with no model anywhere is an error.
+// T-695, T-697: an effort reaches OpenCode's config as the model's variant (OPENCODE_CONFIG_CONTENT's
+// "model":"<provider>/<model>#<effort>"), the model being the type's --model/-m only: obor never guesses OpenCode's
+// model, so a type without one sets no inline model (the project's opencode.json, the global one and the recent model
+// keep their precedence, even when the user's files name a model) and an effort on it is refused.
 func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 	k, _ := agents.Lookup("opencode")
-	files := map[string]string{}
+	// The user's files name models; none may be read (Read is a trap).
 	read := func(p string) ([]byte, error) {
-		if b, ok := files[p]; ok {
-			return []byte(b), nil
-		}
-		return nil, os.ErrNotExist
+		t.Errorf("StartEnv read %s: obor never reads OpenCode's config or state", p)
+		return []byte(`{"model":"cfg/m","recent":[{"providerID":"go","modelID":"ds"}]}`), nil
 	}
 	env := func(k string) string { return map[string]string{"HOME": "/h"}[k] }
 	start := func(args []string, effort string) (string, bool, error) {
-		m, err := k.StartEnv(agents.Start{Args: args, Effort: effort, Read: read, Env: env})
+		m, err := k.StartEnv(agents.Start{Args: args, Effort: effort, Read: read, Env: env,
+			Home: "/h/.obor", Project: "pj", Agent: "pj-o-01"})
 		v, set := m[opencode.ConfigVar]
-		if err == nil && (!set || len(m) != 1) {
-			t.Errorf("StartEnv(%q, %q) = %v: want %s and nothing else", args, effort, m, opencode.ConfigVar)
+		if err == nil && (!set || len(m) != 2 || m[opencode.StateVar] == "") {
+			t.Errorf("StartEnv(%q, %q) = %v: want %s and %s and nothing else", args, effort, m, opencode.ConfigVar, opencode.StateVar)
 		}
 		return v, set, err
 	}
@@ -128,18 +128,20 @@ func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 		t.Errorf("args' model, no effort: %q, %v", v, err)
 	}
 	if v, set, err := start([]string{"--auto"}, ""); err != nil || !set || v != "" {
-		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset", v, set, err)
+		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset, no inline model", v, set, err)
 	}
-	if _, _, err := start([]string{"--auto"}, "high"); err == nil || !strings.Contains(err.Error(), "needs a model") {
-		t.Errorf("effort with no model anywhere: %v; want an error", err)
+	_, _, err := start([]string{"--auto"}, "high")
+	if err == nil || !strings.Contains(err.Error(), "add --model") {
+		t.Errorf("effort without --model: %v; want a refusal telling to add --model to the type", err)
 	}
-	files["/h/.local/state/opencode/model.json"] = `{"recent":[{"providerID":"go","modelID":"ds"},{"providerID":"o","modelID":"x"}]}`
-	if v, _, err := start([]string{"--auto"}, "high"); err != nil || v != `{"model":"go/ds#high"}` {
-		t.Errorf("the TUI's last model: %q, %v", v, err)
+	if cerr := agents.CheckEffortArgs("opencode", []string{"--auto"}, "high"); cerr == nil || !strings.Contains(cerr.Error(), "add --model") {
+		t.Errorf("CheckEffortArgs without --model: %v; want the same refusal", cerr)
 	}
-	files["/h/.config/opencode/opencode.json"] = `{"model":"cfg/m"}`
-	if v, _, err := start([]string{"--auto"}, "low"); err != nil || v != `{"model":"cfg/m#low"}` {
-		t.Errorf("the user config's model before the TUI's: %q, %v", v, err)
+	if cerr := agents.CheckEffortArgs("opencode", []string{"--model", "p/m"}, "high"); cerr != nil {
+		t.Errorf("CheckEffortArgs with --model: %v", cerr)
+	}
+	if cerr := agents.CheckEffortArgs("opencode", []string{"--auto"}, ""); cerr != nil {
+		t.Errorf("CheckEffortArgs, no effort: %v", cerr)
 	}
 	if err := agents.CheckEffort("opencode", "high"); err != nil {
 		t.Errorf("CheckEffort(opencode, high): %v", err)
@@ -149,10 +151,10 @@ func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 	}
 }
 
-// T-696: every OpenCode start gets its own state dir, <Home>/opencode-state/<project>/<agent>, as XDG_STATE_HOME, so a
-// variant remembered in the user's state (~/.local/state/opencode/model.json) cannot beat the effort; the model the
-// TUI used last is then named (its own state remembers none). A resume gets the same dir; no Home, project or agent,
-// or one that is no plain name: no dir, the variable left alone.
+// T-696, T-697: every OpenCode start gets its own state dir, <Home>/opencode-state/<project>/<agent>, as XDG_STATE_HOME,
+// so a variant remembered in the user's state (~/.local/state/opencode/model.json) cannot beat the effort. A resume
+// gets the same dir. A project or agent name is path-escaped, so any configured name (with / or \, or ..) still has
+// its own dir inside the state dir; an empty home, project or agent is refused, never started on the owner's state.
 func TestStateDirPerProjectAndAgent(t *testing.T) {
 	k, _ := agents.Lookup("opencode")
 	in := agents.Start{Home: "/h/.obor", Project: "pj", Agent: "pj-d-01"}
@@ -174,39 +176,51 @@ func TestStateDirPerProjectAndAgent(t *testing.T) {
 	if k.StateDir(resume) != k.StateDir(in) {
 		t.Error("a resume's state dir differs from the fresh start's")
 	}
-	for _, bad := range []agents.Start{{Project: "pj", Agent: "a"}, {Home: "/h", Agent: "a"}, {Home: "/h", Project: "pj"},
-		{Home: "/h", Project: "..", Agent: "a"}, {Home: "/h", Project: "pj", Agent: "x/y"}} {
+	seen := map[string]string{}
+	for _, name := range []string{"team/project", `team\project`, "..", ".", "a%2Fb", "a/b", "a b", "../x"} {
+		for _, c := range []struct {
+			what string
+			in   agents.Start
+		}{
+			{"project", agents.Start{Home: "/h", Project: name, Agent: "a"}},
+			{"agent", agents.Start{Home: "/h", Project: "pj", Agent: name}},
+		} {
+			m, err := k.StartEnv(c.in)
+			dir := m[opencode.StateVar]
+			if err != nil || dir == "" || k.StateDir(c.in) != dir {
+				t.Errorf("%s %q: StartEnv = %v, %v; want its state dir", c.what, name, m, err)
+				continue
+			}
+			rel, err := filepath.Rel("/h/opencode-state", dir)
+			parts := strings.Split(filepath.ToSlash(rel), "/")
+			if err != nil || len(parts) != 2 || slices.Contains(parts, "..") || slices.Contains(parts, ".") ||
+				strings.Contains(rel, `\`) {
+				t.Errorf("%s %q: dir %q is not <project>/<agent> inside the state dir (rel %q, %v)", c.what, name, dir, rel, err)
+			}
+			if prev, dup := seen[dir]; dup {
+				t.Errorf("%s %q and %s share the dir %q", c.what, name, prev, dir)
+			}
+			seen[dir] = c.what + " " + name
+		}
+	}
+	for _, bad := range []agents.Start{{Project: "pj", Agent: "a"}, {Home: "/h", Agent: "a"}, {Home: "/h", Project: "pj"}} {
 		if got := k.StateDir(bad); got != "" {
 			t.Errorf("StateDir(%+v) = %q, want none", bad, got)
 		}
-		if m, err := k.StartEnv(bad); err != nil {
-			t.Errorf("StartEnv(%+v): %v", bad, err)
-		} else if _, set := m[opencode.StateVar]; set {
-			t.Errorf("StartEnv(%+v) = %v: sets %s with no state dir", bad, m, opencode.StateVar)
+		if m, err := k.StartEnv(bad); err == nil || m != nil {
+			t.Errorf("StartEnv(%+v) = %v, %v; want a refusal, not an unisolated start", bad, m, err)
 		}
 	}
 
-	read := func(p string) ([]byte, error) {
-		if p == "/u/.local/state/opencode/model.json" {
-			return []byte(`{"recent":[{"providerID":"go","modelID":"ds"}],"variant":{"go/ds":"default"}}`), nil
-		}
-		return nil, os.ErrNotExist
-	}
-	env := func(k string) string { return map[string]string{"HOME": "/u"}[k] }
-	in.Read, in.Env = read, env
 	in.Args, in.Effort = []string{"--auto", "--model", "p/m"}, "high"
 	m, err := k.StartEnv(in)
 	if err != nil || m[opencode.StateVar] != "/h/.obor/opencode-state/pj/pj-d-01" || m[opencode.ConfigVar] != `{"model":"p/m#high"}` || len(m) != 2 {
 		t.Errorf("StartEnv with a state dir = %v, %v; want %s the agent's dir and the model's variant", m, err, opencode.StateVar)
 	}
 	in.Args, in.Effort = []string{"--auto"}, ""
-	if m, err = k.StartEnv(in); err != nil || m[opencode.ConfigVar] != `{"model":"go/ds"}` {
-		t.Errorf("no model, no effort, own state dir: %v, %v; want the TUI's last model named, no variant", m, err)
-	}
-	in.Read = nil
 	if m, err = k.StartEnv(in); err != nil || m[opencode.ConfigVar] != "" || m[opencode.StateVar] == "" {
-		t.Errorf("no model anywhere, no effort: %v, %v; want %s unset and the state dir", m, err, opencode.ConfigVar)
+		t.Errorf("no model, no effort: %v, %v; want %s unset and the state dir", m, err, opencode.ConfigVar)
 	} else if _, set := m[opencode.ConfigVar]; !set {
-		t.Errorf("no model anywhere, no effort: %v; want %s unset", m, opencode.ConfigVar)
+		t.Errorf("no model, no effort: %v; want %s unset", m, opencode.ConfigVar)
 	}
 }

@@ -674,7 +674,7 @@ func (c *Config) CheckTypeRef(ref string) error {
 	if _, has := strings.CutPrefix(ref, typ+":"); has && effort == "" {
 		return fmt.Errorf("%s names no effort after the colon", Compact(ref))
 	}
-	if err := agents.CheckEffort(lt.Kind, effort); err != nil {
+	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
 		return fmt.Errorf("%s: %v", ref, err)
 	}
 	return nil

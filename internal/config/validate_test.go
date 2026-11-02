@@ -141,6 +141,12 @@ func TestValidate(t *testing.T) {
 			set("roles.lead", map[string]any{"type": "opus:max"}), set("roles.reviewer", map[string]any{"type": "luna:minimal"})}},
 		{name: "difficulty with an effort its kind lacks", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
 			want: []string{`FAIL .difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
+		// T-697: an OpenCode effort rides on the type's --model (obor never guesses OpenCode's model).
+		{name: "an opencode effort needs the type's --model", edits: []edit{
+			set("lane_types.oc", map[string]any{"kind": "opencode", "args": []any{"--auto"}}),
+			set("lane_types.ocm", map[string]any{"kind": "opencode", "args": []any{"--model", "go/ds"}}),
+			set("difficulty", map[string]any{"hard": []any{"ocm:high", "oc:high", "oc"}})},
+			want: []string{`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model: add --model provider/model to the type's args`}},
 		{name: "difficulty with an unknown type and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
 			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a key of lane_types`}},
 		{name: "a role type with an effort its kind lacks", edits: []edit{set("roles.lead", map[string]any{"type": "opus:turbo"})},
