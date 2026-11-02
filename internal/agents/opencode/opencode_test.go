@@ -1,6 +1,9 @@
 package opencode_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -158,7 +161,7 @@ func TestStartEnvEffortReachesTheConfig(t *testing.T) {
 func TestStateDirPerProjectAndAgent(t *testing.T) {
 	k, _ := agents.Lookup("opencode")
 	in := agents.Start{Home: "/h/.obor", Project: "pj", Agent: "pj-d-01"}
-	if got := k.StateDir(in); got != "/h/.obor/opencode-state/pj/pj-d-01" {
+	if got := k.StateDir(in); got != "/h/.obor/opencode-state/pj-"+h8("pj")+"/pj-d-01-"+h8("pj-d-01") {
 		t.Errorf("StateDir = %q", got)
 	}
 	other := in
@@ -168,7 +171,7 @@ func TestStateDirPerProjectAndAgent(t *testing.T) {
 	}
 	other = in
 	other.Project = "qq"
-	if got := k.StateDir(other); got != "/h/.obor/opencode-state/qq/pj-d-01" {
+	if got := k.StateDir(other); got != "/h/.obor/opencode-state/qq-"+h8("qq")+"/pj-d-01-"+h8("pj-d-01") {
 		t.Errorf("StateDir of another project = %q", got)
 	}
 	resume := in
@@ -214,7 +217,7 @@ func TestStateDirPerProjectAndAgent(t *testing.T) {
 
 	in.Args, in.Effort = []string{"--auto", "--model", "p/m"}, "high"
 	m, err := k.StartEnv(in)
-	if err != nil || m[opencode.StateVar] != "/h/.obor/opencode-state/pj/pj-d-01" || m[opencode.ConfigVar] != `{"model":"p/m#high"}` || len(m) != 2 {
+	if err != nil || m[opencode.StateVar] != "/h/.obor/opencode-state/pj-"+h8("pj")+"/pj-d-01-"+h8("pj-d-01") || m[opencode.ConfigVar] != `{"model":"p/m#high"}` || len(m) != 2 {
 		t.Errorf("StartEnv with a state dir = %v, %v; want %s the agent's dir and the model's variant", m, err, opencode.StateVar)
 	}
 	in.Args, in.Effort = []string{"--auto"}, ""
@@ -222,5 +225,78 @@ func TestStateDirPerProjectAndAgent(t *testing.T) {
 		t.Errorf("no model, no effort: %v, %v; want %s unset and the state dir", m, err, opencode.ConfigVar)
 	} else if _, set := m[opencode.ConfigVar]; !set {
 		t.Errorf("no model, no effort: %v; want %s unset", m, opencode.ConfigVar)
+	}
+}
+
+func h8(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
+}
+
+// T-698: names that differ only by case, or by a separator, never share a dir, on a case-insensitive filesystem too
+// (macOS's default): the dirs StartEnv names are made in a temp dir and compared as files, not as strings.
+func TestStateDirsDifferOnACaseFoldingFilesystem(t *testing.T) {
+	k, _ := agents.Lookup("opencode")
+	home := t.TempDir()
+	// Precondition, for the log: whether this filesystem folds case (the assertions hold on either).
+	probe := filepath.Join(home, "Probe")
+	if err := os.Mkdir(probe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(home, "probe"))
+	t.Logf("filesystem folds case: %v", err == nil)
+	for _, c := range []struct {
+		name string
+		a, b agents.Start
+	}{
+		{"project Project/project", agents.Start{Home: home, Project: "Project", Agent: "a"}, agents.Start{Home: home, Project: "project", Agent: "a"}},
+		{"agent Agent/agent", agents.Start{Home: home, Project: "p", Agent: "Agent"}, agents.Start{Home: home, Project: "p", Agent: "agent"}},
+		{"project a/b and a%2Fb", agents.Start{Home: home, Project: "a/b", Agent: "a"}, agents.Start{Home: home, Project: "a%2Fb", Agent: "a"}},
+		{"project a/b and A/B", agents.Start{Home: home, Project: "a/b", Agent: "a"}, agents.Start{Home: home, Project: "A/B", Agent: "a"}},
+	} {
+		da, db := k.StateDir(c.a), k.StateDir(c.b)
+		if da == "" || db == "" || da == db {
+			t.Fatalf("%s: dirs %q, %q", c.name, da, db)
+		}
+		for _, d := range []string{da, db} {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ia, err := os.Stat(da)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ib, err := os.Stat(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if os.SameFile(ia, ib) {
+			t.Errorf("%s: %s and %s are the same directory", c.name, da, db)
+		}
+	}
+	// Both are one element of the name's lower case and 8 hex digits of its exact digest.
+	if got := k.StateDir(agents.Start{Home: "/h", Project: "Project", Agent: "a"}); got != "/h/opencode-state/project-"+h8("Project")+"/a-"+h8("a") {
+		t.Errorf("StateDir = %q", got)
+	}
+}
+
+// T-698: obor's state roots tell obor's dirs from the user's: a value under <home>/opencode-state/ is obor's, one that
+// only starts alike or lies elsewhere is not.
+func TestOwnedStateHome(t *testing.T) {
+	for _, c := range []struct {
+		v    string
+		want bool
+	}{
+		{"/h/opencode-state/p-1/a-2", true},
+		{"/h/opencode-state", false},
+		{"/h/opencode-state-x/a", false},
+		{"/mine/.local/state", false},
+		{"/other/h/opencode-state/p/a", false},
+		{"", false},
+	} {
+		if got := agents.OwnedStateHome("/h", c.v); got != c.want {
+			t.Errorf("OwnedStateHome(/h, %q) = %v, want %v", c.v, got, c.want)
+		}
 	}
 }

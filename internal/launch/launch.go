@@ -603,7 +603,7 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	// the old env (RV-64 #3) — and its failure word when it failed, so a visible failure ends the wait at once instead
 	// of at the timeout.
 	okMark, badMark := envMark(), envMark()
-	if err := l.H.Type(ctx, t.pane, envLine(t)+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
+	if err := l.H.Type(ctx, t.pane, envLine(t, agents.StateRoots(project.StateHome(l.envOrOS())))+" && echo "+okMark.typed+" || echo "+badMark.typed); err != nil {
 		return project.Failf("herdr pane run %s (env) failed", t.pane)
 	}
 	failed := false
@@ -630,8 +630,16 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 	return nil
 }
 
+// envOrOS is the launcher's env, the process's own when it has none.
+func (l *Launcher) envOrOS() project.Env {
+	if l.Env == nil {
+		return project.OSEnv
+	}
+	return l.Env
+}
+
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does.
-func envLine(t *target) string {
+func envLine(t *target, roots []string) string {
 	line := "export OBOR_AGENT=" + shellQuote(t.agent)
 	role := t.info.Role
 	if r, ok := roles.Lookup(role); ok {
@@ -666,25 +674,25 @@ func envLine(t *target) string {
 			line += " && unset " + k
 		}
 	}
-	return line + stateHomeLine(t.env[agents.StateHomeVar])
+	return line + stateHomeLine(t.env[agents.StateHomeVar], roots)
 }
 
-// savedStateHome is the pane shell's own (unexported) variable holding what XDG_STATE_HOME was before an agent's start
-// exported its own: "n" for unset, else "y" and the value.
-const savedStateHome = agents.SavedStateHomeVar
-
-// stateHomeLine scopes XDG_STATE_HOME to the agent (T-697; herdr starts the CLI, so it cannot be set on the command
-// alone). With a value: the pane's own is saved once (not over an earlier agent's save), then the value exported.
-// Without: the saved one is put back (unset when the pane had none), so an agent of another kind and what it runs
-// do not inherit the previous agent's state dir.
-func stateHomeLine(v string) string {
+// stateHomeLine is the end of the env line for XDG_STATE_HOME (T-698; herdr's agent.start has no env, so the pane's
+// shell is the only route). A start with a value of its own exports it. Any other start unsets the variable when the
+// shell's value is under one of obor's state roots (an earlier agent's own dir) and leaves a value of the user's own.
+func stateHomeLine(v string, roots []string) string {
 	k := agents.StateHomeVar
 	if v != "" {
-		return ` && { [ -n "${` + savedStateHome + `+x}" ] || if [ -n "${` + k + `+x}" ]; then ` + savedStateHome + `="y$` + k +
-			`"; else ` + savedStateHome + `=n; fi; } && export ` + k + "=" + shellQuote(v)
+		return " && export " + k + "=" + shellQuote(v)
 	}
-	return ` && { [ -z "${` + savedStateHome + `+x}" ] || { case "$` + savedStateHome + `" in y*) export ` + k + `="${` +
-		savedStateHome + `#y}";; *) unset ` + k + `;; esac; unset ` + savedStateHome + `; }; }`
+	if len(roots) == 0 {
+		return ""
+	}
+	pats := make([]string, len(roots))
+	for i, r := range roots {
+		pats[i] = shellQuote(r) + "/*"
+	}
+	return ` && case "${` + k + `-}" in ` + strings.Join(pats, "|") + `) unset ` + k + `;; esac`
 }
 
 // mark is a word the env line echoes (T-544, T-601: its success word, or its failure word when the line failed): the
@@ -742,10 +750,7 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	env := l.Env
-	if env == nil {
-		env = project.OSEnv
-	}
+	env := l.envOrOS()
 	vars, state, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: env.Get,
 		Home: project.StateHome(env), Project: l.Cfg.ProjectName(), Agent: t.agent})
 	if err != nil {

@@ -1,6 +1,8 @@
 package launch_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,7 +147,7 @@ func TestOpencodeStateDir(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := x.env()
-			dir := filepath.Join(project.StateHome(env), "opencode-state", cfg.ProjectName(), "pj-rev")
+			dir := filepath.Join(project.StateHome(env), "opencode-state", strings.ToLower(cfg.ProjectName())+"-"+hex8(cfg.ProjectName()), "pj-rev-"+hex8("pj-rev"))
 			user := filepath.Join(env.Get("HOME"), ".local", "state", "opencode", "model.json")
 			for _, f := range []string{filepath.Join(dir, "model.json"), user} {
 				if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
@@ -183,15 +185,18 @@ func TestOpencodeStateDir(t *testing.T) {
 	}
 }
 
-// T-697: XDG_STATE_HOME is the OpenCode agent's alone. The env lines of an OpenCode start and then a Claude start in
-// the same pane's shell (run in a real sh): the OpenCode agent sees its own state dir, and the Claude agent sees what
-// the pane had before (its own value, or none).
-func TestOpencodeStateHomeIsRestoredForAnotherKind(t *testing.T) {
+// T-698: XDG_STATE_HOME is the OpenCode agent's alone, and obor's dirs are told by their prefix, not by saved
+// provenance. The env lines of starts typed at one pane's shell (run in a real sh) after what the pane held before:
+// one row per case.
+func TestOpencodeStateHomeIsTheOpencodeAgentsAlone(t *testing.T) {
 	t.Parallel()
-	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"cl":{"kind":"claude","args":[]}}`
-	x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"oc"},"integrator":{"type":"cl"}}`))
+	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"cl":{"kind":"claude","args":[]},"cx":{"kind":"codex","args":[]}}`
+	x := setup(t, testkit.Set("lane_types", types),
+		testkit.Set("roles", `{"reviewer":{"type":"oc"},"integrator":{"type":"cl"},"triage":{"type":"cx"},"advisor":{"type":"oc"}}`))
 	x.agent("w1:p7", "pj-rev", "opencode", "idle")
 	x.agent("w1:p8", "pj-int", "claude", "idle")
+	x.agent("w1:p9", "pj-triage", "codex", "idle")
+	x.agent("w1:p6", "pj-advisor", "opencode", "idle")
 	lineOf := func(agent string) string {
 		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
 			t.Fatal(out)
@@ -208,39 +213,46 @@ func TestOpencodeStateHomeIsRestoredForAnotherKind(t *testing.T) {
 		_, line, _ := strings.Cut(text[:m[0]], " && export ") // not the cd: the fixture's worktree is no directory
 		return "export " + line
 	}
-	oc, cl := lineOf("pj-rev"), lineOf("pj-int")
-	if !strings.Contains(oc, "export XDG_STATE_HOME=/") || strings.Contains(cl, "export XDG_STATE_HOME=/") {
-		t.Fatalf("precondition: only the OpenCode line exports it:\n%s\n%s", oc, cl)
+	oc, other, cl, cx := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int"), lineOf("pj-triage")
+	if !strings.Contains(oc, "export XDG_STATE_HOME=/") || strings.Contains(cl, "export XDG_STATE_HOME=/") || strings.Contains(cx, "export XDG_STATE_HOME=/") {
+		t.Fatalf("precondition: only the OpenCode line exports it:\n%s\n%s\n%s", oc, cl, cx)
 	}
-	for _, c := range []struct{ name, pre, want string }{
-		{"the pane had its own", "export XDG_STATE_HOME=/mine", "/mine"},
-		{"the pane had none", "unset XDG_STATE_HOME", "UNSET"},
+	run := func(script string) string {
+		out, err := exec.Command("sh", "-c", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v\n%s\n%s", err, script, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	const show = "echo ${XDG_STATE_HOME-UNSET}"
+	for _, c := range []struct {
+		name, script string
+		want         string // "" : only that it is an obor dir (opencode-state)
+	}{
+		{"opencode start sets its dir", "unset XDG_STATE_HOME\n" + oc, ""},
+		{"claude after opencode in the pane: unset", oc + "\n" + cl, "UNSET"},
+		{"codex after opencode in the pane: unset", oc + "\n" + cx, "UNSET"},
+		{"claude with the user's own XDG_STATE_HOME: kept", "export XDG_STATE_HOME=/mine\n" + cl, "/mine"},
+		{"claude with none: still none", "unset XDG_STATE_HOME\n" + cl, "UNSET"},
+		{"a user's value that only looks like the root: kept", "export XDG_STATE_HOME=/mine/opencode-state/x\n" + cl, "/mine/opencode-state/x"},
+		{"opencode after opencode (other agent): replaced", oc + "\n" + other, ""},
 	} {
-		show := "echo ${XDG_STATE_HOME-UNSET}"
-		run := func(script string) string {
-			out, err := exec.Command("sh", "-c", script).CombinedOutput()
-			if err != nil {
-				t.Fatalf("%s: %v\n%s", c.name, err, out)
-			}
-			return strings.TrimSpace(string(out))
-		}
-		if got := run(c.pre + "\n" + oc + "\n" + show); !strings.Contains(got, "opencode-state") {
-			t.Errorf("%s: the OpenCode agent's XDG_STATE_HOME = %q, want its own state dir", c.name, got)
-		}
-		if got := run(c.pre + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
-			t.Errorf("%s: the Claude agent after it sees XDG_STATE_HOME %q, want %q", c.name, got, c.want)
-		}
-		// A pane obor setup made for the OpenCode agent: herdr set XDG_STATE_HOME (and the setup's save of the pane's
-		// own, "n" or "y"<value>) at its creation; no OpenCode env line ran there.
-		seed := "OBOR_XDG_STATE_WAS=n"
-		if c.want != "UNSET" {
-			seed = "OBOR_XDG_STATE_WAS=y" + c.want
-		}
-		if got := run(c.pre + "\nXDG_STATE_HOME=/obor/state; " + seed + "\n" + cl + "\n" + show); got != c.want {
-			t.Errorf("%s: in a pane setup made for OpenCode, the Claude agent sees XDG_STATE_HOME %q, want %q", c.name, got, c.want)
-		}
-		if got := run(c.pre + "\n" + oc + "\n" + oc + "\n" + cl + "\n" + show); got != c.want {
-			t.Errorf("%s: after two OpenCode starts the Claude agent sees %q, want %q (the second must not save the first's)", c.name, got, c.want)
+		got := run(c.script + "\n" + show)
+		switch {
+		case c.want == "" && !strings.Contains(got, "opencode-state"):
+			t.Errorf("%s: XDG_STATE_HOME = %q, want an opencode-state dir", c.name, got)
+		case c.want != "" && got != c.want:
+			t.Errorf("%s: XDG_STATE_HOME = %q, want %q", c.name, got, c.want)
 		}
 	}
+	// replaced means the second agent's own dir, not the first's
+	first, second := run(oc+"\n"+show), run(oc+"\n"+other+"\n"+show)
+	if first == second || !strings.HasSuffix(second, "pj-advisor-"+hex8("pj-advisor")) {
+		t.Errorf("opencode after opencode: %q then %q, want the second agent's own dir", first, second)
+	}
+}
+
+func hex8(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:4])
 }

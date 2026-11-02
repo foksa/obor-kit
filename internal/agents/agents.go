@@ -7,6 +7,8 @@ package agents
 
 import (
 	"fmt"
+	"maps"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -256,14 +258,38 @@ func CheckEffort(kind, effort string) error {
 }
 
 // StateHomeVar is the variable a kind's StartEnv may point at its agent's own state dir (OpenCode, T-696). The pane's
-// shell only exports it for the agent's start (herdr starts the CLI itself, so it cannot go on its command): launch
-// saves the pane's own value first and a later start of another kind restores it (T-697).
+// shell exports it for the agent's start (herdr's agent.start has no env, so the env line is the only route, as for
+// OBOR_*). obor's own dirs are recognisable by their prefix (StateRoots), so a start of any other kind unsets the
+// variable when it holds one (T-698) and leaves a value of the user's own alone: no provenance is saved.
 const StateHomeVar = "XDG_STATE_HOME"
 
-// SavedStateHomeVar is the pane shell's variable holding what XDG_STATE_HOME was before an agent's start exported its
-// own: "n" for unset, else "y" and the value. launch writes it before exporting; setup seeds it in a fresh pane's env,
-// where XDG_STATE_HOME is set at creation (T-697).
-const SavedStateHomeVar = "OBOR_XDG_STATE_WAS"
+// StateOwner is a kind that gives its agents a state dir of its own (Kind.StateDir): StateRoot is the directory (under
+// obor's state home, home) all of them live in.
+type StateOwner interface {
+	StateRoot(home string) string
+}
+
+// StateRoots are the directories under home that hold the kinds' own state dirs, each without a trailing separator. A
+// value of StateHomeVar under one of them is obor's, not the user's.
+func StateRoots(home string) []string {
+	var out []string
+	for _, n := range slices.Sorted(maps.Keys(kinds)) {
+		if o, ok := kinds[n].(StateOwner); ok {
+			out = append(out, o.StateRoot(home))
+		}
+	}
+	return out
+}
+
+// OwnedStateHome reports whether v, a value of StateHomeVar, is under one of obor's state roots (StateRoots(home)).
+func OwnedStateHome(home, v string) bool {
+	for _, r := range StateRoots(home) {
+		if strings.HasPrefix(v, r+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
 
 // ArgsChecker is a kind whose effort also depends on the type's args (OpenCode: --model, T-697).
 type ArgsChecker interface {
