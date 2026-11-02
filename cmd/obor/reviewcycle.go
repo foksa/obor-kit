@@ -230,8 +230,8 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		return c, "", err
 	}
 	backlogDirty := false
-	for _, l := range lines(st) {
-		if len(l) > 3 && l[3:] == "BACKLOG.md" {
+	for _, l := range porcelainLines(st) {
+		if l[3:] == "BACKLOG.md" {
 			backlogDirty = true
 			continue
 		}
@@ -249,7 +249,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 	if st, err = gitIn(ctx, wt, "status", "--porcelain", "--untracked-files=all"); err != nil {
 		return c, "", err
 	}
-	for _, l := range lines(st) {
+	for _, l := range porcelainLines(st) {
 		if !strings.HasPrefix(l, "?? ") || !own[l[3:]] {
 			return c, "", fmt.Errorf("the review worktree %s has more than %s's files (%s): nothing changed", wt, c.id, l)
 		}
@@ -293,6 +293,18 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		return c, "", err
 	}
 	return c, "CLOSED " + subject, nil
+}
+
+// porcelainLines is git status --porcelain's entry lines, untrimmed (T-725): the two status columns stay, so each
+// line's path starts at column 3 (" M BACKLOG.md" is an unstaged edit); a line shorter than "XY p" is dropped.
+func porcelainLines(out string) []string {
+	var l []string
+	for _, s := range strings.Split(out, "\n") {
+		if s = strings.TrimRight(s, "\r"); len(s) > 3 {
+			l = append(l, s)
+		}
+	}
+	return l
 }
 
 // acceptLines is backlog with one line "- (<id>, accepted) <line>" per accepted finding at the top of its "## Open"

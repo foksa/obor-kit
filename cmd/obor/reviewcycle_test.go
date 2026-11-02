@@ -147,3 +147,59 @@ func TestReviewClose(t *testing.T) {
 		t.Errorf("a second close: exit %d, %q", rc, stdout)
 	}
 }
+
+// T-725: obor review close accepts a dirty BACKLOG.md in the main checkout, unstaged (" M BACKLOG.md", whose leading
+// space a trimmed line lost) or staged ("M  BACKLOG.md"), and commits that edit with the close; another modified
+// tracked file is refused, named by its untrimmed status line.
+func TestReviewCloseDirtyBacklog(t *testing.T) {
+	t.Parallel()
+	for _, staged := range []bool{false, true} {
+		name := map[bool]string{false: "unstaged", true: "staged"}[staged]
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p, wt, head := reviewFixture(t)
+			p.Git(wt, "checkout", "-q", "--detach", head)
+			f := p.Herdr()
+			f.Shell("w1:p3", "pj-rev", wt)
+			srv := herdrtest.Serve(t, f)
+			env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
+				"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
+				"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+			p.Write(filepath.Join(wt, "docs/reviews/RV-4.md"), "# RV-4\n")
+
+			p.Write("fix.txt", "changed\n")
+			if st := p.Git(p.Root, "status", "--porcelain"); st != "M fix.txt" { // p.Git trims: the line is " M fix.txt"
+				t.Fatalf("precondition: fix.txt modified unstaged, status %q", st)
+			}
+			rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)")
+			if rc != 1 || stdout != "FAIL the main checkout is dirty outside BACKLOG.md ( M fix.txt): nothing changed\n" {
+				t.Errorf("a modified fix.txt: exit %d, %q; want refused", rc, stdout)
+			}
+			if p.Git(p.Root, "rev-parse", "HEAD") != head {
+				t.Fatalf("a refused close committed")
+			}
+			p.Git(p.Root, "checkout", "-q", "--", "fix.txt")
+
+			p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
+			want := " M BACKLOG.md"
+			if staged {
+				p.Git(p.Root, "add", "BACKLOG.md")
+				want = "M  BACKLOG.md"
+			}
+			if st := p.Git(p.Root, "status", "--porcelain"); st != strings.TrimSpace(want) {
+				t.Fatalf("precondition: BACKLOG.md %s, status %q", name, st)
+			}
+			rc, stdout, _ = run(t, p.Root, env, "review", "close", "T-5 (fix)", "--accept", "rare case")
+			if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · ") {
+				t.Fatalf("close with BACKLOG.md %s: exit %d, %q; want accepted", name, rc, stdout)
+			}
+			backlog := p.Git(p.Root, "show", "HEAD:BACKLOG.md")
+			if !strings.Contains(backlog, "## Open\n- (RV-4, accepted) rare case\n- lead's line\n- old line\n") {
+				t.Errorf("BACKLOG.md committed without the %s edit:\n%s", name, backlog)
+			}
+			if st := p.Git(p.Root, "status", "--porcelain"); st != "" {
+				t.Errorf("the main checkout is dirty after the close: %q", st)
+			}
+		})
+	}
+}
