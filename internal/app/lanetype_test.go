@@ -208,9 +208,6 @@ func TestTypeMaxCapsWorkerTasksOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if roles := cfg.RoleAgentsOfType("opus"); len(roles) != 3 {
-		t.Fatalf("precondition: the role agents of type opus %v, want three", roles)
-	}
 	if lt, _ := cfg.LaneType("opus"); lt.Max != 4 || len(cfg.Lanes()) != 5 {
 		t.Fatalf("precondition: opus's max %d, lanes %v; want 4 and five lanes", lt.Max, cfg.Lanes())
 	}

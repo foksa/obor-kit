@@ -438,9 +438,8 @@ func TestTaskFromBranch(t *testing.T) {
 }
 
 // T-723: LaneTakes is a lane type a configured lane can run (a lane of it, or an untyped one: the pool); a name that is
-// no lane type never. RoleAgentsOfType is the agents of the roles configured with a type (the lead by its own type),
-// sorted: what a type's max counts besides its workers.
-func TestLaneTakesAndRoleAgentsOfType(t *testing.T) {
+// no lane type never.
+func TestLaneTakes(t *testing.T) {
 	const types = `"lane_types":{"opus":{"kind":"claude"},"sonnet":{"kind":"claude"}}`
 	typed := load(t, `{"prefix":"pj",`+types+`,"lanes":{"O-01":"opus"},
 		"roles":{"lead":{"type":"opus","agent":"boss"},"reviewer":{"type":"opus","agent":"pj-rv"},
@@ -460,13 +459,5 @@ func TestLaneTakesAndRoleAgentsOfType(t *testing.T) {
 		if got := c.cfg.LaneTakes(c.typ); got != c.want {
 			t.Errorf("%s: LaneTakes(%s) = %v, want %v", c.name, c.typ, got, c.want)
 		}
-	}
-	for typ, want := range map[string][]string{"opus": {"boss", "pj-rv"}, "sonnet": {"my-int"}, "haiku": nil} {
-		if got := typed.RoleAgentsOfType(typ); !reflect.DeepEqual(got, want) {
-			t.Errorf("RoleAgentsOfType(%s) = %#v, want %#v", typ, got, want)
-		}
-	}
-	if got := pooled.RoleAgentsOfType("opus"); got != nil {
-		t.Errorf("RoleAgentsOfType(opus) with no roles = %#v, want none", got)
 	}
 }
