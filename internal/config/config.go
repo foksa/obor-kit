@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -904,7 +905,7 @@ var DifficultyDefault = map[string][]string{
 }
 
 // DifficultyTypes is the lane types of level in dispatch order: the project's difficulty entry, else the built-in
-// default, keeping only the types a configured lane has (a type without a lane would wait forever, T-629). A level
+// default, keeping only the types a configured lane can run (LaneTakes: a type no lane can run would wait forever, T-629). A level
 // left with none falls back to the project's other lane types, medium's built-in list before hard's (simple → sonnet
 // before opus; DifficultyLevelTypes is the list before that fallback). ok is false for a level that is none of hard,
 // medium, simple.
@@ -926,8 +927,8 @@ func (c *Config) DifficultyTypes(level string) (types []string, ok bool) {
 	return nil, true
 }
 
-// DifficultyLevelTypes is level's listed types that a configured lane has, in their order: DifficultyTypes before its
-// fallback (dispatch says when it used the fallback). nil for a name that is no level.
+// DifficultyLevelTypes is level's listed types that a configured lane can run, in their order: DifficultyTypes before its
+// fallback. nil for a name that is no level.
 func (c *Config) DifficultyLevelTypes(level string) []string {
 	return c.laneTypes(c.DifficultyList(level))
 }
@@ -945,11 +946,11 @@ func (c *Config) DifficultyList(level string) []string {
 	return listed
 }
 
-// laneTypes keeps the type references of listed whose type at least one configured lane has.
+// laneTypes keeps the type references of listed whose type a configured lane can run (LaneTakes).
 func (c *Config) laneTypes(listed []string) []string {
 	var out []string
 	for _, t := range listed {
-		if typ, _ := ParseTypeRef(t); c.HasLaneOfType(typ) {
+		if typ, _ := ParseTypeRef(t); c.LaneTakes(typ) {
 			out = append(out, t)
 		}
 	}
@@ -959,14 +960,35 @@ func (c *Config) laneTypes(listed []string) []string {
 // LaneTypeNames is the configured lane_types names, in config order.
 func (c *Config) LaneTypeNames() []string { return append([]string(nil), c.Data.LaneTypes.Keys...) }
 
-// HasLaneOfType reports whether a configured lane is of type typ.
-func (c *Config) HasLaneOfType(typ string) bool {
+// LaneTakes reports whether a configured lane can run type typ (T-723): typ is a lane type and a lane is of it (a
+// reservation) or untyped (the pool: any type).
+func (c *Config) LaneTakes(typ string) bool {
+	if _, ok := c.Data.LaneTypes.M[typ]; !ok {
+		return false
+	}
 	for _, k := range c.Data.Lanes.Keys {
-		if c.Data.Lanes.M[k].Type == typ {
+		if t := c.Data.Lanes.M[k].Type; t == typ || t == "" {
 			return true
 		}
 	}
 	return false
+}
+
+// RoleAgentsOfType is the agent names of the roles configured with lane type typ (the lead by its own type), sorted:
+// the role agents a type's lane_types max counts besides its workers (obor setup pane, dispatch; T-723).
+func (c *Config) RoleAgentsOfType(typ string) []string {
+	var out []string
+	for _, r := range roles.All() {
+		rc, _ := c.Role(r.Name)
+		if rc.Type != typ || r.Name != "lead" && !rc.Configured {
+			continue
+		}
+		if name := c.AgentName(r.Name, ""); !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A

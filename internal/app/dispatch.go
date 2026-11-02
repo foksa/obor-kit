@@ -137,55 +137,84 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	return reply, err
 }
 
-// noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when no lane of the level's types is free: the
-// task waits for one (waitLane; for a waiting task, waitDispatch tries again).
+// noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when none of the level's types gets a lane (each
+// at its max, or no free lane takes it): the task waits (waitLane; for a waiting task, waitDispatch tries again).
 type noLaneError struct {
 	task, level string
 	types       []string
 	ls          []port.Lane
-	note        string // the level's fallback, when it has no lane of its own (T-629)
+	full        map[string]string // type → "<type> at its max <n>" (capped)
 }
 
-func (e noLaneError) Error() string {
-	return fmt.Sprintf("dispatch %s: waiting for a %s lane (%s)", e.task, e.level, strings.Join(e.types, ", "))
-}
+func (e noLaneError) Error() string { return "dispatch " + e.task + ": " + e.laneWait() }
 
-// laneWait is the status line of a task waiting for a lane of its level.
+// laneWait is why the task waits (T-723): "<type> at its max <n>" when every type of its request is at its max (each
+// named), else "waiting for a free lane".
 func (e noLaneError) laneWait() string {
-	return fmt.Sprintf("waiting for a %s lane (%s)", e.level, strings.Join(e.types, ", "))
+	var full []string
+	for _, t := range e.types {
+		typ, _ := config.ParseTypeRef(t)
+		if why := e.full[typ]; why == "" {
+			return LaneWaitFree
+		} else if !slices.Contains(full, why) {
+			full = append(full, why)
+		}
+	}
+	if len(full) == 0 {
+		return LaneWaitFree
+	}
+	return strings.Join(full, ", ")
 }
 
-// resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types; the spec's `Type:` types first) when it names neither a lane
-// nor types (--types), else leaves it (a waiting task's request carries its level and types): the types a lane has,
-// and note the level's fallback types it used when none of its own types has one (T-629). Why not: no level in the
-// spec, or neither a `Type:` type nor a type of the level in the project (RV-79 #1: a named type alone dispatches).
-func resolveLevel(cfg *config.Config, c *wire.Call, text string) (note string, err error) {
-	if c.Lane != "" || len(c.Types) > 0 {
-		return "", nil
+// LaneWaitFree is a lane wait's reason when a type of the request is under its max: no free lane takes it (obor
+// status shows it so).
+const LaneWaitFree = "waiting for a free lane"
+
+// levelNote is a lane wait's " (<level>: <types>)".
+func levelNote(level string, types []string) string {
+	return " (" + level + ": " + strings.Join(types, ", ") + ")"
+}
+
+// resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types; the spec's `Type:` types first)
+// when it names no types (--types) and no lane, or an untyped lane (a pool lane runs the type its dispatch picks,
+// T-723); else it leaves it (a waiting task's request carries its level and types): the types a lane can run. Why not:
+// no level in the spec, or neither a `Type:` type nor a type of the level a lane can run (RV-79 #1: a named type alone
+// dispatches).
+func resolveLevel(cfg *config.Config, c *wire.Call, text string) error {
+	if len(c.Types) > 0 || c.Lane != "" && !untypedLane(cfg, c.Lane) {
+		return nil
 	}
 	level, ok := spec.Difficulty(text)
 	if !ok {
-		return "", fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
+		return fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
 			"with --types a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
 	types, _ := cfg.DifficultyTypes(level)
 	all := specFirst(cfg, text, types) // RV-79 #1: the spec's Type: types count before a refusal
 	if len(all) == 0 {
-		return "", fmt.Errorf("no lane type of level %s in this project (obor config get difficulty): dispatch with --types a,b", level)
+		return fmt.Errorf("no such lane type for level %s in this project (obor config get difficulty, lane_types): "+
+			"dispatch with --types a,b", level)
 	}
 	c.Level, c.Types = level, all
-	if len(types) > 0 && len(cfg.DifficultyLevelTypes(level)) == 0 {
-		note = fmt.Sprintf(" (level %s has no lane: using %s)", level, strings.Join(types, ", "))
-	}
-	return note, nil
+	return nil
 }
 
-// specFirst is types with the spec's `Type:` types in front (those a configured lane has): a free lane of a named
-// type wins, else the level's first free lane (T-689).
+// untypedLane: the config's lane name has no type (a pool lane, T-723).
+func untypedLane(cfg *config.Config, name string) bool {
+	for _, l := range cfg.Lanes() {
+		if l.Name == name {
+			return l.Type == ""
+		}
+	}
+	return false
+}
+
+// specFirst is types with the spec's `Type:` types in front (those a configured lane can run): a free lane for a
+// named type wins, else the level's first free lane (T-689).
 func specFirst(cfg *config.Config, text string, types []string) []string {
 	var out []string
 	for _, t := range spec.Types(text) {
-		if typ, _ := config.ParseTypeRef(t); cfg.HasLaneOfType(typ) {
+		if typ, _ := config.ParseTypeRef(t); cfg.LaneTakes(typ) {
 			out = append(out, t)
 		}
 	}
@@ -197,9 +226,10 @@ func specFirst(cfg *config.Config, text string, types []string) []string {
 	return out
 }
 
-// waitLane records fact waiting for c.Task's request (under a.verdicts) when no lane of its level is free (nl): the
-// reply WAITING <task> (queued): waiting for a <level> lane (<types>) and the lanes idle of other types. It replaces a
-// waiting fact of the task (a new request: types, after). The merge loop dispatches it when a lane of the level frees.
+// waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's types gets a lane
+// (nl): the reply WAITING <task> (queued): <why> (<level>: <types>) and the lanes still idle (typed for other types).
+// It replaces a waiting fact of the task (a new request: types, after). The merge loop dispatches it when a lane frees
+// for a type under its max (waiting tasks oldest first, passOrder).
 func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -207,7 +237,7 @@ func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 			c.Task, mt.state)
 	}
 	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
-		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + idleNote(nl.ls, "", held) + nl.note}
+		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + levelNote(nl.level, nl.types) + idleNote(nl.ls, "", held)}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
@@ -252,8 +282,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if err != nil {
 		return "", err
 	}
-	note, err := resolveLevel(cfg, &c, row.Text)
-	if err != nil {
+	if err := resolveLevel(cfg, &c, row.Text); err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
 	for _, t := range c.Types { // an effort its kind does not take (T-695); an unknown type finds no lane below
@@ -273,17 +302,19 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		}
 	}
 	mt, held := a.held(p, c.Task)
-	l, why := pickLane(ls, c, held)
-	if why != "" && c.Level != "" {
-		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, note: note}
+	full := a.capped(p, cfg, c.Task, c.Types)
+	l, ref, why := pickLane(ls, c, held, full)
+	if why != "" && c.Level != "" && c.Lane == "" {
+		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, full: full}
 	}
 	if why != "" {
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	if kind := unbridged(cfg, l.Type); kind != "" {
+	typ, effort := config.ParseTypeRef(ref)
+	if kind := unbridged(cfg, typ); kind != "" {
 		return "", fmt.Errorf("dispatch %s: lane %s's kind %s has no bridge (obor config validate)", c.Task, l.Name, kind)
 	}
-	note += pluginNote(cfg, l)
+	note := pluginNote(cfg, l, typ)
 	redo := l.Task == c.Task && (l.State == "working" || l.State == "blocked")
 	switch {
 	case redo:
@@ -318,10 +349,10 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	a.mu.Unlock()
 	agent := laneAgent(l, pane, names)
 	caller := callerOf(c)
-	effort := effortFor(c.Types, l.Type)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
-		Level: c.Level, Types: c.Types, Effort: effort, Type: config.TypeRef(l.Type, effort), Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + effortNote(effort) + idleNote(ls, l.Name, held) + note}
+		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Caller: caller, Call: c.CallID,
+		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(l, typ) + effortNote(effort) +
+			idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
@@ -402,6 +433,50 @@ func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	return "; idle: " + strings.Join(idle, ", ")
 }
 
+// typeNote is a dispatch reply's " as <type>" when lane l is untyped (a pool lane runs the type its dispatch picked,
+// T-723); "" on a typed lane (its own type).
+func typeNote(l port.Lane, typ string) string {
+	if l.Type != "" || typ == "" {
+		return ""
+	}
+	return " as " + typ
+}
+
+// capped is the types of types (type references) at their lane_types max (T-723), each with its reason "<type> at its
+// max <n>": the open dispatches whose row type is of it (not merged, rejected or dropped; a worker stopped on a usage
+// limit holds its dispatch, T-568), other than task's own, plus the role agents configured with it (setup's rule,
+// RoleAgentsOfType). A type without a max is limited only by the free lanes.
+func (a *App) capped(p *proj, cfg *config.Config, task string, types []string) map[string]string {
+	full := map[string]string{}
+	for _, t := range types {
+		typ, _ := config.ParseTypeRef(t)
+		lt, ok := cfg.LaneType(typ)
+		if !ok || lt.Max <= 0 || full[typ] != "" {
+			continue
+		}
+		if n := a.dispatchesOf(p, task, typ) + len(cfg.RoleAgentsOfType(typ)); n >= lt.Max {
+			full[typ] = fmt.Sprintf("%s at its max %d", typ, lt.Max)
+		}
+	}
+	return full
+}
+
+// dispatchesOf is how many of p's loop tasks other than task hold an open dispatch of lane type typ (its row type).
+func (a *App) dispatchesOf(p *proj, task, typ string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for t, m := range p.folded.loop {
+		if t == task || m.disp.Type == "" || states[m.state].ended {
+			continue
+		}
+		if rt, _ := config.ParseTypeRef(m.disp.Type); rt == typ {
+			n++
+		}
+	}
+	return n
+}
+
 // effortFor is the effort of the first type reference of types naming lane type typ ("": none names one; T-695).
 func effortFor(types []string, typ string) string {
 	for _, t := range types {
@@ -420,39 +495,56 @@ func effortNote(effort string) string {
 	return " effort " + effort
 }
 
-// pickLane is c's lane in ls: the lane it names, else the lane that holds c.Task (working or blocked on it: a redo,
-// whatever its type, T-545), else the first lane of its first type (a type reference's type: opus:high matches an opus
-// lane, T-695) that has a free one (types in the order given,
-// lanes in config order) (dirty-free with force) and not held for another task's dispatch; else why not.
-func pickLane(ls []port.Lane, c wire.Call, held map[string]string) (port.Lane, string) {
+// pickLane is c's lane in ls and the type reference its dispatch runs (T-723): the lane it names (its type; an untyped
+// one c's first type), else the lane that holds c.Task (working or blocked on it: a redo, whatever its type, T-545),
+// else for each type of c in order, skipped at its max (full), the first lane in config order whose type is it (a
+// typed lane is a reservation for its type) or empty (the pool), free (dirty-free with force) and not held for another
+// task's dispatch; else why not. A type reference's type matches (opus:high: an opus or untyped lane, T-695); a named
+// or held lane keeps the effort c gives its type.
+func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[string]string) (port.Lane, string, string) {
 	if c.Lane != "" {
 		for _, l := range ls {
 			if l.Name == c.Lane {
 				if t := held[l.Name]; t != "" {
-					return port.Lane{}, "lane " + l.Name + " is dispatched to " + t
+					return port.Lane{}, "", "lane " + l.Name + " is dispatched to " + t
 				}
 				l.Dir = filepath.Clean(l.Dir)
-				return l, ""
+				if l.Type == "" && len(c.Types) > 0 {
+					return l, c.Types[0], ""
+				}
+				return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
 			}
 		}
-		return port.Lane{}, "unknown lane " + c.Lane + " (not in the config's lanes)"
+		return port.Lane{}, "", "unknown lane " + c.Lane + " (not in the config's lanes)"
 	}
 	for _, l := range ls {
 		if l.Task == c.Task && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
 			l.Dir = filepath.Clean(l.Dir)
-			return l, ""
+			return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
 		}
 	}
 	for _, t := range c.Types {
 		typ, _ := config.ParseTypeRef(t)
+		if full[typ] != "" {
+			continue
+		}
 		for _, l := range ls {
-			if l.Type == typ && held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
+			if (l.Type == typ || l.Type == "") && held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
 				l.Dir = filepath.Clean(l.Dir)
-				return l, ""
+				return l, t, ""
 			}
 		}
 	}
-	return port.Lane{}, "no free lane of the types " + strings.Join(c.Types, ",")
+	var at []string
+	for _, t := range c.Types {
+		if typ, _ := config.ParseTypeRef(t); full[typ] != "" && !slices.Contains(at, full[typ]) {
+			at = append(at, full[typ])
+		}
+	}
+	if len(at) > 0 {
+		return port.Lane{}, "", "no free lane of the types " + strings.Join(c.Types, ",") + " (" + strings.Join(at, ", ") + ")"
+	}
+	return port.Lane{}, "", "no free lane of the types " + strings.Join(c.Types, ",")
 }
 
 // dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), or a needs-you it left.
@@ -552,7 +644,7 @@ func (m *mtask) nextAttempt() int {
 func (p *proj) foldWaiting(r event.Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
-	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d}
+	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d, dispSeq: r.Seq} // its seq: oldest first
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
 	}
@@ -636,11 +728,15 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	now := a.opt.Now()
 	a.mu.Lock()
 	w, ok := p.waitLine[mt.task]
-	changed := !ok || w.line != err.Error()
+	line := err.Error()
 	var nl noLaneError
 	laneWait := errors.As(err, &nl)
+	if laneWait {
+		line = nl.laneWait() // the status line reads it after the level (T-723)
+	}
+	changed := !ok || w.line != line
 	if changed {
-		w = waitRefusal{line: err.Error(), since: now}
+		w = waitRefusal{line: line, since: now}
 		p.waitLine[mt.task] = w
 	}
 	held := now.Sub(w.since) >= waitHeld && !laneWait // waiting for a busy lane is the wait itself
@@ -1003,8 +1099,8 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (str
 
 // pluginNote warns, in dispatch's reply, that a Claude lane's worktree has no enabled obor plugin (T-705): its worker
 // would run without obor's hooks and MCP tools (no job_next).
-func pluginNote(cfg *config.Config, l port.Lane) string {
-	lt, ok := cfg.LaneType(l.Type)
+func pluginNote(cfg *config.Config, l port.Lane, typ string) string {
+	lt, ok := cfg.LaneType(typ)
 	if k, known := agents.Lookup(lt.Kind); !ok || !known || !k.Caps().ProjectPlugin || config.PluginEnabledIn(l.Dir) {
 		return ""
 	}

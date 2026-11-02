@@ -199,16 +199,8 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if lt.Max > 0 {
 		n := 0
 		names := map[string]bool{}
-		for _, r := range roles.All() {
-			if r.Name == "lead" {
-				continue // the lead is counted below, by its own type
-			}
-			if rc, _ := s.cfg.Role(r.Name); rc.Configured && rc.Type == a.typ {
-				names[s.cfg.AgentName(r.Name, "")] = true
-			}
-		}
-		if rc, _ := s.cfg.Role("lead"); rc.Type == a.typ {
-			names[s.cfg.AgentName("lead", "")] = true
+		for _, name := range s.cfg.RoleAgentsOfType(a.typ) {
+			names[name] = true
 		}
 		dirs := map[string]bool{}
 		for _, l := range s.cfg.Lanes() {

@@ -74,8 +74,9 @@ func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
 	}
 }
 
-// T-629: a level whose listed types have no lane falls back to medium's list (sonnet before opus), and the reply says
-// so: a simple level naming a type no lane has runs on sonnet, never waiting for a deepseek no lane has.
+// T-629: a level whose listed types no lane can run falls back to medium's list (sonnet before opus): a simple level
+// naming a type no lane can run runs on sonnet, never waiting for a luna no lane can run. The reply has no note of it
+// (T-723 deleted the "level has no lane" note).
 func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
@@ -88,8 +89,7 @@ func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
 	r.start()
 	r.specLevel("simple") // luna: no lane; medium's sonnet is the fallback
 	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") ||
-		!strings.Contains(reply, "(level simple has no lane: using sonnet)") {
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") || strings.Contains(reply, "has no lane") {
 		t.Fatalf("simple dispatch with no simple lane: %q, %v", reply, err)
 	}
 	if d := r.factData("T-1", event.StepDispatched); d["level"] != "simple" || d["lane"] != "O-02" {
@@ -119,7 +119,7 @@ func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
 	r.lanes.mu.Unlock()
 	r.start()
 	r.specLevel("simple") // deepseek and sonnet: O-02 (sonnet) is busy, O-01 is a higher level
-	const want = "WAITING T-1 (queued): waiting for a simple lane (deepseek, sonnet); idle: O-01 (opus)"
+	const want = "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet); idle: O-01 (opus)"
 	if reply, err := r.dispatchLevel("d1"); err != nil || reply != want {
 		t.Fatalf("simple dispatch, no lane of its types free: %q, %v; want %q", reply, err, want)
 	}
@@ -204,7 +204,7 @@ func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	r.lanes.mu.Unlock()
 	r.start()
 	r.specLevel("medium")
-	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a medium lane (sonnet, deepseek)") {
+	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a free lane (medium: sonnet, deepseek)") {
 		t.Fatalf("first request: %q, %v", reply, err)
 	}
 	if reply, err := r.dispatchLevel("d2", "deepseek"); err == nil || reply != "" || !strings.Contains(err.Error(), "no free lane of the types deepseek") {
@@ -215,7 +215,7 @@ func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	}
 	r.setSpec("s2", "# T-1 — Leveled\n\nDifficulty: simple\n")
 	reply, err := r.dispatchLevel("d3")
-	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a simple lane (deepseek, sonnet)") {
+	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet)") {
 		t.Fatalf("replacement at another level: %q, %v", reply, err)
 	}
 	if n := r.taskStep("T-1", "fact waiting"); n != 2 {
