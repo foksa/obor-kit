@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"slices"
 	"strings"
 	"testing"
@@ -36,7 +38,7 @@ func checkRow(t *testing.T, w rowWant) {
 	}
 	same(t, mt.stepName(), w.name, mt.state+": step name")
 	same(t, mt.unsendable(), w.send, mt.state+": unsendable")
-	for _, m := range []string{MethodAccept, MethodSendback, MethodReject, MethodResolved} {
+	for _, m := range []string{wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved} {
 		c := mt
 		c.verdict(m, verdictResult{Patch: "p", Note: "why", SHA: "s"})
 		want, takes := w.verdicts[m]
@@ -53,7 +55,7 @@ func checkRow(t *testing.T, w rowWant) {
 	same(t, row.ended, w.ended, mt.state+": ended")
 	if w.ended {
 		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, ended: map[string]bool{}, held: map[string]string{}}
-		_, err := (&App{}).dropDecide(p, &Call{Task: "T-1", Note: "why", CallID: "d"})
+		_, err := (&App{}).dropDecide(p, &wire.Call{Task: "T-1", Note: "why", CallID: "d"})
 		if err == nil || !strings.Contains(err.Error(), "is "+mt.state+" already") {
 			t.Errorf("%s: drop %v, want refused as ended", mt.state, err)
 		}
@@ -62,9 +64,9 @@ func checkRow(t *testing.T, w rowWant) {
 }
 
 // needsOf is a needs-you fact of cause.
-func needsOf(cause string) Record {
-	data, _ := json.Marshal(FactData{Merge: true, Cause: cause, Reason: cause + ": why"})
-	return Record{Seq: 1, Kind: KindFact, Step: StepNeedsYou, Data: data}
+func needsOf(cause string) event.Record {
+	data, _ := json.Marshal(event.FactData{Merge: true, Cause: cause, Reason: cause + ": why"})
+	return event.Record{Seq: 1, Kind: event.KindFact, Step: event.StepNeedsYou, Data: data}
 }
 
 func TestStatesOneRowPerState(t *testing.T) {
@@ -84,7 +86,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 
 func TestStateSubmittedRow18(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stSubmitted}, name: StepSubmit, send: "T-1 is submitted; retry when it settles",
+	checkRow(t, rowWant{mt: mtask{state: stSubmitted}, name: event.StepSubmit, send: "T-1 is submitted; retry when it settles",
 		landed: true})
 	checkRow(t, rowWant{mt: mtask{state: stSubmitted, attemptVars: attemptVars{input: "abc", gates: 1}}, name: "gate.2",
 		send: "T-1 is submitted; retry when it settles", landed: true})
@@ -98,10 +100,10 @@ func TestStateGreenRow19(t *testing.T) {
 func TestStateAwaitingAcceptRow26(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, name: "review", open: true, landed: true,
-		verdicts: map[string]string{MethodAccept: stAccepted, MethodSendback: stWorking, MethodReject: stRejected}})
+		verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stWorking, wire.MethodReject: stRejected}})
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
 	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
-		landed: true, verdicts: map[string]string{MethodAccept: stAccepted, MethodSendback: stFail, MethodReject: stRejected}})
+		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stFail, wire.MethodReject: stRejected}})
 }
 
 func TestStateRedRow21(t *testing.T) {
@@ -119,7 +121,7 @@ func TestStateConflictRow23(t *testing.T) {
 func TestStateResolvingRow30(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve.2"}}, name: "resolve.2", open: true, scratch: true,
-		landed: true, verdicts: map[string]string{MethodResolved: stResolved, MethodReject: stFail}})
+		landed: true, verdicts: map[string]string{wire.MethodResolved: stResolved, wire.MethodReject: stFail}})
 }
 
 func TestStateResolvedRow18(t *testing.T) {
@@ -176,7 +178,7 @@ func TestStateDroppedRow44(t *testing.T) {
 func TestStateWaitingRow2a(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stWaiting}, name: "the dispatch", send: "T-1 is waiting",
-		cause: causeAfter, resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 	// pick: nothing while a task it waits for is open; a step once all are merged (one with no loop record: the step
 	// asks the target for its merge evidence), or one is dropped
 	for _, c := range []struct {
@@ -210,8 +212,8 @@ func TestStateWaitingRow2a(t *testing.T) {
 	// drop: a waiting task is open, obor drop <T> takes it
 	mt := mtask{task: "T-1", attempt: 1, state: stWaiting}
 	p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}, calls: map[string]string{}},
-		ended: map[string]bool{}, held: map[string]string{}, log: &Log{}}
-	if got, err := (&App{}).dropDecide(p, &Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
+		ended: map[string]bool{}, held: map[string]string{}, log: &event.Log{}}
+	if got, err := (&App{}).dropDecide(p, &wire.Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
 		!p.ended["T-1"] {
 		t.Errorf("drop of a waiting task: %+v, %v; want T-1 marked ended", got, err)
 	}
@@ -236,13 +238,13 @@ func TestStateWaitingRow2a(t *testing.T) {
 func TestStateDispatchedRow3(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stDispatched}, name: "the dispatch", send: "T-1 is dispatched",
-		cause: "lane", resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }
 
 func TestStateWorkingRow24(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{mt: mtask{state: stWorking}, name: "the fix", send: "T-1 is working", landed: true,
-		cause: causeUndelivered, resume: resumeRule{to: ResumeRetry, retry: true}})
+		cause: causeUndelivered, resume: resumeRule{to: wire.ResumeRetry, retry: true}})
 	// a dispatched attempt's work job: obor resume's default by cause
 	checkRow(t, rowWant{mt: mtask{state: stWorking, attemptVars: attemptVars{work: "work"}}, name: "the fix", send: "T-1 is working",
 		landed: true, cause: causeUndelivered})
@@ -256,11 +258,11 @@ func TestStateNeedsYouRow40(t *testing.T) {
 		cause: causeHeld})
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "O-01",
 		agent: "o-01"}, waits: true, name: "a step (needs-you)", landed: true,
-		cause: "lane", resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 	// T-619: a needs-you whose task has no lane (a waiting one) has no worker to send it to: resume or drop it
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
 		name: "a step (needs-you)", send: "T-1 has no lane yet: obor resume or obor drop it", landed: true,
-		cause: causeAfter, resume: resumeRule{to: ResumeRetry, only: ResumeRetry, retry: true}})
+		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }
 
 // busy: another task than task holds p's scratch (scratchHolder).

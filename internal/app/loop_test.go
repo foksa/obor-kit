@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
@@ -40,8 +43,8 @@ type loopRig struct {
 	early   bool         // submit before the first start: T-1's task_done is in the log the start replays
 
 	mu       sync.Mutex
-	stops    []string     // "<agent> <pane>" per Agents.Stop
-	launches []app.Launch // every Agents.Launch, in order
+	stops    []string      // "<agent> <pane>" per Agents.Stop
+	launches []port.Launch // every Agents.Launch, in order
 	// onStart, onStop: an error a start or stop gives instead of acting (nil: none; under mu).
 	onStart, onStop func() error
 	loopErr         error // what the Loop adapters' constructor fails with (nil: none; under mu)
@@ -84,7 +87,7 @@ func newLoopRig(t *testing.T, check string, edits ...func(map[string]any)) *loop
 	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", map[string]any{}),
 		testkit.Set("commands", commands), testkit.Set("lanes.O-01", map[string]any{"type": "opus", "agent": "pj-o1"})},
 		edits...)...)
-	r.lanes.lanes = []app.Lane{{Name: "O-01", Dir: r.lane, Task: "T-1", Agent: "pj-o1"}}
+	r.lanes.lanes = []port.Lane{{Name: "O-01", Dir: r.lane, Task: "T-1", Agent: "pj-o1"}}
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
 	w := r.f.Agent("w1:p1", "pj-o1", "idle", r.lane)
 	w.Workspace, w.Label = "w1", "pj-o1" // labelled by its launch: serve's identity of it (registry.go)
@@ -105,7 +108,7 @@ var prompted = map[string]any{"type": "agent_prompted", "agent": map[string]any{
 
 // Launch is the integrator's start: pj-int (session int-1) appears in the project's workspace and the app sees it (a workspace event
 // makes it read a new snapshot) before the start returns, as launch's start returns once the agent is ready.
-func (r *loopRig) Launch(ctx context.Context, req app.Launch) (app.Started, error) {
+func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, error) {
 	r.mu.Lock()
 	r.launches = append(r.launches, req)
 	r.mu.Unlock()
@@ -114,14 +117,14 @@ func (r *loopRig) Launch(ctx context.Context, req app.Launch) (app.Started, erro
 	}
 	r.starts.Add(1)
 	if req.Agent != "pj-int" {
-		return app.Started{}, errors.New("unexpected start of " + req.Agent)
+		return port.Started{}, errors.New("unexpected start of " + req.Agent)
 	}
 	r.mu.Lock()
 	fail := r.onStart
 	r.mu.Unlock()
 	if fail != nil {
 		if err := fail(); err != nil {
-			return app.Started{}, err
+			return port.Started{}, err
 		}
 	}
 	if !r.f.Set("w1:p9", func(p *herdrtest.Pane) {
@@ -133,13 +136,13 @@ func (r *loopRig) Launch(ctx context.Context, req app.Launch) (app.Started, erro
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		for _, a := range r.app.Status().Project.Agents {
 			if a.Name == "pj-int" {
-				return app.Started{Line: "STARTED pj-int", Pane: "w1:p9", Kind: "claude", Session: "int-1"}, nil
+				return port.Started{Line: "STARTED pj-int", Pane: "w1:p9", Kind: "claude", Session: "int-1"}, nil
 			}
 		}
 		r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
 			"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
 	}
-	return app.Started{}, errors.New("pj-int never seen")
+	return port.Started{}, errors.New("pj-int never seen")
 }
 
 // Stop is the worker's stop: the agent leaves its pane (""; the pane labelled agent) in the fake herdr and the app
@@ -201,7 +204,7 @@ func (r *loopRig) workerStops() []string {
 // app's first full check.
 func (r *loopRig) start() {
 	r.t.Helper()
-	switch recs, _ := app.ReadLog(r.p.Root); {
+	switch recs, _ := event.ReadLog(r.p.Root); {
 	case r.disp != nil || len(recs) > 0: // the dispatch rig dispatches; a test that wrote the log has its records
 	case r.early:
 		r.p.SubmitAgo("O-01", 0, report) // T-1 dispatched and its task_done in
@@ -288,7 +291,7 @@ func (r *loopRig) waitFor(what string, ok func() bool) {
 }
 
 // setLane changes O-01's row in the lane table.
-func (r *loopRig) setLane(fn func(l *app.Lane)) {
+func (r *loopRig) setLane(fn func(l *port.Lane)) {
 	r.lanes.mu.Lock()
 	fn(&r.lanes.lanes[0])
 	r.lanes.mu.Unlock()
@@ -312,7 +315,7 @@ func (r *loopRig) submit() {
 
 // taskDone is pj-o1's task_done for T-1 with text as its report, under a new call id.
 func (r *loopRig) taskDone(text string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodTaskDone, app.Call{Root: r.p.Root, Agent: "pj-o1",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: "pj-o1",
 		Role: "worker", Lane: "O-01", Task: "T-1", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1)), Report: text})
 }
 
@@ -320,8 +323,8 @@ func (r *loopRig) taskDone(text string) (string, error) {
 func (r *loopRig) work(path, text string) { r.p.Write(filepath.Join(r.lane, path), text) }
 
 // records is proj's event log.
-func (r *loopRig) records() []app.Record {
-	recs, _ := app.ReadLog(r.p.Root)
+func (r *loopRig) records() []event.Record {
+	recs, _ := event.ReadLog(r.p.Root)
 	return recs
 }
 
@@ -452,13 +455,13 @@ func (r *loopRig) patch(text string) string {
 
 // verdict is pj-int's verdict on T-1 (no job id: the current job, as the CLI sends it).
 func (r *loopRig) verdict(method, callID, patch, note string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, method, app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator",
+	return wire.Verdict(context.Background(), r.sock, method, wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator",
 		CallID: callID, Task: "T-1", Patch: patch, Note: note})
 }
 
 func (r *loopRig) accept(callID, patch string) {
 	r.t.Helper()
-	if reply, err := r.verdict(app.MethodAccept, callID, patch, ""); err != nil || !strings.HasPrefix(reply, "ACCEPT T-1") {
+	if reply, err := r.verdict(wire.MethodAccept, callID, patch, ""); err != nil || !strings.HasPrefix(reply, "ACCEPT T-1") {
 		r.t.Fatalf("accept: %q, %v", reply, err)
 	}
 }
@@ -604,7 +607,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 func (r *loopRig) redLine() string {
 	var line string
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "gate") && rec.Attempt == 3 {
+		if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "gate") && rec.Attempt == 3 {
 			var g struct{ Line string }
 			_ = json.Unmarshal(rec.Data, &g)
 			line = g.Line
@@ -646,13 +649,13 @@ func TestLoopConflictResolvedThenMerged(t *testing.T) {
 	if strings.Contains(job, "--ff-retry") {
 		t.Errorf("resolve job names obor merge --ff-retry:\n%s", job)
 	}
-	if _, err := r.verdict(app.MethodAccept, "c0", "x", ""); err == nil || !strings.Contains(err.Error(), "is a resolve job") {
+	if _, err := r.verdict(wire.MethodAccept, "c0", "x", ""); err == nil || !strings.Contains(err.Error(), "is a resolve job") {
 		t.Errorf("accept on the resolve job: %v", err)
 	}
 	r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.p.Git(scratch, "add", "shared.txt")
 	r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
-	if reply, err := r.verdict(app.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
+	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved: %q, %v", reply, err)
 	}
 	job = r.waitJob("pj-int", "T-1/1/review")
@@ -729,21 +732,21 @@ func TestLoopTargetMoved(t *testing.T) {
 		if !r.has("1 fact target.moved") || r.has("1 fact accept.kept") {
 			t.Errorf("moved, not kept: %q", r.steps())
 		}
-		if _, err := r.verdict(app.MethodAccept, "c2", old, ""); err == nil || !strings.Contains(err.Error(), "stale: re-read the candidate") {
+		if _, err := r.verdict(wire.MethodAccept, "c2", old, ""); err == nil || !strings.Contains(err.Error(), "stale: re-read the candidate") {
 			t.Errorf("accept of the old patch: %v", err)
 		}
-		stale := app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c3", Task: "T-1",
+		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c3", Task: "T-1",
 			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodAccept, stale); err == nil ||
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
 			!strings.Contains(err.Error(), "stale job T-1/1/review") {
 			t.Errorf("accept of the old job: %v", err)
 		}
-		if reply, err := r.verdict(app.MethodAccept, "c1", old, ""); err != nil || reply != "ACCEPT T-1 (job T-1/1/review)" {
+		if reply, err := r.verdict(wire.MethodAccept, "c1", old, ""); err != nil || reply != "ACCEPT T-1 (job T-1/1/review)" {
 			t.Errorf("the first accept's call id again: %q, %v; want its stored reply", reply, err)
 		}
 		r.accept("c4", r.patch(job))
 		r.merged(1)
-		if _, err := r.verdict(app.MethodReject, "c5", "", "late"); err == nil || !strings.Contains(err.Error(), "no job open") {
+		if _, err := r.verdict(wire.MethodReject, "c5", "", "late"); err == nil || !strings.Contains(err.Error(), "no job open") {
 			t.Errorf("a verdict after the merge: %v", err)
 		}
 		if r.mainMerges() != 1 || r.count("1 fact merged") != 1 {
@@ -773,7 +776,7 @@ func TestLoopMovedConflictResolved(t *testing.T) {
 	r.p.Write(filepath.Join(scratch, "shared.txt"), "both\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
 	r.p.Git(scratch, "add", "shared.txt")
 	r.p.Git(scratch, "commit", "-qm", "Merge T-1: resolved")
-	if reply, err := r.verdict(app.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
+	if reply, err := r.verdict(wire.MethodResolved, "c1", "", ""); err != nil || reply != "RESOLVED T-1 (job T-1/1/resolve)" {
 		t.Fatalf("resolved against the submitted sha: %q, %v", reply, err)
 	}
 	job = r.waitJob("pj-int", "T-1/1/review.2")
@@ -812,7 +815,7 @@ func TestLoopMergedOutsideTheApp(t *testing.T) {
 		r.has("1 intent agent.stop") || r.mainMerges() != 1 {
 		t.Errorf("outside %v, publishes %d, merges %d: %q", d.Outside, r.scratch.publishes.Load(), r.mainMerges(), r.steps())
 	}
-	if _, err := r.verdict(app.MethodAccept, "c1", r.patch(job), ""); err == nil || !strings.Contains(err.Error(), "no job open") {
+	if _, err := r.verdict(wire.MethodAccept, "c1", r.patch(job), ""); err == nil || !strings.Contains(err.Error(), "no job open") {
 		t.Errorf("accept after the outside merge: %v", err)
 	}
 }
@@ -861,7 +864,7 @@ func TestLoopErrorIsAFactOnceAndClears(t *testing.T) {
 	if n, m := r.count("0 fact needs-you{loop: config.json: boom}"), countReq(r.srv, "notification.show"); n != 1 || m != 1 {
 		t.Errorf("after repeated failing passes: %d needs-you, %d notifications; want 1, 1", n, m)
 	}
-	if st := r.app.Status().Project; len(st.Facts) != 1 || st.Facts[0].Task != app.LoopTask {
+	if st := r.app.Status().Project; len(st.Facts) != 1 || st.Facts[0].Task != event.LoopTask {
 		t.Errorf("status facts: %+v", st.Facts)
 	}
 
@@ -967,7 +970,7 @@ func TestCommitSubjectFromStoredSpec(t *testing.T) {
 // setSpec stores text as T-1's spec through serve's socket, as the lead (obor spec set).
 func (r *loopRig) setSpec(callID, text string) string {
 	r.t.Helper()
-	reply, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Agent: "lead",
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "lead",
 		Role: "lead", CallID: callID, Task: "T-1", Spec: text})
 	if err != nil {
 		r.t.Fatalf("spec set: %v", err)

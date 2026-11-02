@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 
@@ -10,7 +13,7 @@ import (
 
 // dropCall is the lead's obor drop of task in project name.
 func (r *concRig) dropCall(name, task, id string) (string, error) {
-	return r.app(name).drop(Call{Root: r.roots[name], Agent: "lead", Role: "lead", CallID: id, Task: task, Note: "abandoned"})
+	return r.app(name).drop(wire.Call{Root: r.roots[name], Agent: "lead", Role: "lead", CallID: id, Task: task, Note: "abandoned"})
 }
 
 // obor drop of a task serve holds (T-388): a needs-you with no job open ends in dropped, which survives a replay; the
@@ -18,7 +21,7 @@ func (r *concRig) dropCall(name, task, id string) (string, error) {
 func TestDropNeedsYouTask(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
-	r.add("pq", "T-3", StepNeedsYou, KindFact, FactData{Lane: "O-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
+	r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
 	r.run()
 	defer r.stop()
 	r.waitFor("T-3 needs-you", func() bool { return r.state("pq", "T-3") == stNeedsYou })
@@ -27,12 +30,12 @@ func TestDropNeedsYouTask(t *testing.T) {
 		t.Fatalf("precondition: want one fact in force, got %d", facts())
 	}
 	for _, role := range []string{"worker", "integrator"} {
-		_, err := r.app("pq").drop(Call{Root: r.roots["pq"], Agent: "pq-x", Role: role, CallID: "w-" + role, Task: "T-3", Note: "why"})
+		_, err := r.app("pq").drop(wire.Call{Root: r.roots["pq"], Agent: "pq-x", Role: role, CallID: "w-" + role, Task: "T-3", Note: "why"})
 		if err == nil || !strings.Contains(err.Error(), "the lead or the owner drops a task") {
 			t.Errorf("drop by %s: %v", role, err)
 		}
 	}
-	if _, err := r.app("pq").drop(Call{Root: r.roots["pq"], Role: "lead", CallID: "nw", Task: "T-3"}); err == nil ||
+	if _, err := r.app("pq").drop(wire.Call{Root: r.roots["pq"], Role: "lead", CallID: "nw", Task: "T-3"}); err == nil ||
 		!strings.Contains(err.Error(), "say why") {
 		t.Errorf("drop without a why: %v", err)
 	}
@@ -72,7 +75,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 	if mt := p.folded.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.Seq != 0 {
 		t.Errorf("replay: %+v; want T-3 dropped with no needs-you", mt)
 	}
-	if got := p.folded.calls[verdictStep(MethodDrop, "d1")]; got != "DROPPED T-3" {
+	if got := p.folded.calls[verdictStep(wire.MethodDrop, "d1")]; got != "DROPPED T-3" {
 		t.Errorf("replay: stored reply %q", got)
 	}
 }
@@ -96,7 +99,7 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	}
 
 	// A publish in flight is refused the same way.
-	if _, err := r.app("pr").verdict(context.Background(), MethodAccept, Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
+	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
 		Agent: "pr-int", CallID: "v1", Job: "T-4/1/review", Patch: "p"}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,12 +121,12 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	if err != nil || got != "DROPPED T-1" {
 		t.Fatalf("drop with the review job open: %q, %v", got, err)
 	}
-	_, err = r.a.verdict(context.Background(), MethodAccept, Call{Root: r.roots["pj"], Task: "T-1", Role: "integrator",
+	_, err = r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pj"], Task: "T-1", Role: "integrator",
 		Agent: "pj-int", CallID: "v2", Job: "T-1/1/review", Patch: "p"})
 	if err == nil || !strings.Contains(err.Error(), "superseded: T-1 was dropped") {
 		t.Errorf("accept after the drop: %v", err)
 	}
-	if r.count("pj", "T-1", KindFact, StepMerged) != 0 || r.fakes["pj"].count(r.fakes["pj"].pubs, "T-1") != 0 {
+	if r.count("pj", "T-1", event.KindFact, event.StepMerged) != 0 || r.fakes["pj"].count(r.fakes["pj"].pubs, "T-1") != 0 {
 		t.Error("a dropped task was published")
 	}
 }
@@ -136,7 +139,7 @@ func TestDropByLane(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	dispatchT2(r)
-	r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "target", Head: "target"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target", Head: "target"})
 	p, f := r.proj("pj"), r.fakes["pj"]
 	row := func() string {
 		r.a.mu.Lock()
@@ -147,7 +150,7 @@ func TestDropByLane(t *testing.T) {
 		t.Fatalf("precondition: O-02's row holds %q, want T-2", row())
 	}
 	drop := func(id string) (string, error) {
-		return r.a.drop(Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "O-02",
+		return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "O-02",
 			Note: "abandoned", Discard: true, Force: true})
 	}
 	f.refuse = "lane O-02 is dirty (--discard to drop its uncommitted changes)"
@@ -165,7 +168,7 @@ func TestDropByLane(t *testing.T) {
 	if want := "STOPPED\ndiscarded in O-02\nDROPPED T-2 from O-02 (abandoned)"; err != nil || reply != want {
 		t.Fatalf("drop: %q, %v; want %q", reply, err, want)
 	}
-	if len(f.frees) != 1 || f.frees[0] != (FreeInput{Lane: "O-02", Branch: "task/T-2", Target: "target", Discard: true}) {
+	if len(f.frees) != 1 || f.frees[0] != (port.FreeInput{Lane: "O-02", Branch: "task/T-2", Target: "target", Discard: true}) {
 		t.Errorf("Free calls %+v; want one for O-02's task/T-2 at the target, discarding", f.frees)
 	}
 	if len(f.stops) != 1 || f.stops[0] != "pj-o-02 force=true" {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,18 +28,18 @@ func (c *countPoster) Type(context.Context, string, string, bool) (bool, error) 
 }
 
 // needsMessages is the message facts of p's log that announce a needs-you.
-func needsMessages(t *testing.T, p *proj) []Message {
+func needsMessages(t *testing.T, p *proj) []event.Message {
 	t.Helper()
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []Message
+	var out []event.Message
 	for _, r := range recs {
-		if r.Task != MsgTask || r.Step != StepMessage || r.Kind != KindFact {
+		if r.Task != event.MsgTask || r.Step != event.StepMessage || r.Kind != event.KindFact {
 			continue
 		}
-		var m Message
+		var m event.Message
 		if err := json.Unmarshal(r.Data, &m); err != nil {
 			t.Fatal(err)
 		}
@@ -63,8 +64,8 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	p := h.proj()
 	t.Cleanup(func() { p.log.Close(); h.a.closeLog() })
 
-	d := FactData{Lane: "O-01", Cause: "lane", Reason: "lane: prepare\nfailed"}
-	if !h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, d) {
+	d := event.FactData{Lane: "O-01", Cause: "lane", Reason: "lane: prepare\nfailed"}
+	if !h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, d) {
 		t.Fatal("the needs-you was refused")
 	}
 	r := p.folded.active["T-1"][len(p.folded.active["T-1"])-1]

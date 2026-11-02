@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,8 +25,8 @@ import (
 // runs, or a start that did not carry the wake, gets the job's wake typed (send); a job whose prompt failed is sent
 // again under its key.
 func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep string) bool {
-	key := Key{Task: mt.task, Attempt: mt.attempt, Step: jobStep}
-	start := Key{Task: mt.task, Attempt: mt.attempt, Step: stepStart + jobStep}
+	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: jobStep}
+	start := event.Key{Task: mt.task, Attempt: mt.attempt, Step: stepStart + jobStep}
 	for n := 2; p.log.Done(start); n++ {
 		start.Step = nth(stepStart+jobStep, n)
 	}
@@ -58,9 +60,9 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 	}
 	data := promptData{Agent: p.integrator, Patch: mt.cand.Patch}
 	if fresh || w.State != Identified || replay {
-		if !a.startJob(ctx, p, mt, Intent{Key: start, Class: ClassStart, Data: d}, key, data,
+		if !a.startJob(ctx, p, mt, event.Intent{Key: start, Class: event.ClassStart, Data: d}, key, data,
 			func(ctx context.Context, first string) (any, error) {
-				s, err := a.startIntegrator(ctx, fx.Agents, p.root, Launch{Prompt: first, Fresh: fresh, Force: force})
+				s, err := a.startIntegrator(ctx, fx.Agents, p.root, port.Launch{Prompt: first, Fresh: fresh, Force: force})
 				switch {
 				case err != nil:
 					return nil, fmt.Errorf("integrator %s not started: %w", p.integrator, err)
@@ -144,12 +146,12 @@ var errNoCarry = errors.New("the start did not carry the job's wake")
 // prompt ignores it). A start that started its agent (a startOut, not refused) is the job's delivery: result "sent
 // (start prompt)", its delivery timers start. Any other outcome leaves the job's intent pending: the caller types its
 // wake (harmless after a start that did carry it). False: the start failed (counted) or nothing was decided.
-func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in Intent, job Key, data promptData,
+func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, job event.Key, data promptData,
 	launch func(ctx context.Context, first string) (any, error)) bool {
 	data.Job = JobID(job)
 	at := a.opt.Now()
 	var startErr error
-	_, err := a.do(ctx, p, Intent{Key: job, Class: ClassPrompt, Data: data}, func(ctx context.Context) (any, error) {
+	_, err := a.do(ctx, p, event.Intent{Key: job, Class: event.ClassPrompt, Data: data}, func(ctx context.Context) (any, error) {
 		carried := false
 		_, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 			v, err := launch(ctx, wakeLine(data.Job))
@@ -213,8 +215,8 @@ func questionsText(report string) string {
 	if q == "" {
 		return ""
 	}
-	if len(q) > InlineDiff {
-		q = clip(q, InlineDiff) + fmt.Sprintf("\n(cut at %d bytes: the whole section is in the report above)", InlineDiff)
+	if len(q) > port.InlineDiff {
+		q = clip(q, port.InlineDiff) + fmt.Sprintf("\n(cut at %d bytes: the whole section is in the report above)", port.InlineDiff)
 	}
 	return "The worker's open questions (decide one the spec's goal and decisions answer: decided: <what> — <why> in " +
 		"the accept note; hold one that changes scope, a contract, config or a protected file):\n" + q +
@@ -223,7 +225,7 @@ func questionsText(report string) string {
 
 // diffText is the review job's diff part (T-602): the stat, then the whole diff when the gate kept it (at most
 // InlineDiff bytes: no git diff call needed), else the stat and the git diff to read it with.
-func diffText(c Candidate) string {
+func diffText(c port.Candidate) string {
 	if c.Diff == "" {
 		return fmt.Sprintf("read it with git diff %s %s.\n%s\n", c.Target, c.SHA, c.Stat)
 	}

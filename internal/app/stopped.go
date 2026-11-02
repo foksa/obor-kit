@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"time"
 
 	"obor/internal/agents"
@@ -66,14 +69,14 @@ const (
 // agent's usage limit with its brief open: the brief it stops (Brief, its seq), the transcript's turn (Turn, Codex)
 // and the reset (Reset, Unix seconds; 0: unknown).
 type stoppedData struct {
-	Agent    string    `json:"agent"`
-	Error    string    `json:"error"`
-	Details  string    `json:"details,omitempty"`
-	NeedsYou *FactData `json:"needs_you,omitempty"`
-	Brief    int64     `json:"brief,omitempty"`
-	Turn     string    `json:"turn,omitempty"`
-	Reset    int64     `json:"reset,omitempty"`
-	Message
+	Agent    string          `json:"agent"`
+	Error    string          `json:"error"`
+	Details  string          `json:"details,omitempty"`
+	NeedsYou *event.FactData `json:"needs_you,omitempty"`
+	Brief    int64           `json:"brief,omitempty"`
+	Turn     string          `json:"turn,omitempty"`
+	Reset    int64           `json:"reset,omitempty"`
+	event.Message
 }
 
 // turnedData is fact turned's data: the role agent, the seq of its brief, and whether the evidence was the turn's end
@@ -87,14 +90,14 @@ type turnedData struct {
 
 // stoppedCall answers the socket's stopped request (the StopFailure hook of agent c.Agent). A call id is required and
 // a repeated one gets the stored reply. The lead's own stop (and a session of no role) is recorded, no line.
-func (a *App) stoppedCall(c Call) (string, error) {
+func (a *App) stoppedCall(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Agent == "" {
-		return "", errors.New(MethodStopped + ": a call id and the agent are required")
+		return "", errors.New(wire.MethodStopped + ": a call id and the agent are required")
 	}
-	p, reply, stored := a.callProj(MethodStopped, c)
+	p, reply, stored := a.callProj(wire.MethodStopped, c)
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodStopped, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodStopped, c.Root)
 	case stored:
 		return reply, nil
 	}
@@ -123,8 +126,8 @@ func (a *App) stoppedCall(c Call) (string, error) {
 	}
 	a.mu.Unlock()
 
-	if !a.record(p, Record{Task: MsgTask, Step: StepStopped, Kind: KindFact}, d) {
-		return "", fmt.Errorf("%s: the event log of %s refused it", MethodStopped, p.name)
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepStopped, Kind: event.KindFact}, d) {
+		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodStopped, p.name)
 	}
 	a.wake()
 	return d.Reply, nil
@@ -141,14 +144,14 @@ func newStop(agent, errText, details, callID string) (stoppedData, string) {
 		said += " (" + details + ")"
 	}
 	return stoppedData{Agent: agent, Error: errText, Details: details,
-		Message: Message{From: "obor", Call: callID, Reply: "STOPPED " + agent + " (recorded)"}}, said
+		Message: event.Message{From: "obor", Call: callID, Reply: "STOPPED " + agent + " (recorded)"}}, said
 }
 
 // workerStop makes d the stop of the worker with open task task (its watch w, its agent in pane): the task, and the
 // needs-you of it that the fact puts in force (under mu).
-func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, pane Pane) {
+func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, pane port.Pane) {
 	d.Task, d.Reply = task, "STOPPED "+d.Agent+" (needs-you "+task+")"
-	d.NeedsYou = &FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[pane.Workspace],
+	d.NeedsYou = &event.FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[pane.Workspace],
 		WorkspaceID: pane.Workspace, Pane: pane.ID, Agent: a.shownAs(p, pane), Reason: said, Cause: causeStopped}
 }
 
@@ -255,7 +258,7 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 		return false
 	}
 	callID := "turn." + e.turn.ID
-	_, done := p.folded.calls[verdictStep(MethodStopped, callID)]
+	_, done := p.folded.calls[verdictStep(wire.MethodStopped, callID)]
 	if !counts(e.turn, o.Status, done) {
 		return false
 	}
@@ -264,14 +267,14 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 		return false
 	}
 	if act != turnStop || stopped { // the stop in force ends (a new stop: the next check records it)
-		return a.fact(p, task, w, verdict{step: StepResumed, cause: causeStopped, pane: o})
+		return a.fact(p, task, w, verdict{step: event.StepResumed, cause: causeStopped, pane: o})
 	}
 	d, said := newStop(cmp.Or(w.lane.Agent, a.shownAs(p, o)), e.turn.Error, e.turn.Details, callID)
 	a.workerStop(p, &d, said, task, w, o)
 	d.NeedsYou.Turn = e.turn.ID
 	d.NeedsYou.Limit, d.NeedsYou.Reset = limitOf(o.Agent, e.turn.Error, e.turn.Details, e.turn.Reset, a.opt.Now())
 	data, _ := json.Marshal(d) // plain structs: cannot fail
-	r, err := p.log.Append(Record{Task: MsgTask, Step: StepStopped, Kind: KindFact, Data: data}, a.opt.Now())
+	r, err := p.log.Append(event.Record{Task: event.MsgTask, Step: event.StepStopped, Kind: event.KindFact, Data: data}, a.opt.Now())
 	if err != nil {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return false
@@ -284,27 +287,27 @@ func (a *App) turnStop(p *proj, task string, w *watch, ev map[string]*evidence) 
 // foldStop puts in force the worker's needs-you a stopped fact r with data d carries (foldMsg): a fact of d's task
 // with r's seq and time, unless the task has the same one in force or is closed (T-636: the task was picked before
 // its merge, drop or reject and the stop recorded after it).
-func (p *proj) foldStop(r Record, d stoppedData) {
-	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, StepNeedsYou, d.NeedsYou.Reason) || p.closed(d.Task) {
+func (p *proj) foldStop(r event.Record, d stoppedData) {
+	if d.Task == "" || d.NeedsYou == nil || p.has(d.Task, event.StepNeedsYou, d.NeedsYou.Reason) || p.closed(d.Task) {
 		return
 	}
 	data, _ := json.Marshal(d.NeedsYou) // strings: cannot fail
-	p.folded.active[d.Task] = append(p.folded.active[d.Task], Record{Seq: r.Seq, TS: r.TS, Task: d.Task, Step: StepNeedsYou,
-		Kind: KindFact, Data: data})
+	p.folded.active[d.Task] = append(p.folded.active[d.Task], event.Record{Seq: r.Seq, TS: r.TS, Task: d.Task, Step: event.StepNeedsYou,
+		Kind: event.KindFact, Data: data})
 }
 
 // turnCall answers the socket's turn request (a worker's UserPromptSubmit or Stop hook): a new turn of agent c.Agent
 // began or ended (c.Ended), so its task's stop, in force, ends (turnDecide): fact resumed (cause stopped). Nothing in
 // force (the usual case), or no open task: nothing recorded. A repeat finds the stop ended: no call id needed.
-func (a *App) turnCall(c Call) (string, error) {
+func (a *App) turnCall(c wire.Call) (string, error) {
 	if c.Agent == "" {
-		return "", errors.New(MethodTurn + ": the agent is required")
+		return "", errors.New(wire.MethodTurn + ": the agent is required")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	p := a.projAt(c.Root)
 	if p == nil {
-		return "", fmt.Errorf("%s: no served project at %s", MethodTurn, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodTurn, c.Root)
 	}
 	if c.Role != "worker" {
 		return a.roleTurn(p, c)
@@ -313,12 +316,12 @@ func (a *App) turnCall(c Call) (string, error) {
 	if w == nil || turnDecide(turnCase{stopped: p.stops(task), worked: true, ended: c.Ended}) == turnNone {
 		return "TURN " + c.Agent + " (no stop)", nil
 	}
-	v := verdict{step: StepResumed, cause: causeStopped, pane: w.agent}
+	v := verdict{step: event.StepResumed, cause: causeStopped, pane: w.agent}
 	if at, _ := a.agentOf(p, w.lane); at.State == Identified {
 		v.pane = at.Pane
 	}
 	if !a.fact(p, task, w, v) {
-		return "", fmt.Errorf("%s: the event log of %s refused it", MethodTurn, p.name)
+		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodTurn, p.name)
 	}
 	return "TURN " + c.Agent + " (the stop of " + task + " ended)", nil
 }
@@ -327,7 +330,7 @@ func (a *App) turnCall(c Call) (string, error) {
 // brief's stop in force ends at the turn's start (fact turned: the brief follows the turn, its finished line waits for
 // the turn's end or its work), the turn's end finishes it (fact turned, worked: the finished line when idle), also when
 // the start was missed (RV-60 #3). Neither: nothing.
-func (a *App) roleTurn(p *proj, c Call) (string, error) {
+func (a *App) roleTurn(p *proj, c wire.Call) (string, error) {
 	b := p.out.brief(c.Agent)
 	if b == nil {
 		return "TURN " + c.Agent + " (no stop)", nil
@@ -342,10 +345,10 @@ func (a *App) roleTurn(p *proj, c Call) (string, error) {
 	}
 	d := turnedData{To: c.Agent, Brief: b.seq, Worked: act == turnFinish}
 	a.mu.Unlock()
-	ok := a.record(p, Record{Task: MsgTask, Step: StepTurned, Kind: KindFact}, d)
+	ok := a.record(p, event.Record{Task: event.MsgTask, Step: event.StepTurned, Kind: event.KindFact}, d)
 	a.mu.Lock()
 	if !ok {
-		return "", fmt.Errorf("%s: the event log of %s refused it", MethodTurn, p.name)
+		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodTurn, p.name)
 	}
 	return reply, nil
 }
@@ -356,7 +359,7 @@ func (a *App) roleTurn(p *proj, c Call) (string, error) {
 // since the watchdog's last look, T-617), dropped as the next check would. A task dispatched since that look has no
 // watch yet: one is installed as the check would (T-612: a worker may stop before that look). With no such loop task
 // the watch on c's lane stands.
-func (p *proj) stoppedTask(c Call) (string, *watch) {
+func (p *proj) stoppedTask(c wire.Call) (string, *watch) {
 	if task, lane := p.workerTask(c); task != "" {
 		if w := p.tasks[task]; w != nil && w.lane.Name == lane {
 			return task, w
@@ -366,7 +369,7 @@ func (p *proj) stoppedTask(c Call) (string, *watch) {
 				delete(p.tasks, other)
 			}
 		}
-		l := Lane{Name: lane}
+		l := port.Lane{Name: lane}
 		for _, row := range p.lanes {
 			if row.Name == lane {
 				l = row
@@ -390,7 +393,7 @@ func (p *proj) stoppedTask(c Call) (string, *watch) {
 // workerTask is the current task of the worker c names and its lane, as the loop holds it (under mu): the task whose
 // attempt awaits its worker's task_done on c's lane, else on the lane its agent works in; "" when none does. Of two
 // such tasks the newest dispatch (highest dispSeq) is the current one, as T-615 settles a lane's task.
-func (p *proj) workerTask(c Call) (task, lane string) {
+func (p *proj) workerTask(c wire.Call) (task, lane string) {
 	var newest int64
 	for _, t := range p.loopTasks() {
 		mt := p.folded.loop[t]
@@ -408,8 +411,8 @@ func (p *proj) workerTask(c Call) (task, lane string) {
 }
 
 // isStop: the fact f is a worker's stop (needs-you, cause stopped).
-func isStop(f Record) bool {
-	return f.Step == StepNeedsYou && f.Fact().Cause == causeStopped
+func isStop(f event.Record) bool {
+	return f.Step == event.StepNeedsYou && f.Fact().Cause == causeStopped
 }
 
 // stops: task has a worker's stop in force.
@@ -419,11 +422,11 @@ func (p *proj) stops(task string) bool {
 }
 
 // stop is task's worker's stop in force (ok false: none).
-func (p *proj) stop(task string) (Record, bool) {
+func (p *proj) stop(task string) (event.Record, bool) {
 	for _, f := range p.folded.active[task] {
 		if isStop(f) {
 			return f, true
 		}
 	}
-	return Record{}, false
+	return event.Record{}, false
 }

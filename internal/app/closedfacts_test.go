@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
 	"strings"
 	"testing"
 	"time"
@@ -14,35 +15,35 @@ import (
 // An asks of an open task still repeats as today.
 func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 	t.Parallel()
-	asks := app.FactData{Lane: "O-01", Agent: "pj-o1", Reason: "asks: which colour?"}
+	asks := event.FactData{Lane: "O-01", Agent: "pj-o1", Reason: "asks: which colour?"}
 	submitted := map[string]any{"lane": "O-01", "agent": "pj-o1"}
 	for _, c := range []struct {
 		name  string
-		end   []app.Record // after the asks
-		lines bool         // the asks is in force: its line and repeats are posted
+		end   []event.Record // after the asks
+		lines bool           // the asks is in force: its line and repeats are posted
 	}{
-		{"merged", []app.Record{
-			{Task: "T-1", Attempt: 1, Step: app.StepSubmitted, Kind: app.KindFact, Data: raw(submitted)},
-			{Task: "T-1", Attempt: 1, Step: app.StepMerged, Kind: app.KindFact, Data: raw(map[string]any{"outside": true})},
+		{"merged", []event.Record{
+			{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: raw(submitted)},
+			{Task: "T-1", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact, Data: raw(map[string]any{"outside": true})},
 		}, false},
-		{"dropped", []app.Record{
-			{Task: "T-1", Attempt: 1, Step: app.StepSubmitted, Kind: app.KindFact, Data: raw(submitted)},
-			{Task: "T-1", Attempt: 1, Step: app.StepDropped, Kind: app.KindFact,
-				Data: raw(app.FactData{Lane: "O-01", Merge: true, Reason: "why"})},
+		{"dropped", []event.Record{
+			{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: raw(submitted)},
+			{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
+				Data: raw(event.FactData{Lane: "O-01", Merge: true, Reason: "why"})},
 		}, false},
 		{"open", nil, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			r := newLoopRig(t, "echo 1 pass")
-			recs := append([]app.Record{{Task: "T-1", Attempt: 1, Step: app.StepNeedsYou, Kind: app.KindFact,
+			recs := append([]event.Record{{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact,
 				Data: raw(asks)}}, c.end...)
 			if err := app.WriteLog(r.p.Root, r.clock.Now(), recs...); err != nil {
 				t.Fatal(err)
 			}
 			var seq int64
 			for _, rec := range r.records() {
-				if rec.Step == app.StepNeedsYou {
+				if rec.Step == event.StepNeedsYou {
 					seq = rec.Seq
 				}
 			}
@@ -53,7 +54,7 @@ func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 			r.passes()
 			r.later(31 * time.Minute) // past the first repeat's 30 min
 			r.later(61 * time.Minute) // and the next's 60
-			var inForce []app.Record
+			var inForce []event.Record
 			for _, f := range r.app.Status().Project.Facts {
 				if f.Seq == seq { // the asks (the rig's static lane row still names T-1: the watchdog may decide anew)
 					inForce = append(inForce, f)
@@ -61,7 +62,7 @@ func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 			}
 			lines := 0
 			for _, rec := range r.needsLineFacts() {
-				var m app.Message
+				var m event.Message
 				if json.Unmarshal(rec.Data, &m) == nil && m.Needs == seq {
 					lines++
 				}

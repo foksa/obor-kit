@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 
 	"obor/internal/store"
 )
@@ -27,9 +30,9 @@ const refusedMark = "session already held by "
 // sessionCall answers the socket's session request: fact session, once per (agent, id) — a repeat (a resume, a second
 // report of one session) records nothing and gets the same reply. One session id belongs to one agent (T-586): an id
 // that is another agent's current session is refused, nothing recorded, the two agents logged.
-func (a *App) sessionCall(c Call) (string, error) {
+func (a *App) sessionCall(c wire.Call) (string, error) {
 	if c.Agent == "" || c.Session == "" {
-		return "", errors.New(MethodSession + ": the agent and the session id are required")
+		return "", errors.New(wire.MethodSession + ": the agent and the session id are required")
 	}
 	reply := "SESSION " + c.Agent + " " + c.Session
 	a.sessions.Lock() // the check and its record are one step: two reports of one session record one fact
@@ -44,28 +47,28 @@ func (a *App) sessionCall(c Call) (string, error) {
 	a.mu.Unlock()
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodSession, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSession, c.Root)
 	case known:
 		return reply, nil
 	case holder != "":
 		a.logf("%s: %s's session %s refused: it is %s's current session", p.name, c.Agent, c.Session, holder)
-		return "", fmt.Errorf("%s: %s%s (%s's report refused)", MethodSession, refusedMark, holder, c.Agent)
+		return "", fmt.Errorf("%s: %s%s (%s's report refused)", wire.MethodSession, refusedMark, holder, c.Agent)
 	}
 	s := store.Session{Agent: c.Agent, Kind: c.Kind, ID: c.Session, Transcript: c.Transcript, Pane: c.Pane,
 		Lane: c.Lane, Task: c.Task, Started: c.Started, Source: c.Source}
 	if s.Started == 0 {
 		s.Started = a.opt.Now().Unix()
 	}
-	if !a.record(p, Record{Task: store.SessionTask, Step: store.StepSession, Kind: KindFact}, s) {
-		return "", fmt.Errorf("%s: the event log of %s refused it", MethodSession, p.name)
+	if !a.record(p, event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact}, s) {
+		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodSession, p.name)
 	}
 	return reply, nil
 }
 
 // foldSession folds r, a session fact, when store.Admits it (T-586: one session id belongs to one agent; a log that
 // holds a duplicate has one owner on replay, the earlier, as the store's readers see it too).
-func (p *proj) foldSession(r Record) {
-	if r.Task != store.SessionTask || r.Kind != KindFact || r.Step != store.StepSession {
+func (p *proj) foldSession(r event.Record) {
+	if r.Task != store.SessionTask || r.Kind != event.KindFact || r.Step != store.StepSession {
 		return
 	}
 	var s store.Session
@@ -94,7 +97,7 @@ func (p *proj) session(agent string) (store.Session, bool) {
 
 // transcript is the recorded transcript of pane's agent (under mu): its current session's ("": none recorded; the
 // reader then takes the one herdr's session names).
-func (a *App) transcript(p *proj, pane Pane) string {
+func (a *App) transcript(p *proj, pane port.Pane) string {
 	agent, ok := p.reg.whoIs(pane)
 	if !ok {
 		return ""

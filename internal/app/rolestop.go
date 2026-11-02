@@ -4,6 +4,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"sort"
 	"strings"
 	"time"
@@ -54,13 +57,13 @@ type roleStops struct {
 }
 
 // foldRoles folds r into the role stops (foldRecord).
-func (p *proj) foldRoles(r Record) {
+func (p *proj) foldRoles(r event.Record) {
 	rs := &p.folded.roles
 	if rs.n == nil {
 		rs.n = map[string]int{}
 	}
-	switch step, _ := StepN(r.Step); {
-	case r.Task == RoleTask && r.Kind == KindResult && strings.HasPrefix(r.Step, stepRoleStop):
+	switch step, _ := event.StepN(r.Step); {
+	case r.Task == event.RoleTask && r.Kind == event.KindResult && strings.HasPrefix(r.Step, stepRoleStop):
 		var out roleStopOut
 		if json.Unmarshal(r.Data, &out) != nil || out.Agent == "" {
 			return
@@ -72,10 +75,10 @@ func (p *proj) foldRoles(r Record) {
 		case "reviewer":
 			rs.review = max(rs.review, out.Review)
 		}
-	case r.Kind == KindIntent && (step == StepReview || step == StepResolve):
+	case r.Kind == event.KindIntent && (step == event.StepReview || step == event.StepResolve):
 		rs.due = false // a new job: its own verdict makes the next stop due
-	case r.Kind == KindResult:
-		if m, _ := verdictMethod(r.Step); m != "" && m != MethodAnswer && p.folded.loop[r.Task] != nil {
+	case r.Kind == event.KindResult:
+		if m, _ := verdictMethod(r.Step); m != "" && m != wire.MethodAnswer && p.folded.loop[r.Task] != nil {
 			rs.due = true
 		}
 	}
@@ -187,7 +190,7 @@ type rvRead struct {
 func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role string, review int64) {
 	a.mu.Lock()
 	w := a.whereIs(p, agent)
-	key := Key{Task: RoleTask, Step: nth(stepRoleStop+agent, p.folded.roles.n[agent]+1)}
+	key := event.Key{Task: event.RoleTask, Step: nth(stepRoleStop+agent, p.folded.roles.n[agent]+1)}
 	late := a.opt.Now().Sub(p.roleFail[agent]) < roleStopRetry
 	a.mu.Unlock()
 	switch {
@@ -197,7 +200,7 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 		return // its turn ends first
 	}
 	out := roleStopOut{Agent: agent, Role: role, Review: review}
-	_, err := a.do(ctx, p, Intent{Key: key, Class: ClassStart, Data: stopData{Agent: agent}},
+	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassStart, Data: stopData{Agent: agent}},
 		func(ctx context.Context) (any, error) {
 			if w.State != Identified {
 				out.Line = "stopped: no agent (" + w.Why + ")"
@@ -205,7 +208,7 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 			}
 			line, err := fx.Agents.Stop(ctx, agent, w.Pane.ID, false)
 			switch {
-			case err != nil && NotFound(err):
+			case err != nil && port.NotFound(err):
 				line = "stopped: no agent (" + err.Error() + ")"
 			case err != nil:
 				return nil, err
@@ -228,18 +231,18 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 // shellPane is the pane labelled agent, a role agent a brief may start (roleAgentOf: never a worker, the lead or the
 // integrator), that runs no agent (its shell: the agent stopped, by serve or by the lead's obor restart --stop) while
 // no pane is identified as agent's (under mu; false: connected to no herdr, not such a role agent, or none).
-func (a *App) shellPane(p *proj, agent string) (Pane, bool) {
+func (a *App) shellPane(p *proj, agent string) (port.Pane, bool) {
 	if !p.roleAgentOf(agent) {
-		return Pane{}, false
+		return port.Pane{}, false
 	}
 	return a.labelledShell(p, agent)
 }
 
 // labelledShell is agent's only labelled pane at its shell (the pane launch.Stop leaves, whichever stop left it) while no
 // pane is identified as agent's (under mu; false: two are labelled so, none is, or herdr is not connected).
-func (a *App) labelledShell(p *proj, agent string) (Pane, bool) {
+func (a *App) labelledShell(p *proj, agent string) (port.Pane, bool) {
 	if w := a.whereIs(p, agent); w.State != Unavailable || w.Why == notConnected {
-		return Pane{}, false
+		return port.Pane{}, false
 	}
 	var ids []string
 	for id, o := range a.obs {
@@ -248,7 +251,7 @@ func (a *App) labelledShell(p *proj, agent string) (Pane, bool) {
 		}
 	}
 	if len(ids) != 1 {
-		return Pane{}, false // none, or two labelled alike: nothing is started, nothing stopped
+		return port.Pane{}, false // none, or two labelled alike: nothing is started, nothing stopped
 	}
 	return a.obs[ids[0]].pane, true
 }

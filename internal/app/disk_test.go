@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"obor/internal/app/event"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,10 +25,10 @@ func (f *diskFake) disk() *app.Disk {
 }
 
 // diskFacts is the low-disk needs-you in force in r's status.
-func diskFacts(r *loopRig) []app.Record {
-	var out []app.Record
+func diskFacts(r *loopRig) []event.Record {
+	var out []event.Record
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == app.DiskTask {
+		if f.Task == event.DiskTask {
 			out = append(out, f)
 		}
 	}
@@ -52,7 +53,7 @@ func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
 
 	want := "disk low: 2.0 GiB free on /vol/proj; Go build cache /cache/go-build (go clean -cache)"
 	r.waitFor("the disk needs-you", func() bool { return len(diskFacts(r)) == 1 })
-	if fs := diskFacts(r); fs[0].Step != app.StepNeedsYou || fs[0].Fact().Reason != want {
+	if fs := diskFacts(r); fs[0].Step != event.StepNeedsYou || fs[0].Fact().Reason != want {
 		t.Fatalf("disk facts %+v, want needs-you %q", fs, want)
 	}
 	for i := 0; i < 3; i++ {

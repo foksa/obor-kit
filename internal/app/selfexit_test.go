@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,16 +26,16 @@ import (
 // openPanes is herdr that is there: a subscription whose stream stays open until its ctx ends.
 type openPanes struct {
 	*fakePanes
-	snap Snapshot
+	snap port.Snapshot
 }
 
-func (o *openPanes) Subscribe(ctx context.Context) (*Stream, error) {
-	c := make(chan Event)
+func (o *openPanes) Subscribe(ctx context.Context) (*port.Stream, error) {
+	c := make(chan port.Event)
 	go func() {
 		<-ctx.Done()
 		close(c)
 	}()
-	return &Stream{Snapshot: o.snap, C: c, Err: func() error { return ctx.Err() }, Close: func() {}}, nil
+	return &port.Stream{Snapshot: o.snap, C: c, Err: func() error { return ctx.Err() }, Close: func() {}}, nil
 }
 
 // groupGate is a Scratch whose Gate runs a real command in its own process group (as checks.Scratch does) and returns
@@ -43,13 +45,13 @@ type groupGate struct {
 	dir string
 }
 
-func (g *groupGate) Gate(ctx context.Context, in GateInput) (GateOutcome, error) {
+func (g *groupGate) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	// The child writes both pids before the gate waits: the group's leader (the bash run.Execute started) and a sleep
 	// of its own, which the TERM to the group reaches only through the group.
 	script := `sleep 60 & echo $! > child.pid; echo $$ > pid; wait`
 	run.Execute(ctx, config.Command{Name: "gate", Cmd: script, Timeout: 60}, g.dir, nil, nil, io.Discard, io.Discard)
 	g.gated = append(g.gated, in.Task)
-	return GateOutcome{}, errors.New("the gate was cut off: serve is stopping")
+	return port.GateOutcome{}, errors.New("the gate was cut off: serve is stopping")
 }
 
 // gateGroupHarness is pj with an integrator, lane O-01's T-1 submitted and its sha in: T-1's next step is its gate, run
@@ -71,8 +73,8 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	h.a.mu.Lock()
 	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
-	addRecord(t, h, "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
 	return h, g
 }
 

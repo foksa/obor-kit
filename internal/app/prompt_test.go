@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,14 +64,14 @@ type startAgents struct {
 	lag      bool
 }
 
-func (f *startAgents) Launch(context.Context, Launch) (Started, error) {
+func (f *startAgents) Launch(context.Context, port.Launch) (port.Started, error) {
 	f.restarts++
 	if f.lag {
-		return Started{Line: "STARTED pj-o-01"}, nil
+		return port.Started{Line: "STARTED pj-o-01"}, nil
 	}
 	o := f.h.a.obs["w1:p1"]
 	o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", f.sid, ""
-	return Started{Line: "STARTED pj-o-01"}, nil
+	return port.Started{Line: "STARTED pj-o-01"}, nil
 }
 func (f *startAgents) Stop(context.Context, string, string, bool) (string, error) {
 	return "STOPPED", nil
@@ -78,11 +81,11 @@ func (f *startAgents) Stop(context.Context, string, string, bool) (string, error
 // on, with a boxPrompter and startAgents.
 func promptRig(t *testing.T, started bool) (*harness, *Loop, *boxPrompter, *startAgents) {
 	h, s := seedSched(t, true)
-	addRecord(t, h, "T-1", StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Target: "target", Branch: "task/T-1"})
-	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "target"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
 	if started {
-		addRecord(t, h, "T-1", StepStartWork, KindResult, startOut{Line: "STARTED", Pane: "w1:p1"})
+		addRecord(t, h, "T-1", event.StepStartWork, event.KindResult, startOut{Line: "STARTED", Pane: "w1:p1"})
 	}
 	h.a.p.dispatching = true
 	kit, _ := filepath.Abs("../..")
@@ -118,7 +121,7 @@ func (h *harness) count(kind, step string) int {
 // result is key's result data in pj's log ("": none).
 func (h *harness) result(step string) string {
 	for _, r := range h.records() {
-		if r.Kind == KindResult && r.Task == "T-1" && r.Step == step {
+		if r.Kind == event.KindResult && r.Task == "T-1" && r.Step == step {
 			return string(r.Data)
 		}
 	}
@@ -128,8 +131,8 @@ func (h *harness) result(step string) string {
 // refuseOnce makes pj's log refuse the first append of a result of step.
 func refuseOnce(p *proj, step string) {
 	first := true
-	p.log.Refuse = func(r Record) error {
-		if first && r.Kind == KindResult && r.Step == step {
+	p.log.Refuse = func(r event.Record) error {
+		if first && r.Kind == event.KindResult && r.Step == step {
 			first = false
 			return errors.New("result append failed")
 		}
@@ -143,12 +146,12 @@ func TestPromptFreshDelivered(t *testing.T) {
 	if !h.step(t, fx) { // work
 		t.Fatal("work job not sent")
 	}
-	if strings.Join(f.jobs, " ") != "T-1/1/work" || !f.clears[0] || h.result(StepWork) != `"sent"` {
+	if strings.Join(f.jobs, " ") != "T-1/1/work" || !f.clears[0] || h.result(event.StepWork) != `"sent"` {
 		t.Fatalf("prompts %v clears %v result %s; want the work job once, cleared first, sent", f.jobs, f.clears,
-			h.result(StepWork))
+			h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil } // job_next renders the worker prompt from its kit
-	if _, err := h.a.jobNext(Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err) // delivered
 	}
 	if h.proj().folded.loop["T-1"].state != stWorking {
@@ -163,14 +166,14 @@ func TestPromptFreshDelivered(t *testing.T) {
 func TestPromptResultLost(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
-	refuseOnce(h.proj(), StepWork)
+	refuseOnce(h.proj(), event.StepWork)
 	if h.step(t, fx) {
 		t.Fatal("precondition: the result write failed, the step is not done")
 	}
 	h.step(t, fx)
-	if len(f.jobs) != 1 || h.result(StepWork) != `"sent"` || h.count(KindFact, StepFailed) != 0 {
+	if len(f.jobs) != 1 || h.result(event.StepWork) != `"sent"` || h.count(event.KindFact, event.StepFailed) != 0 {
 		t.Errorf("prompts %v, result %s, failed %d; want one prompt, its result sent, nothing counted", f.jobs,
-			h.result(StepWork), h.count(KindFact, StepFailed))
+			h.result(event.StepWork), h.count(event.KindFact, event.StepFailed))
 	}
 }
 
@@ -184,10 +187,10 @@ func TestPromptTransportAfterTyping(t *testing.T) {
 		t.Fatal("a prompt whose typing began is not a failure")
 	}
 	h.step(t, fx) // the delivery timer: nothing due
-	if len(f.jobs) != 1 || h.result(StepWork) != `"sent: herdr agent.prompt: connection reset"` ||
-		h.count(KindFact, StepFailed) != 0 {
+	if len(f.jobs) != 1 || h.result(event.StepWork) != `"sent: herdr agent.prompt: connection reset"` ||
+		h.count(event.KindFact, event.StepFailed) != 0 {
 		t.Errorf("prompts %v, result %s, failed %d; want one prompt, sent with the error, nothing counted", f.jobs,
-			h.result(StepWork), h.count(KindFact, StepFailed))
+			h.result(event.StepWork), h.count(event.KindFact, event.StepFailed))
 	}
 }
 
@@ -196,16 +199,16 @@ func TestPromptRefusedBeforeTyping(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	f.outcomes = []boxOutcome{{err: errors.New("agent_blocked")}}
-	if h.step(t, fx) || h.count(KindFact, StepFailed) != 1 {
-		t.Fatalf("precondition: the refusal is a counted failure (%d)", h.count(KindFact, StepFailed))
+	if h.step(t, fx) || h.count(event.KindFact, event.StepFailed) != 1 {
+		t.Fatalf("precondition: the refusal is a counted failure (%d)", h.count(event.KindFact, event.StepFailed))
 	}
 	if !h.step(t, fx) {
 		t.Fatal("the work job not sent again")
 	}
-	if strings.Join(f.jobs, " ") != "T-1/1/work T-1/1/work" || h.count(KindIntent, StepWork) != 1 ||
-		h.result(StepWork) != `"sent"` || f.box["w1:p1"] != "[obor job T-1/1/work]" {
+	if strings.Join(f.jobs, " ") != "T-1/1/work T-1/1/work" || h.count(event.KindIntent, event.StepWork) != 1 ||
+		h.result(event.StepWork) != `"sent"` || f.box["w1:p1"] != "[obor job T-1/1/work]" {
 		t.Errorf("prompts %v, intents %d, result %s, box %q; want the job twice, one intent, sent, the text once",
-			f.jobs, h.count(KindIntent, StepWork), h.result(StepWork), f.box["w1:p1"])
+			f.jobs, h.count(event.KindIntent, event.StepWork), h.result(event.StepWork), f.box["w1:p1"])
 	}
 }
 
@@ -219,7 +222,7 @@ func TestPromptResumeClears(t *testing.T) {
 	h.step(t, fx) // retry.work
 	h.now = h.now.Add(deliveryWait)
 	h.step(t, fx) // needs-you{job not delivered}
-	if _, err := h.a.resume(Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r1"}); err != nil {
+	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r1"}); err != nil {
 		t.Fatal(err)
 	}
 	h.step(t, fx) // work.2
@@ -237,30 +240,30 @@ func TestPromptReplayResends(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
 	raw, _ := json.Marshal(promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
-	h.log(Record{Task: "T-1", Attempt: 1, Step: StepWork, Kind: KindIntent, Class: ClassPrompt, Data: raw})
-	h.log(Record{Task: "T-1", Attempt: 1, Step: StepFailed, Kind: KindFact, Data: mustJSON(FactData{Machine: Machine,
-		Merge: true, Step: StepWork, Reason: "work: agent_blocked"})})
-	h.log(Record{Task: "T-1", Attempt: 1, Step: "typing", Kind: KindFact, Data: mustJSON(FactData{Machine: Machine,
-		Merge: true, Step: StepWork})})
+	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepWork, Kind: event.KindIntent, Class: event.ClassPrompt, Data: raw})
+	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepFailed, Kind: event.KindFact, Data: mustJSON(event.FactData{Machine: Machine,
+		Merge: true, Step: event.StepWork, Reason: "work: agent_blocked"})})
+	h.log(event.Record{Task: "T-1", Attempt: 1, Step: "typing", Kind: event.KindFact, Data: mustJSON(event.FactData{Machine: Machine,
+		Merge: true, Step: event.StepWork})})
 	reloadProj(t, h) // the crash
 	h.proj().dispatching = true
-	if !h.proj().log.Open(Key{Task: "T-1", Attempt: 1, Step: StepWork}) || h.result(StepWork) != "" {
-		t.Fatalf("precondition: the work job's prompt is pending after the replay (result %s)", h.result(StepWork))
+	if !h.proj().log.Open(event.Key{Task: "T-1", Attempt: 1, Step: event.StepWork}) || h.result(event.StepWork) != "" {
+		t.Fatalf("precondition: the work job's prompt is pending after the replay (result %s)", h.result(event.StepWork))
 	}
 	if !h.step(t, fx) {
 		t.Fatal("the pending wake was not sent again")
 	}
 	h.step(t, fx) // the delivery timer: nothing due
-	if strings.Join(f.jobs, " ") != "T-1/1/work" || h.result(StepWork) != `"sent"` {
-		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(StepWork))
+	if strings.Join(f.jobs, " ") != "T-1/1/work" || h.result(event.StepWork) != `"sent"` {
+		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
-	if _, err := h.a.jobNext(Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err)
 	}
-	if st := h.proj().folded.loop["T-1"].state; st != stWorking || h.count(KindFact, StepDelivered) != 1 {
+	if st := h.proj().folded.loop["T-1"].state; st != stWorking || h.count(event.KindFact, event.StepDelivered) != 1 {
 		t.Errorf("state %s, delivered facts %d; want working, the job delivered once", st,
-			h.count(KindFact, StepDelivered))
+			h.count(event.KindFact, event.StepDelivered))
 	}
 }
 
@@ -279,17 +282,17 @@ func TestPromptIntegratorJob(t *testing.T) {
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: s, Agents: s, Typer: f}, nil }
 	p := h.proj()
 	raw, _ := json.Marshal(promptData{Agent: "pj-int", Job: "T-2/1/review"})
-	r, err := p.log.Append(Record{Task: "T-2", Attempt: 1, Step: StepReview, Kind: KindIntent, Class: ClassPrompt,
+	r, err := p.log.Append(event.Record{Task: "T-2", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt,
 		Data: raw}, h.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.foldRecord(r)
 	// T-602: a job's first start is a fresh session; this job's start ran already ("running"), so its wake is typed.
-	for _, rec := range []Record{
-		{Task: "T-1", Attempt: 1, Step: stepStart + StepResolve, Kind: KindIntent, Class: ClassStart,
+	for _, rec := range []event.Record{
+		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindIntent, Class: event.ClassStart,
 			Data: mustJSON(startData{Agent: "pj-int"})},
-		{Task: "T-1", Attempt: 1, Step: stepStart + StepResolve, Kind: KindResult, Data: mustJSON("running")},
+		{Task: "T-1", Attempt: 1, Step: stepStart + event.StepResolve, Kind: event.KindResult, Data: mustJSON("running")},
 	} {
 		r, err := p.log.Append(rec, h.now)
 		if err != nil {
@@ -297,16 +300,16 @@ func TestPromptIntegratorJob(t *testing.T) {
 		}
 		p.foldRecord(r)
 	}
-	refuseOnce(p, StepResolve)
+	refuseOnce(p, event.StepResolve)
 	ctx := context.Background()
-	s.Launch(ctx, Launch{})
+	s.Launch(ctx, port.Launch{})
 	h.tick(0) // the check identifies the running integrator by its label
 	h.a.advance(ctx)
 	h.a.advance(ctx)
 	if strings.Join(f.jobs, " ") != "T-1/1/resolve" || !f.clears[0] || f.box["w1:p9"] != "[obor job T-1/1/resolve]" ||
-		h.result(StepResolve) != `"sent"` {
+		h.result(event.StepResolve) != `"sent"` {
 		t.Errorf("prompts %v, clears %v, box %q, result %s; want the resolve job once, cleared first, sent", f.jobs,
-			f.clears, f.box["w1:p9"], h.result(StepResolve))
+			f.clears, f.box["w1:p9"], h.result(event.StepResolve))
 	}
 }
 
@@ -335,7 +338,7 @@ func TestStartReplay(t *testing.T) {
 			h, fx, _, ag := promptRig(t, false)
 			d := startData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
 			raw, _ := json.Marshal(d)
-			h.log(Record{Task: "T-1", Attempt: 1, Step: StepStartWork, Kind: KindIntent, Class: ClassStart, Data: raw})
+			h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindIntent, Class: event.ClassStart, Data: raw})
 			reloadProj(t, h) // the crash
 			h.proj().dispatching = true
 			o := h.a.obs["w1:p1"]
@@ -369,11 +372,11 @@ func TestStartResultLost(t *testing.T) {
 	ag.lag = true
 	o := h.a.obs["w1:p1"]
 	o.pane.Session, o.pane.Transcript = "old", ""
-	refuseOnce(h.proj(), StepStartWork)
+	refuseOnce(h.proj(), event.StepStartWork)
 	if h.step(t, fx) {
 		t.Fatal("precondition: the result write failed")
 	}
-	r, _ := h.proj().log.Intent(Key{Task: "T-1", Attempt: 1, Step: StepStartWork})
+	r, _ := h.proj().log.Intent(event.Key{Task: "T-1", Attempt: 1, Step: event.StepStartWork})
 	var d startData
 	_ = json.Unmarshal(r.Data, &d)
 	if !d.Ran || d.Session != "old" {

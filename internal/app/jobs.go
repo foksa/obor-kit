@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"obor/internal/app/event"
 	"time"
 )
 
@@ -49,14 +50,14 @@ func (a *App) watchJob(p *proj, mt mtask) step {
 			}
 		}
 		return func(context.Context, *Loop) bool {
-			return a.record(p, Record{Task: mt.task, Attempt: mt.attempt, Step: StepLost, Kind: KindFact},
-				FactData{Lane: mt.lane, Machine: Machine, Reason: "integrator exited", Job: JobID(key), Merge: true})
+			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepLost, Kind: event.KindFact},
+				event.FactData{Lane: mt.lane, Machine: Machine, Reason: "integrator exited", Job: JobID(key), Merge: true})
 		}
 	}
 	t.gone = time.Time{}
 	switch {
 	case !mt.delivered:
-		return a.undelivered(p, mt, t, key, p.integrator, func(ctx context.Context, fx *Loop, retry Key) bool {
+		return a.undelivered(p, mt, t, key, p.integrator, func(ctx context.Context, fx *Loop, retry event.Key) bool {
 			return a.reprompt(ctx, p, fx, mt, retry, "")
 		})
 	case !Ready(w.Pane.Status):
@@ -69,7 +70,7 @@ func (a *App) watchJob(p *proj, mt mtask) step {
 
 // unidentified is the owner's needs-you for mt's job key while two or more panes claim p's integrator (w): nothing is
 // started or sent to either.
-func (a *App) unidentified(p *proj, mt mtask, key Key, w Where) step {
+func (a *App) unidentified(p *proj, mt mtask, key event.Key, w Where) step {
 	return func(context.Context, *Loop) bool {
 		a.needsYou(p, &mt, causeStalled, fmt.Sprintf("job stalled: integrator %s with job %s open",
 			notIdentified(p.integrator, w), JobID(key)))
@@ -79,7 +80,7 @@ func (a *App) unidentified(p *proj, mt mtask, key Key, w Where) step {
 
 // heldJob holds mt's job key while two or more panes claim p's integrator (w): nothing is started or sent; after Gone
 // the owner's needs-you names the panes.
-func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key, w Where) bool {
+func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, w Where) bool {
 	a.mu.Lock()
 	t := a.timerOf(p, key)
 	if t.gone.IsZero() {
@@ -95,7 +96,7 @@ func (a *App) heldJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key,
 
 // timerOf is the timer of p's open job key (under mu): the one running, else a new one from now (a replay, or the job
 // sent in an earlier process), retried when its retry is in the log.
-func (a *App) timerOf(p *proj, key Key) *jobTimer {
+func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 	t := p.timers[key.Task]
 	if t == nil || t.job != JobID(key) {
 		now := a.opt.Now()
@@ -109,8 +110,8 @@ func (a *App) timerOf(p *proj, key Key) *jobTimer {
 // alike: nothing for deliveryWait after the prompt, then resend under retry.<step> once (the same job id: the agent's
 // wake again; at once when a crash or a refusal left it pending), deliveryWait after that the owner: needs-you{job not
 // delivered}.
-func (a *App) undelivered(p *proj, mt mtask, t *jobTimer, key Key, agent string,
-	resend func(ctx context.Context, fx *Loop, retry Key) bool) step {
+func (a *App) undelivered(p *proj, mt mtask, t *jobTimer, key event.Key, agent string,
+	resend func(ctx context.Context, fx *Loop, retry event.Key) bool) step {
 	now := a.opt.Now()
 	wait := now.Sub(t.sent) < deliveryWait
 	switch {
@@ -134,19 +135,19 @@ func (a *App) undelivered(p *proj, mt mtask, t *jobTimer, key Key, agent string,
 
 // watchFix is the delivery timer of mt's fix job key (under mu), as the work job's (watchWork): delivered by the
 // worker's job_next, else undelivered. A delivered fix job waits for task_done.
-func (a *App) watchFix(p *proj, mt mtask, key Key) step {
+func (a *App) watchFix(p *proj, mt mtask, key event.Key) step {
 	if p.folded.delivered[JobID(key)] != 0 {
 		return nil
 	}
 	t := a.timerOf(p, key)
-	return a.undelivered(p, mt, t, key, mt.agent, func(ctx context.Context, fx *Loop, retry Key) bool {
+	return a.undelivered(p, mt, t, key, mt.agent, func(ctx context.Context, fx *Loop, retry event.Key) bool {
 		return a.sendFix(ctx, p, fx, mt, retry, key)
 	})
 }
 
 // retryKey is the key of job's retry.
-func retryKey(job Key) Key {
-	return Key{Task: job.Task, Attempt: job.Attempt, Step: stepRetry + job.Step}
+func retryKey(job event.Key) event.Key {
+	return event.Key{Task: job.Task, Attempt: job.Attempt, Step: stepRetry + job.Step}
 }
 
 // sampleJob takes one sample of the ready integrator's activity (outside mu) for mt's delivered job: quiet with it for
@@ -157,7 +158,7 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 	a.mu.Lock()
 	_, due := t.sample(now, e, a.opt.Idle)
 	a.mu.Unlock()
-	nudge := Key{Task: mt.task, Attempt: mt.attempt, Step: stepNudge + mt.job}
+	nudge := event.Key{Task: mt.task, Attempt: mt.attempt, Step: stepNudge + mt.job}
 	switch {
 	case !due:
 	case !p.log.Done(nudge):
@@ -176,7 +177,7 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 
 // reprompt sends the integrator mt's open job's wake once more under key (a retry or a nudge, P: the same job id),
 // lead before it.
-func (a *App) reprompt(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key, lead string) bool {
+func (a *App) reprompt(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, lead string) bool {
 	job := JobID(mt.jobKey())
 	return a.send(ctx, p, fx, mt, key, job, promptData{Agent: p.integrator}, lead+wakeText,
 		fmt.Sprintf("job %s not sent again to %s", job, p.integrator))

@@ -3,6 +3,8 @@ package app_test
 import (
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/herdr/herdrtest"
 )
 
@@ -37,7 +38,7 @@ func limitStopWith(t *testing.T, errText string, details func(r *loopRig) string
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	r.workerIs("working")
 	d := details(r)
-	if _, err := r.line(app.MethodStopped, "s1", app.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01",
+	if _, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01",
 		Error: errText, Details: d}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func limitStopWith(t *testing.T, errText string, details func(r *loopRig) string
 func (r *loopRig) stopIn(reason string) int {
 	n := 0
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == "T-1" && f.Step == app.StepNeedsYou && f.Fact().Reason == reason {
+		if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == reason {
 			n++
 		}
 	}
@@ -210,9 +211,9 @@ func TestStopWakeCodexRateLimits(t *testing.T) {
 	r := codexStoppedWith(t, full+cdxLimited)
 	var got int64
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindFact && rec.Step == app.StepStopped {
+		if rec.Kind == event.KindFact && rec.Step == event.StepStopped {
 			var d struct {
-				NeedsYou app.FactData `json:"needs_you"`
+				NeedsYou event.FactData `json:"needs_you"`
 			}
 			_ = json.Unmarshal(rec.Data, &d)
 			got = d.NeedsYou.Reset
@@ -279,7 +280,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 	appendTo(cdxStarted)
 	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
 	r.start()
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "review T-1"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review T-1"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the brief typed", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review T-1") == 1 })
@@ -291,11 +292,11 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 	stopped := "[obor] pj-rev stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"
 	r.waitFor("the stopped line posted", func() bool { return r.inbox.count("pj-lead", stopped) == 1 })
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 || finishedLines(r) != 0 {
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || finishedLines(r) != 0 {
 		t.Fatalf("after the stop: %d stopped facts, %d finished lines; want 1, 0: %q", n, finishedLines(r), r.steps())
 	}
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindFact && rec.Step == app.StepStopped {
+		if rec.Kind == event.KindFact && rec.Step == event.StepStopped {
 			var d struct {
 				Brief, Reset int64
 				Ends, Turn   string
@@ -317,7 +318,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 	r.start()
 	r.push()
 	r.passes()
-	if n, m := r.typedTo("pj-rev", roleContinue), r.taskStep(app.MsgTask, "fact stopped"); n != 1 || m != 1 {
+	if n, m := r.typedTo("pj-rev", roleContinue), r.taskStep(event.MsgTask, "fact stopped"); n != 1 || m != 1 {
 		t.Fatalf("after a replay: %d wakes, %d stopped facts; want 1, 1", n, m)
 	}
 	alarm := stopped + stillStopped
@@ -337,7 +338,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 
 	appendTo(cdxStarted2)
 	r.agentIs("w1:p6", "pj-rev", "working")
-	r.waitFor("fact turned", func() bool { return r.taskStep(app.MsgTask, "fact turned") == 1 })
+	r.waitFor("fact turned", func() bool { return r.taskStep(event.MsgTask, "fact turned") == 1 })
 	if finishedLines(r) != 0 {
 		t.Fatal("a finished line while the next turn runs")
 	}
@@ -345,7 +346,7 @@ func TestRoleWakeCodexReviewer(t *testing.T) {
 	r.agentIs("w1:p6", "pj-rev", "idle")
 	r.waitFor("the finished line", func() bool { return finishedLines(r) == 1 })
 	r.passes()
-	if n, m := r.taskStep(app.MsgTask, "fact stopped"), finishedLines(r); n != 1 || m != 1 {
+	if n, m := r.taskStep(event.MsgTask, "fact stopped"), finishedLines(r); n != 1 || m != 1 {
 		t.Errorf("after the next turn: %d stopped facts, %d finished lines; want 1, 1", n, m)
 	}
 }
@@ -356,7 +357,7 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 	r := lineRig(t, "idle", "idle")
 	r.start()
 	if brief {
-		if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+		if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
 			t.Fatal(err)
 		}
 		r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
@@ -364,7 +365,7 @@ func claudeRoleStop(t *testing.T, brief bool, errText string, details func(r *lo
 		r.passes()
 	}
 	d := details(r)
-	reply, err := r.line(app.MethodStopped, "s1", app.Call{Agent: "pj-rev", Role: "reviewer", Error: errText, Details: d})
+	reply, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-rev", Role: "reviewer", Error: errText, Details: d})
 	if err != nil || reply != "STOPPED pj-rev (the lead is told)" {
 		t.Fatalf("stopped: %q, %v", reply, err)
 	}
@@ -388,7 +389,7 @@ func TestRoleWakeClaude(t *testing.T) {
 		}
 		r.later(time.Minute)
 		r.waitFor("the wake", func() bool { return r.inbox.count("pj-rev", roleContinue) == 1 })
-		reply, err := r.line(app.MethodTurn, app.NewCallID(), app.Call{Agent: "pj-rev", Role: "reviewer"})
+		reply, err := r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-rev", Role: "reviewer"})
 		if err != nil || reply != "TURN pj-rev (the stop of its brief ended)" {
 			t.Fatalf("turn: %q, %v", reply, err)
 		}
@@ -413,7 +414,7 @@ func TestRoleWakeClaude(t *testing.T) {
 		if n := r.inbox.count("pj-rev", roleContinue); n != 0 {
 			t.Errorf("woken %d times with no brief open", n)
 		}
-		if reply, err := r.line(app.MethodTurn, app.NewCallID(), app.Call{Agent: "pj-rev", Role: "reviewer"}); err != nil ||
+		if reply, err := r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-rev", Role: "reviewer"}); err != nil ||
 			reply != "TURN pj-rev (no stop)" {
 			t.Errorf("turn: %q, %v", reply, err)
 		}

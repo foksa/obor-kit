@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +71,7 @@ func lineApp(t *testing.T, root string, now *time.Time) (*App, *proj) {
 	}
 	a.p = p
 	t.Cleanup(func() { p.log.Close(); a.closeLog() })
-	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
+	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
 		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:rev", Workspace: "w", Cwd: root, Agent: "codex", Label: "pj-rev", Status: "idle"},
 	}})
@@ -87,7 +90,7 @@ func lineReload(t *testing.T, a *App, p *proj, now *time.Time) (*App, *proj) {
 func lineStatus(a *App, id, status string, _ time.Time) {
 	pane := a.obs[id].pane
 	pane.Status = status
-	a.event(context.Background(), Event{Kind: EventStatus, Pane: id, Status: status, Agent: pane.Agent, New: pane})
+	a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: id, Status: status, Agent: pane.Agent, New: pane})
 }
 
 // lineKinds are the three kinds of line: an obor send line to the lead, an obor brief text to the reviewer, and the
@@ -100,11 +103,11 @@ func queueLine(t *testing.T, a *App, p *proj, kind string, now time.Time) {
 	var err error
 	switch kind {
 	case "send":
-		_, err = a.sendCall(Call{Root: p.root, CallID: "send1", From: "other", Note: "hello", Role: "lead"})
+		_, err = a.sendCall(wire.Call{Root: p.root, CallID: "send1", From: "other", Note: "hello", Role: "lead"})
 	case "brief":
-		_, err = a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"})
+		_, err = a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"})
 	case "finished":
-		_, err = a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}) // a fresh start's brief
+		_, err = a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}) // a fresh start's brief
 		lineStatus(a, "w:rev", "working", now)
 		lineStatus(a, "w:rev", "idle", now)
 	}
@@ -264,7 +267,7 @@ func TestRefusedLineKillChild(t *testing.T) {
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{refuse: true}))
 		a.deliver(context.Background(), p, linerLoop(&linerSpy{hang: ready}))
 	case "worked":
-		if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
+		if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
 			t.Fatal(err)
 		}
 		lineStatus(a, "w:rev", "working", now)
@@ -293,7 +296,7 @@ func TestBriefCompletionReplay(t *testing.T) {
 			t.Parallel()
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
-			if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: note, Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: note, Role: "lead"}); err != nil {
 				t.Fatal(err)
 			}
 			l := &linerSpy{}
@@ -334,7 +337,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	l := &linerSpy{}
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:rev", "working", now)
@@ -342,7 +345,7 @@ func TestWorkedNotNewerBrief(t *testing.T) {
 	if !p.out.brief("pj-rev").worked {
 		t.Fatal("precondition: the first brief's work is seen")
 	}
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "again", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "again", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	b, q := lineReload(t, a, p, &now)
@@ -363,19 +366,19 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // the brief's line waits
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.queuedLines()) != 1 {
 		t.Fatalf("precondition: one brief queued, got %d", len(p.queuedLines()))
 	}
 	q := p.queuedLines()[0]
-	a.record(p, Record{Task: MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
-		Kind: KindIntent, Class: ClassPrompt}, lineData{To: "pj-rev"})
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: stepDeliver + strconv.FormatInt(q.seq, 10),
+		Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
 	if m := p.queuedAt(q.seq); m == nil || !m.typing {
 		t.Fatalf("precondition: the delivery in flight; queued %+v", p.queuedLines())
 	}
-	reply, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"})
+	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,14 +391,14 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	if n := len(p.queuedLines()); n != 2 {
 		t.Errorf("queued lines %d, want the in-flight one and the newer brief's", n)
 	}
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, rec := range recs {
-		var m Message
+		var m event.Message
 		_ = json.Unmarshal(rec.Data, &m)
-		if rec.Task == MsgTask && (rec.Step == StepSuperseded || rec.Step == StepBriefed && len(m.Supersedes) > 0) {
+		if rec.Task == event.MsgTask && (rec.Step == event.StepSuperseded || rec.Step == event.StepBriefed && len(m.Supersedes) > 0) {
 			t.Errorf("a brief superseded the in-flight line: %+v", rec)
 		}
 	}
@@ -408,23 +411,23 @@ func TestBriefSupersededEndsNeedsYou(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	l := &linerSpy{}
 	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l}, nil }
 	now = now.Add(25 * time.Hour)
 	a.advance(context.Background())
-	if len(p.folded.active[MsgTask]) != 1 {
-		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.folded.active[MsgTask]))
+	if len(p.folded.active[event.MsgTask]) != 1 {
+		t.Fatalf("precondition: the 25 h brief line's needs-you, got %d", len(p.folded.active[event.MsgTask]))
 	}
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	a.advance(context.Background())
 	a.advance(context.Background())
-	if len(p.folded.active[MsgTask]) != 0 {
-		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[MsgTask])
+	if len(p.folded.active[event.MsgTask]) != 0 {
+		t.Errorf("the needs-you of the superseded line is still in force: %+v", p.folded.active[event.MsgTask])
 	}
 	if q := p.queuedLines(); len(q) != 1 || q[0].msg.Line != "[obor owner] second" || len(l.calls) != 0 {
 		t.Errorf("queued %v, typed %v; want the newer brief's line alone, waiting", q, l.calls)
@@ -442,21 +445,21 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 			now := time.Now()
 			a, p := lineApp(t, lineRoot(t), &now)
 			lineStatus(a, "w:rev", "working", now) // brief A waits
-			if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 				t.Fatal(err)
 			}
 			if len(p.queuedLines()) != 1 {
 				t.Fatalf("precondition: brief A queued, got %d", len(p.queuedLines()))
 			}
 			briefed := false
-			p.log.Refuse = func(r Record) error { // the crash cut: nothing after the new brief reaches the log
+			p.log.Refuse = func(r event.Record) error { // the crash cut: nothing after the new brief reaches the log
 				if briefed {
 					return errors.New("cut")
 				}
-				briefed = r.Step == StepBriefed
+				briefed = r.Step == event.StepBriefed
 				return nil
 			}
-			reply, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
+			reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
 			if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 				t.Fatalf("brief B: %q, %v; want it recorded, replacing A", reply, err)
 			}
@@ -469,7 +472,7 @@ func TestBriefSupersedeSurvivesACrash(t *testing.T) {
 					t.Errorf("brief A is queued again after the restart: %+v", m)
 				}
 			}
-			again, err := b.briefCall(Call{Root: q.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
+			again, err := b.briefCall(wire.Call{Root: q.root, CallID: "b2", To: "pj-rev", Note: note, Role: "lead"})
 			if err != nil || again != reply {
 				t.Errorf("retry of b2: %q, %v; want the stored reply %q", again, err, reply)
 			}
@@ -514,7 +517,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:rev", "idle", now)
@@ -527,14 +530,14 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 	if !ok {
 		t.Fatal("precondition: brief A routed")
 	}
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	a.deliverLine(context.Background(), p, fx, q, post, target)
 	if len(l.calls) != 0 {
 		t.Errorf("the retired line was transmitted: %v", l.calls)
 	}
-	if _, written := p.log.Intent(Key{Task: MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}); written {
+	if _, written := p.log.Intent(event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}); written {
 		t.Errorf("an intent was written for the retired line")
 	}
 	a.deliver(context.Background(), p, fx)
@@ -548,7 +551,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		now := time.Now()
 		a, p := lineApp(t, lineRoot(t), &now)
 		lineStatus(a, "w:rev", "working", now)
-		if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+		if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 			t.Fatal(err)
 		}
 		lineStatus(a, "w:rev", "idle", now)
@@ -556,7 +559,7 @@ func TestBriefRetiresARoutedLine(t *testing.T) {
 		d := &duringSpy{}
 		d.during = func() { // A's claim is set: B arrives now
 			var err error
-			if reply, err = a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+			if reply, err = a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
 				t.Error(err)
 			}
 		}
@@ -580,21 +583,21 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "first", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	first := p.queuedLines()[0].seq
 	step := stepDeliver + strconv.FormatInt(first, 10)
-	a.record(p, Record{Task: MsgTask, Attempt: 1, Step: step, Kind: KindIntent, Class: ClassPrompt}, lineData{To: "pj-rev"})
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
+	a.record(p, event.Record{Task: event.MsgTask, Attempt: 1, Step: step, Kind: event.KindIntent, Class: event.ClassPrompt}, lineData{To: "pj-rev"})
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b2", To: "pj-rev", Note: "second", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
-	a.record(p, Record{Task: MsgTask, Step: StepFailed, Kind: KindFact}, // A's delivery refused: undelivered again
-		FactData{Machine: Machine, Reason: step + ": refused", Step: step})
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact}, // A's delivery refused: undelivered again
+		event.FactData{Machine: Machine, Reason: step + ": refused", Step: step})
 	if len(p.queuedLines()) != 2 || p.queuedAt(first) == nil || p.queuedAt(first).typing {
 		t.Fatalf("precondition: two undelivered brief lines, none claimed; queued %+v", p.queuedLines())
 	}
-	reply, err := a.briefCall(Call{Root: p.root, CallID: "b3", To: "pj-rev", Note: "third", Role: "lead"})
+	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b3", To: "pj-rev", Note: "third", Role: "lead"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 2 undelivered briefs)") {
 		t.Fatalf("brief C: %q, %v", reply, err)
 	}
@@ -604,21 +607,21 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 		}
 	}
 	check("live", p)
-	recs, err := ReadLog(p.root)
+	recs, err := event.ReadLog(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	facts := 0
 	for _, rec := range recs {
-		var m Message
+		var m event.Message
 		_ = json.Unmarshal(rec.Data, &m)
-		if rec.Task == MsgTask && rec.Step == StepBriefed && len(m.Supersedes) > 0 {
+		if rec.Task == event.MsgTask && rec.Step == event.StepBriefed && len(m.Supersedes) > 0 {
 			facts++
 			if len(m.Supersedes) != 2 {
 				t.Errorf("briefed %+v supersedes %v, want both lines", rec, m.Supersedes)
 			}
 		}
-		if rec.Step == StepSuperseded {
+		if rec.Step == event.StepSuperseded {
 			t.Errorf("a separate superseded fact was recorded: %+v", rec)
 		}
 	}
@@ -635,13 +638,13 @@ func TestOlderSupersededFactReplays(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now)
-	a.record(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, Message{To: "pj-rev", Line: "[obor owner] first"})
-	a.record(p, Record{Task: MsgTask, Step: StepBriefed, Kind: KindFact}, Message{To: "pj-rev", Line: "[obor owner] second"})
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, event.Message{To: "pj-rev", Line: "[obor owner] first"})
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, event.Message{To: "pj-rev", Line: "[obor owner] second"})
 	q := p.queuedLines()
 	if len(q) != 2 {
 		t.Fatalf("precondition: an older log's two brief lines queued, got %d", len(q))
 	}
-	a.record(p, Record{Task: MsgTask, Step: StepSuperseded, Kind: KindFact}, supersededData{Seq: q[0].seq, By: q[1].seq})
+	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepSuperseded, Kind: event.KindFact}, supersededData{Seq: q[0].seq, By: q[1].seq})
 	_, r := lineReload(t, a, p, &now)
 	if got := r.queuedLines(); len(got) != 1 || got[0].msg.Line != "[obor owner] second" {
 		t.Errorf("replayed queue %+v, want the second brief alone", got)
@@ -680,9 +683,9 @@ func TestLinesBehindCheckout(t *testing.T) {
 		l := &linerSpy{}
 		a.opt.Loop = func(string) (*Loop, error) { return &Loop{Typer: l, Inbox: l, Checkout: off}, nil }
 		a.advance(context.Background())
-		if len(l.calls) != 0 || len(p.folded.active[MsgTask]) != 1 {
+		if len(l.calls) != 0 || len(p.folded.active[event.MsgTask]) != 1 {
 			t.Fatalf("want the working reviewer's 25 h line held with a needs-you: calls %v, needs-you %d", l.calls,
-				len(p.folded.active[MsgTask]))
+				len(p.folded.active[event.MsgTask]))
 		}
 	})
 }
@@ -696,12 +699,12 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 	working := func(a *App, p *proj) {
 		pane := a.obs["w:rev"].pane
 		pane.Status = "working"
-		a.event(context.Background(), Event{Kind: EventStatus, Pane: pane.ID, New: pane})
+		a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	}
 	snapshot := func(a *App, p *proj) {
 		lead, rev := a.obs["w:lead"].pane, a.obs["w:rev"].pane
 		rev.Status = "working"
-		a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{lead, rev}})
+		a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{lead, rev}})
 	}
 	for _, c := range []struct {
 		name string
@@ -721,7 +724,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 			if c.seen == nil {
 				lineStatus(a, "w:rev", "working", now)
 			}
-			if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: c.note, Role: "lead"}); err != nil {
+			if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: c.note, Role: "lead"}); err != nil {
 				t.Fatal(err)
 			}
 			l := &linerSpy{}
@@ -758,7 +761,7 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	lineStatus(a, "w:rev", "working", now) // busy: the brief waits
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify finding 1", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	l := &linerSpy{}
@@ -775,7 +778,7 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	now = now.Add(2 * time.Minute)
 	pane := a.obs["w:rev"].pane
 	pane.Status = "working"
-	a.event(context.Background(), Event{Kind: EventStatus, Pane: pane.ID, New: pane})
+	a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	now = now.Add(time.Minute)
 	b, q := lineReload(t, a, p, &now) // idle on reconnect, 3 minutes after the typing
 	out := &linerSpy{}
@@ -828,7 +831,7 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			}
 			pane := b.obs["w:lead"].pane
 			pane.Label = "pj-lead" // the old lead's session still open and idle under its old name
-			b.event(context.Background(), Event{Kind: EventStatus, Pane: pane.ID, New: pane})
+			b.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 			if w := b.whereIs(q, "pj-lead"); w.State != Identified || !Ready(w.Pane.Status) {
 				t.Fatal("precondition: the old lead's pane is idle under its old name")
 			}
@@ -872,7 +875,7 @@ func TestBriefOfAgentSinceLead(t *testing.T) {
 	}
 	lead := b.obs["w:lead"].pane
 	lead.Label = "pj-lead" // the old lead's pane keeps its label: pj-rev runs in w:rev alone
-	b.event(context.Background(), Event{Kind: EventStatus, Pane: lead.ID, New: lead})
+	b.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: lead.ID, New: lead})
 	if w := b.whereIs(q, "pj-rev"); w.State != Identified || w.Pane.ID != "w:rev" || !Ready(w.Pane.Status) {
 		t.Fatal("precondition: pj-rev's pane is idle")
 	}
@@ -896,7 +899,7 @@ func TestRunningLeadHint(t *testing.T) {
 	now := time.Now()
 	a, p := lineApp(t, lineRoot(t), &now)
 	a.opt.Inboxed = func(string) (string, bool) { return "", false }
-	reply, err := a.sendCall(Call{Root: p.root, CallID: "s1", From: "other", Note: "hello"})
+	reply, err := a.sendCall(wire.Call{Root: p.root, CallID: "s1", From: "other", Note: "hello"})
 	hint := "`obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`"
 	if err != nil || !strings.Contains(reply, hint) || strings.Contains(reply, "obor lead registers") {
 		t.Errorf("reply %q (%v); want it to name %s", reply, err, hint)
@@ -925,7 +928,7 @@ func TestBriefStatus(t *testing.T) {
 	if got := a.Status().Project.Briefs; len(got) != 0 {
 		t.Fatalf("precondition: no brief, got %+v", got)
 	}
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify 1", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-rev", Note: "verify 1", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.Status().Project.Briefs; len(got) != 1 || got[0].To != "pj-rev" || got[0].Delivered || got[0].Since == 0 {

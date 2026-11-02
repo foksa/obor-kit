@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
 	"strings"
 )
 
@@ -10,8 +11,8 @@ import (
 // integrator) results carry it; a refused start, the integrator's "running", or a result from before T-418 leaves
 // the rows as they are. Another agent's row on the same pane or terminal goes: the start replaced what ran there.
 // The log holds it, so a replay has it; the table itself is derived (reconcile), never folded.
-func (p *proj) foldStart(r Record) {
-	if step, _ := StepN(r.Step); r.Kind != KindResult || step != StepStartWork && !strings.HasPrefix(step, stepStart) {
+func (p *proj) foldStart(r event.Record) {
+	if step, _ := event.StepN(r.Step); r.Kind != event.KindResult || step != event.StepStartWork && !strings.HasPrefix(step, stepStart) {
 		return
 	}
 	var out startOut

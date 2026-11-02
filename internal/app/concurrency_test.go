@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 	"os"
 	"path/filepath"
@@ -34,7 +37,7 @@ type concScratch struct {
 	restarts int
 	// obor drop by lane (T-439): the stops (agent, force) and Free inputs; refuse: Free's refusal ("": frees).
 	stops  []string
-	frees  []FreeInput
+	frees  []port.FreeInput
 	refuse string
 }
 
@@ -65,7 +68,7 @@ func (f *concScratch) count(m map[string]int, task string) int {
 func (f *concScratch) Submit(context.Context, string, string, string, string, string) (string, error) {
 	return "submitted", nil
 }
-func (f *concScratch) Gate(ctx context.Context, in GateInput) (GateOutcome, error) {
+func (f *concScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	f.enter()
 	defer f.leave()
 	f.mu.Lock()
@@ -74,10 +77,10 @@ func (f *concScratch) Gate(ctx context.Context, in GateInput) (GateOutcome, erro
 	f.entered <- in.Task
 	if in.Task == f.hold {
 		if err := f.wait(ctx); err != nil {
-			return GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 	}
-	return GateOutcome{Kind: OutcomeGreen, Candidate: Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
 		Target: "b", Patch: "p"}}, nil
 }
 
@@ -102,7 +105,7 @@ func (f *concScratch) Resolved(ctx context.Context, task, _ string) (string, err
 	}
 	return "resolution", nil
 }
-func (f *concScratch) Publish(ctx context.Context, c Candidate) (PublishOutcome, error) {
+func (f *concScratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
 	f.enter()
 	defer f.leave()
 	f.mu.Lock()
@@ -111,19 +114,19 @@ func (f *concScratch) Publish(ctx context.Context, c Candidate) (PublishOutcome,
 	if c.Task == f.holdPub {
 		f.entered <- "publish " + c.Task
 		if err := f.wait(ctx); err != nil {
-			return PublishOutcome{}, err
+			return port.PublishOutcome{}, err
 		}
 	}
-	return PublishOutcome{Kind: PublishMerged}, nil
+	return port.PublishOutcome{Kind: port.PublishMerged}, nil
 }
-func (f *concScratch) Landed(context.Context, string) (bool, error)          { return false, nil }
-func (f *concScratch) Unpin(context.Context, string) error                   { return nil }
-func (f *concScratch) AfterMerge(context.Context, Candidate) (string, error) { return "ran", nil }
-func (f *concScratch) Launch(context.Context, Launch) (Started, error) {
+func (f *concScratch) Landed(context.Context, string) (bool, error)               { return false, nil }
+func (f *concScratch) Unpin(context.Context, string) error                        { return nil }
+func (f *concScratch) AfterMerge(context.Context, port.Candidate) (string, error) { return "ran", nil }
+func (f *concScratch) Launch(context.Context, port.Launch) (port.Started, error) {
 	f.mu.Lock()
 	f.restarts++
 	f.mu.Unlock()
-	return Started{Line: "STARTED"}, nil
+	return port.Started{Line: "STARTED"}, nil
 }
 func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
 	f.mu.Lock()
@@ -134,14 +137,14 @@ func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (stri
 func (f *concScratch) Type(context.Context, string, string, bool) (bool, error) {
 	return true, nil
 }
-func (f *concScratch) Prepare(context.Context, PrepareInput) (Prepared, error) {
-	return Prepared{Base: "target", Head: "target"}, nil
+func (f *concScratch) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
+	return port.Prepared{Base: "target", Head: "target"}, nil
 }
-func (f *concScratch) Free(_ context.Context, in FreeInput) (string, error) {
+func (f *concScratch) Free(_ context.Context, in port.FreeInput) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.refuse != "" {
-		return "", Refused{Line: f.refuse}
+		return "", port.Refused{Line: f.refuse}
 	}
 	f.frees = append(f.frees, in)
 	return "discarded in " + in.Lane, nil
@@ -196,8 +199,8 @@ func newConcRig(t *testing.T) *concRig {
 	r.a = r.apps["pj"]
 	r.fakes["pj"].hold = "T-1"
 	for _, a := range r.apps { // one herdr session: each app watches its own workspace
-		a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w1": "pj", "w2": "pq", "w3": "pr"},
-			Panes: []Pane{
+		a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w1": "pj", "w2": "pq", "w3": "pr"},
+			Panes: []port.Pane{
 				{ID: "w1:p9", Workspace: "w1", Cwd: r.roots["pj"], Agent: "claude", Label: "pj-int", Status: "idle"},
 				{ID: "w2:p9", Workspace: "w2", Cwd: r.roots["pq"], Agent: "claude", Label: "pq-int", Status: "idle"},
 				{ID: "w3:p9", Workspace: "w3", Cwd: r.roots["pr"], Agent: "claude", Label: "pr-int", Status: "idle"},
@@ -205,19 +208,19 @@ func newConcRig(t *testing.T) *concRig {
 			}})
 	}
 
-	r.add("pj", "T-1", StepSubmitted, KindFact, submitData{Lane: "O-01"})
-	r.add("pj", "T-1", StepSubmit, KindResult, submitOut{SHA: "s1"})
-	r.add("pj", "T-5", StepSubmitted, KindFact, submitData{Lane: "O-05"})
-	r.add("pj", "T-5", StepSubmit, KindResult, submitOut{SHA: "s5"})
-	r.add("pq", "T-3", StepSubmitted, KindFact, submitData{Lane: "O-03"})
-	r.add("pq", "T-3", StepSubmit, KindResult, submitOut{SHA: "s3"})
-	r.add("pr", "T-4", StepSubmitted, KindFact, submitData{Lane: "O-04"})
-	r.add("pr", "T-4", StepSubmit, KindResult, submitOut{SHA: "s4"})
-	r.add("pr", "T-4", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-04", Input: "s4"})
-	r.add("pr", "T-4", StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-4", SHA: "c-T-4",
+	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+	r.add("pj", "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
+	r.add("pj", "T-5", event.StepSubmitted, event.KindFact, submitData{Lane: "O-05"})
+	r.add("pj", "T-5", event.StepSubmit, event.KindResult, submitOut{SHA: "s5"})
+	r.add("pq", "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "O-03"})
+	r.add("pq", "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
+	r.add("pr", "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "O-04"})
+	r.add("pr", "T-4", event.StepSubmit, event.KindResult, submitOut{SHA: "s4"})
+	r.add("pr", "T-4", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-04", Input: "s4"})
+	r.add("pr", "T-4", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4", SHA: "c-T-4",
 		Target: "b", Patch: "p"}})
-	r.add("pr", "T-4", StepReview, KindIntent, promptData{Agent: "pr-int", Job: "T-4/1/review", Patch: "p"})
-	r.add("pr", "T-4", StepReview, KindResult, "sent")
+	r.add("pr", "T-4", event.StepReview, event.KindIntent, promptData{Agent: "pr-int", Job: "T-4/1/review", Patch: "p"})
+	r.add("pr", "T-4", event.StepReview, event.KindResult, "sent")
 	return r
 }
 
@@ -238,12 +241,12 @@ func loadRoot(t *testing.T, a *App) {
 func (r *concRig) app(name string) *App { return r.apps[name] }
 
 // status is name's ProjectStatus.
-func (r *concRig) status(name string) ProjectStatus {
+func (r *concRig) status(name string) wire.ProjectStatus {
 	if ps := r.app(name).Status().Project; ps != nil && ps.Name == name {
 		return *ps
 	}
 	r.t.Fatalf("no status of %s", name)
-	return ProjectStatus{}
+	return wire.ProjectStatus{}
 }
 
 // add appends a record to project name's log and folds it.
@@ -251,7 +254,7 @@ func (r *concRig) add(name, task, step, kind string, d any) {
 	r.t.Helper()
 	a, p := r.app(name), r.proj(name)
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, a.opt.Now())
+	rec, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, a.opt.Now())
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -305,7 +308,7 @@ func (r *concRig) stop() {
 
 // count is how many records of name's log for task have kind and step.
 func (r *concRig) count(name, task, kind, step string) int {
-	recs, err := ReadLog(r.roots[name])
+	recs, err := event.ReadLog(r.roots[name])
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -364,14 +367,14 @@ func (r *concRig) running(name, task string) string {
 func TestHeldGateBlocksNothingElse(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
-	r.add("pj", "T-2", StepDispatched, KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
 		"pj-wt", "O-02"), Agent: "pj-o-02", Target: "target", Branch: "task/T-2"})
 	r.run()
 	defer r.stop()
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's first gate: %s; want T-1", task)
 	}
-	if got := r.running("pj", "T-1"); got != StepGate {
+	if got := r.running("pj", "T-1"); got != event.StepGate {
 		t.Errorf("obor serve status: T-1 running %q; want gate", got)
 	}
 
@@ -379,14 +382,14 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 		t.Fatalf("pq's gate: %s; want T-3", task)
 	}
 	r.waitFor("pq's T-3 gate result and pj's T-2 work prompt", func() bool {
-		return r.count("pq", "T-3", KindResult, StepGate) == 1 && r.count("pj", "T-2", KindResult, StepWork) == 1
+		return r.count("pq", "T-3", event.KindResult, event.StepGate) == 1 && r.count("pj", "T-2", event.KindResult, event.StepWork) == 1
 	})
-	for _, step := range []string{StepPrepare, StepStartWork} {
-		if r.count("pj", "T-2", KindResult, step) != 1 {
+	for _, step := range []string{event.StepPrepare, event.StepStartWork} {
+		if r.count("pj", "T-2", event.KindResult, step) != 1 {
 			t.Errorf("T-2's %s: no result while T-1's gate is held", step)
 		}
 	}
-	if _, err := r.app("pr").verdict(context.Background(), MethodAccept, Call{Root: r.roots["pr"], Task: "T-4",
+	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4",
 		Role: "integrator", Agent: "pr-int", CallID: "v1", Job: "T-4/1/review", Patch: "p"}); err != nil {
 		t.Fatal(err)
 	}
@@ -396,9 +399,9 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 	}
 
 	// Still held: T-1 has an intent and no result, T-5 has not gated.
-	if r.count("pj", "T-1", KindIntent, StepGate) != 1 || r.count("pj", "T-1", KindResult, StepGate) != 0 {
-		t.Fatalf("held: T-1's gate intent %d result %d; want 1, 0", r.count("pj", "T-1", KindIntent, StepGate),
-			r.count("pj", "T-1", KindResult, StepGate))
+	if r.count("pj", "T-1", event.KindIntent, event.StepGate) != 1 || r.count("pj", "T-1", event.KindResult, event.StepGate) != 0 {
+		t.Fatalf("held: T-1's gate intent %d result %d; want 1, 0", r.count("pj", "T-1", event.KindIntent, event.StepGate),
+			r.count("pj", "T-1", event.KindResult, event.StepGate))
 	}
 	if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-5"); n != 0 {
 		t.Fatalf("T-5 gated %d times while T-1's gate holds the scratch", n)
@@ -409,9 +412,9 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 		t.Fatalf("pj's next gate: %s; want T-5", task)
 	}
 	r.waitFor("T-1 awaiting its review, T-5 gated", func() bool {
-		return r.state("pj", "T-1") == stAwaiting && r.count("pj", "T-5", KindResult, StepGate) == 1
+		return r.state("pj", "T-1") == stAwaiting && r.count("pj", "T-5", event.KindResult, event.StepGate) == 1
 	})
-	if i, res := r.count("pj", "T-1", KindIntent, StepGate), r.count("pj", "T-1", KindResult, StepGate); i != 1 || res != 1 {
+	if i, res := r.count("pj", "T-1", event.KindIntent, event.StepGate), r.count("pj", "T-1", event.KindResult, event.StepGate); i != 1 || res != 1 {
 		t.Errorf("T-1's gate: %d intents, %d results; want one each", i, res)
 	}
 	if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 1 {
@@ -438,8 +441,8 @@ func TestGateCutReplayRunsOnce(t *testing.T) {
 		t.Fatalf("pj's first gate: %s; want T-1", task)
 	}
 	r.stop()
-	if r.count("pj", "T-1", KindIntent, StepGate) != 1 || r.count("pj", "T-1", KindResult, StepGate) != 0 ||
-		r.count("pj", "T-1", KindFact, StepFailed) != 0 {
+	if r.count("pj", "T-1", event.KindIntent, event.StepGate) != 1 || r.count("pj", "T-1", event.KindResult, event.StepGate) != 0 ||
+		r.count("pj", "T-1", event.KindFact, event.StepFailed) != 0 {
 		t.Fatalf("cut: want T-1's gate intent pending, no result, no failure counted")
 	}
 
@@ -456,8 +459,8 @@ func TestGateCutReplayRunsOnce(t *testing.T) {
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's gate after the replay: %s; want T-1", task)
 	}
-	r.waitFor("T-1's gate result", func() bool { return r.count("pj", "T-1", KindResult, StepGate) == 1 })
-	if i := r.count("pj", "T-1", KindIntent, StepGate); i != 1 {
+	r.waitFor("T-1's gate result", func() bool { return r.count("pj", "T-1", event.KindResult, event.StepGate) == 1 })
+	if i := r.count("pj", "T-1", event.KindIntent, event.StepGate); i != 1 {
 		t.Errorf("T-1's gate intents: %d; want 1 (the replay reuses the pending key)", i)
 	}
 	if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 2 {
@@ -582,13 +585,13 @@ func (s pauseSpecs) Check(context.Context, string, string) (string, error) {
 // dispatchFacts is how many fact dispatch records task has in root's log.
 func dispatchFacts(t *testing.T, root, task string) int {
 	t.Helper()
-	recs, err := ReadLog(root)
+	recs, err := event.ReadLog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := 0
 	for _, rec := range recs {
-		if rec.Task == task && rec.Step == StepDispatched && rec.Kind == KindFact {
+		if rec.Task == task && rec.Step == event.StepDispatched && rec.Kind == event.KindFact {
 			n++
 		}
 	}
@@ -603,7 +606,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	defer r.a.closeLog()
 	p := r.proj("pj")
 	f := r.fakes["pj"]
-	r.a.lanes = &fakeLanes{lanes: []Lane{{Name: "O-02", Dir: filepath.Join(t.TempDir(), "O-02"), State: "free"}}}
+	r.a.lanes = &fakeLanes{lanes: []port.Lane{{Name: "O-02", Dir: filepath.Join(t.TempDir(), "O-02"), State: "free"}}}
 	fx := f.loopWithSpecs(r.kit)
 	entered, release := make(chan struct{}), make(chan struct{})
 	fx.Specs = pauseSpecs{f, func() { close(entered); <-release }}
@@ -615,14 +618,14 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		reply, err := r.a.dispatchCall(context.Background(), Call{Root: p.root, CallID: "d1", Task: "T-8", Lane: "O-02"})
+		reply, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d1", Task: "T-8", Lane: "O-02"})
 		done <- result{reply, err}
 	}()
 	<-entered
 
 	paused := make(chan result, 1)
 	go func() {
-		reply, err := r.a.pauseCall(Call{Root: p.root, CallID: "p1", Note: "quota"})
+		reply, err := r.a.pauseCall(wire.Call{Root: p.root, CallID: "p1", Note: "quota"})
 		paused <- result{reply, err}
 	}()
 	select {
@@ -644,7 +647,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	t.Logf("pause replied %q after the admitted dispatch", pr.reply)
 
-	_, err := r.a.dispatchCall(context.Background(), Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "O-02"})
+	_, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "O-02"})
 	if err == nil || !strings.Contains(err.Error(), "paused: quota") {
 		t.Errorf("dispatch after PAUSED: %v, want refused with the reason", err)
 	}
@@ -653,8 +656,8 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 // #4: a waiting task has no lane, so its needs-you names the task in the drop command, never <LANE>.
 func TestWaitingNeedsYouDropCommand(t *testing.T) {
 	t.Parallel()
-	raw, _ := json.Marshal(FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
-	r := Record{Seq: 1, Task: "T-8", Step: StepNeedsYou, Data: raw}
+	raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
+	r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
 	path := answerPath(r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
 	t.Log(path)
 	if strings.Contains(path, "<LANE>") {
@@ -678,16 +681,16 @@ func replayProj(t *testing.T, r *concRig, p *proj) (*App, *proj) {
 // notifyNightly appends the notification intent of p's needs-you in force (as notify does), with its result when done.
 func notifyNightly(t *testing.T, r *concRig, p *proj, done bool) {
 	t.Helper()
-	if len(p.folded.active[NightlyTask]) == 0 {
+	if len(p.folded.active[event.NightlyTask]) == 0 {
 		t.Fatal("precondition: no nightly needs-you in force")
 	}
-	key := notifyKey(p.folded.active[NightlyTask][0])
-	if _, err := p.log.Append(Record{Task: key.Task, Step: key.Step, Kind: KindIntent, Class: ClassFact}, r.a.opt.Now()); err != nil {
+	key := notifyKey(p.folded.active[event.NightlyTask][0])
+	if _, err := p.log.Append(event.Record{Task: key.Task, Step: key.Step, Kind: event.KindIntent, Class: event.ClassFact}, r.a.opt.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if done {
 		raw, _ := json.Marshal("notified")
-		if _, err := p.log.Append(Record{Task: key.Task, Step: key.Step, Kind: KindResult, Data: raw}, r.a.opt.Now()); err != nil {
+		if _, err := p.log.Append(event.Record{Task: key.Task, Step: key.Step, Kind: event.KindResult, Data: raw}, r.a.opt.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -704,33 +707,33 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 		fails int                                                 // the replayed day's counted failures
 	}{
 		{"completed RED + pending notification", func(t *testing.T, r *concRig, p *proj, day string) {
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindIntent, Class: ClassGit}, nil)
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindIntent, Class: event.ClassGit}, nil)
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
 			r.a.nightlyVerdict(p, NightlyOut{SHA: "abc1234", Verdict: "RED"})
 			notifyNightly(t, r, p, false)
 		}, true, 0},
 		{"three failures + completed notification", func(t *testing.T, r *concRig, p *proj, day string) {
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindIntent, Class: ClassGit}, nil)
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindIntent, Class: event.ClassGit}, nil)
 			for i := 0; i < tries; i++ {
 				r.a.nightlyFailed(p, day, errors.New("cannot take the lock"))
 			}
 			notifyNightly(t, r, p, true)
 		}, false, tries},
 		{"a pending notification after a failed run", func(t *testing.T, r *concRig, p *proj, day string) {
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindIntent, Class: ClassGit}, nil)
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindIntent, Class: event.ClassGit}, nil)
 			for i := 0; i < tries; i++ {
 				r.a.nightlyFailed(p, day, errors.New("cannot take the lock"))
 			}
 			notifyNightly(t, r, p, false)
 		}, false, tries},
 		{"a prior day's notification interleaved with a later run", func(t *testing.T, r *concRig, p *proj, day string) {
-			prior := StepNightly + "." + r.a.opt.Now().Local().AddDate(0, 0, -1).Format("2006-01-02")
-			r.a.record(p, Record{Task: NightlyTask, Step: prior, Kind: KindIntent, Class: ClassGit}, nil)
-			r.a.record(p, Record{Task: NightlyTask, Step: prior, Kind: KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
+			prior := event.StepNightly + "." + r.a.opt.Now().Local().AddDate(0, 0, -1).Format("2006-01-02")
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: prior, Kind: event.KindIntent, Class: event.ClassGit}, nil)
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: prior, Kind: event.KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
 			r.a.nightlyVerdict(p, NightlyOut{SHA: "abc1234", Verdict: "RED"})
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindIntent, Class: ClassGit}, nil)
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindIntent, Class: event.ClassGit}, nil)
 			notifyNightly(t, r, p, false)
-			r.a.record(p, Record{Task: NightlyTask, Step: day, Kind: KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
+			r.a.record(p, event.Record{Task: event.NightlyTask, Step: day, Kind: event.KindResult}, NightlyOut{SHA: "abc1234", Verdict: "RED"})
 		}, true, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -741,7 +744,7 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 			if now.Hour() < 2 {
 				t.Fatalf("precondition: the rig's clock %v is before merge.nightly_at 02:00", now)
 			}
-			day := StepNightly + "." + now.Format("2006-01-02")
+			day := event.StepNightly + "." + now.Format("2006-01-02")
 			c.build(t, r, p, day)
 			b, q := replayProj(t, r, p)
 			if q.night.step != day || q.night.done != c.done || q.night.fails[day] != c.fails {
@@ -749,7 +752,7 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 					q.night.fails[day], day, c.done, c.fails)
 			}
 			runs := 0
-			n := &Nightly{At: "02:00", Due: func([]Merge, bool) (bool, error) { return true, nil }, Run: func(context.Context) (NightlyOut, error) {
+			n := &Nightly{At: "02:00", Due: func([]event.Merge, bool) (bool, error) { return true, nil }, Run: func(context.Context) (NightlyOut, error) {
 				runs++
 				return NightlyOut{SHA: "abc1234", Verdict: "GREEN"}, nil
 			}}
@@ -758,12 +761,12 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 			if runs != 0 {
 				t.Errorf("nightly ran %d more times after the restart, want 0", runs)
 			}
-			recs, err := ReadLog(p.root)
+			recs, err := event.ReadLog(p.root)
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, rec := range recs {
-				if rec.Task == NightlyTask && rec.Kind == KindResult && strings.HasPrefix(rec.Step, "notify.") && string(rec.Data) != `"notified"` {
+				if rec.Task == event.NightlyTask && rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "notify.") && string(rec.Data) != `"notified"` {
 					t.Errorf("a nightly outcome recorded under its notification's key %s: %s", rec.Step, rec.Data)
 				}
 			}

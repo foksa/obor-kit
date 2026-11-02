@@ -2,10 +2,12 @@ package app_test
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 
-	"obor/internal/app"
 	"obor/internal/testkit"
 )
 
@@ -18,12 +20,12 @@ func effortRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
 	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes.O-01", map[string]any{"type": "opus", "agent": "pj-o1"})},
 		edits...)...)
-	r.setLane(func(l *app.Lane) { l.Type, l.Agent = "opus", "pj-o1" })
+	r.setLane(func(l *port.Lane) { l.Type, l.Agent = "opus", "pj-o1" })
 	return r
 }
 
 // launchOf is the first Agents.Launch of agent (ok false: none yet).
-func (r *loopRig) launchOf(agent string) (app.Launch, bool) {
+func (r *loopRig) launchOf(agent string) (port.Launch, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, l := range r.launches {
@@ -31,7 +33,7 @@ func (r *loopRig) launchOf(agent string) (app.Launch, bool) {
 			return l, true
 		}
 	}
-	return app.Launch{}, false
+	return port.Launch{}, false
 }
 
 func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
@@ -42,7 +44,7 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort high") {
 		t.Fatalf("hard dispatch: %q, %v; want O-01 at effort high", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["effort"] != "high" || d["lane"] != "O-01" {
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "O-01" {
 		t.Errorf("dispatch fact %v, want effort high on O-01", d)
 	}
 	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
@@ -61,7 +63,7 @@ func TestEffortSpecTypeAndTypesNameIt(t *testing.T) {
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort max") {
 		t.Fatalf("Type: opus:max dispatch: %q, %v", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["effort"] != "max" {
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "max" {
 		t.Errorf("dispatch fact %v, want effort max", d)
 	}
 
@@ -81,7 +83,7 @@ func TestEffortPlainTypeNamesNone(t *testing.T) {
 	if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
 		t.Fatalf("--types opus: %q, %v; want no effort in the reply", reply, err)
 	}
-	if d := r.factData("T-1", app.StepDispatched); d["effort"] != nil {
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != nil {
 		t.Errorf("dispatch fact %v, want no effort (the type's args)", d)
 	}
 	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
@@ -101,7 +103,7 @@ func TestEffortRefusals(t *testing.T) {
 		t.Errorf("a refused dispatch recorded %d dispatch facts", n)
 	}
 	set := func(callID, typ string) error {
-		_, err := app.Verdict(context.Background(), r.sock, app.MethodSpecSet, app.Call{Root: r.p.Root, Role: "lead",
+		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
 			CallID: callID, Task: "T-2", Spec: "# T-2 — A\n\nDifficulty: medium\nType: " + typ + "\n"})
 		return err
 	}

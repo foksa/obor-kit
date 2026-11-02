@@ -4,12 +4,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"obor/internal/app/event"
 	"strconv"
 )
 
 // notifyKey is the key of the notification of the needs-you fact r.
-func notifyKey(r Record) Key {
-	return Key{Task: r.Task, Step: "notify." + strconv.FormatInt(r.Seq, 10)}
+func notifyKey(r event.Record) event.Key {
+	return event.Key{Task: r.Task, Step: "notify." + strconv.FormatInt(r.Seq, 10)}
 }
 
 // notify first queues the lead's line of each such fact (needsLines), then shows the owner each needs-you fact in force that has no notification recorded: just recorded, replayed
@@ -24,7 +25,7 @@ func (a *App) notify(ctx context.Context) {
 		return
 	}
 	defer a.notifying.Unlock()
-	tried := map[Key]bool{} // the notifications tried in this pass
+	tried := map[event.Key]bool{} // the notifications tried in this pass
 	for {
 		a.mu.Lock()
 		p, r, ok := a.nextNotify(tried)
@@ -34,7 +35,7 @@ func (a *App) notify(ctx context.Context) {
 		}
 		key := notifyKey(r)
 		tried[key] = true
-		_, err := p.log.Do(ctx, Intent{Key: key, Class: ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
+		_, err := p.log.Do(ctx, event.Intent{Key: key, Class: event.ClassFact}, a.opt.Now, func(ctx context.Context) (any, error) {
 			body := fmt.Sprintf("%s in %s: %s", r.Task, r.Fact().Lane, r.Fact().Reason)
 			if projectKey(r.Task) {
 				body = r.Fact().Reason
@@ -59,13 +60,13 @@ func (a *App) notify(ctx context.Context) {
 }
 
 // nextNotify is the oldest needs-you fact in force whose notification is due and not tried in this pass (under mu).
-func (a *App) nextNotify(tried map[Key]bool) (*proj, Record, bool) {
+func (a *App) nextNotify(tried map[event.Key]bool) (*proj, event.Record, bool) {
 	p := a.p
 	if !a.connected || p == nil {
-		return nil, Record{}, false
+		return nil, event.Record{}, false
 	}
 	now := a.opt.Now()
-	var br Record
+	var br event.Record
 	found := false
 	for _, r := range p.needsYou() {
 		key := notifyKey(r)
@@ -80,11 +81,11 @@ func (a *App) nextNotify(tried map[Key]bool) (*proj, Record, bool) {
 }
 
 // needsYou is p's needs-you facts in force: the watchdogs' and the merge loop's.
-func (p *proj) needsYou() []Record {
-	var out []Record
+func (p *proj) needsYou() []event.Record {
+	var out []event.Record
 	for _, fs := range p.folded.active {
 		for _, r := range fs {
-			if r.Step == StepNeedsYou {
+			if r.Step == event.StepNeedsYou {
 				out = append(out, r)
 			}
 		}

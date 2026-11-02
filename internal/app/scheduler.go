@@ -1,6 +1,10 @@
 package app
 
-import "sort"
+import (
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
+	"sort"
+)
 
 // The scheduler's rule for serve's worktree (the scratch), in one place (T-669, RV-75): the pass's order (passOrder),
 // who holds the scratch (scratchHolder) and what a task's scratch step waits on (scratchWait). pickGate, pickAccepted
@@ -32,7 +36,7 @@ func (p *proj) scratchHolder(except string) (task, why string) {
 			continue
 		}
 		if mt.state == stNeedsYou {
-			return t, ScratchHeld
+			return t, wire.ScratchHeld
 		}
 		return t, mt.state
 	}
@@ -47,7 +51,7 @@ func (p *proj) scratchWait(mt mtask) (task, why string) {
 	if use == "" {
 		return "", ""
 	}
-	if use == ScratchGating && !states[mt.state].scratch {
+	if use == wire.ScratchGating && !states[mt.state].scratch {
 		if t, why := p.scratchHolder(mt.task); t != "" {
 			return t, why
 		}
@@ -59,34 +63,34 @@ func (p *proj) scratchWait(mt mtask) (task, why string) {
 }
 
 // runs: why names a gate or publish running, not a merge open in the scratch.
-func runs(why string) bool { return why == ScratchGating || why == ScratchPublishing }
+func runs(why string) bool { return why == wire.ScratchGating || why == wire.ScratchPublishing }
 
 // runningUse is what the running scratch step does: gating or publishing.
 func runningUse(step string) string {
-	if base, _ := StepN(step); base == StepPublish {
-		return ScratchPublishing
+	if base, _ := event.StepN(step); base == event.StepPublish {
+		return wire.ScratchPublishing
 	}
-	return ScratchGating
+	return wire.ScratchGating
 }
 
 // scratchQueue is the scheduler's state (obor status): who holds the scratch and why (nil: free) and, in the pass's
 // order, each task whose next step needs it with what it waits for (scratchWait). A task nothing known holds says
 // nothing more: the queue names no task as next (T-673: the admission rules are the scheduler's, and copying them
 // was a second, partial copy that went stale). Under mu.
-func (p *proj) scratchQueue() (*ScratchStatus, []ScratchWait) {
-	var owner *ScratchStatus
+func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
+	var owner *wire.ScratchStatus
 	if p.running.Task != "" {
-		owner = &ScratchStatus{Task: p.running.Task, Why: runningUse(p.running.Step)}
+		owner = &wire.ScratchStatus{Task: p.running.Task, Why: runningUse(p.running.Step)}
 	} else if t, why := p.scratchHolder(""); t != "" {
-		owner = &ScratchStatus{Task: t, Why: why}
+		owner = &wire.ScratchStatus{Task: t, Why: why}
 	}
-	var out []ScratchWait
+	var out []wire.ScratchWait
 	for _, task := range p.passOrder() {
 		mt := p.folded.loop[task]
 		if states[mt.state].uses == "" || task == p.running.Task || p.ended[task] {
 			continue
 		}
-		w := ScratchWait{Task: task}
+		w := wire.ScratchWait{Task: task}
 		w.WaitsOn, w.Why = p.scratchWait(*mt)
 		out = append(out, w)
 	}
@@ -96,8 +100,8 @@ func (p *proj) scratchQueue() (*ScratchStatus, []ScratchWait) {
 // scratchCommand is the command the running gate runs now (Scratch.Gate reports each as it starts and "" as it ends:
 // the class's, the guard, the full check, lane_setup); "" when none runs now, between two commands too (T-673). Under
 // mu.
-func (p *proj) scratchCommand(k Key) string {
-	if base, _ := StepN(k.Step); k != p.running || base != StepGate {
+func (p *proj) scratchCommand(k event.Key) string {
+	if base, _ := event.StepN(k.Step); k != p.running || base != event.StepGate {
 		return ""
 	}
 	return p.runCmd

@@ -3,6 +3,8 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"path/filepath"
 	"strings"
 	"time"
@@ -31,11 +33,11 @@ func (a *App) load(root string) (*proj, error) {
 	}
 	rc, _ := cfg.Role("integrator")
 	p := &proj{root: root, name: name, log: log, tasks: map[string]*watch{},
-		retry: map[Key]retry{}, integrator: cfg.AgentName("integrator", ""),
+		retry: map[event.Key]retry{}, integrator: cfg.AgentName("integrator", ""),
 		out:     newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
 		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
-		unwritten: map[Key]json.RawMessage{}, exec: map[Key]time.Time{}, scratch: make(chan struct{}, 1),
+		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
 		reg: newRegistry(), folded: newFolded()}
 	for _, r := range recs {
@@ -56,12 +58,12 @@ func (a *App) load(root string) (*proj, error) {
 }
 
 // openLog opens root's database as its one writer and replays its event log.
-func (a *App) openLog(root string) (*Log, []Record, error) {
-	db, err := store.OpenRW(DBFile(root))
+func (a *App) openLog(root string) (*event.Log, []event.Record, error) {
+	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
 		return nil, nil, err
 	}
-	log, recs, err := OpenLog(db)
+	log, recs, err := event.OpenLog(db)
 	if err != nil {
 		db.Close()
 		return nil, nil, err
@@ -71,17 +73,17 @@ func (a *App) openLog(root string) (*Log, []Record, error) {
 
 // foldRecord folds one record into p: the watchdog facts, the integrator's jobs and the merge loop's tasks. An ended
 // task's intent settled as nothing (settleEnded) has no outcome to fold.
-func (p *proj) foldRecord(r Record) {
+func (p *proj) foldRecord(r event.Record) {
 	if notRunResult(r) {
 		return
 	}
-	if r.Kind == KindFact {
+	if r.Kind == event.KindFact {
 		p.fold(r)
 	}
 	p.foldJob(r)
 	was := p.closed(r.Task)
 	p.foldLoop(r)
-	if !was && p.closed(r.Task) || r.Kind == KindFact && r.Step == StepDropped {
+	if !was && p.closed(r.Task) || r.Kind == event.KindFact && r.Step == event.StepDropped {
 		p.clear(r.Task) // merged, dropped or rejected: its watchdog facts end, an asks too (state model rows 12/16a)
 	}
 	p.foldLanes(r)
@@ -101,13 +103,13 @@ func (p *proj) foldRecord(r Record) {
 
 // fold folds a watchdog fact (a merge-loop needs-you is the loop's: foldLoop); one of a closed task is discarded
 // (T-636: recorded after its end, as a stop picked before it; a new dispatch reopens the task).
-func (p *proj) fold(r Record) {
+func (p *proj) fold(r event.Record) {
 	switch r.Step {
-	case StepStalled, StepNeedsYou:
+	case event.StepStalled, event.StepNeedsYou:
 		if !r.Fact().Merge && !p.closed(r.Task) {
 			p.folded.active[r.Task] = append(p.folded.active[r.Task], r)
 		}
-	case StepResumed:
+	case event.StepResumed:
 		p.resume(r.Task)
 	}
 }
@@ -117,8 +119,8 @@ func (p *proj) fold(r Record) {
 // notifications.
 func (p *proj) resume(task string) {
 	delete(p.folded.woke, task)
-	var kept []Record
-	keep := map[Key]bool{}
+	var kept []event.Record
+	keep := map[event.Key]bool{}
 	for _, f := range p.folded.active[task] {
 		if isAsk(f) {
 			kept = append(kept, f)
@@ -155,7 +157,7 @@ func (p *proj) clear(task string) {
 }
 
 // inForce: the fact r is still in force.
-func (p *proj) inForce(r Record) bool {
+func (p *proj) inForce(r event.Record) bool {
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.needs.Seq == r.Seq && r.Seq != 0 {
 		return true
 	}
@@ -178,8 +180,8 @@ func (p *proj) asks(task string) bool {
 }
 
 // isAsk: the fact f is a worker's question.
-func isAsk(f Record) bool {
-	return f.Step == StepNeedsYou && strings.HasPrefix(f.Fact().Reason, reasonAsks)
+func isAsk(f event.Record) bool {
+	return f.Step == event.StepNeedsYou && strings.HasPrefix(f.Fact().Reason, reasonAsks)
 }
 
 // watched: task has a watchdog fact in force that its worker's activity ends: any but a question (asks: obor answer
@@ -206,9 +208,9 @@ func (p *proj) has(task, step, reason string) bool {
 // setLanes installs p's lanes as read now. A task a lane took since the last read starts with no timer running; a
 // task no lane holds open any more (submitted and in the merge loop, lane freed or moved on) has no watchdog in force
 // (nothing recorded).
-func (p *proj) setLanes(ls []Lane) {
+func (p *proj) setLanes(ls []port.Lane) {
 	p.lanes = ls
-	open := map[string]Lane{}
+	open := map[string]port.Lane{}
 	for _, l := range ls {
 		if l.Task != "" && !p.folded.loop[l.Task].inLoop() {
 			open[l.Task] = l
@@ -236,8 +238,8 @@ func (p *proj) setLanes(ls []Lane) {
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
 // review requests', a failed self-restart's), not a task's.
 func projectKey(task string) bool {
-	return task == LoopTask || task == NightlyTask || task == MsgTask || task == DiskTask || task == ReviewTask ||
-		task == ServeTask
+	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
+		task == event.ServeTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

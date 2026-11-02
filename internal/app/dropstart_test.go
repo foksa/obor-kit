@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,11 +44,11 @@ func (f *dropFx) ran() []string {
 	return append([]string(nil), f.effects...)
 }
 
-func (f *dropFx) Gate(ctx context.Context, in GateInput) (GateOutcome, error) {
+func (f *dropFx) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	f.note("gate")
 	return f.concScratch.Gate(ctx, in)
 }
-func (f *dropFx) Publish(ctx context.Context, c Candidate) (PublishOutcome, error) {
+func (f *dropFx) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
 	f.note("publish")
 	return f.concScratch.Publish(ctx, c)
 }
@@ -53,7 +56,7 @@ func (f *dropFx) Submit(ctx context.Context, task, id, lane, summary, worker str
 	f.note("submit")
 	return f.concScratch.Submit(ctx, task, id, lane, summary, worker)
 }
-func (f *dropFx) Launch(ctx context.Context, l Launch) (Started, error) {
+func (f *dropFx) Launch(ctx context.Context, l port.Launch) (port.Started, error) {
 	f.note("restart")
 	return f.concScratch.Launch(ctx, l)
 }
@@ -65,7 +68,7 @@ func (f *dropFx) Type(ctx context.Context, agent, text string, clear bool) (bool
 	f.note("prompt")
 	return true, nil
 }
-func (f *dropFx) Prepare(ctx context.Context, in PrepareInput) (Prepared, error) {
+func (f *dropFx) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	f.note("prepare")
 	return f.concScratch.Prepare(ctx, in)
 }
@@ -73,7 +76,7 @@ func (f *dropFx) Unpin(ctx context.Context, task string) error {
 	f.note("unpin")
 	return nil
 }
-func (f *dropFx) AfterMerge(ctx context.Context, c Candidate) (string, error) {
+func (f *dropFx) AfterMerge(ctx context.Context, c port.Candidate) (string, error) {
 	f.note("after")
 	return "ran", nil
 }
@@ -89,14 +92,14 @@ func (r *concRig) worker(proj, id, agent string) {
 	ws := map[string]string{"pj": "w1", "pq": "w2", "pr": "w3"}[proj]
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.obs[id] = &seen{pane: Pane{ID: id, Workspace: ws, Cwd: r.roots[proj], Agent: "claude", Label: agent,
+	a.obs[id] = &seen{pane: port.Pane{ID: id, Workspace: ws, Cwd: r.roots[proj], Agent: "claude", Label: agent,
 		Status: "idle"}}
 	a.reconcile(p)
 }
 
 // dispatchT2 records pj's T-2 dispatch onto lane O-02 (its worker's pane is in the rig).
 func dispatchT2(r *concRig) {
-	r.add("pj", "T-2", StepDispatched, KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
 		"pj-wt", "O-02"), Agent: "pj-o-02", Target: "target", Branch: "task/T-2"})
 	p := r.proj("pj")
 	r.a.mu.Lock()
@@ -114,52 +117,52 @@ var dropStartCases = []struct {
 	{"publish", "pr", "T-4", "publish", acceptT4},
 	{"moved gate (gate.2)", "pr", "T-4", "gate", func(r *concRig) {
 		acceptT4(r)
-		r.add("pr", "T-4", StepPublish, KindResult, gateOut{Outcome: outMoved, Line: "moved"})
+		r.add("pr", "T-4", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved, Line: "moved"})
 	}},
 	{"numbered publish (publish.2)", "pr", "T-4", "publish", func(r *concRig) {
 		acceptT4(r)
-		r.add("pr", "T-4", StepPublish, KindResult, gateOut{Outcome: outMoved, Line: "moved"})
-		r.add("pr", "T-4", nth(StepGate, 2), KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-4",
+		r.add("pr", "T-4", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved, Line: "moved"})
+		r.add("pr", "T-4", nth(event.StepGate, 2), event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4",
 			SHA: "c2", Target: "b", Patch: "p"}})
-		r.add("pr", "T-4", StepKept, KindFact, JobData{Patch: "p"})
+		r.add("pr", "T-4", event.StepKept, event.KindFact, JobData{Patch: "p"})
 	}},
 	{"resolved gate", "pq", "T-3", "gate", func(r *concRig) {
-		r.add("pq", "T-3", StepGate, KindResult, gateOut{Outcome: outConflict, Candidate: Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
-		r.add("pq", "T-3", StepResolve, KindIntent, promptData{Agent: "pq-int", Job: "T-3/1/resolve", Patch: "p"})
-		r.add("pq", "T-3", StepResolve, KindResult, "sent")
-		r.add("pq", "T-3", verdictStep(MethodResolved, "r1"), KindResult, verdictResult{Job: "T-3/1/resolve", SHA: "m"})
+		r.add("pq", "T-3", event.StepResolve, event.KindIntent, promptData{Agent: "pq-int", Job: "T-3/1/resolve", Patch: "p"})
+		r.add("pq", "T-3", event.StepResolve, event.KindResult, "sent")
+		r.add("pq", "T-3", verdictStep(wire.MethodResolved, "r1"), event.KindResult, verdictResult{Job: "T-3/1/resolve", SHA: "m"})
 	}},
 	{"submit", "pq", "T-6", "submit", func(r *concRig) {
-		r.add("pq", "T-6", StepSubmitted, KindFact, submitData{Lane: "O-06"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "O-06"})
 	}},
 	{"review", "pq", "T-3", "restart", func(r *concRig) {
-		r.add("pq", "T-3", StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
 	{"resolve", "pq", "T-3", "restart", func(r *concRig) {
-		r.add("pq", "T-3", StepGate, KindResult, gateOut{Outcome: outConflict, Candidate: Candidate{Task: "T-3", SHA: "c",
+		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-3", SHA: "c",
 			Target: "b", Patch: "p"}})
 	}},
 	{"prepare", "pj", "T-2", "prepare", dispatchT2},
 	{"start", "pj", "T-2", "restart", func(r *concRig) {
 		dispatchT2(r)
-		r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "b"})
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	}},
 	{"work", "pj", "T-2", "prompt", func(r *concRig) {
 		dispatchT2(r)
-		r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "b"})
-		r.add("pj", "T-2", StepStartWork, KindResult, startOut{Pane: "w1:p2"})
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
+		r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Pane: "w1:p2"})
 	}},
 	{"fix", "pq", "T-7", "prompt", func(r *concRig) {
-		r.add("pq", "T-7", StepSubmitted, KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
-		r.add("pq", "T-7", StepSendback, KindFact, noteData{Note: "fix it"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
 		r.worker("pq", "w2:p7", "pq-o-07") // for its fix job's wake (an agent no pane proves gets none)
 	}},
 }
 
 func acceptT4(r *concRig) {
-	if _, err := r.app("pr").verdict(context.Background(), MethodAccept, Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
+	if _, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Role: "integrator",
 		Agent: "pr-int", CallID: "accept", Job: "T-4/1/review", Patch: "p"}); err != nil {
 		r.t.Fatal(err)
 	}
@@ -232,10 +235,10 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			}
 			close(f.release)
 			ap.effects.Wait()
-			if r.count(c.proj, c.task, KindResult, c.effect) != 1 {
+			if r.count(c.proj, c.task, event.KindResult, c.effect) != 1 {
 				t.Errorf("the %s's result did not fold", c.effect)
 			}
-			if r.count(c.proj, c.task, KindFact, StepDropped) != 0 || r.state(c.proj, c.task) == stDropped {
+			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || r.state(c.proj, c.task) == stDropped {
 				t.Error("a refused drop dropped the task")
 			}
 		})
@@ -306,7 +309,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 					!strings.Contains(a.err.Error(), "pending: retry once it settles") {
 				t.Errorf("drop while the %s runs: %q, %v; want refused, naming the step", c.effect, a.reply, a.err)
 			}
-			if r.count(c.proj, c.task, KindFact, StepDropped) != 0 || r.state(c.proj, c.task) == stDropped ||
+			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || r.state(c.proj, c.task) == stDropped ||
 				r.ended(c.proj, c.task) {
 				t.Errorf("a refused drop changed the task: state %s, ended mark %v", r.state(c.proj, c.task),
 					r.ended(c.proj, c.task))
@@ -327,17 +330,17 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-	r.add("pj", "T-1", StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-1", SHA: "c",
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
 	delete(r.a.obs, "w1:p9") // no integrator runs: the review job's step starts it
 	entered, fetch := make(chan struct{}), make(chan struct{})
 	fetched, stepped := make(chan callAnswer, 1), make(chan struct{})
 	f := &startEffects{concScratch: r.fakes["pj"]}
-	f.start = func(Launch) {
+	f.start = func(port.Launch) {
 		close(entered)
 		<-fetch
-		reply, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+		reply, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
 		fetched <- callAnswer{reply, err}
 	}
 	r.a.mu.Lock()
@@ -366,7 +369,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the start did not return")
 	}
-	if r.count("pj", "T-1", KindFact, StepDropped) != 0 || r.state("pj", "T-1") == stDropped {
+	if r.count("pj", "T-1", event.KindFact, event.StepDropped) != 0 || r.state("pj", "T-1") == stDropped {
 		t.Error("a refused drop dropped the task")
 	}
 }
@@ -376,8 +379,8 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func()) {
 	p := r.proj(name)
 	writing, gate := make(chan struct{}), make(chan struct{})
-	p.log.Refuse = func(rec Record) error {
-		if rec.Step == StepDropped {
+	p.log.Refuse = func(rec event.Record) error {
+		if rec.Step == event.StepDropped {
 			close(writing)
 			<-gate
 		}
@@ -388,8 +391,8 @@ func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func())
 
 // submitT7 is pq-o-07's task_done for T-7 (lane O-07 holds it in the lane table).
 func submitT7(r *concRig) (string, error) {
-	r.app("pq").lanes = &fakeLanes{lanes: []Lane{{Name: "O-07", Task: "T-7", Agent: "pq-o-07"}}}
-	return r.app("pq").taskDone(Call{Root: r.proj("pq").root, Task: "T-7", Agent: "pq-o-07", Role: "worker", Lane: "O-07",
+	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{{Name: "O-07", Task: "T-7", Agent: "pq-o-07"}}}
+	return r.app("pq").taskDone(wire.Call{Root: r.proj("pq").root, Task: "T-7", Agent: "pq-o-07", Role: "worker", Lane: "O-07",
 		CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 }
 
@@ -400,8 +403,8 @@ func TestDropAndSubmission(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) *concRig {
 		r := newConcRig(t)
-		r.add("pq", "T-7", StepSubmitted, KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
-		r.add("pq", "T-7", StepSendback, KindFact, noteData{Note: "fix it"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
 		return r
 	}
 	t.Run("control: task_done submits", func(t *testing.T) {
@@ -410,8 +413,8 @@ func TestDropAndSubmission(t *testing.T) {
 		if reply, err := submitT7(r); err != nil || reply != taskDoneReply {
 			t.Fatalf("task_done: %q, %v", reply, err)
 		}
-		if r.count("pq", "T-7", KindFact, StepSubmitted) != 2 {
-			t.Fatalf("task_done did not submit T-7: %d submitted facts", r.count("pq", "T-7", KindFact, StepSubmitted))
+		if r.count("pq", "T-7", event.KindFact, event.StepSubmitted) != 2 {
+			t.Fatalf("task_done did not submit T-7: %d submitted facts", r.count("pq", "T-7", event.KindFact, event.StepSubmitted))
 		}
 	})
 	t.Run("drop first", func(t *testing.T) {
@@ -445,7 +448,7 @@ func TestDropAndSubmission(t *testing.T) {
 		if a := <-dropped; a.err != nil || a.reply != "DROPPED T-7" {
 			t.Fatalf("drop: %q, %v", a.reply, a.err)
 		}
-		if n := r.count("pq", "T-7", KindFact, StepSubmitted); n != 1 {
+		if n := r.count("pq", "T-7", event.KindFact, event.StepSubmitted); n != 1 {
 			t.Errorf("submitted facts %d; want only the first", n)
 		}
 		if r.state("pq", "T-7") != stDropped || r.ended("pq", "T-7") {
@@ -469,7 +472,7 @@ func TestDropAndSubmission(t *testing.T) {
 		attempt := p.folded.loop["T-7"].attempt
 		r.app("pq").mu.Unlock()
 		for _, n := range []int{attempt, attempt + 1} { // decided before the drop, recorded after
-			rec, err := p.log.Append(Record{Task: "T-7", Attempt: n, Step: StepSubmitted, Kind: KindFact,
+			rec, err := p.log.Append(event.Record{Task: "T-7", Attempt: n, Step: event.StepSubmitted, Kind: event.KindFact,
 				Data: []byte(`{"lane":"O-07","agent":"pq-o-07"}`)}, r.app("pq").opt.Now())
 			if err != nil {
 				t.Fatal(err)
@@ -497,8 +500,8 @@ func TestDropWriteFailure(t *testing.T) {
 	r := newConcRig(t)
 	p := r.proj("pq")
 	var during struct{ ended, began bool }
-	p.log.Refuse = func(rec Record) error {
-		if rec.Step != StepDropped {
+	p.log.Refuse = func(rec event.Record) error {
+		if rec.Step != event.StepDropped {
 			return nil
 		}
 		r.app("pq").mu.Lock()

@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,7 +46,7 @@ func runJob(r *concRig, p *proj, task string, s *stopSpy) bool {
 // acceptJob is the integrator's accept of task's first review job (patch p).
 func acceptJob(r *concRig, p *proj, task, patch, callID string) {
 	r.t.Helper()
-	if _, err := r.a.verdict(context.Background(), MethodAccept, Call{Root: p.root, Task: task, Agent: "pj-int",
+	if _, err := r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: p.root, Task: task, Agent: "pj-int",
 		Role: "integrator", CallID: callID, Job: task + "/1/review", Patch: patch}); err != nil {
 		r.t.Fatal(err)
 	}
@@ -71,7 +74,7 @@ func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
 	p := r.proj("pj")
 	s := newStopSpy(r)
 	ctx := context.Background()
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runJob(r, p, "T-1", s) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
@@ -83,7 +86,7 @@ func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
 	if want := []string{"pj-int w1:p9 force=false"}; !slices.Equal(s.stops, want) {
 		t.Fatalf("stops %q after the verdict, no other job: want %q", s.stops, want)
 	}
-	same(t, done(p, Key{Task: RoleTask, Step: stepRoleStop + "pj-int"}), true, "the stop's result recorded")
+	same(t, done(p, event.Key{Task: event.RoleTask, Step: stepRoleStop + "pj-int"}), true, "the stop's result recorded")
 	atShell(r)
 	if got := r.a.Status().Project.Stopped; !slices.Equal(got, []string{"pj-int"}) {
 		t.Errorf("status stopped %q, want [pj-int]", got)
@@ -99,8 +102,8 @@ func TestRoleStopIntegratorWaitsForQueuedJob(t *testing.T) {
 	p := r.proj("pj")
 	s := newStopSpy(r)
 	ctx := context.Background()
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 	if !runJob(r, p, "T-1", s) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
@@ -125,7 +128,7 @@ func TestRoleStopIntegratorWaitsForIdle(t *testing.T) {
 	p := r.proj("pj")
 	s := newStopSpy(r)
 	ctx := context.Background()
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runJob(r, p, "T-1", s) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
@@ -146,7 +149,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 	p := r.proj("pj")
 	s := newStopSpy(r)
 	ctx := context.Background()
-	greenTask(r, "T-1", Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	if !runJob(r, p, "T-1", s) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
@@ -159,7 +162,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 
 	now := r.a.opt.Now().Add(2 * r.a.opt.Gone)
 	r.a.opt.Now = func() time.Time { return now }
-	greenTask(r, "T-5", Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
 	if !runJob(r, p, "T-5", s) {
 		t.Fatal("T-5's review job not started after the stop")
 	}
@@ -167,7 +170,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 		t.Fatalf("launches %+v, want T-5's fresh start with its wake", s.launches)
 	}
 	for _, rec := range readLog(t, p.root) {
-		if rec.Step == StepLost || rec.Step == StepNeedsYou {
+		if rec.Step == event.StepLost || rec.Step == event.StepNeedsYou {
 			t.Errorf("record %s %s on the way to the fresh start", rec.Task, rec)
 		}
 	}
@@ -195,14 +198,14 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 	}{{"stopped", "", true}, {"running", "codex", false}} {
 		t.Run(c.name, func(t *testing.T) {
 			a, p := lineApp(t, root, &now)
-			a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
+			a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
 				{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 				{ID: "w:adv", Workspace: "w", Cwd: root, Agent: c.agent, Label: "pj-advisor", Status: "idle"},
 			}})
 			if w := a.whereIs(p, "pj-advisor"); (w.State == Identified) == c.started {
 				t.Fatalf("precondition: pj-advisor %+v", w)
 			}
-			reply, err := a.briefCall(Call{Root: p.root, CallID: "b-" + c.name, To: "pj-advisor", Note: "why X?",
+			reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-" + c.name, To: "pj-advisor", Note: "why X?",
 				Role: "lead", Agent: "pj-lead"})
 			if err != nil {
 				t.Fatal(err)
@@ -212,7 +215,7 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			}
 			var seq int64
 			for _, rec := range readLog(t, p.root) {
-				if rec.Step == StepBriefed {
+				if rec.Step == event.StepBriefed {
 					seq = rec.Seq
 				}
 			}
@@ -222,9 +225,9 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 			f := &startJobFakes{concScratch: newConcScratch("")}
 			a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
 			line := "[obor pj-lead] why X?"
-			key := Key{Task: MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
+			key := event.Key{Task: event.MsgTask, Step: stepDeliver + fmt.Sprint(seq)}
 			if c.started {
-				if len(f.launches) != 1 || f.launches[0] != (Launch{Agent: "pj-advisor", Pane: "w:adv", Fresh: true,
+				if len(f.launches) != 1 || f.launches[0] != (port.Launch{Agent: "pj-advisor", Pane: "w:adv", Fresh: true,
 					Prompt: line}) {
 					t.Errorf("launches %+v, want pj-advisor fresh in w:adv with the brief's line", f.launches)
 				}
@@ -287,11 +290,11 @@ func TestRoleStopAdvisorKeptRunning(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
-	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
+	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
 		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:adv", Workspace: "w", Cwd: root, Agent: "codex", Label: "pj-advisor", Status: "idle"},
 	}})
-	if _, err := a.briefCall(Call{Root: p.root, CallID: "b1", To: "pj-advisor", Role: "lead"}); err != nil {
+	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-advisor", Role: "lead"}); err != nil {
 		t.Fatal(err)
 	}
 	lineStatus(a, "w:adv", "working", now)
@@ -310,9 +313,9 @@ func TestRoleStopAdvisorKeptRunning(t *testing.T) {
 }
 
 // readLog is root's event log.
-func readLog(t *testing.T, root string) []Record {
+func readLog(t *testing.T, root string) []event.Record {
 	t.Helper()
-	recs, err := ReadLog(root)
+	recs, err := event.ReadLog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +333,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	a, p := lineApp(t, root, &now)
-	a.connect(context.Background(), Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []Pane{
+	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
 		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:o1", Workspace: "w", Cwd: root, Agent: "", Label: "pj-o1"},
 	}})
@@ -343,7 +346,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	if _, ok := a.obs["w:o1"]; !ok {
 		t.Fatal("precondition: the worker's labelled pane is not observed")
 	}
-	reply, err := a.briefCall(Call{Root: p.root, CallID: "b-w", To: "pj-o1", Note: "why X?", Role: "lead",
+	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-w", To: "pj-o1", Note: "why X?", Role: "lead",
 		Agent: "pj-lead"})
 	if err != nil {
 		t.Fatal(err)

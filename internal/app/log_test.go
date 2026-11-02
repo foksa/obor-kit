@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,25 +38,25 @@ func logRoot(t *testing.T) string {
 }
 
 // openLog opens root's database as serve does and replays it; closed when the test ends.
-func openLog(t *testing.T, root string) (*Log, []Record) {
+func openLog(t *testing.T, root string) (*event.Log, []event.Record) {
 	t.Helper()
-	db, err := store.OpenRW(DBFile(root))
+	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	l, recs, err := OpenLog(db)
+	l, recs, err := event.OpenLog(db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return l, recs
 }
 
-func fact(t *testing.T, task, step, reason string) Record {
+func fact(t *testing.T, task, step, reason string) event.Record {
 	t.Helper()
-	r := Record{Task: task, Step: step, Kind: KindFact}
+	r := event.Record{Task: task, Step: step, Kind: event.KindFact}
 	if reason != "" {
-		b, err := json.Marshal(FactData{Reason: reason})
+		b, err := json.Marshal(event.FactData{Reason: reason})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,21 +72,21 @@ func TestLogAppendAndReplay(t *testing.T) {
 	if len(recs) != 0 {
 		t.Fatalf("new log: %v", recs)
 	}
-	r, err := l.Append(fact(t, "T-1", StepStalled, "idle"), logNow)
+	r, err := l.Append(fact(t, "T-1", event.StepStalled, "idle"), logNow)
 	if err != nil || r.Seq != 1 || r.TS != "2026-10-24T11:00:00Z" {
 		t.Fatalf("Append = %+v, %v", r, err)
 	}
-	if _, err := l.Append(fact(t, "T-1", StepResumed, ""), logNow); err != nil {
+	if _, err := l.Append(fact(t, "T-1", event.StepResumed, ""), logNow); err != nil {
 		t.Fatal(err)
 	}
 	l, recs = openLog(t, root)
 	if len(recs) != 2 || recs[0].String() != "stalled{idle}" || recs[1].String() != "resumed" || recs[1].Data != nil {
 		t.Fatalf("replay = %+v", recs)
 	}
-	if r, err := l.Append(fact(t, "T-2", StepNeedsYou, ""), logNow); err != nil || r.Seq != 3 {
+	if r, err := l.Append(fact(t, "T-2", event.StepNeedsYou, ""), logNow); err != nil || r.Seq != 3 {
 		t.Fatalf("Append after replay = %+v, %v", r, err)
 	}
-	if recs, err := ReadLog(root); err != nil || len(recs) != 3 || recs[2].Task != "T-2" {
+	if recs, err := event.ReadLog(root); err != nil || len(recs) != 3 || recs[2].Task != "T-2" {
 		t.Errorf("ReadLog after append = %+v, %v", recs, err)
 	}
 }
@@ -98,7 +100,7 @@ func TestAppendInsertFailure(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Append(fact(t, "T-1", StepStalled, "idle"), logNow); err == nil || !strings.Contains(err.Error(), "disk I/O error") {
+	if _, err := l.Append(fact(t, "T-1", event.StepStalled, "idle"), logNow); err == nil || !strings.Contains(err.Error(), "disk I/O error") {
 		t.Fatalf("the failed insert appended: %v", err)
 	}
 	if err := l.Err(); err == nil || !strings.Contains(err.Error(), "disk I/O error") {
@@ -107,13 +109,13 @@ func TestAppendInsertFailure(t *testing.T) {
 	if _, err := l.DB().Exec("DROP TRIGGER full"); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := l.Append(fact(t, "T-2", StepStalled, "idle"), logNow); err != nil || r.Seq != 1 {
+	if r, err := l.Append(fact(t, "T-2", event.StepStalled, "idle"), logNow); err != nil || r.Seq != 1 {
 		t.Fatalf("retry = %+v, %v; want seq 1", r, err)
 	}
 	if l.Err() != nil {
 		t.Errorf("Err after a good append = %v, want nil", l.Err())
 	}
-	if recs, err := ReadLog(root); err != nil || len(recs) != 1 || recs[0].Task != "T-2" {
+	if recs, err := event.ReadLog(root); err != nil || len(recs) != 1 || recs[0].Task != "T-2" {
 		t.Errorf("log = %+v, %v; want only T-2's record", recs, err)
 	}
 }
@@ -129,7 +131,7 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 		runs++
 		return map[string]string{"sha": "abc"}, nil
 	}
-	in := Intent{Key: Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: ClassGit, Data: map[string]string{"target": "main"}}
+	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "publish"}, Class: event.ClassGit, Data: map[string]string{"target": "main"}}
 	got, err := l.Do(context.Background(), in, clock, effect)
 	if err != nil || string(got) != `{"sha":"abc"}` || runs != 1 {
 		t.Fatalf("Do = %s, %v, runs %d", got, err, runs)
@@ -140,8 +142,8 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 
 	// After a restart the stored result still answers the key; nothing is pending.
 	l, recs := openLog(t, root)
-	if len(recs) != 2 || recs[0].Kind != KindIntent || recs[0].Class != ClassGit ||
-		string(recs[0].Data) != `{"target":"main"}` || recs[1].Kind != KindResult {
+	if len(recs) != 2 || recs[0].Kind != event.KindIntent || recs[0].Class != event.ClassGit ||
+		string(recs[0].Data) != `{"target":"main"}` || recs[1].Kind != event.KindResult {
 		t.Fatalf("replay = %+v", recs)
 	}
 	if p := l.Pending(); len(p) != 0 {
@@ -156,11 +158,11 @@ func TestDoRunsOnceAndReturnsStoredResult(t *testing.T) {
 func TestDoFailedEffectStaysPending(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t, logRoot(t))
-	in := Intent{Key: Key{Task: "T-1", Attempt: 1, Step: "prompt"}, Class: ClassPrompt}
+	in := event.Intent{Key: event.Key{Task: "T-1", Attempt: 1, Step: "prompt"}, Class: event.ClassPrompt}
 	if _, err := l.Do(context.Background(), in, clock, func(context.Context) (any, error) { return nil, errors.New("herdr down") }); err == nil {
 		t.Fatal("a failed effect returned no error")
 	}
-	if p := l.Pending(); len(p) != 1 || p[0].Step != "prompt" || p[0].Class != ClassPrompt {
+	if p := l.Pending(); len(p) != 1 || p[0].Step != "prompt" || p[0].Class != event.ClassPrompt {
 		t.Errorf("pending = %+v", p)
 	}
 	runs := 0
@@ -176,16 +178,16 @@ func TestDoFailedEffectStaysPending(t *testing.T) {
 func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 	t.Parallel()
 	if root := os.Getenv("OBOR_TEST_DO_CRASH"); root != "" {
-		db, err := store.OpenRW(DBFile(root))
+		db, err := store.OpenRW(event.DBFile(root))
 		if err != nil {
 			os.Exit(2)
 		}
-		l, _, err := OpenLog(db)
+		l, _, err := event.OpenLog(db)
 		if err != nil {
 			os.Exit(2)
 		}
 		path := filepath.Join(root, "effect")
-		l.Do(context.Background(), Intent{Key: Key{Task: "T-1", Attempt: 2, Step: "start"}, Class: ClassStart, Data: map[string]string{"pane": "w1:p1"}},
+		l.Do(context.Background(), event.Intent{Key: event.Key{Task: "T-1", Attempt: 2, Step: "start"}, Class: event.ClassStart, Data: map[string]string{"pane": "w1:p1"}},
 			clock, func(context.Context) (any, error) {
 				os.WriteFile(path, nil, 0o644)
 				os.Exit(3) // killed after the effect, before the result
@@ -204,11 +206,11 @@ func TestDoCrashBetweenEffectAndResult(t *testing.T) {
 		t.Fatalf("precondition: the effect ran: %v", err)
 	}
 	l, recs := openLog(t, root)
-	if len(recs) != 1 || recs[0].Kind != KindIntent {
+	if len(recs) != 1 || recs[0].Kind != event.KindIntent {
 		t.Fatalf("replay = %+v; want the intent only", recs)
 	}
 	p := l.Pending()
-	if len(p) != 1 || p[0].Task != "T-1" || p[0].Attempt != 2 || p[0].Step != "start" || p[0].Class != ClassStart ||
+	if len(p) != 1 || p[0].Task != "T-1" || p[0].Attempt != 2 || p[0].Step != "start" || p[0].Class != event.ClassStart ||
 		string(p[0].Data) != `{"pane":"w1:p1"}` {
 		t.Errorf("pending = %+v", p)
 	}
@@ -223,25 +225,25 @@ func TestBackup(t *testing.T) {
 	// No serve listens on sock: the calls end at once (T-685), not at the deadline table's 15 s.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if reply, err := Backup(ctx, sock, logRoot(t), day); reply != "" || err != nil {
+	if reply, err := wire.Backup(ctx, sock, logRoot(t), day); reply != "" || err != nil {
 		t.Errorf("backup without a database = %q, %v; want nothing", reply, err)
 	}
 
 	root := logRoot(t)
 	l, _ := openLog(t, root)
-	if _, err := l.Append(fact(t, "T-1", StepStalled, "idle"), logNow); err != nil {
+	if _, err := l.Append(fact(t, "T-1", event.StepStalled, "idle"), logNow); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(BackupDir(root), "obor-2026-10-27.db")
+	path := filepath.Join(wire.BackupDir(root), "obor-2026-10-27.db")
 	stopFailure := filepath.Join(root, ".obor", "state", "stop-failure.log")
 	if err := os.WriteFile(stopFailure, []byte("{\"at\":\"2026-10-12T02:59:59Z\",\"error\":\"old\"}\n{\"at\":\"2026-10-26T03:00:00Z\",\"error\":\"fresh\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reply, err := Backup(ctx, sock, root, day)
+	reply, err := wire.Backup(ctx, sock, root, day)
 	if err != nil || reply != "BACKUP "+path {
 		t.Fatalf("direct backup = %q, %v; want BACKUP %s", reply, err, path)
 	}
-	if recs, err := ReadLog(backupRoot(t, path)); err != nil || len(recs) != 1 || recs[0].Task != "T-1" {
+	if recs, err := event.ReadLog(backupRoot(t, path)); err != nil || len(recs) != 1 || recs[0].Task != "T-1" {
 		t.Errorf("the backup's log = %+v, %v; want T-1's record", recs, err)
 	}
 	if b, err := os.ReadFile(stopFailure); err != nil || string(b) != "{\"at\":\"2026-10-26T03:00:00Z\",\"error\":\"fresh\"}\n" {
@@ -260,17 +262,17 @@ func TestBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if reply, err := h.a.backup(Call{Root: h.root}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
+	if reply, err := h.a.backup(wire.Call{Root: h.root}); err != nil || !strings.HasSuffix(reply, "obor-2026-10-24.db") {
 		t.Fatalf("serve's backup = %q, %v", reply, err)
 	}
 	if rows, err := store.ReadPrompts(h.a.p.log.DB(), store.PromptQuery{Task: "T-1"}, 10); err != nil || len(rows) != 1 ||
 		rows[0].Text != "fresh" {
 		t.Errorf("prompts after the nightly backup: %+v, %v; want only the fresh one (14 days kept)", rows, err)
 	}
-	if recs, err := ReadLog(backupRoot(t, filepath.Join(BackupDir(h.root), "obor-2026-10-24.db"))); err != nil || len(recs) == 0 {
+	if recs, err := event.ReadLog(backupRoot(t, filepath.Join(wire.BackupDir(h.root), "obor-2026-10-24.db"))); err != nil || len(recs) == 0 {
 		t.Errorf("serve's backup log = %+v, %v; want its records", recs, err)
 	}
-	if _, err := h.a.backup(Call{Root: logRoot(t)}); err == nil {
+	if _, err := h.a.backup(wire.Call{Root: logRoot(t)}); err == nil {
 		t.Error("serve backed up a project it has not loaded")
 	}
 }
@@ -283,7 +285,7 @@ func backupRoot(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(DBFile(root), b, 0o644); err != nil {
+	if err := os.WriteFile(event.DBFile(root), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

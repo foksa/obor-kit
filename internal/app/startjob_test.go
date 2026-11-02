@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"testing"
 )
 
@@ -10,17 +13,17 @@ import (
 // CLI first prompt before the launch returns.
 type startJobFakes struct {
 	*concScratch
-	start    func(Launch)
-	launches []Launch
+	start    func(port.Launch)
+	launches []port.Launch
 	typed    []string
 }
 
-func (f *startJobFakes) Launch(_ context.Context, l Launch) (Started, error) {
+func (f *startJobFakes) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	f.launches = append(f.launches, l)
 	if f.start != nil {
 		f.start(l)
 	}
-	return Started{Line: "STARTED"}, nil
+	return port.Started{Line: "STARTED"}, nil
 }
 
 func (f *startJobFakes) Type(_ context.Context, _, text string, _ bool) (bool, error) {
@@ -37,26 +40,26 @@ func TestStartJobIntegrator(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-			r.add("pj", "T-1", StepGate, KindResult, gateOut{Outcome: outcome, Candidate: Candidate{Task: "T-1", SHA: "c",
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 		}
 	}
 	sent := func(step string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", step, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/" + step, Patch: "p"})
-			r.add("pj", "T-1", step, KindResult, "sent")
+			r.add("pj", "T-1", step, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/" + step, Patch: "p"})
+			r.add("pj", "T-1", step, event.KindResult, "sent")
 		}
 	}
 	lost := func(step string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", StepLost, KindFact, FactData{Merge: true, Job: "T-1/1/" + step})
+			r.add("pj", "T-1", event.StepLost, event.KindFact, event.FactData{Merge: true, Job: "T-1/1/" + step})
 		}
 	}
 	reprompt := func(r *concRig) {
-		r.add("pj", "T-1", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeUndelivered,
+		r.add("pj", "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeUndelivered,
 			Reason: "job not delivered"})
-		r.add("pj", "T-1", StepUnblocked, KindFact, FactData{Merge: true, Reason: ResumeReprompt})
+		r.add("pj", "T-1", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeReprompt})
 	}
 	for _, row := range []struct {
 		name    string
@@ -90,9 +93,9 @@ func TestStartJobIntegrator(t *testing.T) {
 			}
 			job := "T-1/1/" + row.job
 			f := &startJobFakes{concScratch: r.fakes["pj"]}
-			var early JobReply
-			f.start = func(Launch) {
-				raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+			var early wire.JobReply
+			f.start = func(port.Launch) {
+				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -114,7 +117,7 @@ func TestStartJobIntegrator(t *testing.T) {
 				if len(f.launches) != 1 || f.launches[0].Prompt != wakeLine(job) || !f.launches[0].Fresh {
 					t.Fatalf("launches %+v, want one fresh with the first prompt %q", f.launches, wakeLine(job))
 				}
-				same(t, done(p, Key{Task: "T-1", Attempt: 1, Step: row.start}), true, row.start+" done")
+				same(t, done(p, event.Key{Task: "T-1", Attempt: 1, Step: row.start}), true, row.start+" done")
 				same(t, early.State+" "+early.Job, "job "+job, "job_next during the start")
 			}
 			same(t, len(f.typed), row.typed, "Typer calls")
@@ -122,7 +125,7 @@ func TestStartJobIntegrator(t *testing.T) {
 			if row.typed > 0 {
 				want = `"sent"`
 			}
-			same(t, resultOf(p, Key{Task: "T-1", Attempt: 1, Step: row.job}), want, row.job+" result")
+			same(t, resultOf(p, event.Key{Task: "T-1", Attempt: 1, Step: row.job}), want, row.job+" result")
 			if row.start != "" {
 				same(t, deliveredOf(r, job), 1, "delivered facts of "+job)
 				r.a.mu.Lock()
@@ -131,8 +134,8 @@ func TestStartJobIntegrator(t *testing.T) {
 				same(t, mt.job+" "+mt.state, row.job+" "+mt.jobState(true), "the job out")
 				same(t, mt.delivered, true, "the job delivered (fetched during its start)")
 				// a later fetch is a repeat: the same job, nothing recorded
-				raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "later"})
-				var again JobReply
+				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "later"})
+				var again wire.JobReply
 				_ = json.Unmarshal([]byte(raw), &again)
 				if err != nil || again.Job != job || deliveredOf(r, job) != 1 {
 					t.Errorf("a repeat fetch: %s %v, delivered facts %d", raw, err, deliveredOf(r, job))
@@ -148,17 +151,17 @@ func TestStartJobOtherPatch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-	r.add("pj", "T-1", StepGate, KindResult, gateOut{Outcome: outGreen, Candidate: Candidate{Task: "T-1", SHA: "c",
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
-	r.add("pj", "T-1", "start.review", KindIntent, startData{Agent: "pj-int"})
-	raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n1"})
+	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
+	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n1"})
 	if err != nil || raw != `{"state":"none"}` {
 		t.Fatalf("job_next with a start and no job intent: %s %v, want none", raw, err)
 	}
-	r.add("pj", "T-1", StepReview, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p"})
-	raw, err = r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n3"})
-	var jr JobReply
+	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p"})
+	raw, err = r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "n3"})
+	var jr wire.JobReply
 	_ = json.Unmarshal([]byte(raw), &jr)
 	if err != nil || jr.Job != "T-1/1/review" {
 		t.Errorf("job_next with the job's intent: %s %v, want T-1/1/review", raw, err)
@@ -169,22 +172,22 @@ func TestStartJobOtherPatch(t *testing.T) {
 	same(t, patch, "p", "the open job's patch")
 }
 
-func resultOf(p *proj, k Key) string {
+func resultOf(p *proj, k event.Key) string {
 	p.log.Mu.Lock()
 	defer p.log.Mu.Unlock()
 	return string(p.log.Results[k].Data)
 }
 
-func done(p *proj, k Key) bool { return p.log.Done(k) }
+func done(p *proj, k event.Key) bool { return p.log.Done(k) }
 
 func deliveredOf(r *concRig, job string) int {
-	recs, err := ReadLog(r.roots["pj"])
+	recs, err := event.ReadLog(r.roots["pj"])
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	n := 0
 	for _, rec := range recs {
-		if rec.Kind == KindFact && rec.Step == StepDelivered && rec.Fact().Job == job {
+		if rec.Kind == event.KindFact && rec.Step == event.StepDelivered && rec.Fact().Job == job {
 			n++
 		}
 	}
@@ -203,15 +206,15 @@ func same[T comparable](t *testing.T, got, want T, what string) {
 // texts.
 type startEffects struct {
 	*concScratch
-	start func(Launch)
+	start func(port.Launch)
 	typed []string
 }
 
-func (f *startEffects) Launch(_ context.Context, l Launch) (Started, error) {
+func (f *startEffects) Launch(_ context.Context, l port.Launch) (port.Started, error) {
 	if f.start != nil {
 		f.start(l)
 	}
-	return Started{Line: "STARTED"}, nil
+	return port.Started{Line: "STARTED"}, nil
 }
 
 func (f *startEffects) Type(_ context.Context, agent, text string, clear bool) (bool, error) {
@@ -223,23 +226,23 @@ func (f *startEffects) Type(_ context.Context, agent, text string, clear bool) (
 // carries its wake runs, and no second wake is typed.
 func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{StepReview, StepResolve} {
+	for _, kind := range []string{event.StepReview, event.StepResolve} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			p := r.proj("pj")
 			outcome := outGreen
-			if kind == StepResolve {
+			if kind == event.StepResolve {
 				outcome = outConflict
 			}
-			r.add("pj", "T-1", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-01", Input: "s1"})
-			r.add("pj", "T-1", StepGate, KindResult, gateOut{Outcome: outcome, Candidate: Candidate{Task: "T-1", SHA: "c",
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 			delete(r.a.obs, "w1:p9")
 			f := &startEffects{concScratch: r.fakes["pj"]}
-			var early JobReply
-			f.start = func(l Launch) {
-				raw, err := r.a.jobNext(Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
+			var early wire.JobReply
+			f.start = func(l port.Launch) {
+				raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: p.integrator, Role: "integrator", CallID: "early"})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -267,15 +270,15 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-2", StepDispatched, KindFact, dispatchData{Lane: "O-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-o-02"})
-	r.add("pj", "T-2", StepPrepare, KindResult, prepareOut{Base: "b"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-o-02"})
+	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	f := &startEffects{concScratch: r.fakes["pj"]}
-	f.start = func(Launch) {
-		raw, err := r.a.jobNext(Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "early"})
+	f.start = func(port.Launch) {
+		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "early"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var jr JobReply
+		var jr wire.JobReply
 		_ = json.Unmarshal([]byte(raw), &jr)
 		if jr.State != "job" || jr.Job != "T-2/1/work" {
 			t.Fatalf("early worker fetch=%s", raw)
@@ -284,11 +287,11 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	fx := &Loop{Agents: f, Typer: f, Kit: r.kit}
 	mt := *p.folded.loop["T-2"]
 	d := startData{Agent: mt.agent, Pane: "w1:p2"}
-	if !r.a.startWorker(context.Background(), p, fx, mt, Key{Task: mt.task, Attempt: mt.attempt, Step: StepStartWork}, d,
-		Key{Task: mt.task, Attempt: mt.attempt, Step: StepWork}) {
+	if !r.a.startWorker(context.Background(), p, fx, mt, event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepStartWork}, d,
+		event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepWork}) {
 		t.Fatal("start failed")
 	}
-	if !r.a.sendWork(context.Background(), p, fx, *p.folded.loop[mt.task], StepWork) {
+	if !r.a.sendWork(context.Background(), p, fx, *p.folded.loop[mt.task], event.StepWork) {
 		t.Fatal("work failed")
 	}
 	if len(f.typed) != 0 || p.folded.loop[mt.task].state != stWorking {

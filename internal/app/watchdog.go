@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"path/filepath"
 	"sort"
 	"time"
@@ -94,8 +96,8 @@ func (p *proj) openTasks() []string {
 // that is not ready resets the stall timer (see sample). It is the panes to sample: every ready agent with an open
 // task, at every check, and a stopped worker of a kind whose turns are read whatever its status (its next turn ends
 // the stop: turnStop).
-func (a *App) plan(p *proj, ls []Lane, now time.Time) []Pane {
-	var ask []Pane
+func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
+	var ask []port.Pane
 	p.setLanes(ls)
 	a.reconcile(p) // the lanes' agents are candidates
 	for _, task := range p.openTasks() {
@@ -141,7 +143,7 @@ func (a *App) decide(p *proj, ev map[string]*evidence, now time.Time) {
 			continue
 		}
 		v := a.judge(p, task, w, now, ev)
-		if v.step != "" && a.fact(p, task, w, v) && v.step == StepStalled {
+		if v.step != "" && a.fact(p, task, w, v) && v.step == event.StepStalled {
 			w.quietSince = now // the escalation counts from the stall
 		}
 	}
@@ -149,9 +151,9 @@ func (a *App) decide(p *proj, ev map[string]*evidence, now time.Time) {
 
 // verdict is what judge finds for one open task.
 type verdict struct {
-	step, reason string // the fact due ("": none)
-	cause        string // its cause (a worker's stop: causeStopped)
-	pane         Pane   // the pane the fact names
+	step, reason string    // the fact due ("": none)
+	cause        string    // its cause (a worker's stop: causeStopped)
+	pane         port.Pane // the pane the fact names
 }
 
 // judge is the watchdogs' decision for task (docs/state-model.md rows 10–15), from the observed panes, the task's
@@ -161,8 +163,8 @@ type verdict struct {
 func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string]*evidence) verdict {
 	at, panes := a.agentOf(p, w.lane)
 	if at.State == Ambiguous { // two panes claim the lane's agent: the owner says which, after Gone
-		v := verdict{step: StepNeedsYou, pane: w.agent, reason: "agent " + notIdentified(cmp.Or(w.lane.Agent, "the lane's agent"), at)}
-		if now.Sub(w.lost) < a.opt.Gone || p.has(task, StepNeedsYou, v.reason) {
+		v := verdict{step: event.StepNeedsYou, pane: w.agent, reason: "agent " + notIdentified(cmp.Or(w.lane.Agent, "the lane's agent"), at)}
+		if now.Sub(w.lost) < a.opt.Gone || p.has(task, event.StepNeedsYou, v.reason) {
 			return verdict{}
 		}
 		return v
@@ -175,10 +177,10 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 				return verdict{}
 			}
 		}
-		if w.agent.ID == "" || p.has(task, StepNeedsYou, v.reason) {
+		if w.agent.ID == "" || p.has(task, event.StepNeedsYou, v.reason) {
 			return verdict{}
 		}
-		v.step = StepNeedsYou
+		v.step = event.StepNeedsYou
 		return v
 	}
 	o := at.Pane
@@ -187,11 +189,11 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 	case o.Status == "working":
 		if p.watched(task) && !p.stops(task) { // a worker's question stays: working does not end it (T-511); nor does
 			// it end a stop: only the next turn's hook does (turnCall, T-540)
-			v.step = StepResumed
+			v.step = event.StepResumed
 		}
 	case o.Status == "blocked":
-		if !p.has(task, StepNeedsYou, "blocked") && now.Sub(w.blocked) >= a.opt.Idle {
-			v.step, v.reason = StepNeedsYou, "blocked"
+		if !p.has(task, event.StepNeedsYou, "blocked") && now.Sub(w.blocked) >= a.opt.Idle {
+			v.step, v.reason = event.StepNeedsYou, "blocked"
 		}
 	case Ready(o.Status):
 		if e := ev[o.ID]; e != nil {
@@ -226,20 +228,20 @@ func (a *App) judge(p *proj, task string, w *watch, now time.Time, ev map[string
 // So a timer counts only time between quiet samples: the first quiet one is a baseline, never a verdict, and status
 // age, the task's start or a pane's joining only reset it, never count.
 func (a *App) sample(p *proj, task string, w *watch, now time.Time, e *evidence, v *verdict) {
-	stalled := p.has(task, StepStalled, "idle")
-	escalated := p.has(task, StepNeedsYou, "stalled")
+	stalled := p.has(task, event.StepStalled, "idle")
+	escalated := p.has(task, event.StepNeedsYou, "stalled")
 	asked := p.asks(task) || p.stops(task) // a stopped worker waits on its API error, not stalled (T-532)
 	active, due := w.sample(now, e, a.opt.Idle)
 	switch {
 	case active:
 		if (stalled || escalated) && !p.stops(task) { // a stop ends only with the next turn's hook (turnCall)
-			v.step = StepResumed
+			v.step = event.StepResumed
 		}
 	case !due, asked: // a worker waiting on its question is not stalled: the owner is told already
 	case !stalled:
-		v.step, v.reason = StepStalled, "idle"
+		v.step, v.reason = event.StepStalled, "idle"
 	case !escalated:
-		v.step, v.reason = StepNeedsYou, "stalled"
+		v.step, v.reason = event.StepNeedsYou, "stalled"
 	}
 }
 
@@ -294,11 +296,11 @@ func (a *App) evidence(ctx context.Context, pane string) *evidence {
 // fact records v's step for task and folds it in (false: the log failed). A needs-you's notification goes with it
 // (notify).
 func (a *App) fact(p *proj, task string, w *watch, v verdict) bool {
-	data, _ := json.Marshal(FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[v.pane.Workspace],
+	data, _ := json.Marshal(event.FactData{Lane: w.lane.Name, Machine: Machine, Workspace: a.spaces[v.pane.Workspace],
 		WorkspaceID: v.pane.Workspace, Pane: v.pane.ID, Agent: a.shownAs(p, v.pane), Reason: v.reason,
 		Cause: v.cause}) // strings: cannot fail
 	now := a.opt.Now()
-	r, err := p.log.Append(Record{Task: task, Step: v.step, Kind: KindFact, Data: data}, now)
+	r, err := p.log.Append(event.Record{Task: task, Step: v.step, Kind: event.KindFact, Data: data}, now)
 	if err != nil {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return false

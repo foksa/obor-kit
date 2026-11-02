@@ -3,6 +3,8 @@ package app_test
 import (
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +21,7 @@ func (r *loopRig) stoppedCall(agent, role, lane, callID string) (string, error) 
 }
 
 func (r *loopRig) stoppedCallWith(agent, role, lane, callID, errText, details string) (string, error) {
-	return r.line(app.MethodStopped, callID, app.Call{Agent: agent, Role: role, Lane: lane, Error: errText, Details: details})
+	return r.line(wire.MethodStopped, callID, wire.Call{Agent: agent, Role: role, Lane: lane, Error: errText, Details: details})
 }
 
 // T-584: the plugin's exact StopFailure error shape reaches the OpenCode Reset through both stoppedCall paths:
@@ -44,7 +46,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 				r = lineRig(t, "idle", "idle")
 				r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.agentKind })
 				r.start()
-				if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "review"}); err != nil {
+				if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review"}); err != nil {
 					t.Fatal(err)
 				}
 				r.waitFor("role brief posted", func() bool { return r.typedTo("pj-rev", "[obor pj-lead] review") == 1 })
@@ -68,12 +70,12 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 				t.Fatal(err)
 			}
 			var stopped struct {
-				NeedsYou *app.FactData `json:"needs_you"`
-				Brief    int64         `json:"brief"`
-				Reset    int64         `json:"reset"`
+				NeedsYou *event.FactData `json:"needs_you"`
+				Brief    int64           `json:"brief"`
+				Reset    int64           `json:"reset"`
 			}
 			for _, rec := range r.records() {
-				if rec.Task == app.MsgTask && rec.Kind == app.KindFact && rec.Step == app.StepStopped {
+				if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepStopped {
 					if err := json.Unmarshal(rec.Data, &stopped); err != nil {
 						t.Fatal(err)
 					}
@@ -99,7 +101,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
@@ -113,7 +115,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	if again, err := r.stoppedCall("pj-rev", "reviewer", "", "s1"); err != nil || again != reply {
 		t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
 	}
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 {
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 {
 		t.Fatalf("stopped facts %d, want 1: %q", n, r.steps())
 	}
 	r.agentIs("w1:p6", "pj-rev", "idle")
@@ -121,7 +123,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	r.waitFor("the stopped line posted", func() bool { return r.inbox.count("pj-lead", stopped) == 1 })
 	r.passes()
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact message"); n != 0 {
+	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
 		t.Errorf("a finished line besides the stopped one: %q", r.steps())
 	}
 	for _, p := range r.inbox.posted() {
@@ -131,7 +133,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 	}
 
 	// The agent's next turn: a new brief, worked and idle → its finished line.
-	if _, err := r.line(app.MethodBrief, "b2", app.Call{To: "pj-rev", Note: "go on"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "go on"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the second brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] go on") == 1 })
@@ -147,7 +149,7 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 
 // turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended (T-540).
 func (r *loopRig) turnCall() (string, error) {
-	return r.line(app.MethodTurn, app.NewCallID(), app.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01"})
+	return r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01"})
 }
 
 // stopReason is the worker's stop the rig's stoppedCall records.
@@ -157,7 +159,7 @@ const stopReason = "pj-o1 stopped: rate_limit (429 Too Many Requests)"
 func (r *loopRig) stopsInForce() int {
 	n := 0
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == "T-1" && f.Step == app.StepNeedsYou && f.Fact().Reason == stopReason {
+		if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == stopReason {
 			n++
 		}
 	}
@@ -190,7 +192,7 @@ func stoppedWorker(t *testing.T) *loopRig {
 func TestStoppedWorkerNeedsYou(t *testing.T) {
 	t.Parallel()
 	r := stoppedWorker(t)
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 {
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 {
 		t.Fatalf("stopped facts %d, want 1: %q", n, r.steps())
 	}
 	if r.hasPrefix("0 fact needs-you") {
@@ -246,8 +248,8 @@ func TestStoppedWorkerOneRecordReplay(t *testing.T) {
 	r.workerNext("n1")
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	r.workerIs("working")
-	app.Refuse(r.app, r.p.Root, func(rec app.Record) error {
-		if rec.Step == app.StepNeedsYou {
+	app.Refuse(r.app, r.p.Root, func(rec event.Record) error {
+		if rec.Step == event.StepNeedsYou {
 			return errors.New("needs-you refused")
 		}
 		return nil
@@ -269,7 +271,7 @@ func TestStoppedWorkerOneRecordReplay(t *testing.T) {
 	if err != nil || again != reply {
 		t.Errorf("identical retry: %q, %v; want %q", again, err, reply)
 	}
-	if n, m := r.taskStep(app.MsgTask, "fact stopped"), r.stopsInForce(); n != 1 || m != 1 {
+	if n, m := r.taskStep(event.MsgTask, "fact stopped"), r.stopsInForce(); n != 1 || m != 1 {
 		t.Errorf("after the retry: %d stopped facts, %d stops in force; want 1, 1: %q", n, m, r.steps())
 	}
 }
@@ -364,7 +366,7 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 	c.inForce = func() int {
 		n := 0
 		for _, f := range r.app.Status().Project.Facts {
-			if f.Task == "T-1" && f.Step == app.StepNeedsYou && f.Fact().Reason == c.reason &&
+			if f.Task == "T-1" && f.Step == event.StepNeedsYou && f.Fact().Reason == c.reason &&
 				f.Fact().Cause == "stopped" && f.Fact().Turn == "t1" {
 				n++
 			}
@@ -375,7 +377,7 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Transcript = "codex", rollout })
 	r.workerIs("idle") // the turn's start is the last event: running, not stopped
 	r.passes()
-	if r.taskStep(app.MsgTask, "fact stopped") != 0 || r.hasPrefix("0 fact needs-you") {
+	if r.taskStep(event.MsgTask, "fact stopped") != 0 || r.hasPrefix("0 fact needs-you") {
 		t.Fatalf("precondition: a stop with the turn running: %q", r.steps())
 	}
 	c.append(limited)
@@ -404,7 +406,7 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 	r.later(25 * time.Minute) // idle long after: no stall, no second stop
 	r.push()
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 || r.hasPrefix("0 fact needs-you") ||
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 || r.hasPrefix("0 fact needs-you") ||
 		r.hasPrefix("0 fact stalled") {
 		t.Fatalf("after more idle checks: %d stopped facts, %d in force: %q; want one of each, nothing else",
 			n, r.inForce(), r.steps())
@@ -414,7 +416,7 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 	r.start()
 	r.push()
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 {
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 1 {
 		t.Fatalf("after a replay: %d stopped facts, %d in force: %q; want 1, 1", n, r.inForce(), r.steps())
 	}
 
@@ -432,7 +434,7 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 	r.append(cdxDone2)
 	r.workerIs("idle")
 	r.passes()
-	if n, m := r.taskStep(app.MsgTask, "fact stopped"), r.count("0 fact resumed"); n != 1 || m != 1 {
+	if n, m := r.taskStep(event.MsgTask, "fact stopped"), r.count("0 fact resumed"); n != 1 || m != 1 {
 		t.Errorf("after the next turn's clean end: %d stopped, %d resumed; want 1, 1: %q", n, m, r.steps())
 	}
 }
@@ -455,7 +457,7 @@ func TestStoppedCodexOncePerTurn(t *testing.T) {
 	r.start()
 	r.push()
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact stopped"); n != 1 || r.inForce() != 0 {
+	if n := r.taskStep(event.MsgTask, "fact stopped"); n != 1 || r.inForce() != 0 {
 		t.Errorf("idle on the same turn after its stop ended: %d stopped facts, %d in force: %q; want 1, 0",
 			n, r.inForce(), r.steps())
 	}

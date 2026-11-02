@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"testing"
 )
 
@@ -12,15 +15,15 @@ import (
 func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev int, sha string) {
 	t.Helper()
 	ctx := context.Background()
-	addRecord(t, h, "T-1", gate, KindIntent, gateIn{Kind: kind, Input: "s1"})
-	addRecord(t, h, "T-1", gate, KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
-		Candidate: Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
+	addRecord(t, h, "T-1", gate, event.KindIntent, gateIn{Kind: kind, Input: "s1"})
+	addRecord(t, h, "T-1", gate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
+		Candidate: port.Candidate{Task: "T-1", SHA: sha, Target: "base1", Patch: "same-diff"}})
 	p := h.a.p
 	mt := *p.folded.loop["T-1"]
-	if !h.a.job(ctx, p, &Loop{Agents: f, Typer: f}, mt, nth(StepReview, mt.reviews+1)) {
+	if !h.a.job(ctx, p, &Loop{Agents: f, Typer: f}, mt, nth(event.StepReview, mt.reviews+1)) {
 		t.Fatal("precondition: the review job was not sent")
 	}
-	if _, err := h.a.verdict(ctx, MethodAccept, Call{Root: h.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
+	if _, err := h.a.verdict(ctx, wire.MethodAccept, wire.Call{Root: h.root, Task: "T-1", Agent: "pj-int", Role: "integrator",
 		CallID: "accept" + sha, Job: JobID(p.folded.loop["T-1"].jobKey()), Patch: "same-diff"}); err != nil {
 		t.Fatal(err)
 	}
@@ -33,10 +36,10 @@ func acceptAt(t *testing.T, h *harness, f *schedScratch, gate, kind string, rev 
 // movedGreen publishes T-1 into a moved target and gates it green again at rev, the patch unchanged.
 func movedGreen(t *testing.T, h *harness, gate, kind string, rev int) {
 	t.Helper()
-	addRecord(t, h, "T-1", StepPublish, KindResult, gateOut{Outcome: outMoved})
-	addRecord(t, h, "T-1", gate, KindIntent, gateIn{Kind: kind, Input: "s1"})
-	addRecord(t, h, "T-1", gate, KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
-		Candidate: Candidate{Task: "T-1", SHA: "candidate2", Target: "base2", Patch: "same-diff"}})
+	addRecord(t, h, "T-1", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved})
+	addRecord(t, h, "T-1", gate, event.KindIntent, gateIn{Kind: kind, Input: "s1"})
+	addRecord(t, h, "T-1", gate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: rev,
+		Candidate: port.Candidate{Task: "T-1", SHA: "candidate2", Target: "base2", Patch: "same-diff"}})
 }
 
 // pickGreenOnce runs the step pickGreen selects for T-1 (live, or after a replay of the log).
@@ -62,8 +65,8 @@ func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
 	for _, c := range []struct {
 		name, gate1, gate2, kind string
 	}{
-		{"lane then moved", nth(StepGate, 2), nth(StepGate, 3), InputMoved},
-		{"two resolved candidates", nth(StepGate, 2), nth(StepGate, 3), InputResolved},
+		{"lane then moved", nth(event.StepGate, 2), nth(event.StepGate, 3), port.InputMoved},
+		{"two resolved candidates", nth(event.StepGate, 2), nth(event.StepGate, 3), port.InputResolved},
 	} {
 		for _, replay := range []bool{false, true} {
 			name := c.name + "/live"
@@ -73,20 +76,20 @@ func TestAcceptNewSpecRevReviewsAgain(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				h, f := seedSched(t, true)
-				first := InputLane
-				if c.kind == InputResolved {
-					first = InputResolved
+				first := port.InputLane
+				if c.kind == port.InputResolved {
+					first = port.InputResolved
 				}
 				acceptAt(t, h, f, c.gate1, first, 1, "candidate1")
 				movedGreen(t, h, c.gate2, c.kind, 2)
 				mt := pickGreenOnce(t, h, f, replay)
-				if mt.state != stAwaiting || mt.reviews != 2 || mt.job != nth(StepReview, 2) {
+				if mt.state != stAwaiting || mt.reviews != 2 || mt.job != nth(event.StepReview, 2) {
 					t.Errorf("rev 2: T-1 %s, reviews %d, job %q; want awaiting review.2", mt.state, mt.reviews, mt.job)
 				}
 				if mt.accepted != "" {
 					t.Errorf("rev 2: the rev 1 accept %q survived", mt.accepted)
 				}
-				if n := countStep(t, h, StepKept); n != 0 {
+				if n := countStep(t, h, event.StepKept); n != 0 {
 					t.Errorf("rev 2: %d kept facts; want none", n)
 				}
 			})
@@ -100,12 +103,12 @@ func TestAcceptSameSpecRevKept(t *testing.T) {
 		t.Run(map[bool]string{false: "live", true: "replay"}[replay], func(t *testing.T) {
 			t.Parallel()
 			h, f := seedSched(t, true)
-			acceptAt(t, h, f, nth(StepGate, 2), InputLane, 1, "candidate1")
-			movedGreen(t, h, nth(StepGate, 3), InputMoved, 1)
+			acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
+			movedGreen(t, h, nth(event.StepGate, 3), port.InputMoved, 1)
 			mt := pickGreenOnce(t, h, f, replay)
-			if mt.state != stAccepted || mt.reviews != 1 || countStep(t, h, StepKept) != 1 {
+			if mt.state != stAccepted || mt.reviews != 1 || countStep(t, h, event.StepKept) != 1 {
 				t.Errorf("rev 1 again: T-1 %s, reviews %d, kept facts %d; want accepted, 1 review, 1 kept", mt.state,
-					mt.reviews, countStep(t, h, StepKept))
+					mt.reviews, countStep(t, h, event.StepKept))
 			}
 		})
 	}
@@ -116,15 +119,15 @@ func TestAcceptSameSpecRevKept(t *testing.T) {
 func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, true)
-	acceptAt(t, h, f, nth(StepGate, 2), InputLane, 1, "candidate1")
-	movedGreen(t, h, nth(StepGate, 3), InputMoved, 2)
-	addRecord(t, h, "T-1", StepKept, KindFact, JobData{Patch: "same-diff"})
+	acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
+	movedGreen(t, h, nth(event.StepGate, 3), port.InputMoved, 2)
+	addRecord(t, h, "T-1", event.StepKept, event.KindFact, JobData{Patch: "same-diff"})
 	p := reloadProj(t, h)
-	if countStep(t, h, StepKept) != 1 {
+	if countStep(t, h, event.StepKept) != 1 {
 		t.Fatal("precondition: the log carries the kept fact")
 	}
 	mt := p.folded.loop["T-1"]
-	if mt.state != stGreen || mt.accepted != "" || mt.stepName() != nth(StepReview, 2) {
+	if mt.state != stGreen || mt.accepted != "" || mt.stepName() != nth(event.StepReview, 2) {
 		t.Errorf("replayed: T-1 %s, accepted %q, next %s; want green, no accept, review.2", mt.state, mt.accepted,
 			mt.stepName())
 	}
@@ -133,7 +136,7 @@ func TestAcceptKeptAfterRevChangeReplaysToReview(t *testing.T) {
 // countStep is the number of T-1's records of step in the log.
 func countStep(t *testing.T, h *harness, step string) int {
 	t.Helper()
-	recs, err := ReadLog(h.root)
+	recs, err := event.ReadLog(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}

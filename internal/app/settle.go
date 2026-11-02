@@ -4,6 +4,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"obor/internal/app/event"
 	"slices"
 	"strings"
 )
@@ -12,8 +13,8 @@ import (
 const notRun = "not run: "
 
 // notRunResult: r is a result settleEnded wrote.
-func notRunResult(r Record) bool {
-	return r.Kind == KindResult && bytes.HasPrefix(r.Data, []byte(`"`+notRun))
+func notRunResult(r event.Record) bool {
+	return r.Kind == event.KindResult && bytes.HasPrefix(r.Data, []byte(`"`+notRun))
 }
 
 // settleEnded settles as nothing every pending intent of an ended task (task; "": every task), never run again
@@ -27,7 +28,7 @@ func notRunResult(r Record) bool {
 // Called at replay and live once a merged or dropped fact (record) or a reject (verdict) is folded; under mu when the
 // app runs. It is the number of results written.
 func (a *App) settleEnded(p *proj, task string) int {
-	inForce := map[Key]bool{} // the notifications notify still owes: the same facts it picks from
+	inForce := map[event.Key]bool{} // the notifications notify still owes: the same facts it picks from
 	for _, f := range p.needsYou() {
 		inForce[notifyKey(f)] = true
 	}
@@ -52,7 +53,7 @@ func (a *App) settleEnded(p *proj, task string) int {
 		if m, _ := verdictMethod(r.Step); m != "" {
 			continue
 		}
-		res := Record{Task: r.Task, Attempt: r.Attempt, Step: r.Step, Kind: KindResult}
+		res := event.Record{Task: r.Task, Attempt: r.Attempt, Step: r.Step, Kind: event.KindResult}
 		res.Data, _ = json.Marshal(notRun + r.Task + " " + mt.state)
 		res, err := p.log.Append(res, a.opt.Now())
 		if err != nil {

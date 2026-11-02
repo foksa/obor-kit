@@ -6,6 +6,9 @@ import (
 	"errors"
 	"io/fs"
 	"net"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,13 +54,13 @@ func (c *clock) Move(d time.Duration, f func(now time.Time)) {
 
 type laneTable struct {
 	mu    sync.Mutex
-	lanes []app.Lane
+	lanes []port.Lane
 }
 
-func (l *laneTable) Lanes(string) ([]app.Lane, error) {
+func (l *laneTable) Lanes(string) ([]port.Lane, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return append([]app.Lane(nil), l.lanes...), nil
+	return append([]port.Lane(nil), l.lanes...), nil
 }
 
 // syncBuf is the app's output, read while it writes.
@@ -112,7 +115,7 @@ func newRig(t *testing.T) *rig {
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}, {ID: "w2", Label: "other"}}
 	for i, lane := range []string{"O-01", "O-02"} {
 		task := []string{"T-1", "T-2"}[i]
-		r.lanes.lanes = append(r.lanes.lanes, app.Lane{Name: lane, Dir: r.lane(lane), Task: task})
+		r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: lane, Dir: r.lane(lane), Task: task})
 		p := r.f.Agent("w1:p"+lane[3:], "pj-o-0"+lane[3:], "idle", r.lane(lane))
 		p.Workspace, p.Label = "w1", "pj-o-0"+lane[3:] // labelled by its launch: serve's identity of it
 	}
@@ -127,16 +130,16 @@ func (r *rig) lane(name string) string { return filepath.Join(r.wt, name) }
 // submitted records task's task_done from lane in the project's log before the app starts (fact submitted).
 func (r *rig) submitted(task, lane string) {
 	r.t.Helper()
-	db, err := store.OpenRW(app.DBFile(r.root))
+	db, err := store.OpenRW(event.DBFile(r.root))
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	log, _, err := app.OpenLog(db)
+	log, _, err := event.OpenLog(db)
 	if err != nil {
 		r.t.Fatal(err)
 	}
 	defer log.Close()
-	if _, err := log.Append(app.Record{Task: task, Attempt: 1, Step: app.StepSubmitted, Kind: app.KindFact,
+	if _, err := log.Append(event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact,
 		Data: []byte(`{"lane":"` + lane + `"}`)}, r.clock.Now()); err != nil {
 		r.t.Fatal(err)
 	}
@@ -205,9 +208,9 @@ func (r *rig) waitFor(what string, ok func() bool) {
 }
 
 // records is pj's event log.
-func (r *rig) records() []app.Record {
+func (r *rig) records() []event.Record {
 	r.t.Helper()
-	recs, err := app.ReadLog(r.root)
+	recs, err := event.ReadLog(r.root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -221,7 +224,7 @@ func (r *rig) records() []app.Record {
 func (r *rig) facts() []string {
 	var out []string
 	for _, rec := range r.records() {
-		if rec.Kind != app.KindFact {
+		if rec.Kind != event.KindFact {
 			continue
 		}
 		out = append(out, rec.Task+" "+rec.String())
@@ -280,7 +283,7 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 	r.clock.Add(2 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}")
 	rec := r.records()[0]
-	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (app.FactData{Lane: "O-01", Machine: "local", Workspace: "pj",
+	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "O-01", Machine: "local", Workspace: "pj",
 		WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-o-01", Reason: "idle"}) {
 		t.Errorf("stalled record = %+v", rec)
 	}
@@ -534,7 +537,7 @@ func TestStatusSocket(t *testing.T) {
 	}
 	defer ln.Close()
 	go r.app.Listen(ln)
-	st, err := app.Ask(context.Background(), sock)
+	st, err := wire.Ask(context.Background(), sock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +545,7 @@ func TestStatusSocket(t *testing.T) {
 		st.Project.Agents[1].Status != "working" {
 		t.Errorf("status over the socket = %+v", st)
 	}
-	if _, err := app.Ask(context.Background(), filepath.Join(dir, "none.sock")); err == nil ||
+	if _, err := wire.Ask(context.Background(), filepath.Join(dir, "none.sock")); err == nil ||
 		!strings.Contains(err.Error(), "not running") {
 		t.Errorf("Ask without a server: %v", err)
 	}

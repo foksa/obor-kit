@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"obor/internal/app/port"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"obor/internal/app"
 	"obor/internal/config"
 	"obor/internal/testkit"
 )
@@ -111,7 +111,7 @@ func (s *gitScratch) Submit(ctx context.Context, task, id, lane, summary, _ stri
 	}
 	s.lanes.mu.Unlock()
 	if dir == "" {
-		return "", app.Refused{Line: "FAIL " + task + ": no lane " + lane}
+		return "", port.Refused{Line: "FAIL " + task + ": no lane " + lane}
 	}
 	if dirty, err := s.git(ctx, dir, "status", "--porcelain"); err != nil {
 		return "", err
@@ -130,10 +130,10 @@ func (s *gitScratch) Submit(ctx context.Context, task, id, lane, summary, _ stri
 	return sha, err
 }
 
-func (s *gitScratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcome, error) {
+func (s *gitScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	s.gates.Add(1)
 	if err := s.failing(ctx, "Gate"); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	s.mu.Lock()
 	s.specs = append(s.specs, in.Spec)
@@ -141,52 +141,52 @@ func (s *gitScratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcom
 	dir := s.dir()
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
 		if _, err := s.git(ctx, s.p.Root, "worktree", "add", "-q", "--detach", dir, "main"); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 	}
 	target, err := s.git(ctx, s.p.Root, "rev-parse", "main")
 	if err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	reset := target
-	if in.Kind == app.InputResolved {
+	if in.Kind == port.InputResolved {
 		reset = in.Input
 	}
 	if _, err := s.git(ctx, dir, "reset", "-q", "--hard", reset); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	if _, err := s.git(ctx, dir, "clean", "-qfd"); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
-	if in.Kind != app.InputResolved {
+	if in.Kind != port.InputResolved {
 		if _, err := s.git(ctx, dir, "merge", "-q", "--no-ff", "--no-commit", in.Input); err != nil {
 			files, _ := s.git(ctx, dir, "diff", "--name-only", "--diff-filter=U")
 			if files == "" {
-				return app.GateOutcome{}, err
+				return port.GateOutcome{}, err
 			}
-			return app.GateOutcome{Kind: app.OutcomeConflict, Files: strings.Fields(files), Dir: dir}, nil
+			return port.GateOutcome{Kind: port.OutcomeConflict, Files: strings.Fields(files), Dir: dir}, nil
 		}
 		if _, err := s.git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err != nil {
-			return app.GateOutcome{Kind: app.OutcomeFail, Line: "FAIL " + in.Task + ": nothing to merge"}, nil
+			return port.GateOutcome{Kind: port.OutcomeFail, Line: "FAIL " + in.Task + ": nothing to merge"}, nil
 		}
 	}
 	if rc, _, err := s.sh(ctx, dir, "lane_setup"); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	} else if rc > 0 {
-		return app.GateOutcome{Kind: app.OutcomeFail, Line: fmt.Sprintf("FAIL lane_setup (rc %d)", rc)}, nil
+		return port.GateOutcome{Kind: port.OutcomeFail, Line: fmt.Sprintf("FAIL lane_setup (rc %d)", rc)}, nil
 	}
 	checks := ""
 	if rc, out, err := s.sh(ctx, dir, "check"); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	} else if rc > 0 {
-		return app.GateOutcome{Kind: app.OutcomeRed, Line: fmt.Sprintf("RED check (rc %d): %s", rc, out)}, nil
+		return port.GateOutcome{Kind: port.OutcomeRed, Line: fmt.Sprintf("RED check (rc %d): %s", rc, out)}, nil
 	} else if rc == 0 {
 		checks = "rc=0"
 	}
 	sha := in.Input
-	if in.Kind == app.InputResolved {
+	if in.Kind == port.InputResolved {
 		if target, err = s.git(ctx, dir, "rev-parse", sha+"^1"); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 	} else {
 		msg := "Merge " + in.Task + ": " + in.Summary
@@ -194,81 +194,81 @@ func (s *gitScratch) Gate(ctx context.Context, in app.GateInput) (app.GateOutcom
 			msg += fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, in.Spec)
 		}
 		if _, err := s.git(ctx, dir, "commit", "-qm", msg); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 		if sha, err = s.git(ctx, dir, "rev-parse", "HEAD"); err != nil {
-			return app.GateOutcome{}, err
+			return port.GateOutcome{}, err
 		}
 	}
 	if _, err := s.git(ctx, s.p.Root, "update-ref", "refs/obor/candidate/"+in.Task, sha); err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	diff, err := s.git(ctx, s.p.Root, "diff", target, sha)
 	if err != nil {
-		return app.GateOutcome{}, err
+		return port.GateOutcome{}, err
 	}
 	stat, _ := s.git(ctx, s.p.Root, "diff", "--stat", target, sha)
 	sum := sha256.Sum256([]byte(diff))
-	return app.GateOutcome{Kind: app.OutcomeGreen, Candidate: app.Candidate{Task: in.Task, Lane: in.Lane, SHA: sha, Target: target,
+	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: sha, Target: target,
 		Patch: hex.EncodeToString(sum[:]), Checks: checks, Stat: stat, Full: s.full.Load()}}, nil
 }
 
 func (s *gitScratch) Resolved(ctx context.Context, task, input string) (string, error) {
 	dir := s.dir()
 	if _, err := s.git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
-		return "", app.Refused{Line: "the merge in " + dir + " is not committed"}
+		return "", port.Refused{Line: "the merge in " + dir + " is not committed"}
 	}
 	head, err := s.git(ctx, dir, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	if _, err := s.git(ctx, s.p.Root, "merge-base", "--is-ancestor", head, "main"); err == nil {
-		return "", app.Refused{Line: dir + " holds no merge"}
+		return "", port.Refused{Line: dir + " holds no merge"}
 	}
 	if second, err := s.git(ctx, dir, "rev-parse", "HEAD^2"); err != nil || second != input {
-		return "", app.Refused{Line: dir + " holds no merge of " + input}
+		return "", port.Refused{Line: dir + " holds no merge of " + input}
 	}
 	_, err = s.git(ctx, s.p.Root, "update-ref", "refs/obor/resolved/"+task, head)
 	return head, err
 }
 
-func (s *gitScratch) Publish(ctx context.Context, c app.Candidate) (app.PublishOutcome, error) {
+func (s *gitScratch) Publish(ctx context.Context, c port.Candidate) (port.PublishOutcome, error) {
 	s.publishes.Add(1)
 	if err := s.failing(ctx, "Publish"); err != nil {
-		return app.PublishOutcome{}, err
+		return port.PublishOutcome{}, err
 	}
 	if _, err := s.git(ctx, s.p.Root, "merge-base", "--is-ancestor", c.SHA, "main"); err == nil {
-		return app.PublishOutcome{Kind: app.PublishAlready}, s.Unpin(ctx, c.Task)
+		return port.PublishOutcome{Kind: port.PublishAlready}, s.Unpin(ctx, c.Task)
 	}
 	head, err := s.git(ctx, s.p.Root, "rev-parse", "main")
 	if err != nil {
-		return app.PublishOutcome{}, err
+		return port.PublishOutcome{}, err
 	}
 	if head != c.Target {
-		return app.PublishOutcome{Kind: app.PublishMoved, Head: head}, nil
+		return port.PublishOutcome{Kind: port.PublishMoved, Head: head}, nil
 	}
 	files, err := s.git(ctx, s.p.Root, "diff", "--name-only", c.Target, c.SHA)
 	if err != nil {
-		return app.PublishOutcome{}, err
+		return port.PublishOutcome{}, err
 	}
 	dirty, err := s.git(ctx, s.p.Root, append([]string{"status", "--porcelain", "--"}, strings.Fields(files)...)...)
 	if err != nil {
-		return app.PublishOutcome{}, err
+		return port.PublishOutcome{}, err
 	}
 	if dirty != "" {
 		var held []string
 		for _, l := range strings.Split(dirty, "\n") {
 			held = append(held, strings.TrimSpace(l[2:]))
 		}
-		return app.PublishOutcome{Kind: app.PublishHold, Files: held}, nil
+		return port.PublishOutcome{Kind: port.PublishHold, Files: held}, nil
 	}
 	if _, err := s.git(ctx, s.p.Root, "merge", "-q", "--ff-only", c.SHA); err != nil {
-		return app.PublishOutcome{}, err
+		return port.PublishOutcome{}, err
 	}
-	return app.PublishOutcome{Kind: app.PublishMerged}, s.Unpin(ctx, c.Task)
+	return port.PublishOutcome{Kind: port.PublishMerged}, s.Unpin(ctx, c.Task)
 }
 
-func (s *gitScratch) AfterMerge(ctx context.Context, c app.Candidate) (string, error) {
+func (s *gitScratch) AfterMerge(ctx context.Context, c port.Candidate) (string, error) {
 	s.afterMerges.Add(1)
 	s.mu.Lock()
 	before := s.onAfterMerge

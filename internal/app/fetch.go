@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,30 +38,30 @@ const viaMCP = "mcp"
 // workerJob is mt's open worker job: the attempt's work job (dispatched, or working on it; open from its intent,
 // which comes before the start that carries its wake: startJob), else its last fix job once sent; also while a
 // needs-you left one of those. False: none.
-func (mt *mtask) workerJob() (Key, bool) {
+func (mt *mtask) workerJob() (event.Key, bool) {
 	st := mt.state
 	if st == stNeedsYou {
 		st = mt.left
 	}
 	switch {
 	case (st == stDispatched || st == stWorking) && mt.work != "":
-		return Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}, true
+		return event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}, true
 	case st == stWorking && mt.fixed:
-		return Key{Task: mt.task, Attempt: mt.attempt, Step: nth(StepFix, mt.fixes)}, true
+		return event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepFix, mt.fixes)}, true
 	}
-	return Key{}, false
+	return event.Key{}, false
 }
 
 // integratorJob is mt's open integrator job: the one a verdict answers (openJob), open from its intent, which comes
 // before the start that carries its wake (startJob). False: none.
-func (mt *mtask) integratorJob() (Key, bool) { return mt.jobKey(), mt.openJob() }
+func (mt *mtask) integratorJob() (event.Key, bool) { return mt.jobKey(), mt.openJob() }
 
 // jobNext answers job_next (row 6): the caller's open job, "none", or superseded{current} when the call names an
 // older job id. The caller is the job's agent: the integrator for its jobs, the lane's worker for a work or fix job
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
 // delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
 // its text in the prompts table: a refetch whose text changed adds a row (T-670).
-func (a *App) jobNext(c Call) (string, error) {
+func (a *App) jobNext(c wire.Call) (string, error) {
 	a.verdicts.Lock() // two fetches never both record a delivery
 	defer a.verdicts.Unlock()
 	if c.CallID == "" {
@@ -69,7 +72,7 @@ func (a *App) jobNext(c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.replies[verdictStep(MethodJobNext, c.CallID)]
+		reply, stored = p.replies[verdictStep(wire.MethodJobNext, c.CallID)]
 	}
 	a.mu.Unlock()
 	switch {
@@ -85,19 +88,19 @@ func (a *App) jobNext(c Call) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	r := JobReply{State: "none"}
+	r := wire.JobReply{State: "none"}
 	switch {
 	case !ok:
 	case c.Job != "" && c.Job != JobID(key):
-		r = JobReply{State: "superseded", Current: JobID(key)}
+		r = wire.JobReply{State: "superseded", Current: JobID(key)}
 	default:
 		text, rev, err := a.fetchText(p, mt, key)
 		if err != nil {
 			return "", fmt.Errorf("job_next: %s: %v", JobID(key), err)
 		}
-		r = JobReply{State: "job", Job: JobID(key), Task: key.Task, Attempt: key.Attempt, Step: key.Step, Text: text}
+		r = wire.JobReply{State: "job", Job: JobID(key), Task: key.Task, Attempt: key.Attempt, Step: key.Step, Text: text}
 		agent := mt.agent
-		if base, _ := StepN(key.Step); base == StepReview || base == StepResolve {
+		if base, _ := event.StepN(key.Step); base == event.StepReview || base == event.StepResolve {
 			agent = p.integrator
 		}
 		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
@@ -106,8 +109,8 @@ func (a *App) jobNext(c Call) (string, error) {
 		seq := delivered
 		if seq == 0 {
 			var ok bool
-			seq, ok = a.recordSeq(p, Record{Task: key.Task, Attempt: key.Attempt, Step: StepDelivered, Kind: KindFact},
-				FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
+			seq, ok = a.recordSeq(p, event.Record{Task: key.Task, Attempt: key.Attempt, Step: event.StepDelivered, Kind: event.KindFact},
+				event.FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
 					Via: viaMCP, Call: c.CallID, Rev: rev})
 			if !ok {
 				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
@@ -118,24 +121,24 @@ func (a *App) jobNext(c Call) (string, error) {
 	}
 	b, _ := json.Marshal(r) // strings and an int: cannot fail
 	a.mu.Lock()
-	p.replies[verdictStep(MethodJobNext, c.CallID)] = string(b)
+	p.replies[verdictStep(wire.MethodJobNext, c.CallID)] = string(b)
 	a.mu.Unlock()
 	return string(b), nil
 }
 
 // callerJob is c's open job in p (under mu): its task and key, false when it has none; an error when the caller may not fetch it.
-func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
+func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 	switch c.Role {
 	case "integrator":
 		if c.Agent == "" || c.Agent != p.integrator {
-			return mtask{}, Key{}, false, fmt.Errorf("job_next: only the integrator (%s) fetches its jobs, not %s",
+			return mtask{}, event.Key{}, false, fmt.Errorf("job_next: only the integrator (%s) fetches its jobs, not %s",
 				p.integrator, Dash(c.Agent))
 		}
 		// The job the call names (its wake's id) when it is open, else the oldest open one; never a held one (a
 		// needs-you left it: the owner's, T-602): a fresh session started for one job gets that job.
 		var best *mtask
 		var seq int64
-		var bestKey Key
+		var bestKey event.Key
 		for _, t := range p.loopTasks() { // equal seqs (no intent found): the first task by name
 			mt := p.folded.loop[t]
 			k, ok := mt.integratorJob()
@@ -153,12 +156,12 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 			}
 		}
 		if best == nil {
-			return mtask{}, Key{}, false, nil
+			return mtask{}, event.Key{}, false, nil
 		}
 		return *best, bestKey, true, nil
 	case "worker":
 		var found *mtask
-		var key Key
+		var key event.Key
 		for _, t := range p.loopTasks() { // two jobs for one lane or agent: the first task by name (T-615)
 			mt := p.folded.loop[t]
 			k, ok := mt.workerJob()
@@ -168,27 +171,27 @@ func (a *App) callerJob(p *proj, c Call) (mtask, Key, bool, error) {
 			}
 		}
 		if found == nil {
-			return mtask{}, Key{}, false, nil
+			return mtask{}, event.Key{}, false, nil
 		}
 		if c.Agent == "" || c.Agent != found.agent && c.Agent != p.laneAgent(found.lane) {
-			return mtask{}, Key{}, false, fmt.Errorf("job_next: not your job: %s is %s's in lane %s, not %s", JobID(key),
+			return mtask{}, event.Key{}, false, fmt.Errorf("job_next: not your job: %s is %s's in lane %s, not %s", JobID(key),
 				found.agent, found.lane, Dash(c.Agent))
 		}
 		if o := a.obs[c.Pane]; c.Pane != "" && o != nil && !inDir(o.pane.Cwd, p.laneDir(*found)) {
-			return mtask{}, Key{}, false, fmt.Errorf("job_next: pane %s is not in lane %s (%s)", c.Pane, found.lane,
+			return mtask{}, event.Key{}, false, fmt.Errorf("job_next: pane %s is not in lane %s (%s)", c.Pane, found.lane,
 				o.pane.Cwd)
 		}
 		return *found, key, true, nil
 	}
-	return mtask{}, Key{}, false, fmt.Errorf("job_next: no jobs for the role %s", Dash(c.Role))
+	return mtask{}, event.Key{}, false, fmt.Errorf("job_next: no jobs for the role %s", Dash(c.Role))
 }
 
 // fetchText is the text of mt's job key (outside mu): the worker prompt with the spec, the fix job (with the spec when
 // its rev changed), the review or resolve job; and the spec rev a worker's job carries (0: none).
-func (a *App) fetchText(p *proj, mt mtask, key Key) (string, int, error) {
-	base, _ := StepN(key.Step)
-	if base != StepWork && base != StepFix {
-		if base == StepReview {
+func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
+	base, _ := event.StepN(key.Step)
+	if base != event.StepWork && base != event.StepFix {
+		if base == event.StepReview {
 			text, err := a.reviewText(p, mt)
 			return text, 0, err
 		}
@@ -202,7 +205,7 @@ func (a *App) fetchText(p *proj, mt mtask, key Key) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	if base == StepFix {
+	if base == event.StepFix {
 		read, err := fixRead(p, fx.Kit)
 		if err != nil {
 			return "", 0, err
@@ -263,7 +266,7 @@ func (p *proj) laneDir(mt mtask) string {
 // for it, the report empty or a section missing. A Blocked: report submits nothing: it records the watchdog fact
 // needs-you{asks: <what it needs>} (row 16a; the task stays working, the owner is notified). A repeated call id gets
 // the stored reply.
-func (a *App) taskDone(c Call) (string, error) {
+func (a *App) taskDone(c wire.Call) (string, error) {
 	a.submitMu.Lock() // one submission decision at a time
 	defer a.submitMu.Unlock()
 	if c.CallID == "" || c.Task == "" && c.Lane == "" {
@@ -274,7 +277,7 @@ func (a *App) taskDone(c Call) (string, error) {
 	var reply string
 	var stored bool
 	if p != nil {
-		reply, stored = p.folded.calls[verdictStep(MethodTaskDone, c.CallID)]
+		reply, stored = p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
 		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
 			c.Task = p.laneTask(c.Lane)
 		}
@@ -315,11 +318,11 @@ func (a *App) taskDone(c Call) (string, error) {
 	}
 	dispatching := p.dispatching
 	var pane string
-	if w, _ := a.agentOf(p, Lane{Dir: p.laneDir(mt), Agent: mt.agent}); w.State == Identified {
+	if w, _ := a.agentOf(p, port.Lane{Dir: p.laneDir(mt), Agent: mt.agent}); w.State == Identified {
 		pane = w.Pane.ID
 	}
 	a.mu.Unlock()
-	var l Lane
+	var l port.Lane
 	for _, x := range ls {
 		if x.Name == mt.lane {
 			l = x
@@ -344,7 +347,7 @@ func (a *App) taskDone(c Call) (string, error) {
 	if mt.state == stNeedsYou {
 		attempt++
 	}
-	if !a.record(p, Record{Task: c.Task, Attempt: attempt, Step: StepSubmitted, Kind: KindFact},
+	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: l.Name, Agent: mt.agent, Pane: pane, Call: c.CallID, Report: report}) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
@@ -367,10 +370,10 @@ const askedReply = "not submitted: the owner is told what you need; stop and wai
 // ask records the watchdog fact needs-you{asks: what} for task in lane l (row 16a), once while one is in force: the
 // owner is notified. Its worker's activity does not end it (T-511: the Stop hook's turn after the report is no
 // answer); obor answer, the task's submission (its lane no longer holds it open) or a drop does.
-func (a *App) ask(p *proj, task string, l Lane, what string) (string, error) {
+func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	v := verdict{step: StepNeedsYou, reason: reasonAsks + what}
+	v := verdict{step: event.StepNeedsYou, reason: reasonAsks + what}
 	if w, _ := a.agentOf(p, l); w.State == Identified {
 		v.pane = w.Pane
 	}
@@ -379,7 +382,7 @@ func (a *App) ask(p *proj, task string, l Lane, what string) (string, error) {
 		w = &watch{lane: l}
 		p.tasks[task] = w
 	}
-	if !p.has(task, StepNeedsYou, v.reason) && !a.fact(p, task, w, v) {
+	if !p.has(task, event.StepNeedsYou, v.reason) && !a.fact(p, task, w, v) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
 	a.wake() // the notification goes at the next pass

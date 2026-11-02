@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -114,28 +117,28 @@ const reviewDueEvery = 3 * time.Minute
 
 // foldReview folds r, a record of the project's review requests: a request opens (replacing the open one) and ends
 // a failed start's needs-you; --rm and a firing end it; a start is the last review.
-func (p *proj) foldReview(r Record) {
-	if r.Task != ReviewTask || r.Kind != KindFact {
+func (p *proj) foldReview(r event.Record) {
+	if r.Task != event.ReviewTask || r.Kind != event.KindFact {
 		return
 	}
 	var d ReviewData
 	_ = json.Unmarshal(r.Data, &d)
 	switch r.Step {
-	case StepReviewRequest:
-		p.folded.review = &reviewReq{seq: r.Seq, at: recordTime(r), after: d.After, note: d.Note, by: d.By}
-		p.clear(ReviewTask)
-	case StepReviewRm:
+	case event.StepReviewRequest:
+		p.folded.review = &reviewReq{seq: r.Seq, at: event.RecordTime(r), after: d.After, note: d.Note, by: d.By}
+		p.clear(event.ReviewTask)
+	case event.StepReviewRm:
 		p.folded.review = nil
-		p.clear(ReviewTask)
-	case StepReviewFire:
+		p.clear(event.ReviewTask)
+	case event.StepReviewFire:
 		p.reviewEnded(d.Request)
-	case StepReviewStarted:
+	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
 	default:
 		return
 	}
 	if d.Call != "" {
-		p.folded.calls[verdictStep(MethodReview, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(wire.MethodReview, d.Call)] = d.Reply
 	}
 }
 
@@ -202,14 +205,14 @@ func reviewConfig(root string) (reviewSetup, error) {
 // T-a,T-b), " (replaces the request of <age> ago)" when one was open; a task neither dispatched nor specified, a task
 // of --after dropped or rejected already, no reviewer configured, or a review open (reviewOpen): refused, nothing
 // recorded. A pass's claim held (reviewClaim): --rm and a request are refused.
-func (a *App) reviewCall(c Call) (string, error) {
+func (a *App) reviewCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
-		return "", errors.New(MethodReview + ": a call id is required")
+		return "", errors.New(wire.MethodReview + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(MethodReview, c)
+	p, reply, stored := a.callProj(wire.MethodReview, c)
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodReview, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodReview, c.Root)
 	case stored:
 		return reply, nil
 	case !a.merges(p):
@@ -238,7 +241,7 @@ func (a *App) reviewCall(c Call) (string, error) {
 		by = "owner"
 	}
 	d := ReviewData{By: by, Call: c.CallID}
-	step := StepReviewRequest
+	step := event.StepReviewRequest
 	switch {
 	case c.Clear && open == nil:
 		return "NO REVIEW REQUEST", nil
@@ -247,7 +250,7 @@ func (a *App) reviewCall(c Call) (string, error) {
 	case claim != "":
 		return "", fmt.Errorf("review: obor serve is %s the review request now: nothing changed (try again once it is done)", claim)
 	case c.Clear:
-		step, d.Reply = StepReviewRm, "REVIEW REQUEST ENDED"
+		step, d.Reply = event.StepReviewRm, "REVIEW REQUEST ENDED"
 	case end != "":
 		return "", fmt.Errorf("review: %s already", end)
 	default:
@@ -277,7 +280,7 @@ func (a *App) reviewCall(c Call) (string, error) {
 			d.Reply += " (replaces the request of " + Age(since) + " ago)"
 		}
 	}
-	if !a.record(p, Record{Task: ReviewTask, Step: step, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("review: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -453,9 +456,9 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 		hook()
 	}
 	if end != "" {
-		m := Message{To: p.out.lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
-		a.record(p, Record{Task: MsgTask, Step: StepMessage, Kind: KindFact}, m)
-	} else if a.record(p, Record{Task: ReviewTask, Step: StepReviewFire, Kind: KindFact}, ReviewData{Request: q.seq}) {
+		m := event.Message{To: p.out.lead(), From: "obor", Line: "[obor] review request ended: " + end, Review: q.seq}
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
+	} else if a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewFire, Kind: event.KindFact}, ReviewData{Request: q.seq}) {
 		a.fireReview(ctx, p, fx, q, setup, cfgErr)
 	}
 	a.mu.Lock()
@@ -487,7 +490,7 @@ func (a *App) reviewerIdle(p *proj, agent string) bool {
 func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s reviewSetup, cfgErr error) {
 	id, brief, tasks, head, err := a.prepareReview(ctx, fx.Review, q, s, cfgErr)
 	if err == nil {
-		_, err = fx.Agents.Launch(ctx, Launch{Agent: s.agent, Fresh: true, Prompt: brief})
+		_, err = fx.Agents.Launch(ctx, port.Launch{Agent: s.agent, Fresh: true, Prompt: brief})
 	}
 	if err != nil {
 		reason := "next id: " + err.Error()
@@ -495,16 +498,16 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 			reason = id + ": " + err.Error()
 		}
 		if cutByServe(ctx, err) { // serve is stopping: the review's start was cut, not refused (T-660)
-			a.shutDown(ReviewTask + " " + StepNeedsYou + "{" + reason + "}")
+			a.shutDown(event.ReviewTask + " " + event.StepNeedsYou + "{" + reason + "}")
 			return
 		}
-		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
+		a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
 		return
 	}
 	var lost error
-	if !a.record(p, Record{Task: ReviewTask, Step: StepReviewStarted, Kind: KindFact},
+	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
 		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
-		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+StepReviewStarted))
+		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
 	if _, ok := a.recordBrief(p, s.agent, "obor", "", "", brief); !ok && lost == nil {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused the brief"))
@@ -512,7 +515,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	if lost != nil {
 		reason := id + ": started but not recorded: " + lost.Error()
 		a.logf("FAIL review of %s: %s", p.name, reason)
-		a.record(p, Record{Task: ReviewTask, Step: StepNeedsYou, Kind: KindFact}, FactData{Machine: Machine, Reason: reason})
+		a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
 	}
 }
 

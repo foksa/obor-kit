@@ -2,6 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,9 +26,9 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 	h.lanes.lanes[0].Task = "" // the last check saw the lane free: the dispatch writes T-1 after it
 	h.connect()
 	h.lanes.lanes[0].Task = "T-1"
-	addRecord(t, h, "T-1", StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
 		Branch: "task/T-1", Target: "b"})
-	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	if mt := h.a.p.folded.loop["T-1"]; mt.state != stDispatched || !mt.awaitsTaskDone() {
 		t.Fatalf("precondition: T-1 %s; want dispatched and waiting on its worker", mt.state)
 	}
@@ -33,18 +36,18 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 		t.Fatal("precondition: T-1 has a watch; the case is a stop before the watchdog's next look")
 	}
 
-	reply, err := h.a.stoppedCall(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1",
+	reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1",
 		Error: "rate_limit", Details: "429 Too Many Requests"})
 	if err != nil || reply != "STOPPED pj-o-01 (needs-you T-1)" {
 		t.Fatalf("stopped: %q, %v; want the task's needs-you", reply, err)
 	}
 	var d stoppedData
-	recs, err := ReadLog(h.root)
+	recs, err := event.ReadLog(h.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range recs {
-		if r.Task == MsgTask && r.Step == StepStopped {
+		if r.Task == event.MsgTask && r.Step == event.StepStopped {
 			if err := json.Unmarshal(r.Data, &d); err != nil {
 				t.Fatal(err)
 			}
@@ -59,11 +62,11 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 
 	h.tick(time.Minute) // the check keeps the same watch and records nothing more
 	n := 0
-	if recs, err := ReadLog(h.root); err != nil {
+	if recs, err := event.ReadLog(h.root); err != nil {
 		t.Fatal(err)
 	} else {
 		for _, r := range recs {
-			if r.Task == MsgTask && r.Step == StepStopped {
+			if r.Task == event.MsgTask && r.Step == event.StepStopped {
 				n++
 			}
 		}
@@ -80,8 +83,8 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 // current one, though its name sorts later (T-615's rule).
 func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 	t.Parallel()
-	old := func() *watch { return &watch{lane: Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-0"}} }
-	cur := func() *watch { return &watch{lane: Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-1"}} }
+	old := func() *watch { return &watch{lane: port.Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-0"}} }
+	cur := func() *watch { return &watch{lane: port.Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-1"}} }
 	for _, c := range []struct {
 		name  string
 		then  string               // a second task dispatched to O-01 after T-1 ("" none)
@@ -113,9 +116,9 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 				tasks = append(tasks, c.then)
 			}
 			for _, task := range tasks {
-				addRecord(t, h, task, StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"),
+				addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"),
 					Agent: "pj-o-01", Branch: "task/" + task, Target: "b"})
-				addRecord(t, h, task, StepPrepare, KindResult, prepareOut{Base: "b"})
+				addRecord(t, h, task, event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 			}
 			p := h.a.p
 			for _, task := range tasks {
@@ -139,7 +142,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			if p.tasks[c.want] != keep || (p.tasks[stale] != nil) != staleWatch {
 				t.Fatalf("precondition: watches %+v; want the case's", p.tasks)
 			}
-			reply, err := h.a.stoppedCall(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01",
+			reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01",
 				CallID: "s1", Error: "rate_limit", Details: "429 Too Many Requests"})
 			if err != nil || reply != "STOPPED pj-o-01 (needs-you "+c.want+")" {
 				t.Fatalf("stopped: %q, %v; want %s's needs-you", reply, err, c.want)
@@ -160,7 +163,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			h.a.mu.Lock()
 			keep = c.watch(p)
 			h.a.mu.Unlock()
-			reply, err = h.a.turnCall(Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01"})
+			reply, err = h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01"})
 			if err != nil || reply != "TURN pj-o-01 (the stop of "+c.want+" ended)" {
 				t.Fatalf("turn: %q, %v; want %s's stop ended", reply, err, c.want)
 			}

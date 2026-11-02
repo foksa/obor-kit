@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"obor/internal/app"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 )
@@ -134,7 +135,7 @@ func (in *rigInbox) n(list *[]string, s string) int {
 func (r *loopRig) lineResults() []string {
 	var out []string
 	for _, rec := range r.records() {
-		if rec.Task == app.MsgTask && rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "deliver.") {
+		if rec.Task == event.MsgTask && rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "deliver.") {
 			var v string
 			_ = json.Unmarshal(rec.Data, &v)
 			out = append(out, v)
@@ -169,12 +170,12 @@ func (r *loopRig) agentIs(pane, name, status string) {
 }
 
 // line is a send or brief request to the rig's serve from the lead (role lead, agent pj-lead).
-func (r *loopRig) line(method, callID string, c app.Call) (string, error) {
+func (r *loopRig) line(method, callID string, c wire.Call) (string, error) {
 	c.Root, c.CallID = r.p.Root, callID
 	if c.Role == "" {
 		c.Role, c.Agent = "lead", "pj-lead"
 	}
-	return app.Verdict(context.Background(), r.sock, method, c)
+	return wire.Verdict(context.Background(), r.sock, method, c)
 }
 
 // typedTo is the prompts the fake herdr got for agent (its name, or its pane: typed lines address the pane id, the
@@ -190,10 +191,10 @@ func (r *loopRig) typedTo(agent, text string) int {
 }
 
 // msgFacts is the facts in force of the project's lines.
-func (r *loopRig) msgFacts() []app.Record {
-	var out []app.Record
+func (r *loopRig) msgFacts() []event.Record {
+	var out []event.Record
 	for _, f := range r.app.Status().Project.Facts {
-		if f.Task == app.MsgTask {
+		if f.Task == event.MsgTask {
 			out = append(out, f)
 		}
 	}
@@ -210,8 +211,8 @@ type supersededLine struct {
 func (r *loopRig) supersededLines() []supersededLine {
 	var out []supersededLine
 	for _, rec := range r.records() {
-		if rec.Task == app.MsgTask && rec.Kind == app.KindFact && rec.Step == app.StepBriefed {
-			var m app.Message
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepBriefed {
+			var m event.Message
 			_ = json.Unmarshal(rec.Data, &m)
 			for _, seq := range m.Supersedes {
 				out = append(out, supersededLine{Seq: seq, By: rec.Seq})
@@ -222,7 +223,7 @@ func (r *loopRig) supersededLines() []supersededLine {
 }
 
 // waiting is the lines serve has not delivered yet (obor status).
-func (r *loopRig) waiting() []app.MessageStatus { return r.app.Status().Project.Messages }
+func (r *loopRig) waiting() []wire.MessageStatus { return r.app.Status().Project.Messages }
 
 // sentLine is the line obor send posts in the target project for text from the project from: the sender, the text, and
 // the reply in one command (T-466, T-646).
@@ -239,25 +240,25 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 	r := lineRig(t, "working", "idle")
 	r.start()
 	for _, c := range []struct {
-		call app.Call
+		call wire.Call
 		want string
 	}{
-		{app.Call{Role: "worker", Agent: "pj-o1", Note: "x", From: "other"}, "a lead or the owner"},
-		{app.Call{From: "other"}, "a text is required"},
-		{app.Call{Note: "x"}, "the sender project is required"},
+		{wire.Call{Role: "worker", Agent: "pj-o1", Note: "x", From: "other"}, "a lead or the owner"},
+		{wire.Call{From: "other"}, "a text is required"},
+		{wire.Call{Note: "x"}, "the sender project is required"},
 	} {
-		if reply, err := r.line(app.MethodSend, "bad", c.call); err == nil || !strings.Contains(err.Error(), c.want) {
+		if reply, err := r.line(wire.MethodSend, "bad", c.call); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("send %+v: %q, %v; want refused: %s", c.call, reply, err, c.want)
 		}
 	}
-	reply, err := r.line(app.MethodSend, "s1", app.Call{Note: "release v0.12 is out", From: "other"})
+	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "release v0.12 is out", From: "other"})
 	if err != nil || reply != "SENT to pj-lead in proj (posted to its session)" {
 		t.Fatalf("send: %q, %v", reply, err)
 	}
-	if reply, err := r.line(app.MethodSend, "s1", app.Call{Note: "again", From: "other"}); err != nil || !strings.HasPrefix(reply, "SENT") {
+	if reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "again", From: "other"}); err != nil || !strings.HasPrefix(reply, "SENT") {
 		t.Errorf("the same call id: %q, %v; want the stored reply", reply, err)
 	}
-	if n := r.taskStep(app.MsgTask, "fact message"); n != 1 {
+	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 {
 		t.Fatalf("message facts %d, want 1: %q", n, r.steps())
 	}
 	line := sentLine("other", "release v0.12 is out")
@@ -290,7 +291,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	reply, err := r.line(app.MethodSend, "s1", app.Call{Note: "hello", From: "other"})
+	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"})
 	if want := "SENT to pj-lead in proj (queued: no session recorded for pj-lead; `obor restart pj-lead` once it is idle registers it, or quit it and run `obor lead`)"; err != nil || reply != want {
 		t.Fatalf("send: %q, %v; want %q", reply, err, want)
 	}
@@ -302,7 +303,7 @@ func TestSendQueuedUntilTheLeadIsRecorded(t *testing.T) {
 		t.Fatalf("after a restart with no record: waiting %+v, posted %d; want queued, untried", w,
 			r.inbox.count("pj-lead", sentLine("other", "hello")))
 	}
-	if n := r.taskStep(app.MsgTask, "intent deliver.1") + r.typedTo("pj-lead", sentLine("other", "hello")); n != 0 {
+	if n := r.taskStep(event.MsgTask, "intent deliver.1") + r.typedTo("pj-lead", sentLine("other", "hello")); n != 0 {
 		t.Fatalf("tried with no record: %q", r.steps())
 	}
 	r.inbox.record("pj-lead")
@@ -323,13 +324,13 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.fail(false)
 	r.start()
-	if _, err := r.line(app.MethodSend, "s1", app.Call{Note: "one", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "one", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the refused post's failed fact", func() bool {
 		for _, rec := range r.records() { // deliver.<the message's seq>
 			s := rec.String()
-			if rec.Task == app.MsgTask && strings.HasPrefix(s, "failed{deliver.") && strings.HasSuffix(s, ": dial unix: connection refused}") {
+			if rec.Task == event.MsgTask && strings.HasPrefix(s, "failed{deliver.") && strings.HasSuffix(s, ": dial unix: connection refused}") {
 				return true
 			}
 		}
@@ -346,7 +347,7 @@ func TestSendPostRefusedAndPartial(t *testing.T) {
 	}
 
 	r.inbox.fail(true)
-	if _, err := r.line(app.MethodSend, "s2", app.Call{Note: "two", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "s2", wire.Call{Note: "two", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the partial post's result", func() bool { return len(r.lineResults()) == 2 })
@@ -370,29 +371,29 @@ func TestSendWaitingADayNeedsYou(t *testing.T) {
 	r := lineRig(t, "idle", "idle")
 	r.inbox.unrecord("pj-lead")
 	r.start()
-	if _, err := r.line(app.MethodSend, "s1", app.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.later(23 * time.Hour)
 	want := "fact needs-you{line to pj-lead from other waiting over 1d for its delivery: " + sentLine("other", "hello") + "}"
-	if n := r.taskStep(app.MsgTask, want); n != 0 {
+	if n := r.taskStep(event.MsgTask, want); n != 0 {
 		t.Fatalf("a needs-you before 24 h: %q", r.steps())
 	}
 	r.later(2 * time.Hour)
-	r.waitFor("the needs-you", func() bool { return r.taskStep(app.MsgTask, want) == 1 })
+	r.waitFor("the needs-you", func() bool { return r.taskStep(event.MsgTask, want) == 1 })
 	facts := r.msgFacts()
-	if len(facts) != 1 || facts[0].Step != app.StepNeedsYou || r.answerOf(facts[0]) != "" {
+	if len(facts) != 1 || facts[0].Step != event.StepNeedsYou || r.answerOf(facts[0]) != "" {
 		t.Errorf("facts %+v, want the line's needs-you", facts)
 	}
 	r.passes()
-	if n := r.taskStep(app.MsgTask, want); n != 1 {
+	if n := r.taskStep(event.MsgTask, want); n != 1 {
 		t.Errorf("needs-you recorded %d times, want once", n)
 	}
 	r.inbox.record("pj-lead")
 	// The records the assertions below read: the line posted, the resumed fact in the log and folded out of the facts
 	// in force (the log and the status fold are not updated in one step).
 	r.waitFor("resumed", func() bool {
-		return r.taskStep(app.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 &&
+		return r.taskStep(event.MsgTask, "fact resumed") == 1 && r.inbox.count("pj-lead", sentLine("other", "hello")) == 1 &&
 			len(r.msgFacts()) == 0
 	})
 	if r.inbox.count("pj-lead", sentLine("other", "hello")) != 1 || len(r.msgFacts()) != 0 {
@@ -408,23 +409,23 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")
 	r.start()
-	if _, err := r.line(app.MethodBrief, "b0", app.Call{To: "pj-lead", Note: "x"}); err == nil || !strings.Contains(err.Error(), "is the lead") {
+	if _, err := r.line(wire.MethodBrief, "b0", wire.Call{To: "pj-lead", Note: "x"}); err == nil || !strings.Contains(err.Error(), "is the lead") {
 		t.Errorf("a brief of the lead: %v, want refused", err)
 	}
-	reply, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "verify finding 3"})
+	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify finding 3"})
 	if err != nil || reply != "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)" {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
 	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] verify finding 3") == 1 })
 	r.passes()
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact message"); n != 0 {
+	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
 		t.Fatalf("a finished line before the reviewer worked: %q", r.steps())
 	}
 	r.agentIs("w1:p6", "pj-rev", "working")
 	r.clock.Add(5 * time.Minute)
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact message"); n != 0 {
+	if n := r.taskStep(event.MsgTask, "fact message"); n != 0 {
 		t.Fatalf("a finished line while the reviewer works: %q", r.steps())
 	}
 	r.agentIs("w1:p6", "pj-rev", "idle")
@@ -433,7 +434,7 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 	r.agentIs("w1:p6", "pj-rev", "working")
 	r.agentIs("w1:p6", "pj-rev", "idle")
 	r.passes()
-	if n := r.taskStep(app.MsgTask, "fact message"); n != 1 || r.inbox.count("pj-lead", done) != 1 {
+	if n := r.taskStep(event.MsgTask, "fact message"); n != 1 || r.inbox.count("pj-lead", done) != 1 {
 		t.Errorf("finished lines %d (posted %d), want one: the brief ended", n, r.inbox.count("pj-lead", done))
 	}
 	if typed := append(r.promptsTo("pj-rev"), r.promptsTo("pj-lead")...); len(typed) != 0 {
@@ -447,12 +448,12 @@ func TestBriefOfAFreshStart(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working")
 	r.start()
-	reply, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev"})
+	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev"})
 	if err != nil || reply != "BRIEF RECORDED for pj-rev (the lead hears when it finishes)" {
 		t.Fatalf("brief: %q, %v", reply, err)
 	}
 	r.agentIs("w1:p6", "pj-rev", "idle")
-	r.waitFor("the finished line recorded", func() bool { return r.taskStep(app.MsgTask, "fact message") == 1 })
+	r.waitFor("the finished line recorded", func() bool { return r.taskStep(event.MsgTask, "fact message") == 1 })
 	r.waitFor("the finished line posted", func() bool {
 		return r.inbox.count("pj-lead", "[obor] pj-rev finished (briefed 0s ago)") == 1
 	})
@@ -473,15 +474,15 @@ func TestLineToAnUnnamedPane(t *testing.T) {
 	rev := r.f.Agent("w1:p6", "pj-rev", "working", r.p.Root)
 	rev.Workspace, rev.Label = "w1", "pj-rev"
 	r.start()
-	reply, err := r.line(app.MethodSend, "s1", app.Call{Note: "hello", From: "other"})
+	reply, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hello", From: "other"})
 	if want := "SENT to pj-lead in proj (posted to its session)"; err != nil || reply != want {
 		t.Errorf("send: %q, %v; want %q", reply, err, want)
 	}
-	reply, err = r.line(app.MethodBrief, "b1", app.Call{To: "pj-sol", Note: "look at x"})
+	reply, err = r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-sol", Note: "look at x"})
 	if want := "BRIEFED pj-sol (queued: no pane runs pj-sol; `obor restart pj-sol` starts it)"; err != nil || reply != want {
 		t.Errorf("brief: %q, %v; want %q", reply, err, want)
 	}
-	reply, err = r.line(app.MethodBrief, "b2", app.Call{To: "pj-rev", Note: "verify"})
+	reply, err = r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "verify"})
 	if want := "BRIEFED pj-rev (delivered when its pane is idle; the lead hears when it finishes)"; err != nil || reply != want {
 		t.Errorf("brief of a named pane: %q, %v; want %q", reply, err, want)
 	}
@@ -502,14 +503,14 @@ func TestBriefToALabelledPaneWithoutAName(t *testing.T) {
 	sol := r.f.Agent("w1:p6", "", "idle", r.p.Root)
 	sol.Workspace, sol.Label, sol.Kind = "w1", "pj-sol", "codex"
 	r.start()
-	reply, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-sol", Note: "look at x"})
+	reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-sol", Note: "look at x"})
 	if err != nil || reply != "BRIEFED pj-sol (delivered when its pane is idle; the lead hears when it finishes)" {
 		t.Fatalf("brief of the labelled pane: %q, %v; want the named pane's reply", reply, err)
 	}
 	r.waitFor("the brief typed into w1:p6", func() bool { return r.typedTo("w1:p6", "[obor pj-lead] look at x") == 1 })
 	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "working" })
 	r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "working", "agent": "codex"})
-	r.waitFor("its work logged", func() bool { return r.taskStep(app.MsgTask, "fact worked") == 1 })
+	r.waitFor("its work logged", func() bool { return r.taskStep(event.MsgTask, "fact worked") == 1 })
 	r.clock.Add(2 * time.Minute)
 	r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Status = "idle" })
 	r.srv.Push(herdr.EventStatus, map[string]any{"pane_id": "w1:p6", "agent_status": "idle", "agent": "codex"})
@@ -525,13 +526,13 @@ func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
 	r.inbox.unrecord("pj-rev")
 	r.start()
 	const a = "[obor pj-lead] first"
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	if w := r.waiting(); len(w) != 1 || w[0].Line != a {
 		t.Fatalf("waiting %+v, want the first brief's line alone", w)
 	}
-	reply, err := r.line(app.MethodBrief, "b2", app.Call{To: "pj-rev"})
+	reply, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 		t.Fatalf("the fresh start's brief: %q, %v; want it to say it replaces the waiting one", reply, err)
 	}
@@ -542,7 +543,7 @@ func TestBriefSupersedesAFreshStartsOldLine(t *testing.T) {
 	if len(sup) != 1 || sup[0].By == 0 || sup[0].Seq >= sup[0].By {
 		t.Fatalf("superseded lines %+v, want the old line replaced by the fresh start's brief", sup)
 	}
-	var by app.Message
+	var by event.Message
 	for _, rec := range r.records() {
 		if rec.Seq == sup[0].By {
 			_ = json.Unmarshal(rec.Data, &by)
@@ -571,12 +572,12 @@ func TestBriefSupersedesAQueuedBrief(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working") // the reviewer is busy: brief A waits
 	r.start()
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	const a = "[obor pj-lead] first"
 	r.waitFor("the first brief queued", func() bool { return len(r.waiting()) == 1 })
-	reply, err := r.line(app.MethodBrief, "b2", app.Call{To: "pj-rev", Note: "second"})
+	reply, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "second"})
 	if err != nil || !strings.HasSuffix(reply, "(replaces 1 undelivered brief)") {
 		t.Fatalf("the second brief: %q, %v", reply, err)
 	}
@@ -604,7 +605,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 	sol.Workspace, sol.Label = "w1", "pj-sol"
 	r.inbox.unrecord("pj-lead") // its lines wait
 	r.start()
-	if _, err := r.line(app.MethodBrief, "s1", app.Call{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works
+	if _, err := r.line(wire.MethodBrief, "s1", wire.Call{To: "pj-sol"}); err != nil { // a fresh start's brief: sol works
 		t.Fatal(err)
 	}
 	r.agentIs("w1:p7", "pj-sol", "idle")
@@ -617,13 +618,13 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 		}
 		return false
 	})
-	if _, err := r.line(app.MethodSend, "x1", app.Call{Note: "hello", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "x1", wire.Call{Note: "hello", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.line(app.MethodBrief, "b1", app.Call{To: "pj-rev", Note: "first"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "first"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.line(app.MethodBrief, "b2", app.Call{To: "pj-rev", Note: "second"}); err != nil {
+	if _, err := r.line(wire.MethodBrief, "b2", wire.Call{To: "pj-rev", Note: "second"}); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]bool{}
@@ -655,17 +656,17 @@ func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
 	}
 	for _, c := range []struct {
 		method string
-		call   app.Call
+		call   wire.Call
 	}{
-		{app.MethodSend, app.Call{Note: "hello", From: "other"}},
-		{app.MethodBrief, app.Call{To: "pj-rev", Note: "verify"}},
+		{wire.MethodSend, wire.Call{Note: "hello", From: "other"}},
+		{wire.MethodBrief, wire.Call{To: "pj-rev", Note: "verify"}},
 	} {
 		reply, err := r.line(c.method, c.method+"1", c.call)
 		if err == nil || err.Error() != "merge loop off for proj (no integrator role)" || reply != "" {
 			t.Errorf("%s: %q, %v; want the merge loop's refusal", c.method, reply, err)
 		}
 	}
-	if n := len(r.waiting()); n != 0 || r.taskStep(app.MsgTask, "fact message")+r.taskStep(app.MsgTask, "fact briefed") != 0 {
+	if n := len(r.waiting()); n != 0 || r.taskStep(event.MsgTask, "fact message")+r.taskStep(event.MsgTask, "fact briefed") != 0 {
 		t.Errorf("recorded while refused: %d lines, %q", n, r.steps())
 	}
 }

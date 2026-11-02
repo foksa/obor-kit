@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +19,8 @@ func askSeed(t *testing.T) (*harness, *proj) {
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", StepDispatched, KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01", Branch: "task/T-1", Target: "b"})
-	addRecord(t, h, "T-1", StepPrepare, KindResult, prepareOut{Base: "b"})
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01", Branch: "task/T-1", Target: "b"})
+	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	return h, p
@@ -34,11 +37,11 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				t.Parallel()
 				h, p := askSeed(t)
 				if companion != "stalled" {
-					h.a.record(p, Record{Task: "T-1", Step: StepNeedsYou, Kind: KindFact}, FactData{Lane: "O-01", Reason: companion})
+					h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "O-01", Reason: companion})
 				}
 				if companion == "stalled" || activity != "working" { // the sampled path resumes a stall only
 					h.tick(11 * time.Minute)
-					if !p.has("T-1", StepStalled, "idle") {
+					if !p.has("T-1", event.StepStalled, "idle") {
 						t.Fatalf("precondition: no stall in force: %v", h.facts(0))
 					}
 				}
@@ -50,7 +53,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				}
 				switch activity {
 				case "working":
-					h.status("w1:p1", func(o *Pane) { o.Status = "working" })
+					h.status("w1:p1", func(o *port.Pane) { o.Status = "working" })
 				case "child":
 					h.panes.busy = true
 					h.tick(time.Minute)
@@ -75,7 +78,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				h.a.closeLog()
 				p = reloadProj(t, h)
 				check("replay", p)
-				if _, err := h.a.verdict(context.Background(), MethodAnswer, Call{Root: h.root, Task: "T-1", Role: "lead",
+				if _, err := h.a.verdict(context.Background(), wire.MethodAnswer, wire.Call{Root: h.root, Task: "T-1", Role: "lead",
 					Agent: "pj-lead", CallID: "a1", Note: "yes, edit x"}); err != nil {
 					t.Fatalf("obor answer refused: %v", err)
 				}
@@ -91,14 +94,14 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 // question's.
 func TestResumeKeepsTheAsksRetry(t *testing.T) {
 	t.Parallel()
-	p := &proj{folded: folded{active: map[string][]Record{}}, retry: map[Key]retry{}}
-	stall := Record{Seq: 1, Task: "T-1", Step: StepStalled, Kind: KindFact, Data: []byte(`{"reason":"idle"}`)}
-	ask := Record{Seq: 2, Task: "T-1", Step: StepNeedsYou, Kind: KindFact, Data: []byte(`{"reason":"asks: may I?"}`)}
+	p := &proj{folded: folded{active: map[string][]event.Record{}}, retry: map[event.Key]retry{}}
+	stall := event.Record{Seq: 1, Task: "T-1", Step: event.StepStalled, Kind: event.KindFact, Data: []byte(`{"reason":"idle"}`)}
+	ask := event.Record{Seq: 2, Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact, Data: []byte(`{"reason":"asks: may I?"}`)}
 	p.fold(stall)
 	p.fold(ask)
 	p.retry[notifyKey(stall)] = retry{tries: 1}
 	p.retry[notifyKey(ask)] = retry{tries: 1}
-	p.fold(Record{Seq: 3, Task: "T-1", Step: StepResumed, Kind: KindFact})
+	p.fold(event.Record{Seq: 3, Task: "T-1", Step: event.StepResumed, Kind: event.KindFact})
 	if len(p.folded.active["T-1"]) != 1 || p.folded.active["T-1"][0].Seq != 2 {
 		t.Errorf("facts in force %v, want the asks only", p.folded.active["T-1"])
 	}

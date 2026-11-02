@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +17,8 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 		"after: T-8 waits for T-1, which is dropped",
 		"after: T-8 waits for T-1, which is rejected",
 	} {
-		raw, _ := json.Marshal(FactData{Merge: true, Cause: causeAfter, Reason: reason})
-		r := Record{Seq: 1, Task: "T-8", Step: StepNeedsYou, Data: raw}
+		raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: reason})
+		r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
 		path := answerPath(r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
 		if strings.Contains(path, "<LANE>") {
 			t.Errorf("%q: path %q names <LANE>, want the task", reason, path)
@@ -30,8 +32,8 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 // A stalled worker's needs-you keeps its lane in the drop command.
 func TestAnswerPathLaneKeepsTheLane(t *testing.T) {
 	t.Parallel()
-	raw, _ := json.Marshal(FactData{Lane: "O-02", Reason: "stalled"})
-	path := answerPath(Record{Task: "T-8", Step: StepNeedsYou, Data: raw}, mtask{})
+	raw, _ := json.Marshal(event.FactData{Lane: "O-02", Reason: "stalled"})
+	path := answerPath(event.Record{Task: "T-8", Step: event.StepNeedsYou, Data: raw}, mtask{})
 	if !strings.Contains(path, `obor drop O-02 "<why>"`) {
 		t.Errorf("path %q, want obor drop O-02", path)
 	}
@@ -45,15 +47,15 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 	t.Parallel()
 	root := logRoot(t)
 	l, _ := openLog(t, root)
-	for _, r := range []Record{
-		{Task: "T-1", Attempt: 1, Step: StepGate + ".2", Kind: KindIntent, Class: ClassGit},
-		{Task: "T-4", Step: StepGate, Kind: KindIntent, Class: ClassGit},
-		{Task: "T-4", Step: StepGate, Kind: KindResult}, // its result: not an open intent
-		{Task: "T-2", Step: StepAfterMerge, Kind: KindIntent, Class: ClassGit},
-		{Task: "T-3", Step: StepPublish + ".2", Kind: KindIntent, Class: ClassGit},
-		{Task: NightlyTask, Step: StepNightly + ".2026-11-01", Kind: KindIntent, Class: ClassGit},
-		{Task: "T-5", Step: StepFix, Kind: KindIntent, Class: ClassPrompt}, // a prompt: no command
-		{Task: "T-5", Step: StepStop, Kind: KindIntent, Class: ClassStart}, // a start: no command
+	for _, r := range []event.Record{
+		{Task: "T-1", Attempt: 1, Step: event.StepGate + ".2", Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-4", Step: event.StepGate, Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-4", Step: event.StepGate, Kind: event.KindResult}, // its result: not an open intent
+		{Task: "T-2", Step: event.StepAfterMerge, Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-3", Step: event.StepPublish + ".2", Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: event.NightlyTask, Step: event.StepNightly + ".2026-11-01", Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-5", Step: event.StepFix, Kind: event.KindIntent, Class: event.ClassPrompt}, // a prompt: no command
+		{Task: "T-5", Step: event.StepStop, Kind: event.KindIntent, Class: event.ClassStart}, // a start: no command
 	} {
 		if _, err := l.Append(r, logNow); err != nil {
 			t.Fatal(err)
@@ -67,16 +69,16 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 	// T-2's after_merge does not.
 	gated, published := logNow.Add(30*time.Second), logNow.Add(2*time.Minute)
 	night := logNow.Add(3 * time.Minute)
-	p := &proj{exec: map[Key]time.Time{
-		{Task: "T-1", Attempt: 1, Step: StepGate + ".2"}:                   gated,
-		{Task: "T-3", Attempt: 0, Step: StepPublish + ".2"}:                published,
-		{Task: NightlyTask, Attempt: 0, Step: StepNightly + ".2026-11-01"}: night,
-		{Task: "T-5", Attempt: 0, Step: StepStop}:                          published, // a start: no command the line shows
+	p := &proj{exec: map[event.Key]time.Time{
+		{Task: "T-1", Attempt: 1, Step: event.StepGate + ".2"}:                         gated,
+		{Task: "T-3", Attempt: 0, Step: event.StepPublish + ".2"}:                      published,
+		{Task: event.NightlyTask, Attempt: 0, Step: event.StepNightly + ".2026-11-01"}: night,
+		{Task: "T-5", Attempt: 0, Step: event.StepStop}:                                published, // a start: no command the line shows
 	}, folded: newFolded()}
-	want := []RunningStep{
-		{Step: StepGate, Task: "T-1", Since: gated.Unix()},
-		{Step: StepPublish, Task: "T-3", Since: published.Unix()},
-		{Step: StepNightly, Since: night.Unix()},
+	want := []wire.RunningStep{
+		{Step: event.StepGate, Task: "T-1", Since: gated.Unix()},
+		{Step: event.StepPublish, Task: "T-3", Since: published.Unix()},
+		{Step: event.StepNightly, Since: night.Unix()},
 	}
 	got := p.runningSteps(open)
 	if len(got) != len(want) {
@@ -87,23 +89,23 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 			t.Errorf("running step %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	if pending := p.pendingSteps(open); len(pending) != 1 || pending[0] != (PendingStep{Step: StepAfterMerge,
+	if pending := p.pendingSteps(open); len(pending) != 1 || pending[0] != (wire.PendingStep{Step: event.StepAfterMerge,
 		Task: "T-2", Since: logNow.Unix()}) {
 		t.Errorf("pending steps %+v, want after_merge T-2 queued and nothing else", pending)
 	}
 	restart := logNow.Add(90 * time.Second)
 	p.restarting = restart
 	got = p.runningSteps(open)
-	if n := len(got); n != len(want)+1 || got[n-1] != (RunningStep{Step: StepServeRestart, Since: restart.Unix()}) {
+	if n := len(got); n != len(want)+1 || got[n-1] != (wire.RunningStep{Step: event.StepServeRestart, Since: restart.Unix()}) {
 		t.Errorf("with a pending self-restart: %+v, want the three steps then restarting serve", got)
 	}
 	// Its result in: the gate's step is gone from both lines.
-	if _, err := l.Append(Record{Task: "T-1", Attempt: 1, Step: StepGate + ".2", Kind: KindResult}, logNow); err != nil {
+	if _, err := l.Append(event.Record{Task: "T-1", Attempt: 1, Step: event.StepGate + ".2", Kind: event.KindResult}, logNow); err != nil {
 		t.Fatal(err)
 	}
 	open = l.OpenIntents()
-	if got, want := p.runningSteps(open), []RunningStep{{Step: StepPublish, Task: "T-3", Since: published.Unix()},
-		{Step: StepNightly, Since: night.Unix()}, {Step: StepServeRestart, Since: restart.Unix()}}; len(got) != len(want) {
+	if got, want := p.runningSteps(open), []wire.RunningStep{{Step: event.StepPublish, Task: "T-3", Since: published.Unix()},
+		{Step: event.StepNightly, Since: night.Unix()}, {Step: event.StepServeRestart, Since: restart.Unix()}}; len(got) != len(want) {
 		t.Errorf("after the gate's result: %+v, want its step gone: %+v", got, want)
 	} else {
 		for i := range want {
@@ -112,7 +114,7 @@ func TestRunningStepsAreTheCommandStepsWhoseEffectRuns(t *testing.T) {
 			}
 		}
 	}
-	if got := p.pendingSteps(open); len(got) != 1 || got[0].Step != StepAfterMerge {
+	if got := p.pendingSteps(open); len(got) != 1 || got[0].Step != event.StepAfterMerge {
 		t.Errorf("after the gate's result: pending %+v, want only after_merge T-2", got)
 	}
 }
@@ -125,27 +127,27 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 	root := logRoot(t)
 	l, _ := openLog(t, root)
 	failedAt := logNow.Add(time.Minute)
-	for _, r := range []Record{
-		{Task: "T-2", Step: StepAfterMerge, Kind: KindIntent, Class: ClassGit}, // written before the restart
-		{Task: NightlyTask, Step: StepNightly + ".2026-11-01", Kind: KindIntent, Class: ClassGit},
-		{Task: "T-6", Step: StepGate, Kind: KindIntent, Class: ClassGit}, // replayed: no failure recorded for it
+	for _, r := range []event.Record{
+		{Task: "T-2", Step: event.StepAfterMerge, Kind: event.KindIntent, Class: event.ClassGit}, // written before the restart
+		{Task: event.NightlyTask, Step: event.StepNightly + ".2026-11-01", Kind: event.KindIntent, Class: event.ClassGit},
+		{Task: "T-6", Step: event.StepGate, Kind: event.KindIntent, Class: event.ClassGit}, // replayed: no failure recorded for it
 	} {
 		if _, err := l.Append(r, logNow); err != nil {
 			t.Fatal(err)
 		}
 	}
-	p := &proj{exec: map[Key]time.Time{}, folded: newFolded()}
+	p := &proj{exec: map[event.Key]time.Time{}, folded: newFolded()}
 	p.folded.loop["T-2"] = &mtask{task: "T-2"}
-	p.foldLoop(Record{Task: "T-2", Step: StepFailed, Kind: KindFact, TS: failedAt.Format(time.RFC3339),
-		Data: mustJSON(FactData{Merge: true, Step: StepAfterMerge, Reason: "after_merge: git I/O: index.lock exists"})})
-	p.foldNightly(Record{Task: NightlyTask, Step: StepFailed, Kind: KindFact, TS: failedAt.Format(time.RFC3339),
-		Data: mustJSON(FactData{Machine: Machine, Step: StepNightly + ".2026-11-01",
-			Reason: StepNightly + ".2026-11-01: worktree add: locked"})})
+	p.foldLoop(event.Record{Task: "T-2", Step: event.StepFailed, Kind: event.KindFact, TS: failedAt.Format(time.RFC3339),
+		Data: mustJSON(event.FactData{Merge: true, Step: event.StepAfterMerge, Reason: "after_merge: git I/O: index.lock exists"})})
+	p.foldNightly(event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact, TS: failedAt.Format(time.RFC3339),
+		Data: mustJSON(event.FactData{Machine: Machine, Step: event.StepNightly + ".2026-11-01",
+			Reason: event.StepNightly + ".2026-11-01: worktree add: locked"})})
 	open := l.OpenIntents()
-	want := []PendingStep{
-		{Step: StepAfterMerge, Task: "T-2", Since: logNow.Unix(), Error: "git I/O: index.lock exists", FailedAt: failedAt.Unix()},
-		{Step: StepNightly, Since: logNow.Unix(), Error: "worktree add: locked", FailedAt: failedAt.Unix()},
-		{Step: StepGate, Task: "T-6", Since: logNow.Unix()},
+	want := []wire.PendingStep{
+		{Step: event.StepAfterMerge, Task: "T-2", Since: logNow.Unix(), Error: "git I/O: index.lock exists", FailedAt: failedAt.Unix()},
+		{Step: event.StepNightly, Since: logNow.Unix(), Error: "worktree add: locked", FailedAt: failedAt.Unix()},
+		{Step: event.StepGate, Task: "T-6", Since: logNow.Unix()},
 	}
 	got := p.pendingSteps(open)
 	if len(got) != len(want) {
@@ -161,8 +163,8 @@ func TestPendingStepsWaitForTheirEffect(t *testing.T) {
 	}
 	// T-2's after_merge runs now, three minutes after its intent: running from that start, out of the pending line.
 	started := logNow.Add(3 * time.Minute)
-	p.exec[Key{Task: "T-2", Attempt: 0, Step: StepAfterMerge}] = started
-	if got, want := p.runningSteps(open), []RunningStep{{Step: StepAfterMerge, Task: "T-2", Since: started.Unix()}}; len(got) != 1 || got[0] != want[0] {
+	p.exec[event.Key{Task: "T-2", Attempt: 0, Step: event.StepAfterMerge}] = started
+	if got, want := p.runningSteps(open), []wire.RunningStep{{Step: event.StepAfterMerge, Task: "T-2", Since: started.Unix()}}; len(got) != 1 || got[0] != want[0] {
 		t.Errorf("running steps %+v, want after_merge T-2 from %d (its intent's time is %d)", got, started.Unix(), logNow.Unix())
 	}
 	if got := p.pendingSteps(open); len(got) != len(want)-1 || got[0] != want[1] {

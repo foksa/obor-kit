@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,7 +38,7 @@ func (r *concRig) refuseLogs(name string, err error) {
 		p.log.Refuse = nil
 		return
 	}
-	p.log.Refuse = func(Record) error { return err }
+	p.log.Refuse = func(event.Record) error { return err }
 }
 
 // concLoop is name's app's Loop (the rig's one fake for it).
@@ -53,7 +56,7 @@ func (r *concRig) addNightly(step, kind string, d any, at time.Time) {
 	r.t.Helper()
 	a, p := r.app("pj"), r.proj("pj")
 	raw, _ := json.Marshal(d)
-	rec, err := p.log.Append(Record{Task: NightlyTask, Step: step, Kind: kind, Data: raw}, at)
+	rec, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: step, Kind: kind, Data: raw}, at)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -80,11 +83,11 @@ func (r *concRig) runStep(name, task string) {
 }
 
 // diskFactsInForce is name's project's low-disk facts in force.
-func (r *concRig) diskFactsInForce(name string) []Record {
+func (r *concRig) diskFactsInForce(name string) []event.Record {
 	a, p := r.app(name), r.proj(name)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]Record(nil), p.folded.active[DiskTask]...)
+	return append([]event.Record(nil), p.folded.active[event.DiskTask]...)
 }
 
 // RV-59 #1, direct: free 1 GiB with the needs-you append refused is still low and leaves no fact in force; the next
@@ -112,7 +115,7 @@ func TestRV59DiskRecordFailure(t *testing.T) {
 		t.Errorf("the next reading with appends working: not low; want low")
 	}
 	fs := r.diskFactsInForce("pj")
-	if len(fs) != 1 || fs[0].Step != StepNeedsYou || !strings.HasPrefix(fs[0].Fact().Reason, "disk low: 1.0 GiB free on /vol/pj") {
+	if len(fs) != 1 || fs[0].Step != event.StepNeedsYou || !strings.HasPrefix(fs[0].Fact().Reason, "disk low: 1.0 GiB free on /vol/pj") {
 		t.Errorf("facts in force %+v, want the needs-you telling the volume and 1.0 GiB", fs)
 	}
 	if n := f.calls.Load(); n != 2 {
@@ -133,21 +136,21 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 		kind  string
 		seed  func(r *concRig)
 	}{{
-		name: "submitted", state: stSubmitted, kind: InputLane,
+		name: "submitted", state: stSubmitted, kind: port.InputLane,
 		seed: func(*concRig) {},
 	}, {
-		name: "resolved", state: stResolved, kind: InputResolved,
+		name: "resolved", state: stResolved, kind: port.InputResolved,
 		seed: func(r *concRig) {
-			r.add("pj", "T-1", StepGate, KindResult, gateOut{Outcome: outConflict,
-				Candidate: Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
-			r.add("pj", "T-1", StepResolve, KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/resolve", Patch: "p"})
-			r.add("pj", "T-1", MethodResolved+".v1", KindResult,
+			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict,
+				Candidate: port.Candidate{Task: "T-1", SHA: "c", Target: "b", Patch: "p"}})
+			r.add("pj", "T-1", event.StepResolve, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/resolve", Patch: "p"})
+			r.add("pj", "T-1", wire.MethodResolved+".v1", event.KindResult,
 				verdictResult{Job: "T-1/1/resolve", Reply: "RESOLVED T-1", SHA: "rs"})
 		},
 	}, {
-		name: "moved", state: stMoved, kind: InputMoved,
+		name: "moved", state: stMoved, kind: port.InputMoved,
 		seed: func(r *concRig) {
-			r.add("pj", "T-1", StepMoved, KindFact, FactData{Merge: true, Reason: "target moved"})
+			r.add("pj", "T-1", event.StepMoved, event.KindFact, event.FactData{Merge: true, Reason: "target moved"})
 		},
 	}} {
 		t.Run(c.name, func(t *testing.T) {
@@ -162,8 +165,8 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 			r.a.mu.Lock()
 			gates := p.folded.loop["T-1"].gates
 			r.a.mu.Unlock()
-			step := nth(StepGate, gates+1)
-			r.add("pj", "T-1", step, KindIntent, gateIn{Kind: c.kind, Lane: "O-01", Input: "s1"})
+			step := nth(event.StepGate, gates+1)
+			r.add("pj", "T-1", step, event.KindIntent, gateIn{Kind: c.kind, Lane: "O-01", Input: "s1"})
 
 			f := &diskCount{}
 			f.free.Store(gib)
@@ -178,7 +181,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 			if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 0 {
 				t.Fatalf("the gate ran %d times with every append refused and free 1 GiB; want 0", n)
 			}
-			if n := r.count("pj", "T-1", KindResult, step); n != 0 {
+			if n := r.count("pj", "T-1", event.KindResult, step); n != 0 {
 				t.Errorf("the refused gate left a result: %d", n)
 			}
 			if got := r.state("pj", "T-1"); got != c.state {
@@ -192,10 +195,10 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 			if n := r.fakes["pj"].count(r.fakes["pj"].gates, "T-1"); n != 1 {
 				t.Fatalf("the gate ran %d times after recovery, want 1", n)
 			}
-			if n := r.count("pj", "T-1", KindIntent, step); n != 1 {
+			if n := r.count("pj", "T-1", event.KindIntent, step); n != 1 {
 				t.Errorf("gate intents = %d, want 1 (the pending one reused)", n)
 			}
-			if n := r.count("pj", "T-1", KindResult, step); n != 1 {
+			if n := r.count("pj", "T-1", event.KindResult, step); n != 1 {
 				t.Errorf("gate results = %d, want 1", n)
 			}
 		})
@@ -208,22 +211,22 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 func TestRV59LowDiskPendingNightly(t *testing.T) {
 	t.Parallel()
 	const gib = uint64(1 << 30)
-	const step = StepNightly + ".2026-10-25"
+	const step = event.StepNightly + ".2026-10-25"
 	for _, c := range []struct {
 		name string
 		seed func(r *concRig, now time.Time)
 	}{{
 		name: "pending intent",
 		seed: func(r *concRig, now time.Time) {
-			r.addNightly(step, KindIntent, nil, now)
+			r.addNightly(step, event.KindIntent, nil, now)
 		},
 	}, {
 		name: "retry",
 		seed: func(r *concRig, now time.Time) {
-			r.addNightly(step, KindIntent, nil, now)
+			r.addNightly(step, event.KindIntent, nil, now)
 			a, p := r.app("pj"), r.proj("pj")
-			rec, err := p.log.Append(Record{Task: NightlyTask, Step: StepFailed, Kind: KindFact,
-				Data: mustJSON(FactData{Machine: Machine, Reason: step + ": a git lock", Step: step})},
+			rec, err := p.log.Append(event.Record{Task: event.NightlyTask, Step: event.StepFailed, Kind: event.KindFact,
+				Data: mustJSON(event.FactData{Machine: Machine, Reason: step + ": a git lock", Step: step})},
 				now.Add(-nightlyRetry-time.Minute))
 			if err != nil {
 				r.t.Fatal(err)
@@ -244,7 +247,7 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 			fx := r.concLoop("pj")
 			fx.Disk = f.disk()
 			fx.Nightly = &Nightly{At: "13:00",
-				Due: func([]Merge, bool) (bool, error) { return true, nil },
+				Due: func([]event.Merge, bool) (bool, error) { return true, nil },
 				Run: func(context.Context) (NightlyOut, error) {
 					runs.Add(1)
 					return NightlyOut{SHA: "abc1234def", Verdict: "GREEN", Line: "NIGHTLY GREEN abc1234"}, nil
@@ -260,7 +263,7 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 			if n := runs.Load(); n != 0 {
 				t.Fatalf("the nightly ran %d times with every append refused and free 1 GiB; want 0", n)
 			}
-			if n := r.count("pj", NightlyTask, KindResult, step); n != 0 {
+			if n := r.count("pj", event.NightlyTask, event.KindResult, step); n != 0 {
 				t.Errorf("a refused nightly left a result: %d", n)
 			}
 
@@ -271,7 +274,7 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 			if n := runs.Load(); n != 1 {
 				t.Fatalf("the nightly ran %d times after recovery, want 1", n)
 			}
-			if n := r.count("pj", NightlyTask, KindResult, step); n != 1 {
+			if n := r.count("pj", event.NightlyTask, event.KindResult, step); n != 1 {
 				t.Errorf("nightly results = %d, want 1", n)
 			}
 		})

@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
 )
 
 // leadSendback is the lead's obor sendback of task in project name (the lane form resolves the lane to it).
 func (r *concRig) leadSendback(name, task, id string) (string, error) {
-	return r.app(name).verdict(context.Background(), MethodSendback, Call{Root: r.roots[name], Agent: "pq-lead", Role: "lead",
+	return r.app(name).verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots[name], Agent: "pq-lead", Role: "lead",
 		CallID: id, Task: task, Note: "fix the edge case"})
 }
 
@@ -37,13 +40,13 @@ func (r *concRig) attempt(name, task string) int {
 func TestLeadSendback(t *testing.T) {
 	t.Parallel()
 	sub := func(r *concRig) {
-		r.add("pq", "T-6", StepSubmitted, KindFact, submitData{Lane: "O-06", Agent: "pq-o-06"})
-		r.add("pq", "T-6", StepSubmit, KindResult, submitOut{SHA: "s6"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "O-06", Agent: "pq-o-06"})
+		r.add("pq", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
 	}
 	gate := func(r *concRig, outcome string) {
-		r.add("pq", "T-6", StepGate, KindIntent, gateIn{Kind: InputLane, Lane: "O-06", Input: "s6"})
-		r.add("pq", "T-6", StepGate, KindResult, gateOut{Outcome: outcome, Line: "gate " + outcome,
-			Candidate: Candidate{Task: "T-6", SHA: "c-T-6", Target: "b", Patch: "p6"}})
+		r.add("pq", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-06", Input: "s6"})
+		r.add("pq", "T-6", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Line: "gate " + outcome,
+			Candidate: port.Candidate{Task: "T-6", SHA: "c-T-6", Target: "b", Patch: "p6"}})
 	}
 	for _, c := range []struct {
 		name  string
@@ -57,42 +60,42 @@ func TestLeadSendback(t *testing.T) {
 		{"awaiting", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
-			r.add("pq", "T-6", StepReview, KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
+			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
 		}, stAwaiting, "SENDBACK T-6 (job T-6/1/review)", "", 0},
 		{"resolving", func(r *concRig) {
 			sub(r)
 			gate(r, outConflict)
-			r.add("pq", "T-6", StepResolve, KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/resolve"})
+			r.add("pq", "T-6", event.StepResolve, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/resolve"})
 		}, stResolving, "SENDBACK T-6 (job T-6/1/resolve)", "", 0},
 		{"needs-you after a red", func(r *concRig) {
 			sub(r)
 			gate(r, outRed)
-			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Lane: "O-06", Merge: true, Cause: causeRed,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeRed,
 				Reason: "gate red after 2 sendbacks"})
 		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"needs-you after a hold", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
-			r.add("pq", "T-6", StepReview, KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Lane: "O-06", Merge: true, Cause: causeHeld,
+			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeHeld,
 				Reason: "held: ask the owner", Job: "T-6/1/review"})
 		}, stNeedsYou, "SENDBACK T-6 (job T-6/1/review)", "", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
 			sub(r)
 			gate(r, outFail)
-			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Lane: "O-06", Merge: true, Cause: causeGate,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
 		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
-			r.add("pq", "T-6", StepWaiting, KindFact, dispatchData{After: []string{"T-7"}})
-			r.add("pq", "T-6", StepNeedsYou, KindFact, FactData{Merge: true, Cause: causeAfter,
+			r.add("pq", "T-6", event.StepWaiting, event.KindFact, dispatchData{After: []string{"T-7"}})
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeAfter,
 				Reason: "after: T-6 waits for T-7, which is dropped"})
 		}, stNeedsYou, "", "sendback: T-6 has no lane yet: obor resume or obor drop it", 1},
 		{"accepted", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
-			r.add("pq", "T-6", StepReview, KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", verdictStep(MethodAccept, "a1"), KindResult, verdictResult{Job: "T-6/1/review", Patch: "p6"})
+			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
+			r.add("pq", "T-6", verdictStep(wire.MethodAccept, "a1"), event.KindResult, verdictResult{Job: "T-6/1/review", Patch: "p6"})
 		}, stAccepted, "", "sendback: T-6 is accepted; retry when it settles", 0},
 		{"submitted", sub, stSubmitted, "", "sendback: T-6 is submitted; retry when it settles", 0},
 		{"no task", func(*concRig) {}, "", "", "sendback: T-6 is not open in obor serve", 0},
@@ -113,7 +116,7 @@ func TestLeadSendback(t *testing.T) {
 				if c.state != "" && (r.state("pq", "T-6") != c.state || r.attempt("pq", "T-6") != 1) {
 					t.Errorf("a refused sendback moved T-6 to %s (attempt %d)", r.state("pq", "T-6"), r.attempt("pq", "T-6"))
 				}
-				if n := r.count("pq", "T-6", KindResult, verdictStep(MethodSendback, "s1")); n != 0 {
+				if n := r.count("pq", "T-6", event.KindResult, verdictStep(wire.MethodSendback, "s1")); n != 0 {
 					t.Errorf("a refused sendback recorded %d results", n)
 				}
 				return
@@ -127,7 +130,7 @@ func TestLeadSendback(t *testing.T) {
 			if n := r.factsOf("pq", "T-6"); n != 0 {
 				t.Errorf("the needs-you is still in force: %d facts", n)
 			}
-			_, err = r.app("pq").verdict(context.Background(), MethodAccept, Call{Root: r.roots["pq"], Task: "T-6",
+			_, err = r.app("pq").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pq"], Task: "T-6",
 				Role: "integrator", Agent: "pq-int", CallID: "v1", Job: "T-6/1/review", Patch: "p6"})
 			if err == nil {
 				t.Error("the old review is still accepted after the sendback")
@@ -144,7 +147,7 @@ func TestLeadSendback(t *testing.T) {
 			if mt := p.folded.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.Seq != 0 {
 				t.Errorf("replay: %+v; want T-6 working, attempt 2, no needs-you", mt)
 			}
-			if got := p.folded.calls[verdictStep(MethodSendback, "s1")]; got != c.reply {
+			if got := p.folded.calls[verdictStep(wire.MethodSendback, "s1")]; got != c.reply {
 				t.Errorf("replay: stored reply %q", got)
 			}
 		})
@@ -176,13 +179,13 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 			h.a.mu.Lock()
 			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
 			h.a.mu.Unlock()
-			addRecord(t, h, "T-1", StepNeedsYou, KindFact, FactData{Lane: "O-01", Merge: true, Cause: c.cause,
+			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: c.cause,
 				Reason: c.cause + ": the integrator's limit"})
 			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
 				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
 			}
 			const why = "use the config store; drop the extra test"
-			reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-lead",
+			reply, err := h.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: h.root, Agent: "pj-lead",
 				Role: "lead", CallID: "s1", Task: "T-1", Note: why})
 			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 				t.Fatalf("sendback: %q, %v", reply, err)
@@ -224,7 +227,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 			h.a.mu.Lock()
 			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
 			h.a.mu.Unlock()
-			reply, err := h.a.verdict(context.Background(), MethodSendback, Call{Root: h.root, Agent: "pj-int",
+			reply, err := h.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: h.root, Agent: "pj-int",
 				Role: "integrator", CallID: "s1", Job: "T-1/1/review", Task: "T-1", Note: "fix it"})
 			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1 (job T-1/1/review)") {
 				t.Fatalf("sendback: %q, %v", reply, err)
@@ -237,7 +240,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 			if c.state == stFail && mt.cause != causeSendbacks {
 				t.Errorf("at K the cause is %q; want %q (the owner decides)", mt.cause, causeSendbacks)
 			}
-			if n := countStep(t, h, StepFix); n != 0 {
+			if n := countStep(t, h, event.StepFix); n != 0 {
 				t.Errorf("%d fix jobs; want none before the loop sends one", n)
 			}
 		})
@@ -257,9 +260,9 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 	}
 	a, p := r.app("pr"), r.proj("pr")
 	a.mu.Lock()
-	p.setLanes([]Lane{{Name: "O-04", Task: "T-4", Agent: "pr-o-04", State: "working"}})
+	p.setLanes([]port.Lane{{Name: "O-04", Task: "T-4", Agent: "pr-o-04", State: "working"}})
 	a.mu.Unlock()
-	_, err := r.app("pr").verdict(context.Background(), MethodAccept, Call{Root: r.roots["pr"], Task: "T-4", Agent: "pr-int",
+	_, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Agent: "pr-int",
 		Role: "integrator", CallID: "old-review", Job: "T-4/1/review", Patch: "p"})
 	if err == nil || !strings.Contains(err.Error(), "no job open for T-4") {
 		t.Errorf("accept of the old candidate after the sendback: %v; want refused", err)
@@ -275,8 +278,8 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 	r.worker("pr", "w3:p4", "pr-o-04")
 	r.run()
 	defer r.stop()
-	r.waitFor("T-4's fix job", func() bool { return r.count("pr", "T-4", KindIntent, StepFix) == 1 })
-	if n := r.fakes["pr"].count(r.fakes["pr"].pubs, "T-4"); n != 0 || r.count("pr", "T-4", KindIntent, StepPublish) != 0 {
+	r.waitFor("T-4's fix job", func() bool { return r.count("pr", "T-4", event.KindIntent, event.StepFix) == 1 })
+	if n := r.fakes["pr"].count(r.fakes["pr"].pubs, "T-4"); n != 0 || r.count("pr", "T-4", event.KindIntent, event.StepPublish) != 0 {
 		t.Errorf("the old candidate was published (%d)", n)
 	}
 }
@@ -291,7 +294,7 @@ func TestLeadSendbackRefusals(t *testing.T) {
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's first gate: %s", task)
 	}
-	_, err := r.a.verdict(context.Background(), MethodSendback, Call{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead",
+	_, err := r.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead",
 		CallID: "g1", Task: "T-1", Note: "why"})
 	if err == nil || !strings.Contains(err.Error(), "retry when it settles") {
 		t.Errorf("sendback while the gate runs: %v", err)
@@ -308,12 +311,12 @@ func TestLeadSendbackRefusals(t *testing.T) {
 		p := a.p
 		return p.folded.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
 	})
-	_, err = r.app("pr").verdict(context.Background(), MethodSendback, Call{Root: r.roots["pr"], Agent: "pr-o-04",
+	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-o-04",
 		Role: "worker", CallID: "w1", Task: "T-4", Note: "why"})
 	if err == nil || !strings.Contains(err.Error(), "the integrator, the lead or the owner sends a task back") {
 		t.Errorf("sendback by a worker: %v", err)
 	}
-	_, err = r.app("pr").verdict(context.Background(), MethodSendback, Call{Root: r.roots["pr"], Agent: "pr-lead", Role: "lead",
+	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-lead", Role: "lead",
 		CallID: "w2", Task: "T-4", Note: " "})
 	if err == nil || err.Error() != "sendback: say why" {
 		t.Errorf("sendback without a why: %v", err)

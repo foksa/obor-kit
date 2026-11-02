@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"obor/internal/app/event"
 )
 
 // Prompt delivery (docs/state-model.md "Prompts"). Every prompt of the loop (the worker's work, work.N and fix jobs,
@@ -37,7 +38,7 @@ type promptData struct {
 // stays pending and a later pass sends it (RV-53 #3).
 //
 // what names the prompt in a counted failure ("work job T-1/1/work not sent to pj-o-01").
-func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key, job string, data promptData,
+func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, job string, data promptData,
 	text, what string) bool {
 	data.Job = job
 	a.mu.Lock()
@@ -54,7 +55,7 @@ func (a *App) send(ctx context.Context, p *proj, fx *Loop, mt mtask, key Key, jo
 		post = "" // no inbox record: typed (see above)
 	}
 	began := false
-	_, err := a.do(ctx, p, Intent{Key: key, Class: ClassPrompt, Data: data}, func(ctx context.Context) (any, error) {
+	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: data}, func(ctx context.Context) (any, error) {
 		var err error
 		began, err = fx.transmit(ctx, post, target, jobLine(job, text), true)
 		return sentResult(began, err)

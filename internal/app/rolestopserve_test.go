@@ -1,12 +1,11 @@
 package app_test
 
 import (
+	"obor/internal/app/event"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"obor/internal/app"
 )
 
 // T-672: a stopped integrator with no open job is the normal state, also across a serve restart: no timer, no
@@ -38,7 +37,7 @@ func TestRoleStopIntegratorAcrossRestart(t *testing.T) {
 		t.Errorf("fact in force after the restart: %s %s", f.Task, f)
 	}
 	for _, s := range r.steps() {
-		if strings.Contains(s, app.StepLost) || strings.Contains(s, app.StepNeedsYou) {
+		if strings.Contains(s, event.StepLost) || strings.Contains(s, event.StepNeedsYou) {
 			t.Errorf("record %q after the stop", s)
 		}
 	}

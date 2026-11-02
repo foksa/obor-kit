@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"obor/internal/app/event"
 	"slices"
 
 	"obor/internal/store"
@@ -24,19 +25,19 @@ type laneRows struct {
 }
 
 // foldLanes folds r into the projection (after foldLoop folded it).
-func (p *proj) foldLanes(r Record) {
+func (p *proj) foldLanes(r event.Record) {
 	if p.folded.lr.rows == nil {
 		p.folded.lr.rows, p.folded.lr.submitted = map[string]store.LaneRow{}, map[string]int64{}
 	}
 	switch {
-	case r.Kind == KindFact && r.Step == StepDropped:
+	case r.Kind == event.KindFact && r.Step == event.StepDropped:
 		for lane, row := range p.folded.lr.rows {
 			if row.Task == r.Task {
 				delete(p.folded.lr.rows, lane)
 			}
 		}
-	case r.Kind == KindFact && r.Step == StepSubmitted:
-		p.folded.lr.submitted[r.Task] = recordTime(r).Unix()
+	case r.Kind == event.KindFact && r.Step == event.StepSubmitted:
+		p.folded.lr.submitted[r.Task] = event.RecordTime(r).Unix()
 		var d submitData
 		_ = json.Unmarshal(r.Data, &d)
 		mt := p.folded.loop[r.Task]
@@ -50,10 +51,10 @@ func (p *proj) foldLanes(r Record) {
 			}
 		}
 		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
-	case r.Kind == KindResult:
-		step, _ := StepN(r.Step)
+	case r.Kind == event.KindResult:
+		step, _ := event.StepN(r.Step)
 		mt := p.folded.loop[r.Task]
-		if step != StepPrepare || mt == nil || mt.attempt != r.Attempt || mt.state != stDispatched {
+		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || mt.state != stDispatched {
 			return
 		}
 		var d prepareOut

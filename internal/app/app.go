@@ -11,6 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"sync"
 	"time"
 
@@ -64,8 +66,8 @@ func notifyWait(tries int) time.Duration {
 // App is `obor serve`'s state. Make it with New, run it with Serve.
 type App struct {
 	opt   Options
-	panes Panes
-	lanes Lanes
+	panes port.Panes
+	lanes port.Lanes
 
 	// mu guards the state below. Serve's goroutine changes it; it decides under mu and asks herdr, git and the lane
 	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held).
@@ -98,15 +100,15 @@ type App struct {
 // replay of the event log alone rebuilds (written by foldRecord's folds), and the live state below it.
 type proj struct {
 	root, name string
-	log        *Log
+	log        *event.Log
 	folded     folded
 	// The live state (T-615): none of it is rebuilt by a replay; a restart starts it afresh (docs/state-model.md "Not
 	// recorded"), or it is the project's config, a read of the lanes or herdr, or a claim held while a step runs. A fold
 	// may reset a live entry its record ends (resume and clear a task's retries, answered its stall timer, a dispatch
 	// or a wait its refused dispatch line).
-	lanes      []Lane               // as last read
+	lanes      []port.Lane          // as last read
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
-	retry      map[Key]retry        // a failed notification: when to try it again, and how often it failed
+	retry      map[event.Key]retry  // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
@@ -127,18 +129,18 @@ type proj struct {
 	waitLine    map[string]waitRefusal
 	// unwritten: an effect that ran in this process and whose result's write failed, the result to write instead of
 	// running it again (App.do).
-	unwritten map[Key]json.RawMessage
+	unwritten map[event.Key]json.RawMessage
 	// badLoop, badLanes: the merge loop's adapters / the lanes read failed in their last pass (loopStatus).
 	badLoop, badLanes bool
 	// scratch is the token of serve's worktree (capacity 1): a gate, a publish or a resolved verdict's check holds it
 	// while it runs. running is the key of the merge loop's gate or publish running in its own goroutine (Task "":
 	// none; under mu); runCmd the command its gate runs now (GateInput.Command; "": none started yet).
 	scratch chan struct{}
-	running Key
+	running event.Key
 	runCmd  string
 	// exec: the effects running now, each with when its start began (App.do). obor status' running line lists the
 	// command steps among them; an open intent not here is pending (T-662). Under mu.
-	exec map[Key]time.Time
+	exec map[event.Key]time.Time
 	// restarting: since when serve ends itself on the new build after a green after_merge (T-652): a status request
 	// answered meanwhile shows "restarting serve" (T-657; zero: no self-restart pending).
 	restarting time.Time
@@ -163,11 +165,11 @@ type proj struct {
 // lining). The identity table (registry), the lines (outbox) and the nightly check (nightlyState) hold folded parts of
 // their own beside their live state.
 type folded struct {
-	active map[string][]Record  // task → its watchdog facts since the last resumed
-	woke   map[string]time.Time // task → its stopped worker's first wake since the last resumed (stopwake.go)
-	calls  map[string]string    // answered verdict calls: the stored reply by <method>.<call id>
-	loop   map[string]*mtask    // the merge loop's tasks, by task
-	pause  *Pause               // the project's last pause fact (pause.go; nil: none or cleared)
+	active map[string][]event.Record // task → its watchdog facts since the last resumed
+	woke   map[string]time.Time      // task → its stopped worker's first wake since the last resumed (stopwake.go)
+	calls  map[string]string         // answered verdict calls: the stored reply by <method>.<call id>
+	loop   map[string]*mtask         // the merge loop's tasks, by task
+	pause  *event.Pause              // the project's last pause fact (pause.go; nil: none or cleared)
 	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names and the fact's seq (0: not delivered).
 	delivered map[string]int64
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
@@ -184,7 +186,7 @@ type folded struct {
 
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
-	return folded{active: map[string][]Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
+	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
 		loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{},
 		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
@@ -198,8 +200,8 @@ type retry struct {
 // watch is what the watchdogs know of one open task beyond its facts. A new task, a replay and a new lane start one
 // afresh: no timer inherits time from before it.
 type watch struct {
-	lane       Lane
-	agent      Pane      // the last pane an agent ran in while the lane held the task (ID "": none yet)
+	lane       port.Lane
+	agent      port.Pane // the last pane an agent ran in while the lane held the task (ID "": none yet)
 	lost       time.Time // since when the lane's panes run no agent (zero: one runs)
 	quietTimer           // the stall timer's quiet time
 	blocked    time.Time // since when the agent is seen blocked for the task (zero: it is not)
@@ -213,6 +215,6 @@ type quietTimer struct {
 
 // seen is one observed pane.
 type seen struct {
-	pane  Pane
+	pane  port.Pane
 	since time.Time // its status and agent since
 }

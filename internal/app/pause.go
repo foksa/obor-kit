@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"time"
 )
 
@@ -13,24 +15,24 @@ import (
 // merges finish. `obor pause --clear` records fact unpaused; a pause past its until ends by itself.
 
 // foldPause folds r, a record of the project's pause: the pause in force, and the reply of its call.
-func (p *proj) foldPause(r Record) {
-	if r.Task != PauseTask || r.Kind != KindFact || r.Step != StepPaused && r.Step != StepUnpaused {
+func (p *proj) foldPause(r event.Record) {
+	if r.Task != event.PauseTask || r.Kind != event.KindFact || r.Step != event.StepPaused && r.Step != event.StepUnpaused {
 		return
 	}
-	var d Pause
+	var d event.Pause
 	_ = json.Unmarshal(r.Data, &d)
 	if d.Call != "" {
-		p.folded.calls[verdictStep(MethodPause, d.Call)] = d.Reply
+		p.folded.calls[verdictStep(wire.MethodPause, d.Call)] = d.Reply
 	}
 	p.folded.pause = nil
-	if r.Step == StepPaused {
+	if r.Step == event.StepPaused {
 		d.Since = r.TS
 		p.folded.pause = &d
 	}
 }
 
 // paused is the pause in force in p at now (under mu; nil: none).
-func (p *proj) paused(now time.Time) *Pause {
+func (p *proj) paused(now time.Time) *event.Pause {
 	if p.folded.pause == nil || p.folded.pause.Until != 0 && now.Unix() >= p.folded.pause.Until {
 		return nil
 	}
@@ -38,7 +40,7 @@ func (p *proj) paused(now time.Time) *Pause {
 }
 
 // pausedErr is why a dispatch is refused while ps holds.
-func pausedErr(task string, ps *Pause) error {
+func pausedErr(task string, ps *event.Pause) error {
 	return fmt.Errorf("dispatch %s: paused: %s (until %s; obor pause --clear ends it)", task, ps.Why, untilText(ps.Until))
 }
 
@@ -53,17 +55,17 @@ func untilText(until int64) string {
 // pauseCall answers the socket's pause request (the lead or the owner): a call id is required and a repeated one gets
 // the stored reply. Pause: PAUSED until HH:MM|cleared (a new pause replaces the one in force); clear: PAUSE CLEARED,
 // or NOT PAUSED when none holds (nothing recorded).
-func (a *App) pauseCall(c Call) (string, error) {
+func (a *App) pauseCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
-		return "", errors.New(MethodPause + ": a call id is required")
+		return "", errors.New(wire.MethodPause + ": a call id is required")
 	}
 	a.verdicts.Lock() // as dispatchCall's admission: an admission in flight ends before PAUSED, later ones see it
 	defer a.verdicts.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	key := verdictStep(MethodPause, c.CallID)
+	key := verdictStep(wire.MethodPause, c.CallID)
 	reply, stored := "", false
-	var held *Pause
+	var held *event.Pause
 	if p != nil {
 		reply, stored = p.folded.calls[key]
 		held = p.paused(a.opt.Now())
@@ -71,7 +73,7 @@ func (a *App) pauseCall(c Call) (string, error) {
 	a.mu.Unlock()
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("%s: no served project at %s", MethodPause, c.Root)
+		return "", fmt.Errorf("%s: no served project at %s", wire.MethodPause, c.Root)
 	case stored:
 		return reply, nil
 	case c.Role != "" && c.Role != "lead":
@@ -83,15 +85,15 @@ func (a *App) pauseCall(c Call) (string, error) {
 	case !c.Clear && c.Until != 0 && c.Until <= a.opt.Now().Unix():
 		return "", errors.New("pause: its end is not ahead")
 	}
-	d := Pause{Why: c.Note, Until: c.Until, Caller: c.Agent, Call: c.CallID, Reply: "PAUSED until " + untilText(c.Until)}
+	d := event.Pause{Why: c.Note, Until: c.Until, Caller: c.Agent, Call: c.CallID, Reply: "PAUSED until " + untilText(c.Until)}
 	if d.Caller == "" {
 		d.Caller = "owner"
 	}
-	step := StepPaused
+	step := event.StepPaused
 	if c.Clear {
-		step, d.Why, d.Until, d.Reply = StepUnpaused, "", 0, "PAUSE CLEARED"
+		step, d.Why, d.Until, d.Reply = event.StepUnpaused, "", 0, "PAUSE CLEARED"
 	}
-	if !a.record(p, Record{Task: PauseTask, Step: step, Kind: KindFact}, d) {
+	if !a.record(p, event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("pause: the event log of %s refused it", p.name)
 	}
 	if c.Clear {

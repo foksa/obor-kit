@@ -6,6 +6,7 @@ package app
 
 import (
 	"fmt"
+	"obor/internal/app/port"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -27,7 +28,7 @@ const (
 // the proof that holds it, the panes that claim it (Ambiguous, sorted), or why there is none (Unavailable).
 type Where struct {
 	State  State
-	Pane   Pane
+	Pane   port.Pane
 	Source string
 	Panes  []string
 	Why    string
@@ -101,7 +102,7 @@ type owner struct {
 }
 
 // termOf is pane's key in the table: herdr's terminal id (kept across pane.move), else its pane id.
-func termOf(pane Pane) string {
+func termOf(pane port.Pane) string {
 	if pane.Terminal != "" {
 		return pane.Terminal
 	}
@@ -129,14 +130,14 @@ func (a *App) whereIs(p *proj, agent string) Where {
 }
 
 // whoIs is the agent pane runs by the table (under mu): the only pane → agent lookup.
-func (r *registry) whoIs(pane Pane) (string, bool) {
+func (r *registry) whoIs(pane port.Pane) (string, bool) {
 	ow, ok := r.owners[termOf(pane)]
 	return ow.agent, ok
 }
 
 // shownAs is the name obor status and the watchdog facts give pane: its agent, else its label (" (not identified)"
 // when two panes claim that agent), for a pane no proof holds (under mu).
-func (a *App) shownAs(p *proj, pane Pane) string {
+func (a *App) shownAs(p *proj, pane port.Pane) string {
 	if agent, ok := p.reg.whoIs(pane); ok {
 		return agent
 	}
@@ -190,7 +191,7 @@ func (a *App) why(p *proj, agent string) string {
 // claim is one proof that agent runs in pane (terminal key term).
 type claim struct {
 	agent, term, src string
-	pane             Pane
+	pane             port.Pane
 }
 
 // reconcile rebuilds p's table from the proofs that hold now (under mu): every candidate agent × agent pane of p, each
@@ -200,7 +201,7 @@ func (a *App) reconcile(p *proj) {
 	if !a.connected {
 		return
 	}
-	var mine []Pane
+	var mine []port.Pane
 	for _, o := range a.obs {
 		if o.pane.Agent != "" && a.projectOf(o.pane) == p {
 			mine = append(mine, o.pane)
@@ -350,7 +351,7 @@ func (a *App) recordedSid(p *proj, agent string) string {
 // crossCheck logs, once per value, that herdr reports another session than agent's recorded sid for pane, the pane
 // agent's start or label names (under mu; log takes the line): herdr's agent_session is a cross-check only (T-577),
 // never adopted. A start row of an agent the config does not name (named false) is no cross-check: it is being retired.
-func (r *registry) crossCheck(agent, sid string, pane Pane, named bool, log func(string)) {
+func (r *registry) crossCheck(agent, sid string, pane port.Pane, named bool, log func(string)) {
 	row, started := r.start(agent)
 	ours := pane.Label == agent || named && started && (row.Terminal != "" && row.Terminal == pane.Terminal || row.Pane == pane.ID)
 	if sid == "" || pane.Session == "" || !ours || sameSession(pane.Session, sid) || r.herdrSession[agent] == pane.Session {
@@ -363,7 +364,7 @@ func (r *registry) crossCheck(agent, sid string, pane Pane, named bool, log func
 
 // proof is the strongest proof that agent runs in pane ("": none; under mu); sid is agent's recorded session; named is
 // whether the config names agent: a start row or a recorded session of an agent it does not name is no proof.
-func (r *registry) proof(agent, sid string, pane Pane, named bool) string {
+func (r *registry) proof(agent, sid string, pane port.Pane, named bool) string {
 	row, started := r.start(agent)
 	switch {
 	case named && (sameSession(pane.Session, sid) || started && sameSession(pane.Session, row.Session)):
@@ -379,7 +380,7 @@ func (r *registry) proof(agent, sid string, pane Pane, named bool) string {
 // candidates is the agents a pane of p may run, sorted: its roles, its lanes' and loop's agents, the agents serve
 // started or has lines for, and the labels of mine (so a hand-started pane is named). The start row of an agent the
 // config does not name is no candidate (named): it gives no proof.
-func (a *App) candidates(p *proj, mine []Pane, named func(string) bool) []string {
+func (a *App) candidates(p *proj, mine []port.Pane, named func(string) bool) []string {
 	set := map[string]bool{p.out.lead(): true, p.integrator: true}
 	for _, l := range p.lanes {
 		set[l.Agent] = true

@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,10 +19,12 @@ import (
 
 type staleFx struct{}
 
-func (staleFx) Check(context.Context, string, string) (string, error)   { return "", nil }
-func (staleFx) Target(context.Context, string) (string, bool, error)    { return "base", false, nil }
-func (staleFx) Prepare(context.Context, PrepareInput) (Prepared, error) { return Prepared{}, nil }
-func (staleFx) Free(context.Context, FreeInput) (string, error)         { return "free", nil }
+func (staleFx) Check(context.Context, string, string) (string, error) { return "", nil }
+func (staleFx) Target(context.Context, string) (string, bool, error)  { return "base", false, nil }
+func (staleFx) Prepare(context.Context, port.PrepareInput) (port.Prepared, error) {
+	return port.Prepared{}, nil
+}
+func (staleFx) Free(context.Context, port.FreeInput) (string, error) { return "free", nil }
 
 // newStaleRig is pj with the lane types sonnet (S-01) and deepseek (D-01), both working on other tasks, specs T-1..T-3
 // of level medium (sonnet, deepseek), dispatching on.
@@ -27,7 +32,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor/config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}},`+
 		`"lane_types":{"sonnet":{"kind":"claude"},"deepseek":{"kind":"claude"}},"lanes":{"S-01":"sonnet","D-01":"deepseek"}}`)
-	h.lanes.lanes = []Lane{{Name: "S-01", Dir: h.lane("S-01"), Type: "sonnet", State: "working", Task: "T-9"},
+	h.lanes.lanes = []port.Lane{{Name: "S-01", Dir: h.lane("S-01"), Type: "sonnet", State: "working", Task: "T-9"},
 		{Name: "D-01", Dir: h.lane("D-01"), Type: "deepseek", State: "working", Task: "T-8"}}
 	fx := &Loop{Lane: staleFx{}, Specs: staleFx{}}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
@@ -42,7 +47,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 }
 
 // waitCall is the lead's dispatch of T-1 that must wait.
-func (h *harness) waitCall(c Call) {
+func (h *harness) waitCall(c wire.Call) {
 	h.t.Helper()
 	c.Root, c.Task, c.Role = h.root, "T-1", "lead"
 	if reply, err := h.a.dispatchCall(context.Background(), c); err != nil || !strings.HasPrefix(reply, "WAITING") {
@@ -67,7 +72,7 @@ func (h *harness) freeLanes() {
 // fact records a fact of task (folded).
 func (h *harness) fact(task, step string, data any) {
 	h.t.Helper()
-	if !h.a.record(h.a.p, Record{Task: task, Attempt: 1, Step: step, Kind: KindFact}, data) {
+	if !h.a.record(h.a.p, event.Record{Task: task, Attempt: 1, Step: step, Kind: event.KindFact}, data) {
 		h.t.Fatalf("fact %s of %s refused", step, task)
 	}
 }
@@ -82,12 +87,12 @@ func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(Call{CallID: "d1"}) // level medium: waits for a sonnet or deepseek lane
+	h.waitCall(wire.Call{CallID: "d1"}) // level medium: waits for a sonnet or deepseek lane
 	stale := h.selected()
 	if stale == nil {
 		t.Fatal("no step selected for d1")
 	}
-	h.waitCall(Call{CallID: "d2", Types: []string{"deepseek"}, After: []string{"T-2"}})
+	h.waitCall(wire.Call{CallID: "d2", Types: []string{"deepseek"}, After: []string{"T-2"}})
 	if m := h.t1(); m.disp.Call != "d2" || m.attempt != 1 {
 		t.Fatalf("replacement not in force: %+v", m.disp)
 	}
@@ -95,14 +100,14 @@ func TestWaitStaleSelectionDispatchesNothing(t *testing.T) {
 	if stale(context.Background(), fx) {
 		t.Error("the stale step reported progress")
 	}
-	if m := h.t1(); m.state != stWaiting || m.disp.Call != "d2" || h.count(KindFact, StepDispatched) != 0 {
+	if m := h.t1(); m.state != stWaiting || m.disp.Call != "d2" || h.count(event.KindFact, event.StepDispatched) != 0 {
 		t.Fatalf("the stale step dispatched: state %s call %s lane %s", m.state, m.disp.Call, m.lane)
 	}
-	if s := h.selected(); s != nil && s(context.Background(), fx) || h.count(KindFact, StepDispatched) != 0 {
+	if s := h.selected(); s != nil && s(context.Background(), fx) || h.count(event.KindFact, event.StepDispatched) != 0 {
 		t.Fatal("d2 dispatched before T-2 merged")
 	}
-	h.fact("T-2", StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then merged
-	h.fact("T-2", StepMerged, mergedData{Outside: true})
+	h.fact("T-2", event.StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then merged
+	h.fact("T-2", event.StepMerged, event.MergedData{Outside: true})
 	s := h.selected()
 	if s == nil || !s(context.Background(), fx) {
 		t.Fatal("d2 did not dispatch once T-2 merged")
@@ -118,18 +123,18 @@ func TestWaitStaleDependencyFailedRecordsNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(Call{CallID: "d1", After: []string{"T-2"}})
-	h.fact("T-2", StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then dropped
-	h.fact("T-2", StepDropped, FactData{Reason: "gone"})
+	h.waitCall(wire.Call{CallID: "d1", After: []string{"T-2"}})
+	h.fact("T-2", event.StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then dropped
+	h.fact("T-2", event.StepDropped, event.FactData{Reason: "gone"})
 	stale := h.selected() // needs-you{after: T-2 dropped}
 	if stale == nil {
 		t.Fatal("no step selected for d1 with T-2 dropped")
 	}
-	h.waitCall(Call{CallID: "d2", After: []string{"T-3"}})
+	h.waitCall(wire.Call{CallID: "d2", After: []string{"T-3"}})
 	if stale(context.Background(), fx) {
 		t.Error("the stale step reported progress")
 	}
-	if n := h.count(KindFact, StepNeedsYou); n != 0 {
+	if n := h.count(event.KindFact, event.StepNeedsYou); n != 0 {
 		t.Errorf("the stale step recorded %d needs-you", n)
 	}
 	if m := h.t1(); m.state != stWaiting || m.disp.Call != "d2" {
@@ -141,14 +146,14 @@ func TestWaitStaleRefusalRecordsNothing(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(Call{CallID: "d1", Lane: "S-01", After: []string{"T-2"}})
-	h.fact("T-2", StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then merged
-	h.fact("T-2", StepMerged, mergedData{Outside: true})
+	h.waitCall(wire.Call{CallID: "d1", Lane: "S-01", After: []string{"T-2"}})
+	h.fact("T-2", event.StepSubmitted, map[string]string{"lane": "O-09"}) // T-2 in the loop, then merged
+	h.fact("T-2", event.StepMerged, event.MergedData{Outside: true})
 	stale := h.selected() // waitDispatch: S-01 is working on T-9
 	if stale == nil {
 		t.Fatal("no step selected for d1 with T-2 merged")
 	}
-	h.waitCall(Call{CallID: "d2", After: []string{"T-3"}})
+	h.waitCall(wire.Call{CallID: "d2", After: []string{"T-3"}})
 	// The refusal d1 would meet has held for over an hour: a current step escalates it to needs-you.
 	held := waitRefusal{line: "dispatch T-1: lane S-01 is working on T-9", since: h.now.Add(-2 * time.Hour)}
 	h.a.mu.Lock()
@@ -160,7 +165,7 @@ func TestWaitStaleRefusalRecordsNothing(t *testing.T) {
 	h.a.mu.Lock()
 	w, ok := h.a.p.waitLine["T-1"]
 	h.a.mu.Unlock()
-	if n := h.count(KindFact, StepNeedsYou); n != 0 || !ok || w != held {
+	if n := h.count(event.KindFact, event.StepNeedsYou); n != 0 || !ok || w != held {
 		t.Errorf("the stale step's bookkeeping: needs-you %d, refusal %+v (%v); want none, %+v kept", n, w, ok, held)
 	}
 	if m := h.t1(); m.state != stWaiting || m.disp.Call != "d2" {
@@ -172,7 +177,7 @@ func TestWaitSelectionNotReplacedDispatches(t *testing.T) {
 	t.Parallel()
 	h, fx := newStaleRig(t)
 	defer h.a.closeLog()
-	h.waitCall(Call{CallID: "d1"})
+	h.waitCall(wire.Call{CallID: "d1"})
 	s := h.selected()
 	if s == nil {
 		t.Fatal("no step selected for d1")

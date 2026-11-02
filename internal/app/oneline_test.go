@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"obor/internal/app/port"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -71,7 +72,7 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 
 // startWithAgents starts the app as start does, with agents as its loop's Agents: a real launcher, so the start's
 // args reach the fake herdr (T-444).
-func (r *loopRig) startWithAgents(agents app.Agents) {
+func (r *loopRig) startWithAgents(agents port.Agents) {
 	r.t.Helper()
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
 	r.out = &syncBuf{}

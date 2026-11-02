@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"io"
+	"obor/internal/app/event"
 	"sync"
 	"testing"
 	"time"
@@ -15,11 +16,11 @@ import (
 func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 	t.Parallel()
 	root := logRoot(t)
-	db, err := store.OpenRW(DBFile(root))
+	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	log, _, err := OpenLog(db)
+	log, _, err := event.OpenLog(db)
 	if err != nil {
 		db.Close()
 		t.Fatal(err)
@@ -43,18 +44,18 @@ func TestLogWorkedTwoPassesAtOnceRecordOneFact(t *testing.T) {
 	}
 	db.Close()
 
-	db, err = store.OpenRW(DBFile(root))
+	db, err = store.OpenRW(event.DBFile(root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, recs, err := OpenLog(db)
+	_, recs, err := event.OpenLog(db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	per := map[int64]int{}
 	for _, r := range recs {
-		if r.Task == MsgTask && r.Step == StepWorked {
+		if r.Task == event.MsgTask && r.Step == event.StepWorked {
 			var d workedData
 			_ = json.Unmarshal(r.Data, &d)
 			per[d.Brief]++

@@ -3,6 +3,8 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +119,7 @@ func (r *loopRig) candidatePatch() string {
 	r.t.Helper()
 	var patch string
 	for _, rec := range r.records() {
-		if rec.Kind == app.KindResult && strings.HasPrefix(rec.Step, "gate") {
+		if rec.Kind == event.KindResult && strings.HasPrefix(rec.Step, "gate") {
 			var g struct{ Candidate struct{ Patch string } }
 			_ = json.Unmarshal(rec.Data, &g)
 			patch = g.Candidate.Patch
@@ -146,7 +148,7 @@ func (r *loopRig) waitPrefix(s string) {
 
 // resume is the lead's obor resume of T-1 (to "": the cause's default).
 func (r *loopRig) resume(callID, to string) (string, error) {
-	return app.Verdict(context.Background(), r.sock, app.MethodResume, app.Call{Root: r.p.Root, Agent: "pj-lead",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: "lead", CallID: callID, Task: "T-1", To: to})
 }
 
@@ -289,9 +291,9 @@ func TestJobStalled(t *testing.T) {
 			r.jobPrompts("T-1/1/review") != 1 || r.jobPrompts("T-1/1/review.2") != 1 {
 			t.Errorf("starts %d: want one start and one re-send under review.2: %q", r.starts.Load(), r.steps())
 		}
-		stale := app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
+		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
 			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodAccept, stale); err == nil ||
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
 			!strings.Contains(err.Error(), "stale job T-1/1/review (T-1's job is T-1/1/review.2)") {
 			t.Errorf("accept of the lost job: %v", err)
 		}
@@ -320,7 +322,7 @@ func TestHoldAndResume(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
 		hold := func(agent, role, callID, note string) (string, error) {
-			return app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: agent,
+			return wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: agent,
 				Role: role, CallID: callID, Task: "T-1", Note: note})
 		}
 		if _, err := hold("pj-o1", "worker", "h0", "why"); err == nil ||
@@ -348,8 +350,8 @@ func TestHoldAndResume(t *testing.T) {
 			t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
 		}
 
-		worker := app.Call{Root: r.p.Root, Agent: "pj-o1", Role: "worker", CallID: "r0", Task: "T-1"}
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodResume, worker); err == nil ||
+		worker := wire.Call{Root: r.p.Root, Agent: "pj-o1", Role: "worker", CallID: "r0", Task: "T-1"}
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodResume, worker); err == nil ||
 			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-o1 (role worker)") {
 			t.Errorf("resume by the worker: %v", err)
 		}
@@ -360,9 +362,9 @@ func TestHoldAndResume(t *testing.T) {
 			t.Errorf("resume with no needs-you: %v", err)
 		}
 		job := r.waitJob("pj-int", "T-1/1/review.2")
-		stale := app.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
+		stale := wire.Call{Root: r.p.Root, Agent: "pj-int", Role: "integrator", CallID: "c1", Task: "T-1",
 			Job: "T-1/1/review", Patch: r.patch(job)}
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodAccept, stale); err == nil ||
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodAccept, stale); err == nil ||
 			!strings.Contains(err.Error(), "stale job T-1/1/review") {
 			t.Errorf("accept of the held job after the resume: %v", err)
 		}
@@ -375,7 +377,7 @@ func TestHoldAndResume(t *testing.T) {
 	t.Run("a verdict on the held job ends the hold", func(t *testing.T) {
 		t.Parallel()
 		r, job := reviewed(t)
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
 			Role: "integrator", CallID: "h1", Task: "T-1", Note: "asking the owner"}); err != nil {
 			t.Fatal(err)
 		}
@@ -398,11 +400,11 @@ func TestResumeRegate(t *testing.T) {
 		r := newLoopRig(t, "echo 1 pass")
 		r.work("feature.txt", "feature\n")
 		r.submit()
-		if err := app.WriteLog(r.p.Root, time.Now(), []app.Record{
-			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: app.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindIntent, Class: app.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: app.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: app.KindFact,
+		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
+			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
+			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: event.KindFact,
 				Data: []byte(`{"lane":"O-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
 		}...); err != nil {
 			t.Fatal(err)
@@ -450,9 +452,9 @@ func TestJobRecovery(t *testing.T) {
 	t.Parallel()
 	for _, before := range []bool{true, false} {
 		point := "result lost"
-		kind := app.KindResult
+		kind := event.KindResult
 		if before {
-			point, kind = "before the effect", app.KindIntent
+			point, kind = "before the effect", event.KindIntent
 		}
 		t.Run("retry/"+point, func(t *testing.T) {
 			t.Parallel()
@@ -462,7 +464,7 @@ func TestJobRecovery(t *testing.T) {
 			r.waitFor("the crash", crashed.Load)
 			r.stop()
 			if before {
-				r.appendIntent("retry.review", app.ClassPrompt)
+				r.appendIntent("retry.review", event.ClassPrompt)
 			}
 			sent := r.jobPrompts("T-1/1/review")
 			r.start()
@@ -483,8 +485,8 @@ func TestJobRecovery(t *testing.T) {
 			r.waitFor("the crash", crashed.Load)
 			r.stop()
 			if before { // the intent as the loop writes it: the patch the job's verdict must name
-				if err := app.WriteLog(r.p.Root, time.Now(), app.Record{Task: "T-1", Attempt: 1, Step: "review.2",
-					Kind: app.KindIntent, Class: app.ClassPrompt, Data: []byte(`{"patch":"` + r.patch(job) + `"}`)}); err != nil {
+				if err := app.WriteLog(r.p.Root, time.Now(), event.Record{Task: "T-1", Attempt: 1, Step: "review.2",
+					Kind: event.KindIntent, Class: event.ClassPrompt, Data: []byte(`{"patch":"` + r.patch(job) + `"}`)}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -509,11 +511,11 @@ func TestJobRecovery(t *testing.T) {
 	t.Run("unblocked refused", func(t *testing.T) {
 		t.Parallel()
 		r, _ := reviewed(t)
-		if _, err := app.Verdict(context.Background(), r.sock, app.MethodHold, app.Call{Root: r.p.Root, Agent: "pj-int",
+		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: "pj-int",
 			Role: "integrator", CallID: "h1", Task: "T-1", Note: "owner"}); err != nil {
 			t.Fatal(err)
 		}
-		crashed := r.crashAt(app.KindFact, "unblocked")
+		crashed := r.crashAt(event.KindFact, "unblocked")
 		if _, err := r.resume("r1", ""); err == nil {
 			t.Error("the resume whose fact was refused answered ok")
 		}

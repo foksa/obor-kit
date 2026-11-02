@@ -3,10 +3,10 @@ package app_test
 import (
 	"context"
 	"errors"
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"strings"
 	"testing"
-
-	"obor/internal/app"
 )
 
 // T-660: a failure or needs-you an error would record is not recorded when the error is serve's own cancellation (its
@@ -17,7 +17,7 @@ import (
 func (r *loopRig) msgFailed() int {
 	n := 0
 	for _, rec := range r.records() {
-		if rec.Task == app.MsgTask && rec.Kind == app.KindFact && rec.Step == app.StepFailed {
+		if rec.Task == event.MsgTask && rec.Kind == event.KindFact && rec.Step == event.StepFailed {
 			n++
 		}
 	}
@@ -33,7 +33,7 @@ func TestShutdownDeliveryNotRecorded(t *testing.T) {
 	r.inbox.cut(true) // the next post alone waits for serve's ctx and fails as a cancellation
 	r.start()
 	line := sentLine("other", "hi")
-	if _, err := r.line(app.MethodSend, "s1", app.Call{Note: "hi", From: "other"}); err != nil {
+	if _, err := r.line(wire.MethodSend, "s1", wire.Call{Note: "hi", From: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	r.waitFor("the post tried", func() bool { return r.inbox.tries("pj-lead", line) == 1 })
