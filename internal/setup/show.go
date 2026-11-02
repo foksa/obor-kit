@@ -133,7 +133,7 @@ func (s *Setup) lanesOfType(ref string) string {
 	typ, _ := config.ParseTypeRef(ref)
 	var names []string
 	for _, l := range s.cfg.Lanes() {
-		if l.Type == typ {
+		if l.Type == typ || l.Type == "" { // an untyped pool lane runs any type (T-724)
 			names = append(names, l.Name)
 		}
 	}
@@ -144,7 +144,7 @@ func (s *Setup) lanesOfType(ref string) string {
 func (s *Setup) lanesOfTypes(types []string) string {
 	var names []string
 	for _, l := range s.cfg.Lanes() {
-		if hasType(types, l.Type) {
+		if l.Type == "" || hasType(types, l.Type) {
 			names = append(names, l.Name)
 		}
 	}

@@ -93,7 +93,7 @@ func (x *initFx) agents(t *testing.T) map[string]string {
 	return got
 }
 
-// One run sets the whole project up: config (name, prefix), O-01 opus and S-01 sonnet with worktrees, the lead and the
+// One run sets the whole project up: config (name, prefix), L-01 opus and L-02 sonnet with worktrees, the lead and the
 // integrator opus and (codex on PATH) the example's Codex reviewer, the plugin installed from the kit's marketplace,
 // obor.events linked, four agents in their tabs, serve installed; the summary says each step done, then next: obor
 // lead.
@@ -116,7 +116,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if cfg.Data.Name != "proj" || cfg.Data.Prefix != "proj" {
 		t.Errorf("name %q prefix %q", cfg.Data.Name, cfg.Data.Prefix)
 	}
-	for lane, typ := range map[string]string{"O-01": "opus", "S-01": "sonnet"} {
+	for lane, typ := range map[string]string{"L-01": "", "L-02": ""} { // untyped pool lanes (T-724)
 		if got := cfg.Data.Lanes.M[lane].Type; got != typ {
 			t.Errorf("lanes.%s = %q, want %s", lane, got, typ)
 		}
@@ -160,7 +160,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 		if p.Label != "" && p.Label != "proj-monitor" {
 			panes[p.Label] = p.ID + " " + p.Tab
 		}
-		if (p.Label == "proj-o-01" || p.Label == "proj-s-01") && (p.Name != "" || p.Kind != "") {
+		if (p.Label == "proj-l-01" || p.Label == "proj-l-02") && (p.Name != "" || p.Kind != "") {
 			t.Errorf("lane pane %s holds an agent: %+v", p.Label, p)
 		}
 		if (p.Label == "proj-int" || p.Label == "proj-rev") && (p.Name != "" || p.Kind != "") {
@@ -175,13 +175,13 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	}
 	has(t, out, "pane wn1:n4 labelled proj-int, no agent (started on first use)", "integrator line")
 	has(t, out, "labelled proj-rev, no agent (started on first use)", "reviewer line")
-	o, s := panes["proj-o-01"], panes["proj-s-01"]
+	o, s := panes["proj-l-01"], panes["proj-l-02"]
 	i, r := panes[cfg.AgentName("integrator", "")], panes[cfg.AgentName("reviewer", "")]
 	tab := func(v string) string { return append(strings.Fields(v), "", "")[1] }
 	// No pane of the project anywhere: one workspace of its own, wn1, made first (T-632).
 	if len(panes) != 4 || !strings.HasPrefix(o, "wn1:n") || !strings.HasPrefix(r, "wn1:n") || tab(s) != tab(o) ||
 		tab(i) != tab(o) || tab(r) == tab(o) {
-		t.Errorf("agents (O-01 in a new tab of the new workspace, S-01 and the integrator beside it, the reviewer in a "+
+		t.Errorf("agents (L-01 in a new tab of the new workspace, L-02 and the integrator beside it, the reviewer in a "+
 			"new tab): %v", panes)
 	}
 	if n := strings.Count(strings.Join(x.reqs(), "\n"), "workspace.create cwd="+x.Root+" focus=false label=proj"); n != 1 {
@@ -220,7 +220,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if x.serves != 1 {
 		t.Errorf("serve install called %d times", x.serves)
 	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "monitor", "serve"} {
+	for _, st := range []string{"project", "lanes", "plugin", "events", "L-01", "L-02", "integrator", "reviewer", "monitor", "serve"} {
 		if stateOf(out, st) != "done" {
 			t.Errorf("step %s: %q, want done\n%s", st, summary(out, st), out)
 		}
@@ -263,7 +263,7 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, lane := range []string{"O-01", "S-01"} {
+	for _, lane := range []string{"L-01", "L-02"} {
 		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
 			t.Errorf("no worktree for %s: %v", lane, err)
 		}
@@ -500,7 +500,7 @@ func TestOborInitRerunChangesNothing(t *testing.T) {
 			}
 		}
 	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "O-01", "S-01", "integrator", "reviewer", "monitor", "serve"} {
+	for _, st := range []string{"project", "lanes", "plugin", "events", "L-01", "L-02", "integrator", "reviewer", "monitor", "serve"} {
 		if stateOf(out, st) != "already" {
 			t.Errorf("rerun step %s: %q, want already\n%s", st, summary(out, st), out)
 		}
@@ -516,7 +516,7 @@ func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	x.init(t)
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"lanes", "O-01"}, "sonnet")
+	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"lanes", "L-01"}, "sonnet")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,10 +525,10 @@ func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
 	x.reset()
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
-	if err != nil || cfg.Data.Lanes.M["O-01"].Type != "sonnet" {
-		t.Fatalf("O-01 type after the rerun: %q (%v)", cfg.Data.Lanes.M["O-01"].Type, err)
+	if err != nil || cfg.Data.Lanes.M["L-01"].Type != "sonnet" {
+		t.Fatalf("L-01 type after the rerun: %q (%v)", cfg.Data.Lanes.M["L-01"].Type, err)
 	}
-	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "O-01 sonnet") {
+	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "L-01 sonnet") {
 		t.Errorf("lanes step %q", summary(out, "lanes"))
 	}
 	if got := x.agents(t); len(got) != len(agents) {
@@ -542,13 +542,13 @@ func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
 			t.Errorf("rerun sent %s", r)
 		}
 	}
-	x.Git(x.Root, "worktree", "remove", "--force", filepath.Join(cfg.LanesDir(), "O-01"))
+	x.Git(x.Root, "worktree", "remove", "--force", filepath.Join(cfg.LanesDir(), "L-01"))
 	out = x.init(t)
-	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "O-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
+	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "L-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
 		t.Errorf("worktree not recreated (%v), lanes %q", err, summary(out, "lanes"))
 	}
-	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.M["O-01"].Type != "sonnet" {
-		t.Errorf("recreated lane's type %q", cfg.Data.Lanes.M["O-01"].Type)
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.M["L-01"].Type != "sonnet" {
+		t.Errorf("recreated lane's type %q", cfg.Data.Lanes.M["L-01"].Type)
 	}
 }
 
@@ -562,15 +562,15 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 	}{
 		{"lane_setup failed last run: the rerun runs it", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_setup"}, "exit 3")
-			x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("O-01")+": exit 3", "obor-init")
-			for _, lane := range []string{"O-01", "S-01"} {
+			x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("L-01")+": exit 3", "obor-init")
+			for _, lane := range []string{"L-01", "L-02"} {
 				if x.Exists(".obor/state/lanes/" + lane + ".setup") {
 					t.Errorf("%s: a failed lane_setup left the done marker", lane)
 				}
 			}
 			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
 			out := x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if got, want := x.Read(x.LaneDir(lane)+"/setup-ran"), x.LaneDir(lane)+"\n"; got != want {
 					t.Errorf("%s: the rerun's lane_setup wrote %q, want %q", lane, got, want)
 				}
@@ -585,7 +585,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		{"lane_setup changed since it finished: the rerun runs it", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
 			x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
 					t.Fatalf("precondition: %s's lane_setup ran and left its marker", lane)
 				}
@@ -593,7 +593,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran-again")
 			out := x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(x.LaneDir(lane) + "/setup-ran-again") {
 					t.Errorf("%s: the rerun did not run the edited lane_setup", lane)
 				}
@@ -605,14 +605,14 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		{"lane_setup finished last run: the rerun skips it", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_setup"}, "pwd > setup-ran")
 			x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(".obor/state/lanes/" + lane + ".setup") {
 					t.Fatalf("precondition: %s's lane_setup ran and left its marker", lane)
 				}
 				os.Remove(filepath.Join(x.LaneDir(lane), "setup-ran"))
 			}
 			out := x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if x.Exists(x.LaneDir(lane) + "/setup-ran") {
 					t.Errorf("%s: the rerun ran lane_setup again", lane)
 				}
@@ -622,7 +622,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			}
 		}},
 		{"a lane dir that is no worktree of the repo: FAIL", func(t *testing.T, x *initFx) {
-			dir := x.LaneDir("O-01")
+			dir := x.LaneDir("L-01")
 			x.Git(x.Root, "worktree", "remove", "--force", dir)
 			os.MkdirAll(dir, 0o755)
 			x.Write(dir+"/keep", "a plain directory, not a worktree\n")
@@ -633,13 +633,13 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 		}},
 		{"lane_ready fails with no lane_setup to run: FAIL", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_ready"}, "false")
-			x.failing(t, "FAIL lane O-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
+			x.failing(t, "FAIL lane L-01: lane_ready fails (false) and commands.lane_setup is not set", "obor-init")
 		}},
 		{"lane_ready still fails after lane_setup: FAIL, never done", func(t *testing.T, x *initFx) {
 			x.editConfig(t, []string{"commands", "lane_ready"}, "echo not ready; exit 1")
 			x.editConfig(t, []string{"commands", "lane_setup"}, "true")
 			out, rc := x.run(t, "obor-init")
-			want := "FAIL lane O-01: lane_ready still fails after lane_setup (echo not ready; exit 1): not ready"
+			want := "FAIL lane L-01: lane_ready still fails after lane_setup (echo not ready; exit 1): not ready"
 			if rc != 1 || last(out) != want {
 				t.Fatalf("exit %d, last line %q, want %q\n%s", rc, last(out), want, out)
 			}
@@ -651,7 +651,7 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			x.editConfig(t, []string{"commands", "lane_ready"}, "test -f ready")
 			x.editConfig(t, []string{"commands", "lane_setup"}, "touch ready")
 			out := x.init(t)
-			for _, lane := range []string{"O-01", "S-01"} {
+			for _, lane := range []string{"L-01", "L-02"} {
 				if !x.Exists(x.LaneDir(lane) + "/ready") {
 					t.Errorf("%s: the rerun's lane_setup did not run", lane)
 				}
@@ -688,10 +688,10 @@ func TestLaneDoneChecksTheMarkersCommand(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := newFx(t, testkit.Set("commands.lane_setup", c.setup))
-			dir := x.Lane("O-01", "")
+			dir := x.Lane("L-01", "")
 			if c.marker != "" {
-				x.Write(laneSetupMarker(x.Root, "O-01"), c.marker+"\n")
-				if !x.Exists(laneSetupMarker(x.Root, "O-01")) {
+				x.Write(laneSetupMarker(x.Root, "L-01"), c.marker+"\n")
+				if !x.Exists(laneSetupMarker(x.Root, "L-01")) {
 					t.Fatal("precondition: the marker was written")
 				}
 			}
@@ -700,7 +700,7 @@ func TestLaneDoneChecksTheMarkersCommand(t *testing.T) {
 			if err := s.load(); err != nil {
 				t.Fatal(err)
 			}
-			done, err := s.laneDone(context.Background(), "O-01", dir)
+			done, err := s.laneDone(context.Background(), "L-01", dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -882,8 +882,8 @@ func TestOborInitStartsNoAgentSoNoPaneWaitsOnTheTrustDialog(t *testing.T) {
 	x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
 	out := x.init(t)
 	// T-708: init starts no agent, so no pane waits on a dialog and agent.start is never asked.
-	if stateOf(out, "O-01") != "done" || stateOf(out, "reviewer") != "done" {
-		t.Errorf("O-01 %q, reviewer %q", summary(out, "O-01"), summary(out, "reviewer"))
+	if stateOf(out, "L-01") != "done" || stateOf(out, "reviewer") != "done" {
+		t.Errorf("L-01 %q, reviewer %q", summary(out, "L-01"), summary(out, "reviewer"))
 	}
 	hasNot(t, out, "waiting on", "no trust dialog")
 	for _, q := range x.reqs() {
@@ -962,36 +962,36 @@ func TestDetectCommands(t *testing.T) {
 	}
 }
 
-// T-634: on a rerun O-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
-// tab for S-01, which goes to a new tab of the project's workspace; nothing is split.
+// T-634: on a rerun L-01's tab holds a pane with an unknown cwd (maybe another project's): init does not pass that
+// tab for L-02, which goes to a new tab of the project's workspace; nothing is split.
 func TestOborInitRerunPutsS01InANewTabBesideAMixedO01Tab(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	x.init(t)
-	o, s := x.paneOf("proj-o-01"), x.paneOf("proj-s-01")
+	o, s := x.paneOf("proj-l-01"), x.paneOf("proj-l-02")
 	if o == "" || s == "" {
-		t.Fatalf("precondition: O-01 %q and S-01 %q placed", o, s)
+		t.Fatalf("precondition: L-01 %q and L-02 %q placed", o, s)
 	}
 	otab, ows := x.h.Pane(o).Tab, x.h.Pane(o).Workspace
 	if x.h.Pane(s).Tab != otab || ows == "" {
-		t.Fatalf("precondition: S-01 beside O-01 in %s of a workspace (%q)", otab, ows)
+		t.Fatalf("precondition: L-02 beside L-01 in %s of a workspace (%q)", otab, ows)
 	}
 	x.h.Remove(s)
-	x.h.Tab(otab, 200, 50, ows+":zz") // a pane with an unknown cwd in O-01's tab
+	x.h.Tab(otab, 200, 50, ows+":zz") // a pane with an unknown cwd in L-01's tab
 	x.h.Pane(ows + ":zz").Workspace = ows
-	if x.h.Pane(ows+":zz").Cwd != "" || x.paneOf("proj-s-01") != "" {
-		t.Fatal("precondition: an unknown-cwd pane in O-01's tab, S-01 gone")
+	if x.h.Pane(ows+":zz").Cwd != "" || x.paneOf("proj-l-02") != "" {
+		t.Fatal("precondition: an unknown-cwd pane in L-01's tab, L-02 gone")
 	}
 	x.reset()
 	out := x.init(t)
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "the mixed tab is not split")
 	has(t, calls, "label=workers workspace_id="+ows, "a new tab in the project's workspace")
-	ns := x.paneOf("proj-s-01")
+	ns := x.paneOf("proj-l-02")
 	if ns == "" || x.h.Pane(ns).Tab == otab {
-		t.Errorf("S-01 in pane %q, want one in a new tab (not %s)", ns, otab)
+		t.Errorf("L-02 in pane %q, want one in a new tab (not %s)", ns, otab)
 	}
-	if stateOf(out, "S-01") != "done" || stateOf(out, "O-01") != "already" {
-		t.Errorf("O-01 %q, S-01 %q; want already, done", summary(out, "O-01"), summary(out, "S-01"))
+	if stateOf(out, "L-02") != "done" || stateOf(out, "L-01") != "already" {
+		t.Errorf("L-01 %q, L-02 %q; want already, done", summary(out, "L-01"), summary(out, "L-02"))
 	}
 }

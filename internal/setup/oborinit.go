@@ -20,7 +20,7 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
-//	lanes      O-01 opus, S-01 sonnet (setup lane); roles.lead, roles.integrator and roles.reviewer keep their type
+//	lanes      L-01 and L-02, untyped pool lanes (setup lane; a task's Type:/Difficulty: picks the model); roles.lead, roles.integrator and roles.reviewer keep their type
 //	           when its kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
 //	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
@@ -30,7 +30,7 @@ package setup
 //	           panes: an agent started without the plugin runs without obor's hooks and MCP tools.
 //	events     obor.events linked in herdr (setup herdr-plugin, no question); herdr's plugin list read once, and a
 //	           list error fails the step with herdr's error.
-//	panes      O-01 in a new tab "workers", S-01 and the integrator beside it (the integrator in the caller's tab when
+//	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
 //	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
 //	monitor    obor setup monitor: `obor monitor` in a "system" tab of the project's workspace, the pane labelled
@@ -182,27 +182,28 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	var made, had []string
-	for _, l := range [][2]string{{"O-01", "opus"}, {"S-01", "sonnet"}} {
-		// A configured lane keeps its type (the user may have changed it): only a missing lane gets the default.
-		if have := s.cfg.Data.Lanes.M[l[0]].Type; have != "" {
-			l[1] = have
+	// Two untyped pool lanes: a task's Type:/Difficulty: picks the model per dispatch (T-724).
+	for _, l := range [][2]string{{"L-01", ""}, {"L-02", ""}} {
+		// A configured lane keeps its type (the user may have pinned one): only a missing lane gets the default.
+		if s.cfg.HasLane(l[0]) {
+			l[1] = s.cfg.Data.Lanes.M[l[0]].Type
 			done, err := s.laneDone(ctx, l[0], filepath.Join(s.cfg.LanesDir(), l[0]))
 			if err != nil {
 				return err
 			}
 			if done {
-				had = append(had, l[0]+" "+l[1])
+				had = append(had, strings.TrimSpace(l[0]+" "+typeWord(l[1])))
 				continue
 			}
 		}
-		if err := s.lane(ctx, l[:]); err != nil {
+		if err := s.lane(ctx, laneArgs(l)); err != nil {
 			return err
 		}
 		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use (T-613).
 		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l[0])); !ok {
 			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l[0], c.Cmd, out)
 		}
-		made = append(made, l[0]+" "+l[1])
+		made = append(made, l[0]+" "+typeWord(l[1]))
 	}
 	if err := s.load(); err != nil {
 		return err
@@ -587,7 +588,7 @@ func exitText(err error) string {
 
 // --- panes ------------------------------------------------------------------------------------------------------
 
-// initPanes labels the panes of O-01, S-01, the integrator and the reviewer and starts no agent (T-708; each skipped when it runs): one summary line each
+// initPanes labels the panes of L-01, L-02, the integrator and the reviewer and starts no agent (T-708; each skipped when it runs): one summary line each
 // through add, and the agents a trust dialog holds ("name (pane id)").
 func (s *Setup) initPanes(ctx context.Context, add func(name, state, format string, a ...any)) ([]string, error) {
 	var waiting []string
@@ -616,7 +617,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	role := func(name string) func([]string) error {
 		return func(w []string) error { return s.role(ctx, append([]string{name}, w...)) }
 	}
-	if err := place("O-01", s.laneAgent("O-01"), lane("O-01"), []string{"--new-tab", "workers"}); err != nil {
+	if err := place("L-01", s.laneAgent("L-01"), lane("L-01"), []string{"--new-tab", "workers"}); err != nil {
 		return nil, err
 	}
 	tab := s.projectTabOf(ctx, s.placed)
@@ -624,7 +625,7 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 	if tab != "" {
 		beside = []string{"--tab", tab}
 	}
-	if err := place("S-01", s.laneAgent("S-01"), lane("S-01"), beside); err != nil {
+	if err := place("L-02", s.laneAgent("L-02"), lane("L-02"), beside); err != nil {
 		return nil, err
 	}
 	integrator := beside
@@ -649,7 +650,7 @@ func (s *Setup) laneAgent(lane string) string {
 }
 
 // projectTabOf is the tab of pane when it is the project's (projectTab: every pane there has a known cwd in the
-// project), "" otherwise or when unknown: init never derives a tab for S-01 and the integrator that holds a foreign
+// project), "" otherwise or when unknown: init never derives a tab for L-02 and the integrator that holds a foreign
 // or unknown-cwd pane, a new tab in the project's workspace then (T-634). A user's own --tab is not checked here.
 func (s *Setup) projectTabOf(ctx context.Context, pane string) string {
 	panes, err := s.H.Panes(ctx)
@@ -704,4 +705,12 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		changed = true
 	}
 	return doneOr(changed), pluginSettings + " is untracked: in lane_links, linked into the lanes (commit it to share it by git instead)", nil
+}
+
+// laneArgs is `obor setup lane`'s arguments for an init lane {name, type}: no type argument for an untyped one.
+func laneArgs(l [2]string) []string {
+	if l[1] == "" {
+		return l[:1]
+	}
+	return l[:]
 }

@@ -134,6 +134,11 @@ func TestValidate(t *testing.T) {
 		{name: "prefix 1x", edits: []edit{set("prefix", "1x")}, want: []string{`FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "1x"`}},
 		{name: "lane of an unknown type", edits: []edit{set("lanes", map[string]any{"O-01": "ghost"})},
 			want: []string{`FAIL .lanes["O-01"]: "ghost" is not a key of lane_types`}},
+		// T-724: "" is an untyped pool lane; a lane of any other unknown type still fails.
+		{name: "untyped lane", edits: []edit{set("lanes", map[string]any{"O-01": ""})}},
+		{name: "untyped lane with an agent name", edits: []edit{set("lanes", map[string]any{"O-01": map[string]any{"type": "", "agent": "pj-pool"}})}},
+		{name: "typed and untyped lanes", edits: []edit{set("lanes", map[string]any{"O-01": "", "O-02": "ghost"})},
+			want: []string{`FAIL .lanes["O-02"]: "ghost" is not a key of lane_types`}},
 		// T-538: a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
 		{name: "difficulty names known types", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus"}})}},
 		{name: "difficulty with an unknown type", edits: []edit{set("difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},

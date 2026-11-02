@@ -189,7 +189,7 @@ func TestOborInitAddsTheMissingSetupAnswer(t *testing.T) {
 	}
 }
 
-// T-647: obor init's output ends with the setup table, after the OK line.
+// T-647, T-724: obor init's output ends with the setup table, after the OK line.
 func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
@@ -197,9 +197,9 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 	tail := strings.Join([]string{
 		"",
 		"models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):",
-		"  hard   → opus:high (opus, effort high): O-01",
-		"  medium → sonnet (sonnet, effort medium): S-01 | deepseek (opencode-go/deepseek-v4.1-flash): no lane",
-		"  simple → deepseek (opencode-go/deepseek-v4.1-flash): no lane | sonnet (sonnet, effort medium): S-01 | haiku (haiku): no lane",
+		"  hard   → opus:high (opus, effort high): L-01, L-02",
+		"  medium → sonnet (sonnet, effort medium): L-01, L-02 | deepseek (opencode-go/deepseek-v4.1-flash): L-01, L-02",
+		"  simple → deepseek (opencode-go/deepseek-v4.1-flash): L-01, L-02 | sonnet (sonnet, effort medium): L-01, L-02 | haiku (haiku): L-01, L-02",
 		"roles: lead opus (opus, effort medium), integrator opus (opus, effort medium), reviewer sol (gpt-6.1-sol, effort high)",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",

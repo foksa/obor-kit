@@ -26,7 +26,7 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 	if !config.PluginEnabledIn(x.Root) {
 		t.Fatal("precondition: the plugin is enabled in the main checkout")
 	}
-	for _, lane := range []string{"O-01", "S-01"} {
+	for _, lane := range []string{"L-01", "L-02"} {
 		dir := filepath.Join(cfg.LanesDir(), lane)
 		if !config.PluginEnabledIn(dir) {
 			t.Errorf("lane %s's worktree does not see the enabled plugin", lane)
@@ -56,16 +56,16 @@ func TestOborInitRerunLinksIntoAnExistingLane(t *testing.T) {
 	x := newInitFx(t, false)
 	x.init(t)
 	cfg, _ := config.Load(x.Root)
-	link := filepath.Join(cfg.LanesDir(), "S-01", ".claude", "settings.json")
+	link := filepath.Join(cfg.LanesDir(), "L-02", ".claude", "settings.json")
 	if err := os.Remove(link); err != nil {
-		t.Fatalf("precondition: S-01 holds the link: %v", err)
+		t.Fatalf("precondition: L-02 holds the link: %v", err)
 	}
 	if config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))) {
-		t.Fatal("precondition: S-01 no longer sees the plugin")
+		t.Fatal("precondition: L-02 no longer sees the plugin")
 	}
 	out := x.init(t)
 	if !config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))) || stateOf(out, "plugin-links") != "done" {
-		t.Errorf("S-01 sees the plugin %v, plugin-links %q",
+		t.Errorf("L-02 sees the plugin %v, plugin-links %q",
 			config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))), summary(out, "plugin-links"))
 	}
 }
@@ -82,8 +82,8 @@ func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 	if len(cfg.Data.LaneLinks) != 0 || stateOf(out, "plugin-links") != "already" {
 		t.Errorf("lane_links %q, plugin-links %q; want none, already", cfg.Data.LaneLinks, summary(out, "plugin-links"))
 	}
-	if !config.PluginEnabledIn(filepath.Join(cfg.LanesDir(), "O-01")) {
-		t.Error("O-01 does not get the tracked file from git")
+	if !config.PluginEnabledIn(filepath.Join(cfg.LanesDir(), "L-01")) {
+		t.Error("L-01 does not get the tracked file from git")
 	}
 }
 
