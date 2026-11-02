@@ -9,9 +9,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - **Reviewer type**: `opus:high` since 2026-11-02 (Codex usage limit, resets 2026-11-04 08:00). After the reset set
   `roles.reviewer.type` to `terra:xhigh` (owner: wants to see how Terra's usage moves at xhigh) and report the Codex
   rate_limits from the newest rollout before and after its first review.
-- Next release (v0.19.1) notes to write: T-702 (test races), T-703 (opencode model via obor.js; state-dir workaround
-  gone), T-704 (researcher role, Sonnet, main checkout), T-705 (init: plugin in lanes, setup pane starts no agent,
-  opencode --model in init), T-706/T-707 (RV-83 fixes). Tell codex-image-tool's lead when installed.
+- 2026-11-02 evening: **v0.19.1 shipped** (8dd1eef7): obor stop/start, no agents at init/setup, init plugin in lanes,
+  opencode model via obor.js, researcher role, role write limits on shell+git (T-702..T-711; RV-83, RV-84 closed). Serves
+  restarted in obor-kit, axis-alies, axis-maps, codex-image-tool; their leads told. codex-img-viewer: the owner runs
+  `obor stop` there (their own session). Reviewer is terra:xhigh (Codex usage: review ~3 %, verify 2-4 % of the 5 h
+  window; the window is account-wide).
 - 2026-11-02 day: **v0.18.1 shipped** (Go 1.27.3, release notes; T-681..T-684). Since then merged and reviewed
   (RV-79..RV-81 closed, d7e54704): T-685/T-686 (gate 158 → 115 s), T-687, T-688 (monitor bad flag), T-689 (spec
   `Type:` line), T-695 (`type:effort` everywhere; `opus-high` type replaced by `opus:high`), T-696..T-698 (opencode
