@@ -1332,7 +1332,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		x.sid("pj-o-01", "sid-1")
 		x.agent("w1:p3", "pj-o-01", "claude", "done").OnQuit = "stay"
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "result")
+		eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
 		}
@@ -1391,6 +1391,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "Escape closes the dialog")
+		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 0, "no Enter into the exit dialog")
 		eqInt(t, len(x.calls("pane.send_keys keys=[1] pane_id=w1:p3")), 0, "no option chosen")
 		eq(t, failLine(out), "FAIL pj-o-01 has background tasks (finish them, or --force to stop them)", "result")
 		if ok || x.startCall() != "" || x.f.Panes[0].Screen != "" {
@@ -1923,7 +1924,7 @@ func TestStopForceTerminates(t *testing.T) {
 			t.Fatal("must fail")
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		contains(t, out, "in the group: 2 claude", "evidence")
 		eqInt(t, len(x.kills), 0, "no signal")
 	})
@@ -2215,7 +2216,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		if ok {
 			t.Fatal("must fail")
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "the one-line result is last")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
 		tail := out
 		contains(t, tail, "\nagent status: done\n", "status labelled")
 		contains(t, tail, "\npane screen (last 15 non-empty lines):\n", "screen labelled")
@@ -2230,7 +2231,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		contains(t, string(log), " pj-o-01 pane w1:p3: pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)\nagent status: done\n", "log head")
+		contains(t, string(log), " pj-o-01 pane w1:p3: pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)\nagent status: done\n", "log head")
 		contains(t, string(log), "in the group: 301 /usr/bin/sleep 60", "log carries the processes")
 		eqInt(t, strings.Count(string(log), "did not exit"), 1, "one block per failure")
 	})
@@ -2244,7 +2245,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 			t.Fatal("must fail")
 		}
 		contains(t, out, "agent status: done\n", "stop gives up the same way")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "the one-line result is last")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
 		contains(t, out, "pane processes:", "processes")
 	})
 	t.Run("herdr cannot read the screen or the processes: FAIL still printed, the gaps said", func(t *testing.T) {
@@ -2259,7 +2260,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		if ok {
 			t.Fatal("must fail")
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "FAIL line last")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "FAIL line last")
 		contains(t, out, "(screen unavailable: ", "screen gap")
 		contains(t, out, "herdr went away", "why")
 		contains(t, out, "foreground: claude", "processes still given")
@@ -2454,7 +2455,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 			t.Fatal("must fail")
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 	})
 	t.Run("pgid == ShellPID or ≤ 1: never killed", func(t *testing.T) {
@@ -2489,7 +2490,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 		if ok || !q.Load() {
 			t.Fatalf("must fail after /exit:\n%s", out)
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		eqInt(t, len(y.kills), 0, "group 1 not killed")
 	})
 }
@@ -2531,7 +2532,7 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 				t.Fatal("must fail:\n" + out)
 			}
 			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-			want := "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; --force terminates it)"
+			want := "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)"
 			if force {
 				want = "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: process info unavailable: "
 			}
@@ -2826,6 +2827,21 @@ func TestStopEveryKind(t *testing.T) {
 		eqInt(t, len(x.kills), 0, "no signal")
 		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
 	})
+	// T-712: Claude Code's slash-command menu (many plugin commands) took the Enter in the owner's run: the second Enter submits.
+	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
+		t.Parallel()
+		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
+		p.OnQuit = ""
+		enters := 0
+		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
+		out, ok := x.stop("pj-o-01", "", false)
+		if !ok {
+			t.Fatal(out)
+		}
+		eqInt(t, enters, 1, "the second Enter sent")
+		eqInt(t, len(x.kills), 0, "no signal")
+		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+	})
 	t.Run("opencode, a wait shorter than two polls, --force: the second Enter is sent before the give-up", func(t *testing.T) {
 		t.Parallel()
 		x, _ := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
@@ -2910,13 +2926,50 @@ func TestStopEveryKind(t *testing.T) {
 				t.Fatal("must fail")
 			}
 			keys := x.calls("pane.send_keys")
-			eqInt(t, len(keys), 3, "the second Enter and the clear keys: "+strings.Join(keys, ", "))
-			eq(t, keys[0], "pane.send_keys keys=[enter] pane_id=w1:p3", "the second Enter first")
-			eq(t, strings.Join(keys[1:], "\n"), c.clear, "the clear keys")
+			eqInt(t, len(keys), 5, "the clear before the quit, the second Enter, the clear again: "+strings.Join(keys, ", "))
+			eq(t, strings.Join(keys[:2], "\n"), c.clear, "the clear keys before the quit")
+			eq(t, keys[2], "pane.send_keys keys=[enter] pane_id=w1:p3", "the second Enter next")
+			eq(t, strings.Join(keys[3:], "\n"), c.clear, "the clear keys after the wait")
 			eqInt(t, len(x.kills), 0, "no signal")
 			eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		})
 	}
+	// T-712: text a person typed into an idle agent's input is cleared before the quit, or the quit joins it.
+	for _, c := range []struct{ kind, argv0, quit, clear string }{
+		{"claude", "claude", "/exit", "ctrl+u"},
+		{"codex", "codex", "/quit", "ctrl+u"},
+		{"opencode", "opencode", "/exit", "esc"},
+	} {
+		t.Run(c.kind+", idle with text in the input: cleared before the quit, which then exits", func(t *testing.T) {
+			t.Parallel()
+			x, p := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
+			p.OnQuit, p.Input = "", "t"
+			out, ok := x.stop("pj-o-01", "", false)
+			if !ok {
+				t.Fatal(out)
+			}
+			clr, quit := x.index("pane.send_keys keys=["+c.clear+"] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text="+c.quit)
+			if clr < 0 || quit < 0 || clr > quit {
+				t.Errorf("the clear key, then the quit: %q", x.srv.Calls())
+			}
+			if p.Input != "" || p.Kind != "" {
+				t.Errorf("input %q, kind %q: the quit must have run on an empty input", p.Input, p.Kind)
+			}
+			eqInt(t, len(x.calls("pane.send_input")), 1, "the quit typed once")
+			eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		})
+	}
+	t.Run("claude, working, --force: Escape then ctrl+c only, no ctrl+u (unchanged)", func(t *testing.T) {
+		t.Parallel()
+		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
+		p.OnQuit, p.Status = "", "working"
+		out, ok := x.stop("pj-o-01", "", true)
+		if !ok {
+			t.Fatal(out)
+		}
+		eq(t, strings.Join(x.calls("pane.send_keys"), "\n"),
+			"pane.send_keys keys=[esc] pane_id=w1:p3\npane.send_keys keys=[ctrl+c] pane_id=w1:p3", "the keys of a working agent")
+	})
 	t.Run("a kind with no quit: nothing typed, SIGTERM at once, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, _ := kind(t, "gemini", herdr.Process{PID: 2, Argv0: "gemini"})
@@ -2926,6 +2979,7 @@ func TestStopEveryKind(t *testing.T) {
 			t.Fatal(out)
 		}
 		eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed")
+		eqInt(t, len(x.calls("pane.send_keys")), 0, "no clear key either: a kind without a clear sequence is unchanged")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
 		contains(t, out, "terminated pj-o-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
 		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")

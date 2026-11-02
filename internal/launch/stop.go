@@ -60,6 +60,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		return nil
 	}
 	recipe := recipeOf(running)
+	restored := false // AfterEscape ran: the interrupted prompt is already cleared
 	if status := t.entry.Status; status == "working" || status == "blocked" {
 		if !force {
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
@@ -78,6 +79,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		}
 		for _, k := range recipe.AfterEscape { // the kind's interrupted prompt, put back into the input, cleared
 			_ = l.H.SendKeys(ctx, t.pane, k)
+			restored = true
 		}
 	}
 	// The agent leads the pane's foreground group (T-217): its exit is that pid gone, even when the MCP servers it
@@ -97,6 +99,12 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		}
 		return l.finish(ctx, t, before, running)
 	}
+	if !restored {
+		// A person may have typed into the input: the quit typed after it would be sent as part of that text (T-712).
+		for _, k := range recipe.ClearInput {
+			_ = l.H.SendKeys(ctx, t.pane, k)
+		}
+	}
 	if err := l.H.Type(ctx, t.pane, quit); err != nil {
 		return project.Failf("herdr pane run %s %s failed", t.pane, quit)
 	}
@@ -106,10 +114,12 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		if l.exited(ctx, t.pane, before.pgid) {
 			return true
 		}
-		if polls++; polls == 2 && recipe.SecondEnter {
+		n, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
+		// The second Enter submits a quit a completion menu took the first Enter for (T-712); never into the kind's exit
+		// dialog, where a bare Enter would pick its default option.
+		if polls++; polls == 2 && recipe.SecondEnter && !open {
 			_ = l.H.SendKeys(ctx, t.pane, "enter")
 		}
-		n, open := l.exitDialog(ctx, t.pane, recipe.Dialog)
 		if !open {
 			return false
 		}

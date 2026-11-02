@@ -184,9 +184,10 @@ func (kind) NotReady(string) string { return "" }
 // Stop: /exit. Escape puts Claude's interrupted prompt back into the input box, and /exit typed after it would be
 // sent as part of that text (live 2026-10-13): Ctrl+C clears the whole input (it only arms "press again to exit").
 // With background tasks running, /exit opens a dialog ("Exit and stop tasks / Move to background / Stay"), its
-// options numbered.
+// options numbered. SecondEnter: with many slash commands the menu over "/exit" can take the Enter (T-712, owner
+// 2026-11-02); a second Enter after the first poll submits it (never into the dialog).
 func (kind) Stop() agents.Stop {
-	return agents.Stop{Quit: "/exit", AfterEscape: []string{"ctrl+c"}, Dialog: &exitDialog}
+	return agents.Stop{Quit: "/exit", SecondEnter: true, AfterEscape: []string{"ctrl+c"}, ClearInput: []string{"ctrl+u"}, Dialog: &exitDialog}
 }
 
 var exitDialog = agents.Dialog{Option: "Exit and stop tasks", Key: regexp.MustCompile(`([1-9])[.)] *Exit and stop tasks`)}

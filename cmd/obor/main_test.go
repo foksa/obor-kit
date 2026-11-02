@@ -265,7 +265,7 @@ func TestRestartCommand(t *testing.T) {
 	// A direct stop that gives up prints its evidence, then the one-line FAIL last (T-213).
 	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--stop")
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if rc != 1 || lines[len(lines)-1] != "FAIL pj-o-01 did not exit in 1s (pane w1:p1; --force terminates it)" ||
+	if rc != 1 || lines[len(lines)-1] != "FAIL pj-o-01 did not exit in 1s (pane w1:p1; the input was cleared; --force terminates it)" ||
 		!strings.Contains(stdout, "agent status:") || !strings.Contains(stdout, "pane processes:") ||
 		strings.Index(stdout, "agent status:") > strings.Index(stdout, "FAIL ") {
 		t.Errorf("obor restart --stop that cannot stop: evidence, then FAIL last: exit %d\n%s", rc, stdout)

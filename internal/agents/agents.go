@@ -88,7 +88,7 @@ type ReadFile func(path string) ([]byte, error)
 type Stop struct {
 	Quit        string   // typed with Enter ("/exit", "/quit")
 	SecondEnter bool     // the slash-command popup takes the first Enter; a second one, a poll later, runs the quit
-	ClearInput  []string // the keys that clear the quit (and its popup) from the input when it did not exit
+	ClearInput  []string // the keys that clear the input (what a person typed; the quit and its popup): before the quit, and when it did not exit
 	AfterEscape []string // the keys after a forced Escape, before the quit (the interrupted prompt is put back)
 	Program     string   // the leader's program when it is not Name() ("": Name())
 	Dialog      *Dialog  // the dialog the quit opens while the agent has background tasks; nil: none

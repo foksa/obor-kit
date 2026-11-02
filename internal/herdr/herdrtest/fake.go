@@ -303,7 +303,7 @@ func (p *Pane) sendKeys(keys []string) {
 			if p.Kind == "claude" {
 				p.Input = "(the interrupted prompt)"
 			}
-		case k == "ctrl+c":
+		case k == "ctrl+c", k == "ctrl+u":
 			p.Input = ""
 		}
 	}
