@@ -165,23 +165,59 @@ var Levels = []string{"hard", "medium", "simple"}
 // `# ` line). ok is false when there is no such line or it names no level in Levels; level is then what it wrote ("":
 // no line).
 func Difficulty(text string) (level string, ok bool) {
+	_, v, found := difficultyLine(text)
+	if !found {
+		return "", false
+	}
+	level = strings.TrimSpace(v)
+	return level, slices.Contains(Levels, level)
+}
+
+// Types is the lane types of the spec's optional `Type: <type>[, <type>…]` line: the first non-blank line after the
+// `Difficulty:` line. nil when there is no such line (a `Type:` elsewhere is ignored).
+func Types(text string) []string {
+	rest, _, found := difficultyLine(text)
+	if !found {
+		return nil
+	}
+	for _, next := range rest {
+		if strings.TrimSpace(next) == "" {
+			continue
+		}
+		v, ok := strings.CutPrefix(next, "Type:")
+		if !ok {
+			return nil
+		}
+		var out []string
+		for _, t := range strings.Split(v, ",") {
+			if t = strings.TrimSpace(t); t != "" && !slices.Contains(out, t) {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// difficultyLine finds the `Difficulty:` line (the first non-blank line under the title): its value, and the lines
+// after it. found is false when the title has no such line.
+func difficultyLine(text string) (rest []string, value string, found bool) {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
 		if !strings.HasPrefix(l, "# ") {
 			continue
 		}
-		for _, next := range lines[i+1:] {
+		for j, next := range lines[i+1:] {
 			if strings.TrimSpace(next) == "" {
 				continue
 			}
-			v, found := strings.CutPrefix(next, "Difficulty:")
-			if !found {
-				return "", false
+			v, ok := strings.CutPrefix(next, "Difficulty:")
+			if !ok {
+				return nil, "", false
 			}
-			level = strings.TrimSpace(v)
-			return level, slices.Contains(Levels, level)
+			return lines[i+1+j+1:], v, true
 		}
 		break
 	}
-	return "", false
+	return nil, "", false
 }

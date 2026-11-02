@@ -87,7 +87,7 @@ The raw payloads are in `.obor/state/stop-failure.log`.
 
 ## obor dispatch (T-538)
 You give the difficulty; obor picks the lane. The spec's `Difficulty: hard|medium|simple` line (right under the title;
-`obor spec set` refuses a spec without it) maps through the config's `difficulty` to lane types, in order.
+`obor spec set` refuses a spec without it) maps through the config's `difficulty` to lane types, in order. An optional `Type: <lane type>[, …]` line right under it (`obor spec set` refuses a type the config lacks) puts those types first, then the level's; `--types` overrides both.
 
 - `obor dispatch <T-xx> [--after T-yy[,T-zz]] [--force]` — the first free lane of the level's types. Replies:
   `DISPATCHED T-xx → <LANE> (queued)`, or, with no free lane of the level, `WAITING T-xx (queued): waiting for a

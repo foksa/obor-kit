@@ -3,8 +3,10 @@ package app
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	"obor/internal/config"
 	"obor/internal/spec"
 	"obor/internal/store"
 )
@@ -44,6 +46,19 @@ func (a *App) specSet(c Call) (string, error) {
 	if _, ok := spec.Difficulty(c.Spec); !ok {
 		return "", fmt.Errorf("spec set %s: the spec needs a \"Difficulty: <level>\" line right under its title (%s)", c.Task,
 			strings.Join(spec.Levels, ", "))
+	}
+	if types := spec.Types(c.Spec); len(types) > 0 {
+		cfg, err := config.LoadDaemon(p.root)
+		if err != nil {
+			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
+		}
+		names := cfg.LaneTypeNames()
+		for _, t := range types {
+			if !slices.Contains(names, t) {
+				return "", fmt.Errorf("spec set %s: \"Type: %s\" names a lane type this project does not have (lane types: %s)", c.Task, t,
+					strings.Join(names, ", "))
+			}
+		}
 	}
 	by := c.Agent
 	switch {
