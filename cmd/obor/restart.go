@@ -7,18 +7,19 @@ import (
 	"io"
 	"strings"
 
+	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
 )
 
 const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh | --sid <id>] [--force] | " +
 	"obor restart <agent> --stop [--pane <id>] [--force] | " +
-	"obor restart <role-agent> --fresh --prompt \"<brief>\""
+	"obor restart <advisor|researcher agent> --fresh --prompt \"<brief>\""
 
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
 // A role agent restarted --fresh with a
-// --prompt is a brief (T-466): serve records it (app.MethodBrief, no line: the start carried it) and tells the lead
+// --prompt is a brief (T-466; not the merge-hold roles', T-734: refused, their first prompt goes by obor brief): serve records it (app.MethodBrief, no line: the start carried it) and tells the lead
 // when that agent has finished; serve down is a note before the result line, not a failure.
 func restart(args []string) int {
 	usage := func() int { fmt.Fprintln(out, "FAIL "+restartUsage); return 1 }
@@ -51,6 +52,10 @@ func restart(args []string) int {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
 	}
+	if req.Prompt != "" && l.Cfg != nil && holdsMerges(l.Cfg, req.Agent) {
+		fmt.Fprintf(out, "FAIL %s takes its first prompt through obor brief %s \"<text>\" (a brief to a stopped role agent starts it fresh, after serve holds merges)\n", req.Agent, req.Agent)
+		return 1
+	}
 	ctx := context.Background()
 	var line string
 	var err error
@@ -66,6 +71,12 @@ func restart(args []string) int {
 		}
 	}
 	return launchResult(out, line, err)
+}
+
+// holdsMerges: agent is the reviewer's or the deep dive's, whose work serve holds merges for (T-734).
+func holdsMerges(cfg *config.Config, agent string) bool {
+	info, ok := project.AgentLookup(cfg, agent, "")
+	return ok && (info.Role == "reviewer" || info.Role == "deep_dive")
 }
 
 // launchResult prints a launch's result (obor restart): the evidence of a give-up, then the result line

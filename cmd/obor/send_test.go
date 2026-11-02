@@ -141,23 +141,37 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	o1 := p.Lane("O-01", "")
-	p.Config(testkit.Set("roles.reviewer", map[string]any{"worktree": ""}))
+	p.Config(testkit.Set("roles.reviewer", map[string]any{"worktree": ""}),
+		testkit.Set("roles.deep_dive", map[string]any{"worktree": ""}),
+		testkit.Set("roles.advisor", map[string]any{"worktree": ""}))
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)
+	f.Shell("w1:p4", "pj-deep-dive", p.Root)
+	f.Shell("w1:p5", "pj-advisor", p.Root)
 	f.Shell("w1:p1", "pj-o-01", o1)
 	srv := herdrtest.Serve(t, f)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
 		"OBOR_STATE_HOME=" + home, "OBOR_RESTART_WAIT=1", "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
-	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-rev", "--fresh", "--prompt", "review the module map")
-	if lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n"); rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-rev") {
+	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-advisor", "--fresh", "--prompt", "review the module map")
+	if lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n"); rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-advisor") {
 		t.Fatalf("restart: exit %d\n%s", rc, stdout)
 	}
 	got, _ := serve.requests()
-	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-rev" || got[0].Note != "" ||
+	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "" ||
 		got[0].Prompt != "review the module map" || got[0].Role != "lead" {
-		t.Errorf("requests %v %+v, want one brief of pj-rev without a text, its start's prompt with it", serve.methods, got)
+		t.Errorf("requests %v %+v, want one brief of pj-advisor without a text, its start's prompt with it", serve.methods, got)
+	}
+	for _, a := range []string{"pj-rev", "pj-deep-dive"} {
+		rc, stdout, _ := run(t, p.Root, env, "restart", a, "--fresh", "--prompt", "x")
+		if want := "FAIL " + a + " takes its first prompt through obor brief " + a; rc != 1 || !strings.Contains(stdout, want) ||
+			strings.Contains(stdout, "RESTARTED") {
+			t.Errorf("%s restart --prompt: exit %d\n%s", a, rc, stdout)
+		}
+	}
+	if got, _ := serve.requests(); len(got) != 1 {
+		t.Errorf("a refused restart recorded a brief: %+v", got)
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--fresh", "--prompt", "work"); rc != 0 {
 		t.Fatalf("worker restart: exit %d\n%s", rc, stdout)
@@ -167,10 +181,10 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 	}
 	serve.stop()
 	down := append(env[:len(env):len(env)], "OBOR_STATE_HOME="+p.Base+"/none", callDown)
-	rc, stdout, _ = run(t, p.Root, down, "restart", "pj-rev", "--fresh", "--prompt", "again")
+	rc, stdout, _ = run(t, p.Root, down, "restart", "pj-advisor", "--fresh", "--prompt", "again")
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-rev") ||
-		!strings.Contains(stdout, "note: brief not recorded (the lead hears nothing when pj-rev finishes): obor serve is not running") {
+	if rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-advisor") ||
+		!strings.Contains(stdout, "note: brief not recorded (the lead hears nothing when pj-advisor finishes): obor serve is not running") {
 		t.Errorf("serve down: exit %d\n%s", rc, stdout)
 	}
 }

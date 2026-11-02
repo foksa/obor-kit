@@ -21,7 +21,7 @@ roles (`obor: role text: …`); the work job carries them; `/obor:role <name>` r
 user ──► lead ──spec──► worker (lane) ──task_done──►   obor serve ──review job──► integrator ──accept──► main
           ▲                                              gate/publish               │ open questions / deviations
           └─────────────────────────────────────────────────────────────────────────┘
-          │  ──brief (obor brief, restart --prompt)──► reviewer / deep dive ──RV-xx.md / DD-xx.md──► lead ──fix tasks──► workers
+          │  ──brief (obor brief)──► reviewer / deep dive ──RV-xx.md / DD-xx.md──► lead ──fix tasks──► workers
           └─ ──question─► advisor ──answer (saved under the research dir)
 ```
 - Only obor serve merges: it publishes what the integrator accepted (`docs/state-model.md`). The lead commits its own
