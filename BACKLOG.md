@@ -80,6 +80,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-77 design concern, logged) `scripts/ship` counts a release done by draft state and asset names only, not its
+  title/notes; a partly published release stays incomplete on rerun. Low once T-683 refuses before create.
 - (v0.18.0 release, 11-02) `TestStopForceTerminates` failed once under the full check (60 ms waits for a fake agent;
   passes alone): same family as the flaky `TestStopEveryKind`. Widen the test's waits if it fails again.
 - (RV-68 #3, accepted: low) A needs-you repeat claimed before a task closes can be appended after the close (claim
