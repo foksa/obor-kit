@@ -77,7 +77,7 @@ func TestLeadSendback(t *testing.T) {
 			sub(r)
 			gate(r, outGreen)
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeHeld,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: event.CauseHeld,
 				Reason: "held: ask the owner", Job: "T-6/1/review"})
 		}, stNeedsYou, "SENDBACK T-6 (job T-6/1/review)", "", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
@@ -166,7 +166,7 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 		report    string
 		sendbacks int
 	}{
-		{"integrator hold", causeHeld, full + "\nOpen questions: should it use sqlite?", 0},
+		{"integrator hold", event.CauseHeld, full + "\nOpen questions: should it use sqlite?", 0},
 		{"sendbacks", causeSendbacks, full, K},
 		{"red", causeRed, full, K},
 	} {

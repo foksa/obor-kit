@@ -177,7 +177,7 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 				Note: "the question changes the config contract"}); err != nil {
 				t.Fatal(err)
 			}
-			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != causeHeld {
+			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != event.CauseHeld {
 				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.Fact().Cause)
 			}
 			const decision = "keep the schema; add the field later"

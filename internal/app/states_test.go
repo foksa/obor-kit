@@ -253,9 +253,9 @@ func TestStateWorkingRow24(t *testing.T) {
 func TestStateNeedsYouRow40(t *testing.T) {
 	t.Parallel()
 	// the state it left is kept: a resolve job held stays open, in the scratch
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(causeHeld),
+	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(event.CauseHeld),
 		lane: "O-01", agent: "o-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,
-		cause: causeHeld})
+		cause: event.CauseHeld})
 	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "O-01",
 		agent: "o-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})

@@ -86,7 +86,7 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	if len(f.gated) != 0 {
 		t.Fatalf("resolving: gated %v; want none", f.gated)
 	}
-	h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
+	h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
 	check(stNeedsYou, wire.ScratchHeld, false)
 	h.pass(ctx)
 	if len(f.gated) != 0 {

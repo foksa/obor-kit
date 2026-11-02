@@ -223,7 +223,7 @@ func reloadProj(t *testing.T, h *harness) *proj {
 // verdict pins with T-1's own input (submit's s1); once T-1's resolution is gated green, T-2 is.
 func TestPausedScratchReservation(t *testing.T) {
 	t.Parallel()
-	for _, cause := range []string{causeHeld, "retry.resolve failed", "start.resolve failed"} {
+	for _, cause := range []string{event.CauseHeld, "retry.resolve failed", "start.resolve failed"} {
 		t.Run(cause, func(t *testing.T) {
 			t.Parallel()
 			h, f := seedSched(t, true)
@@ -287,7 +287,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			f.Launch(ctx, port.Launch{})
 			h.pass(ctx)
 			p := h.a.p
-			h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
+			h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
 			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
 			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			if !busy(p, "T-2") {
@@ -631,7 +631,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 				Patch: "p"}
 			if method == wire.MethodResume {
 				p := h.a.p
-				h.a.needsYou(p, p.folded.loop["T-1"], causeHeld, "held")
+				h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
 				c = wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", To: wire.ResumeRegate}
 			}
 			call := listenMem(t, h)
