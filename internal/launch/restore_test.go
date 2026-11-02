@@ -246,6 +246,36 @@ func TestRestoreWorkerRecordedSession(t *testing.T) {
 	})
 }
 
+// T-739: on a pool (untyped) lane the restore's resume decision reads the kind its open dispatch runs, not the
+// config's: an OpenCode dispatch starts fresh whatever session is recorded, a Claude dispatch there resumes.
+func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
+	for _, c := range []struct{ typ, kind, want string }{
+		{"oc", "opencode", " --fresh"},
+		{"opus", "claude", ""},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			f := newRfx(t)
+			lane := f.p.Lane("O-01", "task/T-01")
+			f.p.Commit(lane)
+			f.p.Config(testkit.Set("lane_types.oc", `{"kind":"opencode","args":[]}`), testkit.Set("lanes.O-01", ""))
+			cfg, err := config.Load(f.p.Root)
+			if err != nil || len(cfg.Lanes()) != 1 || cfg.Lanes()[0].Type != "" {
+				t.Fatalf("precondition: an untyped lane O-01: %v, %v", cfg.Lanes(), err)
+			}
+			f.p.State("O-01", `{"task":"T-01","branch":"task/T-01","base":"main","agent":"pj-o-01","type":"`+c.typ+`"}`)
+			f.shell("w1:p1", lane, "pj-o-01")
+			recordSessions(t, f.p.Root, store.Session{Agent: "pj-o-01", Kind: c.kind, ID: "s-1", Started: time.Now().Unix()})
+			f.pl.Restore(context.Background())
+			f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1" + c.want)
+			if c.want != "" {
+				has(t, f.restoreLog(), "(worker, kind opencode resumes nothing: --fresh)", "the dispatch's kind is logged")
+			} else {
+				lacks(t, f.restoreLog(), "--fresh", "a Claude dispatch resumes")
+			}
+		})
+	}
+}
+
 // bash restore.test.sh case_free_lane_worker_not_started
 func TestRestoreFreeLaneWorkerNotStarted(t *testing.T) {
 	f := newRfx(t)
