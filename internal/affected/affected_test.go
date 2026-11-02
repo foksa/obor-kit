@@ -83,8 +83,8 @@ func TestGoBrokenModule(t *testing.T) {
 }
 
 // This repo, read-only (T-347 spec): a guard change does not select app; an app change selects cmd/obor but not the
-// packages below app (spec, project). internal/setup IS selected by an app change: setup imports herdr, which imports
-// app.
+// packages below app (spec, project) nor the ones the app split freed (T-690..T-692: setup, herdr, launch, checks, mcp,
+// view, web, guard, run, testkit no longer import app).
 func TestGoOborKit(t *testing.T) {
 	t.Parallel()
 	root, _ := filepath.Abs("../..")
@@ -93,11 +93,15 @@ func TestGoOborKit(t *testing.T) {
 		with, not []string
 	}{
 		{"internal/guard/guard.go", []string{"obor/internal/guard", "obor/cmd/obor"}, []string{"obor/internal/app"}},
-		{"internal/app/loop.go", []string{"obor/internal/app", "obor/cmd/obor", "obor/internal/setup"},
+		{"internal/app/loop.go", []string{"obor/internal/app", "obor/cmd/obor"},
 			[]string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version",
-				"obor/internal/herdr"}},
+				"obor/internal/setup", "obor/internal/herdr", "obor/internal/launch", "obor/internal/checks",
+				"obor/internal/mcp", "obor/internal/view", "obor/internal/web", "obor/internal/guard",
+				"obor/internal/run", "obor/internal/testkit"}},
 		// T-690: herdr imports the ports leaf, not app: a port change selects it, an app change does not.
 		{"internal/app/port/effects.go", []string{"obor/internal/app/port", "obor/internal/app", "obor/internal/herdr"}, nil},
+		{"internal/app/wire/wire.go", []string{"obor/internal/app/wire", "obor/internal/mcp", "obor/internal/launch",
+			"obor/internal/checks", "obor/internal/view"}, nil},
 	} {
 		res, err := Go(root, []string{c.file}, fullGlobs)
 		if err != nil || res.Full != "" {
