@@ -215,3 +215,42 @@ func TestPoolFreedLaneGoesToTheOldestWaitingTaskNotAtItsCap(t *testing.T) {
 		t.Errorf("T-3 %+v, want waiting for a free lane", st)
 	}
 }
+
+// TestPoolRedoOnAnUntypedLaneKeepsItsDispatchedType: T-1's open dispatch ran opus:high on the untyped O-01 and left a
+// needs-you (O-01 still working on T-1). Its new dispatch is a redo on O-01 that keeps opus:high (the lane's config type
+// is empty, its spec's level medium would say sonnet), and counts against opus's max: T-3 (hard) then waits.
+func TestPoolRedoOnAnUntypedLaneKeepsItsDispatchedType(t *testing.T) {
+	t.Parallel()
+	r := newPoolRig(t)
+	r.setPoolLane(0, "working", "T-1")
+	d, _ := json.Marshal(map[string]any{"lane": "O-01", "agent": "pj-o1", "type": "opus:high", "level": "hard",
+		"types": []string{"opus:high"}})
+	stop, _ := json.Marshal(event.FactData{Lane: "O-01", Reason: "stopped: api error", Merge: true, Cause: "stopped"})
+	if err := app.WriteLog(r.p.Root, time.Now(),
+		event.Record{Task: "T-1", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
+		event.Record{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact, Data: stop}); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
+	r.specOf("T-1", "# T-1 — Redone\n\nDifficulty: medium\n")
+	if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) as opus effort high") {
+		t.Fatalf("redo of T-1: %q, %v; want O-01 as opus effort high", reply, err)
+	}
+	var types []any
+	for _, rec := range r.records() {
+		if rec.Task == "T-1" && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+			var m map[string]any
+			_ = json.Unmarshal(rec.Data, &m)
+			types = append(types, m["type"])
+		}
+	}
+	if len(types) != 2 || types[1] != "opus:high" {
+		t.Fatalf("T-1's dispatch facts' types %v, want the redo's opus:high after the first", types)
+	}
+	r.specOf("T-3", "# T-3 — Hard\n\nDifficulty: hard\n")
+	const want = "WAITING T-3 (queued): opus at its max 1 (hard: opus:high); idle: O-02 (-)"
+	if reply, err := r.dispatchOf("T-3"); err != nil || reply != want {
+		t.Errorf("T-3 beside T-1's redo: %q, %v; want %q", reply, err, want)
+	}
+}

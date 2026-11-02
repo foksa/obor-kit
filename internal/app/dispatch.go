@@ -303,7 +303,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	}
 	mt, held := a.held(p, c.Task)
 	full := a.capped(p, cfg, c.Task, c.Types)
-	l, ref, why := pickLane(ls, c, held, full)
+	l, ref, why := pickLane(ls, c, held, full, mt.disp.Type)
 	if why != "" && c.Level != "" && c.Lane == "" {
 		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, full: full}
 	}
@@ -496,12 +496,13 @@ func effortNote(effort string) string {
 }
 
 // pickLane is c's lane in ls and the type reference its dispatch runs (T-723): the lane it names (its type; an untyped
-// one c's first type), else the lane that holds c.Task (working or blocked on it: a redo, whatever its type, T-545),
-// else for each type of c in order, skipped at its max (full), the first lane in config order whose type is it (a
-// typed lane is a reservation for its type) or empty (the pool), free (dirty-free with force) and not held for another
-// task's dispatch; else why not. A type reference's type matches (opus:high: an opus or untyped lane, T-695); a named
-// or held lane keeps the effort c gives its type.
-func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[string]string) (port.Lane, string, string) {
+// one c's first type), else the lane that holds c.Task (working or blocked on it: a redo, whatever its type, T-545; an
+// untyped one keeps ran, the type the task's open dispatch ran, else c's first type), else for each type of c in
+// order, skipped at its max (full), the first lane in config order whose type is it (a typed lane is a reservation for
+// its type) or empty (the pool), free (dirty-free with force) and not held for another task's dispatch; else why not.
+// A type reference's type matches (opus:high: an opus or untyped lane, T-695); a named or held typed lane keeps the
+// effort c gives its type.
+func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[string]string, ran string) (port.Lane, string, string) {
 	if c.Lane != "" {
 		for _, l := range ls {
 			if l.Name == c.Lane {
@@ -520,7 +521,15 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[stri
 	for _, l := range ls {
 		if l.Task == c.Task && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
 			l.Dir = filepath.Clean(l.Dir)
-			return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
+			switch {
+			case l.Type != "":
+				return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
+			case ran != "":
+				return l, ran, ""
+			case len(c.Types) > 0:
+				return l, c.Types[0], ""
+			}
+			return l, "", ""
 		}
 	}
 	for _, t := range c.Types {
