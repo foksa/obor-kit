@@ -175,7 +175,7 @@
   },
   "roles": {
     "reviewer": {
-      "type": "opus:high",
+      "type": "terra:xhigh",
       "worktree": "review",
       "agent": "ob-terra"
     },
