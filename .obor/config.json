@@ -166,14 +166,10 @@
     }
   },
   "lanes": {
-    "O-01": "opus",
-    "O-02": "opus",
-    "O-03": "opus",
-    "S-01": "sonnet",
-    "C-01": "luna",
-    "O-04": "opus",
-    "D-01": "deepseek",
-    "D-02": "deepseek"
+    "L-01": "",
+    "L-02": "",
+    "L-03": "",
+    "L-04": ""
   },
   "roles": {
     "reviewer": {
