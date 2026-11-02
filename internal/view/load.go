@@ -7,6 +7,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/store"
 )
 
@@ -26,5 +27,5 @@ func Load(ctx context.Context, root string, now time.Time, events int) (Project,
 		defer db.Close()
 	}
 	return Build(Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: events,
-		Notes: Notes(cfg.Root, warn)}), nil
+		Notes: Notes(cfg.Root, warn), Background: ScanBackground(ctx, cfg.Root, ss, err, project.OSEnv)}), nil
 }

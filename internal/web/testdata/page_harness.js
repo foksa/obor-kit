@@ -311,6 +311,31 @@ const scenarios = {
     await tick(100);
     check(html().includes(">stopped<") && !html().includes("no pane"), "the agent page shows stopped, not no pane");
   },
+
+  // T-714: an agent's long-running background processes on the overview card (a count), the project page (under the
+  // lane's and the lead's rows) and the agent page.
+  async background() {
+    const conv = { pid: 42, command: "python convert.py", label: "convert maps", age: 900 };
+    server.routes["/api/projects"] = () => [{ name: "proj", root: "/r", up: true, busy: 1, free: 0, needs_you: 0,
+      queue: 0, running: [], roles: [], background: 2 }];
+    await navigate("#/");
+    await tick(100);
+    check(html().includes("2 bg"), "the overview card counts the background processes");
+    server.routes["/api/view"] = () => viewWith({
+      lanes: [{ lane: "O-01", state: "working", column: "working", task: "T-1", agent: "w1", background: [conv] }],
+      lead: { role: "lead", agent: "ld", status: "working", background: [{ pid: 7, command: "sleep 600", age: 45 }] } });
+    server.routes["/api/agent"] = () => ({ agent: "w1", status: "working", jobs: [], briefs: [], lines: [], sessions: [],
+      background: [conv] });
+    await navigate("#/p/proj");
+    await tick(100);
+    const page = html();
+    check(page.includes("bg: convert maps · 15m"), "the lane's row shows the process by its description: " + page);
+    check(page.includes("bg: sleep 600 · 45s") && page.includes("ld"), "the lead's own row shows its process by its command");
+    await navigate("#/a/proj/w1");
+    await tick(100);
+    check(html().includes("Background processes") && html().includes("convert maps") &&
+      html().includes("python convert.py"), "the agent page lists the process: " + html());
+  },
 };
 
 (async () => {

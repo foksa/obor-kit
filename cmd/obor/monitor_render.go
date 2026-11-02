@@ -236,6 +236,17 @@ func laneRows(st view.Project, o renderOpts, p palette) []string {
 			line += "  " + p.dim(padRight(r.rev, 3)) + " " + p.dim(r.job)
 		}
 		out = append(out, strings.TrimRight(line, " "))
+		out = append(out, bgRows(l.Background, p)...)
+	}
+	return out
+}
+
+// bgRows is one dim row per background process of an agent, under its row (T-714): its description or command and how
+// long it has run.
+func bgRows(bs []view.Background, p palette) []string {
+	out := make([]string, 0, len(bs))
+	for _, b := range bs {
+		out = append(out, "      "+p.dim("bg: "+oneLine(b.Text())+" · "+app.Age(time.Duration(b.Age)*time.Second)))
 	}
 	return out
 }
@@ -248,17 +259,22 @@ func jobStep(id string) string {
 	return id
 }
 
-// roleRows is ROLES: one row per role agent on no lane — dot, name, status and for how long, the brief it is on.
+// roleRows is ROLES: one row per role agent on no lane — dot, name, status and for how long, the brief it is on, its
+// background processes under it — and the lead's own row when it has background processes (T-714).
 func roleRows(st view.Project, o renderOpts, p palette) []string {
-	if len(st.Roles) == 0 {
+	rs := st.Roles
+	if st.Lead != nil && len(st.Lead.Background) > 0 {
+		rs = append([]view.Role{*st.Lead}, rs...)
+	}
+	if len(rs) == 0 {
 		return nil
 	}
 	out := []string{title("ROLES", o, p, nil)}
 	nw, sw := 0, 0
-	for _, r := range st.Roles {
+	for _, r := range rs {
 		nw, sw = max(nw, textWidth(r.Agent)), max(sw, textWidth(roleStatus(r)))
 	}
-	for _, r := range st.Roles {
+	for _, r := range rs {
 		status := roleStatus(r)
 		line := "  " + p.state(r.Status, dot) + " " + padRight(r.Agent, nw) + "  " + p.state(r.Status, padRight(status, sw))
 		if r.Status != "" && r.Status != view.RoleStopped {
@@ -268,6 +284,7 @@ func roleRows(st view.Project, o renderOpts, p palette) []string {
 			line += "  " + p.dim("briefed "+app.Age(max(o.now.Sub(time.Unix(b.Since, 0)), 0))+" ago")
 		}
 		out = append(out, strings.TrimRight(line, " "))
+		out = append(out, bgRows(r.Background, p)...)
 	}
 	return out
 }

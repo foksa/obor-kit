@@ -25,6 +25,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/view"
 )
 
@@ -148,7 +149,7 @@ func (m *monitor) frame(now time.Time) string {
 	table := checks.NewLaneTable(m.cfg)
 	table.Now = now.Unix()
 	st := view.Build(view.Input{Status: ss, Err: err, Lanes: table, DB: m.db, Now: now, Events: monitorEvents,
-		Notes: view.Notes(m.root, m.warn)})
+		Notes: view.Notes(m.root, m.warn), Background: view.ScanBackground(ctx, m.root, ss, err, project.OSEnv)})
 	if !restarting {
 		st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, m.cfg, st.Serve.Up)
 	}
