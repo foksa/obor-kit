@@ -1,5 +1,6 @@
-// follow.go: serve follows a new obor binary (T-719): on its tick it asks Options.Binary and takes the self-restart
-// path (Loop.Restart), preferring a moment when nothing runs.
+// follow.go: serve follows a new obor binary (T-719): on its own tick (Options.Follow, T-737: herdr connected or not,
+// the watchdogs' tick counts only while it is) it asks Options.Binary and takes the self-restart path (Loop.Restart),
+// preferring a moment when nothing runs.
 package app
 
 import (
@@ -12,12 +13,32 @@ import (
 // safe at any time (a cut gate runs again), idle only saves the work in flight.
 const followWait = 10 * time.Minute
 
-// follow is the binary watch's state: the tick it last asked at (App.checks), since when a new binary is seen (zero:
+// follow is the binary watch's state: the tick it last asked at (App.follows), since when a new binary is seen (zero:
 // none), and whether its restart failed (no further try in this serve: its needs-you says so).
 type follow struct {
 	tick   int
 	since  time.Time
 	failed bool
+}
+
+// followTicks is the binary watch's timer until ctx ends: each Options.Follow counts a tick (App.follows) and wakes
+// the merge loop, whose pass asks (followBinary). It runs off herdr's subscription and the watchdogs' count, so a
+// serve started without herdr, or whose stream dropped, still follows, and a pending busy restart's deadline is
+// still evaluated (T-737).
+func (a *App) followTicks(ctx context.Context) {
+	t := time.NewTicker(a.opt.Follow)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		a.mu.Lock()
+		a.follows++
+		a.mu.Unlock()
+		a.wake()
+	}
 }
 
 // followBinary restarts serve on a new obor binary (Options.Binary) once per tick that sees it: at once when serve is
@@ -30,7 +51,7 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 		return false
 	}
 	a.mu.Lock()
-	tick := a.checks
+	tick := a.follows
 	a.mu.Unlock()
 	if tick == a.follow.tick {
 		return false

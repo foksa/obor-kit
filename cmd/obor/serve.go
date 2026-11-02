@@ -103,7 +103,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		}
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
-		Inboxed: inboxed(env), Exit: stop, Binary: binaryWatch(env), Tick: serveTick},
+		Inboxed: inboxed(env), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
 		panes, laneTable{})
 	served := make(chan struct{})
 	go func() {
@@ -146,7 +146,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	return 0 // only a test's selfExec returns nil
 }
 
-// serveTick is the app's tick (0: its default, 30 s); a test shortens it.
+// serveTick is the app's tick and its binary watch's (0: their default, 30 s); a test shortens it.
 var serveTick time.Duration
 
 // serveEnd is how serve ends for its self-restart (T-656, T-719): stop ends it as a signal does; exec, set by the
