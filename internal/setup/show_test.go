@@ -212,3 +212,20 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 		t.Errorf("the OK line does not come before the table:\n%s", out)
 	}
 }
+
+// T-704: a configured researcher is listed with the other roles as a type reference; an unconfigured one is not.
+func TestSetupShowListsTheResearcher(t *testing.T) {
+	t.Parallel()
+	types := `{"opus": {"kind": "claude", "args": ["--model", "opus"]}, "sonnet": {"kind": "claude", "args": ["--model", "sonnet"]}}`
+	without := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{"S-01": "sonnet"}`),
+		testkit.Set("roles", `{"lead": {"type": "opus"}, "integrator": {"type": "opus"}, "reviewer": {"type": "opus"}}`))
+	if out := without.ok(t, "show"); strings.Contains(out, "researcher") {
+		t.Fatalf("precondition: an unconfigured researcher is listed:\n%s", out)
+	}
+	x := newFx(t, testkit.Set("lane_types", types), testkit.Set("lanes", `{"S-01": "sonnet"}`),
+		testkit.Set("roles", `{"lead": {"type": "opus"}, "integrator": {"type": "opus"}, "reviewer": {"type": "opus"},
+			"researcher": {"type": "sonnet:low"}}`))
+	if out := x.ok(t, "show"); !strings.Contains(out, "researcher sonnet:low (sonnet, effort low)") {
+		t.Errorf("obor setup show lacks the researcher:\n%s", out)
+	}
+}

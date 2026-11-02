@@ -13,13 +13,14 @@ type CwdRule string
 type WriteProfile string
 
 const (
-	CwdProject       CwdRule      = "project"
-	CwdLane          CwdRule      = "lane"
-	CwdRoleWorktree  CwdRule      = "role-worktree"
-	WriteNone        WriteProfile = "none"
-	WriteAll         WriteProfile = "all"
-	WriteSpec        WriteProfile = "spec"
-	WriteReviewsOnly WriteProfile = "reviews"
+	CwdProject        CwdRule      = "project"
+	CwdLane           CwdRule      = "lane"
+	CwdRoleWorktree   CwdRule      = "role-worktree"
+	WriteNone         WriteProfile = "none"
+	WriteAll          WriteProfile = "all"
+	WriteSpec         WriteProfile = "spec"
+	WriteReviewsOnly  WriteProfile = "reviews"
+	WriteResearchOnly WriteProfile = "research"
 )
 
 // Role records the defaults shared by setup, config validation, and the guard.
@@ -45,6 +46,7 @@ var table = []Role{
 	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Worktree: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true},
 	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true},
 	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true},
+	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true},
 }
 
 // All returns a copy in the stable setup/config order.

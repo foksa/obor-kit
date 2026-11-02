@@ -190,6 +190,9 @@
     },
     "integrator": {
       "type": "opus"
+    },
+    "researcher": {
+      "type": "sonnet"
     }
   },
   "merge": {

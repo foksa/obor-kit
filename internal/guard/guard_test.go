@@ -1190,6 +1190,34 @@ func TestReviewsWriteProfile(t *testing.T) {
 	})
 }
 
+// T-704: the researcher writes only under docs/research (paths.research), runs no git write, and reads anywhere.
+func TestResearcherWriteProfile(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P := f.P
+	check(t, f.Project, []tc{
+		edit("researcher", P, "Write", P+"/docs/research/x.md", ""),
+		edit("researcher", P, "Edit", P+"/docs/research/sub/y.md", ""),
+		edit("researcher", P, "Write", f.Base+"/outside/scratch.txt", ""),
+		edit("researcher", P, "Edit", P+"/internal/x.go", "internal/x.go is outside the researcher write profile — a researcher writes only under docs/research"),
+		edit("researcher", P, "Write", P+"/docs/reviews/R-01.md", "outside the researcher write profile"),
+		edit("researcher", P, "Write", P+"/docs/research-old/x.md", "outside the researcher write profile"),
+		bash("researcher", P, "git commit -m x", "a researcher doesn't run git commit"),
+		bash("researcher", P, "git add docs/research/x.md", "a researcher doesn't run git add"),
+		bash("researcher", P, "git push", "git push"),
+		bash("researcher", P, "git status", ""),
+		bash("researcher", P, "git log -3", ""),
+		bash("researcher", P, "cat internal/x.go", ""),
+		bash("advisor", P, "git status", ""),
+		edit("advisor", P, "Edit", P+"/internal/x.go", ""),
+	})
+	f.Config(testkit.Set("paths.research", "notes/res"))
+	check(t, f.Project, []tc{
+		edit("researcher", P, "Write", P+"/notes/res/x.md", ""),
+		edit("researcher", P, "Write", P+"/docs/research/x.md", "writes only under notes/res"),
+	})
+}
+
 // bash case_old_bypasses_denied (T-193)
 func TestOldBashBypassesDenied(t *testing.T) {
 	t.Parallel()

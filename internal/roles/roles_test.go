@@ -6,7 +6,7 @@ import (
 )
 
 func TestRoleTableDefaultsAndProfiles(t *testing.T) {
-	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "triage", "advisor"}
+	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "triage", "advisor", "researcher"}
 	all := All()
 	if len(all) != len(want) {
 		t.Fatalf("role count = %d, want %d", len(all), len(want))
@@ -43,6 +43,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		{"deep_dive", "deep_dive", "pj-deep-dive", "deep-dive", CwdRoleWorktree, WriteReviewsOnly, false, false},
 		{"triage", "", "pj-triage", "", CwdProject, WriteNone, false, false},
 		{"advisor", "advisor", "pj-advisor", "", CwdProject, WriteNone, false, false},
+		{"researcher", "researcher", "pj-researcher", "", CwdProject, WriteResearchOnly, false, false},
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
@@ -53,7 +54,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}
 }
 
-// Optional roles count only when configured: triage, deep_dive and advisor.
+// Optional roles count only when configured: triage, deep_dive, advisor and researcher.
 func TestOptionalRoles(t *testing.T) {
 	var optional []string
 	for _, role := range All() {
@@ -61,7 +62,7 @@ func TestOptionalRoles(t *testing.T) {
 			optional = append(optional, role.Name)
 		}
 	}
-	if want := []string{"deep_dive", "triage", "advisor"}; !reflect.DeepEqual(optional, want) {
+	if want := []string{"deep_dive", "triage", "advisor", "researcher"}; !reflect.DeepEqual(optional, want) {
 		t.Errorf("optional roles = %q, want %q", optional, want)
 	}
 }
