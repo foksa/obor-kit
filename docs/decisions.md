@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-02 (owner): **internal/app split**: deep dive steps 1-5 (docs/research/app-split-deep-dive.md) as T-690..T-694
+  on Sonnet (owner: Sonnet instead of DeepSeek), after T-686/T-689; steps 6-7 not now; aliases removed in a later
+  task. **Spec `Type:` line** (T-689): an optional lane type beside `Difficulty:`, preferred at dispatch, else the
+  level's first free lane.
 - 2026-11-02 (owner): **Gemini codebase review** (docs/research/codebase-performance-and-test-review.md) judged by Fable
   (docs/research/codebase-review-advice-fable.md; its 'proj split still to do' is wrong: T-600/T-610/T-615 did it).
   Gate time is the slowest package plus 15 s waits on a missing serve, not fixtures or sleeps: T-685 (short test
