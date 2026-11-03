@@ -6,9 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-03 midday: **v0.22.0 tagged**: obor web redesign (owner drive T-760, Svelte 5 + Vite, dist committed;
+- 2026-11-03 midday: **v0.22.0 shipped** (leads told): obor web redesign (owner drive T-760, Svelte 5 + Vite, dist committed;
   decision in docs/decisions.md), drive<->lead lines (T-761, T-764), drive commits (T-762), live mark (T-763). RV-94
-  closed. Owner runs `make ship`. Nothing in flight.
+  closed. Nothing in flight.
 - 2026-11-03 morning: **v0.21.0 shipped** (leads told) (Setup page + editing T-750/T-752..T-754/T-756, obor drive/land
   T-751/T-755/T-757/T-758, test flakes T-759 released UNREVIEWED with the owner's OK). RV-92, RV-93 closed (accepted
   lines in Open). Owner will redesign the Setup page (DeepSeek's UI looked ugly: UI specs now
