@@ -317,6 +317,7 @@ type Config struct {
 	Root       string
 	Data       Data
 	json       []byte // Data as JSON, for Get
+	local      []byte // .obor/local.json's bytes (nil: none), for Edit's override check (T-754)
 	unknownErr error  // Load's error when read dropped an unknown key
 }
 
@@ -414,7 +415,7 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 	if files[1] != nil {
 		merged = merge(files[0], files[1])
 	}
-	c := &Config{Root: root, Data: Defaults()}
+	c := &Config{Root: root, Data: Defaults(), local: files[1]}
 	merged, unknown := dropUnknown(merged, reflect.TypeOf(c.Data), "")
 	if err := strict(merged, &c.Data); err != nil {
 		// Name the file at fault: config.json when it fails alone, else local.json.
