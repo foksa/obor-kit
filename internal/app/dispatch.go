@@ -67,7 +67,11 @@ type (
 		Type  string   `json:"type,omitempty"`
 		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
 		// Drive: the owner's drive (obor drive, T-751): no worker, no work job; after lane.prepare the task is driving.
-		Drive  bool   `json:"drive,omitempty"`
+		Drive bool `json:"drive,omitempty"`
+		// Fix: a move's (T-778) outstanding fix of the attempt it moved, a sendback's or a red gate's text (Answer: the
+		// answer to the worker's question, an older log's obor answer); the moved attempt's work job carries it.
+		Fix    string `json:"fix,omitempty"`
+		Answer bool   `json:"answer,omitempty"`
 		Caller string `json:"caller,omitempty"`
 		Call   string `json:"call,omitempty"`
 		Reply  string `json:"reply"`

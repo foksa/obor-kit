@@ -216,10 +216,26 @@ func (a *App) fetchText(p *proj, mt mtask, key event.Key) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
+	text += movedFix(mt)
 	if row.Rev > 0 {
 		text += specText(row)
 	}
 	return text, row.Rev, nil
+}
+
+// movedFix is the work job's part for an attempt a move started (T-778) while the attempt it moved had a fix
+// outstanding (dispatchData.Fix): what to fix, as the fix job said it; "": none.
+func movedFix(mt mtask) string {
+	if mt.disp.Fix == "" {
+		return ""
+	}
+	if mt.disp.Answer {
+		return fmt.Sprintf("\n\n%s moved to you (attempt %d) with the answer to the previous worker's question: %s\n"+
+			"Go on with the task from the lane's branch.", mt.task, mt.attempt, mt.disp.Fix)
+	}
+	return fmt.Sprintf("\n\n%s moved to you (attempt %d) while it was sent back to the previous worker: %s\nFix it "+
+		"on the lane's branch and run the tests; when finished, call task_done with your report.", mt.task, mt.attempt,
+		mt.disp.Fix)
 }
 
 // fixRead is the fix job's line for a worker started fresh (T-603): the work job carried the role texts, so only a

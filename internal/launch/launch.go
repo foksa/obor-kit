@@ -90,10 +90,11 @@ type Launcher struct {
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open, T-588);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
-	// Job is the open worker job (<task>/<attempt>/<step>) of the task lane holds in obor serve ("": none, or serve does
-	// not answer): obor restart of a lane's worker with no --prompt sends its wake (T-773), never an idle agent with no
-	// job. nil: none asked (obor serve's own starts carry their job's wake).
-	Job func(ctx context.Context, lane string) string
+	// Job is the open worker job (<task>/<attempt>/<step>) of the task lane holds in obor serve ("": none): obor
+	// restart of a lane's worker with no --prompt sends its wake (T-773), never an idle agent with no job. An error (the
+	// lane holds a task and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none
+	// asked (obor serve's own starts carry their job's wake).
+	Job func(ctx context.Context, lane string) (string, error)
 }
 
 // Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
@@ -525,6 +526,15 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
+	// A lane's worker restarted with no --prompt while its lane's task has a job open (T-773): that job's wake, the first
+	// prompt of a fresh session, typed into a resumed one once it is up. Resolved before the stop (T-778): a lane with a
+	// task whose job serve cannot tell refuses the restart, the old agent untouched.
+	job := ""
+	if req.Prompt == "" && l.Job != nil && t.info.Role == "worker" && t.info.Lane != "" {
+		if job, err = l.Job(ctx, t.info.Lane); err != nil {
+			return port.Started{}, project.Failf("%s not restarted (nothing stopped): %v", t.agent, err)
+		}
+	}
 	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
@@ -533,12 +543,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	}
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
-	}
-	// A lane's worker restarted with no --prompt while its lane's task has a job open (T-773): that job's wake, the first
-	// prompt of a fresh session, typed into a resumed one once it is up.
-	job := ""
-	if req.Prompt == "" && l.Job != nil && t.info.Role == "worker" && t.info.Lane != "" {
-		job = l.Job(ctx, t.info.Lane)
 	}
 	prompt := req.Prompt
 	switch {

@@ -10,7 +10,7 @@ import (
 )
 
 // TestUpgradeCheck is `make upgrade-check`: the previous release (OBOR_UPGRADE_PREV, else the catalog's newest version
-// below VERSION; its binary fetched into the cache when missing) upgraded to this checkout's build (dist/obor;
+// below VERSION; v0.23.0 or later, else refused; its binary fetched into the cache when missing) upgraded to this checkout's build (dist/obor;
 // OBOR_UPGRADE_NEW another binary), with this checkout's guide. Skipped unless OBOR_UPGRADE_CHECK=1.
 func TestUpgradeCheck(t *testing.T) {
 	if os.Getenv("OBOR_UPGRADE_CHECK") != "1" {
@@ -59,6 +59,9 @@ func kitRoot(t testing.TB) string {
 // minor's guide.
 func newCheck(t testing.TB, kit, prev, next string, fetch bool) (check, error) {
 	c := check{prev: prev, next: next, newKit: kit, log: t.Logf}
+	if err := supported(prev); err != nil {
+		return c, err
+	}
 	var err error
 	if c.prevBin, err = release(kit, prev, fetch); err != nil {
 		return c, err
@@ -78,6 +81,23 @@ func newCheck(t testing.TB, kit, prev, next string, fetch bool) (check, error) {
 	return c, nil
 }
 
+// minPrev is the oldest previous release the check supports (T-778): its fixture's spec names its model (Model:,
+// v0.23.0 on; before, a spec named a lane type).
+const minPrev = "0.23.0"
+
+// supported refuses a previous release the check does not support: not x.y.z, or below minPrev. Nothing is fetched.
+func supported(prev string) error {
+	p, ok := parseVersion(prev)
+	if !ok {
+		return fmt.Errorf("PREV=%s is not x.y.z", prev)
+	}
+	if m, _ := parseVersion(minPrev); less(p, m) {
+		return fmt.Errorf("PREV=%s is not supported: the upgrade check runs from a previous release of v%s or later "+
+			"(PREV=x.y.z with x.y.z >= %s; its fixture's spec names Model:)", prev, minPrev, minPrev)
+	}
+	return nil
+}
+
 // offline is the check of prev → next with both release binaries from the cache (no fetch: the gate has no network);
 // skipped when either is not cached.
 func offline(t *testing.T, prev, next string) check {
@@ -91,6 +111,29 @@ func offline(t *testing.T, prev, next string) check {
 		t.Skipf("v%s → v%s needs both release binaries cached (make upgrade-check fetches them): %v", prev, next, err)
 	}
 	return c
+}
+
+// T-778: a previous release below v0.23.0 (PREV=0.22.0) is refused before anything is fetched or run, naming the
+// supported range; v0.23.0 and later pass the range check.
+func TestUpgradeCheckRefusesOldPrev(t *testing.T) {
+	t.Parallel()
+	kit := t.TempDir() // no catalog, no tags: a refusal that got past the range check would fail differently
+	_, err := newCheck(t, kit, "0.22.0", "0.23.1", true)
+	if err == nil {
+		t.Fatal("PREV=0.22.0 accepted")
+	}
+	want := "PREV=0.22.0 is not supported: the upgrade check runs from a previous release of v0.23.0 or later"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %q, want it to name the range (%q)", err, want)
+	}
+	for _, v := range []string{"0.23.0", "0.23.1", "1.0.0"} {
+		if err := supported(v); err != nil {
+			t.Errorf("PREV=%s: %v, want supported", v, err)
+		}
+	}
+	if err := supported("0.9.9"); err == nil {
+		t.Error("PREV=0.9.9 supported")
+	}
 }
 
 // T-772: a project made by v0.23.0 survives v0.23.1 installed over it (both release binaries, the kit's guide).

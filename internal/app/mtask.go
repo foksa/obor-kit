@@ -46,6 +46,9 @@ func (p *proj) foldLoop(r event.Record) {
 			// The worker's spec rev outlives its attempt; a drive stays one (T-751).
 			next.sendbacks, next.specRev, next.drive = mt.sendbacks, mt.specRev, mt.drive
 			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
+			// The dispatch's identity outlives the submission (T-778): a move after a red gate or a sendback redoes the
+			// task on its branch and target with the type it runs.
+			next.disp, next.at = mt.disp, mt.at
 		}
 		p.folded.loop[r.Task] = next
 		return
