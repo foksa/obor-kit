@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-03 (owner): **Consolidation, not features.** obor's features are enough; next work simplifies the workflow
+  and makes upgrades safe (deep dive DD-consolidation). herdr and the agent CLIs are core; npm stays for Svelte.
+  Answers on the survey: drop `obor monitor` (obor web and `obor status` remain); remove the `agents.<name>` config
+  key (roles cover advisor, researcher, triage); delete the one-time `setup migrate` code in v0.25 (one-time migration
+  code lives one minor release); keep `obor lead` and `obor restart` as they are. Claude lane workers and drives start
+  with `--strict-mcp-config` built in (T-770).
 - 2026-11-03 (owner): **Config names models directly** (T-765, T-766): `difficulty` levels and `roles` are
   `<model>[:<effort>]` refs (built-in model table; optional `kinds` defaults and `models` overrides), `lanes` is a count
   (L-01…), no lane types and no caps. A level's first model is the default; later ones when a spec's `Model:` line names
