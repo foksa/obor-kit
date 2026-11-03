@@ -2,19 +2,29 @@ package project
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
+
+	"obor/internal/config"
 )
 
 // configAt puts a minimal obor config naming name at root.
 func configAt(t *testing.T, root, name string) {
 	t.Helper()
+	configBytesAt(t, root, `{"name":"`+name+`"}`+"\n")
+}
+
+// configBytesAt puts config, an obor config's bytes as they are, at root.
+func configBytesAt(t *testing.T, root, config string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"name":"`+name+`"}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -111,6 +121,67 @@ func TestProjectsSkipsStaleEntries(t *testing.T) {
 	var list map[string]string
 	if err := json.Unmarshal(b, &list); err != nil || len(list) != 1 || list["kit"] != Physical(kit) {
 		t.Errorf("the file after a write %q: %v; want only kit (the stale entries dropped)", b, err)
+	}
+}
+
+// T-767: the list keeps a project whose config this binary cannot load (an older shape a release wrote, a newer shape a
+// release wrote, an unparsable file): its entry goes only when its root has no .obor/config.json, or its config names
+// another project. A project on another obor version stays named, so obor send and obor projects reach it.
+func TestProjectsKeepsConfigsItCannotLoad(t *testing.T) {
+	t.Parallel()
+	env := stateEnv(t)
+	dir := t.TempDir()
+	old, broken, renamed, gone := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
+		filepath.Join(dir, "renamed"), filepath.Join(dir, "gone")
+	// The shape before T-765: this binary refuses it, and its name still counts.
+	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
+	configAt(t, renamed, "renamed")
+	configAt(t, gone, "gone")
+	if _, err := config.LoadDaemon(old); err == nil {
+		t.Fatal("precondition: the old-shape config loads")
+	}
+	if _, err := config.LoadDaemon(broken); err == nil {
+		t.Fatal("precondition: the unparsable config loads")
+	}
+	for _, root := range []string{old, broken, renamed, gone} {
+		if _, err := Register(root, env); err != nil {
+			t.Fatalf("register %s: %v", root, err)
+		}
+	}
+	if root, ok := RootOf("axis-alies", env); !ok || root != Physical(old) {
+		t.Errorf("RootOf(axis-alies) = %q, %v; want %q (the old-shape config keeps the entry)", root, ok, Physical(old))
+	}
+	want := []Project{{"axis-alies", Physical(old)}, {"gone", Physical(gone)}, {"obor-kit", Physical(broken)},
+		{"renamed", Physical(renamed)}}
+	if got := Projects(env); !slices.Equal(got, want) {
+		t.Errorf("Projects = %+v; want all four, the two unloadable configs under their own names", got)
+	}
+
+	if err := os.Remove(filepath.Join(gone, ".obor", "config.json")); err != nil { // its project is gone
+		t.Fatal(err)
+	}
+	configAt(t, renamed, "another-name") // the directory is there, its project is not the one the list names
+	want = []Project{{"axis-alies", Physical(old)}, {"obor-kit", Physical(broken)}}
+	if got := Projects(env); !slices.Equal(got, want) {
+		t.Errorf("Projects = %+v; want only the two with a config of their name", got)
+	}
+	fifth := filepath.Join(dir, "fifth")
+	configAt(t, fifth, "fifth")
+	if _, err := Register(fifth, env); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(ProjectsFile(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list map[string]string
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatal(err)
+	}
+	kept := map[string]string{"axis-alies": Physical(old), "obor-kit": Physical(broken), "fifth": Physical(fifth)}
+	if !maps.Equal(list, kept) {
+		t.Errorf("the file after a write = %v; want %v (only the configs that are there, and name it)", list, kept)
 	}
 }
 
