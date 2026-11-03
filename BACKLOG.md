@@ -6,8 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-03: **v0.20.1 tagged** (v0.20.0 never shipped on its own; v0.20.1 notes carry both; T-748/T-749 answer
-  delivery states, RV-91 closed). Owner runs `make ship`; then the post-ship checks below. Nothing in flight.
+- 2026-11-03: **v0.20.1 shipped** (v0.20.0 never shipped on its own; v0.20.1 notes carry both; T-748/T-749 answer
+  delivery states, RV-91 closed). Ship told axis-alies and axis-maps; axis-maps' serve is on v0.20.1 and its stale
+  deep-dive brief is gone. Nothing in flight, no open owner decisions.
 - 2026-11-02 night: **v0.20.0 tagged** (lane pool, binaries followed by serve/monitor/web, reviews in the main checkout
   with the merge hold, answer delivery to the live session). RV-86..RV-90 closed (accepted lines in Open). obor-kit
   now runs untyped lanes L-01..L-04 (old O/S/C/D lanes and their worktrees removed; tab "lanes"). `max` caps worker
