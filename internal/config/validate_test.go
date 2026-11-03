@@ -461,6 +461,16 @@ func TestValidateTemplatesAndKitConfig(t *testing.T) {
 		if len(warns)+len(fails) != 0 {
 			t.Errorf("%s: %q %q", files[0], warns, fails)
 		}
+		if files[0] == "templates/config.example.json" { // T-769: every role it lists names a model, the lead too
+			for _, role := range []string{"lead", "integrator", "reviewer"} {
+				if rc, ok := c.Role(role); !ok || rc.Type == "" {
+					t.Errorf("template role %s = %+v, %v; want a model", role, rc, ok)
+				}
+			}
+			if rc, _ := c.Role("lead"); config.ModelRef(rc.Type, rc.Effort) != "opus:high" {
+				t.Errorf("template lead = %+v, want opus:high", rc)
+			}
+		}
 		if files[1] != "" && (c.Data.Lanes != 2 || c.DifficultyList("hard")[0] != "opus:xhigh") {
 			t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes, c.DifficultyList("hard"))
 		}

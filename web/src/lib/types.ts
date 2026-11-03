@@ -378,7 +378,6 @@ export interface SetupRole {
   agent: string;
   type: string;
   status: string;
-  optional: boolean;
 }
 
 export interface DispatchCount {

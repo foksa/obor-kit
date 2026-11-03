@@ -9,7 +9,7 @@
   import { api, post } from "../lib/api";
   import { roleName } from "../lib/format";
   import {
-    addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, model, move, pauseBody, show, splitRef, stage,
+    addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, model, move, pauseBody, roleModelOptions, show, splitRef, stage,
     usedBy, value, type Staged, type Value,
   } from "../lib/setup";
   import type { Setup } from "../lib/types";
@@ -312,8 +312,7 @@
                     <td><span class="rname"><Dot state={r.status || "idle"} title={r.status || "no pane"} /> {roleName(r.role)}</span><span class="small"><AgentLink {project} agent={r.agent} /></span></td>
                     <td>
                       <select class="sel" class:st={isStaged(k)} aria-label="Model of {roleName(r.role)}" value={rm} disabled={busy} onchange={(e) => setRole(r.role, e.currentTarget.value, re)}>
-                        {#if !r.optional}<option value="">role's default</option>{/if}
-                        {#each names as n (n)}<option value={n}>{n}</option>{/each}
+                        {#each roleModelOptions(names, rm) as o (o.value)}<option value={o.value} disabled={o.disabled}>{o.label}</option>{/each}
                       </select>
                     </td>
                     <td>

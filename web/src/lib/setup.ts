@@ -60,6 +60,16 @@ export function splitRef(ref: string): [string, string] {
 }
 export const joinRef = (model: string, effort: string) => (model && effort ? `${model}:${effort}` : model);
 
+export interface RoleOption { value: string; label: string; disabled: boolean }
+export const NO_MODEL = "no model — choose one";
+
+// roleModelOptions is the options of a role's model select: the models, behind a disabled placeholder while the role
+// has none (a role always names a model, so there is never an empty choice, T-769).
+export function roleModelOptions(names: string[], model: string): RoleOption[] {
+  const opts = names.map((n) => ({ value: n, label: n, disabled: false }));
+  return model ? opts : [{ value: "", label: NO_MODEL, disabled: true }, ...opts];
+}
+
 // chip is a model ref as a level's chip shows it: "opus · high", or the model alone at its kind's default effort.
 export function chip(ref: string): string {
   const [m, e] = splitRef(ref);

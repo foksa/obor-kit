@@ -126,8 +126,7 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	return c.change("kinds."+kind+".args", doc, []string{"kinds", kind, "args"}, v, old, newLine)
 }
 
-// editRole sets a configured role's model ref; "" deletes the member, so a non-optional role runs its default model
-// again (an optional role refuses it: deleting its member would disable the role).
+// editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused.
 func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change, error) {
 	rc, ok := c.Role(role)
 	if !ok || role == "worker" || rc.Role.Optional && !rc.Configured {
@@ -141,15 +140,8 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 			Compact(role), strings.Join(names, ", "))
 	}
 	var ref string
-	if err := json.Unmarshal(val, &ref); err != nil {
+	if err := json.Unmarshal(val, &ref); err != nil || ref == "" {
 		return Change{}, fmt.Errorf("roles.%s takes a model ref (<model>[:<effort>])", role)
-	}
-	if ref == "" {
-		if rc.Role.Optional {
-			return Change{}, fmt.Errorf("roles.%s takes a model ref (<model>[:<effort>]): %s is an optional role, and "+
-				"removing its model would disable it", role, role)
-		}
-		return c.change("roles."+role, doc, []string{"roles", role}, nil, unsetOr(ModelRef(rc.Type, rc.Effort)), "role's default")
 	}
 	if err := c.CheckModelRef(ref); err != nil {
 		return Change{}, fmt.Errorf("roles.%s: %v", role, err)
