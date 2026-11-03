@@ -22,7 +22,7 @@
   "protected_files": ["src/engine/types.ts"],
   "lanes": 3,
   "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek", "haiku"] },
-  "roles": { "integrator": "opus", "reviewer": "sol:high" },
+  "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },
   "kinds": {
     "opencode": {
       "prompt_extra": "You run in opencode, not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."

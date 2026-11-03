@@ -134,7 +134,7 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 		"  medium → sonnet (claude sonnet)",
 		"  simple → sonnet (claude sonnet) | haiku (claude haiku)",
 		"lanes: 2 (L-01, L-02; each runs the model its dispatch picks)",
-		"roles: lead opus (claude opus), integrator opus (claude opus), reviewer sol:high (codex gpt-6.1-sol, effort high)",
+		"roles: lead opus:high (claude opus, effort high), integrator opus (claude opus), reviewer sol:high (codex gpt-6.1-sol, effort high)",
 		"confirmed: no",
 		"starting point: the lead goes through it with you at its first session",
 		"",

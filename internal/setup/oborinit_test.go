@@ -124,7 +124,7 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	doc := x.Read(".obor/config.json")
 	if key := config.OldShape([]byte(doc)); key != "" || strings.Contains(doc, "lane_types") ||
 		!regexp.MustCompile(`(?m)^  "lanes": 2,?$`).MatchString(doc) ||
-		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus"`) {
+		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus:high"`) {
 		t.Errorf("config.json is not the new shape (old key %q):\n%s", key, doc)
 	}
 	for _, lane := range []string{"L-01", "L-02"} {
@@ -805,14 +805,30 @@ func (x *initFx) paneOf(name string) string {
 	return ""
 }
 
-// T-644: a config with no roles.lead gets opus (obor lead refuses an untyped lead); a type the user set stays, and a
-// rerun changes nothing.
+// T-644, T-769: the template names the lead's model (kept by init); a hand-written config with no roles.lead gets opus
+// (obor lead refuses an untyped lead); a type the user set stays, and a rerun changes nothing.
 func TestOborInitSetsTheLeadsType(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if rc, _ := cfg.Role("lead"); rc.Type != "opus" || rc.Effort != "high" {
+		t.Errorf("lead %+v, want the template's opus:high", rc)
+	}
+	has(t, summary(out, "lanes"), "lead opus:high", "lanes step")
+
+	x.editConfig(t, []string{"roles", "lead"}, nil) // a hand-written config that omits the lead
+	if cfg, err = config.Load(x.Root); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _ := cfg.Role("lead"); rc.Type != "" {
+		t.Fatalf("precondition: the lead has no model, got %+v", rc)
+	}
+	out = x.init(t)
+	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
 	if rc, _ := cfg.Role("lead"); rc.Type != "opus" {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, move, pauseBody, show, splitRef, stage, usedBy, value,
+  addRef, body, busyDropped, chip, current, efforts, inUse, joinRef, move, NO_MODEL, roleModelOptions, pauseBody, show, splitRef, stage, usedBy, value,
 } from "./setup";
 import type { Setup } from "./types";
 
@@ -22,7 +22,7 @@ const s: Setup = {
     { lane: "L-02", type: "opus:high", agent: "pj-l-02", state: "working" },
     { lane: "L-03", type: "", agent: "pj-l-03", state: "free" },
   ],
-  roles: [{ role: "reviewer", agent: "pj-rev", type: "terra:xhigh", status: "", optional: false }, { role: "lead", agent: "pj-lead", type: "", status: "", optional: false }],
+  roles: [{ role: "reviewer", agent: "pj-rev", type: "terra:xhigh", status: "" }, { role: "lead", agent: "pj-lead", type: "", status: "" }],
   paused: null,
   distribution: [],
   config_rev: "r1",
@@ -100,5 +100,21 @@ describe("the Setup page's controls", () => {
     expect(pauseBody("sonnet", false, "quota", "until cleared")).toEqual({ model: "sonnet", reason: "quota", for: "" });
     expect(pauseBody("sonnet", true)).toEqual({ model: "sonnet", clear: true });
     expect(pauseBody("", false, "lunch", "1h")).toEqual({ model: "", reason: "lunch", for: "1h" });
+  });
+});
+
+describe("a role's model select", () => {
+  it("offers a disabled placeholder first and no empty option while the role has no model", () => {
+    const [none] = splitRef(current(s, "roles.lead") as string);
+    expect(none).toBe(""); // precondition: the lead has no model
+    const opts = roleModelOptions(["opus", "sonnet"], none);
+    expect(opts[0]).toEqual({ value: "", label: NO_MODEL, disabled: true });
+    expect(opts.slice(1).map((o) => o.value)).toEqual(["opus", "sonnet"]);
+    expect(opts.slice(1).some((o) => o.value === "" || o.disabled)).toBe(false);
+  });
+  it("offers only the models once the role names one", () => {
+    const opts = roleModelOptions(["opus", "sonnet"], "opus");
+    expect(opts.map((o) => o.value)).toEqual(["opus", "sonnet"]);
+    expect(opts.some((o) => o.value === "" || o.label === NO_MODEL)).toBe(false);
   });
 });
