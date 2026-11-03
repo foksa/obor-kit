@@ -10,13 +10,13 @@ import (
 	"obor/internal/project"
 )
 
-// nightlyCmd is `obor nightly` (NIGHTLY) and `obor milestone-check` (MILESTONE).
-func nightlyCmd(name, label string, args []string) int {
+// nightlyCmd is `obor nightly` (NIGHTLY).
+func nightlyCmd(args []string) int {
 	if len(args) != 0 {
-		fmt.Fprintln(out, "FAIL usage: obor "+name)
+		fmt.Fprintln(out, "FAIL usage: obor nightly")
 		return 1
 	}
-	return checksRun(func(o checks.Options) checks.Result { return checks.Nightly(o, label) })
+	return checksRun(func(o checks.Options) checks.Result { return checks.Nightly(o) })
 }
 
 // checksRun loads the project and runs body with the process's environment; INT/TERM/HUP become its exit code.

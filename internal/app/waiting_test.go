@@ -61,7 +61,7 @@ func (r *loopRig) waitAfter(callID string, after ...string) (string, error) {
 		Lane: "L-01", After: after, Types: []string{"sonnet"}})
 }
 
-// taskStatus is task's row in obor serve status (Task "": not listed).
+// taskStatus is task's row in obor status --facts (Task "": not listed).
 func (r *loopRig) taskStatus(task string) wire.TaskStatus {
 	for _, t := range r.app.Status().Project.Tasks {
 		if t.Task == task {

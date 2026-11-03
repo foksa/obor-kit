@@ -14,29 +14,29 @@ import (
 	"obor/internal/project"
 )
 
-// Nightly is `obor nightly` (label NIGHTLY) and `obor milestone-check` (label MILESTONE): the milestone check tier in
+// Nightly is `obor nightly`: the milestone check tier in
 // its own worktree (<merge.scratch_dir>-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check,
 // check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
 // skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
-// NIGHTLY then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
+// It then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for NightlyDue and serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
 // merge.window_wait s).
-func Nightly(o Options, label string) Result {
-	s, r := open(context.Background(), o, strings.ToLower(label))
+func Nightly(o Options) Result {
+	s, r := open(context.Background(), o, "nightly")
 	if r != nil {
 		return *r
 	}
 	defer s.close()
-	r = s.nightly(label)
+	r = s.nightly()
 	if code := s.interrupted(); code != 0 {
 		return Result{Code: code}
 	}
 	return *r
 }
 
-func (s *session) nightly(label string) *Result {
-	if r := s.lock("obor " + strings.ToLower(label)); r != nil {
+func (s *session) nightly() *Result {
+	if r := s.lock("obor nightly"); r != nil {
 		return r
 	}
 	if err := (Scratch{Options: s.Options}).worktree(s.scratch, s.target); err != nil {
@@ -98,19 +98,17 @@ func (s *session) nightly(label string) *Result {
 	}
 	s.releaseSlot()
 	s.reset(sha) // no command artifacts left behind
-	if label == "NIGHTLY" {
-		sock := wire.SocketPath(s.Cfg.Root)
-		ctx := s.callCtx
-		if ctx == nil {
-			ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
-		}
-		switch reply, err := wire.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
-		case err != nil:
-			failed = append(failed, "backup")
-			evidence = append(evidence, "backup: "+err.Error())
-		case reply != "":
-			results = append(results, "backup "+filepath.Base(strings.TrimPrefix(reply, "BACKUP ")))
-		}
+	sock := wire.SocketPath(s.Cfg.Root)
+	ctx := s.callCtx
+	if ctx == nil {
+		ctx = s.ctx // an interrupted nightly does not wait out the call's deadline on a backup
+	}
+	switch reply, err := wire.Backup(ctx, sock, s.Cfg.Root, time.Now()); {
+	case err != nil:
+		failed = append(failed, "backup")
+		evidence = append(evidence, "backup: "+err.Error())
+	case reply != "":
+		results = append(results, "backup "+filepath.Base(strings.TrimPrefix(reply, "BACKUP ")))
 	}
 
 	verdict, summary := "GREEN", strings.Join(results, ", ")
@@ -128,9 +126,9 @@ func (s *session) nightly(label string) *Result {
 	}
 	s.printLines(details)
 	if verdict == "GREEN" {
-		return result(OK, "%s GREEN %s on %s (%s)%s", label, sha[:min(7, len(sha))], s.target, summary, s.loaded)
+		return result(OK, "NIGHTLY GREEN %s on %s (%s)%s", sha[:min(7, len(sha))], s.target, summary, s.loaded)
 	}
-	return result(Red, "%s RED %s on %s (%s)%s — %s", label, sha[:min(7, len(sha))], s.target, summary, s.loaded,
+	return result(Red, "NIGHTLY RED %s on %s (%s)%s — %s", sha[:min(7, len(sha))], s.target, summary, s.loaded,
 		strings.Join(evidence, " | "))
 }
 

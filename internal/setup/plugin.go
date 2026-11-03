@@ -264,7 +264,7 @@ func (s *Setup) resumeHint() {
 	s.say("%s", line)
 }
 
-// agentsCmd is `obor setup agents [--remove]` (alias opencode-plugin; user-global, once per user): for every kind,
+// agentsCmd is `obor setup agents [--remove]` (user-global, once per user): for every kind,
 // what its bridge says to install (agents.Install): its plugin link (Plugin: e.g. OpenCode's
 // <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js, T-306), then the obor entry of its
 // user config (a Config registration, configMCP). A link to another kit's copy is re-linked; a file there that is no

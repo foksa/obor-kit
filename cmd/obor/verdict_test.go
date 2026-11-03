@@ -71,7 +71,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		if rc, stdout, _ := run(t, p.Root, env, "serve", "status"); rc == 0 && strings.HasPrefix(stdout, "serve: pane pid ") {
+		if rc, stdout, _ := run(t, p.Root, env, "status", "--facts"); rc == 0 && strings.HasPrefix(stdout, "serve: pane pid ") {
 			break
 		}
 		if time.Now().After(deadline) {

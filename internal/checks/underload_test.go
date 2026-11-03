@@ -25,7 +25,7 @@ func TestResultLineUnderLoad(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", "echo 2 pass"))
 		x.slotLoad = 42.5
-		x.is(x.nightly("MILESTONE"), OK, `^MILESTONE GREEN .*\) \(run under load 42\.5\)$`)
+		x.is(x.nightly(), OK, `^NIGHTLY GREEN .*\) \(run under load 42\.5\)$`)
 	})
 	t.Run("green gate, no load wait: unmarked", func(t *testing.T) {
 		t.Parallel()

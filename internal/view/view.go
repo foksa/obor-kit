@@ -455,7 +455,7 @@ func runningCommand(p *checks.LaneTable, r wire.RunningStep) string {
 	return cmd.Cmd
 }
 
-// readFullCheck is .obor/state/last-full-check ("<sha> <epoch> GREEN|RED <summary>", obor nightly / milestone-check);
+// readFullCheck is .obor/state/last-full-check ("<sha> <epoch> GREEN|RED <summary>", obor nightly);
 // nil when there is none.
 func readFullCheck(root string) *FullCheck {
 	b, err := os.ReadFile(filepath.Join(project.StateDir(root), "last-full-check"))

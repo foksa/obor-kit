@@ -81,7 +81,7 @@ const (
 	needsAgainEvery = 60 * time.Minute
 )
 
-// outbox is one project's lines to its agents (proj.out; T-610): leadAgent, the lead's agent (roles.lead.agent), and
+// outbox is one project's lines to its agents (proj.out; T-610): leadAgent, the lead's agent (config.AgentName), and
 // leadKind, its kind as configured (its role's type, else agents.Default): its lines' inbox; msgs, the lines not
 // delivered yet by their fact's seq; lined, the needs-you facts (by seq) whose lines to the lead are recorded, and how
 // many; lining, those whose line a pass is recording now (needsLines' claim, not folded); delivered, when the latest

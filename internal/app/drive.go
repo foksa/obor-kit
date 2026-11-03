@@ -514,7 +514,7 @@ func (a *App) tellLeadCall(c wire.Call) (string, error) {
 	case why != "":
 		return "", fmt.Errorf("tell-lead: %s", why)
 	case lead == "":
-		return "", errors.New("tell-lead: no lead configured (roles.lead.agent)")
+		return "", errors.New("tell-lead: no lead configured (the config's prefix names it)")
 	}
 	m := event.Message{To: lead, From: cmp.Or(c.Agent, roles.Driver), Task: task, Line: tellLine(task, c.Note),
 		Driver: true, Call: c.CallID, Reply: "TOLD " + lead + " (" + task + "; its answer arrives here as an [obor answer] line)"}

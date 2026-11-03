@@ -7,7 +7,7 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   dispatching dependent tasks); config keys: `config.Data`'s field comments (`internal/config/config.go`). Specs from
   the kit's `templates/task-spec.md`. Changes to how a role works need the user's approval.
 - Main checkout `~/Work/obor-kit` (branch `main`); lanes `~/Work/obor-kit-wt/<LANE>`; who runs where:
-  [roster.md](roster.md). The `obor` on PATH is the stable checkout: in obor-kit use `./bin/obor` for main's code.
+  `obor status` (or obor web). The `obor` on PATH is the stable checkout: in obor-kit use `./bin/obor` for main's code.
 - Milestone end: tag `m<n>-<name>` after the deep dive's easy findings are fixed and verified.
 - Integrator: ob-int (`roles.integrator`) since 2026-10-13. The lead never merges by hand (user: "why are you doing
   integrators job?" after finished lanes sat unmerged); `obor serve` gates a finished lane and sends ob-int its review

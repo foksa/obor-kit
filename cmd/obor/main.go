@@ -1,6 +1,6 @@
 // obor (Go): every command in `commands` (whoami, config, status, pause, run, restart, lead, dispatch, drop,
 // answer, sendback, resume, send, projects, brief, spec, flakes, nightly,
-// milestone-check, plugin (the herdr plugin's restore hook), setup, has, serve, mcp, stop, start, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
+// plugin (the herdr plugin's restore hook), setup, has, serve, mcp, stop, start, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
 // file) execs this binary for the commands in bin/go-commands.
 package main
 
@@ -130,9 +130,7 @@ func main() {
 	case "flakes":
 		exit(flakesCmd(args))
 	case "nightly":
-		exit(nightlyCmd("nightly", "NIGHTLY", args))
-	case "milestone-check":
-		exit(nightlyCmd("milestone-check", "MILESTONE", args))
+		exit(nightlyCmd(args))
 	case "plugin":
 		exit(pluginCmd(args))
 	case "setup":
@@ -205,43 +203,42 @@ func loadReader() (cfg *config.Config, warn string, rc int) {
 // commands is what this binary implements: subcommand → its sub-subcommands (nil: takes none). `obor has` reads it,
 // so bin/obor runs a binary for a hook only when it knows it (T-195: a stale dist/obor broke every hook).
 var commands = map[string][]string{
-	"whoami":          nil,
-	"init":            nil,
-	"status":          nil,
-	"monitor":         nil,
-	"web":             nil,
-	"config":          {"get", "validate"},
-	"hook":            {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},
-	"version":         nil,
-	"has":             nil,
-	"restart":         nil,
-	"lead":            nil,
-	"send":            nil,
-	"projects":        nil,
-	"brief":           nil,
-	"dispatch":        nil,
-	"drop":            nil,
-	"drive":           nil,
-	"land":            nil,
-	"tell-lead":       nil,
-	"answer":          nil,
-	"sendback":        nil,
-	"resume":          nil,
-	"spec":            {"set", "show", "list"},
-	"run":             nil,
-	"pause":           nil,
-	"watch":           nil,
-	"review":          {"verify", "close"},
-	"affected":        {"go"},
-	"flakes":          nil,
-	"nightly":         nil,
-	"milestone-check": nil,
-	"plugin":          {"restore"},
-	"serve":           {"status", "install", "uninstall", "restart"},
-	"mcp":             nil,
-	"stop":            nil,
-	"start":           nil,
-	"setup":           {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "opencode-plugin", "monitor", "migrate"},
+	"whoami":    nil,
+	"init":      nil,
+	"status":    nil,
+	"monitor":   nil,
+	"web":       nil,
+	"config":    {"get", "validate"},
+	"hook":      {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},
+	"version":   nil,
+	"has":       nil,
+	"restart":   nil,
+	"lead":      nil,
+	"send":      nil,
+	"projects":  nil,
+	"brief":     nil,
+	"dispatch":  nil,
+	"drop":      nil,
+	"drive":     nil,
+	"land":      nil,
+	"tell-lead": nil,
+	"answer":    nil,
+	"sendback":  nil,
+	"resume":    nil,
+	"spec":      {"set", "show", "list"},
+	"run":       nil,
+	"pause":     nil,
+	"watch":     nil,
+	"review":    {"verify", "close"},
+	"affected":  {"go"},
+	"flakes":    nil,
+	"nightly":   nil,
+	"plugin":    {"restore"},
+	"serve":     {"install", "uninstall", "restart"},
+	"mcp":       nil,
+	"stop":      nil,
+	"start":     nil,
+	"setup":     {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "monitor", "migrate"},
 }
 
 // has is `obor has <subcommand> [<sub-subcommand>]`: exit 0 when implemented, 1 when not; no output.

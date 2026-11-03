@@ -92,18 +92,18 @@ type initTemplate struct {
 }
 
 // initTemplates are the docs init copies: BACKLOG.md, docs/decisions.md and the agents dir's (README.md is the kit's
-// overview, read in place; roster.md is the project's own table, copied whole).
+// overview, read in place).
 func (s *Setup) initTemplates() []initTemplate {
 	agents := s.agentsDir()
 	tpl := filepath.Join(s.Kit, "templates")
 	var out []initTemplate
 	for _, c := range [][2]string{{"BACKLOG.md", "BACKLOG.md"}, {"decisions.md", "docs/decisions.md"},
-		{"task-spec.md", agents + "/task-spec.md"}, {"agents/roster.md", agents + "/roster.md"}} {
+		{"task-spec.md", agents + "/task-spec.md"}} {
 		out = append(out, initTemplate{filepath.Join(tpl, c[0]), c[1], false})
 	}
 	entries, _ := os.ReadDir(filepath.Join(tpl, "agents"))
 	for _, e := range entries {
-		if n := e.Name(); strings.HasSuffix(n, ".md") && n != "README.md" && n != "roster.md" {
+		if n := e.Name(); strings.HasSuffix(n, ".md") && n != "README.md" {
 			out = append(out, initTemplate{filepath.Join(tpl, "agents", n), agents + "/" + n, true})
 		}
 	}

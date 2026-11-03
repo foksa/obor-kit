@@ -205,9 +205,9 @@ func TestShimDispatchAndUsage(t *testing.T) {
 	}
 }
 
-// T-324: `serve` is in bin/go-commands, so `bin/obor serve status` reaches the binary instead of the shim's
+// T-324: `serve` is in bin/go-commands, so `bin/obor serve dump` reaches the binary instead of the shim's
 // unknown-subcommand error (exit 2, usage). The stub dist/obor argv-echoes and fails as the real one does with no app
-// running; the real serve's own status output is covered by T-323's serve test.
+// running; the real serve's own output is covered by T-323's serve test.
 func TestShimServeReachesBinary(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
@@ -218,10 +218,10 @@ printf '\n'
 echo 'FAIL obor serve is not running' >&2
 exit 1
 `)
-	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "serve", "status")
-	if want := "argv: <serve> <status>\n"; rc != 1 || stdout != want || strings.Contains(stderr, "unknown subcommand") ||
+	rc, stdout, stderr := f.shim(t, f.Root, noSelfHost, filepath.Join(f.Root, "bin", "obor"), "serve", "dump")
+	if want := "argv: <serve> <dump>\n"; rc != 1 || stdout != want || strings.Contains(stderr, "unknown subcommand") ||
 		!strings.Contains(stderr, "not running") {
-		t.Errorf("obor serve status: exit %d, stdout %q, stderr %q; want exit 1, %q and the binary's own not-running failure",
+		t.Errorf("obor serve dump: exit %d, stdout %q, stderr %q; want exit 1, %q and the binary's own not-running failure",
 			rc, stdout, stderr, want)
 	}
 }

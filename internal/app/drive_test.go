@@ -45,7 +45,7 @@ func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
 		Report: summary})
 }
 
-// stateOf is task's state in obor serve status ("" when not listed).
+// stateOf is task's state in obor status --facts ("" when not listed).
 func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 
 // driveAgentUp is the CLI's start of the drive agent pj-l-01-drive in the lane (pane w1:p5, labelled), identified by the

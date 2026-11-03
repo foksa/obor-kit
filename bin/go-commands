@@ -21,7 +21,6 @@ spec
 flakes
 affected
 nightly
-milestone-check
 plugin
 setup
 init

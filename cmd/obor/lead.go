@@ -27,7 +27,7 @@ type leadRun struct {
 }
 
 // lead is `obor lead [--resume]` (T-479, T-553): (re)start the project's lead (roles.lead) in a fresh session;
-// --resume continues its last one, and --fresh stays accepted as the default. Its agent already running → OK, nothing
+// --resume continues its last one. Its agent already running → OK, nothing
 // touched; an agent of that name running outside the project → FAIL
 // (RV-51 #5). A pane labelled with its agent (the session ended, or Claude was quit to update it) → obor restart's
 // start in that pane; from that pane itself the start runs once this command has exited (herdr starts an agent only
@@ -41,12 +41,11 @@ func lead(args []string) int {
 
 func (r leadRun) run(ctx context.Context, args []string) int {
 	fail := func(format string, a ...any) int { fmt.Fprintf(r.out, "FAIL "+format+"\n", a...); return 1 }
-	fresh := true // T-553: a fresh session unless --resume; --fresh is the same (old notes keep working)
+	fresh := true // T-553: a fresh session unless --resume
 	for _, a := range args {
 		switch a {
 		case "--resume":
 			fresh = false
-		case "--fresh":
 		default:
 			return fail("%s", leadUsage)
 		}
@@ -67,8 +66,8 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	}
 	for _, a := range running {
 		if a.Name == agent && !leadOurs(cfg, agent, a.Cwd) {
-			return fail("%s runs in pane %s with cwd %s, outside %s (another project's agent of that name? give this "+
-				"project's lead its own name in roles.lead.agent)", agent, a.Pane, a.Cwd, cfg.Root)
+			return fail("%s runs in pane %s with cwd %s, outside %s (another project's agent of that name? the "+
+				"config's prefix names every agent: obor setup rename changes it)", agent, a.Pane, a.Cwd, cfg.Root)
 		}
 		if a.Name == agent {
 			fmt.Fprintf(r.out, "OK %s runs (pane %s)\n", agent, a.Pane)

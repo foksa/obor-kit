@@ -86,7 +86,7 @@ func (r Record) Fact() FactData {
 	return d
 }
 
-// String is the record as `obor serve status` shows it: step{reason}.
+// String is the record as `obor status --facts` shows it: step{reason}.
 func (r Record) String() string {
 	if reason := r.Fact().Reason; reason != "" {
 		return r.Step + "{" + reason + "}"
@@ -118,7 +118,7 @@ type Log struct {
 	// Mu guards the fields below; the tests of package app also read Results under it.
 	Mu       sync.Mutex
 	seq      int64            // the last record's seq in the table
-	err      error            // the last append's error (nil: it succeeded, or none yet); obor serve status shows it
+	err      error            // the last append's error (nil: it succeeded, or none yet); obor status --facts shows it
 	Results  map[Key]Record   // by key
 	pending  map[Key]Record   // intents without a result, by key
 	intents  map[Key]Record   // every intent, with or without its result (its seq orders open jobs), by key

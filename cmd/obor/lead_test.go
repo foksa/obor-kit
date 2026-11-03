@@ -70,7 +70,7 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)
 	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "pj-lead"
-	for _, args := range [][]string{nil, {"--fresh"}, {"--resume"}} {
+	for _, args := range [][]string{nil, {"--resume"}} {
 		out, rc := x.run(t, args...)
 		if rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1)" {
 			t.Errorf("running lead %v: exit %d\n%s", args, rc, out)
@@ -83,7 +83,7 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 	}
 }
 
-// T-553: `obor lead` starts fresh; --resume continues the last session; --fresh still means the default.
+// T-553: `obor lead` starts fresh; --resume continues the last session (--fresh was removed, T-774).
 func TestLeadLabelledPaneSession(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -92,7 +92,6 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 		start []string // the agent.start args
 	}{
 		{nil, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--permission-mode", "auto", "--model", "opus", "/obor:lead"}}, // T-594: the lead skill is the first prompt
-		{[]string{"--fresh"}, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--permission-mode", "auto", "--model", "opus", "/obor:lead"}},
 		{[]string{"--resume"}, "RESTARTED pj-lead (pane w1:p1, session old-sid)", []string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
 	} {
 		x := newLeadFx(t)
@@ -120,7 +119,6 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 		want string
 	}{
 		{nil, "restart pj-lead --pane w1:p1 --fresh --prompt /obor:lead"},
-		{[]string{"--fresh"}, "restart pj-lead --pane w1:p1 --fresh --prompt /obor:lead"},
 		{[]string{"--resume"}, "restart pj-lead --pane w1:p1"},
 	} {
 		x := newLeadFx(t)
@@ -219,7 +217,7 @@ func TestLeadNamesakeInAnotherProjectFails(t *testing.T) {
 func TestLeadUsage(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)
-	for _, args := range [][]string{{"--fres"}, {"lead"}, {"--fresh2"}, {"--resume", "--nope"}, {""}} {
+	for _, args := range [][]string{{"--fres"}, {"lead"}, {"--fresh"}, {"--fresh2"}, {"--resume", "--nope"}, {""}} {
 		if out, rc := x.run(t, args...); rc != 1 || lastLine(out) != "FAIL "+leadUsage {
 			t.Errorf("obor lead %q: exit %d\n%s", args, rc, out)
 		}

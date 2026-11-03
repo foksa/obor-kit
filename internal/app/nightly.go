@@ -17,8 +17,8 @@ import (
 // nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
 // project's needs-you{full-check RED <sha7>} until a GREEN one ends it; a run that ends neither GREEN nor RED is a
 // counted failure (fact failed), tried again nightlyRetry after the last one, the tries-th the day's needs-you{nightly
-// failed: …}. A day not due is asked once (remembered in memory); a GREEN full check run by hand (obor nightly, obor
-// milestone-check: last-full-check) ends a RED one's needs-you too.
+// failed: …}. A day not due is asked once (remembered in memory); a GREEN full check run by hand (obor nightly:
+// last-full-check) ends a RED one's needs-you too.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
 // another process holds, merge.window_wait).

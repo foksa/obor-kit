@@ -121,7 +121,8 @@ Dispatch launches a fresh process per task (R-28, T-157).
 finds it by proofs ("Finding the pane" below); hooks read identity from the env (`obor hook` under opencode: from the
 cwd, see "opencode lanes").
 After a herdr restart, obor's `[[startup]]` hook (`obor plugin restore`) runs `obor restart` for each labelled
-obor pane (herdr `resume_agents_on_restore = false`). One sid file per agent is kept for resuming after a kill.
+obor pane (herdr `resume_agents_on_restore = false`). The store's `session` facts record each agent's sessions
+(`docs/state-model.md` row 51), for resuming after a kill.
 
 ## State (`.obor/state/obor.db`)
 Task, lane and spec state is `obor serve`'s store, one SQLite database: the `events`, `lanes` and `specs` tables, serve their only
@@ -459,7 +460,7 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   `at: merge`).
 - `obor nightly` (v2.5) runs the milestone tier: check + check_milestone + baseline + gate + e2e; **non-blocking**
   (reports, never holds merges; serve's nightly run records `needs-you{full-check RED <sha7>}`, T-464).
-- `obor milestone-check` = the same tier, run by the integrator before the milestone merge into `main` (blocking:
+- The integrator runs `obor nightly` before the milestone merge into `main` (blocking:
   the milestone merge waits for GREEN, or for a lead decision logged in `docs/decisions.md`).
 
 ## Test tiers and receipts (T-349, 2026-10-25)
@@ -597,7 +598,7 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 `obor hook` runs without `OBOR_AGENT`, `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd and
 the lane state, because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
 run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
-agents` (alias `opencode-plugin`; a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
+agents` (a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
 The `obor` it runs is the linked kit's, except inside an obor checkout (T-478, `bin/obor`'s self-hosting rule): there the
 main checkout's `bin/obor` (with `OBOR_NO_SELF_HOST=1`, never a lane's own build), so obor-kit's own lanes run its
 guard, not an older global kit's. The guard fails closed on a store it cannot read: a store that exists but cannot be
