@@ -289,7 +289,8 @@ func TestConfigSetLaneWithTask(t *testing.T) {
 }
 
 // A change racing a publish waits: while the publish runs nothing is written or committed; once it ends the change
-// goes in.
+// goes in. It is a difficulty change: the rig's O-01 holds T-1, whose merge this is, so a lane change would depend on
+// when the lane is read again.
 func TestConfigSetWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	r := newAdmitRig(t, true)
@@ -302,7 +303,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	r.publishing(ctx)
 	done := make(chan error, 1)
 	go func() {
-		_, err := h.set("w1", "lanes.O-01", `"opus"`)
+		_, err := h.set("w1", "difficulty.hard", `["opus"]`)
 		done <- err
 	}()
 	if !waiting(done) {
@@ -315,7 +316,7 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("the change after the publish: %v", err)
 	}
-	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: lanes.O-01") {
+	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: difficulty.hard") {
 		t.Errorf("commits %q, want the change's", got)
 	}
 }
