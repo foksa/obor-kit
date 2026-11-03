@@ -50,7 +50,9 @@ func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
 func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 
 // driveAgentUp is the CLI's start of the drive agent pj-o1-drive in the lane (pane w1:p5, labelled), identified by the
-// app (seen in a pane is not enough: obor drive's DRIVING answer needs it identified).
+// app (seen in a pane is not enough: obor drive's DRIVING answer needs it identified). The pane is announced as created
+// rather than with a workspace event: that ends serve's stream (a refresh), and a call that landed in the resubscribe's
+// gap answered "its agent is not running" under load (T-757).
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
 	r.f.Agent("w1:p5", "pj-o1-drive", "idle", r.lane)
@@ -59,9 +61,16 @@ func (r *loopRig) driveAgentUp() {
 		if app.IsIdentified(r.app, r.p.Root, "pj-o1-drive") {
 			return true
 		}
-		r.push()
+		r.paneCreated("w1:p5", "pj-o1-drive")
 		return false
 	})
+}
+
+// paneCreated tells serve pane exists: a pane.created event, which serve answers by reading the pane again, in place (no
+// refresh). The pane is the event's own, so serve's proof reads its label and workspace from here.
+func (r *loopRig) paneCreated(pane, label string) {
+	r.srv.Push("pane_created", map[string]any{"type": "pane_created", "pane_id": pane,
+		"pane": map[string]any{"pane_id": pane, "label": label, "workspace_id": "w1"}})
 }
 
 // driveLines is the lead's lines that a drive came back to its owner.

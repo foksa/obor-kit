@@ -1,7 +1,9 @@
 package app_test
 
 import (
+	"context"
 	"errors"
+	"io"
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
@@ -10,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/config"
+	"obor/internal/launch"
 	"obor/internal/store"
 )
 
@@ -151,6 +155,36 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 		t.Fatalf("the retry: %q, %v; want the take-over", reply, err)
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
+}
+
+// A worker whose pane is gone: its stop, the real launcher's, asks herdr for a pane labelled pj-o1 and finds none, so
+// it says the agent is not there (port.NotFound, T-757): the take-over drives and records, saying the worker is not
+// running, instead of refusing it forever.
+func TestDriveTakeOverWorkerPaneGone(t *testing.T) {
+	t.Parallel()
+	r := newTakeOverRig(t)
+	cfg, err := config.Load(r.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.f.Remove("w1:p1") // the worker's pane is gone: no pane is labelled pj-o1
+	l := &launch.Launcher{Cfg: cfg, Env: r.p.Env(), H: r.srv.Client(), Out: io.Discard, Wait: time.Second,
+		Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil }}
+	r.mu.Lock()
+	r.onStop = func() error {
+		_, err := l.Stop(context.Background(), "pj-o1", "", true)
+		return err
+	}
+	r.mu.Unlock()
+	reply, err := r.drive("v1", "T-1")
+	want := "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1; pj-o1 not running"
+	if err != nil || reply != want {
+		t.Fatalf("take-over with the worker's pane gone: %q, %v; want %q", reply, err, want)
+	}
+	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
+	if n := r.count("1 fact drive"); n != 1 {
+		t.Errorf("drive facts %d, want 1: %q", n, r.steps())
+	}
 }
 
 // Interrupted after the worker's stop, before the record (the record refused there): the task is working with no
