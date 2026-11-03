@@ -20,4 +20,3 @@ What changes:
   the main checkout; `roles.<role>.agent` / `.worktree` overrides are dropped (an integrator that ran in its own
   worktree, like axis-alies' O-02, now runs in the main checkout). `migrate` relabels the role panes it renames.
 - Shared args per agent kind go to `kinds.<kind>.args`; a model obor does not know goes to `models.<name>`.
-- Restart every Claude pane once (hooks read the new config).
