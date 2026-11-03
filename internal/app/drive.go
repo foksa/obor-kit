@@ -40,8 +40,11 @@ const driveTitle = "Owner drive: "
 // nothing recorded). The reply is DRIVE <task> → <lane> (<drive agent>, <type ref>), a take-over's followed by
 // " taking over from <worker>; <the stop's line>": the CLI starts the drive agent; DRIVING …: it runs already.
 //
-// A take-over stops the worker first (as obor restart --stop does, with force: it may be working), outside the locks,
-// and records fact drive only then (RV-92 #4): a stop that fails refuses the take-over and records nothing, the task
+// A take-over stops the worker first, with force (it may be working), outside the locks, through serve's identity of
+// it (stopAgent, as the post-merge stop: its pane by ID, never a label lookup, RV-93 #1), and records fact drive only
+// then (RV-92 #4): no agent there is "<worker> not running" and the take-over records; a stop that fails, two
+// panes claiming the worker, serve not connected to herdr, or a stop saying not found while serve still identifies the
+// worker refuses the take-over and records nothing, the task
 // stays its worker's and a retry is a new obor drive <T-xx>. Interrupted between the two: the task is working with no
 // agent, the watchdog's stall path applies and a retry takes over. The record rechecks the task under a.submitMu,
 // task_done's and land's lock (RV-92 #3): a task submitted meanwhile is refused, a task driving refuses task_done.
@@ -50,15 +53,19 @@ func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
 	if err != nil || worker == "" {
 		return reply, err
 	}
-	line, err := fx.Agents.Stop(ctx, worker, "", true)
+	a.mu.Lock()
+	p := a.projAt(c.Root)
+	a.mu.Unlock()
+	if p == nil {
+		return "", fmt.Errorf("drive: no served project at %s", c.Root)
+	}
+	line, gone, err := a.stopAgent(ctx, p, fx, worker, true, false)
 	switch {
-	case err != nil && port.NotFound(err):
-		line = worker + " not running"
 	case err != nil:
 		return "", fmt.Errorf("drive %s: %s not stopped: %v (nothing recorded: %s stays %s's; obor drive %s retries)",
 			c.Task, worker, err, c.Task, worker, c.Task)
-	case line == "":
-		line = "stopped " + worker
+	case gone:
+		line = worker + " not running"
 	}
 	a.hook(hookDriveStopped)
 	if reply, _, _, err = a.driveRecord(ctx, c, worker); err != nil {

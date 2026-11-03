@@ -240,12 +240,13 @@ func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	r.waitJob("pj-o1", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
 	before, _, _ := store.ReadLaneAt(r.p.Root, "O-01")
+	r.connectedAgain()
 	reply, err := r.drive("v1", "T-1")
 	if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1; STOPPED pj-o1") {
 		t.Fatalf("take-over: %q, %v", reply, err)
 	}
-	if !slices.Contains(r.workerStops(), "pj-o1 ") {
-		t.Errorf("the worker was not stopped: %q", r.workerStops())
+	if !slices.Contains(r.workerStops(), "pj-o1 w1:p1") { // by its pane, as serve identifies it (T-758)
+		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.passes()
@@ -448,8 +449,8 @@ func TestDriveDrop(t *testing.T) {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	r.waitFor("dropped", func() bool { return r.stateOf("T-1") == "dropped" })
-	if !slices.Contains(r.workerStops(), "pj-o1-drive ") {
-		t.Errorf("the drive agent was not stopped: %q", r.workerStops())
+	if !slices.Contains(r.workerStops(), "pj-o1-drive w1:p5") { // by its pane, as serve identifies it (T-758)
+		t.Errorf("the drive agent was not stopped at its pane: %q", r.workerStops())
 	}
 	if n := r.disp.called("free"); n != 1 {
 		t.Errorf("lane freed %d times, want once", n)

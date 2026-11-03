@@ -150,11 +150,9 @@ func (a *App) lanePassed(p *proj, mt mtask) string {
 }
 
 // stopWorker stops the merged lane's worker with force (its work is in, T-262) unless stop_idle_workers is false, only
-// while the lane holds the task. Its pane is resolved now (whereIs; never an address recorded earlier, RV-53 #1):
-// Identified, stopped there; Ambiguous, an error naming the panes (the step stays pending, no lane reuse); Unavailable,
-// nothing to stop, unless serve is not connected to herdr (an error: the step waits, DD-v0.13 A2). A stop that fails
-// is resolved again: still identified, an error (not found: the snapshot lags, a success); ambiguous now, an error
-// naming the panes; unavailable now, nothing to stop (not connected: an error).
+// while the lane holds the task, through serve's identity (stopAgent; a stop that says not found while the agent is
+// still identified: the snapshot lags, a success). No agent: "stopped: no agent (<why>)"; an error leaves the step
+// pending (no lane reuse).
 func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (string, error) {
 	if why := a.lanePassed(p, mt); why != "" {
 		return why, nil
@@ -165,33 +163,52 @@ func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (stri
 	if cfg, err := config.LoadDaemon(p.root); err == nil && cfg.Data.StopIdleWorkers != nil && !*cfg.Data.StopIdleWorkers {
 		return "kept: stop_idle_workers is false", nil
 	}
-	w := a.where(p, mt.agent)
-	switch w.State {
-	case Ambiguous:
-		return "", errors.New(notIdentified(mt.agent, w))
-	case Unavailable:
-		if w.Why == notConnected { // not "no agent": serve is cut off from herdr, the step waits (DD-v0.13 A2)
-			return "", errors.New("not stopped: " + w.Why)
-		}
-		return "stopped: no agent (" + w.Why + ")", nil
+	line, gone, err := a.stopAgent(ctx, p, fx, mt.agent, true, true)
+	if gone {
+		return "stopped: no agent (" + line + ")", nil
 	}
-	line, err := fx.Agents.Stop(ctx, mt.agent, w.Pane.ID, true)
+	return line, err
+}
+
+// stopAgent is the one decision "is the worker gone, else stop it" (RV-93 #1): the post-merge stop (stopWorker), a
+// take-over's (driveCall) and drop's (freeLane). agent's pane is resolved now (whereIs; never an address recorded
+// earlier, RV-53 #1, and never a label lookup of the stop's own, RV-93 #1):
+//   - Identified: stopped at that pane by ID (force as given); line is the stop's, else "stopped <agent>".
+//   - Ambiguous: an error naming the panes, nothing stopped.
+//   - Unavailable, serve not connected to herdr: an error (nothing is known, DD-v0.13 A2).
+//   - Unavailable otherwise: gone, line the why (no agent: nothing to stop).
+//
+// A stop that fails is resolved again (RV-53-verify V2): ambiguous now, an error naming the panes; not connected, the
+// stop's error; unavailable now, gone (line the stop's error). Still identified: the stop's error, unless lags and the
+// stop says not found (the snapshot lags: gone). A take-over and drop pass lags false (RV-93 #1: a pane identity
+// still finds is not taken as gone).
+func (a *App) stopAgent(ctx context.Context, p *proj, fx *Loop, agent string, force, lags bool) (line string, gone bool, err error) {
+	w := a.where(p, agent)
+	switch {
+	case w.State == Ambiguous:
+		return "", false, errors.New(notIdentified(agent, w))
+	case w.State == Unavailable && w.Why == notConnected: // not "no agent": serve is cut off from herdr
+		return "", false, errors.New("serve is " + w.Why + " to herdr")
+	case w.State == Unavailable:
+		return w.Why, true, nil
+	}
+	line, err = fx.Agents.Stop(ctx, agent, w.Pane.ID, force)
 	if err == nil {
 		if line == "" {
-			line = "stopped " + mt.agent
+			line = "stopped " + agent
 		}
-		return line, nil
+		return line, false, nil
 	}
 	// Resolved again (RV-53-verify V2): ambiguous now is an error even when the stop's error says not found.
-	switch w := a.where(p, mt.agent); {
+	switch w := a.where(p, agent); {
 	case w.State == Ambiguous:
-		return "", errors.New(notIdentified(mt.agent, w) + ": " + err.Error())
+		return "", false, errors.New(notIdentified(agent, w) + ": " + err.Error())
 	case w.State == Unavailable && w.Why == notConnected:
-		return "", err
-	case w.State == Unavailable, port.NotFound(err):
-		return "stopped: no agent (" + err.Error() + ")", nil
+		return "", false, err
+	case w.State == Unavailable, lags && port.NotFound(err):
+		return err.Error(), true, nil
 	}
-	return "", err
+	return "", false, err
 }
 
 // where is whereIs taking mu.

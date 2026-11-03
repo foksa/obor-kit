@@ -1,9 +1,7 @@
 package app_test
 
 import (
-	"context"
 	"errors"
-	"io"
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
@@ -12,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/config"
-	"obor/internal/launch"
 	"obor/internal/store"
 )
 
@@ -29,7 +25,15 @@ func newTakeOverRig(t *testing.T) *loopRig {
 	r.mustDispatch("d1")
 	r.waitJob("pj-o1", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
+	r.connectedAgain()
 	return r
+}
+
+// connectedAgain waits until serve is connected to herdr again after the rig's pushes (each a refresh: serve
+// subscribes again). A take-over decides by serve's identity (T-758), and in that gap it refuses: not connected.
+func (r *loopRig) connectedAgain() {
+	r.t.Helper()
+	r.waitFor("connected to herdr", func() bool { return r.app.Status().Connected })
 }
 
 // stepsLike is the records whose step string contains s.
@@ -157,36 +161,6 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 }
 
-// A worker whose pane is gone: its stop, the real launcher's, asks herdr for a pane labelled pj-o1 and finds none, so
-// it says the agent is not there (port.NotFound, T-757): the take-over drives and records, saying the worker is not
-// running, instead of refusing it forever.
-func TestDriveTakeOverWorkerPaneGone(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	cfg, err := config.Load(r.p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.f.Remove("w1:p1") // the worker's pane is gone: no pane is labelled pj-o1
-	l := &launch.Launcher{Cfg: cfg, Env: r.p.Env(), H: r.srv.Client(), Out: io.Discard, Wait: time.Second,
-		Poll: time.Millisecond, PS: func(...string) ([]byte, error) { return nil, nil }}
-	r.mu.Lock()
-	r.onStop = func() error {
-		_, err := l.Stop(context.Background(), "pj-o1", "", true)
-		return err
-	}
-	r.mu.Unlock()
-	reply, err := r.drive("v1", "T-1")
-	want := "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1; pj-o1 not running"
-	if err != nil || reply != want {
-		t.Fatalf("take-over with the worker's pane gone: %q, %v; want %q", reply, err, want)
-	}
-	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
-	if n := r.count("1 fact drive"); n != 1 {
-		t.Errorf("drive facts %d, want 1: %q", n, r.steps())
-	}
-}
-
 // Interrupted after the worker's stop, before the record (the record refused there): the task is working with no
 // agent and the watchdog's path applies (needs-you{agent exited} after Gone); a retry takes over, the needs-you ended.
 // A replay keeps it driving.
@@ -228,6 +202,7 @@ func TestDriveTakeOverInterruptedAfterStop(t *testing.T) {
 		r.push()
 		return len(r.stepsLike("needs-you{agent exited}")) > 0
 	})
+	r.connectedAgain()
 	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1") {
 		t.Fatalf("the retry: %q, %v; want the take-over", reply, err)
 	}

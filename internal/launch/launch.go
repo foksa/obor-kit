@@ -274,8 +274,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 	src := "--pane"
 	if pane == "" {
 		if pane, err = l.paneIn(panes, agent, ""); err != nil {
-			// No labelled pane: the agent is not there, not a stop that failed (port.NotFound, T-757).
-			return nil, project.FailNotFound{Fail: project.Fail(fmt.Sprintf("no pane labelled %s (pass --pane)", agent))}
+			return nil, project.Failf("no pane labelled %s (pass --pane)", agent)
 		}
 		src = "label"
 	}
