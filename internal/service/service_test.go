@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The plist: obor serve from the kit in the project, at load, kept alive, its output in serve.log, the caller's PATH
@@ -29,20 +30,33 @@ func TestPlistGolden(t *testing.T) {
 }
 
 // fakeLaunchctl puts a launchctl on PATH that logs each call (one line of its args) and keeps one label's state in
-// state (a file: bootstrap loads it, bootout unloads it, print answers "pid = 4242" while loaded and exits 113
-// otherwise).
+// state (a file: bootstrap loads it, bootout unloads it, print answers "pid = <the pid file, else 4242>" while loaded
+// and exits 113 otherwise). Knobs (T-771), in state's directory: a file eio holding n fails the next n bootstraps
+// with launchd's "5: Input/output error", nothing loaded; a file noload makes bootstrap exit 0 loading nothing. In
+// the environment: FAKE_KICK_PID is written to the pid file as kickstart begins, FAKE_KICK_UNLOAD unloads the label
+// then, FAKE_KICK_SLEEP seconds it then takes (exec sleep: a kill ends it), and FAKE_KICK_EXIT is its exit code.
 func fakeLaunchctl(t *testing.T) (log, state string) {
 	dir := t.TempDir()
 	log = filepath.Join(dir, "calls")
 	state = filepath.Join(dir, "loaded")
 	script := `#!/bin/sh
 echo "$*" >> "` + log + `"
+dir="` + dir + `"
 state="` + state + `"
 case "$1" in
-bootstrap) : > "$state" ;;
+bootstrap)
+	n=$(cat "$dir/eio" 2>/dev/null || echo 0)
+	if [ "$n" -gt 0 ]; then echo $((n-1)) > "$dir/eio"; echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi
+	[ -f "$dir/noload" ] || : > "$state" ;;
 bootout) [ -f "$state" ] || exit 3; rm "$state" ;;
-kickstart) [ -f "$state" ] || exit 113 ;;
-print) [ -f "$state" ] || { echo "Could not find service" >&2; exit 113; }; printf 'gui/501/x = {\n\tstate = running\n\tpid = 4242\n}\n' ;;
+kickstart)
+	[ -f "$state" ] || exit 113
+	[ -n "$FAKE_KICK_PID" ] && echo "$FAKE_KICK_PID" > "$dir/pid"
+	[ -n "$FAKE_KICK_UNLOAD" ] && rm "$state"
+	[ -n "$FAKE_KICK_SLEEP" ] && exec sleep "$FAKE_KICK_SLEEP"
+	exit "${FAKE_KICK_EXIT:-0}" ;;
+print) [ -f "$state" ] || { echo "Could not find service" >&2; exit 113; }
+	printf 'gui/501/x = {\n\tstate = running\n\tpid = %s\n}\n' "$(cat "$dir/pid" 2>/dev/null || echo 4242)" ;;
 esac
 `
 	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(script), 0o755); err != nil {
@@ -98,11 +112,15 @@ func TestVerbs(t *testing.T) {
 		t.Errorf("plist left: %v", err)
 	}
 	plist := s.PlistPath()
+	// each verb's owner print first; a bootstrap is followed by the print that it loaded, a bootout by the one that
+	// it unloaded (T-771); the test's own PID reads are the 1st and 5th
 	want := []string{"print gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj", "bootstrap gui/501 " + plist, "print gui/501/obor.serve.pj",
-		"print gui/501/obor.serve.pj", "bootout gui/501/obor.serve.pj", "bootstrap gui/501 " + plist,
+		"print gui/501/obor.serve.pj",
+		"print gui/501/obor.serve.pj", "bootout gui/501/obor.serve.pj", "print gui/501/obor.serve.pj",
+		"bootstrap gui/501 " + plist, "print gui/501/obor.serve.pj",
 		"print gui/501/obor.serve.pj", "kickstart -k gui/501/obor.serve.pj",
-		"print gui/501/obor.serve.pj", "bootout gui/501/obor.serve.pj"}
+		"print gui/501/obor.serve.pj", "bootout gui/501/obor.serve.pj", "print gui/501/obor.serve.pj"}
 	if got := calls(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("launchctl calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -384,4 +402,176 @@ func TestRotateLog(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fast shortens the launchctl timeouts for a test: callTimeout (the flat deadline every call once had) 300ms,
+// stopTimeout 3s, settle 500ms read every 50ms.
+func fast(t *testing.T) {
+	c, st, se, p := callTimeout, stopTimeout, settle, pollEvery
+	callTimeout, stopTimeout, settle, pollEvery = 300*time.Millisecond, 3*time.Second, 500*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { callTimeout, stopTimeout, settle, pollEvery = c, st, se, p })
+}
+
+// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied.
+func installed(t *testing.T, log string) Service {
+	t.Helper()
+	s := darwin(t)
+	if _, err := s.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pid, loaded := s.PID(context.Background()); !loaded || pid != 4242 {
+		t.Fatalf("precondition: installed, pid 4242: %d %v", pid, loaded)
+	}
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// T-771: kickstart -k waits for the old serve to exit; one slower than the flat deadline launchctl once had
+// (callTimeout) but inside stopTimeout is a plain RESTARTED, no warning, kickstart called once.
+func TestRestartSlowKickstart(t *testing.T) {
+	fast(t)
+	log, _ := fakeLaunchctl(t)
+	s := installed(t, log)
+	t.Setenv("FAKE_KICK_SLEEP", "1")
+	t.Setenv("FAKE_KICK_PID", "4243")
+	if time.Second <= callTimeout || time.Second >= stopTimeout {
+		t.Fatal("precondition: the kickstart outlasts callTimeout, not stopTimeout")
+	}
+	line, err := s.Restart(context.Background())
+	if err != nil || line != "RESTARTED obor.serve.pj" {
+		t.Fatalf("restart with a slow kickstart: %q, %v", line, err)
+	}
+	if n := strings.Count(strings.Join(calls(t, log), "\n"), "kickstart -k"); n != 1 {
+		t.Errorf("kickstart called %d times: %q", n, calls(t, log))
+	}
+}
+
+// T-771: launchctl ended by its deadline (signal: killed, as the axis leads saw) while launchd did restart serve —
+// the pid changed: RESTARTED with the new pid and a warning line naming launchctl's error and the old pid.
+func TestRestartKickstartErrorPidChanged(t *testing.T) {
+	fast(t)
+	log, _ := fakeLaunchctl(t)
+	s := installed(t, log)
+	stopTimeout = 300 * time.Millisecond
+	t.Setenv("FAKE_KICK_PID", "4243")
+	t.Setenv("FAKE_KICK_SLEEP", "5")
+	start := time.Now()
+	line, err := s.Restart(context.Background())
+	if err != nil {
+		t.Fatalf("restart that happened reported a failure: %v", err)
+	}
+	lines := strings.Split(line, "\n")
+	if len(lines) != 2 || lines[0] != "RESTARTED obor.serve.pj (pid 4243)" {
+		t.Fatalf("restart: %q", line)
+	}
+	if lines[1] != "warning: launchctl kickstart -k gui/501/obor.serve.pj: signal: killed: serve restarted all the same (pid 4242 before)" {
+		t.Errorf("warning line: %q", lines[1])
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("restart took %v: the killed kickstart was waited out", d)
+	}
+}
+
+// T-771: a kickstart error after which serve was not restarted is a FAIL naming launchctl's error and the state it
+// left: the old pid still running, no serve running, or the label gone from launchd.
+func TestRestartKickstartErrorNotRestarted(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"pid unchanged", map[string]string{"FAKE_KICK_EXIT": "1"},
+			"obor.serve.pj still runs the old serve (pid 4242), not restarted: obor serve restart again"},
+		{"no serve runs", map[string]string{"FAKE_KICK_EXIT": "1", "FAKE_KICK_PID": "0"},
+			"obor.serve.pj is loaded but no serve runs (log "},
+		{"unloaded", map[string]string{"FAKE_KICK_EXIT": "1", "FAKE_KICK_UNLOAD": "1"},
+			"obor.serve.pj is no longer loaded in launchd: obor serve install"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fast(t)
+			log, _ := fakeLaunchctl(t)
+			s := installed(t, log)
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+			line, err := s.Restart(context.Background())
+			if err == nil {
+				t.Fatalf("restart: %q, no error", line)
+			}
+			if !strings.HasPrefix(err.Error(), "launchctl kickstart -k gui/501/obor.serve.pj: exit status 1") ||
+				!strings.Contains(err.Error(), c.want) {
+				t.Errorf("error: %v\nwant it to name %q", err, c.want)
+			}
+		})
+	}
+}
+
+// T-771: a reinstall whose bootstrap meets the label half torn down (5: Input/output error, nothing loaded) boots it
+// out and bootstraps once more: INSTALLED, the label loaded.
+func TestInstallBootstrapEIORetried(t *testing.T) {
+	fast(t)
+	log, state := fakeLaunchctl(t)
+	s := installed(t, log)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(state), "eio"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	line, err := s.Install(context.Background())
+	if err != nil || !strings.HasPrefix(line, "INSTALLED obor.serve.pj (") {
+		t.Fatalf("install after a bootstrap EIO: %q, %v", line, err)
+	}
+	if _, loaded := s.PID(context.Background()); !loaded {
+		t.Error("the label is not loaded after the install")
+	}
+	var verbs []string
+	for _, c := range calls(t, log) {
+		if !strings.HasPrefix(c, "print") {
+			verbs = append(verbs, strings.Fields(c)[0])
+		}
+	}
+	if got := strings.Join(verbs, " "); got != "bootout bootstrap bootout bootstrap" {
+		t.Errorf("launchctl verbs: %s; want bootout bootstrap bootout bootstrap", got)
+	}
+}
+
+// T-771: a bootstrap that fails twice (before and after the bootout) is a FAIL naming both errors and the label's
+// state (not loaded) with the next step; a bootstrap that returns without loading the label is a FAIL too.
+func TestInstallEndsNotLoaded(t *testing.T) {
+	t.Run("bootstrap fails twice", func(t *testing.T) {
+		fast(t)
+		log, state := fakeLaunchctl(t)
+		s := darwin(t)
+		if err := os.WriteFile(filepath.Join(filepath.Dir(state), "eio"), []byte("2"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		line, err := s.Install(context.Background())
+		if err == nil {
+			t.Fatalf("install: %q, no error", line)
+		}
+		for _, want := range []string{"Bootstrap failed: 5: Input/output error; after a bootout, again: launchctl bootstrap",
+			"obor.serve.pj is not loaded in launchd: obor serve install again (launchctl print gui/501/obor.serve.pj"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error: %v\nwant %q", err, want)
+			}
+		}
+		if n := strings.Count(strings.Join(calls(t, log), "\n"), "bootstrap gui/501"); n != 2 {
+			t.Errorf("bootstrap called %d times: %q", n, calls(t, log))
+		}
+		if _, err := os.Stat(state); !os.IsNotExist(err) {
+			t.Errorf("precondition of the message: the fake has the label loaded: %v", err)
+		}
+	})
+	t.Run("bootstrap loads nothing", func(t *testing.T) {
+		fast(t)
+		_, state := fakeLaunchctl(t)
+		s := darwin(t)
+		if err := os.WriteFile(filepath.Join(filepath.Dir(state), "noload"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		line, err := s.Install(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "returned, but obor.serve.pj is not loaded in launchd: obor serve install again") {
+			t.Errorf("install that loaded nothing: %q, %v", line, err)
+		}
+	})
 }

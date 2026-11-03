@@ -42,7 +42,7 @@ func serveService(verb, cwd string, env project.Env) int {
 		return 1
 	}
 	s := serviceOf(cfg, env)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), service.Deadline)
 	defer cancel()
 	pane := 0
 	if verb == "install" && s.Supported() {

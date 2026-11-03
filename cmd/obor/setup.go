@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"time"
 
 	"obor/internal/app/port"
 	"obor/internal/config"
@@ -39,7 +38,7 @@ func serveInstaller(env project.Env) func(context.Context, *config.Config) (stri
 		if !s.Supported() {
 			return "skipped", service.Elsewhere, nil
 		}
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, service.Deadline)
 		defer cancel()
 		if s.Current(ctx) {
 			return "already", s.Label() + " installed and loaded (" + s.PlistPath() + ")", nil
