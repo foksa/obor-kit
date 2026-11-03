@@ -56,7 +56,7 @@ func (r *loopRig) driveStatus(status string) {
 
 // leadAnswer is the lead's obor answer on T-1.
 func (r *loopRig) leadAnswer(callID, text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodAnswer, wire.Call{Root: r.p.Root, Agent: "pj-lead",
+	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: "lead", CallID: callID, Task: "T-1", Note: text})
 }
 
@@ -86,7 +86,7 @@ func TestTellLeadReachesTheLead(t *testing.T) {
 	if err != nil || reply != want {
 		t.Fatalf("tell-lead: %q, %v; want %q", reply, err, want)
 	}
-	line := `[obor T-1 drive] may I change the API contract? (reply: obor answer T-1 "…")`
+	line := `[obor T-1 drive] may I change the API contract? (reply: obor resume T-1 "…")`
 	r.waitFor("the line posted to the lead", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	if again, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "may I change the  API contract?"); err != nil ||
 		again != want {
@@ -228,12 +228,12 @@ func TestAnswerToDriveDelivered(t *testing.T) {
 	}
 }
 
-// An answer to a task that is not driving keeps today's behaviour: a working task with no question is refused.
+// obor resume of a task that is not driving keeps today's behaviour: a working task with nothing asked is refused.
 func TestAnswerNotDrivingUnchanged(t *testing.T) {
 	t.Parallel()
 	r := newTakeOverRig(t)
 	n := len(r.records())
-	if _, err := r.leadAnswer("a1", "yes"); err == nil || !strings.Contains(err.Error(), "T-1 has no open question") {
+	if _, err := r.leadAnswer("a1", "yes"); err == nil || !strings.Contains(err.Error(), "T-1 is working with nothing to resume") {
 		t.Errorf("answer on a working task with no question: %v; want refused", err)
 	}
 	if len(r.records()) != n {
@@ -271,7 +271,9 @@ func TestAnswerToDriveClosedOnLandOrDrop(t *testing.T) {
 				r.waitFor("dropped", func() bool { return r.stateOf("T-1") == "dropped" })
 			}
 			r.waitFor("the answer closed", func() bool { return len(r.app.Status().Project.Messages) == 0 })
-			r.driveStatus("idle")
+			if end == "land" { // a drop stops the drive agent with its lane (T-775): no pane to go idle
+				r.driveStatus("idle")
+			}
 			r.passes()
 			if n := r.toDrive("[obor answer] later"); n != 0 {
 				t.Errorf("the answer delivered %d times after the %s, want never", n, end)

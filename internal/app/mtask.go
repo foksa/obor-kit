@@ -3,7 +3,6 @@ package app
 
 import (
 	"encoding/json"
-	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -220,7 +219,7 @@ func (mt *mtask) sendback(note string) {
 }
 
 // next starts mt's next attempt on its worker: working, the fix job (note its text; answer: the answer to its
-// question, obor answer) to be sent.
+// question, obor resume) to be sent.
 func (mt *mtask) next(note string, answer bool) {
 	mt.attempt++
 	mt.state = stWorking
@@ -308,34 +307,17 @@ func gateState(kind string) string {
 	return stSubmitted
 }
 
-// unsendable is why the lead cannot send mt back now ("": it can): a green candidate, an open job
-// (awaiting-accept, resolving) or a needs-you of any merge-loop cause (T-619). A state the loop leaves by itself
-// settles first; a needs-you whose task has no lane yet (a waiting one), or whose lane names no worker agent, has no
-// worker to send it to: resume or drop it.
-func (mt *mtask) unsendable() string {
-	switch states[mt.state].send {
-	case sendYes:
-		if mt.state == stNeedsYou && (mt.lane == "" || mt.agent == "") {
-			return fmt.Sprintf("%s has no lane yet: obor resume or obor drop it", mt.task)
-		}
-		return ""
-	case sendSettles:
-		return fmt.Sprintf("%s is %s; retry when it settles", mt.task, mt.state)
-	}
-	return fmt.Sprintf("%s is %s", mt.task, mt.state)
-}
-
 // verdict folds the integrator's verdict on the task's open job (its state's verdicts), or the lead's sendback
 // (v.Lead); one that no longer fits the state changes nothing.
 func (mt *mtask) verdict(method string, v verdictResult) {
-	if method == wire.MethodAnswer {
+	if method == stepAnswer { // an older log's answer: its fix job the next attempt
 		if mt.state == stWorking || mt.state == stDispatched {
 			mt.next(v.Note, true)
 		}
 		return
 	}
 	if method == wire.MethodSendback && v.Lead {
-		if mt.unsendable() == "" {
+		if st := mt.state; st == stGreen || st == stAwaiting || st == stResolving || st == stNeedsYou {
 			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the
 			// integrator's sendbacks (T-619).
 			mt.needs = event.Record{}

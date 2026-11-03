@@ -21,7 +21,7 @@ import (
 )
 
 // Lines to a project's agents (T-466; docs/state-model.md row 47): the two kinds the lead still gets, a brief's, and
-// an answer's (obor answer <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"}, T-511;
+// an answer's (obor resume <T-xx> "<text>": fact answered{to: the task's worker, line "[obor answer] <text>"}, T-511;
 // answer.go).
 //   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path,
 //     T-646): fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
@@ -351,7 +351,7 @@ func (p *proj) foldMsg(r event.Record) {
 	case r.Kind == event.KindFact && r.Step == event.StepAnswered:
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
-		p.folded.calls[verdictStep(wire.MethodAnswer, m.Call)] = m.Reply
+		p.folded.calls[verdictStep(wire.MethodResume, m.Call)] = m.Reply
 		if !m.Driver { // a drive's answers (T-761) answer no question: each is its own line
 			p.retireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
 			p.answered(m.Task)

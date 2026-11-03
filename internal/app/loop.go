@@ -71,7 +71,8 @@ const (
 )
 
 // The causes of the merge loop's needs-you (FactData.Cause); resumeDefault is what obor resume does with each by
-// default (none: the owner says which). A step that failed tries times is cause "<step> failed" (its key without .N):
+// default (none: the owner says which, obor resume --regate or --sendback: a red gate or sendbacks past K, a resolve
+// rejected). A step that failed tries times is cause "<step> failed" (its key without .N):
 // obor resume retries it by default.
 const (
 	causeUndelivered     = "job not delivered"
@@ -91,7 +92,7 @@ const (
 
 var resumeDefault = map[string]string{
 	event.CauseHeld: wire.ResumeReprompt, causeUndelivered: wire.ResumeReprompt, causeStalled: wire.ResumeReprompt,
-	causeRed: wire.ResumeRegate, causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate,
+	causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate,
 }
 
 // resumeDefaultOf is what obor resume does by default with a needs-you of cause ("": the owner says which).
@@ -180,7 +181,7 @@ type attemptVars struct {
 	delivered      bool               // the integrator took that job (fact delivered)
 	lost           int                // how often the integrator exited with a job open since the last resume
 	fixed          bool               // stWorking: the fix job of this attempt is out
-	answer         bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor answer)
+	answer         bool               // stWorking: this attempt's fix job is the answer to the worker's question (an older log's obor resume)
 	decision       string             // the lead's or the owner's text of this attempt's last obor resume (its next job carries it)
 	fixes          int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	fails          map[string]failure // counted failures per step key since the attempt began or the last resume
@@ -573,14 +574,14 @@ func (a *App) next(p *proj, m *mtask) step {
 	}
 }
 
-// begin checks that mt (as selected) is still p's current attempt, not ended and not held, and holds it: false, the
+// begin checks that mt (as selected) is still p's current attempt, not dropped and not claimed (proj.claim), and holds it: false, the
 // step does not start. The lane rows are written first (RV-48 #1): a step whose record moved a row does not run on a
 // missing or stale row, so a failing write holds every step until it is repaired.
 func (a *App) begin(p *proj, mt mtask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	m := p.folded.loop[mt.task]
-	if m == nil || m.attempt != mt.attempt || m.state == stDropped || p.ended[mt.task] || p.held[mt.task] != "" {
+	if m == nil || m.attempt != mt.attempt || m.state == stDropped || p.claim(mt.task) != "" {
 		return false
 	}
 	if p.laneRowsErr() != nil {

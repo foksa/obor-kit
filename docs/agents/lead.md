@@ -13,8 +13,9 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
   integrators job?" after finished lanes sat unmerged); `obor serve` gates a finished lane and sends ob-int its review
   job (`obor status --facts` shows the task move through gate → review).
 - A merge-loop needs-you of obor serve (`obor status --facts`: held, job not delivered/stalled, red past K, publish,
-  after_merge, scratch busy) ends with `obor resume <T-xx> [regate|reprompt] ["<decision>"]` once its cause is dealt with (a held review: put the
-  decision in the text; it reaches the integrator's next job). A report's open questions go to the integrator's review job: it
+  after_merge, scratch busy) ends with `obor resume <T-xx> ["<text>"] [--regate|--sendback]` once its cause is dealt with (serve picks the action
+  from the state, T-775; a held review: the decision text is required and reaches the integrator's next job; red past
+  K: say `--regate` or `--sendback`). A report's open questions go to the integrator's review job: it
   decides the in-goal ones and holds the rest for you (T-649).
 - axis-alies (`~/Gamedev/axis-alies`) is source material only, read-only for obor-kit; its lead is the Claude session
   `axis-alies-30` or its successor; changes go to it as a change list.
@@ -59,7 +60,7 @@ panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota
 
 - No "Files you may touch" enforcement (T-496): no guard deny, no gate FAIL, a spec without the section dispatches; a protected file a task must edit goes under "Protected files this task may edit" (exact paths).
 - `obor serve` is the only dispatcher: `obor dispatch` is a request to it (`DISPATCHED … (queued)`; `obor resume`
-  retries a needs-you) and `obor drop` is serve's (it ends the lane's task and frees the lane).
+  retries a needs-you) and `obor drop <T-xx>` is serve's (it ends the task and frees its lane).
 - A spec that adds code nothing calls yet (an adapter before its wiring) lists `Makefile` and allows deadcode
   exclusions marked "until T-xx wires it; remove then"; the wiring task removes them (T-341 hit the gate without it).
 

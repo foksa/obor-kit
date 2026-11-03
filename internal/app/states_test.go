@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"slices"
@@ -15,7 +16,8 @@ type rowWant struct {
 	mt       mtask
 	waits    bool              // no step of its own: pick is nil
 	name     string            // stepName
-	send     string            // unsendable ("": the lead may send it back)
+	verbs    verb              // the task verbs it takes (mtask.may)
+	refuse   string            // obor resume's refusal by its state ("": it takes a resume)
 	verdicts map[string]string // the integrator's verdict → the state it folds to (absent: no change)
 	open     bool              // openJob: a verdict answers its job
 	scratch  bool              // it holds the scratch: another task's gate waits (scratchHolder)
@@ -37,7 +39,12 @@ func checkRow(t *testing.T, w rowWant) {
 		t.Errorf("%s: pick %v, want waits %v", mt.state, row.pick != nil, w.waits)
 	}
 	same(t, mt.stepName(), w.name, mt.state+": step name")
-	same(t, mt.unsendable(), w.send, mt.state+": unsendable")
+	for _, v := range allVerbs {
+		same(t, mt.may(v), w.verbs&v != 0, fmt.Sprintf("%s: takes %s", mt.state, verbName[v]))
+	}
+	if _, _, err := (&proj{}).resumeFits(mt); w.refuse != "" && (err == nil || err.Error() != "resume: "+w.refuse) {
+		t.Errorf("%s: resume %v, want refused %q", mt.state, err, w.refuse)
+	}
 	for _, m := range []string{wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved} {
 		c := mt
 		c.verdict(m, verdictResult{Patch: "p", Note: "why", SHA: "s"})
@@ -53,15 +60,22 @@ func checkRow(t *testing.T, w rowWant) {
 	same(t, busy(p, "T-1"), false, mt.state+": scratch busy for itself")
 	same(t, row.landed, w.landed, mt.state+": drive checks a merge outside")
 	same(t, row.ended, w.ended, mt.state+": ended")
-	if w.ended {
+	if w.verbs&vDrop == 0 {
 		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, ended: map[string]bool{}, held: map[string]string{}}
-		_, err := (&App{}).dropDecide(p, &wire.Call{Task: "T-1", Note: "why", CallID: "d"})
+		_, err := (&App{}).dropDecide(p, wire.Call{Task: "T-1", Note: "why", CallID: "d"})
 		if err == nil || !strings.Contains(err.Error(), "is "+mt.state+" already") {
 			t.Errorf("%s: drop %v, want refused as ended", mt.state, err)
 		}
 	}
 	same(t, mt.resumeRule(w.cause), w.resume, mt.state+": resume rule ("+w.cause+")")
 }
+
+// allVerbs are the task verbs, verbName their names for a failure.
+var (
+	allVerbs = []verb{vResume, vDrop, vDrive, vLand, vMove, vSubmit}
+	verbName = map[verb]string{vResume: "resume", vDrop: "drop", vDrive: "drive", vLand: "land", vMove: "move",
+		vSubmit: "submit"}
+)
 
 // needsOf is a needs-you fact of cause.
 func needsOf(cause string) event.Record {
@@ -86,23 +100,23 @@ func TestStatesOneRowPerState(t *testing.T) {
 
 func TestStateSubmittedRow18(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stSubmitted}, name: event.StepSubmit, send: "T-1 is submitted; retry when it settles",
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stSubmitted}, name: event.StepSubmit, refuse: "T-1 is submitted; retry when it settles",
 		landed: true})
-	checkRow(t, rowWant{mt: mtask{state: stSubmitted, attemptVars: attemptVars{input: "abc", gates: 1}}, name: "gate.2",
-		send: "T-1 is submitted; retry when it settles", landed: true})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stSubmitted, attemptVars: attemptVars{input: "abc", gates: 1}}, name: "gate.2",
+		refuse: "T-1 is submitted; retry when it settles", landed: true})
 }
 
 func TestStateGreenRow19(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stGreen, attemptVars: attemptVars{reviews: 1}}, name: "review.2", landed: true})
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stGreen, attemptVars: attemptVars{reviews: 1}}, name: "review.2", landed: true})
 }
 
 func TestStateAwaitingAcceptRow26(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, name: "review", open: true, landed: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, name: "review", open: true, landed: true,
 		verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stWorking, wire.MethodReject: stRejected}})
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
-	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
 		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stFail, wire.MethodReject: stRejected}})
 }
 
@@ -111,84 +125,84 @@ func TestStateAwaitingAcceptRow26(t *testing.T) {
 // back to driving whatever the count: never the owner's needs-you past K, never a worker.
 func TestStateDrivingRowT751(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stDriving, drive: true}, waits: true, name: "the drive", send: "T-1 is driving"})
-	checkRow(t, rowWant{mt: mtask{state: stAwaiting, drive: true, attemptVars: attemptVars{job: "review"}, sendbacks: K},
+	checkRow(t, rowWant{verbs: vResume | vDrop | vLand, mt: mtask{state: stDriving, drive: true}, waits: true, name: "the drive"})
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stAwaiting, drive: true, attemptVars: attemptVars{job: "review"}, sendbacks: K},
 		name: "review", open: true, landed: true,
 		verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stDriving, wire.MethodReject: stRejected}})
 }
 
 func TestStateRedRow21(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stRed}, name: "a step (red)", send: "T-1 is red; retry when it settles",
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stRed}, name: "a step (red)", refuse: "T-1 is red; retry when it settles",
 		landed: true})
 }
 
 func TestStateConflictRow23(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stConflict}, name: "resolve", send: "T-1 is conflict; retry when it settles",
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stConflict}, name: "resolve", refuse: "T-1 is conflict; retry when it settles",
 		scratch: true, landed: true})
 }
 
 func TestStateResolvingRow30(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve.2"}}, name: "resolve.2", open: true, scratch: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve.2"}}, name: "resolve.2", open: true, scratch: true,
 		landed: true, verdicts: map[string]string{wire.MethodResolved: stResolved, wire.MethodReject: stFail}})
 }
 
 func TestStateResolvedRow18(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stResolved, attemptVars: attemptVars{gates: 1}}, name: "gate.2",
-		send: "T-1 is resolved; retry when it settles", scratch: true})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stResolved, attemptVars: attemptVars{gates: 1}}, name: "gate.2",
+		refuse: "T-1 is resolved; retry when it settles", scratch: true})
 }
 
 func TestStateFailRow22(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stFail}, name: "a step (fail)", send: "T-1 is fail; retry when it settles",
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stFail}, name: "a step (fail)", refuse: "T-1 is fail; retry when it settles",
 		landed: true})
 }
 
 func TestStateAcceptedRow33(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stAccepted}, name: "publish", send: "T-1 is accepted; retry when it settles"})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stAccepted}, name: "publish", refuse: "T-1 is accepted; retry when it settles"})
 }
 
 func TestStateMovedRow32(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stMoved, attemptVars: attemptVars{input: "abc", gates: 2}}, name: "gate.3",
-		send: "T-1 is moved; retry when it settles"})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stMoved, attemptVars: attemptVars{input: "abc", gates: 2}}, name: "gate.3",
+		refuse: "T-1 is moved; retry when it settles"})
 }
 
 func TestStatePublishedRow34(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stPublished}, name: "a step (published)",
-		send: "T-1 is published; retry when it settles"})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stPublished}, name: "a step (published)",
+		refuse: "T-1 is published; retry when it settles"})
 }
 
 func TestStateMergedRow38(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stMerged, after: len(afterSteps)}, waits: true, name: "a step (merged)",
-		send: "T-1 is merged", ended: true, cause: "after_merge failed", resume: resumeRule{noReprompt: true}})
+	checkRow(t, rowWant{verbs: vResume, mt: mtask{state: stMerged, after: len(afterSteps)}, waits: true, name: "a step (merged)",
+		ended: true, cause: "after_merge failed", resume: resumeRule{noReprompt: true}})
 }
 
 func TestStateRejectedRow29(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stRejected, needs: needsOf(causeRejected)}, waits: true,
-		name: "a step (rejected)", send: "T-1 is rejected", ended: true, cause: causeRejected,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: needsOf(causeRejected)}, waits: true,
+		name: "a step (rejected)", ended: true, cause: causeRejected,
 		resume: resumeRule{closed: true}})
 	// a failed unpin's needs-you is retried
-	checkRow(t, rowWant{mt: mtask{state: stRejected, needs: needsOf("unpin failed")}, waits: true,
-		name: "a step (rejected)", send: "T-1 is rejected", ended: true, cause: "unpin failed"})
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: needsOf("unpin failed")}, waits: true,
+		name: "a step (rejected)", ended: true, cause: "unpin failed"})
 }
 
 func TestStateDroppedRow44(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stDropped}, waits: true, name: "a step (dropped)", send: "T-1 is dropped",
+	checkRow(t, rowWant{verbs: 0, mt: mtask{state: stDropped}, waits: true, name: "a step (dropped)", refuse: "T-1 is dropped",
 		ended: true})
 }
 
 func TestStateWaitingRow2a(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stWaiting}, name: "the dispatch", send: "T-1 is waiting",
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stWaiting}, name: "the dispatch",
 		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 	// pick: nothing while a task it waits for is open; a step once all are merged (one with no loop record: the step
 	// asks the target for its merge evidence), or one is dropped
@@ -224,7 +238,7 @@ func TestStateWaitingRow2a(t *testing.T) {
 	mt := mtask{task: "T-1", attempt: 1, state: stWaiting}
 	p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}, calls: map[string]string{}},
 		ended: map[string]bool{}, held: map[string]string{}, log: &event.Log{}}
-	if got, err := (&App{}).dropDecide(p, &wire.Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
+	if got, err := (&App{}).dropDecide(p, wire.Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
 		!p.ended["T-1"] {
 		t.Errorf("drop of a waiting task: %+v, %v; want T-1 marked ended", got, err)
 	}
@@ -248,31 +262,31 @@ func TestStateWaitingRow2a(t *testing.T) {
 
 func TestStateDispatchedRow3(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stDispatched}, name: "the dispatch", send: "T-1 is dispatched",
+	checkRow(t, rowWant{verbs: workVerbs, mt: mtask{state: stDispatched}, name: "the dispatch",
 		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }
 
 func TestStateWorkingRow24(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{mt: mtask{state: stWorking}, name: "the fix", send: "T-1 is working", landed: true,
+	checkRow(t, rowWant{verbs: workVerbs, mt: mtask{state: stWorking}, name: "the fix", landed: true,
 		cause: causeUndelivered, resume: resumeRule{to: wire.ResumeRetry, retry: true}})
 	// a dispatched attempt's work job: obor resume's default by cause
-	checkRow(t, rowWant{mt: mtask{state: stWorking, attemptVars: attemptVars{work: "work"}}, name: "the fix", send: "T-1 is working",
+	checkRow(t, rowWant{verbs: workVerbs, mt: mtask{state: stWorking, attemptVars: attemptVars{work: "work"}}, name: "the fix",
 		landed: true, cause: causeUndelivered})
 }
 
 func TestStateNeedsYouRow40(t *testing.T) {
 	t.Parallel()
 	// the state it left is kept: a resolve job held stays open, in the scratch
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(event.CauseHeld),
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(event.CauseHeld),
 		lane: "L-01", agent: "l-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,
 		cause: event.CauseHeld})
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "L-01",
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit | vDrive, mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "L-01",
 		agent: "l-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
-	// T-619: a needs-you whose task has no lane (a waiting one) has no worker to send it to: resume or drop it
-	checkRow(t, rowWant{mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
-		name: "a step (needs-you)", send: "T-1 has no lane yet: obor resume or obor drop it", landed: true,
+	// a needs-you whose task has no lane (a waiting one): resume (retry) or drop it
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
+		name: "a step (needs-you)", landed: true,
 		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }
 

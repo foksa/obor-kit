@@ -161,11 +161,11 @@ func checkTakeOver(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	}
 }
 
-// checkDrop runs obor drop L-01 and checks its reply: the worker's stop line (or none) and T-1 dropped.
+// checkDrop runs obor drop T-1 (T-775: serve frees its lane L-01) and checks its reply: the worker's stop line (or none) and T-1 dropped.
 func checkDrop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	t.Helper()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Lane: "L-01", Note: "not needed"})
+		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
 	if stops := r.workerStops()[before:]; !slices.Equal(stops, want.stops) {
 		t.Errorf("worker stops %q, want %q", stops, want.stops)
 	}

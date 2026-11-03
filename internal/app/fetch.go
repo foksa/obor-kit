@@ -313,8 +313,9 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
-	if p.ended[c.Task] { // a drop of it is being recorded
-		mt.state = stDropped
+	busy := p.busy(c.Task)
+	if !p.ended[c.Task] { // a step holding a working task is the one that sent this job: its task_done is early, not busy
+		busy = ""
 	}
 	dispatching := p.dispatching
 	var pane string
@@ -334,8 +335,10 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	case c.Agent == "" || c.Agent != mt.agent && c.Agent != l.Agent || c.Lane != "" && c.Lane != mt.lane:
 		return "", fmt.Errorf("task_done: not your task (%s is %s's in lane %s, not %s's)", c.Task, mt.agent, mt.lane,
 			Dash(c.Agent))
-	case !mt.submittable() && !(mt.state == stDispatched && !dispatching): // no dispatch adapters: no prepare runs
+	case !mt.may(vSubmit) || mt.state == stDispatched && mt.base == "" && dispatching: // no dispatch adapters: no prepare runs
 		return "", fmt.Errorf("task_done: %s is %s, not open for a submission", c.Task, mt.state)
+	case busy != "":
+		return "", busyErr("task_done", c.Task, busy)
 	case l.Name == "":
 		return "", fmt.Errorf("task_done: lane %s is not in the lane table", mt.lane)
 	case l.Task != c.Task:
@@ -370,7 +373,7 @@ const askedReply = "not submitted: the owner is told what you need; stop and wai
 
 // ask records the watchdog fact needs-you{asks: what} for task in lane l (row 16a), once while one is in force: the
 // owner is notified. Its worker's activity does not end it (T-511: the Stop hook's turn after the report is no
-// answer); obor answer, the task's submission (its lane no longer holds it open) or a drop does.
+// answer); obor resume, the task's submission (its lane no longer holds it open) or a drop does.
 func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -500,10 +503,4 @@ func clip(s string, n int) string {
 		s = s[:len(s)-1]
 	}
 	return s
-}
-
-// submittable: a submission of mt's lane is mt's next attempt step: the worker works on it, sent back, or a needs-you
-// it left; a dispatch once its lane is prepared.
-func (mt *mtask) submittable() bool {
-	return mt.state == stWorking || mt.state == stNeedsYou || mt.state == stDispatched && mt.base != ""
 }

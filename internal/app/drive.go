@@ -240,10 +240,7 @@ func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker stri
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
-	running := p.held[c.Task]
-	if p.ended[c.Task] {
-		running = "a drop"
-	}
+	busy := p.busy(c.Task)
 	dir := p.laneDir(mt)
 	a.mu.Unlock()
 	st := mt.kept()
@@ -253,11 +250,11 @@ func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker stri
 	case mt.drive && (st == stDriving || st == stDispatched):
 		reply, err = a.driveAgain(p, cfg, c.Task)
 		return reply, "", err
-	case st != stWorking && !(st == stDispatched && mt.base != ""):
+	case !mt.may(vDrive) || st == stDispatched && mt.base == "":
 		return "", "", fmt.Errorf("drive %s: %s is %s: obor drive takes over a task its worker works on, not one gating, "+
 			"merging or under review", c.Task, c.Task, mt.state)
-	case running != "":
-		return "", "", fmt.Errorf("drive %s: %s is running; retry when it settles", c.Task, running)
+	case busy != "":
+		return "", "", busyErr("drive", c.Task, busy)
 	}
 	worker = mt.agent
 	if worker == "" {
@@ -360,7 +357,7 @@ func (a *App) landCall(c wire.Call) (string, error) {
 	a.mu.Lock()
 	p := a.projAt(c.Root)
 	var mt mtask
-	var running string
+	var busy string
 	if p != nil {
 		if reply, stored := p.folded.calls[verdictStep(wire.MethodLand, c.CallID)]; stored {
 			a.mu.Unlock()
@@ -369,9 +366,7 @@ func (a *App) landCall(c wire.Call) (string, error) {
 		if m := p.folded.loop[c.Task]; m != nil {
 			mt = *m
 		}
-		if running = p.held[c.Task]; p.ended[c.Task] {
-			running = "a drop"
-		}
+		busy = p.busy(c.Task)
 	}
 	a.mu.Unlock()
 	switch {
@@ -383,12 +378,12 @@ func (a *App) landCall(c wire.Call) (string, error) {
 		return "", mergeOff(p)
 	case mt.task == "":
 		return "", fmt.Errorf("land: %s is not open in obor serve", c.Task)
-	case mt.state != stDriving:
+	case !mt.may(vLand):
 		return "", fmt.Errorf("land: %s is %s, not driving", c.Task, mt.state)
 	case report == "":
 		return "", fmt.Errorf("land %s: a summary is required", c.Task)
-	case running != "":
-		return "", fmt.Errorf("land %s: %s is running; retry when it settles", c.Task, running)
+	case busy != "":
+		return "", busyErr("land", c.Task, busy)
 	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: mt.lane, Agent: mt.agent, Call: c.CallID, Report: report, Land: true}) {
@@ -472,15 +467,15 @@ func laneStates(ls []port.Lane, held map[string]string) string {
 // tellLine is the line obor tell-lead posts to the lead (T-761): the drive's task and the text, then the reply in one
 // command.
 func tellLine(task, text string) string {
-	return "[obor " + task + " drive] " + strings.Join(strings.Fields(text), " ") + ` (reply: obor answer ` + task + ` "…")`
+	return "[obor " + task + " drive] " + strings.Join(strings.Fields(text), " ") + ` (reply: obor resume ` + task + ` "…")`
 }
 
 // tellLeadCall answers the socket's tell_lead request (T-761): the drive agent's text to its own project's lead, a lead
 // line (fact message{driver}) posted to the lead's session as every lead line is. The caller is the drive agent (role
-// driver) of an open drive on c.Lane, its lane; the lead's obor answer on that task comes back to it as a line. A call
+// driver) of an open drive on c.Lane, its lane; the lead's obor resume on that task comes back to it as a line. A call
 // id is required and a repeated one gets the stored reply. Refused: any other caller (a worker, a reviewer, the lead,
 // the owner), no open drive on the lane, a drive the lead cannot answer (T-764: driveAnswerable, the predicate obor
-// answer uses: only while driving; else the line would advertise a reply that is refused), no text, no lead configured.
+// resume uses: only while driving; else the line would advertise a reply that is refused), no text, no lead configured.
 func (a *App) tellLeadCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New("tell-lead: a call id is required")
@@ -493,7 +488,7 @@ func (a *App) tellLeadCall(c wire.Call) (string, error) {
 		return reply, nil
 	case c.Role != roles.Driver:
 		return "", fmt.Errorf("tell-lead: it is for a drive agent to tell its lead (obor tell-lead in an obor drive's pane), "+
-			"not %s (role %s); the lead answers with obor answer, workers ask with a Blocked: report", Dash(c.Agent),
+			"not %s (role %s); the lead answers with obor resume, workers ask with a Blocked: report", Dash(c.Agent),
 			Dash(c.Role))
 	case strings.TrimSpace(c.Note) == "":
 		return "", errors.New("tell-lead: a text is required")

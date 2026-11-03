@@ -429,7 +429,7 @@ func TestDriveHeldReviewBackToDriving(t *testing.T) {
 	}
 }
 
-// obor drop works on a drive unchanged: by lane, the lane freed and the drive agent stopped; the task dropped.
+// obor drop works on a drive unchanged: by task id (T-775: serve knows the lane), the lane freed and the drive agent stopped; the task dropped.
 func TestDriveDrop(t *testing.T) {
 	t.Parallel()
 	r := newDriveRig(t)
@@ -439,7 +439,7 @@ func TestDriveDrop(t *testing.T) {
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.driveAgentUp()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Lane: "L-01", Note: "not needed"})
+		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
 	if err != nil || !strings.Contains(reply, "DROPPED T-1 from L-01") {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}

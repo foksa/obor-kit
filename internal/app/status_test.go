@@ -19,7 +19,7 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 	} {
 		raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: reason})
 		r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
-		path := answerPath(r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
+		path := answerPath(nil, r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
 		if strings.Contains(path, "<LANE>") {
 			t.Errorf("%q: path %q names <LANE>, want the task", reason, path)
 		}
@@ -29,13 +29,15 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 	}
 }
 
-// A stalled worker's needs-you keeps its lane in the drop command.
-func TestAnswerPathLaneKeepsTheLane(t *testing.T) {
+// T-775: a stalled worker's needs-you names the task, never its lane: obor resume with the line, obor drop by task id.
+func TestAnswerPathNamesTheTaskNotTheLane(t *testing.T) {
 	t.Parallel()
 	raw, _ := json.Marshal(event.FactData{Lane: "L-02", Reason: "stalled"})
-	path := answerPath(event.Record{Task: "T-8", Step: event.StepNeedsYou, Data: raw}, mtask{})
-	if !strings.Contains(path, `obor drop L-02 "<why>"`) {
-		t.Errorf("path %q, want obor drop L-02", path)
+	r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
+	p := &proj{folded: folded{active: map[string][]event.Record{"T-8": {r}}}}
+	path := answerPath(p, r, mtask{task: "T-8", state: stWorking, lane: "L-02", agent: "pj-l-02"})
+	if want := `its pane, or obor resume T-8 "<text>" | obor drop T-8 "<why>"`; path != want {
+		t.Errorf("path %q, want %q", path, want)
 	}
 }
 

@@ -115,7 +115,7 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	if n := r.count("pj", "T-2", event.KindResult, event.StepStartWork); n != 0 {
 		t.Errorf("the start's result written while its launch runs (%d)", n)
 	}
-	if a := r.dropWithin("pj", "T-2", "drop"); a.err == nil || !strings.Contains(a.err.Error(), "is running; retry when it settles") {
+	if a := r.dropWithin("pj", "T-2", "drop"); a.err == nil || !strings.Contains(a.err.Error(), "T-2 has the dispatch running; retry when it settles") {
 		t.Errorf("drop while the launch runs: %q, %v; want refused", a.reply, a.err)
 	}
 	r.cancel()

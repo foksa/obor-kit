@@ -125,7 +125,8 @@ func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 
 // obor resume takes the watchdog's needs-you{stalled} (axis-alies: refused as "no needs-you of the merge loop"): the
 // decision goes to the worker as "[obor answer] <decision>", the needs-you ends, a repeated call id gets the stored
-// reply; regate, and no decision, are refused; with no needs-you at all the refusal is as before.
+// reply; --regate, and no text, are refused (T-775: obor resume's line to the worker); with nothing in force the
+// refusal is the state's.
 func TestResumeStalledWorker(t *testing.T) {
 	t.Parallel()
 	h, p, fact := answerSeed(t, reasonStalled, "", "", true)
@@ -135,14 +136,14 @@ func TestResumeStalledWorker(t *testing.T) {
 	call := func(id, to, note string) (string, error) {
 		return h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: id, Task: "T-1", To: to, Note: note})
 	}
-	if _, err := call("c0", wire.ResumeRegate, "x"); err == nil || !strings.Contains(err.Error(), "worker stalled: reprompt it") {
+	if _, err := call("c0", wire.ResumeRegate, "x"); err == nil || !strings.Contains(err.Error(), "--regate does not fit: obor resume T-1 sends the worker the line") {
 		t.Errorf("regate: %v; want refused", err)
 	}
-	if _, err := call("c0", wire.ResumeReprompt, " "); err == nil || !strings.Contains(err.Error(), "say the decision") {
+	if _, err := call("c0", "", " "); err == nil || !strings.Contains(err.Error(), "say the text") {
 		t.Errorf("no decision: %v; want refused", err)
 	}
 	const want = "RESUMED T-1: reprompt (stalled)"
-	if reply, err := call("c1", wire.ResumeReprompt, "keep the guard; move the helpers down"); err != nil || reply != want {
+	if reply, err := call("c1", "", "keep the guard; move the helpers down"); err != nil || reply != want {
 		t.Fatalf("resume: %q, %v; want %q", reply, err, want)
 	}
 	h.a.mu.Lock()
@@ -154,13 +155,13 @@ func TestResumeStalledWorker(t *testing.T) {
 	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] keep the guard; move the helpers down"}) {
 		t.Errorf("queued %q; want the decision to pj-l-01", got)
 	}
-	if reply, err := call("c1", wire.ResumeReprompt, "keep the guard; move the helpers down"); err != nil || reply != want {
+	if reply, err := call("c1", "", "keep the guard; move the helpers down"); err != nil || reply != want {
 		t.Errorf("repeated call id: %q, %v; want the stored reply", reply, err)
 	}
 	if n := len(h.lines()); n != 1 {
 		t.Errorf("%d lines queued after the repeat, want 1", n)
 	}
-	if _, err := call("c2", "", "again"); err == nil || !strings.Contains(err.Error(), "T-1 has no needs-you of the merge loop") {
+	if _, err := call("c2", "", "again"); err == nil || !strings.Contains(err.Error(), "with nothing to resume") {
 		t.Errorf("resume with nothing in force: %v; want the refusal as before", err)
 	}
 	in := &kindSpy{}

@@ -98,7 +98,7 @@ func raceDrop(t *testing.T, r *concRig) (sub, drop callAnswer) {
 func TestDroppedEndsTheTask(t *testing.T) {
 	t.Parallel()
 	dropOK := func(t *testing.T, a callAnswer) {
-		if a.err != nil || a.reply != "DROPPED T-7" {
+		if a.err != nil || !isDropped(a.reply, "T-7") {
 			t.Fatalf("drop: %q, %v; want DROPPED T-7", a.reply, a.err)
 		}
 	}

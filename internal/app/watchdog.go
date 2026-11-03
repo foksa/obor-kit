@@ -221,7 +221,7 @@ const reasonStalled = "stalled"
 // or blocked, the agent or its pane changed, the task changed, a replay.
 //
 //	active                                       → quietSince = 0; stalled or escalated in force: fact resumed (asks
-//	                                             stays: obor answer ends it, T-511)
+//	                                             stays: obor resume ends it, T-511)
 //	unknown, or a reset event                    → quietSince = 0 (unknown keeps seenWrite)
 //	quiet, no baseline                           → quietSince = now (no fact)
 //	quiet, asks in force                         → nothing (the worker waits on its question, row 16a)

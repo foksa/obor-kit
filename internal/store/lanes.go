@@ -135,7 +135,7 @@ func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
 
 // HasBlockedReportAt reports whether task's latest worker Blocked: report is still awaiting the owner's answer.
 // A blocked task_done is recorded as a needs-you fact rather than a submitted fact, so it does not set lanes.finished.
-// The report lives one attempt (docs/state-model.md rows 12, 16, 16a): obor answer (an answered fact) and an unblocked
+// The report lives one attempt (docs/state-model.md rows 12, 16, 16a): obor resume (an answered fact) and an unblocked
 // fact end it, as do the lifecycle facts that begin another attempt — a task_done submission, a drop, a dispatch and
 // its lane.prepare result, and a sendback. A resumed fact does not: ordinary worker activity is not an answer (T-511).
 func HasBlockedReportAt(root, task string) (bool, error) {

@@ -134,7 +134,7 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "hook", "pre-tool-use"}, 0}, {[]string{"has", "hook", "noop"}, 0}, {[]string{"has", "hook"}, 0},
 		{[]string{"has", "hook", "stop"}, 0}, {[]string{"has", "hook", "session-start"}, 0},
 		{[]string{"has", "hook", "user-prompt-submit"}, 0}, {[]string{"has", "hook", "stop-failure"}, 0},
-		{[]string{"has", "dispatch"}, 0}, {[]string{"has", "drop"}, 0}, {[]string{"has", "sendback"}, 0},
+		{[]string{"has", "dispatch"}, 0}, {[]string{"has", "drop"}, 0}, {[]string{"has", "sendback"}, 1},
 		{[]string{"has", "status"}, 0}, {[]string{"has", "restart"}, 0}, {[]string{"has", "version"}, 0}, {[]string{"has", "config", "get"}, 0},
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
@@ -304,7 +304,7 @@ func runIn(t *testing.T, dir string, env []string, stdin string, args ...string)
 	return rc, stdout.String(), stderr.String()
 }
 
-// obor dispatch / drop / sendback (internal/dispatch has drop's behaviour, obor serve dispatch's and sendback's):
+// obor dispatch / drop (obor serve has drop's and dispatch's behaviour):
 // argument parsing, no config, the result line last with its exit code. bash dispatch.test.sh
 // case_unknown_lane_and_bad_id (usage); bash drop.test.sh case_unknown_lane (usage).
 func TestLaneCommands(t *testing.T) {
@@ -319,8 +319,7 @@ func TestLaneCommands(t *testing.T) {
 		last string
 	}{
 		{[]string{"dispatch", "T-05"}, "FAIL no usable .obor/config.json (obor config validate)"},
-		{[]string{"drop", "L-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
-		{[]string{"sendback", "L-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
+		{[]string{"drop", "T-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || strings.TrimSpace(stdout) != c.last {
 			t.Errorf("no config: obor %v: exit %d, %q", c.args, rc, stdout)
@@ -342,11 +341,9 @@ func TestLaneCommands(t *testing.T) {
 		{nil, []string{"dispatch", "T-05", "x"}, 1, "FAIL " + dispatchUsage},
 		{nil, []string{"dispatch", "T-05", "--agent"}, 1, "FAIL " + dispatchUsage},
 		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"drop", "L-01"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
-		{nil, []string{"drop", "L-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
-		{nil, []string{"sendback", "L-01"}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
-		{nil, []string{"sendback", "L-01", ""}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
-		{nil, []string{"drop", "Z-09", "why"}, 1, "FAIL unknown lane Z-09 (not in the config's lanes)"},
+		{nil, []string{"drop", "T-01"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
+		{nil, []string{"drop", "T-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
+		{nil, []string{"drop", "L-01", "why"}, 1, "FAIL L-01 is no task id (task_id_pattern T-[0-9]+[a-z]?)"}, // the lane form is gone (T-775)
 		// A drop that passes these checks is a request to obor serve: TestDropServeRequest.
 	} {
 		if c.prep != nil {

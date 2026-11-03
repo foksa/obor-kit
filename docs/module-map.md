@@ -70,7 +70,7 @@ Adding a kind = one package + a config entry.
   `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
-  `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
+  `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go` (`JobID`): one concern each.
 - `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,
   `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
@@ -146,7 +146,7 @@ socket: scripted panes and plugins, and every request a test's client sent).
 **entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`: the loop and the alternate-screen drawing; `monitor_render.go`: the look; T-658, T-668) rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
-`answer`, `resume`, `sendback`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
+`resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`, T-667): `obor web`'s HTTP server over the read model — the API (`/api/projects`,

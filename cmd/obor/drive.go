@@ -91,7 +91,7 @@ func driveCmd(args []string) int {
 	}
 	if err := startDrive(ctx, cfg, d, project.OSEnv); err != nil {
 		fmt.Fprintf(out, "FAIL %v (the drive is recorded: retry with obor drive %s, which starts its agent again; obor drop %s ends it)\n",
-			err, d.task, d.lane)
+			err, d.task, d.task)
 		return 1
 	}
 	fmt.Fprintf(out, "OK %s: %s drives in lane %s on %s; obor land %s when done\n", d.task, d.agent, d.lane,
@@ -145,7 +145,7 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 	}
 	typ, effort := config.ParseModelRef(ref)
 	if typ == "" {
-		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.lane)
+		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.task)
 	}
 	cwd, _ := os.Getwd()
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, H: h, Out: out, McpCheck: mcp.Check,
@@ -276,8 +276,8 @@ const tellLeadUsage = `usage: obor tell-lead "<text>"`
 
 // tellLeadCmd is `obor tell-lead "<text>"` (T-761; obor lead starts the lead, so the drive's way to it has this name):
 // run in a drive agent's pane (role driver, its lane from its cwd), a request to obor serve that posts
-// "[obor <T-xx> drive] <text> (reply: obor answer <T-xx> "…")" to this project's lead as a lead line; the lead's obor
-// answer comes back to the drive agent as an "[obor answer] …" line. Serve's reply (TOLD …), or FAIL: serve down, the
+// "[obor <T-xx> drive] <text> (reply: obor resume <T-xx> "…")" to this project's lead as a lead line; the lead's obor
+// resume comes back to the drive agent as an "[obor answer] …" line. Serve's reply (TOLD …), or FAIL: serve down, the
 // caller no drive agent (serve names who it is for), no open drive in the lane, a drive the lead cannot answer (T-764:
 // landed, not driving).
 func tellLeadCmd(args []string) int {

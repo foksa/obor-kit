@@ -28,7 +28,7 @@ you ─── lead (Claude Code) ── writes a spec ── obor spec set T-12 
 - **Guards** (Claude Code hooks, an OpenCode plugin) keep a worker inside its lane: no pushes, no edits outside its
   worktree, no edits to protected files unless its spec allows them.
 - **The lead never merges and never polls.** serve sends it one line when something needs it, and the lead answers
-  with `obor answer`, `obor resume`, `obor sendback` or `obor drop`.
+  with `obor resume` or `obor drop`.
 - **State** lives in serve's store (`.obor/state/obor.db`, an append-only log), not in chat. A crashed serve replays
   it and carries on.
 
@@ -77,7 +77,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 | `obor spec set T-xx <file>` | store a task spec (it needs a `Difficulty:` line) |
 | `obor dispatch T-xx [--after T-yy]` | run it on the first free lane of its tier, now or after T-yy merges |
 | `obor watch T-xx[,T-yy]` | one line to the lead when they merge (or one is dropped) |
-| `obor answer` · `resume` · `sendback` · `drop` | act on a needs-you |
+| `obor resume` · `drop` | act on a needs-you (by task id) |
 | `obor restart <agent> [--fresh]` | restart an agent in its pane |
 | `obor pause [--for 3h] "<why>"` | stop dispatching (quota, waiting on you) |
 | `obor stop ["<why>"] [--force]` · `obor start` | put the project to sleep (its agents, serve and its entry in `obor projects` go; files and config stay; hooks stand down) and wake it. Stop pauses serve first and says STOPPED only once serve is confirmed down; it refuses (clearing its pause) from a worker lane, with serve down (start it first), with a task in progress (`--force` drops each through serve; a failed drop refuses), when herdr does not answer, or when serve is not launchd's (stop that one in its pane). Start also clears the stop's pause |

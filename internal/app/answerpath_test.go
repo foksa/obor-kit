@@ -1,9 +1,9 @@
 package app
 
 import (
-	"context"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -41,11 +41,11 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	return h, p, mt.needs
 }
 
-// runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs) with
-// a one-word decision for the placeholder (RV-54 #4), obor drop and obor sendback as their CLIs call serve.
+// runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs)
+// with a one-word text for its placeholder (RV-54 #4), obor drop as its CLI calls serve (by task id, T-775).
 func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
 	c := wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "c1"}
-	args := strings.Fields(strings.NewReplacer(`["<decision>"]`, "yes", `"<decision>"`, "yes", `"<why>"`, "").Replace(cmd))
+	args := strings.Fields(regexp.MustCompile(`"<[a-z]+>"`).ReplaceAllString(cmd, "yes"))
 	switch {
 	case len(args) > 2 && args[1] == "resume":
 		rc, ok := wire.ResumeArgs(args[2:])
@@ -54,17 +54,9 @@ func runAnswer(h *harness, fact event.Record, cmd string) (string, error) {
 		}
 		c.Task, c.To, c.Note = rc.Task, rc.To, rc.Note
 		return h.a.resume(c)
-	case len(args) == 3 && args[1] == "drop":
-		c.Note = "not needed"
-		if args[2] == fact.Fact().Lane {
-			c.Lane = args[2]
-		} else {
-			c.Task = args[2]
-		}
+	case len(args) == 4 && args[1] == "drop" && args[2] == fact.Task:
+		c.Task, c.Note = args[2], "not needed"
 		return h.a.drop(c)
-	case len(args) == 3 && args[1] == "sendback": // obor sendback <LANE>: the CLI asks serve for the lane's task
-		c.Task, c.Note = fact.Task, "please fix"
-		return h.a.verdict(context.Background(), wire.MethodSendback, c)
 	}
 	return "", &usageError{cmd}
 }
@@ -73,41 +65,41 @@ type usageError struct{ cmd string }
 
 func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
 
-// RV-54 #2 (T-515): each cause's suggested commands are the ones its verdicts take in the state the needs-you leaves
-// (resumeTo, unsendable, droppable): explicit modes where there is no default (sendbacks, resolve rejected, fix job
-// not sent), no drop for a merged task (after-merge failures), none but drop for a reject; a merge-loop needs-you of a
-// task with a lane takes the lead's sendback (T-619). Each command, run on a fresh seed through obor resume's parser,
-// is accepted.
+// RV-54 #2 (T-515), T-775: each cause's suggested commands are the ones its verbs take in the state the needs-you
+// leaves (resumeFits, mtask.may): the one obor resume form (its text where it needs one; the owner's choice of --regate
+// or --sendback where there is no default: red or sendbacks past K, a resolve rejected, a fix job not sent), no drop
+// for a merged task (after-merge failures), only drop for a reject; every command names the task, never the lane.
+// Each command, run on a fresh seed through obor resume's parser, is accepted.
 func TestAnswerPathEveryCause(t *testing.T) {
 	t.Parallel()
-	const drop, resume = ` | obor drop L-01 "<why>"`, "obor resume T-1"
-	const sb = `obor sendback L-01 "<why>" | ` // a merge-loop needs-you's advice starts with it (T-619)
+	const drop, resume = ` | obor drop T-1 "<why>"`, "obor resume T-1"
+	const choice = resume + " --regate | " + resume + ` --sendback "<why>"`
 	for _, row := range []struct {
 		cause, state, job string
 		watch             bool
 		want              string
 	}{
-		{event.CauseHeld, stAwaiting, event.StepReview, false, sb + `obor resume T-1 ["<decision>"]` + drop},
-		{causeRed, stRed, "", false, sb + resume + drop},
-		{causeUndelivered, stAwaiting, event.StepReview, false, sb + resume + drop},
-		{causeStalled, stAwaiting, event.StepReview, false, sb + resume + drop},
-		{causeGate, stFail, "", false, sb + resume + drop},
-		{causePublish, stFail, "", false, sb + resume + drop},
-		{causeSendbacks, stFail, event.StepReview, false, sb + resume + " regate | " + resume + " reprompt" + drop},
-		{causeResolveRejected, stFail, event.StepResolve, false, sb + resume + " regate | " + resume + " reprompt" + drop},
-		{causeFix, stWorking, "", false, sb + resume + " regate" + drop},
-		{causeLane, stDispatched, "", false, sb + resume + drop},
-		{causeStart, stDispatched, "", false, sb + resume + drop},
-		{causeNoPane, stDispatched, "", false, sb + resume + drop},
-		{causeAfter, stWaiting, "", false, resume + ` | obor drop T-1 "<why>"`}, // no lane: no obor sendback
-		{"submit" + failedSuffix, stSubmitted, "", false, sb + resume + drop},
-		{"review" + failedSuffix, stAwaiting, event.StepReview, false, sb + resume + drop},
+		{event.CauseHeld, stAwaiting, event.StepReview, false, `obor resume T-1 "<decision>"` + drop},
+		{causeRed, stRed, "", false, choice + drop},
+		{causeUndelivered, stAwaiting, event.StepReview, false, resume + drop},
+		{causeStalled, stAwaiting, event.StepReview, false, resume + drop},
+		{causeGate, stFail, "", false, resume + drop},
+		{causePublish, stFail, "", false, resume + drop},
+		{causeSendbacks, stFail, event.StepReview, false, choice + drop},
+		{causeResolveRejected, stFail, event.StepResolve, false, choice + drop},
+		{causeFix, stWorking, "", false, choice + drop},
+		{causeLane, stDispatched, "", false, resume + drop},
+		{causeStart, stDispatched, "", false, resume + drop},
+		{causeNoPane, stDispatched, "", false, resume + drop},
+		{causeAfter, stWaiting, "", false, resume + drop}, // no lane: the drop just cancels it
+		{"submit" + failedSuffix, stSubmitted, "", false, resume + drop},
+		{"review" + failedSuffix, stAwaiting, event.StepReview, false, resume + drop},
 		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
 		{event.StepStop + failedSuffix, stMerged, "", false, resume},
-		{causeRejected, stRejected, "", false, `obor drop L-01 "<why>"`},
-		{"stalled", "", "", true, `its pane, or obor resume T-1 "<decision>" | obor drop L-01 "<why>"`}, // T-746
-		{"blocked", "", "", true, `its pane, or obor drop L-01 "<why>"`},
-		{"pane exited", "", "", true, `its pane, or obor drop L-01 "<why>"`},
+		{causeRejected, stRejected, "", false, `obor drop T-1 "<why>"`},
+		{"stalled", "", "", true, `its pane, or obor resume T-1 "<text>"` + drop}, // T-746
+		{"blocked", "", "", true, `its pane, or obor drop T-1 "<why>"`},
+		{"pane exited", "", "", true, `its pane, or obor drop T-1 "<why>"`},
 	} {
 		t.Run(row.cause, func(t *testing.T) {
 			t.Parallel()
@@ -128,22 +120,22 @@ func TestAnswerPathEveryCause(t *testing.T) {
 				h, _, fact := answerSeed(t, row.cause, row.state, row.job, row.watch)
 				if reply, err := runAnswer(h, fact, cmd); err != nil {
 					t.Errorf("%s: refused: %v", cmd, err)
-				} else if !strings.Contains(reply, map[string]string{"resume": "RESUMED", "drop": "DROPPED",
-					"sendback": "SENDBACK"}[strings.Fields(cmd)[1]]) {
+				} else if want := map[bool]string{true: "SENDBACK", false: map[string]string{"resume": "RESUMED",
+					"drop": "DROPPED"}[strings.Fields(cmd)[1]]}[strings.Contains(cmd, "--sendback")]; !strings.Contains(reply, want) {
 					t.Errorf("%s: %q", cmd, reply)
 				}
 			}
 		})
 	}
 	for _, task := range []string{event.LoopTask, event.NightlyTask, event.MsgTask} { // a project's fact: fix what it names
-		if path := answerPath(event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, mtask{}); path != "" {
+		if path := answerPath(nil, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, mtask{}); path != "" {
 			t.Errorf("%s: suggests %q, want none", task, path)
 		}
 	}
 }
 
-// RV-54 #4: obor resume's arguments: regate and reprompt are the reserved modes; any other nonblank last argument
-// is the decision, a single word too; nothing else parses.
+// RV-54 #4, T-775: obor resume's arguments: --regate and --sendback are its flags (one, anywhere after the task); any
+// other nonblank argument is the text, a single word too, the old keywords included; nothing else parses.
 func TestResumeArgs(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -155,14 +147,19 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{"T-1", "yes"}, "", "yes", true},
 		{[]string{"T-1", "no"}, "", "no", true},
 		{[]string{"T-1", "approved"}, "", "approved", true},
-		{[]string{"T-1", "retry"}, "", "retry", true}, // not a reserved mode: a decision, the cause's default
+		{[]string{"T-1", "retry"}, "", "retry", true}, // the old keywords are a text now (T-775)
+		{[]string{"T-1", "regate"}, "", "regate", true},
 		{[]string{"T-1", "yes please"}, "", "yes please", true},
-		{[]string{"T-1", "regate"}, wire.ResumeRegate, "", true},
-		{[]string{"T-1", "reprompt", "yes"}, wire.ResumeReprompt, "yes", true},
-		{[]string{"T-1", "regate", "yes", "more"}, "", "", false},
+		{[]string{"T-1", "--regate"}, wire.ResumeRegate, "", true},
+		{[]string{"T-1", "--sendback", "fix x"}, wire.ResumeSendback, "fix x", true},
+		{[]string{"T-1", "fix x", "--sendback"}, wire.ResumeSendback, "fix x", true},
+		{[]string{"T-1", "--regate", "--sendback"}, "", "", false},
+		{[]string{"T-1", "--reprompt", "yes"}, "", "", false},
+		{[]string{"T-1", "--regate", "yes", "more"}, "", "", false},
 		{[]string{"T-1", "yes", "more"}, "", "", false},
 		{[]string{"T-1", " "}, "", "", false},
-		{[]string{"T-1", "regate", ""}, "", "", false},
+		{[]string{"T-1", "--regate", ""}, "", "", false},
+		{[]string{"--regate", "T-1"}, "", "", false},
 		{[]string{""}, "", "", false},
 		{nil, "", "", false},
 	} {

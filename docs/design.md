@@ -40,8 +40,14 @@ tests/                          Go probes (`go/`); the Go tests sit in their pac
 docs/                           this repo's own process — not shipped
 ```
 Subcommands: `obor help` lists them (`bin/go-commands`). The integrator's verdicts (`accept`, `reject`, `resolved`,
-`hold`, `sendback`) are MCP tools only (T-437); the lead's chat commands are `dispatch`, `sendback <LANE>`, `resume`,
-`drop`, `answer`, `spec`, `watch`, `pause`, `send` and `brief`; `pause`, `send` and `brief` are requests to obor serve.
+`hold`, `sendback`) are MCP tools only (T-437); the lead's chat commands are `dispatch`, `resume`, `drop`, `spec`,
+`watch`, `pause`, `send` and `brief`; `pause`, `send` and `brief` are requests to obor serve. Every task command
+(`drop`, `resume`, `drive`, `land`, `watch`) takes a task id, never a lane: serve knows the lane (T-775). `obor resume
+<T-xx> ["<text>"] [--regate|--sendback]` is the one verb that sends the lead's word to a task: serve picks the action
+from the task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback of a green
+or reviewed task, a merge-loop needs-you's regate, reprompt or retry; a flag only where two fit: red past K
+`--regate` or `--sendback`, a Blocked report `--regate`). Which verbs a state takes is the `verbs` column of
+`internal/app/states.go`; every verb also needs no live claim on the task (`proj.busy`).
 
 ## Paths
 - **Project root** = the main checkout = `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`, from
@@ -289,8 +295,8 @@ full check and the pause.
   agent.stop stops the drive agent. A red gate, the integrator's sendback or hold go back to driving with one line to
   the lead, never to a worker; `obor drop` works on it unchanged. The drive and the lead message each other (T-761):
   the drive agent's `obor tell-lead "<text>"` (role driver only; its lane from its cwd) is fact message{driver} to the
-  lead, the line `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, delivered as every lead line; the lead's
-  `obor answer T-xx "<text>"` on a driving task needs no question in force: fact answered{driver} to the drive agent,
+  lead, the line `[obor T-xx drive] <text> (reply: obor resume T-xx "…")`, delivered as every lead line; the lead's
+  `obor resume T-xx "<text>"` on a driving task needs no question in force: fact answered{driver} to the drive agent,
   the line `[obor answer] <text>` delivered as an answer to a worker is (when its pane is idle). Each such answer is its
   own line (a newer one ends no older); a land or a drop closes an undelivered one unsent. The drive agent's first
   prompt names both.
@@ -321,7 +327,7 @@ Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies sha
 When the user types into a worker's pane by mistake, the worker must not act on it: it first replies
 `I am worker <agent> on <task>. Did you mean to type here?` and continues only on confirmation.
 - Every line obor delivers (typed, or posted to a Claude session's inbox, T-499) starts with `[obor `: a job's wake
-  `[obor job <id>]` (the only thing sent to a worker), and serve's lines ("Lines to the lead"). Nobody messages a worker; its question is answered by `obor answer`.
+  `[obor job <id>]` (the only thing sent to a worker), and serve's lines ("Lines to the lead"). Nobody messages a worker; its question is answered by `obor resume`.
 - `obor hook user-prompt-submit` (UserPromptSubmit): role worker only; prompt starts with `[obor ` or `/` (slash
   command), or is one of Claude Code's machine envelopes (opening tag at the start, closing tag at the very end: e.g.
   `<task-notification>`, and, T-502, `<agent-message from=…>` (a subagent's hand-back) and `<cross-session-message

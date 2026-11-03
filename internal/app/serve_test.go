@@ -256,7 +256,7 @@ func TestPausedScratchReservation(t *testing.T) {
 			if len(f.gated) != 0 {
 				t.Fatalf("paused: gated %v; want none (T-1 holds the scratch)", f.gated)
 			}
-			if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
+			if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", Note: "go on"}); err != nil {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
@@ -290,7 +290,11 @@ func TestPausedScratchReleased(t *testing.T) {
 			f.Launch(ctx, port.Launch{})
 			h.pass(ctx)
 			p := h.a.p
-			h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
+			cause := event.CauseHeld
+			if release == "regate" { // T-775: a hold takes the decision; --regate is the owner's choice past K
+				cause = causeSendbacks
+			}
+			h.a.needsYou(p, p.folded.loop["T-1"], cause, "held")
 			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
 			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			if !busy(p, "T-2") {
@@ -635,7 +639,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			if method == wire.MethodResume {
 				p := h.a.p
 				h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
-				c = wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", To: wire.ResumeRegate}
+				c = wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "c", Note: "go on"}
 			}
 			call := listenMem(t, h)
 
