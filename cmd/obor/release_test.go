@@ -83,8 +83,10 @@ if [ -n "$out" ]; then
 fi
 case $out in dist/obor-*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
 # go-fail-once: the first go test fails with the file's text as its output and removes the file (a flaky package);
-# go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails.
+# go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails; upgrade-fail: the upgrade
+# check's go test (./tests/upgrade, make upgrade-check) fails with the file's text.
 if [ "$1" = test ]; then
+  case "$*" in *./tests/upgrade*) [ ! -f "`+p.Base+`/upgrade-fail" ] || { cat "`+p.Base+`/upgrade-fail"; exit 1; } ;; esac
   for m in go-fail-once go-fail; do
     if [ -f "`+p.Base+`/$m" ]; then
       cat "`+p.Base+`/$m"
@@ -107,7 +109,7 @@ func (f *releaseFixture) env() []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "TMPDIR=") || strings.HasPrefix(kv, "HOME=") ||
-			strings.HasPrefix(kv, "UNREVIEWED=") {
+			strings.HasPrefix(kv, "UNREVIEWED=") || strings.HasPrefix(kv, "SKIP_UPGRADE_CHECK=") {
 			continue
 		}
 		env = append(env, kv)

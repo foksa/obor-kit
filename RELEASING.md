@@ -10,7 +10,10 @@ The lead, in a clean checkout on main:
 
 1. Write `docs/UPGRADE-v<x.y>.md` with a `## v<x.y.z>` heading — the release's guide, at tag time from
    `git log v<prev>..` (every merge's spec is in its message), not task by task: a guide written mid-milestone misses
-   the last merges (DD-v0.14 U1). Also write `docs/releases/v<x.y.z>.md`, the release's GitHub notes: plain
+   the last merges (DD-v0.14 U1). A project's upgrade steps go in a fenced `sh` block under their version's heading
+   (what the lead's project runs in its main checkout after the installer, before `obor serve restart`; the upgrade
+   check below runs it): a release that changes the minor (`x.y.0`) must have one, `# nothing to do` when there is
+   nothing; a patch may. Also write `docs/releases/v<x.y.z>.md`, the release's GitHub notes: plain
    user-facing Markdown, a summary line, then `- **Name:** what changed` bullets, then an optional `Upgrading:` line,
    no task ids. `scripts/publish` titles the release `obor <x.y.z>`, publishes this file (as tagged) and appends the
    Full Changelog link. Commit both on main.
@@ -24,7 +27,17 @@ The lead, in a clean checkout on main:
    When `make check` fails only in `go test` packages, those packages run once more in one `go test <pkgs>`: if all
    pass, the release goes on, prints `FLAKY: <pkg> <test> (failed, passed on rerun)` and records it in the flake log
    (`obor flakes`); if any fails again it is refused, naming the tests. A failure outside `go test` (build, vet, gofmt,
-   deadcode) refuses at once, with no rerun. In a scratch
+   deadcode) refuses at once, with no rerun. Then `make upgrade-check` (runnable alone; `PREV=x.y.z` another
+   previous release): the catalog's newest release below the new version (its binary from `~/.obor/bin`, fetched and
+   checked against `bin/checksums.txt` when missing; its kit the tag's tree) runs `obor init` for two projects in a
+   temp `HOME` and `OBOR_STATE_HOME` (herdr, claude and launchctl stubbed: no agents, no launchd) and serve for both as
+   child processes, with a line to each lead held (no session yet) and a dispatch waiting (`--after`, its spec's
+   `Model:`); then the guide's `sh` blocks of the versions above it run in each project with the new `obor`, and both
+   serves start again on the new build (`dist/obor`); then both must answer, `obor projects` list both, `obor status`
+   and `obor setup show` load, each lead (its SessionStart hook under its current name) get its held line, the dispatch
+   still wait with its model first, and `obor send` work both ways. A failure prints the step and its output and tags
+   nothing (the version commit stays: the re-run starts at the upgrade check). `SKIP_UPGRADE_CHECK="<why>"` skips it,
+   the owner's call only, like `UNREVIEWED`, and puts the reason in the tag message. In a scratch
    worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
    worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
