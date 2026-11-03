@@ -1,8 +1,9 @@
 package main
 
-// obor web (T-667): a read-only page for every obor project on the machine, in its own process (never inside serve:
-// serve is the one writer, and a handler there would share its restarts). It listens on localhost only, serves the read
-// model's JSON (view.Build as obor status --json builds it) and one embedded HTML page. No verbs, no auth.
+// obor web (T-667): a page for every obor project on the machine, in its own process (never inside serve: serve is the
+// one writer, and a handler there would share its restarts). It listens on localhost only, serves the read model's JSON
+// (view.Build as obor status --json builds it) and one embedded HTML page. No auth; its two verbs, the Setup page's
+// edits (T-753), are requests to the project's serve, taken only from the page's own origin.
 
 import (
 	"context"
@@ -51,8 +52,8 @@ func webCmd(args []string) int {
 		errf("obor web: %v", err)
 		return 1
 	}
-	srv := &http.Server{Handler: (&web.Server{Events: statusEvents}).Handler(), ReadHeaderTimeout: 5 * time.Second}
-	fmt.Fprintf(out, "obor web: http://%s/ (read-only, localhost; Ctrl-C ends it)\n", ln.Addr())
+	srv := &http.Server{Handler: (&web.Server{Events: statusEvents, Listen: ln.Addr().String()}).Handler(), ReadHeaderTimeout: 5 * time.Second}
+	fmt.Fprintf(out, "obor web: http://%s/ (localhost; Ctrl-C ends it)\n", ln.Addr())
 	out.Flush() // said before the first request, not when the process ends
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

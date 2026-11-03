@@ -73,7 +73,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 | Command | What it does |
 |---|---|
 | `obor status` | serve, lanes, agents, what needs you, the last full check |
-| `obor web` | a read-only page for every project on this machine: lanes, queue, needs-you, events, task reports and agent prompts (localhost, `--listen 127.0.0.1:<port>`) |
+| `obor web` | a page for every project on this machine: lanes, queue, needs-you, events, task reports and agent prompts, and the Setup page's edits, which serve commits (localhost, `--listen 127.0.0.1:<port>`) |
 | `obor spec set T-xx <file>` | store a task spec (it needs a `Difficulty:` line) |
 | `obor dispatch T-xx [--after T-yy]` | run it on the first free lane of its tier, now or after T-yy merges |
 | `obor watch T-xx[,T-yy]` | one line to the lead when they merge (or one is dropped) |

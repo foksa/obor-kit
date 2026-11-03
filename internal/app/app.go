@@ -99,6 +99,7 @@ type App struct {
 	loopMu    sync.Mutex         // loopStatus's decision and its record are one step (the merge loop and the check both call it)
 	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
 	sessions  sync.Mutex         // a session report's check and its record are one step (sessions.go)
+	configMu  sync.Mutex         // one setup edit at a time (configset.go, T-753)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)

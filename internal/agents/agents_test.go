@@ -128,3 +128,69 @@ func TestCheckEffort(t *testing.T) {
 		t.Errorf("a kind with no effort: %v", err)
 	}
 }
+
+// T-753: obor web's setup edit rewrites a lane type's model and effort inside its args, per kind: the value in place of
+// the args' own (their spelling kept, a later one dropped), appended when they have none, dropped for ""; every other
+// arg stays where it is. OpenCode's effort is no arg, and an effort the kind does not take is refused.
+func TestArgsEdit(t *testing.T) {
+	for _, c := range []struct {
+		kind, field, val string
+		args, want       []string
+	}{
+		{"claude", "model", "fable", []string{"--model", "opus", "--effort", "medium", "--permission-mode", "auto"},
+			[]string{"--model", "fable", "--effort", "medium", "--permission-mode", "auto"}},
+		{"claude", "model", "fable", []string{"--permission-mode", "auto", "--model=opus"},
+			[]string{"--permission-mode", "auto", "--model=fable"}},
+		{"claude", "model", "fable", []string{"--permission-mode", "auto"}, []string{"--permission-mode", "auto", "--model", "fable"}},
+		{"claude", "model", "", []string{"--model", "opus", "--permission-mode", "auto"}, []string{"--permission-mode", "auto"}},
+		{"claude", "effort", "high", []string{"--model", "opus", "--effort", "medium", "--permission-mode", "auto"},
+			[]string{"--model", "opus", "--effort", "high", "--permission-mode", "auto"}},
+		{"claude", "effort", "high", []string{"--effort", "low", "--x", "--effort=medium"}, []string{"--effort", "high", "--x"}},
+		{"claude", "effort", "", []string{"--model", "opus", "--effort", "medium"}, []string{"--model", "opus"}},
+		{"codex", "model", "gpt-7", []string{"-m", "gpt-6", "-c", "model_reasoning_effort=high", "-s", "workspace-write"},
+			[]string{"-m", "gpt-7", "-c", "model_reasoning_effort=high", "-s", "workspace-write"}},
+		{"codex", "model", "gpt-7", []string{"-s", "workspace-write", "--model=gpt-6"}, []string{"-s", "workspace-write", "--model=gpt-7"}},
+		{"codex", "model", "gpt-7", []string{"-a", "never"}, []string{"-a", "never", "-m", "gpt-7"}},
+		{"codex", "effort", "xhigh", []string{"-m", "gpt-6", "-c", "model_reasoning_effort=high", "-c", "x=1", "-a", "never"},
+			[]string{"-m", "gpt-6", "-c", "model_reasoning_effort=xhigh", "-c", "x=1", "-a", "never"}},
+		{"codex", "effort", "low", []string{"--config=model_reasoning_effort=high", "-a", "never"},
+			[]string{"--config=model_reasoning_effort=low", "-a", "never"}},
+		{"codex", "effort", "low", []string{"-cmodel_reasoning_effort=high"}, []string{"-cmodel_reasoning_effort=low"}},
+		{"codex", "effort", "low", []string{"-m", "gpt-6", "-c", "x=1"}, []string{"-m", "gpt-6", "-c", "x=1", "-c", "model_reasoning_effort=low"}},
+		{"codex", "effort", "", []string{"-m", "gpt-6", "-c", "model_reasoning_effort=high", "-c", "x=1"}, []string{"-m", "gpt-6", "-c", "x=1"}},
+		{"opencode", "model", "opencode-go/kimi", []string{"--auto", "--model", "opencode-go/deepseek", "--standalone"},
+			[]string{"--auto", "--model", "opencode-go/kimi", "--standalone"}},
+		{"opencode", "model", "p/m", []string{"--auto", "-m=x/y"}, []string{"--auto", "-m=p/m"}},
+	} {
+		var got []string
+		var err error
+		if c.field == "model" {
+			got, err = agents.ModelArgs(c.kind, c.args, c.val)
+		} else {
+			got, err = agents.EffortArgs(c.kind, c.args, c.val)
+		}
+		if err != nil || !slices.Equal(got, c.want) {
+			t.Errorf("%s %s %q of %q: %q, %v; want %q", c.kind, c.field, c.val, c.args, got, err, c.want)
+		}
+	}
+	for _, c := range []struct{ kind, effort, want string }{
+		{"opencode", "high", "sets no effort in its args"},
+		{"claude", "turbo", `effort "turbo" is not one of claude's`},
+		{"codex", "max", `effort "max" is not one of codex's`},
+		{"cursor", "high", "sets no effort in its args"},
+	} {
+		args := []string{"--model", "m"}
+		if got, err := agents.EffortArgs(c.kind, args, c.effort); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s effort %s: %q, %v; want an error with %q", c.kind, c.effort, got, err, c.want)
+		}
+	}
+	if _, err := agents.ModelArgs("cursor", nil, "m"); err == nil {
+		t.Error("a kind with no bridge names no model: want an error")
+	}
+	if got := agents.EffortsInArgs("opencode"); len(got) != 0 {
+		t.Errorf("EffortsInArgs(opencode) = %q, want none: its effort is no arg", got)
+	}
+	if got := agents.EffortsInArgs("claude"); !slices.Contains(got, "high") {
+		t.Errorf("EffortsInArgs(claude) = %q, want claude's efforts", got)
+	}
+}

@@ -1,6 +1,9 @@
 package wire
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // The app socket's protocol, client side: what a caller can ask serve (the methods), the Call it sends and the
 // answers it gets. The server (Listen and the handlers) is in internal/app. Moved here from internal/app (T-692, app
@@ -27,6 +30,7 @@ const (
 	MethodVerify   = "review_verify" // obor review verify: Call.After the fix tasks, Call.Findings the findings to re-run, Call.Note the lead's note
 	MethodSession  = "session"       // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
 	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, the reply "SET <task> rev <n>" (or "UNCHANGED <task> rev <n>")
+	MethodConfig   = "config_set"    // the owner's setup edit (obor web, T-753): Call.Key set to Call.Value in .obor/config.json, committed on main
 	MethodBackup   = "backup"        // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
 	MethodSend     = "send"          // Call.Root the target project, Call.From the sender project, Call.Note the text
 	MethodBrief    = "brief"         // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
@@ -88,6 +92,10 @@ type Call struct {
 	Report string `json:"report,omitempty"`
 	// spec_set's (specs.go): the spec's text.
 	Spec string `json:"spec,omitempty"`
+	// config_set's (configset.go, T-753): the key path (config.EditKeys) and its new value as JSON; Source is where the
+	// owner made it ("web").
+	Key   string          `json:"key,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
 	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
 	Until int64 `json:"until,omitempty"`
 	Clear bool  `json:"clear,omitempty"`

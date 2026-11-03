@@ -74,7 +74,8 @@ const server = {
   seq: 10,
   requests: [],           // every path asked, in order
   held: [],               // the long polls waiting for a record
-  routes: { "/api/projects": () => [] }, // path prefix → () => body, or throws for a 500
+  routes: { "/api/projects": () => [] }, // path prefix → (path, opts) => body, or throws for a 500
+  posts: [],              // every POST: { path, body (parsed), type (its Content-Type) }
   onRequest: null,        // called with each path before it is answered
   // bump is a new record: the seq moves and every held poll it passes answers.
   bump(seq) {
@@ -100,9 +101,17 @@ globalThis.fetch = (path, opts) => new Promise((resolve, reject) => {
     else server.held.push({ since, answer: (body) => resolve(answer(200, body)) });
     return;
   }
+  if (opts && opts.method === "POST") {
+    server.posts.push({ path, body: JSON.parse(opts.body), type: (opts.headers || {})["Content-Type"] });
+  }
   const key = Object.keys(server.routes).find((k) => path.startsWith(k));
   if (!key) { resolve(answer(404, { error: "no route " + path })); return; }
-  try { resolve(answer(200, server.routes[key](path))); } catch (e) { resolve(answer(500, { error: e.message })); }
+  try {
+    const body = server.routes[key](path, opts);
+    // a route answers another status with { status, error }
+    if (body && body.status >= 400 && body.error) resolve(answer(body.status, { error: body.error }));
+    else resolve(answer(200, body));
+  } catch (e) { resolve(answer(500, { error: e.message })); }
 });
 
 // ---- checks -----------------------------------------------------------------------------------------------------------
@@ -398,6 +407,97 @@ const scenarios = {
     await navigate("#/p/proj");
     await tick(100);
     check(html().includes('href="#/s/proj"'), "the project page links the setup page: " + html());
+  },
+
+  // T-753: the setup page's edit controls: each sends one change as JSON to /api/config or /api/pause, a refusal shows
+  // next to its field, and the page reads its setup again after each.
+  async setupEdit() {
+    let setupReads = 0;
+    let paused = null;
+    const setup = () => ({
+      difficulty: [{ level: "hard", types: ["opus:high", "sonnet"] }, { level: "medium", types: ["sonnet"] },
+        { level: "simple", types: [] }],
+      types: [],
+      lane_types: [{ name: "opus", kind: "claude", model: "opus", effort: "medium", max: 4, efforts: ["low", "medium", "high"] },
+        { name: "sonnet", kind: "claude", model: "sonnet", effort: "", max: 0, efforts: ["low", "medium", "high"] },
+        { name: "deepseek", kind: "opencode", model: "opencode-go/x", effort: "", max: 2, efforts: [] }],
+      lanes: [{ lane: "L-01", type: "", agent: "pj-l-01", state: "free" }],
+      roles: [{ role: "lead", agent: "pj-lead", type: "opus:high", status: "working" }],
+      paused, distribution: [],
+    });
+    server.routes["/api/view"] = () => viewWith({});
+    server.routes["/api/setup"] = () => { setupReads++; return setup(); };
+    server.routes["/api/config"] = (path, opts) => {
+      const b = JSON.parse(opts.body);
+      if (b.key === "lanes.L-01") return { status: 400, error: "config: lane L-01 has task T-9" };
+      return { reply: "SET " + b.key };
+    };
+    server.routes["/api/pause"] = (path, opts) => {
+      const b = JSON.parse(opts.body);
+      paused = b.clear ? null : { reason: b.reason, by: "owner" };
+      return { reply: b.clear ? "PAUSE CLEARED" : "PAUSED until cleared" };
+    };
+    await navigate("#/s/proj");
+    await tick(100);
+    const page = html();
+    check(setupReads === 1, `precondition: the setup was read once (${setupReads})`);
+    check(/data-act="down" data-level="hard" data-i="0"/.test(page) && /data-act="up" data-level="hard" data-i="1"/.test(page) &&
+      /data-act="rm" data-level="hard" data-i="1"/.test(page), "each level's type has its up, down and remove: " + page);
+    check(!/data-act="up" data-level="hard" data-i="0"/.test(page), "the first type has no up: " + page);
+    check(/data-act="add" data-level="simple"/.test(page) && page.includes('<option value="deepseek">'),
+      "each level adds from the lane types: " + page);
+    check(/data-act="model" data-type="opus" value="opus"/.test(page) && /data-act="max" data-type="opus" value="4"/.test(page),
+      "a lane type's model and max are inputs: " + page);
+    check(/data-act="effort" data-type="opus"/.test(page) && !/data-act="effort" data-type="deepseek"/.test(page),
+      "an effort select only for a kind whose effort is an arg: " + page);
+    check(/data-act="lane"\s+data-lane="L-01"/.test(page) && /data-act="role"\s+data-role="lead"/.test(page),
+      "a lane's type and a role's type are edits: " + page);
+    check(page.includes('id="pause-why"') && page.includes('data-act="pause"'), "not paused: a pause form: " + page);
+
+    setupAct({ dataset: { act: "down", level: "hard", i: "0" } });
+    await tick(100);
+    let last = server.posts[server.posts.length - 1];
+    check(last && last.path === "/api/config?project=proj" && last.type === "application/json" &&
+      JSON.stringify(last.body) === JSON.stringify({ key: "difficulty.hard", value: ["sonnet", "opus:high"] }),
+      "down swaps the type with the next one, sent as JSON: " + JSON.stringify(last));
+    check(setupReads === 2, `the card reloads after the change (reads ${setupReads})`);
+
+    setupAct({ dataset: { act: "add", level: "simple" }, value: "deepseek" });
+    await tick(100);
+    last = server.posts[server.posts.length - 1];
+    check(JSON.stringify(last.body) === JSON.stringify({ key: "difficulty.simple", value: ["deepseek"] }),
+      "add appends the lane type: " + JSON.stringify(last));
+    setupAct({ dataset: { act: "max", type: "opus" }, value: "" });
+    await tick(100);
+    last = server.posts[server.posts.length - 1];
+    check(JSON.stringify(last.body) === JSON.stringify({ key: "lane_types.opus.max", value: 0 }),
+      "an empty max is no cap (0): " + JSON.stringify(last));
+    setupAct({ dataset: { act: "model", type: "sonnet" }, value: " sonnet-5 " });
+    await tick(100);
+    last = server.posts[server.posts.length - 1];
+    check(JSON.stringify(last.body) === JSON.stringify({ key: "lane_types.sonnet.model", value: "sonnet-5" }),
+      "a model is sent trimmed: " + JSON.stringify(last));
+
+    setupAct({ dataset: { act: "lane", lane: "L-01" }, value: "opus" });
+    await tick(100);
+    check(/data-err="lanes.L-01">config: lane L-01 has task T-9</.test(html()),
+      "a refusal shows next to its field: " + html());
+    setupAct({ dataset: { act: "role", role: "lead" }, value: "sonnet" });
+    await tick(100);
+    check(/data-err="lanes.L-01"/.test(html()) && !/data-err="roles.lead.type"/.test(html()),
+      "a refusal stays until its field's change succeeds; another field's success shows none: " + html());
+
+    await pauseSet("lunch ", "30m");
+    await tick(100);
+    last = server.posts[server.posts.length - 1];
+    check(last.path === "/api/pause?project=proj" && JSON.stringify(last.body) === JSON.stringify({ reason: "lunch", for: "30m" }),
+      "pause sends its reason and duration: " + JSON.stringify(last));
+    check(html().includes("Paused") && html().includes('data-act="unpause"'), "paused: the banner has its clear: " + html());
+    setupAct({ dataset: { act: "unpause" } });
+    await tick(100);
+    last = server.posts[server.posts.length - 1];
+    check(JSON.stringify(last.body) === JSON.stringify({ clear: true }) && html().includes('id="pause-why"'),
+      "clear sends clear and the form is back: " + JSON.stringify(last));
   },
 };
 

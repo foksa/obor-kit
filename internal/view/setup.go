@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/config"
 	roletable "obor/internal/roles"
@@ -22,6 +23,7 @@ type Setup struct {
 	Lanes        []SetupLane     `json:"lanes"`        // every configured lane
 	Roles        []SetupRole     `json:"roles"`        // every role the config names (the worker is the lanes)
 	Paused       *Pause          `json:"paused"`       // the pause in force (nil: none)
+	LaneTypes    []SetupLaneType `json:"lane_types"`   // every lane type in config order: what the page edits (T-753)
 	Distribution []DispatchCount `json:"distribution"` // one cell per level and chosen type
 }
 
@@ -43,6 +45,18 @@ type SetupType struct {
 	Effort string `json:"effort"`
 	Max    int    `json:"max"`
 	Unused bool   `json:"unused,omitempty"`
+}
+
+// SetupLaneType is one lane_types entry as the Setup page edits it (T-753): its name, kind, the model and effort its
+// own args name, its max (0: no cap), and the efforts its kind takes in its args (none: its effort is no arg, only a
+// type reference's :<effort>, or the kind has no bridge).
+type SetupLaneType struct {
+	Name    string   `json:"name"`
+	Kind    string   `json:"kind"`
+	Model   string   `json:"model"`
+	Effort  string   `json:"effort"`
+	Max     int      `json:"max"`
+	Efforts []string `json:"efforts"`
 }
 
 // SetupLane is one configured lane: its name, its configured type ("" is a pooled lane, which runs any type), its
@@ -130,6 +144,12 @@ func (d Detail) Setup() (Setup, error) {
 			Status: status[role.Name]})
 	}
 	s.Types = setupTypes(cfg, s.Difficulty, s.Roles)
+	s.LaneTypes = []SetupLaneType{}
+	for _, name := range cfg.LaneTypeNames() {
+		lt, _ := cfg.LaneType(name)
+		s.LaneTypes = append(s.LaneTypes, SetupLaneType{Name: name, Kind: lt.Kind, Model: lt.Model(), Effort: lt.Effort(),
+			Max: lt.Max, Efforts: append([]string{}, agents.EffortsInArgs(lt.Kind)...)})
+	}
 	s.Paused = d.Project.Paused
 	db, close := d.open()
 	defer close()

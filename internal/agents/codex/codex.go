@@ -68,6 +68,49 @@ func (kind) Efforts() []string { return efforts }
 // StartEnv: none; the effort is a -c option.
 func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
 
+// WithModel: -m <model> in place of the args' own (-m or --model, T-753).
+func (kind) WithModel(args []string, model string) []string {
+	return agents.SetFlag(args, []string{"-m", "--model"}, model)
+}
+
+// WithEffortArg: the args' effortKey option set to effort in place (`-c`/`--config` with its word, either spelling
+// with =, or -c<key>=…), a later one dropped; none: -c model_reasoning_effort=<effort> appended; "" drops every one
+// (T-753).
+func (kind) WithEffortArg(args []string, effort string) []string {
+	out := make([]string, 0, len(args)+2)
+	set := false
+	put := func(words ...string) {
+		if !set && effort != "" {
+			out = append(out, words...)
+			set = true
+		}
+	}
+	isEffort := func(word string) bool {
+		key, _, ok := strings.Cut(word, "=")
+		return ok && strings.TrimSpace(key) == effortKey
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case (a == "-c" || a == "--config") && i+1 < len(args) && isEffort(args[i+1]):
+			put(a, effortKey+"="+effort)
+			i++
+		case strings.HasPrefix(a, "--config=") && isEffort(strings.TrimPrefix(a, "--config=")):
+			put("--config=" + effortKey + "=" + effort)
+		case strings.HasPrefix(a, "-c=") && isEffort(strings.TrimPrefix(a, "-c=")):
+			put("-c=" + effortKey + "=" + effort)
+		case strings.HasPrefix(a, "-c") && isEffort(strings.TrimPrefix(a, "-c")):
+			put("-c" + effortKey + "=" + effort)
+		default:
+			out = append(out, a)
+		}
+	}
+	if !set && effort != "" {
+		out = append(out, "-c", effortKey+"="+effort)
+	}
+	return out
+}
+
 // withEffort is args without their effortKey option (`-c`/`--config` with its word, or either spelling with =), then
 // -c model_reasoning_effort=<effort>; args as they are for effort "".
 func withEffort(args []string, effort string) []string {

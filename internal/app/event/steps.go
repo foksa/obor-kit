@@ -29,6 +29,8 @@ const (
 	ServeTask = "serve"
 	// RoleTask is the task key of serve's stops of role agents.
 	RoleTask = "roles"
+	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
+	ConfigTask = "config"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
@@ -50,6 +52,9 @@ const (
 
 // StepNightly is the nightly full check's intent/result (G), one key a day: nightly.<YYYY-MM-DD> → NightlyOut.
 const StepNightly = "nightly"
+
+// StepConfigSet is the fact of a setup edit serve wrote and committed (task ConfigTask; data: ConfigSet; T-753).
+const StepConfigSet = "config.set"
 
 const (
 	StepPaused   = "paused"   // fact: the project is paused (data: Pause)

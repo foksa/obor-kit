@@ -90,6 +90,7 @@ func (p *proj) foldRecord(r event.Record) {
 	p.foldStart(r)
 	p.foldNightly(r)
 	p.foldPause(r)
+	p.foldConfig(r)
 	p.foldSession(r)
 	p.foldMsg(r)
 	p.foldWatch(r)

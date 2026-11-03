@@ -55,6 +55,8 @@ type Loop struct {
 	// a signal does (it cancels; then launchd starts it again, or serve execs the kit's shim itself) and returns nil
 	// once it did. Nil: never restarted.
 	Restart func(ctx context.Context) error
+	// Config is the main checkout's config file and its git: the owner's setup edits (configset.go, T-753; nil: none).
+	Config ConfigFile
 }
 
 // K is how often a task is sent back before the owner decides (rule 3).
