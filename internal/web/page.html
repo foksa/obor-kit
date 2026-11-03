@@ -110,6 +110,8 @@
   .rows > .row:only-child { border-radius: 12px; }
   .work { grid-template-columns: 64px minmax(0, 1fr) 128px 150px 76px; }
   .roles { grid-template-columns: 96px minmax(0, 1fr) 128px 76px; }
+  .setup2 { grid-template-columns: 96px minmax(0, 1fr); }
+  .setup3 { grid-template-columns: 96px minmax(0, 1fr) 120px; }
   .lead { display: flex; flex-direction: column; min-width: 0; }
   .lead .ttl { color: var(--fg-2); }
   .sub2 { font-size: 12px; color: var(--muted); }
@@ -187,6 +189,13 @@
   table.raw { width: 100%; border-collapse: collapse; font-size: 12px; }
   table.raw td, table.raw th { text-align: left; padding: 5px 12px; border-top: 1px solid var(--line-soft); vertical-align: top; }
   table.raw th { color: var(--muted); font-weight: 500; border-top: 0; }
+  /* setup: the distribution's level × type table and its 7 days / all switch (T-750) */
+  table.dist td { text-align: right; font-size: 12.5px; }
+  table.dist th { text-align: right; }
+  table.dist th:first-child, table.dist td:first-child { text-align: left; }
+  .seg { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
+  .seg button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 2px 10px; font: 12px var(--sans); cursor: pointer; }
+  .seg button.on { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
   .banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; margin-bottom: 18px; }
   .err { color: var(--bad); }
   .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
@@ -204,7 +213,8 @@
     #live span { display: none; }
     /* a row on a phone: its state line (lane, state, time) first, what it is about below */
     .work, .roles, .projects .row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 4px; }
-    .work > .lead, .roles > .lead { order: 5; flex-basis: 100%; }
+    .setup2, .setup3 { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 4px; }
+    .work > .lead, .roles > .lead, .setup2 > .lead, .setup3 > .lead { order: 5; flex-basis: 100%; }
     .projects .row > .lead { flex-basis: 100%; }
     .row > .hide-sm { display: none; }
     .row > .r { margin-left: auto; }
@@ -294,6 +304,7 @@ const jobLink = (p, job, text) => job ? ln(href("j", p, job), text || job) : "";
 
 const ROUTES = {
   p: { page: projectPage, crumb: (r) => [] },
+  s: { page: setupPage, crumb: (r) => ["setup"] },
   t: { page: taskPage, crumb: (r) => [r.id] },
   a: { page: agentPage, crumb: (r) => ["agent " + r.id] },
   j: { page: jobPage, crumb: (r) => ["job " + r.id] },
@@ -386,7 +397,10 @@ function paint(html, refresh) {
 }
 app.addEventListener("click", (e) => {
   const b = e.target.closest("button.more");
-  if (b) unfold(document.getElementById(b.dataset.for));
+  if (b) { unfold(document.getElementById(b.dataset.for)); return; }
+  // the setup page's 7 days / all switch: only this page's table redraws (T-750)
+  const seg = e.target.closest("button[data-dist]");
+  if (seg) { distAll = seg.dataset.dist === "all"; if (current) current.draw(true); }
 });
 function unfold(el) {
   if (!el) return;
@@ -624,7 +638,8 @@ function renderProject(p, v) {
     ${rel(x.since, "for")}</span>`).join(" ");
   const head = `<div class="head"><h1>${esc(p)}</h1>
     <div class="meta">${serve} ${warns.join(" ")} ${running}
-      ${!s.up && s.error ? `<span class="small ell" title="${esc(s.error)}">${esc(human(s.error))}</span>` : ""}</div></div>`;
+      ${!s.up && s.error ? `<span class="small ell" title="${esc(s.error)}">${esc(human(s.error))}</span>` : ""}
+      <a class="ln" href="${href("s", p)}">Setup</a></div></div>`;
   const paused = v.paused ? `<div class="banner t-wait">⏸ <span>Paused${v.paused.until ? " " +
     rel(v.paused.until, "in") : ""}${v.paused.reason ? ": " + esc(v.paused.reason) : ""}
     ${v.paused.by ? `<span class="muted">· ${esc(v.paused.by)}</span>` : ""}</span></div>` : "";
@@ -750,6 +765,96 @@ function renderEvents(p, events) {
     return `<div class="li" data-seq="${esc(e.seq + ":" + e.ts)}">${rel(at) || "<time></time>"}
       <span class="txt">${eventHTML(p, e.line)}</span></div>`;
   }).join("")}</div></section>`;
+}
+
+// ---- setup (T-750) -------------------------------------------------------------------------------------------------
+// The setup page: what steers the project's work — its difficulty levels, lanes, roles and pause — and how its
+// dispatches spread by level and chosen type, for the last 7 days or for all records. Read-only: the switch only
+// redraws the table.
+let distAll = false;
+
+async function setupPage(r) {
+  const s = await api("/api/setup?project=" + enc(r.project));
+  return renderSetup(r.project, s);
+}
+
+// levelName is a distribution row's label: a level, --types' override, or a dispatch with neither.
+const levelName = (l) => l || "no level";
+const typeName = (t) => t || "pooled";
+
+function renderSetup(p, s) {
+  const head = `<div class="head"><h1>${esc(p)} <span class="title">setup</span></h1>
+    <div class="meta"><span class="small">what steers this project's work · read-only</span>
+      <a class="ln" href="${href("p", p)}">project</a></div></div>`;
+
+  const levels = s.difficulty || [];
+  const difficulty = levels.map((d) => `<div class="row setup2">
+      <span class="mono">${esc(d.level)}</span>
+      <div class="lead"><span>${(d.types || []).length ? d.types.map((t) => tag(t)).join(" ")
+        : '<span class="muted">no type</span>'}</span></div></div>`).join("");
+  // what runs each type: its lane type, kind, model, effort and max; the types no level and no role names come last,
+  // marked unused (T-750)
+  const types = s.types || [];
+  const typeRows = types.map((t) => `<tr>
+      <td class="mono">${esc(t.ref)}${t.unused ? ' <span class="pill plain t-idle">unused</span>' : ""}</td>
+      <td class="mono">${esc(t.name || "")}</td>
+      <td>${esc(t.kind || "")}</td>
+      <td>${t.model ? esc(t.model) : '<span class="muted">—</span>'}</td>
+      <td>${t.effort ? esc(t.effort) : '<span class="muted">—</span>'}</td>
+      <td>${t.max ? esc(t.max) : '<span class="muted">no cap</span>'}</td></tr>`).join("");
+  const typeTable = types.length ? `<table class="raw types">
+      <thead><tr><th>type ref</th><th>lane type</th><th>kind</th><th>model</th><th>effort</th><th>max</th></tr></thead>
+      <tbody>${typeRows}</tbody></table>` : "";
+  const difficultyHTML = `<section><h2>Difficulty</h2><div class="card">
+    <div class="rows">${difficulty || '<p class="quiet">No difficulty level.</p>'}</div>
+    ${typeTable ? `<div class="pad" style="border-top:1px solid var(--line-soft)">${typeTable}</div>` : ""}</div></section>`;
+
+  const lanes = s.lanes || [];
+  const pooled = lanes.filter((l) => !l.type).length;
+  const laneHTML = lanes.map((l) => `<div class="row setup3">
+      <span class="mono">${esc(l.lane)}</span>
+      <div class="lead"><span>${l.type ? tag(l.type) : pill("idle", "pooled")}</span>
+        <span class="sub2">${agentLink(p, l.agent)}</span></div>
+      <span>${l.state ? pill(l.state) : pill("idle", "no state")}</span></div>`).join("");
+  const lanesHTML = `<section><h2>Lanes <span class="count">${lanes.length} lane${lanes.length === 1 ? "" : "s"} ·
+    ${pooled} pooled · ${lanes.length - pooled} typed</span></h2>
+    <div class="card rows">${laneHTML || '<p class="quiet">No lane configured.</p>'}</div></section>`;
+
+  const roleHTML = (s.roles || []).map((x) => `<div class="row setup3">
+      <span class="small">${esc(roleName(x.role))}</span>
+      <div class="lead"><span>${x.agent ? agentLink(p, x.agent) : '<span class="muted">no agent</span>'}</span>
+        <span class="sub2">${x.type ? tag(x.type) : "no type"}</span></div>
+      <span>${x.status ? pill(x.status) : pill("idle", "no pane")}</span></div>`).join("");
+  const paused = s.paused ? `<div class="banner t-wait" style="margin:8px 0 0">⏸ <span>Paused${
+    s.paused.until ? " " + rel(s.paused.until, "in") : ""}${s.paused.reason ? ": " + esc(s.paused.reason) : ""}${
+    s.paused.by ? ` <span class="muted">· ${esc(s.paused.by)}</span>` : ""}</span></div>` : "";
+  const rolesHTML = `<section><h2>Roles and pause</h2><div class="card rows">${
+    roleHTML || '<p class="quiet">No role configured.</p>'}</div>${paused}</section>`;
+
+  // the distribution: level rows × chosen type columns, one cell per level and type the store counted
+  const cells = s.distribution || [];
+  const rows = [];
+  const cols = [];
+  for (const c of cells) {
+    if (!rows.includes(c.level)) rows.push(c.level);
+    if (!cols.includes(c.type)) cols.push(c.type);
+  }
+  cols.sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
+  const count = (level, type) => {
+    const c = cells.find((x) => x.level === level && x.type === type);
+    return c ? (distAll ? c.all : c.recent) : 0;
+  };
+  const table = cells.length ? `<table class="raw dist">
+    <thead><tr><th>level</th>${cols.map((t) => `<th>${esc(typeName(t))}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((l) => `<tr><th>${esc(levelName(l))}</th>${
+      cols.map((t) => `<td>${count(l, t)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+    : '<p class="quiet">No dispatch has placed a task on a lane yet.</p>';
+  const seg = `<span class="seg">${[["recent", "7 days"], ["all", "all"]].map(([k, label]) =>
+    `<button data-dist="${k}" class="${(k === "all") === distAll ? "on" : ""}">${label}</button>`).join("")}</span>`;
+  const distHTML = `<section><h2>Distribution ${seg}</h2>
+    <div class="card" style="overflow:auto;padding:4px 0">${table}</div></section>`;
+
+  return head + difficultyHTML + lanesHTML + rolesHTML + distHTML;
 }
 
 // ---- prompts (a task's or agent's jobs, briefs) ------------------------------------------------------------------
