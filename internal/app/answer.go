@@ -52,9 +52,10 @@ func (a *App) answer(c wire.Call) (string, error) {
 // dispatched, not a needs-you of the merge loop) and asked a question that is in force; or it is driving (T-761: the
 // lead answers a drive's line with no question open, each answer its own line to the drive agent).
 func (p *proj) unanswerable(mt mtask) string {
+	if mt.drive {
+		return driveAnswerable(mt)
+	}
 	switch {
-	case mt.drive && mt.state == stDriving:
-		return ""
 	case mt.state != stWorking && mt.state != stDispatched:
 		return fmt.Sprintf("%s is %s, not waiting on an answer", mt.task, mt.state)
 	case !p.asks(mt.task):
@@ -62,6 +63,18 @@ func (p *proj) unanswerable(mt mtask) string {
 			mt.task)
 	}
 	return ""
+}
+
+// driveAnswerable is why a drive cannot be answered now (under mu; "": it can): the lead's answer reaches a drive only
+// while it is driving; a drive that is dispatched (not yet driving) or landed (submitted, a gate, a review, a needs-you)
+// has no answer path until the merge loop sends it back to driving. obor answer and obor tell-lead share it (T-764): the
+// reply tell-lead advertises must be one the drive can get.
+func driveAnswerable(mt mtask) string {
+	if mt.state == stDriving {
+		return ""
+	}
+	return fmt.Sprintf("%s is %s (landed: gate, review and merge follow; the lead cannot answer a drive until it is "+
+		"driving again)", mt.task, mt.state)
 }
 
 // answered ends task's question (an answer's fold): all its watchdog facts end, the question with them, and the stall

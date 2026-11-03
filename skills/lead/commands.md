@@ -150,8 +150,10 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
 - `obor status`, the monitor and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.
 - A drive and you message each other (T-761). The drive agent runs `obor tell-lead "<text>"` (`obor lead` starts you,
   so its way to you has this name; a worker, reviewer, the owner or you are refused): you get the line
-  `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, posted like your other lines. Your `obor answer T-xx
-  "<text>"` on a driving task needs no open question: the drive agent gets `[obor answer] <text>` typed into (or posted
-  to) its pane once it is idle, held while it is busy (reply `ANSWERED T-xx: obor serve sends <agent> the answer`).
+  `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, posted like your other lines. That reply must reach the drive,
+  so tell-lead is refused (naming the state) from a land on — submitted, gating, under review — until the task is
+  `driving` again. Your `obor answer T-xx "<text>"` on a driving task needs no open question: the drive agent gets
+  `[obor answer] <text>` typed into (or posted to) its pane once it is idle, held while it is busy (reply `ANSWERED T-xx:
+  obor serve sends <agent> the answer`).
   Each answer is its own line; one still undelivered when the drive lands or is dropped closes unsent. Use it for
   direction: contracts, protected docs, queued work.

@@ -483,7 +483,8 @@ func tellLine(task, text string) string {
 // line (fact message{driver}) posted to the lead's session as every lead line is. The caller is the drive agent (role
 // driver) of an open drive on c.Lane, its lane; the lead's obor answer on that task comes back to it as a line. A call
 // id is required and a repeated one gets the stored reply. Refused: any other caller (a worker, a reviewer, the lead,
-// the owner), no open drive on the lane, no text, no lead configured.
+// the owner), no open drive on the lane, a drive the lead cannot answer (T-764: driveAnswerable, the predicate obor
+// answer uses: only while driving; else the line would advertise a reply that is refused), no text, no lead configured.
 func (a *App) tellLeadCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New("tell-lead: a call id is required")
@@ -504,16 +505,18 @@ func (a *App) tellLeadCall(c wire.Call) (string, error) {
 		return "", mergeOff(p)
 	}
 	a.mu.Lock()
-	lead, task := p.out.lead(), ""
+	lead, task, why := p.out.lead(), "", ""
 	for _, t := range p.loopTasks() {
 		if m := p.folded.loop[t]; m.drive && m.lane == c.Lane && !states[m.state].ended {
-			task = t
+			task, why = t, driveAnswerable(*m)
 		}
 	}
 	a.mu.Unlock()
 	switch {
 	case task == "":
 		return "", fmt.Errorf("tell-lead: no open drive in lane %s (obor status lists the drives)", Dash(c.Lane))
+	case why != "":
+		return "", fmt.Errorf("tell-lead: %s", why)
 	case lead == "":
 		return "", errors.New("tell-lead: no lead configured (roles.lead.agent)")
 	}
