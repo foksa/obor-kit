@@ -20,3 +20,11 @@ What changes:
   the main checkout; `roles.<role>.agent` / `.worktree` overrides are dropped (an integrator that ran in its own
   worktree, like axis-alies' O-02, now runs in the main checkout). `migrate` relabels the role panes it renames.
 - Shared args per agent kind go to `kinds.<kind>.args`; a model obor does not know goes to `models.<name>`.
+
+## v0.23.1 (strict MCP for Claude workers, serve restart)
+Re-run the installer. Nothing else is required.
+
+- Claude lane workers and drives now start with `--strict-mcp-config` (obor's MCP server only); remove the flag from
+  `kinds.claude.args` if you added it back for workers, since there it also applies to the lead and roles.
+- `obor serve restart` no longer fails when launchd's kickstart is slow; `obor serve install` retries once after a
+  bootstrap I/O error.
