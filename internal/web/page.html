@@ -804,6 +804,11 @@ async function setupPage(r) {
 // field until a change of that field succeeds; either way the page reads its setup again.
 let lastSetup = null;   // the setup shown: a difficulty list's edits start from it
 const editErrs = {};    // field key → serve's refusal of its last change
+// editBusy is true while a change is in flight (T-756): from its click until its reply and the refreshed setup are
+// drawn, every edit control is disabled and no other change is sent. Two quick clicks on a difficulty list would
+// otherwise both build their list from the setup shown, and the later, stale one would undo the first.
+let editBusy = false;
+const editOff = () => (editBusy ? " disabled" : "");
 
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
@@ -817,14 +822,27 @@ async function post(path, body) {
 // setupEdit sends body to path for the shown project; errKey is the field its refusal shows next to.
 async function setupEdit(errKey, path, body) {
   const p = current && current.r.project;
-  if (!p) return;
+  if (!p || editBusy) return;
+  editBusy = true;
+  setupPaint();
   try {
-    await post(path + "?project=" + enc(p), body);
-    delete editErrs[errKey];
-  } catch (e) {
-    editErrs[errKey] = e.message;
+    try {
+      await post(path + "?project=" + enc(p), body);
+      delete editErrs[errKey];
+    } catch (e) {
+      editErrs[errKey] = e.message;
+    }
+    if (current) await current.draw(true);
+  } finally {
+    editBusy = false;
+    setupPaint();
   }
-  if (current) await current.draw(true);
+}
+
+// setupPaint draws the setup page from the setup already shown, without reading it again: the in-flight change's
+// disabled controls, and their enabled ones once it and its refreshed setup have landed (T-756).
+function setupPaint() {
+  if (current && current.r.kind === "s" && lastSetup) paint(renderSetup(current.r.project, lastSetup), true);
 }
 const configSet = (key, value) => setupEdit(key, "/api/config", { key, value });
 const pauseSet = (reason, dur) => setupEdit("pause", "/api/pause", { reason: String(reason).trim(), for: String(dur).trim() });
@@ -887,13 +905,13 @@ function renderSetup(p, s) {
   const levels = s.difficulty || [];
   // each level's types in dispatch order, with up, down and remove; a select adds a lane type at the end (T-753)
   const refTag = (d, t, i, n) => `<span class="reftag">${tag(t)}${
-    i > 0 ? `<button class="mini" data-act="up" data-level="${esc(d.level)}" data-i="${i}" title="earlier">↑</button>` : ""}${
-    i < n - 1 ? `<button class="mini" data-act="down" data-level="${esc(d.level)}" data-i="${i}" title="later">↓</button>` : ""}<button
-      class="mini" data-act="rm" data-level="${esc(d.level)}" data-i="${i}" title="remove">✕</button></span>`;
+    i > 0 ? `<button class="mini" data-act="up" data-level="${esc(d.level)}" data-i="${i}" title="earlier"${editOff()}>↑</button>` : ""}${
+    i < n - 1 ? `<button class="mini" data-act="down" data-level="${esc(d.level)}" data-i="${i}" title="later"${editOff()}>↓</button>` : ""}<button
+      class="mini" data-act="rm" data-level="${esc(d.level)}" data-i="${i}" title="remove"${editOff()}>✕</button></span>`;
   const difficulty = levels.map((d) => `<div class="row setup2">
       <span class="mono">${esc(d.level)}</span>
       <div class="lead"><span>${(d.types || []).length ? d.types.map((t, i) => refTag(d, t, i, d.types.length)).join("")
-        : '<span class="muted">no type</span>'}<select class="edit" data-act="add" data-level="${esc(d.level)}">${
+        : '<span class="muted">no type</span>'}<select class="edit" data-act="add" data-level="${esc(d.level)}"${editOff()}>${
         options([["", "+ add"], ...typeNames.map((n) => [n, n])], "")}</select>${errAt("difficulty." + d.level)}</span></div></div>`).join("");
   // what runs each type: its lane type, kind, model, effort and max; the types no level and no role names come last,
   // marked unused (T-750)
@@ -915,13 +933,13 @@ function renderSetup(p, s) {
   const ltRows = laneTypes.map((t) => {
     const k = (f) => `lane_types.${t.name}.${f}`;
     const efforts = t.efforts || [];
-    const effort = efforts.length ? `<select class="edit" data-act="effort" data-type="${esc(t.name)}">${
+    const effort = efforts.length ? `<select class="edit" data-act="effort" data-type="${esc(t.name)}"${editOff()}>${
       options([["", "—"], ...efforts.map((e) => [e, e])], t.effort || "")}</select>`
       : `<span class="muted" title="its effort is a type reference's :<effort>">${t.effort ? esc(t.effort) : "—"}</span>`;
     return `<tr><td class="mono">${esc(t.name)}</td><td>${esc(t.kind || "")}</td>
-      <td><input class="edit" data-act="model" data-type="${esc(t.name)}" value="${esc(t.model || "")}" placeholder="—">${errAt(k("model"))}</td>
+      <td><input class="edit" data-act="model" data-type="${esc(t.name)}" value="${esc(t.model || "")}" placeholder="—"${editOff()}>${errAt(k("model"))}</td>
       <td>${effort}${errAt(k("effort"))}</td>
-      <td><input class="edit num" type="number" min="0" data-act="max" data-type="${esc(t.name)}" value="${t.max ? esc(t.max) : ""}" placeholder="no cap">${errAt(k("max"))}</td></tr>`;
+      <td><input class="edit num" type="number" min="0" data-act="max" data-type="${esc(t.name)}" value="${t.max ? esc(t.max) : ""}" placeholder="no cap"${editOff()}>${errAt(k("max"))}</td></tr>`;
   }).join("");
   const laneTypesHTML = laneTypes.length ? `<section><h2>Lane types</h2><div class="card" style="overflow:auto">
     <table class="raw types edits"><thead><tr><th>lane type</th><th>kind</th><th>model</th><th>effort</th><th>max</th></tr></thead>
@@ -932,7 +950,7 @@ function renderSetup(p, s) {
   const laneHTML = lanes.map((l) => `<div class="row setup3">
       <span class="mono">${esc(l.lane)}</span>
       <div class="lead"><span>${l.type ? tag(l.type) : pill("idle", "pooled")} <select class="edit" data-act="lane"
-          data-lane="${esc(l.lane)}" title="its type: pooled runs any">${options([["", "pooled"],
+          data-lane="${esc(l.lane)}" title="its type: pooled runs any"${editOff()}>${options([["", "pooled"],
           ...typeNames.map((n) => [n, n])], l.type || "")}</select>${errAt("lanes." + l.lane)}</span>
         <span class="sub2">${agentLink(p, l.agent)}</span></div>
       <span>${l.state ? pill(l.state) : pill("idle", "no state")}</span></div>`).join("");
@@ -945,17 +963,17 @@ function renderSetup(p, s) {
       <div class="lead"><span>${x.agent ? agentLink(p, x.agent) : '<span class="muted">no agent</span>'}</span>
         <span class="sub2">${x.type ? tag(x.type) : "no type"} <input class="edit" data-act="role"
           data-role="${esc(x.role)}" list="type-names" value="${esc(x.type || "")}" placeholder="type[:effort]"
-          title="its type at its next start">${errAt(`roles.${x.role}.type`)}</span></div>
+          title="its type at its next start"${editOff()}>${errAt(`roles.${x.role}.type`)}</span></div>
       <span>${x.status ? pill(x.status) : pill("idle", "no pane")}</span></div>`).join("");
   const datalist = `<datalist id="type-names">${typeNames.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
   // the pause: set (a reason, an optional duration) or clear, through serve's pause call (T-753)
   const paused = s.paused ? `<div class="banner t-wait" style="margin:8px 0 0">⏸ <span>Paused${
     s.paused.until ? " " + rel(s.paused.until, "in") : ""}${s.paused.reason ? ": " + esc(s.paused.reason) : ""}${
     s.paused.by ? ` <span class="muted">· ${esc(s.paused.by)}</span>` : ""}</span>
-    <button class="mini" data-act="unpause">clear</button>${errAt("pause")}</div>`
-    : `<div class="pad small" style="margin:8px 0 0">not paused · <input class="edit" id="pause-why" placeholder="reason">
-      <input class="edit num" id="pause-for" placeholder="90m" title="for (a duration; empty: until cleared)">
-      <button class="mini" data-act="pause">pause</button>${errAt("pause")}</div>`;
+    <button class="mini" data-act="unpause"${editOff()}>clear</button>${errAt("pause")}</div>`
+    : `<div class="pad small" style="margin:8px 0 0">not paused · <input class="edit" id="pause-why" placeholder="reason"${editOff()}>
+      <input class="edit num" id="pause-for" placeholder="90m" title="for (a duration; empty: until cleared)"${editOff()}>
+      <button class="mini" data-act="pause"${editOff()}>pause</button>${errAt("pause")}</div>`;
   const rolesHTML = `<section><h2>Roles and pause</h2><div class="card rows">${
     roleHTML || '<p class="quiet">No role configured.</p>'}</div>${datalist}${paused}</section>`;
 
