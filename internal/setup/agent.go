@@ -303,7 +303,7 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args := lt.LaunchArgs(a.role.Name == "lead", a.effort)
+	args := lt.LaunchArgs(a.role.Name, a.effort)
 	l := s.Starter(s.cfg)
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
 		if err := l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {

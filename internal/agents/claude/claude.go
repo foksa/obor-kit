@@ -36,12 +36,17 @@ func MCPConfig(kit string) string {
 	return string(b)
 }
 
-// Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>, T-695), then --settings <settings>, then --resume <sid>, with obor's --mcp-config pair spliced in
-// before the strict flag (the flag stops --mcp-config's variadic value), then one `--` when a config flag could take
-// the prompt, then the prompt. The prompt is positional, never a config value; a resume carries none. The only `--` is
-// obor's own (config validate refuses one in the args).
+// Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>, T-695), then
+// --strict-mcp-config for a lane's agent (in.StrictMCP, T-770: once, also when the args name it), then --settings
+// <settings>, then --resume <sid>, with obor's --mcp-config pair spliced in before the strict flag (the flag stops
+// --mcp-config's variadic value), then one `--` when a config flag could take the prompt, then the prompt. The prompt is
+// positional, never a config value; a resume carries none. The only `--` is obor's own (config validate refuses one in
+// the args).
 func (kind) Start(in agents.Start) []string {
 	args := withEffort(in.Args, in.Effort)
+	if in.StrictMCP {
+		args = withStrict(args)
+	}
 	if in.Settings != nil {
 		args = append(args, "--settings", compact(in.Settings))
 	}
@@ -99,6 +104,17 @@ func withEffort(args []string, effort string) []string {
 		}
 	}
 	return append(out, "--effort", effort)
+}
+
+// withStrict is args with the strict flag last, unless they already name it (either spelling): a lane's agent starts
+// with obor's MCP server alone (T-770).
+func withStrict(args []string) []string {
+	for _, a := range args {
+		if a == StrictFlag || strings.HasPrefix(a, StrictFlag+"=") {
+			return args
+		}
+	}
+	return append(args, StrictFlag)
 }
 
 // compact is v as one line of JSON, HTML characters as they are (config.Compact).
@@ -202,7 +218,8 @@ func (kind) Headless() agents.Headless { return agents.Headless{PrintFlag: true}
 
 // Install: the kit's plugin manifest registers the server (mcpServers.obor: `bash ${CLAUDE_PLUGIN_ROOT}/bin/obor mcp`,
 // so the shipped manifest never names the kit's path), which every obor Claude pane loads with the plugin; a start with
-// --strict-mcp-config hides it, so obor names its own on that start (T-445).
+// --strict-mcp-config hides it, so obor names its own on that start (T-445) — a lane's agent always is such a start
+// (T-770).
 func (kind) Install(kit string, _ func(string) string) agents.Install {
 	lane := func(a []string, read agents.ReadFile) (string, bool, bool) {
 		p := parse(a)

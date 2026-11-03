@@ -60,6 +60,21 @@ func TestStart(t *testing.T) {
 			agents.Start{Kit: "/kit", Args: []string{"--strict-mcp-config", "--mcp-config", "/cfg/obor.json"}},
 			[]string{"--mcp-config", ours, "--strict-mcp-config", "--mcp-config", "/cfg/obor.json"}},
 		{"no args, no prompt", agents.Start{Kit: "/kit"}, []string{}},
+		{"a lane's start: the flag and obor's config, then the settings, -- before the prompt",
+			agents.Start{Kit: "/kit", Args: []string{"--permission-mode", "auto", "--model", "opus"},
+				Settings: map[string]any{"autoMemoryEnabled": false}, StrictMCP: true, Prompt: "go"},
+			[]string{"--permission-mode", "auto", "--model", "opus", "--mcp-config", ours, "--strict-mcp-config",
+				"--settings", `{"autoMemoryEnabled":false}`, "--", "go"}},
+		{"a lane's start, the args name the flag: once", agents.Start{Kit: "/kit", Args: []string{"--strict-mcp-config"}, StrictMCP: true},
+			[]string{"--mcp-config", ours, "--strict-mcp-config"}},
+		{"a lane's start, the args name it with =: obor's config, the flag once",
+			agents.Start{Kit: "/kit", Args: []string{"--strict-mcp-config=true"}, StrictMCP: true},
+			[]string{"--mcp-config", ours, "--strict-mcp-config=true"}},
+		{"a lane's start, an explicit obor entry in the args: the flag once, no second config", agents.Start{Kit: "/kit", StrictMCP: true,
+			Args: []string{"--mcp-config", obor}},
+			[]string{"--mcp-config", obor, "--strict-mcp-config"}},
+		{"a lane's start, no kit: the flag alone", agents.Start{StrictMCP: true, Args: []string{"--model", "opus"}, Prompt: "go"},
+			[]string{"--model", "opus", "--strict-mcp-config", "go"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			args := slices.Clone(c.in.Args)
