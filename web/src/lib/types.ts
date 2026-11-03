@@ -243,6 +243,10 @@ export interface LaneDot {
   column: string;
   task?: string;
   type?: string;
+  title?: string;
+  task_state?: string;
+  agent?: string;
+  since?: number;
 }
 
 export interface ProjectsEntry {

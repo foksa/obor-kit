@@ -655,6 +655,10 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	if len(entries) != 1 || entries[0].Background != 2 {
 		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
 	}
+	// T-760: the fleet page's lanes: O-01 busy with T-01 and its agent
+	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "O-01" || l[0].Task != "T-01" || l[0].Agent != "pj-o1" {
+		t.Errorf("/api/projects lanes %+v, want O-01 on T-01 with pj-o1", l)
+	}
 	var a view.AgentDetail
 	decode(t, get(t, s.Handler(), "/api/agent?project=pj&agent=pj-o1"), &a)
 	if len(a.Background) != 1 || a.Background[0] != conv {

@@ -1,7 +1,8 @@
 <script lang="ts">
   // Stepper is a task's place in its seven steps: compact (a bar per step) or full (numbered circles).
   import { TASK_STEPS, type Stage } from "../lib/stages";
-  let { stage, compact = false }: { stage: Stage; compact?: boolean } = $props();
+  // labels: the step names under a compact stepper's bars (off where its row already names the state)
+  let { stage, compact = false, labels = true }: { stage: Stage; compact?: boolean; labels?: boolean } = $props();
   const color = $derived(stage.tone === "idle" ? "var(--fg-2)" : `var(--${stage.tone})`);
 </script>
 
@@ -9,7 +10,7 @@
   {#each TASK_STEPS as name, i (name)}
     <li class:done={i < stage.i} class:cur={i === stage.i} aria-current={i === stage.i ? "step" : undefined}>
       {#if compact}
-        <span class="bar"></span><span class="name">{name}</span>
+        <span class="bar" title={name}></span>{#if labels}<span class="name">{name}</span>{/if}
       {:else}
         <div class="row"><span class="n">{i < stage.i ? "✓" : i + 1}</span><span class="line"></span></div>
         <span class="name">{name}</span>
