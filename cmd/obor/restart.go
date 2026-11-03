@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -48,6 +52,7 @@ func restart(args []string) int {
 	l := &launch.Launcher{Env: project.OSEnv, H: herdrSocket(project.OSEnv), Out: out}
 	if _, cfg, rc := load(); rc == 0 {
 		l.Cfg = cfg
+		l.Job = func(ctx context.Context, lane string) string { return serveLaneJob(ctx, cfg, lane) }
 	} else if rc != 3 {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
@@ -96,4 +101,35 @@ func launchResult(w io.Writer, line string, err error) int {
 	}
 	fmt.Fprintln(w, line)
 	return 0
+}
+
+// serveLaneJob is the open worker job of the task obor serve holds on lane ("": none, or serve does not answer within
+// a few seconds): obor restart of the lane's worker sends its wake (T-773).
+func serveLaneJob(ctx context.Context, cfg *config.Config, lane string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	st, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
+	if err != nil {
+		return ""
+	}
+	return laneJob(st, cfg.Root, lane)
+}
+
+// laneJob is the open worker job (a work or fix job, never the integrator's review or resolve job) of the task st's
+// project at root holds on lane; "": none.
+func laneJob(st wire.Status, root, lane string) string {
+	p := st.Project
+	if p == nil || filepath.Clean(p.Root) != filepath.Clean(root) {
+		return ""
+	}
+	for _, t := range p.Tasks {
+		if t.Lane != lane || t.Job == "" {
+			continue
+		}
+		step := t.Job[strings.LastIndex(t.Job, "/")+1:]
+		if base, _, _ := strings.Cut(step, "."); base == event.StepWork || base == event.StepFix {
+			return t.Job
+		}
+	}
+	return ""
 }

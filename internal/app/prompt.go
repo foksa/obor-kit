@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // Prompt delivery (docs/state-model.md "Prompts"). Every prompt of the loop (the worker's work, work.N and fix jobs,
@@ -106,4 +107,4 @@ func sentResult(began bool, err error) (any, error) {
 }
 
 // jobLine is text as job's prompt: the job tag before it.
-func jobLine(job, text string) string { return "[obor job " + job + "] " + text }
+func jobLine(job, text string) string { return wire.JobLine(job, text) }

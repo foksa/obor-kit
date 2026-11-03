@@ -39,6 +39,8 @@ type concScratch struct {
 	stops  []string
 	frees  []port.FreeInput
 	refuse string
+	// ignoresEsc: the worker keeps working after Escape, as launch.Stop sees it (T-773): a stop without force fails.
+	ignoresEsc bool
 }
 
 func newConcScratch(hold string) *concScratch {
@@ -131,7 +133,11 @@ func (f *concScratch) Launch(context.Context, port.Launch) (port.Started, error)
 func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
 	f.mu.Lock()
 	f.stops = append(f.stops, fmt.Sprintf("%s force=%t", agent, force))
+	ignores := f.ignoresEsc
 	f.mu.Unlock()
+	if ignores && !force {
+		return "", needsForceErr(agent + " still working 30s after Escape (--force stops it)")
+	}
 	return "STOPPED", nil
 }
 func (f *concScratch) Type(context.Context, string, string, bool) (bool, error) {
@@ -773,3 +779,9 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 		})
 	}
 }
+
+// needsForceErr is launch's refusal of a stop without force that only force gets past (port.CodeNeedsForce).
+type needsForceErr string
+
+func (e needsForceErr) Error() string   { return string(e) }
+func (needsForceErr) ErrorCode() string { return port.CodeNeedsForce }

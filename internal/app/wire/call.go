@@ -172,3 +172,13 @@ type ConfigChange struct {
 	Key   string          `json:"key"`
 	Value json.RawMessage `json:"value"`
 }
+
+// WakeText is a job's wake for an agent that fetches it: the line after its [obor job <id>] tag (JobLine).
+const WakeText = "call the obor job_next tool"
+
+// JobLine is text as job's prompt: the job tag before it.
+func JobLine(job, text string) string { return "[obor job " + job + "] " + text }
+
+// WakeLine is job's wake as one line with its tag, as serve types it and as a fresh start's first prompt: obor restart
+// of a lane agent sends it too (T-773).
+func WakeLine(job string) string { return JobLine(job, WakeText) }

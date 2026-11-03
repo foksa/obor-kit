@@ -104,16 +104,31 @@ type (
 )
 
 // dispatchCall answers the socket's dispatch request: a call id is required and a repeated one gets the stored reply,
-// as does a dispatch of a waiting task (whatever its call id).
+// as does a dispatch of a waiting task (whatever its call id). --model on a task its worker works on moves it (T-773,
+// move.go): the worker is stopped first (moveCall), then the move recorded.
 func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
+	reply, worker, fx, err := a.dispatchDecide(ctx, c, "")
+	if err != nil || worker == "" {
+		return reply, err
+	}
+	return a.moveCall(ctx, c, fx, worker)
+}
+
+// dispatchDecide is dispatchCall's decision and record under a.verdicts: the reply, and for a move the worker to stop
+// (with the loop's adapters). stopped "": the decision (a move only checked, its worker returned to stop); else the
+// move's record after stopped's stop, under a.submitMu too (lock order a.verdicts, then a.submitMu: task_done's lock).
+func (a *App) dispatchDecide(ctx context.Context, c wire.Call, stopped string) (reply, worker string, fx *Loop, err error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
+	if stopped != "" {
+		a.submitMu.Lock()
+		defer a.submitMu.Unlock()
+	}
 	if c.CallID == "" || c.Task == "" {
-		return "", errors.New("dispatch: a call id and a task are required")
+		return "", "", nil, errors.New("dispatch: a call id and a task are required")
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	var reply string
 	var stored bool
 	if p != nil {
 		reply, stored = p.folded.calls[verdictStep(wire.MethodDispatch, c.CallID)]
@@ -121,22 +136,29 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	a.mu.Unlock()
 	switch {
 	case p == nil:
-		return "", fmt.Errorf("dispatch: no served project at %s", c.Root)
+		return "", "", nil, fmt.Errorf("dispatch: no served project at %s", c.Root)
 	case stored:
-		return reply, nil
+		return reply, "", nil, nil
 	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("dispatch: the lead or the owner dispatches, not %s (role %s)", Dash(c.Agent), c.Role)
+		return "", "", nil, fmt.Errorf("dispatch: the lead or the owner dispatches, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
-	fx, err := a.loopOf(p)
-	if err != nil {
-		return "", err
+	if fx, err = a.loopOf(p); err != nil {
+		return "", "", nil, err
+	}
+	if a.moving(p, c) {
+		reply, worker, err = a.moveTask(p, fx, c, stopped)
+		return reply, worker, fx, err
+	}
+	if stopped != "" { // the stopped worker's task left its state meanwhile: nothing recorded
+		return "", "", nil, fmt.Errorf("dispatch %s: %s is no longer one its worker works on (%s stopped): retry",
+			c.Task, c.Task, stopped)
 	}
 	reply, err = a.dispatchTask(ctx, p, fx, c)
 	var nl noLaneError
 	if errors.As(err, &nl) {
-		return a.waitLane(p, c, nl)
+		reply, err = a.waitLane(p, c, nl)
 	}
-	return reply, err
+	return reply, "", fx, err
 }
 
 // noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when none of the level's models gets a lane

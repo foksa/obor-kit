@@ -14,10 +14,11 @@ import (
 )
 
 // Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:
-// idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is terminated. Working/blocked, or an agent whose
-// quit opens its kind's dialog (background tasks) → FAIL unless force; force → Escape, wait (≤ Idle, 30 s) for it to go idle, then the same exit
-// (the kind's Stop.Dialog option when the dialog asks); an agent that ignores the exit is terminated (terminate). No session
-// check, no start. Returns the STOPPED line.
+// idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is
+// terminated. Working/blocked → Escape, wait (≤ Idle, 30 s) for it to go idle, then the same exit (T-773: no "left
+// running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
+// unless force; force → exits anyway after the wait (the kind's Stop.Dialog option when the dialog asks); an agent that
+// ignores the exit is terminated (terminate). No session check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	if !config.AgentNameRE.MatchString(agent) {
 		return "", project.Failf("bad agent name %q", agent)
@@ -44,7 +45,7 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 		return l.schedule(t, Request{Force: force}, true)
 	}
 	running := t.entry.Kind != "" && !l.atShell(ctx, t.pane)
-	if err := l.stop(ctx, t, force, "left running; --force stops it"); err != nil {
+	if err := l.stop(ctx, t, force, true, ""); err != nil {
 		return "", err
 	}
 	if !running {
@@ -53,8 +54,10 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 	return fmt.Sprintf("STOPPED %s (pane %s)", t.agent, t.pane), nil
 }
 
-// stop quits the agent running in t's pane, if any (hint: what a refusal of a working agent says to do).
-func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string) error {
+// stop quits the agent running in t's pane, if any. A working (or blocked) one: escape (Stop) interrupts it with
+// Escape and quits it once idle, still working after the wait → FAIL unless force; else (a restart) FAIL unless force
+// (hint: what that refusal says to do). force: Escape, and the exit after the wait even when it is still working.
+func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint string) error {
 	running := t.entry.Kind
 	if running == "" || l.atShell(ctx, t.pane) {
 		return nil
@@ -62,7 +65,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 	recipe := recipeOf(running)
 	restored := false // AfterEscape ran: the interrupted prompt is already cleared
 	if status := t.entry.Status; status == "working" || status == "blocked" {
-		if !force {
+		if !force && !escape {
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
 		}
 		_ = l.H.SendKeys(ctx, t.pane, "esc")
@@ -74,6 +77,9 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 			a, err := l.H.Agent(ctx, t.pane)
 			return err != nil || (a.Status != "working" && a.Status != "blocked")
 		}) {
+			if !force {
+				return needsForce("%s still %s %s after Escape (--force stops it)", t.agent, status, idle)
+			}
 			l.say("warning: %s still %s %s after Escape: exiting anyway", t.agent, status, idle)
 			l.logEvidence(t, fmt.Sprintf("%s still %s %s after Escape", t.agent, status, idle), l.evidence(ctx, t))
 		}
@@ -90,7 +96,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 	}
 	// Background tasks: the kind's exit dialog decides (Claude's Bash tool shells lead their own sessions, outside the
 	// group process info lists; live 2026-10-17).
-	bgFail := project.Failf("%s has background tasks (finish them, or --force to stop them)", t.agent)
+	bgFail := needsForce("%s has background tasks (finish them, or --force to stop them)", t.agent)
 	quit := recipe.Quit
 	if quit == "" {
 		// No clean quit to wait for: the proven SIGTERM/SIGKILL path at once (T-292).
@@ -167,6 +173,15 @@ func (l *Launcher) stop(ctx context.Context, t *target, force bool, hint string)
 		}
 	}
 	return l.finish(ctx, t, before, running)
+}
+
+// forceFail is a stop's FAIL that only force gets past (port.CodeNeedsForce): serve's drop refuses then (T-773).
+type forceFail struct{ project.Fail }
+
+func (forceFail) ErrorCode() string { return port.CodeNeedsForce }
+func (f forceFail) Unwrap() error   { return f.Fail }
+func needsForce(format string, a ...any) error {
+	return forceFail{project.Fail(fmt.Sprintf(format, a...))}
 }
 
 // recipeOf is kind's quit recipe (agents.Kind.Stop); none (no quit: terminated, proven, without the wait) for a kind

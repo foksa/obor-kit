@@ -45,6 +45,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/agents/opencode"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
@@ -89,6 +90,10 @@ type Launcher struct {
 	// Open is the files processes pids hold open (a fresh start's session: the transcript its agent has open, T-588);
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
+	// Job is the open worker job (<task>/<attempt>/<step>) of the task lane holds in obor serve ("": none, or serve does
+	// not answer): obor restart of a lane's worker with no --prompt sends its wake (T-773), never an idle agent with no
+	// job. nil: none asked (obor serve's own starts carry their job's wake).
+	Job func(ctx context.Context, lane string) string
 }
 
 // Request is one `obor restart` (the core's port.Launch: Launcher is an port.Agents).
@@ -520,7 +525,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	if err := l.stop(ctx, t, req.Force, "--force to restart anyway"); err != nil {
+	if err := l.stop(ctx, t, req.Force, false, "--force to restart anyway"); err != nil {
 		return port.Started{}, err
 	}
 	if err := l.setEnv(ctx, t); err != nil {
@@ -529,10 +534,19 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
+	// A lane's worker restarted with no --prompt while its lane's task has a job open (T-773): that job's wake, the first
+	// prompt of a fresh session, typed into a resumed one once it is up.
+	job := ""
+	if req.Prompt == "" && l.Job != nil && t.info.Role == "worker" && t.info.Lane != "" {
+		job = l.Job(ctx, t.info.Lane)
+	}
 	prompt := req.Prompt
-	if sid != "" {
+	switch {
+	case sid != "":
 		prompt = "" // a resume carries no first prompt
-	} else if prompt == "" {
+	case job != "":
+		prompt = wire.WakeLine(job)
+	case prompt == "":
 		// A fresh start without --prompt gets its role's first prompt (T-729), e.g. the lead's /obor:lead.
 		if r, ok := roles.Lookup(t.info.Role); ok {
 			prompt = r.StartPrompt(t.kind)
@@ -549,6 +563,16 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			t.pane, t.agent, t.pane)
 	case err != nil:
 		return port.Started{}, err
+	}
+	switch {
+	case job != "" && sid != "":
+		if err := l.H.Type(ctx, t.pane, wire.WakeLine(job)); err != nil {
+			l.say("warning: job %s's wake not typed into pane %s: %v (type it there: %s)", job, t.pane, err, wire.WakeLine(job))
+		} else {
+			l.say("job %s: its wake typed", job)
+		}
+	case job != "":
+		l.say("job %s: its wake is the first prompt", job)
 	}
 	if sid == "" {
 		sid = "new"

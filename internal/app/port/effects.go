@@ -76,6 +76,13 @@ func NotFound(err error) bool {
 	return errors.As(err, &e) && e.NotFound()
 }
 
+// CodeNeedsForce is the ErrorCode of a stop without force that refused an agent only a forced stop ends: still working
+// after Escape, or its exit dialog names background tasks (launch's Stop, T-773).
+const CodeNeedsForce = "needs_force"
+
+// NeedsForce: err is such a refusal (CodeNeedsForce in the chain).
+func NeedsForce(err error) bool { return ErrorCode(err) == CodeNeedsForce }
+
 // NotRunning: err says the multiplexer is not running or not reachable (an error in the chain with Unavailable() true).
 func NotRunning(err error) bool {
 	var e interface{ Unavailable() bool }

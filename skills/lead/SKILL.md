@@ -65,8 +65,11 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
   held review, the decision text goes into the integrator's next job ("Lead's decision on your hold: …"); for open
   questions the decision is required and reaches the worker too.
 - `obor sendback <LANE> "<why>"` — fixes to a finished task (its review ends, the worker gets a fix job).
-- `obor drop <LANE> "<why>" [--discard] [--force]` — abandon a task and free the lane; `obor drop <T-xx> "<why>"`
-  cancels a task that has no lane yet (a waiting dispatch, `--after` or no free lane).
+- `obor drop <LANE> "<why>" [--discard] [--force]` — abandon a task, stop its worker and free the lane (`--force` only
+  for a worker that ignores Escape); `obor drop <T-xx> "<why>"` cancels a task that has no lane yet (a waiting
+  dispatch, `--after` or no free lane).
+- `obor dispatch <T-xx> --model <model>` on a working task moves it to that model in one command (`MOVED …`; same
+  lane and branch, next attempt): no stop, drop and redispatch by hand (commands.md).
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).
 
 ## Reviews

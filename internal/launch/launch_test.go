@@ -881,6 +881,85 @@ func TestStartFirstPrompt(t *testing.T) {
 	}
 }
 
+// T-773: obor restart of a lane's worker while its lane's task has a job open (Launcher.Job) restarts it with that job:
+// a fresh session's first prompt is the job's wake, a resumed one gets it typed once it is up. No job: unchanged
+// (nothing typed, no first prompt); an explicit --prompt wins; an agent on no lane is not asked about.
+func TestRestartLaneWorkerWithItsJob(t *testing.T) {
+	t.Parallel()
+	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	restart := func(x *fx, job string, req launch.Request) (string, []string) {
+		x.t.Helper()
+		var out bytes.Buffer
+		var asked []string
+		l := x.launcher(&out)
+		l.Job = func(_ context.Context, lane string) string {
+			asked = append(asked, lane)
+			return job
+		}
+		line, err := l.Restart(context.Background(), req)
+		got, ok := result(x.t, &out, line, err)
+		if !ok {
+			x.t.Fatal(got)
+		}
+		return got, asked
+	}
+	typed := func(x *fx) []string { return x.calls("pane.send_input pane_id=w1:p3 text=" + wake) }
+	t.Run("fresh: the wake is the first prompt", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "")
+		out, asked := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01", Fresh: true})
+		if len(asked) != 1 || asked[0] != "L-01" {
+			t.Fatalf("precondition: L-01's job asked once: %q", asked)
+		}
+		contains(t, x.startCall(), " "+wake+"]", "the wake as the start's first prompt")
+		contains(t, out, "job T-1/1/work: its wake is the first prompt", "said")
+		eqInt(t, len(typed(x)), 0, "wakes typed besides the start")
+	})
+	t.Run("resumed: the wake typed after the start", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, _ := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01"})
+		contains(t, x.startCall(), "--resume sid-1", "resumed")
+		lacks(t, x.startCall(), wake, "a resume carries no first prompt")
+		if start, wakes := x.index("agent.start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
+			t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+		}
+		contains(t, out, "job T-1/1/work: its wake typed", "said")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+	})
+	t.Run("no job: no wake", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, asked := restart(x, "", launch.Request{Agent: "pj-l-01"})
+		if len(asked) != 1 {
+			t.Fatalf("precondition: the job asked: %q", asked)
+		}
+		eqInt(t, len(x.calls("text=[obor job")), 0, "wakes typed")
+		lacks(t, out, "job ", "said")
+	})
+	t.Run("--prompt wins: the job not asked", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "")
+		_, asked := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "hello"})
+		eqInt(t, len(asked), 0, "jobs asked")
+		lacks(t, x.startCall(), wake, "the wake")
+	})
+	t.Run("an agent on no lane: not asked", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p7", "pj-rev", "")
+		_, asked := restart(x, "T-1/1/work", launch.Request{Agent: "pj-rev", Fresh: true})
+		eqInt(t, len(asked), 0, "jobs asked")
+		lacks(t, x.startCall(), wake, "the wake")
+	})
+}
+
 // T-387: herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up
 // after 30 s and keeps no name for it. A start with a prompt whose agent runs and works in the pane is a start, named.
 func TestStartBusyOnFirstPrompt(t *testing.T) {
@@ -1831,14 +1910,35 @@ func TestStop(t *testing.T) {
 			t.Error("nothing typed")
 		}
 	})
-	t.Run("working, no force: FAIL, nothing typed", func(t *testing.T) {
+	// T-773: no "left running": a working agent is interrupted with Escape and quits once idle, force or not.
+	t.Run("working, no force: Escape, idle, /exit, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.agent("w1:p3", "pj-l-01", "claude", "working")
 		out, ok := x.stop("pj-l-01", "", false)
-		eq(t, failLine(out), "FAIL pj-l-01 is working (left running; --force stops it)", "result")
-		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 {
-			t.Error("nothing typed")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
+		esc, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
+		if !ok || esc < 0 || exit < esc || x.f.Panes[0].Kind != "" {
+			t.Errorf("Escape, then /exit, the agent gone: %+v %q", x.f.Panes[0], x.srv.Calls())
+		}
+	})
+	t.Run("working, no force, Escape ignored: FAIL naming --force, no exit typed", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.wait = shortWait
+		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
+		a.OnEsc = "ignore"
+		out, ok := x.stop("pj-l-01", "", false)
+		if len(x.calls("pane.send_keys keys=[esc] pane_id=w1:p3")) == 0 {
+			t.Fatalf("precondition: Escape sent: %q", x.srv.Calls())
+		}
+		eq(t, failLine(out), "FAIL pj-l-01 still working 60ms after Escape (--force stops it)", "result")
+		if ok || len(x.calls("text=/exit")) > 0 || x.f.Panes[0].Kind != "claude" {
+			t.Errorf("not stopped, no /exit typed: %+v %q", x.f.Panes[0], x.srv.Calls())
+		}
+		// serve's drop refuses on this refusal alone (T-773): it carries port.CodeNeedsForce.
+		if _, err := x.launcher(io.Discard).Stop(context.Background(), "pj-l-01", "", false); !port.NeedsForce(err) {
+			t.Errorf("the refusal %v carries no %s", err, port.CodeNeedsForce)
 		}
 	})
 	t.Run("working, --force: Escape, idle, input cleared, /exit (one step)", func(t *testing.T) {

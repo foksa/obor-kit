@@ -536,12 +536,14 @@ func (a *App) drop(c wire.Call) (string, error) {
 		strings.ReplaceAll(c.Note, "\n", " "))), "\n"), nil
 }
 
-// freeLane gives the dropped task's lane back (obor drop <LANE>, T-439; the task marked ended): the lane adapter's
-// Free (refused for uncommitted changes or unmerged commits unless c.Discard: nothing stopped then; else the lane
-// detached at the target and the task branch deleted), then its worker stopped (at idle, a working one with c.Force;
-// not with stop_idle_workers false unless c.Force; through serve's identity of it, stopAgent: no agent there, no line;
-// a stop that fails, two panes claiming it or serve not connected to herdr is a line, not a refusal). Its lines say what it
-// did, the stop first.
+// freeLane gives the dropped task's lane back (obor drop <LANE>, T-439; the task marked ended): first its worker is
+// stopped (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of
+// it, stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
+// working after Escape (or with background tasks: port.NeedsForce) is stopped only with c.Force (Escape, then the exit
+// as obor restart --stop --force does): without it the drop is refused, nothing freed or recorded. Any other stop that
+// fails, two panes claiming it or serve not connected to herdr is a line, not a refusal (T-758). Then the lane adapter's Free (refused
+// for uncommitted changes or unmerged commits unless c.Discard, the worker stopped already; else the lane detached at
+// the target and the task branch deleted). Its lines say what it did, the stop first.
 func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	fx, err := a.loopOf(p)
 	if err != nil {
@@ -577,24 +579,27 @@ func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	if agent == "" {
 		agent = mt.agent
 	}
+	if agent != "" {
+		line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false)
+		switch {
+		case err != nil && !c.Force && port.NeedsForce(err):
+			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped)", c.Lane, err)
+		case err != nil:
+			lines = append(lines, fmt.Sprintf("worker of %s not stopped: %v", c.Lane, err))
+		case !gone:
+			lines = append(lines, line)
+		}
+	}
 	line, err := fx.Lane.Free(ctx, in)
 	var refused port.Refused
-	if errors.As(err, &refused) {
-		return nil, fmt.Errorf("drop: %s", refused.Line)
+	if errors.As(err, &refused) { // the task stays open, its worker stopped: the stop's line says so
+		return nil, errors.New(strings.Join(append([]string{"drop: " + refused.Line}, lines...), "\n"))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("drop: %v", err)
 	}
 	if line != "" {
 		lines = append(lines, line)
-	}
-	optOut := cfg.Data.StopIdleWorkers != nil && !*cfg.Data.StopIdleWorkers
-	if agent != "" && (c.Force || !optOut) {
-		if line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false); err != nil {
-			lines = append(lines, fmt.Sprintf("worker of %s not stopped: %v", c.Lane, err))
-		} else if !gone {
-			lines = append([]string{line}, lines...)
-		}
 	}
 	return lines, nil
 }
