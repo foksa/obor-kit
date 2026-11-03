@@ -107,3 +107,26 @@ You give the difficulty; obor picks the lane. The spec's `Difficulty: hard|mediu
 - A spec with no level and no `--types`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
 - A second `obor dispatch` of a waiting task replaces its request (new `--types`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).
+
+## obor drive and obor land (T-751)
+The owner iterates by hand (the web page's design after a worker's first pass, say) in a plain interactive agent on its
+own branch, then sends the result through the same gate, integrator and merge as any task. A drive is a task on a
+lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch on it has no line until it lands.
+
+- `obor drive <name> [--type <type>[:<effort>]]` — a new task (the next T-xx, its spec `Owner drive: <name>` stored by
+  serve) on the first free untyped lane, on branch `task/T-xx`; the type defaults to the hard level's first, and a drive
+  counts toward no `lane_types.<type>.max`. Serve prepares the lane; the command then starts the drive agent
+  (`<lane's worker>-drive`, role driver) in a pane split in the tab it runs in, its first prompt one line saying what it
+  is. Replies: `DRIVE T-xx → <LANE> (<agent>, <type>)`, the start's lines, then `OK T-xx: <agent> drives in lane
+  <LANE> on task/T-xx; obor land T-xx when done`. No free untyped lane is a refusal naming the lanes' states, never a
+  wait.
+- `obor drive <T-xx>` — takes over a task its worker works on: serve stops the worker (as `obor restart --stop` does),
+  keeps its lane, branch and spec, and the command starts the drive agent there: `DRIVE T-xx → <LANE> (<agent>,
+  <type>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused.
+- `obor land <T-xx|name> ["<summary>"]` — commits nothing (a dirty lane worktree is refused with its paths); submits the
+  branch head on the owner's behalf, the summary as its report (default: the branch's commit subjects): `LANDED T-xx:
+  submitted (gate, review and merge follow)`. From there it is an ordinary task; after the merge the drive agent is
+  stopped and the lane freed.
+- Back to the drive, never to a worker: a red gate, the integrator's sendback or hold (any count) make the task
+  `driving` again, with one line to you: `[obor] T-xx back to its owner's drive: <why>`.
+- `obor status`, the monitor and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.

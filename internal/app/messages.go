@@ -298,6 +298,9 @@ func (p *proj) foldMsg(r event.Record) {
 		if m.Watch != 0 {
 			p.watchEnded(m.Task, m.Watch)
 		}
+		if m.Drive != 0 {
+			p.foldDriveLine(m)
+		}
 		if m.Review != 0 {
 			p.reviewEnded(m.Review)
 		}

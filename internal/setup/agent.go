@@ -52,7 +52,26 @@ type agent struct {
 	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
 	role           roles.Role
 	lane           string
-	noStart        bool // label the pane and type its env, start no agent (T-705/T-708: a pane without --start)
+	noStart        bool   // label the pane and type its env, start no agent (T-705/T-708: a pane without --start)
+	prompt         string // the first prompt ("": the role's StartPrompt); a drive agent's line (T-751)
+}
+
+// Drive is the owner's drive agent to start (obor drive, T-751): its name, lane, worktree, lane type and effort, and its
+// one-line first prompt.
+type Drive struct {
+	Agent, Lane, Cwd, Type, Effort, Prompt string
+}
+
+// StartDrive starts the owner's drive agent d (role driver) in a new pane split in the caller's tab (the project's
+// busiest tab when the caller's is none of the project's), labelled d.Agent like a lane pane, with OBOR_ROLE=driver,
+// OBOR_AGENT and OBOR_LANE. Refused: another agent still runs in the lane's worktree.
+func (s *Setup) StartDrive(ctx context.Context, d Drive) error {
+	if err := s.load(); err != nil {
+		return err
+	}
+	driver, _ := roles.Lookup(roles.Driver)
+	return s.start(ctx, agent{name: d.Agent, typ: d.Type, effort: d.Effort, cwd: d.Cwd, role: driver, lane: d.Lane,
+		prompt: d.Prompt}, where{})
 }
 
 func (s *Setup) pane(ctx context.Context, args []string) error {
@@ -91,7 +110,7 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 		return errUsage
 	}
 	role, ok := roles.Lookup(strings.ReplaceAll(args[0], "-", "_"))
-	if !ok || role.Name == "worker" {
+	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's (T-751)
 		return errUsage
 	}
 	w, err := parseWhere(args[1:])
@@ -195,6 +214,10 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
+		if a.role.Name == roles.Driver && r.Name != a.name && r.Cwd == a.cwd { // T-751: one agent in a lane
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", r.Name, a.lane, r.Pane,
+				r.Name)
+		}
 		if r.Name == a.name || (a.lane != "" && r.Cwd == a.cwd) {
 			s.placed, s.running = r.Pane, true
 			s.say("skip agent start: %s already running (pane %s)", r.Name, r.Pane)
@@ -300,8 +323,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 	s.started = true
 	run := func() error {
+		prompt := a.prompt
+		if prompt == "" {
+			prompt = a.role.StartPrompt(lt.Kind)
+		}
 		return l.Start(ctx, port.Start{Agent: a.name, Kind: lt.Kind, Pane: pane, Label: label, Args: args, Lane: a.lane,
-			Prompt: a.role.StartPrompt(lt.Kind)})
+			Prompt: prompt})
 	}
 	// A pane a new tab or a split made is a shell that may still be coming up: herdr answers agent_pane_busy until it
 	// is one (T-628, live 2026-10-31). It is used again only once herdr reports a shell there, within the bound.

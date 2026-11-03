@@ -12,6 +12,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/roles"
 )
 
 // SessionStart is the SessionStart hook: this session's obor context on out (role, lane, task, the protected files
@@ -77,6 +78,8 @@ func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(p
 	switch w.Role.Role {
 	case "worker":
 		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") are denied; "+loadRuns+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
+	case roles.Driver: // the owner's drive (T-751): no job pull, no report demand, no wrong-tab guard
+		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") are denied; "+loadRuns+". Commit your work on the lane's branch; the owner lands it with obor land.")
 	case "lead":
 		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; "+loadRuns+".")
 	case "integrator":

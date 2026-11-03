@@ -63,16 +63,23 @@ func verdictMethod(step string) (method, callID string) {
 // needs-you) and a resume (its unblocked) store theirs. Which job is open is the merge loop's (mtask.openJob).
 func (p *proj) foldJob(r event.Record) {
 	switch {
-	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting):
+	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting || r.Step == event.StepDrive):
 		var d dispatchData
 		_ = json.Unmarshal(r.Data, &d)
+		method := wire.MethodDispatch
+		if d.Drive { // obor drive's (T-751)
+			method = wire.MethodDrive
+		}
 		if d.Call != "" {
-			p.folded.calls[verdictStep(wire.MethodDispatch, d.Call)] = d.Reply
+			p.folded.calls[verdictStep(method, d.Call)] = d.Reply
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepSubmitted:
 		var d submitData
 		_ = json.Unmarshal(r.Data, &d)
-		if d.Call != "" {
+		switch {
+		case d.Call != "" && d.Land: // obor land's (T-751)
+			p.folded.calls[verdictStep(wire.MethodLand, d.Call)] = landReply(r.Task)
+		case d.Call != "":
 			p.folded.calls[verdictStep(wire.MethodTaskDone, d.Call)] = taskDoneReply
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepDelivered:
@@ -322,11 +329,19 @@ func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input 
 func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
 	a.mu.Lock()
 	var lane string
-	held := false
+	held, drive := false, false
 	if mt := p.folded.loop[c.Task]; mt != nil {
-		lane, held = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == event.CauseHeld
+		lane, held, drive = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == event.CauseHeld, mt.drive
 	}
 	a.mu.Unlock()
+	if drive { // a drive's hold goes back to its owner (T-751): the job ends, the lead gets a line, no needs-you
+		if !a.record(p, event.Record{Task: c.Task, Attempt: job.Attempt, Step: event.StepSendback, Kind: event.KindFact},
+			noteData{Note: "held: " + c.Note}) {
+			return "", fmt.Errorf("hold: the event log of %s refused it", p.name)
+		}
+		a.wake()
+		return fmt.Sprintf("HOLD %s (job %s): back to its owner's drive", c.Task, JobID(job)), nil
+	}
 	if held {
 		return "", fmt.Errorf("hold: %s is held already (the owner is told)", c.Task)
 	}

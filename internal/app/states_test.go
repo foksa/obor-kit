@@ -72,7 +72,7 @@ func needsOf(cause string) event.Record {
 func TestStatesOneRowPerState(t *testing.T) {
 	t.Parallel()
 	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stFail, stAccepted,
-		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stNeedsYou}
+		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stNeedsYou, stDriving}
 	var got []string
 	for st := range states {
 		got = append(got, st)
@@ -80,7 +80,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("states %v, want the 18 of loop.go %v", got, want)
+		t.Fatalf("states %v, want the 19 of loop.go %v", got, want)
 	}
 }
 
@@ -104,6 +104,17 @@ func TestStateAwaitingAcceptRow26(t *testing.T) {
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
 	checkRow(t, rowWant{mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
 		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stFail, wire.MethodReject: stRejected}})
+}
+
+// T-751: the owner's drive waits for obor land (its only step, the lead's line when it came back, needs a line); the
+// lead cannot send it back (no worker), no verdict moves it, drop takes it. The integrator's sendback of a drive goes
+// back to driving whatever the count: never the owner's needs-you past K, never a worker.
+func TestStateDrivingRowT751(t *testing.T) {
+	t.Parallel()
+	checkRow(t, rowWant{mt: mtask{state: stDriving, drive: true}, waits: true, name: "the drive", send: "T-1 is driving"})
+	checkRow(t, rowWant{mt: mtask{state: stAwaiting, drive: true, attemptVars: attemptVars{job: "review"}, sendbacks: K},
+		name: "review", open: true, landed: true,
+		verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stDriving, wire.MethodReject: stRejected}})
 }
 
 func TestStateRedRow21(t *testing.T) {

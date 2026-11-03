@@ -127,6 +127,7 @@ const (
 	stDispatched = "dispatched"          // a dispatch's steps: lane.prepare, agent.start, the work job
 	stWorking    = "working"             // the work job delivered, or sent back: the fix job; then task_done
 	stNeedsYou   = "needs-you"           // the owner decides; a task_done is the next attempt
+	stDriving    = wire.TaskDriving      // the owner's drive agent works on it (T-751): no jobs, no watchdog; obor land submits it
 )
 
 // mtask is one task in the merge loop, folded from its records.
@@ -156,6 +157,9 @@ type mtask struct {
 	started                 bool
 	startAt                 time.Time // when the last start that started its agent was written
 	specRev                 int       // the spec rev the worker's last fetched job carried (0: none)
+	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch or its take-over on; a red
+	// gate, a sendback or a hold go back to driving, never to a worker.
+	drive bool
 }
 
 // attemptVars are the fields of mtask a new attempt resets: next replaces them in one assignment.
@@ -179,6 +183,7 @@ type attemptVars struct {
 	fixes          int                // the attempt's last fix job's N (fix, fix.2 … after obor resume)
 	fails          map[string]failure // counted failures per step key since the attempt began or the last resume
 	work           string             // a dispatched attempt's work job step ("": not sent in this attempt, or sent anew after obor resume)
+	lined          bool               // stDriving: the lead's line that the drive came back (line: why) is recorded (T-751)
 }
 
 // failure is one step's counted failures in an attempt: how many, and the last one's reason and time (obor status'
@@ -198,6 +203,8 @@ type (
 		Call  string `json:"call,omitempty"` // task_done's call id ("": a done file's watch, before T-437)
 		// Report is task_done's report ("": a done file's submission, before T-437).
 		Report string `json:"report,omitempty"`
+		// Land: obor land's submission of the owner's drive (T-751), Report its summary, Call its call id.
+		Land bool `json:"land,omitempty"`
 	}
 	stopData struct {
 		Lane  string `json:"lane"`
@@ -647,9 +654,9 @@ func (a *App) pickConflict(p *proj, mt mtask) step {
 	}
 }
 
-// pickRed sends the task back (row 21), or to the owner after K (row 22).
+// pickRed sends the task back (row 21), or to the owner after K (row 22); a drive back to driving, always (T-751).
 func (a *App) pickRed(p *proj, mt mtask) step {
-	if mt.sendbacks < K {
+	if mt.sendbacks < K || mt.drive {
 		return func(context.Context, *Loop) bool {
 			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepSendback, Kind: event.KindFact},
 				noteData{Note: mt.line})

@@ -47,7 +47,21 @@ var table = []Role{
 	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true, GitReadOnly: true},
+	// The owner's drive agent (T-751, obor drive): in a lane, with the worker's write limits and push denial, but it
+	// commits on its branch, pulls no jobs, has no Stop-hook report demand and no wrong-tab guard. Never configured
+	// (no roles.driver): obor drive starts it, named Drive's way.
+	{Name: Driver, EnvValue: Driver, AgentSuffix: "drive", Cwd: CwdLane, Write: WriteSpec, Optional: true},
 }
+
+// Driver is the owner's drive agent's role (T-751).
+const Driver = "driver"
+
+// DriveAgent is the drive agent's name in a lane whose worker is worker: <worker>-drive, a name of its own so its pane
+// (in the owner's tab) never shares a label with the lane's worker pane.
+func DriveAgent(worker string) string { return worker + "-drive" }
+
+// LaneBound: role works in a lane worktree and edits only there (the worker, the driver).
+func LaneBound(role string) bool { return role == "worker" || role == Driver }
 
 // All returns a copy in the stable setup/config order.
 func All() []Role { return append([]Role(nil), table...) }

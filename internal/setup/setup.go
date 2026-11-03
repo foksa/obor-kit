@@ -126,7 +126,7 @@ type Setup struct {
 func Usage() string {
 	var names []string
 	for _, r := range roles.All() {
-		if r.Name != "worker" {
+		if r.Name != "worker" && r.Name != roles.Driver {
 			names = append(names, r.Name)
 		}
 	}

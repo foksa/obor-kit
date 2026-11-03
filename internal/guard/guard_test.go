@@ -1553,3 +1553,23 @@ func TestGitReadForms(t *testing.T) {
 		}
 	}
 }
+
+// T-751: the owner's drive agent (OBOR_ROLE=driver) in its lane edits only there (no other worktree, the main checkout
+// included), no protected file (its spec unlocks none), and never pushes, even when guards.allow_push names it; unlike
+// a worker it commits on its branch (obor land commits nothing).
+func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P, L := f.P, f.L
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-o-01-drive"]`))
+	f.Write(L+"/src/core/types.ts", "protected\n")
+	check(t, f.Project, []tc{
+		edit("driver pj-o-01-drive", L, "Write", L+"/src/a/page.ts", ""),
+		edit("driver pj-o-01-drive", L, "Write", P+"/STATUS.md", "is in another worktree of this repo ("+P+") — a driver edits only inside its lane"),
+		edit("driver pj-o-01-drive", L, "Edit", L+"/src/core/types.ts", "is a protected file"),
+		bash("driver pj-o-01-drive", L, "git commit -m page", ""),
+		bash("driver pj-o-01-drive", L, "git add src/a/page.ts", ""),
+		bash("driver pj-o-01-drive", L, "git push origin task/T-01", "git push"),
+		bash("worker pj-o-01", L, "git commit -m page", "workers don't run git commit"),
+	})
+}

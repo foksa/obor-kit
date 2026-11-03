@@ -41,6 +41,9 @@ const (
 	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: PrepareInput → prepareOut
 	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: startData → startOut
 	StepWork       = "work"         // prompt intent (P), work.N after obor resume: the worker's job
+	// StepDrive is fact drive: the owner takes over a task in progress (obor drive T-xx, T-751): its worker is stopped,
+	// the drive agent works in the lane (data: dispatchData, Drive set). A new drive is a fact dispatch with Drive set.
+	StepDrive = "drive"
 )
 
 const (

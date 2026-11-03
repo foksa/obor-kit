@@ -191,7 +191,7 @@ func norm(p string) string { return filepath.Clean("/" + p) }
 func (g *guard) detectRole() {
 	g.detected = project.DetectRole(g.repo, g.cfg, g.env)
 	g.role, g.lane = g.detected.Role, g.detected.Lane
-	if g.role == "worker" {
+	if roles.LaneBound(g.role) { // a worker or the owner's drive agent (T-751): edits stay in its lane
 		if g.detected.Source != "env" {
 			g.laneDir = g.top
 		} else if d := g.cfg.LanesDir() + "/" + g.lane; g.lane != "" && project.IsDir(d) {
@@ -343,7 +343,7 @@ func (g *guard) checkLink(p string) {
 	}
 	t, ok := g.linkDest(p)
 	if !ok {
-		deny(p + " is a symlink that cannot be resolved — a worker edits only inside its lane " + g.laneDir)
+		deny(p + " is a symlink that cannot be resolved — a " + g.role + " edits only inside its lane " + g.laneDir)
 	}
 	if t == p || strings.HasPrefix(t, g.laneDir+"/") {
 		return
@@ -352,7 +352,7 @@ func (g *guard) checkLink(p string) {
 	if wt := g.wtOf(t); wt != "" {
 		where = " in another worktree of this repo (" + wt + ")"
 	}
-	deny(p + " is a symlink to " + t + where + " — a worker edits only inside its lane " + g.laneDir)
+	deny(p + " is a symlink to " + t + where + " — a " + g.role + " edits only inside its lane " + g.laneDir)
 }
 
 // checkWriteArg: checkWrite for a path argument (a write target) of a Bash command run in dir. Read arguments are not
@@ -459,15 +459,15 @@ func (g *guard) edit() {
 		return
 	}
 	g.checkWrite(p)
-	if g.role != "worker" || g.laneDir == "" {
+	if !roles.LaneBound(g.role) || g.laneDir == "" {
 		return
 	}
 	if !strings.HasPrefix(p, g.laneDir+"/") {
 		if wt := g.wtOf(p); wt != "" {
-			deny(p + " is in another worktree of this repo (" + wt + ") — a worker edits only inside its lane " + g.laneDir)
+			deny(p + " is in another worktree of this repo (" + wt + ") — a " + g.role + " edits only inside its lane " + g.laneDir)
 		}
 		if root := otherProject(p); root != "" {
-			deny(p + " is in another obor project (" + root + ") — a worker edits only inside its lane " + g.laneDir)
+			deny(p + " is in another obor project (" + root + ") — a " + g.role + " edits only inside its lane " + g.laneDir)
 		}
 		return
 	}
