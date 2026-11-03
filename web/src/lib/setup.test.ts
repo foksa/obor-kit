@@ -22,7 +22,7 @@ const s: Setup = {
     { lane: "L-02", type: "opus:high", agent: "pj-l-02", state: "working" },
     { lane: "L-03", type: "", agent: "pj-l-03", state: "free" },
   ],
-  roles: [{ role: "reviewer", agent: "pj-rev", type: "terra:xhigh", status: "" }, { role: "lead", agent: "pj-lead", type: "", status: "" }],
+  roles: [{ role: "reviewer", agent: "pj-rev", type: "terra:xhigh", status: "", optional: false }, { role: "lead", agent: "pj-lead", type: "", status: "", optional: false }],
   paused: null,
   distribution: [],
   config_rev: "r1",

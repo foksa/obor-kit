@@ -312,7 +312,7 @@
                     <td><span class="rname"><Dot state={r.status || "idle"} title={r.status || "no pane"} /> {roleName(r.role)}</span><span class="small"><AgentLink {project} agent={r.agent} /></span></td>
                     <td>
                       <select class="sel" class:st={isStaged(k)} aria-label="Model of {roleName(r.role)}" value={rm} disabled={busy} onchange={(e) => setRole(r.role, e.currentTarget.value, re)}>
-                        {#if !r.type}<option value="">role's default</option>{/if}
+                        {#if !r.optional}<option value="">role's default</option>{/if}
                         {#each names as n (n)}<option value={n}>{n}</option>{/each}
                       </select>
                     </td>

@@ -147,6 +147,12 @@ func TestSetup(t *testing.T) {
 	if r, ok := roles["lead"]; !ok || r.Agent != "pj-lead" || r.Type != "" {
 		t.Errorf("lead %+v, %v; want pj-lead with no type", r, ok)
 	}
+	for name, optional := range map[string]bool{"lead": false, "integrator": false, "reviewer": false, "deep_dive": true} {
+		if r := roles[name]; r.Role != name || r.Optional != optional {
+			t.Errorf("%s %+v: optional %v, want %v (the page offers a role's default only for a non-optional role)",
+				name, r, r.Optional, optional)
+		}
+	}
 	if _, ok := roles["worker"]; ok {
 		t.Errorf("roles %+v: the worker's rows are the lanes", s.Roles)
 	}
