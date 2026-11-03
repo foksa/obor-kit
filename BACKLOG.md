@@ -244,6 +244,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   queued request ignoring its spec's line.
 - (11-03) `obor drop` left the running worker up ("left running; --force stops it"), and `obor restart <lane agent>`
   then started an agent with no job (idle, `resume reprompt` refused). Recovery: `restart --stop`, drop, dispatch.
+- (11-04) `TestRestartReleasesTheName` (internal/launch) flaked on T-775's gate: "no claude agent came up within
+  60ms" under suite load; passes alone; T-775 does not touch launch. Second flake → widen the stub's start wait.
 - (11-03) `TestDriveStartRetried` (T-755) flaked once on T-757's gate (red, then green on rerun): watch for a second flake, then fix its timing.
 - (11-03 08:19) one-off `needs-you loop: the branch of the main checkout …: exit status 2` (`cmd/obor/serve_dispatch.go:77`, `git branch --show-current`) around serve's re-exec after T-754/T-756 merged; cleared by itself, main clean on `main`. If it recurs: capture git's stderr in that error.
 - **`internal/app` is where all growth lands** (+789 in phase 4, 7.4k; DD-v0.12 Design 1). Keep "a new state or
