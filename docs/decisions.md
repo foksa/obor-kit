@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-03 (owner): **Config names models directly** (T-765, T-766): `difficulty` levels and `roles` are
+  `<model>[:<effort>]` refs (built-in model table; optional `kinds` defaults and `models` overrides), `lanes` is a count
+  (L-01…), no lane types and no caps. A level's first model is the default; later ones when a spec's `Model:` line names
+  them or the first is paused (`obor pause --model`). Old configs: `obor setup migrate` once, then refused. Replaces
+  lane types (T-721…T-724) and `lane_types.<type>.max` (2026-11-02 entry).
 - 2026-11-03 (owner): **obor web moves to Svelte 5 + TypeScript + Vite** (redesign, drive T-760): sources in `web/`,
   `make web` builds into `internal/web/dist/` (committed, `go:embed`, marked generated and `-diff`), so `go build`,
   `make check` and the gate stay Node-free; a Go test fails when dist is stale against `web/`; page tests move to
