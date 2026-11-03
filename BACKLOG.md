@@ -118,6 +118,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-92, accepted) (RV-92 #5, accepted) a hand edit of .obor/config.json saved while a Setup edit commits can be overwritten: needs both at once
+- (RV-92, accepted) (RV-92 #6 remainder, accepted) a Setup edit whose POST succeeds but whose refresh fails re-enables the controls on the stale list; a second edit can undo the first. Local server, rare; separate tabs keep their own snapshots (last writer wins)
 - (RV-90, accepted) #1 a pre-byte refused delivery leaves post set, so a settled answer is not retired and is sent later: fix in T-748 (v0.20.1)
 - (RV-90, accepted) #2 a refused inbox post keeps no reason (status Held empty) and never falls back to typing for an idle worker: fix in T-748 (v0.20.1)
 - (RV-90, accepted) #3 obor drop does not retire the task's undelivered answer; the lane's worker gets it later: fix in T-748 (v0.20.1)
