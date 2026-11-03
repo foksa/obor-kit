@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-
-	"obor/internal/config"
 )
 
 // The machine's obor projects by name (T-646): ${OBOR_STATE_HOME:-$HOME/.obor}/projects.json, {"<name>": "<root>"},
@@ -23,21 +21,34 @@ type Project struct{ Name, Root string }
 // ProjectsFile is the machine's list of obor projects.
 func ProjectsFile(env Env) string { return filepath.Join(StateHome(env), "projects.json") }
 
-// NameAt is the name the project at root answers to: its config's name, else the directory's base name (the name obor
-// send posts as the sender). ok false when root holds no loadable obor config.
+// ConfigFile is the obor config of the project at root (not read: callers check it is there).
+func ConfigFile(root string) string { return filepath.Join(root, ".obor", "config.json") }
+
+// Configured is whether root holds an obor config file, whatever its shape: a project this binary cannot load is still
+// a project (T-767). obor send needs nothing more of its target; obor serve and obor init load it (config.LoadDaemon).
+func Configured(root string) bool {
+	_, err := os.Stat(ConfigFile(root))
+	return err == nil
+}
+
+// NameAt is the name the project at root answers to: the name its .obor/config.json carries, else the directory's base
+// name (the name obor send posts as the sender). ok false only when root holds no config file: a config this binary
+// cannot load (an older or a newer shape, T-767) still names its project, so one machine's projects on different obor
+// versions stay listed.
 func NameAt(root string) (string, bool) {
-	cfg, err := config.LoadDaemon(root)
+	b, err := os.ReadFile(ConfigFile(root))
 	if err != nil {
 		return "", false
 	}
-	if name := cfg.Data.Name; name != "" {
-		return name, true
+	var doc struct{ Name string }
+	if json.Unmarshal(b, &doc) == nil && doc.Name != "" {
+		return doc.Name, true
 	}
 	return filepath.Base(root), true
 }
 
-// Projects lists the projects this machine knows, in name order: an entry whose root no longer holds a config of that
-// name is left out (and dropped at the next write).
+// Projects lists the projects this machine knows, in name order: an entry whose root no longer holds a config file, or
+// whose config names another project, is left out (and dropped at the next write).
 func Projects(env Env) []Project { return live(readProjects(env)) }
 
 // live is the entries of list whose project is there under that name, in name order.

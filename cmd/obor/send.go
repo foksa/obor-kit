@@ -50,7 +50,7 @@ func sendCmd(args []string) int {
 func sendTarget(target string, env project.Env) (string, error) {
 	if st, err := os.Stat(target); err == nil && st.IsDir() {
 		repo, err := project.Find(target)
-		if err != nil || !configured(repo.Root) {
+		if err != nil || !project.Configured(repo.Root) {
 			return "", fmt.Errorf("%s is not in an obor project (no .obor/config.json)", target)
 		}
 		return repo.Root, nil
