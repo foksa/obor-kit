@@ -125,6 +125,68 @@ func TestTellLeadRefusesOthers(t *testing.T) {
 	}
 }
 
+// The lead's line is posted only while the drive can be answered (T-764): driving, it goes out; landed (here under
+// review) tell-lead is refused, its reason the state answer would be refused in, and nothing is recorded; sent back to
+// driving by the integrator, it goes out again.
+func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
+	t.Parallel()
+	r := driving(t)
+	if reply, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "while driving"); err != nil ||
+		!strings.HasPrefix(reply, "TOLD pj-lead (T-1;") {
+		t.Fatalf("tell-lead while driving: %q, %v; want posted", reply, err)
+	}
+	r.work("page.html", "x\n")
+	if _, err := r.landDrive("l1", "T-1", "page"); err != nil {
+		t.Fatalf("land: %v", err)
+	}
+	r.waitJob("pj-int", "T-1/1/review")
+	if st := r.stateOf("T-1"); st != "awaiting-accept" {
+		t.Fatalf("precondition: T-1 is %s after the land, want awaiting-accept", st)
+	}
+	r.passes()
+	n := len(r.records())
+	want := "tell-lead: T-1 is awaiting-accept (landed: gate, review and merge follow; the lead cannot answer a drive " +
+		"until it is driving again)"
+	if _, err := r.tellLead("t2", "pj-o1-drive", "driver", "O-01", "while landed"); err == nil || err.Error() != want {
+		t.Errorf("tell-lead while landed: %v; want %q", err, want)
+	}
+	if got := len(r.records()); got != n {
+		t.Errorf("the refused tell-lead recorded %q", r.steps()[n:])
+	}
+	if _, err := r.verdict(wire.MethodSendback, "s1", "", "try again"); err != nil {
+		t.Fatalf("sendback: %v", err)
+	}
+	r.waitFor("back to driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
+	if reply, err := r.tellLead("t3", "pj-o1-drive", "driver", "O-01", "back driving"); err != nil ||
+		!strings.HasPrefix(reply, "TOLD pj-lead (T-1;") {
+		t.Errorf("tell-lead after the sendback: %q, %v; want posted again", reply, err)
+	}
+}
+
+// A drive still dispatched (its lane's prepare held, so not driving yet) is refused too: the lead could not answer it.
+func TestTellLeadRefusedWhileTheDriveIsDispatched(t *testing.T) {
+	t.Parallel()
+	r := newDriveRig(t)
+	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
+	r.start()
+	if _, err := r.drive("v1", "web"); err != nil {
+		t.Fatalf("drive: %v", err)
+	}
+	r.waitStep("1 intent lane.prepare") // the loop is in prepare, held: the drive stays dispatched
+	if st := r.stateOf("T-1"); st != "dispatched" {
+		t.Fatalf("precondition: T-1 is %s, want dispatched", st)
+	}
+	n := len(r.records())
+	want := "tell-lead: T-1 is dispatched (landed: gate, review and merge follow; the lead cannot answer a drive " +
+		"until it is driving again)"
+	if _, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "hi"); err == nil || err.Error() != want {
+		t.Errorf("tell-lead on a dispatched drive: %v; want %q", err, want)
+	}
+	if got := len(r.records()); got != n {
+		t.Errorf("the refused tell-lead recorded %q", r.steps()[n:])
+	}
+}
+
 // The lead's obor answer on a driving task needs no question: held while the drive agent is busy, delivered once when
 // it is idle; a second answer is its own line (the first is not ended by it). A serve restart between an answer and its
 // delivery delivers it once.

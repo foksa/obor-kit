@@ -278,7 +278,8 @@ const tellLeadUsage = `usage: obor tell-lead "<text>"`
 // run in a drive agent's pane (role driver, its lane from its cwd), a request to obor serve that posts
 // "[obor <T-xx> drive] <text> (reply: obor answer <T-xx> "…")" to this project's lead as a lead line; the lead's obor
 // answer comes back to the drive agent as an "[obor answer] …" line. Serve's reply (TOLD …), or FAIL: serve down, the
-// caller no drive agent (serve names who it is for), no open drive in the lane.
+// caller no drive agent (serve names who it is for), no open drive in the lane, a drive the lead cannot answer (T-764:
+// landed, not driving).
 func tellLeadCmd(args []string) int {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		fmt.Fprintln(out, "FAIL "+tellLeadUsage)
