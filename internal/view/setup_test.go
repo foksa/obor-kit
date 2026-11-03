@@ -15,8 +15,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-750: Setup is the project's steering — the difficulty levels in configured order, a pooled and a typed lane with
-// their states, the roles the config names with their statuses and the pause — and how dispatches spread by level and
+// T-750: Setup is the project's steering — the difficulty levels in configured order with what runs each type (kind,
+// model, effort with the ref's winning, max) and the unused lane types last, a pooled and a typed lane with their
+// states, the roles the config names with their statuses and the pause — and how dispatches spread by level and
 // chosen type, in the last 7 days and in all records: a level dispatch, an override (--types, no level), a record from
 // before T-721 (its lane's configured type), a waiting dispatch that is placed later (once), a redo (again) and a
 // record older than 7 days (all only).
@@ -24,12 +25,16 @@ func TestSetup(t *testing.T) {
 	p := testkit.New(t)
 	o1 := p.Lane("O-01", "task/T-01")
 	p.Config(
-		testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude", "args": []any{}}),
+		testkit.Set("lane_types.opus", map[string]any{"kind": "claude",
+			"args": []any{"--model", "opus", "--effort", "medium"}}),
+		testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude", "args": []any{"--model=sonnet"}, "max": 2}),
+		testkit.Set("lane_types.haiku", map[string]any{"kind": "claude", "args": []any{}}),
+		testkit.Set("lane_types.deepseek", map[string]any{"kind": "claude", "args": []any{}}),
 		testkit.Set("lanes", map[string]any{"O-01": "opus", "L-01": ""}),
 		testkit.Set("difficulty", map[string]any{"hard": []any{"opus:high", "opus"},
 			"medium": []any{"sonnet", "opus"}, "simple": []any{"opus"}}),
 		testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
-		testkit.Set("roles.deep_dive", map[string]any{"type": "opus:high"}),
+		testkit.Set("roles.deep_dive", map[string]any{"type": "deepseek"}),
 	)
 	p.Lane("L-01", "") // detached at main: free, and a pooled lane (lanes.L-01 "")
 	p.Commit(o1)       // O-01's task branch has a commit: working
@@ -81,6 +86,17 @@ func TestSetup(t *testing.T) {
 	if !reflect.DeepEqual(s.Difficulty, wantDifficulty) {
 		t.Errorf("difficulty %+v, want %+v", s.Difficulty, wantDifficulty)
 	}
+	// types: each level's ref with what runs it — the ref's effort wins over the args', a max of 0 is a cap-less type —
+	// then the lane type no level and no role names, marked unused (deepseek is a role's type: not listed, not unused)
+	wantTypes := []SetupType{
+		{Ref: "opus:high", Name: "opus", Kind: "claude", Model: "opus", Effort: "high"},
+		{Ref: "opus", Name: "opus", Kind: "claude", Model: "opus", Effort: "medium"},
+		{Ref: "sonnet", Name: "sonnet", Kind: "claude", Model: "sonnet", Max: 2},
+		{Ref: "haiku", Name: "haiku", Kind: "claude", Unused: true},
+	}
+	if !reflect.DeepEqual(s.Types, wantTypes) {
+		t.Errorf("types %+v\nwant %+v", s.Types, wantTypes)
+	}
 	// lanes: the configured type (the pool lane's is ""), the configured agent and the state now
 	lanes := map[string]SetupLane{}
 	for _, l := range s.Lanes {
@@ -102,8 +118,8 @@ func TestSetup(t *testing.T) {
 	if r := roles["reviewer"]; r.Agent != "pj-rev" || r.Type != "opus" || r.Status != "working" {
 		t.Errorf("reviewer %+v, want pj-rev on opus, working", r)
 	}
-	if r := roles["deep_dive"]; r.Type != "opus:high" || r.Status != "" {
-		t.Errorf("deep dive %+v, want opus:high and no pane", r)
+	if r := roles["deep_dive"]; r.Type != "deepseek" || r.Status != "" {
+		t.Errorf("deep dive %+v, want deepseek and no pane", r)
 	}
 	if r, ok := roles["lead"]; !ok || r.Agent != "pj-lead" || r.Type != "" {
 		t.Errorf("lead %+v, %v; want pj-lead with no type", r, ok)
@@ -148,7 +164,7 @@ func TestSetupWithoutStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Distribution == nil || len(s.Distribution) != 0 || s.Lanes == nil || s.Difficulty == nil {
+	if s.Distribution == nil || len(s.Distribution) != 0 || s.Lanes == nil || s.Difficulty == nil || s.Types == nil {
 		t.Errorf("setup %+v, want empty lists", s)
 	}
 }

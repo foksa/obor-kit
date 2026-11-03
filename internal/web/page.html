@@ -792,8 +792,22 @@ function renderSetup(p, s) {
       <span class="mono">${esc(d.level)}</span>
       <div class="lead"><span>${(d.types || []).length ? d.types.map((t) => tag(t)).join(" ")
         : '<span class="muted">no type</span>'}</span></div></div>`).join("");
-  const difficultyHTML = `<section><h2>Difficulty</h2><div class="card rows">${
-    difficulty || '<p class="quiet">No difficulty level.</p>'}</div></section>`;
+  // what runs each type: its lane type, kind, model, effort and max; the types no level and no role names come last,
+  // marked unused (T-750)
+  const types = s.types || [];
+  const typeRows = types.map((t) => `<tr>
+      <td class="mono">${esc(t.ref)}${t.unused ? ' <span class="pill plain t-idle">unused</span>' : ""}</td>
+      <td class="mono">${esc(t.name || "")}</td>
+      <td>${esc(t.kind || "")}</td>
+      <td>${t.model ? esc(t.model) : '<span class="muted">—</span>'}</td>
+      <td>${t.effort ? esc(t.effort) : '<span class="muted">—</span>'}</td>
+      <td>${t.max ? esc(t.max) : '<span class="muted">no cap</span>'}</td></tr>`).join("");
+  const typeTable = types.length ? `<table class="raw types">
+      <thead><tr><th>type ref</th><th>lane type</th><th>kind</th><th>model</th><th>effort</th><th>max</th></tr></thead>
+      <tbody>${typeRows}</tbody></table>` : "";
+  const difficultyHTML = `<section><h2>Difficulty</h2><div class="card">
+    <div class="rows">${difficulty || '<p class="quiet">No difficulty level.</p>'}</div>
+    ${typeTable ? `<div class="pad" style="border-top:1px solid var(--line-soft)">${typeTable}</div>` : ""}</div></section>`;
 
   const lanes = s.lanes || [];
   const pooled = lanes.filter((l) => !l.type).length;

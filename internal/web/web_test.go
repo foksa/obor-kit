@@ -208,8 +208,8 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 }
 
 // TestSetupAPI (T-750): /api/setup answers with the project's setup read model — the three difficulty levels, the
-// configured lane with its type and state, the roles the config names — and counts the fixture's bare dispatch (a
-// record from before T-721) under the lane's configured type.
+// types each names with what runs it, the configured lane with its type and state, the roles the config names — and
+// counts the fixture's bare dispatch (a record from before T-721) under the lane's configured type.
 func TestSetupAPI(t *testing.T) {
 	_, _, s := fixture(t)
 	r := get(t, s.Handler(), "/api/setup?project=pj")
@@ -234,6 +234,10 @@ func TestSetupAPI(t *testing.T) {
 	}
 	if want := []view.DispatchCount{{Level: "", Type: "opus", Recent: 2, All: 2}}; !slices.Equal(setup.Distribution, want) {
 		t.Errorf("distribution %+v, want the fixture's two dispatches under opus", setup.Distribution)
+	}
+	// the fixture config's only lane type is opus, which hard's built-in opus:high names: one entry, no cap
+	if want := []view.SetupType{{Ref: "opus:high", Name: "opus", Kind: "claude", Effort: "high"}}; !slices.Equal(setup.Types, want) {
+		t.Errorf("types %+v, want opus:high only", setup.Types)
 	}
 }
 
