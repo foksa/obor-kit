@@ -12,11 +12,13 @@ import (
 	"sync"
 	"testing"
 
+	"obor/internal/config"
 	"obor/internal/store"
 )
 
-// T-753: the owner's setup edit (config_set): serve applies one change to .obor/config.json, validates it, writes and
-// commits that one file (ConfigFile), records fact config.set and sends the lead one line.
+// T-753, T-760: the owner's setup edit (config_set): serve applies a list of changes to .obor/config.json, validates
+// them together, writes and commits that one file once (ConfigFile), records fact config.set and sends the lead one
+// line; any change refused refuses them all.
 
 // configJSON is the edit tests' config.json: two claude types and an opencode one a level names with an effort.
 const configJSON = `{
@@ -130,7 +132,16 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 
 // set is the owner's config_set of key to val (JSON) from the web.
 func (h *harness) set(callID, key, val string) (string, error) {
-	return h.a.configCall(wire.Call{Root: h.root, CallID: callID, Key: key, Value: json.RawMessage(val), Source: "web"})
+	return h.a.configCall(wire.Call{Root: h.root, CallID: callID, Changes: changes(key, val), Source: "web"})
+}
+
+// changes is key, value pairs (the value JSON) as a config_set call's changes.
+func changes(kv ...string) []wire.ConfigChange {
+	var out []wire.ConfigChange
+	for i := 0; i+1 < len(kv); i += 2 {
+		out = append(out, wire.ConfigChange{Key: kv[i], Value: json.RawMessage(kv[i+1])})
+	}
+	return out
 }
 
 // configFacts is the log's config.set facts' data.
@@ -196,7 +207,8 @@ func TestConfigSetEachField(t *testing.T) {
 				t.Errorf("commits %q, want one: %q", got, c.msg)
 			}
 			facts := configFacts(t, h)
-			if len(facts) != 1 || facts[0].Key != c.key || facts[0].Commit != "c0ffee1234567" || facts[0].By != "owner" ||
+			if len(facts) != 1 || len(facts[0].Changes) != 1 || facts[0].Changes[0].Key != c.key ||
+				facts[0].Commit != "c0ffee1234567" || facts[0].By != "owner" ||
 				facts[0].Source != "web" || facts[0].Call != "c1" {
 				t.Errorf("config.set facts %+v, want one of %s with the commit", facts, c.key)
 			}
@@ -237,7 +249,7 @@ func TestConfigSetRefused(t *testing.T) {
 			t.Parallel()
 			h, f := configRig(t)
 			f.refused, f.failCommit = c.refused, c.failCommit
-			call := wire.Call{Root: h.root, CallID: "r1", Key: c.key, Value: json.RawMessage(c.val), Role: c.role}
+			call := wire.Call{Root: h.root, CallID: "r1", Changes: changes(c.key, c.val), Role: c.role}
 			if c.role != "" {
 				call.Agent = "pj-o-01"
 			}
@@ -318,5 +330,98 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	}
 	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: difficulty.hard") {
 		t.Errorf("commits %q, want the change's", got)
+	}
+}
+
+// T-760: several changes are one commit — applied in order, each to the file the one before wrote (a model and an
+// effort of the same lane type both land) — with a subject naming the keys, one body line per change, one fact
+// listing them, one line to the lead and one reply. A change that leaves its key as it is is left out.
+func TestConfigSetBatchIsOneCommit(t *testing.T) {
+	t.Parallel()
+	h, f := configRig(t)
+	reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b1", Source: "web", Changes: changes(
+		"lane_types.opus.model", `"fable"`, "lane_types.opus.effort", `"high"`, "lanes.O-01", `""`,
+		"roles.integrator.type", `"sonnet"`)})
+	want := `SET lane_types.opus.model "opus" → "fable"; SET lane_types.opus.effort "medium" → "high"; ` +
+		`SET roles.integrator.type unset → "sonnet" (at its next start)`
+	if err != nil || reply != want {
+		t.Fatalf("batch: %q, %v; want %q", reply, err, want)
+	}
+	b, _ := os.ReadFile(f.path)
+	if !strings.Contains(string(b), "\"--model\",\n        \"fable\",\n        \"--effort\",\n        \"high\"") ||
+		!strings.Contains(string(b), "\"integrator\": {\n      \"type\": \"sonnet\"") {
+		t.Errorf("the file lacks a change:\n%s", b)
+	}
+	msg := "config: lane_types.opus.model, lane_types.opus.effort, roles.integrator.type (owner, web)\n\n" +
+		"- lane_types.opus.model \"opus\" → \"fable\"\n- lane_types.opus.effort \"medium\" → \"high\"\n" +
+		"- roles.integrator.type unset → \"sonnet\""
+	if got := f.messages(); len(got) != 1 || got[0] != msg {
+		t.Errorf("commits %q, want one:\n%s", got, msg)
+	}
+	facts := configFacts(t, h)
+	if len(facts) != 1 || len(facts[0].Changes) != 3 || facts[0].Changes[1] != (event.ConfigSetChange{
+		Key: "lane_types.opus.effort", Old: `"medium"`, New: `"high"`}) || facts[0].Reply != want {
+		t.Errorf("facts %+v, want one with the three changes", facts)
+	}
+	line := `[obor] config: lane_types.opus.model "opus" → "fable"; lane_types.opus.effort "medium" → "high"; ` +
+		`roles.integrator.type unset → "sonnet" (owner, web)`
+	if lines := leadLines(t, h); len(lines) != 1 || lines[0] != line {
+		t.Errorf("lines to the lead %q, want %q", lines, line)
+	}
+	if r, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b2", Changes: changes("lanes.O-01", `""`)}); err != nil ||
+		r != "UNCHANGED lanes.O-01" {
+		t.Errorf("a batch that changes nothing: %q, %v", r, err)
+	}
+}
+
+// T-760: one refused change refuses the batch (the others before it applied in memory only): nothing written,
+// committed, recorded or told; and a batch the whole fails Validate on is refused naming its keys.
+func TestConfigSetBatchAllOrNothing(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		kv   []string
+		want string
+	}{
+		{"second refused", []string{"lane_types.opus.model", `"fable"`, "difficulty.hard", `["gpt"]`}, `"gpt" is not a lane type`},
+		{"validate", []string{"lanes.O-01", `"opus"`, "lane_types.deepseek.model", `""`},
+			"lanes.O-01, lane_types.deepseek.model refused: FAIL .difficulty.simple[0]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, f := configRig(t)
+			reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "x1", Changes: changes(c.kv...)})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("batch: %q, %v; want refused with %q", reply, err, c.want)
+			}
+			if b, _ := os.ReadFile(f.path); string(b) != configJSON {
+				t.Errorf("the file changed:\n%s", b)
+			}
+			if len(f.messages()) != 0 || len(configFacts(t, h)) != 0 || len(leadLines(t, h)) != 0 {
+				t.Errorf("a refused batch committed %q, recorded %+v, told %q", f.messages(), configFacts(t, h), leadLines(t, h))
+			}
+		})
+	}
+}
+
+// T-760: a call names the config.json revision its page read; once the file is another one (another tab saved, the
+// lead or a hand edit changed it) the call is refused and nothing is written. The current revision is taken.
+func TestConfigSetBaseIsTheFileRead(t *testing.T) {
+	t.Parallel()
+	h, f := configRig(t)
+	base := config.Rev([]byte(configJSON))
+	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t1", Base: base, Changes: changes("lanes.O-01", `"opus"`)}); err != nil {
+		t.Fatalf("the first tab's save: %v", err)
+	}
+	_, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t2", Base: base, Changes: changes("lanes.O-01", `"sonnet"`)})
+	if err == nil || !strings.Contains(err.Error(), "changed since this page read it") {
+		t.Fatalf("the second tab's save on the old file: %v, want refused", err)
+	}
+	b, _ := os.ReadFile(f.path)
+	if !strings.Contains(string(b), `"O-01": "opus"`) || len(f.messages()) != 1 {
+		t.Errorf("the stale save wrote or committed: %q\n%s", f.messages(), b)
+	}
+	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t3", Base: config.Rev(b), Changes: changes("lanes.O-01", `"sonnet"`)}); err != nil {
+		t.Errorf("a save on the current file: %v", err)
 	}
 }

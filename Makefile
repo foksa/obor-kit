@@ -25,7 +25,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test check check-affected deadcode deps release ship publish clean
+.PHONY: build test check check-affected deadcode deps release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -115,3 +115,18 @@ publish:
 
 clean:
 	rm -rf dist
+
+# web builds obor web's page (web/, Svelte, T-760) into internal/web/dist, which the binary embeds: run it before every
+# commit that touches web/ and commit dist/ with it (internal/web's TestDistFresh fails on a stale build). It needs
+# Node and the network for npm ci; make check and make release never call it (the gate has no network).
+web:
+	cd web && npm ci --ignore-scripts --no-audit --no-fund && npm run check && npm test && npm run build
+
+# web-dev serves the page from web/ with hot reload on http://127.0.0.1:5173, its /api proxied to a running obor web
+# (OBOR_WEB, default http://127.0.0.1:8787).
+web-dev:
+	cd web && npm ci --ignore-scripts --no-audit --no-fund && npm run dev
+
+# web-test is the page's own tests (Vitest) and type check.
+web-test:
+	cd web && npm run check && npm test

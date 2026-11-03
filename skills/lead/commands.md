@@ -27,8 +27,9 @@ never the monitor's own. `obor setup monitor` (idempotent: an existing pane is r
 ## obor web (T-667)
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen
 127.0.0.1:<port>` for another loopback port; a host that is not loopback is refused). Its own process, never inside
-serve; Ctrl-C ends it. The landing page lists the projects with their needs-you count and queue length; a project page
-puts its lanes and queue beside its needs-you and live events; a task, an agent or a job opens as its own page — the
+serve; Ctrl-C ends it. The fleet page shows every project with its lanes, needs-you, queue and last full check, and
+their events together; a project's dashboard puts what needs you, the pipeline by stage, its lanes, watches, queue and
+role agents beside its live events (T-760); a task, an agent or a job opens as its own page — the
 task's state, spec rev, report, gate line and log, needs-you, records and the text of every job; the agent's sessions
 (transcript path and last write, never contents), briefs, lines and jobs; a job's whole prompt text in monospace.
 The only verbs are the Setup page's edits (below, T-753): answer a needs-you with the command the page shows, as before. Localhost
@@ -62,9 +63,12 @@ A task's needs-you reaches you as before (`[obor] needs-you …`), watched or no
 
 ## Setup edits from obor web (T-753)
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's
-types, a lane type's model, effort or max, a lane's type, a role's type, and the pause. Serve writes and commits each
-change on main itself and tells you, one line per change:
-- `[obor] config: <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`.
+types, a lane type's model, effort or max, a lane's type, a role's type, and the pause. The page stages the edits and
+the owner commits them together (T-760): serve writes them as one commit on main itself and tells you in one line:
+- `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`.
+
+A save made on a config that changed since the owner's page read it (your hand edit, say) is refused, nothing written:
+the owner reviews it against yours.
 
 It counts from the next dispatch (a role's type at its next start); nothing to do unless it changes your plan. The
 commit is on main: pull before you edit the config by hand. A pause set or cleared there is the same as `obor pause`.

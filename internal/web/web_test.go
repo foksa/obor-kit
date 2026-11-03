@@ -6,10 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -474,7 +472,7 @@ func TestUnknownProjectAndTaskAre404(t *testing.T) {
 	}
 }
 
-// TestReadOnlyAndThePage: every route but GET/HEAD is refused (no verbs) and "/" serves the one embedded page.
+// TestReadOnlyAndThePage: every route but GET/HEAD is refused (no verbs) and "/" serves the embedded page.
 func TestReadOnlyAndThePage(t *testing.T) {
 	_, _, s := fixture(t)
 	h := s.Handler()
@@ -486,7 +484,7 @@ func TestReadOnlyAndThePage(t *testing.T) {
 		}
 	}
 	r := get(t, h, "/")
-	if r.Code != http.StatusOK || !strings.Contains(r.Body.String(), "<!doctype html>") {
+	if r.Code != http.StatusOK || !strings.Contains(strings.ToLower(r.Body.String()), "<!doctype html>") {
 		t.Errorf("page: %d, %q", r.Code, r.Body.String()[:min(80, len(r.Body.String()))])
 	}
 	if ct := r.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
@@ -549,70 +547,6 @@ func TestListenLocalhostOnly(t *testing.T) {
 			t.Errorf("ListenAddr(%q) = %q, want a refusal (localhost only)", bad, got)
 		}
 	}
-}
-
-// TestPageIsOneEmbeddedFile: the page is embedded (no build step, no other file served), and it calls the API routes.
-func TestPageIsOneEmbeddedFile(t *testing.T) {
-	page := string(pageHTML)
-	if !strings.HasPrefix(page, "<!doctype html>") {
-		t.Fatalf("pageHTML does not begin with a doctype: %.40q", page)
-	}
-	for _, route := range []string{"/api/projects", "/api/view", "/api/setup", "/api/events", "/api/task", "/api/agent",
-		"/api/job"} {
-		if !strings.Contains(page, route) {
-			t.Errorf("the page never calls %s", route)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(".", "page.html")); err != nil {
-		t.Errorf("page.html is not beside the server: %v", err)
-	}
-}
-
-// TestRouterHandlesEveryLinkedRoute (T-675): every route kind the page links to (#/p/…, #/t/…, #/a/…, #/j/…, built by
-// href or written out) is a key of its router's ROUTES table, and the page links all four kinds.
-func TestRouterHandlesEveryLinkedRoute(t *testing.T) {
-	page := string(pageHTML)
-	table := regexp.MustCompile(`(?s)const ROUTES = \{(.*?)\n\};`).FindStringSubmatch(page)
-	if table == nil {
-		t.Fatal("the page has no ROUTES table")
-	}
-	routes := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^\s*(\w+): \{ page: (\w+)`).FindAllStringSubmatch(table[1], -1) {
-		if !strings.Contains(page, "async function "+m[2]+"(") {
-			t.Errorf("route %s draws with %s, which the page does not define", m[1], m[2])
-		}
-		routes[m[1]] = true
-	}
-	linked := map[string]bool{}
-	for _, m := range regexp.MustCompile(`href\("(\w+)"`).FindAllStringSubmatch(page, -1) {
-		linked[m[1]] = true
-	}
-	for _, m := range regexp.MustCompile(`#/(\w+)/`).FindAllStringSubmatch(page, -1) {
-		linked[m[1]] = true
-	}
-	for _, kind := range []string{"p", "t", "a", "j"} {
-		if !linked[kind] {
-			t.Errorf("the page never links a #/%s/ route", kind)
-		}
-	}
-	for kind := range linked {
-		if !routes[kind] {
-			t.Errorf("the page links #/%s/…, which its router does not handle (routes: %v)", kind, keys(routes))
-		}
-	}
-	if !strings.Contains(page, `window.addEventListener("hashchange", go)`) {
-		t.Error("the router does not redraw on a hash change")
-	}
-}
-
-// keys is m's keys, sorted.
-func keys(m map[string]bool) []string {
-	out := []string{}
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
 }
 
 // T-709: a project whose config has a key this binary does not know (a long-running obor web older than the config:
@@ -690,7 +624,7 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 	if _, ok := got["reviewer"]; ok {
 		t.Errorf("roles %v: the stopped reviewer is listed", got)
 	}
-	if page := get(t, s.Handler(), "/").Body.String(); !strings.Contains(page, "p.roles") {
+	if !strings.Contains(bundle(t), ".roles") {
 		t.Error("the page does not read the overview's roles")
 	}
 }
@@ -721,13 +655,16 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	if len(entries) != 1 || entries[0].Background != 2 {
 		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
 	}
+	// T-760: the fleet page's lanes: O-01 busy with T-01 and its agent
+	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "O-01" || l[0].Task != "T-01" || l[0].Agent != "pj-o1" {
+		t.Errorf("/api/projects lanes %+v, want O-01 on T-01 with pj-o1", l)
+	}
 	var a view.AgentDetail
 	decode(t, get(t, s.Handler(), "/api/agent?project=pj&agent=pj-o1"), &a)
 	if len(a.Background) != 1 || a.Background[0] != conv {
 		t.Errorf("agent background %+v, want %+v", a.Background, conv)
 	}
-	page := get(t, s.Handler(), "/").Body.String()
-	if !strings.Contains(page, "p.background") || !strings.Contains(page, "a.background") {
-		t.Error("the page does not read the overview's count or the agent's background")
+	if !strings.Contains(bundle(t), ".background") {
+		t.Error("the page does not read the agents' background processes")
 	}
 }

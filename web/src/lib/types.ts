@@ -1,0 +1,392 @@
+// The API's JSON, as internal/web and internal/view write it (Go's json tags; omitempty fields optional).
+
+export interface Background {
+  pid: number;
+  command: string;
+  background: boolean;
+  label?: string;
+  age: number;
+}
+
+export interface Running {
+  step: string;
+  task?: string;
+  command?: string;
+  since: number;
+}
+
+export interface Serve {
+  up: boolean;
+  since?: string;
+  error?: string;
+  herdr: boolean;
+  project: boolean;
+  merging: boolean;
+  log_error?: string;
+  pid?: number;
+  launchd?: string;
+}
+
+export interface Job {
+  id: string;
+  delivered: boolean;
+}
+
+export interface Lane {
+  lane: string;
+  type: string;
+  dir: string;
+  branch: string | null;
+  task: string | null;
+  state: string;
+  done_age: number | null;
+  dirty: boolean;
+  warning: string | null;
+  op?: string;
+  task_state?: string;
+  attempt?: number;
+  running?: string;
+  hold?: string;
+  effort?: string;
+  agent?: string;
+  agent_status?: string;
+  column: string;
+  since?: number;
+  spec_rev?: number;
+  title?: string;
+  job?: Job;
+  background?: Background[];
+}
+
+export interface BriefStatus {
+  to: string;
+  since: number;
+  delivered: boolean;
+  worked?: boolean;
+}
+
+export interface Role {
+  role: string;
+  agent: string;
+  status?: string;
+  age?: number;
+  brief?: BriefStatus;
+  session?: string;
+  background?: Background[];
+}
+
+export interface NeedsYou {
+  task: string;
+  lane?: string;
+  reason: string;
+  answer?: string;
+  since?: number;
+}
+
+export interface FullCheck {
+  sha: string;
+  verdict: string;
+  at: number;
+  summary: string;
+}
+
+export interface Pause {
+  until: number | null;
+  reason: string;
+  by?: string;
+}
+
+export interface PendingStep {
+  step: string;
+  task?: string;
+  since: number;
+  error?: string;
+  failed_at?: number;
+}
+
+export interface TaskStatus {
+  task: string;
+  lane: string;
+  attempt: number;
+  state: string;
+  running?: string;
+  hold?: string;
+  after?: string[];
+  why?: string;
+  level?: string;
+  types?: string[];
+  effort?: string;
+  job?: string;
+  delivered?: boolean;
+}
+
+export interface AgentStatus {
+  machine: string;
+  workspace: string;
+  pane: string;
+  name?: string;
+  agent: string;
+  lane?: string;
+  task?: string;
+  status: string;
+  age: number;
+  session?: string;
+  transcript?: string;
+  started?: number;
+}
+
+export interface MessageStatus {
+  to: string;
+  from?: string;
+  line: string;
+  age: number;
+  held?: string;
+}
+
+export interface WatchStatus {
+  task: string;
+  by?: string;
+  note?: string;
+  since: number;
+}
+
+export interface MergeItem {
+  task: string;
+  title?: string;
+  lane?: string;
+  state: string;
+  stage: string;
+  waits_on?: string;
+  why?: string;
+  job?: Job;
+}
+
+export interface WaitItem {
+  task: string;
+  waits_on: string;
+  after?: string[];
+  why?: string;
+  level?: string;
+  types?: string[];
+  rev?: number;
+  since?: number;
+  title?: string;
+}
+
+export interface ReviewItem {
+  after?: string[];
+  waiting?: string[];
+  held?: string;
+  note?: string;
+  by?: string;
+  since: number;
+  state: string;
+}
+
+export interface OutboxItem {
+  kind: string;
+  to: string;
+  from?: string;
+  line?: string;
+  since: number;
+  delivered?: boolean;
+  worked?: boolean;
+  held?: string;
+}
+
+export interface Queue {
+  scratch: { task: string; why: string } | null;
+  merge: MergeItem[];
+  waiting: WaitItem[];
+  review: ReviewItem[];
+  outbox: OutboxItem[];
+  pause: Pause | null;
+  nightly: { at: string; next: number } | null;
+}
+
+export interface Event {
+  seq: number;
+  ts: string;
+  task?: string;
+  line: string;
+  bad?: boolean;
+}
+
+export interface EventsPage {
+  seq: number;
+  events: Event[];
+}
+
+export interface ProjectView {
+  serve: Serve;
+  running: Running[];
+  pending: PendingStep[];
+  lanes: Lane[];
+  tasks: TaskStatus[];
+  agents: AgentStatus[];
+  roles: Role[];
+  lead?: Role;
+  needs_you: NeedsYou[];
+  full_check: FullCheck | null;
+  paused: Pause | null;
+  messages: MessageStatus[];
+  review?: string;
+  watches?: WatchStatus[];
+  queue: Queue;
+  events: Event[];
+  notes?: string[];
+}
+
+// LaneDot is one lane of /api/projects: enough for the fleet page's lane strip.
+export interface LaneDot {
+  lane: string;
+  column: string;
+  task?: string;
+  type?: string;
+  title?: string;
+  task_state?: string;
+  agent?: string;
+  since?: number;
+}
+
+export interface ProjectsEntry {
+  name: string;
+  root: string;
+  up: boolean;
+  busy: number;
+  free: number;
+  needs_you: number;
+  queue: number;
+  running: Running[];
+  roles: Role[];
+  background: number;
+  lanes: LaneDot[];
+  full_check?: FullCheck | null;
+  paused?: Pause | null;
+  events: Event[];
+  error?: string;
+}
+
+export interface TaskRecord {
+  seq: number;
+  ts: string;
+  step: string;
+  kind: string;
+  line?: string;
+}
+
+export interface Prompt {
+  seq: number;
+  kind: string;
+  job?: string;
+  task?: string;
+  agent: string;
+  ts: string;
+  text: string;
+}
+
+export interface TaskDetail {
+  task: string;
+  title?: string;
+  lane?: string;
+  agent?: string;
+  state?: string;
+  attempt?: number;
+  dispatched_at?: number;
+  spec_rev?: number;
+  spec?: string;
+  gated_rev?: number;
+  report?: string;
+  gate_line?: string;
+  gate_log?: string;
+  needs_you: NeedsYou[];
+  records: TaskRecord[];
+  jobs: Prompt[];
+}
+
+export interface AgentSession {
+  id: string;
+  kind?: string;
+  transcript?: string;
+  last_write?: number;
+  pane?: string;
+  lane?: string;
+  task?: string;
+  started: number;
+  source?: string;
+}
+
+export interface AgentLine {
+  seq: number;
+  ts: string;
+  from?: string;
+  line: string;
+}
+
+export interface AgentDetail {
+  agent: string;
+  status?: string;
+  lane?: string;
+  task?: string;
+  sessions: AgentSession[];
+  briefs: Prompt[];
+  lines: AgentLine[];
+  jobs: Prompt[];
+  background?: Background[];
+}
+
+export interface SetupLevel {
+  level: string;
+  types: string[];
+}
+
+export interface SetupType {
+  ref: string;
+  name: string;
+  kind: string;
+  model: string;
+  effort: string;
+  max: number;
+  unused?: boolean;
+}
+
+export interface SetupLaneType {
+  name: string;
+  kind: string;
+  model: string;
+  effort: string;
+  max: number;
+  efforts: string[];
+}
+
+export interface SetupLane {
+  lane: string;
+  type: string;
+  agent: string;
+  state: string;
+}
+
+export interface SetupRole {
+  role: string;
+  agent: string;
+  type: string;
+  status: string;
+}
+
+export interface DispatchCount {
+  level: string;
+  type: string;
+  recent: number;
+  all: number;
+}
+
+export interface Setup {
+  difficulty: SetupLevel[];
+  types: SetupType[];
+  lanes: SetupLane[];
+  roles: SetupRole[];
+  paused: Pause | null;
+  lane_types: SetupLaneType[];
+  distribution: DispatchCount[];
+  config_rev: string;
+}

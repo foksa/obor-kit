@@ -151,6 +151,8 @@ thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.C
 `hook`, `whoami`).
 - `web` (`internal/web`, T-667): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
   `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq)
-  and one embedded HTML page (`embed`, vanilla JS, no build step), standard library only. Localhost only; its own
-  process, never inside serve. Its two verbs (T-753), `POST /api/config` and `POST /api/pause`, are requests on the
-  project's app socket (`wire`), taken only from the page's own origin: serve writes.
+  and the page (T-760): a Svelte app whose source is `web/` at the repo's root, built by `make web` into
+  `internal/web/dist` (committed, `embed`; the Go build needs no Node, `TestDistFresh` fails on a stale build).
+  Localhost only; its own process, never inside serve. Its two verbs (T-753), `POST /api/config` (a list of changes and
+  the config revision they were made on, one commit, T-760) and `POST /api/pause`, are requests on the project's app
+  socket (`wire`), taken only from the page's own origin: serve writes.

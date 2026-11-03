@@ -168,19 +168,27 @@ every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per 
 state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line, one line per
 lane, serve's tasks on no lane, needs-you with the commands that answer them, the full check, the pause.
 
-## obor web's write path (T-753)
+## obor web's write path (T-753, T-760)
 `obor web` reads the read model like `obor status` and has two verbs, the Setup page's edits: `POST /api/config`
-(one change: `difficulty.<level>`, `lane_types.<type>.model|effort|max`, `lanes.<LANE>`, `roles.<role>.type`) and
-`POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing: each is a request on the
-project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is 503. A POST is taken only
-on those two routes, only with the page's own Origin, the listen address as Host (no DNS rebinding) and a JSON body
-(403 otherwise); every other route is GET/HEAD (405). Serve applies the change to `.obor/config.json`
-(`config.Edit`: model and effort rewritten inside `args` per kind), runs `config.Validate` on the result (refused for a
-new FAIL), writes the file in its own layout and commits that one file on main (`config: <key> <old> → <new> (owner,
-web)`), behind the publish admission (never while a publish moves main). Refused, nothing written: uncommitted changes
-to the config (a hand edit is never committed under the owner's), a lane that has a task, a name the config lacks.
-Fact `config.set` records it and the lead gets the same line; serve reads the config per call, so it counts from the
-next dispatch or start. Adding lanes or lane types, other args and other keys stay `obor setup`'s or a hand edit's.
+(`{changes: [{key, value}], base}`: a list of changes, each `difficulty.<level>`, `lane_types.<type>.model|effort|max`,
+`lanes.<LANE>` or `roles.<role>.type`, and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
+setup's `config_rev`) and `POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing:
+each is a request on the project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is
+503. A POST is taken only on those two routes, only with the page's own Origin, the listen address as Host (no DNS
+rebinding) and a JSON body (403 otherwise); every other route is GET/HEAD (405). Serve applies the changes in order to
+`.obor/config.json`, each to the bytes the one before wrote (`config.Edit`: model and effort rewritten inside `args`
+per kind), runs `config.Validate` once on the result (refused for a new FAIL), writes the file in its own layout and
+commits that one file on main once (`config: <key> <old> → <new> (owner, web)`; several: the keys as the subject, one
+`- <key> <old> → <new>` line each in the body), behind the publish admission (never while a publish moves main). All
+or nothing: any change refused refuses them all and nothing is written. Refused: a config revision that is not the
+base (another tab, the lead or a hand edit changed it since the page read it: the page never overwrites theirs),
+uncommitted changes to the config (a hand edit is never committed under the owner's), a key `.obor/local.json`
+overrides (named), a lane that has a task, a name the config lacks. Fact `config.set` records the changes (one record)
+and the lead gets one line listing them (`[obor] config: <key> <old> → <new>; … (owner, web)`); serve reads the config
+per call, so they count from the next dispatch or start. Adding lanes or lane types, other args and other keys stay
+`obor setup`'s or a hand edit's. The page (T-760) is a Svelte app in `web/`, built by `make web` into
+`internal/web/dist` and committed (the gate never builds it: `TestDistFresh` fails on a stale build); it stages the
+edits and sends them as one POST.
 
 ## Hooks (`hooks/hooks.json`; one entry per event; the Go binary branches on role)
 Each event's command is `OBOR_NO_SELF_HOST=1 bash "${CLAUDE_PLUGIN_ROOT}/bin/obor" hook <name>` (T-221: never

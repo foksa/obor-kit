@@ -13,13 +13,14 @@ import (
 	"obor/internal/spec"
 )
 
-// The setup edit (T-753): the owner changes one setup value from obor web's Setup page (config.Edit names the keys),
-// and serve, the one writer, applies it to the current .obor/config.json, validates the result, writes the file in its
-// own layout and commits that one file on the main branch ("config: <key> <old> → <new> (owner, web)"). The write and
-// its commit pass the publish admission (admit): never while a publish moves the main branch, and no publish starts
-// until the commit is in. A config file with uncommitted changes is refused, so a hand edit is never committed under
-// the owner's change. Serve reads the config per call, so the change counts from the next dispatch or start. Each
-// change is fact config.set{key, old, new, by, source, commit, call id} and one line to the lead.
+// The setup edit (T-753, T-760): the owner changes setup values from obor web's Setup page (config.Edit names the
+// keys), and serve, the one writer, applies them in order to the current .obor/config.json, validates the result, writes
+// the file in its own layout and commits that one file on the main branch, all of them in one commit or none. The
+// write and its commit pass the publish admission (admit): never while a publish moves the main branch, and no publish
+// starts until the commit is in. A config file with uncommitted changes is refused, so a hand edit is never committed
+// under the owner's change; so is one whose revision is not the call's base (config.Rev): someone changed it since the
+// page read it. Serve reads the config per call, so the changes count from the next dispatch or start. They are fact
+// config.set{changes, by, source, commit, call id} and one line to the lead listing them all.
 
 // ConfigFile is the main checkout's .obor/config.json and its git (the config_set call; nil: no setup edit).
 type ConfigFile interface {
@@ -31,12 +32,17 @@ type ConfigFile interface {
 	Commit(ctx context.Context, doc []byte, msg string) (string, error)
 }
 
-// configCall answers the socket's config_set request (the owner's, or the lead's): a call id and a key are required,
-// a repeated call id gets the stored reply. The reply is "SET <key> <old> → <new>", with a role's "(at its next
-// start)".
+// configCall answers the socket's config_set request (the owner's, or the lead's): a call id and at least one change
+// are required, a repeated call id gets the stored reply. The reply is "SET <key> <old> → <new>" per change, joined
+// by "; ", a role's with "(at its next start)".
 func (a *App) configCall(c wire.Call) (string, error) {
-	if c.CallID == "" || c.Key == "" {
-		return "", errors.New(wire.MethodConfig + ": a call id and a key are required")
+	if c.CallID == "" || len(c.Changes) == 0 {
+		return "", errors.New(wire.MethodConfig + ": a call id and a change are required")
+	}
+	for _, ch := range c.Changes {
+		if ch.Key == "" {
+			return "", errors.New(wire.MethodConfig + ": a change without a key")
+		}
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
@@ -74,7 +80,9 @@ func (a *App) configCall(c wire.Call) (string, error) {
 	return a.configSet(ctx, p, fx.Config, c)
 }
 
-// configSet applies, validates, writes and commits c's change, then records it and the lead's line (admitted).
+// configSet applies c's changes in order, each to the file the one before it wrote, validates the result, writes and
+// commits it once, then records the fact and the lead's line (admitted). Any change refused refuses them all: nothing
+// is written.
 func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Call) (string, error) {
 	doc, refused, err := file.Read(ctx)
 	if err != nil {
@@ -83,34 +91,50 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Ca
 	if refused != "" {
 		return "", fmt.Errorf("config: %s", refused)
 	}
+	if c.Base != "" && config.Rev(doc) != c.Base {
+		return "", errors.New("config: .obor/config.json changed since this page read it (another tab, the lead or a " +
+			"hand edit): nothing was saved; read the setup again and redo the changes")
+	}
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)
 	}
-	ch, err := cfg.Edit(doc, c.Key, c.Value)
-	if err != nil {
-		return "", fmt.Errorf("config: %v", err)
-	}
-	if ch.Lane != "" {
-		a.mu.Lock()
-		task := p.laneHolds(ch.Lane)
-		a.mu.Unlock()
-		if task != "" {
-			return "", fmt.Errorf("config: lane %s has task %s: change its type once the lane is free", ch.Lane, task)
+	cur, next := doc, cfg
+	var done []event.ConfigSetChange
+	for _, w := range c.Changes {
+		ch, err := next.Edit(cur, w.Key, w.Value)
+		if err != nil {
+			return "", fmt.Errorf("config: %v", err)
 		}
+		if ch.Lane != "" {
+			a.mu.Lock()
+			task := p.laneHolds(ch.Lane)
+			a.mu.Unlock()
+			if task != "" {
+				return "", fmt.Errorf("config: lane %s has task %s: change its type once the lane is free", ch.Lane, task)
+			}
+		}
+		if string(ch.Doc) == string(cur) {
+			continue
+		}
+		if next, err = config.LoadWith(p.root, ch.Doc); err != nil {
+			return "", fmt.Errorf("config: %s would not load: %v", w.Key, err)
+		}
+		cur = ch.Doc
+		done = append(done, event.ConfigSetChange{Key: w.Key, Old: ch.Old, New: ch.New})
 	}
-	if string(ch.Doc) == string(doc) {
-		return "UNCHANGED " + c.Key, nil
-	}
-	next, err := config.LoadWith(p.root, ch.Doc)
-	if err != nil {
-		return "", fmt.Errorf("config: %s would not load: %v", c.Key, err)
+	if len(done) == 0 {
+		keys := make([]string, 0, len(c.Changes))
+		for _, w := range c.Changes {
+			keys = append(keys, w.Key)
+		}
+		return "UNCHANGED " + strings.Join(keys, ", "), nil
 	}
 	opt := config.ValidateOptions{Overlap: spec.Overlap}
 	_, before := cfg.Validate(opt)
 	_, after := next.Validate(opt)
 	if fails := config.NewFails(before, after); len(fails) > 0 {
-		return "", fmt.Errorf("config: %s refused: %s", c.Key, strings.Join(fails, "; "))
+		return "", fmt.Errorf("config: %s refused: %s", changedKeys(done), strings.Join(fails, "; "))
 	}
 	by := c.Agent
 	if by == "" {
@@ -120,16 +144,25 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Ca
 	if c.Source != "" {
 		where += ", " + c.Source
 	}
-	line := fmt.Sprintf("config: %s %s → %s (%s)", c.Key, unsetText(ch.Old), unsetText(ch.New), where)
-	sha, err := file.Commit(ctx, ch.Doc, line)
+	line := fmt.Sprintf("config: %s (%s)", changeText(done, false), where)
+	msg := line
+	if len(done) > 1 { // the subject names the keys; the body has one change a line
+		msg = fmt.Sprintf("config: %s (%s)\n\n%s", changedKeys(done), where, changeText(done, true))
+	}
+	sha, err := file.Commit(ctx, cur, msg)
 	if err != nil {
 		return "", fmt.Errorf("config: %v", err)
 	}
-	reply := fmt.Sprintf("SET %s %s → %s", c.Key, unsetText(ch.Old), unsetText(ch.New))
-	if strings.HasPrefix(c.Key, "roles.") {
-		reply += " (at its next start)"
+	parts := make([]string, 0, len(done))
+	for _, d := range done {
+		r := fmt.Sprintf("SET %s %s → %s", d.Key, unsetText(d.Old), unsetText(d.New))
+		if strings.HasPrefix(d.Key, "roles.") {
+			r += " (at its next start)"
+		}
+		parts = append(parts, r)
 	}
-	d := event.ConfigSet{Key: c.Key, Old: ch.Old, New: ch.New, By: by, Source: c.Source, Commit: sha, Call: c.CallID, Reply: reply}
+	reply := strings.Join(parts, "; ")
+	d := event.ConfigSet{Changes: done, By: by, Source: c.Source, Commit: sha, Call: c.CallID, Reply: reply}
 	if !a.record(p, event.Record{Task: event.ConfigTask, Step: event.StepConfigSet, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("config: committed %s, but the event log of %s refused its record", short(sha), p.name)
 	}
@@ -142,6 +175,31 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Ca
 	}
 	a.wake() // a waiting task may dispatch by the new setup
 	return reply, nil
+}
+
+// changeText is the changes as "<key> <old> → <new>", joined by "; " (lines: one "- " line each).
+func changeText(done []event.ConfigSetChange, lines bool) string {
+	out := make([]string, 0, len(done))
+	for _, d := range done {
+		t := fmt.Sprintf("%s %s → %s", d.Key, unsetText(d.Old), unsetText(d.New))
+		if lines {
+			t = "- " + t
+		}
+		out = append(out, t)
+	}
+	if lines {
+		return strings.Join(out, "\n")
+	}
+	return strings.Join(out, "; ")
+}
+
+// changedKeys is the changes' keys, joined by ", ".
+func changedKeys(done []event.ConfigSetChange) string {
+	keys := make([]string, 0, len(done))
+	for _, d := range done {
+		keys = append(keys, d.Key)
+	}
+	return strings.Join(keys, ", ")
 }
 
 // unsetText is a change's value for its line: "unset" for none.

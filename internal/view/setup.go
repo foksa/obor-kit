@@ -3,6 +3,8 @@ package view
 import (
 	"database/sql"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +27,9 @@ type Setup struct {
 	Paused       *Pause          `json:"paused"`       // the pause in force (nil: none)
 	LaneTypes    []SetupLaneType `json:"lane_types"`   // every lane type in config order: what the page edits (T-753)
 	Distribution []DispatchCount `json:"distribution"` // one cell per level and chosen type
+	// ConfigRev is the revision of .obor/config.json this setup was read from (config.Rev, T-760; "": no file): the
+	// page's edits name it, and serve refuses them once the file is another one.
+	ConfigRev string `json:"config_rev"`
 }
 
 // SetupLevel is one difficulty level and its lane types in dispatch order, as configured: a type reference keeps its
@@ -104,12 +109,18 @@ var distributionLevels = []string{"hard", "medium", "simple", OverrideLevel, ""}
 // view's lane states, role statuses and pause, and the store's dispatch records (the config is read as obor web reads
 // it: LoadReader, an unknown key warns, it does not fail).
 func (d Detail) Setup() (Setup, error) {
+	// the revision first: a write between the two reads leaves it older than what is shown, so an edit is refused
+	// rather than made on a page that hides a change
+	rev := ""
+	if doc, err := os.ReadFile(filepath.Join(d.Root, ".obor", "config.json")); err == nil {
+		rev = config.Rev(doc)
+	}
 	cfg, _, err := config.LoadReader(d.Root)
 	if err != nil {
 		return Setup{}, err
 	}
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Lanes: []SetupLane{}, Roles: []SetupRole{},
-		Distribution: []DispatchCount{}}
+		Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.Difficulty = append(s.Difficulty, SetupLevel{Level: level, Types: append([]string{}, cfg.DifficultyList(level)...)})
 	}

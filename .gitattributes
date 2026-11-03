@@ -1,0 +1,3 @@
+# obor web's built page (make web, T-760): generated, and kept out of diffs (the integrator's review job carries the
+# diff; a minified bundle would flood it). Review web/ instead.
+internal/web/dist/** linguist-generated=true -diff
