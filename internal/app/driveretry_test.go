@@ -159,6 +159,13 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 func TestDriveTakeOverInterruptedAfterStop(t *testing.T) {
 	t.Parallel()
 	r := newTakeOverRig(t)
+	r.waitFor("the watchdog sees pj-o1 (else no exit follows its stop)", func() bool {
+		if app.WatchedPane(r.app, r.p.Root, "T-1") == "w1:p1" {
+			return true
+		}
+		r.push()
+		return false
+	})
 	var once sync.Once
 	app.SetHook(r.app, func(point string) {
 		if point == "drive.stopped" {

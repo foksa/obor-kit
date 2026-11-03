@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -48,16 +49,15 @@ func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
 // stateOf is task's state in obor serve status ("" when not listed).
 func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 
-// driveAgentUp is the CLI's start of the drive agent pj-o1-drive in the lane (pane w1:p5, labelled), seen by the app.
+// driveAgentUp is the CLI's start of the drive agent pj-o1-drive in the lane (pane w1:p5, labelled), identified by the
+// app (seen in a pane is not enough: obor drive's DRIVING answer needs it identified).
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
 	r.f.Agent("w1:p5", "pj-o1-drive", "idle", r.lane)
 	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Workspace, p.Label = "w1", "pj-o1-drive" })
-	r.waitFor("pj-o1-drive seen", func() bool {
-		for _, a := range r.app.Status().Project.Agents {
-			if a.Pane == "w1:p5" {
-				return true
-			}
+	r.waitFor("pj-o1-drive identified", func() bool {
+		if app.IsIdentified(r.app, r.p.Root, "pj-o1-drive") {
+			return true
 		}
 		r.push()
 		return false

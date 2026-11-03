@@ -92,3 +92,22 @@ const DiskEvery = diskEvery
 
 // SetHook sets a's test hook: f runs at each point App.hook names (drive.go's hook points), on the caller's goroutine.
 func SetHook(a *App, f func(point string)) { a.hooked.Store(&f) }
+
+// IsIdentified is whether serve identifies agent in a's project at root (whereIs: a running agent it can address).
+func IsIdentified(a *App, root, agent string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	return p != nil && a.whereIs(p, agent).State == Identified
+}
+
+// WatchedPane is the pane the watchdog last saw task's agent in ("": none yet, or not watched).
+func WatchedPane(a *App, root, task string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	if p == nil || p.tasks[task] == nil {
+		return ""
+	}
+	return p.tasks[task].agent.ID
+}
