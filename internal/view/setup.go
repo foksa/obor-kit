@@ -10,6 +10,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/config"
 	roletable "obor/internal/roles"
+	"obor/internal/store"
 )
 
 // Setup is the project's setup as the web page shows it (T-750): what steers the work — each difficulty level's lane
@@ -64,7 +65,9 @@ type SetupRole struct {
 
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
 // reference they placed: Recent are those of the last 7 days, All those of every record. Level is OverrideLevel for a
-// dispatch with --types and no level ("" is neither), Type "" a dispatch from before T-721 that ran a pooled lane.
+// dispatch with --types and no level ("" is neither), Type "" a dispatch the store names no type for: a record from
+// before T-721 that ran a pooled lane, or one whose lane the config and the store's own records of it leave untyped
+// (T-752; the page labels it "unknown", never "pooled", which is the lane's, not the dispatch's).
 type DispatchCount struct {
 	Level  string `json:"level"`
 	Type   string `json:"type"`
@@ -187,7 +190,8 @@ func setupType(cfg *config.Config, ref string) (SetupType, bool) {
 // distribution is db's dispatch records counted by level and chosen type, for the last 7 days and for every record.
 // Only a dispatch that placed a task on a lane counts: a waiting dispatch places nothing, and the dispatch that
 // places it later counts once; a redo is a dispatch of its own. A record with no type (a dispatch from before T-721)
-// takes its lane's configured type.
+// takes its lane's configured type, or, for a lane the config no longer names, the type the store's own records of
+// that lane name (laneTypes); none names one: the type is unknown (T-752), never a guess from the lane's name.
 func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount {
 	if db == nil {
 		return []DispatchCount{}
@@ -196,6 +200,7 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 	for _, l := range cfg.Lanes() {
 		lanes[l.Name] = l.Type
 	}
+	gone := laneTypes(db, lanes)
 	rows, err := db.Query(`SELECT ts, data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
 	if err != nil {
 		return []DispatchCount{}
@@ -224,7 +229,11 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 			level = OverrideLevel
 		}
 		if typ == "" {
-			typ = lanes[d.Lane] // a record from before T-721: its lane's configured type
+			if t, ok := lanes[d.Lane]; ok { // a record from before T-721: its lane's configured type
+				typ = t
+			} else { // its lane is gone from the config: the type its own records name, else unknown ("")
+				typ = gone[d.Lane]
+			}
 		}
 		c := cell{level, typ}
 		all[c]++
@@ -242,6 +251,43 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 		}
 		return strings.Compare(a.Type, b.Type)
 	})
+	return out
+}
+
+// laneTypes is the type each lane the config no longer names ran, from the store's own records of that lane (T-752):
+// its lane row, which the lane's setup wrote (a row from before T-721 records none), and its dispatch records that
+// named one (after T-721). A lane none of them names a type for is missing from the map: its dispatches are unknown,
+// never guessed from the lane's name.
+func laneTypes(db *sql.DB, configured map[string]string) map[string]string {
+	out := map[string]string{}
+	if rows, err := store.ReadLanes(db); err == nil { // a store without a lanes table: the dispatch records answer
+		for _, r := range rows {
+			if _, ok := configured[r.Lane]; !ok && r.Type != "" {
+				out[r.Lane] = r.Type
+			}
+		}
+	}
+	rows, err := db.Query(`SELECT data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var data []byte
+		if rows.Scan(&data) != nil {
+			continue
+		}
+		var d struct {
+			Lane string `json:"lane"`
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &d) != nil || d.Type == "" {
+			continue
+		}
+		if _, ok := configured[d.Lane]; !ok {
+			out[d.Lane] = d.Type // the lane's newest record answers, as its row does
+		}
+	}
 	return out
 }
 
