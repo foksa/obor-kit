@@ -220,6 +220,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   lane branch first.
 - (T-334) Two `sendback`s (the lead's lane form and the integrator's MCP verb): rename or drop the lane form.
 ## Concerns
+- (11-03 08:19) one-off `needs-you loop: the branch of the main checkout …: exit status 2` (`cmd/obor/serve_dispatch.go:77`, `git branch --show-current`) around serve's re-exec after T-754/T-756 merged; cleared by itself, main clean on `main`. If it recurs: capture git's stderr in that error.
 - **`internal/app` is where all growth lands** (+789 in phase 4, 7.4k; DD-v0.12 Design 1). Keep "a new state or
   step is a row in `states.go`"; split files in phase 5.
 - **Surface growth:** each feature brings 2–4 review findings. Consolidate before new features.
