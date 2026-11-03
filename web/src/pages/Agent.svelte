@@ -3,6 +3,7 @@
   // to it and its recorded sessions.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { human, unixOf } from "../lib/format";
@@ -32,6 +33,7 @@
       {#if a.status}<Pill state={a.status === "done" ? "idle" : a.status} text={a.status} />{:else}<Pill state="idle" text="no pane" />{/if}
       {#if a.task}<span class="small">on <TaskLink {project} task={a.task} chip /></span>{/if}
       {#if a.lane}<span class="small muted">lane <span class="mono">{a.lane}</span></span>{/if}
+      <Stale error={live.data ? live.error : ""} />
     </div>
 
     {#if a.background?.length}

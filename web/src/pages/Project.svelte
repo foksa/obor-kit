@@ -3,6 +3,7 @@
   // queue and the role agents beside the events.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { FREE, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
@@ -96,6 +97,7 @@
       {#each v.running || [] as r (r.step + r.task)}
         <Pill state="running" text="{r.step}{r.task ? ' ' + r.task : ''} · {dur(now() - r.since)}" title={r.command} />
       {/each}
+      <Stale error={live.data ? live.error : ""} />
       <a class="btn sm head-btn" href={href.setup(project)}>Setup</a>
     </div>
     {#if !v.serve.up && v.serve.error}<p class="muted small down"><Linked {project} text={v.serve.error} /></p>{/if}

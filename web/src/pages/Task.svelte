@@ -3,6 +3,7 @@
   // tabs beside where it runs and its last gate.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { clock, human, unixOf } from "../lib/format";
@@ -50,6 +51,7 @@
         <span class="id mono">{t.task}</span>
         {#if stage.state}<Pill state={stage.state === "ended" ? "idle" : stage.state} tone={stage.tone} text={stage.state} />{/if}
         {#if t.dispatched_at}<span class="muted small">dispatched <Rel at={t.dispatched_at} /></span>{/if}
+        <Stale error={live.data ? live.error : ""} />
       </div>
       <h1>{t.title || t.task}</h1>
     </header>

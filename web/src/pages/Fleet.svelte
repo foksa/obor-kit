@@ -3,6 +3,7 @@
   // work, the steps running), the counts across them, a card per project, and their events together.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { FREE, dur, human, now, roleName, tone, unixOf } from "../lib/format";
@@ -41,7 +42,7 @@
 </script>
 
 <div class="page">
-  <div class="page-head"><h1>Fleet</h1><span class="muted small">every obor project on this machine</span></div>
+  <div class="page-head"><h1>Fleet</h1><span class="muted small">every obor project on this machine</span><Stale error={live.data ? live.error : ""} /></div>
   {#if !live.data}
     <p class={live.error ? "failed" : "loading"}>{live.error || "loading…"}</p>
   {:else if !ps.length}

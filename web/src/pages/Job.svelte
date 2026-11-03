@@ -2,6 +2,7 @@
   // A job's page: the prompt serve sent, whole.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { unixOf } from "../lib/format";
   import type { Prompt } from "../lib/types";
@@ -28,6 +29,7 @@
       {#if j.task}<span class="small">task <TaskLink {project} task={j.task} chip /></span>{/if}
       {#if j.agent}<span class="small">agent <AgentLink {project} agent={j.agent} /></span>{/if}
       <span class="small muted">sent <Rel at={unixOf(j.ts)} /></span>
+      <Stale error={live.data ? live.error : ""} />
     </div>
     <Section title="Prompt" count="{String(j.text || '').split('\n').length} lines">
       <div class="card"><pre class="text">{j.text}</pre></div>
