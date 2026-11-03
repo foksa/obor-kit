@@ -1,6 +1,6 @@
 {
   "name": "obor",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Run a lead / integrator / worker / reviewer agent swarm in herdr panes: obor serve dispatches, gates and merges; workers and the integrator work over MCP; a lead skill, role texts and guard hooks.",
   "author": {
     "name": "Djordje Radakovic"
