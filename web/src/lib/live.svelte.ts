@@ -10,8 +10,21 @@ const BURST_MS = 1200; // a burst of records reads once
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// mark is the live mark in the top bar: on, or why not.
+// mark is the live mark in the top bar: on, or why not. It is the worst of every running Live's own state (the
+// sidebar's and the shown page's), so a healthy sidebar never hides a page's failed refresh or lost poll; a stopped
+// Live (a page navigated away from) no longer counts.
 export const mark = $state<{ state: "on" | "stale" | "off"; text: string }>({ state: "off", text: "" });
+
+type Own = "" | "on" | "refresh failed" | "reconnecting"; // "": not read yet
+const rank: Record<Own, number> = { "": 0, on: 1, "refresh failed": 2, reconnecting: 3 };
+const running = new Set<Live<unknown>>();
+function remark() {
+  let worst: Own = "";
+  for (const l of running) if (rank[l.own] > rank[worst]) worst = l.own;
+  if (worst === "") Object.assign(mark, { state: "off", text: "" });
+  else if (worst === "on") Object.assign(mark, { state: "on", text: "live" });
+  else Object.assign(mark, { state: "stale", text: worst });
+}
 
 const cursors: Record<string, number> = {}; // project → the newest seq its pages are read past; only moves forward
 function advance(project: string, seq: number) {
@@ -33,6 +46,8 @@ export class Live<T> {
   private painted = 0;
   private poll = true;
   private drawn = false;
+  // own is this Live's part of the top bar's mark.
+  own: Own = "";
 
   constructor(private load: (signal: AbortSignal) => Promise<T>, private project = "") {}
 
@@ -63,6 +78,7 @@ export class Live<T> {
 
   start() {
     this.ctl = new AbortController();
+    running.add(this as Live<unknown>);
     const ctl = this.ctl;
     (async () => {
       // The cursor is taken before the first read: a record that lands between the two reads the page again.
@@ -79,12 +95,13 @@ export class Live<T> {
   stop() {
     this.ctl?.abort();
     this.ctl = null;
+    running.delete(this as Live<unknown>);
+    remark();
   }
 
   private mark() {
-    if (!this.poll) Object.assign(mark, { state: "stale", text: "reconnecting" });
-    else if (!this.drawn) Object.assign(mark, { state: "stale", text: "refresh failed" });
-    else Object.assign(mark, { state: "on", text: "live" });
+    this.own = !this.poll ? "reconnecting" : !this.drawn ? "refresh failed" : "on";
+    remark();
   }
 
   private async refresh(ctl: AbortController) {

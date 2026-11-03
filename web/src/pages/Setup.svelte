@@ -4,6 +4,7 @@
   // staged and committed together as one commit of .obor/config.json on main; the pause acts at once.
   import { onDestroy } from "svelte";
   import { Live } from "../lib/live.svelte";
+  import Stale from "../ui/Stale.svelte";
   import { api, post } from "../lib/api";
   import { roleName } from "../lib/format";
   import { LOCKED, body, current, joinRef, models, move, show, splitRef, stage, value, type Staged, type Value } from "../lib/setup";
@@ -130,6 +131,7 @@
   <div class="page-head">
     <h1>Setup</h1>
     <span class="muted small">what steers {project}'s work · edits land as one commit of <code>.obor/config.json</code> on main</span>
+    <Stale error={live.data ? live.error : ""} />
   </div>
 
   {#if !s}
