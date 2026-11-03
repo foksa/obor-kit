@@ -15,12 +15,11 @@ import (
 	"obor/internal/app"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
-	"obor/internal/testkit"
 )
 
 // Dispatch as state (docs/state-model.md rows 2–9): the dispatch request over the socket, its fact, and the steps the
 // merge loop runs after it (lane.prepare, agent.start, the work job), on the merge loop's rig with fake
-// LaneSetup and Specs adapters. Lane O-01 starts free (its worker pj-o1 idle in its pane, session s0); T-1 is the
+// LaneSetup and Specs adapters. Lane L-01 starts free (its worker pj-l-01 idle in its pane, session s0); T-1 is the
 // task dispatched.
 
 // dispatchFakes is the dispatch's adapters and what they did.
@@ -48,15 +47,13 @@ type dispatchFakes struct {
 	hit  map[string]bool
 }
 
-// newDispatchRig is the merge loop's rig with the dispatch adapters and O-01 free; edits change the config further.
+// newDispatchRig is the merge loop's rig with the dispatch adapters and L-01 free; edits change the config further.
 func newDispatchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	// The live lane is typed sonnet: the config has that lane type (T-738 refuses a --types it lacks).
-	edits = append([]func(map[string]any){testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"})}, edits...)
 	r := newLoopRig(t, "echo 1 pass", edits...)
 	r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
 		fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
-	r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.Type, l.State = "", "", "sonnet", "free" })
+	r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/s/0.jsonl" })
 	return r
 }
@@ -112,7 +109,7 @@ func (d *dispatchFakes) Target(context.Context, string) (string, bool, error) {
 	return "target1", d.ahead, nil
 }
 
-// Prepare puts O-01 on T-1 in the lane table.
+// Prepare puts L-01 on T-1 in the lane table.
 func (d *dispatchFakes) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared, error) {
 	if err := d.enter("prepare"); err != nil {
 		return port.Prepared{}, err
@@ -142,13 +139,13 @@ func (d *dispatchFakes) Free(ctx context.Context, in port.FreeInput) (string, er
 	return "", nil
 }
 
-// startWorker is pj-o1's fresh start in its pane: a new session (unless keepSession), idle, seen by the app.
+// startWorker is pj-l-01's fresh start in its pane: a new session (unless keepSession), idle, seen by the app.
 func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {
 	if err := d.enter("start"); err != nil {
 		return port.Started{}, err
 	}
 	if !req.Fresh || req.Pane != "w1:p1" {
-		return port.Started{}, errors.New("unexpected start of pj-o1: " + req.Pane)
+		return port.Started{}, errors.New("unexpected start of pj-l-01: " + req.Pane)
 	}
 	if err := d.hold(ctx, "start", "before"); err != nil {
 		return port.Started{}, err
@@ -161,7 +158,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	transcript := "/s/" + string(rune('0'+d.session)) + ".jsonl"
 	d.mu.Unlock()
 	d.r.f.Set("w1:p1", func(p *herdrtest.Pane) {
-		p.Kind, p.Name, p.Status, p.Transcript = "claude", "pj-o1", "idle", transcript
+		p.Kind, p.Name, p.Status, p.Transcript = "claude", "pj-l-01", "idle", transcript
 	})
 	d.r.push()
 	d.mu.Lock()
@@ -183,7 +180,7 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 		sid = ""
 	}
 	d.mu.Unlock()
-	return port.Started{Line: "STARTED pj-o1", Pane: "w1:p1", Kind: "claude", Session: sid}, nil
+	return port.Started{Line: "STARTED pj-l-01", Pane: "w1:p1", Kind: "claude", Session: sid}, nil
 }
 
 // cutPrompter is the herdr typer with the work job's cut points.
@@ -227,8 +224,12 @@ func (d *dispatchFakes) set(fn func(d *dispatchFakes)) {
 	d.mu.Unlock()
 }
 
-// dispatch is the lead's dispatch of T-1 (lane "" with types: the first free lane of them).
+// dispatch is the lead's dispatch of T-1 (lane "" with models: the first free lane for them). A named lane with no
+// models runs sonnet: the rig's T-1 has no stored spec, so no level to take one from (T-765: every lane is pooled).
 func (r *loopRig) dispatch(callID, lane string, types ...string) (string, error) {
+	if lane != "" && len(types) == 0 {
+		types = []string{"sonnet"}
+	}
 	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
 		Lane: lane, Types: types})
 }
@@ -239,18 +240,18 @@ func (r *loopRig) dispatchCall(c wire.Call) (string, error) {
 
 func (r *loopRig) mustDispatch(callID string) {
 	r.t.Helper()
-	if reply, err := r.dispatch(callID, "O-01"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+	if reply, err := r.dispatch(callID, "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		r.t.Fatalf("dispatch: %q, %v", reply, err)
 	}
 }
 
-// workerIs sets pj-o1's status in the fake herdr and waits until the app sees it.
+// workerIs sets pj-l-01's status in the fake herdr and waits until the app sees it.
 func (r *loopRig) workerIs(status string) {
 	r.t.Helper()
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Status = status })
-	r.waitFor("pj-o1 "+status, func() bool {
+	r.waitFor("pj-l-01 "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
-			if a.Name == "pj-o1" && a.Status == status {
+			if a.Name == "pj-l-01" && a.Status == status {
 				return true
 			}
 		}
@@ -259,11 +260,11 @@ func (r *loopRig) workerIs(status string) {
 	})
 }
 
-// workPrompts is how many work job prompts pj-o1 got (job T-1/<attempt>/work…).
+// workPrompts is how many work job prompts pj-l-01 got (job T-1/<attempt>/work…).
 func (r *loopRig) workPrompts() int {
 	n := 0
 	for _, p := range r.prompts() {
-		if p.to == "pj-o1" && strings.HasPrefix(p.text, "[obor job T-1/") && strings.Contains(p.text, "/work") {
+		if p.to == "pj-l-01" && strings.HasPrefix(p.text, "[obor job T-1/") && strings.Contains(p.text, "/work") {
 			n++
 		}
 	}
@@ -305,7 +306,7 @@ func TestDispatchHappyPath(t *testing.T) {
 		t.Fatalf("precondition: records before the dispatch: %q", r.steps())
 	}
 	// The CLI's call shape (T-538, T-545): a task and its types, no lane.
-	if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+	if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		t.Fatalf("dispatch: %q, %v", reply, err)
 	}
 	r.waitStep("1 result work")
@@ -313,7 +314,7 @@ func TestDispatchHappyPath(t *testing.T) {
 	if r.taskState() != "dispatched" {
 		t.Errorf("state %q before delivery, want dispatched", r.taskState())
 	}
-	job := r.waitJob("pj-o1", "T-1/1/work")
+	job := r.waitJob("pj-l-01", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	// T-440: the job carries the stored spec (backticks kept: it is fetched, not typed), not a git read of it.
 	// T-603: it carries the kit's worker role text inline (the rig's project has no project doc).
@@ -347,12 +348,12 @@ func TestDispatchHappyPath(t *testing.T) {
 	r.disp.mu.Lock()
 	in := r.disp.inputs[0]
 	r.disp.mu.Unlock()
-	if in.Task != "T-1" || in.Lane != "O-01" || in.Dir != r.lane || in.Branch != "task/T-1" || in.Target != "target1" ||
+	if in.Task != "T-1" || in.Lane != "L-01" || in.Dir != r.lane || in.Branch != "task/T-1" || in.Target != "target1" ||
 		in.Redo || in.At.IsZero() {
 		t.Errorf("prepare input %+v", in)
 	}
-	if in.Agent != "pj-o1" { // the lane's first alias: the lane state file's agent
-		t.Errorf("prepare input agent %q, want pj-o1: %+v", in.Agent, in)
+	if in.Agent != "pj-l-01" { // the lane's first alias: the lane state file's agent
+		t.Errorf("prepare input agent %q, want pj-l-01: %+v", in.Agent, in)
 	}
 
 	r.submit()
@@ -370,16 +371,16 @@ func TestDispatchHappyPath(t *testing.T) {
 	r.noLead()
 }
 
-// --types takes the first free lane of the types in config order.
-func TestDispatchByTypes(t *testing.T) {
+// --model runs its first model on the first free lane; a name that is no model is refused.
+func TestDispatchByModels(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
 	r.start()
-	if _, err := r.dispatch("d0", "", "opus"); err == nil || !strings.Contains(err.Error(), "no free lane of the types opus") {
-		t.Fatalf("no lane of the type: %v", err)
+	if _, err := r.dispatch("d0", "", "gpt", "sonnet"); err == nil || !strings.Contains(err.Error(), `"gpt" is not a model`) {
+		t.Fatalf("an unknown model: %v", err)
 	}
-	if reply, err := r.dispatch("d1", "", "opus", "sonnet"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
-		t.Fatalf("by types: %q, %v", reply, err)
+	if reply, err := r.dispatch("d1", "", "opus", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as opus" {
+		t.Fatalf("by models: %q, %v", reply, err)
 	}
 	r.waitStep("1 result work")
 }
@@ -410,7 +411,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 			t.Parallel()
 			r := newDispatchRig(t)
 			r.start()
-			if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+			if reply, err := r.dispatch("d1", "", "sonnet"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 				t.Fatalf("the first dispatch: %q, %v", reply, err)
 			}
 			r.waitStep("1 result work")
@@ -419,42 +420,41 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 			first := r.disp.inputs[0]
 			r.disp.mu.Unlock()
 			drop(t, r)
-			// The drop kept the work: O-01 still holds T-1 on its branch (no lane was freed); its worker may be
+			// The drop kept the work: L-01 still holds T-1 on its branch (no lane was freed); its worker may be
 			// blocked (a live lane state, T-545: the redo takes it too).
 			r.setLane(func(l *port.Lane) { l.State = state })
 			r.lanes.mu.Lock()
 			l := r.lanes.lanes[0]
 			r.lanes.mu.Unlock()
 			if l.Task != "T-1" || l.State != state {
-				t.Fatalf("precondition: after the drop lane O-01 is %q on %q, want %s on T-1", l.State, l.Task, state)
+				t.Fatalf("precondition: after the drop lane L-01 is %q on %q, want %s on T-1", l.State, l.Task, state)
 			}
 			reply, err := r.dispatch("d2", "", "sonnet")
-			if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
-				t.Fatalf("the re-dispatch onto the %s lane: %q, %v; want O-01, the lane that holds the branch", state,
+			if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
+				t.Fatalf("the re-dispatch onto the %s lane: %q, %v; want L-01, the lane that holds the branch", state,
 					reply, err)
 			}
 			r.waitStep("2 result work")
 			r.disp.mu.Lock()
 			in := r.disp.inputs[1]
 			r.disp.mu.Unlock()
-			if !in.Redo || in.Lane != "O-01" || in.Branch != first.Branch || in.Target != first.Target {
-				t.Errorf("the redo's prepare %+v; want lane O-01 on %s at %s with redo", in, first.Branch, first.Target)
+			if !in.Redo || in.Lane != "L-01" || in.Branch != first.Branch || in.Target != first.Target {
+				t.Errorf("the redo's prepare %+v; want lane L-01 on %s at %s with redo", in, first.Branch, first.Target)
 			}
 			if b := r.p.Git(r.lane, "branch", "--show-current"); b != "task/T-1" {
-				t.Errorf("lane O-01 is on %q after the redo, want task/T-1 (its branch kept)", b)
+				t.Errorf("lane L-01 is on %q after the redo, want task/T-1 (its branch kept)", b)
 			}
 		})
 	}
 	t.Run("no other lane of the level free: the redo, not a wait", func(t *testing.T) {
 		t.Parallel()
 		r := newLevelRig(t)
-		r.setLane(func(l *port.Lane) { l.Type = "deepseek" })
 		r.lanes.mu.Lock()
-		r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9" // O-02 (sonnet) is busy
+		r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9" // L-02 is busy
 		r.lanes.mu.Unlock()
 		r.start()
 		r.specLevel("simple") // deepseek
-		if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01") {
+		if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01") {
 			t.Fatalf("the first dispatch: %q, %v", reply, err)
 		}
 		r.waitStep("1 result work")
@@ -462,18 +462,18 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 		r.lanes.mu.Lock()
 		var free []string
 		for _, l := range r.lanes.lanes {
-			if l.Type == "deepseek" && l.State == "free" {
+			if l.State == "free" {
 				free = append(free, l.Name)
 			}
 		}
 		r.lanes.mu.Unlock()
 		if len(free) != 0 {
-			t.Fatalf("precondition: free deepseek lanes %v, want none (O-01 holds T-1)", free)
+			t.Fatalf("precondition: free lanes %v, want none (L-01 holds T-1)", free)
 		}
 		drop(t, r)
 		reply, err := r.dispatchLevel("d2")
-		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01") {
-			t.Fatalf("the re-dispatch with no free deepseek lane: %q, %v; want the redo onto O-01, not a wait", reply, err)
+		if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01") {
+			t.Fatalf("the re-dispatch with no free lane: %q, %v; want the redo onto L-01, not a wait", reply, err)
 		}
 		r.waitStep("2 result work")
 		if n := r.taskStep("T-1", "fact waiting"); n != 0 {
@@ -482,7 +482,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 	})
 }
 
-// addLanes appends lanes to the rig's lane table after O-01 (config order).
+// addLanes appends lanes to the rig's lane table after L-01 (config order).
 func (r *loopRig) addLanes(ls ...port.Lane) {
 	r.lanes.mu.Lock()
 	r.lanes.lanes = append(r.lanes.lanes, ls...)
@@ -494,14 +494,14 @@ func (r *loopRig) addLanes(ls ...port.Lane) {
 // lane is listed.
 func TestDispatchNamesIdleLanes(t *testing.T) {
 	t.Parallel()
-	busy := []port.Lane{{Name: "O-03", Type: "sonnet", State: "dirty-free"}, {Name: "O-04", Type: "opus", State: "working"}}
+	busy := []port.Lane{{Name: "L-03", State: "dirty-free"}, {Name: "L-04", State: "working"}}
 	t.Run("two free lanes: the other one is idle", func(t *testing.T) {
 		t.Parallel()
 		r := newDispatchRig(t)
-		r.addLanes(append([]port.Lane{{Name: "O-02", Type: "opus", State: "free"}}, busy...)...)
+		r.addLanes(append([]port.Lane{{Name: "L-02", State: "free"}}, busy...)...)
 		r.start()
 		reply, err := r.dispatch("d1", "", "sonnet", "opus")
-		if err != nil || reply != "DISPATCHED T-1 → O-01 (queued); idle: O-02 (opus)" {
+		if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet; idle: L-02" {
 			t.Fatalf("dispatch: %q, %v", reply, err)
 		}
 		r.waitStep("1 result work")
@@ -512,7 +512,7 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 		r.addLanes(busy...)
 		r.start()
 		reply, err := r.dispatch("d1", "", "sonnet")
-		if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+		if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 			t.Fatalf("dispatch: %q, %v", reply, err)
 		}
 		r.waitStep("1 result work")
@@ -520,9 +520,9 @@ func TestDispatchNamesIdleLanes(t *testing.T) {
 	t.Run("waiting: every free lane is idle", func(t *testing.T) {
 		t.Parallel()
 		r := startWithT2(t)
-		r.addLanes(append([]port.Lane{{Name: "O-02", Type: "opus", State: "free"}}, busy...)...)
+		r.addLanes(append([]port.Lane{{Name: "L-02", State: "free"}}, busy...)...)
 		reply, err := r.waitAfter("d1", "T-2")
-		if err != nil || reply != "WAITING T-1 after T-2 (queued); idle: O-01 (sonnet), O-02 (opus)" {
+		if err != nil || reply != "WAITING T-1 after T-2 (queued); idle: L-01, L-02" {
 			t.Fatalf("dispatch --after: %q, %v", reply, err)
 		}
 	})
@@ -538,8 +538,8 @@ func TestDispatchRefusals(t *testing.T) {
 		want  string
 	}{
 		{name: "no call id", call: func(c *wire.Call) { c.CallID = "" }, want: "a call id and a task are required"},
-		{name: "a worker calls", call: func(c *wire.Call) { c.Role, c.Agent = "worker", "pj-o2" },
-			want: "the lead or the owner dispatches, not pj-o2"},
+		{name: "a worker calls", call: func(c *wire.Call) { c.Role, c.Agent = "worker", "pj-l-02" },
+			want: "the lead or the owner dispatches, not pj-l-02"},
 		{name: "no lane adapter", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.on = false }) },
 			want: "dispatch off for proj (no lane adapter)"},
 		{name: "bad task id", setup: func(r *loopRig) {
@@ -548,20 +548,20 @@ func TestDispatchRefusals(t *testing.T) {
 		{name: "spec not on the target", setup: func(r *loopRig) {
 			r.disp.set(func(d *dispatchFakes) { d.refuse["T-1"] = "no spec for T-1 in obor serve's store" })
 		}, want: "no spec for T-1 in obor serve's store"},
-		{name: "unknown lane", call: func(c *wire.Call) { c.Lane = "O-09" }, want: "unknown lane O-09"},
-		{name: "no level and no types", call: func(c *wire.Call) { c.Lane = "" }, want: "no valid \"Difficulty: <level>\" line"},
-		{name: "no free lane of the types", call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"opus"} },
-			want: "no free lane of the types opus"},
+		{name: "unknown lane", call: func(c *wire.Call) { c.Lane = "L-09" }, want: "unknown lane L-09"},
+		{name: "no level and no models", call: func(c *wire.Call) { c.Lane, c.Types = "", nil }, want: "no valid \"Difficulty: <level>\" line"},
+		{name: "no free lane for the models", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" }) },
+			call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"opus"} }, want: "no free lane for the models opus"},
 		{name: "dirty-free without force", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State = "dirty-free" }) },
-			want: "lane O-01 is dirty-free (uncommitted changes; --force to dispatch anyway)"},
+			want: "lane L-01 is dirty-free (uncommitted changes; --force to dispatch anyway)"},
 		{name: "working on another task", setup: func(r *loopRig) {
 			r.setLane(func(l *port.Lane) { l.State, l.Task = "working", "T-9" })
-		}, want: "lane O-01 is working on T-9"},
+		}, want: "lane L-01 is working on T-9"},
 		{name: "blocked on another task", setup: func(r *loopRig) {
 			r.setLane(func(l *port.Lane) { l.State, l.Task = "blocked", "T-9" })
-		}, want: "lane O-01 is blocked"},
+		}, want: "lane L-01 is blocked"},
 		{name: "done", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State, l.Task = "done", "T-9" }) },
-			want: "lane O-01 is done"},
+			want: "lane L-01 is done"},
 		// The CLI's shape: a task and its types, no lane (T-538); the branch's commits make only a redo legal (T-545).
 		{name: "task branch ahead", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.ahead = true }) },
 			call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"sonnet"} },
@@ -574,7 +574,8 @@ func TestDispatchRefusals(t *testing.T) {
 				row.setup(r)
 			}
 			r.start()
-			c := wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d1", Task: "T-1", Lane: "O-01"}
+			c := wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d1", Task: "T-1", Lane: "L-01",
+				Types: []string{"sonnet"}}
 			if row.call != nil {
 				row.call(&c)
 			}
@@ -598,10 +599,10 @@ func TestDispatchRefusals(t *testing.T) {
 		r.mustDispatch("d1")
 		r.waitStep("1 result work")
 		r.setLane(func(l *port.Lane) { l.State, l.Task = "free", "" })
-		if _, err := r.dispatch("d2", "O-01"); err == nil || !strings.Contains(err.Error(), "T-1 is open in obor serve (dispatched)") {
+		if _, err := r.dispatch("d2", "L-01"); err == nil || !strings.Contains(err.Error(), "T-1 is open in obor serve (dispatched)") {
 			t.Errorf("a second dispatch of the open task: %v", err)
 		}
-		if reply, err := r.dispatch("d1", "O-01"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+		if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 			t.Errorf("the first call id again: %q, %v; want its stored reply", reply, err)
 		}
 		r.passes()
@@ -616,8 +617,8 @@ func TestDispatchRefusals(t *testing.T) {
 		r.start()
 		r.mustDispatch("d1")
 		r.waitStep("1 fact failed{lane.prepare: git I/O}")
-		c := wire.Call{Root: r.p.Root, Role: "lead", CallID: "d2", Task: "T-2", Lane: "O-01"}
-		if _, err := r.dispatchCall(c); err == nil || !strings.Contains(err.Error(), "lane O-01 is dispatched to T-1") {
+		c := wire.Call{Root: r.p.Root, Role: "lead", CallID: "d2", Task: "T-2", Lane: "L-01", Types: []string{"sonnet"}}
+		if _, err := r.dispatchCall(c); err == nil || !strings.Contains(err.Error(), "lane L-01 is dispatched to T-1") {
 			t.Errorf("a dispatch onto the held lane: %v", err)
 		}
 	})
@@ -678,11 +679,11 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) {
-			d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+			d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 		})
 		r.start()
 		r.mustDispatch("d1")
-		r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
+		r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")
 		r.passes()
 		if n := r.disp.called("prepare"); n != 1 || r.has("1 intent agent.start") {
 			t.Errorf("prepare calls %d (want 1), or a start after the refusal: %q", n, r.steps())
@@ -701,11 +702,11 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		t.Parallel()
 		r := newDispatchRig(t)
 		r.disp.set(func(d *dispatchFakes) {
-			d.fail["start"] = func() error { return errors.New("pj-o1 has background tasks (--force stops them)") }
+			d.fail["start"] = func() error { return errors.New("pj-l-01 has background tasks (--force stops them)") }
 		})
 		r.start()
 		r.mustDispatch("d1")
-		r.waitPrefix("1 fact needs-you{start: pj-o1 has background tasks")
+		r.waitPrefix("1 fact needs-you{start: pj-l-01 has background tasks")
 		r.disp.set(func(d *dispatchFakes) { delete(d.fail, "start") })
 		r.needsYouState()
 		r.mustResume("r1", "", "RESUMED T-1: retry (start)")
@@ -743,7 +744,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		r.waitStep("1 result lane.prepare")
 		r.passes()
 		r.later(time.Minute)
-		r.waitPrefix("1 fact needs-you{no pane in lane O-01")
+		r.waitPrefix("1 fact needs-you{no pane in lane L-01")
 		if r.has("1 intent agent.start") {
 			t.Errorf("a start with no pane: %q", r.steps())
 		}
@@ -776,7 +777,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 		r.waitStep("1 result lane.prepare")
 		r.passes()
 		r.later(time.Minute)
-		r.waitPrefix("1 fact needs-you{no pane in lane O-01")
+		r.waitPrefix("1 fact needs-you{no pane in lane L-01")
 		if r.has("1 intent agent.start") {
 			t.Errorf("a start with no pane: %q", r.steps())
 		}
@@ -800,15 +801,15 @@ func TestDispatchDelivery(t *testing.T) {
 	if n := r.workPrompts(); n != 1 { // the first rode on the start
 		t.Errorf("work prompts after the retry %d, want 1", n)
 	}
-	if got := r.cleared("pj-o1"); len(got) != 1 || !got[0] {
+	if got := r.cleared("pj-l-01"); len(got) != 1 || !got[0] {
 		t.Errorf("input line cleared before prompts %v, want [true] (the retry clears)", got)
 	}
 	r.later(5 * time.Minute)
-	r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-o1}")
+	r.waitStep("1 fact needs-you{job not delivered: T-1/1/work prompted twice to pj-l-01}")
 	r.waitFor("one notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 	r.needsYouState()
 	r.mustResume("r1", "", "RESUMED T-1: retry (job not delivered)")
-	r.waitJob("pj-o1", "T-1/1/work.2")
+	r.waitJob("pj-l-01", "T-1/1/work.2")
 	r.waitStep("1 result work.2")
 	r.workerIs("working")
 	r.waitStep("1 fact delivered")
@@ -829,7 +830,7 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.landT2()
-	const why = "dispatch T-1: lane O-01 is working on T-9"
+	const why = "dispatch T-1: lane L-01 is working on T-9"
 	r.waitFor("the first wait's reason", func() bool { return r.taskStatus("T-1").Why == why })
 	r.later(59 * time.Minute)
 	if st := r.taskStatus("T-1"); st.State != "waiting" {
@@ -869,7 +870,7 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 }
 
 // T-494, RV-52 #2 (T-587): agent.start names the lane's worker by its lane row's agent when that is still one of the
-// lane's names, else by the lane pane's label when it is one of the lane's names (pj-o1, the compact alias, stays pj-o1), else by the lane's default name (pj-o-01: no
+// lane's names, else by the lane pane's label when it is one of the lane's names (pj-l1, the compact alias, stays pj-l1), else by the lane's default name (pj-l-01: no
 // agent in the config here). herdr's live agent name never counts: a label and a live name that are two of the
 // lane's aliases give the label, a live name with no label gives the default.
 func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
@@ -880,19 +881,19 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 		label, agent string // w1:p1's label and the agent running in it ("": a shell)
 		want         string
 	}{
-		{"lane row, a lane name", "pj-o1", "", "", "pj-o1"},
-		{"lane row, not a lane name (before a rename): the default", "hk-o1", "", "", "pj-o-01"},
-		{"lane row not a lane name, a labelled pane: the label", "hk-o1", "pj-o1", "", "pj-o1"},
-		{"labelled pane", "", "pj-o1", "", "pj-o1"},
-		{"live name and label conflict: the label", "", "pj-o1", "pj-o-01", "pj-o1"},
-		{"live name and label conflict, reversed: the label", "", "pj-o-01", "pj-o1", "pj-o-01"},
-		{"a live name, no label: the default", "", "", "pj-o1", "pj-o-01"},
-		{"label not a lane name", "", "notes", "", "pj-o-01"},
-		{"neither", "", "", "", "pj-o-01"},
+		{"lane row, a lane name", "pj-l1", "", "", "pj-l1"},
+		{"lane row, not a lane name (before a rename): the default", "hk-l1", "", "", "pj-l-01"},
+		{"lane row not a lane name, a labelled pane: the label", "hk-l1", "pj-l1", "", "pj-l1"},
+		{"labelled pane", "", "pj-l1", "", "pj-l1"},
+		{"live name and label conflict: the label", "", "pj-l1", "pj-l-01", "pj-l1"},
+		{"live name and label conflict, reversed: the label", "", "pj-l-01", "pj-l1", "pj-l-01"},
+		{"a live name, no label: the default", "", "", "pj-l1", "pj-l-01"},
+		{"label not a lane name", "", "notes", "", "pj-l-01"},
+		{"neither", "", "", "", "pj-l-01"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
-			r := newDispatchRig(t, testkit.Set("lanes.O-01", map[string]any{"type": "opus"}))
+			r := newDispatchRig(t)
 			r.setLane(func(l *port.Lane) { l.Agent = row.rowAgent })
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) {
 				p.Label, p.Name = row.label, row.agent
@@ -924,11 +925,11 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 }
 
 // T-587: serve restarted after `obor setup rename` replays a log whose dispatch fact names the old agent, so the lane's
-// row says hk-o1 again; the next dispatch still starts the worker by the lane's name under the config (pj-o-01).
+// row says hk-l1 again; the next dispatch still starts the worker by the lane's name under the config (pj-l-01).
 func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("lanes.O-01", map[string]any{"type": "opus"}))
-	r.setLane(func(l *port.Lane) { l.Agent = "hk-o1" })
+	r := newDispatchRig(t)
+	r.setLane(func(l *port.Lane) { l.Agent = "hk-l1" })
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label, p.Name, p.Kind, p.Status = "", "", "", "" }) // a shell
 	r.start()
 	r.stop()
@@ -938,7 +939,7 @@ func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
 	r.mu.Lock()
 	got := r.launches[0].Agent
 	r.mu.Unlock()
-	if got != "pj-o-01" {
-		t.Errorf("agent.start launched %q, want pj-o-01 (the row's hk-o1 is no name of the lane)", got)
+	if got != "pj-l-01" {
+		t.Errorf("agent.start launched %q, want pj-l-01 (the row's hk-l1 is no name of the lane)", got)
 	}
 }

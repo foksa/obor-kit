@@ -3,8 +3,6 @@ package guard
 import (
 	"testing"
 	"time"
-
-	"obor/internal/testkit"
 )
 
 // T-581: Turn and StopFailure name the lane's agent when OBOR_AGENT is unset (an OpenCode plugin's shared process
@@ -16,16 +14,16 @@ func TestTurnAndStopFailureResolveTheLaneAgent(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			f, o1 := sessionFx(t, true)
-			f.Config(testkit.Set("lane_types.opus", `{"kind":"`+kind+`"}`))
+			f.runs(map[string]string{"claude": "opus", "codex": "luna", "opencode": "deepseek"}[kind])
 			turnEvent := []byte(`{"hook_event_name": "UserPromptSubmit", "cwd": "` + o1 + `"}`)
 			failureEvent := []byte(`{"hook_event_name": "StopFailure", "cwd": "` + o1 + `", "error": "rate_limit", "error_details": "429"}`)
 
 			turn, ok := Turn(turnEvent, f.Env())
-			if !ok || turn.Agent != "pj-o-01" || turn.Role != "worker" || turn.Lane != "O-01" || turn.Root != f.Root {
+			if !ok || turn.Agent != "pj-l-01" || turn.Role != "worker" || turn.Lane != "L-01" || turn.Root != f.Root {
 				t.Errorf("Turn from the lane: %+v, %v; want the lane's agent", turn, ok)
 			}
 			stop, ok, err := StopFailure(failureEvent, f.Env(), time.Now())
-			if err != nil || !ok || stop.Agent != "pj-o-01" || stop.Role != "worker" || stop.Lane != "O-01" ||
+			if err != nil || !ok || stop.Agent != "pj-l-01" || stop.Role != "worker" || stop.Lane != "L-01" ||
 				stop.Error != "rate_limit" || stop.Details != "429" {
 				t.Errorf("StopFailure from the lane: %+v, %v, %v; want the lane's agent", stop, ok, err)
 			}

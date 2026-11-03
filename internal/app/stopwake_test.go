@@ -38,11 +38,11 @@ func limitStopWith(t *testing.T, errText string, details func(r *loopRig) string
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	r.workerIs("working")
 	d := details(r)
-	if _, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01",
+	if _, err := r.line(wire.MethodStopped, "s1", wire.Call{Agent: "pj-l-01", Role: "worker", Lane: "L-01",
 		Error: errText, Details: d}); err != nil {
 		t.Fatal(err)
 	}
-	reason := "pj-o1 stopped: " + errText + " (" + d + ")"
+	reason := "pj-l-01 stopped: " + errText + " (" + d + ")"
 	if r.stopIn(reason) != 1 {
 		t.Fatalf("precondition: the stop in force: %+v", r.app.Status().Project.Facts)
 	}
@@ -61,8 +61,8 @@ func (r *loopRig) stopIn(reason string) int {
 	return n
 }
 
-// wakes is how many continue wakes pj-o1 got.
-func (r *loopRig) wakes() int { return r.typedTo("pj-o1", continueLine) }
+// wakes is how many continue wakes pj-l-01 got.
+func (r *loopRig) wakes() int { return r.typedTo("pj-l-01", continueLine) }
 
 // alarms is how many notifications the owner got of T-1's alarm.
 func (r *loopRig) alarms() int {
@@ -92,7 +92,7 @@ func TestStopWakeAtReset(t *testing.T) {
 	r, reason := limitStop(t, "rate_limit", resetIn(time.Hour))
 	r.later(time.Hour + time.Minute) // T+1m
 	if n := r.wakes(); n != 0 {
-		t.Fatalf("woken %d times before T+2m: %q", n, r.promptsTo("pj-o1"))
+		t.Fatalf("woken %d times before T+2m: %q", n, r.promptsTo("pj-l-01"))
 	}
 	r.workerIs("blocked")
 	r.later(2 * time.Minute) // T+3m, blocked
@@ -160,7 +160,7 @@ func TestStopWakeNewTurnNoAlarm(t *testing.T) {
 	r, reason := limitStop(t, "rate_limit", resetIn(time.Hour))
 	r.later(time.Hour + 2*time.Minute)
 	r.waitFor("the wake", func() bool { return r.wakes() == 1 })
-	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-o1 (the stop of T-1 ended)" {
+	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
 		t.Fatalf("turn: %q, %v", reply, err)
 	}
 	r.later(31 * time.Minute)
@@ -453,9 +453,9 @@ func TestStopWakeBehindCheckout(t *testing.T) {
 			if reset {
 				details = resetIn(time.Hour)
 			}
-			r, reason := limitStopWith(t, "rate_limit", details, func(r *loopRig) { r.inbox.record("pj-o1") })
+			r, reason := limitStopWith(t, "rate_limit", details, func(r *loopRig) { r.inbox.record("pj-l-01") })
 			r.setCheckout(t, checkErr)
-			return stopRig{r, func() int { return r.inbox.count("pj-o1", continueLine) }, reason}
+			return stopRig{r, func() int { return r.inbox.count("pj-l-01", continueLine) }, reason}
 		},
 		"codex": func(t *testing.T, reset bool, checkErr error) stopRig {
 			rollout := cdxLimited

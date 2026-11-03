@@ -32,10 +32,10 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 // A stalled worker's needs-you keeps its lane in the drop command.
 func TestAnswerPathLaneKeepsTheLane(t *testing.T) {
 	t.Parallel()
-	raw, _ := json.Marshal(event.FactData{Lane: "O-02", Reason: "stalled"})
+	raw, _ := json.Marshal(event.FactData{Lane: "L-02", Reason: "stalled"})
 	path := answerPath(event.Record{Task: "T-8", Step: event.StepNeedsYou, Data: raw}, mtask{})
-	if !strings.Contains(path, `obor drop O-02 "<why>"`) {
-		t.Errorf("path %q, want obor drop O-02", path)
+	if !strings.Contains(path, `obor drop L-02 "<why>"`) {
+		t.Errorf("path %q, want obor drop L-02", path)
 	}
 }
 

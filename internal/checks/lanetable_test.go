@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,18 +26,15 @@ func ltGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// ltFixture (T-470: the lane table's tests, from package lanes): proj with a committed config whose lanes are the given names (type opus) under proj-wt; each lane a
-// worktree on task/<id> when its id is set, else detached at main. Returns the project.
+// ltFixture (T-470: the lane table's tests, from package lanes): proj with a committed config whose lanes count is the
+// given names' (L-01 … L-NN, T-765) under proj-wt; each lane a worktree on task/<id> when its id is set, else detached
+// at main. Returns the project.
 func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	t.Helper()
 	base := project.Physical(t.TempDir())
 	root := filepath.Join(base, "proj")
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	var ls []string
-	for l := range lanes {
-		ls = append(ls, `"`+l+`":"opus"`)
-	}
-	cfg := `{"version":1,"prefix":"pj","lanes":{` + strings.Join(ls, ",") + `}` + extra + `}`
+	cfg := `{"version":1,"prefix":"pj","lanes":` + strconv.Itoa(len(lanes)) + extra + `}`
 	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
 	os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".task-done.md\n"), 0o644)
 	ltGit(t, base, "-c", "init.defaultBranch=main", "init", "-q", root)
@@ -88,24 +86,24 @@ func ltCommit(t *testing.T, dir string) {
 }
 
 func TestLaneStates(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"O-01": "T-01", "O-02": "T-02", "O-03": "T-03",
-		"O-04": "T-04", "O-05": "T-05", "O-06": "T-06"})
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
+		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
-	os.WriteFile(filepath.Join(dir("O-02"), "scratch.txt"), []byte("x"), 0o644)
-	ltSubmit(t, p.Root, "O-03", "T-03", true, 0) // merged: free, whatever the log says
-	ltCommit(t, dir("O-04"))
-	ltSubmit(t, p.Root, "O-04", "T-04", true, 0)
-	ltCommit(t, dir("O-05"))
-	ltSubmit(t, p.Root, "O-05", "T-05", false, 0) // dispatched, no task_done yet
+	os.WriteFile(filepath.Join(dir("L-02"), "scratch.txt"), []byte("x"), 0o644)
+	ltSubmit(t, p.Root, "L-03", "T-03", true, 0) // merged: free, whatever the log says
+	ltCommit(t, dir("L-04"))
+	ltSubmit(t, p.Root, "L-04", "T-04", true, 0)
+	ltCommit(t, dir("L-05"))
+	ltSubmit(t, p.Root, "L-05", "T-05", false, 0) // dispatched, no task_done yet
 	// T-196: a dirty lane is free only when its task has merge evidence ("T-06:" commit reachable from HEAD).
-	os.WriteFile(filepath.Join(dir("O-06"), "scratch.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir("L-06"), "scratch.txt"), []byte("x"), 0o644)
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-06: merged work")
 	got := map[string]string{}
 	for _, s := range p.States() {
 		got[s.Lane] = s.State + " " + s.Task + " " + s.Warning
 	}
-	want := map[string]string{"O-01": "free T-01 ", "O-02": "working T-02 ", "O-03": "free T-03 ",
-		"O-04": "done T-04 ", "O-05": "working T-05 ", "O-06": "dirty-free T-06 "}
+	want := map[string]string{"L-01": "free T-01 ", "L-02": "working T-02 ", "L-03": "free T-03 ",
+		"L-04": "done T-04 ", "L-05": "working T-05 ", "L-06": "dirty-free T-06 "}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %q, want %q", l, got[l], w)
@@ -150,29 +148,29 @@ func ltSetType(t *testing.T, root, lane, typ string) {
 	}
 }
 
-// T-721: a working or done lane's type is the one its row's dispatch chose (a reference's type: sonnet:low is
-// sonnet); a row with none (recorded before T-721) falls back to the config's lane type, as does a free lane whatever
-// its row says (a lane's type is its task's only while it holds it).
+// T-721, T-765: a working or done lane's type is the model its row's dispatch chose (a ref's model: sonnet:low is
+// sonnet); a row with none (recorded before T-721) has none, nor has a free lane whatever its row says (a lane's model
+// is its task's only while it holds it).
 func TestLaneTypeIsTheDispatchs(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"O-01": "T-01", "O-02": "T-02", "O-03": "T-03",
-		"O-04": "T-04"})
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
+		"L-04": "T-04"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
-	ltCommit(t, dir("O-01"))
-	ltSubmit(t, p.Root, "O-01", "T-01", false, 0)
-	ltSetType(t, p.Root, "O-01", "sonnet:low")
-	ltCommit(t, dir("O-02"))
-	ltSubmit(t, p.Root, "O-02", "T-02", false, 0) // a row from before T-721: no type
-	ltSubmit(t, p.Root, "O-03", "T-03", true, 0)  // at main: merged, free
-	ltSetType(t, p.Root, "O-03", "sonnet")
-	ltCommit(t, dir("O-04"))
-	ltSubmit(t, p.Root, "O-04", "T-04", true, 0)
-	ltSetType(t, p.Root, "O-04", "sonnet:high")
+	ltCommit(t, dir("L-01"))
+	ltSubmit(t, p.Root, "L-01", "T-01", false, 0)
+	ltSetType(t, p.Root, "L-01", "sonnet:low")
+	ltCommit(t, dir("L-02"))
+	ltSubmit(t, p.Root, "L-02", "T-02", false, 0) // a row from before T-721: no type
+	ltSubmit(t, p.Root, "L-03", "T-03", true, 0)  // at main: merged, free
+	ltSetType(t, p.Root, "L-03", "sonnet")
+	ltCommit(t, dir("L-04"))
+	ltSubmit(t, p.Root, "L-04", "T-04", true, 0)
+	ltSetType(t, p.Root, "L-04", "sonnet:high")
 	got := map[string]string{}
 	for _, s := range p.States() {
 		got[s.Lane] = s.State + " " + s.Type
 	}
-	want := map[string]string{"O-01": "working sonnet", "O-02": "working opus", "O-03": "free opus",
-		"O-04": "done sonnet"}
+	want := map[string]string{"L-01": "working sonnet", "L-02": "working ", "L-03": "free ",
+		"L-04": "done sonnet"}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %q, want %q", l, got[l], w)
@@ -245,8 +243,8 @@ func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
 		{"configured paths.tasks", `,"lanes_dir":"../proj-wt","paths":{"tasks":"specs"}`, "specs/T-01.md"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			p := ltFixture(t, c.extra, map[string]string{"O-01": "T-01"})
-			dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "O-01")
+			p := ltFixture(t, c.extra, map[string]string{"L-01": "T-01"})
+			dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
 			ltCommit(t, dir)
 			path := filepath.Join(p.Root, c.file)
 			os.MkdirAll(filepath.Dir(path), 0o755)
@@ -263,7 +261,7 @@ func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
 			if p.MergeEvidence("T-01") {
 				t.Error("an old T-01: spec commit on main is no merge evidence")
 			}
-			if s := stateOf(p, "O-01"); s.State != "working" {
+			if s := stateOf(p, "L-01"); s.State != "working" {
 				t.Errorf("lane state = %q, want working (its work lives only in the lane)", s.State)
 			}
 			// Control: the squash rule still finds the task's work on main.
@@ -276,9 +274,9 @@ func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
 }
 
 func TestMissingLane(t *testing.T) {
-	p := ltFixture(t, `,"lanes":{"X-01":"sonnet"}`, map[string]string{})
+	p := ltFixture(t, `,"lanes":1`, map[string]string{})
 	s := p.States()
-	if len(s) != 1 || s[0].State != "missing" || s[0].Branch != "" || s[0].Type != "sonnet" {
+	if len(s) != 1 || s[0].Lane != "L-01" || s[0].State != "missing" || s[0].Branch != "" || s[0].Type != "" {
 		t.Errorf("States = %+v", s)
 	}
 }
@@ -302,7 +300,7 @@ func TestSpecMatchGlobs(t *testing.T) {
 
 // A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is.
 func TestMergeEvidenceSubject(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"O-01": ""})
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": ""})
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-05 widened (lead: spec)")
 	if NewLaneTable(p.Cfg).MergeEvidence("T-05") {
 		t.Fatal("a lead commit mentioning T-05 counts as merged")

@@ -63,7 +63,7 @@ A task's needs-you reaches you as before (`[obor] needs-you …`), watched or no
 
 ## Setup edits from obor web (T-753)
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's
-types, a lane type's model, effort or max, a lane's type, a role's type, and the pause. The page stages the edits and
+model refs, a role's model ref, the lanes count, a kind's args, and the pause. The page stages the edits and
 the owner commits them together (T-760): serve writes them as one commit on main itself and tells you in one line:
 - `[obor] config: <key> <old> → <new>; <key> <old> → <new> (owner, web)` — e.g. `[obor] config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`.
 
@@ -105,20 +105,26 @@ finish: it waits for the limit to reset or for you. Serve says so:
 The raw payloads are in `.obor/state/stop-failure.log`.
 
 ## obor dispatch (T-538)
-You give the difficulty; obor picks the lane. The spec's `Difficulty: hard|medium|simple` line (right under the title;
-`obor spec set` refuses a spec without it) maps through the config's `difficulty` to lane types, in order. An optional `Type: <lane type>[, …]` line right under it (`obor spec set` refuses a type the config lacks) puts those types first, then the level's; `--types` overrides both.
+You give the difficulty; obor picks the model and the lane (T-765: every lane is pooled, no caps). The spec's
+`Difficulty: hard|medium|simple` line (right under the title; `obor spec set` refuses a spec without it) maps through
+the config's `difficulty` to model refs, in order. An optional `Model: <model>[, …]` line right under it (`obor spec
+set` refuses a model the config lacks, and the old `Type:` line) puts those models first, then the level's; `--model`
+overrides both.
 
-- `obor dispatch <T-xx> [--after T-yy[,T-zz]] [--force]` — the first free lane of the level's types. Replies:
-  `DISPATCHED T-xx → <LANE> (queued)`, or, with no free lane of the level, `WAITING T-xx (queued): waiting for a
-  <level> lane (<types>)` (also in `obor status`): serve dispatches it when one frees, never onto a higher level's lane.
-  `--after` adds `WAITING T-xx after T-yy (queued)`.
-- `obor dispatch <T-xx> --types a,b` — overrides the level (smoke tests, Haiku, which is in no level); no free lane of
-  those types is a refusal, not a wait.
-- Effort: any type named here (`Type:`, `--types`, config `difficulty`, `roles.*.type`) may be `<type>:<effort>`
-  (`opus:high`, `luna:xhigh`): it matches lanes of the type and starts the agent at that effort, shown in the reply
-  (`DISPATCHED T-xx → O-01 (queued) effort high`) and `obor status`; an effort the kind lacks is refused.
-- A spec with no level and no `--types`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
-- A second `obor dispatch` of a waiting task replaces its request (new `--types`, `--after`); its watches stay.
+- `obor dispatch <T-xx> [--after T-yy[,T-zz]] [--force]` — the first model not paused, on the first free lane.
+  Replies: `DISPATCHED T-xx → <LANE> (queued) as <model>`, or, with no free lane, `WAITING T-xx (queued): waiting for
+  a free lane (<level>: <models>)`, or, every model paused, `WAITING T-xx (queued): <model> paused: <why> (until …), …`
+  (also in `obor status`): serve dispatches it when a lane frees or a pause ends. `--after` adds `WAITING T-xx after
+  T-yy (queued)`.
+- `obor dispatch <T-xx> --model a,b` — overrides the level (smoke tests, Haiku, which is in no level); no free lane is
+  a refusal, not a wait.
+- `obor pause --model <name> [--for 3h] "<why>"` — dispatch skips that model (a quota, an outage) and a level's next
+  one runs; `obor pause --model <name> --clear` ends it. A redo keeps its own model even while it is paused.
+- Effort: any model named here (`Model:`, `--model`, config `difficulty`, `roles.<role>`) may be `<model>:<effort>`
+  (`opus:high`, `luna:xhigh`): the agent starts at that effort, shown in the reply (`DISPATCHED T-xx → L-01 (queued)
+  as opus effort high`) and `obor status`; an effort the kind lacks is refused.
+- A spec with no level and no `--model`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
+- A second `obor dispatch` of a waiting task replaces its request (new `--model`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).
 
 ## obor drive and obor land (T-751)
@@ -126,16 +132,15 @@ The owner iterates by hand (the web page's design after a worker's first pass, s
 own branch, then sends the result through the same gate, integrator and merge as any task. A drive is a task on a
 lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch on it has no line until it lands.
 
-- `obor drive <name> [--type <type>[:<effort>]]` — a new task (the next T-xx, its spec `Owner drive: <name>` stored by
-  serve) on the first free untyped lane, on branch `task/T-xx`; the type defaults to the hard level's first, and a drive
-  counts toward no `lane_types.<type>.max`. Serve prepares the lane; the command then starts the drive agent
+- `obor drive <name> [--model <model>[:<effort>]]` — a new task (the next T-xx, its spec `Owner drive: <name>` stored
+  by serve) on the first free lane, on branch `task/T-xx`; the model defaults to the hard level's first. Serve prepares
+  the lane; the command then starts the drive agent
   (`<lane's worker>-drive`, role driver) in a pane split in the tab it runs in, its first prompt one line saying what it
-  is. Replies: `DRIVE T-xx → <LANE> (<agent>, <type>)`, the start's lines, then `OK T-xx: <agent> drives in lane
-  <LANE> on task/T-xx; obor land T-xx when done`. No free untyped lane is a refusal naming the lanes' states, never a
-  wait.
+  is. Replies: `DRIVE T-xx → <LANE> (<agent>, <model>)`, the start's lines, then `OK T-xx: <agent> drives in lane
+  <LANE> on task/T-xx; obor land T-xx when done`. No free lane is a refusal naming the lanes' states, never a wait.
 - `obor drive <T-xx>` — takes over a task its worker works on: serve stops the worker (as `obor restart --stop` does),
   keeps its lane, branch and spec, and the command starts the drive agent there: `DRIVE T-xx → <LANE> (<agent>,
-  <type>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused. The worker
+  <model>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused. The worker
   is stopped before the take-over is recorded: a stop that fails refuses it with the error and records nothing (the task
   stays the worker's; retry with `obor drive <T-xx>`).
 - Retry (T-755): `obor drive <T-xx>` or `obor drive <name>` on a drive already starts its agent again on its recorded

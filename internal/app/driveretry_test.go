@@ -16,14 +16,14 @@ import (
 // T-755 (RV-92 #2 #3 #4): a drive's start is retryable (obor drive on a drive already starts its agent again, nothing
 // recorded), a take-over stops the worker before it records, and its record shares task_done's lock.
 
-// newTakeOverRig is the dispatch rig with T-1 dispatched to O-01 and its worker pj-o1 working on it.
+// newTakeOverRig is the dispatch rig with T-1 dispatched to L-01 and its worker pj-l-01 working on it.
 func newTakeOverRig(t *testing.T) *loopRig {
 	t.Helper()
 	r := newDispatchRig(t)
 	r.start()
 	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
 	r.mustDispatch("d1")
-	r.waitJob("pj-o1", "T-1/1/work")
+	r.waitJob("pj-l-01", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
 	// The worker's start pushed a refresh, so serve subscribes again: wait for that stream, the one a take-over decides
 	// by serve's identity on (T-758, T-759).
@@ -51,7 +51,7 @@ func TestDriveStartRetried(t *testing.T) {
 	// Every drive below decides by serve's identity: wait for serve's herdr connection as an event, not a sample
 	// (T-759).
 	r.connectedAgain()
-	want := "DRIVE T-1 → O-01 (pj-o1-drive, " + r.hardType() + ")"
+	want := "DRIVE T-1 → L-01 (pj-l-01-drive, " + r.hardType() + ")"
 	if reply, err := r.drive("v1", "web"); err != nil || reply != want {
 		t.Fatalf("drive: %q, %v; want %q", reply, err, want)
 	}
@@ -71,20 +71,20 @@ func TestDriveStartRetried(t *testing.T) {
 	r.driveAgentUp()
 	for _, name := range []string{"T-1", "web"} {
 		reply, err := r.drive("u"+name, name)
-		if err != nil || reply != "DRIVING T-1 → O-01: pj-o1-drive runs already (pane w1:p5)" {
+		if err != nil || reply != "DRIVING T-1 → L-01: pj-l-01-drive runs already (pane w1:p5)" {
 			t.Errorf("obor drive %s while its agent runs: %q, %v; want DRIVING naming it", name, reply, err)
 		}
 	}
-	if len(r.records()) != n || r.launchesOf("pj-o1-drive") != 0 || r.launchesOf("pj-o1") != 0 {
-		t.Errorf("recorded %q or launched (drive %d, worker %d)", r.steps()[n:], r.launchesOf("pj-o1-drive"),
-			r.launchesOf("pj-o1"))
+	if len(r.records()) != n || r.launchesOf("pj-l-01-drive") != 0 || r.launchesOf("pj-l-01") != 0 {
+		t.Errorf("recorded %q or launched (drive %d, worker %d)", r.steps()[n:], r.launchesOf("pj-l-01-drive"),
+			r.launchesOf("pj-l-01"))
 	}
 	r.stop()
 	r.start() // the replay
 	r.waitFor("T-1 driving after the replay", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.connectedAgain() // the replay's serve, before a drive that asks its identity
 	r.driveAgentUp()
-	if reply, err := r.drive("w1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → O-01: pj-o1-drive") {
+	if reply, err := r.drive("w1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → L-01: pj-l-01-drive") {
 		t.Errorf("obor drive web after the replay: %q, %v; want DRIVING", reply, err)
 	}
 }
@@ -94,15 +94,15 @@ func TestDriveStartRetried(t *testing.T) {
 func TestDriveTakeOverStartRetried(t *testing.T) {
 	t.Parallel()
 	r := newTakeOverRig(t)
-	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over") {
+	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over") {
 		t.Fatalf("take-over: %q, %v", reply, err)
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	stops := len(r.workerStops())
 	if stops != 1 {
-		t.Fatalf("precondition: worker stops %q, want pj-o1's", r.workerStops())
+		t.Fatalf("precondition: worker stops %q, want pj-l-01's", r.workerStops())
 	}
-	want := "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) again: its agent is not running"
+	want := "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) again: its agent is not running"
 	if reply, err := r.drive("v2", "T-1"); err != nil || reply != want {
 		t.Errorf("retry: %q, %v; want %q", reply, err, want)
 	}
@@ -118,7 +118,7 @@ func TestDriveTakeOverStartRetried(t *testing.T) {
 }
 
 // The worker's stop fails: the take-over is refused with the stop's error and records nothing; the task stays its
-// worker's (working, its work job out, the lane row pj-o1's), also after a replay. The retry, the stop working, takes
+// worker's (working, its work job out, the lane row pj-l-01's), also after a replay. The retry, the stop working, takes
 // over.
 func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 	t.Parallel()
@@ -127,7 +127,7 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 	r.onStop = func() error { return errors.New("herdr: pane busy") }
 	r.mu.Unlock()
 	_, err := r.drive("v1", "T-1")
-	if err == nil || !strings.Contains(err.Error(), "pj-o1 not stopped: herdr: pane busy") ||
+	if err == nil || !strings.Contains(err.Error(), "pj-l-01 not stopped: herdr: pane busy") ||
 		!strings.Contains(err.Error(), "nothing recorded") || !strings.Contains(err.Error(), "obor drive T-1 retries") {
 		t.Fatalf("take-over with a failing stop: %v; want refused with the stop's error", err)
 	}
@@ -143,8 +143,8 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 		if ts := r.task("T-1"); ts.State != "working" || ts.Job != "T-1/1/work" {
 			t.Errorf("%s: T-1 %+v, want working with its work job (its worker's)", when, ts)
 		}
-		if lr, _, _ := store.ReadLaneAt(r.p.Root, "O-01"); lr.Agent != "pj-o1" {
-			t.Errorf("%s: O-01's row names %q, want pj-o1", when, lr.Agent)
+		if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Agent != "pj-l-01" {
+			t.Errorf("%s: L-01's row names %q, want pj-l-01", when, lr.Agent)
 		}
 	}
 	stillWorkers("refused")
@@ -154,7 +154,7 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 	r.mu.Lock()
 	r.onStop = nil
 	r.mu.Unlock()
-	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1; STOPPED pj-o1") {
+	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over from pj-l-01; STOPPED pj-l-01") {
 		t.Fatalf("the retry: %q, %v; want the take-over", reply, err)
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
@@ -166,7 +166,7 @@ func TestDriveTakeOverStopErrorRefused(t *testing.T) {
 func TestDriveTakeOverInterruptedAfterStop(t *testing.T) {
 	t.Parallel()
 	r := newTakeOverRig(t)
-	r.waitFor("the watchdog sees pj-o1 (else no exit follows its stop)", func() bool {
+	r.waitFor("the watchdog sees pj-l-01 (else no exit follows its stop)", func() bool {
 		if app.WatchedPane(r.app, r.p.Root, "T-1") == "w1:p1" {
 			return true
 		}
@@ -203,7 +203,7 @@ func TestDriveTakeOverInterruptedAfterStop(t *testing.T) {
 		return len(r.stepsLike("needs-you{agent exited}")) > 0
 	})
 	r.connectedAgain()
-	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1") {
+	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over from pj-l-01") {
 		t.Fatalf("the retry: %q, %v; want the take-over", reply, err)
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })

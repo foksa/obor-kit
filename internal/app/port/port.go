@@ -77,14 +77,12 @@ type Panes interface {
 	Notify(ctx context.Context, title, body string) error
 }
 
-// Lane is one lane of a project: its worktree, the task its branch holds open ("" for none) and the lane's worker
-// agent; for dispatch: its configured lane type (the lane's reservation, "" a pool lane; never the type its dispatch
-// runs, which is the dispatch's: store.LaneTypeRef, T-738) and its status state (checks.LaneStatus: free, dirty-free,
-// working, done, …).
+// Lane is one lane of a project: its worktree, the task its branch holds open ("" for none), the lane's worker agent
+// and its status state (checks.LaneStatus: free, dirty-free, working, done, …). Every lane is pooled: the model it
+// runs is its dispatch's (T-765).
 type Lane struct {
 	Name, Dir, Task string
-	Agent           string
-	Type, State     string
+	Agent, State    string
 }
 
 // Lanes reads a project's lanes.

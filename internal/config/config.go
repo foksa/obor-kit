@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"obor/internal/agents"
-	"obor/internal/agents/opencode"
 	"obor/internal/roles"
 )
 
@@ -28,43 +27,77 @@ var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // ErrNoConfig: the project has no .obor/config.json (exit 3; hooks no-op).
 var ErrNoConfig = errors.New("no config")
 
+// ErrOldShape: a config file has the shape before T-765 (lane_types, lanes as an object, roles.<role> objects): the
+// loader refuses it, obor setup migrate rewrites it.
+var ErrOldShape = errors.New("old config shape")
+
+// OldShape is the first key of the config file doc that has the shape before T-765 ("": none): lane_types, lanes as
+// an object, a roles.<role> object.
+func OldShape(doc []byte) string {
+	top, _ := object(doc)
+	for _, m := range top {
+		switch v := bytes.TrimSpace(m.Val); {
+		case m.Key == "lane_types":
+			return "lane_types"
+		case m.Key == "lanes" && len(v) > 0 && v[0] == '{':
+			return "lanes"
+		case m.Key == "roles":
+			roles, _ := object(v)
+			for _, r := range roles {
+				if rv := bytes.TrimSpace(r.Val); len(rv) > 0 && rv[0] == '{' {
+					return "roles." + r.Key
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // Data is the config file's shape, and its field comments are the reference for each key. A key it does not name
 // fails the load.
 type Data struct {
-	Version          *int                `json:"version,omitempty"`
-	Obor             any                 `json:"obor,omitempty"` // removed in v0.17.0 (T-597): validate warns
-	Name             string              `json:"name,omitempty"`
-	Prefix           string              `json:"prefix,omitempty"`
-	LanesDir         string              `json:"lanes_dir"`
-	Branches         Branches            `json:"branches"`
-	TaskIDPattern    string              `json:"task_id_pattern"`
-	Paths            map[string]string   `json:"paths"`
-	Spec             Spec                `json:"spec,omitzero"`
-	DoneFile         any                 `json:"done_file,omitempty"` // removed in v0.12.0 (T-470: task_done): validate warns
-	DoneFileSections []string            `json:"done_file_sections"`
-	Commands         Ordered[Command]    `json:"commands"`
-	LaneLinks        []string            `json:"lane_links"`
-	Guards           *Guards             `json:"guards,omitempty"`
-	ProtectedFiles   []string            `json:"protected_files"`
-	LaneTypes        Ordered[LaneType]   `json:"lane_types"`
-	Lanes            Ordered[LaneEntry]  `json:"lanes"`
-	StopIdleWorkers  *bool               `json:"stop_idle_workers,omitempty"`
-	Agents           Ordered[AgentEntry] `json:"agents,omitzero"`
-	Roles            Roles               `json:"roles"`
-	Setup            Setup               `json:"setup,omitzero"`
-	Leads            any                 `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
-	Merge            Merge               `json:"merge"`
-	MCP              MCP                 `json:"mcp"`
-	Slots            *Slots              `json:"slots,omitempty"`
-	Checks           *Checks             `json:"checks,omitempty"`
-	StopHook         any                 `json:"stop_hook,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	Limits           *Limits             `json:"limits,omitempty"`
-	Heartbeat        any                 `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	Cache            Cache               `json:"cache"`
-	Inbox            any                 `json:"inbox,omitempty"`  // removed in v0.12.0 (T-466): validate warns
-	Notify           any                 `json:"notify,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	// Difficulty maps a level (hard, medium, simple) to its lane types in dispatch order; a level it omits has the built-in
-	// default (DifficultyDefault).
+	Version          *int              `json:"version,omitempty"`
+	Obor             any               `json:"obor,omitempty"` // removed in v0.17.0 (T-597): validate warns
+	Name             string            `json:"name,omitempty"`
+	Prefix           string            `json:"prefix,omitempty"`
+	LanesDir         string            `json:"lanes_dir"`
+	Branches         Branches          `json:"branches"`
+	TaskIDPattern    string            `json:"task_id_pattern"`
+	Paths            map[string]string `json:"paths"`
+	Spec             Spec              `json:"spec,omitzero"`
+	DoneFile         any               `json:"done_file,omitempty"` // removed in v0.12.0 (T-470: task_done): validate warns
+	DoneFileSections []string          `json:"done_file_sections"`
+	Commands         Ordered[Command]  `json:"commands"`
+	LaneLinks        []string          `json:"lane_links"`
+	Guards           *Guards           `json:"guards,omitempty"`
+	ProtectedFiles   []string          `json:"protected_files"`
+	// Lanes is how many lanes the project has: L-01 … L-NN under lanes_dir, every one pooled (T-765).
+	Lanes int `json:"lanes"`
+	// Kinds is kinds.<kind>: args appended to every start of the kind, and its work jobs' prompt_extra (T-765).
+	Kinds Ordered[KindEntry] `json:"kinds,omitzero"`
+	// Models is models.<name>: a model the built-in table (BuiltinModels) lacks, or a built-in one overridden.
+	Models Ordered[ModelEntry] `json:"models,omitzero"`
+	// HandoffTokens is the lead's automatic handoff threshold (T-175); absent: the guard's default.
+	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
+	// IntegratorHandoffTokens is the integrator's (T-215): default 150000; 0 = off.
+	IntegratorHandoffTokens *int64              `json:"integrator_handoff_tokens,omitempty"`
+	StopIdleWorkers         *bool               `json:"stop_idle_workers,omitempty"`
+	Agents                  Ordered[AgentEntry] `json:"agents,omitzero"`
+	Roles                   Roles               `json:"roles"`
+	Setup                   Setup               `json:"setup,omitzero"`
+	Leads                   any                 `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
+	Merge                   Merge               `json:"merge"`
+	MCP                     MCP                 `json:"mcp"`
+	Slots                   *Slots              `json:"slots,omitempty"`
+	Checks                  *Checks             `json:"checks,omitempty"`
+	StopHook                any                 `json:"stop_hook,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	Limits                  *Limits             `json:"limits,omitempty"`
+	Heartbeat               any                 `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	Cache                   Cache               `json:"cache"`
+	Inbox                   any                 `json:"inbox,omitempty"`  // removed in v0.12.0 (T-466): validate warns
+	Notify                  any                 `json:"notify,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
+	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
 }
 
@@ -126,105 +159,25 @@ func (c Command) MarshalJSON() ([]byte, error) {
 	return []byte(Compact(command(c))), nil
 }
 
-// LaneType is lane_types.<name>: how to start an agent of this type. Name is the key.
-type LaneType struct {
-	Name        string         `json:"-"`
-	Kind        string         `json:"kind"`
-	Args        []string       `json:"args,omitzero"`
-	Max         int            `json:"max,omitempty"`
-	PromptExtra string         `json:"prompt_extra,omitempty"`
-	Jobs        any            `json:"jobs,omitempty"`     // removed in v0.11.0 (T-437): every kind fetches its jobs; validate warns
-	Settings    map[string]any `json:"settings,omitempty"` // the kind's settings (Claude: --settings)
-}
-
-// Model is the model this type's args name: Claude's --model M, Codex's -m M (also as --model=M or -m=M); "" when the
-// args name none (obor setup show must not guess one).
-func (lt LaneType) Model() string {
-	for i := 0; i < len(lt.Args); i++ {
-		switch a := lt.Args[i]; {
-		case a == "--model" || a == "-m":
-			if i+1 < len(lt.Args) {
-				return lt.Args[i+1]
-			}
-		case strings.HasPrefix(a, "--model="):
-			return strings.TrimPrefix(a, "--model=")
-		case strings.HasPrefix(a, "-m="):
-			return strings.TrimPrefix(a, "-m=")
-		}
-	}
-	return ""
-}
-
-// Effort is the effort this type's args set: Claude's --effort E, Codex's -c model_reasoning_effort=E (also as
-// --effort=E); "" when the args set none.
-func (lt LaneType) Effort() string {
-	for i := 0; i < len(lt.Args); i++ {
-		a := lt.Args[i]
-		switch {
-		case a == "--effort" && i+1 < len(lt.Args):
-			return lt.Args[i+1]
-		case strings.HasPrefix(a, "--effort="):
-			return strings.TrimPrefix(a, "--effort=")
-		case a == "-c" && i+1 < len(lt.Args):
-			if e, ok := strings.CutPrefix(lt.Args[i+1], "model_reasoning_effort="); ok {
-				return e
-			}
-		case strings.HasPrefix(a, "-c") && strings.Contains(a, "model_reasoning_effort="):
-			_, e, _ := strings.Cut(a, "model_reasoning_effort=")
-			return e
-		}
-	}
-	return ""
-}
-
-// LaneEntry is lanes.<name>: a lane type, or {type, agent}.
-type LaneEntry struct {
-	Type  string `json:"type"`
-	Agent string `json:"agent,omitempty"`
-}
-
-type laneEntry LaneEntry
-
-func (l *LaneEntry) UnmarshalJSON(b []byte) error {
-	if b[0] == '"' {
-		*l = LaneEntry{}
-		return json.Unmarshal(b, &l.Type)
-	}
-	return strict(b, (*laneEntry)(l))
-}
-
-func (l LaneEntry) MarshalJSON() ([]byte, error) {
-	if l.Agent == "" {
-		return []byte(Compact(l.Type)), nil
-	}
-	return []byte(Compact(laneEntry(l))), nil
-}
-
-// AgentEntry is agents.<name>: an agent that is no lane or role (T-145).
+// AgentEntry is agents.<name>: an agent that is no lane or role (T-145); Type is the model ref it starts with.
 type AgentEntry struct {
 	Type string `json:"type"`
 	Cwd  string `json:"cwd,omitempty"`
 	Role string `json:"role,omitempty"`
 }
 
-// Roles is roles: one entry per table role (nil: not configured), and the leads.
+// Roles is roles: the model ref of each table role (nil: not configured; "": configured, no model named), and the
+// removed leads.
 type Roles struct {
-	Lead       *RoleEntry `json:"lead,omitempty"`
-	Integrator *RoleEntry `json:"integrator,omitempty"`
-	Worker     *RoleEntry `json:"worker,omitempty"`
-	Reviewer   *RoleEntry `json:"reviewer,omitempty"`
-	DeepDive   *RoleEntry `json:"deep_dive,omitempty"`
-	Triage     *RoleEntry `json:"triage,omitempty"`
-	Advisor    *RoleEntry `json:"advisor,omitempty"`
-	Researcher *RoleEntry `json:"researcher,omitempty"`
-	Leads      any        `json:"leads,omitempty"` // removed in v0.12.0 (T-467): validate warns
-}
-
-type RoleEntry struct {
-	Type          string  `json:"type,omitempty"`
-	Agent         string  `json:"agent,omitempty"`
-	Worktree      *string `json:"worktree,omitempty"`
-	HandoffTokens *int64  `json:"handoff_tokens,omitempty"`
+	Lead       *string `json:"lead,omitempty"`
+	Integrator *string `json:"integrator,omitempty"`
+	Worker     *string `json:"worker,omitempty"`
+	Reviewer   *string `json:"reviewer,omitempty"`
+	DeepDive   *string `json:"deep_dive,omitempty"`
+	Triage     *string `json:"triage,omitempty"`
+	Advisor    *string `json:"advisor,omitempty"`
+	Researcher *string `json:"researcher,omitempty"`
+	Leads      any     `json:"leads,omitempty"` // removed in v0.12.0 (T-467): validate warns
 }
 
 // Setup is `setup`: what obor init records about the project's models, effort and lanes (T-647). `obor setup show`
@@ -239,9 +192,9 @@ func (c *Config) SetupConfirmed() bool {
 	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
 }
 
-// entry is roles.<name>; nil when not configured.
-func (r *Roles) entry(name string) *RoleEntry {
-	return map[string]*RoleEntry{"lead": r.Lead, "integrator": r.Integrator, "worker": r.Worker, "reviewer": r.Reviewer,
+// entry is roles.<name>, the role's model ref; nil when not configured.
+func (r *Roles) entry(name string) *string {
+	return map[string]*string{"lead": r.Lead, "integrator": r.Integrator, "worker": r.Worker, "reviewer": r.Reviewer,
 		"deep_dive": r.DeepDive, "triage": r.Triage, "advisor": r.Advisor, "researcher": r.Researcher}[name]
 }
 
@@ -408,6 +361,10 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 		}
 		if _, ok := object(b); !ok {
 			return nil, nil, fmt.Errorf("obor: %s is not a JSON object", path)
+		}
+		if key := OldShape(b); key != "" {
+			return nil, nil, fmt.Errorf("obor: %s: %s is the old config shape (lane types, typed lanes, role objects; "+
+				"T-765): run obor setup migrate: %w", path, key, ErrOldShape)
 		}
 		files[i] = b
 	}
@@ -594,9 +551,9 @@ func AbsUnder(root, p string) string {
 	return filepath.Clean(p)
 }
 
-// Lane is one configured lane.
+// Lane is one configured lane: L-01 … L-NN, each pooled (it runs the model its dispatch picks, T-765).
 type Lane struct {
-	Name, Type, Dir string
+	Name, Dir string
 }
 
 // Paths are the named project files (paths.<name>); Reviews is paths.reviews.
@@ -609,12 +566,13 @@ func (p Paths) Get(name string) string { return p.Values[name] }
 
 // RoleConfig combines the shared role defaults with effective config overrides.
 type RoleConfig struct {
-	Role        roles.Role
-	Agent, Type string
-	Effort      string // the effort roles.<role>.type names after the type (`opus:high`, T-695); "": the type's args
-	// Worktree is roles.<role>.worktree, else the reviewer's and the deep dive's old default (oldWorktrees): a name
-	// reserved under lanes_dir (no lane). The reviewer and the deep dive no longer run there (T-718: the main checkout;
-	// obor setup role names it for removal); another role configured with one still does (AgentLookup).
+	Role  roles.Role
+	Agent string
+	// Type is the model roles.<role> names ("": none), Effort the effort after it (`opus:high`, T-695; "": the kind's
+	// default).
+	Type, Effort string
+	// Worktree is the reviewer's and the deep dive's old worktree (oldWorktrees): a name reserved under lanes_dir (no
+	// lane). They no longer run there (T-718: the main checkout; obor setup role names it for removal).
 	Worktree   string
 	Configured bool
 }
@@ -630,75 +588,34 @@ func (rc RoleConfig) OldWorktree() string {
 	return ""
 }
 
-// AgentInfo is the role, lane, launch type, and cwd resolved for a configured agent, and the effort its role's type
-// reference names ("": the type's args; T-695).
+// AgentInfo is the role, lane, model (Type) and cwd resolved for a configured agent, and the effort its model ref
+// names ("": the kind's default; T-695). A worker's Type is "": its dispatch picks the model.
 type AgentInfo struct {
 	Role, Lane, Type, Cwd string
 	Effort                string
 }
 
-// Lanes is the configured lanes in config order.
+// LaneName is the name of the i-th lane (from 1): L-01 … L-99, L-100 ….
+func LaneName(i int) string { return fmt.Sprintf("L-%02d", i) }
+
+// Lanes is the configured lanes, L-01 … L-NN.
 func (c *Config) Lanes() []Lane {
 	dir := c.LanesDir()
-	out := make([]Lane, 0, len(c.Data.Lanes.Keys))
-	for _, k := range c.Data.Lanes.Keys {
-		out = append(out, Lane{Name: k, Type: c.Data.Lanes.M[k].Type, Dir: dir + "/" + k})
+	out := make([]Lane, 0, max(c.Data.Lanes, 0))
+	for i := 1; i <= c.Data.Lanes; i++ {
+		out = append(out, Lane{Name: LaneName(i), Dir: dir + "/" + LaneName(i)})
 	}
 	return out
 }
 
 // HasLane reports whether name is a configured lane.
 func (c *Config) HasLane(name string) bool {
-	_, ok := c.Data.Lanes.M[name]
-	return ok
-}
-
-// LaneType is lane_types.<name>.
-func (c *Config) LaneType(name string) (LaneType, bool) {
-	lt, ok := c.Data.LaneTypes.M[name]
-	lt.Name = name
-	return lt, ok
-}
-
-// LaunchArgs are the type's launch args: args (with effort: the kind sets it in place of the args' own, T-695), then
-// the settings as its kind takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge
-// for: args alone). Every agent but a lead starts with
-// {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead
-// keeps auto memory, T-471); the type's settings overlay those keys.
-func (lt LaneType) LaunchArgs(lead bool, effort string) []string {
-	settings := lt.Settings
-	if !lead {
-		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
-		for k, v := range lt.Settings {
-			settings[k] = v
+	for i := 1; i <= c.Data.Lanes; i++ {
+		if LaneName(i) == name {
+			return true
 		}
 	}
-	k, ok := agents.Lookup(lt.Kind)
-	if !ok {
-		return append([]string(nil), lt.Args...)
-	}
-	return k.Start(agents.Start{Args: lt.Args, Settings: settings, Effort: effort})
-}
-
-// StartEnv is the environment a start of this type needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model
-// and effort, T-703), in a start's Effort, Read and Env (its Args are the type's). A start of any other kind (a kind
-// obor has no bridge for too) unsets OpenCode's model variable: obor's own, so an earlier OpenCode start in the pane
-// or the caller's env must not carry into it (RV-83 #4, T-707).
-func (lt LaneType) StartEnv(in agents.Start) (map[string]string, error) {
-	k, ok := agents.Lookup(lt.Kind)
-	if !ok {
-		return map[string]string{opencode.ModelVar: ""}, nil
-	}
-	in.Args = lt.Args
-	vars, err := k.StartEnv(in)
-	if err != nil || lt.Kind == opencode.Name {
-		return vars, err
-	}
-	out := map[string]string{opencode.ModelVar: ""}
-	for key, v := range vars {
-		out[key] = v
-	}
-	return out, nil
+	return false
 }
 
 // ProjectName is the name the project answers to: its config's name, else its root's base name ("" for no config).
@@ -710,39 +627,6 @@ func (c *Config) ProjectName() string {
 		return c.Data.Name
 	}
 	return filepath.Base(c.Root)
-}
-
-// ParseTypeRef splits a type reference `<type>[:<effort>]` (T-695: a spec's Type: line, dispatch --types, a difficulty
-// level's list, roles.<role>.type): the lane type and the effort ("": the type's own args).
-func ParseTypeRef(ref string) (typ, effort string) {
-	typ, effort, _ = strings.Cut(ref, ":")
-	return typ, effort
-}
-
-// TypeRef is the type reference of lane type typ with effort (ParseTypeRef's inverse): typ alone without an effort or
-// a type.
-func TypeRef(typ, effort string) string {
-	if typ == "" || effort == "" {
-		return typ
-	}
-	return typ + ":" + effort
-}
-
-// CheckTypeRef is why ref names no lane type of this config or an effort its kind does not take (agents.CheckEffort);
-// nil when it is fine.
-func (c *Config) CheckTypeRef(ref string) error {
-	typ, effort := ParseTypeRef(ref)
-	lt, ok := c.LaneType(typ)
-	if !ok {
-		return fmt.Errorf("%s is not a lane type of this project (lane types: %s)", Compact(typ), strings.Join(c.LaneTypeNames(), ", "))
-	}
-	if _, has := strings.CutPrefix(ref, typ+":"); has && effort == "" {
-		return fmt.Errorf("%s names no effort after the colon", Compact(ref))
-	}
-	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
-		return fmt.Errorf("%s: %v", ref, err)
-	}
-	return nil
 }
 
 // Command is commands.<name>; ok false when unset (absent, null or no cmd).
@@ -765,15 +649,9 @@ func (c *Config) Role(name string) (RoleConfig, bool) {
 	if role.Name != "worker" {
 		rc.Agent = role.AgentName(c.Data.Prefix, "", "")
 	}
-	if e := c.Data.Roles.entry(name); e != nil {
+	if ref := c.Data.Roles.entry(name); ref != nil {
 		rc.Configured = true
-		rc.Type, rc.Effort = ParseTypeRef(e.Type)
-		if e.Agent != "" {
-			rc.Agent = e.Agent
-		}
-		if e.Worktree != nil {
-			rc.Worktree = *e.Worktree // "" too: no worktree
-		}
+		rc.Type, rc.Effort = ParseModelRef(*ref)
 	}
 	return rc, true
 }
@@ -803,8 +681,8 @@ func (c *Config) roleAgents() []RoleConfig {
 	return out
 }
 
-// RoleWorktrees is the old worktree name of every configured role (RoleConfig.Worktree: roles.<role>.worktree, else
-// reviewer → review, deep_dive → deep-dive). A linked worktree of such a name under lanes_dir is no lane.
+// RoleWorktrees is the old worktree name of every configured role (RoleConfig.Worktree: reviewer → review, deep_dive →
+// deep-dive). A linked worktree of such a name under lanes_dir is no lane.
 func (c *Config) RoleWorktrees() []string {
 	var out []string
 	for _, role := range roles.All() {
@@ -818,7 +696,7 @@ func (c *Config) RoleWorktrees() []string {
 // LaneAgentAliases returns the names that identify this lane's worker; stateAgent is the agent its lane row names
 // ("" none: config reads no store; callers pass project.LaneAgent).
 func (c *Config) LaneAgentAliases(lane, stateAgent string) []string {
-	return roles.LaneAgentAliases(lane, c.Data.Prefix, stateAgent, c.Data.Lanes.M[lane].Agent)
+	return roles.LaneAgentAliases(lane, c.Data.Prefix, stateAgent, "")
 }
 
 // AgentLookup follows lane → lead → role → agents precedence, then resolves an unmatched cwd at to a lane. stateAgent
@@ -831,17 +709,13 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 		}
 		for _, name := range c.LaneAgentAliases(lane.Name, state) {
 			if agent == name {
-				return AgentInfo{Role: "worker", Lane: lane.Name, Type: lane.Type, Cwd: lane.Dir}, true
+				return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
 			}
 		}
 	}
 	for _, rc := range c.roleAgents() {
 		if rc.Agent != "" && rc.Agent == agent {
-			cwd := c.Root
-			if rc.Worktree != "" && rc.OldWorktree() == "" {
-				cwd = filepath.Join(c.LanesDir(), rc.Worktree)
-			}
-			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: cwd}, true
+			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: c.Root}, true
 		}
 	}
 	if e, ok := c.Data.Agents.M[agent]; ok {
@@ -849,11 +723,12 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 		if !filepath.IsAbs(cwd) {
 			cwd = filepath.Join(c.Root, cwd)
 		}
-		return AgentInfo{Role: e.Role, Type: e.Type, Cwd: filepath.Clean(cwd)}, true
+		typ, effort := ParseModelRef(e.Type)
+		return AgentInfo{Role: e.Role, Type: typ, Effort: effort, Cwd: filepath.Clean(cwd)}, true
 	}
 	for _, lane := range c.Lanes() {
 		if at != "" && filepath.Clean(at) == filepath.Clean(lane.Dir) {
-			return AgentInfo{Role: "worker", Lane: lane.Name, Type: lane.Type, Cwd: lane.Dir}, true
+			return AgentInfo{Role: "worker", Lane: lane.Name, Cwd: lane.Dir}, true
 		}
 	}
 	return AgentInfo{}, false
@@ -872,11 +747,11 @@ func Unique(values ...string) []string {
 	return out
 }
 
-// IntegratorHandoffTokens is roles.integrator.handoff_tokens (T-215): the integrator's automatic handoff threshold,
-// default 150000; 0 = off.
+// IntegratorHandoffTokens is integrator_handoff_tokens (T-215): the integrator's automatic handoff threshold, default
+// 150000; 0 = off.
 func (c *Config) IntegratorHandoffTokens() int64 {
-	if in := c.Data.Roles.Integrator; in != nil && in.HandoffTokens != nil {
-		return *in.HandoffTokens
+	if n := c.Data.IntegratorHandoffTokens; n != nil {
+		return *n
 	}
 	return 150000
 }
@@ -908,46 +783,16 @@ func ParseClock(s string) (hour, minute int, ok bool) {
 	return t.Hour(), t.Minute(), true
 }
 
-// DifficultyDefault is the lane types of each difficulty level when .obor/config.json's `difficulty` does not name
-// the level (a spec's `Difficulty:` line picks the level, dispatch the lane): hard wants opus at effort high
-// (opus:high, a type reference: any opus lane, started at effort high; T-695), simple the cheap types. A project that lacks a type of a level skips it (DifficultyLevelTypes).
+// DifficultyDefault is the model refs of each difficulty level when .obor/config.json's `difficulty` does not name
+// the level (a spec's `Difficulty:` line picks the level): hard wants opus at effort high, simple the cheap models.
 var DifficultyDefault = map[string][]string{
 	"hard":   {"opus:high"},
 	"medium": {"sonnet", "deepseek"},
 	"simple": {"deepseek", "sonnet", "haiku"},
 }
 
-// DifficultyTypes is the lane types of level in dispatch order: the project's difficulty entry, else the built-in
-// default, keeping only the types a configured lane can run (LaneTakes: a type no lane can run would wait forever, T-629). A level
-// left with none falls back to the project's other lane types, medium's built-in list before hard's (simple → sonnet
-// before opus; DifficultyLevelTypes is the list before that fallback). ok is false for a level that is none of hard,
-// medium, simple.
-func (c *Config) DifficultyTypes(level string) (types []string, ok bool) {
-	if _, ok := DifficultyDefault[level]; !ok {
-		return nil, false
-	}
-	if types := c.DifficultyLevelTypes(level); len(types) > 0 {
-		return types, true
-	}
-	for _, other := range []string{"medium", "hard"} {
-		if other == level {
-			continue
-		}
-		if types := c.laneTypes(DifficultyDefault[other]); len(types) > 0 {
-			return types, true
-		}
-	}
-	return nil, true
-}
-
-// DifficultyLevelTypes is level's listed types that a configured lane can run, in their order: DifficultyTypes before its
-// fallback. nil for a name that is no level.
-func (c *Config) DifficultyLevelTypes(level string) []string {
-	return c.laneTypes(c.DifficultyList(level))
-}
-
-// DifficultyList is level's listed types before the lanes filter, in order: the project's difficulty entry, else the
-// built-in default. nil for a name that is no level.
+// DifficultyList is level's model refs in dispatch order: the project's difficulty entry, else the built-in default.
+// nil for a name that is no level.
 func (c *Config) DifficultyList(level string) []string {
 	listed, ok := DifficultyDefault[level]
 	if !ok {
@@ -957,34 +802,6 @@ func (c *Config) DifficultyList(level string) []string {
 		listed = own
 	}
 	return listed
-}
-
-// laneTypes keeps the type references of listed whose type a configured lane can run (LaneTakes).
-func (c *Config) laneTypes(listed []string) []string {
-	var out []string
-	for _, t := range listed {
-		if typ, _ := ParseTypeRef(t); c.LaneTakes(typ) {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// LaneTypeNames is the configured lane_types names, in config order.
-func (c *Config) LaneTypeNames() []string { return append([]string(nil), c.Data.LaneTypes.Keys...) }
-
-// LaneTakes reports whether a configured lane can run type typ (T-723): typ is a lane type and a lane is of it (a
-// reservation) or untyped (the pool: any type).
-func (c *Config) LaneTakes(typ string) bool {
-	if _, ok := c.Data.LaneTypes.M[typ]; !ok {
-		return false
-	}
-	for _, k := range c.Data.Lanes.Keys {
-		if t := c.Data.Lanes.M[k].Type; t == typ || t == "" {
-			return true
-		}
-	}
-	return false
 }
 
 // PluginEnabledIn: dir's .claude/settings.json enables an obor plugin (enabledPlugins "obor@<marketplace>": true). A

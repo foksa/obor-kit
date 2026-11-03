@@ -31,7 +31,7 @@ func schedStatus(t *testing.T, h *harness) (string, []wire.ScratchWait) {
 func TestScratchQueuePredictsNothing(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, false)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	h.a.opt.Loop = func(string) (*Loop, error) {
 		return &Loop{Scratch: f, Agents: f, Typer: f,
 			Disk: &Disk{Volume: "/vol/pj", Free: func() (uint64, error) { return 1 << 30, nil }}}, nil
@@ -41,7 +41,7 @@ func TestScratchQueuePredictsNothing(t *testing.T) {
 		t.Fatal("precondition: the merge loop runs")
 	}
 	for _, task := range []string{"T-9", "T-10"} {
-		addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+		addRecord(t, h, task, event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
 		addRecord(t, h, task, event.StepSubmit, event.KindResult, submitOut{SHA: "s-" + task})
 	}
 	owner, q := schedStatus(t, h)
@@ -62,7 +62,7 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	t.Parallel()
 	h, f := seedSched(t, true) // T-1's gate conflicted
 	ctx := context.Background()
-	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
 	addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 	p := h.a.p
 	check := func(state, why string, resolved bool) {
@@ -130,7 +130,7 @@ func (f *cmdScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 func TestRunningGateCommand(t *testing.T) {
 	t.Parallel()
 	h, sf := seedSched(t, false)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	f := &cmdScratch{schedScratch: sf, started: make(chan struct{}), blank: make(chan struct{}),
 		blanked: make(chan struct{}), release: make(chan struct{})}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
@@ -138,7 +138,7 @@ func TestRunningGateCommand(t *testing.T) {
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	addRecord(t, h, "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+	addRecord(t, h, "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
 	addRecord(t, h, "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
 	h.a.advance(context.Background())
 	<-f.started

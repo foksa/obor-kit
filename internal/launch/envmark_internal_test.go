@@ -9,14 +9,14 @@ func TestEnvMarkDone(t *testing.T) {
 	t.Parallel()
 	m := mark{typed: `obor-env-"abc1"`, echoed: "obor-env-abc1"}
 	fail := mark{typed: `obor-env-"abc2"`, echoed: "obor-env-abc2"}
-	typed := `me@host proj % export OBOR_AGENT=pj-o-01 && echo ` + m.typed + ` || echo ` + fail.typed
+	typed := `me@host proj % export OBOR_AGENT=pj-l-01 && echo ` + m.typed + ` || echo ` + fail.typed
 	for _, c := range []struct {
 		name, screen string
 		want         bool
 	}{
 		{"typed only", typed + "\n", false},
-		{"typed, wrapped before the quote", "me@host proj % export OBOR_AGENT=pj-o-01 && echo obor-env-\n\"abc1\"\n", false},
-		{"typed, wrapped after the word", "me@host proj % export OBOR_AGENT=pj-o-01 && echo obor-env-\"abc1\n\"\n", false},
+		{"typed, wrapped before the quote", "me@host proj % export OBOR_AGENT=pj-l-01 && echo obor-env-\n\"abc1\"\n", false},
+		{"typed, wrapped after the word", "me@host proj % export OBOR_AGENT=pj-l-01 && echo obor-env-\"abc1\n\"\n", false},
 		{"echoed, no prompt yet", typed + "\nobor-env-abc1\n\n", false},
 		{"echoed, then the prompt", typed + "\nobor-env-abc1\nme@host proj %\n", true},
 		{"the line's failure word is not its success word", typed + "\nobor-env-abc2\nme@host proj %\n", false},

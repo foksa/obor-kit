@@ -210,8 +210,8 @@ func TestSessionMeta(t *testing.T) {
 		t.Error("Caps.Sessions: launch reports a fresh start's rollout")
 	}
 	s, ok := k.Session([]byte(`{"timestamp":"2026-10-30T09:00:01.500Z","type":"session_meta","payload":{"id":"cx-1",` +
-		`"timestamp":"2026-10-30T09:00:00.250Z","cwd":"/w/O-01","originator":"codex_cli_rs"}}` + "\n"))
-	if !ok || s.ID != "cx-1" || s.Cwd != "/w/O-01" || !s.Started.Equal(time.Date(2026, 10, 30, 9, 0, 0, 250e6, time.UTC)) {
+		`"timestamp":"2026-10-30T09:00:00.250Z","cwd":"/w/L-01","originator":"codex_cli_rs"}}` + "\n"))
+	if !ok || s.ID != "cx-1" || s.Cwd != "/w/L-01" || !s.Started.Equal(time.Date(2026, 10, 30, 9, 0, 0, 250e6, time.UTC)) {
 		t.Errorf("session_meta: %+v %v", s, ok)
 	}
 	s, ok = k.Session([]byte(`{"timestamp":"2026-10-30T09:00:01Z","type":"session_meta","payload":{"id":"cx-2","cwd":"/w"}}`))

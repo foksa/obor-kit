@@ -11,24 +11,21 @@ import (
 	"obor/internal/testkit"
 )
 
-// `obor setup rename` (T-587): a project with a lead named off-prefix, a lane with a custom agent, local.json and
-// guards, a dispatched store, session files of the old agents, and a stub herdr (on PATH) holding the workspace.
+// `obor setup rename` (T-587): a project with guards naming its agents (and one off-prefix), local.json, a dispatched
+// store, session files of the old agents, and a stub herdr (on PATH) holding the workspace. Agent names follow the
+// prefix (T-765: no configured role or lane agents).
 
 func renameProject(t *testing.T) *fx {
 	t.Helper()
-	x := newFx(t,
-		testkit.Set("roles.lead", `{"agent": "proj-lead"}`),
-		testkit.Set("guards", `{"allow_push": ["proj-lead", "pj-int", "bob"]}`))
+	x := newFx(t, testkit.Set("guards", `{"allow_push": ["pj-lead", "pj-int", "bob"]}`))
 	x.Lane("L-01", "task/T-1")
 	x.Lane("L-02", "task/T-2")
-	x.Config(testkit.Set("roles.lead", `{"agent": "proj-lead"}`),
-		testkit.Set("guards", `{"allow_push": ["proj-lead", "pj-int", "bob"]}`),
-		testkit.Set("lanes.L-02", `{"type": "opus", "agent": "scribe"}`))
-	x.Write(".obor/local.json", `{"roles": {"integrator": {"agent": "pj-int2"}}}`+"\n")
+	x.Config(testkit.Set("guards", `{"allow_push": ["pj-lead", "pj-int", "bob"]}`))
+	x.Write(".obor/local.json", `{"guards": {"allow_push": ["pj-rev", "bob"]}}`+"\n")
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
-	for _, f := range []string{"pj-l-01.sid", "pj-l-01.inbox", "proj-lead.inbox", "scribe.inbox"} {
+	for _, f := range []string{"pj-l-01.sid", "pj-l-01.inbox", "pj-lead.inbox", "bob.inbox"} {
 		x.Write(filepath.Join(agents, f), "old "+f+"\n")
 	}
 	x.running()
@@ -88,28 +85,28 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 	if got := cfg.AgentName("lead", ""); got != "ob-lead" {
 		t.Errorf("lead agent = %q, want ob-lead (the old lead name follows the new prefix)", got)
 	}
-	if got := cfg.AgentName("integrator", ""); got != "ob-int2" {
-		t.Errorf("integrator agent (local.json) = %q, want ob-int2", got)
+	if got := cfg.AgentName("integrator", ""); got != "ob-int" {
+		t.Errorf("integrator agent = %q, want ob-int", got)
 	}
-	if got := cfg.Data.Lanes.M["L-02"].Agent; got != "scribe" {
-		t.Errorf("custom lane agent = %q, want scribe kept", got)
+	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "ob-rev,bob" {
+		t.Errorf("allow_push (local.json's) = %s, want ob-rev,bob", got)
 	}
-	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "ob-lead,ob-int,bob" {
-		t.Errorf("allow_push = %s, want ob-lead,ob-int,bob", got)
+	if !strings.Contains(x.Read(".obor/config.json"), `"ob-lead"`) || !strings.Contains(x.Read(".obor/config.json"), `"ob-int"`) {
+		t.Errorf("config.json's allow_push not mapped:\n%s", x.Read(".obor/config.json"))
 	}
-	if !strings.Contains(x.Read(".obor/local.json"), `"ob-int2"`) || strings.Contains(x.Read(".obor/local.json"), "pj-") {
+	if !strings.Contains(x.Read(".obor/local.json"), `"ob-rev"`) || strings.Contains(x.Read(".obor/local.json"), "pj-") {
 		t.Errorf("local.json = %s", x.Read(".obor/local.json"))
 	}
 
 	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" || row.Task != "T-1" {
 		t.Errorf("L-01 row = %+v, want it untouched (the store is serve's: it ignores the old name)", row)
 	}
-	if row, _ := x.Row("L-02"); row.Agent != "scribe" {
-		t.Errorf("L-02 row agent = %q, want the custom scribe kept", row.Agent)
+	if row, _ := x.Row("L-02"); row.Agent != "pj-l-02" {
+		t.Errorf("L-02 row agent = %q, want it untouched", row.Agent)
 	}
 
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
-	for from, to := range map[string]string{"pj-l-01.inbox": "ob-l-01.inbox", "proj-lead.inbox": "ob-lead.inbox"} {
+	for from, to := range map[string]string{"pj-l-01.inbox": "ob-l-01.inbox", "pj-lead.inbox": "ob-lead.inbox"} {
 		if b, err := os.ReadFile(filepath.Join(agents, to)); err != nil || string(b) != "old "+from+"\n" {
 			t.Errorf("%s = %q, %v; want the copy of %s", to, b, err, from)
 		}
@@ -117,8 +114,8 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 			t.Errorf("%s is gone: the old files stay", from)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(agents, "scribe.inbox")); err != nil {
-		t.Errorf("scribe.inbox: %v", err)
+	if _, err := os.Stat(filepath.Join(agents, "bob.inbox")); err != nil {
+		t.Errorf("bob.inbox: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(agents, "ob-l-01.sid")); err == nil {
 		t.Error("a .sid file was copied: only the inbox record is (T-599)")
@@ -128,7 +125,7 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 		t.Errorf("workspace label = %q, want newp", b)
 	}
 	for _, want := range []string{"OK 1 config: ", "OK 4 herdr: workspace w9: proj → newp",
-		"  pj-l-01 → ob-l-01", "  proj-lead → ob-lead", "  scribe (kept)", "mv ", "proj-wt"} {
+		"  pj-l-01 → ob-l-01", "  pj-l-02 → ob-l-02", "  pj-lead → ob-lead", "mv ", "proj-wt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -205,10 +202,10 @@ func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
 	dir := x.stubHerdr(t, "proj")
 	panes := `{"result":{"panes":[` +
 		`{"pane_id":"w9:p1","workspace_id":"w9","label":"pj-int"},` +
-		`{"pane_id":"w9:p2","workspace_id":"w9","label":"proj-lead"},` +
+		`{"pane_id":"w9:p2","workspace_id":"w9","label":"pj-lead"},` +
 		`{"pane_id":"w9:p3","workspace_id":"w9","label":"advisor"},` +
 		`{"pane_id":"w9:p4","workspace_id":"w9"},` +
-		`{"pane_id":"w3:p1","workspace_id":"w3","label":"pj-o-01"}]}}`
+		`{"pane_id":"w3:p1","workspace_id":"w3","label":"pj-l-01"}]}}`
 	if err := os.WriteFile(filepath.Join(dir, "panes"), []byte(panes+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +220,7 @@ func TestRenameRelabelsTheMappedPanesOnly(t *testing.T) {
 	if n := strings.Count(log, "pane rename"); n != 2 {
 		t.Errorf("%d pane renames, want 2 (advisor, the unlabelled pane and another workspace's pane stay):\n%s", n, log)
 	}
-	if !strings.Contains(out, "OK 4 herdr: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 proj-lead → ob-lead") {
+	if !strings.Contains(out, "OK 4 herdr: workspace w9: proj → newp; pane labels w9:p1 pj-int → ob-int, w9:p2 pj-lead → ob-lead") {
 		t.Errorf("step 4 line missing:\n%s", out)
 	}
 }

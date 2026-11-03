@@ -19,7 +19,7 @@ import (
 func backgroundView(t *testing.T) (view.Project, string, string) {
 	t.Helper()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	cfg, err := config.Load(p.Root)
@@ -28,11 +28,11 @@ func backgroundView(t *testing.T) (view.Project, string, string) {
 	}
 	lead, integ := cfg.AgentName("lead", ""), cfg.AgentName("integrator", "")
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
-		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Lane: "O-01", Status: "working"},
+		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"},
 			{Pane: "w1:p2", Name: integ, Status: "idle", Age: 60}, {Pane: "w1:p3", Name: lead, Status: "working", Age: 60}}}}
 	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(),
 		Background: map[string][]view.Background{
-			"pj-o1": {{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}},
+			"pj-l1": {{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}},
 			integ:   {{PID: 43, Command: "make -s check", Age: 95}},
 			lead:    {{PID: 44, Command: "sleep 600", Background: true, Age: 45}}}})
 	return v, lead, integ
@@ -47,7 +47,7 @@ func TestStatusShowsBackground(t *testing.T) {
 	var b bytes.Buffer
 	writeStatus(&b, v, time.Now())
 	text := b.String()
-	for _, pair := range [][2]string{{"O-01 ", "  bg: convert maps · 15m"}, {"agent " + integ + ":", "  running make -s check · 1m"},
+	for _, pair := range [][2]string{{"L-01 ", "  bg: convert maps · 15m"}, {"agent " + integ + ":", "  running make -s check · 1m"},
 		{"agent " + lead + ":", "  bg: sleep 600 · 45s"}} {
 		i := strings.Index(text, pair[0])
 		if i < 0 {
@@ -75,7 +75,7 @@ func TestMonitorShowsBackground(t *testing.T) {
 		}
 		return -1
 	}
-	for _, pair := range [][2]string{{"O-01", "bg: convert maps · 15m"}, {integ + " ", "running make -s check · 1m"},
+	for _, pair := range [][2]string{{"L-01", "bg: convert maps · 15m"}, {integ + " ", "running make -s check · 1m"},
 		{lead + " ", "bg: sleep 600 · 45s"}} {
 		row, bg := at(pair[0]), at(pair[1])
 		if row < 0 || bg != row+1 {

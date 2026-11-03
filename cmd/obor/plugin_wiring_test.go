@@ -217,7 +217,7 @@ func TestClaudePlugin(t *testing.T) {
 
 // --- hooks without a usable Go binary (T-195, RV-22 #1, T-201) -------------------------------------------------------
 
-// noBinKit is a copy of this kit (bin/, VERSION) with no dist/obor, inside an obor project with lane O-01, and an empty
+// noBinKit is a copy of this kit (bin/, VERSION) with no dist/obor, inside an obor project with lane L-01, and an empty
 // HOME (no installed release).
 type noBinKit struct {
 	p          *testkit.Project
@@ -228,7 +228,7 @@ type noBinKit struct {
 func newNoBinKit(t *testing.T) *noBinKit {
 	t.Helper()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	// Inside the project's main checkout (untracked), so "make build" with cwd = the kit is in an obor project.
 	k := &noBinKit{p: p, dir: filepath.Join(p.Root, "kit"), home: filepath.Join(p.Base, "home"), lane: lane}

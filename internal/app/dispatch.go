@@ -17,7 +17,6 @@ import (
 	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/spec"
-	"obor/internal/store"
 )
 
 // Dispatch as state (docs/state-model.md rows 2–9). A dispatch is a task record,
@@ -60,11 +59,11 @@ type (
 		Target string   `json:"target"`
 		Redo   bool     `json:"redo,omitempty"`
 		Force  bool     `json:"force,omitempty"`
-		Level  string   `json:"level,omitempty"`  // the spec's difficulty level the types came from
-		Types  []string `json:"types,omitempty"`  // type references, `<type>[:<effort>]` (T-695)
-		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its type's args; T-695)
-		// Type is the type reference the dispatch chose, `<type>[:<effort>]` (T-721): the lane row's type. "": a record
-		// from before T-721 (a reader takes the config's lane type) or a waiting one.
+		Level  string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
+		Types  []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]` (T-695, T-765)
+		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default; T-695)
+		// Type is the model ref the dispatch chose, `<model>[:<effort>]` (T-721): the lane row's type. "": a record
+		// from before T-721 or a waiting one.
 		Type  string   `json:"type,omitempty"`
 		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
 		// Drive: the owner's drive (obor drive, T-751): no worker, no work job; after lane.prepare the task is driving.
@@ -140,88 +139,83 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 	return reply, err
 }
 
-// noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when none of the level's types gets a lane (each
-// at its max, or no free lane takes it): the task waits (waitLane; for a waiting task, waitDispatch tries again).
+// noLaneError is dispatchTask's refusal of a level dispatch (c.Level) when none of the level's models gets a lane
+// (each paused, or no lane free): the task waits (waitLane; for a waiting task, waitDispatch tries again).
 type noLaneError struct {
 	task, level string
 	types       []string
 	ls          []port.Lane
-	full        map[string]string // type → "<type> at its max <n>" (capped)
+	paused      map[string]string // model → "<model> paused: <why> (until …)"
 }
 
 func (e noLaneError) Error() string { return "dispatch " + e.task + ": " + e.laneWait() }
 
-// laneWait is why the task waits (T-723): "<type> at its max <n>" when every type of its request is at its max (each
-// named), else "waiting for a free lane".
+// laneWait is why the task waits: "<model> paused: …" when every model of its request is paused (each named), else
+// "waiting for a free lane".
 func (e noLaneError) laneWait() string {
-	var full []string
+	var paused []string
 	for _, t := range e.types {
-		typ, _ := config.ParseTypeRef(t)
-		if why := e.full[typ]; why == "" {
+		typ, _ := config.ParseModelRef(t)
+		if why := e.paused[typ]; why == "" {
 			return LaneWaitFree
-		} else if !slices.Contains(full, why) {
-			full = append(full, why)
+		} else if !slices.Contains(paused, why) {
+			paused = append(paused, why)
 		}
 	}
-	if len(full) == 0 {
+	if len(paused) == 0 {
 		return LaneWaitFree
 	}
-	return strings.Join(full, ", ")
+	return strings.Join(paused, ", ")
 }
 
-// LaneWaitFree is a lane wait's reason when a type of the request is under its max: no free lane takes it (obor
-// status shows it so).
+// LaneWaitFree is a lane wait's reason when a model of the request is not paused: no lane is free (obor status shows
+// it so).
 const LaneWaitFree = "waiting for a free lane"
 
-// levelNote is a lane wait's " (<level>: <types>)".
+// levelNote is a lane wait's " (<level>: <models>)".
 func levelNote(level string, types []string) string {
 	return " (" + level + ": " + strings.Join(types, ", ") + ")"
 }
 
-// resolveLevel gives c the lane types of its spec's difficulty level (c.Level, c.Types; the spec's `Type:` types first)
-// when it names no types (--types) and no lane, or an untyped lane (a pool lane runs the type its dispatch picks,
-// T-723); else it leaves it (a waiting task's request carries its level and types): the types a lane can run. Why not:
-// no level in the spec, or neither a `Type:` type nor a type of the level a lane can run (RV-79 #1: a named type alone
-// dispatches).
+// resolveLevel gives c the model refs of its spec's difficulty level (c.Level, c.Types; the spec's `Model:` refs
+// first) when it names none (--model); else it leaves it (a waiting task's request carries its level and models). Why
+// not: no level in the spec, or neither a `Model:` ref nor a ref of the level names a model of the config.
 func resolveLevel(cfg *config.Config, c *wire.Call, text string) error {
-	if len(c.Types) > 0 || c.Lane != "" && !untypedLane(cfg, c.Lane) {
+	if len(c.Types) > 0 {
 		return nil
 	}
 	level, ok := spec.Difficulty(text)
 	if !ok {
 		return fmt.Errorf("the spec has no valid %q line under its title (%s): add it and obor spec set %s, or dispatch "+
-			"with --types a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
+			"with --model a,b", "Difficulty: <level>", strings.Join(spec.Levels, ", "), c.Task)
 	}
-	types, _ := cfg.DifficultyTypes(level)
-	all := specFirst(cfg, text, types) // RV-79 #1: the spec's Type: types count before a refusal
+	all := specFirst(cfg, text, knownModels(cfg, cfg.DifficultyList(level)))
 	if len(all) == 0 {
-		return fmt.Errorf("no such lane type for level %s in this project (obor config get difficulty, lane_types): "+
-			"dispatch with --types a,b", level)
+		return fmt.Errorf("no model of level %s is known to this project (obor config get difficulty): dispatch with "+
+			"--model a,b", level)
 	}
 	c.Level, c.Types = level, all
 	return nil
 }
 
-// untypedLane: the config's lane name has no type (a pool lane, T-723).
-func untypedLane(cfg *config.Config, name string) bool {
-	for _, l := range cfg.Lanes() {
-		if l.Name == name {
-			return l.Type == ""
+// knownModels keeps the refs of refs that name a model of cfg.
+func knownModels(cfg *config.Config, refs []string) []string {
+	var out []string
+	for _, t := range refs {
+		if typ, _ := config.ParseModelRef(t); typ != "" {
+			if _, ok := cfg.Model(typ); ok {
+				out = append(out, t)
+			}
 		}
 	}
-	return false
+	return out
 }
 
-// specFirst is types with the spec's `Type:` types in front (those a configured lane can run): a free lane for a
-// named type wins, else the level's first free lane (T-689).
-func specFirst(cfg *config.Config, text string, types []string) []string {
-	var out []string
-	for _, t := range spec.Types(text) {
-		if typ, _ := config.ParseTypeRef(t); cfg.LaneTakes(typ) {
-			out = append(out, t)
-		}
-	}
-	for _, t := range types {
+// specFirst is refs with the spec's `Model:` refs in front (those naming a model of cfg): a named model wins, else
+// the level's first unpaused one (T-689).
+func specFirst(cfg *config.Config, text string, refs []string) []string {
+	out := knownModels(cfg, spec.Models(text))
+	for _, t := range refs {
 		if !slices.Contains(out, t) {
 			out = append(out, t)
 		}
@@ -229,10 +223,10 @@ func specFirst(cfg *config.Config, text string, types []string) []string {
 	return out
 }
 
-// waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's types gets a lane
-// (nl): the reply WAITING <task> (queued): <why> (<level>: <types>) and the lanes still idle (typed for other types).
-// It replaces a waiting fact of the task (a new request: types, after). The merge loop dispatches it when a lane frees
-// for a type under its max (waiting tasks oldest first, passOrder).
+// waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's models gets a lane
+// (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces a waiting
+// fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause ends
+// (waiting tasks oldest first, passOrder).
 func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -285,18 +279,14 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if err != nil {
 		return "", err
 	}
-	explicit := c.Level == "" && len(c.Types) > 0 // c.Types are the caller's (--types), not a level's (a waiting task's re-dispatch sets it)
 	if err := resolveLevel(cfg, &c, row.Text); err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
-	// Refused before a lane is picked (nothing recorded): an explicit type this config has no lane type for, bare or
-	// with an effort (T-738: a bare unknown one would match any untyped lane and stick at launch), or any type's
-	// effort its kind does not take (T-695).
+	// Refused before a lane is picked (nothing recorded): a model ref naming no model of this config, or an effort
+	// its kind does not take (T-695).
 	for _, t := range c.Types {
-		if _, effort := config.ParseTypeRef(t); explicit || effort != "" || strings.HasSuffix(t, ":") {
-			if err := cfg.CheckTypeRef(t); err != nil {
-				return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
-			}
+		if err := cfg.CheckModelRef(t); err != nil {
+			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 		}
 	}
 	ls, err := a.lanes.Lanes(p.root)
@@ -309,17 +299,17 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		}
 	}
 	mt, held := a.held(p, c.Task)
-	full := a.capped(p, cfg, c.Task, c.Types)
-	l, ref, why := pickLane(ls, c, held, full, store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane)))
+	paused := a.pausedModels(p, c.Types)
+	l, ref, why := pickLane(ls, c, held, paused, mt.disp.Type)
 	if why != "" && c.Level != "" && c.Lane == "" {
-		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, full: full}
+		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, paused: paused}
 	}
 	if why != "" {
 		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
 	}
-	typ, effort := config.ParseTypeRef(ref)
+	typ, effort := config.ParseModelRef(ref)
 	if kind := unbridged(cfg, typ); kind != "" {
-		return "", fmt.Errorf("dispatch %s: lane %s's kind %s has no bridge (obor config validate)", c.Task, l.Name, kind)
+		return "", fmt.Errorf("dispatch %s: model %s's kind %s has no bridge (obor config validate)", c.Task, typ, kind)
 	}
 	note := pluginNote(cfg, l, typ)
 	redo := l.Task == c.Task && (l.State == "working" || l.State == "blocked")
@@ -358,7 +348,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	caller := callerOf(c)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Caller: caller, Call: c.CallID,
-		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(l, typ) + effortNote(effort) +
+		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
 			idleNote(ls, l.Name, held) + note}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
@@ -367,10 +357,10 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	return d.Reply, nil
 }
 
-// unbridged is the kind of lane type typ when obor has no bridge for it (obor config validate refuses it; serve
-// refuses to start one, DD-v0.13 D1); "": a bridged kind, or no such type (the start says so).
+// unbridged is the kind of model typ when obor has no bridge for it (obor config validate refuses it; serve refuses
+// to start one, DD-v0.13 D1); "": a bridged kind, or no such model (the start says so).
 func unbridged(cfg *config.Config, typ string) string {
-	lt, ok := cfg.LaneType(typ)
+	lt, ok := cfg.Model(typ)
 	if !ok {
 		return ""
 	}
@@ -425,13 +415,13 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	return mt, held
 }
 
-// idleNote is a dispatch reply's tail "; idle: <LANE> (<type>), …": the lanes of ls still free after it (not taken,
-// not held for another task's dispatch; dirty-free is not idle); "" when none (T-483).
+// idleNote is a dispatch reply's tail "; idle: <LANE>, …": the lanes of ls still free after it (not taken, not held
+// for another task's dispatch; dirty-free is not idle); "" when none (T-483).
 func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	var idle []string
 	for _, l := range ls {
 		if l.State == "free" && l.Name != taken && held[l.Name] == "" {
-			idle = append(idle, l.Name+" ("+Dash(l.Type)+")")
+			idle = append(idle, l.Name)
 		}
 	}
 	if len(idle) == 0 {
@@ -440,71 +430,27 @@ func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	return "; idle: " + strings.Join(idle, ", ")
 }
 
-// typeNote is a dispatch reply's " as <type>" when lane l is untyped (a pool lane runs the type its dispatch picked,
-// T-723); "" on a typed lane (its own type).
-func typeNote(l port.Lane, typ string) string {
-	if l.Type != "" || typ == "" {
+// typeNote is a dispatch reply's " as <model>" (the model its dispatch picked); "" for none.
+func typeNote(typ string) string {
+	if typ == "" {
 		return ""
 	}
 	return " as " + typ
 }
 
-// capped is the types of types (type references) at their lane_types max (T-723), each with its reason "<type> at its
-// max <n>": the open dispatches that run it (dispatchesOf; not merged, rejected or dropped; a worker stopped on a usage
-// limit holds its dispatch, T-568), other than task's own, and nothing else: the max caps worker tasks only (owner,
-// 2026-11-02; role agents configured with the type do not count, T-738). A type without a max is limited only by the
-// free lanes.
-func (a *App) capped(p *proj, cfg *config.Config, task string, types []string) map[string]string {
-	full := map[string]string{}
-	for _, t := range types {
-		typ, _ := config.ParseTypeRef(t)
-		lt, ok := cfg.LaneType(typ)
-		if !ok || lt.Max <= 0 || full[typ] != "" {
-			continue
-		}
-		if n := a.dispatchesOf(p, cfg, task, typ); n >= lt.Max {
-			full[typ] = fmt.Sprintf("%s at its max %d", typ, lt.Max)
-		}
-	}
-	return full
-}
-
-// dispatchesOf is how many of p's loop tasks other than task hold an open dispatch that runs lane type typ
-// (store.LaneTypeRef: its recorded type, else, a dispatch from before T-721, its lane's type in cfg; a lane cfg left
-// untyped gives none: such a dispatch counts toward no type). An owner's drive counts toward none (T-751).
-func (a *App) dispatchesOf(p *proj, cfg *config.Config, task, typ string) int {
+// pausedModels is the models of types (model refs) that obor pause --model holds now (T-765), each with its reason
+// "<model> paused: <why> (until HH:MM|cleared)": dispatch skips them, a level's next model is used.
+func (a *App) pausedModels(p *proj, types []string) map[string]string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	n := 0
-	for t, m := range p.folded.loop {
-		if t == task || states[m.state].ended || m.drive {
-			continue
-		}
-		if rt, _ := config.ParseTypeRef(store.LaneTypeRef(m.disp.Type, configType(cfg, m.lane))); rt != "" && rt == typ {
-			n++
-		}
-	}
-	return n
-}
-
-// configType is lane's type in cfg ("": an untyped lane, or no such lane).
-func configType(cfg *config.Config, lane string) string {
-	for _, l := range cfg.Lanes() {
-		if l.Name == lane {
-			return l.Type
-		}
-	}
-	return ""
-}
-
-// effortFor is the effort of the first type reference of types naming lane type typ ("": none names one; T-695).
-func effortFor(types []string, typ string) string {
+	out := map[string]string{}
 	for _, t := range types {
-		if lt, effort := config.ParseTypeRef(t); lt == typ {
-			return effort
+		typ, _ := config.ParseModelRef(t)
+		if ps := p.modelPaused(typ, a.opt.Now()); ps != nil && out[typ] == "" {
+			out[typ] = fmt.Sprintf("%s paused: %s (until %s)", typ, ps.Why, untilText(ps.Until))
 		}
 	}
-	return ""
+	return out
 }
 
 // effortNote is a dispatch reply's " effort <effort>" (T-695); "" for none.
@@ -515,28 +461,31 @@ func effortNote(effort string) string {
 	return " effort " + effort
 }
 
-// pickLane is c's lane in ls (each its configured type: the reservation, "" a pool lane) and the type reference its
-// dispatch runs (T-723): the lane it names (its type; an untyped one c's first type), else the lane that holds c.Task
-// (working or blocked on it: a redo, whatever its type, T-545) with ran, the full type reference the task's dispatch
-// ran (store.LaneTypeRef, effort kept, T-738), unless c's explicit types (no level) name another (an untyped lane: c's
-// first; a typed one: its type when c names it, at c's effort), else its type or c's first, else for each type of c in
-// order, skipped at its max (full), the first lane in config order whose type is it (a typed lane is a reservation for
-// its type) or empty (the pool), free (dirty-free with force) and not held for another task's dispatch; else why not.
-// A redo that changes the type it runs is held to the new type's max like a fresh dispatch of that type (T-742).
-// A type reference's type matches (opus:high: an opus or untyped lane, T-695); a named or held typed lane keeps the
-// effort c gives its type.
-func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[string]string, ran string) (port.Lane, string, string) {
+// pickLane is c's lane in ls and the model ref its dispatch runs (every lane is pooled, T-765): the lane it names
+// (c's first model), else the lane that holds c.Task (working or blocked on it: a redo, T-545) with ran, the model ref
+// the task's dispatch ran (effort kept, T-738), unless c's explicit models (no level) name another (c's first), else
+// for each model of c in order, skipped while paused, the first lane in config order that is free (dirty-free with
+// force) and not held for another task's dispatch; else why not. A redo that changes the model it runs is held to the
+// new model's pause like a fresh dispatch of it (T-742).
+func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[string]string, ran string) (port.Lane, string, string) {
+	first := ""
+	for _, t := range c.Types {
+		if typ, _ := config.ParseModelRef(t); paused[typ] == "" {
+			first = t
+			break
+		}
+	}
 	if c.Lane != "" {
 		for _, l := range ls {
 			if l.Name == c.Lane {
 				if t := held[l.Name]; t != "" {
 					return port.Lane{}, "", "lane " + l.Name + " is dispatched to " + t
 				}
-				l.Dir = filepath.Clean(l.Dir)
-				if l.Type == "" && len(c.Types) > 0 {
-					return l, c.Types[0], ""
+				if first == "" {
+					return port.Lane{}, "", noLane(paused, c.Types)
 				}
-				return l, config.TypeRef(l.Type, effortFor(c.Types, l.Type)), ""
+				l.Dir = filepath.Clean(l.Dir)
+				return l, first, ""
 			}
 		}
 		return port.Lane{}, "", "unknown lane " + c.Lane + " (not in the config's lanes)"
@@ -545,53 +494,37 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, full map[stri
 		if l.Task == c.Task && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
 			l.Dir = filepath.Clean(l.Dir)
 			explicit := c.Level == "" && len(c.Types) > 0
-			names := slices.ContainsFunc(c.Types, func(t string) bool { typ, _ := config.ParseTypeRef(t); return typ == l.Type })
-			var ref string
-			switch {
-			case explicit && l.Type == "":
-				ref = c.Types[0]
-			case explicit && l.Type != "" && names:
-				ref = config.TypeRef(l.Type, effortFor(c.Types, l.Type))
-			case ran != "":
-				return l, ran, ""
-			case l.Type != "":
-				ref = config.TypeRef(l.Type, effortFor(c.Types, l.Type))
-			case len(c.Types) > 0:
-				ref = c.Types[0]
+			ref := ran
+			if explicit || ran == "" {
+				ref = first
 			}
-			// T-742: a redo that changes the type it runs respects the new type's max, like a fresh dispatch of it (the
-			// task's own open dispatch stays out of the count, T-568).
-			ranType, _ := config.ParseTypeRef(ran)
-			if typ, _ := config.ParseTypeRef(ref); typ != "" && typ != ranType && full[typ] != "" {
-				return port.Lane{}, "", noLane(full, c.Types)
+			ranType, _ := config.ParseModelRef(ran)
+			if typ, _ := config.ParseModelRef(ref); ref == "" || typ != ranType && paused[typ] != "" {
+				return port.Lane{}, "", noLane(paused, c.Types)
 			}
 			return l, ref, ""
 		}
 	}
-	for _, t := range c.Types {
-		typ, _ := config.ParseTypeRef(t)
-		if full[typ] != "" {
-			continue
-		}
+	if first != "" {
 		for _, l := range ls {
-			if (l.Type == typ || l.Type == "") && held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
+			if held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
 				l.Dir = filepath.Clean(l.Dir)
-				return l, t, ""
+				return l, first, ""
 			}
 		}
 	}
-	return port.Lane{}, "", noLane(full, c.Types)
+	return port.Lane{}, "", noLane(paused, c.Types)
 }
 
-// noLane is pickLane's refusal when none of types gets a lane: the types, and those at their max (full).
-func noLane(full map[string]string, types []string) string {
+// noLane is pickLane's refusal when none of types gets a lane: the models, and those paused.
+func noLane(paused map[string]string, types []string) string {
 	var at []string
 	for _, t := range types {
-		if typ, _ := config.ParseTypeRef(t); full[typ] != "" && !slices.Contains(at, full[typ]) {
-			at = append(at, full[typ])
+		if typ, _ := config.ParseModelRef(t); paused[typ] != "" && !slices.Contains(at, paused[typ]) {
+			at = append(at, paused[typ])
 		}
 	}
-	why := "no free lane of the types " + strings.Join(types, ",")
+	why := "no free lane for the models " + strings.Join(types, ",")
 	if len(at) > 0 {
 		why += " (" + strings.Join(at, ", ") + ")"
 	}
@@ -990,7 +923,7 @@ func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key 
 					"reports no session id): look at the pane, then obor resume " + mt.task}, nil
 			}
 		}
-		typ, _ := config.ParseTypeRef(mt.disp.Type) // the dispatch's type, not the lane's configured one (T-722)
+		typ, _ := config.ParseModelRef(mt.disp.Type) // the dispatch's type, not the lane's configured one (T-722)
 		s, err := fx.Agents.Launch(ctx, port.Launch{Agent: d.Agent, Pane: d.Pane, Fresh: true, Force: mt.disp.Force,
 			Prompt: first, Effort: mt.disp.Effort, Type: typ})
 		switch {
@@ -1057,14 +990,14 @@ func (a *App) sendWorkJob(ctx context.Context, p *proj, fx *Loop, mt mtask, key,
 }
 
 // workText is mt's worker prompt, from the project's config and the obor kit at kit as they are now: the prompt
-// template (its prompt_extra the dispatch's type's), then the worker's role texts (T-603: one read of them instead of two turns).
+// template (its prompt_extra the dispatch's model's kind's), then the worker's role texts (T-603: one read of them instead of two turns).
 func workText(p *proj, mt mtask, kit string) (string, error) {
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", err
 	}
-	typ, _ := config.ParseTypeRef(store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane))) // T-721, T-738
-	lt, _ := cfg.LaneType(typ)
+	typ, _ := config.ParseModelRef(mt.disp.Type) // T-721, T-738
+	lt, _ := cfg.Model(typ)
 	text, err := workerPrompt(cfg, kit, mt.task, lt)
 	if err != nil {
 		return "", err
@@ -1153,12 +1086,12 @@ func (a *App) watchWork(p *proj, mt mtask) step {
 }
 
 // workerPrompt is the worker prompt, the work job's text job_next hands out: templates/worker-prompt.txt rendered (its
-// lines joined by spaces), the lane type's prompt_extra; no backticks (herdr gotcha). It carries no sender tag of its
+// lines joined by spaces), the model's kind's prompt_extra (kinds.<kind>.prompt_extra); no backticks (herdr gotcha). It carries no sender tag of its
 // own. The worker's role texts follow it (workText). {{base}} is the target branch (branches.main). Placeholders:
 //
 //	{{task}} {{base}}
 //	{{done_sections}}  done_file_sections, comma-separated: the sections task_done's report must have
-func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (string, error) {
+func workerPrompt(cfg *config.Config, kit, task string, lt config.Model) (string, error) {
 	file := filepath.Join(kit, "templates", "worker-prompt.txt")
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -1182,7 +1115,7 @@ func workerPrompt(cfg *config.Config, kit, task string, lt config.LaneType) (str
 // pluginNote warns, in dispatch's reply, that a Claude lane's worktree has no enabled obor plugin (T-705): its worker
 // would run without obor's hooks and MCP tools (no job_next).
 func pluginNote(cfg *config.Config, l port.Lane, typ string) string {
-	lt, ok := cfg.LaneType(typ)
+	lt, ok := cfg.Model(typ)
 	if k, known := agents.Lookup(lt.Kind); !ok || !known || !k.Caps().ProjectPlugin || config.PluginEnabledIn(l.Dir) {
 		return ""
 	}

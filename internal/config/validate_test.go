@@ -40,12 +40,12 @@ func del(path string) edit {
 	}
 }
 
-// validate is `obor config validate` on the fixture config (lane O-01) changed by edits: the WARN lines, then the
+// validate is `obor config validate` on the fixture config (lane L-01) changed by edits: the WARN lines, then the
 // FAIL lines. The baseline carries the integrator serve needs (T-428), so the cases that predate it stay about their
 // own rule; a case that wants it gone deletes it.
 func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 	t.Helper()
-	base := []edit{set("roles.integrator", map[string]any{"type": "opus"})}
+	base := []edit{set("roles.integrator", "opus")}
 	p.Config(append(base, edits...)...)
 	c, err := config.Load(p.Root)
 	if err != nil {
@@ -58,7 +58,7 @@ func validate(t *testing.T, p *testkit.Project, edits ...edit) []string {
 
 func newProject(t *testing.T) *testkit.Project {
 	p := testkit.New(t)
-	p.Lane("O-01", "")
+	p.Lane("L-01", "")
 	return p
 }
 
@@ -74,22 +74,25 @@ func TestValidate(t *testing.T) {
 		{name: "mcp.jobs true is how obor runs", edits: []edit{set("mcp.jobs", true)}},
 		{name: "mcp.jobs false is obsolete", edits: []edit{set("mcp.jobs", false)},
 			want: []string{"WARN mcp.jobs false is obsolete: every agent fetches its jobs (T-437), remove it"}},
-		{name: "lane type jobs typed is obsolete", edits: []edit{set("lane_types.cur", map[string]any{"kind": "codex", "jobs": "typed"})},
-			want: []string{"WARN lane_types.cur.jobs is obsolete: every kind fetches its jobs (T-437), remove it"}},
-		// RV-52 #1: a lane type's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
-		{name: "cursor is no supported kind", edits: []edit{set("lane_types.cur", map[string]any{"kind": "cursor"})},
-			want: []string{`FAIL .lane_types.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
-		{name: "typo is no supported kind", edits: []edit{set("lane_types.opus", map[string]any{"kind": "claod"})},
-			want: []string{`FAIL .lane_types.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
+		// RV-52 #1: a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
+		{name: "cursor is no supported kind", edits: []edit{set("models.cur", map[string]any{"kind": "cursor", "model": "c"})},
+			want: []string{`FAIL .models.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
+		{name: "typo is no supported kind", edits: []edit{set("models.opus", map[string]any{"kind": "claod", "model": "opus"})},
+			want: []string{`FAIL .models.opus.kind: "claod" is not a supported kind: use one of claude, codex, opencode`}},
+		{name: "a kinds key is a supported kind", edits: []edit{set("kinds.cursor", map[string]any{"args": []any{"-x"}})},
+			want: []string{`FAIL .kinds.cursor: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
 		{name: "every supported kind is accepted", edits: []edit{
-			set("lane_types.a", map[string]any{"kind": "claude"}), set("lane_types.b", map[string]any{"kind": "codex"}),
-			set("lane_types.c", map[string]any{"kind": "opencode", "args": []any{"--model", "go/ds"}})}},
-		// T-705: an opencode type without --model warns (not fails): opencode's own default may not work.
-		{name: "an opencode type without --model warns", edits: []edit{
-			set("lane_types.oc", map[string]any{"kind": "opencode", "args": []any{"--auto"}})},
-			want: []string{`WARN lane_types.oc: opencode type without --model (opencode's own default may not work, and an effort needs one): add "--model", "opencode-go/deepseek-v4.1-flash" to its args`}},
-		{name: "empty kind is required", edits: []edit{set("lane_types.cur", map[string]any{"kind": ""})},
-			want: []string{"FAIL .lane_types.cur.kind: required (claude, codex, …)"}},
+			set("models.a", map[string]any{"kind": "claude", "model": "a"}), set("models.b", map[string]any{"kind": "codex", "model": "b"}),
+			set("models.c", map[string]any{"kind": "opencode", "model": "go/ds"})}},
+		// T-705: a used opencode model without a model id warns (not fails): opencode's own default may not work.
+		{name: "a used opencode model without a model id warns", edits: []edit{
+			set("models.oc", map[string]any{"kind": "opencode", "model": ""}), set("difficulty.simple", []any{"oc"})},
+			want: []string{`WARN models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "model", e.g. "opencode-go/deepseek-v4.1-flash"`}},
+		{name: "an unused opencode model without a model id is fine", edits: []edit{
+			set("models.oc", map[string]any{"kind": "opencode", "model": ""})}},
+		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
+			want: []string{"FAIL .models.cur.kind: required (claude, codex, opencode)"}},
+		{name: "a built-in's override may keep its kind", edits: []edit{set("models.opus", map[string]any{"model": "claude-opus-5-5"})}},
 		{name: "stop_hook.worker_max_blocks is obsolete", edits: []edit{set("stop_hook.worker_max_blocks", 3)},
 			want: []string{"WARN stop_hook: no longer used, remove it"}},
 		// T-465: the heartbeat's keys, the Stop hook's nudge keys, obor notify's backends and merge.full_every went with
@@ -122,7 +125,8 @@ func TestValidate(t *testing.T) {
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("roles.integrator")},
 			want: []string{"FAIL .roles.integrator: required: serve dispatches and merges nothing without an integrator"}},
-		{name: "roles.integrator configured", edits: []edit{set("roles.integrator", `{"type": "opus", "agent": "pj-int"}`)}},
+		{name: "roles.integrator configured", edits: []edit{set("roles.integrator", "sonnet:high")}},
+		{name: "roles.integrator with no model", edits: []edit{set("roles.integrator", "")}},
 		// bash config.test.sh case_validate_one_fail_per_broken_field
 		{name: "version 2", edits: []edit{set("version", 2)}, want: []string{"FAIL .version: must be 1, got 2"}},
 		{name: "no version", edits: []edit{del("version")}, want: []string{"FAIL .version: must be 1, got null"}},
@@ -132,54 +136,46 @@ func TestValidate(t *testing.T) {
 		{name: "prefix too long", edits: []edit{set("prefix", "toolongprefix")},
 			want: []string{`FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "toolongprefix"`}},
 		{name: "prefix 1x", edits: []edit{set("prefix", "1x")}, want: []string{`FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "1x"`}},
-		{name: "lane of an unknown type", edits: []edit{set("lanes", map[string]any{"O-01": "ghost"})},
-			want: []string{`FAIL .lanes["O-01"]: "ghost" is not a key of lane_types`}},
-		// T-724: "" is an untyped pool lane; a lane of any other unknown type still fails.
-		{name: "untyped lane", edits: []edit{set("lanes", map[string]any{"O-01": ""})}},
-		{name: "untyped lane with an agent name", edits: []edit{set("lanes", map[string]any{"O-01": map[string]any{"type": "", "agent": "pj-pool"}})}},
-		{name: "typed and untyped lanes", edits: []edit{set("lanes", map[string]any{"O-01": "", "O-02": "ghost"})},
-			want: []string{`FAIL .lanes["O-02"]: "ghost" is not a key of lane_types`}},
+		// T-765: lanes is a count.
+		{name: "no lanes", edits: []edit{set("lanes", 0)}},
+		{name: "negative lanes", edits: []edit{set("lanes", -1)},
+			want: []string{"FAIL .lanes: must be a non-negative integer (how many lanes), got -1"}},
 		// T-538: a project's difficulty entry names the levels and the lane types it has; the built-in default skips what it lacks.
-		{name: "difficulty names known types", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus"}})}},
-		{name: "difficulty with an unknown type", edits: []edit{set("difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
-			want: []string{`FAIL .difficulty.medium[1]: "ghost" is not a key of lane_types`}},
+		{name: "difficulty names known models", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus"}})}},
+		{name: "difficulty with an unknown model", edits: []edit{set("difficulty", map[string]any{"medium": []any{"opus", "ghost"}})},
+			want: []string{`FAIL .difficulty.medium[1]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		{name: "difficulty with an unknown level", edits: []edit{set("difficulty", map[string]any{"easy": []any{"opus"}})},
 			want: []string{"FAIL .difficulty.easy: is not a level: use hard, medium or simple"}},
 		// T-695: a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
-		{name: "difficulty mixes types and type:effort", edits: []edit{set("lane_types.luna", map[string]any{"kind": "codex"}),
+		{name: "difficulty mixes models and model:effort", edits: []edit{
 			set("difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
-			set("roles.lead", map[string]any{"type": "opus:max"}), set("roles.reviewer", map[string]any{"type": "luna:minimal"})}},
+			set("roles.lead", "opus:max"), set("roles.reviewer", "luna:minimal")}},
 		{name: "difficulty with an effort its kind lacks", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
 			want: []string{`FAIL .difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
-		// T-697: an OpenCode effort rides on the type's --model (obor never guesses OpenCode's model).
-		{name: "an opencode effort needs the type's --model", edits: []edit{
-			set("lane_types.oc", map[string]any{"kind": "opencode", "args": []any{"--auto"}}),
-			set("lane_types.ocm", map[string]any{"kind": "opencode", "args": []any{"--model", "go/ds"}}),
-			set("difficulty", map[string]any{"hard": []any{"ocm:high", "oc:high", "oc"}})},
-			want: []string{`WARN lane_types.oc: opencode type without --model (opencode's own default may not work, and an effort needs one): add "--model", "opencode-go/deepseek-v4.1-flash" to its args`,
-				`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model: add --model provider/model to the type's args`}},
-		{name: "difficulty with an unknown type and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
-			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a key of lane_types`}},
-		{name: "a role type with an effort its kind lacks", edits: []edit{set("roles.lead", map[string]any{"type": "opus:turbo"})},
-			want: []string{`FAIL .roles.lead.type: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
-		{name: "a role type with a colon and no effort", edits: []edit{set("roles.integrator", map[string]any{"type": "opus:"})},
-			want: []string{`FAIL .roles.integrator.type: "opus:" names no effort after the colon`}},
-		{name: "lane type without kind", edits: []edit{set("lane_types.opus", map[string]any{"args": []any{}})},
-			want: []string{"FAIL .lane_types.opus.kind: required (claude, codex, …)"}},
-		{name: "lane type args with a bare --", edits: []edit{set("lane_types.opus.args", []any{"--model", "opus", "--"})},
-			want: []string{"FAIL .lane_types.opus.args: `--` is not allowed: obor adds the first prompt itself"}},
-		{name: "lane type args ending in -- and a positional", edits: []edit{set("lane_types.opus.args", []any{"--", "notes.md"})},
-			want: []string{"FAIL .lane_types.opus.args: `--` is not allowed: obor adds the first prompt itself"}},
-		{name: "lane type args with -- inside a value", edits: []edit{set("lane_types.opus.args", []any{"--model=--"})}},
-		{name: "agents type unknown", edits: []edit{set("agents", `{"hk-fable": {"type": "ghost"}}`)},
-			want: []string{`FAIL .agents["hk-fable"].type: "ghost" is not a key of lane_types`}},
-		{name: "agents type missing", edits: []edit{set("agents", `{"adv": {}}`)},
-			want: []string{`FAIL .agents.adv.type: "" is not a key of lane_types`}},
-		{name: "roles.lead.type unknown", edits: []edit{set("roles.lead", `{"type": "ghost"}`)},
-			want: []string{`FAIL .roles.lead.type: "ghost" is not a key of lane_types`}},
-		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("lane_types.extra", map[string]any{})},
+		// T-697: an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
+		{name: "an opencode effort needs the model's id", edits: []edit{
+			set("models.oc", map[string]any{"kind": "opencode", "model": ""}),
+			set("difficulty", map[string]any{"hard": []any{"deepseek:high", "oc:high", "oc"}})},
+			want: []string{`WARN models.oc: opencode model without a model id (opencode's own default may not work, and an effort needs one): set its "model", e.g. "opencode-go/deepseek-v4.1-flash"`,
+				`FAIL .difficulty.hard[1]: oc:high: opencode: effort high needs a model id (models.<name>.model, provider/model)`}},
+		{name: "difficulty with an unknown model and an effort", edits: []edit{set("difficulty", map[string]any{"hard": []any{"ghost:high"}})},
+			want: []string{`FAIL .difficulty.hard[0]: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		{name: "a role with an effort its kind lacks", edits: []edit{set("roles.lead", "opus:turbo")},
+			want: []string{`FAIL .roles.lead: opus:turbo: effort "turbo" is not one of claude's (low, medium, high, xhigh, max)`}},
+		{name: "a role with a colon and no effort", edits: []edit{set("roles.integrator", "opus:")},
+			want: []string{`FAIL .roles.integrator: "opus:" names no effort after the colon`}},
+		{name: "kinds args with a bare --", edits: []edit{set("kinds.claude.args", []any{"--strict-mcp-config", "--"})},
+			want: []string{"FAIL .kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
+		{name: "kinds args with -- inside a value", edits: []edit{set("kinds.claude.args", []any{"--x=--"})}},
+		{name: "agents model unknown", edits: []edit{set("agents", `{"hk-fable": {"type": "ghost"}}`)},
+			want: []string{`FAIL .agents["hk-fable"].type: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		{name: "agents model missing", edits: []edit{set("agents", `{"adv": {}}`)},
+			want: []string{`FAIL .agents.adv.type: "" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		{name: "roles.lead unknown", edits: []edit{set("roles.lead", "ghost")},
+			want: []string{`FAIL .roles.lead: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("models.extra", map[string]any{})},
 			want: []string{"FAIL .version: must be 1, got 3", `FAIL .prefix: must match ^[a-z][a-z0-9-]{0,7}$, got "X"`,
-				"FAIL .lane_types.extra.kind: required (claude, codex, …)"}},
+				"FAIL .models.extra.kind: required (claude, codex, opencode)"}},
 		// T-349
 		{name: "receipt_max_age and cpus fine", edits: []edit{set("merge.receipt_max_age", 0), set("slots.cpus", 4)}},
 		{name: "receipt_max_age negative", edits: []edit{set("merge.receipt_max_age", -1)},
@@ -198,33 +194,15 @@ func TestValidate(t *testing.T) {
 		{name: "checks.load_limit 0 (never wait) fine", edits: []edit{set("checks.load_limit", 0)}},
 		{name: "checks.load_limit negative", edits: []edit{set("checks.load_limit", -1)},
 			want: []string{"FAIL .checks.load_limit: must be a non-negative number (a load average; 0: never wait), got -1"}},
-		// bash config.test.sh case_validate_lane_role_namespace_collisions
-		{name: "lane named like the reviewer worktree", edits: []edit{set("roles.reviewer", `{"type": "opus"}`), set("lanes.review", "opus")},
-			want: []string{`FAIL .lanes.review: name collides with role worktree "review"`}},
-		{name: "lane named like a configured worktree", edits: []edit{set("roles.reviewer", `{"type": "opus", "worktree": "deep-dive"}`),
-			set("lanes.deep-dive", "opus")}, want: []string{`FAIL .lanes["deep-dive"]: name collides with role worktree "deep-dive"`}},
-		// bash config.test.sh case_validate_lane_alias_prefix_lower, _prefix_compact, _lower, _configured_agent
-		{name: "lane alias pj-o-01", edits: []edit{set("roles.reviewer", `{"type": "opus", "agent": "pj-o-01"}`)},
-			want: []string{`FAIL .lanes["O-01"]: agent "pj-o-01" collides with a role agent`}},
-		{name: "lane alias pj-o1", edits: []edit{set("roles.reviewer", `{"type": "opus", "agent": "pj-o1"}`)},
-			want: []string{`FAIL .lanes["O-01"]: agent "pj-o1" collides with a role agent`}},
-		// T-302: the bare lane name is no alias: a role agent so named only warns.
-		{name: "role agent named like the lane", edits: []edit{set("roles.reviewer", `{"type": "opus", "agent": "o-01"}`)},
-			want: []string{`WARN .lanes["O-01"]: agent "o-01" is named like the lane but is not its agent (lookups take no bare lane name)`}},
-		{name: "integrator named like another lane", edits: []edit{set("lanes.O-02", "opus"),
-			set("roles.integrator", `{"agent": "o-02"}`)},
-			want: []string{`WARN .lanes["O-02"]: agent "o-02" is named like the lane but is not its agent (lookups take no bare lane name)`}},
-		{name: "lane agent named like another lane", edits: []edit{set("lanes.O-02", "opus"),
-			set("lanes.O-01", `{"type": "opus", "agent": "o-02"}`)},
-			want: []string{`WARN .lanes["O-02"]: agent "o-02" is named like the lane but is not its agent (lookups take no bare lane name)`}},
-		{name: "lane agent named like its own lane", edits: []edit{set("lanes.O-01", `{"type": "opus", "agent": "o-01"}`)}},
-		{name: "configured lane agent", edits: []edit{set("lanes", `{"O-01": {"type": "opus", "agent": "custom-lane"}}`),
-			set("roles.reviewer", `{"type": "opus", "agent": "custom-lane"}`)},
-			want: []string{`FAIL .lanes["O-01"]: agent "custom-lane" collides with a role agent`}},
+		// T-302: the bare lane name is no alias: an agents entry so named only warns; a lane alias collides.
+		{name: "agent named like the lane", edits: []edit{set("agents", `{"l-01": {"type": "opus"}}`)},
+			want: []string{`WARN .lanes: agent "l-01" is named like lane L-01 but is not its agent (lookups take no bare lane name)`}},
+		{name: "agent named like a lane's alias", edits: []edit{set("agents", `{"pj-l1": {"type": "opus"}}`)},
+			want: []string{`FAIL .lanes: lane L-01's agent "pj-l1" collides with a role agent`}},
 		// bash config.test.sh case_validate_agents_ok
-		{name: "agents and roles.lead.type known", edits: []edit{
-			set("agents", `{"hk-fable": {"type": "opus", "cwd": "sub", "role": "advisor"}, "plain": {"type": "opus"}}`),
-			set("roles.lead", `{"agent": "pj-lead", "type": "opus"}`)}},
+		{name: "agents and roles.lead known", edits: []edit{
+			set("agents", `{"hk-fable": {"type": "fable:high", "cwd": "sub", "role": "advisor"}, "plain": {"type": "opus"}}`),
+			set("roles.lead", "opus")}},
 		// bash config.test.sh case_validate_lane_ready
 		{name: "lane_ready string", edits: []edit{set("commands.lane_ready", "test -d node_modules")}},
 		{name: "lane_ready object", edits: []edit{set("commands.lane_ready", `{"cmd": "test -d node_modules", "timeout": 30}`)}},
@@ -243,21 +221,21 @@ func TestValidate(t *testing.T) {
 		{name: "distinct class names, same paths", edits: []edit{set("merge.classes", `[{"name": "core", "paths": ["src/**"], "full": true},
 			{"name": "ui", "paths": ["src/**"], "checks": ["ui"]}]`)}},
 		// bash config.test.sh case_validate_roles_triage, case_validate_roles_deep_dive
-		{name: "roles.triage", edits: []edit{set("roles.triage", `{"type": "opus"}`)}},
-		{name: "roles.deep_dive", edits: []edit{set("roles.deep_dive", `{"type": "opus", "worktree": "dd", "agent": "pj-dd"}`)}},
-		{name: "deep_dive type unknown", edits: []edit{set("roles.deep_dive", `{"type": "ghost"}`)},
-			want: []string{`FAIL .roles.deep_dive.type: "ghost" is not a key of lane_types`}},
+		{name: "roles.triage", edits: []edit{set("roles.triage", "opus")}},
+		{name: "roles.deep_dive", edits: []edit{set("roles.deep_dive", "opus:high")}},
+		{name: "deep_dive model unknown", edits: []edit{set("roles.deep_dive", "ghost")},
+			want: []string{`FAIL .roles.deep_dive: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		// bash config.test.sh case_validate_stop_idle_workers
 		{name: "stop_idle_workers false", edits: []edit{set("stop_idle_workers", false)}},
 		{name: "stop_idle_workers true", edits: []edit{set("stop_idle_workers", true)}},
 		// bash config.test.sh case_validate_handoff_tokens
-		{name: "handoff_tokens 500000", edits: []edit{set("roles.lead", `{"handoff_tokens": 500000}`)}},
-		{name: "handoff_tokens 0", edits: []edit{set("roles.lead", `{"handoff_tokens": 0}`)}},
-		{name: "handoff_tokens negative", edits: []edit{set("roles.lead", `{"handoff_tokens": -1}`)},
-			want: []string{"FAIL .roles.lead.handoff_tokens: must be a non-negative integer, got -1"}},
-		{name: "integrator handoff_tokens 0", edits: []edit{set("roles.integrator", `{"handoff_tokens": 0}`)}},
-		{name: "integrator handoff_tokens negative", edits: []edit{set("roles.integrator", `{"handoff_tokens": -5}`)},
-			want: []string{"FAIL .roles.integrator.handoff_tokens: must be a non-negative integer, got -5"}},
+		{name: "handoff_tokens 500000", edits: []edit{set("handoff_tokens", 500000)}},
+		{name: "handoff_tokens 0", edits: []edit{set("handoff_tokens", 0)}},
+		{name: "handoff_tokens negative", edits: []edit{set("handoff_tokens", -1)},
+			want: []string{"FAIL .handoff_tokens: must be a non-negative integer, got -1"}},
+		{name: "integrator handoff_tokens 0", edits: []edit{set("integrator_handoff_tokens", 0)}},
+		{name: "integrator handoff_tokens negative", edits: []edit{set("integrator_handoff_tokens", -5)},
+			want: []string{"FAIL .integrator_handoff_tokens: must be a non-negative integer, got -5"}},
 		// bash config.test.sh case_validate_allow_push
 		{name: "allow_push names", edits: []edit{set("guards", `{"allow_push": ["pj-lead", "lead-mp"]}`)}},
 		{name: "allow_push empty", edits: []edit{set("guards", `{"allow_push": []}`)}},
@@ -294,13 +272,15 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 	}{
 		{set("commands.lane_ready", 5), "lane_ready"},
 		{set("commands.after_merge", map[string]any{"cmd": "make build", "when": "cmd/**"}), "when"},
-		{set("lane_types", []any{}), "lane_types"},
+		{set("lanes", map[string]any{}), "lanes"},
+		{set("models", []any{}), "models"},
+		{set("kinds.claude.args", "x"), "args"},
 		{set("agents", `{"adv": {"type": "opus", "cwd": 5}}`), "cwd"},
-		{set("roles.mystery", map[string]any{}), `unknown field "mystery"`},
-		{set("roles.integrator", "x"), "integrator"},
+		{set("roles.mystery", "opus"), `unknown field "mystery"`},
+		{set("roles.integrator", 5), "integrator"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
 		{set("stop_idle_workers", "no"), "stop_idle_workers"},
-		{set("roles.lead", `{"handoff_tokens": 1.5}`), "handoff_tokens"},
+		{set("handoff_tokens", 1.5), "handoff_tokens"},
 		{set("guards", `{"allow_push": "pj-lead"}`), "allow_push"},
 		{set("merge.clases", []any{}), `unknown field "clases"`},
 		{set("merge.receipt_max_age", "1d"), "receipt_max_age"},
@@ -342,9 +322,9 @@ func TestValidateTrunkRef(t *testing.T) {
 func TestValidateRemovedLeadsWarn(t *testing.T) {
 	p := newProject(t)
 	got := validate(t, p,
-		set("roles.lead", `{"type": "opus", "agent": "lead-mp"}`),
+		set("roles.lead", "opus"),
 		set("roles.leads", `[{"name": "mp", "agent": "lead-mp", "ids": ["T-383..T-499"],
-			"paths": ["src/net/**"], "lanes": ["O-01"]}]`))
+			"paths": ["src/net/**"], "lanes": ["L-01"]}]`))
 	if want := []string{"WARN roles.leads: no longer used, remove it"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
 	}
@@ -377,7 +357,6 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 		keepUntil int // the last minor that still WARNs: removed + 2
 	}{
 		{"mcp.jobs", set("mcp.jobs", false), 11, 13},
-		{"lane_types.cur.jobs", set("lane_types.cur", `{"kind": "codex", "jobs": "typed"}`), 11, 13},
 		{"cache.warn_tokens", set("cache.warn_tokens", 50000), 12, 14},
 		{"heartbeat", set("heartbeat", `{"interval": 900}`), 12, 14},
 		{"stop_hook", set("stop_hook", `{"max_nudges": 2}`), 12, 14},
@@ -419,7 +398,6 @@ func TestRemovedByV010KeysAreUnknown(t *testing.T) {
 	}{
 		{"milestone", []edit{set("milestone", `{"tag": "m{n}"}`)}, "milestone"},
 		{"branches.milestone", []edit{set("branches.milestone", `"ms/{name}"`)}, "milestone"},
-		{"lane_types.opus.reset", []edit{set("lane_types.opus.reset", `"/clear"`)}, "reset"},
 		{"cache.refuse_cold", []edit{set("cache.refuse_cold", false)}, "refuse_cold"},
 		{"keep_warm", []edit{set("keep_warm", `{"agents": ["a"]}`)}, "keep_warm"},
 		{"githooks.notify", []edit{set("githooks.notify", `["post-merge"]`)}, "githooks"},
@@ -450,37 +428,10 @@ func warnsKey(lines []string, key string) bool {
 // bash config.test.sh case_validate_lane_alias_state_agent: the lane state file's agent is one of the lane's names.
 func TestValidateLaneStateAgent(t *testing.T) {
 	p := newProject(t)
-	p.State("O-01", `{"lane":"O-01","agent":"state-agent"}`)
-	got := validate(t, p, set("roles.reviewer", `{"type": "opus", "agent": "state-agent"}`))
-	if want := []string{`FAIL .lanes["O-01"]: agent "state-agent" collides with a role agent`}; !reflect.DeepEqual(got, want) {
+	p.State("L-01", `{"lane":"L-01","agent":"state-agent"}`)
+	got := validate(t, p, set("agents", `{"state-agent": {"type": "opus"}}`))
+	if want := []string{`FAIL .lanes: lane L-01's agent "state-agent" collides with a role agent`}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
-	}
-}
-
-// bash config.test.sh case_validate_lane_aliases_cover_role_defaults_and_agents
-func TestValidateLaneAliasesCoverRoleDefaultsAndAgents(t *testing.T) {
-	p := newProject(t)
-	got := validate(t, p, func(c map[string]any) {
-		lanes := c["lanes"].(map[string]any)
-		for _, l := range []string{"INT", "REV", "TRIAGE", "DEEP-DIVE", "LEAD", "ADVISOR", "WORKER-ALIAS"} {
-			lanes[l] = "opus"
-		}
-	}, set("roles.triage", map[string]any{}), set("roles.deep_dive", `{"type": "opus"}`), set("roles.advisor", map[string]any{}),
-		set("roles.worker", `{"agent": "worker-alias"}`),
-		set("agents", `{"o-01": {"type": "opus"}, "pj-o1": {"type": "opus"}}`))
-	want := []string{
-		`WARN .lanes["O-01"]: agent "o-01" is named like the lane but is not its agent (lookups take no bare lane name)`,
-		`WARN .lanes["WORKER-ALIAS"]: agent "worker-alias" is named like the lane but is not its agent (lookups take no bare lane name)`,
-		`FAIL .lanes.ADVISOR: agent "pj-advisor" collides with a role agent`,
-		`FAIL .lanes["DEEP-DIVE"]: agent "pj-deep-dive" collides with a role agent`,
-		`FAIL .lanes.INT: agent "pj-int" collides with a role agent`,
-		`FAIL .lanes.LEAD: agent "pj-lead" collides with a role agent`,
-		`FAIL .lanes["O-01"]: agent "pj-o1" collides with a role agent`,
-		`FAIL .lanes.REV: agent "pj-rev" collides with a role agent`,
-		`FAIL .lanes.TRIAGE: agent "pj-triage" collides with a role agent`,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("validate = %q\nwant %q", got, want)
 	}
 }
 
@@ -510,141 +461,71 @@ func TestValidateTemplatesAndKitConfig(t *testing.T) {
 		if len(warns)+len(fails) != 0 {
 			t.Errorf("%s: %q %q", files[0], warns, fails)
 		}
-		if files[1] != "" && c.Data.LaneTypes.M["opus"].Kind != "" {
-			if n := c.Data.LaneTypes.M["opus"].Max; n != 2 {
-				t.Errorf("local example overrides the template: max %d, want 2", n)
-			}
+		if files[1] != "" && (c.Data.Lanes != 2 || c.DifficultyList("hard")[0] != "opus:xhigh") {
+			t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes, c.DifficultyList("hard"))
 		}
 	}
 }
 
-// T-695: a type reference is `<type>[:<effort>]`; CheckTypeRef refuses an unknown type, an empty effort and one its
-// kind does not take; a role's type splits into Type and Effort (AgentInfo carries the effort).
-func TestTypeRef(t *testing.T) {
+// T-695, T-765: a model ref is `<model>[:<effort>]`; CheckModelRef refuses an unknown model, an empty effort and one
+// its kind does not take; a role's ref splits into Type and Effort (AgentInfo carries the effort).
+func TestModelRef(t *testing.T) {
 	for _, c := range []struct{ ref, typ, effort string }{
 		{"opus", "opus", ""}, {"opus:high", "opus", "high"}, {"luna:xhigh", "luna", "xhigh"}, {"opus:", "opus", ""},
 	} {
-		if typ, effort := config.ParseTypeRef(c.ref); typ != c.typ || effort != c.effort {
-			t.Errorf("ParseTypeRef(%q) = %q, %q; want %q, %q", c.ref, typ, effort, c.typ, c.effort)
+		if typ, effort := config.ParseModelRef(c.ref); typ != c.typ || effort != c.effort {
+			t.Errorf("ParseModelRef(%q) = %q, %q; want %q, %q", c.ref, typ, effort, c.typ, c.effort)
 		}
 	}
 	p := newProject(t)
-	p.Config(set("roles.lead", map[string]any{"type": "opus:high", "agent": "ob-lead"}))
+	p.Config(set("roles.lead", "opus:high"))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for ref, refusal := range map[string]string{"opus": "", "opus:high": "", "opus:bad": `effort "bad" is not one of claude's`,
-		"ghost": `"ghost" is not a lane type of this project (lane types: opus)`, "opus:": "names no effort"} {
-		err := cfg.CheckTypeRef(ref)
+		"luna:xhigh": "", "luna:max": `effort "max" is not one of codex's`, "haiku:low": "",
+		"ghost": `"ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`, "opus:": "names no effort"} {
+		err := cfg.CheckModelRef(ref)
 		if refusal == "" && err != nil || refusal != "" && (err == nil || !strings.Contains(err.Error(), refusal)) {
-			t.Errorf("CheckTypeRef(%q) = %v, want %q", ref, err, refusal)
+			t.Errorf("CheckModelRef(%q) = %v, want %q", ref, err, refusal)
 		}
 	}
 	if rc, _ := cfg.Role("lead"); rc.Type != "opus" || rc.Effort != "high" {
 		t.Errorf("Role(lead) = type %q effort %q, want opus, high", rc.Type, rc.Effort)
 	}
-	if info, ok := cfg.AgentLookup("ob-lead", "", nil); !ok || info.Type != "opus" || info.Effort != "high" {
-		t.Errorf("AgentLookup(ob-lead) = %+v, %v; want type opus, effort high", info, ok)
+	if info, ok := cfg.AgentLookup("pj-lead", "", nil); !ok || info.Type != "opus" || info.Effort != "high" {
+		t.Errorf("AgentLookup(pj-lead) = %+v, %v; want type opus, effort high", info, ok)
 	}
 }
 
-// T-538/T-629: a level's lane types are the project's difficulty entry, else the built-in default, keeping only the
-// types a configured lane can run (one of the type, or an untyped lane; T-723); a level left with none falls back to medium's list, then hard's. A name that is no
+// T-538, T-765: a level's model refs are the project's difficulty entry, else the built-in default; a name that is no
 // level has none.
-func TestDifficultyTypes(t *testing.T) {
-	types := []edit{
-		set("lane_types.opus", map[string]any{"kind": "claude"}),
-		set("lane_types.sonnet", map[string]any{"kind": "claude"}),
-		set("lane_types.haiku", map[string]any{"kind": "claude"}),
-		set("lane_types.deepseek", map[string]any{"kind": "claude"}),
-		set("lane_types.luna", map[string]any{"kind": "codex"}),
-	}
-	for _, c := range []struct {
-		name       string
-		lanes      map[string]any
-		difficulty map[string]any
-		want, own  map[string]string // DifficultyTypes, DifficultyLevelTypes (before the fallback)
-	}{
-		{"claude-only lanes: each level keeps what it has", map[string]any{"O-01": "opus", "S-01": "sonnet"}, nil,
-			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"},
-			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"}},
-		{"a lane of every type a level lists: as listed", map[string]any{"O-01": "opus", "S-01": "sonnet",
-			"T-01": "deepseek", "H-01": "haiku"}, nil,
-			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"},
-			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "deepseek,sonnet,haiku"}},
-		{"simple names only a type with no lane: falls back to medium's sonnet", map[string]any{"O-01": "opus", "S-01": "sonnet"},
-			map[string]any{"simple": []string{"luna"}},
-			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": "sonnet"},
-			map[string]string{"hard": "opus:high", "medium": "sonnet", "simple": ""}},
-		{"a level list mixing type:effort and types keeps those with a lane, efforts and all (T-695)",
-			map[string]any{"O-01": "opus", "S-01": "sonnet"},
-			map[string]any{"hard": []string{"luna:xhigh", "opus:high", "sonnet"}},
-			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"},
-			map[string]string{"hard": "opus:high,sonnet", "medium": "sonnet", "simple": "sonnet"}},
-		{"an untyped lane runs every lane type: each level as listed, a type no lane_types has skipped (T-723)",
-			map[string]any{"O-01": "opus", "L-01": ""}, map[string]any{"simple": []string{"gemini", "luna"}},
-			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "luna"},
-			map[string]string{"hard": "opus:high", "medium": "sonnet,deepseek", "simple": "luna"}},
-		{"a level with no lane and no fallback lane: empty", map[string]any{"O-01": "haiku"},
-			map[string]any{"simple": []string{"luna"}},
-			map[string]string{"hard": "", "medium": "", "simple": ""},
-			map[string]string{"hard": "", "medium": "", "simple": ""}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			p := newProject(t)
-			p.Config(append(types, set("lanes", c.lanes), set("difficulty", c.difficulty))...)
-			cfg, err := config.Load(p.Root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for level, want := range c.want {
-				got, ok := cfg.DifficultyTypes(level)
-				if !ok || strings.Join(got, ",") != want {
-					t.Errorf("DifficultyTypes(%q) = %v, %v; want %s", level, got, ok, want)
-				}
-				if own := strings.Join(cfg.DifficultyLevelTypes(level), ","); own != c.own[level] {
-					t.Errorf("DifficultyLevelTypes(%q) = %q, want %q", level, own, c.own[level])
-				}
-			}
-			if got, ok := cfg.DifficultyTypes("easy"); ok || got != nil {
-				t.Errorf("DifficultyTypes(easy) = %v, %v; want none", got, ok)
-			}
-			if got := cfg.DifficultyList("easy"); got != nil {
-				t.Errorf("DifficultyList(easy) = %v, want none", got)
-			}
-		})
-	}
-	// DifficultyList is the project's entry, else the built-in list, before the lanes filter (obor setup show).
+func TestDifficultyList(t *testing.T) {
 	p := newProject(t)
-	p.Config(append(types, set("lanes", map[string]any{"O-01": "opus"}), set("difficulty", map[string]any{"medium": []string{"haiku"}}))...)
+	p.Config(set("difficulty", map[string]any{"medium": []string{"haiku", "luna:high"}}))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(cfg.DifficultyList("medium"), ","); got != "haiku" {
-		t.Errorf("DifficultyList(medium) = %q, want the project's haiku", got)
+	for level, want := range map[string]string{"hard": "opus:high", "medium": "haiku,luna:high", "simple": "deepseek,sonnet,haiku"} {
+		if got := strings.Join(cfg.DifficultyList(level), ","); got != want {
+			t.Errorf("DifficultyList(%s) = %q, want %q", level, got, want)
+		}
 	}
-	if got := strings.Join(cfg.DifficultyList("hard"), ","); got != "opus:high" {
-		t.Errorf("DifficultyList(hard) = %q, want the built-in opus:high", got)
+	if got := cfg.DifficultyList("easy"); got != nil {
+		t.Errorf("DifficultyList(easy) = %v, want none", got)
 	}
 }
 
-// T-704: roles.researcher is a known role: a type validates, a type that is no lane_type fails, and a lane named like
-// its agent collides.
+// T-704: roles.researcher is a known role: a model validates, a name that is no model fails.
 func TestValidateAcceptsTheResearcherRole(t *testing.T) {
 	p := newProject(t)
-	if got := validate(t, p, set("roles.researcher", `{"type": "opus"}`)); len(got) != 0 {
+	if got := validate(t, p, set("roles.researcher", "sonnet")); len(got) != 0 {
 		t.Errorf("validate = %q, want none", got)
 	}
-	if got := validate(t, p, set("roles.researcher", `{"type": "nosuchtype"}`)); len(got) == 0 {
-		t.Error("validate accepts roles.researcher.type that is no lane_type")
-	}
-	got := validate(t, p, set("roles.researcher", `{"type": "opus"}`), func(c map[string]any) {
-		c["lanes"].(map[string]any)["RESEARCHER"] = "opus"
-	})
-	want := `FAIL .lanes.RESEARCHER: agent "pj-researcher" collides with a role agent`
-	if !slices.Contains(got, want) {
+	got := validate(t, p, set("roles.researcher", "nosuchmodel"))
+	if want := `FAIL .roles.researcher: "nosuchmodel" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`; !slices.Contains(got, want) {
 		t.Errorf("validate = %q, want it to contain %q", got, want)
 	}
 }

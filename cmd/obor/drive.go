@@ -18,7 +18,7 @@ import (
 	"obor/internal/store"
 )
 
-const driveUsage = "usage: obor drive <name> [--type <type[:effort]>] | obor drive <T-xx>"
+const driveUsage = "usage: obor drive <name> [--model <model[:effort]>] | obor drive <T-xx>"
 
 const landUsage = `usage: obor land <T-xx|name> ["<summary>"]`
 
@@ -28,19 +28,19 @@ const driveTitle = "Owner drive: "
 // driveWait bounds how long obor drive waits for serve to prepare a new drive's lane before it starts the agent.
 var driveWait = 60 * time.Second
 
-// driveCmd is `obor drive <name> [--type <ref>]` and `obor drive <T-xx>` (T-751): the owner iterates by hand on a branch
-// in a plain interactive agent (role driver). Serve records the drive (a new task on the first free untyped lane, or a
-// take-over of a task its worker works on) and answers DRIVE <task> → <lane> (<agent>, <type>); this command then waits
+// driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>` (T-751): the owner iterates by hand on a
+// branch in a plain interactive agent (role driver). Serve records the drive (a new task on the first free lane, or a
+// take-over of a task its worker works on) and answers DRIVE <task> → <lane> (<agent>, <model>); this command then waits
 // for the new drive's lane to be prepared (serve stopped a taken-over task's worker, as obor restart --stop does) and
 // starts the drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line
 // saying what it is. On a drive already (by task id or name; T-755) serve records nothing: its agent not running, this
-// command starts it again on its recorded lane and type (a failed start's retry); running, serve's DRIVING reply and OK,
+// command starts it again on its recorded lane and model (a failed start's retry); running, serve's DRIVING reply and OK,
 // nothing started. Its lines, then OK or FAIL (exit 1).
 func driveCmd(args []string) int {
 	var name, ref string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
-		case a == "--type" && i+1 < len(args) && args[i+1] != "" && ref == "":
+		case a == "--model" && i+1 < len(args) && args[i+1] != "" && ref == "":
 			i++
 			ref = args[i]
 		case a == "" || a[0] == '-' || name != "":
@@ -63,7 +63,7 @@ func driveCmd(args []string) int {
 	c := caller(project.OSEnv, cwd, cfg)
 	if cfg.TaskIDOK(name) {
 		if ref != "" {
-			fmt.Fprintln(out, "FAIL --type is a new drive's: a take-over keeps the task's type")
+			fmt.Fprintln(out, "FAIL --model is a new drive's: a take-over keeps the task's model")
 			return 1
 		}
 		c.Task = name
@@ -143,9 +143,9 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 	if ref == "-" {
 		ref = ""
 	}
-	typ, effort := config.ParseTypeRef(ref)
+	typ, effort := config.ParseModelRef(ref)
 	if typ == "" {
-		return fmt.Errorf("lane %s runs no type: obor drop %s, then obor drive <name> --type <type>", d.lane, d.lane)
+		return fmt.Errorf("lane %s runs no model: obor drop %s, then obor drive <name> --model <model>", d.lane, d.lane)
 	}
 	cwd, _ := os.Getwd()
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: env, H: h, Out: out, McpCheck: mcp.Check,

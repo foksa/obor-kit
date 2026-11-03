@@ -60,17 +60,17 @@ func (r *loopRig) againLines(seq int64) []string {
 	return out
 }
 
-// refusedRig is the dispatch rig with T-1's lane preparation refused: T-1 has the needs-you "lane: lane_setup in O-01:
+// refusedRig is the dispatch rig with T-1's lane preparation refused: T-1 has the needs-you "lane: lane_setup in L-01:
 // rc 1: boom". It returns that fact's line to the lead, as serve's answers name the commands that answer it.
 func refusedRig(t *testing.T) (*loopRig, string) {
 	t.Helper()
 	r := newDispatchRig(t)
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")
-	r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
+	r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")
 	r.waitFor("needs-you fact folded into status", func() bool {
 		for _, f := range r.app.Status().Project.Facts {
 			if f.Step == event.StepNeedsYou {
@@ -92,7 +92,7 @@ func refusedRig(t *testing.T) (*loopRig, string) {
 	if ans == "" {
 		t.Fatal("precondition: the needs-you has no answer commands")
 	}
-	return r, "[obor] needs-you T-1 (O-01): lane: lane_setup in O-01: rc 1: boom \u2192 " + ans
+	return r, "[obor] needs-you T-1 (L-01): lane: lane_setup in L-01: rc 1: boom \u2192 " + ans
 }
 
 // T-497: a needs-you fact is posted to the lead once, besides the owner's notification; later passes and a restart
@@ -126,7 +126,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	r := newDispatchRig(t)
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")
@@ -143,7 +143,7 @@ func TestNeedsYouLineQueuedWithoutAnInbox(t *testing.T) {
 	})
 	r.waitFor("the line queued", func() bool { return len(r.waiting()) == 1 })
 	w := r.waiting()[0]
-	if w.To != "pj-lead" || !strings.HasPrefix(w.Line, "[obor] needs-you T-1 (O-01): lane: lane_setup in O-01: rc 1: boom") {
+	if w.To != "pj-lead" || !strings.HasPrefix(w.Line, "[obor] needs-you T-1 (L-01): lane: lane_setup in L-01: rc 1: boom") {
 		t.Fatalf("waiting %+v, want the needs-you line to pj-lead", w)
 	}
 	r.stop()
@@ -189,7 +189,7 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 	})
 	r.start()
 	var held, release = make(chan struct{}), make(chan struct{})
@@ -207,7 +207,7 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 		return nil
 	})
 	r.mustDispatch("d1")
-	r.waitStep("1 fact needs-you{lane: lane_setup in O-01: rc 1: boom}")
+	r.waitStep("1 fact needs-you{lane: lane_setup in L-01: rc 1: boom}")
 	select {
 	case <-held:
 	case <-time.After(r.patience()):
@@ -320,7 +320,7 @@ func undeliveredRig(t *testing.T) (*loopRig, int64) {
 	r := newDispatchRig(t)
 	r.inbox.unrecord("pj-lead")
 	r.disp.set(func(d *dispatchFakes) {
-		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in O-01: rc 1: boom"} }
+		d.fail["prepare"] = func() error { return port.Refused{Line: "lane_setup in L-01: rc 1: boom"} }
 	})
 	r.start()
 	r.mustDispatch("d1")

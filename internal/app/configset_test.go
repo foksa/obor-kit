@@ -20,7 +20,7 @@ import (
 // them together, writes and commits that one file once (ConfigFile), records fact config.set and sends the lead one
 // line; any change refused refuses them all.
 
-// configJSON is the edit tests' config.json: two claude types and an opencode one a level names with an effort.
+// configJSON is the edit tests' config.json: an opencode model a level names with an effort, a kind's args, two lanes.
 const configJSON = `{
   "version": 1,
   "name": "pj",
@@ -30,43 +30,26 @@ const configJSON = `{
       "opus:high"
     ],
     "simple": [
-      "deepseek:high"
+      "kimi:high"
     ]
   },
-  "lane_types": {
-    "opus": {
-      "kind": "claude",
+  "kinds": {
+    "claude": {
       "args": [
-        "--model",
-        "opus",
-        "--effort",
-        "medium"
-      ],
-      "max": 4
-    },
-    "sonnet": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "sonnet"
-      ]
-    },
-    "deepseek": {
-      "kind": "opencode",
-      "args": [
-        "--model",
-        "opencode-go/deepseek"
+        "--x"
       ]
     }
   },
-  "lanes": {
-    "O-01": ""
+  "models": {
+    "kimi": {
+      "kind": "opencode",
+      "model": "opencode-go/kimi"
+    }
   },
+  "lanes": 2,
   "roles": {
-    "lead": {
-      "type": "opus:high"
-    },
-    "integrator": {}
+    "lead": "opus:high",
+    "integrator": ""
   }
 }
 `
@@ -119,7 +102,7 @@ func configRig(t *testing.T) (*harness, *fakeConfig) {
 	f := &fakeConfig{path: path}
 	sched := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: sched, Agents: sched, Typer: sched, Config: f}, nil }
-	h.lanes.lanes[0].Task = "" // O-01 free
+	h.lanes.lanes[0].Task = "" // L-01 free
 	h.connect()
 	h.a.mu.Lock()
 	lead := h.a.p.out.lead()
@@ -181,16 +164,11 @@ func TestConfigSetEachField(t *testing.T) {
 	}{
 		{"difficulty.hard", `["sonnet","opus:high"]`, `config: difficulty.hard ["opus:high"] → ["sonnet","opus:high"] (owner, web)`,
 			"\"hard\": [\n      \"sonnet\",\n      \"opus:high\"\n    ]", `SET difficulty.hard ["opus:high"] → ["sonnet","opus:high"]`},
-		{"lane_types.opus.model", `"fable"`, `config: lane_types.opus.model "opus" → "fable" (owner, web)`,
-			"\"--model\",\n        \"fable\",\n        \"--effort\",\n        \"medium\"", `SET lane_types.opus.model "opus" → "fable"`},
-		{"lane_types.opus.effort", `"high"`, `config: lane_types.opus.effort "medium" → "high" (owner, web)`,
-			"\"--effort\",\n        \"high\"", `SET lane_types.opus.effort "medium" → "high"`},
-		{"lane_types.opus.max", `0`, `config: lane_types.opus.max 4 → 0 (owner, web)`,
-			"        \"medium\"\n      ]\n    },", `SET lane_types.opus.max 4 → 0`},
-		{"lanes.O-01", `"sonnet"`, `config: lanes.O-01 "" → "sonnet" (owner, web)`, `"O-01": "sonnet"`,
-			`SET lanes.O-01 "" → "sonnet"`},
-		{"roles.integrator.type", `"sonnet"`, `config: roles.integrator.type unset → "sonnet" (owner, web)`,
-			"\"integrator\": {\n      \"type\": \"sonnet\"\n    }", `SET roles.integrator.type unset → "sonnet" (at its next start)`},
+		{"kinds.claude.args", `["--strict-mcp-config"]`, `config: kinds.claude.args ["--x"] → ["--strict-mcp-config"] (owner, web)`,
+			"\"args\": [\n        \"--strict-mcp-config\"\n      ]", `SET kinds.claude.args ["--x"] → ["--strict-mcp-config"]`},
+		{"lanes", `3`, `config: lanes 2 → 3 (owner, web)`, `"lanes": 3`, `SET lanes 2 → 3`},
+		{"roles.integrator", `"sonnet"`, `config: roles.integrator unset → "sonnet" (owner, web)`,
+			"\"integrator\": \"sonnet\"", `SET roles.integrator unset → "sonnet" (at its next start)`},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			t.Parallel()
@@ -225,9 +203,9 @@ func TestConfigSetEachField(t *testing.T) {
 	}
 }
 
-// A refused change leaves the file as it was, commits nothing and records nothing: a type reference naming no lane
-// type, an unknown lane type, a change Validate fails (the opencode type's model gone while simple names it with an
-// effort), a config with uncommitted changes (named), a worker's call, a failed commit.
+// A refused change leaves the file as it was, commits nothing and records nothing: a model ref naming no model, an
+// effort its kind lacks, a key no longer editable, a config with uncommitted changes (named), a worker's call, a
+// failed commit.
 func TestConfigSetRefused(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -235,14 +213,13 @@ func TestConfigSetRefused(t *testing.T) {
 		failCommit              error
 		role, want              string
 	}{
-		{name: "unknown ref", key: "difficulty.hard", val: `["gpt"]`, want: `"gpt" is not a lane type of this project`},
-		{name: "unknown type", key: "lane_types.gpt.model", val: `"x"`, want: `"gpt" is not a lane type of this project`},
-		{name: "role ref", key: "roles.lead.type", val: `"opus:turbo"`, want: `effort "turbo" is not one of claude's`},
-		{name: "validate", key: "lane_types.deepseek.model", val: `""`, want: "FAIL .difficulty.simple[0]"},
-		{name: "uncommitted", key: "lanes.O-01", val: `"opus"`, want: ".obor/config.json has uncommitted changes",
+		{name: "unknown ref", key: "difficulty.hard", val: `["gpt"]`, want: `"gpt" is not a model`},
+		{name: "role ref", key: "roles.lead", val: `"opus:turbo"`, want: `effort "turbo" is not one of claude's`},
+		{name: "no caps", key: "lane_types.opus.max", val: `2`, want: "is not an editable key"},
+		{name: "uncommitted", key: "lanes", val: `3`, want: ".obor/config.json has uncommitted changes",
 			refused: ".obor/config.json has uncommitted changes in /pj: commit or discard them first"},
-		{name: "worker", key: "lanes.O-01", val: `"opus"`, role: "worker", want: "the owner or the lead changes the setup"},
-		{name: "commit", key: "lanes.O-01", val: `"opus"`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
+		{name: "worker", key: "lanes", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
+		{name: "commit", key: "lanes", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
 		{name: "not editable", key: "commands.check", val: `"x"`, want: "is not an editable key"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -251,7 +228,7 @@ func TestConfigSetRefused(t *testing.T) {
 			f.refused, f.failCommit = c.refused, c.failCommit
 			call := wire.Call{Root: h.root, CallID: "r1", Changes: changes(c.key, c.val), Role: c.role}
 			if c.role != "" {
-				call.Agent = "pj-o-01"
+				call.Agent = "pj-l-01"
 			}
 			reply, err := h.a.configCall(call)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -267,49 +244,53 @@ func TestConfigSetRefused(t *testing.T) {
 	}
 }
 
-// A lane's type is not changed while the lane has a task (the lanes read's, its row's or the merge loop's open task
-// there); once the task ended, it is.
-func TestConfigSetLaneWithTask(t *testing.T) {
+// T-765: the lanes count is not lowered while a lane it drops has a task (the lanes read's, its row's or the merge
+// loop's open task there); once the task ended, it is.
+func TestConfigSetLanesWithTask(t *testing.T) {
 	t.Parallel()
-	busy := newHarness(t) // the lanes read puts T-1 on O-01
+	busy := newHarness(t) // the lanes read puts T-1 on L-01
 	busy.write(filepath.Join(busy.root, ".obor", "config.json"), configJSON)
 	bf := &fakeConfig{path: filepath.Join(busy.root, ".obor", "config.json")}
 	busy.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Config: bf}, nil }
 	busy.connect()
-	if reply, err := busy.set("b1", "lanes.O-01", `"opus"`); err == nil || !strings.Contains(err.Error(), "lane O-01 has task T-1") {
-		t.Errorf("set while the lanes read puts T-1 on O-01: %q, %v; want refused", reply, err)
+	if reply, err := busy.set("b1", "lanes", `0`); err == nil || !strings.Contains(err.Error(), "lane L-01 has task T-1") {
+		t.Errorf("lanes 0 while the lanes read puts T-1 on L-01: %q, %v; want refused", reply, err)
 	}
 	h, f := configRig(t)
-	if reply, err := h.set("l0", "lanes.O-01", `""`); err != nil || reply != "UNCHANGED lanes.O-01" {
-		t.Fatalf("precondition: O-01 free takes a change: %q, %v", reply, err)
+	if reply, err := h.set("l0", "lanes", `2`); err != nil || reply != "UNCHANGED lanes" {
+		t.Fatalf("precondition: an unchanged count: %q, %v", reply, err)
 	}
 	h.a.mu.Lock()
-	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"}
+	h.a.p.folded.lr.rows["L-02"] = store.LaneRow{Lane: "L-02", Task: "T-1"}
 	h.a.mu.Unlock()
-	if reply, err := h.set("l1", "lanes.O-01", `"opus"`); err == nil || !strings.Contains(err.Error(), "lane O-01 has task T-1") {
-		t.Fatalf("set while O-01 has T-1: %q, %v; want refused", reply, err)
+	if reply, err := h.set("l1", "lanes", `1`); err == nil || !strings.Contains(err.Error(), "lane L-02 has task T-1: lower lanes once it is free") {
+		t.Fatalf("lanes 1 while L-02 has T-1: %q, %v; want refused", reply, err)
 	}
-	if b, _ := os.ReadFile(f.path); string(b) != configJSON || len(f.messages()) != 0 {
-		t.Fatalf("the refused change wrote the file or committed: %q", f.messages())
+	if reply, err := h.set("l1b", "lanes", `3`); err != nil || !strings.HasPrefix(reply, "SET lanes 2 → 3") {
+		t.Fatalf("raising the count while L-02 has T-1: %q, %v; want it set (no lane dropped)", reply, err)
 	}
 	h.a.mu.Lock()
-	h.a.p.folded.loop["T-1"] = &mtask{task: "T-1", lane: "O-01", state: stMerged}
+	h.a.p.folded.loop["T-1"] = &mtask{task: "T-1", lane: "L-02", state: stMerged}
+	delete(h.a.p.folded.lr.rows, "L-02")
 	h.a.mu.Unlock()
-	if reply, err := h.set("l2", "lanes.O-01", `"opus"`); err != nil || !strings.HasPrefix(reply, "SET lanes.O-01") {
-		t.Fatalf("set once T-1 merged: %q, %v", reply, err)
+	if reply, err := h.set("l2", "lanes", `1`); err != nil || !strings.HasPrefix(reply, "SET lanes 3 → 1") {
+		t.Fatalf("lanes 1 once T-1 merged: %q, %v", reply, err)
+	}
+	if n := len(f.messages()); n != 2 {
+		t.Errorf("commits %d, want 2", n)
 	}
 }
 
 // A change racing a publish waits: while the publish runs nothing is written or committed; once it ends the change
-// goes in. It is a difficulty change: the rig's O-01 holds T-1, whose merge this is, so a lane change would depend on
+// goes in. It is a difficulty change: the rig's L-01 holds T-1, whose merge this is, so a lane change would depend on
 // when the lane is read again.
 func TestConfigSetWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	r := newAdmitRig(t, true)
 	h, ctx := r.h, context.Background()
 	path := filepath.Join(h.root, ".obor", "config.json")
-	h.write(path, `{"version":1,"name":"pj","prefix":"pj","roles":{"integrator":{},"reviewer":{},"deep_dive":{}},`+
-		`"paths":{"reviews":"reviews"},"lane_types":{"opus":{"kind":"claude"}},"lanes":{"O-01":""}}`)
+	h.write(path, `{"version":1,"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""},`+
+		`"paths":{"reviews":"reviews"},"lanes":1}`)
 	f := &fakeConfig{path: path}
 	r.fx.Config = f
 	r.publishing(ctx)
@@ -333,43 +314,43 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	}
 }
 
-// T-760: several changes are one commit — applied in order, each to the file the one before wrote (a model and an
-// effort of the same lane type both land) — with a subject naming the keys, one body line per change, one fact
-// listing them, one line to the lead and one reply. A change that leaves its key as it is is left out.
+// T-760: several changes are one commit — applied in order, each to the file the one before wrote (a level and a
+// role both land) — with a subject naming the keys, one body line per change, one fact listing them, one line to the
+// lead and one reply. A change that leaves its key as it is is left out.
 func TestConfigSetBatchIsOneCommit(t *testing.T) {
 	t.Parallel()
 	h, f := configRig(t)
 	reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b1", Source: "web", Changes: changes(
-		"lane_types.opus.model", `"fable"`, "lane_types.opus.effort", `"high"`, "lanes.O-01", `""`,
-		"roles.integrator.type", `"sonnet"`)})
-	want := `SET lane_types.opus.model "opus" → "fable"; SET lane_types.opus.effort "medium" → "high"; ` +
-		`SET roles.integrator.type unset → "sonnet" (at its next start)`
+		"difficulty.hard", `["fable"]`, "difficulty.hard", `["fable:high"]`, "lanes", `2`,
+		"roles.integrator", `"sonnet"`)})
+	want := `SET difficulty.hard ["opus:high"] → ["fable"]; SET difficulty.hard ["fable"] → ["fable:high"]; ` +
+		`SET roles.integrator unset → "sonnet" (at its next start)`
 	if err != nil || reply != want {
 		t.Fatalf("batch: %q, %v; want %q", reply, err, want)
 	}
 	b, _ := os.ReadFile(f.path)
-	if !strings.Contains(string(b), "\"--model\",\n        \"fable\",\n        \"--effort\",\n        \"high\"") ||
-		!strings.Contains(string(b), "\"integrator\": {\n      \"type\": \"sonnet\"") {
+	if !strings.Contains(string(b), "\"hard\": [\n      \"fable:high\"\n    ]") ||
+		!strings.Contains(string(b), "\"integrator\": \"sonnet\"") {
 		t.Errorf("the file lacks a change:\n%s", b)
 	}
-	msg := "config: lane_types.opus.model, lane_types.opus.effort, roles.integrator.type (owner, web)\n\n" +
-		"- lane_types.opus.model \"opus\" → \"fable\"\n- lane_types.opus.effort \"medium\" → \"high\"\n" +
-		"- roles.integrator.type unset → \"sonnet\""
+	msg := "config: difficulty.hard, difficulty.hard, roles.integrator (owner, web)\n\n" +
+		"- difficulty.hard [\"opus:high\"] → [\"fable\"]\n- difficulty.hard [\"fable\"] → [\"fable:high\"]\n" +
+		"- roles.integrator unset → \"sonnet\""
 	if got := f.messages(); len(got) != 1 || got[0] != msg {
 		t.Errorf("commits %q, want one:\n%s", got, msg)
 	}
 	facts := configFacts(t, h)
 	if len(facts) != 1 || len(facts[0].Changes) != 3 || facts[0].Changes[1] != (event.ConfigSetChange{
-		Key: "lane_types.opus.effort", Old: `"medium"`, New: `"high"`}) || facts[0].Reply != want {
+		Key: "difficulty.hard", Old: `["fable"]`, New: `["fable:high"]`}) || facts[0].Reply != want {
 		t.Errorf("facts %+v, want one with the three changes", facts)
 	}
-	line := `[obor] config: lane_types.opus.model "opus" → "fable"; lane_types.opus.effort "medium" → "high"; ` +
-		`roles.integrator.type unset → "sonnet" (owner, web)`
+	line := `[obor] config: difficulty.hard ["opus:high"] → ["fable"]; difficulty.hard ["fable"] → ["fable:high"]; ` +
+		`roles.integrator unset → "sonnet" (owner, web)`
 	if lines := leadLines(t, h); len(lines) != 1 || lines[0] != line {
 		t.Errorf("lines to the lead %q, want %q", lines, line)
 	}
-	if r, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b2", Changes: changes("lanes.O-01", `""`)}); err != nil ||
-		r != "UNCHANGED lanes.O-01" {
+	if r, err := h.a.configCall(wire.Call{Root: h.root, CallID: "b2", Changes: changes("lanes", `2`)}); err != nil ||
+		r != "UNCHANGED lanes" {
 		t.Errorf("a batch that changes nothing: %q, %v", r, err)
 	}
 }
@@ -383,9 +364,8 @@ func TestConfigSetBatchAllOrNothing(t *testing.T) {
 		kv   []string
 		want string
 	}{
-		{"second refused", []string{"lane_types.opus.model", `"fable"`, "difficulty.hard", `["gpt"]`}, `"gpt" is not a lane type`},
-		{"validate", []string{"lanes.O-01", `"opus"`, "lane_types.deepseek.model", `""`},
-			"lanes.O-01, lane_types.deepseek.model refused: FAIL .difficulty.simple[0]"},
+		{"second refused", []string{"lanes", `3`, "difficulty.hard", `["gpt"]`}, `"gpt" is not a model`},
+		{"validate", []string{"lanes", `3`, "kinds.opencode.args", `["--"]`}, "`--` is not allowed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -410,18 +390,18 @@ func TestConfigSetBaseIsTheFileRead(t *testing.T) {
 	t.Parallel()
 	h, f := configRig(t)
 	base := config.Rev([]byte(configJSON))
-	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t1", Base: base, Changes: changes("lanes.O-01", `"opus"`)}); err != nil {
+	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t1", Base: base, Changes: changes("lanes", `3`)}); err != nil {
 		t.Fatalf("the first tab's save: %v", err)
 	}
-	_, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t2", Base: base, Changes: changes("lanes.O-01", `"sonnet"`)})
+	_, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t2", Base: base, Changes: changes("lanes", `4`)})
 	if err == nil || !strings.Contains(err.Error(), "changed since this page read it") {
 		t.Fatalf("the second tab's save on the old file: %v, want refused", err)
 	}
 	b, _ := os.ReadFile(f.path)
-	if !strings.Contains(string(b), `"O-01": "opus"`) || len(f.messages()) != 1 {
+	if !strings.Contains(string(b), `"lanes": 3`) || len(f.messages()) != 1 {
 		t.Errorf("the stale save wrote or committed: %q\n%s", f.messages(), b)
 	}
-	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t3", Base: config.Rev(b), Changes: changes("lanes.O-01", `"sonnet"`)}); err != nil {
+	if _, err := h.a.configCall(wire.Call{Root: h.root, CallID: "t3", Base: config.Rev(b), Changes: changes("lanes", `4`)}); err != nil {
 		t.Errorf("a save on the current file: %v", err)
 	}
 }

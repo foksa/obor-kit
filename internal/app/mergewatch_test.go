@@ -155,7 +155,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 		t.Errorf("%d watch facts, want 1 (a repeated call id records nothing)", n)
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodWatch, wire.Call{Root: r.p.Root, Role: "worker",
-		Agent: "pj-o1", CallID: "w4", Task: "T-9"}); err == nil {
+		Agent: "pj-l-01", CallID: "w4", Task: "T-9"}); err == nil {
 		t.Error("a worker's watch accepted")
 	}
 }
@@ -193,11 +193,11 @@ func TestUnwatchedMergePostsNothing(t *testing.T) {
 	}
 }
 
-// seedFailed writes, to the stopped app's log, T-1's dispatch on O-01 and each of tasks as an open attempt (submitted
+// seedFailed writes, to the stopped app's log, T-1's dispatch on L-01 and each of tasks as an open attempt (submitted
 // on its own lane, its submit refused: a needs-you, merged once land puts it on main).
 func (r *loopRig) seedFailed(tasks ...string) {
 	r.t.Helper()
-	r.p.Dispatched("O-01")
+	r.p.Dispatched("L-01")
 	var recs []event.Record
 	refused, _ := json.Marshal(map[string]any{"refused": "no commit"})
 	for i, task := range tasks {

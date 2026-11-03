@@ -64,7 +64,7 @@ var kitDir = func() string { d, _ := filepath.Abs("../.."); return d }()
 
 func (y *sx) submit() string {
 	y.t.Helper()
-	sha, err := y.s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1")
+	sha, err := y.s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
 	if err != nil {
 		y.t.Fatalf("submit: %v", err)
 	}
@@ -90,7 +90,7 @@ func (y *sx) green(in port.GateInput) port.Candidate {
 }
 
 func lane(sha string) port.GateInput {
-	return port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputLane, Input: sha, Summary: "feature"}
+	return port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputLane, Input: sha, Summary: "feature"}
 }
 
 // conflicted makes the lane and main both edit shared.txt, submits and gates it: the conflict open in serve's worktree.
@@ -188,7 +188,7 @@ func TestRV39MovedSubject(t *testing.T) {
 	y.Write("other.txt", "other\n")
 	y.Git(y.Root, "add", "other.txt")
 	y.Git(y.Root, "commit", "-qm", "unrelated")
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputMoved, Input: sha, Summary: "Expected spec title"})
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "Expected spec title"})
 	if o.Kind != port.OutcomeGreen {
 		t.Fatalf("moved gate: %s %q; want green", o.Kind, o.Line)
 	}
@@ -210,7 +210,7 @@ func TestScratchMovedGateMergesSubmitted(t *testing.T) {
 	y.Write("other.txt", "other\n")
 	y.Git(y.Root, "add", "other.txt")
 	y.Git(y.Root, "commit", "-qm", "unrelated")
-	c := y.green(port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
 	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), sha, "the moved merge's second parent is the submitted sha")
 	if gitOK(y.Root, "merge-base", "--is-ancestor", old.SHA, c.SHA) {
 		t.Errorf("%s is an ancestor of the moved candidate: the old merge went along", old.SHA)
@@ -234,7 +234,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 	y.green(lane(sha))
 	y.Write("shared.txt", "main\n")
 	y.Git(y.Root, "commit", "-qam", "main edit")
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
 	if o.Kind != port.OutcomeConflict {
 		t.Fatalf("moved gate: %s %q; want a conflict", o.Kind, o.Line)
 	}
@@ -245,7 +245,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 		t.Fatalf("resolve of %s: %v", sha, err)
 	}
 	y.eq(got, res, "the resolution's sha pinned against the submitted sha")
-	c := y.green(port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputResolved, Input: res})
+	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res})
 	y.eq(c.SHA+" "+c.Target, res+" "+y.Git(y.Root, "rev-parse", res+"^1"), "the pinned resolution, against its first parent")
 }
 
@@ -254,7 +254,7 @@ var cutSteps = []cutStep{
 		name:  "submit",
 		setup: func(y *sx) cutIn { return cutIn{} },
 		call: func(y *sx, _ cutIn) (string, any, error) {
-			sha, err := y.s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1")
+			sha, err := y.s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
 			if err != nil {
 				return "", nil, err
 			}
@@ -480,17 +480,17 @@ func TestScratchGateResolvedAfterRed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved := port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputResolved, Input: sha}
+	resolved := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: sha}
 	if o := y.gate(resolved); o.Kind != port.OutcomeRed {
 		t.Fatalf("precondition: red, got %s %q", o.Kind, o.Line)
 	}
 	y.Write(filepath.Join(y.Base, "green"), "")
 	y.Write(filepath.Join(y.lane2, "other.txt"), "other\n")
-	sha2, err := y.s.Submit(ctx, "T-20", "1", "O-02", "other", "pj-o2")
+	sha2, err := y.s.Submit(ctx, "T-20", "1", "L-02", "other", "pj-l2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	y.green(port.GateInput{Task: "T-20", Lane: "O-02", Kind: port.InputLane, Input: sha2, Summary: "other"})
+	y.green(port.GateInput{Task: "T-20", Lane: "L-02", Kind: port.InputLane, Input: sha2, Summary: "other"})
 	if y.head(y.serve) == sha {
 		t.Fatal("precondition: another gate moved serve's worktree off the resolution")
 	}
@@ -515,10 +515,10 @@ func TestScratchSubmitTwice(t *testing.T) {
 	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), a, "the gate merges the pinned sha")
 	y.gone(filepath.Join(y.serve, "late.txt"), "the late commit not merged")
 
-	if _, err := y.s.Submit(ctx, "T-05", "2", "O-09", "x", "w"); !errors.As(err, new(port.Refused)) {
+	if _, err := y.s.Submit(ctx, "T-05", "2", "L-09", "x", "w"); !errors.As(err, new(port.Refused)) {
 		t.Errorf("no lane: %v; want Refused", err)
 	}
-	if _, err := y.s.Submit(ctx, "T-20", "1", "O-02", "x", "w"); !errors.As(err, new(port.Refused)) {
+	if _, err := y.s.Submit(ctx, "T-20", "1", "L-02", "x", "w"); !errors.As(err, new(port.Refused)) {
 		t.Errorf("lane already in the target: %v; want Refused", err)
 	}
 }
@@ -605,7 +605,7 @@ func TestScratchGateReceiptGuardMutation(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, guard, want string }{
 		{"the guard stages a changed file", `echo broken > feature.txt; git add feature.txt; echo 1 pass`, `^RED check \(rc=1, partial:any\)`},
-		{"the guard changes nothing", `echo 1 pass`, `^GREEN T-05 \(guard 1 pass, check reused O-01 [0-9a-f]{7}, partial:any\)`},
+		{"the guard changes nothing", `echo 1 pass`, `^GREEN T-05 \(guard 1 pass, check reused L-01 [0-9a-f]{7}, partial:any\)`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -727,7 +727,7 @@ func TestSubmitPinReplay(t *testing.T) {
 		t.Error("late.txt is in the replayed submission")
 	}
 
-	next, err := y.s.Submit(ctx, "T-05", "2", "O-01", "feature", "pj-o1")
+	next, err := y.s.Submit(ctx, "T-05", "2", "L-01", "feature", "pj-l1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,11 +758,11 @@ func TestResolvedPinsOwnMergeOnly(t *testing.T) {
 	y.Write(filepath.Join(y.serve, "shared.txt"), "human resolution\n")
 
 	y.Write(filepath.Join(y.lane2, "other.txt"), "other\n")
-	sha2, err := y.s.Submit(ctx, "T-20", "1", "O-02", "other", "w")
+	sha2, err := y.s.Submit(ctx, "T-20", "1", "L-02", "other", "w")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := y.green(port.GateInput{Task: "T-20", Lane: "O-02", Kind: port.InputLane, Input: sha2, Summary: "other"})
+	c := y.green(port.GateInput{Task: "T-20", Lane: "L-02", Kind: port.InputLane, Input: sha2, Summary: "other"})
 	if y.head(y.serve) != c.SHA {
 		t.Fatal("precondition: T-20's candidate in serve's worktree")
 	}
@@ -800,7 +800,7 @@ func TestGitEndsWithCtx(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	y.arm(0)
-	if _, err := y.s.Submit(canceled, "T-05", "1", "O-01", "feature", "w"); err == nil {
+	if _, err := y.s.Submit(canceled, "T-05", "1", "L-01", "feature", "w"); err == nil {
 		t.Fatal("canceled Submit: no error")
 	}
 	y.eq(strings.Join(y.calls(), "|"), "", "no git call ran")
@@ -824,7 +824,7 @@ exec '%[3]s' "$@"`, child, blocked, real))
 		cancel()
 	}()
 	at := time.Now()
-	if _, err := (Scratch{o}).Submit(c, "T-05", "1", "O-01", "feature", "w"); err == nil {
+	if _, err := (Scratch{o}).Submit(c, "T-05", "1", "L-01", "feature", "w"); err == nil {
 		t.Fatal("Submit canceled during a blocked git call: no error")
 	}
 	if d := time.Since(at); d > 10*time.Second {
@@ -842,7 +842,7 @@ exec '%[3]s' "$@"`, child, blocked, real))
 		syscall.Kill(pid, syscall.SIGKILL)
 		t.Errorf("the blocked git's child %d outlived the cancel", pid)
 	}
-	sha, err := (Scratch{o}).Submit(ctx, "T-05", "1", "O-01", "feature", "w")
+	sha, err := (Scratch{o}).Submit(ctx, "T-05", "1", "L-01", "feature", "w")
 	if err != nil {
 		t.Fatal(err)
 	}

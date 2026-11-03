@@ -15,7 +15,7 @@ import (
 // T-748 (RV-90): a queued line's delivery as explicit states. The case → test table: each state a line can be in
 // while queued (waiting, sending, sending with its question settled) × each event (delivered, a refusal before a byte,
 // an error after a byte, its question settled, its task dropped, replay), one subtest per row, run through the log's
-// records on T-1's answer to pj-o-01 (busyAnswered). Sent and retired lines leave the outbox: next names which.
+// records on T-1's answer to pj-l-01 (busyAnswered). Sent and retired lines leave the outbox: next names which.
 
 // answerSeq is the seq of h's one queued line (precondition: exactly one).
 func answerSeq(t *testing.T, h *harness) int64 {
@@ -54,13 +54,13 @@ func lineRec(t *testing.T, h *harness, r event.Record, data any) {
 // claimIntent records line seq's delivery intent: its delivery began (sending).
 func claimIntent(t *testing.T, h *harness, seq int64) {
 	lineRec(t, h, event.Record{Task: event.MsgTask, Step: deliverKey(seq), Kind: event.KindIntent,
-		Class: event.ClassPrompt}, lineData{To: "pj-o-01"})
+		Class: event.ClassPrompt}, lineData{To: "pj-l-01"})
 }
 
 // submitT1 records T-1's submission: its question is settled another way.
 func submitT1(t *testing.T, h *harness) {
 	lineRec(t, h, event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
-		event.FactData{Lane: "O-01", Agent: "pj-o-01", Merge: true})
+		event.FactData{Lane: "L-01", Agent: "pj-l-01", Merge: true})
 }
 
 // answerIn is busyAnswered's answer moved into state from, by the log's records.
@@ -114,7 +114,7 @@ func TestLineStateTable(t *testing.T) {
 		"settled": {lineSettled, func(t *testing.T, h *harness, _ int64) { submitT1(t, h) }},
 		"dropped": {lineSettled, func(t *testing.T, h *harness, _ int64) {
 			lineRec(t, h, event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
-				event.FactData{Lane: "O-01", Merge: true})
+				event.FactData{Lane: "L-01", Merge: true})
 		}},
 	}
 	const gone = lineState(255) // the line left the outbox (sent or retired: next says which)
@@ -314,7 +314,7 @@ func TestRV90Drop(t *testing.T) {
 		data any
 	}{
 		{"drop", event.Record{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
-			event.FactData{Lane: "O-01", Merge: true}},
+			event.FactData{Lane: "L-01", Merge: true}},
 		{"reject", event.Record{Task: "T-1", Attempt: 1, Step: "reject.r1", Kind: event.KindResult},
 			verdictResult{Job: "T-1/1/review", Reply: "REJECT T-1"}},
 	} {
@@ -383,7 +383,7 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		pane  func(h *harness) // the worker's pane before the pass
-		where string           // the precondition: pj-o-01's place in the identity table, as h.where says it (prefix)
+		where string           // the precondition: pj-l-01's place in the identity table, as h.where says it (prefix)
 	}{
 		{"idle", func(h *harness) { h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" }) }, "identified w1:p1"},
 		{"working", func(*harness) {}, "identified w1:p1"},
@@ -402,8 +402,8 @@ func TestSettledOpenDeliveryClosedUnsent(t *testing.T) {
 			t.Parallel()
 			h, seq := answerIn(t, lineSendingSettled)
 			tc.pane(h)
-			if w := h.where("pj-o-01"); !strings.HasPrefix(w, tc.where) {
-				t.Fatalf("precondition: pj-o-01 is %q, want %s", w, tc.where)
+			if w := h.where("pj-l-01"); !strings.HasPrefix(w, tc.where) {
+				t.Fatalf("precondition: pj-l-01 is %q, want %s", w, tc.where)
 			}
 			if ms := h.a.Status().Project.Messages; len(ms) != 1 {
 				t.Fatalf("precondition: status lines %+v, want the settled answer shown", ms)

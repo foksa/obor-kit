@@ -37,7 +37,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}{
 		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false},
 		{"integrator", "integrator", "pj-int", CwdProject, WriteNone, false, false},
-		{"worker", "worker", "pj-o-01", CwdLane, WriteSpec, true, true},
+		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true},
 		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false},
 		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false},
 		{"triage", "", "pj-triage", CwdProject, WriteNone, false, false},
@@ -47,7 +47,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
-		if r.EnvValue != check.env || r.AgentName("pj", "O-01", "") != check.agent ||
+		if r.EnvValue != check.env || r.AgentName("pj", "L-01", "") != check.agent ||
 			r.Cwd != check.cwd || r.Write != check.write || r.Stoppable != check.stoppable || r.Dispatchable != check.dispatchable {
 			t.Errorf("%s = %+v", check.name, r)
 		}
@@ -70,7 +70,7 @@ func TestOptionalRoles(t *testing.T) {
 
 func TestRoleAgentAndWorktreeOverrides(t *testing.T) {
 	worker, _ := Lookup("worker")
-	if got := worker.AgentName("pj", "O-01", "custom-worker"); got != "custom-worker" {
+	if got := worker.AgentName("pj", "L-01", "custom-worker"); got != "custom-worker" {
 		t.Errorf("worker override = %q", got)
 	}
 	if _, ok := Lookup("unknown"); ok {
@@ -86,10 +86,10 @@ func TestLaneAgentAliases(t *testing.T) {
 		name, lane, state, configured string
 		want                          []string
 	}{
-		{"all aliases", "O-01", "state-lane", "custom-lane", []string{"state-lane", "custom-lane", "pj-o-01", "pj-o1"}},
+		{"all aliases", "L-01", "state-lane", "custom-lane", []string{"state-lane", "custom-lane", "pj-l-01", "pj-l1"}},
 		{"no optional aliases", "S-01", "", "", []string{"pj-s-01", "pj-s1"}},
-		{"deduplicates aliases", "o1", "pj-o1", "pj-o1", []string{"pj-o1"}},
-		{"bare lane name only as the state agent", "O-01", "o-01", "", []string{"o-01", "pj-o-01", "pj-o1"}},
+		{"deduplicates aliases", "l1", "pj-l1", "pj-l1", []string{"pj-l1"}},
+		{"bare lane name only as the state agent", "L-01", "l-01", "", []string{"l-01", "pj-l-01", "pj-l1"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,8 +102,8 @@ func TestLaneAgentAliases(t *testing.T) {
 
 // T-751: the drive agent has a name of its own beside the lane's worker, and it is lane-bound like the worker.
 func TestDriverNameAndLaneBound(t *testing.T) {
-	if got := DriveAgent("pj-o-01"); got != "pj-o-01-drive" {
-		t.Errorf("DriveAgent = %q, want pj-o-01-drive", got)
+	if got := DriveAgent("pj-l-01"); got != "pj-l-01-drive" {
+		t.Errorf("DriveAgent = %q, want pj-l-01-drive", got)
 	}
 	for role, want := range map[string]bool{"worker": true, Driver: true, "lead": false, "integrator": false, "": false} {
 		if got := LaneBound(role); got != want {

@@ -4,13 +4,14 @@ package setup
 // confirmed them. The lead prints it at its first session and asks the owner about it; obor init ends with it too.
 
 import (
+	"strconv"
 	"strings"
 
 	"obor/internal/config"
 )
 
-// show is `obor setup show`: read-only, the setup table (per difficulty level each of its lane types with its model,
-// effort and lanes, the roles' types) and whether the owner confirmed it.
+// show is `obor setup show`: read-only, the setup table (per difficulty level each of its models with its kind,
+// model id and effort, the lanes, the roles' models) and whether the owner confirmed it.
 func (s *Setup) show(args []string) error {
 	if len(args) > 0 {
 		return errUsage
@@ -22,13 +23,15 @@ func (s *Setup) show(args []string) error {
 	return nil
 }
 
-// printTable is the setup table: one line per difficulty level, the roles, and the owner's answer so far. obor init
-// ends with it, so a new project's models, effort and lanes are visible instead of living silently in the config.
+// printTable is the setup table: one line per difficulty level, the lanes, the roles, and the owner's answer so far.
+// obor init ends with it, so a new project's models, effort and lanes are visible instead of living silently in the
+// config.
 func (s *Setup) printTable() {
-	s.say("models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch the lane):")
+	s.say("models and effort per difficulty (config difficulty; a spec's Difficulty: line picks the level, dispatch its first free model):")
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.say("  %-6s → %s", level, s.levelLine(level))
 	}
+	s.say("lanes: %s", s.lanesLine())
 	s.say("roles: %s", s.rolesLine())
 	if s.cfg.SetupConfirmed() {
 		s.say("confirmed: yes")
@@ -38,121 +41,54 @@ func (s *Setup) printTable() {
 	}
 }
 
-// levelLine is one level of the table: each type the project has for the level, in order, with its own model and
-// effort and its own lanes — "deepseek (opencode): D-01, D-02 | sonnet (sonnet, effort medium): S-01" — and "no lane"
-// as the lanes of a type no configured lane has: "haiku (haiku): no lane" (T-653). A type reference names its effort
-// (`opus:high (opus, effort high): O-01`, T-695). A type the project
-// has no lane_type for is never named (T-647). A level none of whose types has a lane names the T-631 fallback
-// ("… | no simple lane: fallback sonnet"), and one with no lane anywhere says the task waits.
+// levelLine is one level of the table: each model ref of the level, in order, with what runs it — "opus:high (claude
+// opus, effort high) | deepseek (opencode opencode-go/deepseek-v4.1-flash)" — a ref naming no model of the project
+// marked so.
 func (s *Setup) levelLine(level string) string {
-	types := s.existingTypes(s.cfg.DifficultyList(level))
-	if len(types) == 0 { // only another level's types can run it, if any
-		if fb := s.fallbackTypes(level); len(fb) > 0 {
-			return "no lane_type this level lists: " + s.lanesOfTypes(fb) + " | fallback " + strings.Join(fb, ", ")
-		}
-		return "no lane_type this level lists: a " + level + " task waits for one"
+	refs := s.cfg.DifficultyList(level)
+	if len(refs) == 0 {
+		return "no model: a " + level + " task cannot dispatch"
 	}
-	parts := make([]string, 0, len(types))
-	withLane := false
-	for _, t := range types {
-		lanes := s.lanesOfType(t)
-		if lanes == "" {
-			lanes = "no lane"
-		} else {
-			withLane = true
-		}
-		parts = append(parts, t+s.typeDetail(t)+": "+lanes)
+	parts := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		parts = append(parts, ref+s.modelDetail(ref))
 	}
-	line := strings.Join(parts, " | ")
-	if withLane {
-		return line
-	}
-	if fb := s.fallbackTypes(level); len(fb) > 0 { // T-631: no lane of any type this level lists
-		return line + " | no " + level + " lane: fallback " + strings.Join(fb, ", ")
-	}
-	return line + ": a " + level + " task waits for one"
+	return strings.Join(parts, " | ")
 }
 
-// typeDetail is a type reference as the table shows it after its name: its type's model and effort, the reference's
-// effort before the args' ("(opus, effort high)", T-695); nothing when neither names one.
-func (s *Setup) typeDetail(name string) string {
-	if detail := s.typeModelEffort(name); detail != "" {
-		return " (" + detail + ")"
-	}
-	return ""
-}
-
-// typeModelEffort is a lane type's model and effort as its args name them ("opus, effort high"), the kind in the
-// model's place when the args name no model ("opencode"): the table shows what runs and never guesses a model.
-func (s *Setup) typeModelEffort(ref string) string {
-	name, effort := config.ParseTypeRef(ref)
-	lt, ok := s.cfg.LaneType(name)
+// modelDetail is a model ref as the table shows it after its name: " (<kind> <model id>, effort <effort>)", the
+// model id left out when the kind picks its own, the effort when the ref names none; " (no such model)" for an
+// unknown one.
+func (s *Setup) modelDetail(ref string) string {
+	name, effort := config.ParseModelRef(ref)
+	m, ok := s.cfg.Model(name)
 	if !ok {
-		return ""
+		return " (no such model)"
 	}
-	if effort == "" {
-		effort = lt.Effort()
+	detail := m.Kind
+	if m.ID != "" {
+		detail += " " + m.ID
 	}
-	model := lt.Model()
-	if model == "" {
-		model = lt.Kind
+	if effort != "" {
+		detail += ", effort " + effort
 	}
-	switch {
-	case model != "" && effort != "":
-		return model + ", effort " + effort
-	case model != "":
-		return model
-	case effort != "":
-		return "effort " + effort
-	}
-	return ""
+	return " (" + detail + ")"
 }
 
-// existingTypes keeps the type references whose type the project has a lane_type for, in order: the table never names
-// one it lacks.
-func (s *Setup) existingTypes(types []string) []string {
-	var out []string
-	for _, t := range types {
-		typ, _ := config.ParseTypeRef(t)
-		if _, ok := s.cfg.LaneType(typ); ok {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// fallbackTypes is the types of another level that run the level when none of its own types has a lane (T-631),
-// keeping only the types the project has.
-func (s *Setup) fallbackTypes(level string) []string {
-	types, _ := s.cfg.DifficultyTypes(level)
-	return s.existingTypes(types)
-}
-
-// lanesOfType is the configured lanes of a type reference's type, by lane name, as "O-01, S-01" ("" when none).
-func (s *Setup) lanesOfType(ref string) string {
-	typ, _ := config.ParseTypeRef(ref)
+// lanesLine is the lanes: "2 (L-01, L-02; each runs the model its dispatch picks)", "0" for none.
+func (s *Setup) lanesLine() string {
 	var names []string
 	for _, l := range s.cfg.Lanes() {
-		if l.Type == typ || l.Type == "" { // an untyped pool lane runs any type (T-724)
-			names = append(names, l.Name)
-		}
+		names = append(names, l.Name)
 	}
-	return strings.Join(names, ", ")
+	if len(names) == 0 {
+		return "0"
+	}
+	return strconv.Itoa(len(names)) + " (" + strings.Join(names, ", ") + "; each runs the model its dispatch picks)"
 }
 
-// lanesOfTypes is the configured lanes of the types, by lane name, as "O-01, S-01" ("" when none).
-func (s *Setup) lanesOfTypes(types []string) string {
-	var names []string
-	for _, l := range s.cfg.Lanes() {
-		if l.Type == "" || hasType(types, l.Type) {
-			names = append(names, l.Name)
-		}
-	}
-	return strings.Join(names, ", ")
-}
-
-// rolesLine is the lead's, the integrator's and the reviewer's types, then every other configured role's (deep dive,
-// triage, advisor, researcher) as type references: "lead opus:high (opus, effort high), integrator opus (opus, effort medium), …".
+// rolesLine is the lead's, the integrator's and the reviewer's model refs, then every other configured role's (deep
+// dive, triage, advisor, researcher): "lead opus:high (claude opus, effort high), integrator sonnet (claude sonnet), …".
 func (s *Setup) rolesLine() string {
 	var parts []string
 	for _, role := range []string{"lead", "integrator", "reviewer", "deep_dive", "triage", "advisor", "researcher"} {
@@ -161,30 +97,13 @@ func (s *Setup) rolesLine() string {
 			continue
 		}
 		if rc.Type == "" {
-			parts = append(parts, role+" - (roles."+role+".type not set)")
+			parts = append(parts, role+" - (roles."+role+" not set)")
 			continue
 		}
-		if _, ok := s.cfg.LaneType(rc.Type); !ok {
-			parts = append(parts, role+" - (roles."+role+".type is not a lane_type)")
-			continue
-		}
-		ref := rc.Type
-		if rc.Effort != "" {
-			ref += ":" + rc.Effort
-		}
-		parts = append(parts, role+" "+ref+s.typeDetail(ref))
+		ref := config.ModelRef(rc.Type, rc.Effort)
+		parts = append(parts, role+" "+ref+s.modelDetail(ref))
 	}
 	return strings.Join(parts, ", ")
-}
-
-// hasType reports whether a type reference of types names lane type t.
-func hasType(types []string, t string) bool {
-	for _, x := range types {
-		if typ, _ := config.ParseTypeRef(x); typ == t {
-			return true
-		}
-	}
-	return false
 }
 
 // initConfirmed records setup.confirmed: false when the config has no such key (T-647): the lead goes through the

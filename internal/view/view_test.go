@@ -23,28 +23,28 @@ func TestColumn(t *testing.T) {
 		needs   []NeedsYou
 		want    string
 	}{
-		{"gating", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
+		{"gating", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "submitted"},
 			[]Running{{Step: event.StepGate, Task: "T-1"}}, nil, nil, "gating"},
-		{"merging", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
+		{"merging", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "accepted"},
 			[]Running{{Step: event.StepPublish, Task: "T-1"}}, nil, nil, "merging"},
-		{"gate pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
+		{"gate pending", Lane{Lane: "L-01", State: "working", Task: str("T-1"), TaskState: "submitted"},
 			nil, []wire.PendingStep{{Step: event.StepGate, Task: "T-1"}}, nil, "gate pending"},
-		{"publish pending", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
+		{"publish pending", Lane{Lane: "L-01", State: "working", Task: str("T-1"), TaskState: "accepted"},
 			nil, []wire.PendingStep{{Step: event.StepPublish, Task: "T-1"}}, nil, "publish pending"},
-		{"pending on another task", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
+		{"pending on another task", Lane{Lane: "L-01", State: "working", Task: str("T-1"), TaskState: "working"},
 			nil, []wire.PendingStep{{Step: event.StepGate, Task: "T-2"}}, nil, "working"},
-		{"reviewing", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
+		{"reviewing", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "awaiting-accept"}, nil, nil, nil,
 			"reviewing"},
-		{"resolving", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
+		{"resolving", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "resolving"}, nil, nil, nil,
 			"reviewing"},
-		{"held", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, nil, "held"},
-		{"held by a watchdog fact", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
-			nil, nil, []NeedsYou{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
-		{"done", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, nil, "done"},
+		{"held", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "needs-you"}, nil, nil, nil, "held"},
+		{"held by a watchdog fact", Lane{Lane: "L-01", State: "working", Task: str("T-1"), TaskState: "working"},
+			nil, nil, []NeedsYou{{Task: "T-9", Lane: "L-01", Reason: "stalled"}}, "held"},
+		{"done", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, nil, "done"},
 		// T-751: the owner's drive works in the lane
-		{"driving", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "driving"}, nil, nil, nil, "driving"},
+		{"driving", Lane{Lane: "L-01", State: "working", Task: str("T-1"), TaskState: "driving"}, nil, nil, nil, "driving"},
 		// T-718: an accepted task whose publish waits for the reviewer or the deep dive
-		{"merge held", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted",
+		{"merge held", Lane{Lane: "L-01", State: "done", Task: str("T-1"), TaskState: "accepted",
 			Hold: "merge held: reviewer working"}, nil, nil, nil, "merge held: reviewer working"},
 	} {
 		v := &Project{Running: c.running, Pending: c.pending, NeedsYou: c.needs}
@@ -58,18 +58,18 @@ func TestColumn(t *testing.T) {
 // was killed) is no op.
 func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 	root := t.TempDir()
-	lock := launch.RestartLock(root, "O-01", "")
+	lock := launch.RestartLock(root, "L-01", "")
 	if ok, err := lock.Try(); !ok || err != nil {
 		t.Fatalf("Try = %v, %v", ok, err)
 	}
-	if got := restartOp(root, "O-01"); got != "restart" {
+	if got := restartOp(root, "L-01"); got != "restart" {
 		t.Errorf("held: op = %q, want restart", got)
 	}
-	if got := restartOp(root, "O-02"); got != "" {
+	if got := restartOp(root, "L-02"); got != "" {
 		t.Errorf("another lane's lock: op = %q, want none", got)
 	}
 	lock.Unlock()
-	if got := restartOp(root, "O-01"); got != "" {
+	if got := restartOp(root, "L-01"); got != "" {
 		t.Errorf("freed: op = %q, want none", got)
 	}
 }

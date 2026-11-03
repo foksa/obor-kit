@@ -12,7 +12,7 @@ import (
 	"obor/internal/testkit"
 )
 
-// fx is the guard's fixture project: proj (main) with lanes O-01 (task/T-01: a lane row naming T-01 and base main,
+// fx is the guard's fixture project: proj (main) with lanes L-01 (task/T-01: a lane row naming T-01 and base main,
 // whose stored spec unlocks no protected file) and S-01 (detached); protected src/core/types.ts.
 type fx struct {
 	*testkit.Project
@@ -22,13 +22,13 @@ type fx struct {
 func fixture(t testing.TB) *fx {
 	t.Helper()
 	p := testkit.New(t)
-	f := &fx{Project: p, P: p.Root, L: p.Lane("O-01", "task/T-01"), S: p.Lane("S-01", "")}
+	f := &fx{Project: p, P: p.Root, L: p.Lane("L-01", "task/T-01"), S: p.Lane("S-01", "")}
 	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
 	for _, d := range []string{f.P + "/src/core", f.L + "/src/core", f.L + "/src/a"} {
 		os.MkdirAll(d, 0o755)
 	}
 	f.spec()
-	f.State("O-01", `{"lane":"O-01","task":"T-01","branch":"task/T-01","base":"main","blocks":0}`)
+	f.State("L-01", `{"lane":"L-01","task":"T-01","branch":"task/T-01","base":"main","blocks":0}`)
 	return f
 }
 
@@ -135,7 +135,7 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-lead", "pj-o-01"]`))
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-lead", "pj-l-01"]`))
 	check(t, f.Project, []tc{
 		bash("lead pj-lead", P, "git push", ""),
 		bash("lead pj-lead", P, "git -C "+L+" push origin main", ""),
@@ -149,7 +149,7 @@ func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 		bash("worker pj-lead", P, "gh pr create", "guards.allow_push"),
 		bash("- pj-lead", L, "git push", "guards.allow_push"),
 		bash("lead pj-lead", L, "gh repo create r --push", "guards.allow_push"),
-		bash("- pj-o-01", L, "git push", "guards.allow_push"),
+		bash("- pj-l-01", L, "git push", "guards.allow_push"),
 		// Unlisted agent, or unknown identity.
 		bash("lead pj-ui", P, "git push", "guards.allow_push"),
 		bash("lead pj-ui", P, "git -C x push", "guards.allow_push"),
@@ -416,7 +416,7 @@ func TestCommitAllDeniedInMainAllowedInALane(t *testing.T) {
 		bash("integrator", L, "git -C "+P+" commit -am wip", "commit -a"),
 		bash("integrator", P, "cd "+L+" && cd "+P+" && git commit -am wip", "commit -a"),
 		bash("integrator", P, "git -C "+L+" commit -am wip", ""),
-		bash("integrator", P, "git -C ../proj-wt/O-01 commit -am wip", ""),
+		bash("integrator", P, "git -C ../proj-wt/L-01 commit -am wip", ""),
 		bash("integrator", P, "cd "+L+" && git commit -am wip", ""),
 		bash("integrator", P, "git commit -m 'add a thing'", ""),
 		bash("integrator", P, "git commit -m -a", ""),
@@ -614,18 +614,18 @@ func TestWorkerEditsAnywhereInItsLaneOnly(t *testing.T) {
 		edit("integrator", P, "Edit", other.Root+"/README.md", ""),
 		edit("reviewer", P, "Edit", P+"/README.md", "outside the reviewer write profile"),
 	))
-	// OBOR_ROLE=worker + OBOR_LANE from the main checkout: the lane is still lanes_dir/O-01.
+	// OBOR_ROLE=worker + OBOR_LANE from the main checkout: the lane is still lanes_dir/L-01.
 	check(t, f.Project, []tc{
 		edit("worker", P, "Edit", L+"/src/b.ts", ""),
 		edit("worker", P, "Edit", S+"/src/b.ts", "another worktree"),
-	}, "OBOR_LANE=O-01")
+	}, "OBOR_LANE=L-01")
 	// No stored spec for the task, a row naming no task, no row: the same answers.
-	for _, state := range []string{`{"lane":"O-01","task":"T-09","branch":"task/T-09","base":"main","blocks":0}`,
-		`{"lane":"O-01","task":"","base":"main"}`, ""} {
+	for _, state := range []string{`{"lane":"L-01","task":"T-09","branch":"task/T-09","base":"main","blocks":0}`,
+		`{"lane":"L-01","task":"","base":"main"}`, ""} {
 		if state == "" {
-			f.ClearState("O-01")
+			f.ClearState("L-01")
 		} else {
-			f.State("O-01", state)
+			f.State("L-01", state)
 		}
 		check(t, f.Project, []tc{
 			edit("-", L, "Edit", L+"/src/b.ts", ""),
@@ -966,13 +966,12 @@ func TestProtectedAfterCdUsesTheRightCwd(t *testing.T) {
 func TestRoleWorktreesUnderLanesDirAreNotLanes(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
-	V, A := f.LaneDir("review"), f.LaneDir("adv")
+	V := f.LaneDir("review") // the reviewer's old worktree (T-718), reserved under lanes_dir
 	f.Git(f.P, "worktree", "add", "-q", "--detach", V, "main")
-	f.Git(f.P, "worktree", "add", "-q", "--detach", A, "main")
-	// The config keeps its lanes (O-01, S-01): written before the role worktrees existed.
+	// The config keeps its lanes: written before the role worktree existed.
 	cfg := map[string]any{}
 	json.Unmarshal([]byte(f.Read(".obor/config.json")), &cfg)
-	cfg["roles"] = testkit.JSON(`{"reviewer": {"type": "opus", "worktree": "review"}, "advisor": {"type": "opus", "worktree": "adv"}}`)
+	cfg["roles"] = testkit.JSON(`{"reviewer": "opus", "advisor": "opus"}`)
 	b, _ := json.Marshal(cfg)
 	f.Write(".obor/config.json", string(b))
 	check(t, f.Project, []tc{
@@ -980,8 +979,6 @@ func TestRoleWorktreesUnderLanesDirAreNotLanes(t *testing.T) {
 		bash("reviewer", V, "git checkout -b review-notes", "a reviewer doesn't run git checkout"),
 		bash("reviewer", V, "git status", ""),
 		bash("-", V, "git commit -m x", ""),
-		bash("advisor", A, "git commit -m x", "an advisor doesn't run git commit"),
-		bash("advisor", A, "git log -3", ""),
 		bash("reviewer", V, "echo x > src/core/types.ts", "src/core/types.ts is a protected file"),
 		edit("reviewer", V, "Edit", V+"/src/core/types.ts", "protected"),
 		bash("reviewer", V, "git push", "git push"),
@@ -1019,7 +1016,7 @@ func TestCpChecksItsTargetNotItsSources(t *testing.T) {
 func TestNoConfigAllowsEverything(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	if p.Exists(".obor/config.json") {
 		t.Fatal("precondition: no config")
 	}
@@ -1103,12 +1100,12 @@ func TestNoIdentityFromTheSessionID(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, home := f.P, f.Base+"/state-home"
-	f.Write(home+"/sessions/sid-o1", "pj-o-01\tworker\tO-01\n")
+	f.Write(home+"/sessions/sid-o1", "pj-l-01\tworker\tL-01\n")
 	f.Write(home+"/sessions/sid-int", "pj-int\tintegrator\t\n")
 	call := func(who string, c tc, sid string, env ...string) (int, string) {
 		return runAs(f.Project, who, c.input(map[string]any{"session_id": sid}), env...)
 	}
-	if code, reason := call("worker pj-o-01", bash("", P, "git commit -m x", ""), "sid-o1", "OBOR_LANE=O-01"); code != 2 || !strings.Contains(reason, "git") {
+	if code, reason := call("worker pj-l-01", bash("", P, "git commit -m x", ""), "sid-o1", "OBOR_LANE=L-01"); code != 2 || !strings.Contains(reason, "git") {
 		t.Errorf("precondition: worker env → git guard: %d %q", code, reason)
 	}
 	if code, reason := call("integrator pj-int", edit("", P, "Edit", P+"/src/core/types.ts", ""), "sid-int"); code != 2 || !strings.Contains(reason, "protected") {
@@ -1126,9 +1123,9 @@ func TestNoIdentityFromTheSessionID(t *testing.T) {
 func TestReviewerAndDeepDiveDefaultWorktreesAreNotLanes(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("roles", `{"reviewer": {"type": "opus"}, "deep_dive": {"type": "opus"}}`))
+	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
 	rev, dd := p.Lane("review", ""), p.Lane("deep-dive", "")
-	if !strings.Contains(p.Read(".obor/config.json"), `"lanes": {}`) {
+	if !strings.Contains(p.Read(".obor/config.json"), `"lanes": 0`) {
 		t.Fatal("precondition: no lanes")
 	}
 	var cases []tc
@@ -1141,25 +1138,8 @@ func TestReviewerAndDeepDiveDefaultWorktreesAreNotLanes(t *testing.T) {
 			edit(role, wt, "Write", wt+"/src/core/types.ts", "protected"))
 	}
 	check(t, p, cases)
-	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("lanes", `{}`))
+	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("lanes", 0))
 	check(t, p, []tc{bash("deep_dive", dd, "git checkout -q --detach main", "worker")})
-}
-
-// bash case_configured_review_lane_keeps_worker_guard (T-189)
-func TestConfiguredReviewLaneKeepsTheWorkerGuard(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	lane := p.Lane("review", "task/T-01")
-	p.Config(testkit.Set("roles.reviewer", `{"type": "opus"}`))
-	p.State("review", `{"lane":"review","task":"T-01","branch":"task/T-01","base":"main","blocks":0}`)
-	if !strings.Contains(p.Read(".obor/config.json"), `"review": "opus"`) {
-		t.Fatal("precondition: review is configured as a lane")
-	}
-	os.MkdirAll(lane+"/src", 0o755)
-	check(t, p, []tc{
-		edit("-", lane, "Write", lane+"/src/any.txt", ""),
-		edit("-", lane, "Write", p.Root+"/src/any.txt", "is in another worktree of this repo"),
-	})
 }
 
 // bash case_reviews_write_profile (T-193)
@@ -1561,15 +1541,15 @@ func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-o-01-drive"]`))
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-l-01-drive"]`))
 	f.Write(L+"/src/core/types.ts", "protected\n")
 	check(t, f.Project, []tc{
-		edit("driver pj-o-01-drive", L, "Write", L+"/src/a/page.ts", ""),
-		edit("driver pj-o-01-drive", L, "Write", P+"/STATUS.md", "is in another worktree of this repo ("+P+") — a driver edits only inside its lane"),
-		edit("driver pj-o-01-drive", L, "Edit", L+"/src/core/types.ts", "is a protected file"),
-		bash("driver pj-o-01-drive", L, "git commit -m page", ""),
-		bash("driver pj-o-01-drive", L, "git add src/a/page.ts", ""),
-		bash("driver pj-o-01-drive", L, "git push origin task/T-01", "git push"),
-		bash("worker pj-o-01", L, "git commit -m page", "workers don't run git commit"),
+		edit("driver pj-l-01-drive", L, "Write", L+"/src/a/page.ts", ""),
+		edit("driver pj-l-01-drive", L, "Write", P+"/STATUS.md", "is in another worktree of this repo ("+P+") — a driver edits only inside its lane"),
+		edit("driver pj-l-01-drive", L, "Edit", L+"/src/core/types.ts", "is a protected file"),
+		bash("driver pj-l-01-drive", L, "git commit -m page", ""),
+		bash("driver pj-l-01-drive", L, "git add src/a/page.ts", ""),
+		bash("driver pj-l-01-drive", L, "git push origin task/T-01", "git push"),
+		bash("worker pj-l-01", L, "git commit -m page", "workers don't run git commit"),
 	})
 }

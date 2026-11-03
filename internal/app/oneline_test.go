@@ -19,13 +19,12 @@ import (
 )
 
 // T-444, T-437: a dispatch starts against a herdr that refuses an agent.start argument with a newline: the start's
-// first prompt is the work job's one-line wake, its job result sent (start prompt), nothing typed. The lane type's
+// first prompt is the work job's one-line wake, its job result sent (start prompt), nothing typed. The kind's
 // prompt_extra is many lines, as a written note may be: it rides in the job's text, which job_next fetches (the real
-// templates/worker-prompt.txt), never on the start.
+// templates/worker-prompt.txt), never on the start. (kinds.claude.prompt_extra: the rig's sonnet is a claude model.)
 func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("lane_types.opus.prompt_extra", "Also read docs/notes.md.\nThen start."))
-	r.setLane(func(l *port.Lane) { l.Type = "opus" }) // the lane's type, as its config says: the dispatch's (T-721)
+	r := newDispatchRig(t, testkit.Set("kinds.claude.prompt_extra", "Also read docs/notes.md.\nThen start."))
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -48,12 +47,12 @@ func TestTypedDispatchStartsOnOneLine(t *testing.T) {
 			Name string   `json:"name"`
 			Args []string `json:"args"`
 		}
-		if q.Method == "agent.start" && json.Unmarshal(q.Params, &p) == nil && p.Name == "pj-o1" {
+		if q.Method == "agent.start" && json.Unmarshal(q.Params, &p) == nil && p.Name == "pj-l-01" {
 			start = p
 		}
 	}
 	if start.Name == "" {
-		t.Fatalf("no start of pj-o1: %+v", r.srv.Requests())
+		t.Fatalf("no start of pj-l-01: %+v", r.srv.Requests())
 	}
 	text := strings.Join(start.Args, " ")
 	if strings.Contains(text, "\n") {

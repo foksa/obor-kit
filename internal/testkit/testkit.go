@@ -5,6 +5,7 @@ package testkit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,15 +170,16 @@ func (p *Project) Lane(name, branch string) string {
 // LaneDir is <Base>/proj-wt/<name>.
 func (p *Project) LaneDir(name string) string { return filepath.Join(p.Base, "proj-wt", name) }
 
-// Config is fx_config: the default config (prefix pj, every proj-wt/<name> a lane of type opus), changed by edit,
+// Config is fx_config: the default config (prefix pj, lanes: the highest L-NN under proj-wt, T-765), changed by edit,
 // written to .obor/config.json and committed on main (projects commit it).
 func (p *Project) Config(edit ...func(c map[string]any)) {
 	p.t.Helper()
-	lanes := map[string]any{}
+	lanes := 0
 	entries, _ := os.ReadDir(filepath.Join(p.Base, "proj-wt"))
 	for _, e := range entries {
-		if e.IsDir() {
-			lanes[e.Name()] = "opus"
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "L-%d", &n); err == nil && e.IsDir() && e.Name() == fmt.Sprintf("L-%02d", n) {
+			lanes = max(lanes, n)
 		}
 	}
 	c := map[string]any{
@@ -191,7 +193,6 @@ func (p *Project) Config(edit ...func(c map[string]any)) {
 		"commands":        map[string]any{},
 		"lane_links":      []any{},
 		"protected_files": []any{},
-		"lane_types":      map[string]any{"opus": map[string]any{"kind": "claude", "args": []any{}}},
 		"lanes":           lanes,
 	}
 	for _, e := range edit {

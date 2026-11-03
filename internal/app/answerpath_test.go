@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// answerSeed is the harness with T-1 dispatched in lane O-01 (the lane adapters faked), its loop state set to state
+// answerSeed is the harness with T-1 dispatched in lane L-01 (the lane adapters faked), its loop state set to state
 // and its attempt's job to job, then the needs-you of cause recorded (a watchdog's when watch: no merge-loop fact). It
 // returns the fact in force.
 func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *proj, event.Record) {
@@ -21,14 +21,14 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b"})
 	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
 	mt := p.folded.loop["T-1"]
 	if watch {
-		h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "O-01", Reason: cause})
+		h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "L-01", Reason: cause})
 		return h, p, p.folded.active["T-1"][0]
 	}
 	mt.state, mt.job = state, job
@@ -80,8 +80,8 @@ func (e *usageError) Error() string { return "not an obor command: " + e.cmd }
 // is accepted.
 func TestAnswerPathEveryCause(t *testing.T) {
 	t.Parallel()
-	const drop, resume = ` | obor drop O-01 "<why>"`, "obor resume T-1"
-	const sb = `obor sendback O-01 "<why>" | ` // a merge-loop needs-you's advice starts with it (T-619)
+	const drop, resume = ` | obor drop L-01 "<why>"`, "obor resume T-1"
+	const sb = `obor sendback L-01 "<why>" | ` // a merge-loop needs-you's advice starts with it (T-619)
 	for _, row := range []struct {
 		cause, state, job string
 		watch             bool
@@ -104,10 +104,10 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		{"review" + failedSuffix, stAwaiting, event.StepReview, false, sb + resume + drop},
 		{event.StepAfterMerge + failedSuffix, stMerged, "", false, resume},
 		{event.StepStop + failedSuffix, stMerged, "", false, resume},
-		{causeRejected, stRejected, "", false, `obor drop O-01 "<why>"`},
-		{"stalled", "", "", true, `its pane, or obor resume T-1 "<decision>" | obor drop O-01 "<why>"`}, // T-746
-		{"blocked", "", "", true, `its pane, or obor drop O-01 "<why>"`},
-		{"pane exited", "", "", true, `its pane, or obor drop O-01 "<why>"`},
+		{causeRejected, stRejected, "", false, `obor drop L-01 "<why>"`},
+		{"stalled", "", "", true, `its pane, or obor resume T-1 "<decision>" | obor drop L-01 "<why>"`}, // T-746
+		{"blocked", "", "", true, `its pane, or obor drop L-01 "<why>"`},
+		{"pane exited", "", "", true, `its pane, or obor drop L-01 "<why>"`},
 	} {
 		t.Run(row.cause, func(t *testing.T) {
 			t.Parallel()

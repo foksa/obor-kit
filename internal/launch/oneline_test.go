@@ -17,20 +17,19 @@ func TestStartPromptIsOneLine(t *testing.T) {
 	t.Parallel()
 	const prompt = "You are a worker.\n\nRead AGENTS.md.\r\n\r\nGo.\nMore."
 	const one = "You are a worker. Read AGENTS.md. Go. More."
-	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]},` +
-		`"oc":{"kind":"opencode","args":["--auto"]}}`
+	const models = `{"oc":{"kind":"opencode","model":""}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, typ, kind string
 		head            string // the start args before the prompt
 	}{
-		{"claude", "opus", "claude", "-- --model opus" + settings + " "},
-		{"codex", "luna", "codex", "-- -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
-		{"opencode", "oc", "opencode", "-- --auto --prompt "},
+		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " "},
+		{"codex", "luna", "codex", "-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
+		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.typ+`"}}`))
+			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
 			x.shell("w1:p7", "pj-rev", "")
 			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: prompt})
 			if !ok {
@@ -46,11 +45,11 @@ func TestStartPromptIsOneLine(t *testing.T) {
 }
 
 // DD-v0.13 D1: a start of a kind obor has no bridge for is refused before herdr's agent start (dispatch and obor
-// config validate refuse such a lane type; no degraded start with the type's args alone).
+// config validate refuse such a model; no degraded start with its args alone).
 func TestStartWithoutBridgeRefused(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("lane_types", `{"cur":{"kind":"cursor","args":["-m","x"]}}`),
-		testkit.Set("roles", `{"reviewer":{"type":"cur"}}`))
+	x := setup(t, testkit.Set("models", `{"cur":{"kind":"cursor","model":"x"}}`),
+		testkit.Set("roles", `{"reviewer":"cur"}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: "go"})
 	if ok {
@@ -65,9 +64,9 @@ func TestStartWithoutBridgeRefused(t *testing.T) {
 func TestStartPromptWithoutLineBreaksUnchanged(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.shell("w1:p3", "pj-o-01", "")
+	x.shell("w1:p3", "pj-l-01", "")
 	const prompt = "  a b\tc  `d` \"e\" $f & g;  "
-	if out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: prompt}); !ok {
+	if out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: prompt}); !ok {
 		t.Fatalf("start failed: %s", out)
 	}
 	if got := x.startCall(); !strings.Contains(got, " "+prompt+"]") {

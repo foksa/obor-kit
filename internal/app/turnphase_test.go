@@ -329,18 +329,18 @@ func TestTurnWorkerPhases(t *testing.T) {
 		t.Run("hook "+name, func(t *testing.T) {
 			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
-			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
 			h.connect()
-			if _, err := h.a.stoppedCall(wire.Call{Root: h.root, CallID: "limit", Agent: "pj-o-01", Role: "worker",
-				Lane: "O-01", Error: "rate_limit", Details: "429"}); err != nil {
+			if _, err := h.a.stoppedCall(wire.Call{Root: h.root, CallID: "limit", Agent: "pj-l-01", Role: "worker",
+				Lane: "L-01", Error: "rate_limit", Details: "429"}); err != nil {
 				t.Fatal(err)
 			}
 			p := h.proj()
 			if !p.stops("T-1") {
 				t.Fatal("precondition: T-1 stopped")
 			}
-			reply, err := h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", Ended: ended})
-			if err != nil || reply != "TURN pj-o-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
+			reply, err := h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01", Ended: ended})
+			if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" || p.stops("T-1") || p.briefCount() != 0 {
 				t.Errorf("%s hook: %q, %v, stopped %v, %d briefs; want the stop ended, none", name, reply, err,
 					p.stops("T-1"), p.briefCount())
 			}
@@ -348,7 +348,7 @@ func TestTurnWorkerPhases(t *testing.T) {
 		t.Run("rollout "+name, func(t *testing.T) {
 			t.Parallel()
 			h, _, _, _ := promptRig(t, true)
-			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
+			addRecord(t, h, "T-1", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
 			h.connect()
 			p := h.proj()
 			h.a.mu.Lock()

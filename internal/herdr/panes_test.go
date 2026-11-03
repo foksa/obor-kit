@@ -128,8 +128,8 @@ func TestPanesSubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/O-01", Agent: "claude", Status: "idle",
-		Label: "pj-o-01", Session: "5e1d0c2b-aaaa"}
+	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/L-01", Agent: "claude", Status: "idle",
+		Label: "pj-l-01", Session: "5e1d0c2b-aaaa"}
 	if st.Snapshot.Workspaces["w1"] != "pj" || len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
 	}
@@ -154,7 +154,7 @@ func TestPanesSubscribe(t *testing.T) {
 	// pane.rename emits no event of its own: the next update of the pane rereads it, and the relabel is delivered
 	f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "pj-renamed" })
 	srv.Push("pane_updated", map[string]any{"type": "pane_updated", "pane": map[string]any{"pane_id": "w1:p1",
-		"label": "pj-renamed", "cwd": "/proj-wt/O-01"}})
+		"label": "pj-renamed", "cwd": "/proj-wt/L-01"}})
 	relabelled := working
 	relabelled.Label = "pj-renamed"
 	if ev := nextApp(t, st); ev.Kind != port.EventStatus || ev.New != relabelled {
@@ -211,7 +211,7 @@ func TestPanesTurn(t *testing.T) {
 		started = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}` + "\n"
 		limited = `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"try again at 6:30 PM","codex_error_info":"usage_limit_exceeded"}}}` + "\n"
 	)
-	write(".claude/projects/-proj-wt-O-01/5e1d0c2b-aaaa.jsonl", started+limited)
+	write(".claude/projects/-proj-wt-L-01/5e1d0c2b-aaaa.jsonl", started+limited)
 	write(".codex/sessions/2026/10/24/rollout-2026-10-24T15-05-17-cdx1.jsonl", started+limited)
 	// over 256 KiB: one huge item line, cut at the tail's start, then the turn's end
 	long := write("long.jsonl", started+`{"type":"response_item","payload":{"output":"`+strings.Repeat("x", 300<<10)+`"}}`+"\n"+limited)
@@ -233,11 +233,11 @@ func TestPanesTurn(t *testing.T) {
 	noTurn := write("noturn.jsonl", strings.Repeat(output(10<<10), 60)+`{"type":"event_msg","payload":{"type":"task_comp`)
 
 	f := fixture() // w1:p1: claude, session 5e1d0c2b-aaaa
-	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/O-04").Kind = "codex"
+	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/L-04").Kind = "codex"
 	f.Pane("w1:p4").Session = "cdx1"
-	f.Agent("w1:p5", "pj-cdx2", "idle", "/proj-wt/O-05").Kind = "codex"
+	f.Agent("w1:p5", "pj-cdx2", "idle", "/proj-wt/L-05").Kind = "codex"
 	f.Pane("w1:p5").Transcript = long
-	f.Agent("w1:p6", "pj-cdx3", "idle", "/proj-wt/O-06").Kind = "codex"
+	f.Agent("w1:p6", "pj-cdx3", "idle", "/proj-wt/L-06").Kind = "codex"
 	f.Pane("w1:p6").Session = "no-such-file"
 	for i, c := range []struct{ session, transcript string }{
 		{"", bigPath}, {"", manyPath}, {"cdxbig", ""}, {"cdxmany", ""}, {"", hugeEnd}, {"", noTurn},
@@ -294,16 +294,16 @@ func TestPanesActivity(t *testing.T) {
 		return path
 	}
 	at := time.Date(2026, 10, 24, 15, 0, 0, 0, time.UTC)
-	claude := write(".claude/projects/-proj-wt-O-01/5e1d0c2b-aaaa.jsonl", at)
-	write(".claude/projects/-proj-wt-O-01/other.jsonl", at.Add(time.Hour))
+	claude := write(".claude/projects/-proj-wt-L-01/5e1d0c2b-aaaa.jsonl", at)
+	write(".claude/projects/-proj-wt-L-01/other.jsonl", at.Add(time.Hour))
 	codex := write(".codex/sessions/2026/10/24/rollout-2026-10-24T15-05-17-01a1-cdx.jsonl", at.Add(time.Minute))
 
 	f := fixture() // w1:p1: claude, session 5e1d0c2b-aaaa
-	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/O-04").Kind = "codex"
+	f.Agent("w1:p4", "pj-cdx", "idle", "/proj-wt/L-04").Kind = "codex"
 	f.Pane("w1:p4").Session = "01a1-cdx"
-	f.Agent("w1:p5", "pj-gem", "idle", "/proj-wt/O-05").Kind = "gemini"
+	f.Agent("w1:p5", "pj-gem", "idle", "/proj-wt/L-05").Kind = "gemini"
 	f.Pane("w1:p5").Session = "5e1d0c2b-aaaa" // a Claude file of this id exists, but the kind is not Claude
-	f.Agent("w1:p6", "pj-new", "idle", "/proj-wt/O-06").Session = "no-such-file"
+	f.Agent("w1:p6", "pj-new", "idle", "/proj-wt/L-06").Session = "no-such-file"
 	srv := herdrtest.Serve(t, f)
 	p := herdr.Panes{S: srv.Client(), Home: home}
 	for _, tc := range []struct {
@@ -343,17 +343,17 @@ func TestPanesActivity(t *testing.T) {
 func TestPanesPromptSendsJobID(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
-	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-o-01",
+	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-l-01",
 		"pane_id": "w1:p1", "agent_status": "working"}})
 	p := herdr.Panes{S: srv.Client()}
-	if _, err := p.Type(ctx, "pj-o-01", "[obor job T-7/2/review] review the candidate", false); err != nil {
+	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/2/review] review the candidate", false); err != nil {
 		t.Fatal(err)
 	}
-	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-o-01","text":"[obor job T-7/2/review] review the candidate"}` {
+	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-l-01","text":"[obor job T-7/2/review] review the candidate"}` {
 		t.Errorf("agent.prompt params = %s", got)
 	}
-	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-o-09")
-	if typed, err := p.Type(ctx, "pj-o-09", "[obor job T-7/2/review] x", false); err == nil || typed {
+	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-l-09")
+	if typed, err := p.Type(ctx, "pj-l-09", "[obor job T-7/2/review] x", false); err == nil || typed {
 		t.Errorf("a refused prompt: typed %v, error %v; want nothing typed, an error", typed, err)
 	}
 }
@@ -362,13 +362,13 @@ func TestPanesPromptSendsJobID(t *testing.T) {
 func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
-	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-o-01",
+	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "pj-l-01",
 		"pane_id": "w1:p1", "agent_status": "working"}})
 	p := herdr.Panes{S: srv.Client()}
-	if typed, err := p.Type(ctx, "pj-o-01", "[obor pj-lead] verify", false); err != nil || !typed {
+	if typed, err := p.Type(ctx, "pj-l-01", "[obor pj-lead] verify", false); err != nil || !typed {
 		t.Fatalf("Line: typed %v, %v", typed, err)
 	}
-	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-o-01","text":"[obor pj-lead] verify"}` {
+	if got := lastParams(t, srv, "agent.prompt"); got != `{"target":"pj-l-01","text":"[obor pj-lead] verify"}` {
 		t.Errorf("agent.prompt params = %s", got)
 	}
 	for _, req := range srv.Requests() {
@@ -376,8 +376,8 @@ func TestPanesLineTypesTheLineAsItIs(t *testing.T) {
 			t.Errorf("a key sent with the line: %s", req.Params)
 		}
 	}
-	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-o-09")
-	if typed, err := p.Type(ctx, "pj-o-09", "x", false); err == nil || typed {
+	srv.Fail("agent.prompt", "agent_not_found", "no agent pj-l-09")
+	if typed, err := p.Type(ctx, "pj-l-09", "x", false); err == nil || typed {
 		t.Errorf("a refused line: typed %v, error %v; want nothing typed, an error", typed, err)
 	}
 }
@@ -410,7 +410,7 @@ func TestPanesPromptSendsNoEnter(t *testing.T) {
 				}
 			})
 			p := herdr.Panes{S: srv.Client()}
-			if _, err := p.Type(ctx, "pj-o-01", "[obor job "+job+"] "+text, false); err != nil {
+			if _, err := p.Type(ctx, "pj-l-01", "[obor job "+job+"] "+text, false); err != nil {
 				t.Fatal(err)
 			}
 			a := f.Pane("w1:p1")
@@ -438,7 +438,7 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 	srv := herdrtest.Serve(t, f)
 	f.Set("w1:p1", func(p *herdrtest.Pane) { p.Prompts, p.OnEnter = []string{"typed"}, "lost" })
 	p := herdr.Panes{S: srv.Client()}
-	if _, err := p.Type(ctx, "pj-o-01", "[obor job T-7/1/review] review T-7", false); err != nil {
+	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/review] review T-7", false); err != nil {
 		t.Fatal(err)
 	}
 	a := f.Pane("w1:p1")
@@ -447,7 +447,7 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 			t.Fatalf("precondition: draft %q, submitted %q; want the text unsent in the box", a.Draft, a.Submitted)
 		}
 	})
-	if _, err := p.Type(ctx, "pj-o-01", "[obor job T-7/1/review] review T-7", true); err != nil {
+	if _, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/review] review T-7", true); err != nil {
 		t.Fatal(err)
 	}
 	var order []string
@@ -456,9 +456,9 @@ func TestPanesPromptAgainClearsTheLine(t *testing.T) {
 			order = append(order, r.Method+" "+string(r.Params))
 		}
 	}
-	want := []string{`agent.prompt {"target":"pj-o-01","text":"` + msg + `"}`,
-		`agent.send_keys {"keys":["ctrl+u"],"target":"pj-o-01"}`,
-		`agent.prompt {"target":"pj-o-01","text":"` + msg + `"}`}
+	want := []string{`agent.prompt {"target":"pj-l-01","text":"` + msg + `"}`,
+		`agent.send_keys {"keys":["ctrl+u"],"target":"pj-l-01"}`,
+		`agent.prompt {"target":"pj-l-01","text":"` + msg + `"}`}
 	if strings.Join(order, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(order, "\n"), strings.Join(want, "\n"))
 	}
@@ -500,7 +500,7 @@ func TestPanesPromptTyped(t *testing.T) {
 				srv.Fail("agent.send_keys", "keys_failed", "cannot send keys")
 			}
 			p := herdr.Panes{S: cl}
-			typed, err := p.Type(ctx, "pj-o-01", "[obor job T-7/1/work] do T-7", c.clear)
+			typed, err := p.Type(ctx, "pj-l-01", "[obor job T-7/1/work] do T-7", c.clear)
 			if err == nil || typed != c.typed {
 				t.Fatalf("typed %v, error %v; want typed %v and an error", typed, err, c.typed)
 			}

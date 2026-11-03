@@ -18,10 +18,10 @@ import (
 // waits for: in the loop as a failed submission (a needs-you), merged once an obor merge lands it on main (row 34,
 // outside); T-3 is a task with a stored spec and no loop record.
 
-// seedT2 writes T-2's open attempt to the log of the stopped app: submitted on O-02, its submit refused (fail).
+// seedT2 writes T-2's open attempt to the log of the stopped app: submitted on L-02, its submit refused (fail).
 func (r *loopRig) seedT2(more ...event.Record) {
 	r.t.Helper()
-	sub, _ := json.Marshal(map[string]any{"lane": "O-02", "agent": "pj-o2"})
+	sub, _ := json.Marshal(map[string]any{"lane": "L-02", "agent": "pj-l-02"})
 	refused, _ := json.Marshal(map[string]any{"refused": "no commit"})
 	recs := append([]event.Record{{Task: "T-2", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: sub},
 		{Task: "T-2", Attempt: 1, Step: event.StepSubmit, Kind: event.KindIntent, Class: event.ClassGit},
@@ -49,16 +49,16 @@ func (r *loopRig) taskStep(task, step string) int {
 	return n
 }
 
-// waitingAfter2, waitingAfter3: T-1's WAITING reply after T-2, T-3, the rig's O-01 still idle (T-483).
+// waitingAfter2, waitingAfter3: T-1's WAITING reply after T-2, T-3, the rig's L-01 still idle (T-483).
 const (
-	waitingAfter2 = "WAITING T-1 after T-2 (queued); idle: O-01 (sonnet)"
-	waitingAfter3 = "WAITING T-1 after T-3 (queued); idle: O-01 (sonnet)"
+	waitingAfter2 = "WAITING T-1 after T-2 (queued); idle: L-01"
+	waitingAfter3 = "WAITING T-1 after T-3 (queued); idle: L-01"
 )
 
-// waitAfter is the lead's dispatch of T-1 onto O-01 after the tasks.
+// waitAfter is the lead's dispatch of T-1 onto L-01 after the tasks.
 func (r *loopRig) waitAfter(callID string, after ...string) (string, error) {
 	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: callID, Task: "T-1",
-		Lane: "O-01", After: after})
+		Lane: "L-01", After: after, Types: []string{"sonnet"}})
 }
 
 // taskStatus is task's row in obor serve status (Task "": not listed).
@@ -114,10 +114,10 @@ func TestWaitingDispatchesOnceAfterMerge(t *testing.T) {
 			t.Errorf("the dispatch's attempt %d, want the wait's 1", rec.Attempt)
 		}
 	}
-	if st := r.taskStatus("T-1"); st.State != "dispatched" && st.State != "working" || st.Lane != "O-01" {
-		t.Errorf("status after the merge %+v, want dispatched on O-01", st)
+	if st := r.taskStatus("T-1"); st.State != "dispatched" && st.State != "working" || st.Lane != "L-01" {
+		t.Errorf("status after the merge %+v, want dispatched on L-01", st)
 	}
-	if reply, err := r.waitAfter("d2", "T-2"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+	if reply, err := r.waitAfter("d2", "T-2"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		t.Errorf("the replacing call id again: %q, %v; want the dispatch's reply", reply, err)
 	}
 }
@@ -148,8 +148,8 @@ func TestWaitingSurvivesRestart(t *testing.T) {
 func TestWaitingCrashAfterMerge(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
-	wait, _ := json.Marshal(map[string]any{"lane": "O-01", "after": []string{"T-2"}, "caller": "pj-lead", "call": "d1",
-		"reply": "WAITING T-1 after T-2 (queued)"})
+	wait, _ := json.Marshal(map[string]any{"lane": "L-01", "after": []string{"T-2"}, "types": []string{"sonnet"},
+		"caller": "pj-lead", "call": "d1", "reply": "WAITING T-1 after T-2 (queued)"})
 	merged, _ := json.Marshal(map[string]any{"outside": true})
 	r.seedT2(event.Record{Task: "T-1", Attempt: 1, Step: event.StepWaiting, Kind: event.KindFact, Data: wait},
 		event.Record{Task: "T-2", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact, Data: merged})
@@ -183,8 +183,8 @@ func TestWaitingRefusals(t *testing.T) {
 			t.Errorf("after %v: %q, %v; want %q", c.after, reply, err, c.want)
 		}
 	}
-	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d0", Task: "T-1", Lane: "O-09",
-		After: []string{"T-2"}}); err == nil || !strings.Contains(err.Error(), "unknown lane O-09") {
+	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d0", Task: "T-1", Lane: "L-09",
+		After: []string{"T-2"}, Types: []string{"sonnet"}}); err == nil || !strings.Contains(err.Error(), "unknown lane L-09") {
 		t.Errorf("an unknown lane: %v", err)
 	}
 	r.passes()
@@ -212,14 +212,14 @@ func TestWaitingRefusals(t *testing.T) {
 	// T-4 merged before (its facts in the log): a dispatch --after it is a plain dispatch at once.
 	r.stop()
 	merged, _ := json.Marshal(map[string]any{"outside": true})
-	sub, _ := json.Marshal(map[string]any{"lane": "O-04", "agent": "pj-o4"})
+	sub, _ := json.Marshal(map[string]any{"lane": "L-04", "agent": "pj-l4"})
 	if err := app.WriteLog(r.p.Root, time.Now(), event.Record{Task: "T-4", Attempt: 1, Step: event.StepSubmitted,
 		Kind: event.KindFact, Data: sub}, event.Record{Task: "T-4", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact,
 		Data: merged}); err != nil {
 		t.Fatal(err)
 	}
 	r.start()
-	if reply, err := r.waitAfter("d5", "T-4"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+	if reply, err := r.waitAfter("d5", "T-4"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		t.Errorf("after a merged task: %q, %v; want a plain dispatch", reply, err)
 	}
 }
@@ -282,7 +282,7 @@ func TestWaitingLaneBusy(t *testing.T) {
 	if n := r.taskStep("T-1", "fact dispatch"); n != 0 || r.taskStatus("T-1").State != "waiting" {
 		t.Fatalf("dispatched onto a busy lane, or not waiting: %q", r.steps())
 	}
-	if n := strings.Count(r.out.String(), "T-1 waiting: dispatch T-1: lane O-01 is working on T-9"); n != 1 {
+	if n := strings.Count(r.out.String(), "T-1 waiting: dispatch T-1: lane L-01 is working on T-9"); n != 1 {
 		t.Errorf("the refusal logged %d times, want once:\n%s", n, r.out.String())
 	}
 	r.setLane(func(l *port.Lane) { l.State, l.Task = "free", "" })
@@ -303,7 +303,7 @@ func TestWaitingRefusedSaysWhyThenNeedsYou(t *testing.T) {
 		t.Fatalf("a reason before T-2 merged: %+v", st)
 	}
 	r.landT2()
-	const why = "dispatch T-1: lane O-01 is working on T-9"
+	const why = "dispatch T-1: lane L-01 is working on T-9"
 	r.waitFor("the reason in status", func() bool { return r.taskStatus("T-1").Why == why })
 	r.later(59 * time.Minute)
 	const needs = "1 fact needs-you{after: T-1 is not dispatched for 1h since what it waits for merged: " + why + "}"
@@ -370,7 +370,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 	if _, err := r.waitAfter("d1", "T-3"); err != nil { // T-1 after T-3
 		t.Fatal(err)
 	}
-	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d4", Task: "T-4", Lane: "O-01",
+	if _, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: "d4", Task: "T-4", Lane: "L-01",
 		After: []string{"T-1"}}); err != nil { // T-4 after T-1
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 		{"d3", "T-1", "dispatch T-3: T-1 waits for T-3 itself: a cycle never dispatches"},
 		{"d3b", "T-4", "dispatch T-3: T-4 waits for T-3 itself: a cycle never dispatches"},
 	} {
-		reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: c.call, Task: "T-3", Lane: "O-01",
+		reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Role: "lead", CallID: c.call, Task: "T-3", Lane: "L-01",
 			After: []string{c.after}})
 		if err == nil || err.Error() != c.want {
 			t.Errorf("T-3 after %s: %q, %v; want %q", c.after, reply, err, c.want)

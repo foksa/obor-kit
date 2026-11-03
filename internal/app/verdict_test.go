@@ -24,11 +24,11 @@ func verdictRig(t *testing.T) (*rig, string) {
 	t.Helper()
 	r := newRig(t)
 	write(t, filepath.Join(r.root, ".obor", "config.json"),
-		`{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+		`{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	r.loop = func(string) (*app.Loop, error) { return nil, errors.New("no adapters") }
 	data, _ := json.Marshal(app.JobData{Patch: "p1"})
 	if err := app.WriteLog(r.root, r.clock.Now(),
-		event.Record{Task: "T-1", Attempt: 2, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01"}`)},
+		event.Record{Task: "T-1", Attempt: 2, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01"}`)},
 		event.Record{Task: "T-1", Attempt: 2, Step: event.StepReview, Kind: event.KindIntent, Class: event.ClassPrompt, Data: data},
 	); err != nil {
 		t.Fatal(err)
@@ -95,8 +95,8 @@ func TestVerdictRefusals(t *testing.T) {
 		call         wire.Call
 		want         string
 	}{
-		{"a worker", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Agent, c.Role = "pj-o-01", "worker" }),
-			"only the integrator (pj-int) gives verdicts, not pj-o-01 (role worker)"},
+		{"a worker", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Agent, c.Role = "pj-l-01", "worker" }),
+			"only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)"},
 		{"the integrator's role with another name", wire.MethodAccept, r.call("c1", func(c *wire.Call) { c.Agent = "pj-lead" }),
 			"only the integrator"},
 		{"no role", wire.MethodReject, r.call("c1", func(c *wire.Call) { c.Role = "" }), "only the integrator"},

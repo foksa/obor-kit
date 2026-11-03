@@ -53,7 +53,7 @@ func lineRoot(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"reviewer":{}}}`
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":""}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -789,10 +789,11 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	}
 }
 
-// registerLead rewrites root's config with lead as roles.lead.agent.
-func registerLead(t *testing.T, root, lead string) {
+// registerLead rewrites root's config with prefix: the lead is <prefix>-lead (obor setup rename's change, T-765: a
+// lead's agent name is its prefix's).
+func registerLead(t *testing.T, root, prefix string) {
 	t.Helper()
-	cfg := `{"name":"proj","prefix":"pj","roles":{"lead":{"agent":"` + lead + `"},"integrator":{},"reviewer":{}}}`
+	cfg := `{"name":"proj","prefix":"` + prefix + `","roles":{"lead":"","integrator":"","reviewer":""}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +825,7 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 				t.Fatalf("precondition: one lead line queued, nothing typed; typed %v, queued %d", first.calls, len(p.queuedLines()))
 			}
 
-			registerLead(t, p.root, "pj-new-lead")
+			registerLead(t, p.root, "pj-new")
 			b, q := lineReload(t, a, p, &now)
 			if q.out.lead() != "pj-new-lead" || len(q.queuedLines()) != 1 {
 				t.Fatalf("precondition: renamed lead %q with one line queued, got %d", q.out.lead(), len(q.queuedLines()))
@@ -853,42 +854,6 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 					posts.calls, len(q.queuedLines()))
 			}
 		})
-	}
-}
-
-// TestBriefOfAgentSinceLead: a brief waiting for a role agent that has since become the lead keeps the
-// inbox path: never typed, posted once its inbox is recorded (V1's kept protection).
-func TestBriefOfAgentSinceLead(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	a, p := lineApp(t, lineRoot(t), &now)
-	lineStatus(a, "w:rev", "working", now) // busy: the brief's line waits
-	queueLine(t, a, p, "brief", now)
-	if len(p.queuedLines()) != 1 || p.queuedLines()[0].lead {
-		t.Fatalf("precondition: one role brief queued; queued %d", len(p.queuedLines()))
-	}
-
-	registerLead(t, p.root, "pj-rev")
-	b, q := lineReload(t, a, p, &now)
-	if q.out.lead() != "pj-rev" || len(q.queuedLines()) != 1 {
-		t.Fatalf("precondition: pj-rev the lead with the brief queued; lead %q, queued %d", q.out.lead(), len(q.queuedLines()))
-	}
-	lead := b.obs["w:lead"].pane
-	lead.Label = "pj-lead" // the old lead's pane keeps its label: pj-rev runs in w:rev alone
-	b.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: lead.ID, New: lead})
-	if w := b.whereIs(q, "pj-rev"); w.State != Identified || w.Pane.ID != "w:rev" || !Ready(w.Pane.Status) {
-		t.Fatal("precondition: pj-rev's pane is idle")
-	}
-	b.opt.Inboxed = func(string) (string, bool) { return "", false }
-	lines, posts := &linerSpy{}, &inboxSpy{}
-	b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-	if len(lines.calls) != 0 || len(posts.calls) != 0 || len(q.queuedLines()) != 1 {
-		t.Fatalf("no inbox: typed %q, posted %q, queued %d; want nothing tried", lines.calls, posts.calls, len(q.queuedLines()))
-	}
-	b.opt.Inboxed = func(string) (string, bool) { return "", true }
-	b.deliver(context.Background(), q, &Loop{Typer: lines, Inbox: posts})
-	if len(lines.calls) != 0 || len(posts.calls) != 1 || posts.calls[0] != "pj-rev: [obor owner] verify finding 1" {
-		t.Errorf("inbox recorded: typed %q, posted %q; want posted once, never typed", lines.calls, posts.calls)
 	}
 }
 

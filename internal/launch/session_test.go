@@ -29,10 +29,10 @@ func TestResumeRecordedSession(t *testing.T) {
 	t.Run("herdr reports another: the recorded one resumed, said", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-rec", Started: now.Unix()}}
+		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Started: now.Unix()}}
 		x.transcript(x.lane, "sid-rec")
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-herdr"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-herdr"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
@@ -46,11 +46,11 @@ func TestResumeRecordedSession(t *testing.T) {
 	t.Run("herdr reports none: the recorded one resumed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-rec", Started: now.Unix()}}
+		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Started: now.Unix()}}
 		x.transcript(x.lane, "sid-rec")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-rec)", "result")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -60,13 +60,13 @@ func TestResumeRecordedSession(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		recordSessions(t, x.p.Root,
-			store.Session{Agent: "pj-o-01", ID: "sid-1", Started: now.Add(-time.Hour).Unix()},
-			store.Session{Agent: "pj-o-01", ID: "sid-2", Started: now.Unix()},
-			store.Session{Agent: "pj-o-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
+			store.Session{Agent: "pj-l-01", ID: "sid-1", Started: now.Add(-time.Hour).Unix()},
+			store.Session{Agent: "pj-l-01", ID: "sid-2", Started: now.Unix()},
+			store.Session{Agent: "pj-l-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
 		x.transcript(x.lane, "sid-2")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-2)", "the newest of its own")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-2)", "the newest of its own")
 		if !ok {
 			t.Fatal(out)
 		}
@@ -77,14 +77,14 @@ func TestResumeRecordedSession(t *testing.T) {
 // older record — and its first prompt survives; no resume reaches the start.
 func TestOpencodeStartsFresh(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
-	x.sessions = map[string]store.Session{"pj-o-01": {Agent: "pj-o-01", ID: "sid-o", Started: time.Now().Unix()}}
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Prompt: "go"})
+	x := setupRunning(t, "deepseek")
+	x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-o", Started: time.Now().Unix()}}
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Prompt: "go"})
 	if !ok {
 		t.Fatal(out)
 	}
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "fresh, not resumed")
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "fresh, not resumed")
 	contains(t, out, "warning: no resume for kind opencode: new session", "said")
 	if strings.Contains(out, "resuming sid-o") {
 		t.Errorf("a resume said:\n%s", out)
@@ -94,6 +94,15 @@ func TestOpencodeStartsFresh(t *testing.T) {
 	if strings.Contains(start, "resume") || strings.Contains(start, "sid-o") || strings.Contains(start, "--session") {
 		t.Errorf("a resume reached the start: %s", start)
 	}
+}
+
+// setupRunning is setup with lane L-01's open dispatch running model (its lane row's task and type, T-722): a start
+// of pj-l-01 runs that model's kind.
+func setupRunning(t *testing.T, model string) *fx {
+	t.Helper()
+	x := setup(t)
+	x.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01","type":"`+model+`"}`)
+	return x
 }
 
 // recordSessions writes session facts to the project's store as serve does (app's session request).
@@ -121,7 +130,7 @@ func recordSessions(t *testing.T, root string, ss ...store.Session) {
 // first line's session_meta: the id; the file: the transcript), not a newer one of the same cwd that it does not hold.
 func TestCodexStartReportsRollout(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
+	x := setupRunning(t, "luna")
 	var fresh, other string
 	x.wrap = func(h port.PaneControl) port.PaneControl {
 		return onStart{h, func() {
@@ -130,8 +139,8 @@ func TestCodexStartReportsRollout(t *testing.T) {
 			other = writeRollout(x, "cx-other", x.lane, time.Now().Add(time.Second)) // a Codex started by hand there
 		}}
 	}
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	if !ok {
 		t.Fatal(out)
 	}
@@ -144,7 +153,7 @@ func TestCodexStartReportsRollout(t *testing.T) {
 	s := x.reported[0]
 	eq(t, s.ID, "cx-new", "the rollout the agent's process holds open")
 	eq(t, s.Transcript, fresh, "its transcript")
-	eq(t, s.Agent+" "+s.Kind+" "+s.Lane+" "+s.Pane, "pj-o-01 codex O-01 w1:p3", "agent, kind, lane, pane")
+	eq(t, s.Agent+" "+s.Kind+" "+s.Lane+" "+s.Pane, "pj-l-01 codex L-01 w1:p3", "agent, kind, lane, pane")
 	if s.Started == 0 {
 		t.Error("started recorded")
 	}
@@ -153,8 +162,8 @@ func TestCodexStartReportsRollout(t *testing.T) {
 	t.Run("a resume reports none", func(t *testing.T) {
 		x.reset()
 		x.reported = nil
-		x.shell("w1:p3", "pj-o-01", "").Session = "cx-new"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "").Session = "cx-new"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
@@ -180,7 +189,7 @@ func writeRollout(x *fx, id, cwd string, at time.Time) string {
 // in between recorded the new process's rollout as the agent's).
 func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("roles", `{"integrator":{"type":"luna"}}`))
+	x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
 	x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 	var gen atomic.Int32
 	x.ps = func(args ...string) ([]byte, error) {
@@ -217,7 +226,7 @@ func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 // rollout opened after the start returned is still recorded.
 func TestCodexRolloutSearchInBackground(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("roles", `{"integrator":{"type":"luna"},"lead":{"type":"luna"}}`))
+	x := setup(t, testkit.Set("roles", `{"integrator":"luna","lead":"luna"}`))
 	x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 	x.wrap = func(h port.PaneControl) port.PaneControl {
 		return pids{h, x.f, map[string]int{"w1:p5": 205, "w1:p6": 206}}
@@ -303,7 +312,7 @@ func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
 	for _, order := range []string{"first start's rollout first", "second start's rollout first"} {
 		t.Run(order, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"integrator":{"type":"luna"},"lead":{"type":"luna"}}`))
+			x := setup(t, testkit.Set("roles", `{"integrator":"luna","lead":"luna"}`))
 			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 4)
 			pid := map[string]int{"pj-int": 205, "pj-lead": 206}
 			x.wrap = func(h port.PaneControl) port.PaneControl {
@@ -357,7 +366,7 @@ func TestCodexSessionsOfTwoStartsInOneCwd(t *testing.T) {
 // the child's file counts; a process outside the agent's tree holding another rollout does not.
 func TestCodexRolloutOfAChild(t *testing.T) {
 	t.Parallel()
-	x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
+	x := setupRunning(t, "luna")
 	x.ps = func(args ...string) ([]byte, error) {
 		if strings.Join(args, " ") != "-A -o pid=,ppid=" {
 			return nil, nil
@@ -372,8 +381,8 @@ func TestCodexRolloutOfAChild(t *testing.T) {
 			x.hold(402, writeRollout(x, "cx-stranger", x.lane, time.Now()))
 		}}
 	}
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	if !ok {
 		t.Fatal(out)
 	}
@@ -393,17 +402,17 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 	for _, c := range []struct {
 		name, prompt, line string
 	}{
-		{"no prompt: expected", "", "warning: pj-o-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded: expected after a fresh start with no prompt)"},
-		{"prompted: the plain line", "work", "warning: pj-o-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded)"},
+		{"no prompt: expected", "", "warning: pj-l-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded: expected after a fresh start with no prompt)"},
+		{"prompted: the plain line", "work", "warning: pj-l-01 (pid 2) holds no codex transcript open within 20ms (its session is not recorded)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`))
+			x := setupRunning(t, "luna")
 			x.wrap = func(h port.PaneControl) port.PaneControl {
 				return onStart{h, func() { writeRollout(x, "cx-other", x.lane, time.Now()) }}
 			}
-			x.shell("w1:p3", "pj-o-01", "")
-			out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: c.prompt})
+			x.shell("w1:p3", "pj-l-01", "")
+			out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: c.prompt})
 			if !ok {
 				t.Fatal(out)
 			}
@@ -412,7 +421,7 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 			if len(x.reported) != 0 {
 				t.Errorf("a session fact: %+v", x.reported)
 			}
-			eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
+			eq(t, x.recorded("pj-l-01"), "", "nothing recorded")
 		})
 	}
 }
@@ -421,15 +430,14 @@ func TestCodexNoRolloutOpen(t *testing.T) {
 // restart resumes the last recorded session, else herdr's (T-607).
 func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	t.Parallel()
-	edit := testkit.Set("lane_types", `{"opus":{"kind":"codex","args":["-m","gpt-6-luna"]}}`)
 	run := func(t *testing.T, reportErr error) (*fx, string) {
-		x := setup(t, edit)
+		x := setupRunning(t, "luna")
 		x.reportErr = reportErr
 		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return onStart{h, func() { x.hold(2, writeRollout(x, "cx-new", x.lane, time.Now())) }}
 		}
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if !ok {
 			t.Fatal(out)
 		}
@@ -440,18 +448,18 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 	}
 	t.Run("refused: said", func(t *testing.T) {
 		t.Parallel()
-		x, out := run(t, errors.New("session: session already held by pj-lead (pj-o-01's report refused)"))
-		contains(t, out, "session cx-new of pj-o-01 not recorded", "said")
+		x, out := run(t, errors.New("session: session already held by pj-lead (pj-l-01's report refused)"))
+		contains(t, out, "session cx-new of pj-l-01 not recorded", "said")
 		contains(t, out, "session already held by pj-lead", "why")
-		eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
+		eq(t, x.recorded("pj-l-01"), "", "nothing recorded")
 	})
 	t.Run("serve unreachable: said", func(t *testing.T) {
 		t.Parallel()
 		x, out := run(t, errors.New("obor serve is not running"))
-		contains(t, out, "session cx-new of pj-o-01 not recorded", "said")
-		contains(t, out, "a restart resumes pj-o-01's last recorded session", "what follows")
-		contains(t, out, "obor restart pj-o-01 --fresh starts a new one", "how to start fresh")
-		eq(t, x.recorded("pj-o-01"), "", "nothing recorded")
+		contains(t, out, "session cx-new of pj-l-01 not recorded", "said")
+		contains(t, out, "a restart resumes pj-l-01's last recorded session", "what follows")
+		contains(t, out, "obor restart pj-l-01 --fresh starts a new one", "how to start fresh")
+		eq(t, x.recorded("pj-l-01"), "", "nothing recorded")
 	})
 }
 
@@ -467,7 +475,7 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"integrator":{"type":"luna"}}`))
+			x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
 			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 			var gen atomic.Int32
 			x.ps = func(args ...string) ([]byte, error) {

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "name": "axis-alies",
+  "prefix": "aa",
+  "lanes_dir": "../axis-alies-wt",
+  "paths": {
+    "reviews": "docs/reviews"
+  },
+  "commands": {
+    "lane_setup": "bun install --frozen-lockfile && cp bun.lock node_modules/.lane-lock",
+    "check": {
+      "cmd": "bun run check:engine",
+      "timeout": 600,
+      "heavy": true
+    },
+    "check_fast": "bun run check:engine",
+    "lane_ready": "cmp -s bun.lock node_modules/.lane-lock",
+    "check_milestone": {
+      "cmd": "bun scripts/nightlyStep.ts check_milestone -- bun run check:engine:nightly -- bun scripts/weeklyParked.ts -- bun run soak-maps --timeout 600",
+      "timeout": 14400,
+      "heavy": true
+    },
+    "after_merge": {
+      "cmd": "bun install --frozen-lockfile",
+      "when": [
+        "bun.lock"
+      ],
+      "timeout": 300
+    }
+  },
+  "lane_links": [
+    "reference",
+    "public/assets"
+  ],
+  "protected_files": [
+    "src/engine/types.ts"
+  ],
+  "lanes": 6,
+  "roles": {
+    "integrator": "sonnet:medium",
+    "reviewer": "terra:xhigh",
+    "lead": "opus:high",
+    "deep_dive": "opus:high"
+  },
+  "merge": {
+    "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+    "fail_grep": "error TS|×|\\(fail\\)|Expected|Received",
+    "timeout_grep": "timed out|Timeout|exceeded",
+    "nightly_at": "02:00"
+  },
+  "guards": {
+    "allow_push": [
+      "aa-lead"
+    ]
+  },
+  "agents": {
+    "fable-advisor": {
+      "type": "fable:high"
+    },
+    "sol-review": {
+      "type": "sol:high"
+    },
+    "o-02": {
+      "type": "opus:medium"
+    },
+    "triage": {
+      "type": "opus:medium"
+    }
+  },
+  "difficulty": {
+    "hard": [
+      "opus:medium"
+    ],
+    "medium": [
+      "deepseek",
+      "sonnet:medium"
+    ],
+    "simple": [
+      "deepseek"
+    ]
+  },
+  "handoff_tokens": 500000,
+  "kinds": {
+    "claude": {
+      "prompt_extra": "Checks: AGENTS.md 'Test load' (light lanes). Quote summary lines and failures only. task_done report: add a Mutation line (what you broke, which test failed)."
+    },
+    "codex": {
+      "args": [
+        "-c",
+        "sandbox_workspace_write.network_access=true"
+      ]
+    },
+    "opencode": {
+      "prompt_extra": "You run in opencode (model from the lane's opencode.json: DeepSeek V4.1 Flash or MiniMax M3.1 Flash free), not sandboxed and without herd hooks: no git commands, no installs, edit only the files your spec lists (ask the lead to widen the list rather than editing outside it), stay in this directory. Read AGENTS.md first. Checks: AGENTS.md 'Checks' (worker tier), only the test files your spec names, through bun scripts/checkSlots.ts run; never the merge gate, nightly or slow tests. Quote summary lines and failures only. task_done report: add a Mutation line (what you broke, which test failed)."
+    }
+  },
+  "models": {
+    "deepseek": {
+      "kind": "opencode",
+      "model": ""
+    }
+  }
+}

@@ -14,29 +14,29 @@ import (
 // T-746 (axis-alies T-1421): the answer to an idle worker reaches it, a line that cannot go out says why, and obor
 // resume takes a stalled worker's needs-you.
 
-// staleHerdr is the ident harness with pj-o-01 idle in w1:p1, where herdr reports session s-herdr (stale: launch's
+// staleHerdr is the ident harness with pj-l-01 idle in w1:p1, where herdr reports session s-herdr (stale: launch's
 // start row carries it too) while the session its SessionStart hook reported from w1:p1, and its inbox record, is
 // s-live; then the lead's answer to T-1's worker recorded (fact answered).
 func staleHerdr(t *testing.T) *harness {
 	t.Helper()
 	h, _ := newIdentHarness(t)
 	h.pane("w1:p1").Session = "s-herdr"
-	h.started("pj-o-01", "w1:p1", "t1", "s-herdr")
+	h.started("pj-l-01", "w1:p1", "t1", "s-herdr")
 	h.connect()
-	h.session("pj-o-01", "s-live", "/tr/s-live.jsonl", 100)
+	h.session("pj-l-01", "s-live", "/tr/s-live.jsonl", 100)
 	h.a.opt.Inboxed = func(string) (string, bool) { return "s-live", true }
-	if w := h.where("pj-o-01"); !strings.HasPrefix(w, "identified w1:p1 ") {
-		t.Fatalf("precondition: pj-o-01 is %q, want identified at w1:p1", w)
+	if w := h.where("pj-l-01"); !strings.HasPrefix(w, "identified w1:p1 ") {
+		t.Fatalf("precondition: pj-l-01 is %q, want identified at w1:p1", w)
 	}
 	h.a.mu.Lock()
-	s, _ := h.proj().session("pj-o-01")
+	s, _ := h.proj().session("pj-l-01")
 	h.a.mu.Unlock()
 	if s.ID != "s-live" || h.pane("w1:p1").Session != "s-herdr" || h.pane("w1:p1").Status != "idle" {
 		t.Fatalf("precondition: recorded %q, herdr's %q, status %q; want s-live, s-herdr, idle", s.ID,
 			h.pane("w1:p1").Session, h.pane("w1:p1").Status)
 	}
 	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
-		event.Message{To: "pj-o-01", From: "pj-lead", Line: "[obor answer] move the helpers down", Task: "T-1"}) {
+		event.Message{To: "pj-l-01", From: "pj-lead", Line: "[obor answer] move the helpers down", Task: "T-1"}) {
 		t.Fatal("answer not recorded")
 	}
 	return h
@@ -50,9 +50,9 @@ func TestAnswerReachesIdleWorkerHerdrSessionStale(t *testing.T) {
 	h := staleHerdr(t)
 	in, liner := &kindSpy{}, &linerSpy{}
 	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: liner})
-	if !slices.Equal(in.calls, []string{"claude pj-o-01: [obor answer] move the helpers down"}) || len(liner.calls) != 0 ||
+	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] move the helpers down"}) || len(liner.calls) != 0 ||
 		len(h.lines()) != 0 {
-		t.Errorf("posted %q, typed %q, queued %q; want the answer posted to pj-o-01's inbox", in.calls, liner.calls,
+		t.Errorf("posted %q, typed %q, queued %q; want the answer posted to pj-l-01's inbox", in.calls, liner.calls,
 			h.lines())
 	}
 }
@@ -87,7 +87,7 @@ func TestUndeliverableLineSaysWhy(t *testing.T) {
 		t.Fatalf("posted %q, queued %q; want the answer held", in.calls, h.lines())
 	}
 	ms := h.a.Status().Project.Messages
-	const why = "no inbox recorded for the session in pj-o-01's pane w1:p1, and serve types no lines"
+	const why = "no inbox recorded for the session in pj-l-01's pane w1:p1, and serve types no lines"
 	if len(ms) != 1 || ms[0].Held != why {
 		t.Errorf("status lines %+v; want the answer with held %q", ms, why)
 	}
@@ -113,12 +113,12 @@ func TestAnswerToWorkingWorkerAtNextIdle(t *testing.T) {
 	fx := &Loop{Inbox: in, Typer: &linerSpy{}}
 	h.a.deliver(context.Background(), h.proj(), fx)
 	ms := h.a.Status().Project.Messages
-	if len(in.calls) != 0 || len(ms) != 1 || !strings.Contains(ms[0].Held, "pj-o-01 is busy in pane w1:p1") {
+	if len(in.calls) != 0 || len(ms) != 1 || !strings.Contains(ms[0].Held, "pj-l-01 is busy in pane w1:p1") {
 		t.Fatalf("working: posted %q, status lines %+v; want the answer waiting, held while busy", in.calls, ms)
 	}
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 	h.a.deliver(context.Background(), h.proj(), fx)
-	if !slices.Equal(in.calls, []string{"claude pj-o-01: [obor answer] move the helpers down"}) || len(h.lines()) != 0 {
+	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] move the helpers down"}) || len(h.lines()) != 0 {
 		t.Errorf("idle again: posted %q, queued %q; want the answer posted once", in.calls, h.lines())
 	}
 }
@@ -151,8 +151,8 @@ func TestResumeStalledWorker(t *testing.T) {
 	if stalled {
 		t.Error("needs-you{stalled} still in force after the resume")
 	}
-	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] keep the guard; move the helpers down"}) {
-		t.Errorf("queued %q; want the decision to pj-o-01", got)
+	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] keep the guard; move the helpers down"}) {
+		t.Errorf("queued %q; want the decision to pj-l-01", got)
 	}
 	if reply, err := call("c1", wire.ResumeReprompt, "keep the guard; move the helpers down"); err != nil || reply != want {
 		t.Errorf("repeated call id: %q, %v; want the stored reply", reply, err)
@@ -166,12 +166,12 @@ func TestResumeStalledWorker(t *testing.T) {
 	in := &kindSpy{}
 	h.a.opt.Inboxed = func(string) (string, bool) { return "", true }
 	h.a.deliver(context.Background(), h.proj(), &Loop{Inbox: in, Typer: &linerSpy{}})
-	if !slices.Equal(in.calls, []string{"claude pj-o-01: [obor answer] keep the guard; move the helpers down"}) {
-		t.Errorf("posted %q; want the decision reach pj-o-01", in.calls)
+	if !slices.Equal(in.calls, []string{"claude pj-l-01: [obor answer] keep the guard; move the helpers down"}) {
+		t.Errorf("posted %q; want the decision reach pj-l-01", in.calls)
 	}
 }
 
-// busyAnswered is staleHerdr with pj-o-01 working: one pass holds the queued answer (precondition).
+// busyAnswered is staleHerdr with pj-l-01 working: one pass holds the queued answer (precondition).
 func busyAnswered(t *testing.T) *harness {
 	t.Helper()
 	h := staleHerdr(t)
@@ -210,11 +210,11 @@ func TestUndeliveredAnswerEndsWhenSettled(t *testing.T) {
 		data event.FactData
 	}{
 		{"submit", event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
-			event.FactData{Lane: "O-01", Agent: "pj-o-01", Merge: true}},
+			event.FactData{Lane: "L-01", Agent: "pj-l-01", Merge: true}},
 		{"re-ask", event.Record{Task: "T-1", Attempt: 1, Step: event.StepNeedsYou, Kind: event.KindFact},
-			event.FactData{Lane: "O-01", Agent: "pj-o-01", Reason: reasonAsks + "and the probe too?"}},
+			event.FactData{Lane: "L-01", Agent: "pj-l-01", Reason: reasonAsks + "and the probe too?"}},
 		{"unblock", event.Record{Task: "T-1", Attempt: 1, Step: event.StepUnblocked, Kind: event.KindFact},
-			event.FactData{Lane: "O-01", Agent: "pj-lead", Reason: wire.ResumeReprompt, Merge: true}},
+			event.FactData{Lane: "L-01", Agent: "pj-lead", Reason: wire.ResumeReprompt, Merge: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -233,7 +233,7 @@ func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
 	t.Parallel()
 	h := busyAnswered(t)
 	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
-		event.Message{To: "pj-o-02", From: "pj-lead", Line: "[obor answer] other", Task: "T-2"}) {
+		event.Message{To: "pj-l-02", From: "pj-lead", Line: "[obor answer] other", Task: "T-2"}) {
 		t.Fatal("answer not recorded")
 	}
 	h.a.mu.Lock()
@@ -244,7 +244,7 @@ func TestSettledAnswerInFlightOrOtherTaskStays(t *testing.T) {
 	}
 	h.a.mu.Unlock()
 	h.a.record(h.proj(), event.Record{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact},
-		event.FactData{Lane: "O-01", Merge: true})
+		event.FactData{Lane: "L-01", Merge: true})
 	if q := h.lines(); len(q) != 2 {
 		t.Errorf("queued %q; want the in-flight answer and T-2's answer kept", q)
 	}
@@ -256,24 +256,24 @@ func TestResumeStalledEndsOlderAnswer(t *testing.T) {
 	t.Parallel()
 	h, _, _ := answerSeed(t, reasonStalled, "", "", true)
 	if !h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
-		event.Message{To: "pj-o-01", From: "pj-lead", Line: "[obor answer] old", Task: "T-1"}) {
+		event.Message{To: "pj-l-01", From: "pj-lead", Line: "[obor answer] old", Task: "T-1"}) {
 		t.Fatal("answer not recorded")
 	}
 	h.a.record(h.proj(), event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact},
-		event.FactData{Lane: "O-01", Reason: reasonStalled}) // stalled again, the old answer still queued
-	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] old"}) {
+		event.FactData{Lane: "L-01", Reason: reasonStalled}) // stalled again, the old answer still queued
+	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] old"}) {
 		t.Fatalf("precondition: queued %q, want the old answer", got)
 	}
 	if _, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
 		Note: "new decision"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] new decision"}) {
+	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] new decision"}) {
 		t.Errorf("after the resume: queued %q, want its decision alone", got)
 	}
 	h.a.record(h.proj(), event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact},
-		event.Message{To: "pj-o-01", From: "pj-lead", Line: "[obor answer] newer", Task: "T-1"})
-	if got := h.lines(); !slices.Equal(got, []string{"pj-o-01: [obor answer] newer"}) {
+		event.Message{To: "pj-l-01", From: "pj-lead", Line: "[obor answer] newer", Task: "T-1"})
+	if got := h.lines(); !slices.Equal(got, []string{"pj-l-01: [obor answer] newer"}) {
 		t.Errorf("after a newer answer: queued %q, want it alone", got)
 	}
 }

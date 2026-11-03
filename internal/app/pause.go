@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/config"
+	"strings"
 	"time"
 )
 
@@ -13,6 +15,10 @@ import (
 // paused{why, until} on the project's task key pause; while it holds (no until, or until still ahead) a dispatch is
 // refused with its reason and a waiting task stays waiting (both through dispatchTask). Running gates, accepts and
 // merges finish. `obor pause --clear` records fact unpaused; a pause past its until ends by itself.
+//
+// A model's pause (T-765): `obor pause --model <name> [--for <dur>] "<why>"` records the same fact with its model;
+// while it holds, dispatch skips that model and a level's next one is used (all paused: the task waits). `obor pause
+// --model <name> --clear` ends it.
 
 // foldPause folds r, a record of the project's pause: the pause in force, and the reply of its call.
 func (p *proj) foldPause(r event.Record) {
@@ -24,11 +30,31 @@ func (p *proj) foldPause(r event.Record) {
 	if d.Call != "" {
 		p.folded.calls[verdictStep(wire.MethodPause, d.Call)] = d.Reply
 	}
+	if d.Model != "" {
+		if p.folded.models == nil {
+			p.folded.models = map[string]*event.Pause{}
+		}
+		delete(p.folded.models, d.Model)
+		if r.Step == event.StepPaused {
+			d.Since = r.TS
+			p.folded.models[d.Model] = &d
+		}
+		return
+	}
 	p.folded.pause = nil
 	if r.Step == event.StepPaused {
 		d.Since = r.TS
 		p.folded.pause = &d
 	}
+}
+
+// modelPaused is model's pause in force in p at now (under mu; nil: none).
+func (p *proj) modelPaused(model string, now time.Time) *event.Pause {
+	ps := p.folded.models[model]
+	if ps == nil || ps.Until != 0 && now.Unix() >= ps.Until {
+		return nil
+	}
+	return ps
 }
 
 // paused is the pause in force in p at now (under mu; nil: none).
@@ -54,7 +80,8 @@ func untilText(until int64) string {
 
 // pauseCall answers the socket's pause request (the lead or the owner): a call id is required and a repeated one gets
 // the stored reply. Pause: PAUSED until HH:MM|cleared (a new pause replaces the one in force); clear: PAUSE CLEARED,
-// or NOT PAUSED when none holds (nothing recorded).
+// or NOT PAUSED when none holds (nothing recorded). With c.Model the same for that model's pause: PAUSED <model> …,
+// PAUSE CLEARED <model>, NOT PAUSED <model>; a model the config does not know is refused.
 func (a *App) pauseCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodPause + ": a call id is required")
@@ -69,8 +96,22 @@ func (a *App) pauseCall(c wire.Call) (string, error) {
 	if p != nil {
 		reply, stored = p.folded.calls[key]
 		held = p.paused(a.opt.Now())
+		if c.Model != "" {
+			held = p.modelPaused(c.Model, a.opt.Now())
+		}
 	}
 	a.mu.Unlock()
+	what := ""
+	if c.Model != "" && p != nil && !stored {
+		what = " " + c.Model
+		cfg, err := config.LoadDaemon(p.root)
+		if err != nil {
+			return "", fmt.Errorf("pause: %v", err)
+		}
+		if _, ok := cfg.Model(c.Model); !ok {
+			return "", fmt.Errorf("pause: %s is not a model (models: %s)", c.Model, strings.Join(cfg.ModelNames(), ", "))
+		}
+	}
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodPause, c.Root)
@@ -79,19 +120,20 @@ func (a *App) pauseCall(c wire.Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("pause: the lead or the owner pauses, not %s (role %s)", Dash(c.Agent), c.Role)
 	case c.Clear && held == nil:
-		return "NOT PAUSED", nil
+		return "NOT PAUSED" + what, nil
 	case !c.Clear && c.Note == "":
 		return "", errors.New("pause: a reason is required")
 	case !c.Clear && c.Until != 0 && c.Until <= a.opt.Now().Unix():
 		return "", errors.New("pause: its end is not ahead")
 	}
-	d := event.Pause{Why: c.Note, Until: c.Until, Caller: c.Agent, Call: c.CallID, Reply: "PAUSED until " + untilText(c.Until)}
+	d := event.Pause{Model: c.Model, Why: c.Note, Until: c.Until, Caller: c.Agent, Call: c.CallID,
+		Reply: "PAUSED" + what + " until " + untilText(c.Until)}
 	if d.Caller == "" {
 		d.Caller = "owner"
 	}
 	step := event.StepPaused
 	if c.Clear {
-		step, d.Why, d.Until, d.Reply = event.StepUnpaused, "", 0, "PAUSE CLEARED"
+		step, d.Why, d.Until, d.Reply = event.StepUnpaused, "", 0, "PAUSE CLEARED"+what
 	}
 	if !a.record(p, event.Record{Task: event.PauseTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("pause: the event log of %s refused it", p.name)

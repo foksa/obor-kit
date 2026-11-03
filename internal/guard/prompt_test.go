@@ -11,14 +11,14 @@ import (
 	"obor/internal/testkit"
 )
 
-// promptFx: lane O-01 (task/T-05) whose state file names agent pj-o1 and task T-05 (armed = false: no state file).
+// promptFx: lane L-01 (task/T-05) whose state file names agent pj-l1 and task T-05 (armed = false: no state file).
 func promptFx(t *testing.T, armed bool) (f hfx, o1 string) {
 	t.Helper()
 	f = newHfx(t)
-	o1 = f.Lane("O-01", "task/T-05")
+	o1 = f.Lane("L-01", "task/T-05")
 	f.Config()
 	if armed {
-		f.State("O-01", `{"lane":"O-01","task":"T-05","agent":"pj-o1"}`)
+		f.State("L-01", `{"lane":"L-01","task":"T-05","agent":"pj-l1"}`)
 	}
 	return f, o1
 }
@@ -47,7 +47,7 @@ func (f hfx) prompt(t *testing.T, cwd, prompt, extra string, env ...string) stri
 	return v.HookSpecificOutput.AdditionalContext
 }
 
-const guardLine = "I am worker pj-o1 on T-05. Did you mean to type here?"
+const guardLine = "I am worker pj-l1 on T-05. Did you mean to type here?"
 
 // guarded: each prompt gets the wrong-tab context; quiet: none does.
 func (f hfx) guarded(t *testing.T, cwd, extra string, prompts ...string) {
@@ -82,7 +82,7 @@ func TestPromptWorkerUntaggedGetsTheQuestion(t *testing.T) {
 func TestPromptNoStateFileUsesTheLane(t *testing.T) {
 	t.Parallel()
 	f, o1 := promptFx(t, false)
-	contains(t, f.prompt(t, o1, "hello", ""), "lane name", "I am worker O-01 on (no task).")
+	contains(t, f.prompt(t, o1, "hello", ""), "lane name", "I am worker L-01 on (no task).")
 	contains(t, f.prompt(t, o1, "hello", "", "OBOR_LANE=pj-x"), "OBOR_LANE", "I am worker pj-x on (no task).")
 }
 
@@ -260,7 +260,7 @@ var (
 		"the person is talking with you, ask them first."
 )
 
-// handoffFx: a project with lane O-01 (agent pj-o1, task T-05) and a transcript at ctx tokens.
+// handoffFx: a project with lane L-01 (agent pj-l1, task T-05) and a transcript at ctx tokens.
 func handoffFx(t *testing.T, ctx int64) (f hfx, o1, tr string) {
 	t.Helper()
 	f, o1 = promptFx(t, true)
@@ -300,11 +300,11 @@ func TestPromptLeadHandoffLimits(t *testing.T) {
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("400k under the default 500k: %q", c)
 	}
-	f.Config(testkit.Set("roles.lead", `{"handoff_tokens": 300000}`))
+	f.Config(testkit.Set("handoff_tokens", 300000))
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "obor (lead): context is 400k (> 300k). "+leadWhen {
 		t.Errorf("roles.lead.handoff_tokens 300000: %q", c)
 	}
-	f.Config(testkit.Set("roles.lead", `{"handoff_tokens": 0}`))
+	f.Config(testkit.Set("handoff_tokens", 0))
 	transcript(f, tr, 900000)
 	if c := f.prompt(t, f.Root, "hi", ev, "OBOR_ROLE=lead"); c != "" {
 		t.Errorf("handoff_tokens 0 → off, even at 900k: %q", c)
@@ -317,11 +317,11 @@ func TestPromptIntegratorHandoffReminder(t *testing.T) {
 	f, _, tr := handoffFx(t, 140000)
 	f.integrator()
 	ev := session("i1", tr)
-	if c := f.prompt(t, f.Root, "[obor pj-lead] merge O-01", ev, "OBOR_ROLE=integrator"); c != "" {
+	if c := f.prompt(t, f.Root, "[obor pj-lead] merge L-01", ev, "OBOR_ROLE=integrator"); c != "" {
 		t.Errorf("140k under the default 150k: %q", c)
 	}
 	transcript(f, tr, 200000)
-	c := f.prompt(t, f.Root, "[obor pj-lead] merge O-01", ev, "OBOR_ROLE=integrator")
+	c := f.prompt(t, f.Root, "[obor pj-lead] merge L-01", ev, "OBOR_ROLE=integrator")
 	if c != "obor (integrator): context is 200k (> 150k). "+intWhen {
 		t.Errorf("200k > default 150k: %q", c)
 	}
@@ -337,7 +337,7 @@ func TestPromptIntegratorHandoffReminder(t *testing.T) {
 func TestPromptHandoffNotForWorkers(t *testing.T) {
 	t.Parallel()
 	f, o1, tr := handoffFx(t, 900000)
-	f.Config(testkit.Set("roles.lead", `{"handoff_tokens": 1000}`))
+	f.Config(testkit.Set("handoff_tokens", 1000))
 	ev := session("w1", tr)
 	if c := f.prompt(t, o1, "please fix the login bug", ev); !strings.Contains(c, guardLine) || strings.Contains(c, "context is") {
 		t.Errorf("worker, person's prompt: %q, want the guard only", c)

@@ -27,38 +27,38 @@ import (
 // fixture is one project with a store and serve's answer, the view built from both (as obor status builds it) and a
 // server over that one project. The store holds: T-01's dispatch, submission (a report), spec and a green gate; a job's
 // prompt text; an agent's session (with a transcript file), a brief and a line; T-02 waits (a dispatch waiting after
-// T-01). Serve's answer says T-01 works on O-01 with its job fetched, and holds one needs-you.
+// T-01). Serve's answer says T-01 works on L-01 with its job fetched, and holds one needs-you.
 func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	t.Helper()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
-	p.Dispatched("O-01")
-	p.Submit("O-01", "Summary: built it.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none.")
+	p.Dispatched("L-01")
+	p.Submit("L-01", "Summary: built it.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none.")
 	addEvent(t, p.Root, "T-01", event.StepGate, event.KindResult, event.ClassGit, map[string]any{
 		"outcome": "green", "line": "GREEN T-01 (ok 212 tests, 71s)", "spec_rev": 1,
 		"candidate": map[string]any{"sha": "cafe1234", "checks": "212 tests"}})
 	transcript := p.Write("transcript.jsonl", `{"type":"user"}`+"\n")
 	now := time.Now()
 	addEvent(t, p.Root, store.SessionTask, store.StepSession, event.KindFact, event.ClassFact, store.Session{
-		Agent: "pj-o1", Kind: "claude", ID: "sid-1", Transcript: transcript, Pane: "w1:p1", Lane: "O-01", Task: "T-01",
+		Agent: "pj-l1", Kind: "claude", ID: "sid-1", Transcript: transcript, Pane: "w1:p1", Lane: "L-01", Task: "T-01",
 		Started: now.Add(-time.Hour).Unix(), Source: "hook"})
 	addEvent(t, p.Root, event.MsgTask, event.StepMessage, event.KindFact, event.ClassFact, event.Message{
-		To: "pj-o1", From: "pj-lead", Line: "[obor pj-lead] work on T-01"})
-	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-o1", Kind: store.PromptJob, Job: "T-01/1/work", Task: "T-01",
+		To: "pj-l1", From: "pj-lead", Line: "[obor pj-lead] work on T-01"})
+	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-l1", Kind: store.PromptJob, Job: "T-01/1/work", Task: "T-01",
 		TS: now.UTC().Format(time.RFC3339), Text: "the whole job prompt"})
-	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-o1", Kind: store.PromptBrief, TS: now.UTC().Format(time.RFC3339),
+	writePrompt(t, p.Root, store.PromptRow{Agent: "pj-l1", Kind: store.PromptBrief, TS: now.UTC().Format(time.RFC3339),
 		Text: "the brief's line"})
 	ss := wire.Status{Since: now.Add(-2 * time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
-			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
+			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01",
 				Status: "working", Session: "sid-1"}},
-			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Job: "T-01/1/work",
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Job: "T-01/1/work",
 				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", After: []string{"T-01"},
 				Why: "dispatch T-02: no free lane"}},
-			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"})},
+			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"})},
 			Answers: map[int64]string{1: `obor answer T-01 "<text>"`}}}
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -198,16 +198,16 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 		t.Errorf("/api/projects: %+v, want pj with %d needs-you and %d queued", e, len(want.NeedsYou),
 			len(want.Queue.Merge)+len(want.Queue.Waiting))
 	}
-	// T-675: the landing's row says whether serve is up and how many lanes are busy (O-01 works on T-01) and free.
+	// T-675: the landing's row says whether serve is up and how many lanes are busy (L-01 works on T-01) and free.
 	if e := entries[0]; !e.Up || e.Busy != 1 || e.Free != 0 || e.Running == nil {
 		t.Errorf("/api/projects: up %v, busy %d, free %d, running %v; want up, 1 busy, 0 free, a running list", e.Up,
 			e.Busy, e.Free, e.Running)
 	}
 }
 
-// TestSetupAPI (T-750): /api/setup answers with the project's setup read model — the three difficulty levels, the
-// types each names with what runs it, the configured lane with its type and state, the roles the config names — and
-// counts the fixture's bare dispatch (a record from before T-721) under the lane's configured type.
+// TestSetupAPI (T-750, T-765): /api/setup answers with the project's setup read model — the three difficulty levels,
+// the model refs each names with what runs it, the lane with its state, the roles the config names, the models — and
+// counts the fixture's bare dispatches (records from before T-721) as unknown (every lane is pooled).
 func TestSetupAPI(t *testing.T) {
 	_, _, s := fixture(t)
 	r := get(t, s.Handler(), "/api/setup?project=pj")
@@ -219,9 +219,9 @@ func TestSetupAPI(t *testing.T) {
 	if len(setup.Difficulty) != 3 || setup.Difficulty[0].Level != "hard" || setup.Difficulty[2].Level != "simple" {
 		t.Fatalf("difficulty %+v, want hard, medium and simple", setup.Difficulty)
 	}
-	if len(setup.Lanes) != 1 || setup.Lanes[0].Lane != "O-01" || setup.Lanes[0].Type != "opus" ||
-		setup.Lanes[0].Agent != "pj-o-01" || setup.Lanes[0].State != "done" {
-		t.Errorf("lanes %+v, want O-01 on opus, done, pj-o-01", setup.Lanes)
+	if len(setup.Lanes) != 1 || setup.Lanes[0].Lane != "L-01" || setup.Lanes[0].Agent != "pj-l-01" ||
+		setup.Lanes[0].State != "done" {
+		t.Errorf("lanes %+v, want L-01, done, pj-l-01", setup.Lanes)
 	}
 	roles := map[string]view.SetupRole{}
 	for _, role := range setup.Roles {
@@ -230,12 +230,19 @@ func TestSetupAPI(t *testing.T) {
 	if _, ok := roles["lead"]; !ok || roles["reviewer"].Agent != "pj-rev" || roles["integrator"].Agent != "pj-int" {
 		t.Errorf("roles %+v, want the lead's, the integrator's and the reviewer's rows", setup.Roles)
 	}
-	if want := []view.DispatchCount{{Level: "", Type: "opus", Recent: 2, All: 2}}; !slices.Equal(setup.Distribution, want) {
-		t.Errorf("distribution %+v, want the fixture's two dispatches under opus", setup.Distribution)
+	if want := []view.DispatchCount{{Level: "", Type: "", Recent: 2, All: 2}}; !slices.Equal(setup.Distribution, want) {
+		t.Errorf("distribution %+v, want the fixture's two dispatches, unknown", setup.Distribution)
 	}
-	// the fixture config's only lane type is opus, which hard's built-in opus:high names: one entry, no cap
-	if want := []view.SetupType{{Ref: "opus:high", Name: "opus", Kind: "claude", Effort: "high"}}; !slices.Equal(setup.Types, want) {
-		t.Errorf("types %+v, want opus:high only", setup.Types)
+	// the built-in levels' refs, in level order, each once
+	var refs []string
+	for _, ty := range setup.Types {
+		refs = append(refs, ty.Ref)
+	}
+	if want := []string{"opus:high", "sonnet", "deepseek", "haiku"}; !slices.Equal(refs, want) {
+		t.Errorf("types %+v, want %q", setup.Types, want)
+	}
+	if len(setup.Models) != 8 || setup.Models[0].Name != "opus" || !setup.Models[0].Builtin {
+		t.Errorf("models %+v, want the eight built-in ones", setup.Models)
 	}
 }
 
@@ -249,8 +256,8 @@ func TestTaskPage(t *testing.T) {
 	}
 	var d view.TaskDetail
 	decode(t, r, &d)
-	if d.State != "working" || d.Attempt != 1 || d.Lane != "O-01" || d.Agent != "pj-o1" {
-		t.Errorf("task %+v: want working, attempt 1, lane O-01, agent pj-o1", d)
+	if d.State != "working" || d.Attempt != 1 || d.Lane != "L-01" || d.Agent != "pj-l1" {
+		t.Errorf("task %+v: want working, attempt 1, lane L-01, agent pj-l1", d)
 	}
 	if d.SpecRev != 1 || d.Title != "a task title" {
 		t.Errorf("spec: rev %d, title %q, want rev 1 and \"a task title\"", d.SpecRev, d.Title)
@@ -287,7 +294,7 @@ func TestJobTextIsThePromptsRow(t *testing.T) {
 	}
 	var p view.Prompt
 	decode(t, r, &p)
-	if p.Text != "the whole job prompt" || p.Agent != "pj-o1" || p.Task != "T-01" || p.Kind != store.PromptJob {
+	if p.Text != "the whole job prompt" || p.Agent != "pj-l1" || p.Task != "T-01" || p.Kind != store.PromptJob {
 		t.Errorf("job %+v, want the prompts row's text, agent, task and kind", p)
 	}
 }
@@ -319,7 +326,7 @@ func TestJobTextNeedsNoView(t *testing.T) {
 // contents), its briefs, the lines it was sent and its jobs with their text.
 func TestAgentPage(t *testing.T) {
 	_, _, s := fixture(t)
-	r := get(t, s.Handler(), "/api/agent?project=pj&agent=pj-o1")
+	r := get(t, s.Handler(), "/api/agent?project=pj&agent=pj-l1")
 	if r.Code != http.StatusOK {
 		t.Fatalf("agent: %d %s", r.Code, r.Body.String())
 	}
@@ -351,8 +358,8 @@ func TestAgentPage(t *testing.T) {
 // status keep precedence.
 func TestAgentPageOfRoles(t *testing.T) {
 	p, _, s := fixture(t)
-	p.Config(testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
-		testkit.Set("roles.advisor", map[string]any{"type": "opus"}))
+	p.Config(testkit.Set("roles.reviewer", "opus"),
+		testkit.Set("roles.advisor", "opus"))
 	// the reviewer was sent a line (its history); the advisor has none.
 	addEvent(t, p.Root, event.MsgTask, event.StepMessage, event.KindFact, event.ClassFact, event.Message{
 		To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] review T-01"})
@@ -368,7 +375,7 @@ func TestAgentPageOfRoles(t *testing.T) {
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01",
+			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01",
 				Status: "working"}},
 			Stopped: []string{"pj-rev", "pj-advisor"}}}
 	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})
@@ -402,9 +409,9 @@ func TestAgentPageOfRoles(t *testing.T) {
 		}
 	}
 	var a view.AgentDetail
-	decode(t, get(t, h, "/api/agent?project=pj&agent=pj-o1"), &a)
-	if a.Status != "working" || a.Lane != "O-01" || a.Task != "T-01" {
-		t.Errorf("active agent: %+v, want working on O-01/T-01", a)
+	decode(t, get(t, h, "/api/agent?project=pj&agent=pj-l1"), &a)
+	if a.Status != "working" || a.Lane != "L-01" || a.Task != "T-01" {
+		t.Errorf("active agent: %+v, want working on L-01/T-01", a)
 	}
 }
 
@@ -440,7 +447,7 @@ func TestEventsSince(t *testing.T) {
 			t.Errorf("event %+v: not newer than since 1", e)
 		}
 	}
-	if last := page.Events[len(page.Events)-1]; !strings.Contains(last.Line, "line to pj-o1") {
+	if last := page.Events[len(page.Events)-1]; !strings.Contains(last.Line, "line to pj-l1") {
 		t.Errorf("last event %+v, want the newest line (oldest first)", last)
 	}
 }
@@ -555,7 +562,7 @@ func TestListenLocalhostOnly(t *testing.T) {
 func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.zz_future", map[string]any{}))
+	p.Config(testkit.Set("roles.zz_future", ""))
 	if _, err := config.Load(p.Root); err == nil {
 		t.Fatal("precondition: config.Load refuses the unknown key")
 	}
@@ -586,9 +593,9 @@ func TestViewOfANewerConfigWarns(t *testing.T) {
 func TestOverviewShowsWorkingRoles(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.deep_dive", map[string]any{"type": "opus"}),
-		testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
-		testkit.Set("roles.advisor", map[string]any{"type": "opus"}))
+	p.Config(testkit.Set("roles.deep_dive", "opus"),
+		testkit.Set("roles.reviewer", "opus"),
+		testkit.Set("roles.advisor", "opus"))
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -634,7 +641,7 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	cfg, err := config.Load(p.Root)
@@ -643,10 +650,10 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	}
 	lead := cfg.AgentName("lead", "")
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Agents: []wire.AgentStatus{
-		{Pane: "w1:p1", Name: "pj-o1", Lane: "O-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
+		{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
 	conv := view.Background{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}
 	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Events: 20,
-		Background: map[string][]view.Background{"pj-o1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
+		Background: map[string][]view.Background{"pj-l1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
 			{PID: 8, Command: "go test ./...", Age: 300}}}})
 	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
 		Build: func(context.Context, string) (view.Project, error) { return v, nil }}
@@ -655,12 +662,12 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	if len(entries) != 1 || entries[0].Background != 2 {
 		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
 	}
-	// T-760: the fleet page's lanes: O-01 busy with T-01 and its agent
-	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "O-01" || l[0].Task != "T-01" || l[0].Agent != "pj-o1" {
-		t.Errorf("/api/projects lanes %+v, want O-01 on T-01 with pj-o1", l)
+	// T-760: the fleet page's lanes: L-01 busy with T-01 and its agent
+	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "L-01" || l[0].Task != "T-01" || l[0].Agent != "pj-l1" {
+		t.Errorf("/api/projects lanes %+v, want L-01 on T-01 with pj-l1", l)
 	}
 	var a view.AgentDetail
-	decode(t, get(t, s.Handler(), "/api/agent?project=pj&agent=pj-o1"), &a)
+	decode(t, get(t, s.Handler(), "/api/agent?project=pj&agent=pj-l1"), &a)
 	if len(a.Background) != 1 || a.Background[0] != conv {
 		t.Errorf("agent background %+v, want %+v", a.Background, conv)
 	}

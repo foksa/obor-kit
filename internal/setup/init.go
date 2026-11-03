@@ -147,7 +147,8 @@ func (s *Setup) writeConfig(name, prefix string) error {
 }
 
 // configJSON is the .obor/config.json init writes: the kit's example with name, prefix, the lanes dir beside the root
-// and no lanes, commands, lane links or protected files.
+// and no lanes, commands, lane links or protected files; the example's difficulty and kinds go (initDifficulty writes
+// the levels from the kinds init detected, RV-88 #1).
 func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 	example, err := os.ReadFile(filepath.Join(s.Kit, "templates", "config.example.json"))
 	if err != nil {
@@ -159,11 +160,16 @@ func (s *Setup) configJSON(name, prefix string) ([]byte, error) {
 		val json.RawMessage
 	}{
 		{"name", str(name)}, {"prefix", str(prefix)}, {"lanes_dir", str("../" + filepath.Base(s.root) + "-wt")},
-		{"lanes", json.RawMessage(`{}`)},
+		{"lanes", json.RawMessage(`0`)},
 		{"commands", json.RawMessage(`{"lane_setup":null,"check":null,"baseline":null,"gate":null}`)},
 		{"lane_links", json.RawMessage(`[]`)}, {"protected_files", json.RawMessage(`[]`)},
 	} {
 		if example, err = config.EditJSON(example, []string{kv.key}, kv.val); err != nil {
+			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
+		}
+	}
+	for _, key := range []string{"difficulty", "kinds"} {
+		if example, err = config.EditJSON(example, []string{key}, nil); err != nil {
 			return nil, project.Failf("cannot read templates/config.example.json: %v", err)
 		}
 	}

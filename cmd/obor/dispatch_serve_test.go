@@ -86,13 +86,13 @@ func (f *fakeServe) requests() (calls []wire.Call, n int) {
 	return append([]wire.Call(nil), f.calls...), f.n
 }
 
-// servedProject is a project whose merge loop is obor serve's (an integrator role), with lane O-01; edits change the
+// servedProject is a project whose merge loop is obor serve's (an integrator role), with lane L-01; edits change the
 // config further.
 func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project {
 	t.Helper()
 	p := testkit.New(t)
-	p.Lane("O-01", "task/T-01")
-	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", map[string]any{})}, edits...)...)
+	p.Lane("L-01", "task/T-01")
+	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, edits...)...)
 	return p
 }
 
@@ -102,7 +102,7 @@ func servedProject(t *testing.T, edits ...func(map[string]any)) *testkit.Project
 func TestDispatchServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
 	for _, c := range []struct {
@@ -112,17 +112,17 @@ func TestDispatchServeRequest(t *testing.T) {
 	}{
 		{"level", []string{"dispatch", "T-07"}, wire.Call{Task: "T-07"}},
 		{"level, force", []string{"dispatch", "T-07", "--force"}, wire.Call{Task: "T-07", Force: true}},
-		{"types", []string{"dispatch", "T-07", "--types", "sonnet,opus"}, wire.Call{Task: "T-07", Types: []string{"sonnet", "opus"}}},
-		{"types, force first", []string{"dispatch", "--force", "--types", "opus", "T-07"},
+		{"models", []string{"dispatch", "T-07", "--model", "sonnet,opus"}, wire.Call{Task: "T-07", Types: []string{"sonnet", "opus"}}},
+		{"models, force first", []string{"dispatch", "--force", "--model", "opus", "T-07"},
 			wire.Call{Task: "T-07", Types: []string{"opus"}, Force: true}},
 		{"level, after", []string{"dispatch", "T-07", "--after", "T-05,T-06"},
 			wire.Call{Task: "T-07", After: []string{"T-05", "T-06"}}},
-		{"types, after first", []string{"dispatch", "--after", "T-05", "T-07", "--types", "opus"},
+		{"models, after first", []string{"dispatch", "--after", "T-05", "T-07", "--model", "opus"},
 			wire.Call{Task: "T-07", Types: []string{"opus"}, After: []string{"T-05"}}},
 	} {
 		before, _ := serve.requests()
 		rc, stdout, stderr := run(t, p.Root, env, c.args...)
-		if rc != 0 || stdout != "DISPATCHED T-07 → O-01 (queued)\n" {
+		if rc != 0 || stdout != "DISPATCHED T-07 → L-01 (queued)\n" {
 			t.Errorf("%s: exit %d, %q (stderr %q); want the reply", c.name, rc, stdout, stderr)
 		}
 		calls, _ := serve.requests()
@@ -150,11 +150,11 @@ func TestDispatchServeRequest(t *testing.T) {
 		{"no-prompt", []string{"dispatch", "T-07", "--no-prompt"}},
 		{"strict", []string{"dispatch", "T-07", "--strict"}},
 		{"fresh", []string{"dispatch", "T-07", "--fresh"}},
-		{"lane form (gone)", []string{"dispatch", "O-01", "T-07"}},
-		{"lane form with types", []string{"dispatch", "O-01", "T-07", "--types", "opus"}},
-		{"types without a task", []string{"dispatch", "--types", "opus"}},
-		{"empty type", []string{"dispatch", "T-07", "--types", "opus,"}},
-		{"types without a value", []string{"dispatch", "T-07", "--types"}},
+		{"lane form (gone)", []string{"dispatch", "L-01", "T-07"}},
+		{"lane form with models", []string{"dispatch", "L-01", "T-07", "--model", "opus"}},
+		{"models without a task", []string{"dispatch", "--model", "opus"}},
+		{"empty model", []string{"dispatch", "T-07", "--model", "opus,"}},
+		{"models without a value", []string{"dispatch", "T-07", "--model"}},
 		{"two tasks", []string{"dispatch", "T-07", "T-08"}},
 		{"unknown flag", []string{"dispatch", "T-07", "--bogus"}},
 		{"after without a value", []string{"dispatch", "T-07", "--after"}},
@@ -191,8 +191,8 @@ func TestDispatchServeRequest(t *testing.T) {
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
-	if b := p.Git(p.LaneDir("O-01"), "branch", "--show-current"); b != "task/T-01" {
-		t.Errorf("serve down: lane O-01 touched (on %q)", b)
+	if b := p.Git(p.LaneDir("L-01"), "branch", "--show-current"); b != "task/T-01" {
+		t.Errorf("serve down: lane L-01 touched (on %q)", b)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestDispatchServeRequest(t *testing.T) {
 func TestDispatchObsoleteSwitch(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t, testkit.Set("dispatch.serve", false))
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → O-01 (queued)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DISPATCHED T-07 → L-01 (queued)", "")
 	env := []string{"OBOR_STATE_HOME=" + home}
 	if rc, _, stderr := run(t, p.Root, env, "config", "validate"); rc != 1 || !strings.Contains(stderr, `unknown field "dispatch"`) {
 		t.Errorf("validate: exit %d, stderr %q; want an unknown field FAIL", rc, stderr)
@@ -221,19 +221,19 @@ func TestDispatchObsoleteSwitch(t *testing.T) {
 func TestDropServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DROPPED T-01 from O-01 (abandoned)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DROPPED T-01 from L-01 (abandoned)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	rc, stdout, _ := run(t, p.Root, env, "drop", "O-01", "abandoned", "--discard", "--force")
-	if rc != 0 || stdout != "DROPPED T-01 from O-01 (abandoned)\n" {
+	rc, stdout, _ := run(t, p.Root, env, "drop", "L-01", "abandoned", "--discard", "--force")
+	if rc != 0 || stdout != "DROPPED T-01 from L-01 (abandoned)\n" {
 		t.Errorf("drop: exit %d, %q; want serve's reply", rc, stdout)
 	}
 	calls, n := serve.requests()
 	if n != 1 || len(calls) != 1 {
 		t.Fatalf("serve's requests: %d (%+v); want the one drop", n, calls)
 	}
-	if c := calls[0]; c.Lane != "O-01" || c.Note != "abandoned" || !c.Discard || !c.Force || c.Task != "" ||
+	if c := calls[0]; c.Lane != "L-01" || c.Note != "abandoned" || !c.Discard || !c.Force || c.Task != "" ||
 		c.Role != "lead" || c.Agent != "pj-lead" || c.Root != p.Root || c.CallID == "" {
-		t.Errorf("the drop call %+v; want lane O-01, the why, discard, force, by the lead, no task", c)
+		t.Errorf("the drop call %+v; want lane L-01, the why, discard, force, by the lead, no task", c)
 	}
 	rc, stdout, _ = run(t, p.Root, env, "drop", "T-07", "not needed")
 	if calls, _ := serve.requests(); rc != 0 || len(calls) != 2 || calls[1].Task != "T-07" || calls[1].Lane != "" ||
@@ -245,13 +245,13 @@ func TestDropServeRequest(t *testing.T) {
 		t.Errorf("drop of a task with --discard: exit %d, %q; want refused (no lane to discard)", rc, stdout)
 	}
 	_, n = serve.requests()
-	for _, args := range [][]string{{"drop"}, {"drop", "O-01"}, {"drop", "O-01", "why", "extra"}, {"drop", "O-01", "why", "--bad"}} {
+	for _, args := range [][]string{{"drop"}, {"drop", "L-01"}, {"drop", "L-01", "why", "extra"}, {"drop", "L-01", "why", "--bad"}} {
 		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor drop") {
 			t.Errorf("%q: exit %d, %q; want a usage error", args, rc, stdout)
 		}
 	}
-	if rc, stdout, _ := run(t, p.Root, env, "drop", "O-09", "why"); rc != 1 ||
-		stdout != "FAIL unknown lane O-09 (not in the config's lanes)\n" {
+	if rc, stdout, _ := run(t, p.Root, env, "drop", "L-09", "why"); rc != 1 ||
+		stdout != "FAIL unknown lane L-09 (not in the config's lanes)\n" {
 		t.Errorf("unknown lane: exit %d, %q", rc, stdout)
 	}
 	if _, after := serve.requests(); after != n {
@@ -259,20 +259,20 @@ func TestDropServeRequest(t *testing.T) {
 	}
 
 	// Serve's refusal is the caller's FAIL.
-	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "drop: lane O-01 is dirty (--discard to drop its uncommitted changes)")
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "drop", "O-01", "why"); rc != 1 ||
-		stdout != "FAIL drop: lane O-01 is dirty (--discard to drop its uncommitted changes)\n" {
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "drop: lane L-01 is dirty (--discard to drop its uncommitted changes)")
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "drop", "L-01", "why"); rc != 1 ||
+		stdout != "FAIL drop: lane L-01 is dirty (--discard to drop its uncommitted changes)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
 	}
 
 	// Serve down: FAIL, the lane as it was.
 	refusing.stop()
-	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), callDown}, "drop", "O-01", "why"); rc != 1 ||
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + t.TempDir(), callDown}, "drop", "L-01", "why"); rc != 1 ||
 		!strings.HasPrefix(stdout, "FAIL obor serve is not running") {
 		t.Errorf("serve down: exit %d, %q", rc, stdout)
 	}
-	if b := p.Git(p.LaneDir("O-01"), "branch", "--show-current"); b != "task/T-01" {
-		t.Errorf("serve down: lane O-01 moved to %q", b)
+	if b := p.Git(p.LaneDir("L-01"), "branch", "--show-current"); b != "task/T-01" {
+		t.Errorf("serve down: lane L-01 moved to %q", b)
 	}
 }
 
@@ -282,7 +282,7 @@ func TestDropServeRequest(t *testing.T) {
 func TestSpecs(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Lane("O-01", "task/T-01")
+	p.Lane("L-01", "task/T-01")
 	p.Config()
 	const stored = "# T\n\na spec\n"
 	p.Write("docs/tasks/T-5.md", stored) // committed, not stored
@@ -319,10 +319,10 @@ func TestSpecs(t *testing.T) {
 	if sha, ahead, err := s.Target(ctx, "T-1"); err != nil || sha != head || ahead {
 		t.Errorf("Target, no branch: %q %v %v; want %q, not ahead", sha, ahead, err, head)
 	}
-	if sha, ahead, err := s.Target(ctx, "T-01"); err != nil || sha != head || ahead { // O-01's branch task/T-01 = main
+	if sha, ahead, err := s.Target(ctx, "T-01"); err != nil || sha != head || ahead { // L-01's branch task/T-01 = main
 		t.Errorf("Target, branch at main: %q %v %v; want not ahead", sha, ahead, err)
 	}
-	p.Commit(p.LaneDir("O-01"))
+	p.Commit(p.LaneDir("L-01"))
 	if _, ahead, err := s.Target(ctx, "T-01"); err != nil || !ahead {
 		t.Errorf("Target, branch with a commit: ahead %v, %v; want ahead", ahead, err)
 	}
@@ -381,13 +381,13 @@ func TestMergeLoopCheckoutPause(t *testing.T) {
 func TestLaneSendbackServeRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	p.Commit(p.LaneDir("O-01"))
+	p.Commit(p.LaneDir("L-01"))
 	status := func(root, state string) wire.Status {
 		return wire.Status{Connected: true, Project: &wire.ProjectStatus{Root: root, Merging: true,
-			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: state}}}}
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: state}}}}
 	}
 	lane := func() string {
-		return p.Git(p.LaneDir("O-01"), "rev-parse", "HEAD") + " " + p.Git(p.LaneDir("O-01"), "status", "--porcelain")
+		return p.Git(p.LaneDir("L-01"), "rev-parse", "HEAD") + " " + p.Git(p.LaneDir("L-01"), "status", "--porcelain")
 	}
 	before := lane()
 	for _, c := range []struct {
@@ -402,9 +402,9 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 		{name: "awaiting", st: status(p.Root, "awaiting-accept"), want: "SENDBACK T-01 (job T-01/1/review)\n", asked: true},
 		{name: "refused", st: status(p.Root, "submitted"), errText: "sendback: T-01 is submitted; retry when it settles",
 			want: "FAIL sendback: T-01 is submitted; retry when it settles\n", asked: true},
-		{name: "no open task", st: status(p.Root, "dropped"), want: "FAIL lane O-01 has no task open in obor serve\n"},
+		{name: "no open task", st: status(p.Root, "dropped"), want: "FAIL lane L-01 has no task open in obor serve\n"},
 		{name: "another project's task", st: status(filepath.Join(p.Base, "other"), "green"),
-			want: "FAIL lane O-01 has no task open in obor serve\n"},
+			want: "FAIL lane L-01 has no task open in obor serve\n"},
 		{name: "unknown lane", st: status(p.Root, "green"), args: []string{"sendback", "Z-09", "why"},
 			want: "FAIL unknown lane Z-09 (not in the config's lanes)\n"},
 		{name: "serve down", down: true, want: "FAIL obor serve is not running"},
@@ -416,7 +416,7 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 			}
 			args := c.args
 			if args == nil {
-				args = []string{"sendback", "O-01", "fix the edge case"}
+				args = []string{"sendback", "L-01", "fix the edge case"}
 			}
 			env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 			if c.down {
@@ -451,7 +451,7 @@ func TestLaneSendbackServeRequest(t *testing.T) {
 				}
 			}
 			if after := lane(); after != before || p.Exists(".obor/state/dropped") {
-				t.Errorf("lane O-01 touched: %q → %q", before, after)
+				t.Errorf("lane L-01 touched: %q → %q", before, after)
 			}
 		})
 	}

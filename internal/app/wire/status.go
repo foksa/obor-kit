@@ -121,9 +121,9 @@ type TaskStatus struct {
 	Hold    string   `json:"hold,omitempty"`    // accepted: "merge held: <role> working" while its publish waits (T-718)
 	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for
 	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
-	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its lane types came from
-	Types   []string `json:"types,omitempty"`   // waiting: the lane types it takes (type references, T-695)
-	Effort  string   `json:"effort,omitempty"`  // dispatched: the effort its lane's agent starts with ("": the type's; T-695)
+	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its models came from
+	Types   []string `json:"types,omitempty"`   // waiting: the models it takes (model refs, T-695, T-765)
+	Effort  string   `json:"effort,omitempty"`  // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
 	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`

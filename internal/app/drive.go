@@ -146,10 +146,10 @@ func driveReply(task, lane, agent, ref string) string {
 }
 
 // newDrive records a new drive named c.Note (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
-// dispatch{drive} on the first free untyped lane in config order (not held for another task's dispatch), its type
-// c.Types[0] (a type reference) or the hard level's first type. An open drive of that name is started again
-// (driveAgain: its recorded lane and type, c.Types ignored). Refused (nothing recorded): the type is unknown or its effort not taken, no free untyped lane (the lanes' states named; never a wait),
-// the task branch has commits the target lacks. A drive counts toward no lane_types max.
+// dispatch{drive} on the first free lane in config order (not held for another task's dispatch), its model c.Types[0]
+// (a model ref) or the hard level's first model. An open drive of that name is started again (driveAgain: its
+// recorded lane and model, c.Types ignored). Refused (nothing recorded): the model is unknown or its effort not taken,
+// no free lane (the lanes' states named; never a wait), the task branch has commits the target lacks.
 func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
 	name := strings.Join(strings.Fields(c.Note), " ")
 	cfg, err := config.LoadDaemon(p.root)
@@ -162,18 +162,18 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	ref := ""
 	if len(c.Types) > 0 {
 		ref = c.Types[0]
-	} else if types, _ := cfg.DifficultyTypes("hard"); len(types) > 0 {
-		ref = types[0]
+	} else if refs := knownModels(cfg, cfg.DifficultyList("hard")); len(refs) > 0 {
+		ref = refs[0]
 	}
 	if ref == "" {
-		return "", fmt.Errorf("drive %s: no lane type for level hard (obor config get difficulty): pass --type <type>", name)
+		return "", fmt.Errorf("drive %s: no model for level hard (obor config get difficulty): pass --model <model>", name)
 	}
-	if err := cfg.CheckTypeRef(ref); err != nil {
+	if err := cfg.CheckModelRef(ref); err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
-	typ, effort := config.ParseTypeRef(ref)
+	typ, effort := config.ParseModelRef(ref)
 	if kind := unbridged(cfg, typ); kind != "" {
-		return "", fmt.Errorf("drive %s: type %s's kind %s has no bridge (obor config validate)", name, typ, kind)
+		return "", fmt.Errorf("drive %s: model %s's kind %s has no bridge (obor config validate)", name, typ, kind)
 	}
 	ls, err := a.lanes.Lanes(p.root)
 	if err != nil {
@@ -182,13 +182,13 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	_, held := a.held(p, "")
 	var l port.Lane
 	for _, x := range ls {
-		if x.Type == "" && x.State == "free" && held[x.Name] == "" {
+		if x.State == "free" && held[x.Name] == "" {
 			l = x
 			break
 		}
 	}
 	if l.Name == "" {
-		return "", fmt.Errorf("drive %s: no free untyped lane (%s)", name, laneStates(ls, held))
+		return "", fmt.Errorf("drive %s: no free lane (%s)", name, laneStates(ls, held))
 	}
 	task, err := a.nextTaskID(p, cfg)
 	if err != nil {
@@ -270,7 +270,7 @@ func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker stri
 		return "", "", fmt.Errorf("drive %s: %s's worker is %s now, not %s as stopped: retry", c.Task, c.Task, worker, stopped)
 	}
 	agent := roles.DriveAgent(worker)
-	ref := store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane))
+	ref := mt.disp.Type
 	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: agent, Branch: mt.disp.Branch, Target: mt.disp.Target,
 		Effort: mt.disp.Effort, Type: ref, Drive: true, Caller: callerOf(c), Call: c.CallID,
 		Reply: driveReply(c.Task, mt.lane, agent, ref) + " taking over from " + worker}
@@ -299,7 +299,7 @@ func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, erro
 	if w.State == Identified {
 		return fmt.Sprintf("DRIVING %s → %s: %s runs already (pane %s)", task, mt.lane, mt.agent, w.Pane.ID), nil
 	}
-	ref := store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane))
+	ref := mt.disp.Type
 	return driveReply(task, mt.lane, mt.agent, ref) + " again: its agent is not running", nil
 }
 
@@ -450,16 +450,12 @@ func (a *App) nextTaskID(p *proj, cfg *config.Config) (string, error) {
 	return id, nil
 }
 
-// laneStates is a drive refusal's list of the lanes and their states: "O-01 (sonnet) working T-3, O-02 free, …"; a
-// lane held for another task's dispatch says so.
+// laneStates is a drive refusal's list of the lanes and their states: "L-01 working T-3, L-02 free, …"; a lane held
+// for another task's dispatch says so.
 func laneStates(ls []port.Lane, held map[string]string) string {
 	var out []string
 	for _, l := range ls {
-		s := l.Name
-		if l.Type != "" {
-			s += " (" + l.Type + ")"
-		}
-		s += " " + Dash(l.State)
+		s := l.Name + " " + Dash(l.State)
 		if l.Task != "" {
 			s += " " + l.Task
 		} else if t := held[l.Name]; t != "" {

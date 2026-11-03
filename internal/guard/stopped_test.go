@@ -14,20 +14,20 @@ import (
 func TestHooksStandDownInAStoppedProject(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-05")
+	o1 := f.Lane("L-01", "task/T-05")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
-	f.State("O-01", `{"lane":"O-01","task":"T-05","branch":"task/T-05","base":"main","agent":"pj-o1"}`)
+	f.Dispatched("L-01")
+	f.State("L-01", `{"lane":"L-01","task":"T-05","branch":"task/T-05","base":"main","agent":"pj-l1"}`)
 
-	commit := tc{"worker pj-o1", o1, "Bash", "git commit -m x", ""}.input(nil)
+	commit := tc{"worker pj-l1", o1, "Bash", "git commit -m x", ""}.input(nil)
 	turn, _ := json.Marshal(map[string]any{"cwd": o1})
 	failure, _ := json.Marshal(map[string]any{"cwd": o1, "error": "rate_limit"})
 	acts := func() (deny bool, stop, prompt, session string, turned, failed bool) {
-		code, _ := Run(commit, f.Env("OBOR_ROLE=worker", "OBOR_AGENT=pj-o1"))
+		code, _ := Run(commit, f.Env("OBOR_ROLE=worker", "OBOR_AGENT=pj-l1"))
 		r := f.stop(t, "-", o1, "")
-		_, turned = Turn(turn, f.Env("OBOR_AGENT=pj-o1"))
-		_, failed, _ = StopFailure(failure, f.Env("OBOR_AGENT=pj-o1"), time.Now())
+		_, turned = Turn(turn, f.Env("OBOR_AGENT=pj-l1"))
+		_, failed, _ = StopFailure(failure, f.Env("OBOR_AGENT=pj-l1"), time.Now())
 		return code == 2, r.out, f.prompt(t, o1, "hello", ""), f.session(t, o1, "s1"),
 			turned, failed
 	}

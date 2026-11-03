@@ -56,7 +56,7 @@ func TestFlakeLog(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", twoFails), testkit.Set("merge.fail_grep", failGrep))
 		base := x.head(x.Root)
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		got := x.flakes()
 		if len(got) != 2 {
 			t.Fatalf("flake lines %d, want 2: %+v", len(got), got)
@@ -78,7 +78,7 @@ func TestFlakeLog(t *testing.T) {
 	t.Run("green run: no log", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", "echo 2 pass"))
-		x.is(x.gate("O-01", "T-05", "green"), OK, `^GREEN T-05 `)
+		x.is(x.gate("L-01", "T-05", "green"), OK, `^GREEN T-05 `)
 		x.gone(".obor/state/flakes.jsonl", "no flake log")
 	})
 
@@ -90,7 +90,7 @@ func TestFlakeLog(t *testing.T) {
 			cmd("check", `if [ -f "$TMP_DIR/flaked" ]; then echo 3 pass; else touch "$TMP_DIR/flaked"; `+
 				`echo "--- FAIL: TestSlow timed out"; exit 1; fi`))
 		x.load = []float64{30, 1}
-		x.is(x.gate("O-01", "T-05", "flaky"), OK, `^GREEN T-05 `)
+		x.is(x.gate("L-01", "T-05", "flaky"), OK, `^GREEN T-05 `)
 		got := x.flakes()
 		if len(got) != 1 {
 			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
@@ -111,7 +111,7 @@ func TestFlakeLog(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(x.Root, ".obor/state/flakes.jsonl"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.contains(x.out.String(), "warning: flake log:", "warning line")
 		if info, err := os.Stat(filepath.Join(x.Root, ".obor/state/flakes.jsonl")); err != nil || !info.IsDir() {
 			t.Errorf("flakes.jsonl: %v, %v; want the directory that made the write fail", info, err)
@@ -150,7 +150,7 @@ func TestFlakeLogRetryRed(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, merge, cmd("check", fmt.Sprintf(second, "TestSecond")))
 		x.load = []float64{30, 1}
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.contains(x.out.String(), "re-running", "precondition: the retry ran")
 		x.eqList(x.logged(), []string{"TestFirst/check/true/false", "TestSecond/check/true/false"}, "log")
 	})
@@ -159,7 +159,7 @@ func TestFlakeLogRetryRed(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, merge, cmd("check", fmt.Sprintf(second, "TestFirst")))
 		x.load = []float64{30, 1}
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.contains(x.out.String(), "re-running", "precondition: the retry ran")
 		x.eqList(x.logged(), []string{"TestFirst/check/true/false"}, "log")
 	})
@@ -170,7 +170,7 @@ func TestFlakeLogRetryRed(t *testing.T) {
 		x.load = []float64{30}
 		done := make(chan Result)
 		cut, cancel := context.WithCancel(context.Background())
-		go func() { done <- x.gateCtx(cut, "O-01", "T-05", "cut") }()
+		go func() { done <- x.gateCtx(cut, "L-01", "T-05", "cut") }()
 		x.waitOut("waiting for it to drop")
 		cancel() // obor serve stops
 		if r := <-done; r.Code != Fail || !strings.Contains(r.Line, "interrupted") {
@@ -251,14 +251,14 @@ func TestFailingNames(t *testing.T) {
 			`echo "FAIL example.com/build [build failed]"; exit 1`
 		x := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`, "timeout_grep": "timed out|^FAIL",
 			"max_load": 10, "load_wait": 5}), cmd("check", mixed))
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
 
 		y := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`, "timeout_grep": "timed out|^FAIL",
 			"max_load": 10, "load_wait": 5}),
 			cmd("check", `if [ -f "$TMP_DIR/flaked" ]; then echo 3 pass; else touch "$TMP_DIR/flaked"; `+mixed+`; fi`))
 		y.load = []float64{30, 1}
-		y.is(y.gate("O-01", "T-05", "saved"), OK, `^GREEN T-05 `)
+		y.is(y.gate("L-01", "T-05", "saved"), OK, `^GREEN T-05 `)
 		y.eqList(y.logged(), []string{"TestUnit/check/true/true", "example.com/build/check/true/true"}, "saved")
 	})
 }
@@ -460,7 +460,7 @@ func TestRunPrunesOldLogs(t *testing.T) {
 			t.Fatalf("precondition: %v", err)
 		}
 	}
-	x.is(x.gate("O-01", "T-05", "logs"), OK, `^GREEN T-05 `)
+	x.is(x.gate("L-01", "T-05", "logs"), OK, `^GREEN T-05 `)
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Errorf("the 15-day-old log stays: %v", err)
 	}

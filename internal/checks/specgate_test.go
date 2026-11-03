@@ -74,7 +74,7 @@ func TestGateResolvedSpecInMessage(t *testing.T) {
 	if body := y.Git(y.Root, "log", "-1", "--format=%b", res); body != "" {
 		t.Fatalf("precondition: the resolution's message has a body %q", body)
 	}
-	in := port.GateInput{Task: "T-05", Lane: "O-01", Kind: port.InputResolved, Input: res, Spec: spec, SpecRev: 2}
+	in := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res, Spec: spec, SpecRev: 2}
 	c := y.green(in)
 	if c.SHA == res {
 		t.Fatalf("candidate %s is the resolution: its message was not amended", c.SHA)

@@ -17,7 +17,7 @@ import (
 
 // greenTask gates task green in r's project pj with candidate c.
 func greenTask(r *concRig, task string, c port.Candidate) {
-	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", task, event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	r.add("pj", task, event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: c})
 }
 
@@ -207,7 +207,7 @@ func TestJobNextNamedNotHeld(t *testing.T) {
 	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
 	r.add("pj", "T-1", event.StepReview, event.KindResult, "sent")
-	r.add("pj", "T-5", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-05", Input: "s5"})
+	r.add("pj", "T-5", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-05", Input: "s5"})
 	r.add("pj", "T-5", event.StepGate, event.KindResult, gateOut{Outcome: outConflict, Candidate: port.Candidate{Task: "T-5", SHA: "c5",
 		Target: "b", Patch: "p5"}})
 	r.add("pj", "T-5", nth(event.StepResolve, 2), event.KindIntent, promptData{Agent: "pj-int", Job: "T-5/1/resolve.2", Patch: "p5"})

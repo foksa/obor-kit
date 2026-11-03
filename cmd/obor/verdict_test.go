@@ -21,9 +21,9 @@ import (
 func TestResumeAndNoVerdictVerbs(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	// the merge loop on: a project without an integrator role refuses every verdict (T-352)
-	p.Config(testkit.Set("roles.integrator", map[string]any{}))
+	p.Config(testkit.Set("roles.integrator", ""))
 	p.Commit(lane)
 	home, err := os.MkdirTemp("", "hs") // short: the serve socket lives here
 	if err != nil {
@@ -87,7 +87,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 			t.Errorf("obor has %s: exit %d, want 1", verb, rc)
 		}
 	}
-	worker := append(append([]string(nil), env...), "OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01")
+	worker := append(append([]string(nil), env...), "OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01")
 	// serve answers status before its project is loaded (its first subscribe or tick replays the log): wait for it.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		if _, stdout, _ := run(t, p.Root, worker, "resume", "T-01"); !strings.Contains(stdout, "no served project") {
@@ -97,7 +97,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 			t.Fatalf("obor serve never loaded the project; its output:\n%s", out.String())
 		}
 	}
-	check(worker, "FAIL resume: the lead or the owner resumes a task, not pj-o-01 (role worker)", "resume", "T-01")
+	check(worker, "FAIL resume: the lead or the owner resumes a task, not pj-l-01 (role worker)", "resume", "T-01")
 	lead := append(append([]string(nil), env...), "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead")
 	check(lead, "FAIL resume: T-01 has no needs-you of the merge loop", "resume", "T-01", "reprompt")
 	for _, decision := range []string{"yes", "no", "approved"} { // RV-54 #4: serve's refusal, not the usage

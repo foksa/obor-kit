@@ -256,7 +256,7 @@ func TestSendPostedOnceToTheLead(t *testing.T) {
 		call wire.Call
 		want string
 	}{
-		{wire.Call{Role: "worker", Agent: "pj-o1", Note: "x", From: "other"}, "a lead or the owner"},
+		{wire.Call{Role: "worker", Agent: "pj-l-01", Note: "x", From: "other"}, "a lead or the owner"},
 		{wire.Call{From: "other"}, "a text is required"},
 		{wire.Call{Note: "x"}, "the sender project is required"},
 	} {
@@ -665,7 +665,7 @@ func TestBriefLeavesLeadLinesQueued(t *testing.T) {
 func TestLinesRefusedWithoutAMergeLoop(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "")
-	r.setConfig("roles", map[string]any{"reviewer": map[string]any{}})
+	r.setConfig("roles", map[string]any{"reviewer": ""})
 	r.start()
 	if st := r.app.Status().Project; st.Merging {
 		t.Fatalf("precondition: %s merges", st.Name)

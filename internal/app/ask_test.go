@@ -472,7 +472,7 @@ func TestStopFailureLandsNearItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	s := serveStoring(t, sock, 4*time.Second, false)
-	c := wire.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1", Error: "rate_limit"}
+	c := wire.Call{Root: "/r", Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "s1", Error: "rate_limit"}
 	start := time.Now()
 	if _, err := wire.Verdict(context.Background(), sock, wire.MethodStopped, c); err != nil {
 		t.Fatalf("stop-failure through a 4 s restart: %v; want it recorded", err)
@@ -490,7 +490,7 @@ func TestStopFailureLandsNearItsDeadline(t *testing.T) {
 func TestTurnFailsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
-	c := wire.Call{Root: "/r", Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "t1"}
+	c := wire.Call{Root: "/r", Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "t1"}
 	start := time.Now()
 	_, err := wire.Verdict(context.Background(), sock, wire.MethodTurn, c)
 	d := time.Since(start)

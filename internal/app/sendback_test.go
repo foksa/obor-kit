@@ -40,11 +40,11 @@ func (r *concRig) attempt(name, task string) int {
 func TestLeadSendback(t *testing.T) {
 	t.Parallel()
 	sub := func(r *concRig) {
-		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "O-06", Agent: "pq-o-06"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06", Agent: "pq-l-06"})
 		r.add("pq", "T-6", event.StepSubmit, event.KindResult, submitOut{SHA: "s6"})
 	}
 	gate := func(r *concRig, outcome string) {
-		r.add("pq", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-06", Input: "s6"})
+		r.add("pq", "T-6", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-06", Input: "s6"})
 		r.add("pq", "T-6", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Line: "gate " + outcome,
 			Candidate: port.Candidate{Task: "T-6", SHA: "c-T-6", Target: "b", Patch: "p6"}})
 	}
@@ -70,20 +70,20 @@ func TestLeadSendback(t *testing.T) {
 		{"needs-you after a red", func(r *concRig) {
 			sub(r)
 			gate(r, outRed)
-			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeRed,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeRed,
 				Reason: "gate red after 2 sendbacks"})
 		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"needs-you after a hold", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
-			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: event.CauseHeld,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: event.CauseHeld,
 				Reason: "held: ask the owner", Job: "T-6/1/review"})
 		}, stNeedsYou, "SENDBACK T-6 (job T-6/1/review)", "", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
 			sub(r)
 			gate(r, outFail)
-			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-06", Merge: true, Cause: causeGate,
+			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
 		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
@@ -179,7 +179,7 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 			h.a.mu.Lock()
 			h.a.p.folded.loop["T-1"].sendbacks = c.sendbacks
 			h.a.mu.Unlock()
-			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: c.cause,
+			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: c.cause,
 				Reason: c.cause + ": the integrator's limit"})
 			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
 				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
@@ -260,7 +260,7 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 	}
 	a, p := r.app("pr"), r.proj("pr")
 	a.mu.Lock()
-	p.setLanes([]port.Lane{{Name: "O-04", Task: "T-4", Agent: "pr-o-04", State: "working"}})
+	p.setLanes([]port.Lane{{Name: "L-04", Task: "T-4", Agent: "pr-l-04", State: "working"}})
 	a.mu.Unlock()
 	_, err := r.app("pr").verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pr"], Task: "T-4", Agent: "pr-int",
 		Role: "integrator", CallID: "old-review", Job: "T-4/1/review", Patch: "p"})
@@ -273,9 +273,9 @@ func TestLeadSendbackEndsTheReview(t *testing.T) {
 
 	// The loop hands the task back: the fix job, never a publish.
 	a.mu.Lock()
-	p.folded.loop["T-4"].agent = "pr-o-04"
+	p.folded.loop["T-4"].agent = "pr-l-04"
 	a.mu.Unlock()
-	r.worker("pr", "w3:p4", "pr-o-04")
+	r.worker("pr", "w3:p4", "pr-l-04")
 	r.run()
 	defer r.stop()
 	r.waitFor("T-4's fix job", func() bool { return r.count("pr", "T-4", event.KindIntent, event.StepFix) == 1 })
@@ -311,7 +311,7 @@ func TestLeadSendbackRefusals(t *testing.T) {
 		p := a.p
 		return p.folded.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
 	})
-	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-o-04",
+	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-l-04",
 		Role: "worker", CallID: "w1", Task: "T-4", Note: "why"})
 	if err == nil || !strings.Contains(err.Error(), "the integrator, the lead or the owner sends a task back") {
 		t.Errorf("sendback by a worker: %v", err)

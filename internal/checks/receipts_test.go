@@ -39,7 +39,7 @@ func receiptFx(t *testing.T, edits ...func(map[string]any)) *fx {
 // T-349: the gate reuses a worker's green run on the identical tree, and runs the check in every other case.
 func TestReceiptReuse(t *testing.T) {
 	t.Parallel()
-	reused := `^GREEN T-05 \(reused O-01 [0-9a-f]{7}, full:no-guard\)$`
+	reused := `^GREEN T-05 \(reused L-01 [0-9a-f]{7}, full:no-guard\)$`
 	ranAgain := `^GREEN T-05 \(4 pass, full:no-guard\)$`
 	for _, tc := range []struct {
 		name string
@@ -77,7 +77,7 @@ func TestReceiptReuse(t *testing.T) {
 				t.Fatalf("precondition: the worker's green run ran the check once and left a receipt: %d runs, %d receipts", x.ran(), len(es))
 			}
 			tc.edit(x)
-			x.is(x.gate("O-01", "T-05", "reuse"), OK, tc.want)
+			x.is(x.gate("L-01", "T-05", "reuse"), OK, tc.want)
 			x.eq(strings.Repeat("r", x.ran()), strings.Repeat("r", tc.runs), "check runs")
 			if strings.Contains(tc.want, "reused") {
 				if x.cand.Full {
@@ -93,7 +93,7 @@ func TestReceiptReuse(t *testing.T) {
 		if rc := x.worker("other"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "reuse"), OK, ranAgain)
+		x.is(x.gate("L-01", "T-05", "reuse"), OK, ranAgain)
 		x.eq(strings.Repeat("r", x.ran()), "rr", "check runs")
 	})
 
@@ -105,7 +105,7 @@ func TestReceiptReuse(t *testing.T) {
 		}
 		x.eq(strings.Repeat("r", x.ran()), "r", "precondition: the worker ran it")
 		x.gone(".obor/state/receipts", "no receipt")
-		x.is(x.gate("O-01", "T-05", "red"), Red, `^RED check `)
+		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.eq(strings.Repeat("r", x.ran()), "rr", "the gate ran it")
 	})
 }
@@ -120,7 +120,7 @@ func TestReceiptGuardAlwaysRuns(t *testing.T) {
 	if rc := x.worker("check"); rc != 0 {
 		t.Fatalf("the worker's run: %d", rc)
 	}
-	x.is(x.gate("O-01", "T-05", "partial"), OK, `^GREEN T-05 \(guard 1 pass, check reused O-01 [0-9a-f]{7}, partial:any\)$`)
+	x.is(x.gate("L-01", "T-05", "partial"), OK, `^GREEN T-05 \(guard 1 pass, check reused L-01 [0-9a-f]{7}, partial:any\)$`)
 	x.eq(strings.Repeat("r", x.ran()), "r", "check not run again")
 	x.eq(x.Read(filepath.Join(x.Base, "guard.ran")), "g\n", "the guard ran")
 }
@@ -130,7 +130,7 @@ func TestGateExportsCheckCPUs(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ slots, want string }{{`{"cpus": 3, "max": 2}`, "3"}, {`{"max": 1000}`, "1"}} {
 		x := newFx(t, testkit.Set("slots", tc.slots), cmd("check", `echo "$CHECK_CPUS" > "$TMP_DIR/cpus"`))
-		x.is(x.gate("O-01", "T-05", "cpus"), OK, `^GREEN T-05 `)
+		x.is(x.gate("L-01", "T-05", "cpus"), OK, `^GREEN T-05 `)
 		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "cpus"))), tc.want, "CHECK_CPUS for slots "+tc.slots)
 	}
 }
@@ -164,7 +164,7 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 		if rc := x.worker("check"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "guard"), OK, `^GREEN T-05 \(guard 1 pass, check 4 pass, partial:any\)$`)
+		x.is(x.gate("L-01", "T-05", "guard"), OK, `^GREEN T-05 \(guard 1 pass, check 4 pass, partial:any\)$`)
 		verify(t, x, 2)
 	})
 
@@ -175,7 +175,7 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 		if rc := x.worker("check"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "earlier"), OK, `^GREEN T-05 \(guard 1 pass, other 1 pass, check 4 pass, partial:any\)$`)
+		x.is(x.gate("L-01", "T-05", "earlier"), OK, `^GREEN T-05 \(guard 1 pass, other 1 pass, check 4 pass, partial:any\)$`)
 		verify(t, x, 3) // the worker's, other's, and check's own
 	})
 
@@ -185,7 +185,7 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 		if rc := x.worker("check"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "later"), OK, `^GREEN T-05 \(guard 1 pass, check 4 pass, mutator 1 pass, partial:any\)$`)
+		x.is(x.gate("L-01", "T-05", "later"), OK, `^GREEN T-05 \(guard 1 pass, check 4 pass, mutator 1 pass, partial:any\)$`)
 		verify(t, x, 2)
 	})
 
@@ -196,7 +196,7 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 		if rc := x.worker("check"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "baseline"), OK, `^GREEN T-05 \(4 pass, full:no-guard\)$`)
+		x.is(x.gate("L-01", "T-05", "baseline"), OK, `^GREEN T-05 \(4 pass, full:no-guard\)$`)
 		verify(t, x, 2)
 	})
 
@@ -206,7 +206,7 @@ func TestReceiptTreeChangedByAnEarlierStep(t *testing.T) {
 		if rc := x.worker("check"); rc != 0 {
 			t.Fatalf("the worker's run: %d", rc)
 		}
-		x.is(x.gate("O-01", "T-05", "same"), OK, `^GREEN T-05 \(guard 1 pass, check reused O-01 [0-9a-f]{7}, partial:any\)$`)
+		x.is(x.gate("L-01", "T-05", "same"), OK, `^GREEN T-05 \(guard 1 pass, check reused L-01 [0-9a-f]{7}, partial:any\)$`)
 		x.eq(strings.Repeat("r", x.ran()), "r", "check runs")
 	})
 }

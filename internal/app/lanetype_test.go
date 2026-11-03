@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -16,61 +17,35 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-738: one answer to "what type does this lane run now" (store.LaneTypeRef): an open dispatch's recorded type
-// reference, else, for a dispatch recorded before T-721 (no type), its lane's type in the config as it is read now.
+// T-738, T-765: a redo runs the model ref its dispatch ran unless its --model names another; a model ref naming no
+// model of the project is refused before a lane is picked. The rig: lanes L-01 and L-02, both free.
 
-// seedLegacy writes T-2's open dispatch on O-01 as recorded before T-721 (no type) to the log of the stopped app.
-func (r *loopRig) seedLegacy() {
+func newPoolRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
+	t.Helper()
+	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes", 2)}, edits...)...)
+	r.lanes.mu.Lock()
+	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
+	r.lanes.mu.Unlock()
+	return r
+}
+
+// specOf stores task's spec (obor spec set).
+func (r *loopRig) specOf(task, text string) {
 	r.t.Helper()
-	d, _ := json.Marshal(map[string]any{"lane": "O-01", "agent": "pj-o1"})
-	if err := app.WriteLog(r.p.Root, time.Now(),
-		event.Record{Task: "T-2", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d}); err != nil {
-		r.t.Fatal(err)
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Agent: "lead",
+		Role: "lead", CallID: "s-" + task, Task: task, Spec: text}); err != nil {
+		r.t.Fatalf("spec set %s: %v", task, err)
 	}
 }
 
-// A legacy open dispatch on a lane typed opus counts toward opus's max (it runs the lane's configured type): the
-// hard T-1 waits although the pool lane O-02 is free.
-func TestLegacyDispatchOnATypedLaneCountsTowardItsTypesMax(t *testing.T) {
-	t.Parallel()
-	r := newPoolRig(t, testkit.Set("lanes.O-01", map[string]any{"type": "opus", "agent": "pj-o1"}))
-	r.setLane(func(l *port.Lane) { l.Type = "opus" })
-	r.seedLegacy()
-	r.start()
-	r.waitFor("T-2 folded", func() bool { return r.taskStatus("T-2").Task == "T-2" })
-	if d := r.factData("T-2", event.StepDispatched); d["type"] != nil {
-		t.Fatalf("precondition: T-2's dispatch fact %v records a type", d)
-	}
-	r.specOf("T-1", "# T-1 — Hard\n\nDifficulty: hard\n")
-	const want = "WAITING T-1 (queued): opus at its max 1 (hard: opus:high); idle: O-02 (-)"
-	if reply, err := r.dispatchOf("T-1"); err != nil || reply != want {
-		t.Fatalf("T-1 beside T-2's legacy opus dispatch: %q, %v; want %q", reply, err, want)
-	}
-	if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
-		t.Errorf("T-1 dispatched past opus's max: %q", r.steps())
-	}
-}
-
-// A legacy open dispatch on a lane the config has since blanked (a pool lane now) runs no known type: it counts
-// toward no type's max, so the hard T-1 takes the free O-02 as opus.
-func TestLegacyDispatchOnABlankedLaneCountsTowardNoMax(t *testing.T) {
-	t.Parallel()
-	r := newPoolRig(t)
-	r.seedLegacy()
-	r.start()
-	r.waitFor("T-2 folded", func() bool { return r.taskStatus("T-2").Task == "T-2" })
-	if got := store.LaneTypeRef("", ""); got != "" {
-		t.Fatalf("precondition: a legacy dispatch on an untyped lane resolves to %q, want none", got)
-	}
-	r.specOf("T-1", "# T-1 — Hard\n\nDifficulty: hard\n")
-	if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued) as opus effort high") {
-		t.Fatalf("T-1 beside T-2's legacy dispatch on the blanked O-01: %q, %v; want O-02 as opus effort high", reply, err)
-	}
+// dispatchOf is the lead's dispatch of task by its spec's level.
+func (r *loopRig) dispatchOf(task string) (string, error) {
+	return r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-" + task, Task: task})
 }
 
 // redoRig is the pool rig on serve's own lane table (checks.Lanes over the fixture's worktrees and the lanes table
-// serve writes): T-1's dispatch ran opus:high on the untyped O-01 (prepared, so its lane row holds it with that type)
-// and left a needs-you; O-01 has T-1's work committed (working on T-1).
+// serve writes): T-1's dispatch ran opus:high on L-01 (prepared, so its lane row holds it with that type)
+// and left a needs-you; L-01 has T-1's work committed (working on T-1).
 func redoRig(t *testing.T) *loopRig {
 	t.Helper()
 	r := newPoolRig(t)
@@ -78,10 +53,10 @@ func redoRig(t *testing.T) *loopRig {
 	r.lanes.real = checks.Lanes{}
 	r.lanes.mu.Unlock()
 	r.p.Commit(r.lane)
-	d, _ := json.Marshal(map[string]any{"lane": "O-01", "agent": "pj-o1", "branch": "task/T-1", "type": "opus:high",
+	d, _ := json.Marshal(map[string]any{"lane": "L-01", "agent": "pj-l-01", "branch": "task/T-1", "type": "opus:high",
 		"level": "hard", "types": []string{"opus:high"}})
 	prep, _ := json.Marshal(map[string]any{"base": "b"})
-	stop, _ := json.Marshal(event.FactData{Lane: "O-01", Reason: "stopped: api error", Merge: true, Cause: "stopped"})
+	stop, _ := json.Marshal(event.FactData{Lane: "L-01", Reason: "stopped: api error", Merge: true, Cause: "stopped"})
 	if err := app.WriteLog(r.p.Root, time.Now(),
 		event.Record{Task: "T-1", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
 		event.Record{Task: "T-1", Attempt: 1, Step: event.StepPrepare, Kind: event.KindResult, Data: prep},
@@ -90,20 +65,20 @@ func redoRig(t *testing.T) *loopRig {
 	}
 	r.start()
 	r.waitFor("T-1's needs-you", func() bool { return r.taskStatus("T-1").State == "needs-you" })
-	r.waitFor("O-01's row with T-1 as opus:high", func() bool {
-		row, ok, _ := store.ReadLaneAt(r.p.Root, "O-01")
+	r.waitFor("L-01's row with T-1 as opus:high", func() bool {
+		row, ok, _ := store.ReadLaneAt(r.p.Root, "L-01")
 		return ok && row.Task == "T-1" && row.Type == "opus:high"
 	})
 	ls, err := checks.Lanes{}.Lanes(r.p.Root)
-	if err != nil || len(ls) == 0 || ls[0].Name != "O-01" || ls[0].State != "working" || ls[0].Task != "T-1" {
-		t.Fatalf("precondition: serve's lane table %+v, %v; want O-01 working on T-1", ls, err)
+	if err != nil || len(ls) == 0 || ls[0].Name != "L-01" || ls[0].State != "working" || ls[0].Task != "T-1" {
+		t.Fatalf("precondition: serve's lane table %+v, %v; want L-01 working on T-1", ls, err)
 	}
 	cfg, err := config.LoadDaemon(r.p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if st := checks.NewLaneTable(cfg).States(); st[0].Type != "opus" {
-		t.Fatalf("precondition: obor status's type of O-01 %q, want its dispatch's opus", st[0].Type)
+		t.Fatalf("precondition: obor status's type of L-01 %q, want its dispatch's opus", st[0].Type)
 	}
 	r.specOf("T-1", "# T-1 — Redone\n\nDifficulty: medium\n")
 	return r
@@ -122,36 +97,48 @@ func (r *loopRig) redoTypes() []any {
 	return types
 }
 
-// A redo by task ID through serve's real lane table keeps the full type reference its dispatch ran (opus:high), not
-// the lane row's bare type, nor the spec's level (medium: sonnet).
+// A redo by task ID through serve's real lane table keeps the full model ref its dispatch ran (opus:high), not the lane
+// row's bare model, nor the spec's level (medium: sonnet); a pause of opus does not hold it (its own model, T-742).
 func TestRedoViaTheRealLaneTableKeepsItsTypeAndEffort(t *testing.T) {
 	t.Parallel()
 	r := redoRig(t)
-	if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) as opus effort high") {
-		t.Fatalf("redo of T-1: %q, %v; want O-01 as opus effort high", reply, err)
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
+		Model: "opus", Note: "quota"}); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := r.dispatchOf("T-1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
+		t.Fatalf("redo of T-1: %q, %v; want L-01 as opus effort high", reply, err)
 	}
 	if types := r.redoTypes(); len(types) != 2 || types[1] != "opus:high" {
 		t.Errorf("T-1's dispatch facts' types %v, want the redo's opus:high after the first", types)
 	}
 }
 
-// A redo with --types sonnet runs sonnet on the pool lane.
+// A redo with --model sonnet runs sonnet on its lane; to a paused model it is refused, as a fresh dispatch of that
+// model is (T-742).
 func TestRedoWithExplicitTypesRunsThem(t *testing.T) {
 	t.Parallel()
 	r := redoRig(t)
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodPause, wire.Call{Root: r.p.Root, CallID: "p1",
+		Model: "haiku", Note: "quota"}); err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1h", Task: "T-1",
+		Types: []string{"haiku"}}); err == nil || !strings.Contains(err.Error(), "haiku paused: quota") {
+		t.Fatalf("redo of T-1 --model haiku while haiku is paused: %q, %v; want refused naming the pause", reply, err)
+	}
 	reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1", Task: "T-1",
 		Types: []string{"sonnet"}})
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) as sonnet") {
-		t.Fatalf("redo of T-1 --types sonnet: %q, %v; want O-01 as sonnet", reply, err)
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
+		t.Fatalf("redo of T-1 --model sonnet: %q, %v; want L-01 as sonnet", reply, err)
 	}
 	if types := r.redoTypes(); len(types) != 2 || types[1] != "sonnet" {
 		t.Errorf("T-1's dispatch facts' types %v, want the redo's sonnet after the first", types)
 	}
 }
 
-// --types naming no lane type of the project, bare or with an effort, is refused before a lane is picked: no
-// dispatch fact (a bare one would match the free untyped lanes and stick at launch), nor, with --after, a waiting
-// fact.
+// --model naming no model of the project, bare or with an effort, is refused before a lane is picked: no dispatch
+// fact, nor, with --after, a waiting fact.
 func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -171,60 +158,20 @@ func TestUnknownExplicitTypeIsRefused(t *testing.T) {
 			r.specOf("T-1", "# T-1 — Typed\n\nDifficulty: medium\n")
 			reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1",
 				Task: "T-1", Types: c.types, After: c.after})
-			if err == nil || !strings.Contains(err.Error(), `"lunna" is not a lane type of this project`) {
-				t.Fatalf("dispatch --types %v: %q, %v; want refused naming lunna", c.types, reply, err)
+			if err == nil || !strings.Contains(err.Error(), `"lunna" is not a model (models: `) {
+				t.Fatalf("dispatch --model %v: %q, %v; want refused naming lunna", c.types, reply, err)
 			}
 			for _, step := range []string{"fact dispatch", "fact waiting"} {
 				if n := r.taskStep("T-1", step); n != 0 {
 					t.Errorf("%s recorded for the refused dispatch: %q", step, r.steps())
 				}
 			}
-			// The same project takes a known type: the refusal is the type's.
+			// The same project takes a known model: the refusal is the model's.
 			if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d-T-1b",
 				Task: "T-1", Types: []string{"sonnet"}, After: c.after}); err != nil ||
 				!strings.HasPrefix(reply, "DISPATCHED T-1") && !strings.HasPrefix(reply, "WAITING T-1") {
-				t.Errorf("dispatch --types sonnet: %q, %v; want it taken", reply, err)
+				t.Errorf("dispatch --model sonnet: %q, %v; want it taken", reply, err)
 			}
 		})
-	}
-}
-
-// The owner's rule (2026-11-02): lane_types.<type>.max caps worker tasks only. With three role agents configured
-// with opus and opus's max 4, four opus dispatches are admitted on five free pool lanes and the fifth waits at the max.
-func TestTypeMaxCapsWorkerTasksOnly(t *testing.T) {
-	t.Parallel()
-	r := newPoolRig(t,
-		testkit.Set("lane_types.opus", map[string]any{"kind": "claude", "args": []any{}, "max": 4}),
-		testkit.Set("roles.reviewer", map[string]any{"type": "opus"}),
-		testkit.Set("roles.integrator", map[string]any{"type": "opus"}),
-		testkit.Set("roles.lead", map[string]any{"type": "opus"}),
-		testkit.Set("lanes.O-03", ""), testkit.Set("lanes.O-04", ""), testkit.Set("lanes.O-05", ""))
-	r.lanes.mu.Lock()
-	for _, name := range []string{"O-03", "O-04", "O-05"} {
-		r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: name, Dir: r.p.LaneDir(name), State: "free"})
-	}
-	r.lanes.mu.Unlock()
-	cfg, err := config.LoadDaemon(r.p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lt, _ := cfg.LaneType("opus"); lt.Max != 4 || len(cfg.Lanes()) != 5 {
-		t.Fatalf("precondition: opus's max %d, lanes %v; want 4 and five lanes", lt.Max, cfg.Lanes())
-	}
-	r.start()
-	for i, task := range []string{"T-1", "T-2", "T-3", "T-4"} {
-		r.specOf(task, "# "+task+" — Hard\n\nDifficulty: hard\n")
-		want := "DISPATCHED " + task + " → O-0" + string(rune('1'+i)) + " (queued) as opus effort high"
-		if reply, err := r.dispatchOf(task); err != nil || !strings.HasPrefix(reply, want) {
-			t.Fatalf("dispatch %s, opus dispatch %d of max 4: %q, %v; want the prefix %q", task, i+1, reply, err, want)
-		}
-	}
-	r.specOf("T-5", "# T-5 — Hard\n\nDifficulty: hard\n")
-	const want = "WAITING T-5 (queued): opus at its max 4 (hard: opus:high); idle: O-05 (-)"
-	if reply, err := r.dispatchOf("T-5"); err != nil || reply != want {
-		t.Fatalf("the fifth opus dispatch: %q, %v; want %q", reply, err, want)
-	}
-	if n := r.taskStep("T-5", "fact dispatch"); n != 0 {
-		t.Errorf("T-5 dispatched past opus's max: %q", r.steps())
 	}
 }

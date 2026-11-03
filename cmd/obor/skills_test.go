@@ -232,7 +232,7 @@ func TestFrontmatterFieldRejectsMissingBlockAndLateFields(t *testing.T) {
 func TestMentionsCountBackticksAndFencesNotProse(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"r/skills/x/SKILL.md": "Run `obor dispatch O-01 T-1` and `obor ghost`; the obor hooks deny; `/obor:lead`; `herdr agent list`.\n",
+		"r/skills/x/SKILL.md": "Run `obor dispatch L-01 T-1` and `obor ghost`; the obor hooks deny; `/obor:lead`; `herdr agent list`.\n",
 		"r/templates/a.md":    "text\n```\nobor fenced --flag\n```\nobor prose here\n",
 		"r/bin/go-commands":   "version\ndispatch\n",
 	})

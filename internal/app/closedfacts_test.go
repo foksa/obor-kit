@@ -15,8 +15,8 @@ import (
 // An asks of an open task still repeats as today.
 func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 	t.Parallel()
-	asks := event.FactData{Lane: "O-01", Agent: "pj-o1", Reason: "asks: which colour?"}
-	submitted := map[string]any{"lane": "O-01", "agent": "pj-o1"}
+	asks := event.FactData{Lane: "L-01", Agent: "pj-l-01", Reason: "asks: which colour?"}
+	submitted := map[string]any{"lane": "L-01", "agent": "pj-l-01"}
 	for _, c := range []struct {
 		name  string
 		end   []event.Record // after the asks
@@ -29,7 +29,7 @@ func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 		{"dropped", []event.Record{
 			{Task: "T-1", Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact, Data: raw(submitted)},
 			{Task: "T-1", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact,
-				Data: raw(event.FactData{Lane: "O-01", Merge: true, Reason: "why"})},
+				Data: raw(event.FactData{Lane: "L-01", Merge: true, Reason: "why"})},
 		}, false},
 		{"open", nil, true},
 	} {

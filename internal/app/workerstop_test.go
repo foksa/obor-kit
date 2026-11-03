@@ -29,8 +29,8 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		name:  "live labelled worker: stopped by pane",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) {},
-		over:  outcome{ok: true, line: "; STOPPED pj-o1", stops: []string{"pj-o1 w1:p1"}},
-		drop:  outcome{ok: true, line: "STOPPED pj-o1", stops: []string{"pj-o1 w1:p1"}},
+		over:  outcome{ok: true, line: "; STOPPED pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		drop:  outcome{ok: true, line: "STOPPED pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "live unlabelled worker: stopped by pane, not not running",
 		where: "identified w1:p1 session",
@@ -38,15 +38,15 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Label = "" })
 			r.paneCreated("w1:p1", "")
 		},
-		over: outcome{ok: true, line: "; STOPPED pj-o1", stops: []string{"pj-o1 w1:p1"}},
-		drop: outcome{ok: true, line: "STOPPED pj-o1", stops: []string{"pj-o1 w1:p1"}},
+		over: outcome{ok: true, line: "; STOPPED pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		drop: outcome{ok: true, line: "STOPPED pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "worker gone: not running, the take-over records",
 		where: "unavailable",
 		arm: func(r *loopRig) {
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status, p.Transcript = "", "", "", "" })
 		},
-		over: outcome{ok: true, line: "; pj-o1 not running"},
+		over: outcome{ok: true, line: "; pj-l-01 not running"},
 		drop: outcome{ok: true},
 	}, {
 		name:  "ambiguous: refused, nothing stopped",
@@ -54,12 +54,12 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		arm: func(r *loopRig) {
 			var transcript string
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { transcript = p.Transcript })
-			r.f.Agent("w1:p3", "pj-o1", "idle", r.lane)
-			r.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Workspace, p.Label, p.Transcript = "w1", "pj-o1", transcript })
-			r.paneCreated("w1:p3", "pj-o1")
+			r.f.Agent("w1:p3", "pj-l-01", "idle", r.lane)
+			r.f.Set("w1:p3", func(p *herdrtest.Pane) { p.Workspace, p.Label, p.Transcript = "w1", "pj-l-01", transcript })
+			r.paneCreated("w1:p3", "pj-l-01")
 		},
-		over: outcome{line: "pj-o1 not stopped: not identified: panes w1:p1 and w1:p3 run pj-o1"},
-		drop: outcome{ok: true, line: "worker of O-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-o1 " +
+		over: outcome{line: "pj-l-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01"},
+		drop: outcome{ok: true, line: "worker of L-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01 " +
 			"(close or relabel one)"},
 	}, {
 		name:  "herdr disconnected: refused, nothing stopped",
@@ -68,27 +68,27 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			r.srv.Fail("session.snapshot", "unavailable", "herdr is down")
 			r.srv.DropConns()
 		},
-		over: outcome{line: "pj-o1 not stopped: serve is not connected to herdr"},
-		drop: outcome{ok: true, line: "worker of O-01 not stopped: serve is not connected to herdr"},
+		over: outcome{line: "pj-l-01 not stopped: serve is not connected to herdr"},
+		drop: outcome{ok: true, line: "worker of L-01 not stopped: serve is not connected to herdr"},
 	}, {
 		name:  "the stop of an identified pane fails: refused",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) { r.onStop = func() error { return errors.New("herdr: pane busy") } },
-		over:  outcome{line: "pj-o1 not stopped: herdr: pane busy", stops: []string{"pj-o1 w1:p1"}},
-		drop:  outcome{ok: true, line: "worker of O-01 not stopped: herdr: pane busy", stops: []string{"pj-o1 w1:p1"}},
+		over:  outcome{line: "pj-l-01 not stopped: herdr: pane busy", stops: []string{"pj-l-01 w1:p1"}},
+		drop:  outcome{ok: true, line: "worker of L-01 not stopped: herdr: pane busy", stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "the stop says not found while identity still finds the worker: refused",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) { r.onStop = func() error { return notFound{} } },
-		over:  outcome{line: "pj-o1 not stopped: agent_not_found: pj-o1", stops: []string{"pj-o1 w1:p1"}},
-		drop:  outcome{ok: true, line: "worker of O-01 not stopped: agent_not_found: pj-o1", stops: []string{"pj-o1 w1:p1"}},
+		over:  outcome{line: "pj-l-01 not stopped: agent_not_found: pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		drop:  outcome{ok: true, line: "worker of L-01 not stopped: agent_not_found: pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
 	}} {
 		for _, caller := range []string{"take-over", "drop"} {
 			t.Run(caller+"/"+c.name, func(t *testing.T) {
 				t.Parallel()
 				r := newTakeOverRig(t)
-				r.waitFor("pj-o1 identified at w1:p1 (labelled)", func() bool {
-					return strings.HasPrefix(app.WhereOf(r.app, r.p.Root, "pj-o1"), "identified w1:p1")
+				r.waitFor("pj-l-01 identified at w1:p1 (labelled)", func() bool {
+					return strings.HasPrefix(app.WhereOf(r.app, r.p.Root, "pj-l-01"), "identified w1:p1")
 				})
 				r.mu.Lock()
 				c.arm(r)
@@ -101,7 +101,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 				var where string
 				// No push here: a push is a refresh, and one landing after the barrier would cut serve off mid-call.
 				r.waitFor("whereIs: "+c.where, func() bool { // connected (the barrier above), unless herdr is cut off
-					where = app.WhereOf(r.app, r.p.Root, "pj-o1")
+					where = app.WhereOf(r.app, r.p.Root, "pj-l-01")
 					return strings.HasPrefix(where, c.where) &&
 						(r.app.Status().Connected || strings.HasSuffix(c.where, "not connected"))
 				})
@@ -139,7 +139,7 @@ func checkTakeOver(t *testing.T, r *loopRig, want stopOutcome, before int) {
 		t.Errorf("worker stops %q, want %q", stops, want.stops)
 	}
 	if want.ok {
-		if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1") ||
+		if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over from pj-l-01") ||
 			!strings.HasSuffix(reply, want.line) {
 			t.Fatalf("take-over: %q, %v; want it answered, ending %q", reply, err, want.line)
 		}
@@ -161,15 +161,15 @@ func checkTakeOver(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	}
 }
 
-// checkDrop runs obor drop O-01 and checks its reply: the worker's stop line (or none) and T-1 dropped.
+// checkDrop runs obor drop L-01 and checks its reply: the worker's stop line (or none) and T-1 dropped.
 func checkDrop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	t.Helper()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Lane: "O-01", Note: "not needed"})
+		Role: "lead", CallID: "x1", Lane: "L-01", Note: "not needed"})
 	if stops := r.workerStops()[before:]; !slices.Equal(stops, want.stops) {
 		t.Errorf("worker stops %q, want %q", stops, want.stops)
 	}
-	if err != nil || !strings.Contains(reply, "DROPPED T-1 from O-01") {
+	if err != nil || !strings.Contains(reply, "DROPPED T-1 from L-01") {
 		t.Fatalf("drop: %q, %v; want T-1 dropped", reply, err)
 	}
 	lines := strings.Split(reply, "\n")

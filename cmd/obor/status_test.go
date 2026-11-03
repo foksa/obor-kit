@@ -64,8 +64,8 @@ func fact(t *testing.T, seq int64, task string, d event.FactData) event.Record {
 func TestStatusOverServe(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
-	p.Lane("O-02", "")
+	o1 := p.Lane("L-01", "task/T-01")
+	p.Lane("L-02", "")
 	p.Config()
 	p.Commit(o1)
 	now := time.Now()
@@ -74,17 +74,17 @@ func TestStatusOverServe(t *testing.T) {
 	since := now.Add(-2 * time.Hour).UTC()
 	ss := wire.Status{Since: since.Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
-		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-o1", Agent: "claude", Lane: "O-01", Task: "T-01", Status: "idle"},
+		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01", Status: "idle"},
 			{Pane: "w1:p9", Name: "pj-int", Agent: "claude", Status: "working", Age: 300}},
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working"},
-			{Task: "T-05", Lane: "O-09", Attempt: 2, State: "needs-you"}, {Task: "T-04", Lane: "O-09", State: "dropped"},
-			{Task: "T-09", Attempt: 1, State: "waiting", After: []string{"T-03"}, Why: "dispatch T-09: lane O-01 is working on T-01"}},
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working"},
+			{Task: "T-05", Lane: "L-09", Attempt: 2, State: "needs-you"}, {Task: "T-04", Lane: "L-09", State: "dropped"},
+			{Task: "T-09", Attempt: 1, State: "waiting", After: []string{"T-03"}, Why: "dispatch T-09: lane L-01 is working on T-01"}},
 		Facts: []event.Record{
-			fact(t, 1, "T-01", event.FactData{Lane: "O-01", Reason: "asks: may I edit x.go?"}),
-			fact(t, 2, "T-05", event.FactData{Lane: "O-09", Reason: "gate red after 2 sendbacks", Merge: true, Cause: "red"}),
-			fact(t, 3, "T-06", event.FactData{Lane: "O-08", Reason: "rejected by the integrator: no", Merge: true, Cause: "rejected"}),
-			fact(t, 4, "T-07", event.FactData{Lane: "O-07", Reason: "stalled"}),
-			fact(t, 5, "T-08", event.FactData{Lane: "O-06", Reason: "job not delivered: …", Merge: true, Cause: "job not delivered"}),
+			fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"}),
+			fact(t, 2, "T-05", event.FactData{Lane: "L-09", Reason: "gate red after 2 sendbacks", Merge: true, Cause: "red"}),
+			fact(t, 3, "T-06", event.FactData{Lane: "L-08", Reason: "rejected by the integrator: no", Merge: true, Cause: "rejected"}),
+			fact(t, 4, "T-07", event.FactData{Lane: "L-07", Reason: "stalled"}),
+			fact(t, 5, "T-08", event.FactData{Lane: "L-06", Reason: "job not delivered: …", Merge: true, Cause: "job not delivered"}),
 			fact(t, 6, event.LoopTask, event.FactData{Reason: "loop: lanes: broken"}),
 			fact(t, 8, event.MsgTask, event.FactData{Reason: "line to pj-lead from other waiting over 1d for its delivery: [obor other] hi"}),
 			{Seq: 7, Task: "T-01", Step: event.StepStalled, Kind: event.KindFact}, // not a needs-you: not listed
@@ -92,8 +92,8 @@ func TestStatusOverServe(t *testing.T) {
 		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 90000},
 			{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] verify 3", Age: 120}},
 		Answers: map[int64]string{ // serve's, from each task's state (T-515); a loop error, a line waiting: none
-			1: `obor answer T-01 "<text>"`, 2: `obor sendback O-09 "<why>" | obor resume T-05 | obor drop O-09 "<why>"`,
-			3: `obor drop O-08 "<why>"`, 4: `its pane, or obor drop O-07 "<why>"`, 5: `obor resume T-08 | obor drop O-06 "<why>"`}}}
+			1: `obor answer T-01 "<text>"`, 2: `obor sendback L-09 "<why>" | obor resume T-05 | obor drop L-09 "<why>"`,
+			3: `obor drop L-08 "<why>"`, 4: `its pane, or obor drop L-07 "<why>"`, 5: `obor resume T-08 | obor drop L-06 "<why>"`}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	if !st.Serve.Up || len(st.NeedsYou) != 7 || len(st.Messages) != 2 {
 		t.Fatalf("precondition: serve up, 7 needs-you, 2 lines: %+v", st)
@@ -102,17 +102,17 @@ func TestStatusOverServe(t *testing.T) {
 	if want := "serve: up since " + since.Local().Format("Jan 2 15:04") + " (2h)"; lines[0] != want {
 		t.Errorf("first line %q, want %q", lines[0], want)
 	}
-	matchLine(t, text, `^O-01 +opus +task/T-01 +held +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-o1 \(idle\)$`, "O-01")
-	matchLine(t, text, `^O-02 +opus +- +free +- +\(-\)$`, "O-02")
+	matchLine(t, text, `^L-01 +- +task/T-01 +held +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-l1 \(idle\)$`, "L-01")
+	matchLine(t, text, `^L-02 +- +- +free +- +\(-\)$`, "L-02")
 	for _, want := range []string{
-		"task T-05 (O-09): needs-you (attempt 2)",
-		"queued T-09: waiting (after T-03): dispatch T-09: lane O-01 is working on T-01", // DD-v0.12 A1
+		"task T-05 (L-09): needs-you (attempt 2)",
+		"queued T-09: waiting (after T-03): dispatch T-09: lane L-01 is working on T-01", // DD-v0.12 A1
 		"agent pj-int: working 5m",
-		`needs-you T-01 (O-01): asks: may I edit x.go? → obor answer T-01 "<text>"`,
-		`needs-you T-05 (O-09): gate red after 2 sendbacks → obor sendback O-09 "<why>" | obor resume T-05 | obor drop O-09 "<why>"`,
-		`needs-you T-06 (O-08): rejected by the integrator: no → obor drop O-08 "<why>"`,
-		`needs-you T-07 (O-07): stalled → its pane, or obor drop O-07 "<why>"`,
-		`needs-you T-08 (O-06): job not delivered: … → obor resume T-08 | obor drop O-06 "<why>"`,
+		`needs-you T-01 (L-01): asks: may I edit x.go? → obor answer T-01 "<text>"`,
+		`needs-you T-05 (L-09): gate red after 2 sendbacks → obor sendback L-09 "<why>" | obor resume T-05 | obor drop L-09 "<why>"`,
+		`needs-you T-06 (L-08): rejected by the integrator: no → obor drop L-08 "<why>"`,
+		`needs-you T-07 (L-07): stalled → its pane, or obor drop L-07 "<why>"`,
+		`needs-you T-08 (L-06): job not delivered: … → obor resume T-08 | obor drop L-06 "<why>"`,
 		"needs-you loop: loop: lanes: broken",
 		"needs-you msg: line to pj-lead from other waiting over 1d for its delivery: [obor other] hi",
 		"undelivered to pj-lead (from other, 1d): [obor other] hi",
@@ -127,7 +127,7 @@ func TestStatusOverServe(t *testing.T) {
 	if st.Paused == nil || st.Paused.Reason != "quota" || st.Paused.Until != nil || st.Paused.By != "pj-lead" {
 		t.Errorf("paused %+v, want serve's: quota, until cleared, by pj-lead ", st.Paused)
 	}
-	if strings.Contains(text, "task T-01") || strings.Contains(text, "agent pj-o1:") || strings.Contains(text, "T-04") {
+	if strings.Contains(text, "task T-01") || strings.Contains(text, "agent pj-l1:") || strings.Contains(text, "T-04") {
 		t.Errorf("a lane's task or agent listed again on its own line, or a dropped task listed:\n%s", text)
 	}
 
@@ -148,15 +148,16 @@ func TestStatusOverServe(t *testing.T) {
 func TestStatusServeDown(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1, o2 := p.Lane("O-01", "task/T-01"), p.Lane("O-02", "task/T-02")
-	o3 := p.Lane("O-03", "task/T-03")
-	p.Config(testkit.Set("lanes.O-03", "oc"), testkit.Set("lane_types.oc", `{"kind":"opencode"}`))
+	o1, o2 := p.Lane("L-01", "task/T-01"), p.Lane("L-02", "task/T-02")
+	o3 := p.Lane("L-03", "task/T-03")
+	p.Config(testkit.Set("models.oc", `{"kind":"opencode","model":"go/x"}`))
 	srv := herdrtest.Serve(t, p.Herdr())
 	p.Commit(o1)
-	p.SubmitAgo("O-01", 730)
+	p.SubmitAgo("L-01", 730)
 	p.Commit(o2)
-	p.Submit("O-02")
+	p.Submit("L-02")
 	p.Commit(o3)
+	p.State("L-03", map[string]any{"task": "T-03", "branch": "task/T-03", "type": "oc"}) // its dispatch runs the opencode oc
 	st, text := statusOf(t, p, wire.Status{}, errors.New("obor serve is not running (dial: refused)"), time.Now())
 	if st.Serve.Up || len(st.Lanes) != 3 {
 		t.Fatalf("precondition: serve down, 3 lanes: %+v", st)
@@ -168,9 +169,9 @@ func TestStatusServeDown(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	want := []string{`^serve: down \(obor serve is not running \(dial: refused\)\)$`,
 		`^running: nothing$`,
-		`^O-01 +opus +task/T-01 +done +12m +\(T-01\)  agent: pj-o-01$`,
-		`^O-02 +opus +task/T-02 +done +[0-9]+s +\(T-02\)  agent: pj-o-02$`,
-		`^O-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
+		`^L-01 +- +task/T-01 +done +12m +\(T-01\)  agent: pj-l-01$`,
+		`^L-02 +- +task/T-02 +done +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
+		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
 		`^full check: none yet$`}
 	if len(lines) != len(want) {
 		t.Fatalf("%d lines, want %d:\n%s", len(lines), len(want), text)
@@ -188,11 +189,11 @@ func TestStatusServeDown(t *testing.T) {
 func TestStatusJSON(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
-	p.Lane("O-02", "")
+	o1 := p.Lane("L-01", "task/T-01")
+	p.Lane("L-02", "")
 	p.Config()
 	p.Commit(o1)
-	p.Submit("O-01")
+	p.Submit("L-01")
 	p.Write(".obor/pause", "-\nhold\n") // T-465: no reader; serve (down here) holds the pause
 	rc, stdout, stderr := run(t, p.Root, nil, "status", "--json")
 	if rc != 0 || !strings.HasPrefix(stdout, "{\n  \"serve\": {") {
@@ -218,7 +219,7 @@ func TestStatusJSON(t *testing.T) {
 		t.Errorf("serve: %+v, needs_you %v, messages %v; want down with its error, needs_you [], messages []", st.Serve,
 			st.NeedsYou, st.Messages)
 	}
-	if len(st.Lanes) != 2 || st.Lanes[0]["lane"] != "O-01" || st.Lanes[0]["task"] != "T-01" || st.Lanes[0]["state"] != "done" ||
+	if len(st.Lanes) != 2 || st.Lanes[0]["lane"] != "L-01" || st.Lanes[0]["task"] != "T-01" || st.Lanes[0]["state"] != "done" ||
 		st.Lanes[1]["task"] != nil || st.Lanes[1]["state"] != "free" {
 		t.Errorf("lanes: %v", st.Lanes)
 	}
@@ -232,7 +233,7 @@ func TestStatusJSON(t *testing.T) {
 		t.Errorf("a ready line in the text:\n%s", text)
 	}
 
-	p.Config(testkit.Set("roles", `{"leads": [{"name": "mp", "agent": "lead-mp", "lanes": ["O-01"]}]}`))
+	p.Config(testkit.Set("roles", `{"leads": [{"name": "mp", "agent": "lead-mp", "lanes": ["L-01"]}]}`))
 	_, stdout, _ = run(t, p.Root, nil, "status", "--json")
 	st.Lanes = nil
 	if err := json.Unmarshal([]byte(stdout), &st); err != nil || len(st.Lanes) != 2 {
@@ -246,9 +247,9 @@ func heldGateStatus() wire.Status {
 	return wire.Status{Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: "/work/pj",
 		Tasks: []wire.TaskStatus{
-			{Task: "T-1", Lane: "O-01", Attempt: 1, State: "submitted", Running: "gate"},
-			{Task: "T-2", Lane: "O-02", Attempt: 1, State: "accepted", Running: "publish.2"},
-			{Task: "T-3", Lane: "O-03", Attempt: 1, State: "accepted"},
+			{Task: "T-1", Lane: "L-01", Attempt: 1, State: "submitted", Running: "gate"},
+			{Task: "T-2", Lane: "L-02", Attempt: 1, State: "accepted", Running: "publish.2"},
+			{Task: "T-3", Lane: "L-03", Attempt: 1, State: "accepted"},
 		},
 	}}
 }
@@ -348,8 +349,8 @@ func TestStatusShowsWaiting(t *testing.T) {
 func TestStatusFactLine(t *testing.T) {
 	var buf bytes.Buffer
 	writeFacts(&buf, "", []event.Record{{Seq: 7, TS: "2026-10-28T10:00:00Z", Task: "T-1", Step: event.StepNeedsYou,
-		Kind: event.KindFact, Data: json.RawMessage(`{"lane":"O-01","reason":"held"}`)}})
-	if got := buf.String(); !strings.HasPrefix(got, "fact #7 2026-10-28T10:00:00Z T-1 ") || !strings.HasSuffix(got, "(O-01)\n") {
+		Kind: event.KindFact, Data: json.RawMessage(`{"lane":"L-01","reason":"held"}`)}})
+	if got := buf.String(); !strings.HasPrefix(got, "fact #7 2026-10-28T10:00:00Z T-1 ") || !strings.HasSuffix(got, "(L-01)\n") {
 		t.Errorf("fact line %q", got)
 	}
 }
@@ -483,9 +484,9 @@ func TestStatusShort(t *testing.T) {
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
 		Running:  []wire.RunningStep{{Step: event.StepGate, Task: "T-1", Since: now.Add(-time.Minute).Unix()}},
-		Tasks:    []wire.TaskStatus{{Task: "T-2", Lane: "O-02", Attempt: 1, State: "working"}},
+		Tasks:    []wire.TaskStatus{{Task: "T-2", Lane: "L-02", Attempt: 1, State: "working"}},
 		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 60}},
-		Facts:    []event.Record{fact(t, 1, "T-3", event.FactData{Lane: "O-03", Reason: "stalled"})},
+		Facts:    []event.Record{fact(t, 1, "T-3", event.FactData{Lane: "L-03", Reason: "stalled"})},
 	}}
 	st, _ := statusOf(t, p, ss, nil, now)
 	var b bytes.Buffer
@@ -495,10 +496,10 @@ func TestStatusShort(t *testing.T) {
 		t.Fatalf("--short text:\n%s\nwant serve's line, the running line and one needs-you", b.String())
 	}
 	if !strings.HasPrefix(lines[0], "serve: up since ") || lines[1] != "running: gate T-1 (1m00s)" ||
-		!strings.HasPrefix(lines[2], "needs-you T-3 (O-03): stalled") {
+		!strings.HasPrefix(lines[2], "needs-you T-3 (L-03): stalled") {
 		t.Errorf("--short lines %q; want serve: up…, the running gate and needs-you T-3", lines)
 	}
-	for _, gone := range []string{"O-02", "task T-2", "undelivered", "full check"} {
+	for _, gone := range []string{"L-02", "task T-2", "undelivered", "full check"} {
 		if strings.Contains(b.String(), gone) {
 			t.Errorf("--short prints %q:\n%s", gone, b.String())
 		}
@@ -510,7 +511,7 @@ func TestStatusShort(t *testing.T) {
 func TestStatusShortBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	rc, stdout, stderr := run(t, p.Root, nil, "status", "--short")
@@ -518,7 +519,7 @@ func TestStatusShortBinary(t *testing.T) {
 	if rc != 0 || len(lines) != 2 || !strings.HasPrefix(lines[0], "serve: down (") || lines[1] != "running: nothing" {
 		t.Errorf("obor status --short: exit %d, %q, %q; want serve's down line and `running: nothing`", rc, stdout, stderr)
 	}
-	if strings.Contains(stdout, "O-01") || strings.Contains(stdout, "full check") {
+	if strings.Contains(stdout, "L-01") || strings.Contains(stdout, "full check") {
 		t.Errorf("--short prints a lane or the full check:\n%s", stdout)
 	}
 }
@@ -532,10 +533,10 @@ func TestStatusShortBinary(t *testing.T) {
 func TestStatusQueue(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-10")
+	o1 := p.Lane("L-01", "task/T-10")
 	p.Config(testkit.Set("merge.nightly_at", "03:00"))
 	p.Commit(o1)
-	p.Dispatched("O-01")
+	p.Dispatched("L-01")
 	p.Spec("T-10", "# T-10 — ten\n")
 	p.Spec("T-20", "# T-20 — never sent\n")
 	now := time.Now().Truncate(time.Second)
@@ -544,13 +545,13 @@ func TestStatusQueue(t *testing.T) {
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-int", Agent: "claude", Status: "idle", Age: 120,
 			Session: "s1"}},
 		Tasks: []wire.TaskStatus{
-			{Task: "T-10", Lane: "O-01", Attempt: 1, State: "working", Job: "T-10/1/work", Delivered: true},
-			{Task: "T-100", Lane: "O-04", Attempt: 1, State: "submitted"},
-			{Task: "T-1000", Lane: "O-05", Attempt: 1, State: "conflict"},
-			{Task: "T-11", Lane: "O-02", Attempt: 1, State: "submitted"},
+			{Task: "T-10", Lane: "L-01", Attempt: 1, State: "working", Job: "T-10/1/work", Delivered: true},
+			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted"},
+			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict"},
+			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted"},
 			{Task: "T-12", Attempt: 1, State: "waiting", After: []string{"T-11"}},
 			{Task: "T-14", Attempt: 1, State: "waiting", Level: "medium", Types: []string{"sonnet"}},
-			{Task: "T-9", Lane: "O-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
+			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
 		},
 		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
 		// lexical order) wait on it; no task is next (as data: the view copies what serve says, it does not check it).
@@ -693,7 +694,7 @@ func TestStatusQueue(t *testing.T) {
 	}
 	if len(js.Lanes) != 1 || js.Lanes[0].SpecRev != 1 || js.Lanes[0].Job == nil || js.Lanes[0].Job.ID != "T-10/1/work" ||
 		!js.Lanes[0].Job.Delivered {
-		t.Errorf("lanes %+v; want O-01 with spec_rev 1 and job T-10/1/work delivered", js.Lanes)
+		t.Errorf("lanes %+v; want L-01 with spec_rev 1 and job T-10/1/work delivered", js.Lanes)
 	}
 	if len(js.Roles) != 2 || js.Roles[0].Agent != "pj-int" || js.Roles[0].Status != "idle" || js.Roles[0].Session != "s1" ||
 		js.Roles[1].Agent != "pj-rev" || js.Roles[1].Status != "" || js.Roles[1].Brief == nil || !js.Roles[1].Brief.Delivered {
@@ -701,7 +702,7 @@ func TestStatusQueue(t *testing.T) {
 	}
 	var dispatched bool
 	for _, e := range js.Events {
-		if e.Line == "dispatched T-10 (O-01)" && e.Seq > 0 && e.Task == "T-10" && e.TS != "" {
+		if e.Line == "dispatched T-10 (L-01)" && e.Seq > 0 && e.Task == "T-10" && e.TS != "" {
 			dispatched = true
 		}
 	}
@@ -709,10 +710,10 @@ func TestStatusQueue(t *testing.T) {
 		t.Errorf("events %+v; want the dispatch of T-10 with its seq, time and task", js.Events)
 	}
 	for _, re := range []string{
-		`^merge T-9 \(O-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
+		`^merge T-9 \(L-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
 		`^scratch T-1000: conflict$`,
-		`^merge T-100 \(O-04\): submitted, waits for T-1000 \(conflict\)$`,
-		`^merge T-11 \(O-02\): submitted, waits for T-1000 \(conflict\)$`,
+		`^merge T-100 \(L-04\): submitted, waits for T-1000 \(conflict\)$`,
+		`^merge T-11 \(L-02\): submitted, waits for T-1000 \(conflict\)$`,
 		`^queued T-12: waiting \(after T-11\)$`,
 		`^queued T-14: waiting for a free lane \(medium: sonnet\)$`,
 		`^queued T-20: spec r1 stored [0-9]+s ago, never dispatched: never sent$`,
@@ -765,7 +766,7 @@ func TestStatusStoppedRole(t *testing.T) {
 func TestStatusStoppedRoleTextJSONMonitor(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.advisor", map[string]any{}))
+	p.Config(testkit.Set("roles.advisor", ""))
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "proj", Root: p.Root, Merging: true, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
@@ -875,64 +876,64 @@ func TestStatusEventsBad(t *testing.T) {
 func TestStatusShowsTheEffort(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
-	o2 := p.Lane("O-02", "task/T-02")
+	o1 := p.Lane("L-01", "task/T-01")
+	o2 := p.Lane("L-02", "task/T-02")
 	p.Config()
 	p.Commit(o1)
 	p.Commit(o2)
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Effort: "high"},
-			{Task: "T-02", Lane: "O-02", Attempt: 1, State: "working"}}}}
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Effort: "high"},
+			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working"}}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	if len(st.Lanes) != 2 {
 		t.Fatalf("precondition: two lanes, got %+v", st.Lanes)
 	}
-	matchLine(t, text, `^O-01 +opus .*serve: working \(attempt 1\)  effort: high$`, "O-01 at effort high")
-	matchLine(t, text, `^O-02 +opus .*serve: working \(attempt 1\)$`, "O-02 with no effort")
+	matchLine(t, text, `^L-01 +- .*serve: working \(attempt 1\)  effort: high$`, "L-01 at effort high")
+	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)$`, "L-02 with no effort")
 	b, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(b), `"effort":"high"`) || st.Lanes[0].Effort != "high" || st.Lanes[1].Effort != "" {
-		t.Errorf("--json lanes %+v: want O-01's effort high, O-02's none", st.Lanes)
+		t.Errorf("--json lanes %+v: want L-01's effort high, L-02's none", st.Lanes)
 	}
 }
 
-// T-721: a working lane's type is the one its dispatch chose (the lane row's), on its line and in --json
-// (lanes[].type); a row from before T-721 (no type) shows the config's lane type, as does a free lane.
+// T-721, T-765: a working lane's model is the one its dispatch chose (the lane row's), on its line and in --json
+// (lanes[].type); a row from before T-721 (no model) shows none ("-"), as does a free lane.
 func TestStatusShowsTheDispatchsType(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
-	o2 := p.Lane("O-02", "task/T-02")
-	p.Lane("O-03", "")
-	p.Config(testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude", "args": []any{}}))
+	o1 := p.Lane("L-01", "task/T-01")
+	o2 := p.Lane("L-02", "task/T-02")
+	p.Lane("L-03", "")
+	p.Config()
 	p.Commit(o1)
 	p.Commit(o2)
-	p.State("O-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
-	p.State("O-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
+	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
+	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", Attempt: 1, State: "working", Effort: "high"},
-			{Task: "T-02", Lane: "O-02", Attempt: 1, State: "working"}}}}
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Effort: "high"},
+			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working"}}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	if len(st.Lanes) != 3 || st.Lanes[0].State != "working" || st.Lanes[1].State != "working" ||
 		st.Lanes[2].State != "free" {
-		t.Fatalf("precondition: O-01 and O-02 working, O-03 free; got %+v", st.Lanes)
+		t.Fatalf("precondition: L-01 and L-02 working, L-03 free; got %+v", st.Lanes)
 	}
-	matchLine(t, text, `^O-01 +sonnet .*effort: high$`, "O-01 of its dispatch's type sonnet")
-	matchLine(t, text, `^O-02 +opus `, "O-02 of the config's type (no type in its row)")
-	matchLine(t, text, `^O-03 +opus `, "O-03 free, of the config's type")
+	matchLine(t, text, `^L-01 +sonnet .*effort: high$`, "L-01 of its dispatch's type sonnet")
+	matchLine(t, text, `^L-02 +- `, "L-02: no model in its row")
+	matchLine(t, text, `^L-03 +- `, "L-03 free: no model")
 	b, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"type":"sonnet"`) || st.Lanes[0].Type != "sonnet" || st.Lanes[1].Type != "opus" ||
-		st.Lanes[2].Type != "opus" {
-		t.Errorf("--json lanes %+v: want O-01's type sonnet, O-02's and O-03's opus", st.Lanes)
+	if !strings.Contains(string(b), `"type":"sonnet"`) || st.Lanes[0].Type != "sonnet" || st.Lanes[1].Type != "" ||
+		st.Lanes[2].Type != "" {
+		t.Errorf("--json lanes %+v: want L-01's model sonnet, L-02's and L-03's none", st.Lanes)
 	}
 }
 
@@ -941,16 +942,16 @@ func TestStatusShowsTheDispatchsType(t *testing.T) {
 func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1, o2 := p.Lane("O-01", "task/T-01"), p.Lane("O-02", "task/T-02")
+	o1, o2 := p.Lane("L-01", "task/T-01"), p.Lane("L-02", "task/T-02")
 	p.Config()
 	p.Commit(o1)
 	p.Commit(o2)
 	if err := os.Remove(filepath.Join(o2, ".claude", "settings.json")); err != nil {
-		t.Fatalf("precondition: O-02 had the settings file: %v", err)
+		t.Fatalf("precondition: L-02 had the settings file: %v", err)
 	}
 	_, text := statusOf(t, p, wire.Status{}, errors.New("obor serve is not running (dial: refused)"), time.Now())
-	matchLine(t, text, `^O-02 +opus +task/T-02 +working +- +\(T-02\)  warning: no-plugin$`, "O-02 without the plugin")
-	if strings.Contains(text, "O-01 ") && strings.Contains(strings.SplitN(strings.SplitN(text, "O-01 ", 2)[1], "\n", 2)[0], "no-plugin") {
-		t.Errorf("O-01 (plugin enabled) warned:\n%s", text)
+	matchLine(t, text, `^L-02 +- +task/T-02 +working +- +\(T-02\)  warning: no-plugin$`, "L-02 without the plugin")
+	if strings.Contains(text, "L-01 ") && strings.Contains(strings.SplitN(strings.SplitN(text, "L-01 ", 2)[1], "\n", 2)[0], "no-plugin") {
+		t.Errorf("L-01 (plugin enabled) warned:\n%s", text)
 	}
 }

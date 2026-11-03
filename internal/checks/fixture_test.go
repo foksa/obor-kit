@@ -24,8 +24,8 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 const trailer = "Co-Authored-By: Test <test@example.invalid>"
 
 // fx is the one fixture of these tests (bash merge.test.sh setup): .obor/state/ gitignored (the done file not), a
-// 10-line shared.txt, lane O-01 on task/T-05 with an uncommitted feature.txt and a leftover done file (never committed), an idle
-// lane O-02 on task/T-20, merge.trailer / summary_regex / fail_grep set, a per-test check slot dir. The scratch is the
+// 10-line shared.txt, lane L-01 on task/T-05 with an uncommitted feature.txt and a leftover done file (never committed), an idle
+// lane L-02 on task/T-20, merge.trailer / summary_regex / fail_grep set, a per-test check slot dir. The scratch is the
 // default proj-wt/merge.
 type fx struct {
 	*testkit.Project
@@ -51,8 +51,8 @@ func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "fixture")
 	x := &fx{Project: p, t: t, sig: make(chan int, 1)}
-	x.lane = p.Lane("O-01", "task/T-05")
-	x.lane2 = p.Lane("O-02", "task/T-20")
+	x.lane = p.Lane("L-01", "task/T-05")
+	x.lane2 = p.Lane("L-02", "task/T-20")
 	p.Config(append([]func(map[string]any){testkit.Set("merge", map[string]any{"trailer": trailer,
 		"summary_regex": "[0-9]+ pass|[0-9]+ fail", "fail_grep": "Expected"})}, edits...)...)
 	x.scratch = filepath.Join(p.Base, "proj-wt", "merge")
@@ -218,7 +218,7 @@ func (x *fx) clean(what string) {
 	x.eq(x.Git(x.scratch, "status", "--porcelain"), "", what+": scratch clean")
 }
 
-// change writes a new worker change into lane O-01.
+// change writes a new worker change into lane L-01.
 func (x *fx) change(name, text string) { x.Write(filepath.Join(x.lane, name), text+"\n") }
 
 // nightlyDir is nightly's own worktree, <merge.scratch_dir>-nightly.

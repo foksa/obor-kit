@@ -91,9 +91,9 @@ func TestSendRequest(t *testing.T) {
 		t.Errorf("the own project's serve got %+v", calls)
 	}
 
-	startFakeServe(t, q.Root, wire.Status{}, "", "send: a lead or the owner sends, not pj-o1 (role worker)")
+	startFakeServe(t, q.Root, wire.Status{}, "", "send: a lead or the owner sends, not pj-l1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, env, "send", "other", "x"); rc != 1 ||
-		stdout != "FAIL send: a lead or the owner sends, not pj-o1 (role worker)\n" {
+		stdout != "FAIL send: a lead or the owner sends, not pj-l1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 }
@@ -103,8 +103,8 @@ func TestSendRequest(t *testing.T) {
 func TestBriefRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Lane("O-01", "")
-	p.Config(testkit.Set("roles.reviewer", map[string]any{}))
+	p.Lane("L-01", "")
+	p.Config(testkit.Set("roles.reviewer", ""))
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev (typed when its pane is idle; the lead hears when it finishes)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, c := range []struct {
@@ -115,7 +115,7 @@ func TestBriefRequest(t *testing.T) {
 		{[]string{"brief", "pj-rev", ""}, `FAIL usage: obor brief <role-agent> "<text>"`},
 		{[]string{"brief", "pj-lead", "x"}, "FAIL pj-lead is no role agent"},
 		{[]string{"brief", "pj-int", "x"}, "FAIL pj-int is no role agent"},
-		{[]string{"brief", "pj-o-01", "x"}, "FAIL pj-o-01 is no role agent"},
+		{[]string{"brief", "pj-l-01", "x"}, "FAIL pj-l-01 is no role agent"},
 		{[]string{"brief", "nobody", "x"}, "FAIL nobody is no role agent"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || !strings.HasPrefix(stdout, c.want) {
@@ -140,15 +140,13 @@ func TestBriefRequest(t *testing.T) {
 func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "")
-	p.Config(testkit.Set("roles.reviewer", map[string]any{"worktree": ""}),
-		testkit.Set("roles.deep_dive", map[string]any{"worktree": ""}),
-		testkit.Set("roles.advisor", map[string]any{"worktree": ""}))
+	o1 := p.Lane("L-01", "")
+	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.deep_dive", "opus"), testkit.Set("roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)
 	f.Shell("w1:p4", "pj-deep-dive", p.Root)
 	f.Shell("w1:p5", "pj-advisor", p.Root)
-	f.Shell("w1:p1", "pj-o-01", o1)
+	f.Shell("w1:p1", "pj-l-01", o1)
 	srv := herdrtest.Serve(t, f)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
@@ -173,7 +171,7 @@ func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
 	if got, _ := serve.requests(); len(got) != 1 {
 		t.Errorf("a refused restart recorded a brief: %+v", got)
 	}
-	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--fresh", "--prompt", "work"); rc != 0 {
+	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-l-01", "--fresh", "--prompt", "work"); rc != 0 {
 		t.Fatalf("worker restart: exit %d\n%s", rc, stdout)
 	}
 	if got, _ := serve.requests(); len(got) != 1 {
@@ -302,15 +300,15 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 	p := poster{env}
 	ctx := context.Background()
 
-	if began, err := p.Post(ctx, withInbox, "pj-o-01", "x"); began || err == nil ||
-		!strings.Contains(err.Error(), "no session recorded for pj-o-01") || strings.Contains(err.Error(), "Claude") {
+	if began, err := p.Post(ctx, withInbox, "pj-l-01", "x"); began || err == nil ||
+		!strings.Contains(err.Error(), "no session recorded for pj-l-01") || strings.Contains(err.Error(), "Claude") {
 		t.Errorf("no record: began %v, %v; want refused, \"no session recorded\" naming no product", began, err)
 	}
-	if err := project.WriteInbox("pj-o-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}, env); err != nil {
+	if err := project.WriteInbox("pj-l-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}, env); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{without, "pi"} {
-		if began, err := p.Post(ctx, kind, "pj-o-01", "x"); began || err == nil {
+		if began, err := p.Post(ctx, kind, "pj-l-01", "x"); began || err == nil {
 			t.Errorf("kind %s: began %v, %v; want refused before a byte", kind, began, err)
 		}
 	}
@@ -319,7 +317,7 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 		t.Fatal("a kind without an inbox dialled the record's socket")
 	case <-time.After(100 * time.Millisecond):
 	}
-	if began, err := p.Post(ctx, withInbox, "pj-o-01", "x"); !began || err != nil {
+	if began, err := p.Post(ctx, withInbox, "pj-l-01", "x"); !began || err != nil {
 		t.Fatalf("kind %s: began %v, %v; want posted", withInbox, began, err)
 	}
 	select {

@@ -42,13 +42,13 @@ func startServe(t *testing.T, dir string, env []string) (*exec.Cmd, *bytes.Buffe
 func TestServeBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(lane)
 	f := herdrtest.New()
 	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}, {ID: "w2", Label: "elsewhere"}}
-	w := f.Agent("w1:p1", "pj-o-01", "working", lane)
-	w.Workspace, w.Label = "w1", "pj-o-01" // labelled by its launch: serve's identity of it
+	w := f.Agent("w1:p1", "pj-l-01", "working", lane)
+	w.Workspace, w.Label = "w1", "pj-l-01" // labelled by its launch: serve's identity of it
 	f.Agent("w2:p1", "x", "idle", lane).Workspace = "w2"
 	srv := herdrtest.Serve(t, f)
 	home := t.TempDir()
@@ -62,7 +62,7 @@ func TestServeBinary(t *testing.T) {
 	var status string
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		rc, stdout, _ := run(t, lane, env, "status")
-		if rc == 0 && strings.Contains(stdout, "agent: pj-o-01 (working)") { // the lanes are read just after the snapshot
+		if rc == 0 && strings.Contains(stdout, "agent: pj-l-01 (working)") { // the lanes are read just after the snapshot
 			status = stdout
 			break
 		}
@@ -93,7 +93,7 @@ func TestServeBinary(t *testing.T) {
 	}
 	// the alias: obor serve status prints what obor status --facts does; --all is a no-op for one release
 	for _, args := range [][]string{{"serve", "status"}, {"status", "--all", "--facts"}} {
-		if rc, stdout, stderr := run(t, p.Root, env, args...); rc != 0 || !strings.Contains(stdout, "agent: pj-o-01 (working)") {
+		if rc, stdout, stderr := run(t, p.Root, env, args...); rc != 0 || !strings.Contains(stdout, "agent: pj-l-01 (working)") {
 			t.Errorf("obor %v: exit %d, %q, %q; want the project's status", args, rc, stdout, stderr)
 		}
 	}
@@ -188,26 +188,26 @@ func TestServeSocketPathTooLong(t *testing.T) {
 func TestLaneTable(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(lane)
-	p.State("O-01", map[string]any{"lane": "O-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-o-01",
+	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01", "agent": "pj-l-01",
 		"dispatched_at": time.Now().Unix() - 100})
 	for _, c := range []struct {
 		name, state string
 		prep        func()
 	}{
-		{"dispatched", "working", func() { p.Dispatched("O-01") }},
-		{"task_done in", "done", func() { p.Submit("O-01") }},
-		{"dispatched anew", "working", func() { p.Dispatched("O-01") }},
+		{"dispatched", "working", func() { p.Dispatched("L-01") }},
+		{"task_done in", "done", func() { p.Submit("L-01") }},
+		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
 	} {
 		c.prep()
 		ls, err := checks.Lanes{}.Lanes(p.Root)
 		if err != nil || len(ls) != 1 {
 			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
 		}
-		if l := ls[0]; l.Task != "T-01" || l.Agent != "pj-o-01" || l.Type != "opus" || l.State != c.state {
-			t.Errorf("%s: %+v; want T-01 of pj-o-01, type opus, %s", c.name, l, c.state)
+		if l := ls[0]; l.Task != "T-01" || l.Agent != "pj-l-01" || l.State != c.state {
+			t.Errorf("%s: %+v; want T-01 of pj-l-01, %s", c.name, l, c.state)
 		}
 	}
 }
@@ -218,13 +218,13 @@ func TestLaneTable(t *testing.T) {
 func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config(testkit.Set("merge.from_a_newer_obor", []string{"x"}))
 	p.Commit(lane)
 	f := herdrtest.New()
 	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
-	w := f.Agent("w1:p1", "pj-o-01", "working", lane)
-	w.Workspace, w.Label = "w1", "pj-o-01" // labelled by its launch: serve's identity of it
+	w := f.Agent("w1:p1", "pj-l-01", "working", lane)
+	w.Workspace, w.Label = "w1", "pj-l-01" // labelled by its launch: serve's identity of it
 	srv := herdrtest.Serve(t, f)
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path}
 
@@ -235,7 +235,7 @@ func TestServeToleratesUnknownConfigKey(t *testing.T) {
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		ss, err := wire.Ask(context.Background(), wire.SocketPath(p.Root)) // the CLI's own config read is strict
 		if err == nil && ss.Project != nil && len(ss.Project.Agents) == 1 &&
-			ss.Project.Agents[0].Name == "pj-o-01" && ss.Project.Agents[0].Task == "T-01" {
+			ss.Project.Agents[0].Name == "pj-l-01" && ss.Project.Agents[0].Task == "T-01" {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -266,13 +266,13 @@ func TestServeDump(t *testing.T) {
 	log, _, err := event.OpenLog(db)
 	if err == nil {
 		_, err = log.Append(event.Record{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact,
-			Data: []byte(`{"lane":"O-01"}`)}, time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC))
+			Data: []byte(`{"lane":"L-01"}`)}, time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC))
 	}
 	db.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"seq":1,"ts":"2026-10-27T09:00:00Z","task":"T-1","attempt":1,"step":"submitted","kind":"fact","data":{"lane":"O-01"}}` + "\n"
+	want := `{"seq":1,"ts":"2026-10-27T09:00:00Z","task":"T-1","attempt":1,"step":"submitted","kind":"fact","data":{"lane":"L-01"}}` + "\n"
 	for _, cwd := range []string{p.Root, filepath.Join(p.Root, ".obor")} {
 		out.Reset()
 		if code := serveDump(&out, cwd); code != 0 || out.String() != want {

@@ -27,8 +27,8 @@ import (
 // notifications), a fake Scratch on a git fixture (gitScratch), a scripted lane table, and an integrator start that
 // puts pj-int into the fake herdr.
 
-// loopRig is project proj (main with a 10-line shared.txt; .obor/state/ ignored) with lane O-01 on task/T-1 (its
-// worker pj-o1 idle in it; without the dispatch rig T-1's dispatch fact in the log at the first start),
+// loopRig is project proj (main with a 10-line shared.txt; .obor/state/ ignored) with lane L-01 on task/T-1 (its
+// worker pj-l-01 idle in it; without the dispatch rig T-1's dispatch fact in the log at the first start),
 // roles.integrator (pj-int, not running until started) and the app not started yet. check is commands.check ("" for none); edits change the config further.
 type loopRig struct {
 	t       *testing.T
@@ -60,7 +60,7 @@ type loopRig struct {
 	binary func() bool
 	// exit is Options.Exit, the socket's exit request (nil: none, T-711); set before start
 	exit func()
-	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-o1 and the
+	// inbox is the loop's Inbox: the lead's lines posted (T-485), kept across restarts. The worker pj-l-01 and the
 	// integrator pj-int start with no inbox record, so their job wakes are typed (T-499's fallback); a test of posted
 	// wakes records them (inbox.record).
 	inbox *rigInbox
@@ -81,20 +81,20 @@ func newLoopRig(t *testing.T, check string, edits ...func(map[string]any)) *loop
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-qm", "fixture")
 	r := &loopRig{t: t, p: p, f: herdrtest.New(), lanes: &laneTable{},
-		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-o1": true, "pj-int": true}}}
-	r.lane = p.Lane("O-01", "task/T-1")
+		clock: &clock{t: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}, inbox: &rigInbox{none: map[string]bool{"pj-l-01": true, "pj-int": true}}}
+	r.lane = p.Lane("L-01", "task/T-1")
 	commands := map[string]any{}
 	if check != "" {
 		commands["check"] = check
 	}
-	// The lane's worker is pj-o1 by config: serve's lane rows come from its log (T-439), and T-1's is its submission's.
-	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", map[string]any{}),
-		testkit.Set("commands", commands), testkit.Set("lanes.O-01", map[string]any{"type": "opus", "agent": "pj-o1"})},
+	// The lane's worker is pj-l-01 (L-01's compact alias, its pane's label): serve's lane rows come from its log (T-439),
+	// and T-1's is its submission's.
+	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", ""), testkit.Set("commands", commands)},
 		edits...)...)
-	r.lanes.lanes = []port.Lane{{Name: "O-01", Dir: r.lane, Task: "T-1", Agent: "pj-o1"}}
+	r.lanes.lanes = []port.Lane{{Name: "L-01", Dir: r.lane, Task: "T-1", Agent: "pj-l-01"}}
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
-	w := r.f.Agent("w1:p1", "pj-o1", "idle", r.lane)
-	w.Workspace, w.Label = "w1", "pj-o1" // labelled by its launch: serve's identity of it (registry.go)
+	w := r.f.Agent("w1:p1", "pj-l-01", "idle", r.lane)
+	w.Workspace, w.Label = "w1", "pj-l-01" // labelled by its launch: serve's identity of it (registry.go)
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", prompted)
@@ -116,7 +116,7 @@ func (r *loopRig) Launch(ctx context.Context, req port.Launch) (port.Started, er
 	r.mu.Lock()
 	r.launches = append(r.launches, req)
 	r.mu.Unlock()
-	if req.Agent == "pj-o1" && r.disp != nil {
+	if req.Agent == "pj-l-01" && r.disp != nil {
 		return r.disp.startWorker(ctx, req)
 	}
 	r.starts.Add(1)
@@ -219,9 +219,9 @@ func (r *loopRig) launch() {
 	switch recs, _ := event.ReadLog(r.p.Root); {
 	case r.disp != nil || len(recs) > 0: // the dispatch rig dispatches; a test that wrote the log has its records
 	case r.early:
-		r.p.SubmitAgo("O-01", 0, report) // T-1 dispatched and its task_done in
+		r.p.SubmitAgo("L-01", 0, report) // T-1 dispatched and its task_done in
 	default:
-		r.p.Dispatched("O-01") // serve holds T-1 open: its task_done submits it
+		r.p.Dispatched("L-01") // serve holds T-1 open: its task_done submits it
 	}
 	panes := herdr.Panes{S: r.srv.Client(), PS: func(context.Context) ([]byte, error) { return []byte("2 1 2\n"), nil }}
 	r.out = &syncBuf{}
@@ -300,7 +300,7 @@ func (r *loopRig) waitFor(what string, ok func() bool) {
 	r.t.Fatalf("timed out waiting for %s; records:\n%s\napp output:\n%s", what, strings.Join(r.steps(), "\n"), r.out)
 }
 
-// setLane changes O-01's row in the lane table.
+// setLane changes L-01's row in the lane table.
 func (r *loopRig) setLane(fn func(l *port.Lane)) {
 	r.lanes.mu.Lock()
 	fn(&r.lanes.lanes[0])
@@ -310,7 +310,7 @@ func (r *loopRig) setLane(fn func(l *port.Lane)) {
 // report is the rig worker's task_done report: every section.
 const report = "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
 
-// submit is pj-o1's task_done for T-1 with the full report: it must submit. Before the first start it is in the log
+// submit is pj-l-01's task_done for T-1 with the full report: it must submit. Before the first start it is in the log
 // the start replays (unless the test writes the log itself).
 func (r *loopRig) submit() {
 	r.t.Helper()
@@ -323,10 +323,10 @@ func (r *loopRig) submit() {
 	}
 }
 
-// taskDone is pj-o1's task_done for T-1 with text as its report, under a new call id.
+// taskDone is pj-l-01's task_done for T-1 with text as its report, under a new call id.
 func (r *loopRig) taskDone(text string) (string, error) {
-	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: "pj-o1",
-		Role: "worker", Lane: "O-01", Task: "T-1", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1)), Report: text})
+	return wire.Verdict(context.Background(), r.sock, wire.MethodTaskDone, wire.Call{Root: r.p.Root, Agent: "pj-l-01",
+		Role: "worker", Lane: "L-01", Task: "T-1", CallID: fmt.Sprintf("rig-%d", r.callIDs.Add(1)), Report: text})
 }
 
 // work writes path in the lane (uncommitted: the gate commits it).
@@ -376,7 +376,7 @@ func (r *loopRig) waitStep(step string) {
 type sent struct{ to, text string }
 
 // prompts is every agent.prompt the fake herdr got, to the agent the rig runs in its target (serve addresses a job
-// prompt to the agent's pane by its registry: w1:p1 is pj-o1's, w1:p9 pj-int's).
+// prompt to the agent's pane by its registry: w1:p1 is pj-l-01's, w1:p9 pj-int's).
 func (r *loopRig) prompts() []sent {
 	var out []sent
 	for _, req := range r.srv.Requests() {
@@ -392,7 +392,7 @@ func (r *loopRig) prompts() []sent {
 
 // rigAgent is the agent the rig runs in pane target (target itself when it is no pane of the rig: a name).
 func rigAgent(target string) string {
-	return cmp.Or(map[string]string{"w1:p1": "pj-o1", "w1:p9": "pj-int"}[target], target)
+	return cmp.Or(map[string]string{"w1:p1": "pj-l-01", "w1:p9": "pj-int"}[target], target)
 }
 
 // cleared is, for each agent.prompt to agent in order, whether an agent.send_keys ctrl+u to it came since the one
@@ -497,7 +497,7 @@ func (r *loopRig) merged(attempt int) {
 func (r *loopRig) noLead() {
 	r.t.Helper()
 	for _, p := range r.prompts() {
-		if p.to != "pj-int" && p.to != "pj-o1" {
+		if p.to != "pj-int" && p.to != "pj-l-01" {
 			r.t.Errorf("a prompt to %s: %q", p.to, p.text)
 		}
 	}
@@ -521,7 +521,7 @@ func TestLoopHappyPath(t *testing.T) {
 	if r.starts.Load() != 1 {
 		t.Errorf("integrator starts = %d, want 1 (it did not run)", r.starts.Load())
 	}
-	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane O-01): the gate is green (rc=0)",
+	for _, want := range []string{"Review T-1 for obor serve (attempt 1, lane L-01): the gate is green (rc=0)",
 		"No spec is stored for T-1.\n", "feature.txt", "The worker's report:\n" + report,
 		"Patch hash: "} {
 		if !strings.Contains(job, want) {
@@ -562,8 +562,8 @@ func TestLoopHappyPath(t *testing.T) {
 	if r.p.Exists(".obor/state/done") {
 		t.Errorf("a done-file archive dir (gone with T-437)")
 	}
-	if got := strings.Join(r.workerStops(), ","); got != "pj-o1 w1:p1" {
-		t.Errorf("stops %q; want pj-o1 in its submitted pane", got)
+	if got := strings.Join(r.workerStops(), ","); got != "pj-l-01 w1:p1" {
+		t.Errorf("stops %q; want pj-l-01 in its submitted pane", got)
 	}
 	if n := len(r.stopped()) - len(r.workerStops()); n != 1 {
 		t.Errorf("integrator stops %d (%q), want 1: after its verdict, no job left for it (T-672)", n, r.stopped())
@@ -582,7 +582,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 	r.start()
 	r.submit()
 	for attempt := 2; attempt <= 3; attempt++ {
-		job := r.waitJob("pj-o1", "T-1/"+string(rune('0'+attempt))+"/fix")
+		job := r.waitJob("pj-l-01", "T-1/"+string(rune('0'+attempt))+"/fix")
 		for _, want := range []string{"T-1 is sent back to you", "RED check", "call task_done again"} {
 			if !strings.Contains(job, want) {
 				t.Errorf("fix job %d has no %q:\n%s", attempt, want, job)
@@ -600,7 +600,7 @@ func TestLoopRedSendsBackTwiceThenNeedsYou(t *testing.T) {
 	}
 	fixes := 0
 	for _, p := range r.prompts() {
-		if p.to == "pj-o1" && strings.HasSuffix(p.text, "/fix] call the obor job_next tool") {
+		if p.to == "pj-l-01" && strings.HasSuffix(p.text, "/fix] call the obor job_next tool") {
 			fixes++
 		}
 	}

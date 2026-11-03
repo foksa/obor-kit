@@ -1,24 +1,24 @@
 // Package setup is `obor setup`: make a project obor-ready. Every subcommand is idempotent, prints what it did and
 // ends with OK … / FAIL … (exit 1).
 //
-//	lane <LANE> [<type>]  git worktree add --detach <lanes_dir>/<LANE> <current branch>; symlink lane_links; add the
-//	        lane to config.lanes; run commands.lane_setup in the lane (under its timeout), leaving
+//	lane <L-NN>  git worktree add --detach <lanes_dir>/<L-NN> <current branch>; symlink lane_links; raise config.lanes
+//	        to NN when it is the next lane (lanes are L-01 … L-NN, T-765); run commands.lane_setup in the lane (under its timeout), leaving
 //	        <state>/lanes/<LANE>.setup when it finished (T-613: obor init's rerun skips a lane only then, and T-618:
 //	        only while that marker names the lane_setup configured now).
 //	pane <LANE> [--tab <tab-id> | --new-tab <label> | --pane <pane-id>] [--start]  a pane for the lane's worker, labelled and
 //	        with its env typed but no agent in it unless --start (T-705: dispatch starts a fresh worker anyway) (agent
-//	        lanes.<LANE>.agent, else <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
+//	        <prefix>-<lane lower>): split the largest pane of --tab (default: the caller's tab
 //	        when it is the project's, else the project's busiest tab, T-628; a tab is the project's only when every
 //	        pane in it has a known cwd in the project, and with none a new tab, T-632), or a new tab in the project's
 //	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
 //	        herdr's active one, T-632), and another project's pane is never split; cwd the lane, env
 //	        OBOR_ROLE / OBOR_AGENT / OBOR_LANE; then the pane label (= the agent, R-28 §2: refused when another pane
-//	        holds it or --pane is labelled otherwise) and herdr agent start with the lane type's kind and args (+ Claude
+//	        holds it or --pane is labelled otherwise) and herdr agent start with the model's kind and args (+ Claude
 //	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
 //	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).
 //	        Refuses a full tab
-//	        (limits.max_panes_per_tab, default 4); lane_types.<type>.max is not checked here, only dispatch enforces it (T-741). A failed start with a trust dialog or a Codex self-update in the
+//	        (limits.max_panes_per_tab, default 4). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root (the reviewer
@@ -49,9 +49,11 @@
 //	        (the tab reused when there is one), the pane labelled <prefix>-monitor (config.MonitorLabel); a pane left at
 //	        its shell gets the command again, a monitor that runs is left alone.
 //
-//	show  the setup table, read-only (T-647): per difficulty level each lane type the project has for it, in order, with
-//	        that type's model and effort and the lanes that run it (T-653), the level's fallback; the roles' types;
-//	        whether the owner confirmed it.
+//	migrate  rewrite a config of the shape before T-765 (lane_types, typed lanes, role objects) to models and a lanes
+//	        count, once: see migrate.go.
+//
+//	show  the setup table, read-only (T-647): per difficulty level each model ref, in order, with its kind, model id
+//	        and effort; the lanes; the roles' models; whether the owner confirmed it.
 //
 // obor init (P7-2): see oborinit.go.
 //
@@ -131,8 +133,8 @@ func Usage() string {
 		}
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
-	return "usage: obor setup lane <LANE> [<type>] | pane <LANE> " + where + " [--start]" +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--lane <type>] | monitor | show | rename --name N --prefix P"
+	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--model <name>] | monitor | show | migrate | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -163,6 +165,8 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.renameCmd(ctx, args)
 	case "show":
 		err = s.show(args)
+	case "migrate":
+		err = s.migrate(ctx, args)
 	case "monitor": // `obor setup monitor` (T-658): the project's monitor pane
 		err = s.monitor(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either

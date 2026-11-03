@@ -27,12 +27,12 @@ type fx struct {
 	load  func() (float64, bool) // non-nil: the slots' load reader, their load wait cut to 1 ms (T-720)
 }
 
-// setup is a project with lane O-01 and commands, its slots in a temp dir (slots.max 2, project "proj"); the lane
+// setup is a project with lane L-01 and commands, its slots in a temp dir (slots.max 2, project "proj"); the lane
 // ignores .task-run, as obor setup makes it.
 func setup(t *testing.T, commands string) *fx {
 	t.Helper()
 	p := testkit.New(t)
-	f := &fx{p: p, lane: p.Lane("O-01", "task/T-01"), slots: filepath.Join(p.Base, "slots")}
+	f := &fx{p: p, lane: p.Lane("L-01", "task/T-01"), slots: filepath.Join(p.Base, "slots")}
 	p.Write(filepath.Join(f.lane, ".gitignore"), ".task-done.md\n.task-run\n")
 	p.Config(testkit.Set("commands", commands), testkit.Set("slots", map[string]any{"dir": f.slots, "max": 2}))
 	cfg, err := config.Load(p.Root)

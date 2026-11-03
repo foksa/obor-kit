@@ -21,7 +21,7 @@ func TestServeWaitsForHerdr(t *testing.T) {
 	r.srv.Die()
 	r.waitFor("the gone line", func() bool { return strings.Contains(r.out.String(), "herdr: gone") })
 	r.waitFor("disconnected", func() bool { return !r.app.Status().Connected })
-	if reply, err := r.dispatch("d1", "O-01"); err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
+	if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
 		t.Fatalf("dispatch with herdr down: %q, %v", reply, err)
 	}
 	subs := r.srv.Subscriptions()
@@ -44,7 +44,7 @@ func TestServeWaitsForHerdr(t *testing.T) {
 	r.srv.Revive(t)
 	r.waitFor("the back line", func() bool { return strings.Contains(r.out.String(), "herdr: back") })
 	r.waitStep("1 result work")
-	r.waitJob("pj-o1", "T-1/1/work")
+	r.waitJob("pj-l-01", "T-1/1/work")
 	out := r.out.String()
 	if n, m := strings.Count(out, "herdr: gone"), strings.Count(out, "herdr: back"); n != 1 || m != 1 {
 		t.Errorf("%d gone and %d back lines, want one each:\n%s", n, m, out)

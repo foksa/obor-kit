@@ -83,7 +83,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	if pane, err := l.PaneOf(ctx, agent, ""); err == nil {
 		req := launch.Request{Agent: agent, Pane: pane, Fresh: fresh}
 		if rc, _ := cfg.Role("lead"); fresh && rc.Type != "" { // T-594: a fresh Claude lead loads its skill itself
-			lt, _ := cfg.LaneType(rc.Type)
+			lt, _ := cfg.Model(rc.Type)
 			lead, _ := roles.Lookup("lead")
 			req.Prompt = lead.StartPrompt(lt.Kind)
 		}
@@ -94,8 +94,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		return launchResult(r.out, line, err)
 	}
 	if rc, _ := cfg.Role("lead"); rc.Type == "" {
-		return fail("roles.lead.type is not set (a lane_types key; roles.lead.agent names the herdr agent): a new " +
-			"lead pane needs it")
+		return fail("roles.lead is not set (a model ref, e.g. \"opus:high\"): a new lead pane needs it")
 	}
 	s := &setup.Setup{Kit: r.kit, Dir: r.dir, Env: r.env, H: r.h, Out: r.out, Starter: launcherFor(r.env, r.kit, r.h, r.out, r.tune)}
 	return s.Run(ctx, []string{"role", "lead", "--new-tab", "lead", "--start"})

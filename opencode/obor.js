@@ -20,7 +20,7 @@
 // runs on the plugin's model and variant, and so do the later turns (the TUI follows the session's switch). A switch on
 // session.created loses: the TUI's pre-submit switch comes after it. Gated on opencode 2 and switchModel being there;
 // else one line to stderr and nothing. The variable is read from the plugin's process env, which is the pane's under
-// --standalone (obor's lane types run it: its own server in the pane's process).
+// --standalone (obor's opencode base args: its own server in the pane's process).
 //
 // opencode v2.2 plugin API (T-578 probe, opencode v2.2.0: its bundled source, and an isolated `opencode serve` with its
 // own HOME/XDG dirs and port, a fake provider and a logging plugin):

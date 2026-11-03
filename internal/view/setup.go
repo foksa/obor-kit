@@ -16,56 +16,52 @@ import (
 	"obor/internal/store"
 )
 
-// Setup is the project's setup as the web page shows it (T-750): what steers the work — each difficulty level's lane
-// types with what runs them, the lanes, the role agents and the pause — and how the dispatches actually spread, by
-// difficulty level and chosen type. It is its own read model, outside Project: obor status needs none of it.
+// Setup is the project's setup as the web page shows it (T-750, T-765): what steers the work — each difficulty
+// level's model refs with what runs them, the lanes, the role agents and the pause — and how the dispatches actually
+// spread, by difficulty level and chosen model. It is its own read model, outside Project: obor status needs none of
+// it.
 type Setup struct {
 	Difficulty   []SetupLevel    `json:"difficulty"`   // hard, medium, simple
-	Types        []SetupType     `json:"types"`        // every type ref a level names, then the unused lane types
+	Types        []SetupType     `json:"types"`        // every model ref a level names, then the roles' not among them
+	Models       []SetupModel    `json:"models"`       // every model the config knows: built-in, then models' own
 	Lanes        []SetupLane     `json:"lanes"`        // every configured lane
 	Roles        []SetupRole     `json:"roles"`        // every role the config names (the worker is the lanes)
 	Paused       *Pause          `json:"paused"`       // the pause in force (nil: none)
-	LaneTypes    []SetupLaneType `json:"lane_types"`   // every lane type in config order: what the page edits (T-753)
-	Distribution []DispatchCount `json:"distribution"` // one cell per level and chosen type
+	Distribution []DispatchCount `json:"distribution"` // one cell per level and chosen model
 	// ConfigRev is the revision of .obor/config.json this setup was read from (config.Rev, T-760; "": no file): the
 	// page's edits name it, and serve refuses them once the file is another one.
 	ConfigRev string `json:"config_rev"`
 }
 
-// SetupLevel is one difficulty level and its lane types in dispatch order, as configured: a type reference keeps its
-// effort ("opus:high" stays as written).
+// SetupLevel is one difficulty level and its model refs in dispatch order, as configured: a ref keeps its effort
+// ("opus:high" stays as written).
 type SetupLevel struct {
 	Level string   `json:"level"`
 	Types []string `json:"types"`
 }
 
-// SetupType is one lane type the setup names: as a level's type reference (Ref, its :<effort> as written) or, when no
-// level and no role names it, as an unused lane_types entry (Ref is its name). The rest is what runs: the lane_types
-// name, the kind, the model and the effort its args set (the reference's :<effort> winning), and its max (0: no cap).
+// SetupType is one model ref the setup names (Ref, its :<effort> as written) and what runs it: the model's name, its
+// kind, the model id the kind starts ("": the kind's own choice) and the ref's effort ("": the kind's default).
 type SetupType struct {
 	Ref    string `json:"ref"`
 	Name   string `json:"name"`
 	Kind   string `json:"kind"`
 	Model  string `json:"model"`
 	Effort string `json:"effort"`
-	Max    int    `json:"max"`
-	Unused bool   `json:"unused,omitempty"`
 }
 
-// SetupLaneType is one lane_types entry as the Setup page edits it (T-753): its name, kind, the model and effort its
-// own args name, its max (0: no cap), and the efforts its kind takes in its args (none: its effort is no arg, only a
-// type reference's :<effort>, or the kind has no bridge).
-type SetupLaneType struct {
+// SetupModel is one model the config knows (T-765): its name, kind and model id, whether it is a built-in one
+// (models.<name> may override it), and the efforts its kind takes.
+type SetupModel struct {
 	Name    string   `json:"name"`
 	Kind    string   `json:"kind"`
 	Model   string   `json:"model"`
-	Effort  string   `json:"effort"`
-	Max     int      `json:"max"`
+	Builtin bool     `json:"builtin"`
 	Efforts []string `json:"efforts"`
 }
 
-// SetupLane is one configured lane: its name, its configured type ("" is a pooled lane, which runs any type), its
-// agent and its state now (free, working, done, missing …).
+// SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
+// state now (free, working, done, missing …).
 type SetupLane struct {
 	Lane  string `json:"lane"`
 	Type  string `json:"type"`
@@ -73,8 +69,8 @@ type SetupLane struct {
 	State string `json:"state"`
 }
 
-// SetupRole is one role agent the config names: the role, its agent, the type reference it starts with ("" when the
-// config names none) and its status as serve sees it ("" when no pane runs it).
+// SetupRole is one role agent the config names: the role, its agent, the model ref it starts with ("" when the config
+// names none) and its status as serve sees it ("" when no pane runs it).
 type SetupRole struct {
 	Role   string `json:"role"`
 	Agent  string `json:"agent"`
@@ -84,9 +80,9 @@ type SetupRole struct {
 
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
 // reference they placed: Recent are those of the last 7 days, All those of every record. Level is OverrideLevel for a
-// dispatch with --types and no level ("" is neither), Type "" a dispatch the store names no type for: a record from
-// before T-721 that ran a pooled lane, or one whose lane the config and the store's own records of it leave untyped
-// (T-752; the page labels it "unknown", never "pooled", which is the lane's, not the dispatch's).
+// dispatch with --model and no level ("" is neither), Type "" a dispatch the store names no model for: a record from
+// before T-721 on a lane the config has, or one on a lane gone from it that the store's own records leave unnamed
+// (T-752; the page labels it "unknown").
 type DispatchCount struct {
 	Level  string `json:"level"`
 	Type   string `json:"type"`
@@ -94,18 +90,18 @@ type DispatchCount struct {
 	All    int    `json:"all"`
 }
 
-// OverrideLevel is the distribution row of a dispatch that chose its types (--types) itself, with no level: the
+// OverrideLevel is the distribution row of a dispatch that chose its models (--model) itself, with no level: the
 // spec's difficulty said nothing of it.
 const OverrideLevel = "override"
 
 // distributionWindow is how far back the distribution's Recent counts: the last 7 days.
 const distributionWindow = 7 * 24 * time.Hour
 
-// distributionLevels is the distribution's row order: the levels a spec picks, then --types' override, then a plain
+// distributionLevels is the distribution's row order: the levels a spec picks, then --model's override, then a plain
 // dispatch with neither (a level unknown to this binary sorts after them, so it still shows).
 var distributionLevels = []string{"hard", "medium", "simple", OverrideLevel, ""}
 
-// Setup is the project's setup read model: its config's difficulty levels and their types, lanes and roles, the
+// Setup is the project's setup read model: its config's difficulty levels and their models, lanes and roles, the
 // view's lane states, role statuses and pause, and the store's dispatch records (the config is read as obor web reads
 // it: LoadReader, an unknown key warns, it does not fail).
 func (d Detail) Setup() (Setup, error) {
@@ -119,8 +115,8 @@ func (d Detail) Setup() (Setup, error) {
 	if err != nil {
 		return Setup{}, err
 	}
-	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Lanes: []SetupLane{}, Roles: []SetupRole{},
-		Distribution: []DispatchCount{}, ConfigRev: rev}
+	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Lanes: []SetupLane{},
+		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.Difficulty = append(s.Difficulty, SetupLevel{Level: level, Types: append([]string{}, cfg.DifficultyList(level)...)})
 	}
@@ -128,8 +124,8 @@ func (d Detail) Setup() (Setup, error) {
 	for _, l := range d.Project.Lanes {
 		states[l.Lane] = l
 	}
-	for _, l := range cfg.Lanes() { // the configured type: a working lane's view type is its dispatch's (T-721)
-		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: l.Type, Agent: cfg.AgentName("worker", l.Name),
+	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
+		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: states[l.Name].Type, Agent: cfg.AgentName("worker", l.Name),
 			State: states[l.Name].State})
 	}
 	status := map[string]string{}
@@ -147,19 +143,18 @@ func (d Detail) Setup() (Setup, error) {
 		if role.Optional && !rc.Configured {
 			continue
 		}
-		ref := rc.Type
-		if ref != "" && rc.Effort != "" {
-			ref += ":" + rc.Effort
-		}
-		s.Roles = append(s.Roles, SetupRole{Role: role.Name, Agent: cfg.AgentName(role.Name, ""), Type: ref,
-			Status: status[role.Name]})
+		s.Roles = append(s.Roles, SetupRole{Role: role.Name, Agent: cfg.AgentName(role.Name, ""),
+			Type: config.ModelRef(rc.Type, rc.Effort), Status: status[role.Name]})
 	}
 	s.Types = setupTypes(cfg, s.Difficulty, s.Roles)
-	s.LaneTypes = []SetupLaneType{}
-	for _, name := range cfg.LaneTypeNames() {
-		lt, _ := cfg.LaneType(name)
-		s.LaneTypes = append(s.LaneTypes, SetupLaneType{Name: name, Kind: lt.Kind, Model: lt.Model(), Effort: lt.Effort(),
-			Max: lt.Max, Efforts: append([]string{}, agents.EffortsInArgs(lt.Kind)...)})
+	for _, name := range cfg.ModelNames() {
+		m, _ := cfg.Model(name)
+		efforts := []string{}
+		if k, ok := agents.Lookup(m.Kind); ok {
+			efforts = append(efforts, k.Efforts()...)
+		}
+		_, builtin := config.BuiltinModelNamed(name)
+		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts})
 	}
 	s.Paused = d.Project.Paused
 	db, close := d.open()
@@ -168,68 +163,55 @@ func (d Detail) Setup() (Setup, error) {
 	return s, nil
 }
 
-// setupTypes is the setup's type list: one entry per type reference the levels name, in level order (a reference two
-// levels name is one entry), then every lane_types entry no level and no role names, marked unused. A reference whose
-// type the config lacks is skipped (the details list names only types the project has, as obor setup show does).
+// setupTypes is the setup's model list: one entry per model ref the levels name, in level order (a ref two levels
+// name is one entry), then the roles' refs no level names. A ref naming no model of the config is skipped (obor config
+// validate names it).
 func setupTypes(cfg *config.Config, levels []SetupLevel, roles []SetupRole) []SetupType {
 	out := []SetupType{}
-	seen, named := map[string]bool{}, map[string]bool{}
+	seen := map[string]bool{}
+	add := func(ref string) {
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		if t, ok := setupType(cfg, ref); ok {
+			out = append(out, t)
+		}
+	}
 	for _, level := range levels {
 		for _, ref := range level.Types {
-			name, _ := config.ParseTypeRef(ref)
-			named[name] = true
-			if seen[ref] {
-				continue
-			}
-			seen[ref] = true
-			if t, ok := setupType(cfg, ref); ok {
-				out = append(out, t)
-			}
+			add(ref)
 		}
 	}
 	for _, role := range roles {
-		if name, _ := config.ParseTypeRef(role.Type); name != "" {
-			named[name] = true
-		}
-	}
-	for _, name := range cfg.LaneTypeNames() {
-		if named[name] {
-			continue
-		}
-		if t, ok := setupType(cfg, name); ok {
-			t.Unused = true
-			out = append(out, t)
-		}
+		add(role.Type)
 	}
 	return out
 }
 
-// setupType is ref's entry as what runs it: the lane type it names, the kind, the model and the effort (the args'
-// effort, the reference's :<effort> winning) and the max (0: no cap); ok false when the config has no such lane type.
+// setupType is ref's entry as what runs it: the model it names, its kind, its model id and the ref's effort; ok false
+// when the config has no such model.
 func setupType(cfg *config.Config, ref string) (SetupType, bool) {
-	name, effort := config.ParseTypeRef(ref)
-	lt, ok := cfg.LaneType(name)
+	name, effort := config.ParseModelRef(ref)
+	m, ok := cfg.Model(name)
 	if !ok {
 		return SetupType{}, false
 	}
-	if effort == "" {
-		effort = lt.Effort()
-	}
-	return SetupType{Ref: ref, Name: name, Kind: lt.Kind, Model: lt.Model(), Effort: effort, Max: lt.Max}, true
+	return SetupType{Ref: ref, Name: name, Kind: m.Kind, Model: m.ID, Effort: effort}, true
 }
 
-// distribution is db's dispatch records counted by level and chosen type, for the last 7 days and for every record.
+// distribution is db's dispatch records counted by level and chosen model, for the last 7 days and for every record.
 // Only a dispatch that placed a task on a lane counts: a waiting dispatch places nothing, and the dispatch that
 // places it later counts once; a redo is a dispatch of its own. A record with no type (a dispatch from before T-721)
-// takes its lane's configured type, or, for a lane the config no longer names, the type the store's own records of
-// that lane name (laneTypes); none names one: the type is unknown (T-752), never a guess from the lane's name.
+// on a lane the config no longer names takes the type the store's own records of that lane name (laneTypes); on a
+// configured lane (every lane is pooled, T-765), or with none named, the type is unknown (T-752).
 func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount {
 	if db == nil {
 		return []DispatchCount{}
 	}
 	lanes := map[string]string{}
 	for _, l := range cfg.Lanes() {
-		lanes[l.Name] = l.Type
+		lanes[l.Name] = ""
 	}
 	gone := laneTypes(db, lanes)
 	rows, err := db.Query(`SELECT ts, data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
@@ -260,9 +242,7 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 			level = OverrideLevel
 		}
 		if typ == "" {
-			if t, ok := lanes[d.Lane]; ok { // a record from before T-721: its lane's configured type
-				typ = t
-			} else { // its lane is gone from the config: the type its own records name, else unknown ("")
+			if _, ok := lanes[d.Lane]; !ok { // its lane is gone from the config: the type its own records name, else unknown ("")
 				typ = gone[d.Lane]
 			}
 		}

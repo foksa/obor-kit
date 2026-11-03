@@ -54,12 +54,12 @@ func (g *groupGate) Gate(ctx context.Context, in port.GateInput) (port.GateOutco
 	return port.GateOutcome{}, errors.New("the gate was cut off: serve is stopping")
 }
 
-// gateGroupHarness is pj with an integrator, lane O-01's T-1 submitted and its sha in: T-1's next step is its gate, run
+// gateGroupHarness is pj with an integrator, lane L-01's T-1 submitted and its sha in: T-1's next step is its gate, run
 // by g.
 func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	h.a = New(Options{Root: h.root, Now: func() time.Time { return h.now }, Tick: 20 * time.Millisecond,
 		Retry: 5 * time.Millisecond}, &openPanes{fakePanes: h.panes, snap: h.snap}, h.lanes)
 	g := &groupGate{schedScratch: &schedScratch{h: h}, dir: dir}
@@ -71,9 +71,9 @@ func gateGroupHarness(t *testing.T, dir string) (*harness, *groupGate) {
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
+	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
 	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
 	return h, g
 }

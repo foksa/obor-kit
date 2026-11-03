@@ -67,22 +67,22 @@ type startAgents struct {
 func (f *startAgents) Launch(context.Context, port.Launch) (port.Started, error) {
 	f.restarts++
 	if f.lag {
-		return port.Started{Line: "STARTED pj-o-01"}, nil
+		return port.Started{Line: "STARTED pj-l-01"}, nil
 	}
 	o := f.h.a.obs["w1:p1"]
 	o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", f.sid, ""
-	return port.Started{Line: "STARTED pj-o-01"}, nil
+	return port.Started{Line: "STARTED pj-l-01"}, nil
 }
 func (f *startAgents) Stop(context.Context, string, string, bool) (string, error) {
 	return "STOPPED", nil
 }
 
-// promptRig is T-1 dispatched onto O-01 (lane prepared, rows removed; started: its worker started too), the switch
+// promptRig is T-1 dispatched onto L-01 (lane prepared, rows removed; started: its worker started too), the switch
 // on, with a boxPrompter and startAgents. before, when given, acts on the harness's snapshot before the connect takes
 // it.
 func promptRig(t *testing.T, started bool, before ...func(h *harness)) (*harness, *Loop, *boxPrompter, *startAgents) {
 	h, s := seedSched(t, true, before...)
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Target: "target", Branch: "task/T-1"})
 	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "target"})
 	if started {
@@ -152,7 +152,7 @@ func TestPromptFreshDelivered(t *testing.T) {
 			h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil } // job_next renders the worker prompt from its kit
-	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-l-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err) // delivered
 	}
 	if h.proj().folded.loop["T-1"].state != stWorking {
@@ -240,7 +240,7 @@ func TestPromptResumeClears(t *testing.T) {
 func TestPromptReplayResends(t *testing.T) {
 	t.Parallel()
 	h, fx, f, _ := promptRig(t, true)
-	raw, _ := json.Marshal(promptData{Agent: "pj-o-01", Job: "T-1/1/work"})
+	raw, _ := json.Marshal(promptData{Agent: "pj-l-01", Job: "T-1/1/work"})
 	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepWork, Kind: event.KindIntent, Class: event.ClassPrompt, Data: raw})
 	h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepFailed, Kind: event.KindFact, Data: mustJSON(event.FactData{Machine: Machine,
 		Merge: true, Step: event.StepWork, Reason: "work: agent_blocked"})})
@@ -259,7 +259,7 @@ func TestPromptReplayResends(t *testing.T) {
 		t.Fatalf("prompts %v, result %s; want the wake sent once more, sent", f.jobs, h.result(event.StepWork))
 	}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
-	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-o-01", Role: "worker", CallID: "n1"}); err != nil {
+	if _, err := h.a.jobNext(wire.Call{Root: h.proj().root, Agent: "pj-l-01", Role: "worker", CallID: "n1"}); err != nil {
 		t.Fatal(err)
 	}
 	if st := h.proj().folded.loop["T-1"].state; st != stWorking || h.count(event.KindFact, event.StepDelivered) != 1 {
@@ -337,7 +337,7 @@ func TestStartReplay(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, fx, _, ag := promptRig(t, false)
-			d := startData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
+			d := startData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1", Ran: c.ran, Session: c.atIntent}
 			raw, _ := json.Marshal(d)
 			h.log(event.Record{Task: "T-1", Attempt: 1, Step: event.StepStartWork, Kind: event.KindIntent, Class: event.ClassStart, Data: raw})
 			reloadProj(t, h) // the crash

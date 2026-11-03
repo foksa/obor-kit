@@ -124,24 +124,36 @@ func TestDifficulty(t *testing.T) {
 	}
 }
 
-// T-689: the optional Type line is the next non-blank line after Difficulty.
-func TestTypes(t *testing.T) {
+// T-689, T-765: the optional Model line is the next non-blank line after Difficulty; the Type line it replaced is
+// told apart (OldTypeLine) so spec set can refuse it.
+func TestModels(t *testing.T) {
 	for _, c := range []struct {
 		text string
 		want []string
 	}{
 		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", nil},
-		{"# T-1 — A\n\nDifficulty: medium\nType: opus-high\n", []string{"opus-high"}},
-		{"# T-1 — A\n\nDifficulty: hard\nType: opus-high, opus\n", []string{"opus-high", "opus"}},
-		{"# T-1 — A\n\nDifficulty: hard\n\n\nType:  opus ,opus-high\n", []string{"opus", "opus-high"}},
-		{"# T-1 — A\n\nDifficulty: hard\nType: opus:high, sonnet ,luna:xhigh\n", []string{"opus:high", "sonnet", "luna:xhigh"}}, // T-695
-		{"# T-1 — A\n\nDifficulty: hard\nwhy\nType: opus\n", nil},
-		{"# T-1 — A\n\nType: opus\nDifficulty: hard\n", nil},
-		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\nType: opus\n", nil},
-		{"Difficulty: hard\nType: opus\n", nil},
+		{"# T-1 — A\n\nDifficulty: medium\nModel: opus\n", []string{"opus"}},
+		{"# T-1 — A\n\nDifficulty: hard\nModel: opus:high, opus\n", []string{"opus:high", "opus"}},
+		{"# T-1 — A\n\nDifficulty: hard\n\n\nModel:  opus ,opus:high, opus\n", []string{"opus", "opus:high"}},
+		{"# T-1 — A\n\nDifficulty: hard\nModel: opus:high, sonnet ,luna:xhigh\n", []string{"opus:high", "sonnet", "luna:xhigh"}}, // T-695
+		{"# T-1 — A\n\nDifficulty: hard\nwhy\nModel: opus\n", nil},
+		{"# T-1 — A\n\nModel: opus\nDifficulty: hard\n", nil},
+		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\nModel: opus\n", nil},
+		{"# T-1 — A\n\nDifficulty: hard\nType: opus\n", nil},
+		{"Difficulty: hard\nModel: opus\n", nil},
 	} {
-		if got := Types(c.text); strings.Join(got, "|") != strings.Join(c.want, "|") || (got == nil) != (c.want == nil) {
-			t.Errorf("Types(%q) = %q; want %q", c.text, got, c.want)
+		if got := Models(c.text); strings.Join(got, "|") != strings.Join(c.want, "|") || (got == nil) != (c.want == nil) {
+			t.Errorf("Models(%q) = %q; want %q", c.text, got, c.want)
+		}
+	}
+	for text, want := range map[string]bool{
+		"# T-1 — A\n\nDifficulty: hard\nType: opus\n":   true,
+		"# T-1 — A\n\nDifficulty: hard\nModel: opus\n":  false,
+		"# T-1 — A\n\nDifficulty: hard\n\nType: x\n":    true,
+		"# T-1 — A\n\nDifficulty: hard\nwhy\nType: x\n": false,
+	} {
+		if got := OldTypeLine(text); got != want {
+			t.Errorf("OldTypeLine(%q) = %v, want %v", text, got, want)
 		}
 	}
 }

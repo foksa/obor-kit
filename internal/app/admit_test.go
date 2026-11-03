@@ -19,7 +19,7 @@ import (
 // their brief is recorded. The hold's agents come from the current config at each check.
 
 // admitCfg is seedHold's config with paths.reviews.
-const admitCfg = `{"name":"pj","prefix":"pj","roles":{"integrator":{},"reviewer":{},"deep_dive":{}},"paths":{"reviews":"reviews"}}`
+const admitCfg = `{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""},"paths":{"reviews":"reviews"}}`
 
 // headGit is a ReviewGit whose head is where the last publish moved the integration branch (start: base1), the
 // merges the publishes made; onHead runs once, inside the next Head read.
@@ -326,8 +326,8 @@ func TestAdmitPublishWaitsForTheBrief(t *testing.T) {
 	}
 }
 
-// The hold's agents are the current config's: a reviewer renamed, a deep dive added or a role removed while serve
-// runs counts at the next check; a config that does not load keeps the last good set.
+// The hold's agents are the current config's: a deep dive added or a role removed while serve runs counts at the next
+// check; a config that does not load keeps the last good set.
 func TestHoldAgentsFollowTheConfig(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -335,11 +335,9 @@ func TestHoldAgentsFollowTheConfig(t *testing.T) {
 		before, after        string // the holder before and after the change
 		merged               bool   // T-1 merges after the change
 	}{
-		{"reviewer renamed", admitCfg, `{"name":"pj","prefix":"pj","roles":{"integrator":{},"reviewer":{"agent":"pj-critic"}}}`,
-			"w1:crit", "", "reviewer", false},
-		{"deep dive added", `{"name":"pj","prefix":"pj","roles":{"integrator":{},"reviewer":{}}}`, admitCfg,
+		{"deep dive added", `{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":""}}`, admitCfg,
 			"w1:dd", "", "deep_dive", false},
-		{"role removed", admitCfg, `{"name":"pj","prefix":"pj","roles":{"integrator":{},"deep_dive":{}}}`,
+		{"role removed", admitCfg, `{"name":"pj","prefix":"pj","roles":{"integrator":"","deep_dive":""}}`,
 			"w1:rev", "reviewer", "", true},
 		{"config broken", admitCfg, `{"name":`, "w1:rev", "reviewer", "reviewer", false},
 	}
@@ -348,8 +346,6 @@ func TestHoldAgentsFollowTheConfig(t *testing.T) {
 			t.Parallel()
 			h, _ := seedHold(t)
 			ctx := context.Background()
-			h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:crit", Workspace: "w1", Cwd: h.root, Agent: "claude",
-				Label: "pj-critic", Status: "idle"}) // known at its first event (h.work)
 			h.write(filepath.Join(h.root, ".obor", "config.json"), c.from)
 			h.work(c.pane, true)
 			holder := func() string {

@@ -21,7 +21,7 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
 
 ## Panes (user, 2026-10-24)
 - The lead's tab (`lead`) holds only the lead pane: never split it for another agent (the user types into the wrong
-  pane). obor-kit's tabs: `lead`, `opus lanes` (O-01..O-04), `small lanes` (S/H/C/D), `roles` (integrator, reviewers,
+  pane). obor-kit's tabs: `lead`, `workers` (L-01..L-04), `roles` (integrator, reviewers,
   advisor), `system` (obor serve). New role panes go into `roles`, at most 4 panes per tab, laid out as a 2×2 grid (2 panes side
   by side, 3 = one left and two stacked right), never four stacked rows.
 - Role agents done with their work are stopped (owner 2026-11-01: they hold memory): `obor restart <agent> --stop`
@@ -37,16 +37,18 @@ Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what diffe
 Opus by default for anything non-trivial; Sonnet only for small, well-specified tasks and docs; Haiku for simple or
 repetitive bulk tasks with a mechanical oracle (review-finding fixes, small follow-ups, test-only changes with a
 concrete spec: as rigorous as Opus there); Codex Luna sparingly (user 2026-10-13: "let's slow down on luna tasks,
-not worth it"): only small mechanical tasks with a complete oracle; Fable advisor (`ob-fable`) for hard-to-reverse
-decisions and the second strike of a fix chain; Sol for batch reviews (the expensive Codex part: targeted, few). Max 4 Opus workers, max 4 panes per tab.
+not worth it"): only small mechanical tasks with a complete oracle; Fable advisor (`ob-advisor`) for hard-to-reverse
+decisions and the second strike of a fix chain; Sol for batch reviews (the expensive Codex part: targeted, few). Max 4
+panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota is paused (`obor pause --model <name>
+--for 3h "<why>"`), and the level's next model runs.
 
 - Difficulty (owner 2026-10-30, after 3 of 8 "hard" tasks in one day were medium): hard = state machines,
   crash/replay, concurrency, a cross-package redesign. Wide but mechanical (a rename with a script), one function with
   a full test table, or a probe plus a mapping onto existing calls is medium, however risky its deployment: the
   lead carries the deploy risk, not the lane's model.
-- Effort beside the type (T-695, owner 2026-11-02): wherever a type is named (spec `Type:`, `--types`, `difficulty`,
-  `roles.*.type`), `opus:high` is an opus lane at effort high; no lane type per effort (the lead and deep dive run on
-  `opus:high`).
+- Effort beside the model (T-695, T-765): wherever a model is named (spec `Model:`, `--model`, `difficulty`,
+  `roles.<role>`), `opus:high` is opus at effort high (the lead and deep dive run on `opus:high`). The config names
+  models directly (built-in table in `internal/config/models.go`; `models.<name>` adds one); lanes are a count.
 
 ## Merge classes
 - Before committing `.obor/config.json` on main: `go test ./internal/checks -run TestOborKitConfig ./internal/config`
@@ -84,7 +86,7 @@ are unused: remove them with `git worktree remove` once nothing runs there.
 - Other projects' repos are their leads' (axis-alies lead 2026-11-02): never commit there yourself, not even an
   owner-approved config change; `obor send <project> "<the exact change and why>"` and the lead applies it. Hold a
   serve restart that needs the change until that lead confirms it.
-- Before each tag: a Codex smoke on C-01 with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --types luna
+- Before each tag: a Codex smoke with main's code (`~/Work/obor-kit/bin/obor dispatch <smoke T-xx> --model luna
   --force`: the job arrives over MCP `job_next`, nothing is typed into its input, the worker finishes with `task_done`; spec
   like T-461; the gate runs in serve's scratch, not the sandbox, and `obor run check` fails in Codex's sandbox: unix
   socket binds denied, 2026-10-27).

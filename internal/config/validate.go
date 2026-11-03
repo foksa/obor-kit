@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,9 +25,8 @@ var (
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data, stateAgent: o.StateAgent}
 	v.top()
-	v.types()
+	v.models()
 	v.lanes()
-	v.laneArgs()
 	v.difficulty()
 	v.classes()
 	v.integrator()
@@ -74,61 +74,44 @@ func (v *validator) top() {
 	}
 }
 
-// lanes: every lane type has a kind with a bridge (agents.Lookup: a leftover cursor or a typo is not one); no lane is
-// named like a role worktree.
+// lanes: the count is not negative (lanes are L-01 … L-NN: no name to collide with a role worktree).
 func (v *validator) lanes() {
-	for _, k := range v.d.LaneTypes.Keys {
-		kind := v.d.LaneTypes.M[k].Kind
-		if kind == "" {
-			v.fail(".lane_types"+key(k)+".kind", "required (claude, codex, …)")
+	if v.d.Lanes < 0 {
+		v.fail(".lanes", fmt.Sprintf("must be a non-negative integer (how many lanes), got %d", v.d.Lanes))
+	}
+}
+
+// models: every models entry and kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
+// `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
+// positionals, RV-47-verify-3 N2); each role and agent names a known model with an effort its kind takes (T-695).
+func (v *validator) models() {
+	bridged := func(path, kind string) {
+		if _, ok := agents.Lookup(kind); !ok {
+			v.fail(path, Compact(kind)+" is not a supported kind: use one of "+strings.Join(agents.Names(), ", "))
+		}
+	}
+	for _, k := range v.d.Models.Keys {
+		e := v.d.Models.M[k]
+		if _, isBuiltin := BuiltinModelNamed(k); e.Kind == "" && !isBuiltin {
+			v.fail(".models"+key(k)+".kind", "required (claude, codex, opencode)")
 			continue
 		}
-		if _, ok := agents.Lookup(kind); !ok {
-			v.fail(".lane_types"+key(k)+".kind", Compact(kind)+" is not a supported kind: use one of "+
-				strings.Join(agents.Names(), ", "))
+		if e.Kind != "" {
+			bridged(".models"+key(k)+".kind", e.Kind)
 		}
 	}
-	worktrees := v.c.RoleWorktrees()
-	for _, k := range v.d.Lanes.Keys {
-		for _, wt := range worktrees {
-			if wt == k {
-				v.fail(".lanes"+key(k), "name collides with role worktree "+Compact(wt))
-				break
-			}
+	for _, k := range v.d.Kinds.Keys {
+		bridged(".kinds"+key(k), k)
+		if slices.Contains(v.d.Kinds.M[k].Args, "--") {
+			v.fail(".kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
-	}
-}
-
-// laneArgs: no lane type's args carry a bare `--`. obor adds the first prompt after its own options, so a `--` in the
-// config would turn --settings and --resume into positionals (RV-47-verify-3 N2).
-func (v *validator) laneArgs() {
-	for _, k := range v.d.LaneTypes.Keys {
-		for _, a := range v.d.LaneTypes.M[k].Args {
-			if a == "--" {
-				v.fail(".lane_types"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
-				break
-			}
-		}
-	}
-}
-
-// types: lanes entries name a lane type or "" for any (untyped pool lane), agents entries a lane type (T-145); a role or lead that names one names a known one, with an
-// effort its kind takes when it names one (`opus:high`, T-695).
-func (v *validator) types() {
-	check := func(path, t string, required bool) {
-		if _, ok := v.d.LaneTypes.M[t]; !ok && (required || t != "") {
-			v.fail(path, Compact(t)+" is not a key of lane_types")
-		}
-	}
-	for _, k := range v.d.Lanes.Keys {
-		check(".lanes"+key(k), v.d.Lanes.M[k].Type, false) // "" is an untyped pool lane
 	}
 	for _, k := range v.d.Agents.Keys {
-		check(".agents"+key(k)+".type", v.d.Agents.M[k].Type, true)
+		v.modelRef(".agents"+key(k)+".type", v.d.Agents.M[k].Type, true)
 	}
 	for _, role := range roles.All() {
-		if e := v.d.Roles.entry(role.Name); e != nil {
-			v.typeRef(".roles."+role.Name+".type", e.Type)
+		if ref := v.d.Roles.entry(role.Name); ref != nil {
+			v.modelRef(".roles."+role.Name, *ref, false)
 		}
 	}
 }
@@ -156,12 +139,8 @@ func (v *validator) integrator() {
 
 // optional checks the optional settings: handoff_tokens (T-175, integrator T-215), guards.allow_push (T-105).
 func (v *validator) optional() {
-	if r := v.d.Roles; r.Lead != nil {
-		v.nonNegative(".roles.lead.handoff_tokens", r.Lead.HandoffTokens)
-	}
-	if r := v.d.Roles; r.Integrator != nil {
-		v.nonNegative(".roles.integrator.handoff_tokens", r.Integrator.HandoffTokens)
-	}
+	v.nonNegative(".handoff_tokens", v.d.HandoffTokens)
+	v.nonNegative(".integrator_handoff_tokens", v.d.IntegratorHandoffTokens)
 	if g := v.d.Guards; g != nil {
 		v.agentNames(".guards.allow_push", g.AllowPush, false)
 	}
@@ -217,7 +196,7 @@ func (v *validator) laneAgents() {
 		for _, alias := range v.c.LaneAgentAliases(lane.Name, state) {
 			for _, agent := range roleAgents {
 				if alias == agent {
-					v.fail(".lanes"+key(lane.Name), "agent "+Compact(alias)+" collides with a role agent")
+					v.fail(".lanes", "lane "+lane.Name+"'s agent "+Compact(alias)+" collides with a role agent")
 				}
 			}
 		}
@@ -225,24 +204,17 @@ func (v *validator) laneAgents() {
 	}
 }
 
-// bareLaneName: a role agent or another lane's configured agent named like lane's lowercase name (o-02) is no name
-// of lane (lookups take no bare lane name, T-302) but reads like one: WARN. The lane's own row or configured
-// agent of that name is its real name.
+// bareLaneName: a role agent named like lane's lowercase name (l-02) is no name of lane (lookups take no bare lane
+// name, T-302) but reads like one: WARN. The lane's own row of that name is its real name.
 func (v *validator) bareLaneName(lane, state string, roleAgents []string) {
 	lower := strings.ToLower(lane)
-	if state == lower || v.d.Lanes.M[lane].Agent == lower {
+	if state == lower {
 		return
 	}
-	agents := append([]string(nil), roleAgents...)
-	for _, other := range v.d.Lanes.Keys {
-		if other != lane {
-			agents = append(agents, v.d.Lanes.M[other].Agent)
-		}
-	}
-	for _, agent := range Unique(agents...) {
+	for _, agent := range roleAgents {
 		if agent == lower {
-			v.warns = append(v.warns, "WARN .lanes"+key(lane)+": agent "+Compact(agent)+
-				" is named like the lane but is not its agent (lookups take no bare lane name)")
+			v.warns = append(v.warns, "WARN .lanes: agent "+Compact(agent)+" is named like lane "+lane+
+				" but is not its agent (lookups take no bare lane name)")
 		}
 	}
 }
@@ -294,16 +266,11 @@ func (c *Config) warnings(o ValidateOptions) []string {
 		out = append(out, "WARN mcp.jobs "+Compact(c.Data.MCP.Jobs)+" is obsolete: every agent fetches its jobs "+
 			"(T-437), remove it")
 	}
-	for _, k := range c.Data.LaneTypes.Keys {
-		if c.Data.LaneTypes.M[k].Jobs != nil { // v0.11.0, T-437
-			out = append(out, "WARN lane_types."+k+".jobs is obsolete: every kind fetches its jobs (T-437), remove it")
-		}
-	}
-	for _, k := range c.Data.LaneTypes.Keys { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
-		lt := c.Data.LaneTypes.M[k]
-		if kd, known := agents.Lookup(lt.Kind); known && kd.Caps().ModelArg && lt.Model() == "" {
-			out = append(out, "WARN lane_types."+k+": opencode type without --model (opencode's own default may not work, "+
-				"and an effort needs one): add \"--model\", \"opencode-go/deepseek-v4.1-flash\" to its args")
+	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
+		m, _ := c.Model(name)
+		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
+			out = append(out, "WARN models."+name+": opencode model without a model id (opencode's own default may not "+
+				"work, and an effort needs one): set its \"model\", e.g. \"opencode-go/deepseek-v4.1-flash\"")
 		}
 	}
 	removed("roles.leads", c.Data.Roles.Leads != nil)              // v0.12.0, T-467: one lead per project
@@ -320,9 +287,8 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	return out
 }
 
-// difficulty: each level of .difficulty is hard, medium or simple and names lane types the config has (each may name
-// an effort, T-695) (the built-in
-// default skips the types a project lacks; a project's own list is checked).
+// difficulty: each level of .difficulty is hard, medium or simple and names models the config knows (each may name
+// an effort, T-695).
 func (v *validator) difficulty() {
 	keys := make([]string, 0, len(v.d.Difficulty))
 	for k := range v.d.Difficulty {
@@ -335,24 +301,43 @@ func (v *validator) difficulty() {
 			continue
 		}
 		for i, t := range v.d.Difficulty[k] {
-			v.typeRef(".difficulty"+key(k)+idx(i), t)
+			v.modelRef(".difficulty"+key(k)+idx(i), t, true)
 		}
 	}
 }
 
-// typeRef: a type reference `<type>[:<effort>]` (T-695) at path names a key of lane_types and, with an effort, one
-// its kind takes (config.CheckTypeRef); "" passes (a role without a type).
-func (v *validator) typeRef(path, ref string) {
-	if ref == "" {
+// modelRef: a model ref `<model>[:<effort>]` at path names a model of the config and, with an effort, one its kind
+// takes (CheckModelRef); "" passes unless required.
+func (v *validator) modelRef(path, ref string, required bool) {
+	if ref == "" && !required {
 		return
 	}
-	if typ, _ := ParseTypeRef(ref); v.d.LaneTypes.M[typ].Kind == "" {
-		if _, ok := v.d.LaneTypes.M[typ]; !ok {
-			v.fail(path, Compact(typ)+" is not a key of lane_types")
-		}
-		return // a type without a kind fails at .lane_types
-	}
-	if err := v.c.CheckTypeRef(ref); err != nil {
+	if err := v.c.CheckModelRef(ref); err != nil {
 		v.fail(path, err.Error())
 	}
+}
+
+// modelUsed: a level (its own list or the default), a role or an agent of c names model.
+func (c *Config) modelUsed(model string) bool { return slices.Contains(c.UsedModels(), model) }
+
+// UsedModels are the models a level (its own list or the default), a role or an agent of c names, known or not, in
+// level (hard, medium, simple), role, agent order.
+func (c *Config) UsedModels() []string {
+	var refs []string
+	for _, level := range []string{"hard", "medium", "simple"} {
+		refs = append(refs, c.DifficultyList(level)...)
+	}
+	for _, role := range roles.All() {
+		if ref := c.Data.Roles.entry(role.Name); ref != nil {
+			refs = append(refs, *ref)
+		}
+	}
+	for _, k := range c.Data.Agents.Keys {
+		refs = append(refs, c.Data.Agents.M[k].Type)
+	}
+	var out []string
+	for _, ref := range refs {
+		out = append(out, func() string { name, _ := ParseModelRef(ref); return name }())
+	}
+	return Unique(out...)
 }

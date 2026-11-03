@@ -347,8 +347,8 @@ func TestHoldAndResume(t *testing.T) {
 			return wire.Verdict(context.Background(), r.sock, wire.MethodHold, wire.Call{Root: r.p.Root, Agent: agent,
 				Role: role, CallID: callID, Task: "T-1", Note: note})
 		}
-		if _, err := hold("pj-o1", "worker", "h0", "why"); err == nil ||
-			!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-o1 (role worker)") {
+		if _, err := hold("pj-l-01", "worker", "h0", "why"); err == nil ||
+			!strings.Contains(err.Error(), "only the integrator (pj-int) gives verdicts, not pj-l-01 (role worker)") {
 			t.Errorf("hold by the worker: %v", err)
 		}
 		if _, err := hold("pj-int", "integrator", "h0", " "); err == nil || !strings.Contains(err.Error(), "hold: say why") {
@@ -372,9 +372,9 @@ func TestHoldAndResume(t *testing.T) {
 			t.Errorf("want one needs-you{held}, the task needs-you: %q", r.steps())
 		}
 
-		worker := wire.Call{Root: r.p.Root, Agent: "pj-o1", Role: "worker", CallID: "r0", Task: "T-1"}
+		worker := wire.Call{Root: r.p.Root, Agent: "pj-l-01", Role: "worker", CallID: "r0", Task: "T-1"}
 		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodResume, worker); err == nil ||
-			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-o1 (role worker)") {
+			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-l-01 (role worker)") {
 			t.Errorf("resume by the worker: %v", err)
 		}
 		for _, id := range []string{"r1", "r1"} {
@@ -423,11 +423,11 @@ func TestResumeRegate(t *testing.T) {
 		r.work("feature.txt", "feature\n")
 		r.submit()
 		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
-			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01","agent":"pj-l-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"L-01"}`)},
 			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
 			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: event.KindFact,
-				Data: []byte(`{"lane":"O-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
+				Data: []byte(`{"lane":"L-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
 		}...); err != nil {
 			t.Fatal(err)
 		}

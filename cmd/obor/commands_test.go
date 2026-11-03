@@ -13,10 +13,10 @@ import (
 func TestSmallCommandsBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config(testkit.Set("commands", `{"t": {"cmd": "echo ran", "timeout": 5, "heavy": true}}`),
 		testkit.Set("slots", map[string]any{"dir": p.Base + "/slots"}))
-	p.Herdr().Agent("w1:p1", "o-01", "idle", p.Root)
+	p.Herdr().Agent("w1:p1", "l-01", "idle", p.Root)
 	env := []string{"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
 	for _, c := range []struct {
 		dir  string
@@ -35,7 +35,7 @@ func TestSmallCommandsBinary(t *testing.T) {
 		// T-465: gone with the heartbeat (pause: a request to serve, pause_test.go)
 		{p.Root, []string{"ack", "T-06", "x"}, 2, ``, "unknown subcommand: ack"},
 		{p.Root, []string{"notify", "Build complete"}, 2, ``, "unknown subcommand: notify"},
-		{p.Root, []string{"wait-agent", "o-01"}, 2, ``, "unknown subcommand: wait-agent"},
+		{p.Root, []string{"wait-agent", "l-01"}, 2, ``, "unknown subcommand: wait-agent"},
 		{p.Root, []string{"handoff", "ready"}, 2, ``, "unknown subcommand: handoff"},
 		{p.Root, []string{"heartbeat", "--once"}, 2, ``, "unknown subcommand: heartbeat"},
 	} {

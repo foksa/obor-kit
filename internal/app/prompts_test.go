@@ -55,7 +55,7 @@ func TestPromptsOfAFetchedJob(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("the job's prompt rows: %+v, want one", rows)
 	}
-	if row := rows[0]; row.Seq != seq || row.Text != jr.Text || row.Kind != store.PromptJob || row.Agent != "pj-o1" ||
+	if row := rows[0]; row.Seq != seq || row.Text != jr.Text || row.Kind != store.PromptJob || row.Agent != "pj-l-01" ||
 		row.Task != "T-1" || row.Job != "T-1/1/work" || row.TS == "" || row.Rev != 0 {
 		t.Errorf("the job's prompt row: %+v; want the delivered fact %d's text", row, seq)
 	}
@@ -219,7 +219,7 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("the job's prompt rows: %+v, want two", rows)
 	}
-	if row := rows[0]; row.Text != second.Text || row.Rev != 1 || row.Seq != seq || row.Agent != "pj-o1" ||
+	if row := rows[0]; row.Text != second.Text || row.Rev != 1 || row.Seq != seq || row.Agent != "pj-l-01" ||
 		row.Task != "T-1" || row.Kind != store.PromptJob || row.TS == "" {
 		t.Errorf("the newest row: %+v; want the refetch's text, rev 1, under the delivered fact %d", row, seq)
 	}

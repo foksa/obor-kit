@@ -20,7 +20,7 @@ const hangBound = 15 * time.Second
 // commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
 // as dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
-// hx is a project (prefix pj, lane O-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`.
+// hx is a project (prefix pj, lane L-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`.
 type hx struct {
 	*fx
 	t    testing.TB
@@ -31,7 +31,7 @@ type hx struct {
 func newHx(t *testing.T, bin string) *hx {
 	t.Helper()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-05")
+	lane := p.Lane("L-01", "task/T-05")
 	p.Config()
 	h := herdrtest.New()
 	x := &hx{fx: &fx{Project: p, h: h, srv: herdrtest.Serve(t, h)}, t: t, lane: lane, kit: newKit(t, bin)}

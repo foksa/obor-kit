@@ -40,7 +40,7 @@ func TestStartJobIntegrator(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 		}
@@ -151,7 +151,7 @@ func TestStartJobOtherPatch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
 	r.add("pj", "T-1", "start.review", event.KindIntent, startData{Agent: "pj-int"})
@@ -235,7 +235,7 @@ func TestIntegratorJobFetchableDuringStart(t *testing.T) {
 			if kind == event.StepResolve {
 				outcome = outConflict
 			}
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 			delete(r.a.obs, "w1:p9")
@@ -270,11 +270,11 @@ func TestWorkerEarlyFetchDuringStart(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-o-02"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: r.a.obs["w1:p2"].pane.Cwd, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	f := &startEffects{concScratch: r.fakes["pj"]}
 	f.start = func(port.Launch) {
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "early"})
+		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "early"})
 		if err != nil {
 			t.Fatal(err)
 		}

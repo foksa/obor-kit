@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"obor/internal/app/wire"
-	"slices"
 	"strings"
 
 	"obor/internal/config"
@@ -44,19 +43,17 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		return "", fmt.Errorf("spec set %s: the spec needs a \"Difficulty: <level>\" line right under its title (%s)", c.Task,
 			strings.Join(spec.Levels, ", "))
 	}
-	if types := spec.Types(c.Spec); len(types) > 0 {
+	if spec.OldTypeLine(c.Spec) {
+		return "", fmt.Errorf("spec set %s: the \"Type:\" line is now \"Model: <model>[:<effort>], …\" (T-765): rename it", c.Task)
+	}
+	if refs := spec.Models(c.Spec); len(refs) > 0 {
 		cfg, err := config.LoadDaemon(p.root)
 		if err != nil {
 			return "", fmt.Errorf("spec set %s: %v", c.Task, err)
 		}
-		names := cfg.LaneTypeNames()
-		for _, t := range types { // `<type>[:<effort>]` (T-695)
-			if typ, _ := config.ParseTypeRef(t); !slices.Contains(names, typ) {
-				return "", fmt.Errorf("spec set %s: \"Type: %s\" names a lane type this project does not have (lane types: %s)", c.Task, t,
-					strings.Join(names, ", "))
-			}
-			if err := cfg.CheckTypeRef(t); err != nil {
-				return "", fmt.Errorf("spec set %s: \"Type: %s\": %v", c.Task, t, err)
+		for _, t := range refs { // `<model>[:<effort>]` (T-695)
+			if err := cfg.CheckModelRef(t); err != nil {
+				return "", fmt.Errorf("spec set %s: \"Model: %s\": %v", c.Task, t, err)
 			}
 		}
 	}

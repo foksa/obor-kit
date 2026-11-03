@@ -186,7 +186,7 @@ var failRows = map[string]failRow{
 	"fix (agent_blocked)": {step: "fix", attempt: 2, check: `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`,
 		arm: func(r *loopRig, _ *answers) func() {
 			r.work("red.txt", "red\n")
-			r.srv.Fail("agent.prompt", "agent_blocked", "pj-o1 is blocked")
+			r.srv.Fail("agent.prompt", "agent_blocked", "pj-l-01 is blocked")
 			return func() { r.srv.Reply("agent.prompt", prompted) }
 		}, end: "2 result fix"},
 }
@@ -225,7 +225,7 @@ func TestRV37VerifyStopFailure(t *testing.T) {
 	r.mu.Unlock()
 	r.start()
 	r.merged(1)
-	if r.count("1 intent agent.stop") != 1 || r.result("agent.stop") != `"STOPPED pj-o1"` ||
+	if r.count("1 intent agent.stop") != 1 || r.result("agent.stop") != `"STOPPED pj-l-01"` ||
 		r.f.Pane("w1:p1").Name != "" {
 		t.Errorf("want the stop retried under its one intent: %q", r.steps())
 	}
@@ -238,12 +238,12 @@ func TestLoopFailureCountSurvivesRestart(t *testing.T) {
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
 	r.submit()
-	failed := []byte(`{"lane":"O-01","reason":"gate: git I/O: index.lock exists","merge":true,"step":"gate"}`)
+	failed := []byte(`{"lane":"L-01","reason":"gate: git I/O: index.lock exists","merge":true,"step":"gate"}`)
 	if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
-		{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
+		{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01","agent":"pj-l-01"}`)},
 		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindIntent, Class: event.ClassGit},
 		{Task: "T-1", Attempt: 1, Step: "submit", Kind: event.KindResult, Data: []byte(`{"sha":"` + r.p.Git(r.lane, "rev-parse", "HEAD") + `"}`)},
-		{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+		{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"L-01"}`)},
 		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
 		{Task: "T-1", Attempt: 1, Step: "failed", Kind: event.KindFact, Data: failed},
 	}...); err != nil {
@@ -343,7 +343,7 @@ func TestLoopFinalOutcomes(t *testing.T) {
 		r := newLoopRig(t, `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`)
 		r.work("red.txt", "red\n")
 		r.setLane(func(l *port.Lane) { l.Agent = "" })
-		r.p.State("O-01", map[string]any{"lane": "O-01", "task": "T-1", "branch": "task/T-1", "base": "main"})
+		r.p.State("L-01", map[string]any{"lane": "L-01", "task": "T-1", "branch": "task/T-1", "base": "main"})
 		r.submit() // before the start: in the log (no agent could call task_done)
 		r.start()
 		r.waitStep("2 fact needs-you{fix job T-1/2/fix not sent: the lane names no worker agent}")
@@ -357,7 +357,7 @@ func TestLoopFinalOutcomes(t *testing.T) {
 // notFound is an adapter's "no such agent" (app.NotFound).
 type notFound struct{}
 
-func (notFound) Error() string  { return "agent_not_found: pj-o1" }
+func (notFound) Error() string  { return "agent_not_found: pj-l-01" }
 func (notFound) NotFound() bool { return true }
 
 // RV-37 verify-2 #7, fixed (its probe TestRV37V2ResumeRepromptAuthorization): a retry or a nudge of the open job
@@ -468,10 +468,10 @@ func TestLoopSubmitRefused(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.work("feature.txt", "feature\n")
-	r.scratch.arm("Submit", func(context.Context) error { return port.Refused{Line: "FAIL T-1: lane O-01 is not on a branch"} })
+	r.scratch.arm("Submit", func(context.Context) error { return port.Refused{Line: "FAIL T-1: lane L-01 is not on a branch"} })
 	r.start()
 	r.submit()
-	r.waitStep("1 fact needs-you{submit: FAIL T-1: lane O-01 is not on a branch}")
+	r.waitStep("1 fact needs-you{submit: FAIL T-1: lane L-01 is not on a branch}")
 	if !r.has("1 result submit") || r.hasPrefix("1 fact failed") || r.scratch.gates.Load() != 0 || r.scratch.submits.Load() != 1 {
 		t.Fatalf("want one submit with its result, nothing counted, no gate: %q", r.steps())
 	}

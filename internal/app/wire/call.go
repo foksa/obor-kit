@@ -108,7 +108,9 @@ type Call struct {
 	Base    string         `json:"base,omitempty"`
 	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
 	Until int64 `json:"until,omitempty"`
-	Clear bool  `json:"clear,omitempty"`
+	// Model is the model a pause holds (obor pause --model, T-765): "": the project's pause.
+	Model string `json:"model,omitempty"`
+	Clear bool   `json:"clear,omitempty"`
 	// send's (messages.go): the sender project's name; To is a brief's role agent. Prompt is a fresh start's first
 	// prompt (obor restart --fresh --prompt): a brief without a line, recorded as the start's text (T-665).
 	From   string `json:"from,omitempty"`

@@ -186,7 +186,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 func TestBriefToStoppedRoleAgent(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}}}`
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestRoleStopReviewerOnClose(t *testing.T) {
 func TestRoleStopAdvisorKeptRunning(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}}}`
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func readLog(t *testing.T, root string) []event.Record {
 func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	t.Parallel()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"advisor":{}},"lanes":{"O-01":{"agent":"pj-o1"}}}`
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""},"lanes":1}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -335,18 +335,18 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	a, p := lineApp(t, root, &now)
 	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
 		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:o1", Workspace: "w", Cwd: root, Agent: "", Label: "pj-o1"},
+		{ID: "w:o1", Workspace: "w", Cwd: root, Agent: "", Label: "pj-l-01"},
 	}})
 	a.mu.Lock()
-	w := a.whereIs(p, "pj-o1")
+	w := a.whereIs(p, "pj-l-01")
 	a.mu.Unlock()
 	if w.State != Unavailable || w.Why == notConnected {
-		t.Fatalf("precondition: pj-o1 %+v, want no agent running (its pane at a shell)", w)
+		t.Fatalf("precondition: pj-l-01 %+v, want no agent running (its pane at a shell)", w)
 	}
 	if _, ok := a.obs["w:o1"]; !ok {
 		t.Fatal("precondition: the worker's labelled pane is not observed")
 	}
-	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-w", To: "pj-o1", Note: "why X?", Role: "lead",
+	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-w", To: "pj-l-01", Note: "why X?", Role: "lead",
 		Agent: "pj-lead"})
 	if err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestBriefToStoppedWorkerStartsNothing(t *testing.T) {
 	a.mu.Lock()
 	queued := 0
 	for _, q := range p.queuedLines() {
-		if q.msg.To == "pj-o1" {
+		if q.msg.To == "pj-l-01" {
 			queued++
 		}
 	}

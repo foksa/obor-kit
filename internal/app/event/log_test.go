@@ -17,7 +17,7 @@ func TestDump(t *testing.T) {
 	l, _ := openLog(t, root)
 	want := []Record{
 		{Seq: 1, TS: "2026-10-24T11:00:00Z", Task: "T-1", Attempt: 1, Step: "gate", Kind: KindIntent, Class: ClassGit,
-			Data: json.RawMessage(`{"kind":"lane","lane":"O-01"}`)},
+			Data: json.RawMessage(`{"kind":"lane","lane":"L-01"}`)},
 		{Seq: 2, TS: "2026-10-24T11:02:00Z", Task: "T-1", Attempt: 1, Step: "gate", Kind: KindResult,
 			Data: json.RawMessage(`{"outcome":"green"}`)},
 		{Seq: 3, TS: "2026-10-24T11:03:00Z", Task: "T-2", Step: StepResumed, Kind: KindFact},

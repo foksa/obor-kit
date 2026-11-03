@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"obor/internal/app/wire"
-	"obor/internal/testkit"
 )
 
 // T-532: obor hook stop-failure (Claude Code's StopFailure: a turn ended on an API error) appends the payload's raw
@@ -18,9 +17,9 @@ import (
 func TestStopFailureHook(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	lane := p.LaneDir("O-01")
+	lane := p.LaneDir("L-01")
 	logPath := filepath.Join(p.Root, ".obor/state/stop-failure.log")
-	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01"}
+	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01"}
 	down := append(append([]string(nil), env...), callDown) // the first call: no serve yet (T-685)
 	event, _ := json.Marshal(map[string]any{"hook_event_name": "StopFailure", "cwd": lane, "error": "rate_limit",
 		"error_details": "429 Too Many Requests"})
@@ -49,11 +48,11 @@ func TestStopFailureHook(t *testing.T) {
 	}
 	ls := logLines()
 	if len(ls) != 1 || ls[0]["error"] != "rate_limit" || ls[0]["error_details"] != "429 Too Many Requests" ||
-		ls[0]["agent"] != "pj-o-01" || ls[0]["at"] == nil {
+		ls[0]["agent"] != "pj-l-01" || ls[0]["at"] == nil {
 		t.Fatalf("serve down: log %v, want one line with the error, its details, the agent and a time", ls)
 	}
 
-	_, serve := startFakeServe(t, p.Root, wire.Status{}, "STOPPED pj-o-01 (needs-you T-01)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "STOPPED pj-l-01 (needs-you T-01)", "")
 	if rc, stdout, _, _ := shimRun(t, lane, string(event), env, oborBin, "hook", "stop-failure"); rc != 0 || stdout != "" {
 		t.Errorf("serve up: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
@@ -62,7 +61,7 @@ func TestStopFailureHook(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != wire.MethodStopped || c.Agent != "pj-o-01" || c.Role != "worker" || c.Lane != "O-01" ||
+	if serve.methods[0] != wire.MethodStopped || c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" ||
 		c.Error != "rate_limit" || c.Details != "429 Too Many Requests" || c.CallID == "" || c.Root != p.Root {
 		t.Errorf("serve got %s %+v", serve.methods[0], c)
 	}
@@ -95,8 +94,8 @@ func TestStopFailureHook(t *testing.T) {
 func TestTurnHooks(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	lane := p.LaneDir("O-01")
-	worker := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01"}
+	lane := p.LaneDir("L-01")
+	worker := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01"}
 	down := append(append([]string(nil), worker...), callDown) // the first turn: no serve yet (T-685)
 	event := func(name string, cwd ...string) string {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": name, "cwd": append(cwd, lane)[0],
@@ -109,23 +108,23 @@ func TestTurnHooks(t *testing.T) {
 		t.Errorf("serve down: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 
-	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-o-01 (no stop)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-l-01 (no stop)", "")
 	if rc, stdout, _, _ := shimRun(t, lane, event("UserPromptSubmit"), worker, oborBin, "hook", "user-prompt-submit"); rc != 0 ||
 		stdout != "" {
 		t.Errorf("user-prompt-submit: exit %d, stdout %q; want 0, nothing", rc, stdout)
 	}
 	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodTurn || calls[0].Agent != "pj-o-01" || calls[0].Role != "worker" ||
-		calls[0].Lane != "O-01" || calls[0].Root != p.Root || calls[0].Ended {
+	if len(calls) != 1 || serve.methods[0] != wire.MethodTurn || calls[0].Agent != "pj-l-01" || calls[0].Role != "worker" ||
+		calls[0].Lane != "L-01" || calls[0].Root != p.Root || calls[0].Ended {
 		t.Fatalf("after user-prompt-submit serve got %v %+v, want one turn request", serve.methods, calls)
 	}
 
-	p.Dispatched("O-01") // a task without task_done: the Stop hook blocks, and tells serve all the same
+	p.Dispatched("L-01") // a task without task_done: the Stop hook blocks, and tells serve all the same
 	rc, stdout, _, _ := shimRun(t, lane, event("Stop"), worker, oborBin, "hook", "stop")
 	if rc != 0 || !strings.Contains(stdout, `"decision":"block"`) {
 		t.Errorf("stop: exit %d, stdout %q; want the block verdict", rc, stdout)
 	}
-	if calls, _ = serve.requests(); len(calls) != 2 || serve.methods[1] != wire.MethodTurn || calls[1].Agent != "pj-o-01" ||
+	if calls, _ = serve.requests(); len(calls) != 2 || serve.methods[1] != wire.MethodTurn || calls[1].Agent != "pj-l-01" ||
 		!calls[1].Ended {
 		t.Fatalf("after stop serve got %v %+v, want a second turn request, its end", serve.methods, calls)
 	}
@@ -157,8 +156,9 @@ func TestTurnHooks(t *testing.T) {
 // agent (serve gets the turn, the turn's end and the stop-failure); outside a lane they name none and send nothing.
 func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 	t.Parallel()
-	p := servedProject(t, testkit.Set("lane_types.opus", `{"kind":"opencode"}`))
-	lane := p.LaneDir("O-01")
+	p := servedProject(t)
+	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "deepseek"}) // its dispatch runs opencode
+	lane := p.LaneDir("L-01")
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir()}
 	turn := func(cwd string) map[string]any {
 		return map[string]any{"hook_event_name": "UserPromptSubmit", "cwd": cwd, "prompt": "hi"}
@@ -177,7 +177,7 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 		}
 	}
 
-	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-o-01 (no stop)", "")
+	_, serve := startFakeServe(t, p.Root, wire.Status{}, "TURN pj-l-01 (no stop)", "")
 	run(lane, "user-prompt-submit", turn(lane))
 	run(lane, "stop", stop(lane))
 	run(lane, "stop-failure", failure(lane))
@@ -187,7 +187,7 @@ func TestOpencodeHooksResolveTheLaneAgent(t *testing.T) {
 		t.Fatalf("serve got %v %+v, want two turns and a stopped", serve.methods, calls)
 	}
 	for _, c := range calls {
-		if c.Agent != "pj-o-01" || c.Role != "worker" || c.Lane != "O-01" || c.Root != p.Root {
+		if c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Root != p.Root {
 			t.Errorf("call %+v: want the lane's agent, role and lane", c)
 		}
 	}

@@ -197,7 +197,7 @@ func TestReset(t *testing.T) {
 }
 
 // T-695: Start with an effort sets --effort <effort> once, in place of the args' own (either spelling); without one the
-// args are as given; a second Start over the first's argv (launch: config.LaneType.LaunchArgs, then the start) keeps
+// args are as given; a second Start over the first's argv (launch: config.Model.LaunchArgs, then the start) keeps
 // one --effort.
 func TestStartEffort(t *testing.T) {
 	k := kind(t)

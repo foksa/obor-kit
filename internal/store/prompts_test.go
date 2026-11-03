@@ -14,7 +14,7 @@ import (
 func TestPromptsWriteReadPrune(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	if rows, err := ReadPromptsAt(root, PromptQuery{Agent: "pj-o1"}, 10); err != nil || len(rows) != 0 {
+	if rows, err := ReadPromptsAt(root, PromptQuery{Agent: "pj-l1"}, 10); err != nil || len(rows) != 0 {
 		t.Fatalf("no database: %v %v; want none", err, rows)
 	}
 	db, err := OpenRW(File(root))
@@ -23,18 +23,18 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 	}
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	for _, r := range []PromptRow{
-		{Seq: 1, Agent: "pj-o1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1", TS: at.Format(time.RFC3339), Rev: 1,
+		{Seq: 1, Agent: "pj-l1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1", TS: at.Format(time.RFC3339), Rev: 1,
 			Text: "work one"},
-		{Seq: 2, Agent: "pj-o1", Kind: PromptJob, Job: "T-1/1/fix", Task: "T-1", TS: at.Add(time.Hour).Format(time.RFC3339),
+		{Seq: 2, Agent: "pj-l1", Kind: PromptJob, Job: "T-1/1/fix", Task: "T-1", TS: at.Add(time.Hour).Format(time.RFC3339),
 			Text: "fix one"},
 		{Seq: 3, Agent: "pj-int", Kind: PromptJob, Job: "T-1/1/review", Task: "T-1",
 			TS: at.Add(2 * time.Hour).Format(time.RFC3339), Text: "review one"},
 		{Seq: 4, Agent: "pj-rev", Kind: PromptBrief, TS: at.Add(3 * time.Hour).Format(time.RFC3339), Text: "[obor lead] brief"},
 		{Seq: 5, Agent: "pj-rev", Kind: PromptStart, TS: at.Add(4 * time.Hour).Format(time.RFC3339), Text: "Review RV-1."},
-		{Seq: 6, Agent: "pj-o1", Kind: PromptJob, Job: "T-2/1/work", Task: "T-2",
+		{Seq: 6, Agent: "pj-l1", Kind: PromptJob, Job: "T-2/1/work", Task: "T-2",
 			TS: at.Add(40 * 24 * time.Hour).Format(time.RFC3339), Text: "work two"},
 		// The same job fetched again, its text changed (T-670): a row of its own, under the same delivery fact.
-		{Seq: 1, Agent: "pj-o1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1", TS: at.Add(5 * time.Hour).Format(time.RFC3339),
+		{Seq: 1, Agent: "pj-l1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1", TS: at.Add(5 * time.Hour).Format(time.RFC3339),
 			Rev: 2, Text: "work one, spec rev 2"},
 	} {
 		if err := WritePrompt(db, r); err != nil {
@@ -69,14 +69,14 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 		limit int
 		want  string
 	}{
-		{"by agent", PromptQuery{Agent: "pj-o1"}, 10, "1 6 2 1"},
-		{"by agent, limited", PromptQuery{Agent: "pj-o1"}, 2, "1 6"},
+		{"by agent", PromptQuery{Agent: "pj-l1"}, 10, "1 6 2 1"},
+		{"by agent, limited", PromptQuery{Agent: "pj-l1"}, 2, "1 6"},
 		{"by task", PromptQuery{Task: "T-1"}, 10, "1 3 2 1"},
 		{"by job", PromptQuery{Job: "T-1/1/fix"}, 10, "2"},
 		{"a job fetched twice", PromptQuery{Job: "T-1/1/work"}, 10, "1 1"},
 		{"a brief's agent", PromptQuery{Agent: "pj-rev"}, 10, "5 4"},
 		{"nothing", PromptQuery{Agent: "pj-nobody"}, 10, ""},
-		{"no limit", PromptQuery{Agent: "pj-o1"}, 0, ""},
+		{"no limit", PromptQuery{Agent: "pj-l1"}, 0, ""},
 	} {
 		rows, err := ReadPromptsAt(root, c.q, c.limit)
 		if err != nil || seqs(rows) != c.want {
@@ -103,7 +103,7 @@ func TestPromptsWriteReadPrune(t *testing.T) {
 	if err != nil || n != 6 {
 		t.Fatalf("PrunePrompts: %d %v; want 6", n, err)
 	}
-	rows, err = ReadPrompts(db, PromptQuery{Agent: "pj-o1"}, 10)
+	rows, err = ReadPrompts(db, PromptQuery{Agent: "pj-l1"}, 10)
 	if err != nil || seqs(rows) != "6" {
 		t.Errorf("after the prune: %q %v; want 6", seqs(rows), err)
 	}
@@ -163,7 +163,7 @@ func TestOpenRWMigratesTheOldSchema(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'prompts'").Scan(&n); err != nil || n != 1 {
 		t.Errorf("prompts table after the migration: %d %v; want 1", n, err)
 	}
-	if err := WritePrompt(db, PromptRow{Seq: 1, Agent: "pj-o1", Kind: PromptJob, TS: "2026-11-01T10:00:00Z",
+	if err := WritePrompt(db, PromptRow{Seq: 1, Agent: "pj-l1", Kind: PromptJob, TS: "2026-11-01T10:00:00Z",
 		Text: "work"}); err != nil {
 		t.Errorf("WritePrompt after the migration: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestOpenRWMigratesTheOldPromptsKey(t *testing.T) {
 		"DROP TABLE prompts",
 		`CREATE TABLE prompts (seq INTEGER PRIMARY KEY, agent TEXT NOT NULL, kind TEXT NOT NULL, job TEXT NOT NULL,
 			task TEXT NOT NULL, ts TEXT NOT NULL, text TEXT NOT NULL)`,
-		"INSERT INTO prompts VALUES (1, 'pj-o1', 'job', 'T-1/1/work', 'T-1', '2026-10-24T11:00:00Z', 'work one')",
+		"INSERT INTO prompts VALUES (1, 'pj-l1', 'job', 'T-1/1/work', 'T-1', '2026-10-24T11:00:00Z', 'work one')",
 		"INSERT INTO prompts VALUES (2, 'pj-int', 'job', 'T-1/1/review', 'T-1', '2026-10-24T11:01:00Z', 'review one')",
 		"UPDATE meta SET value = '7' WHERE key = 'schema_version'",
 	} {
@@ -210,11 +210,11 @@ func TestOpenRWMigratesTheOldPromptsKey(t *testing.T) {
 	}
 	rows, err := ReadPrompts(db, PromptQuery{Task: "T-1"}, 10)
 	if err != nil || len(rows) != 2 || rows[0].Seq != 2 || rows[0].Text != "review one" || rows[0].Rev != 0 ||
-		rows[1].Seq != 1 || rows[1].Text != "work one" || rows[1].Agent != "pj-o1" ||
+		rows[1].Seq != 1 || rows[1].Text != "work one" || rows[1].Agent != "pj-l1" ||
 		rows[1].TS != "2026-10-24T11:00:00Z" {
 		t.Fatalf("the migrated rows: %+v %v; want the old two, newest first", rows, err)
 	}
-	if err := WritePrompt(db, PromptRow{Seq: 1, Agent: "pj-o1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1",
+	if err := WritePrompt(db, PromptRow{Seq: 1, Agent: "pj-l1", Kind: PromptJob, Job: "T-1/1/work", Task: "T-1",
 		TS: "2026-10-25T11:00:00Z", Rev: 2, Text: "work one, spec rev 2"}); err != nil {
 		t.Fatalf("a second row for one fact's job after the migration: %v", err)
 	}

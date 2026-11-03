@@ -43,7 +43,7 @@ func raw(c *Config, path string) (string, bool) {
 }
 
 func TestDefaultsAndDerivedKeys(t *testing.T) {
-	c := load(t, `{"version":1,"prefix":"pj","lane_types":{"opus":{"kind":"claude"},"cx":{"kind":"codex"}}}`, "")
+	c := load(t, `{"version":1,"prefix":"pj","models":{"cx":{"kind":"codex","model":"gpt-x"}}}`, "")
 	for path, want := range map[string]string{
 		".branches.main":      "main",
 		".branches.task":      "task/{id}",
@@ -64,10 +64,8 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 			t.Errorf("%s = %s: removed, no default any more", p, got)
 		}
 	}
-	for _, p := range []string{".lane_types.opus.settings", ".lane_types.cx.settings"} {
-		if _, ok := c.Get(p); ok {
-			t.Errorf("%s: the Remote Control default is applied at launch, not in the config (T-280)", p)
-		}
+	if _, ok := c.Get(".models.cx.settings"); ok {
+		t.Errorf("the Remote Control default is applied at launch, not in the config (T-280)")
 	}
 	if c.LanesDir() != filepath.Join(filepath.Dir(c.Root), "proj-wt") {
 		t.Errorf("LanesDir = %s", c.LanesDir())
@@ -76,19 +74,22 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 
 func TestLocalOverlay(t *testing.T) {
 	c := load(t, `{"prefix":"pj","merge":{"receipt_max_age":60},"done_file_sections":["A","B","C"],
-		"lane_types":{"opus":{"kind":"claude","args":["--model","opus"],"max":4}},
+		"kinds":{"claude":{"args":["--x"],"prompt_extra":"P"}},"lanes":4,
 		"commands":{"check":{"cmd":"make check","timeout":90}},
 		"merge":{"receipt_max_age":60,"classes":[{"name":"a","paths":["src/a/**"]}]}}`,
-		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"done_file_sections":["X"],"lane_types":{"opus":{"max":2}},
-		"commands":{"check":{"dir":"sub"}},"lanes_dir":"/wt"}`)
+		`{"merge":{"nightly_at":"02:00","classes":[{"name":"b","paths":["src/b/**"]}]},"done_file_sections":["X"],
+		"kinds":{"claude":{"args":["--y"]}},"lanes":2,"commands":{"check":{"dir":"sub"}},"lanes_dir":"/wt"}`)
 	if m := c.Data.Merge; m.ReceiptMaxAge != 60 || m.NightlyAt != "02:00" {
 		t.Errorf("merge: objects merge key by key, got %+v", m)
 	}
 	if !reflect.DeepEqual(c.Data.DoneFileSections, []string{"X"}) {
 		t.Errorf("a list is replaced whole: %q", c.Data.DoneFileSections)
 	}
-	if lt, _ := c.LaneType("opus"); lt.Max != 2 || !reflect.DeepEqual(lt.Args, []string{"--model", "opus"}) {
-		t.Errorf("a lane type merges: %+v", lt)
+	if k := c.Data.Kinds.M["claude"]; k.PromptExtra != "P" || !reflect.DeepEqual(k.Args, []string{"--y"}) {
+		t.Errorf("a kind merges key by key, its args replaced whole: %+v", k)
+	}
+	if c.Data.Lanes != 2 || len(c.Lanes()) != 2 {
+		t.Errorf("local.json's lanes count replaces config.json's: %d", c.Data.Lanes)
 	}
 	if cmd, ok := c.Command("check"); !ok || cmd.Cmd != "make check" || cmd.Timeout != 90 || cmd.Dir != "sub" {
 		t.Errorf("a command merges: %+v", cmd)
@@ -106,8 +107,9 @@ func TestLocalOverlay(t *testing.T) {
 }
 
 func TestUnknownKeyFails(t *testing.T) {
-	for _, cfg := range []string{`{"prefix":"pj","typo_key":1}`, `{"prefix":"pj","roles":{"mystery":{}}}`,
-		`{"prefix":"pj","lane_types":{"opus":{"kind":"claude","modle":"x"}}}`, `{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`} {
+	for _, cfg := range []string{`{"prefix":"pj","typo_key":1}`, `{"prefix":"pj","roles":{"mystery":"opus"}}`,
+		`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, `{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`,
+		`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`} {
 		_, err := Load(writeProject(t, cfg, ""))
 		if err == nil || !strings.Contains(err.Error(), "unknown field") {
 			t.Errorf("%s: %v, want an unknown field error", cfg, err)
@@ -148,30 +150,22 @@ func TestLoadErrors(t *testing.T) {
 }
 
 func TestOrderedMapsKeepOrder(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lane_types":{"z":{"kind":"codex"},"a":{"kind":"codex"}},
-		"lanes":{"Z-01":"z","A-01":{"type":"a","agent":"x"},"M-01":"z"},
+	c := load(t, `{"prefix":"pj","models":{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a1"}},
+		"kinds":{"opencode":{"args":["--o"]},"claude":{"args":["--c"]}},
 		"commands":{"zz":"z","aa":null,"mm":{"cmd":"m","timeout":5}},"agents":{"zed":{"type":"z"},"amy":{"type":"a"}}}`,
-		`{"lanes":{"B-01":"a","Z-01":"a"}}`)
-	var lanes []string
-	for _, l := range c.Lanes() {
-		lanes = append(lanes, l.Name+"="+l.Type)
-	}
-	if want := []string{"Z-01=a", "A-01=a", "M-01=z", "B-01=a"}; !reflect.DeepEqual(lanes, want) {
-		t.Errorf("lanes = %q, want %q (a known key keeps its place, a new one is appended)", lanes, want)
-	}
+		`{"models":{"b":{"kind":"codex","model":"b1"},"z":{"kind":"codex","model":"z2"}}}`)
 	for _, k := range []struct {
 		got, want []string
-	}{{c.Data.LaneTypes.Keys, []string{"z", "a"}}, {c.Data.Commands.Keys, []string{"zz", "aa", "mm"}},
-		{c.Data.Agents.Keys, []string{"zed", "amy"}}} {
+	}{{c.Data.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Kinds.Keys, []string{"opencode", "claude"}},
+		{c.Data.Commands.Keys, []string{"zz", "aa", "mm"}}, {c.Data.Agents.Keys, []string{"zed", "amy"}}} {
 		if !reflect.DeepEqual(k.got, k.want) {
-			t.Errorf("keys = %q, want %q", k.got, k.want)
+			t.Errorf("keys = %q, want %q (a known key keeps its place, a new one is appended)", k.got, k.want)
 		}
 	}
-	got, _ := raw(c, ".lanes")
-	if want := "{\n  \"Z-01\": \"a\",\n  \"A-01\": {\n    \"type\": \"a\",\n    \"agent\": \"x\"\n  },\n  \"M-01\": \"z\",\n  \"B-01\": \"a\"\n}"; got != want {
-		t.Errorf("config get .lanes = %s, want %s", got, want)
+	if m, _ := c.Model("z"); m.ID != "z2" {
+		t.Errorf("models.z = %+v, want local.json's model", m)
 	}
-	got, _ = raw(c, ".commands")
+	got, _ := raw(c, ".commands")
 	if want := "{\n  \"zz\": \"z\",\n  \"aa\": null,\n  \"mm\": {\n    \"cmd\": \"m\",\n    \"timeout\": 5\n  }\n}"; got != want {
 		t.Errorf("config get .commands = %s, want %s", got, want)
 	}
@@ -181,15 +175,15 @@ func TestOrderedMapsKeepOrder(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lanes":{"O-01":"opus"},"roles":{"integrator":{"handoff_tokens":0}}}`, "")
+	c := load(t, `{"prefix":"pj","lanes":2,"roles":{"integrator":"opus:high"},"integrator_handoff_tokens":0}`, "")
 	for _, tc := range []struct {
 		path, want string
 		ok         bool
 	}{
 		{".prefix", "pj", true},
-		{`.lanes["O-01"]`, "opus", true},
-		{".lanes.O-01", "opus", true},
-		{".roles.integrator.handoff_tokens", "0", true},
+		{".lanes", "2", true},
+		{".roles.integrator", "opus:high", true},
+		{".integrator_handoff_tokens", "0", true},
 		{".roles.leads", "", false},
 		{".nope", "", false},
 		{".prefix.x", "", false},
@@ -205,21 +199,18 @@ func TestGet(t *testing.T) {
 }
 
 // TestLeadRemoved (T-467): roles.leads still loads (a removed key: validate warns) but no longer names or types a
-// lead; roles.lead is the one lead.
+// lead; roles.lead is the one lead, its agent <prefix>-lead.
 func TestLeadRemoved(t *testing.T) {
-	c := load(t, `{"prefix":"pj","roles":{"lead":{"type":"opus","agent":"boss"},
+	c := load(t, `{"prefix":"pj","roles":{"lead":"opus:high",
 		"leads":[{"name":"mp","agent":"lead-mp"},{"name":"ui","agent":"lead-ui"}]}}`, "")
-	if c.Data.Roles.Lead.Agent != "boss" || c.AgentName("lead", "") != "boss" {
-		t.Errorf("roles.lead is the only lead: %q %q", c.Data.Roles.Lead.Agent, c.AgentName("lead", ""))
+	if c.AgentName("lead", "") != "pj-lead" {
+		t.Errorf("roles.lead is the only lead: %q", c.AgentName("lead", ""))
 	}
-	if a, ok := c.AgentLookup("boss", "", nil); !ok || a.Role != "lead" || a.Type != "opus" {
-		t.Errorf("the lead's agent resolves to the lead: %+v %v", a, ok)
+	if a, ok := c.AgentLookup("pj-lead", "", nil); !ok || a.Role != "lead" || a.Type != "opus" || a.Effort != "high" {
+		t.Errorf("the lead's agent resolves to the lead and its model ref: %+v %v", a, ok)
 	}
 	if _, ok := c.AgentLookup("lead-ui", "", nil); ok {
 		t.Error("a roles.leads agent is no lead any more")
-	}
-	if one := load(t, `{"prefix":"pj","roles":{"lead":{"agent":"boss"}}}`, ""); one.AgentName("lead", "") != "boss" {
-		t.Errorf("roles.lead.agent = %q", one.AgentName("lead", ""))
 	}
 }
 
@@ -246,9 +237,9 @@ func TestDefaults(t *testing.T) {
 func TestIntegratorHandoffTokens(t *testing.T) {
 	for cfg, want := range map[string]int64{
 		`{"prefix":"pj"}`: 150000,
-		`{"prefix":"pj","roles":{"integrator":{"type":"opus"}}}`:           150000,
-		`{"prefix":"pj","roles":{"integrator":{"handoff_tokens":200000}}}`: 200000,
-		`{"prefix":"pj","roles":{"integrator":{"handoff_tokens":0}}}`:      0,
+		`{"prefix":"pj","roles":{"integrator":"opus"}}`:      150000,
+		`{"prefix":"pj","integrator_handoff_tokens":200000}`: 200000,
+		`{"prefix":"pj","integrator_handoff_tokens":0}`:      0,
 	} {
 		if got := load(t, cfg, "").IntegratorHandoffTokens(); got != want {
 			t.Errorf("%s: IntegratorHandoffTokens = %d, want %d", cfg, got, want)
@@ -257,10 +248,9 @@ func TestIntegratorHandoffTokens(t *testing.T) {
 }
 
 func TestRolesAndAgentNames(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lane_types":{"opus":{"kind":"claude"}},"lanes":{"O-01":"opus"},
-		"roles":{"worker":{"agent":"custom-worker"},"reviewer":{"type":"opus"},"deep_dive":{"worktree":"dd"}}}`, "")
+	c := load(t, `{"prefix":"pj","lanes":1,"roles":{"reviewer":"opus","deep_dive":"sonnet:high","integrator":"opus"}}`, "")
 	for _, tc := range []struct{ role, lane, want string }{
-		{"worker", "O-01", "custom-worker"}, {"reviewer", "", "pj-rev"}, {"lead", "", "pj-lead"}, {"integrator", "", "pj-int"},
+		{"worker", "L-01", "pj-l-01"}, {"reviewer", "", "pj-rev"}, {"lead", "", "pj-lead"}, {"integrator", "", "pj-int"},
 		{"nobody", "", ""},
 	} {
 		if got := c.AgentName(tc.role, tc.lane); got != tc.want {
@@ -270,7 +260,10 @@ func TestRolesAndAgentNames(t *testing.T) {
 	if got, ok := c.Role("reviewer"); !ok || got.Agent != "pj-rev" || got.Type != "opus" || got.Worktree != "review" || !got.Configured {
 		t.Errorf("reviewer = %+v, %v", got, ok)
 	}
-	if got := c.RoleWorktrees(); !reflect.DeepEqual(got, []string{"review", "dd"}) {
+	if got, _ := c.Role("deep_dive"); got.Type != "sonnet" || got.Effort != "high" {
+		t.Errorf("deep_dive = %+v: a role ref names its model and effort", got)
+	}
+	if got := c.RoleWorktrees(); !reflect.DeepEqual(got, []string{"review", "deep-dive"}) {
 		t.Errorf("RoleWorktrees = %q", got)
 	}
 	if got := c.Paths(); got.Reviews != "" || got.Get("tasks") != "" || got.Get("queue") != "" {
@@ -279,14 +272,13 @@ func TestRolesAndAgentNames(t *testing.T) {
 }
 
 func TestAgentLookupPrecedence(t *testing.T) {
-	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lane_types":{"opus":{"kind":"claude"}},
-		"lanes":{"O-01":{"type":"opus","agent":"custom-lane"}},
-		"roles":{"lead":{"type":"opus"},"integrator":{"agent":"my-int"},"triage":{},"deep_dive":{"type":"opus","worktree":"dd"}},
-		"agents":{"adv":{"type":"opus"},"des":{"type":"opus","cwd":"sub/","role":"designer"},
-			"far":{"type":"opus","cwd":"/tmp/x/../y"},"my-int":{"type":"opus"},"pj-o-01":{"type":"opus"}}}`, "")
-	// The agent O-01's state file names (project.LaneAgent; config reads no state files).
+	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lanes":2,
+		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"},
+		"agents":{"adv":{"type":"opus"},"des":{"type":"fable:max","cwd":"sub/","role":"designer"},
+			"far":{"type":"opus","cwd":"/tmp/x/../y"},"pj-int":{"type":"opus"},"pj-l-01":{"type":"opus"}}}`, "")
+	// The agent L-01's state file names (project.LaneAgent; config reads no state files).
 	state := func(lane string) string {
-		if lane == "O-01" {
+		if lane == "L-01" {
 			return "bob"
 		}
 		return ""
@@ -295,7 +287,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.LaneAgentAliases("O-01", state("O-01")); !reflect.DeepEqual(got, []string{"bob", "custom-lane", "pj-o-01", "pj-o1"}) {
+	if got := c.LaneAgentAliases("L-01", state("L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01", "pj-l1"}) {
 		t.Errorf("LaneAgentAliases = %#v", got)
 	}
 	if _, ok := c.AgentLookup("pj-advisor", "", state); ok {
@@ -303,91 +295,64 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 	wt := filepath.Join(filepath.Dir(root), "proj-wt")
 	for name, want := range map[string]AgentInfo{
-		"bob":          {Role: "worker", Lane: "O-01", Type: "opus", Cwd: wt + "/O-01"},
-		"pj-o-01":      {Role: "worker", Lane: "O-01", Type: "opus", Cwd: wt + "/O-01"},
-		"my-int":       {Role: "integrator", Cwd: root},
-		"pj-lead":      {Role: "lead", Type: "opus", Cwd: root},
-		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: root}, // T-718: its old worktree dd is unused
+		"bob":          {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
+		"pj-l-01":      {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
+		"pj-l-02":      {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
+		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: root},
+		"pj-lead":      {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
+		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: root}, // T-718: no worktree of its own
+		"pj-triage":    {Role: "triage", Cwd: root},
 		"adv":          {Type: "opus", Cwd: root},
-		"des":          {Role: "designer", Type: "opus", Cwd: filepath.Join(root, "sub")},
+		"des":          {Role: "designer", Type: "fable", Effort: "max", Cwd: filepath.Join(root, "sub")},
 		"far":          {Type: "opus", Cwd: "/tmp/y"},
 	} {
 		if got, ok := c.AgentLookup(name, "", state); !ok || got != want {
 			t.Errorf("AgentLookup(%q) = %+v, %v; want %+v", name, got, ok, want)
 		}
 	}
-	if got, ok := c.AgentLookup("unknown", wt+"/O-01", state); !ok || got.Role != "worker" || got.Lane != "O-01" {
+	if got, ok := c.AgentLookup("unknown", wt+"/L-02", state); !ok || got.Role != "worker" || got.Lane != "L-02" {
 		t.Errorf("cwd lane lookup = %+v, %v", got, ok)
 	}
 	if _, ok := c.AgentLookup("unknown", "", state); ok {
 		t.Error("unknown agent found")
 	}
-	if got, ok := c.AgentLookup("o-01", "", state); ok {
-		t.Errorf("bare lane name o-01 found: %+v (T-302)", got)
+	if got, ok := c.AgentLookup("l-01", "", state); ok {
+		t.Errorf("bare lane name l-01 found: %+v (T-302)", got)
 	}
 	if _, ok := c.AgentLookup("bob", "", nil); ok {
 		t.Error("bob is known without the state agent")
 	}
 }
 
-// T-280: Remote Control off and auto memory off for every claude agent but a lead; explicit settings overlay them (a lead has only its own).
+// T-280: Remote Control off and auto memory off for every claude agent but a lead.
 func TestLaunchArgs(t *testing.T) {
-	def := LaneType{Kind: "claude", Args: []string{"--model", "opus"}}
-	own := LaneType{Kind: "claude", Args: []string{"--model", "opus"}, Settings: map[string]any{"x": 1}}
-	cx := LaneType{Kind: "codex", Args: []string{"-m", "luna"}}
-	for _, c := range []struct {
+	c := load(t, `{"prefix":"pj"}`, "")
+	opus, _ := c.Model("opus")
+	luna, _ := c.Model("luna")
+	for _, tc := range []struct {
 		name string
-		lt   LaneType
+		m    Model
 		lead bool
 		want string
 	}{
-		{"worker, default", def, false, `--model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"lead, default: no --settings", def, true, "--model opus"},
-		{"lead, explicit settings", own, true, `--model opus --settings {"x":1}`},
-		{"worker, explicit settings overlay the defaults", own, false, `--model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false,"x":1}`},
-		{"codex: no --settings", cx, false, "-m luna -c check_for_update_on_startup=false"},
+		{"worker", opus, false, `--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"lead: no --settings", opus, true, "--permission-mode auto --model opus"},
+		{"codex: no --settings", luna, false, "-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
-		if got := strings.Join(c.lt.LaunchArgs(c.lead, ""), " "); got != c.want {
-			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		if got := strings.Join(tc.m.LaunchArgs(tc.lead, ""), " "); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}
-	if len(def.Args) != 2 {
-		t.Errorf("LaunchArgs changed the type's args: %q", def.Args)
-	}
-}
-
-// T-647: a lane type's model and effort come from its args as each kind names them; a type that names none says "" and
-// obor setup show must not guess one.
-func TestLaneTypeModelAndEffort(t *testing.T) {
-	for _, c := range []struct {
-		name       string
-		args       []string
-		model, eff string
-	}{
-		{"claude", []string{"--model", "opus", "--effort", "high", "--permission-mode", "auto"}, "opus", "high"},
-		{"claude, one word", []string{"--model=sonnet", "--effort=medium"}, "sonnet", "medium"},
-		{"codex", []string{"-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=xhigh", "-s", "workspace-write"}, "gpt-6.1-sol", "xhigh"},
-		{"codex, joined -c", []string{"-m=gpt-6-luna", "-cmodel_reasoning_effort=low"}, "gpt-6-luna", "low"},
-		{"no flag under it", []string{"--model"}, "", ""},
-		{"haiku: no effort", []string{"--model", "haiku", "--permission-mode", "auto"}, "haiku", ""},
-		{"opencode: neither", []string{"--auto", "--standalone"}, "", ""},
-		{"codex: another -c", []string{"-c", "check_for_update_on_startup=false", "-m", "luna"}, "luna", ""},
-	} {
-		lt := LaneType{Kind: "claude", Args: c.args}
-		if got := lt.Model(); got != c.model {
-			t.Errorf("%s: Model() = %q, want %q", c.name, got, c.model)
-		}
-		if got := lt.Effort(); got != c.eff {
-			t.Errorf("%s: Effort() = %q, want %q", c.name, got, c.eff)
-		}
+	if len(opus.Args) != 4 {
+		t.Errorf("LaunchArgs changed the model's args: %q", opus.Args)
 	}
 }
 
 // Lookup (obor config get) knows the unset fields of existing collection members, not invented members or Go names.
 func TestLookupCollectionDefaults(t *testing.T) {
 	t.Parallel()
-	c := load(t, `{"prefix":"pj","commands":{"check":{"cmd":"true"}},"lane_types":{"opus":{"kind":"claude"}},
-		"lanes":{"O-01":"opus"},"agents":{"amy":{"type":"opus"}},
+	c := load(t, `{"prefix":"pj","commands":{"check":{"cmd":"true"}},"models":{"m":{"kind":"claude","model":"x"}},
+		"kinds":{"claude":{"args":["--a"]}},"lanes":1,"agents":{"amy":{"type":"opus"}},
 		"merge":{"classes":[{"name":"go","paths":["**/*.go"]}]}}`, "")
 	for _, tc := range []struct {
 		path, want string
@@ -397,22 +362,21 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		{".commands.check.heavy", "false", true},
 		{`.commands["check"].heavy`, "false", true},
 		{".commands.check.cmd", `"true"`, true},
-		{".lane_types.opus.jobs", "null", true},
-		{`.lane_types["opus"].jobs`, "null", true},
-		{".lanes.O-01.agent", `""`, true},
-		{`.lanes["O-01"].agent`, `""`, true},
+		{".kinds.claude.prompt_extra", `""`, true},
+		{`.kinds["claude"].prompt_extra`, `""`, true},
+		{".models.m.kind", `"claude"`, true},
 		{".agents.amy.cwd", `""`, true},
 		{".merge.classes[0].full", "false", true},
 		{".merge.classes.0.full", "false", true},
 		{".commands.nope.heavy", "", false},
 		{".commands.check.nope", "", false},
-		{".lane_types.nope.jobs", "", false},
-		{".lanes.X-99.agent", "", false},
+		{".kinds.codex.args", "", false},
+		{".models.nope.kind", "", false},
 		{".agents.bob.cwd", "", false},
 		{".merge.classes[1].full", "", false},
 		{".merge.classes[-1].full", "", false},
 		{".commands.Keys", "", false},
-		{".lane_types.M", "", false},
+		{".models.M", "", false},
 		{".prefix.x", "", false},
 	} {
 		v, ok := c.Lookup(tc.path)
@@ -434,30 +398,5 @@ func TestTaskFromBranch(t *testing.T) {
 	}
 	if bad := load(t, `{"prefix":"pj","task_id_pattern":"("}`, ""); bad.TaskIDOK("(") {
 		t.Error("a pattern that does not compile matches nothing")
-	}
-}
-
-// T-723: LaneTakes is a lane type a configured lane can run (a lane of it, or an untyped one: the pool); a name that is
-// no lane type never.
-func TestLaneTakes(t *testing.T) {
-	const types = `"lane_types":{"opus":{"kind":"claude"},"sonnet":{"kind":"claude"}}`
-	typed := load(t, `{"prefix":"pj",`+types+`,"lanes":{"O-01":"opus"},
-		"roles":{"lead":{"type":"opus","agent":"boss"},"reviewer":{"type":"opus","agent":"pj-rv"},
-			"integrator":{"type":"sonnet","agent":"my-int"},"triage":{}}}`, "")
-	pooled := load(t, `{"prefix":"pj",`+types+`,"lanes":{"O-01":"opus","L-01":""}}`, "")
-	for _, c := range []struct {
-		name string
-		cfg  *Config
-		typ  string
-		want bool
-	}{
-		{"a lane of the type", typed, "opus", true},
-		{"a type with no lane of it and no untyped lane", typed, "sonnet", false},
-		{"an untyped lane runs any lane type", pooled, "sonnet", true},
-		{"an untyped lane runs no name that is no lane type", pooled, "gemini", false},
-	} {
-		if got := c.cfg.LaneTakes(c.typ); got != c.want {
-			t.Errorf("%s: LaneTakes(%s) = %v, want %v", c.name, c.typ, got, c.want)
-		}
 	}
 }

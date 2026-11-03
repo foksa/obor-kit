@@ -17,11 +17,11 @@ import (
 // T-649 (reverses T-604): a green task whose worker's report leaves open questions gets its review job, the questions
 // in it: the integrator decides the ones inside the spec's goal and holds the rest for the lead.
 
-// seedQuestions is project pj with an integrator, lane O-01's T-1 submitted with report and its lane gate green.
+// seedQuestions is project pj with an integrator, lane L-01's T-1 submitted with report and its lane gate green.
 func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	t.Helper()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
@@ -29,14 +29,14 @@ func seedQuestions(t *testing.T, report string) (*harness, *schedScratch) {
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
+	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1",
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1",
 		Report: report})
 	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, SpecRev: 1,
-		Candidate: port.Candidate{Task: "T-1", Lane: "O-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
+		Candidate: port.Candidate{Task: "T-1", Lane: "L-01", SHA: "c1", Target: "base1", Patch: "patch1"}})
 	if mt := h.a.p.folded.loop["T-1"]; mt.state != stGreen || mt.report != report {
 		t.Fatalf("precondition: T-1 %s with report %q; want green with the submitted report", mt.state, mt.report)
 	}
@@ -72,7 +72,7 @@ func fixStep(t *testing.T, h *harness, f *schedScratch) {
 // fixJob is the text of T-1's worker's open job (its job_next call).
 func fixJob(t *testing.T, h *harness) wire.JobReply {
 	t.Helper()
-	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "n1"})
+	return nextJob(t, h, wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "n1"})
 }
 
 // reviewJob is the integrator's open job (its job_next call, under call id id).
@@ -220,10 +220,10 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h, f := seedQuestions(t, "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: "+q)
-			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: causeOpen,
 				Reason: "open questions: " + q})
 			if c.resumed {
-				addRecord(t, h, "T-1", event.StepUnblocked, event.KindFact, event.FactData{Lane: "O-01", Merge: true, Cause: causeOpen,
+				addRecord(t, h, "T-1", event.StepUnblocked, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: causeOpen,
 					Reason: wire.ResumeReprompt, Agent: "pj-lead", Call: "r1", Note: c.decision})
 			}
 			if n := countStep(t, h, event.StepNeedsYou); n != 1 {

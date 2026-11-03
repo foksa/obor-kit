@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -14,35 +13,20 @@ import (
 	"obor/internal/run"
 )
 
-var laneRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 func (s *Setup) lane(ctx context.Context, args []string) error {
-	if len(args) < 1 || len(args) > 2 || args[0] == "" || (len(args) == 2 && args[1] == "") {
+	if len(args) != 1 || args[0] == "" {
 		return errUsage
 	}
-	lane, typ := args[0], "" // no type: an untyped pool lane, whose dispatches name the type
-	if len(args) == 2 {
-		typ = args[1]
-	}
-	if !laneRE.MatchString(lane) {
-		return project.Failf("bad lane name %s", lane)
-	}
+	lane := args[0]
 	if err := s.load(); err != nil {
 		return err
 	}
+	configured := s.cfg.HasLane(lane)
+	if next := config.LaneName(s.cfg.Data.Lanes + 1); !configured && lane != next {
+		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.Data.Lanes, next)
+	}
 	if err := refuseLaneCollisions(s.cfg, lane); err != nil {
 		return err
-	}
-	if lt, _ := s.cfg.LaneType(typ); typ != "" && lt.Kind == "" {
-		return project.Failf("unknown lane type %s (not in lane_types with a kind)", typ)
-	}
-	have := s.cfg.Data.Lanes.M[lane].Type
-	configured := s.cfg.HasLane(lane)
-	if configured && have != typ {
-		if have == "" {
-			return project.Failf("lane %s is already configured untyped (edit .obor/config.json to pin it: \"lanes\": {\"%s\": \"%s\"}; for an object-form lane change only type)", lane, lane, typ)
-		}
-		return project.Failf("lane %s is already configured with type %s", lane, have)
 	}
 	dir := filepath.Join(s.cfg.LanesDir(), lane)
 	if err := s.ensureWorktree(dir); err != nil {
@@ -64,8 +48,8 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		s.say("link %s → %s", link, src)
 	}
 	if configured {
-		s.say("skip config lanes.%s (already %s)", lane, typeWord(typ))
-	} else if err := s.addLane(lane, typ); err != nil {
+		s.say("skip config lanes (%s is lane %d of %d)", lane, s.laneIndex(lane), s.cfg.Data.Lanes)
+	} else if err := s.addLane(s.cfg.Data.Lanes + 1); err != nil {
 		return err
 	}
 	if c, ok := run.Command(s.cfg, "lane_setup"); ok {
@@ -86,16 +70,18 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 		}
 		s.say("lane_setup ok: %s", c.Cmd)
 	}
-	s.say("OK lane %s (%s) at %s", lane, typeWord(typ), dir)
+	s.say("OK lane %s at %s", lane, dir)
 	return nil
 }
 
-// typeWord is a lane type for a message: "untyped" for a pool lane.
-func typeWord(typ string) string {
-	if typ == "" {
-		return "untyped"
+// laneIndex is lane's place among the configured lanes (from 1; 0: none).
+func (s *Setup) laneIndex(lane string) int {
+	for i, l := range s.cfg.Lanes() {
+		if l.Name == lane {
+			return i + 1
+		}
 	}
-	return typ
+	return 0
 }
 
 // laneSetupMarker is <root>/.obor/state/lanes/<lane>.setup: the commands.lane_setup that finished for the lane.
@@ -148,18 +134,18 @@ func (s *Setup) laneDone(ctx context.Context, lane, dir string) (bool, error) {
 	return strings.TrimSpace(string(b)) == c.Cmd, nil
 }
 
-// addLane adds lanes.<lane> = type to .obor/config.json (not local.json), uncommitted.
-func (s *Setup) addLane(lane, typ string) error {
+// addLane sets lanes to n in .obor/config.json (not local.json), uncommitted.
+func (s *Setup) addLane(n int) error {
 	path := filepath.Join(s.root, ".obor", "config.json")
 	doc, err := os.ReadFile(path)
 	if err != nil {
 		return project.Failf("cannot read %s", path)
 	}
-	doc, err = config.EditJSON(doc, []string{"lanes", lane}, typ)
+	doc, err = config.EditJSON(doc, []string{"lanes"}, n)
 	if err != nil || writeJSON(path, doc) != nil {
 		return project.Failf("cannot update %s", path)
 	}
-	s.say("config lanes.%s = %s (uncommitted)", lane, config.Compact(typ))
+	s.say("config lanes = %d (uncommitted)", n)
 	return nil
 }
 

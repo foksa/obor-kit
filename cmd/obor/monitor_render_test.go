@@ -39,14 +39,14 @@ func goldenView() view.Project {
 		Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true, PID: 4821, Launchd: "running",
 			SinceTime: now.Add(-6 * time.Hour)},
 		Running: []view.Running{{Step: event.StepGate, Task: "T-660", Command: "make -s check", Since: at(72 * time.Second)}},
-		NeedsYou: []view.NeedsYou{{Task: "T-640", Lane: "O-02", Reason: "held: open questions: which table?",
-			Answer: `obor resume T-640 "<decision>" | obor drop O-02 "<why>"`, Since: at(48 * time.Minute)}},
+		NeedsYou: []view.NeedsYou{{Task: "T-640", Lane: "L-02", Reason: "held: open questions: which table?",
+			Answer: `obor resume T-640 "<decision>" | obor drop L-02 "<why>"`, Since: at(48 * time.Minute)}},
 		Lanes: []view.Lane{
-			{Lane: "O-01", Task: ptr("T-659"), Column: "working", Since: since(12 * time.Minute), Agent: "ob-o-01",
+			{Lane: "L-01", Task: ptr("T-659"), Column: "working", Since: since(12 * time.Minute), Agent: "ob-l-01",
 				AgentStatus: "working", SpecRev: 2, Job: &view.Job{ID: "T-659/1/work", Delivered: true}},
-			{Lane: "O-02", Task: ptr("T-640"), Column: "held", Since: since(48 * time.Minute), Agent: "ob-o-02",
+			{Lane: "L-02", Task: ptr("T-640"), Column: "held", Since: since(48 * time.Minute), Agent: "ob-l-02",
 				AgentStatus: "idle", SpecRev: 1},
-			{Lane: "O-03", Task: ptr("T-660"), Column: "gating", Since: since(72 * time.Second)},
+			{Lane: "L-03", Task: ptr("T-660"), Column: "gating", Since: since(72 * time.Second)},
 			{Lane: "S-01", Column: "free"},
 		},
 		Roles: []view.Role{
@@ -56,7 +56,7 @@ func goldenView() view.Project {
 			{Role: "advisor", Agent: "ob-fable"},
 		},
 		Queue: view.Queue{
-			Merge: []view.MergeItem{{Task: "T-660", Lane: "O-03", State: "gating", Stage: view.StageGating},
+			Merge: []view.MergeItem{{Task: "T-660", Lane: "L-03", State: "gating", Stage: view.StageGating},
 				{Task: "T-661", State: "submitted", Stage: view.StageSubmitted}},
 			Waiting: []view.WaitItem{{Task: "T-664", WaitsOn: view.WaitsAfter, After: []string{"T-662"}},
 				{Task: "T-665", WaitsOn: view.WaitsLane, Level: "medium", Types: []string{"opus", "sonnet"}}},
@@ -67,10 +67,10 @@ func goldenView() view.Project {
 			ev(30*time.Second, "submitted T-660"),
 			ev(5*time.Minute, "gate T-659 fail (RED T-659: e2e failed)"),
 			ev(9*time.Minute, "held T-640: open questions: which table?"),
-			ev(20*time.Minute, "dispatched T-659 (O-01)"),
+			ev(20*time.Minute, "dispatched T-659 (L-01)"),
 			ev(40*time.Minute, "merged T-658 abcdef0"),
 			ev(50*time.Minute, "accepted T-658"),
-			ev(55*time.Minute, "dispatched T-640 (O-02)"),
+			ev(55*time.Minute, "dispatched T-640 (L-02)"),
 			ev(70*time.Minute, "review started RV-3"),
 			ev(80*time.Minute, "serve restarted"),
 		},
@@ -425,17 +425,17 @@ func TestMonitorDrawsNotes(t *testing.T) {
 func TestMonitorLaneShowsTheDispatchsType(t *testing.T) {
 	task := "T-1"
 	st := view.Project{Lanes: []view.Lane{
-		{Lane: "O-01", Type: "sonnet", Task: &task, Column: "working", Effort: "high"},
-		{Lane: "O-02", Type: "opus", Column: "free"},
+		{Lane: "L-01", Type: "sonnet", Task: &task, Column: "working", Effort: "high"},
+		{Lane: "L-02", Type: "opus", Column: "free"},
 	}}
 	rows := laneRows(st, renderOpts{now: goldenNow, cols: 80, loc: time.UTC}, palette{})
 	if len(rows) != 3 {
 		t.Fatalf("precondition: a title and two lane rows, got %q", rows)
 	}
 	if !strings.HasSuffix(rows[1], " sonnet effort high") {
-		t.Errorf("O-01's row %q, want its dispatch's type and effort", rows[1])
+		t.Errorf("L-01's row %q, want its dispatch's type and effort", rows[1])
 	}
 	if strings.Contains(rows[2], "opus") {
-		t.Errorf("free O-02's row %q, want no type", rows[2])
+		t.Errorf("free L-02's row %q, want no type", rows[2])
 	}
 }

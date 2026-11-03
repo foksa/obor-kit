@@ -13,23 +13,16 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-538: obor dispatch <T-xx> takes its lane types from the spec's Difficulty level (config difficulty, built-in
-// default), the first free lane of the first type that has one; no free lane of the level: the task waits for one,
-// never for a higher level. The rig has the lane types sonnet and deepseek (the built-in lists' other types are not in
-// the project: skipped), O-01 (deepseek) and O-02 (sonnet), both free.
+// T-538, T-765: obor dispatch <T-xx> takes its models from the spec's Difficulty level (config difficulty, built-in
+// default), the spec's Model: line first: the first model not paused, on the first free lane (every lane is pooled);
+// no free lane: the task waits for one; every model of the request paused: it waits, the reply says why. The rig has
+// lanes L-01 and L-02, both free.
 
 func newLevelRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	edits = append([]func(map[string]any){
-		testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
-		testkit.Set("lane_types.deepseek", map[string]any{"kind": "claude"}),
-		testkit.Set("lanes.O-01", map[string]any{"type": "deepseek", "agent": "pj-o1"}),
-		testkit.Set("lanes.O-02", "sonnet"),
-	}, edits...)
-	r := newDispatchRig(t, edits...)
-	r.setLane(func(l *port.Lane) { l.Type = "deepseek" })
+	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes", 2)}, edits...)...)
 	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "O-02", Dir: r.p.LaneDir("O-02"), Type: "sonnet", State: "free"})
+	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
 	r.lanes.mu.Unlock()
 	return r
 }
@@ -60,123 +53,149 @@ func (r *loopRig) factData(task, step string) map[string]any {
 	return nil
 }
 
-func TestDifficultyPicksTheFirstFreeLaneOfTheTypesInOrder(t *testing.T) {
+func TestDifficultyRunsTheLevelsFirstModel(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
-	r.specLevel("medium") // sonnet, deepseek: O-02 (sonnet) before O-01 (deepseek), though O-01 is first in the config
+	r.specLevel("medium") // sonnet, deepseek: sonnet on the first free lane
 	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") {
-		t.Fatalf("medium dispatch: %q, %v; want O-02 (sonnet)", reply, err)
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
+		t.Fatalf("medium dispatch: %q, %v; want L-01 as sonnet", reply, err)
 	}
-	if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "O-02" {
-		t.Errorf("dispatch fact %v, want level medium on O-02", d)
+	if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "L-01" || d["type"] != "sonnet" {
+		t.Errorf("dispatch fact %v, want level medium, sonnet on L-01", d)
 	}
 }
 
-// T-629: a level whose listed types no lane can run falls back to medium's list (sonnet before opus): a simple level
-// naming a type no lane can run runs on sonnet, never waiting for a luna no lane can run. The reply has no note of it
-// (T-723 deleted the "level has no lane" note).
-func TestDifficultyFallsBackWhenTheLevelHasNoLane(t *testing.T) {
+// T-689, T-765: the spec's Model: line puts its models first.
+func TestDifficultyModelLineFirst(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude"}),
-		testkit.Set("difficulty.simple", []string{"luna"}),
-		testkit.Set("lanes.O-02", map[string]any{"type": "sonnet", "agent": "pj-o1"}))
-	r.setLane(func(l *port.Lane) { l.Type = "opus" })
-	r.lanes.mu.Lock()
-	r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: "O-02", Dir: r.lane, Type: "sonnet", State: "free", Agent: "pj-o1"})
-	r.lanes.mu.Unlock()
+	r := newLevelRig(t)
 	r.start()
-	r.specLevel("simple") // luna: no lane; medium's sonnet is the fallback
+	r.setSpec("s1", "# T-1 — Leveled\n\nDifficulty: medium\nModel: haiku:low, sonnet\n")
 	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") || strings.Contains(reply, "has no lane") {
-		t.Fatalf("simple dispatch with no simple lane: %q, %v", reply, err)
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as haiku effort low") {
+		t.Fatalf("Model: haiku:low: %q, %v; want haiku at effort low", reply, err)
 	}
-	if d := r.factData("T-1", event.StepDispatched); d["level"] != "simple" || d["lane"] != "O-02" {
-		t.Errorf("dispatch fact %v, want level simple on O-02", d)
-	}
-}
-
-func TestDifficultyTakesTheNextTypeWhenTheFirstIsBusy(t *testing.T) {
-	t.Parallel()
-	r := newLevelRig(t)
-	r.lanes.mu.Lock()
-	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"
-	r.lanes.mu.Unlock()
-	r.start()
-	r.specLevel("medium")
-	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued)") {
-		t.Fatalf("medium dispatch with sonnet busy: %q, %v; want O-01 (deepseek)", reply, err)
+	if d := r.factData("T-1", event.StepDispatched); d["type"] != "haiku:low" || d["effort"] != "low" {
+		t.Errorf("dispatch fact %v, want haiku:low", d)
 	}
 }
 
-func TestDifficultyWaitsForALaneOfTheLevelNeverAHigherOne(t *testing.T) {
+// T-765: a model paused with obor pause --model is skipped and the level's next model runs; every model of the level
+// paused: the task waits with each pause named, and dispatches once a pause is cleared.
+func TestDifficultySkipsAPausedModel(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
-	r.setLane(func(l *port.Lane) { l.Type = "opus" }) // O-01 is a free opus (hard) lane; O-02 (sonnet) is busy
+	r.start()
+	r.specLevel("medium") // sonnet, deepseek
+	if reply, err := r.pause("lead", "p0", wire.Call{Model: "gpt", Note: "x"}); err == nil || !strings.Contains(err.Error(), `gpt is not a model`) {
+		t.Errorf("pause of an unknown model: %q, %v; want refused", reply, err)
+	}
+	if reply, err := r.pause("lead", "p1", wire.Call{Model: "sonnet", Note: "quota"}); err != nil || reply != "PAUSED sonnet until cleared" {
+		t.Fatalf("pause sonnet: %q, %v", reply, err)
+	}
+	reply, err := r.dispatchLevel("d1")
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as deepseek") {
+		t.Fatalf("medium with sonnet paused: %q, %v; want deepseek", reply, err)
+	}
+	r.specOf("T-3", "# T-3 — Leveled\n\nDifficulty: medium\n")
+	if _, err := r.pause("lead", "p2", wire.Call{Model: "deepseek", Note: "down", Until: time.Now().Add(3 * time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	reply, err = r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d3", Task: "T-3"})
+	if err != nil || !strings.HasPrefix(reply, "WAITING T-3 (queued): sonnet paused: quota (until cleared), deepseek paused: down (until ") ||
+		!strings.Contains(reply, "(medium: sonnet, deepseek)") {
+		t.Fatalf("medium with both paused: %q, %v; want WAITING naming both pauses", reply, err)
+	}
+	if n := r.taskStep("T-3", "fact dispatch"); n != 0 {
+		t.Fatalf("dispatched with every model paused: %q", r.steps())
+	}
+	if reply, err := r.pause("lead", "c1", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "PAUSE CLEARED sonnet" {
+		t.Fatalf("clear sonnet: %q, %v", reply, err)
+	}
+	r.waitFor("T-3's dispatch once sonnet's pause ends", func() bool { return r.taskStep("T-3", "fact dispatch") == 1 })
+	if d := r.factData("T-3", event.StepDispatched); d["type"] != "sonnet" || d["lane"] != "L-02" {
+		t.Errorf("T-3's dispatch %v, want sonnet on L-02", d)
+	}
+	if reply, err := r.pause("lead", "c2", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "NOT PAUSED sonnet" {
+		t.Errorf("clear sonnet again: %q, %v", reply, err)
+	}
+}
+
+func TestDifficultyWaitsForAFreeLane(t *testing.T) {
+	t.Parallel()
+	r := newLevelRig(t)
 	r.lanes.mu.Lock()
-	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "working", "T-9"
+	for i := range r.lanes.lanes {
+		r.lanes.lanes[i].State, r.lanes.lanes[i].Task = "working", "T-9"
+	}
 	r.lanes.mu.Unlock()
 	r.start()
-	r.specLevel("simple") // deepseek and sonnet: O-02 (sonnet) is busy, O-01 is a higher level
-	const want = "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet); idle: O-01 (opus)"
+	r.specLevel("simple")
+	const want = "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet, haiku)"
 	if reply, err := r.dispatchLevel("d1"); err != nil || reply != want {
-		t.Fatalf("simple dispatch, no lane of its types free: %q, %v; want %q", reply, err, want)
+		t.Fatalf("simple dispatch, no lane free: %q, %v; want %q", reply, err, want)
 	}
 	r.passes()
-	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet" {
-		t.Errorf("status %+v, want waiting for simple (deepseek, sonnet)", st)
-	}
-	if n := r.taskStep("T-1", "fact dispatch"); n != 0 {
-		t.Fatalf("dispatched onto a lane of another level: %q", r.steps())
+	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet,haiku" {
+		t.Errorf("status %+v, want waiting for simple (deepseek, sonnet, haiku)", st)
 	}
 	r.later(2 * time.Hour)
 	if st := r.taskStatus("T-1"); st.State != "waiting" {
 		t.Errorf("status %+v after two hours, want still waiting (a busy lane is not a needs-you)", st)
 	}
 	r.lanes.mu.Lock()
-	r.lanes.lanes[1].Type, r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "deepseek", "free", ""
+	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "free", ""
 	r.lanes.mu.Unlock()
-	r.waitFor("the dispatch once a deepseek lane frees", func() bool { return r.taskStep("T-1", "fact dispatch") == 1 })
-	if d := r.factData("T-1", event.StepDispatched); d["lane"] != "O-02" || d["level"] != "simple" {
-		t.Errorf("dispatch fact %v, want simple on O-02", d)
+	r.waitFor("the dispatch once a lane frees", func() bool { return r.taskStep("T-1", "fact dispatch") == 1 })
+	if d := r.factData("T-1", event.StepDispatched); d["lane"] != "L-02" || d["level"] != "simple" || d["type"] != "deepseek" {
+		t.Errorf("dispatch fact %v, want simple's deepseek on L-02", d)
 	}
 }
 
-func TestDifficultyTypesOverrideTheLevel(t *testing.T) {
+func TestDifficultyModelsOverrideTheLevel(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
 	r.start()
-	r.specLevel("hard") // opus: no lane of it; --types sonnet reaches O-02
-	if reply, err := r.dispatchLevel("d1", "sonnet"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-02 (queued)") {
-		t.Fatalf("--types sonnet: %q, %v; want O-02", reply, err)
+	r.specLevel("hard")
+	if reply, err := r.dispatchLevel("d1", "terra:high"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as terra effort high") {
+		t.Fatalf("--model terra:high: %q, %v", reply, err)
 	}
 	if d := r.factData("T-1", event.StepDispatched); d["level"] != nil {
-		t.Errorf("dispatch fact %v, want no level (--types overrides it)", d)
+		t.Errorf("dispatch fact %v, want no level (--model overrides it)", d)
 	}
 }
 
-func TestDifficultyTypesWithNoFreeLaneRefuse(t *testing.T) {
+func TestDifficultyModelsWithNoFreeLaneRefuse(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
+	r.lanes.mu.Lock()
+	for i := range r.lanes.lanes {
+		r.lanes.lanes[i].State, r.lanes.lanes[i].Task = "working", "T-9"
+	}
+	r.lanes.mu.Unlock()
 	r.start()
 	r.specLevel("medium")
 	reply, err := r.dispatchLevel("d1", "opus")
-	if err == nil || !strings.Contains(err.Error(), "no free lane of the types opus") || reply != "" {
-		t.Errorf("--types opus: %q, %v; want the refusal, no waiting", reply, err)
+	if err == nil || !strings.Contains(err.Error(), "no free lane for the models opus") || reply != "" {
+		t.Errorf("--model opus: %q, %v; want the refusal, no waiting", reply, err)
 	}
 	if n := r.taskStep("T-1", "fact waiting"); n != 0 {
-		t.Errorf("--types waited: %q", r.steps())
+		t.Errorf("--model waited: %q", r.steps())
+	}
+	if _, err := r.dispatchLevel("d2", "gpt"); err == nil || !strings.Contains(err.Error(), `"gpt" is not a model`) {
+		t.Errorf("--model gpt: %v, want refused naming the models", err)
 	}
 }
 
 func TestDifficultyConfigOverridesTheDefault(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t, testkit.Set("difficulty.medium", []string{"deepseek"}))
+	r := newLevelRig(t, testkit.Set("difficulty.medium", []string{"luna:low"}))
 	r.start()
 	r.specLevel("medium")
-	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued)") {
-		t.Fatalf("medium with difficulty.medium = [deepseek]: %q, %v; want O-01", reply, err)
+	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as luna effort low") {
+		t.Fatalf("medium with difficulty.medium = [luna:low]: %q, %v", reply, err)
 	}
 }
 
@@ -191,9 +210,20 @@ func TestDifficultySpecSetRefusesASpecWithoutALevel(t *testing.T) {
 			t.Errorf("spec set of %q: %v; want a refusal naming the levels", text, err)
 		}
 	}
+	for text, want := range map[string]string{
+		"# T-1 — A\n\nDifficulty: hard\nType: opus\n":      `the "Type:" line is now "Model:`,
+		"# T-1 — A\n\nDifficulty: hard\nModel: gpt\n":      `"Model: gpt": "gpt" is not a model`,
+		"# T-1 — A\n\nDifficulty: hard\nModel: luna:max\n": `effort "max" is not one of codex's`,
+	} {
+		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
+			CallID: "s-" + want, Task: "T-1", Spec: text})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("spec set of %q: %v; want %q", text, err, want)
+		}
+	}
 }
 
-// A request that replaces a waiting one (new after, new types) is the task's waiting fact in force; the old one's
+// A request that replaces a waiting one (new after, new models) is the task's waiting fact in force; the old one's
 // reason does not carry over; a lane that is free then dispatches it.
 func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	t.Parallel()
@@ -207,22 +237,22 @@ func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a free lane (medium: sonnet, deepseek)") {
 		t.Fatalf("first request: %q, %v", reply, err)
 	}
-	if reply, err := r.dispatchLevel("d2", "deepseek"); err == nil || reply != "" || !strings.Contains(err.Error(), "no free lane of the types deepseek") {
-		t.Fatalf("--types while all is busy: %q, %v; want the refusal (no waiting)", reply, err)
+	if reply, err := r.dispatchLevel("d2", "deepseek"); err == nil || reply != "" || !strings.Contains(err.Error(), "no free lane for the models deepseek") {
+		t.Fatalf("--model while all is busy: %q, %v; want the refusal (no waiting)", reply, err)
 	}
 	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "medium" {
 		t.Fatalf("status %+v after a refused replacement, want the first request waiting", st)
 	}
 	r.setSpec("s2", "# T-1 — Leveled\n\nDifficulty: simple\n")
 	reply, err := r.dispatchLevel("d3")
-	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet)") {
+	if err != nil || !strings.HasPrefix(reply, "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet, haiku)") {
 		t.Fatalf("replacement at another level: %q, %v", reply, err)
 	}
 	if n := r.taskStep("T-1", "fact waiting"); n != 2 {
 		t.Errorf("waiting facts %d, want 2 (the request, its replacement)", n)
 	}
-	if st := r.taskStatus("T-1"); st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet" {
-		t.Errorf("status %+v, want the replacement's level and types", st)
+	if st := r.taskStatus("T-1"); st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet,haiku" {
+		t.Errorf("status %+v, want the replacement's level and models", st)
 	}
 	r.lanes.mu.Lock()
 	r.lanes.lanes[0].State, r.lanes.lanes[0].Task = "free", ""

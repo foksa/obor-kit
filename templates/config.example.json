@@ -20,28 +20,15 @@
   },
   "lane_links": ["reference", "public/assets"],
   "protected_files": ["src/engine/types.ts"],
-  "lane_types": {
-    "opus": { "kind": "claude", "args": ["--model", "opus", "--effort", "medium", "--permission-mode", "auto"], "max": 4 },
-    "sonnet": { "kind": "claude", "args": ["--model", "sonnet", "--effort", "medium", "--permission-mode", "auto"] },
-    "haiku": { "kind": "claude", "args": ["--model", "haiku", "--permission-mode", "auto"] },
-    "deepseek": {
-      "kind": "opencode",
-      "args": ["--auto", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash"],
-      "max": 2,
-      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
+  "lanes": 3,
+  "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek", "haiku"] },
+  "roles": { "integrator": "opus", "reviewer": "sol:high" },
+  "kinds": {
+    "opencode": {
+      "prompt_extra": "You run in opencode, not sandboxed; obor's opencode plugin guards your tools (git writes and files outside your lane are denied): no git commands, no installs, stay in this directory. Checks: go test ./<the packages you touched> (never make check or the whole suite). Quote summary lines and failures only."
     },
-    "luna": {
-      "kind": "codex",
-      "args": ["-m", "gpt-6-luna", "-c", "model_reasoning_effort=high", "-s", "workspace-write", "-a", "never"],
-      "prompt_extra": "Network is unavailable; deps are installed."
-    },
-    "sol": {
-      "kind": "codex",
-      "args": ["-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high", "-s", "workspace-write", "-a", "never"]
-    }
+    "codex": { "prompt_extra": "Network is unavailable; deps are installed." }
   },
-  "lanes": { "O-01": "opus", "S-01": "sonnet", "T-01": "luna" },
-  "roles": { "integrator": { "type": "opus" }, "reviewer": { "type": "sol", "worktree": "review" } },
   "setup": { "confirmed": false },
   "merge": {
     "scratch_dir": null,

@@ -232,8 +232,9 @@ func listPackages(t *testing.T) map[string][]string {
 	return pkgs
 }
 
-// kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, and the test fakes.
-var kindLiteralFree = []string{"internal/agents/", "internal/herdr/herdrtest/", "internal/testkit/"}
+// kindLiteralFree are the trees that may name an agent kind as a string literal: the bridges, the test fakes, and the
+// built-in model table with each kind's base args (T-765: one table in internal/config, data only).
+var kindLiteralFree = []string{"internal/agents/", "internal/herdr/herdrtest/", "internal/testkit/", "internal/config/models.go"}
 
 // TestNoKindLiterals (T-495): per-kind behaviour lives in the bridges (docs/module-map.md "bridge"), so no Go file
 // outside them, the fakes and tests holds a registered kind's name as a string literal: an adapter asks agents.Lookup

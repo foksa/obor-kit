@@ -25,8 +25,8 @@ func TestDriveNoStallWhileDriving(t *testing.T) {
 			h.connect()
 			p := h.proj()
 			t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-			addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"),
-				Agent: "pj-o-01-drive", Branch: "task/T-1", Target: "b", Drive: drive})
+			addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+				Agent: "pj-l-01-drive", Branch: "task/T-1", Target: "b", Drive: drive})
 			addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 			p.setLanes(h.lanes.lanes)
 			h.a.reconcile(p)

@@ -104,7 +104,7 @@ type rig struct {
 	done   chan struct{}
 }
 
-// newRig is project pj (workspace w1) with lanes O-01 (T-1) and O-02 (T-2), each with an idle claude, a workspace
+// newRig is project pj (workspace w1) with lanes L-01 (T-1) and L-02 (T-2), each with an idle claude, a workspace
 // w2 labelled "other", and the app not started yet.
 func newRig(t *testing.T) *rig {
 	t.Helper()
@@ -117,11 +117,11 @@ func newRig(t *testing.T) *rig {
 	}
 	write(t, filepath.Join(r.root, ".obor", "config.json"), `{"name":"pj"}`)
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}, {ID: "w2", Label: "other"}}
-	for i, lane := range []string{"O-01", "O-02"} {
+	for i, lane := range []string{"L-01", "L-02"} {
 		task := []string{"T-1", "T-2"}[i]
 		r.lanes.lanes = append(r.lanes.lanes, port.Lane{Name: lane, Dir: r.lane(lane), Task: task})
-		p := r.f.Agent("w1:p"+lane[3:], "pj-o-0"+lane[3:], "idle", r.lane(lane))
-		p.Workspace, p.Label = "w1", "pj-o-0"+lane[3:] // labelled by its launch: serve's identity of it
+		p := r.f.Agent("w1:p"+lane[3:], "pj-l-0"+lane[3:], "idle", r.lane(lane))
+		p.Workspace, p.Label = "w1", "pj-l-0"+lane[3:] // labelled by its launch: serve's identity of it
 	}
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
@@ -278,7 +278,7 @@ func eq(t *testing.T, got, want []string, what string) {
 func TestIdleStallsThenNeedsYou(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	r.f.Pane("w1:p2").Status = "working" // O-02 is not idle: only T-1 stalls
+	r.f.Pane("w1:p2").Status = "working" // L-02 is not idle: only T-1 stalls
 	r.start()
 	r.clock.Add(9 * time.Minute)
 	r.settle()
@@ -287,8 +287,8 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 	r.clock.Add(2 * time.Minute)
 	r.waitFacts("T-1 stalled{idle}")
 	rec := r.records()[0]
-	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "O-01", Machine: "local", Workspace: "pj",
-		WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-o-01", Reason: "idle"}) {
+	if rec.Seq != 1 || rec.Kind != "fact" || rec.Fact() != (event.FactData{Lane: "L-01", Machine: "local", Workspace: "pj",
+		WorkspaceID: "w1", Pane: "w1:p1", Agent: "pj-l-01", Reason: "idle"}) {
 		t.Errorf("stalled record = %+v", rec)
 	}
 	if n := r.count("notification.show"); n != 0 {
@@ -311,8 +311,8 @@ func TestIdleStallsThenNeedsYou(t *testing.T) {
 		t.Fatalf("status = %+v", st)
 	}
 	a := st.Project.Agents[0]
-	if a.Pane != "w1:p1" || a.Lane != "O-01" || a.Task != "T-1" || a.Status != "idle" || a.Age != 51*60 {
-		t.Errorf("status agent = %+v, want w1:p1 O-01 T-1 idle for 51 min", a)
+	if a.Pane != "w1:p1" || a.Lane != "L-01" || a.Task != "T-1" || a.Status != "idle" || a.Age != 51*60 {
+		t.Errorf("status agent = %+v, want w1:p1 L-01 T-1 idle for 51 min", a)
 	}
 }
 
@@ -335,31 +335,31 @@ func TestWorkingAgainResumes(t *testing.T) {
 func TestNotStalledWhileAChildRuns(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	// O-01's agent is pid 2: an MCP server in its own group (3, does not count) and a Bash tool command in a group of
-	// its own (50 → 51). O-02's agent is pid 7 with nothing under it: it stalls, so the watchdogs did look.
+	// L-01's agent is pid 2: an MCP server in its own group (3, does not count) and a Bash tool command in a group of
+	// its own (50 → 51). L-02's agent is pid 7 with nothing under it: it stalls, so the watchdogs did look.
 	r.f.Pane("w1:p2").Foreground = 7
 	r.setPS("2 1 2\n3 2 2\n50 2 50\n51 50 50\n7 1 7\n")
 	r.start()
-	// Sampled before the clock moves: O-02's baseline at 0, O-01 sampled active (no baseline).
+	// Sampled before the clock moves: L-02's baseline at 0, L-01 sampled active (no baseline).
 	r.waitQuiet("T-2", r.clock.Now())
-	r.waitFor("O-01 sampled while its command runs", func() bool {
+	r.waitFor("L-01 sampled while its command runs", func() bool {
 		quiet, seen := app.Quiet(r.app, r.root, "T-1")
 		return quiet.IsZero() && !seen.IsZero()
 	})
 	r.clock.Add(11 * time.Minute)
 	r.waitFacts("T-2 stalled{idle}")
 	r.settle()
-	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts while O-01's command runs")
+	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts while L-01's command runs")
 	if r.count("pane.process_info") == 0 {
 		t.Fatal("the watchdog never asked herdr for process info")
 	}
 
 	if quiet, _ := app.Quiet(r.app, r.root, "T-1"); !quiet.IsZero() {
-		t.Fatalf("O-01 has a quiet baseline (%v) while its command runs", quiet)
+		t.Fatalf("L-01 has a quiet baseline (%v) while its command runs", quiet)
 	}
 
 	r.setPS("2 1 2\n3 2 2\n7 1 7\n")  // the command ended; the MCP server stays
-	r.waitQuiet("T-1", r.clock.Now()) // O-01's first quiet sample: its stall timer's baseline
+	r.waitQuiet("T-1", r.clock.Now()) // L-01's first quiet sample: its stall timer's baseline
 	r.clock.Add(9 * time.Minute)
 	r.settle()
 	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts 9 min after the command ended")
@@ -380,11 +380,11 @@ func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 	r.f.Pane("w1:p1").Transcript = transcript
 	r.start()
 	if _, seen := app.Quiet(r.app, r.root, "T-1"); !seen.Equal(r.clock.Now()) {
-		t.Fatalf("precondition: O-01's watermark %v after the first check, want the write at 0", seen)
+		t.Fatalf("precondition: L-01's watermark %v after the first check, want the write at 0", seen)
 	}
 	r.clock.Add(9 * time.Minute)
 	// The write at 9 and the move to 11 are one step for the watchdogs: a sample must not see the write at 9 and take
-	// its baseline there (a loaded machine then stalls O-01 a minute late, at 20 instead of 21).
+	// its baseline there (a loaded machine then stalls L-01 a minute late, at 20 instead of 21).
 	r.clock.Move(2*time.Minute, func(now time.Time) {
 		if err := os.Chtimes(transcript, now, now); err != nil { // written at 9
 			t.Fatal(err)
@@ -392,15 +392,15 @@ func TestNotStalledWhileTheTranscriptChanges(t *testing.T) {
 	})
 	r.waitFacts("T-2 stalled{idle}")
 	r.settle()
-	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts while O-01's transcript is fresh")
+	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts while L-01's transcript is fresh")
 	if st := r.app.Status(); st.Project.Agents[0].Pane != "w1:p1" {
 		t.Fatalf("status = %+v", st)
 	}
 
 	r.clock.Add(9 * time.Minute)
 	r.settle()
-	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts 9 min after O-01's baseline")
-	r.clock.Add(time.Minute) // Idle after O-01's first quiet sample, and after T-2's stall
+	eq(t, r.facts(), []string{"T-2 stalled{idle}"}, "facts 9 min after L-01's baseline")
+	r.clock.Add(time.Minute) // Idle after L-01's first quiet sample, and after T-2's stall
 	r.waitFacts("T-2 stalled{idle}", "T-1 stalled{idle}", "T-2 needs-you{stalled}")
 }
 
@@ -424,7 +424,7 @@ func TestBlockedNeedsYou(t *testing.T) {
 func TestPaneExitedNeedsYou(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	r.submitted("T-2", "O-02") // T-2 is done: its pane closing is no alarm
+	r.submitted("T-2", "L-02") // T-2 is done: its pane closing is no alarm
 	r.start()
 	r.srv.WaitSubscribed(t, herdr.EventExited, "")
 	r.f.Remove("w1:p2")
@@ -448,7 +448,7 @@ func TestReconnectReadsANewSnapshot(t *testing.T) {
 		t.Fatal("no snapshot on connect")
 	}
 	before := r.count("session.snapshot")
-	// herdr restarts; meanwhile O-01's pane is gone and O-02's agent got blocked.
+	// herdr restarts; meanwhile L-01's pane is gone and L-02's agent got blocked.
 	r.f.Remove("w1:p1")
 	r.f.Pane("w1:p2").Status = "blocked"
 	r.srv.DropConns()
@@ -496,11 +496,11 @@ func TestReplayAfterRestart(t *testing.T) {
 func TestPaneInAnotherWorkspaceIgnored(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	// A pane of workspace "other" in O-01's worktree, idle; O-01's own pane is working, O-02's idle.
+	// A pane of workspace "other" in L-01's worktree, idle; L-01's own pane is working, L-02's idle.
 	r.f.Pane("w1:p1").Status = "working"
-	p := r.f.Agent("w2:p1", "x-o-01", "idle", r.lane("O-01"))
+	p := r.f.Agent("w2:p1", "x-l-01", "idle", r.lane("L-01"))
 	p.Workspace = "w2"
-	stray := r.f.Agent("w9:p1", "y", "idle", r.lane("O-01")) // a workspace herdr did not list
+	stray := r.f.Agent("w9:p1", "y", "idle", r.lane("L-01")) // a workspace herdr did not list
 	stray.Workspace = "w9"
 	r.start()
 	r.clock.Add(11 * time.Minute)
@@ -514,11 +514,11 @@ func TestPaneInAnotherWorkspaceIgnored(t *testing.T) {
 	}
 	for _, req := range r.srv.Requests() {
 		if req.Method == "pane.process_info" && !strings.Contains(string(req.Params), `"w1:p2"`) {
-			t.Errorf("process info asked of %s, want O-02's pane only", req.Params)
+			t.Errorf("process info asked of %s, want L-02's pane only", req.Params)
 		}
 	}
 	if r.count("pane.process_info") == 0 {
-		t.Error("process info never asked of O-02's pane")
+		t.Error("process info never asked of L-02's pane")
 	}
 }
 

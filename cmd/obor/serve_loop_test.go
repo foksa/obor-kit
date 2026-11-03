@@ -32,7 +32,7 @@ import (
 // the fake herdr socket. Only the integrator's start, the worker's stop and the queue dispatch are the test's: they
 // would reach real panes.
 
-// serveRig is project proj (main with a 10-line shared.txt) with lane O-01 on task/T-1 (its worker pj-o1 idle in it)
+// serveRig is project proj (main with a 10-line shared.txt) with lane L-01 on task/T-1 (its worker pj-l1 idle in it)
 // and roles.integrator (pj-int, not running until started); the app is not started yet.
 type serveRig struct {
 	t      *testing.T
@@ -62,14 +62,14 @@ func newServeRig(t *testing.T) *serveRig {
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-qm", "fixture")
 	r := &serveRig{t: t, p: p, f: herdrtest.New(), out: &bytes.Buffer{}}
-	r.lane = p.Lane("O-01", "task/T-1")
-	p.Config(testkit.Set("roles.integrator", map[string]any{}),
+	r.lane = p.Lane("L-01", "task/T-1")
+	p.Config(testkit.Set("roles.integrator", ""),
 		testkit.Set("commands", map[string]any{"check": "echo 1 pass"}))
-	p.State("O-01", map[string]any{"lane": "O-01", "task": "T-1", "branch": "task/T-1", "agent": "pj-o1",
+	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-1", "branch": "task/T-1", "agent": "pj-l1",
 		"base": "main", "dispatched_at": 1})
 	r.f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "proj"}}
-	w := r.f.Agent("w1:p1", "pj-o1", "idle", r.lane)
-	w.Workspace, w.Label = "w1", "pj-o1" // labelled by its launch: serve's identity of it
+	w := r.f.Agent("w1:p1", "pj-l1", "idle", r.lane)
+	w.Workspace, w.Label = "w1", "pj-l1" // labelled by its launch: serve's identity of it
 	r.srv = herdrtest.Serve(t, r.f)
 	r.srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 	r.srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": map[string]any{"name": "x",
@@ -313,7 +313,7 @@ func (r *serveRig) merged() {
 func TestServeLoopHappyPath(t *testing.T) {
 	r := newServeRig(t)
 	r.p.Write(filepath.Join(r.lane, "feature.txt"), "feature\n")
-	r.p.Submit("O-01") // T-1 dispatched and its task_done in, before serve replays the log
+	r.p.Submit("L-01") // T-1 dispatched and its task_done in, before serve replays the log
 	r.start()
 	base := r.p.Git(r.p.Root, "rev-parse", "main")
 	job := r.job("T-1/1/review")
@@ -343,7 +343,7 @@ func TestServeLoopConflictResolved(t *testing.T) {
 	r.p.Write(filepath.Join(r.lane, "shared.txt"), "lane\n"+sharedLines)
 	r.p.Write("shared.txt", "main\n"+sharedLines)
 	r.p.Git(r.p.Root, "commit", "-qam", "main edit")
-	r.p.Submit("O-01") // T-1 dispatched and its task_done in, before serve replays the log
+	r.p.Submit("L-01") // T-1 dispatched and its task_done in, before serve replays the log
 	r.start()
 	job := r.job("T-1/1/resolve")
 	if !strings.Contains(job, "CONFLICT in "+r.serveDir()+": shared.txt") || strings.Contains(job, "--ff-retry") {
@@ -366,7 +366,7 @@ func TestServeLoopConflictResolved(t *testing.T) {
 func TestServeLoopMovedTarget(t *testing.T) {
 	r := newServeRig(t)
 	r.p.Write(filepath.Join(r.lane, "feature.txt"), "feature\n")
-	r.p.Submit("O-01") // T-1 dispatched and its task_done in, before serve replays the log
+	r.p.Submit("L-01") // T-1 dispatched and its task_done in, before serve replays the log
 	r.start()
 	job := r.job("T-1/1/review")
 	submitted := r.p.Git(r.lane, "rev-parse", "HEAD")
@@ -405,7 +405,7 @@ func TestServeLoopLaneLockNotCounted(t *testing.T) {
 		}
 		return true
 	}
-	r.p.Submit("O-01") // T-1 dispatched and its task_done in, before serve replays the log
+	r.p.Submit("L-01") // T-1 dispatched and its task_done in, before serve replays the log
 	r.start()
 	r.accept("c1", r.job("T-1/1/review"))
 	r.merged()
@@ -434,7 +434,7 @@ func TestServeLoopCrashAfterGateCommit(t *testing.T) {
 		}
 		return o, err
 	}
-	r.p.Submit("O-01") // T-1 dispatched and its task_done in, before serve replays the log
+	r.p.Submit("L-01") // T-1 dispatched and its task_done in, before serve replays the log
 	r.start()
 	<-r.done
 	r.cancel = nil

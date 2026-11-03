@@ -2,5 +2,6 @@
   "lanes_dir": "../axis-alies-wt",
   "limits": { "max_panes_per_tab": 4 },
   "commands": { "baseline": { "dir": "../axis-alies-baseline/m8" } },
-  "lane_types": { "opus": { "args": ["--model", "opus", "--effort", "high", "--permission-mode", "auto"], "max": 2 } }
+  "lanes": 2,
+  "difficulty": { "hard": ["opus:xhigh"] }
 }

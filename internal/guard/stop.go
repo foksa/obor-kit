@@ -93,14 +93,14 @@ func runStop(input []byte, env project.Env) (reason string, err error) {
 
 // --- lead / integrator ------------------------------------------------------------------------------------------------
 
-// handoffLimit: the integrator's roles.integrator.handoff_tokens, else 150000. The lead's roles.lead.handoff_tokens,
-// else 500000. 0 = off.
+// handoffLimit: the integrator's integrator_handoff_tokens, else 150000. The lead's handoff_tokens, else 500000. 0 =
+// off.
 func handoffLimit(cfg *config.Config, role string) int64 {
 	if role == "integrator" {
 		return cfg.IntegratorHandoffTokens()
 	}
-	if l := cfg.Data.Roles.Lead; l != nil && l.HandoffTokens != nil {
-		return *l.HandoffTokens
+	if n := cfg.Data.HandoffTokens; n != nil {
+		return *n
 	}
 	return 500000
 }
