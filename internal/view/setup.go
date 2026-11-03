@@ -87,6 +87,9 @@ type SetupRole struct {
 	Agent  string `json:"agent"`
 	Type   string `json:"type"`
 	Status string `json:"status"`
+	// Optional is a role the config may leave out (an advisor): it runs only while a model is set, so the page offers
+	// no "role's default" for it (T-768).
+	Optional bool `json:"optional"`
 }
 
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
@@ -155,7 +158,7 @@ func (d Detail) Setup() (Setup, error) {
 			continue
 		}
 		s.Roles = append(s.Roles, SetupRole{Role: role.Name, Agent: cfg.AgentName(role.Name, ""),
-			Type: config.ModelRef(rc.Type, rc.Effort), Status: status[role.Name]})
+			Type: config.ModelRef(rc.Type, rc.Effort), Status: status[role.Name], Optional: role.Optional})
 	}
 	s.Types = setupTypes(cfg, s.Difficulty, s.Roles)
 	for _, name := range cfg.ModelNames() {

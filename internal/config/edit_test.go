@@ -79,6 +79,10 @@ func TestEditSetsEachField(t *testing.T) {
 			rc, _ := n.Role("lead")
 			return rc.Type == "luna" && rc.Effort == "low"
 		}},
+		{"roles.lead", `""`, `"opus:high"`, "role's default", func(n *Config) bool { // T-768: a chosen model is undone
+			rc, _ := n.Role("lead")
+			return rc.Type == ""
+		}},
 		{"roles.deep_dive.type", `"kimi:high"`, `"sonnet"`, `"kimi:high"`, func(n *Config) bool { // the Setup page's key
 			rc, _ := n.Role("deep_dive")
 			return rc.Type == "kimi" && rc.Effort == "high"
@@ -161,7 +165,7 @@ func TestEditRefuses(t *testing.T) {
 		{"roles.worker", `"opus"`, `"worker" is not a configured role`},
 		{"roles.triage", `"opus"`, `"triage" is not a configured role`},
 		{"roles.nobody", `"opus"`, `"nobody" is not a configured role`},
-		{"roles.lead", `""`, "takes a model ref"},
+		{"roles.deep_dive", `""`, "optional role"}, // T-768: deleting it would disable the role
 		{"roles.lead.agent", `"x"`, "is not an editable key"},
 		{"roles.lead", `"gpt:high"`, `"gpt" is not a model`},
 		{"merge.scratch_dir", `"x"`, "is not an editable key"},
@@ -260,5 +264,25 @@ func TestNewFails(t *testing.T) {
 	got := NewFails([]string{"FAIL .a: x"}, []string{"FAIL .a: x", "FAIL .b: y"})
 	if !slices.Equal(got, []string{"FAIL .b: y"}) {
 		t.Errorf("NewFails = %q", got)
+	}
+}
+
+// TestEditRoleDefault (T-768): "" on a non-optional role with a model deletes its member and leaves the file otherwise
+// as it was.
+func TestEditRoleDefault(t *testing.T) {
+	cfg := editProject(t)
+	if rc, _ := cfg.Role("lead"); rc.Type != "opus" {
+		t.Fatalf("precondition: the lead has a model, got %+v", rc)
+	}
+	ch, err := cfg.Edit([]byte(editDoc), "roles.lead", json.RawMessage(`""`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(editDoc, "    \"lead\": \"opus:high\",\n", "", 1)
+	if want == editDoc {
+		t.Fatal("precondition: the lead line is in editDoc")
+	}
+	if string(ch.Doc) != want {
+		t.Errorf("doc:\n%s\nwant only the lead member gone:\n%s", ch.Doc, want)
 	}
 }
