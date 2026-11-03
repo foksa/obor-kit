@@ -45,7 +45,6 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		where: "unavailable",
 		arm: func(r *loopRig) {
 			r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status, p.Transcript = "", "", "", "" })
-			r.push() // one refresh: serve reads the snapshot again (the wait below sees it connected after it)
 		},
 		over: outcome{ok: true, line: "; pj-o1 not running"},
 		drop: outcome{ok: true},
@@ -94,9 +93,14 @@ func TestWorkerStopByIdentity(t *testing.T) {
 				r.mu.Lock()
 				c.arm(r)
 				r.mu.Unlock()
+				if !strings.HasSuffix(c.where, "not connected") {
+					// Wait for serve's stream after the arm's change, so the call decides on it and never lands in a
+					// resubscribe's gap (T-759). The case whose stream cannot come back (herdr down) has no such wait.
+					r.connectedAgain()
+				}
 				var where string
-				// No push here: a push is a refresh, and one landing after the wait would cut serve off mid-call.
-				r.waitFor("whereIs: "+c.where, func() bool { // connected (after the arm's refresh), unless cut off
+				// No push here: a push is a refresh, and one landing after the barrier would cut serve off mid-call.
+				r.waitFor("whereIs: "+c.where, func() bool { // connected (the barrier above), unless herdr is cut off
 					where = app.WhereOf(r.app, r.p.Root, "pj-o1")
 					return strings.HasPrefix(where, c.where) &&
 						(r.app.Status().Connected || strings.HasSuffix(c.where, "not connected"))

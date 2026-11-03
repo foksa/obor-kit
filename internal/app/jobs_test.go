@@ -76,10 +76,32 @@ func (r *loopRig) quietBaseline(job string) {
 	r.waitTimer("the quiet baseline of "+job, func(j string, _, quiet time.Time) bool { return j == job && !quiet.IsZero() })
 }
 
-// push makes the app read a new snapshot.
-func (r *loopRig) push() {
-	r.srv.Push("workspace_created", map[string]any{"type": "workspace_created",
-		"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}})
+// workspaceEvent is the rig's workspace-created event: pushed, it makes the app read a new snapshot.
+var workspaceEvent = map[string]any{"type": "workspace_created",
+	"workspace": map[string]any{"workspace_id": "w1", "label": "proj"}}
+
+// push makes the app read a new snapshot: a workspace event ends serve's stream (a refresh) and serve subscribes again.
+func (r *loopRig) push() { r.srv.Push("workspace_created", workspaceEvent) }
+
+// connectedAgain waits, as an event, until serve works from a herdr stream that began after the rig's pushes: a refresh
+// reaches the stream serve has now, serve reads it and ends that stream, and subscribes again — the wait is that new
+// stream's lifecycle subscription and serve's connection to it (T-759). Status().Connected alone is no such event: it
+// is still true in the instant before serve ends a stream (serve closes the stream, then clears the flag), and a push
+// is only a socket write that the stream may read after the caller looked — the call then lands in the resubscribe's
+// gap and is refused "serve is not connected to herdr" (T-757, T-758).
+func (r *loopRig) connectedAgain() {
+	r.t.Helper()
+	var next func() bool // that stream ended and a stream after it subscribed: true once it connected too
+	r.waitFor("serve connected to herdr on the stream after the rig's pushes", func() bool {
+		if next == nil {
+			var reached bool
+			if reached, next = r.srv.Refresh(workspaceEvent); !reached { // serve is between two streams: none to end
+				next = nil
+				return false
+			}
+		}
+		return r.app.Status().Connected && next()
+	})
 }
 
 // passes waits for two more passes of the merge loop: the second one started after the call, so it saw the clock and

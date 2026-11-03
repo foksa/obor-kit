@@ -25,15 +25,10 @@ func newTakeOverRig(t *testing.T) *loopRig {
 	r.mustDispatch("d1")
 	r.waitJob("pj-o1", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
+	// The worker's start pushed a refresh, so serve subscribes again: wait for that stream, the one a take-over decides
+	// by serve's identity on (T-758, T-759).
 	r.connectedAgain()
 	return r
-}
-
-// connectedAgain waits until serve is connected to herdr again after the rig's pushes (each a refresh: serve
-// subscribes again). A take-over decides by serve's identity (T-758), and in that gap it refuses: not connected.
-func (r *loopRig) connectedAgain() {
-	r.t.Helper()
-	r.waitFor("connected to herdr", func() bool { return r.app.Status().Connected })
 }
 
 // stepsLike is the records whose step string contains s.
@@ -53,6 +48,9 @@ func (r *loopRig) stepsLike(s string) []string {
 func TestDriveStartRetried(t *testing.T) {
 	t.Parallel()
 	r := newDriveRig(t)
+	// Every drive below decides by serve's identity: wait for serve's herdr connection as an event, not a sample
+	// (T-759).
+	r.connectedAgain()
 	want := "DRIVE T-1 → O-01 (pj-o1-drive, " + r.hardType() + ")"
 	if reply, err := r.drive("v1", "web"); err != nil || reply != want {
 		t.Fatalf("drive: %q, %v; want %q", reply, err, want)
@@ -84,6 +82,7 @@ func TestDriveStartRetried(t *testing.T) {
 	r.stop()
 	r.start() // the replay
 	r.waitFor("T-1 driving after the replay", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
+	r.connectedAgain() // the replay's serve, before a drive that asks its identity
 	r.driveAgentUp()
 	if reply, err := r.drive("w1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → O-01: pj-o1-drive") {
 		t.Errorf("obor drive web after the replay: %q, %v; want DRIVING", reply, err)
@@ -174,6 +173,7 @@ func TestDriveTakeOverInterruptedAfterStop(t *testing.T) {
 		r.push()
 		return false
 	})
+	r.connectedAgain() // the pushes above refresh serve's stream: wait for the one after them
 	var once sync.Once
 	app.SetHook(r.app, func(point string) {
 		if point == "drive.stopped" {

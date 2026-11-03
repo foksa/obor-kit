@@ -348,6 +348,45 @@ func (s *Server) Push(event string, data map[string]any) int {
 	return len(to)
 }
 
+// Refresh pushes the workspace-created event data describes — herdr ends the stream it reaches (obor reads it as a
+// refresh) — to every subscribing connection. reached is whether one got it; next says whether serve has ended that
+// stream — the client closed those connections — and holds a lifecycle subscription registered after the push, so the
+// stream serve connects next carries nothing of this one (T-759). A push that reached no subscription reached no
+// stream.
+func (s *Server) Refresh(data map[string]any) (reached bool, next func() bool) {
+	s.mu.Lock()
+	var to []*conn
+	for _, sub := range s.subs {
+		for _, x := range sub.subs {
+			if x.Type == "workspace.created" && x.Pane == "" {
+				to = append(to, sub.conn)
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range to {
+		c.write(map[string]any{"event": "workspace_created", "data": data})
+	}
+	return len(to) > 0, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, c := range to {
+			if s.conns[c.c] { // the server still has it: the client has not closed that stream (nor unsubscribed it)
+				return false
+			}
+		}
+		for _, sub := range s.subs { // all of to's gone: these subscribed after the push
+			for _, x := range sub.subs {
+				if x.Type == "workspace.created" && x.Pane == "" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
 // PushError sends herdr's error line (e.g. events_lost) to every subscribed connection.
 func (s *Server) PushError(code, msg string) {
 	s.mu.Lock()
