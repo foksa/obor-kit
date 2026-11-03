@@ -6,6 +6,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-03 evening: **v0.23.0 tagged**, awaiting owner `make ship`: config names models directly (T-765), Setup
+  page for it (T-766), project list keeps unloadable projects (T-767), roles always name a model (T-769 replaced
+  T-768 after two strikes). RV-95, RV-96 closed. After ship: obor send axis-alies/axis-maps the UPGRADE-v0.23 steps
+  (migrate needs every lane free); codex-image-tool / codex-img-viewer are dormant obor projects needing migrate.
 - 2026-11-03 midday: **v0.22.0 shipped** (leads told): obor web redesign (owner drive T-760, Svelte 5 + Vite, dist committed;
   decision in docs/decisions.md), drive<->lead lines (T-761, T-764), drive commits (T-762), live mark (T-763). RV-94
   closed. Nothing in flight.
