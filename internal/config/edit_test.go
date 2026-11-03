@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -236,6 +237,93 @@ func TestEditRefusesLocalOnly(t *testing.T) {
 			t.Errorf("%s: %v, want local.json's refusal", key, err)
 		}
 	}
+}
+
+// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count, and an
+// args rewrite would copy this machine's args into the committed file.
+func TestEditRefusesLocalOverride(t *testing.T) {
+	for _, c := range []struct{ name, local, key, val, at string }{
+		{"an args override", `{"lane_types":{"opus":{"args":["--model","fable","--effort","low"]}}}`,
+			"lane_types.opus.model", `"fable"`, "lane_types.opus.args"},
+		{"an effort in the overridden args", `{"lane_types":{"luna":{"args":["-m","gpt-6-luna","-c","model_reasoning_effort=low"]}}}`,
+			"lane_types.luna.effort", `"high"`, "lane_types.luna.args"},
+		{"a max override", `{"lane_types":{"opus":{"max":2}}}`, "lane_types.opus.max", `3`, "lane_types.opus.max"},
+		{"a max set to null", `{"lane_types":{"opus":{"max":null}}}`, "lane_types.opus.max", `3`, "lane_types.opus.max"},
+		{"a type local.json replaces", `{"lane_types":{"opus":null}}`, "lane_types.opus.max", `3`, "lane_types.opus"},
+		{"a level", `{"difficulty":{"hard":["sonnet"]}}`, "difficulty.hard", `["opus:high"]`, "difficulty.hard"},
+		{"a role's type", `{"roles":{"lead":{"type":"sonnet"}}}`, "roles.lead.type", `"opus:high"`, "roles.lead.type"},
+		{"a lane", `{"lanes":{"L-01":"opus"}}`, "lanes.L-01", `"sonnet"`, "lanes.L-01"},
+	} {
+		cfg, doc := localProject(t, c.local)
+		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))
+		if err == nil || !strings.Contains(err.Error(), "set in .obor/local.json at "+c.at+": edit it there") {
+			t.Errorf("%s: %q, %v; want local.json's refusal at %s", c.name, ch.Doc, err, c.at)
+		}
+		if ch.Doc != nil || ch.Old != "" || ch.New != "" {
+			t.Errorf("%s: %+v, want no change", c.name, ch)
+		}
+		if after, err := os.ReadFile(filepath.Join(cfg.Root, ".obor", "config.json")); err != nil || !bytes.Equal(after, doc) {
+			t.Errorf("%s: the file changed (%v)", c.name, err)
+		}
+	}
+}
+
+// T-754: local.json's own type and args stay out of the committed file, and a member it leaves alone (another type,
+// another level, a type's max, a lane's agent) does not keep that member's own edit from counting.
+func TestEditIgnoresLocalElsewhere(t *testing.T) {
+	for _, c := range []struct {
+		name, local, key, val, leak string
+		check                       func(doc []byte, n *Config) bool
+	}{
+		{"another type", `{"lane_types":{"haiku":{"kind":"claude","args":["--model","haiku"]}}}`,
+			"lane_types.opus.model", `"fable"`, "haiku", func(_ []byte, n *Config) bool {
+				lt, _ := n.LaneType("opus")
+				return lt.Model() == "fable" &&
+					slices.Equal(lt.Args, []string{"--model", "fable", "--effort", "medium", "--permission-mode", "auto"})
+			}},
+		{"another level", `{"difficulty":{"simple":["sonnet"]}}`, "difficulty.hard", `["opus"]`, "simple",
+			func(_ []byte, n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"opus"}) }},
+		{"the type's own max", `{"lane_types":{"opus":{"max":2}}}`, "lane_types.opus.model", `"fable"`, `"max": 2`,
+			func(doc []byte, n *Config) bool {
+				lt, _ := n.LaneType("opus")
+				max, _ := MemberAt(doc, []string{"lane_types", "opus", "max"})
+				return lt.Model() == "fable" && string(max) == "4"
+			}},
+		{"an object lane's agent", `{"lanes":{"L-02":{"agent":"pj-other"}}}`, "lanes.L-02", `"sonnet"`, "pj-other",
+			func(doc []byte, n *Config) bool {
+				agent, _ := MemberAt(doc, []string{"lanes", "L-02", "agent"})
+				return n.Data.Lanes.M["L-02"].Type == "sonnet" && string(agent) == `"pj-two"`
+			}},
+	} {
+		cfg, doc := localProject(t, c.local)
+		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		if strings.Contains(string(ch.Doc), c.leak) {
+			t.Errorf("%s: local.json's %s landed in the committed file:\n%s", c.name, c.leak, ch.Doc)
+		}
+		n, err := LoadWith(cfg.Root, ch.Doc)
+		if err != nil {
+			t.Errorf("%s: the result does not load: %v", c.name, err)
+			continue
+		}
+		if !c.check(ch.Doc, n) {
+			t.Errorf("%s: the edit does not count:\n%s", c.name, ch.Doc)
+		}
+	}
+}
+
+// localProject is a project whose config.json is editDoc and whose local.json is local, and that file's bytes.
+func localProject(t *testing.T, local string) (*Config, []byte) {
+	t.Helper()
+	cfg := load(t, editDoc, local)
+	doc, err := os.ReadFile(filepath.Join(cfg.Root, ".obor", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg, doc
 }
 
 // T-753: Relayout keeps the file's layout: a one-line file stays one line, a tab-indented one tabs, no final newline
