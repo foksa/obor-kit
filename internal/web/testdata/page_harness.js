@@ -368,7 +368,8 @@ const scenarios = {
         { role: "reviewer", agent: "pj-rev", type: "", status: "" }],
       paused: { reason: "lunch", by: "owner" },
       distribution: [{ level: "hard", type: "opus:high", recent: 4, all: 5 },
-        { level: "override", type: "sonnet", recent: 0, all: 3 }],
+        { level: "override", type: "sonnet", recent: 0, all: 3 },
+        { level: "simple", type: "", recent: 1, all: 7 }],
     });
     await navigate("#/s/proj");
     await tick(100);
@@ -383,6 +384,8 @@ const scenarios = {
     check(/haiku <span class="pill plain t-idle">unused<\/span>/.test(page),
       "a type no level and no role names is marked unused: " + page);
     check(page.includes("pooled"), "a lane with no configured type says pooled");
+    check(page.includes("<th>unknown</th>") && !page.includes("<th>pooled</th>"),
+      "a dispatch the store names no type for is an unknown column, never pooled (T-752): " + page);
     check(page.includes("lunch") && page.includes("owner"), "the pause is on the roles card");
     check(page.includes("override") && page.includes("sonnet") && page.includes(">4<"),
       "the distribution's level rows × type columns, 7 days by default: " + page);

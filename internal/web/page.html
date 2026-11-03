@@ -778,9 +778,11 @@ async function setupPage(r) {
   return renderSetup(r.project, s);
 }
 
-// levelName is a distribution row's label: a level, --types' override, or a dispatch with neither.
+// levelName is a distribution row's label: a level, --types' override, or a dispatch with neither (an empty level
+// stays "no level"); typeName is a column's: a dispatch the store names no type for is "unknown", never "pooled" — a
+// pooled lane is one the config leaves untyped, and no such lane existed before T-721 (T-752).
 const levelName = (l) => l || "no level";
-const typeName = (t) => t || "pooled";
+const typeName = (t) => t || "unknown";
 
 function renderSetup(p, s) {
   const head = `<div class="head"><h1>${esc(p)} <span class="title">setup</span></h1>
