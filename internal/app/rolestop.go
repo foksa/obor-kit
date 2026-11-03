@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"sort"
 	"strings"
 	"time"
@@ -78,7 +77,7 @@ func (p *proj) foldRoles(r event.Record) {
 	case r.Kind == event.KindIntent && (step == event.StepReview || step == event.StepResolve):
 		rs.due = false // a new job: its own verdict makes the next stop due
 	case r.Kind == event.KindResult:
-		if m, _ := verdictMethod(r.Step); m != "" && m != wire.MethodAnswer && p.folded.loop[r.Task] != nil {
+		if m, _ := verdictMethod(r.Step); m != "" && m != stepAnswer && p.folded.loop[r.Task] != nil {
 			rs.due = true
 		}
 	}

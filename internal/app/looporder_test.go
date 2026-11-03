@@ -68,20 +68,6 @@ func TestIntegratorJobNextEqualSeqsTakesFirstTaskByName(t *testing.T) {
 	}
 }
 
-func TestDropByLaneTwoOpenTakesNewestDispatch(t *testing.T) {
-	t.Parallel()
-	for range orderTries {
-		p := twoInLane()
-		if p.folded.loop["T-2"].dispSeq <= p.folded.loop["T-1"].dispSeq {
-			t.Fatal("precondition: T-2's dispatch is the newer, T-1 the first by name")
-		}
-		got, err := (&App{}).dropDecide(p, &wire.Call{Lane: "L1", Note: "why", CallID: "d"})
-		if err != nil || got.task != "T-2" || !p.ended["T-2"] || p.ended["T-1"] {
-			t.Fatalf("dropDecide = %q %v (ended %v); want T-2 only", got.task, err, p.ended)
-		}
-	}
-}
-
 func TestHeldLaneOfTwoDispatchesIsNewestDispatch(t *testing.T) {
 	t.Parallel()
 	for range orderTries {

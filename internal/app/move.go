@@ -70,14 +70,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, w
 		mt = *m
 	}
 	merging, pause := p.merging, p.paused(a.opt.Now())
-	running := p.held[c.Task]
-	if p.ended[c.Task] {
-		running = "a drop"
-	}
-	pending := ""
-	if p.running.Task == c.Task {
-		pending = p.running.Step
-	}
+	busy := p.busy(c.Task)
 	dir := p.laneDir(mt)
 	a.mu.Unlock()
 	switch {
@@ -89,13 +82,11 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, w
 		return "", "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	case mt.task == "":
 		return "", "", fmt.Errorf("dispatch %s: %s is not open in obor serve", c.Task, c.Task)
-	case mt.drive || mt.state != stWorking && !(mt.state == stDispatched && mt.base != ""):
+	case mt.drive || !mt.may(vMove) || mt.state == stDispatched && mt.base == "":
 		return "", "", fmt.Errorf("dispatch %s: %s is %s: obor dispatch --model moves a task its worker works on, not "+
 			"one gating, merging or under review", c.Task, c.Task, mt.state)
-	case running != "":
-		return "", "", fmt.Errorf("dispatch %s: %s is running; retry when it settles", c.Task, running)
-	case pending != "":
-		return "", "", fmt.Errorf("dispatch %s: %s has %s pending: retry once it settles", c.Task, c.Task, pending)
+	case busy != "":
+		return "", "", busyErr("dispatch", c.Task, busy)
 	}
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {

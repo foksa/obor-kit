@@ -185,12 +185,7 @@ func (s *sleeper) stop(ctx context.Context) int {
 	}
 	for _, b := range busy {
 		d := c // as obor drop calls it
-		d.CallID, d.Note, d.Force = wire.NewCallID(), "obor stop --force: "+s.Why, true
-		if b.Lane != "" {
-			d.Lane = b.Lane
-		} else {
-			d.Task = b.Task
-		}
+		d.CallID, d.Note, d.Force, d.Task = wire.NewCallID(), "obor stop --force: "+s.Why, true, b.Task
 		reply, err := s.call(ctx, wire.MethodDrop, d)
 		if err != nil {
 			return refuse("drop %s: %v (nothing stopped)", busyList([]busyTask{b}), err)

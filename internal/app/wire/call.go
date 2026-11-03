@@ -12,17 +12,16 @@ import (
 // Verdict methods of the app socket.
 const (
 	MethodAccept   = "accept"   // the candidate whose patch hash it names may be published
-	MethodSendback = "sendback" // back to the worker with the integrator's notes
+	MethodSendback = "sendback" // the integrator's: back to the worker with its notes (the lead's is obor resume --sendback)
 	MethodReject   = "reject"   // drop the patch (a resolve job: the resolve failed)
 	MethodResolved = "resolved" // the conflict is merged in the scratch: gate it again
 	MethodHold     = "hold"     // the owner must decide: needs-you{held: why}, the job stays open
 	MethodDrop     = "drop"     // the lead's or the owner's: end the task for good (Call.Note: why), whatever it waits for
-	MethodResume   = "resume"   // the lead's or the owner's: end the task's needs-you (Call.To: regate, reprompt, retry, "")
+	MethodResume   = "resume"   // the lead's or the owner's word to a task (Call.Note; Call.To: "", regate, sendback): serve picks the action
 )
 
 // The other methods of the app socket; the server's handler for each is in internal/app.
 const (
-	MethodAnswer   = "answer"        // the lead's answer to a worker's question in force (answer.go): Call.Task, Call.Note
 	MethodDispatch = "dispatch"      // Call.Task onto Call.Lane, or the first free lane of Call.Types
 	MethodWatch    = "watch"         // Call.Task the task or comma list watched (""; the open watches listed), Call.Clear ends its watch
 	MethodPause    = "pause"         // Call.Note the why, Call.Until its end (0: until cleared); Call.Clear ends the pause in force
@@ -48,7 +47,7 @@ const (
 	// summary its submission carries. The reply is LANDED <task>: submitted.
 	MethodLand = "land"
 	// MethodTellLead (the drive agent's; obor tell-lead, T-761): Call.Lane the drive's lane, Call.Note the text. Serve posts
-	// "[obor <task> drive] <text> (reply: obor answer <task> "…")" to the lead as a lead line. The reply is TOLD ….
+	// "[obor <task> drive] <text> (reply: obor resume <task> "…")" to the lead as a lead line. The reply is TOLD ….
 	MethodTellLead = "tell_lead"
 )
 
@@ -74,7 +73,8 @@ type JobReply struct {
 
 // Call is one verdict request: who calls (OBOR_AGENT, OBOR_ROLE), from which project, its call id, and the task and
 // job it answers. Job "" answers the task's current job. Patch is accept's; Note is accept's note and the why of a
-// sendback, reject or hold; To is resume's regate, reprompt or retry ("": the default for the needs-you's cause).
+// sendback, reject or hold, and resume's text; To is resume's flag: regate or sendback ("": the action the task's state
+// takes).
 // Lane, Types and Force are a dispatch's: the lane it names, else the first free lane of the types; force also takes a
 // dirty-free lane and stops the agent's background tasks.
 type Call struct {
@@ -95,7 +95,7 @@ type Call struct {
 	Level string   `json:"level,omitempty"` // set with Types by a waiting task's re-dispatch: the spec's level they came from
 	// review_verify's: the finding numbers to re-run (none: every finding); After is its fix tasks.
 	Findings []string `json:"findings,omitempty"`
-	// A drop's (by Lane, T-439): discard the lane's uncommitted changes and unmerged commits.
+	// A drop's (T-439): discard the task's lane's uncommitted changes and unmerged commits.
 	Discard bool `json:"discard,omitempty"`
 	// The MCP job tools': the caller's herdr pane; task_done's report.
 	Pane   string `json:"pane,omitempty"`
@@ -129,29 +129,38 @@ type Call struct {
 	Source     string `json:"source,omitempty"`
 }
 
-// What obor resume does with a needs-you (docs/state-model.md row 40): gate the task again, send the integrator its
-// job anew (a new job id: the old one is refused), or try the failed step again (its pending intent).
+// What obor resume does with a merge-loop needs-you (docs/state-model.md row 40), the reason of its unblocked fact:
+// gate the task again, send the integrator its job anew (a new job id: the old one is refused), or try the failed step
+// again (its pending intent). Regate and sendback are also obor resume's two flags (Call.To): the choice where both fit.
 const (
 	ResumeRegate   = "regate"
 	ResumeReprompt = "reprompt"
 	ResumeRetry    = "retry"
+	ResumeSendback = "sendback"
 )
 
-// ResumeArgs is obor resume's arguments, <T-xx> [regate|reprompt] ["<decision>"], as a call's Task, To and Note:
-// regate and reprompt are the reserved modes, any other nonblank last argument is the decision (obor resume T-xx
-// "yes", RV-54 #4). False: not that form.
+// ResumeUsage is obor resume's usage.
+const ResumeUsage = `usage: obor resume <T-xx> ["<text>"] [--regate|--sendback]`
+
+// ResumeArgs is obor resume's arguments, <T-xx> ["<text>"] [--regate|--sendback], as a call's Task, Note and To: the
+// flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes", RV-54 #4). False:
+// not that form.
 func ResumeArgs(args []string) (Call, bool) {
-	if len(args) == 0 || args[0] == "" {
+	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
 		return Call{}, false
 	}
-	c, rest := Call{Task: args[0]}, args[1:]
-	if len(rest) > 0 && (rest[0] == ResumeRegate || rest[0] == ResumeReprompt) {
-		c.To, rest = rest[0], rest[1:]
+	c := Call{Task: args[0]}
+	for _, a := range args[1:] {
+		switch {
+		case (a == "--"+ResumeRegate || a == "--"+ResumeSendback) && c.To == "":
+			c.To = strings.TrimPrefix(a, "--")
+		case strings.HasPrefix(a, "-") || c.Note != "" || strings.TrimSpace(a) == "":
+			return Call{}, false
+		default:
+			c.Note = a
+		}
 	}
-	if len(rest) == 1 && strings.TrimSpace(rest[0]) != "" {
-		c.Note, rest = rest[0], nil
-	}
-	return c, len(rest) == 0
+	return c, true
 }
 
 // Request and Answer are the app socket's lines: {"method":"status"} → {"status":…} or {"error":…}; a verdict

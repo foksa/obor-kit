@@ -11,6 +11,13 @@ import (
 	"obor/internal/store"
 )
 
+// isDropped: reply is a drop's of task: DROPPED <task>, or its lane's lines then DROPPED <task> from <lane> (<why>).
+func isDropped(reply, task string) bool {
+	lines := strings.Split(reply, "\n")
+	last := lines[len(lines)-1]
+	return last == dropReply(task) || strings.HasPrefix(last, dropReply(task)+" from ")
+}
+
 // dropCall is the lead's obor drop of task in project name.
 func (r *concRig) dropCall(name, task, id string) (string, error) {
 	return r.app(name).drop(wire.Call{Root: r.roots[name], Agent: "lead", Role: "lead", CallID: id, Task: task, Note: "abandoned"})
@@ -91,7 +98,7 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's first gate: %s", task)
 	}
-	if _, err := r.dropCall("pj", "T-1", "g1"); err == nil || !strings.Contains(err.Error(), "T-1 has gate pending") {
+	if _, err := r.dropCall("pj", "T-1", "g1"); err == nil || !strings.Contains(err.Error(), "T-1 has gate running; retry when it settles") {
 		t.Errorf("drop while the gate runs: %v", err)
 	}
 	if r.state("pj", "T-1") == stDropped {
@@ -106,7 +113,7 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	if got := r.entered("pr"); got != "publish T-4" {
 		t.Fatalf("pr: %q; want publish T-4 held", got)
 	}
-	if _, err := r.dropCall("pr", "T-4", "p1"); err == nil || !strings.Contains(err.Error(), "T-4 has publish pending") {
+	if _, err := r.dropCall("pr", "T-4", "p1"); err == nil || !strings.Contains(err.Error(), "T-4 has publish running; retry when it settles") {
 		t.Errorf("drop while the publish runs: %v", err)
 	}
 
@@ -116,9 +123,9 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 	var err error
 	r.waitFor("the review prompt's step returned", func() bool { // a step that holds the task refuses the drop
 		got, err = r.dropCall("pj", "T-1", "g2")
-		return err == nil || !strings.Contains(err.Error(), "is running; retry when it settles")
+		return err == nil || !strings.Contains(err.Error(), "running; retry when it settles")
 	})
-	if err != nil || got != "DROPPED T-1" {
+	if err != nil || !strings.HasSuffix(got, "DROPPED T-1 from L-01 (abandoned)") { // its lane's row holds it: freed (T-775)
 		t.Fatalf("drop with the review job open: %q, %v", got, err)
 	}
 	_, err = r.a.verdict(context.Background(), wire.MethodAccept, wire.Call{Root: r.roots["pj"], Task: "T-1", Role: "integrator",
@@ -132,10 +139,10 @@ func TestDropRefusedWhilePendingThenSupersedesTheJob(t *testing.T) {
 }
 func (r *concRig) entered2(name string) string { return r.entered(name) }
 
-// T-439: obor drop names the lane; serve finds its task (the loop's open one there), stops its worker, frees the lane
-// (the lane adapter's Free with --discard), then records dropped: the lane row clears. A refused Free ends the drop
+// T-439, T-775: obor drop names the task; serve knows its lane (its row holds the task), stops its worker, frees the
+// lane (the lane adapter's Free with --discard), then records dropped: the lane row clears. A refused Free ends the drop
 // with nothing recorded: the task and its row as they were, its worker stopped first (T-773), the refusal says so.
-func TestDropByLane(t *testing.T) {
+func TestDropByTaskFreesItsLane(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	dispatchT2(r)
@@ -150,7 +157,7 @@ func TestDropByLane(t *testing.T) {
 		t.Fatalf("precondition: L-02's row holds %q, want T-2", row())
 	}
 	drop := func(id string) (string, error) {
-		return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "L-02",
+		return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Task: "T-2",
 			Note: "abandoned", Discard: true, Force: true})
 	}
 	f.refuse = "lane L-02 is dirty (--discard to drop its uncommitted changes)"
@@ -183,7 +190,7 @@ func TestDropByLane(t *testing.T) {
 	}
 }
 
-// T-773: obor drop <LANE> stops the lane's worker as part of the drop, without --force too; a worker still working after Escape is stopped only with --force: without it the drop is
+// T-773: obor drop <T-xx> stops the task's worker as part of the drop, without --force too; a worker still working after Escape is stopped only with --force: without it the drop is
 // refused, nothing freed or recorded, and the task stays open.
 func TestDropStopsTheWorker(t *testing.T) {
 	t.Parallel()
@@ -194,7 +201,7 @@ func TestDropStopsTheWorker(t *testing.T) {
 		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target", Head: "target"})
 		p, f := r.proj("pj"), r.fakes["pj"]
 		return r, p, f, func(id string, force bool) (string, error) {
-			return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "L-02",
+			return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Task: "T-2",
 				Note: "moving on", Discard: true, Force: force})
 		}
 	}
@@ -215,6 +222,45 @@ func TestDropStopsTheWorker(t *testing.T) {
 			t.Errorf("T-2 is %s after the drop, want dropped", st)
 		}
 	})
+	// RV-98 #2: any other stop that fails refuses the drop (the worker may still run in the lane the next task gets):
+	// nothing freed or recorded, the ended mark cleared, the error and the retry named.
+	for _, c := range []struct {
+		name  string
+		force bool
+		fails func(force bool) string
+	}{
+		{"a quit timeout", false, func(bool) string { return "pj-l-02 did not quit within 30s" }},
+		{"a forced stop failing", true, func(force bool) string {
+			if force {
+				return "pj-l-02: exit failed: pane w1:p2 still runs"
+			}
+			return ""
+		}},
+	} {
+		t.Run(c.name+": refused, the lane kept", func(t *testing.T) {
+			t.Parallel()
+			r, p, f, drop := setup(t)
+			f.mu.Lock()
+			f.stopFails = c.fails
+			f.mu.Unlock()
+			if r.state("pj", "T-2") == stDropped || len(f.stops) != 0 {
+				t.Fatalf("precondition: T-2 open, no stop: %q", f.stops)
+			}
+			_, err := drop("d1", c.force)
+			if err == nil || !strings.Contains(err.Error(), "drop: worker of L-02 not stopped: "+c.fails(c.force)) ||
+				!strings.HasSuffix(err.Error(), "(nothing dropped; obor drop T-2 retries)") {
+				t.Fatalf("drop with %s: %v; want refused with the error and the retry", c.name, err)
+			}
+			r.a.mu.Lock()
+			ended, row := p.ended["T-2"], p.laneTask("L-02")
+			r.a.mu.Unlock()
+			if len(f.stops) != 1 || len(f.frees) != 0 || ended || row != "T-2" || r.state("pj", "T-2") == stDropped ||
+				r.count("pj", "T-2", event.KindFact, event.StepDropped) != 0 {
+				t.Errorf("the refused drop: stops %q, frees %+v, ended %t, L-02's row %q, T-2 %s; want one stop tried, "+
+					"nothing freed or recorded, the lane kept", f.stops, f.frees, ended, row, r.state("pj", "T-2"))
+			}
+		})
+	}
 	t.Run("a worker that ignores Escape: refused without --force, stopped and dropped with it", func(t *testing.T) {
 		t.Parallel()
 		r, p, f, drop := setup(t)

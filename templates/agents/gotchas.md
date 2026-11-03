@@ -19,7 +19,7 @@ otherwise.
 - A pane labelled an obor agent without its env (herdr resume on, a hand start) → SessionStart warns "run obor restart
   <agent>" → `obor restart <agent>` from another pane.
 - An abandoned task (or a finished review / smoke test) leaves its lane `done` / `working`, so dispatch refuses it
-  (2026-10-11) → `obor drop <LANE> "<why>"` (lead only; `--discard` for a dirty lane or unmerged commits), not by hand.
+  (2026-10-11) → `obor drop <T-xx> "<why>"` (lead only; `--discard` for a dirty lane or unmerged commits), not by hand.
 
 ## Claude Code
 - Workers often run long checks as a background shell and go idle → the idle state proves nothing: the worker's

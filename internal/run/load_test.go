@@ -209,6 +209,9 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 			t.Fatalf("precondition: wait lines %q, want slot waits only", got)
 		}
 		load.set(50)
+		// a few polls (5ms) before the slot frees: a poll that read the load before the raise and finds the slot free
+		// after it would take the slot at the old load (the race of T-734, T-741, T-775)
+		time.Sleep(25 * time.Millisecond)
 		if err := os.Remove(busy); err != nil {
 			t.Fatal(err)
 		}

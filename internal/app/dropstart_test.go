@@ -190,7 +190,7 @@ func TestDropSelectedStep(t *testing.T) {
 					t.Fatalf("precondition: %s has no step selected", c.task)
 				}
 				if dropped {
-					if reply, err := r.dropCall(c.proj, c.task, "drop"); err != nil || reply != dropReply(c.task) {
+					if reply, err := r.dropCall(c.proj, c.task, "drop"); err != nil || !isDropped(reply, c.task) {
 						t.Fatalf("drop: %q, %v", reply, err)
 					}
 				}
@@ -230,7 +230,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			selected(context.Background(), fx.loop(r.kit))
 			<-f.entered // the effect runs
 			if _, err := r.dropCall(c.proj, c.task, "drop"); err == nil ||
-				!strings.Contains(err.Error(), c.task+" has "+c.effect+" pending") {
+				!strings.Contains(err.Error(), c.task+" has "+c.effect+" running; retry when it settles") {
 				t.Errorf("drop while the %s runs: %v", c.effect, err)
 			}
 			close(f.release)
@@ -305,8 +305,8 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 			<-fx.blocked // the step's effect runs
 			a := r.dropWithin(c.proj, c.task, "d1")
 			if a.err == nil || !strings.Contains(a.err.Error(), c.task) ||
-				!strings.Contains(a.err.Error(), "is running; retry when it settles") &&
-					!strings.Contains(a.err.Error(), "pending: retry once it settles") {
+				!strings.Contains(a.err.Error(), "running; retry when it settles") &&
+					!strings.Contains(a.err.Error(), "pending; retry when it settles") {
 				t.Errorf("drop while the %s runs: %q, %v; want refused, naming the step", c.effect, a.reply, a.err)
 			}
 			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || r.state(c.proj, c.task) == stDropped ||
@@ -317,7 +317,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 			close(fx.unblock)
 			<-stepped
 			ap.effects.Wait()
-			if a := r.dropWithin(c.proj, c.task, "d2"); a.err != nil || a.reply != dropReply(c.task) {
+			if a := r.dropWithin(c.proj, c.task, "d2"); a.err != nil || !isDropped(a.reply, c.task) {
 				t.Errorf("drop once the step returned: %q, %v", a.reply, a.err)
 			}
 		})
@@ -352,7 +352,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	go func() { selected(context.Background(), &Loop{Agents: f, Typer: f}); close(stepped) }()
 	<-entered // the start holds the task
 	a := r.dropWithin("pj", "T-1", "drop")
-	if a.err == nil || !strings.Contains(a.err.Error(), "is running; retry when it settles") {
+	if a.err == nil || !strings.Contains(a.err.Error(), "running; retry when it settles") {
 		t.Errorf("drop during the start: %q, %v; want refused at once", a.reply, a.err)
 	}
 	close(fetch)
@@ -442,10 +442,10 @@ func TestDropAndSubmission(t *testing.T) {
 		if subErr == nil {
 			subErr = <-done
 		}
-		if subErr == nil || !strings.Contains(subErr.Error(), "dropped, not open for a submission") {
+		if subErr == nil || !strings.Contains(subErr.Error(), "T-7 has a drop being recorded; retry when it settles") {
 			t.Errorf("task_done during the drop: %v; want refused", subErr)
 		}
-		if a := <-dropped; a.err != nil || a.reply != "DROPPED T-7" {
+		if a := <-dropped; a.err != nil || !isDropped(a.reply, "T-7") {
 			t.Fatalf("drop: %q, %v", a.reply, a.err)
 		}
 		if n := r.count("pq", "T-7", event.KindFact, event.StepSubmitted); n != 1 {
@@ -464,7 +464,7 @@ func TestDropAndSubmission(t *testing.T) {
 		if r.state("pq", "T-7") != stSubmitted {
 			t.Fatalf("precondition: T-7 is %s, want submitted", r.state("pq", "T-7"))
 		}
-		if a := r.dropWithin("pq", "T-7", "drop"); a.err != nil || a.reply != "DROPPED T-7" {
+		if a := r.dropWithin("pq", "T-7", "drop"); a.err != nil || !isDropped(a.reply, "T-7") {
 			t.Fatalf("drop after the submission: %q, %v", a.reply, a.err)
 		}
 		p := r.proj("pq")
@@ -532,7 +532,7 @@ func TestDropWriteFailure(t *testing.T) {
 	}
 	r.app("pq").release(p, "T-3")
 	p.log.Refuse = nil
-	if a := r.dropWithin("pq", "T-3", "d2"); a.err != nil || a.reply != "DROPPED T-3" {
+	if a := r.dropWithin("pq", "T-3", "d2"); a.err != nil || !isDropped(a.reply, "T-3") {
 		t.Errorf("a later drop: %q, %v", a.reply, a.err)
 	}
 }

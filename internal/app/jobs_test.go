@@ -170,8 +170,13 @@ func (r *loopRig) waitPrefix(s string) {
 
 // resume is the lead's obor resume of T-1 (to "": the cause's default).
 func (r *loopRig) resume(callID, to string) (string, error) {
+	return r.resumeWith(callID, to, "")
+}
+
+// resumeWith is the lead's obor resume of T-1 with flag to and text note.
+func (r *loopRig) resumeWith(callID, to, note string) (string, error) {
 	return wire.Verdict(context.Background(), r.sock, wire.MethodResume, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: callID, Task: "T-1", To: to})
+		Role: "lead", CallID: callID, Task: "T-1", To: to, Note: note})
 }
 
 // mustResume is resume with the reply it must give.
@@ -377,10 +382,15 @@ func TestHoldAndResume(t *testing.T) {
 			!strings.Contains(err.Error(), "the lead or the owner resumes a task, not pj-l-01 (role worker)") {
 			t.Errorf("resume by the worker: %v", err)
 		}
-		for _, id := range []string{"r1", "r1"} {
-			r.mustResume(id, "", "RESUMED T-1: reprompt (held)")
+		if _, err := r.resume("r1", ""); err == nil || !strings.Contains(err.Error(), "say the text") {
+			t.Errorf("resume of a hold with no decision: %v; want refused (T-775)", err)
 		}
-		if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "T-1 has no needs-you of the merge loop") {
+		for _, id := range []string{"r1", "r1"} {
+			if reply, err := r.resumeWith(id, "", "go on"); err != nil || reply != "RESUMED T-1: reprompt (held)" {
+				t.Fatalf("resume %s: %q, %v", id, reply, err)
+			}
+		}
+		if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "sends it back to its worker") { // awaiting again: a sendback, its why required
 			t.Errorf("resume with no needs-you: %v", err)
 		}
 		job := r.waitJob("pj-int", "T-1/1/review.2")
@@ -436,11 +446,11 @@ func TestResumeRegate(t *testing.T) {
 		if r.scratch.gates.Load() != 0 || r.app.Status().Project.Tasks[0].State != "needs-you" {
 			t.Fatalf("precondition: the task waits for the owner: %q", r.steps())
 		}
-		if _, err := r.resume("r0", "reprompt"); err == nil || !strings.Contains(err.Error(),
-			"T-1 has no integrator job to re-prompt (gate red after 2 sendbacks: RED T-1): regate") {
-			t.Errorf("reprompt with no job: %v", err)
+		if _, err := r.resume("r0", ""); err == nil || !strings.Contains(err.Error(),
+			"say --regate or --sendback (gate red after 2 sendbacks: RED T-1)") {
+			t.Errorf("resume of red past K with no flag: %v; want refused naming both (T-775)", err)
 		}
-		r.mustResume("r1", "", "RESUMED T-1: regate (red)")
+		r.mustResume("r1", wire.ResumeRegate, "RESUMED T-1: regate (red)")
 		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 		r.merged(1)
 		if !r.has("1 result gate.2") || r.scratch.gates.Load() != 1 || r.mainMerges() != 1 {
@@ -538,7 +548,7 @@ func TestJobRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		crashed := r.crashAt(event.KindFact, "unblocked")
-		if _, err := r.resume("r1", ""); err == nil {
+		if _, err := r.resumeWith("r1", "", "go on"); err == nil {
 			t.Error("the resume whose fact was refused answered ok")
 		}
 		r.waitFor("the crash", crashed.Load)
@@ -548,7 +558,9 @@ func TestJobRecovery(t *testing.T) {
 		if r.app.Status().Project.Tasks[0].State != "needs-you" || r.jobPrompts("T-1/1/review.2") != 0 {
 			t.Fatalf("after the replay: %q", r.steps())
 		}
-		r.mustResume("r1", "", "RESUMED T-1: reprompt (held)")
+		if reply, err := r.resumeWith("r1", "", "go on"); err != nil || reply != "RESUMED T-1: reprompt (held)" {
+			t.Fatalf("resume: %q, %v", reply, err)
+		}
 		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review.2")))
 		r.merged(1)
 		if r.count("1 fact unblocked{reprompt}") != 1 || r.jobPrompts("T-1/1/review.2") != 1 {

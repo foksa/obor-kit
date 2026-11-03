@@ -59,7 +59,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 				Delivered: true}, {Task: "T-02", Attempt: 1, State: "waiting", After: []string{"T-01"},
 				Why: "dispatch T-02: no free lane"}},
 			Facts:   []event.Record{fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"})},
-			Answers: map[int64]string{1: `obor answer T-01 "<text>"`}}}
+			Answers: map[int64]string{1: `obor resume T-01 "<answer>"`}}}
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestTaskPage(t *testing.T) {
 	if want := filepath.Join(".obor", "state", "logs", "T-01-check.log"); d.GateLog != want {
 		t.Errorf("gate log %q, want %q", d.GateLog, want)
 	}
-	if len(d.NeedsYou) != 1 || d.NeedsYou[0].Answer != `obor answer T-01 "<text>"` {
+	if len(d.NeedsYou) != 1 || d.NeedsYou[0].Answer != `obor resume T-01 "<answer>"` {
 		t.Errorf("needs-you %+v, want serve's answer commands", d.NeedsYou)
 	}
 	if len(d.Records) == 0 || d.Records[0].Kind == "" {

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,8 +15,8 @@ import (
 )
 
 // The integrator's verdicts over the app socket (docs/state-model.md rows 26–31, rule 3): accept, sendback, reject
-// and resolved, and hold (the job stays open, the owner decides); and the owner's resume of a needs-you (row 40). They
-// are validated and recorded here; the merge loop (loop.go) acts on them.
+// and resolved, and hold (the job stays open, the owner decides); and the lead's or the owner's drop. They are
+// validated and recorded here (obor resume: resume.go); the merge loop (loop.go) acts on them.
 
 // The integrator's job steps (StepReview, StepResolve) are in internal/app/event; their data is JobData.
 
@@ -53,7 +52,7 @@ func verdictMethod(step string) (method, callID string) {
 		return "", ""
 	}
 	switch m {
-	case wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved, wire.MethodAnswer:
+	case wire.MethodAccept, wire.MethodSendback, wire.MethodReject, wire.MethodResolved, stepAnswer:
 		return m, id
 	}
 	return "", ""
@@ -102,7 +101,7 @@ func (p *proj) foldJob(r event.Record) {
 		var v verdictResult
 		_ = json.Unmarshal(r.Data, &v)
 		p.folded.calls[method+"."+id] = v.Reply
-		if method == wire.MethodAnswer {
+		if method == stepAnswer {
 			p.answered(r.Task)
 		}
 	}
@@ -127,12 +126,6 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {
 		return "", fmt.Errorf("%s: a call id and a task are required", method)
-	}
-	if method == wire.MethodAnswer {
-		return a.answer(c)
-	}
-	if method == wire.MethodSendback && c.Role != "integrator" {
-		return a.leadSendback(ctx, method, c)
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
@@ -220,99 +213,6 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	return v.Reply, nil
 }
 
-// leadSendback answers the lead's or the owner's sendback of a task (c.Note: why; RV-45 #1), under a.verdicts: the
-// integrator's sendback transition, from a green candidate, an open job (awaiting-accept, resolving) or a needs-you
-// after a red gate or a hold. A repeated call id gets the stored reply. The decision holds the task (p.held) until the
-// verdict has folded, so no step of the old attempt starts meanwhile. The fold ends the job, the candidate and the
-// needs-you and starts the next attempt; the merge loop sends the worker its fix job. K is the integrator's bound, not
-// the lead's.
-func (a *App) leadSendback(ctx context.Context, method string, c wire.Call) (string, error) {
-	a.mu.Lock()
-	p := a.projAt(c.Root)
-	mt, reply, err := a.sendbackDecide(p, method, c)
-	if err == nil && reply == "" {
-		p.held[c.Task] = method
-	}
-	a.mu.Unlock()
-	if err != nil || reply != "" {
-		return reply, err
-	}
-	defer a.release(p, c.Task)
-	job := ""
-	reply = fmt.Sprintf("%s %s (attempt %d, %s)", strings.ToUpper(method), c.Task, mt.attempt, mt.state)
-	if mt.openJob() {
-		job = JobID(mt.jobKey())
-		reply = fmt.Sprintf("SENDBACK %s (job %s)", c.Task, job)
-	}
-	in := event.Intent{Key: event.Key{Task: c.Task, Attempt: mt.attempt, Step: verdictStep(method, c.CallID)},
-		Class: event.ClassFact, Data: verdictData{Job: job, Caller: c.Agent, Note: c.Note}}
-	raw, err := p.log.Do(ctx, in, a.opt.Now, func(context.Context) (any, error) {
-		return verdictResult{Job: job, Reply: reply, Note: c.Note, Lead: true}, nil
-	})
-	if err != nil {
-		return "", err
-	}
-	var v verdictResult
-	_ = json.Unmarshal(raw, &v)
-	a.mu.Lock()
-	p.foldRecord(event.Record{Task: in.Task, Attempt: in.Attempt, Step: in.Step, Kind: event.KindResult, Data: raw,
-		TS: a.opt.Now().UTC().Format(time.RFC3339)}) // the next attempt's begun
-	a.mu.Unlock()
-	a.logf("%s %s by %s", p.name, v.Reply, Dash(c.Agent))
-	a.wake()
-	return v.Reply, nil
-}
-
-// sendbackDecide is leadSendback's decision (under mu): the task as it is now, or the stored reply of the call id, or
-// the refusal. A step of the task running, or a gate or publish pending, is refused until it settles.
-func (a *App) sendbackDecide(p *proj, method string, c wire.Call) (mtask, string, error) {
-	if p == nil {
-		return mtask{}, "", fmt.Errorf("%s: no served project at %s", method, c.Root)
-	}
-	if reply, stored := p.folded.calls[verdictStep(method, c.CallID)]; stored {
-		return mtask{}, reply, nil
-	}
-	var mt mtask
-	if m := p.folded.loop[c.Task]; m != nil {
-		mt = *m
-	}
-	switch {
-	case !p.merging:
-		return mtask{}, "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		if method == wire.MethodAnswer {
-			return mtask{}, "", fmt.Errorf("answer: the lead or the owner answers a worker, not %s (role %s)",
-				Dash(c.Agent), c.Role)
-		}
-		return mtask{}, "", fmt.Errorf("sendback: the integrator, the lead or the owner sends a task back, not %s (role %s)",
-			Dash(c.Agent), c.Role)
-	case strings.TrimSpace(c.Note) == "" && method == wire.MethodAnswer:
-		return mtask{}, "", errors.New("answer: say the answer")
-	case strings.TrimSpace(c.Note) == "":
-		return mtask{}, "", errors.New("sendback: say why")
-	case mt.task == "":
-		return mtask{}, "", fmt.Errorf("%s: %s is not open in obor serve", method, c.Task)
-	case p.ended[c.Task]:
-		return mtask{}, "", fmt.Errorf("%s: %s is %s", method, c.Task, stDropped)
-	case p.held[c.Task] != "":
-		return mtask{}, "", fmt.Errorf("%s %s: %s is running; retry when it settles", method, c.Task, p.held[c.Task])
-	case p.running.Task == c.Task:
-		return mtask{}, "", fmt.Errorf("%s: %s has %s running; retry when it settles", method, c.Task, p.running.Step)
-	case p.log.Open(event.Key{Task: c.Task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}):
-		return mtask{}, "", fmt.Errorf("%s: %s has %s pending; retry when it settles", method, c.Task, nth(event.StepGate, mt.gates+1))
-	case p.log.Open(event.Key{Task: c.Task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}):
-		return mtask{}, "", fmt.Errorf("%s: %s has %s pending; retry when it settles", method, c.Task, nth(event.StepPublish, mt.pubs+1))
-	}
-	why := mt.unsendable()
-	if method == wire.MethodAnswer {
-		why = p.unanswerable(mt)
-	}
-	if why != "" {
-		return mtask{}, "", errors.New(method + ": " + why)
-	}
-	return mt, "", nil
-}
-
 // resolvedCheck is Scratch.Resolved holding p's scratch: never while a gate or a publish runs there.
 func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input string) (string, error) {
 	select {
@@ -358,156 +258,35 @@ func holdReply(task, job string) string {
 	return fmt.Sprintf("HOLD %s (job %s): the owner is told", task, job)
 }
 
-func resumeReply(task, to, cause string) string {
-	return fmt.Sprintf("RESUMED %s: %s (%s)", task, to, Dash(cause))
-}
-
-// resume answers the lead's or the owner's resume of task's merge-loop needs-you (row 40): a repeated call id gets
-// the stored reply; else the project's merge loop runs, the caller is not an agent of another role, the task has a
-// needs-you in force that is not a reject's, and c.To (or the cause's default) fits it: reprompt needs an integrator
-// job of the attempt, retry a failed step. One fact, unblocked{to, note: c.Note, the decision}; the merge loop goes on
-// from it, and the integrator's next job of the attempt carries the decision (decisionText, T-511). A task with no
-// merge-loop needs-you but the watchdog's needs-you{stalled} in force is resumeStalled's (T-746).
-func (a *App) resume(c wire.Call) (string, error) {
-	a.verdicts.Lock()
-	defer a.verdicts.Unlock()
-	if c.CallID == "" || c.Task == "" {
-		return "", errors.New("resume: a call id and a task are required")
-	}
-	a.mu.Lock()
-	p := a.projAt(c.Root)
-	var reply string
-	var stored bool
-	var mt mtask
-	merging, stalled, worker := false, false, ""
-	if p != nil {
-		merging = p.merging
-		reply, stored = p.folded.calls[verdictStep(wire.MethodResume, c.CallID)]
-		if !stored { // a stalled worker's resume is stored as the answer it records (resumeStalled)
-			reply, stored = p.folded.calls[verdictStep(wire.MethodAnswer, c.CallID)]
-		}
-		if m := p.folded.loop[c.Task]; m != nil {
-			mt = *m
-		}
-		stalled = p.has(c.Task, event.StepNeedsYou, reasonStalled)
-		worker = mt.agent
-		if w := p.tasks[c.Task]; w != nil && worker == "" {
-			worker = w.lane.Agent
-		}
-	}
-	a.mu.Unlock()
-	switch {
-	case p == nil:
-		return "", fmt.Errorf("resume: no served project at %s", c.Root)
-	case stored:
-		return reply, nil
-	case !merging:
-		return "", mergeOff(p)
-	case c.Role != "" && c.Role != "lead":
-		return "", fmt.Errorf("resume: the lead or the owner resumes a task, not %s (role %s)", Dash(c.Agent), c.Role)
-	}
-	if mt.needs.Seq == 0 && stalled {
-		return a.resumeStalled(p, c, worker)
-	}
-	d := mt.needs.Fact()
-	to, err := mt.resumeTo(c.Task, c.To)
-	if err != nil {
-		return "", err
-	}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepUnblocked, Kind: event.KindFact},
-		event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: to, Merge: true, Cause: d.Cause, Call: c.CallID,
-			Note: strings.TrimSpace(c.Note)}) {
-		return "", fmt.Errorf("resume: the event log of %s refused it", p.name)
-	}
-	a.wake()
-	return resumeReply(c.Task, to, d.Cause), nil
-}
-
-// resumeStalled resumes task c.Task's watchdog needs-you{stalled} (T-746): its worker went quiet with its job open. The
-// decision (c.Note, required; c.To none or reprompt: regate and retry are the merge loop's) goes to worker as an
-// answer's line does: fact answered{to: worker, line "[obor answer] <decision>"}, whose fold ends the task's watchdog
-// facts (the needs-you with them) and whose line deliver sends at the worker's next idle.
-func (a *App) resumeStalled(p *proj, c wire.Call, worker string) (string, error) {
-	note := strings.TrimSpace(c.Note)
-	switch {
-	case c.To != "" && c.To != wire.ResumeReprompt:
-		return "", fmt.Errorf("resume: %s's worker stalled: reprompt it with the decision (obor resume %s \"<decision>\")",
-			c.Task, c.Task)
-	case note == "":
-		return "", fmt.Errorf("resume: say the decision for %s's stalled worker (obor resume %s \"<decision>\")", c.Task,
-			c.Task)
-	case worker == "":
-		return "", fmt.Errorf("resume: %s has no worker to send the decision to", c.Task)
-	}
-	m := event.Message{To: worker, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + note, Call: c.CallID,
-		Task: c.Task, Reply: resumeReply(c.Task, wire.ResumeReprompt, reasonStalled)}
-	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepAnswered, Kind: event.KindFact}, m) {
-		return "", fmt.Errorf("resume: the event log of %s refused it", p.name)
-	}
-	a.logf("%s %s: obor serve sends %s the decision by %s", p.name, m.Reply, worker, Dash(c.Agent))
-	a.wake()
-	return m.Reply, nil
-}
-
-// resumeTo is the target obor resume takes for task's needs-you in mt with to ("": the cause's default), or the
-// refusal of mt's state: a needs-you in force that is not a reject's, and a target that fits it (reprompt needs an
-// integrator job of the attempt, retry a failed step). answerPath suggests the targets it takes.
-func (mt mtask) resumeTo(task, to string) (string, error) {
-	d := mt.needs.Fact()
-	rule := mt.resumeRule(d.Cause) // the state the needs-you left: a dispatch's step runs again, an undelivered fix job is sent anew
-	switch {
-	case to == "" && rule.to != "":
-		to = rule.to
-	case to == "":
-		to = resumeDefaultOf(d.Cause)
-	}
-	switch {
-	case mt.needs.Seq == 0:
-		return "", fmt.Errorf("resume: %s has no needs-you of the merge loop", task)
-	case rule.closed:
-		return "", fmt.Errorf("resume: %s is rejected (%s): free its lane", task, d.Reason)
-	case to == "":
-		return "", fmt.Errorf("resume: say regate or reprompt (%s: %s)", task, d.Reason)
-	case to != wire.ResumeRegate && to != wire.ResumeReprompt && to != wire.ResumeRetry:
-		return "", fmt.Errorf("resume: %s is neither regate, reprompt nor retry", to)
-	case rule.only != "" && to != rule.only:
-		return "", fmt.Errorf("resume: %s left its dispatch (%s): retry it", task, d.Reason)
-	case to == wire.ResumeRetry && !strings.HasSuffix(d.Cause, failedSuffix) && !rule.retry:
-		return "", fmt.Errorf("resume: %s has no failed step to retry (%s): regate or reprompt", task, d.Reason)
-	case to == wire.ResumeReprompt && (rule.noReprompt || !mt.repromptable()):
-		return "", fmt.Errorf("resume: %s has no integrator job to re-prompt (%s): regate", task, d.Reason)
-	}
-	return to, nil
-}
-
-// repromptable: the attempt has an integrator job to send anew: its last one, or the review job of a green candidate a
-// needs-you held before it was sent.
-func (mt mtask) repromptable() bool { return mt.job != "" || mt.kept() == stGreen }
-
 func dropReply(task string) string { return "DROPPED " + task }
 
-// drop answers the lead's or the owner's drop of task, or of lane's task (obor drop <LANE>: the lane freed too,
-// freeLane; c.Note: why): a repeated call id gets the stored reply; else
-// the project's merge loop runs, the caller is not an agent of another role, the task is open in the loop (or, by
-// lane, its row holds it), and no step of it runs (p.held) nor has a gate or publish pending. One mu section decides
-// and marks the task ended (p.ended), the same section a selected step's start check takes (begin), so no step
-// starts after it. Then the lane is freed (by lane) and one fact, dropped{why, by}: the task leaves the loop and its
-// lane row, its needs-you and timers end. A refused lane or a failed write clears the mark.
+// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why): a repeated call id gets
+// the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the same mu section a
+// selected step's start check takes (begin), so no step starts after it. Then the task's lane is freed when its row
+// still holds the task (freeLane; serve knows the lane: a waiting task holds none) and one fact, dropped{why, by}: the
+// task leaves the loop and its lane row, its needs-you and timers end. A refused lane or a failed write clears the mark.
 func (a *App) drop(c wire.Call) (string, error) {
-	if c.CallID == "" || c.Task == "" && c.Lane == "" {
-		return "", errors.New("drop: a call id and a task or a lane are required")
+	if c.CallID == "" || c.Task == "" {
+		return "", errors.New("drop: a call id and a task are required")
 	}
 	a.verdicts.Lock() // one verdict at a time; held only for the decision and the write, never across a wait
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	mt, err := a.dropDecide(p, &c)
+	mt, err := a.dropDecide(p, c)
+	c.Lane = ""
+	if mt.lane != "" && p.laneTask(mt.lane) == c.Task {
+		c.Lane = mt.lane
+	}
 	a.mu.Unlock()
 	a.verdicts.Unlock()
 	if err != nil || mt.task == "" {
 		return dropReply(c.Task), err // mt.task "": a stored reply
 	}
+	if c.Lane != "" && !a.laneAdapters(p) { // no lane adapters (a loop observing): the task dropped, its lane as it was
+		c.Lane = ""
+	}
 	var lines []string
-	if c.Lane != "" { // obor drop <LANE>: the lane is given back first; a refusal leaves the task as it was
+	if c.Lane != "" { // the lane is given back first; a refusal leaves the task as it was
 		if lines, err = a.freeLane(p, c, mt); err != nil {
 			a.mu.Lock()
 			delete(p.ended, c.Task)
@@ -515,13 +294,10 @@ func (a *App) drop(c wire.Call) (string, error) {
 			return "", err
 		}
 	}
-	ok := true
-	if mt.state != stDropped { // a dropped task's lane freed again: its fact is in
-		a.verdicts.Lock()
-		ok = a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
-			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID})
-		a.verdicts.Unlock()
-	}
+	a.verdicts.Lock()
+	ok := a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
+		event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID})
+	a.verdicts.Unlock()
 	a.mu.Lock()
 	delete(p.ended, c.Task) // folded: the task is dropped; else the drop is refused
 	a.mu.Unlock()
@@ -536,14 +312,22 @@ func (a *App) drop(c wire.Call) (string, error) {
 		strings.ReplaceAll(c.Note, "\n", " "))), "\n"), nil
 }
 
-// freeLane gives the dropped task's lane back (obor drop <LANE>, T-439; the task marked ended): first its worker is
-// stopped (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of
-// it, stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
+// laneAdapters: p's merge loop has the lane adapters a drop frees a lane with.
+func (a *App) laneAdapters(p *proj) bool {
+	fx, err := a.loopOf(p)
+	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
+}
+
+// freeLane gives the dropped task's lane back (obor drop, T-439; the task marked ended): first its worker is stopped
+// (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of it,
+// stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
 // working after Escape (or with background tasks: port.NeedsForce) is stopped only with c.Force (Escape, then the exit
-// as obor restart --stop --force does): without it the drop is refused, nothing freed or recorded. Any other stop that
-// fails, two panes claiming it or serve not connected to herdr is a line, not a refusal (T-758). Then the lane adapter's Free (refused
-// for uncommitted changes or unmerged commits unless c.Discard, the worker stopped already; else the lane detached at
-// the target and the task branch deleted). Its lines say what it did, the stop first.
+// as obor restart --stop --force does). Any stop that fails (that refusal without c.Force, a quit timeout, a forced
+// stop failing, two panes claiming it, serve not connected to herdr) refuses the drop unless identity proves the
+// worker gone (RV-98 #2: a live agent must not stay in a lane the next task gets): nothing freed or recorded, the
+// error and the retry named. Then the lane adapter's Free (refused for uncommitted changes or unmerged commits unless
+// c.Discard, the worker stopped already; else the lane detached at the target and the task branch deleted). Its lines
+// say what it did, the stop first.
 func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	fx, err := a.loopOf(p)
 	if err != nil {
@@ -582,10 +366,11 @@ func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	if agent != "" {
 		line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false)
 		switch {
-		case err != nil && !c.Force && port.NeedsForce(err):
+		case err != nil && !c.Force && port.NeedsForce(err): // its error names --force
 			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped)", c.Lane, err)
-		case err != nil:
-			lines = append(lines, fmt.Sprintf("worker of %s not stopped: %v", c.Lane, err))
+		case err != nil: // RV-98 #2: a live agent would stay in the lane the next task gets
+			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped; obor drop %s retries)", c.Lane,
+				err, c.Task)
 		case !gone:
 			lines = append(lines, line)
 		}
@@ -605,38 +390,18 @@ func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 }
 
 // dropDecide is drop's decision (under mu): the task to drop, marked ended; mt.task "" with no error: the call id's
-// reply is stored.
-func (a *App) dropDecide(p *proj, c *wire.Call) (mtask, error) {
+// reply is stored. Refused: the merge loop off, a caller of another role, no why, the task not open, its state takes no
+// drop (mtask.may: merged, dropped), busy.
+func (a *App) dropDecide(p *proj, c wire.Call) (mtask, error) {
 	if p == nil {
 		return mtask{}, fmt.Errorf("drop: no served project at %s", c.Root)
 	}
 	if _, stored := p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]; stored {
 		return mtask{}, nil
 	}
-	if c.Task == "" { // by lane: the task the loop has open there, else its row's, else its branch's
-		var newest int64 // two open in the lane: the newest dispatch's task, the lane's current one (T-615)
-		for _, t := range p.loopTasks() {
-			if m := p.folded.loop[t]; m.lane == c.Lane && !states[m.state].ended && (c.Task == "" || m.dispSeq > newest) {
-				c.Task, newest = t, m.dispSeq
-			}
-		}
-		for _, l := range p.lanes {
-			if c.Task == "" && l.Name == c.Lane {
-				c.Task = cmp.Or(p.laneTask(c.Lane), l.Task)
-			}
-		}
-		if c.Task == "" {
-			c.Task = p.laneTask(c.Lane)
-		}
-		if c.Task == "" {
-			return mtask{}, fmt.Errorf("drop: lane %s holds no task", c.Lane)
-		}
-	}
 	var mt mtask
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
-	} else if c.Lane != "" { // a task the loop never held (dispatched before obor serve): only its lane is freed
-		mt = mtask{task: c.Task, lane: c.Lane}
 	}
 	switch {
 	case !p.merging:
@@ -647,27 +412,14 @@ func (a *App) dropDecide(p *proj, c *wire.Call) (mtask, error) {
 		return mtask{}, errors.New("drop: say why")
 	case mt.task == "":
 		return mtask{}, fmt.Errorf("drop: %s is not open in obor serve", c.Task)
-	case p.ended[c.Task]:
-		return mtask{}, fmt.Errorf("drop: %s is %s already", c.Task, stDropped)
-	case !mt.droppable(c.Lane != ""):
+	case !mt.may(vDrop):
 		return mtask{}, fmt.Errorf("drop: %s is %s already", c.Task, mt.state)
-	case p.held[c.Task] != "":
-		return mtask{}, fmt.Errorf("drop %s: %s is running; retry when it settles", c.Task, p.held[c.Task])
-	case p.running.Task == c.Task:
-		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, p.running.Step)
-	case p.log.Open(event.Key{Task: c.Task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}):
-		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, nth(event.StepGate, mt.gates+1))
-	case p.log.Open(event.Key{Task: c.Task, Attempt: mt.attempt, Step: nth(event.StepPublish, mt.pubs+1)}):
-		return mtask{}, fmt.Errorf("drop: %s has %s pending: retry once it settles", c.Task, nth(event.StepPublish, mt.pubs+1))
+	}
+	if why := p.busy(c.Task); why != "" {
+		return mtask{}, busyErr("drop", c.Task, why)
 	}
 	p.ended[c.Task] = true
 	return mt, nil
-}
-
-// droppable: obor drop takes mt's task in its state, by lane or by task: never a merged one; an ended one (rejected,
-// dropped) only by lane, whose lane is the owner's to free (its fact: dropped) and a dropped one's lane again.
-func (mt mtask) droppable(byLane bool) bool {
-	return mt.state != stMerged && (!states[mt.state].ended || byLane)
 }
 
 // mergeOff refuses a verdict or resume for p, whose merge loop is off: it is observe-only (RV-38 #13).

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -78,7 +77,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				h.a.closeLog()
 				p = reloadProj(t, h)
 				check("replay", p)
-				if _, err := h.a.verdict(context.Background(), wire.MethodAnswer, wire.Call{Root: h.root, Task: "T-1", Role: "lead",
+				if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead",
 					Agent: "pj-lead", CallID: "a1", Note: "yes, edit x"}); err != nil {
 					t.Fatalf("obor answer refused: %v", err)
 				}

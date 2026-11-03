@@ -58,16 +58,22 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 
 ## Needs-you
 `obor status` lists each `needs-you <T-xx> (<LANE>): <reason> → <commands>`; the owner is notified through herdr too.
-- `obor answer <T-xx> "<text>"` — a worker's question (its `Blocked:` report; a question only in chat becomes one when the Stop hook makes the worker report); the answer
-  reaches the worker as a line in the same attempt. A question you answer by typing into the worker's pane stays
-  open until the worker submits or asks again.
-- `obor resume <T-xx> [regate|reprompt] ["<decision>"]` — a step that stopped, once its cause is dealt with; for a
-  held review, the decision text goes into the integrator's next job ("Lead's decision on your hold: …"); for open
-  questions the decision is required and reaches the worker too.
-- `obor sendback <LANE> "<why>"` — fixes to a finished task (its review ends, the worker gets a fix job).
-- `obor drop <LANE> "<why>" [--discard] [--force]` — abandon a task, stop its worker and free the lane (`--force` only
-  for a worker that ignores Escape); `obor drop <T-xx> "<why>"` cancels a task that has no lane yet (a waiting
-  dispatch, `--after` or no free lane).
+- `obor resume <T-xx> ["<text>"] [--regate|--sendback]` — your one word to a task; serve picks what it does from the
+  task's state, and each needs-you line names the form it takes:
+  - a worker's question (its `Blocked:` report; a question only in chat becomes one when the Stop hook makes the worker
+    report): the text is the answer, a line to the worker in the same attempt (`--regate` instead gates the lane as it
+    is: a Blocked "re-gate, not my diff"). A question you answer by typing into its pane stays open until the worker
+    submits or asks again;
+  - a stalled or stopped worker: the text is a line to it; a driving task: a line to the drive agent;
+  - a finished task (green, under review): the text is the sendback's why (the review ends, the worker gets a fix job);
+  - a merge-loop needs-you: what its cause takes once it is dealt with: held → your decision (required) goes into the
+    integrator's next job ("Lead's decision on your hold: …"); a failed step → retried; a gate or publish failure →
+    gated again; red past K, sendbacks past K, a resolve rejected → you choose `--regate` or `--sendback "<why>"`.
+  A flag where it does not fit is refused, naming what `obor resume` would do. `obor answer`, `obor sendback` and the
+  `regate`/`reprompt`/`retry` words are gone.
+- `obor drop <T-xx> "<why>" [--discard] [--force]` — abandon a task: serve stops its worker and frees its lane
+  (`--discard` for a dirty lane or unmerged commits, `--force` only for a worker that ignores Escape); a task with no
+  lane yet (a waiting dispatch) is just cancelled. Every task command takes the task id, never a lane.
 - `obor dispatch <T-xx> --model <model>` on a working task moves it to that model in one command (`MOVED …`; same
   lane and branch, next attempt): no stop, drop and redispatch by hand (commands.md).
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).

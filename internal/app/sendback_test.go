@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// leadSendback is the lead's obor sendback of task in project name (the lane form resolves the lane to it).
+// leadSendback is the lead's obor resume --sendback of task in project name (T-775: obor sendback is gone).
 func (r *concRig) leadSendback(name, task, id string) (string, error) {
-	return r.app(name).verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots[name], Agent: "pq-lead", Role: "lead",
-		CallID: id, Task: task, Note: "fix the edge case"})
+	return r.app(name).resume(wire.Call{Root: r.roots[name], Agent: "pq-lead", Role: "lead", CallID: id, Task: task,
+		To: wire.ResumeSendback, Note: "fix the edge case"})
 }
 
 // factsOf is how many facts obor serve's status shows in force for task of project name.
@@ -34,9 +34,10 @@ func (r *concRig) attempt(name, task string) int {
 	return p.folded.loop[task].attempt
 }
 
-// The lead's sendback is serve's own transition (T-410, RV-45 #1): from a green candidate, an open job or a needs-you of
-// any merge-loop cause (T-619) the task goes back to its worker as the next attempt, its job, candidate and needs-you
-// ended; any other state is refused by name with nothing recorded.
+// The lead's sendback (obor resume --sendback, T-775) is serve's own transition (T-410, RV-45 #1): from a green
+// candidate, an open job or a needs-you of the owner's choice (red past K) the task goes back to its worker as the next
+// attempt, its job, candidate and needs-you ended; a needs-you whose cause takes another action is refused naming it,
+// any other state by name, with nothing recorded.
 func TestLeadSendback(t *testing.T) {
 	t.Parallel()
 	sub := func(r *concRig) {
@@ -79,26 +80,26 @@ func TestLeadSendback(t *testing.T) {
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: event.CauseHeld,
 				Reason: "held: ask the owner", Job: "T-6/1/review"})
-		}, stNeedsYou, "SENDBACK T-6 (job T-6/1/review)", "", 1},
+		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 sends the integrator its job anew", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
 			sub(r)
 			gate(r, outFail)
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
-		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
+		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 gates it again", 1},
 		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
 			r.add("pq", "T-6", event.StepWaiting, event.KindFact, dispatchData{After: []string{"T-7"}})
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeAfter,
 				Reason: "after: T-6 waits for T-7, which is dropped"})
-		}, stNeedsYou, "", "sendback: T-6 has no lane yet: obor resume or obor drop it", 1},
+		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 retries the failed step", 1},
 		{"accepted", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
 			r.add("pq", "T-6", verdictStep(wire.MethodAccept, "a1"), event.KindResult, verdictResult{Job: "T-6/1/review", Patch: "p6"})
-		}, stAccepted, "", "sendback: T-6 is accepted; retry when it settles", 0},
-		{"submitted", sub, stSubmitted, "", "sendback: T-6 is submitted; retry when it settles", 0},
-		{"no task", func(*concRig) {}, "", "", "sendback: T-6 is not open in obor serve", 0},
+		}, stAccepted, "", "resume: T-6 is accepted; retry when it settles", 0},
+		{"submitted", sub, stSubmitted, "", "resume: T-6 is submitted; retry when it settles", 0},
+		{"no task", func(*concRig) {}, "", "", "resume: T-6 is not open in obor serve", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -154,8 +155,8 @@ func TestLeadSendback(t *testing.T) {
 	}
 }
 
-// T-619: the lead cannot type a change into the worker's pane. From a needs-you of any merge-loop cause (the
-// integrator's hold, sendbacks past K, a red gate) obor sendback ends the hold and starts the next attempt, the worker's
+// T-619: the lead cannot type a change into the worker's pane. From a needs-you of the owner's choice (sendbacks past
+// K, a red gate; T-775: a hold takes the lead's decision, not a sendback) obor resume --sendback ends it and starts the next attempt, the worker's
 // fix job carrying the lead's text; the lead's sendback does not increment sendbacks (K counts the gate's and the integrator's).
 func TestLeadSendbackFromNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -166,7 +167,6 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 		report    string
 		sendbacks int
 	}{
-		{"integrator hold", event.CauseHeld, full + "\nOpen questions: should it use sqlite?", 0},
 		{"sendbacks", causeSendbacks, full, K},
 		{"red", causeRed, full, K},
 	} {
@@ -185,8 +185,8 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
 			}
 			const why = "use the config store; drop the extra test"
-			reply, err := h.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: h.root, Agent: "pj-lead",
-				Role: "lead", CallID: "s1", Task: "T-1", Note: why})
+			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "s1", Task: "T-1",
+				To: wire.ResumeSendback, Note: why})
 			if err != nil || !strings.HasPrefix(reply, "SENDBACK T-1") {
 				t.Fatalf("sendback: %q, %v", reply, err)
 			}
@@ -294,8 +294,8 @@ func TestLeadSendbackRefusals(t *testing.T) {
 	if task := r.entered("pj"); task != "T-1" {
 		t.Fatalf("pj's first gate: %s", task)
 	}
-	_, err := r.a.verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead",
-		CallID: "g1", Task: "T-1", Note: "why"})
+	_, err := r.a.resume(wire.Call{Root: r.roots["pj"], Agent: "pj-lead", Role: "lead", CallID: "g1", Task: "T-1",
+		To: wire.ResumeSendback, Note: "why"})
 	if err == nil || !strings.Contains(err.Error(), "retry when it settles") {
 		t.Errorf("sendback while the gate runs: %v", err)
 	}
@@ -311,15 +311,21 @@ func TestLeadSendbackRefusals(t *testing.T) {
 		p := a.p
 		return p.folded.loop["T-4"].state == stAwaiting && p.held["T-4"] == ""
 	})
-	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-l-04",
-		Role: "worker", CallID: "w1", Task: "T-4", Note: "why"})
-	if err == nil || !strings.Contains(err.Error(), "the integrator, the lead or the owner sends a task back") {
+	_, err = r.app("pr").resume(wire.Call{Root: r.roots["pr"], Agent: "pr-l-04", Role: "worker", CallID: "w1", Task: "T-4",
+		To: wire.ResumeSendback, Note: "why"})
+	if err == nil || !strings.Contains(err.Error(), "the lead or the owner resumes a task") {
 		t.Errorf("sendback by a worker: %v", err)
 	}
-	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-lead", Role: "lead",
-		CallID: "w2", Task: "T-4", Note: " "})
-	if err == nil || err.Error() != "sendback: say why" {
+	_, err = r.app("pr").resume(wire.Call{Root: r.roots["pr"], Agent: "pr-lead", Role: "lead", CallID: "w2", Task: "T-4",
+		To: wire.ResumeSendback, Note: " "})
+	if err == nil || !strings.Contains(err.Error(), `say the text: obor resume T-4 "<text>" sends it back to its worker`) {
 		t.Errorf("sendback without a why: %v", err)
+	}
+	// the socket's sendback is the integrator's only (its MCP verb): the lead's is refused there
+	_, err = r.app("pr").verdict(context.Background(), wire.MethodSendback, wire.Call{Root: r.roots["pr"], Agent: "pr-lead",
+		Role: "lead", CallID: "w3", Task: "T-4", Note: "why"})
+	if err == nil || !strings.Contains(err.Error(), "only the integrator (pr-int) gives verdicts") {
+		t.Errorf("the lead's socket sendback: %v; want the integrator's only", err)
 	}
 	if st := r.state("pr", "T-4"); st != stAwaiting {
 		t.Errorf("refused sendbacks moved T-4 to %s", st)

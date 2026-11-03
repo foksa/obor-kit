@@ -92,7 +92,7 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	if len(f.gated) != 0 {
 		t.Fatalf("held: gated %v; want none", f.gated)
 	}
-	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r"}); err != nil {
+	if _, err := h.a.resume(wire.Call{Root: h.root, Task: "T-1", Role: "lead", CallID: "r", Note: "resolve it"}); err != nil {
 		t.Fatal(err)
 	}
 	h.pass(ctx)

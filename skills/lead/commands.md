@@ -100,8 +100,8 @@ finish: it waits for the limit to reset or for you. Serve says so:
 - a role agent (reviewer, deep dive, advisor, integrator): `[obor] <agent> stopped: <error> (<details>)` instead of its
   brief's `finished` line. Brief it again (or `obor restart <agent>`) once the limit has reset.
 - a worker with an open task: `[obor] needs-you T-xx (<LANE>): <agent> stopped: <error> (<details>) → …`. It ends by
-  itself when the worker's next turn starts (the owner types `continue` in its pane once the limit resets); nothing
-  to resume.
+  itself when the worker's next turn starts (the owner types `continue` in its pane once the limit resets), or
+  `obor resume T-xx "<text>"` sends the worker a line (typed once it is idle) that starts that turn.
 The raw payloads are in `.obor/state/stop-failure.log`.
 
 ## obor dispatch (T-538)
@@ -131,10 +131,12 @@ overrides both.
   the new model's agent there with the task's next attempt: `MOVED T-xx on <LANE>: <old> → <new> (attempt n)`. One
   command, nothing to stop, drop or redispatch by hand. Refused: the task gating, merging or under review; the model it
   runs (`already on <model>`); a stop that fails (nothing recorded, the same command retries).
-- `obor drop <LANE> "<why>" [--discard] [--force]` stops the lane's worker as part of the drop (a working one is
-  interrupted with Escape and quits once idle), then frees the lane. `--force` is only for a worker that keeps working
+- `obor drop <T-xx> "<why>" [--discard] [--force]` stops the task's worker as part of the drop (a working one is
+  interrupted with Escape and quits once idle), then frees its lane (serve knows it; the lane form is gone). `--force` is only for a worker that keeps working
   after Escape (or has background tasks): without it that drop is refused, nothing dropped. A refused free (a dirty
-  lane without `--discard`) still stopped the worker; the refusal says so. `obor restart <agent> --stop` stops the
+  lane without `--discard`) still stopped the worker; the refusal says so. Any other stop that fails (a quit
+  timeout, a forced stop failing, herdr unreachable, two panes claiming the worker) refuses the drop, nothing freed or
+  recorded: fix what it names, then the same `obor drop` retries. `obor restart <agent> --stop` stops the
   same way: no more "left running".
 - `obor restart <lane's worker>` while its lane has a task restarts it with the task's open job: a fresh session gets
   the job's wake as its first prompt, a resumed one has it typed (`job T-xx/n/work: its wake …`). It never leaves an
@@ -168,9 +170,9 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
 - `obor status`, the monitor and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.
 - A drive and you message each other (T-761). The drive agent runs `obor tell-lead "<text>"` (`obor lead` starts you,
   so its way to you has this name; a worker, reviewer, the owner or you are refused): you get the line
-  `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, posted like your other lines. That reply must reach the drive,
+  `[obor T-xx drive] <text> (reply: obor resume T-xx "…")`, posted like your other lines. That reply must reach the drive,
   so tell-lead is refused (naming the state) from a land on — submitted, gating, under review — until the task is
-  `driving` again. Your `obor answer T-xx "<text>"` on a driving task needs no open question: the drive agent gets
+  `driving` again. Your `obor resume T-xx "<text>"` on a driving task needs no open question: the drive agent gets
   `[obor answer] <text>` typed into (or posted to) its pane once it is idle, held while it is busy (reply `ANSWERED T-xx:
   obor serve sends <agent> the answer`).
   Each answer is its own line; one still undelivered when the drive lands or is dropped closes unsent. Use it for

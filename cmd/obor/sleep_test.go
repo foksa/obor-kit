@@ -468,7 +468,7 @@ func TestStopStepsAndStart(t *testing.T) {
 	if rc := s.stop(context.Background()); rc != 0 {
 		t.Fatalf("stop: exit %d\n%s", rc, out)
 	}
-	if want := []string{"pause " + stopPause, "drop L-01", "drop T-03"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
+	if want := []string{"pause " + stopPause, "drop T-02", "drop T-03"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
 		t.Errorf("calls %q, want %q (the pause kept: serve is down)", f.calls, want)
 	}
 	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-int", "w1:p2", true}}
@@ -486,7 +486,7 @@ func TestStopStepsAndStart(t *testing.T) {
 		!strings.Contains(out.String(), "serve: down (pid 4242: serve.flock and serve.sock released)") {
 		t.Errorf("launchd's serve not uninstalled and confirmed down: plist %v, calls\n%s\n%s", err, b, out)
 	}
-	for _, w := range []string{"DROPPED L-01", "DROPPED T-03", "pause: PAUSED until cleared"} {
+	for _, w := range []string{"DROPPED T-02", "DROPPED T-03", "pause: PAUSED until cleared"} {
 		if !strings.Contains(out.String(), w) {
 			t.Errorf("no %q line:\n%s", w, out)
 		}

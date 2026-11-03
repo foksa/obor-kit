@@ -10,15 +10,15 @@ import (
 	"obor/internal/project"
 )
 
-// resumeCmd is `obor resume <T-xx> [regate|reprompt] ["<decision>"]`: the lead's or the owner's end of the task's
-// needs-you, sent to obor serve (its app socket) as the caller (caller: OBOR_AGENT, the session's role); the decision,
-// recorded on the resume, goes to the integrator with its next job (T-511). It prints the app's reply, or FAIL with
-// its refusal. The integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only
-// (T-437, T-470).
+// resumeCmd is `obor resume <T-xx> ["<text>"] [--regate|--sendback]` (T-775), the lead's or the owner's one word to a
+// task, sent to obor serve (its app socket) as the caller (caller: OBOR_AGENT, the session's role): serve picks the
+// action from the task's state (a question's answer, a stalled or stopped worker's line, a drive's line, a sendback, a
+// needs-you's decision; the flags only where two fit). It prints the app's reply, or FAIL with its refusal. The
+// integrator's verdicts (accept, sendback, reject, resolved, hold) are its MCP tools only (T-437, T-470).
 func resumeCmd(args []string) int {
 	c, ok := wire.ResumeArgs(args)
 	if !ok {
-		fmt.Fprintln(out, `FAIL usage: obor resume <T-xx> [regate|reprompt] ["<decision>"]`)
+		fmt.Fprintln(out, "FAIL "+wire.ResumeUsage)
 		return 1
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodResume, func(cfg *config.Config, id *wire.Call) error {
@@ -29,6 +29,19 @@ func resumeCmd(args []string) int {
 		*id = c
 		return nil
 	})
+}
+
+// caller is the one identity of every CLI request to obor serve (DD-v0.11 §Design 2): OBOR_AGENT, the session's role
+// (project.DetectRole: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent
+// as no role), a new call id and the project; cwd is the session's. Serve decides which callers each request takes:
+// the owner (no role), the lead, the integrator, a worker.
+func caller(env project.Env, cwd string, cfg *config.Config) wire.Call {
+	repo, _ := project.Find(cwd)
+	role := project.DetectRole(repo, cfg, env).Role
+	if role == "none" {
+		role = ""
+	}
+	return wire.Call{Agent: env.Get("OBOR_AGENT"), Role: role, CallID: wire.NewCallID(), Root: cfg.Root}
 }
 
 // request is every CLI request to obor serve: the config (load), the caller's identity (caller), the command's fields

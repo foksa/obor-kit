@@ -41,6 +41,8 @@ type concScratch struct {
 	refuse string
 	// ignoresEsc: the worker keeps working after Escape, as launch.Stop sees it (T-773): a stop without force fails.
 	ignoresEsc bool
+	// stopFails: a stop's error by force ("" : none): a quit timeout, a forced stop that fails (RV-98 #2).
+	stopFails func(force bool) string
 }
 
 func newConcScratch(hold string) *concScratch {
@@ -133,8 +135,11 @@ func (f *concScratch) Launch(context.Context, port.Launch) (port.Started, error)
 func (f *concScratch) Stop(_ context.Context, agent, _ string, force bool) (string, error) {
 	f.mu.Lock()
 	f.stops = append(f.stops, fmt.Sprintf("%s force=%t", agent, force))
-	ignores := f.ignoresEsc
+	ignores, fails := f.ignoresEsc, f.stopFails
 	f.mu.Unlock()
+	if fails != nil && fails(force) != "" {
+		return "", errors.New(fails(force))
+	}
 	if ignores && !force {
 		return "", needsForceErr(agent + " still working 30s after Escape (--force stops it)")
 	}
@@ -664,7 +669,7 @@ func TestWaitingNeedsYouDropCommand(t *testing.T) {
 	t.Parallel()
 	raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
 	r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
-	path := answerPath(r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
+	path := answerPath(nil, r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
 	t.Log(path)
 	if strings.Contains(path, "<LANE>") {
 		t.Error("waiting task has no lane; advertised drop command cannot run")

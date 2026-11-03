@@ -142,7 +142,7 @@ func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 		},
 		Watches: []wire.WatchStatus{{Task: "T-02", By: "pj-lead", Note: "restart serve, then release",
 			Since: now.Add(-3 * time.Minute).Unix()}},
-		Answers: map[int64]string{1: `obor answer T-09 "<text>"`},
+		Answers: map[int64]string{1: `obor resume T-09 "<answer>"`},
 		Paused:  &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Review:  "review request since 3m (now)",
 	}}
@@ -171,7 +171,7 @@ func TestMonitorSections(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"T-09 (L-09)", "asks: may I?", `→ obor answer T-09 "<text>"`,
+		"T-09 (L-09)", "asks: may I?", `→ obor resume T-09 "<answer>"`,
 		"L-01", "review request since 3m (now)", "watch T-02 since 3m (by pj-lead) — restart serve, then release",
 		"queued T-02: waiting (after T-01): dispatch T-02: no free lane of the types",
 		"paused: quota, until cleared (obor pause --clear ends it; no dispatch meanwhile)",

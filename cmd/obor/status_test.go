@@ -58,7 +58,7 @@ func fact(t *testing.T, seq int64, task string, d event.FactData) event.Record {
 
 // Serve up: its start and age, each lane with serve's task state and agent, serve's open tasks (not dropped) and agents
 // on no lane, each
-// needs-you with the commands serve says answer it (a question obor answer; a red gate obor sendback, resume or drop; a
+// needs-you with the commands serve says answer it (a question obor resume; a red gate obor resume --regate or --sendback, or drop; a
 // reject obor drop only; a stalled worker its pane; a loop error none; a line waiting a day none), the lines not typed
 // yet (T-466), the last full check and its age, the pause.
 func TestStatusOverServe(t *testing.T) {
@@ -92,7 +92,7 @@ func TestStatusOverServe(t *testing.T) {
 		Messages: []wire.MessageStatus{{To: "pj-lead", From: "other", Line: "[obor other] hi", Age: 90000},
 			{To: "pj-rev", From: "pj-lead", Line: "[obor pj-lead] verify 3", Age: 120}},
 		Answers: map[int64]string{ // serve's, from each task's state (T-515); a loop error, a line waiting: none
-			1: `obor answer T-01 "<text>"`, 2: `obor sendback L-09 "<why>" | obor resume T-05 | obor drop L-09 "<why>"`,
+			1: `obor resume T-01 "<answer>"`, 2: `obor resume T-05 --regate | obor resume T-05 --sendback "<why>" | obor drop T-05 "<why>"`,
 			3: `obor drop L-08 "<why>"`, 4: `its pane, or obor drop L-07 "<why>"`, 5: `obor resume T-08 | obor drop L-06 "<why>"`}}}
 	st, text := statusOf(t, p, ss, nil, now)
 	if !st.Serve.Up || len(st.NeedsYou) != 7 || len(st.Messages) != 2 {
@@ -108,8 +108,8 @@ func TestStatusOverServe(t *testing.T) {
 		"task T-05 (L-09): needs-you (attempt 2)",
 		"queued T-09: waiting (after T-03): dispatch T-09: lane L-01 is working on T-01", // DD-v0.12 A1
 		"agent pj-int: working 5m",
-		`needs-you T-01 (L-01): asks: may I edit x.go? → obor answer T-01 "<text>"`,
-		`needs-you T-05 (L-09): gate red after 2 sendbacks → obor sendback L-09 "<why>" | obor resume T-05 | obor drop L-09 "<why>"`,
+		`needs-you T-01 (L-01): asks: may I edit x.go? → obor resume T-01 "<answer>"`,
+		`needs-you T-05 (L-09): gate red after 2 sendbacks → obor resume T-05 --regate | obor resume T-05 --sendback "<why>" | obor drop T-05 "<why>"`,
 		`needs-you T-06 (L-08): rejected by the integrator: no → obor drop L-08 "<why>"`,
 		`needs-you T-07 (L-07): stalled → its pane, or obor drop L-07 "<why>"`,
 		`needs-you T-08 (L-06): job not delivered: … → obor resume T-08 | obor drop L-06 "<why>"`,

@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"path/filepath"
@@ -397,19 +398,15 @@ func TestDispatchByModels(t *testing.T) {
 // free it is still the redo, not a wait for a lane that frees only when the task leaves it.
 func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 	t.Parallel()
-	// drop ends T-1 with no lane: the lane, its branch and the work stay (obor drop <T-xx>, T-462).
+	// T-1 dropped with its lane, branch and work kept: an older build's obor drop <T-xx> (T-462) did that; T-775's drop
+	// frees the lane, so the dropped fact is seeded into the log of a stopped serve.
 	drop := func(t *testing.T, r *loopRig) {
 		t.Helper()
-		var reply string
-		var err error
-		r.waitFor("T-1 droppable", func() bool {
-			reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-				Role: "lead", CallID: "x1", Task: "T-1", Note: "continue later"})
-			return err == nil
-		})
-		if reply != "DROPPED T-1" {
-			t.Fatalf("drop: %q", reply)
-		}
+		r.waitFor("T-1 settled", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
+		r.stop()
+		r.writeLog([]logRec{{1, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true,
+			Reason: "continue later"}}})
+		r.start()
 		r.waitFor("T-1 dropped", func() bool { return r.taskState() == "dropped" })
 	}
 	for _, state := range []string{"working", "blocked"} {
@@ -695,7 +692,7 @@ func TestDispatchNeedsYouThenResume(t *testing.T) {
 			t.Errorf("prepare calls %d (want 1), or a start after the refusal: %q", n, r.steps())
 		}
 		r.needsYouState()
-		if _, err := r.resume("r0", wire.ResumeRegate); err == nil || !strings.Contains(err.Error(), "retry it") {
+		if _, err := r.resume("r0", wire.ResumeRegate); err == nil || !strings.Contains(err.Error(), "--regate does not fit: obor resume T-1 retries the failed step") {
 			t.Errorf("regate of a dispatch's needs-you: %v", err)
 		}
 		r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })

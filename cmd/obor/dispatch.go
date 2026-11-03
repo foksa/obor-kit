@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -65,16 +64,15 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 	return taskIDs(cfg, append([]string{c.Task}, c.After...)...)
 }
 
-// dropCmd is `obor drop <LANE> "<why>" [--discard] [--force]`, the lead's: a request to obor serve (T-439), which
-// stops the lane's worker (a working one interrupted with Escape; one that keeps working only with --force, T-773),
-// frees the lane (refused when it is dirty or its branch has
-// commits not in the target, unless --discard), records the dropped fact and answers DROPPED <task> from <LANE>
-// (<why>), or its refusal (FAIL). `obor drop <T-xx> "<why>"` drops a task that holds no lane (a waiting one, T-462):
-// DROPPED <task>. Serve down: FAIL, nothing touched.
+// dropCmd is `obor drop <T-xx> "<why>" [--discard] [--force]`, the lead's or the owner's: a request to obor serve
+// (T-439, T-775: serve knows the task's lane), which stops the task's worker (a working one interrupted with Escape;
+// one that keeps working only with --force, T-773), frees its lane (refused when it is dirty or its branch has commits
+// not in the target, unless --discard), records the dropped fact and answers DROPPED <task> from <LANE> (<why>); a task
+// that holds no lane (a waiting one, T-462): DROPPED <task>. Its refusal: FAIL; serve down: FAIL, nothing touched.
 func dropCmd(args []string) int {
 	var c wire.Call
 	usage := func() int {
-		fmt.Fprintln(out, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`)
+		fmt.Fprintln(out, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`)
 		return 1
 	}
 	for _, a := range args {
@@ -85,70 +83,23 @@ func dropCmd(args []string) int {
 			c.Force = true
 		case len(a) > 0 && a[0] == '-':
 			return usage()
-		case c.Lane == "":
-			c.Lane = a
+		case c.Task == "":
+			c.Task = a
 		case c.Note == "":
 			c.Note = a
 		default:
 			return usage()
 		}
 	}
-	if c.Lane == "" || c.Note == "" {
+	if c.Task == "" || c.Note == "" {
 		return usage()
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodDrop, func(cfg *config.Config, id *wire.Call) error {
-		switch {
-		case cfg.HasLane(c.Lane):
-		case cfg.TaskIDOK(c.Lane) && !c.Discard: // obor drop <T-xx>: no lane to free
-			c.Task, c.Lane = c.Lane, ""
-		default:
-			return fmt.Errorf("unknown lane %s (not in the config's lanes)", c.Lane)
+		if err := taskIDs(cfg, c.Task); err != nil {
+			return err
 		}
 		c.Agent, c.Role, c.CallID, c.Root = id.Agent, id.Role, id.CallID, id.Root
 		*id = c
 		return nil
 	})
-}
-
-// sendbackCmd is `obor sendback <LANE> "<why>"`, the lead's: the lane's open task in obor serve sent back to its worker
-// by serve's own sendback transition (RV-45 #1; the job and the candidate end, serve sends the fix job). Serve's
-// reply, or FAIL: serve down, no open task in the lane, or serve's refusal; nothing is touched here.
-func sendbackCmd(args []string) int {
-	if len(args) != 2 || args[0] == "" || args[1] == "" {
-		fmt.Fprintln(out, `FAIL usage: obor sendback <LANE> "<why>"`)
-		return 1
-	}
-	lane, ctx := args[0], context.Background()
-	return request(ctx, project.OSEnv, wire.MethodSendback, func(cfg *config.Config, c *wire.Call) error {
-		if !cfg.HasLane(lane) {
-			return fmt.Errorf("unknown lane %s (not in the config's lanes)", lane)
-		}
-		task, err := serveTask(ctx, cfg, lane)
-		if err != nil {
-			return err
-		}
-		if task == "" {
-			return fmt.Errorf("lane %s has no task open in obor serve", lane)
-		}
-		c.Task, c.Note = task, args[1]
-		return nil
-	})
-}
-
-// serveTask is the task obor serve's loop has open in lane ("" when none); an error when serve does not answer.
-func serveTask(ctx context.Context, cfg *config.Config, lane string) (string, error) {
-	ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
-	if err != nil {
-		return "", err
-	}
-	p := ss.Project
-	if p == nil || filepath.Clean(p.Root) != filepath.Clean(cfg.Root) {
-		return "", nil
-	}
-	for _, t := range p.Tasks {
-		if t.Lane == lane && t.State != "rejected" && t.State != "dropped" { // the loop's terminal states besides merged (not listed)
-			return t.Task, nil
-		}
-	}
-	return "", nil
 }

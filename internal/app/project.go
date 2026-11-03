@@ -112,11 +112,15 @@ func (p *proj) fold(r event.Record) {
 		}
 	case event.StepResumed:
 		p.resume(r.Task)
+	case event.StepUnblocked:
+		if p.asks(r.Task) { // obor resume --regate of a worker's question (T-775): the question ends with it
+			p.answered(r.Task)
+		}
 	}
 }
 
 // resume ends task's watchdog facts that its worker's activity ends (a resumed fact's fold): all but a question
-// (asks: obor answer, the task's submission or a drop ends it, state model row 12), with the retries of their failed
+// (asks: obor resume, the task's submission or a drop ends it, state model row 12), with the retries of their failed
 // notifications.
 func (p *proj) resume(task string) {
 	delete(p.folded.woke, task)
@@ -185,7 +189,7 @@ func isAsk(f event.Record) bool {
 	return f.Step == event.StepNeedsYou && strings.HasPrefix(f.Fact().Reason, reasonAsks)
 }
 
-// watched: task has a watchdog fact in force that its worker's activity ends: any but a question (asks: obor answer
+// watched: task has a watchdog fact in force that its worker's activity ends: any but a question (asks: obor resume
 // ends it, T-511).
 func (p *proj) watched(task string) bool {
 	for _, f := range p.folded.active[task] {

@@ -8,6 +8,7 @@ import (
 	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -197,53 +198,67 @@ func (p *proj) pendingSteps(open []event.Record) []wire.PendingStep {
 	return out
 }
 
-// answerPath is the commands that answer the needs-you fact r (obor status, the lead's needs-you line), each one its
-// verdict takes in the state mt of r's task (zero: the loop holds none), by the rules the verdict itself checks: a
-// worker's question obor answer; a merge-loop needs-you obor sendback when the task goes back (unsendable), obor resume
-// by default (a hold's with the owner's decision), else with each mode it takes (resumeTo), and obor drop unless the
-// task is merged (droppable); a stalled worker its pane, obor resume with the decision (T-746) or obor drop; another
-// watchdog fact its pane or obor drop; a loop error none ("": fix what it names).
-func answerPath(r event.Record, mt mtask) string {
+// answerPath is the commands that answer the needs-you fact r (obor status, the lead's needs-you line), in the state
+// mt of r's task (zero: the loop holds none), by the rules the verbs themselves check (T-775): the one obor resume form
+// resumeFits takes (its text where its action needs one; with no default, the owner's choice of --regate or
+// --sendback; a worker's question also --regate), then obor drop when the task's state takes one (mtask.may); a
+// watchdog fact its pane first; a loop error none ("": fix what it names). p (nil: none) is r's project, under mu.
+func answerPath(p *proj, r event.Record, mt mtask) string {
 	d := r.Fact()
-	drop := `obor drop ` + cmp.Or(d.Lane, r.Task) + ` "<why>"` // a waiting task has no lane: obor drop takes its task
+	var cmds []string
 	switch {
 	case r.Task == event.ReviewTask: // a failed review start's: a new request ends it
 		return "obor review [--after T-a,T-b]"
 	case projectKey(r.Task): // a GREEN nightly ends a nightly's; a line typed, a line's
 		return ""
 	case strings.HasPrefix(d.Reason, reasonAsks):
-		return `obor answer ` + r.Task + ` "<text>"`
+		return resumeCmds(p, r.Task, mt)
 	case !d.Merge:
-		var cmds []string
-		if d.Reason == reasonStalled && mt.needs.Seq == 0 { // obor resume sends the stalled worker the decision (T-746)
-			cmds = append(cmds, `obor resume `+r.Task+` "<decision>"`)
+		if mt.needs.Seq == 0 && (d.Reason == reasonStalled || d.Cause == causeStopped) && p != nil {
+			cmds = append(cmds, resumeCmds(p, r.Task, mt)) // the worker gets the line (T-746)
 		}
-		if mt.droppable(d.Lane != "") {
-			cmds = append(cmds, drop)
-		}
-		if len(cmds) == 0 {
-			return "its pane"
-		}
+	default:
+		cmds = append(cmds, resumeCmds(p, r.Task, mt))
+	}
+	if mt.may(vDrop) {
+		cmds = append(cmds, `obor drop `+r.Task+` "<why>"`)
+	}
+	cmds = slices.DeleteFunc(cmds, func(c string) bool { return c == "" })
+	switch {
+	case !d.Merge && len(cmds) == 0:
+		return "its pane"
+	case !d.Merge:
 		return "its pane, or " + strings.Join(cmds, " | ")
 	}
+	return strings.Join(cmds, " | ")
+}
+
+// resumeCmds is the obor resume form mt's task takes now ("": none; under mu): resumeFits' default with its text
+// placeholder, and each flag that chooses another action.
+func resumeCmds(p *proj, task string, mt mtask) string {
+	if p == nil && (mt.state == stWorking || mt.state == stDispatched) {
+		return ""
+	}
+	def, choice, err := p.resumeFits(mt)
+	if err != nil {
+		return ""
+	}
+	resume := "obor resume " + task
 	var cmds []string
-	if mt.unsendable() == "" && d.Lane != "" { // obor sendback takes a lane: a waiting task's needs-you has none
-		cmds = append(cmds, `obor sendback `+d.Lane+` "<why>"`)
-	}
-	resume := "obor resume " + r.Task
-	if _, err := mt.resumeTo(r.Task, ""); err == nil && d.Cause == event.CauseHeld { // the decision goes to the integrator's next job (T-511)
-		cmds = append(cmds, resume+` ["<decision>"]`)
-	} else if err == nil {
-		cmds = append(cmds, resume)
-	} else {
-		for _, to := range []string{wire.ResumeRegate, wire.ResumeReprompt} { // no default: the owner says which (retry is a default's)
-			if _, err := mt.resumeTo(r.Task, to); err == nil {
-				cmds = append(cmds, resume+" "+to)
-			}
+	if def != "" {
+		cmd := resume
+		if p.resumeNeedsText(mt, def) {
+			cmd += ` "<` + cmp.Or(map[string]string{actAnswer: "answer", actSendback: "why",
+				wire.ResumeReprompt: "decision"}[def], "text") + `>"`
 		}
+		cmds = append(cmds, cmd)
 	}
-	if mt.droppable(d.Lane != "") {
-		cmds = append(cmds, drop)
+	for _, f := range choice {
+		cmd := resume + " --" + f
+		if f == wire.ResumeSendback {
+			cmd += ` "<why>"`
+		}
+		cmds = append(cmds, cmd)
 	}
 	return strings.Join(cmds, " | ")
 }
@@ -254,7 +269,7 @@ func (p *proj) answerPath(r event.Record) string {
 	if m := p.folded.loop[r.Task]; m != nil {
 		mt = *m
 	}
-	return answerPath(r, mt)
+	return answerPath(p, r, mt)
 }
 
 // requestTimeout bounds a socket request's effect (a resolved's Git). It outlasts the connection's 10 s: an effect
@@ -322,7 +337,7 @@ func (a *App) Listen(ln net.Listener) {
 				if ans.Reply, err = a.backup(*req.Call); err != nil {
 					ans.Error = err.Error()
 				}
-			case req.Method == wire.MethodAccept || req.Method == wire.MethodSendback || req.Method == wire.MethodAnswer || req.Method == wire.MethodReject ||
+			case req.Method == wire.MethodAccept || req.Method == wire.MethodSendback || req.Method == wire.MethodReject ||
 				req.Method == wire.MethodResolved || req.Method == wire.MethodHold || req.Method == wire.MethodResume || req.Method == wire.MethodDrop ||
 				req.Method == wire.MethodDispatch || req.Method == wire.MethodJobNext || req.Method == wire.MethodTaskDone ||
 				req.Method == wire.MethodDrive || req.Method == wire.MethodLand:

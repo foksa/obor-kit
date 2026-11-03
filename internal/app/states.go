@@ -9,14 +9,15 @@ import (
 
 // The merge loop's states as one table (docs/state-model.md "States" and "Transitions": the code mirrors it, row by
 // row). A state's row says what each function decides for it: pick its next step, stepName that step's name, verdict
-// the integrator's verdicts it takes, unsendable whether the lead may send it back, resume what obor resume does with a
-// needs-you that left it, scratch whether it holds the scratch, uses whether its step needs it, drive whether a merge outside the app may have
-// landed it, drop whether it ended already. A new state is one row here (and one test, TestState<Name>Row<N>).
+// the integrator's verdicts it takes, verbs which of the lead's task verbs it takes (mtask.may), resume what obor
+// resume does with a needs-you that left it, scratch whether it holds the scratch, uses whether its step needs it,
+// landed whether a merge outside the app may have landed it, ended whether it ended already. A new state is one row here
+// (and one test, TestState<Name>Row<N>).
 type stateRow struct {
 	pick     func(a *App, p *proj, mt mtask) step // its next step (under mu); nil, or no pick: it waits
 	name     func(mt mtask) string                // the step pick selects, for a refused drop's reply (nil: "a step (<state>)")
 	verdicts []verdictRule                        // the integrator's verdicts on the job it has out, in the order a refusal names them
-	send     sendRule                             // the lead's sendback (unsendable)
+	verbs    verb                                 // the task verbs it takes (mtask.may; each also needs proj.busy "")
 	resume   func(mt mtask, cause string) resumeRule
 	scratch  bool   // its merge is open in the scratch: no other task is gated (scratchHolder)
 	uses     string // its step needs the scratch: ScratchGating (a gate) or ScratchPublishing ("": none; scratchWait)
@@ -30,14 +31,32 @@ type verdictRule struct {
 	fold   func(mt *mtask, v verdictResult)
 }
 
-// sendRule is whether the lead may send a task in a state back (mtask.unsendable).
-type sendRule int
+// verb is one of the task verbs of the lead, the owner or the worker (T-775): a state's row says which it takes, and
+// each verb is mt.may(v) && p.busy(task) == "", with its own refusal text.
+type verb uint8
 
 const (
-	sendNo      sendRule = iota // never: "<T> is <state>"
-	sendYes                     // a green candidate, an open job or a needs-you (any merge-loop cause, T-619)
-	sendSettles                 // a state the loop leaves by itself: "retry when it settles"
+	vResume verb = 1 << iota // obor resume: the lead's word to the task (resumeAct says which action)
+	vDrop                    // obor drop
+	vDrive                   // obor drive <T-xx>: a take-over (a drive already is driveAgain's)
+	vLand                    // obor land
+	vMove                    // obor dispatch <T-xx> --model (move.go)
+	vSubmit                  // task_done
 )
+
+// workVerbs are the verbs of a task its worker works on (dispatched, working); drive, move and submit also need a
+// dispatch's lane prepared (mt.base).
+const workVerbs = vResume | vDrop | vDrive | vMove | vSubmit
+
+// may: mt's state takes v. A needs-you takes its row's verbs and a take-over when the state it left takes one (a worker's
+// needs-you: obor drive fixes it by hand).
+func (mt mtask) may(v verb) bool {
+	vs := states[mt.state].verbs
+	if mt.state == stNeedsYou {
+		vs |= states[mt.left].verbs & vDrive
+	}
+	return vs&v != 0
+}
 
 // resumeRule is what obor resume may do with a needs-you that left a state (App.resume).
 type resumeRule struct {
@@ -54,74 +73,117 @@ var states map[string]stateRow
 func init() {
 	states = map[string]stateRow{
 		// rows 16, 18, 34: submit the lane's commit, then gate it (a conflict open in the scratch: wait)
-		stSubmitted: {pick: (*App).pickGate, name: gateName, send: sendSettles, landed: true, uses: wire.ScratchGating},
+		stSubmitted: {pick: (*App).pickGate, name: gateName, verbs: vDrop, landed: true, uses: wire.ScratchGating},
 		// rows 18–20: an accept bound to the patch is kept, else a review job
 		stGreen: {pick: (*App).pickGreen, name: func(mt mtask) string { return nth(event.StepReview, mt.reviews+1) },
-			send: sendYes, landed: true},
+			verbs: vResume | vDrop, landed: true},
 		// rows 19, 25–29, 31: the review job is out
-		stAwaiting: {pick: (*App).pickJob, name: jobName, send: sendYes, landed: true, verdicts: []verdictRule{
+		stAwaiting: {pick: (*App).pickJob, name: jobName, verbs: vResume | vDrop, landed: true, verdicts: []verdictRule{
 			{wire.MethodAccept, func(mt *mtask, v verdictResult) { mt.accepted, mt.state = v.Patch, stAccepted }},
 			{wire.MethodSendback, foldSendback},
 			{wire.MethodReject, func(mt *mtask, v verdictResult) { mt.state, mt.line = stRejected, v.Note }},
 		}},
 		// rows 21–22: a sendback, or the owner after K
-		stRed: {pick: (*App).pickRed, send: sendSettles, landed: true},
+		stRed: {pick: (*App).pickRed, verbs: vDrop, landed: true},
 		// rows 18, 23: a resolve job
 		stConflict: {pick: (*App).pickConflict, name: func(mt mtask) string { return nth(event.StepResolve, mt.resolves+1) },
-			send: sendSettles, scratch: true, landed: true},
+			verbs: vDrop, scratch: true, landed: true},
 		// rows 23, 25, 30–31: the resolve job is out
-		stResolving: {pick: (*App).pickJob, name: jobName, send: sendYes, scratch: true, landed: true, verdicts: []verdictRule{
+		stResolving: {pick: (*App).pickJob, name: jobName, verbs: vResume | vDrop, scratch: true, landed: true, verdicts: []verdictRule{
 			{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
 			{wire.MethodReject, func(mt *mtask, v verdictResult) {
 				mt.state, mt.why, mt.cause = stFail, "resolve rejected: "+v.Note, causeResolveRejected
 			}},
 		}},
 		// rows 30, 18: gate the merge the integrator committed in the scratch (it holds the scratch itself)
-		stResolved: {pick: (*App).pickGate, name: gateName, send: sendSettles, scratch: true, uses: wire.ScratchGating},
+		stResolved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, scratch: true, uses: wire.ScratchGating},
 		// row 22: the owner decides (unless a merge outside the app took the lane meanwhile)
-		stFail: {pick: (*App).pickFail, send: sendSettles, landed: true},
+		stFail: {pick: (*App).pickFail, verbs: vDrop, landed: true},
 		// rows 20, 26, 33, 35: publish it
 		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
-			send: sendSettles, uses: wire.ScratchPublishing},
+			verbs: vDrop, uses: wire.ScratchPublishing},
 		// rows 32, 18: gate the candidate again on the new target
-		stMoved: {pick: (*App).pickGate, name: gateName, send: sendSettles, uses: wire.ScratchGating},
+		stMoved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, uses: wire.ScratchGating},
 		// rows 33–34: the target holds the candidate
-		stPublished: {pick: (*App).pickPublished, send: sendSettles},
+		stPublished: {pick: (*App).pickPublished, verbs: vDrop},
 		// rows 34, 37–38: the after-merge steps; a needs-you of one has no job to re-prompt
-		stMerged: {pick: (*App).pickMerged, ended: true,
+		stMerged: {pick: (*App).pickMerged, ended: true, verbs: vResume,
 			resume: func(mtask, string) resumeRule { return resumeRule{noReprompt: true} }},
 		// rows 29, 40: unpin, then the owner frees the lane (no resume of the reject's needs-you)
-		stRejected: {pick: (*App).pickRejected, ended: true,
+		stRejected: {pick: (*App).pickRejected, ended: true, verbs: vResume | vDrop,
 			resume: func(_ mtask, cause string) resumeRule { return resumeRule{closed: cause == causeRejected} }},
 		// row 44: terminal
 		stDropped: {ended: true},
 		// row 2a: waiting for the tasks its dispatch names to merge, then dispatched (row 2); a needs-you (one of them
 		// dropped or rejected) is retried: it waits again
-		stWaiting: {pick: (*App).pickWaiting, name: func(mtask) string { return "the dispatch" },
+		stWaiting: {pick: (*App).pickWaiting, name: func(mtask) string { return "the dispatch" }, verbs: vResume | vDrop,
 			resume: func(mtask, string) resumeRule {
 				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
 			}},
 		// rows 2–9: the dispatch's steps; a needs-you of one is retried (row 40)
-		stDispatched: {pick: (*App).nextDispatch, name: func(mtask) string { return "the dispatch" },
+		stDispatched: {pick: (*App).nextDispatch, name: func(mtask) string { return "the dispatch" }, verbs: workVerbs,
 			resume: func(mtask, string) resumeRule {
 				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
 			}},
 		// rows 6, 10–16, 21, 24: the fix job (a dispatched attempt: its task_done submits it); an undelivered fix job
 		// is sent anew by retry (row 40)
-		stWorking: {pick: (*App).pickWorking, name: func(mtask) string { return "the fix" }, landed: true,
+		stWorking: {pick: (*App).pickWorking, name: func(mtask) string { return "the fix" }, landed: true, verbs: workVerbs,
 			resume: func(mt mtask, cause string) resumeRule {
 				if mt.work == "" && cause == causeUndelivered {
 					return resumeRule{to: wire.ResumeRetry, retry: true}
 				}
 				return resumeRule{}
 			}},
-		// row 40: the owner decides; the state it left is kept (mtask.kept). The lead may send it back too, whatever its
-		// cause (T-619)
-		stNeedsYou: {send: sendYes, landed: true},
+		// row 40: the owner decides; the state it left is kept (mtask.kept): obor resume does what its cause takes
+		// (resumeAct), a take-over too when the state it left takes one (mtask.may)
+		stNeedsYou: {verbs: vResume | vDrop | vSubmit, landed: true},
 		// T-751: the owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
-		// red gate, a sendback or a hold sent it back; no jobs, no watchdog, no sendback by the lead (no worker)
-		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }},
+		// red gate, a sendback or a hold sent it back; no jobs, no watchdog; obor resume is a line to the drive agent
+		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand},
 	}
+}
+
+// busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
+// being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step runs (p.running), or its
+// attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step). Each verb refuses with "<verb> <T>: <busy>;
+// retry when it settles" (busyErr).
+func (p *proj) busy(task string) string {
+	if why := p.claim(task); why != "" {
+		return why
+	}
+	if p.running.Task == task {
+		return fmt.Sprintf("%s has %s running", task, p.running.Step)
+	}
+	var mt mtask
+	if m := p.folded.loop[task]; m != nil {
+		mt = *m
+	}
+	if mt.state == stNeedsYou { // it runs no step: an open intent is the failed step's, which obor resume retries
+		return ""
+	}
+	for _, step := range []string{nth(event.StepGate, mt.gates+1), nth(event.StepPublish, mt.pubs+1)} {
+		if p.log.Open(event.Key{Task: task, Attempt: mt.attempt, Step: step}) {
+			return fmt.Sprintf("%s has %s pending", task, step)
+		}
+	}
+	return ""
+}
+
+// claim is busy's half a selected step's start (begin) reads too: a drop being recorded, or a step or a decision
+// holding the task ("": none). A step's own pending intent is no claim on it: the step replays it.
+func (p *proj) claim(task string) string {
+	switch {
+	case p.ended[task]:
+		return task + " has a drop being recorded"
+	case p.held[task] != "":
+		return fmt.Sprintf("%s has %s running", task, p.held[task])
+	}
+	return ""
+}
+
+// busyErr is verb's refusal of task for busy's why.
+func busyErr(verb, task, why string) error {
+	return fmt.Errorf("%s %s: %s; retry when it settles", verb, task, why)
 }
 
 // gateName names a gate state's step: submit first, then the attempt's next gate.
