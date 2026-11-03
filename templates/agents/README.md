@@ -13,8 +13,9 @@ roles (`obor: role text: …`); the work job carries them; `/obor:role <name>` r
 | [reviewer.md](reviewer.md) | Batch code review + verification in the same session; a role pane in its own worktree, never a lane | a different model family if possible |
 | [advisor.md](advisor.md) | Read-only design advisor | strongest available, plan mode |
 | [deep-dive.md](deep-dive.md) | Whole-codebase audit at milestone end; a role pane in its own worktree, never a lane | strongest Claude pane |
-| [roster.md](roster.md) | Template of the project's "who runs now" table (copied, not read in place) | — |
 | [gotchas.md](gotchas.md) | Tool quirks (herdr, Claude Code, Codex, bash) | — |
+
+Who runs now, and in which lane: `obor status` (or obor web); there is no hand-kept roster.
 
 ## Communication
 ```

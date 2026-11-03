@@ -333,7 +333,7 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	n := 0
 	for _, f := range texts {
 		name := filepath.Base(f)
-		if name == "README.md" || name == "roster.md" {
+		if name == "README.md" {
 			continue
 		}
 		n++
@@ -359,8 +359,9 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	}
 	has(t, x.Read("docs/agents/task-spec.md"), "## Protected files this task may edit", "the task spec template copied")
 	hasNot(t, x.Read("docs/agents/task-spec.md"), "Files you may touch", "no files section (T-496)")
-	has(t, x.Read("docs/agents/roster.md"), "mp-l-01", "prefix filled")
-	has(t, x.Read("docs/agents/roster.md"), "../proj-wt/L-01", "lanes_dir filled")
+	if x.Exists("docs/agents/roster.md") { // T-774: the rosters are gone; obor status and obor web show who runs
+		t.Error("init copied docs/agents/roster.md")
+	}
 	filepath.Walk(x.Path("docs"), func(p string, fi os.FileInfo, _ error) error {
 		if b, _ := os.ReadFile(p); !fi.IsDir() && strings.Contains(string(b), "{{") {
 			t.Errorf("placeholder left in %s", p)
@@ -1481,7 +1482,7 @@ func gitIn(dir string, args ...string) (string, error) {
 
 // --- agents (T-306, DD-v0.13 B1) -------------------------------------------------------------------------------------
 
-// agents (alias opencode-plugin) links <XDG_CONFIG_HOME>/opencode/plugins/obor.js to the kit's opencode/obor.js, idempotently;
+// agents links <XDG_CONFIG_HOME>/opencode/plugins/obor.js to the kit's opencode/obor.js, idempotently;
 // re-links another kit's copy; leaves a foreign file or link and the rest of the dir alone; --remove deletes the link.
 func TestOpencodePluginLinksAndRemoves(t *testing.T) {
 	t.Parallel()
@@ -1496,7 +1497,7 @@ func TestOpencodePluginLinksAndRemoves(t *testing.T) {
 	if x.Exists(dir) {
 		t.Fatal("precondition: no plugins dir")
 	}
-	out := x.ok(t, "opencode-plugin") // the alias of agents
+	out := x.ok(t, "agents")
 	if target() != mine {
 		t.Fatalf("link %s → %q, want %s\n%s", link, target(), mine, out)
 	}

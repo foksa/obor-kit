@@ -91,11 +91,14 @@ func TestServeBinary(t *testing.T) {
 		!strings.Contains(string(b), `"proj": "`+p.Root+`"`) {
 		t.Errorf("the machine's project list: %v, %q; want proj at the served root", err, b)
 	}
-	// the alias: obor serve status prints what obor status --facts does; --all is a no-op for one release
-	for _, args := range [][]string{{"serve", "status"}, {"status", "--all", "--facts"}} {
-		if rc, stdout, stderr := run(t, p.Root, env, args...); rc != 0 || !strings.Contains(stdout, "agent: pj-l-01 (working)") {
-			t.Errorf("obor %v: exit %d, %q, %q; want the project's status", args, rc, stdout, stderr)
-		}
+	// obor status --facts: --all is a no-op for one release (T-522)
+	if rc, stdout, stderr := run(t, p.Root, env, "status", "--all", "--facts"); rc != 0 ||
+		!strings.Contains(stdout, "agent: pj-l-01 (working)") {
+		t.Errorf("obor status --all --facts: exit %d, %q, %q; want the project's status", rc, stdout, stderr)
+	}
+	// T-774: obor serve status is gone; obor status --facts replaces it
+	if rc, _, stderr := run(t, p.Root, env, "serve", "status"); rc != 2 || !strings.Contains(stderr, "usage: obor serve") {
+		t.Errorf("obor serve status: exit %d, %q; want 2 and the usage", rc, stderr)
 	}
 	if strings.Contains(status, "w2:p1") {
 		t.Errorf("status lists a pane of another workspace:\n%s", status)
@@ -129,8 +132,8 @@ func TestServeBinary(t *testing.T) {
 	if rc, stdout, _ := run(t, lane, env, "status"); rc != 0 || !strings.Contains(stdout, "serve: down") {
 		t.Errorf("obor status after TERM: exit %d, %q; want serve down", rc, stdout)
 	}
-	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 0 {
-		t.Errorf("obor has serve status: exit %d", rc)
+	if rc, _, _ := run(t, p.Root, env, "has", "serve", "status"); rc != 1 { // T-774: the alias is gone
+		t.Errorf("obor has serve status: exit %d, want 1", rc)
 	}
 }
 

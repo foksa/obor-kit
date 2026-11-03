@@ -36,7 +36,7 @@ Without `--tab` / `--new-tab` the current pane's tab is split; `--pane <id>` use
 - `FAIL agent not ready: … Trust this folder? …` → ask the user to answer the dialog in that pane (Enter = trust,
   once per repo). `… updated itself and exited …` → rerun the `herdr agent start` the hint prints.
 Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … already running`).
-`obor setup agents` (once per user; ask first, it is user-global; its old name `opencode-plugin` still works)
+`obor setup agents` (once per user; ask first, it is user-global)
 installs what each agent kind needs outside the project: for opencode lanes (`kind: opencode`, no Claude Code hooks)
 it links obor's opencode plugin into `~/.config/opencode/plugins/` (`$XDG_CONFIG_HOME` respected), which runs obor's
 file guard and session context there (there is no Stop hook, so nothing nudges a missing `task_done`), and writes

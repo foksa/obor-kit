@@ -48,7 +48,7 @@ func NameAt(root string) (string, bool) {
 }
 
 // Projects lists the projects this machine knows, in name order: an entry whose root no longer holds a config file, or
-// whose config names another project, is left out (and dropped at the next write).
+// whose config names another project, is left out (the entry stays in the file: a stale entry costs nothing, T-774).
 func Projects(env Env) []Project { return live(readProjects(env)) }
 
 // live is the entries of list whose project is there under that name, in name order.
@@ -73,9 +73,10 @@ func RootOf(name string, env Env) (string, bool) {
 	return "", false
 }
 
-// Register adds the project at root to the machine's list under its own name, dropping the entries whose project is
-// gone: obor serve at its start and obor init write it. It reports whether the list changed (the entry was absent, or
-// named another root, or a stale entry went). The read-modify-write holds projects.lock and the file is replaced by a
+// Register adds the project at root to the machine's list under its own name, or replaces its entry: obor serve at its
+// start and obor init write it. It never drops another entry: a project unloadable or missing for a moment keeps its
+// entry (T-774), and Projects/RootOf leave a stale one out when they read. It reports whether the list changed (the
+// entry was absent, or named another root). The read-modify-write holds projects.lock and the file is replaced by a
 // rename, so two registers at once both land (T-646).
 func Register(root string, env Env) (changed bool, err error) {
 	name, ok := NameAt(root)
@@ -90,10 +91,7 @@ func Register(root string, env Env) (changed bool, err error) {
 	}
 	defer lock.Unlock()
 	before := readProjects(env)
-	list := map[string]string{}
-	for _, p := range live(before) {
-		list[p.Name] = p.Root
-	}
+	list := maps.Clone(before)
 	list[name] = Physical(root)
 	if maps.Equal(before, list) {
 		return false, nil

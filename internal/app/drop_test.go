@@ -61,7 +61,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 		}
 	}
 	if shown != "dropped" {
-		t.Errorf("obor serve status shows T-3 %q; want dropped", shown)
+		t.Errorf("obor status --facts shows T-3 %q; want dropped", shown)
 	}
 	if n := r.fakes["pq"].count(r.fakes["pq"].gates, "T-3"); n != 0 {
 		t.Errorf("a dropped task gated %d times", n)

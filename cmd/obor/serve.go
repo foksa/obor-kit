@@ -28,8 +28,7 @@ import (
 )
 
 // serveCmd is `obor serve` (T-323: the app; T-522: one per project, run in it; T-336: the merge loop), `obor serve
-// install|uninstall|restart` (its launchd agent, T-596), `obor serve status` (an alias of `obor status --facts`) and
-// `dump`.
+// install|uninstall|restart` (its launchd agent, T-596) and `dump`.
 func serveCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -42,14 +41,12 @@ func serveCmd(args []string) int {
 // projects by name (T-646).
 func serve(ctx context.Context, args []string, env project.Env, cwd string) int {
 	switch {
-	case len(args) == 1 && args[0] == "status":
-		return status([]string{"--facts"})
 	case len(args) == 1 && args[0] == "dump":
 		return serveDump(out, cwd)
 	case len(args) == 1 && (args[0] == "install" || args[0] == "uninstall" || args[0] == "restart"):
 		return serveService(args[0], cwd, env)
 	case len(args) != 0:
-		errf("usage: obor serve [install | uninstall | restart | status (= obor status --facts, goes next release) | dump]")
+		errf("usage: obor serve [install | uninstall | restart | dump]")
 		return 2
 	}
 	repo, err := project.Find(cwd)
@@ -239,7 +236,7 @@ func nightly(o checks.Options) *app.Nightly {
 				}
 			}()
 			o.Interrupted = cut
-			r := checks.Nightly(o, "NIGHTLY")
+			r := checks.Nightly(o)
 			out := app.NightlyOut{Line: r.Line}
 			switch r.Code {
 			case checks.OK:

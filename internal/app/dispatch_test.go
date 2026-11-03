@@ -277,7 +277,7 @@ func (r *loopRig) needsYouState() {
 	r.waitFor("T-1 needs-you", func() bool { return r.taskState() == "needs-you" })
 }
 
-// taskState is T-1's state in obor serve status ("" when not listed).
+// taskState is T-1's state in obor status --facts ("" when not listed).
 func (r *loopRig) taskState() string {
 	for _, t := range r.app.Status().Project.Tasks {
 		if t.Task == "T-1" {

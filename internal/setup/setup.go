@@ -37,7 +37,7 @@
 //	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
 //	        (T-613); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
 //	        false` (never edited, T-159).
-//	agents [--remove]  what each kind's bridge says to install (user-global, once per user; alias opencode-plugin):
+//	agents [--remove]  what each kind's bridge says to install (user-global, once per user):
 //	        its plugin link (OpenCode: <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js,
 //	        T-306; another kit's copy re-linked, anything else there left alone) and the obor entry of its user config
 //	        (OpenCode: mcp.servers.obor). --remove deletes those.
@@ -157,7 +157,7 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.githooks(args)
 	case "herdr-plugin":
 		err = s.herdrPlugin(ctx, args)
-	case "agents", "opencode-plugin": // opencode-plugin: its name before DD-v0.13 B1
+	case "agents":
 		err = s.agentsCmd(args)
 	case "mcp":
 		err = s.mcpCmd(ctx, args)

@@ -23,10 +23,8 @@ func TestOpencodePlugin(t *testing.T) {
 	if !strings.Contains(string(src), `filepath.Join(kit, name, "obor.js")`) || !strings.Contains(string(src), `const name = "opencode"`) {
 		t.Error("internal/agents/opencode does not link <kit>/opencode/obor.js")
 	}
-	for _, sub := range []string{"agents", "opencode-plugin"} { // opencode-plugin: the alias (DD-v0.13 B1)
-		if has([]string{"setup", sub}) != 0 {
-			t.Errorf("obor has setup %s: no", sub)
-		}
+	if has([]string{"setup", "agents"}) != 0 || has([]string{"setup", "opencode-plugin"}) != 1 {
+		t.Error("obor has setup agents: yes; the alias opencode-plugin: gone (T-774)")
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {

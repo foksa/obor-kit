@@ -375,7 +375,7 @@ func TestHeldGateBlocksNothingElse(t *testing.T) {
 		t.Fatalf("pj's first gate: %s; want T-1", task)
 	}
 	if got := r.running("pj", "T-1"); got != event.StepGate {
-		t.Errorf("obor serve status: T-1 running %q; want gate", got)
+		t.Errorf("obor status --facts: T-1 running %q; want gate", got)
 	}
 
 	if task := r.entered("pq"); task != "T-3" {

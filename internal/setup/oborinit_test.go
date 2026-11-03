@@ -424,8 +424,7 @@ func TestOborInitRerunAfterAnInterruptedInit(t *testing.T) {
 			t.Errorf("commits %q, want the one obor init commit", got)
 		}
 		files := x.Git(dir, "show", "--name-only", "--format=", "HEAD")
-		for _, f := range []string{".obor/config.json", ".gitignore", "BACKLOG.md", "docs/decisions.md",
-			"docs/agents/roster.md"} {
+		for _, f := range []string{".obor/config.json", ".gitignore", "BACKLOG.md", "docs/decisions.md"} {
 			if !strings.Contains("\n"+files+"\n", "\n"+f+"\n") {
 				t.Errorf("the commit lacks %s:\n%s", f, files)
 			}

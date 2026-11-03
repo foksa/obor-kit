@@ -53,7 +53,7 @@
 //
 // Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. bin/obor missing, failing
 // or slower than 5 s: allow, except the guard, which then denies (bin/obor's own no-binary rule already fails closed).
-// Installed by `obor setup opencode-plugin` (a link in ~/.config/opencode/plugins/); plain JS, node built-ins only.
+// Installed by `obor setup agents` (a link in ~/.config/opencode/plugins/); plain JS, node built-ins only.
 
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";

@@ -185,39 +185,37 @@ func TestFlakeLogNightly(t *testing.T) {
 	t.Parallel()
 	failing := func(name string) any { return `echo "--- FAIL: Test_` + name + ` (0.01s)"; exit 1` }
 	grep := testkit.Set("merge.fail_grep", `^--- FAIL|^FAIL\s`)
-	for _, label := range []string{"NIGHTLY", "MILESTONE"} {
-		t.Run(label+": check, check_milestone, baseline, gate and e2e", func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t, grep, cmd("check", failing("check")), cmd("check_milestone", failing("milestone")),
-				cmd("baseline", map[string]any{"cmd": failing("baseline"), "dir": "base"}),
-				cmd("gate", failing("gate")), cmd("e2e", failing("e2e")))
-			os.Mkdir(x.Path("base"), 0o755)
-			x.is(x.nightly(label), Red, `^`+label+` RED .*failed: check, check_milestone, baseline, gate, e2e;`)
-			got := x.flakes()
-			if len(got) != 5 {
-				t.Fatalf("flake lines %d, want 5: %+v", len(got), got)
-			}
-			for i, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e"} {
-				x.eq(got[i].Test, "Test_"+strings.TrimPrefix(name, "check_"), "test")
-				x.eq(got[i].Check, name, "check")
-				x.eq(got[i].Task, strings.ToLower(label), "task")
-				x.eqBool(got[i].Retried || got[i].PassedOnRetry, false, "no retry")
-			}
-		})
-	}
+	t.Run("NIGHTLY: check, check_milestone, baseline, gate and e2e", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t, grep, cmd("check", failing("check")), cmd("check_milestone", failing("milestone")),
+			cmd("baseline", map[string]any{"cmd": failing("baseline"), "dir": "base"}),
+			cmd("gate", failing("gate")), cmd("e2e", failing("e2e")))
+		os.Mkdir(x.Path("base"), 0o755)
+		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: check, check_milestone, baseline, gate, e2e;`)
+		got := x.flakes()
+		if len(got) != 5 {
+			t.Fatalf("flake lines %d, want 5: %+v", len(got), got)
+		}
+		for i, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e"} {
+			x.eq(got[i].Test, "Test_"+strings.TrimPrefix(name, "check_"), "test")
+			x.eq(got[i].Check, name, "check")
+			x.eq(got[i].Task, "nightly", "task")
+			x.eqBool(got[i].Retried || got[i].PassedOnRetry, false, "no retry")
+		}
+	})
 
 	t.Run("lane_setup timeout: logged, the rest not run", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, grep, cmd("lane_setup", map[string]any{"cmd": `echo "--- FAIL: Test_setup (0.01s)"; sleep 5`, "timeout": 1}),
 			cmd("check", "echo 1 pass"))
-		x.is(x.nightly("NIGHTLY"), Red, `^NIGHTLY RED .*failed: lane_setup;`)
+		x.is(x.nightly(), Red, `^NIGHTLY RED .*failed: lane_setup;`)
 		x.eqList(x.logged(), []string{"Test_setup/lane_setup/false/false"}, "log")
 	})
 
 	t.Run("green nightly: no log", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, grep, cmd("check", "echo 1 pass"))
-		x.is(x.nightly("NIGHTLY"), OK, `^NIGHTLY GREEN `)
+		x.is(x.nightly(), OK, `^NIGHTLY GREEN `)
 		x.gone(".obor/state/flakes.jsonl", "no flake log")
 	})
 }

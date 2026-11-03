@@ -146,10 +146,10 @@ func (x *fx) gateCtx(ctx context.Context, lane, task, summary string) Result {
 	return Result{Code: Fail, Line: o.Line}
 }
 
-func (x *fx) nightly(label string) Result {
+func (x *fx) nightly() Result {
 	x.t.Helper()
 	x.out.Reset()
-	return Nightly(x.opts(), label)
+	return Nightly(x.opts())
 }
 
 // is fails unless r has the code and its line matches re.

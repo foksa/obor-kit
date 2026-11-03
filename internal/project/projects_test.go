@@ -82,8 +82,8 @@ func TestProjectsByName(t *testing.T) {
 	}
 }
 
-// T-646: an entry whose root no longer holds a config of that name (the project moved, or another project took its
-// place) is skipped by Projects and RootOf, and dropped at the next write.
+// T-646, T-774: an entry whose root no longer holds a config of that name (the project moved, or another project took
+// its place) is skipped by Projects and RootOf, and a register of another project leaves it in the file.
 func TestProjectsSkipsStaleEntries(t *testing.T) {
 	t.Parallel()
 	env := stateEnv(t)
@@ -91,6 +91,7 @@ func TestProjectsSkipsStaleEntries(t *testing.T) {
 	moved, renamed, kit := filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "kit")
 	configAt(t, moved, "moved")
 	configAt(t, renamed, "renamed")
+	movedRoot := Physical(moved) // before the rename: Physical of a gone path does not resolve its symlinks
 	if _, err := Register(moved, env); err != nil {
 		t.Fatal(err)
 	}
@@ -119,14 +120,16 @@ func TestProjectsSkipsStaleEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	var list map[string]string
-	if err := json.Unmarshal(b, &list); err != nil || len(list) != 1 || list["kit"] != Physical(kit) {
-		t.Errorf("the file after a write %q: %v; want only kit (the stale entries dropped)", b, err)
+	kept := map[string]string{"moved": movedRoot, "renamed": Physical(renamed), "kit": Physical(kit)}
+	if err := json.Unmarshal(b, &list); err != nil || !maps.Equal(list, kept) {
+		t.Errorf("the file after a write %q: %v; want %v (the stale entries kept, T-774)", b, err, kept)
 	}
 }
 
 // T-767: the list keeps a project whose config this binary cannot load (an older shape a release wrote, a newer shape a
-// release wrote, an unparsable file): its entry goes only when its root has no .obor/config.json, or its config names
-// another project. A project on another obor version stays named, so obor send and obor projects reach it.
+// release wrote, an unparsable file): a read leaves its entry out only when its root has no .obor/config.json, or its
+// config names another project; the entry itself stays in the file (T-774). A project on another obor version stays
+// named, so obor send and obor projects reach it.
 func TestProjectsKeepsConfigsItCannotLoad(t *testing.T) {
 	t.Parallel()
 	env := stateEnv(t)
@@ -179,9 +182,11 @@ func TestProjectsKeepsConfigsItCannotLoad(t *testing.T) {
 	if err := json.Unmarshal(b, &list); err != nil {
 		t.Fatal(err)
 	}
-	kept := map[string]string{"axis-alies": Physical(old), "obor-kit": Physical(broken), "fifth": Physical(fifth)}
+	// T-774: the gone and renamed entries stay in the file; only a read leaves them out.
+	kept := map[string]string{"axis-alies": Physical(old), "obor-kit": Physical(broken), "fifth": Physical(fifth),
+		"gone": Physical(gone), "renamed": Physical(renamed)}
 	if !maps.Equal(list, kept) {
-		t.Errorf("the file after a write = %v; want %v (only the configs that are there, and name it)", list, kept)
+		t.Errorf("the file after a write = %v; want %v (every entry kept, stale or not)", list, kept)
 	}
 }
 
