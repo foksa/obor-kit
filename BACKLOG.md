@@ -6,9 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-03 morning: **v0.21.0 tagged** (Setup page + editing T-750/T-752..T-754/T-756, obor drive/land
+- 2026-11-03 morning: **v0.21.0 shipped** (leads told) (Setup page + editing T-750/T-752..T-754/T-756, obor drive/land
   T-751/T-755/T-757/T-758, test flakes T-759 released UNREVIEWED with the owner's OK). RV-92, RV-93 closed (accepted
-  lines in Open). Owner runs `make ship`. Owner will redesign the Setup page (DeepSeek's UI looked ugly: UI specs now
+  lines in Open). Owner will redesign the Setup page (DeepSeek's UI looked ugly: UI specs now
   carry `Type: opus`); suggest `obor drive`. Reviewer stays terra:xhigh (owner: axis' Sol use drove Codex usage).
   Nothing in flight.
 - 2026-11-03: **v0.20.1 shipped** (v0.20.0 never shipped on its own; v0.20.1 notes carry both; T-748/T-749 answer
