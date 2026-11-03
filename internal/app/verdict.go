@@ -318,14 +318,16 @@ func (a *App) laneAdapters(p *proj) bool {
 	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
 }
 
-// freeLane gives the dropped task's lane back (obor drop, T-439; the task marked ended): first its worker is
-// stopped (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of
-// it, stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
+// freeLane gives the dropped task's lane back (obor drop, T-439; the task marked ended): first its worker is stopped
+// (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of it,
+// stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
 // working after Escape (or with background tasks: port.NeedsForce) is stopped only with c.Force (Escape, then the exit
-// as obor restart --stop --force does): without it the drop is refused, nothing freed or recorded. Any other stop that
-// fails, two panes claiming it or serve not connected to herdr is a line, not a refusal (T-758). Then the lane adapter's Free (refused
-// for uncommitted changes or unmerged commits unless c.Discard, the worker stopped already; else the lane detached at
-// the target and the task branch deleted). Its lines say what it did, the stop first.
+// as obor restart --stop --force does). Any stop that fails (that refusal without c.Force, a quit timeout, a forced
+// stop failing, two panes claiming it, serve not connected to herdr) refuses the drop unless identity proves the
+// worker gone (RV-98 #2: a live agent must not stay in a lane the next task gets): nothing freed or recorded, the
+// error and the retry named. Then the lane adapter's Free (refused for uncommitted changes or unmerged commits unless
+// c.Discard, the worker stopped already; else the lane detached at the target and the task branch deleted). Its lines
+// say what it did, the stop first.
 func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	fx, err := a.loopOf(p)
 	if err != nil {
@@ -364,10 +366,11 @@ func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	if agent != "" {
 		line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false)
 		switch {
-		case err != nil && !c.Force && port.NeedsForce(err):
+		case err != nil && !c.Force && port.NeedsForce(err): // its error names --force
 			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped)", c.Lane, err)
-		case err != nil:
-			lines = append(lines, fmt.Sprintf("worker of %s not stopped: %v", c.Lane, err))
+		case err != nil: // RV-98 #2: a live agent would stay in the lane the next task gets
+			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped; obor drop %s retries)", c.Lane,
+				err, c.Task)
 		case !gone:
 			lines = append(lines, line)
 		}

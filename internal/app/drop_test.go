@@ -222,6 +222,45 @@ func TestDropStopsTheWorker(t *testing.T) {
 			t.Errorf("T-2 is %s after the drop, want dropped", st)
 		}
 	})
+	// RV-98 #2: any other stop that fails refuses the drop (the worker may still run in the lane the next task gets):
+	// nothing freed or recorded, the ended mark cleared, the error and the retry named.
+	for _, c := range []struct {
+		name  string
+		force bool
+		fails func(force bool) string
+	}{
+		{"a quit timeout", false, func(bool) string { return "pj-l-02 did not quit within 30s" }},
+		{"a forced stop failing", true, func(force bool) string {
+			if force {
+				return "pj-l-02: exit failed: pane w1:p2 still runs"
+			}
+			return ""
+		}},
+	} {
+		t.Run(c.name+": refused, the lane kept", func(t *testing.T) {
+			t.Parallel()
+			r, p, f, drop := setup(t)
+			f.mu.Lock()
+			f.stopFails = c.fails
+			f.mu.Unlock()
+			if r.state("pj", "T-2") == stDropped || len(f.stops) != 0 {
+				t.Fatalf("precondition: T-2 open, no stop: %q", f.stops)
+			}
+			_, err := drop("d1", c.force)
+			if err == nil || !strings.Contains(err.Error(), "drop: worker of L-02 not stopped: "+c.fails(c.force)) ||
+				!strings.HasSuffix(err.Error(), "(nothing dropped; obor drop T-2 retries)") {
+				t.Fatalf("drop with %s: %v; want refused with the error and the retry", c.name, err)
+			}
+			r.a.mu.Lock()
+			ended, row := p.ended["T-2"], p.laneTask("L-02")
+			r.a.mu.Unlock()
+			if len(f.stops) != 1 || len(f.frees) != 0 || ended || row != "T-2" || r.state("pj", "T-2") == stDropped ||
+				r.count("pj", "T-2", event.KindFact, event.StepDropped) != 0 {
+				t.Errorf("the refused drop: stops %q, frees %+v, ended %t, L-02's row %q, T-2 %s; want one stop tried, "+
+					"nothing freed or recorded, the lane kept", f.stops, f.frees, ended, row, r.state("pj", "T-2"))
+			}
+		})
+	}
 	t.Run("a worker that ignores Escape: refused without --force, stopped and dropped with it", func(t *testing.T) {
 		t.Parallel()
 		r, p, f, drop := setup(t)

@@ -134,7 +134,9 @@ overrides both.
 - `obor drop <T-xx> "<why>" [--discard] [--force]` stops the task's worker as part of the drop (a working one is
   interrupted with Escape and quits once idle), then frees its lane (serve knows it; the lane form is gone). `--force` is only for a worker that keeps working
   after Escape (or has background tasks): without it that drop is refused, nothing dropped. A refused free (a dirty
-  lane without `--discard`) still stopped the worker; the refusal says so. `obor restart <agent> --stop` stops the
+  lane without `--discard`) still stopped the worker; the refusal says so. Any other stop that fails (a quit
+  timeout, a forced stop failing, herdr unreachable, two panes claiming the worker) refuses the drop, nothing freed or
+  recorded: fix what it names, then the same `obor drop` retries. `obor restart <agent> --stop` stops the
   same way: no more "left running".
 - `obor restart <lane's worker>` while its lane has a task restarts it with the task's open job: a fresh session gets
   the job's wake as its first prompt, a resumed one has it typed (`job T-xx/n/work: its wake …`). It never leaves an

@@ -15,7 +15,7 @@ import (
 // T-758 (RV-93 #1): obor drive <T-xx> (a take-over) and obor drop stop the task's worker through serve's identity of it
 // (stopAgent, as the post-merge stop), never by a label lookup of the stop's own. One case table, each case run for
 // the take-over and for drop: the worker's pane as serve resolves it before the stop, what the stop does, and the
-// outcome each caller gives.
+// outcome each caller gives. A stop that fails refuses both (RV-98 #2: drop too, else a live agent stays in the lane).
 func TestWorkerStopByIdentity(t *testing.T) {
 	t.Parallel()
 	type outcome = stopOutcome
@@ -59,7 +59,7 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			r.paneCreated("w1:p3", "pj-l-01")
 		},
 		over: outcome{line: "pj-l-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01"},
-		drop: outcome{ok: true, line: "worker of L-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01 " +
+		drop: outcome{line: "worker of L-01 not stopped: not identified: panes w1:p1 and w1:p3 run pj-l-01 " +
 			"(close or relabel one)"},
 	}, {
 		name:  "herdr disconnected: refused, nothing stopped",
@@ -69,19 +69,19 @@ func TestWorkerStopByIdentity(t *testing.T) {
 			r.srv.DropConns()
 		},
 		over: outcome{line: "pj-l-01 not stopped: serve is not connected to herdr"},
-		drop: outcome{ok: true, line: "worker of L-01 not stopped: serve is not connected to herdr"},
+		drop: outcome{line: "worker of L-01 not stopped: serve is not connected to herdr"},
 	}, {
 		name:  "the stop of an identified pane fails: refused",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) { r.onStop = func() error { return errors.New("herdr: pane busy") } },
 		over:  outcome{line: "pj-l-01 not stopped: herdr: pane busy", stops: []string{"pj-l-01 w1:p1"}},
-		drop:  outcome{ok: true, line: "worker of L-01 not stopped: herdr: pane busy", stops: []string{"pj-l-01 w1:p1"}},
+		drop:  outcome{line: "worker of L-01 not stopped: herdr: pane busy", stops: []string{"pj-l-01 w1:p1"}},
 	}, {
 		name:  "the stop says not found while identity still finds the worker: refused",
 		where: "identified w1:p1",
 		arm:   func(r *loopRig) { r.onStop = func() error { return notFound{} } },
 		over:  outcome{line: "pj-l-01 not stopped: agent_not_found: pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
-		drop:  outcome{ok: true, line: "worker of L-01 not stopped: agent_not_found: pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
+		drop:  outcome{line: "worker of L-01 not stopped: agent_not_found: pj-l-01", stops: []string{"pj-l-01 w1:p1"}},
 	}} {
 		for _, caller := range []string{"take-over", "drop"} {
 			t.Run(caller+"/"+c.name, func(t *testing.T) {
@@ -161,13 +161,24 @@ func checkTakeOver(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	}
 }
 
-// checkDrop runs obor drop T-1 (T-775: serve frees its lane L-01) and checks its reply: the worker's stop line (or none) and T-1 dropped.
+// checkDrop runs obor drop T-1 (T-775: serve frees its lane L-01) and checks its reply: the worker's stop line (or
+// none) and T-1 dropped; a stop that failed refuses it (RV-98 #2): the error and the retry, nothing dropped.
 func checkDrop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	t.Helper()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
 	if stops := r.workerStops()[before:]; !slices.Equal(stops, want.stops) {
 		t.Errorf("worker stops %q, want %q", stops, want.stops)
+	}
+	if !want.ok {
+		if err == nil || !strings.Contains(err.Error(), "drop: "+want.line) ||
+			!strings.HasSuffix(err.Error(), "(nothing dropped; obor drop T-1 retries)") {
+			t.Fatalf("drop: %q, %v; want refused with %q and the retry", reply, err, want.line)
+		}
+		if r.has("1 fact dropped") || r.stateOf("T-1") == "dropped" {
+			t.Errorf("refused, yet T-1 dropped: %q", r.steps())
+		}
+		return
 	}
 	if err != nil || !strings.Contains(reply, "DROPPED T-1 from L-01") {
 		t.Fatalf("drop: %q, %v; want T-1 dropped", reply, err)
