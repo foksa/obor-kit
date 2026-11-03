@@ -2,6 +2,9 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"slices"
@@ -149,5 +152,91 @@ func TestMoveReplayedToTheNewModel(t *testing.T) {
 	}
 	if ts := r.task("T-1"); ts.Attempt != 2 {
 		t.Errorf("T-1's attempt %d after the replay, want 2", ts.Attempt)
+	}
+}
+
+// T-778 (RV-98 #1): a move of a sent-back attempt (working again after the integrator's sendback or a red gate, so after
+// a submission) redoes the task on the dispatch's branch and target and carries the outstanding fix into the moved
+// attempt's work job; serve restarted before the move (the log replayed past the submission) and after it gives the
+// same.
+func TestMoveAfterSendbackKeepsTheDispatch(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		red  bool
+	}{{"integrator sendback", false}, {"red gate", true}} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			check := "echo 1 pass"
+			if c.red {
+				check = `if [ -f red.txt ]; then echo "0 pass, 1 fail"; exit 1; fi; echo 1 pass`
+			}
+			r := newDispatchRigCheck(t, check)
+			r.work("feature.txt", "feature\n")
+			if c.red {
+				r.work("red.txt", "red\n")
+			}
+			r.start()
+			r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+			r.mustDispatch("d1")
+			r.waitJob("pj-l-01", "T-1/1/work")
+			r.submit()
+			fix := "add a test"
+			if c.red {
+				r.waitStep("1 fact sendback")
+				fix = "RED check"
+			} else {
+				r.waitJob("pj-int", "T-1/1/review")
+				if reply, err := r.verdict(wire.MethodSendback, "v1", "", fix); err != nil ||
+					!strings.HasPrefix(reply, "SENDBACK T-1") {
+					t.Fatalf("sendback: %q, %v", reply, err)
+				}
+				r.integratorStops()
+			}
+			if job := r.waitJob("pj-l-01", "T-1/2/fix"); !strings.Contains(job, fix) {
+				t.Fatalf("precondition: the fix job names %q:\n%s", fix, job)
+			}
+			if ts := r.task("T-1"); ts.State != "working" || ts.Attempt != 2 {
+				t.Fatalf("precondition: T-1 working on attempt 2: %+v", ts)
+			}
+			r.stop() // the replay folds the submission again: the dispatch it keeps comes from the log
+			r.start()
+			r.connectedAgain()
+			reply, err := r.moveTo("m1", "opus")
+			if want := "MOVED T-1 on L-01: sonnet → opus (attempt 3)"; err != nil || reply != want {
+				t.Fatalf("move: %q, %v; want %q (the old model read from the kept dispatch)", reply, err, want)
+			}
+			job := r.waitJob("pj-l-01", "T-1/3/work")
+			r.disp.mu.Lock()
+			inputs := append([]port.PrepareInput(nil), r.disp.inputs...)
+			r.disp.mu.Unlock()
+			if n := len(inputs); n < 2 || inputs[0].Branch == "" || inputs[0].Target == "" || !inputs[n-1].Redo ||
+				inputs[n-1].Branch != inputs[0].Branch || inputs[n-1].Target != inputs[0].Target {
+				t.Errorf("the prepares %+v; want the move's a redo on the dispatch's branch and target", inputs)
+			}
+			wantFix := "T-1 moved to you (attempt 3) while it was sent back to the previous worker: "
+			if !strings.Contains(job, wantFix) || !strings.Contains(job, fix) {
+				t.Errorf("the moved attempt's work job lacks the fix (%q, %q):\n%s", wantFix, fix, job)
+			}
+			var d map[string]any
+			for _, rec := range r.records() {
+				if rec.Task == "T-1" && rec.Attempt == 3 && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+					_ = json.Unmarshal(rec.Data, &d)
+				}
+			}
+			if d["branch"] != inputs[0].Branch || d["target"] != inputs[0].Target ||
+				!strings.Contains(fmt.Sprint(d["fix"]), fix) {
+				t.Errorf("the move's dispatch fact %v; want the branch, target and fix", d)
+			}
+			r.stop()
+			r.start()
+			if again := r.workerNext("n2"); again.Job != "T-1/3/work" || !strings.Contains(again.Text, wantFix) ||
+				!strings.Contains(again.Text, fix) {
+				t.Errorf("after a replay of the move the work job is %+v; want the same fix", again)
+			}
+			if ts := r.task("T-1"); ts.Attempt != 3 || ts.Lane != "L-01" {
+				t.Errorf("after the replay T-1 is %+v; want attempt 3 on L-01", ts)
+			}
+		})
 	}
 }

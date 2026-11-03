@@ -892,9 +892,9 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		var out bytes.Buffer
 		var asked []string
 		l := x.launcher(&out)
-		l.Job = func(_ context.Context, lane string) string {
+		l.Job = func(_ context.Context, lane string) (string, error) {
 			asked = append(asked, lane)
-			return job
+			return job, nil
 		}
 		line, err := l.Restart(context.Background(), req)
 		got, ok := result(x.t, &out, line, err)
@@ -958,6 +958,32 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		eqInt(t, len(asked), 0, "jobs asked")
 		lacks(t, x.startCall(), wake, "the wake")
 	})
+}
+
+// T-778: a lane's job that cannot be told (Launcher.Job's error: the lane holds a task, serve does not answer) refuses
+// the restart before the stop: FAIL naming why, the running agent untouched (no keys, no input, no start).
+func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {
+	t.Parallel()
+	x := setup(t)
+	x.agent("w1:p3", "pj-l-01", "claude", "idle")
+	var out bytes.Buffer
+	asked := 0
+	l := x.launcher(&out)
+	l.Job = func(context.Context, string) (string, error) {
+		asked++
+		return "", errors.New("L-01 holds T-1 and obor serve cannot tell its job (connection refused)")
+	}
+	line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+	got, ok := result(t, &out, line, err)
+	eqInt(t, asked, 1, "precondition: the job asked")
+	if ok {
+		t.Fatalf("restarted: %s", got)
+	}
+	contains(t, failLine(got), "FAIL pj-l-01 not restarted (nothing stopped): L-01 holds T-1 and obor serve cannot tell "+
+		"its job", "result")
+	if len(x.calls("pane.send_keys")) > 0 || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
+		t.Errorf("the agent touched: %q", x.srv.Calls())
+	}
 }
 
 // T-387: herdr's start waits for an agent ready for input; one working on its first prompt is not, herdr gives up

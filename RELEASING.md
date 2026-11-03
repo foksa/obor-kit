@@ -28,7 +28,8 @@ The lead, in a clean checkout on main:
    pass, the release goes on, prints `FLAKY: <pkg> <test> (failed, passed on rerun)` and records it in the flake log
    (`obor flakes`); if any fails again it is refused, naming the tests. A failure outside `go test` (build, vet, gofmt,
    deadcode) refuses at once, with no rerun. Then `make upgrade-check` (runnable alone; `PREV=x.y.z` another
-   previous release): the catalog's newest release below the new version (its binary from `~/.obor/bin`, fetched and
+   previous release, `0.23.0` or later: an older `PREV` is refused before anything runs, as the check's fixture names
+   its spec's `Model:`): the catalog's newest release below the new version (its binary from `~/.obor/bin`, fetched and
    checked against `bin/checksums.txt` when missing; its kit the tag's tree) runs `obor init` for two projects in a
    temp `HOME` and `OBOR_STATE_HOME` (herdr, claude and launchctl stubbed: no agents, no launchd) and serve for both as
    child processes, with a line to each lead held (no session yet) and a dispatch waiting (`--after`, its spec's

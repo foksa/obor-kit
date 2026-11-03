@@ -43,7 +43,8 @@ import (
 //     setup show load; the dispatch still waits with its spec's model first; each lead, started now under its current
 //     name (its SessionStart hook records its inbox), gets the line held for it; obor send works both ways.
 //
-// The Model: assertion needs a previous release of v0.23.0 or later (before, a spec named a lane type: Type:).
+// The Model: assertion needs a previous release of v0.23.0 or later (before, a spec named a lane type: Type:): an
+// older PREV is refused before the check runs (supported, T-778).
 
 // check is one run of the upgrade check.
 type check struct {

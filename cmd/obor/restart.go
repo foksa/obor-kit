@@ -14,6 +14,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
+	"obor/internal/store"
 )
 
 const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh | --sid <id>] [--force] [--type <type>] | " +
@@ -52,7 +53,7 @@ func restart(args []string) int {
 	l := &launch.Launcher{Env: project.OSEnv, H: herdrSocket(project.OSEnv), Out: out}
 	if _, cfg, rc := load(); rc == 0 {
 		l.Cfg = cfg
-		l.Job = func(ctx context.Context, lane string) string { return serveLaneJob(ctx, cfg, lane) }
+		l.Job = func(ctx context.Context, lane string) (string, error) { return serveLaneJob(ctx, cfg, lane) }
 	} else if rc != 3 {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
@@ -103,16 +104,31 @@ func launchResult(w io.Writer, line string, err error) int {
 	return 0
 }
 
-// serveLaneJob is the open worker job of the task obor serve holds on lane ("": none, or serve does not answer within
-// a few seconds): obor restart of the lane's worker sends its wake (T-773).
-func serveLaneJob(ctx context.Context, cfg *config.Config, lane string) string {
+// serveLaneJob is the open worker job of the task obor serve holds on lane ("": none): obor restart of the lane's
+// worker sends its wake (T-773). serve not answering within a few seconds (no socket, an error, a timeout) or serving
+// another project is no job only on a lane whose row holds no task (the store's lanes table, T-778); a lane with a task
+// is an error naming serve's state, so the restart refuses before it stops anything.
+func serveLaneJob(ctx context.Context, cfg *config.Config, lane string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	st, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
-	if err != nil {
-		return ""
+	return resolveLaneJob(cfg.Root, lane, func() (wire.Status, error) { return wire.Ask(ctx, wire.SocketPath(cfg.Root)) })
+}
+
+// resolveLaneJob is serveLaneJob over ask (serve's status).
+func resolveLaneJob(root, lane string, ask func() (wire.Status, error)) (string, error) {
+	st, err := ask()
+	if err == nil && (st.Project == nil || filepath.Clean(st.Project.Root) != filepath.Clean(root)) {
+		err = errors.New("it serves no project at " + root)
 	}
-	return laneJob(st, cfg.Root, lane)
+	if err == nil {
+		return laneJob(st, root, lane), nil
+	}
+	row, ok, _ := store.ReadLaneAt(root, lane)
+	if !ok || row.Task == "" {
+		return "", nil // no task on the lane: the plain restart
+	}
+	return "", fmt.Errorf("%s holds %s and obor serve cannot tell its job (%v): start obor serve (obor serve status), "+
+		"then retry, or pass --prompt to restart without its job", lane, row.Task, err)
 }
 
 // laneJob is the open worker job (a work or fix job, never the integrator's review or resolve job) of the task st's

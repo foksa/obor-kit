@@ -61,7 +61,7 @@ const hookMoveStopped = "move.stopped"
 // unpaused model, a model ref of the config whose kind has a bridge and that is not the one it runs ("already on").
 // stopped "": only checked, the worker to stop returned; else recorded (under a.submitMu too) once the task is checked
 // again and its worker is still the one stopped: fact dispatch{redo} of the next attempt on the task's lane, branch
-// and target with the new model. Refused, nothing recorded: gating, merging, under review or any other state of the
+// and target with the new model, with the moved attempt's outstanding fix (a sendback's or red gate's text, T-778). Refused, nothing recorded: gating, merging, under review or any other state of the
 // merge loop (submitted meanwhile included).
 func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, worker string, err error) {
 	a.mu.Lock()
@@ -139,6 +139,11 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, w
 	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: worker, Branch: mt.disp.Branch, Target: mt.disp.Target, Redo: true,
 		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Caller: callerOf(c), Call: c.CallID,
 		Reply: moveReply(c.Task, mt.lane, mt.disp.Type, ref, attempt)}
+	if mt.state == stWorking && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it
+		d.Fix, d.Answer = mt.line, mt.answer
+	} else { // the dispatched attempt itself: a fix a move gave it is still outstanding
+		d.Fix, d.Answer = mt.disp.Fix, mt.disp.Answer
+	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}

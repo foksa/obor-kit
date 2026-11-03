@@ -50,7 +50,13 @@ type dispatchFakes struct {
 // newDispatchRig is the merge loop's rig with the dispatch adapters and L-01 free; edits change the config further.
 func newDispatchRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	r := newLoopRig(t, "echo 1 pass", edits...)
+	return newDispatchRigCheck(t, "echo 1 pass", edits...)
+}
+
+// newDispatchRigCheck is newDispatchRig whose gate runs check.
+func newDispatchRigCheck(t *testing.T, check string, edits ...func(map[string]any)) *loopRig {
+	t.Helper()
+	r := newLoopRig(t, check, edits...)
 	r.disp = &dispatchFakes{r: r, on: true, refuse: map[string]string{}, calls: map[string]int{},
 		fail: map[string]func() error{}, cut: map[string]string{}, hit: map[string]bool{}}
 	r.setLane(func(l *port.Lane) { l.Task, l.Agent, l.State = "", "", "free" })
