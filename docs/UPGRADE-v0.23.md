@@ -11,6 +11,12 @@ The config shape changes, and v0.23 refuses the old one ("run obor setup migrate
    again if `.obor/local.json` holds lane types or role objects (it rewrites that file too, not committed).
 4. `obor serve restart`, then `obor status` and `obor setup show`.
 
+The steps `make upgrade-check` runs in each project after the installer (it restarts serve itself):
+
+```sh
+obor setup migrate
+```
+
 What changes:
 - `difficulty` levels and `roles` are model refs (`opus:high`, `deepseek`, `terra:xhigh`); the first entry of a level
   is the default. A spec's `Type:` line is now `Model:` (`obor spec set` refuses `Type:`); `obor dispatch --types` is

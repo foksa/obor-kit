@@ -1,13 +1,16 @@
 #!/bin/sh
 # release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree,
 # docs/UPGRADE-v<x.y>.md holding a v<version> heading and docs/releases/v<version>.md holding the release notes, it runs
-# five steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
+# six steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
 # last run stopped), and a step that fails runs its undo, so the next run starts from a clean tree (T-643):
 #   review guard  done: no code merged since main's first-parent "RV-<n> closed" commit, or UNREVIEWED="<why>" (the
 #                 owner's call; it goes into the tag message)         fail: refuse, nothing changed
 #   bump          done: VERSION and the plugin version = <version> at HEAD, set by an "obor v<version>: …" commit on
 #                 main's first-parent line                            fail: both paths' index and tree back to HEAD
 #   check         the full `make check`, run only when the bump is not committed   fail: undo the bump
+#   upgrade check `make upgrade-check` (T-772), run only while the tag is not made: the previous release (the catalog's
+#                 newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it (the owner's call,
+#                 like UNREVIEWED; it goes into the tag message)   fail: refuse, nothing tagged (the bump stays committed)
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
@@ -56,9 +59,9 @@ say() { echo "release: $*"; }
 # (V=…, DRY=…) and its own MAKEFLAGS, MFLAGS and MAKELEVEL in the environment, and a nested make reads them back: under
 # `make release V=x` the check would run with V=x, and the tests it runs would take their own `make release`'s V= path
 # (T-641). UNREVIEWED is the owner's override for this release only: the check's own release tests must not see it
-# (T-643); this shell keeps it for the tag message.
+# (T-643); this shell keeps it for the tag message. SKIP_UPGRADE_CHECK likewise (T-772).
 plain_make() {
-  env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED make "$@"
+  env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED -u SKIP_UPGRADE_CHECK make "$@"
 }
 
 # run_check: the full `make check` (T-717). Its output goes to the terminal and to a scratch file this function reads; a
@@ -86,7 +89,7 @@ run_check() {
   rerun=$(mktemp "$tmpdir/obor-rerun.XXXXXX")
   rrc=0
   # shellcheck disable=SC2086
-  { env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED "${GO:-go}" test ${CHECK_CPUS:+-p "$CHECK_CPUS"} $pkgs 2>&1 \
+  { env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u V -u DRY -u UNREVIEWED -u SKIP_UPGRADE_CHECK "${GO:-go}" test ${CHECK_CPUS:+-p "$CHECK_CPUS"} $pkgs 2>&1 \
     || echo "go test rerun exit $?" > "$rerun.rc"; } | tee "$rerun"
   [ ! -f "$rerun.rc" ] || rrc=1
   rm -f "$rerun.rc"
@@ -369,6 +372,21 @@ else
   say "committed on main: obor v$v: VERSION, plugin version"
 fi
 
+# --- upgrade check (T-772): before the tag, `make upgrade-check` installs this build over a project the previous
+# release made (tests/upgrade); a red check tags nothing, and the re-run (the bump committed) starts here again. An
+# existing tag is past it. SKIP_UPGRADE_CHECK="<why>" is the owner's call only, like UNREVIEWED.
+if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
+  :
+elif [ -n "${SKIP_UPGRADE_CHECK:-}" ]; then
+  say "upgrade check skipped (SKIP_UPGRADE_CHECK: ${SKIP_UPGRADE_CHECK})"
+elif [ "$dry" = 1 ]; then
+  say "would: make upgrade-check (the previous release upgraded to this build; a failure stops the release before the tag)"
+else
+  say "running make upgrade-check (the previous release upgraded to this build)"
+  plain_make upgrade-check ||
+    fail "make upgrade-check failed (its step and output above): nothing is tagged; fix it and re-run, or SKIP_UPGRADE_CHECK=\"<why>\" make release V=$v (the owner's call only)"
+fi
+
 # --- tag
 if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
   check_tag
@@ -405,6 +423,8 @@ else
   tagmsg="obor $tag"
   [ -z "$unreviewed" ] || tagmsg="$tagmsg
 Unreviewed: $unreviewed — ${UNREVIEWED}"
+  [ -z "${SKIP_UPGRADE_CHECK:-}" ] || tagmsg="$tagmsg
+Upgrade check skipped: ${SKIP_UPGRADE_CHECK}"
   ( cd "$scratch" && git add bin/checksums.txt .claude-plugin/marketplace.json &&
     git commit -q -m "obor v$v: marketplace name, checksums" &&
     git tag -a "$tag" -m "$tagmsg" ) || fail "cannot commit and tag the release in $scratch: nothing is tagged"

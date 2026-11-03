@@ -1,6 +1,7 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected),
-# `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine,
+# `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
+# → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
 # (scripts/ship); `make release` without V → only the local release files; `make publish` → the four of them to a
 # GitHub release (explicit, outward-facing).
@@ -25,7 +26,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test check check-affected deadcode deps release ship publish clean web web-dev web-test
+.PHONY: build test check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -69,6 +70,17 @@ deadcode:
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi
+
+# upgrade-check (T-772): a project made by the previous release survives this build installed over it. The previous
+# release is the catalog's newest x.y.z below VERSION (PREV=x.y.z another), its binary the kit's cache
+# (~/.obor/bin, fetched with curl and checked against bin/checksums.txt when missing); the new build is dist/obor; the
+# steps are the sh blocks of docs/UPGRADE-v<x.y>.md. The check is tests/upgrade's TestUpgradeCheck: a failure names
+# its step and the output. scripts/release runs it before the tag.
+upgrade-check:
+	@$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
+	OBOR_UPGRADE_CHECK=1 OBOR_UPGRADE_PREV="$(PREV)" $(GO) test -count=1 -run '^TestUpgradeCheck$$' ./tests/upgrade || \
+	  { echo "FAIL upgrade check (above: the step that failed and its output)"; exit 1; }; \
+	echo "upgrade check: OK"
 
 # deps warms the module cache an offline machine needs (`make deadcode` with GOPROXY=file://…): after a go.mod change
 # run it once with network. `make build` alone warms only what it compiles, and deadcode loads every package.
