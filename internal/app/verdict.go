@@ -539,7 +539,8 @@ func (a *App) drop(c wire.Call) (string, error) {
 // freeLane gives the dropped task's lane back (obor drop <LANE>, T-439; the task marked ended): the lane adapter's
 // Free (refused for uncommitted changes or unmerged commits unless c.Discard: nothing stopped then; else the lane
 // detached at the target and the task branch deleted), then its worker stopped (at idle, a working one with c.Force;
-// not with stop_idle_workers false unless c.Force; a stop that fails is a line, not a refusal). Its lines say what it
+// not with stop_idle_workers false unless c.Force; through serve's identity of it, stopAgent: no agent there, no line;
+// a stop that fails, two panes claiming it or serve not connected to herdr is a line, not a refusal). Its lines say what it
 // did, the stop first.
 func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	fx, err := a.loopOf(p)
@@ -589,9 +590,9 @@ func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
 	}
 	optOut := cfg.Data.StopIdleWorkers != nil && !*cfg.Data.StopIdleWorkers
 	if agent != "" && (c.Force || !optOut) {
-		if line, err := fx.Agents.Stop(ctx, agent, "", c.Force); err != nil && !port.NotFound(err) {
+		if line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false); err != nil {
 			lines = append(lines, fmt.Sprintf("worker of %s not stopped: %v", c.Lane, err))
-		} else if err == nil && line != "" {
+		} else if !gone {
 			lines = append([]string{line}, lines...)
 		}
 	}

@@ -8,9 +8,10 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-757 (RV-92 verify #4): a stop of an agent with no labelled pane says the agent is not there (port.NotFound: the
-// takeover of its task must not refuse), its FAIL text unchanged; herdr's pane list failing is a plain FAIL.
-func TestStopNoPaneNotFound(t *testing.T) {
+// T-758 (RV-93 #1, T-757 reverted): a stop of an agent with no labelled pane is a plain FAIL, not port.NotFound: a
+// label is not the identity, so a missing one never says the agent is gone (serve's identity decides that, stopAgent);
+// herdr's pane list failing is a plain FAIL too.
+func TestStopNoPanePlainFail(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name string
@@ -21,7 +22,6 @@ func TestStopNoPaneNotFound(t *testing.T) {
 		name: "no pane labelled the agent",
 		prep: func(x *fx) {},
 		want: "no pane labelled pj-o-01 (pass --pane)",
-		gone: true,
 	}, {
 		name: "herdr pane list failed",
 		prep: func(x *fx) { x.srv.Fail("pane.list", "internal", "boom") },

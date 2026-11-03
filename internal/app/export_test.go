@@ -2,6 +2,7 @@ package app
 
 import (
 	"obor/internal/app/event"
+	"strings"
 	"time"
 
 	"obor/internal/store"
@@ -99,6 +100,25 @@ func IsIdentified(a *App, root, agent string) bool {
 	defer a.mu.Unlock()
 	p := a.projAt(root)
 	return p != nil && a.whereIs(p, agent).State == Identified
+}
+
+// WhereOf is whereIs(agent) in a's project at root as a line: "identified <pane> <source>", "ambiguous <panes>",
+// "unavailable <why>".
+func WhereOf(a *App, root, agent string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	if p == nil {
+		return "no project"
+	}
+	w := a.whereIs(p, agent)
+	switch w.State {
+	case Identified:
+		return "identified " + w.Pane.ID + " " + w.Source
+	case Ambiguous:
+		return "ambiguous " + strings.Join(w.Panes, " ")
+	}
+	return "unavailable " + w.Why
 }
 
 // WatchedPane is the pane the watchdog last saw task's agent in ("": none yet, or not watched).

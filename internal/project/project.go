@@ -35,16 +35,6 @@ func (f Fail) Error() string { return string(f) }
 // Failf is a Fail of a formatted message.
 func Failf(format string, a ...any) error { return Fail(fmt.Sprintf(format, a...)) }
 
-// FailNotFound is a Fail for what is not there (an agent with no pane, T-757): its text is a Fail's, and port.NotFound
-// matches it, so a caller that reads a gone agent's failed stop as already stopped does not refuse the work.
-type FailNotFound struct{ Fail }
-
-// Unwrap is its Fail: errors.As(err, *Fail) still finds one.
-func (f FailNotFound) Unwrap() error { return f.Fail }
-
-// NotFound is true: what the error asks about does not exist.
-func (FailNotFound) NotFound() bool { return true }
-
 // Repo is what one `git rev-parse` says about a directory; paths are absolute and physical.
 type Repo struct {
 	Top    string // root of the worktree holding the directory
