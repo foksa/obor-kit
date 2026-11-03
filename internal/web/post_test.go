@@ -168,7 +168,8 @@ func TestPostServeDownIs503(t *testing.T) {
 }
 
 // The pause from the web: set with a reason and a duration, and clear, each serve's pause call from the owner; a bad
-// duration or no reason is 400 and asks serve nothing; serve's refusal is 400 with its reason.
+// duration or no reason is 400 and asks serve nothing; serve's refusal is 400 with its reason. With a model, that
+// model's pause and clear (T-766).
 func TestPauseViaWeb(t *testing.T) {
 	p, _, s := fixture(t)
 	spy := &callSpy{reply: "PAUSED until 13:30"}
@@ -196,13 +197,34 @@ func TestPauseViaWeb(t *testing.T) {
 	if clear.method != wire.MethodPause || !clear.c.Clear || clear.c.CallID == "" || clear.c.CallID == set.c.CallID {
 		t.Errorf("the clear call %+v, want clear with its own call id", clear.c)
 	}
+	if set.c.Model != "" || clear.c.Model != "" {
+		t.Errorf("the project's pause names a model: %q, %q", set.c.Model, clear.c.Model)
+	}
+	// a model's pause and its clear (T-766): the same call with its model
+	spy.reply = "PAUSED sonnet until cleared"
+	if w := post(h, "/api/pause?project=pj", `{"model":" sonnet ","reason":"quota"}`, DefaultListen); w.Code != http.StatusOK {
+		t.Fatalf("model pause: %d %s", w.Code, w.Body.String())
+	}
+	if w := post(h, "/api/pause?project=pj", `{"model":"sonnet","clear":true}`, DefaultListen); w.Code != http.StatusOK {
+		t.Fatalf("model clear: %d %s", w.Code, w.Body.String())
+	}
+	calls = spy.all()
+	if len(calls) != 4 {
+		t.Fatalf("serve was asked %+v, want the model's pause and clear too", calls)
+	}
+	if m := calls[2].c; m.Model != "sonnet" || m.Note != "quota" || m.Clear || m.Until != 0 {
+		t.Errorf("the model pause call %+v, want sonnet, quota, until cleared", m)
+	}
+	if m := calls[3].c; m.Model != "sonnet" || !m.Clear {
+		t.Errorf("the model clear call %+v, want sonnet cleared", m)
+	}
 	for _, body := range []string{`{"reason":"x","for":"soon"}`, `{"reason":"x","for":"-5m"}`, `{"reason":"  "}`,
 		`{"reason":"x","until":3}`, `not json`} {
 		if w := post(h, "/api/pause?project=pj", body, DefaultListen); w.Code != http.StatusBadRequest {
 			t.Errorf("pause %s: %d %s, want 400", body, w.Code, w.Body.String())
 		}
 	}
-	if got := len(spy.all()); got != 2 {
+	if got := len(spy.all()); got != 4 {
 		t.Errorf("a bad body asked serve: %d calls", got)
 	}
 	spy.err = errors.New("config: lane L-01 has task T-1: change its type once the lane is free")

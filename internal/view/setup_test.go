@@ -15,8 +15,9 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-750, T-765: Setup is the project's steering — the difficulty levels in configured order with what runs each model
-// ref (kind, model id, the ref's effort), then the roles' refs no level names, every model the config knows, the lanes
+// T-750, T-765, T-766: Setup is the project's steering — the difficulty levels in configured order with what runs each
+// model ref (kind, model id, the ref's effort), then the roles' refs no level names, every model the config knows with
+// its pause in force, every agent kind with its args and whether it has a prompt_extra, the lanes
 // with their states, the roles the config names with their statuses and the pause — and how dispatches spread by
 // level and chosen model, in the last 7 days and in all records: a level dispatch, an override (--model, no level), a
 // record from before T-721 (unknown: every lane is pooled), a waiting dispatch that is placed later (once), a redo
@@ -31,6 +32,8 @@ func TestSetup(t *testing.T) {
 			"medium": []any{"sonnet", "kimi:high"}, "simple": []any{"opus"}}),
 		testkit.Set("roles.reviewer", "opus"),
 		testkit.Set("roles.deep_dive", "deepseek"),
+		testkit.Set("kinds", map[string]any{"codex": map[string]any{"args": []any{"--search"}},
+			"opencode": map[string]any{"prompt_extra": "quote summaries only"}}),
 	)
 	p.Commit(l1) // L-01's task branch has a commit: working
 	now := time.Now()
@@ -55,8 +58,9 @@ func TestSetup(t *testing.T) {
 	until := now.Add(time.Hour).Unix()
 	ss := wire.Status{Since: now.Add(-2 * time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
-			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-rev", Agent: "claude", Status: "working", Age: 600}},
-			Paused: &event.Pause{Why: "lunch", Until: until, Caller: "owner"}}}
+			Agents:      []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-rev", Agent: "claude", Status: "working", Age: 600}},
+			Paused:      &event.Pause{Why: "lunch", Until: until, Caller: "owner"},
+			ModelPauses: map[string]*event.Pause{"sonnet": {Why: "quota", Caller: "pj-lead"}}}}
 	cfg, err := config.Load(p.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -107,6 +111,19 @@ func TestSetup(t *testing.T) {
 	}
 	if m := byName["kimi"]; m.Kind != "opencode" || m.Model != "opencode-go/kimi" || m.Builtin {
 		t.Errorf("model kimi %+v, want the project's opencode kimi", m)
+	}
+	// a model's pause in force (T-766), none on the others
+	if m := byName["sonnet"]; m.Paused == nil || m.Paused.Reason != "quota" || m.Paused.By != "pj-lead" || m.Paused.Until != nil {
+		t.Errorf("model sonnet's pause %+v, want quota by pj-lead until cleared", m.Paused)
+	}
+	if m := byName["opus"]; m.Paused != nil {
+		t.Errorf("model opus paused %+v, want none", m.Paused)
+	}
+	// kinds (T-766): every agent kind, its args and whether a prompt_extra is set
+	wantKinds := []SetupKind{{Name: "claude", Args: []string{}}, {Name: "codex", Args: []string{"--search"}},
+		{Name: "opencode", Args: []string{}, PromptExtra: true}}
+	if !reflect.DeepEqual(s.Kinds, wantKinds) {
+		t.Errorf("kinds %+v, want %+v", s.Kinds, wantKinds)
 	}
 	// lanes: L-01 … L-NN, their agents and states now (no record names what runs: no model)
 	wantLanes := []SetupLane{{Lane: "L-01", Agent: "pj-l-01", State: "working"}, {Lane: "L-02", Agent: "pj-l-02", State: "free"}}

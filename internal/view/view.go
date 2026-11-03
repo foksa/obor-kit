@@ -30,23 +30,25 @@ import (
 // last full check, the pause, the lines not typed yet, the review line, the lead's watches, the queue and the recent
 // events.
 type Project struct {
-	Serve     Serve                `json:"serve"`
-	Running   []Running            `json:"running"`
-	Pending   []wire.PendingStep   `json:"pending"` // the open command steps whose effect does not run now
-	Lanes     []Lane               `json:"lanes"`
-	Tasks     []wire.TaskStatus    `json:"tasks"`          // serve's open tasks
-	Agents    []wire.AgentStatus   `json:"agents"`         // the agents serve sees in the project
-	Roles     []Role               `json:"roles"`          // the role agents on no lane (integrator, reviewer, deep dive, advisor)
-	Lead      *Role                `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
-	NeedsYou  []NeedsYou           `json:"needs_you"`
-	FullCheck *FullCheck           `json:"full_check"`
-	Paused    *Pause               `json:"paused"`
-	Messages  []wire.MessageStatus `json:"messages"`          // the lines not typed yet
-	Review    string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
-	Watches   []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
-	Queue     Queue                `json:"queue"`
-	Events    []Event              `json:"events"` // the newest worded records, newest first
-	Facts     []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
+	Serve     Serve              `json:"serve"`
+	Running   []Running          `json:"running"`
+	Pending   []wire.PendingStep `json:"pending"` // the open command steps whose effect does not run now
+	Lanes     []Lane             `json:"lanes"`
+	Tasks     []wire.TaskStatus  `json:"tasks"`          // serve's open tasks
+	Agents    []wire.AgentStatus `json:"agents"`         // the agents serve sees in the project
+	Roles     []Role             `json:"roles"`          // the role agents on no lane (integrator, reviewer, deep dive, advisor)
+	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
+	NeedsYou  []NeedsYou         `json:"needs_you"`
+	FullCheck *FullCheck         `json:"full_check"`
+	Paused    *Pause             `json:"paused"`
+	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model: the Setup page shows them (T-766).
+	ModelPauses map[string]*Pause    `json:"-"`
+	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
+	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
+	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
+	Queue       Queue                `json:"queue"`
+	Events      []Event              `json:"events"` // the newest worded records, newest first
+	Facts       []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
 	// Notes are the project's own lines above serve's (T-709): a config key this binary does not know, a stopped
 	// project (Notes builds them).
 	Notes []string `json:"notes,omitempty"`
@@ -232,10 +234,13 @@ func Build(in Input) Project {
 		v.Lead = lead(p, ps, in.Background)
 	}
 	if ps.Paused != nil {
-		v.Paused = &Pause{Reason: ps.Paused.Why, By: ps.Paused.Caller}
-		if n := ps.Paused.Until; n != 0 {
-			v.Paused.Until = &n
+		v.Paused = pauseOf(ps.Paused)
+	}
+	for m, mp := range ps.ModelPauses {
+		if v.ModelPauses == nil {
+			v.ModelPauses = map[string]*Pause{}
 		}
+		v.ModelPauses[m] = pauseOf(mp)
 	}
 	specs := readSpecs(in.DB)
 	for _, s := range p.States() {
@@ -507,4 +512,13 @@ func orNull(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// pauseOf is serve's pause record as the view shows it: its reason, who paused and its end (nil: until cleared).
+func pauseOf(ps *event.Pause) *Pause {
+	p := &Pause{Reason: ps.Why, By: ps.Caller}
+	if n := ps.Until; n != 0 {
+		p.Until = &n
+	}
+	return p
 }

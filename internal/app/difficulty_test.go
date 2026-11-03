@@ -83,7 +83,8 @@ func TestDifficultyModelLineFirst(t *testing.T) {
 }
 
 // T-765: a model paused with obor pause --model is skipped and the level's next model runs; every model of the level
-// paused: the task waits with each pause named, and dispatches once a pause is cleared.
+// paused: the task waits with each pause named, and dispatches once a pause is cleared. Serve's status lists the model
+// pauses in force (T-766).
 func TestDifficultySkipsAPausedModel(t *testing.T) {
 	t.Parallel()
 	r := newLevelRig(t)
@@ -111,10 +112,19 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 	if n := r.taskStep("T-3", "fact dispatch"); n != 0 {
 		t.Fatalf("dispatched with every model paused: %q", r.steps())
 	}
+	// serve's status names both model pauses in force (T-766: the Setup page shows them), and not the project's
+	if st := r.app.Status().Project; st.Paused != nil || len(st.ModelPauses) != 2 || st.ModelPauses["sonnet"] == nil ||
+		st.ModelPauses["sonnet"].Why != "quota" || st.ModelPauses["sonnet"].Until != 0 || st.ModelPauses["deepseek"] == nil ||
+		st.ModelPauses["deepseek"].Until == 0 {
+		t.Errorf("status pauses %+v, %+v; want sonnet's (quota, until cleared) and deepseek's (until set)", st.Paused, st.ModelPauses)
+	}
 	if reply, err := r.pause("lead", "c1", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "PAUSE CLEARED sonnet" {
 		t.Fatalf("clear sonnet: %q, %v", reply, err)
 	}
 	r.waitFor("T-3's dispatch once sonnet's pause ends", func() bool { return r.taskStep("T-3", "fact dispatch") == 1 })
+	if mp := r.app.Status().Project.ModelPauses; len(mp) != 1 || mp["sonnet"] != nil {
+		t.Errorf("status model pauses after sonnet's clear %+v, want deepseek's only", mp)
+	}
 	if d := r.factData("T-3", event.StepDispatched); d["type"] != "sonnet" || d["lane"] != "L-02" {
 		t.Errorf("T-3's dispatch %v, want sonnet on L-02", d)
 	}

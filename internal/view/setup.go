@@ -24,6 +24,7 @@ type Setup struct {
 	Difficulty   []SetupLevel    `json:"difficulty"`   // hard, medium, simple
 	Types        []SetupType     `json:"types"`        // every model ref a level names, then the roles' not among them
 	Models       []SetupModel    `json:"models"`       // every model the config knows: built-in, then models' own
+	Kinds        []SetupKind     `json:"kinds"`        // every agent kind: what the config adds to its starts
 	Lanes        []SetupLane     `json:"lanes"`        // every configured lane
 	Roles        []SetupRole     `json:"roles"`        // every role the config names (the worker is the lanes)
 	Paused       *Pause          `json:"paused"`       // the pause in force (nil: none)
@@ -58,6 +59,16 @@ type SetupModel struct {
 	Model   string   `json:"model"`
 	Builtin bool     `json:"builtin"`
 	Efforts []string `json:"efforts"`
+	// Paused is the model's pause in force (obor pause --model, T-766; nil: none): dispatch skips the model.
+	Paused *Pause `json:"paused"`
+}
+
+// SetupKind is one agent kind (T-766): the args kinds.<kind>.args appends to its every start and whether
+// kinds.<kind>.prompt_extra adds a line to its work jobs.
+type SetupKind struct {
+	Name        string   `json:"name"`
+	Args        []string `json:"args"`
+	PromptExtra bool     `json:"prompt_extra"`
 }
 
 // SetupLane is one configured lane: its name, the model it runs now (its dispatch's; "": none), its agent and its
@@ -115,7 +126,7 @@ func (d Detail) Setup() (Setup, error) {
 	if err != nil {
 		return Setup{}, err
 	}
-	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Lanes: []SetupLane{},
+	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.Difficulty = append(s.Difficulty, SetupLevel{Level: level, Types: append([]string{}, cfg.DifficultyList(level)...)})
@@ -154,7 +165,12 @@ func (d Detail) Setup() (Setup, error) {
 			efforts = append(efforts, k.Efforts()...)
 		}
 		_, builtin := config.BuiltinModelNamed(name)
-		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts})
+		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts,
+			Paused: d.Project.ModelPauses[name]})
+	}
+	for _, kind := range agents.Names() {
+		k := cfg.Data.Kinds.M[kind]
+		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.PromptExtra != ""})
 	}
 	s.Paused = d.Project.Paused
 	db, close := d.open()
