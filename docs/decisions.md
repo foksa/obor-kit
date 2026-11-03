@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-03 (owner): **obor web moves to Svelte 5 + TypeScript + Vite** (redesign, drive T-760): sources in `web/`,
+  `make web` builds into `internal/web/dist/` (committed, `go:embed`, marked generated and `-diff`), so `go build`,
+  `make check` and the gate stay Node-free; a Go test fails when dist is stale against `web/`; page tests move to
+  Vitest (skipped without node). Replaces T-667's standard-library, no-build-step page. `POST /api/config` takes a
+  batch (validated together, all or nothing, one commit). Lead's caveat: a second toolchain and npm dependencies
+  (supply chain, upgrades) in a tool that was Go-only; keep dependencies to Svelte/Vite/Vitest.
 - 2026-11-02 (owner): **`lane_types.<type>.max` caps worker tasks only**: open dispatches of the type; role agents
   (lead, integrator, reviewer, deep dive, advisor, researcher) never count, at dispatch or in `obor setup pane`
   (RV-88 #7 showed three opus roles leaving one opus slot under `max: 4`). T-738 (dispatch), T-740 (setup, docs).
