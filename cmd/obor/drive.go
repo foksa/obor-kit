@@ -154,14 +154,15 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		Prompt: drivePrompt(cfg, d)})
 }
 
-// drivePrompt is the drive agent's first prompt: one line saying what it is, how it reaches the lead and how the lead's
-// answers arrive (T-761; no backticks: typed by herdr).
+// drivePrompt is the drive agent's first prompt: one line saying what it is, that it commits on the branch as it goes,
+// how it lands the branch and how it reaches the lead and the lead's answers arrive (T-761, T-762; no backticks: typed
+// by herdr).
 func drivePrompt(cfg *config.Config, d drive) string {
 	return fmt.Sprintf("[obor drive] You are the owner's drive of %s in lane %s, on branch %s: work with the owner here "+
-		"and commit your work on that branch (no push). When the owner is done, obor land %s sends it through the gate, "+
-		"the integrator and the merge. To reach this project's lead (direction, contracts, protected docs, queued work): "+
-		"obor tell-lead \"<text>\"; the lead's answers arrive here as [obor answer] lines.", d.task, d.lane,
-		branchOf(cfg, d.task), d.task)
+		"and commit on that branch as you go (no push). When the owner is done, obor land %s sends it through the gate, "+
+		"the integrator and the merge: it commits nothing and refuses uncommitted changes. To reach this project's lead "+
+		"(direction, contracts, protected docs, queued work): obor tell-lead \"<text>\"; the lead's answers arrive here "+
+		"as [obor answer] lines.", d.task, d.lane, branchOf(cfg, d.task), d.task)
 }
 
 // waitPrepared waits until d's lane row holds d.task prepared (its base recorded): serve's lane.prepare ran.
