@@ -26,11 +26,11 @@ import (
 // fallback and obor status read it there.
 
 // wakeText is a job's wake for an agent that fetches it; its [obor job <id>] tag goes before it (jobLine).
-const wakeText = "call the obor job_next tool"
+const wakeText = wire.WakeText
 
 // wakeLine is job's wake as one line with its tag, as send types it: a fresh start's first prompt
 // (Launch.Prompt).
-func wakeLine(job string) string { return jobLine(job, wakeText) }
+func wakeLine(job string) string { return wire.WakeLine(job) }
 
 // viaMCP is fact delivered's Via when the agent's job_next fetched the job.
 const viaMCP = "mcp"

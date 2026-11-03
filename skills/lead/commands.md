@@ -126,6 +126,19 @@ overrides both.
 - A spec with no level and no `--model`: `FAIL`, naming the fix. The `<LANE> <T-xx>` form is gone.
 - A second `obor dispatch` of a waiting task replaces its request (new `--model`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).
+- Move a working task to another model (T-773): `obor dispatch <T-xx> --model <model>[:<effort>]` on a task its worker
+  works on. Serve stops the worker (as `obor drive <T-xx>` does), keeps the lane, branch, worktree and spec, and starts
+  the new model's agent there with the task's next attempt: `MOVED T-xx on <LANE>: <old> → <new> (attempt n)`. One
+  command, nothing to stop, drop or redispatch by hand. Refused: the task gating, merging or under review; the model it
+  runs (`already on <model>`); a stop that fails (nothing recorded, the same command retries).
+- `obor drop <LANE> "<why>" [--discard] [--force]` stops the lane's worker as part of the drop (a working one is
+  interrupted with Escape and quits once idle), then frees the lane. `--force` is only for a worker that keeps working
+  after Escape (or has background tasks): without it that drop is refused, nothing dropped. A refused free (a dirty
+  lane without `--discard`) still stopped the worker; the refusal says so. `obor restart <agent> --stop` stops the
+  same way: no more "left running".
+- `obor restart <lane's worker>` while its lane has a task restarts it with the task's open job: a fresh session gets
+  the job's wake as its first prompt, a resumed one has it typed (`job T-xx/n/work: its wake …`). It never leaves an
+  idle worker with no job; with no task on the lane it is unchanged.
 
 ## obor drive and obor land (T-751)
 The owner iterates by hand (the web page's design after a worker's first pass, say) in a plain interactive agent on its

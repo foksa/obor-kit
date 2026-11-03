@@ -134,7 +134,7 @@ func (r *concRig) entered2(name string) string { return r.entered(name) }
 
 // T-439: obor drop names the lane; serve finds its task (the loop's open one there), stops its worker, frees the lane
 // (the lane adapter's Free with --discard), then records dropped: the lane row clears. A refused Free ends the drop
-// with nothing recorded: the task and its row as they were.
+// with nothing recorded: the task and its row as they were, its worker stopped first (T-773), the refusal says so.
 func TestDropByLane(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
@@ -154,7 +154,7 @@ func TestDropByLane(t *testing.T) {
 			Note: "abandoned", Discard: true, Force: true})
 	}
 	f.refuse = "lane L-02 is dirty (--discard to drop its uncommitted changes)"
-	if _, err := drop("d1"); err == nil || err.Error() != "drop: "+f.refuse {
+	if _, err := drop("d1"); err == nil || err.Error() != "drop: "+f.refuse+"\nSTOPPED" {
 		t.Fatalf("refused Free: %v", err)
 	}
 	r.a.mu.Lock()
@@ -171,8 +171,8 @@ func TestDropByLane(t *testing.T) {
 	if len(f.frees) != 1 || f.frees[0] != (port.FreeInput{Lane: "L-02", Branch: "task/T-2", Target: "target", Discard: true}) {
 		t.Errorf("Free calls %+v; want one for L-02's task/T-2 at the target, discarding", f.frees)
 	}
-	if len(f.stops) != 1 || f.stops[0] != "pj-l-02 force=true" {
-		t.Errorf("stops %q; want pj-l-02 with force", f.stops)
+	if len(f.stops) != 2 || f.stops[1] != "pj-l-02 force=true" {
+		t.Errorf("stops %q; want pj-l-02 with force, by each drop", f.stops)
 	}
 	if st := r.state("pj", "T-2"); st != stDropped || row() != "" {
 		t.Errorf("after DROPPED: T-2 %s, L-02's row %q; want dropped, no row", st, row())
@@ -181,4 +181,64 @@ func TestDropByLane(t *testing.T) {
 	if _, ok := rows["L-02"]; ok || err != nil {
 		t.Errorf("the lanes table still has L-02: %+v, %v", rows, err)
 	}
+}
+
+// T-773: obor drop <LANE> stops the lane's worker as part of the drop, without --force too; a worker still working after Escape is stopped only with --force: without it the drop is
+// refused, nothing freed or recorded, and the task stays open.
+func TestDropStopsTheWorker(t *testing.T) {
+	t.Parallel()
+	setup := func(t *testing.T) (*concRig, *proj, *concScratch, func(id string, force bool) (string, error)) {
+		t.Helper()
+		r := newConcRig(t)
+		dispatchT2(r)
+		r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "target", Head: "target"})
+		p, f := r.proj("pj"), r.fakes["pj"]
+		return r, p, f, func(id string, force bool) (string, error) {
+			return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "L-02",
+				Note: "moving on", Discard: true, Force: force})
+		}
+	}
+	t.Run("no --force: the worker stopped, the lane freed, dropped", func(t *testing.T) {
+		t.Parallel()
+		r, _, f, drop := setup(t)
+		if len(f.stops) != 0 || r.state("pj", "T-2") == stDropped {
+			t.Fatalf("precondition: T-2 open, no stop: %q", f.stops)
+		}
+		reply, err := drop("d1", false)
+		if want := "STOPPED\ndiscarded in L-02\nDROPPED T-2 from L-02 (moving on)"; err != nil || reply != want {
+			t.Fatalf("drop: %q, %v; want %q", reply, err, want)
+		}
+		if len(f.stops) != 1 || f.stops[0] != "pj-l-02 force=false" {
+			t.Errorf("stops %q; want pj-l-02 once, without force", f.stops)
+		}
+		if st := r.state("pj", "T-2"); st != stDropped {
+			t.Errorf("T-2 is %s after the drop, want dropped", st)
+		}
+	})
+	t.Run("a worker that ignores Escape: refused without --force, stopped and dropped with it", func(t *testing.T) {
+		t.Parallel()
+		r, p, f, drop := setup(t)
+		f.mu.Lock()
+		f.ignoresEsc = true
+		f.mu.Unlock()
+		_, err := drop("d1", false)
+		if err == nil || !strings.Contains(err.Error(), "worker of L-02 not stopped: pj-l-02 still working") ||
+			!strings.HasSuffix(err.Error(), "(--force stops it) (nothing dropped)") {
+			t.Fatalf("drop without --force of a worker ignoring Escape: %v; want refused naming --force", err)
+		}
+		r.a.mu.Lock()
+		ended := p.ended["T-2"]
+		r.a.mu.Unlock()
+		if len(f.stops) != 1 || len(f.frees) != 0 || ended || r.state("pj", "T-2") == stDropped {
+			t.Errorf("the refused drop: stops %q, frees %+v, ended %t, T-2 %s; want one stop tried, nothing freed or "+
+				"dropped", f.stops, f.frees, ended, r.state("pj", "T-2"))
+		}
+		reply, err := drop("d2", true)
+		if err != nil || !strings.HasSuffix(reply, "DROPPED T-2 from L-02 (moving on)") {
+			t.Fatalf("drop --force: %q, %v", reply, err)
+		}
+		if len(f.stops) != 2 || f.stops[1] != "pj-l-02 force=true" || len(f.frees) != 1 {
+			t.Errorf("drop --force: stops %q, frees %+v; want the stop with force, then the lane freed", f.stops, f.frees)
+		}
+	})
 }

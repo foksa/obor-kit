@@ -22,7 +22,8 @@ const dispatchUsage = "usage: obor dispatch <T-xx> [--model <model[:effort]>,…
 // Model: line first; --model overrides them; each may name an effort (`opus:high`: its agent started at effort high,
 // T-695). It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane is
 // free or every model is paused (T-538, T-765), either followed by "; idle: <LANE>, …" while lanes stay free (T-483);
-// or its refusal (exit 1: FAIL). Serve down: FAIL obor serve is not running.
+// or its refusal (exit 1: FAIL). --model on a task its worker works on moves it to that model (T-773): MOVED T-xx on
+// <LANE>: <old> → <new> (attempt n). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {
 	return request(context.Background(), project.OSEnv, wire.MethodDispatch, func(cfg *config.Config, c *wire.Call) error {
 		return dispatchArgs(args, cfg, c)
@@ -65,7 +66,8 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 }
 
 // dropCmd is `obor drop <LANE> "<why>" [--discard] [--force]`, the lead's: a request to obor serve (T-439), which
-// stops the lane's worker (a working one with --force), frees the lane (refused when it is dirty or its branch has
+// stops the lane's worker (a working one interrupted with Escape; one that keeps working only with --force, T-773),
+// frees the lane (refused when it is dirty or its branch has
 // commits not in the target, unless --discard), records the dropped fact and answers DROPPED <task> from <LANE>
 // (<why>), or its refusal (FAIL). `obor drop <T-xx> "<why>"` drops a task that holds no lane (a waiting one, T-462):
 // DROPPED <task>. Serve down: FAIL, nothing touched.
