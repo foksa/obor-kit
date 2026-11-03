@@ -120,3 +120,19 @@ func TestParseDrive(t *testing.T) {
 		t.Error("parseDrive read a dispatch's reply")
 	}
 }
+
+// obor drive on a drive whose agent runs (T-755): serve's DRIVING reply is printed with OK (exit 0), nothing started
+// (no lane wait, no herdr: the fake project has neither).
+func TestDriveAgentRunningStartsNothing(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DRIVING T-07 → O-01: pj-o1-drive runs already (pane w1:p5)", "")
+	rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "T-07")
+	if calls, _ := serve.requests(); len(calls) != 1 || calls[0].Task != "T-07" {
+		t.Fatalf("precondition: calls %+v, want T-07's drive", calls)
+	}
+	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → O-01: pj-o1-drive runs already") ||
+		!strings.Contains(stdout, "OK T-07 → O-01: pj-o1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
+		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
+	}
+}

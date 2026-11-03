@@ -131,7 +131,12 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
   wait.
 - `obor drive <T-xx>` — takes over a task its worker works on: serve stops the worker (as `obor restart --stop` does),
   keeps its lane, branch and spec, and the command starts the drive agent there: `DRIVE T-xx → <LANE> (<agent>,
-  <type>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused.
+  <type>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused. The worker
+  is stopped before the take-over is recorded: a stop that fails refuses it with the error and records nothing (the task
+  stays the worker's; retry with `obor drive <T-xx>`).
+- Retry (T-755): `obor drive <T-xx>` or `obor drive <name>` on a drive already starts its agent again on its recorded
+  lane and type when it is not running (a failed start's retry: `DRIVE … again: its agent is not running`, nothing
+  recorded); running: `DRIVING T-xx → <LANE>: <agent> runs already (pane <id>)`, then `OK …`, nothing started.
 - `obor land <T-xx|name> ["<summary>"]` — commits nothing (a dirty lane worktree is refused with its paths); submits the
   branch head on the owner's behalf, the summary as its report (default: the branch's commit subjects): `LANDED T-xx:
   submitted (gate, review and merge follow)`. From there it is an ordinary task; after the merge the drive agent is

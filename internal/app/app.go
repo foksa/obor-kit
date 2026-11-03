@@ -14,6 +14,7 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"obor/internal/store"
@@ -105,6 +106,8 @@ type App struct {
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
 	admitted  int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
 	follow    follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
+
+	hooked atomic.Pointer[func(string)] // a test's hook at the points App.hook names (nil: none; drive.go)
 }
 
 // proj is the served project: its herdr workspace is the one labelled Name. Its state is in two parts: folded, what a

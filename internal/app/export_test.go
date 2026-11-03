@@ -89,3 +89,6 @@ var NeedsLines = (*App).needsLines
 
 // DiskEvery is how often the free space is read on a pass (disk.go).
 const DiskEvery = diskEvery
+
+// SetHook sets a's test hook: f runs at each point App.hook names (drive.go's hook points), on the caller's goroutine.
+func SetHook(a *App, f func(point string)) { a.hooked.Store(&f) }
