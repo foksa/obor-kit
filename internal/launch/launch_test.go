@@ -32,6 +32,10 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
+// laneMCP is a lane agent's own args before its settings (T-770): obor's MCP server, then the strict flag that hides
+// every server the command line does not name.
+const laneMCP = strictMCP + " --strict-mcp-config "
+
 // fx is a project with lane L-01, the built-in models (opus: claude --permission-mode auto --model opus; luna: codex
 // -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), a fake herdr with no panes, every pid alive and a ps that lists no
 // process.
@@ -354,7 +358,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=pj-l-01 OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
 		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// bash restart.test.sh case_lane_agent_named_lane_lower_with_null_state_agent; T-302: the bare lane name is
@@ -369,7 +373,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=l-01 OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
+		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
 		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// T-302: another project's agent may be named like a lane; no lane env, no lane settings
@@ -393,7 +397,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=odd-name OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
+		start: "agent.start args=[" + laneMCP + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",
 		out:   "lane L-01 (pane w1:p3 cwd)",
 	}, {

@@ -57,10 +57,10 @@ func TestModelEffortPerKind(t *testing.T) {
 		if err := c.CheckModelRef(tc.model + ":" + tc.effort); err != nil {
 			t.Errorf("%s:%s refused: %v", tc.model, tc.effort, err)
 		}
-		if got := strings.Join(m.LaunchArgs(true, tc.effort), " "); !strings.Contains(got, tc.inArgs) {
+		if got := strings.Join(m.LaunchArgs("lead", tc.effort), " "); !strings.Contains(got, tc.inArgs) {
 			t.Errorf("%s at %s: args %q, want %q in them", tc.model, tc.effort, got, tc.inArgs)
 		}
-		if got := strings.Join(m.LaunchArgs(true, ""), " "); strings.Contains(got, "effort") {
+		if got := strings.Join(m.LaunchArgs("lead", ""), " "); strings.Contains(got, "effort") {
 			t.Errorf("%s with no effort: args %q set one (the kind's default stands)", tc.model, got)
 		}
 	}

@@ -245,11 +245,11 @@ func (s *Setup) usedKinds() map[string]bool {
 }
 
 // mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
-// its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a start with --strict-mcp-config
-// gets obor's --mcp-config (an explicit obor entry in kinds.claude.args wins), else the plugin manifest's server; codex:
-// launch args on every start; opencode: the user config's mcp.servers.obor entry. It starts no agent and runs no
-// `claude -p` (T-445: a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake:
-// `obor setup mcp` runs it.
+// its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a lane's start carries
+// --strict-mcp-config, so obor adds its --mcp-config (an explicit obor entry in kinds.claude.args wins); codex: launch
+// args on every start; opencode: the user config's mcp.servers.obor entry. It starts no agent and runs no `claude -p`
+// (T-445: a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
+// runs it.
 func (s *Setup) mcpLane(name string) error {
 	if err := s.load(); err != nil {
 		return err
@@ -268,8 +268,8 @@ func (s *Setup) mcpLane(name string) error {
 		return project.Failf("mcp model %s", name)
 	}
 	m := k.Install(s.Kit, s.Env.Get).MCP
-	// a lane never is the lead: the settings default applies
-	how, registered, static := m.Lane(lt.LaunchArgs(false, ""), os.ReadFile)
+	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
+	how, registered, static := m.Lane(lt.LaunchArgs("worker", ""), os.ReadFile)
 	switch {
 	case !static && registered:
 		s.say("mcp model %s (%s): registered per start (%s)", name, lt.Kind, how)

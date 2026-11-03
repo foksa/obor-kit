@@ -77,6 +77,10 @@ type Start struct {
 	// Effort is the effort to start with (a type reference's `:<effort>`, T-695): the kind sets it, replacing the one
 	// Args set; "": Args as given.
 	Effort string
+	// StrictMCP is a lane's agent starting (a worker, the owner's drive agent, T-770): a kind that hides the MCP servers
+	// its command line does not name starts that way, obor's own registered on the start (claude: --strict-mcp-config
+	// with --mcp-config MCPConfig; a kind that hides nothing ignores it).
+	StrictMCP bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
 }

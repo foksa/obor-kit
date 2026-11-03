@@ -105,7 +105,9 @@ the most common prompt_extra, unknown types to `models`, lanes to L-01 … in co
 every lane is free) and commits it.
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
-for every agent except leads (only the lead keeps Remote Control and auto memory, T-280/T-471).
+for every agent except leads (only the lead keeps Remote Control and auto memory, T-280/T-471). A lane's agent (a
+worker, the owner's drive agent) starts strict: `--strict-mcp-config`, with obor's `--mcp-config` spliced in before it,
+so the user's own MCP servers cost no context on a job; the lead and the role agents keep every one of them (T-770).
 Permission mode and posted lines (T-499): a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is

@@ -7,6 +7,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/agents/opencode"
+	"obor/internal/roles"
 )
 
 // The models (T-765): the config names a model with its effort, `<model>[:<effort>]` (a model ref), in difficulty
@@ -138,19 +139,20 @@ func (c *Config) CheckModelRef(ref string) error {
 }
 
 // LaunchArgs are the model's launch args: args (with effort: the kind sets it, T-695), then the settings as its kind
-// takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone). Every
-// agent but a lead starts with {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone,
-// T-280, and only the lead keeps auto memory, T-471).
-func (m Model) LaunchArgs(lead bool, effort string) []string {
+// takes them (agents.Kind.Start: Claude's --settings <settings>; a kind obor has no bridge for: args alone), and a lane's
+// agent starts strict (its obor MCP server alone, T-770). Every agent but a lead starts with
+// {"remoteControlAtStartup":false,"autoMemoryEnabled":false} (only the lead on the phone, T-280, and only the lead keeps
+// auto memory, T-471). role is the agent's (roles.Role.Name; "": none).
+func (m Model) LaunchArgs(role, effort string) []string {
 	var settings map[string]any
-	if !lead {
+	if role != "lead" {
 		settings = map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false}
 	}
 	k, ok := agents.Lookup(m.Kind)
 	if !ok {
 		return append([]string(nil), m.Args...)
 	}
-	return k.Start(agents.Start{Args: m.Args, Settings: settings, Effort: effort})
+	return k.Start(agents.Start{Args: m.Args, Settings: settings, Effort: effort, StrictMCP: roles.LaneBound(role)})
 }
 
 // StartEnv is the environment a start of this model needs beyond the pane's (agents.Kind.StartEnv: OpenCode's model

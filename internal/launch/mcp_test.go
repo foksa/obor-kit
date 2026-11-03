@@ -79,6 +79,73 @@ func TestStartStrictMCPConfig(t *testing.T) {
 // jsonStr is s as a JSON string (config.Model.Args holds the words as the config writes them).
 func jsonStr(s string) string { return config.Compact(s) }
 
+// T-770: a lane's Claude agent (a worker) starts strict — obor's --mcp-config, then --strict-mcp-config — so the user's
+// MCP servers cost no context on a job; the flag is there once even when kinds.claude.args names it; the lead's and the
+// integrator's starts keep the user's servers; a lane's codex and opencode agents are as before (they hide nothing).
+func TestLaneStartStrictMCP(t *testing.T) {
+	t.Parallel()
+	const wake = "[obor job T-1/1/work] call the obor job_next tool"
+	for _, c := range []struct {
+		name  string
+		edit  []func(map[string]any) // the config on top of setup's
+		row   string                 // the lane row's type ("" none)
+		agent string                 // the agent started
+		pane  string                 // its shell
+		label string                 // the pane's label
+		wake  bool                   // the start carries a job's first prompt
+		has   []string               // in agent.start
+		lacks []string
+	}{
+		{"a worker: strict, obor's server", nil, "", "pj-l-01", "w1:p3", "pj-l-01", true,
+			[]string{"args=[" + laneMCP + settings + " -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
+		{"a worker whose args name the flag: once", []func(map[string]any){testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`)},
+			"", "pj-l-01", "w1:p3", "pj-l-01", true,
+			[]string{"args=[" + laneMCP + settings + " -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
+		{"a lead: the user's servers, no flag", nil, "", "pj-lead", "w1:p6", "", false,
+			[]string{"args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead"}, []string{"--strict-mcp-config", "--mcp-config"}},
+		{"the integrator: the user's servers, no flag", nil, "", "pj-int", "w1:p5", "", false,
+			[]string{"args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int"}, []string{"--strict-mcp-config", "--mcp-config"}},
+		{"a lane's codex agent: its own registration, no flag", nil, "luna", "pj-l-01", "w1:p3", "pj-l-01", true,
+			[]string{"-m gpt-6-luna", `mcp_servers.obor.command="/kit/bin/obor"`}, []string{"--strict-mcp-config"}},
+		{"a lane's opencode agent: no registration, no flag", nil, "deepseek", "pj-l-01", "w1:p3", "pj-l-01", true,
+			[]string{"--auto --standalone"}, []string{"--strict-mcp-config", "--mcp-config"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, c.edit...)
+			if c.row != "" {
+				x.p.State("L-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-l-01","type":"`+c.row+`"}`)
+			}
+			x.shell(c.pane, c.label, "")
+			req := launch.Request{Agent: c.agent, Pane: c.pane, Fresh: true}
+			if c.wake {
+				req.Prompt = wake
+			}
+			out, ok := x.restart(req)
+			if !ok {
+				t.Fatalf("start failed:\n%s", out)
+			}
+			start := x.startCall()
+			if !strings.HasPrefix(start, "agent.start args=[") {
+				t.Fatalf("no agent.start: %q", start)
+			}
+			for _, h := range c.has {
+				if !strings.Contains(start, h) {
+					t.Errorf("agent.start %q lacks %q", start, h)
+				}
+			}
+			for _, l := range c.lacks {
+				if strings.Contains(start, l) {
+					t.Errorf("agent.start %q has %q", start, l)
+				}
+			}
+			if n := strings.Count(start, "--strict-mcp-config"); n > 1 {
+				t.Errorf("agent.start %q has --strict-mcp-config %d times, want once", start, n)
+			}
+		})
+	}
+}
+
 // MCPArgs is the pair a start adds, from the kind, the kit and the args alone: the --mcp-config value may be inline JSON
 // or a file, in either spelling, and only an obor server in one of them counts as explicit.
 func TestMCPArgs(t *testing.T) {

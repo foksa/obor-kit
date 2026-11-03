@@ -61,9 +61,11 @@ func TestSetupMCPLane(t *testing.T) {
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 
-	// Claude without the strict flag: the kit's plugin manifest, as every obor Claude pane loads it.
-	has(t, x.ok(t, "mcp", "--model", "opus"), "mcp model opus (claude): registered by the plugin manifest", "no strict flag")
-	// With it, the manifest's server is hidden: obor adds the kit's own on the start.
+	// A lane's Claude start is strict (T-770): obor adds the kit's own on the start, the plugin manifest's hidden.
+	has(t, x.ok(t, "mcp", "--model", "opus"),
+		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+
+			claude.MCPConfig(kit)+")", "a lane's start: strict, obor adds --mcp-config")
+	// With the flag in the args, the same: it is there once.
 	strict := newFx(t, testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`))
 	has(t, strict.ok(t, "mcp", "--model", "opus"),
 		"mcp model opus (claude): registered per start (--strict-mcp-config hides the plugin manifest's server; obor adds --mcp-config "+

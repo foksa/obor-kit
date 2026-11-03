@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/agents/claude"
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
@@ -100,6 +101,16 @@ func (x *fx) run(t *testing.T, args ...string) (string, int) {
 // runIn is `obor setup <args>` with dir as the caller's cwd: its output and exit code.
 func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
 	t.Helper()
+	s, out := x.newSetup(t)
+	s.Dir = dir
+	rc := s.Run(context.Background(), args)
+	return out.String(), rc
+}
+
+// newSetup is the Setup runIn builds, with its own output buffer (nil: none), for a start `obor setup` does not run
+// itself: the owner's drive agent (obor drive, StartDrive).
+func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
+	t.Helper()
 	var out bytes.Buffer
 	k := kit
 	if x.kit != "" {
@@ -118,12 +129,10 @@ func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
 		open = func([]int) []string { return nil }
 	}
 	env, h := x.Env(x.env...), x.srv.Client()
-	s := &Setup{Kit: k, Dir: dir, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
+	return &Setup{Kit: k, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
-		}, Serve: x.serve}
-	rc := s.Run(context.Background(), args)
-	return out.String(), rc
+		}, Serve: x.serve}, &out
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w
@@ -724,7 +733,25 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	}
 	x.reset()
 	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
-	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=["+settings+"] kind=claude name=pj-l-01", "the default kind, no model")
+	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=["+laneArgs+"] kind=claude name=pj-l-01", "the default kind, no model")
+}
+
+// T-770: the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
+// alone, the user's MCP servers out of its context on every job.
+func TestDriveStartIsStrict(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.ok(t, "lane", "L-01")
+	x.reset()
+	s, out := x.newSetup(t)
+	s.Dir = x.Root
+	if err := s.StartDrive(context.Background(), Drive{Agent: "pj-l-01-drive", Lane: "L-01", Cwd: x.LaneDir("L-01"),
+		Prompt: "drive T-1"}); err != nil {
+		t.Fatalf("StartDrive: %v\n%s", err, out)
+	}
+	reqs := strings.Join(x.reqs(), "\n")
+	has(t, reqs, "OBOR_ROLE=driver", "the drive agent's role")
+	has(t, reqs, "agent.start args=["+laneArgs+" -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
 }
 
 // bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup: a failing lane_setup fails the lane.
@@ -770,6 +797,10 @@ func TestLaneAndRoleCollisionsRefused(t *testing.T) {
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
+// laneArgs is a lane agent's start args before its first prompt (T-770): obor's MCP server, then the strict flag that
+// hides every other one, then the settings.
+var laneArgs = "--mcp-config " + claude.MCPConfig(kit) + " --strict-mcp-config " + settings
+
 // bash setup.test.sh case_pane_splits_the_tab_and_starts_the_agent_in_order
 func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	t.Parallel()
@@ -783,7 +814,7 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[" + settings + "] kind=claude name=pj-l-01 pane_id=w1:n1"}
+		"agent.start args=[" + laneArgs + "] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -915,7 +946,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+settings+"] kind=claude name=pj-l-01 pane_id=w1:p1",
+	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+"] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"rename, the name-held check, then the start")
 
 	x.noAgents()

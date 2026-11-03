@@ -324,7 +324,8 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	}
 }
 
-// T-280: Remote Control off and auto memory off for every claude agent but a lead.
+// T-280, T-770: Remote Control off and auto memory off for every claude agent but a lead; a lane's agent (a worker, the
+// owner's drive agent) starts with --strict-mcp-config, obor's MCP server alone.
 func TestLaunchArgs(t *testing.T) {
 	c := load(t, `{"prefix":"pj"}`, "")
 	opus, _ := c.Model("opus")
@@ -332,14 +333,21 @@ func TestLaunchArgs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		m    Model
-		lead bool
+		role string
 		want string
 	}{
-		{"worker", opus, false, `--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"lead: no --settings", opus, true, "--permission-mode auto --model opus"},
-		{"codex: no --settings", luna, false, "-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
+		{"worker: strict, the settings", opus, "worker",
+			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"drive agent: strict too", opus, "driver",
+			`--permission-mode auto --model opus --strict-mcp-config --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"lead: no --settings, no strict", opus, "lead", "--permission-mode auto --model opus"},
+		{"integrator: no strict", opus, "integrator",
+			`--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
+		{"codex: no --settings", luna, "integrator", "-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
+		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
+			"-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
-		if got := strings.Join(tc.m.LaunchArgs(tc.lead, ""), " "); got != tc.want {
+		if got := strings.Join(tc.m.LaunchArgs(tc.role, ""), " "); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}

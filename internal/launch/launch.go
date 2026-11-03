@@ -754,9 +754,10 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// args are the type's launch args (config.Model.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280)
-// with effort in place of the type's ("": the type's, T-695), and t.env the start's own env (agents.Kind.StartEnv:
-// OpenCode's model and effort) for the env line. An effort the start cannot carry is a Fail (nothing stopped yet).
+// args are the type's launch args (config.Model.LaunchArgs; a role without a type: the defaults of the resolved kind; a
+// lead keeps Remote Control, T-280; a lane's agent starts strict, T-770) with effort in place of the type's ("": the
+// type's, T-695), and t.env the start's own env (agents.Kind.StartEnv: OpenCode's model and effort) for the env line. An
+// effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	lt := config.Model{Kind: t.kind}
 	switch {
@@ -776,7 +777,7 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
 	t.env = vars
-	return lt.LaunchArgs(t.info.Role == "lead", effort), nil
+	return lt.LaunchArgs(t.info.Role, effort), nil
 }
 
 // holds: pane holds agent's herdr name.
