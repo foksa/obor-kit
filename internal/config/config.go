@@ -377,11 +377,24 @@ func (u unknownKey) Error() string {
 
 // read reads and merges the files once and decodes them over the defaults, the keys this binary does not know dropped
 // and returned in unknown (dotted paths, file order). err is every other failure (with no config and no unknown).
-func read(root string) (*Config, []string, error) {
+func read(root string) (*Config, []string, error) { return readWith(root, nil) }
+
+// LoadWith is LoadDaemon of the project at root with doc in place of its config.json's bytes (local.json read as it
+// is): what a config change would load as, before it is written (obor web's setup edit, T-753).
+func LoadWith(root string, doc []byte) (*Config, error) {
+	c, _, err := readWith(root, doc)
+	return c, err
+}
+
+// readWith is read with doc as config.json's bytes (nil: the file's).
+func readWith(root string, doc []byte) (*Config, []string, error) {
 	var files [2][]byte
 	for i, name := range []string{"config.json", "local.json"} {
 		path := filepath.Join(root, ".obor", name)
 		b, err := os.ReadFile(path)
+		if i == 0 && doc != nil {
+			b, err = doc, nil
+		}
 		switch {
 		case errors.Is(err, os.ErrNotExist) && i == 0:
 			return nil, nil, fmt.Errorf("obor: no %s: %w", path, ErrNoConfig)

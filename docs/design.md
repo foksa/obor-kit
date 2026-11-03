@@ -168,6 +168,20 @@ every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per 
 state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line, one line per
 lane, serve's tasks on no lane, needs-you with the commands that answer them, the full check, the pause.
 
+## obor web's write path (T-753)
+`obor web` reads the read model like `obor status` and has two verbs, the Setup page's edits: `POST /api/config`
+(one change: `difficulty.<level>`, `lane_types.<type>.model|effort|max`, `lanes.<LANE>`, `roles.<role>.type`) and
+`POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing: each is a request on the
+project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is 503. A POST is taken only
+on those two routes, only with the page's own Origin, the listen address as Host (no DNS rebinding) and a JSON body
+(403 otherwise); every other route is GET/HEAD (405). Serve applies the change to `.obor/config.json`
+(`config.Edit`: model and effort rewritten inside `args` per kind), runs `config.Validate` on the result (refused for a
+new FAIL), writes the file in its own layout and commits that one file on main (`config: <key> <old> → <new> (owner,
+web)`), behind the publish admission (never while a publish moves main). Refused, nothing written: uncommitted changes
+to the config (a hand edit is never committed under the owner's), a lane that has a task, a name the config lacks.
+Fact `config.set` records it and the lead gets the same line; serve reads the config per call, so it counts from the
+next dispatch or start. Adding lanes or lane types, other args and other keys stay `obor setup`'s or a hand edit's.
+
 ## Hooks (`hooks/hooks.json`; one entry per event; the Go binary branches on role)
 Each event's command is `OBOR_NO_SELF_HOST=1 bash "${CLAUDE_PLUGIN_ROOT}/bin/obor" hook <name>` (T-221: never
 self-hosted into the cwd's checkout); `bin/obor` execs `obor hook <name>` on the first binary (dist/obor, then the

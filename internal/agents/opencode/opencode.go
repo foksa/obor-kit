@@ -73,6 +73,12 @@ func (k kind) StartEnv(in agents.Start) (map[string]string, error) {
 	return map[string]string{ModelVar: model}, nil
 }
 
+// WithModel: --model <model> in place of the args' own (--model or -m, T-753). OpenCode has no effort arg: a type
+// reference's :<effort> is its variant (StartEnv), so it is no EffortEditor.
+func (kind) WithModel(args []string, model string) []string {
+	return agents.SetFlag(args, []string{"--model", "-m"}, model)
+}
+
 // splitModel is args without their --model/-m (with its word, or either spelling with =), and the model they named.
 func splitModel(args []string) (rest []string, model string) {
 	rest = make([]string, 0, len(args))

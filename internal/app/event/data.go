@@ -18,6 +18,19 @@ type Pause struct {
 	Reply  string `json:"reply"`
 }
 
+// ConfigSet is a setup edit's fact data (T-753): the key, its value before and after (one line of JSON each, "" unset),
+// who made it and where (owner, web), the commit on the main branch, and the call that recorded it with its reply.
+type ConfigSet struct {
+	Key    string `json:"key"`
+	Old    string `json:"old"`
+	New    string `json:"new"`
+	By     string `json:"by"`
+	Source string `json:"source,omitempty"`
+	Commit string `json:"commit"`
+	Call   string `json:"call,omitempty"`
+	Reply  string `json:"reply"`
+}
+
 // Message is a line fact's data: the agent it goes to and the line typed, who sent it, the brief it ends, and the
 // call that recorded it with its reply.
 type Message struct {

@@ -25,7 +25,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, monitor, web: an unknown
   key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
-  `TaskFromBranch`.
+  `TaskFromBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
+  in their own layout, and `LoadWith` (what it would load as).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
 - `version`: build version line.
@@ -67,6 +68,7 @@ Adding a kind = one package + a config entry.
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
   T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go`, `mergewatch.go`,
   `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
+  `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
   `effects.go` (`JobID`): one concern each.
@@ -143,11 +145,12 @@ socket: scripted panes and plugins, and every request a test's client sent).
 
 **entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`: the loop and the alternate-screen drawing; `monitor_render.go`: the look; T-658, T-668) rendering of
 `view.Project` (rendering only: no state is joined there); the
-thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`,
+thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `answer`, `resume`, `sendback`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
-- `web` (`internal/web`, T-667): `obor web`'s read-only HTTP server over the read model — the API (`/api/projects`,
-  `/api/view`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq) and one
-  embedded HTML page (`embed`, vanilla JS, no build step), standard library only. Localhost only, no verbs; its own
-  process, never inside serve.
+- `web` (`internal/web`, T-667): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
+  `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq)
+  and one embedded HTML page (`embed`, vanilla JS, no build step), standard library only. Localhost only; its own
+  process, never inside serve. Its two verbs (T-753), `POST /api/config` and `POST /api/pause`, are requests on the
+  project's app socket (`wire`), taken only from the page's own origin: serve writes.

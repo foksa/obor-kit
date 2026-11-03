@@ -97,6 +97,25 @@ func TestSetup(t *testing.T) {
 	if !reflect.DeepEqual(s.Types, wantTypes) {
 		t.Errorf("types %+v\nwant %+v", s.Types, wantTypes)
 	}
+	// lane types (T-753): every lane_types entry in config order (the fixture writes its keys sorted) with its own
+	// args' model and effort, its max and the efforts its kind sets in its args, what the page edits; deepseek, which
+	// only a role names, is there too
+	var names []string
+	byName := map[string]SetupLaneType{}
+	for _, lt := range s.LaneTypes {
+		names = append(names, lt.Name)
+		byName[lt.Name] = lt
+	}
+	if !slices.Equal(names, cfg.LaneTypeNames()) || !slices.Contains(names, "deepseek") {
+		t.Fatalf("lane types %q, want the config's %q", names, cfg.LaneTypeNames())
+	}
+	if lt := byName["opus"]; lt.Kind != "claude" || lt.Model != "opus" || lt.Effort != "medium" || lt.Max != 0 ||
+		!slices.Contains(lt.Efforts, "high") {
+		t.Errorf("lane type opus %+v, want claude, opus, medium, no cap, claude's efforts", lt)
+	}
+	if lt := byName["sonnet"]; lt.Model != "sonnet" || lt.Effort != "" || lt.Max != 2 {
+		t.Errorf("lane type sonnet %+v, want sonnet, no effort, max 2", lt)
+	}
 	// lanes: the configured type (the pool lane's is ""), the configured agent and the state now
 	lanes := map[string]SetupLane{}
 	for _, l := range s.Lanes {

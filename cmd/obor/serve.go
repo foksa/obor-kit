@@ -178,6 +178,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root}
+		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}
 		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil
 	}

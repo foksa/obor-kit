@@ -198,6 +198,13 @@
   .seg button.on { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
   .banner { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; margin-bottom: 18px; }
   .err { color: var(--bad); }
+  /* setup edits (T-753): small inline controls; a refusal shows next to its field */
+  .edit { font: 12px var(--mono); color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  input.edit { width: 9em; }
+  input.edit.num { width: 4.5em; }
+  button.mini { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 0 5px; font: 11px var(--sans); cursor: pointer; }
+  button.mini:hover { color: var(--fg); border-color: var(--accent); }
+  .reftag { display: inline-flex; gap: 3px; align-items: center; margin: 0 6px 4px 0; }
   .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
   .loading { color: var(--muted); padding: 40px 0; }
 
@@ -400,7 +407,20 @@ app.addEventListener("click", (e) => {
   if (b) { unfold(document.getElementById(b.dataset.for)); return; }
   // the setup page's 7 days / all switch: only this page's table redraws (T-750)
   const seg = e.target.closest("button[data-dist]");
-  if (seg) { distAll = seg.dataset.dist === "all"; if (current) current.draw(true); }
+  if (seg) { distAll = seg.dataset.dist === "all"; if (current) current.draw(true); return; }
+  // the setup page's edit buttons (T-753): a difficulty list's up, down and remove, the pause and its clear
+  const act = e.target.closest("button[data-act]");
+  if (act) {
+    if (act.dataset.act === "pause") {
+      const val = (id) => (document.getElementById(id) || {}).value || "";
+      pauseSet(val("pause-why"), val("pause-for"));
+    } else setupAct(act);
+  }
+});
+// the setup page's inline selects and inputs: a change sends it (T-753)
+app.addEventListener("change", (e) => {
+  const el = e.target.closest && e.target.closest("select[data-act], input[data-act]");
+  if (el) setupAct(el);
 });
 function unfold(el) {
   if (!el) return;
@@ -595,7 +615,7 @@ async function landing() {
     </a>`;
   }).join("");
   return `<div class="head"><h1>Projects</h1>
-      <div class="meta">every obor project on this machine · read-only</div></div>
+      <div class="meta">every obor project on this machine</div></div>
     <section><div class="card rows projects">${rows}</div></section>`;
 }
 
@@ -769,14 +789,86 @@ function renderEvents(p, events) {
 
 // ---- setup (T-750) -------------------------------------------------------------------------------------------------
 // The setup page: what steers the project's work — its difficulty levels, lanes, roles and pause — and how its
-// dispatches spread by level and chosen type, for the last 7 days or for all records. Read-only: the switch only
-// redraws the table.
+// dispatches spread by level and chosen type, for the last 7 days or for all records. The switch only redraws the
+// table; the edit controls (T-753, below) send one change each.
 let distAll = false;
 
 async function setupPage(r) {
   const s = await api("/api/setup?project=" + enc(r.project));
   return renderSetup(r.project, s);
 }
+
+// ---- setup edits (T-753) ----------------------------------------------------------------------------------------
+// Each edit control sends one change: POST /api/config {key, value} (or /api/pause), which obor web passes to the
+// project's serve; serve validates, writes .obor/config.json and commits it on main. A refusal is shown next to its
+// field until a change of that field succeeds; either way the page reads its setup again.
+let lastSetup = null;   // the setup shown: a difficulty list's edits start from it
+const editErrs = {};    // field key → serve's refusal of its last change
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body) });
+  let b = null;
+  try { b = await r.json(); } catch (e) { b = null; }
+  if (!r.ok) throw new Error((b && b.error) || r.status + " " + r.statusText);
+  return b;
+}
+
+// setupEdit sends body to path for the shown project; errKey is the field its refusal shows next to.
+async function setupEdit(errKey, path, body) {
+  const p = current && current.r.project;
+  if (!p) return;
+  try {
+    await post(path + "?project=" + enc(p), body);
+    delete editErrs[errKey];
+  } catch (e) {
+    editErrs[errKey] = e.message;
+  }
+  if (current) await current.draw(true);
+}
+const configSet = (key, value) => setupEdit(key, "/api/config", { key, value });
+const pauseSet = (reason, dur) => setupEdit("pause", "/api/pause", { reason: String(reason).trim(), for: String(dur).trim() });
+const pauseClear = () => setupEdit("pause", "/api/pause", { clear: true });
+// errAt is the refusal of key's last change, next to its field ("" none).
+const errAt = (key) => editErrs[key] ? ` <span class="err small" data-err="${esc(key)}">${esc(editErrs[key])}</span>` : "";
+
+// setupAct is one edit control's change: el's data-act names it, its data-* the field, its value the new value.
+function setupAct(el) {
+  const d = el.dataset || {};
+  const level = lastSetup && (lastSetup.difficulty || []).find((x) => x.level === d.level);
+  const list = level ? [...(level.types || [])] : [];
+  switch (d.act) {
+    case "up": case "down": {
+      const i = +d.i, j = d.act === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      return configSet("difficulty." + d.level, list);
+    }
+    case "rm":
+      list.splice(+d.i, 1);
+      return configSet("difficulty." + d.level, list);
+    case "add":
+      if (!el.value) return;
+      list.push(el.value);
+      return configSet("difficulty." + d.level, list);
+    case "model": case "effort":
+      return configSet(`lane_types.${d.type}.${d.act}`, String(el.value).trim());
+    case "max": {
+      const n = Number(el.value);
+      return configSet(`lane_types.${d.type}.max`, el.value === "" ? 0 : Number.isInteger(n) ? n : el.value);
+    }
+    case "lane":
+      return configSet("lanes." + d.lane, el.value);
+    case "role":
+      return configSet(`roles.${d.role}.type`, String(el.value).trim());
+    case "unpause":
+      return pauseClear();
+  }
+}
+
+// options is a select's options: each [value, label], value selected.
+const options = (items, selected) => items.map(([v, label]) =>
+  `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(label)}</option>`).join("");
 
 // levelName is a distribution row's label: a level, --types' override, or a dispatch with neither (an empty level
 // stays "no level"); typeName is a column's: a dispatch the store names no type for is "unknown", never "pooled" — a
@@ -785,15 +877,24 @@ const levelName = (l) => l || "no level";
 const typeName = (t) => t || "unknown";
 
 function renderSetup(p, s) {
+  lastSetup = s;
   const head = `<div class="head"><h1>${esc(p)} <span class="title">setup</span></h1>
-    <div class="meta"><span class="small">what steers this project's work · read-only</span>
+    <div class="meta"><span class="small">what steers this project's work · an edit commits .obor/config.json on main</span>
       <a class="ln" href="${href("p", p)}">project</a></div></div>`;
 
+  const laneTypes = s.lane_types || [];
+  const typeNames = laneTypes.map((t) => t.name);
   const levels = s.difficulty || [];
+  // each level's types in dispatch order, with up, down and remove; a select adds a lane type at the end (T-753)
+  const refTag = (d, t, i, n) => `<span class="reftag">${tag(t)}${
+    i > 0 ? `<button class="mini" data-act="up" data-level="${esc(d.level)}" data-i="${i}" title="earlier">↑</button>` : ""}${
+    i < n - 1 ? `<button class="mini" data-act="down" data-level="${esc(d.level)}" data-i="${i}" title="later">↓</button>` : ""}<button
+      class="mini" data-act="rm" data-level="${esc(d.level)}" data-i="${i}" title="remove">✕</button></span>`;
   const difficulty = levels.map((d) => `<div class="row setup2">
       <span class="mono">${esc(d.level)}</span>
-      <div class="lead"><span>${(d.types || []).length ? d.types.map((t) => tag(t)).join(" ")
-        : '<span class="muted">no type</span>'}</span></div></div>`).join("");
+      <div class="lead"><span>${(d.types || []).length ? d.types.map((t, i) => refTag(d, t, i, d.types.length)).join("")
+        : '<span class="muted">no type</span>'}<select class="edit" data-act="add" data-level="${esc(d.level)}">${
+        options([["", "+ add"], ...typeNames.map((n) => [n, n])], "")}</select>${errAt("difficulty." + d.level)}</span></div></div>`).join("");
   // what runs each type: its lane type, kind, model, effort and max; the types no level and no role names come last,
   // marked unused (T-750)
   const types = s.types || [];
@@ -810,12 +911,29 @@ function renderSetup(p, s) {
   const difficultyHTML = `<section><h2>Difficulty</h2><div class="card">
     <div class="rows">${difficulty || '<p class="quiet">No difficulty level.</p>'}</div>
     ${typeTable ? `<div class="pad" style="border-top:1px solid var(--line-soft)">${typeTable}</div>` : ""}</div></section>`;
+  // every lane type with its model, effort and max, each an inline edit (T-753); a kind whose effort is no arg has none
+  const ltRows = laneTypes.map((t) => {
+    const k = (f) => `lane_types.${t.name}.${f}`;
+    const efforts = t.efforts || [];
+    const effort = efforts.length ? `<select class="edit" data-act="effort" data-type="${esc(t.name)}">${
+      options([["", "—"], ...efforts.map((e) => [e, e])], t.effort || "")}</select>`
+      : `<span class="muted" title="its effort is a type reference's :<effort>">${t.effort ? esc(t.effort) : "—"}</span>`;
+    return `<tr><td class="mono">${esc(t.name)}</td><td>${esc(t.kind || "")}</td>
+      <td><input class="edit" data-act="model" data-type="${esc(t.name)}" value="${esc(t.model || "")}" placeholder="—">${errAt(k("model"))}</td>
+      <td>${effort}${errAt(k("effort"))}</td>
+      <td><input class="edit num" type="number" min="0" data-act="max" data-type="${esc(t.name)}" value="${t.max ? esc(t.max) : ""}" placeholder="no cap">${errAt(k("max"))}</td></tr>`;
+  }).join("");
+  const laneTypesHTML = laneTypes.length ? `<section><h2>Lane types</h2><div class="card" style="overflow:auto">
+    <table class="raw types edits"><thead><tr><th>lane type</th><th>kind</th><th>model</th><th>effort</th><th>max</th></tr></thead>
+    <tbody>${ltRows}</tbody></table></div></section>` : "";
 
   const lanes = s.lanes || [];
   const pooled = lanes.filter((l) => !l.type).length;
   const laneHTML = lanes.map((l) => `<div class="row setup3">
       <span class="mono">${esc(l.lane)}</span>
-      <div class="lead"><span>${l.type ? tag(l.type) : pill("idle", "pooled")}</span>
+      <div class="lead"><span>${l.type ? tag(l.type) : pill("idle", "pooled")} <select class="edit" data-act="lane"
+          data-lane="${esc(l.lane)}" title="its type: pooled runs any">${options([["", "pooled"],
+          ...typeNames.map((n) => [n, n])], l.type || "")}</select>${errAt("lanes." + l.lane)}</span>
         <span class="sub2">${agentLink(p, l.agent)}</span></div>
       <span>${l.state ? pill(l.state) : pill("idle", "no state")}</span></div>`).join("");
   const lanesHTML = `<section><h2>Lanes <span class="count">${lanes.length} lane${lanes.length === 1 ? "" : "s"} ·
@@ -825,13 +943,21 @@ function renderSetup(p, s) {
   const roleHTML = (s.roles || []).map((x) => `<div class="row setup3">
       <span class="small">${esc(roleName(x.role))}</span>
       <div class="lead"><span>${x.agent ? agentLink(p, x.agent) : '<span class="muted">no agent</span>'}</span>
-        <span class="sub2">${x.type ? tag(x.type) : "no type"}</span></div>
+        <span class="sub2">${x.type ? tag(x.type) : "no type"} <input class="edit" data-act="role"
+          data-role="${esc(x.role)}" list="type-names" value="${esc(x.type || "")}" placeholder="type[:effort]"
+          title="its type at its next start">${errAt(`roles.${x.role}.type`)}</span></div>
       <span>${x.status ? pill(x.status) : pill("idle", "no pane")}</span></div>`).join("");
+  const datalist = `<datalist id="type-names">${typeNames.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
+  // the pause: set (a reason, an optional duration) or clear, through serve's pause call (T-753)
   const paused = s.paused ? `<div class="banner t-wait" style="margin:8px 0 0">⏸ <span>Paused${
     s.paused.until ? " " + rel(s.paused.until, "in") : ""}${s.paused.reason ? ": " + esc(s.paused.reason) : ""}${
-    s.paused.by ? ` <span class="muted">· ${esc(s.paused.by)}</span>` : ""}</span></div>` : "";
+    s.paused.by ? ` <span class="muted">· ${esc(s.paused.by)}</span>` : ""}</span>
+    <button class="mini" data-act="unpause">clear</button>${errAt("pause")}</div>`
+    : `<div class="pad small" style="margin:8px 0 0">not paused · <input class="edit" id="pause-why" placeholder="reason">
+      <input class="edit num" id="pause-for" placeholder="90m" title="for (a duration; empty: until cleared)">
+      <button class="mini" data-act="pause">pause</button>${errAt("pause")}</div>`;
   const rolesHTML = `<section><h2>Roles and pause</h2><div class="card rows">${
-    roleHTML || '<p class="quiet">No role configured.</p>'}</div>${paused}</section>`;
+    roleHTML || '<p class="quiet">No role configured.</p>'}</div>${datalist}${paused}</section>`;
 
   // the distribution: level rows × chosen type columns, one cell per level and type the store counted
   const cells = s.distribution || [];
@@ -856,7 +982,7 @@ function renderSetup(p, s) {
   const distHTML = `<section><h2>Distribution ${seg}</h2>
     <div class="card" style="overflow:auto;padding:4px 0">${table}</div></section>`;
 
-  return head + difficultyHTML + lanesHTML + rolesHTML + distHTML;
+  return head + difficultyHTML + laneTypesHTML + lanesHTML + rolesHTML + distHTML;
 }
 
 // ---- prompts (a task's or agent's jobs, briefs) ------------------------------------------------------------------

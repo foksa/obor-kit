@@ -266,6 +266,88 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 	return nil
 }
 
+// ModelEditor is a kind whose lane type names its model in the args (obor web's setup edit, T-753): WithModel is args
+// with model in place of the model they name (appended when they name none; "" drops it), every other arg as it is.
+type ModelEditor interface {
+	WithModel(args []string, model string) []string
+}
+
+// EffortEditor is a kind whose lane type sets its effort in the args (T-753): WithEffortArg is args with effort in place
+// of the one they set (appended when they set none; "" drops it), every other arg as it is.
+type EffortEditor interface {
+	WithEffortArg(args []string, effort string) []string
+}
+
+// ModelArgs is the args of a lane type of kind with model as its model (ModelEditor); an error for a kind whose model
+// is no arg.
+func ModelArgs(kind string, args []string, model string) ([]string, error) {
+	e, ok := kinds[kind].(ModelEditor)
+	if !ok {
+		return nil, fmt.Errorf("kind %s names no model in its args", kind)
+	}
+	return e.WithModel(args, model), nil
+}
+
+// EffortArgs is the args of a lane type of kind with effort as its effort (EffortEditor), effort one of the kind's
+// (CheckEffortArgs); an error for a kind whose effort is no arg (OpenCode's is a type reference's :<effort>).
+func EffortArgs(kind string, args []string, effort string) ([]string, error) {
+	e, ok := kinds[kind].(EffortEditor)
+	if !ok {
+		return nil, fmt.Errorf("kind %s sets no effort in its args: name it in a type reference (<type>:<effort>)", kind)
+	}
+	if err := CheckEffortArgs(kind, args, effort); err != nil {
+		return nil, err
+	}
+	return e.WithEffortArg(args, effort), nil
+}
+
+// EffortsInArgs is the efforts a lane type of kind sets in its args (EffortEditor's Efforts; none for any other kind).
+func EffortsInArgs(kind string) []string {
+	k, ok := kinds[kind]
+	if _, edits := k.(EffortEditor); !ok || !edits {
+		return nil
+	}
+	return k.Efforts()
+}
+
+// SetFlag is args with the value of the flag any of names spells (`<name> <value>` or `<name>=<value>`) set to value:
+// the first one keeps its place and spelling, a later one is dropped; none: names[0] value appended. Value "" drops
+// every one. Every other arg stays as it is (a bridge's WithModel, WithEffortArg; T-753).
+func SetFlag(args, names []string, value string) []string {
+	out := make([]string, 0, len(args)+2)
+	set := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		spaced, joined := false, ""
+		for _, n := range names {
+			if a == n && i+1 < len(args) {
+				spaced = true
+			} else if strings.HasPrefix(a, n+"=") {
+				joined = n
+			}
+		}
+		switch {
+		case spaced:
+			if !set && value != "" {
+				out = append(out, a, value)
+				set = true
+			}
+			i++
+		case joined != "":
+			if !set && value != "" {
+				out = append(out, joined+"="+value)
+				set = true
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	if !set && value != "" {
+		out = append(out, names[0], value)
+	}
+	return out
+}
+
 // checkEffort is CheckEffort for a kind at hand.
 func checkEffort(k Kind, effort string) error {
 	kind := k.Name()

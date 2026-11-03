@@ -1,22 +1,32 @@
-// Package web is `obor web` (T-667): a read-only localhost page for every obor project on the machine, standard
-// library only. It serves the read model's JSON — each project's view as view.Build builds it for `obor status --json`
-// (view.Load), and the drill-down pages of view.Detail — plus one embedded HTML page (vanilla JS, no framework, no
-// build step). Its own process, never inside serve: serve is the one writer with a replayed state machine, and a
-// handler in its process would share its restarts. Localhost only, no auth: remote access is an SSH tunnel. No verbs:
-// every route is a GET.
+// Package web is `obor web` (T-667): a localhost page for every obor project on the machine, standard library only. It
+// serves the read model's JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), and
+// the drill-down pages of view.Detail — plus one embedded HTML page (vanilla JS, no framework, no build step). Its own
+// process, never inside serve: serve is the one writer with a replayed state machine, and a handler in its process
+// would share its restarts. Localhost only, no auth: remote access is an SSH tunnel.
+//
+// Two verbs (T-753), the owner's setup edits from the Setup page: POST /api/config (one config change) and POST
+// /api/pause (set or clear the pause). Neither writes anything itself: each is a request to the project's serve (its
+// app socket), the one writer; serve not running is 503. Every other route is GET or HEAD only (405). A POST is taken
+// only on those two routes and only when its Origin is the page's own origin, its Host the listen address (no DNS
+// rebinding) and its Content-Type application/json (403 otherwise): a page on another origin cannot send one.
 package web
 
 import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"obor/internal/app/wire"
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/view"
@@ -43,10 +53,22 @@ type Server struct {
 	Events   int                                                 // worded events in a view (0: 20)
 	Wait     time.Duration                                       // how long /api/events holds a poll (0: 20s)
 	Poll     time.Duration                                       // how often it asks the store (0: 300ms)
+	// Listen is the address it serves on: a POST's Host must name it ("": DefaultListen).
+	Listen string
+	// Call is a request to the serve of the project at root (default: wire.Verdict on its socket; no socket:
+	// errServeDown).
+	Call func(ctx context.Context, root, method string, c wire.Call) (string, error)
 }
 
+// errServeDown is a request the project's serve cannot take: it is not running (503).
+var errServeDown = errors.New("obor serve is not running")
+
+// callWait bounds a POST's request to serve: inside the socket's own 10 s per connection.
+const callWait = 12 * time.Second
+
 // Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/agent, /api/job and
-// /api/events, and the page for every other path ("/" plus the hash routes the page itself reads).
+// /api/events, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
+// routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/projects", s.projectsAPI)
@@ -56,20 +78,76 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent", s.agentAPI)
 	mux.HandleFunc("/api/job", s.jobAPI)
 	mux.HandleFunc("/api/events", s.eventsAPI)
+	mux.HandleFunc("/api/config", s.configAPI)
+	mux.HandleFunc("/api/pause", s.pauseAPI)
 	mux.HandleFunc("/", s.page)
-	return readOnly(mux)
+	return s.methods(mux)
 }
 
-// readOnly refuses every method but GET and HEAD: obor web has no verbs.
-func readOnly(h http.Handler) http.Handler {
+// writeRoutes are the routes that take a POST (and only a POST).
+var writeRoutes = map[string]bool{"/api/config": true, "/api/pause": true}
+
+// methods is the request check in front of every route: GET and HEAD everywhere but the write routes; POST only on
+// those, and only from the page itself (sameOrigin; 403); anything else 405.
+func (s *Server) methods(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		write := writeRoutes[r.URL.Path]
+		switch {
+		case write && r.Method == http.MethodPost:
+			if why := s.sameOrigin(r); why != "" {
+				fail(w, http.StatusForbidden, why)
+				return
+			}
+		case !write && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		case write:
+			w.Header().Set("Allow", "POST")
+			fail(w, http.StatusMethodNotAllowed, r.URL.Path+" takes a POST only")
+			return
+		default:
 			w.Header().Set("Allow", "GET, HEAD")
-			fail(w, http.StatusMethodNotAllowed, "obor web is read-only")
+			fail(w, http.StatusMethodNotAllowed, "obor web takes a POST on /api/config and /api/pause only")
 			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// sameOrigin is why a POST is not the page's own ("": it is): its Host is not the listen address (a DNS rebinding
+// name; localhost and 127.0.0.1 are one host), its Origin is not http://<Host>, or its body is not
+// application/json (a form post another page could send).
+func (s *Server) sameOrigin(r *http.Request) string {
+	if !s.listenHost(r.Host) {
+		return "Host " + strconv.Quote(r.Host) + " is not the address obor web listens on"
+	}
+	if o := r.Header.Get("Origin"); o != "http://"+r.Host {
+		return "Origin " + strconv.Quote(o) + " is not this page's (http://" + r.Host + ")"
+	}
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		return "Content-Type " + strconv.Quote(r.Header.Get("Content-Type")) + " is not application/json"
+	}
+	return ""
+}
+
+// listenHost: host (a request's Host, with its port) is the address obor web listens on, or that address with
+// localhost for a loopback IP and the other way round.
+func (s *Server) listenHost(host string) bool {
+	listen := s.Listen
+	if listen == "" {
+		listen = DefaultListen
+	}
+	if host == listen {
+		return true
+	}
+	lh, lp, err := net.SplitHostPort(listen)
+	h, p, err2 := net.SplitHostPort(host)
+	if err != nil || err2 != nil || p != lp {
+		return false
+	}
+	loop := func(x string) bool {
+		ip := net.ParseIP(x)
+		return x == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return loop(lh) && loop(h) && (h == "localhost" || lh == "localhost")
 }
 
 // ProjectsEntry is one row of /api/projects: the project's name and root, whether serve is up, its busy and free lanes,
@@ -206,6 +284,116 @@ func (s *Server) jobAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, prompt)
+}
+
+// configBody is POST /api/config's body: the key path (config.EditKeys) and its new value.
+type configBody struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+// pauseBody is POST /api/pause's body: a pause's reason and its duration (a Go duration, "": until cleared), or clear.
+type pauseBody struct {
+	Reason string `json:"reason"`
+	For    string `json:"for"`
+	Clear  bool   `json:"clear"`
+}
+
+// replyBody is a POST's answer: serve's reply line.
+type replyBody struct {
+	Reply string `json:"reply"`
+}
+
+// configAPI is POST /api/config?project=<name>: one setup change, a config_set request to the project's serve (it
+// validates, writes and commits; its refusal is a 400 with its reason).
+func (s *Server) configAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	var b configBody
+	if !readBody(w, r, &b) {
+		return
+	}
+	if b.Key == "" || len(b.Value) == 0 {
+		fail(w, http.StatusBadRequest, "a key and a value are required")
+		return
+	}
+	s.ask(w, r, p, wire.MethodConfig, wire.Call{Key: b.Key, Value: b.Value})
+}
+
+// pauseAPI is POST /api/pause?project=<name>: set the project's pause (a reason, an optional duration) or clear it,
+// the pause request obor pause sends.
+func (s *Server) pauseAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	var b pauseBody
+	if !readBody(w, r, &b) {
+		return
+	}
+	c := wire.Call{Clear: b.Clear}
+	if !b.Clear {
+		c.Note = strings.TrimSpace(b.Reason)
+		if c.Note == "" {
+			fail(w, http.StatusBadRequest, "a pause needs a reason")
+			return
+		}
+		if b.For != "" {
+			d, err := time.ParseDuration(b.For)
+			if err != nil || d <= 0 {
+				fail(w, http.StatusBadRequest, "for: "+strconv.Quote(b.For)+" is no duration (90m, 3h)")
+				return
+			}
+			c.Until = time.Now().Add(d).Unix()
+		}
+	}
+	s.ask(w, r, p, wire.MethodPause, c)
+}
+
+// readBody decodes the request's JSON body into v (at most 64 KiB, unknown fields refused): false when the 400 is
+// written.
+func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		fail(w, http.StatusBadRequest, "unreadable body: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// ask sends c (the owner's, from the web: no agent, no role) to p's serve and writes its reply: 200 with the reply,
+// 503 when serve is not running, 400 with serve's refusal.
+func (s *Server) ask(w http.ResponseWriter, r *http.Request, p project.Project, method string, c wire.Call) {
+	c.Root, c.CallID, c.Source = p.Root, wire.NewCallID(), "web"
+	ctx, cancel := context.WithTimeout(r.Context(), callWait)
+	defer cancel()
+	call := s.Call
+	if call == nil {
+		call = serveCall
+	}
+	reply, err := call(ctx, p.Root, method, c)
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, replyBody{Reply: reply})
+	case errors.Is(err, errServeDown) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, context.DeadlineExceeded):
+		fail(w, http.StatusServiceUnavailable, fmt.Sprintf("%s: %v", p.Name, err))
+	default:
+		fail(w, http.StatusBadRequest, err.Error())
+	}
+}
+
+// serveCall is Server.Call's default: wire.Verdict on the project's socket; no socket is errServeDown at once (no
+// retries for a serve that is not there).
+func serveCall(ctx context.Context, root, method string, c wire.Call) (string, error) {
+	sock := wire.SocketPath(root)
+	if _, err := os.Stat(sock); err != nil {
+		return "", fmt.Errorf("%w (no %s): obor start starts it", errServeDown, sock)
+	}
+	return wire.Verdict(ctx, sock, method, c)
 }
 
 // detail is the request's project's Detail and the value of param: ok false when the response is already written (an
