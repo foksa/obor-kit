@@ -36,6 +36,13 @@ const (
 	// self-restart does (T-652, T-656): Call.Root its project, Call.Note why. The reply is EXITING; the caller confirms
 	// serve down by its serve.flock and socket.
 	MethodExit = "exit"
+	// MethodDrive (the owner's or the lead's; obor drive, T-751): Call.Note the drive's name for a new drive (a new task
+	// on the first free untyped lane, Call.Types its one type reference), else Call.Task the task in progress taken
+	// over. The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive agent.
+	MethodDrive = "drive"
+	// MethodLand (the owner's, the lead's or the drive agent's; obor land): Call.Task the driving task, Call.Report the
+	// summary its submission carries. The reply is LANDED <task>: submitted.
+	MethodLand = "land"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from

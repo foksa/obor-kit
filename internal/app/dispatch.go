@@ -65,11 +65,13 @@ type (
 		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its type's args; T-695)
 		// Type is the type reference the dispatch chose, `<type>[:<effort>]` (T-721): the lane row's type. "": a record
 		// from before T-721 (a reader takes the config's lane type) or a waiting one.
-		Type   string   `json:"type,omitempty"`
-		After  []string `json:"after,omitempty"` // waiting: the tasks it waits for
-		Caller string   `json:"caller,omitempty"`
-		Call   string   `json:"call,omitempty"`
-		Reply  string   `json:"reply"`
+		Type  string   `json:"type,omitempty"`
+		After []string `json:"after,omitempty"` // waiting: the tasks it waits for
+		// Drive: the owner's drive (obor drive, T-751): no worker, no work job; after lane.prepare the task is driving.
+		Drive  bool   `json:"drive,omitempty"`
+		Caller string `json:"caller,omitempty"`
+		Call   string `json:"call,omitempty"`
+		Reply  string `json:"reply"`
 	}
 	prepareOut struct {
 		Base    string `json:"base,omitempty"`
@@ -469,13 +471,13 @@ func (a *App) capped(p *proj, cfg *config.Config, task string, types []string) m
 
 // dispatchesOf is how many of p's loop tasks other than task hold an open dispatch that runs lane type typ
 // (store.LaneTypeRef: its recorded type, else, a dispatch from before T-721, its lane's type in cfg; a lane cfg left
-// untyped gives none: such a dispatch counts toward no type).
+// untyped gives none: such a dispatch counts toward no type). An owner's drive counts toward none (T-751).
 func (a *App) dispatchesOf(p *proj, cfg *config.Config, task, typ string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	n := 0
 	for t, m := range p.folded.loop {
-		if t == task || states[m.state].ended {
+		if t == task || states[m.state].ended || m.drive {
 			continue
 		}
 		if rt, _ := config.ParseTypeRef(store.LaneTypeRef(m.disp.Type, configType(cfg, m.lane))); rt != "" && rt == typ {
@@ -596,9 +598,10 @@ func noLane(full map[string]string, types []string) string {
 	return why
 }
 
-// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), or a needs-you it left.
+// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive (T-751), or a needs-you it
+// left.
 func (m *mtask) dispatching() bool {
-	return m.state == stDispatched || m.state == stWorking && m.work != "" || m.redoable()
+	return m.state == stDispatched || m.state == stWorking && m.work != "" || m.state == stDriving || m.redoable()
 }
 
 // redoable: mt is a needs-you its dispatch left (a new dispatch of the task redoes it).
@@ -612,7 +615,7 @@ func (p *proj) foldDispatch(r event.Record) {
 	_ = json.Unmarshal(r.Data, &d)
 	at, _ := time.Parse(time.RFC3339, r.TS)
 	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at,
-		dispSeq: r.Seq}
+		dispSeq: r.Seq, drive: d.Drive}
 	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
 		next.sendbacks = mt.sendbacks
 	}

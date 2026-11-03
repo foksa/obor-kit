@@ -237,6 +237,17 @@ full check and the pause.
   dispatch; **launch** a fresh worker (`agent.start`: `Agents.Launch(Launch{Fresh: true})` with env, label and type args) whose
   first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4, T-157). An undelivered wake is retried after 5 minutes, then becomes needs-you.
+- **drive** (T-751, owner 2026-11-03): the owner iterates by hand on a task's branch in a plain interactive agent (role
+  `driver`: a lane's write limits and push denial, commits on its branch, no job pull, Stop-hook demand or wrong-tab
+  guard), then lands it through the same gate, integrator and merge. A drive is a task on a lane, so the dispatch's
+  machinery does the work. `obor drive <name>` is a new task (spec `Owner drive: <name>`) dispatched as a drive onto
+  the first free untyped lane (counted toward no type's max); `obor drive <T-xx>` takes over a task its worker works on
+  (serve stops the worker; lane, branch and spec stay). After lane.prepare the task is **driving**: serve sends it no
+  jobs, no watchdog watches it (no idle or stall needs-you), a merge watch has no line for it; the CLI starts the drive
+  agent in a pane split in the caller's tab. `obor land` (a clean worktree; it commits nothing) records the submission
+  on the owner's behalf, the summary as its report; from there it is an ordinary submitted task, and after the merge
+  agent.stop stops the drive agent. A red gate, the integrator's sendback or hold go back to driving with one line to
+  the lead, never to a worker; `obor drop` works on it unchanged.
 - **merge hold** (T-718, owner 2026-11-02: fewer worktrees): the reviewer and the deep dive run in the main checkout,
   like the advisor and the researcher, with no worktree of their own. So the code does not move under them, the merge
   loop's publish (the step that moves the integration branch) waits while either one works: its agent has a brief open

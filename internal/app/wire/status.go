@@ -107,6 +107,10 @@ type WatchStatus struct {
 	Since int64  `json:"since"`
 }
 
+// TaskDriving is a TaskStatus' State while the owner's drive agent works on the task (obor drive, T-751): serve sends
+// it no jobs and no watchdog needs-you until obor land submits it.
+const TaskDriving = "driving"
+
 // TaskStatus is one task of the merge loop that is not merged.
 type TaskStatus struct {
 	Task    string   `json:"task"`

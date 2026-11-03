@@ -103,6 +103,10 @@ func main() {
 		exit(dispatchCmd(args))
 	case "drop":
 		exit(dropCmd(args))
+	case "drive":
+		exit(driveCmd(args))
+	case "land":
+		exit(landCmd(args))
 	case "answer":
 		exit(answerCmd(args))
 	case "sendback":
@@ -215,6 +219,8 @@ var commands = map[string][]string{
 	"brief":           nil,
 	"dispatch":        nil,
 	"drop":            nil,
+	"drive":           nil,
+	"land":            nil,
 	"answer":          nil,
 	"sendback":        nil,
 	"resume":          nil,

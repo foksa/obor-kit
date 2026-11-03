@@ -118,6 +118,9 @@ func init() {
 		// row 40: the owner decides; the state it left is kept (mtask.kept). The lead may send it back too, whatever its
 		// cause (T-619)
 		stNeedsYou: {send: sendYes, landed: true},
+		// T-751: the owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
+		// red gate, a sendback or a hold sent it back; no jobs, no watchdog, no sendback by the lead (no worker)
+		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }},
 	}
 }
 
@@ -132,9 +135,10 @@ func gateName(mt mtask) string {
 // jobName names an open job's step: the job itself.
 func jobName(mt mtask) string { return mt.job }
 
-// foldSendback folds the integrator's sendback: the next attempt, or the owner past K (row 22).
+// foldSendback folds the integrator's sendback: the next attempt, or the owner past K (row 22). A drive goes back to
+// driving whatever its count (T-751): its owner fixes it.
 func foldSendback(mt *mtask, v verdictResult) {
-	if mt.sendbacks < K {
+	if mt.sendbacks < K || mt.drive {
 		mt.sendback(v.Note)
 		return
 	}

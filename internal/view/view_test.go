@@ -41,6 +41,8 @@ func TestColumn(t *testing.T) {
 		{"held by a watchdog fact", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "working"},
 			nil, nil, []NeedsYou{{Task: "T-9", Lane: "O-01", Reason: "stalled"}}, "held"},
 		{"done", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "published"}, nil, nil, nil, "done"},
+		// T-751: the owner's drive works in the lane
+		{"driving", Lane{Lane: "O-01", State: "working", Task: str("T-1"), TaskState: "driving"}, nil, nil, nil, "driving"},
 		// T-718: an accepted task whose publish waits for the reviewer or the deep dive
 		{"merge held", Lane{Lane: "O-01", State: "done", Task: str("T-1"), TaskState: "accepted",
 			Hold: "merge held: reviewer working"}, nil, nil, nil, "merge held: reviewer working"},

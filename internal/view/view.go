@@ -365,6 +365,9 @@ func column(l Lane, v *Project) string {
 	if l.TaskState == "awaiting-accept" || l.TaskState == "resolving" { // an integrator job is out
 		return "reviewing"
 	}
+	if l.TaskState == wire.TaskDriving { // the owner's drive agent works in the lane (T-751)
+		return wire.TaskDriving
+	}
 	return l.State
 }
 

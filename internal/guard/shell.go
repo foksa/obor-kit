@@ -1355,7 +1355,7 @@ func (g *guard) isMain(dir, gitDir, workTree string) bool {
 
 // checkPush: a push is allowed only for a non-worker whose agent name (obor_self_agent) is in guards.allow_push.
 func (g *guard) checkPush(what string) {
-	if g.role != "worker" && len(g.allowPush) > 0 {
+	if !roles.LaneBound(g.role) && len(g.allowPush) > 0 { // never a worker's or a driver's (T-751)
 		if me := project.SelfAgent(g.cfg, g.detected, g.env); me != "" {
 			for _, a := range g.allowPush {
 				if a == me {

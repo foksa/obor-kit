@@ -6,7 +6,7 @@ import (
 )
 
 func TestRoleTableDefaultsAndProfiles(t *testing.T) {
-	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "triage", "advisor", "researcher"}
+	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "triage", "advisor", "researcher", "driver"}
 	all := All()
 	if len(all) != len(want) {
 		t.Fatalf("role count = %d, want %d", len(all), len(want))
@@ -43,6 +43,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		{"triage", "", "pj-triage", CwdProject, WriteNone, false, false},
 		{"advisor", "advisor", "pj-advisor", CwdProject, WriteNone, false, false},
 		{"researcher", "researcher", "pj-researcher", CwdProject, WriteResearchOnly, false, false},
+		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false},
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
@@ -53,7 +54,8 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}
 }
 
-// Optional roles count only when configured: triage, deep_dive, advisor and researcher.
+// Optional roles count only when configured: triage, deep_dive, advisor and researcher; the driver is never
+// configured (obor drive starts it, T-751).
 func TestOptionalRoles(t *testing.T) {
 	var optional []string
 	for _, role := range All() {
@@ -61,7 +63,7 @@ func TestOptionalRoles(t *testing.T) {
 			optional = append(optional, role.Name)
 		}
 	}
-	if want := []string{"deep_dive", "triage", "advisor", "researcher"}; !reflect.DeepEqual(optional, want) {
+	if want := []string{"deep_dive", "triage", "advisor", "researcher", "driver"}; !reflect.DeepEqual(optional, want) {
 		t.Errorf("optional roles = %q, want %q", optional, want)
 	}
 }
@@ -95,5 +97,17 @@ func TestLaneAgentAliases(t *testing.T) {
 				t.Errorf("LaneAgentAliases = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+// T-751: the drive agent has a name of its own beside the lane's worker, and it is lane-bound like the worker.
+func TestDriverNameAndLaneBound(t *testing.T) {
+	if got := DriveAgent("pj-o-01"); got != "pj-o-01-drive" {
+		t.Errorf("DriveAgent = %q, want pj-o-01-drive", got)
+	}
+	for role, want := range map[string]bool{"worker": true, Driver: true, "lead": false, "integrator": false, "": false} {
+		if got := LaneBound(role); got != want {
+			t.Errorf("LaneBound(%q) = %v, want %v", role, got, want)
+		}
 	}
 }

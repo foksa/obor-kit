@@ -30,6 +30,7 @@ type Message struct {
 	Watch  int64  `json:"watch,omitempty"`  // the seq of the watch fact this line ends (mergewatch.go)
 	Review int64  `json:"review,omitempty"` // the seq of the review request this line ends (review.go)
 	Stop   int64  `json:"stop,omitempty"`   // the seq of the role agent's stop this alarm line is for (stopwake.go)
+	Drive  int    `json:"drive,omitempty"`  // the attempt of the drive Task whose come-back this line tells the lead (T-751)
 	Call   string `json:"call,omitempty"`
 	Reply  string `json:"reply,omitempty"`
 	// Supersedes: briefed's, the seqs of the agent's undelivered brief lines this brief ends (T-580)

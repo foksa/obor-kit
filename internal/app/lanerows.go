@@ -51,10 +51,17 @@ func (p *proj) foldLanes(r event.Record) {
 			}
 		}
 		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
+	case r.Kind == event.KindFact && r.Step == event.StepDrive: // a take-over (T-751): the drive agent is the lane's now
+		var d dispatchData
+		_ = json.Unmarshal(r.Data, &d)
+		if row, ok := p.folded.lr.rows[d.Lane]; ok && row.Task == r.Task {
+			row.Agent = d.Agent
+			p.folded.lr.rows[d.Lane] = row
+		}
 	case r.Kind == event.KindResult:
 		step, _ := event.StepN(r.Step)
 		mt := p.folded.loop[r.Task]
-		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || mt.state != stDispatched {
+		if step != event.StepPrepare || mt == nil || mt.attempt != r.Attempt || mt.state != stDispatched && mt.state != stDriving {
 			return
 		}
 		var d prepareOut
@@ -77,7 +84,7 @@ func (p *proj) foldLanes(r event.Record) {
 func (p *proj) laneTable() []store.LaneRow {
 	out := make([]store.LaneRow, 0, len(p.folded.lr.rows))
 	for _, row := range p.folded.lr.rows {
-		if mt := p.folded.loop[row.Task]; mt != nil && !mt.awaitsTaskDone() {
+		if mt := p.folded.loop[row.Task]; mt != nil && !mt.awaitsTaskDone() && mt.state != stDriving { // a drive works on (T-751)
 			row.Finished = p.folded.lr.submitted[row.Task]
 			if row.Finished == 0 {
 				row.Finished = max(row.DispatchedAt, 1)

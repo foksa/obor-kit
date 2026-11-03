@@ -21,6 +21,10 @@ func (p *proj) foldLoop(r event.Record) {
 		p.foldWaiting(r)
 		return
 	}
+	if r.Kind == event.KindFact && r.Step == event.StepDrive {
+		p.foldDrive(r)
+		return
+	}
 	// A dropped fact is terminal for the task whatever attempt it names (RV-42-verify-2 #1: a submission decided
 	// before the drop may record the next attempt first): live fold and replay end the task, and every later record of
 	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it.
@@ -39,8 +43,8 @@ func (p *proj) foldLoop(r event.Record) {
 			return // ended: a submission decided before the drop
 		}
 		if mt != nil {
-			// The worker's spec rev outlives its attempt.
-			next.sendbacks, next.specRev = mt.sendbacks, mt.specRev
+			// The worker's spec rev outlives its attempt; a drive stays one (T-751).
+			next.sendbacks, next.specRev, next.drive = mt.sendbacks, mt.specRev, mt.drive
 			next.dispSeq = mt.dispSeq // the lane's current task is its newest dispatch's (T-615)
 		}
 		p.folded.loop[r.Task] = next
@@ -168,6 +172,8 @@ func (p *proj) foldLoop(r event.Record) {
 			mt.prepares, mt.base = n, d.Base
 			if d.Refused != "" {
 				mt.refused, mt.cause = "lane: "+d.Refused, causeLane
+			} else if mt.drive && mt.state == stDispatched && d.Base != "" {
+				mt.state = stDriving // a new drive: the lane is the owner's now (T-751)
 			}
 		case event.StepStartWork:
 			var d startOut
@@ -218,6 +224,9 @@ func (mt *mtask) sendback(note string) {
 func (mt *mtask) next(note string, answer bool) {
 	mt.attempt++
 	mt.state = stWorking
+	if mt.drive { // a drive goes back to its owner, never to a worker (T-751)
+		mt.state = stDriving
+	}
 	mt.attemptVars = attemptVars{line: note, answer: answer}
 }
 

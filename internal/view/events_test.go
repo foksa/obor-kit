@@ -34,6 +34,11 @@ func TestEventLineBad(t *testing.T) {
 			`{"reason":"asks: may I?"}`, "", false},
 		{"a merge", event.KindFact, event.StepMerged,
 			`{"head":"abcdef0123"}`, "merged T-1 abcdef0", false},
+		// T-751: the owner's drive, new and taken over
+		{"a drive", event.KindFact, event.StepDispatched, `{"lane":"O-01","drive":true}`, "drive T-1 (O-01)", false},
+		{"a dispatch", event.KindFact, event.StepDispatched, `{"lane":"O-01"}`, "dispatched T-1 (O-01)", false},
+		{"a take-over", event.KindFact, event.StepDrive, `{"lane":"O-01","drive":true}`,
+			"drive T-1 (O-01): taken over by the owner", false},
 	} {
 		line, bad := eventLine(event.Record{Task: "T-1", Kind: c.kind, Step: c.step, Data: json.RawMessage(c.data)})
 		if line != c.wantLine || bad != c.wantBad {

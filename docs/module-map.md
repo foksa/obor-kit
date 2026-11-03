@@ -65,7 +65,7 @@ Adding a kind = one package + a config entry.
   unpin, fix), `jobstart.go` (job start, texts), `settle.go`; `registry.go` (agent identity: `reconcile` derives the
   project's agent ↔ terminal table from proofs; `whereIs`/`whoIs` the only lookups, never herdr's name; T-504);
   `lanerows.go` (the `lanes` table projection), `specs.go`, `prompts.go` (the `prompts` table's writes and prune,
-  T-665, T-670), `dispatch.go`, `messages.go`, `mergewatch.go`,
+  T-665, T-670), `dispatch.go`, `drive.go` (the owner's drive and land: `obor drive`, `obor land`, the driving state, T-751), `messages.go`, `mergewatch.go`,
   `stopped.go`, `stopwake.go`, `rolestop.go` (serve stops the integrator and the reviewer once done, T-672), `nightly.go`,
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `answer.go`, `verdict.go`, `jobs.go`, `prompt.go`,
@@ -144,7 +144,7 @@ socket: scripted panes and plugins, and every request a test's client sent).
 **entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`: the loop and the alternate-screen drawing; `monitor_render.go`: the look; T-658, T-668) rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters live here. The lead's chat commands are the same CLI (`status`, `dispatch`,
-`answer`, `resume`, `sendback`, `drop`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
+`answer`, `resume`, `sendback`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,
 `setup`, `config` and the rest (`run`, `nightly`, `milestone-check`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`, T-667): `obor web`'s read-only HTTP server over the read model — the API (`/api/projects`,

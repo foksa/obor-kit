@@ -98,12 +98,13 @@ type eventData struct {
 	After   []string `json:"after"`
 	ID      string   `json:"id"`
 	To      string   `json:"to"`
+	Drive   bool     `json:"drive"` // a dispatch of the owner's drive (T-751)
 }
 
 // eventLine is r as the event list words it and whether that line is bad news ("" for a record the view does not list):
-// dispatched, submitted, a gate's pass or fail with its summary, accepted, a sendback, a hold, a merge with its sha, a
-// review's request and start, or a line posted to an agent. A gate that is not green and a hold are the bad ones; a
-// green gate is not, however its summary counts its checks (T-688).
+// dispatched (or an owner's drive, new or taken over, T-751), submitted, a gate's pass or fail with its summary,
+// accepted, a sendback, a hold, a merge with its sha, a review's request and start, or a line posted to an agent. A gate
+// that is not green and a hold are the bad ones; a green gate is not, however its summary counts its checks (T-688).
 func eventLine(r event.Record) (string, bool) {
 	var d eventData
 	if len(r.Data) > 0 {
@@ -128,7 +129,12 @@ func eventLine(r event.Record) (string, bool) {
 	}
 	switch r.Step {
 	case event.StepDispatched:
+		if d.Drive {
+			return "drive " + r.Task + laneIn(d.Lane), false
+		}
 		return "dispatched " + r.Task + laneIn(d.Lane), false
+	case event.StepDrive:
+		return "drive " + r.Task + laneIn(d.Lane) + ": taken over by the owner", false
 	case event.StepSubmitted:
 		return "submitted " + r.Task, false
 	case event.StepSendback:

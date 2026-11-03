@@ -351,6 +351,14 @@ func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"worker", "O-01", "env+cwd"}) {
 		t.Errorf("table env role + worker cwd: %+v", got)
 	}
+	// T-751: the owner's drive agent in a lane is the driver, not its worker; out of a lane it is no lane's.
+	t.Setenv("OBOR_ROLE", "driver")
+	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"driver", "O-01", "env+cwd"}) {
+		t.Errorf("driver in its lane: %+v", got)
+	}
+	if got := role(t, root); got != (Role{"driver", "", "env"}) {
+		t.Errorf("driver env in the main checkout: %+v", got)
+	}
 }
 
 func TestConfiguredLaneWinsReservedRoleWorktree(t *testing.T) {
