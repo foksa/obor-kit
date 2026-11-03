@@ -45,12 +45,13 @@ type Server struct {
 	Poll     time.Duration                                       // how often it asks the store (0: 300ms)
 }
 
-// Handler is the page and the API: /api/projects, /api/view, /api/task, /api/agent, /api/job and /api/events, and the
-// page for every other path ("/" plus the hash routes the page itself reads).
+// Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/agent, /api/job and
+// /api/events, and the page for every other path ("/" plus the hash routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/projects", s.projectsAPI)
 	mux.HandleFunc("/api/view", s.viewAPI)
+	mux.HandleFunc("/api/setup", s.setupAPI)
 	mux.HandleFunc("/api/task", s.taskAPI)
 	mux.HandleFunc("/api/agent", s.agentAPI)
 	mux.HandleFunc("/api/job", s.jobAPI)
@@ -135,6 +136,28 @@ func (s *Server) viewAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// setupAPI is /api/setup?project=<name>: the project's setup read model (T-750), built from the view it already asks
+// serve for and the project's config and store.
+func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.project(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	defer cancel()
+	v, err := s.build(ctx, p.Root)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	setup, err := view.Detail{Root: p.Root, Project: v}.Setup()
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, setup)
 }
 
 // taskAPI is /api/task?project=<name>&task=<id>: the task's page.

@@ -207,6 +207,36 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 	}
 }
 
+// TestSetupAPI (T-750): /api/setup answers with the project's setup read model — the three difficulty levels, the
+// configured lane with its type and state, the roles the config names — and counts the fixture's bare dispatch (a
+// record from before T-721) under the lane's configured type.
+func TestSetupAPI(t *testing.T) {
+	_, _, s := fixture(t)
+	r := get(t, s.Handler(), "/api/setup?project=pj")
+	if r.Code != http.StatusOK {
+		t.Fatalf("setup: %d %s", r.Code, r.Body.String())
+	}
+	var setup view.Setup
+	decode(t, r, &setup)
+	if len(setup.Difficulty) != 3 || setup.Difficulty[0].Level != "hard" || setup.Difficulty[2].Level != "simple" {
+		t.Fatalf("difficulty %+v, want hard, medium and simple", setup.Difficulty)
+	}
+	if len(setup.Lanes) != 1 || setup.Lanes[0].Lane != "O-01" || setup.Lanes[0].Type != "opus" ||
+		setup.Lanes[0].Agent != "pj-o-01" || setup.Lanes[0].State != "done" {
+		t.Errorf("lanes %+v, want O-01 on opus, done, pj-o-01", setup.Lanes)
+	}
+	roles := map[string]view.SetupRole{}
+	for _, role := range setup.Roles {
+		roles[role.Role] = role
+	}
+	if _, ok := roles["lead"]; !ok || roles["reviewer"].Agent != "pj-rev" || roles["integrator"].Agent != "pj-int" {
+		t.Errorf("roles %+v, want the lead's, the integrator's and the reviewer's rows", setup.Roles)
+	}
+	if want := []view.DispatchCount{{Level: "", Type: "opus", Recent: 2, All: 2}}; !slices.Equal(setup.Distribution, want) {
+		t.Errorf("distribution %+v, want the fixture's two dispatches under opus", setup.Distribution)
+	}
+}
+
 // TestTaskPage: a task's page carries serve's state, its spec rev and title, the report of its last submission, the
 // gate's line and log path, its needs-you with the answer commands, its records as a timeline and its jobs' text.
 func TestTaskPage(t *testing.T) {
@@ -423,6 +453,8 @@ func TestUnknownProjectAndTaskAre404(t *testing.T) {
 	}{
 		{"/api/view?project=nope", http.StatusNotFound},
 		{"/api/view", http.StatusBadRequest},
+		{"/api/setup?project=nope", http.StatusNotFound},
+		{"/api/setup", http.StatusBadRequest},
 		{"/api/task?project=pj&task=T-999", http.StatusNotFound},
 		{"/api/task?project=nope&task=T-01", http.StatusNotFound},
 		{"/api/task?project=pj", http.StatusBadRequest},
@@ -521,7 +553,8 @@ func TestPageIsOneEmbeddedFile(t *testing.T) {
 	if !strings.HasPrefix(page, "<!doctype html>") {
 		t.Fatalf("pageHTML does not begin with a doctype: %.40q", page)
 	}
-	for _, route := range []string{"/api/projects", "/api/view", "/api/events", "/api/task", "/api/agent", "/api/job"} {
+	for _, route := range []string{"/api/projects", "/api/view", "/api/setup", "/api/events", "/api/task", "/api/agent",
+		"/api/job"} {
 		if !strings.Contains(page, route) {
 			t.Errorf("the page never calls %s", route)
 		}

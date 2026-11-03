@@ -350,6 +350,44 @@ const scenarios = {
     check(page.includes("T-1"), "precondition: the lane's row is drawn: " + page);
     check(page.includes(" · sonnet · effort high"), "the lane's row shows its dispatch's type and effort: " + page);
   },
+
+  // T-750: the setup route draws the four cards — difficulty, the lanes with the pool, the roles and the pause, and
+  // the distribution table with its 7 days / all switch — and the project page links it.
+  async setupRoute() {
+    server.routes["/api/view"] = () => viewWith({});
+    server.routes["/api/setup"] = () => ({
+      difficulty: [{ level: "hard", types: ["opus:high"] }, { level: "medium", types: ["sonnet"] },
+        { level: "simple", types: ["haiku"] }],
+      lanes: [{ lane: "O-01", type: "opus", agent: "pj-o-01", state: "working" },
+        { lane: "L-01", type: "", agent: "pj-l-01", state: "free" }],
+      roles: [{ role: "lead", agent: "pj-lead", type: "opus:high", status: "working" },
+        { role: "reviewer", agent: "pj-rev", type: "", status: "" }],
+      paused: { reason: "lunch", by: "owner" },
+      distribution: [{ level: "hard", type: "opus:high", recent: 2, all: 5 },
+        { level: "override", type: "sonnet", recent: 0, all: 3 }],
+    });
+    await navigate("#/s/proj");
+    await tick(100);
+    const page = html();
+    check(server.requests.some((p) => p.startsWith("/api/setup?project=proj")),
+      `the setup page asks /api/setup: ${server.requests}`);
+    check(page.includes("2 lanes") && page.includes("1 pooled") && page.includes("1 typed"),
+      "the lanes card counts the pool and the typed lanes: " + page);
+    check(page.includes("opus:high") && page.includes("haiku"), "the difficulty card lists each level's types");
+    check(page.includes("pooled"), "a lane with no configured type says pooled");
+    check(page.includes("lunch") && page.includes("owner"), "the pause is on the roles card");
+    check(page.includes("override") && page.includes("sonnet") && page.includes(">2<"),
+      "the distribution's level rows × type columns, 7 days by default: " + page);
+    check(/data-dist="recent" class="on"/.test(page), "the 7 days switch starts on: " + page);
+    distAll = true; // the switch's click handler does this, then redraws the page: all records
+    await current.draw(true);
+    await tick(10);
+    check(/data-dist="all" class="on"/.test(html()) && html().includes(">5<") && !html().includes(">2<"),
+      "all shows the all counts: " + html());
+    await navigate("#/p/proj");
+    await tick(100);
+    check(html().includes('href="#/s/proj"'), "the project page links the setup page: " + html());
+  },
 };
 
 (async () => {
