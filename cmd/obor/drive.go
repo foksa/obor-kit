@@ -33,7 +33,9 @@ var driveWait = 60 * time.Second
 // take-over of a task its worker works on) and answers DRIVE <task> → <lane> (<agent>, <type>); this command then waits
 // for the new drive's lane to be prepared (serve stopped a taken-over task's worker, as obor restart --stop does) and
 // starts the drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line
-// saying what it is. Its lines, then OK or FAIL (exit 1).
+// saying what it is. On a drive already (by task id or name; T-755) serve records nothing: its agent not running, this
+// command starts it again on its recorded lane and type (a failed start's retry); running, serve's DRIVING reply and OK,
+// nothing started. Its lines, then OK or FAIL (exit 1).
 func driveCmd(args []string) int {
 	var name, ref string
 	for i := 0; i < len(args); i++ {
@@ -78,13 +80,17 @@ func driveCmd(args []string) int {
 		return 1
 	}
 	fmt.Fprintln(out, reply)
+	if strings.HasPrefix(reply, drivingPrefix) { // its drive agent runs already: nothing to start
+		fmt.Fprintln(out, "OK "+strings.TrimPrefix(reply, drivingPrefix))
+		return 0
+	}
 	d, ok := parseDrive(reply)
 	if !ok {
 		fmt.Fprintf(out, "FAIL cannot read serve's reply %q\n", reply)
 		return 1
 	}
 	if err := startDrive(ctx, cfg, d, project.OSEnv); err != nil {
-		fmt.Fprintf(out, "FAIL %v (the drive is recorded: obor drive %s again starts the agent once it is fixed, obor drop %s ends it)\n",
+		fmt.Fprintf(out, "FAIL %v (the drive is recorded: retry with obor drive %s, which starts its agent again; obor drop %s ends it)\n",
 			err, d.task, d.lane)
 		return 1
 	}
@@ -92,6 +98,9 @@ func driveCmd(args []string) int {
 		branchOf(cfg, d.task), d.task)
 	return 0
 }
+
+// drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …).
+const drivingPrefix = "DRIVING "
 
 // drive is serve's DRIVE reply: the task, its lane, the drive agent and its type reference.
 type drive struct{ task, lane, agent, ref string }

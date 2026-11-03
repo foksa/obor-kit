@@ -343,6 +343,7 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	case blocked:
 		return a.ask(p, c.Task, l, asks)
 	}
+	a.hook(hookTaskDoneCheck)
 	attempt := mt.attempt
 	if mt.state == stNeedsYou {
 		attempt++

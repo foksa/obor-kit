@@ -35,33 +35,63 @@ import (
 const driveTitle = "Owner drive: "
 
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
-// the stored reply. Call.Task: a take-over of that task (takeOver), its worker then stopped as obor restart --stop
-// does; else a new drive named Call.Note (newDrive). The reply is DRIVE <task> → <lane> (<drive agent>, <type ref>), a
-// take-over's followed by " taking over from <worker>; <the stop's line>": the CLI starts the drive agent.
+// the stored reply. Call.Task: a take-over of that task (takeOver); else a new drive named Call.Note (newDrive). A task
+// already driving (or the open drive of that name) whose drive agent is not running is started again (driveAgain:
+// nothing recorded). The reply is DRIVE <task> → <lane> (<drive agent>, <type ref>), a take-over's followed by
+// " taking over from <worker>; <the stop's line>": the CLI starts the drive agent; DRIVING …: it runs already.
+//
+// A take-over stops the worker first (as obor restart --stop does, with force: it may be working), outside the locks,
+// and records fact drive only then (RV-92 #4): a stop that fails refuses the take-over and records nothing, the task
+// stays its worker's and a retry is a new obor drive <T-xx>. Interrupted between the two: the task is working with no
+// agent, the watchdog's stall path applies and a retry takes over. The record rechecks the task under a.submitMu,
+// task_done's and land's lock (RV-92 #3): a task submitted meanwhile is refused, a task driving refuses task_done.
 func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
-	reply, worker, fx, err := a.driveRecord(ctx, c)
+	reply, worker, fx, err := a.driveRecord(ctx, c, "")
 	if err != nil || worker == "" {
 		return reply, err
 	}
-	// A take-over: the worker stopped as obor restart --stop does (with force: it may be working), outside a.verdicts;
-	// the task is driving already, so no watchdog takes its exit for news.
 	line, err := fx.Agents.Stop(ctx, worker, "", true)
 	switch {
 	case err != nil && port.NotFound(err):
-		return reply + "; " + worker + " not running", nil
+		line = worker + " not running"
 	case err != nil:
-		return reply + "; " + worker + " not stopped: " + err.Error(), nil
+		return "", fmt.Errorf("drive %s: %s not stopped: %v (nothing recorded: %s stays %s's; obor drive %s retries)",
+			c.Task, worker, err, c.Task, worker, c.Task)
 	case line == "":
 		line = "stopped " + worker
+	}
+	a.hook(hookDriveStopped)
+	if reply, _, _, err = a.driveRecord(ctx, c, worker); err != nil {
+		return "", err
 	}
 	return reply + "; " + line, nil
 }
 
+// The points a test hooks (App.hook) to interleave a take-over and a task_done deterministically.
+const (
+	hookDriveStopped  = "drive.stopped"   // a take-over stopped the worker, before its record's locks
+	hookDriveLocked   = "drive.locked"    // a take-over holds a.submitMu, before its recheck
+	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
+)
+
+// hook runs the test's hook at point (none outside the tests).
+func (a *App) hook(point string) {
+	if f := a.hooked.Load(); f != nil {
+		(*f)(point)
+	}
+}
+
 // driveRecord is driveCall's decision and record under a.verdicts: the reply, and for a take-over the worker to stop
-// (with the loop's adapters).
-func (a *App) driveRecord(ctx context.Context, c wire.Call) (reply, worker string, fx *Loop, err error) {
+// (with the loop's adapters). stopped "": the decision (a take-over only checked, its worker returned to stop); else
+// the take-over's record after stopped's stop, under a.submitMu too (lock order a.verdicts, then a.submitMu).
+func (a *App) driveRecord(ctx context.Context, c wire.Call, stopped string) (reply, worker string, fx *Loop, err error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
+	if stopped != "" {
+		a.submitMu.Lock()
+		defer a.submitMu.Unlock()
+		a.hook(hookDriveLocked)
+	}
 	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Note) == "" {
 		return "", "", nil, errors.New("drive: a call id and a name or a task are required")
 	}
@@ -95,7 +125,7 @@ func (a *App) driveRecord(ctx context.Context, c wire.Call) (reply, worker strin
 		return "", "", nil, fmt.Errorf("drive off for %s (no lane adapter)", p.name)
 	}
 	if c.Task != "" {
-		reply, worker, err = a.takeOver(p, c)
+		reply, worker, err = a.takeOver(p, c, stopped)
 		return reply, worker, fx, err
 	}
 	reply, err = a.newDrive(ctx, p, fx, c)
@@ -109,8 +139,8 @@ func driveReply(task, lane, agent, ref string) string {
 
 // newDrive records a new drive named c.Note (under a.verdicts): the next task id, its spec "Owner drive: <name>", fact
 // dispatch{drive} on the first free untyped lane in config order (not held for another task's dispatch), its type
-// c.Types[0] (a type reference) or the hard level's first type. Refused (nothing recorded): another open drive has the
-// name, the type is unknown or its effort not taken, no free untyped lane (the lanes' states named; never a wait),
+// c.Types[0] (a type reference) or the hard level's first type. An open drive of that name is started again
+// (driveAgain: its recorded lane and type, c.Types ignored). Refused (nothing recorded): the type is unknown or its effort not taken, no free untyped lane (the lanes' states named; never a wait),
 // the task branch has commits the target lacks. A drive counts toward no lane_types max.
 func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
 	name := strings.Join(strings.Fields(c.Note), " ")
@@ -119,7 +149,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 		return "", err
 	}
 	if t := a.driveNamed(p, name); t != "" {
-		return "", fmt.Errorf("drive %s: %s drives it already (obor land or obor drop it first)", name, t)
+		return a.driveAgain(p, cfg, t)
 	}
 	ref := ""
 	if len(c.Types) > 0 {
@@ -186,11 +216,13 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	return d.Reply, nil
 }
 
-// takeOver records the owner's take-over of c.Task (under a.verdicts): fact drive{lane, agent: the drive agent} on a
+// takeOver decides the owner's take-over of c.Task (under a.verdicts): fact drive{lane, agent: the drive agent} on a
 // task its worker works on (working, or dispatched with its lane prepared, or a needs-you either left), its lane,
-// branch, spec and type kept. Refused: not open, driving already, or gating, merging, under review or any other
-// state of the merge loop; a step of it running.
-func (a *App) takeOver(p *proj, c wire.Call) (reply, worker string, err error) {
+// branch, spec and type kept. stopped "": only checked, the worker to stop returned; else recorded (under a.submitMu
+// too), the task checked again and its worker still stopped. A drive already (driving, or a new drive's dispatch) is
+// started again (driveAgain). Refused: not open, gating, merging, under review or any other state of the merge loop
+// (submitted meanwhile included); a step of it running; another worker than the one stopped.
+func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker string, err error) {
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
 		return "", "", err
@@ -210,8 +242,9 @@ func (a *App) takeOver(p *proj, c wire.Call) (reply, worker string, err error) {
 	switch {
 	case mt.task == "":
 		return "", "", fmt.Errorf("drive %s: %s is not open in obor serve", c.Task, c.Task)
-	case mt.state == stDriving:
-		return "", "", fmt.Errorf("drive %s: %s is driving already", c.Task, c.Task)
+	case mt.drive && (st == stDriving || st == stDispatched):
+		reply, err = a.driveAgain(p, cfg, c.Task)
+		return reply, "", err
 	case st != stWorking && !(st == stDispatched && mt.base != ""):
 		return "", "", fmt.Errorf("drive %s: %s is %s: obor drive takes over a task its worker works on, not one gating, "+
 			"merging or under review", c.Task, c.Task, mt.state)
@@ -221,6 +254,12 @@ func (a *App) takeOver(p *proj, c wire.Call) (reply, worker string, err error) {
 	worker = mt.agent
 	if worker == "" {
 		worker = cfg.AgentName("worker", mt.lane)
+	}
+	if stopped == "" {
+		return "", worker, nil
+	}
+	if worker != stopped {
+		return "", "", fmt.Errorf("drive %s: %s's worker is %s now, not %s as stopped: retry", c.Task, c.Task, worker, stopped)
 	}
 	agent := roles.DriveAgent(worker)
 	ref := store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane))
@@ -232,6 +271,28 @@ func (a *App) takeOver(p *proj, c wire.Call) (reply, worker string, err error) {
 	}
 	a.wake()
 	return d.Reply, worker, nil
+}
+
+// driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under a.verdicts):
+// nothing recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing);
+// else DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
+// (RV-92 #2: a start that failed is retried by the same command).
+func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, error) {
+	a.mu.Lock()
+	var mt mtask
+	if m := p.folded.loop[task]; m != nil {
+		mt = *m
+	}
+	w := a.whereIs(p, mt.agent)
+	a.mu.Unlock()
+	if st := mt.kept(); !mt.drive || st != stDriving && st != stDispatched {
+		return "", fmt.Errorf("drive %s: %s is %s, not driving", task, task, Dash(mt.state))
+	}
+	if w.State == Identified {
+		return fmt.Sprintf("DRIVING %s → %s: %s runs already (pane %s)", task, mt.lane, mt.agent, w.Pane.ID), nil
+	}
+	ref := store.LaneTypeRef(mt.disp.Type, configType(cfg, mt.lane))
+	return driveReply(task, mt.lane, mt.agent, ref) + " again: its agent is not running", nil
 }
 
 // foldDrive folds fact drive (a take-over): the task is driving, the drive agent's, its needs-you ended; its lane,
@@ -246,6 +307,9 @@ func (p *proj) foldDrive(r event.Record) {
 	mt.drive, mt.agent, mt.state, mt.needs, mt.left = true, d.Agent, stDriving, event.Record{}, ""
 	mt.attemptVars = attemptVars{}
 	mt.disp.Drive = true
+	if d.Type != "" {
+		mt.disp.Type = d.Type // a retry's start (driveAgain) takes the recorded type
+	}
 }
 
 // pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back
