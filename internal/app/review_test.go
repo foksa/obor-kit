@@ -68,7 +68,7 @@ type reviewRig struct {
 func newReviewRig(t *testing.T) *reviewRig {
 	t.Helper()
 	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":{},"reviewer":{}},"paths":{"reviews":"reviews"}}`
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","reviewer":""},"paths":{"reviews":"reviews"}}`
 	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func (r *reviewRig) mustCall(id string, after []string, note string, rm bool) st
 
 // submitted opens task (attempt 1 on a lane); merged and dropped end it.
 func (r *reviewRig) submitted(task string) {
-	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, submitData{Lane: "O-01"})
+	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepSubmitted, Kind: event.KindFact}, submitData{Lane: "L-01"})
 }
 func (r *reviewRig) merged(task string) {
 	r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepMerged, Kind: event.KindFact}, event.MergedData{Head: "cccccccdddd"})

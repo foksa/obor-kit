@@ -21,7 +21,7 @@ func (r *concRig) dropCall(name, task, id string) (string, error) {
 func TestDropNeedsYouTask(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
-	r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
+	r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
 	r.run()
 	defer r.stop()
 	r.waitFor("T-3 needs-you", func() bool { return r.state("pq", "T-3") == stNeedsYou })
@@ -144,16 +144,16 @@ func TestDropByLane(t *testing.T) {
 	row := func() string {
 		r.a.mu.Lock()
 		defer r.a.mu.Unlock()
-		return p.laneTask("O-02")
+		return p.laneTask("L-02")
 	}
 	if row() != "T-2" {
-		t.Fatalf("precondition: O-02's row holds %q, want T-2", row())
+		t.Fatalf("precondition: L-02's row holds %q, want T-2", row())
 	}
 	drop := func(id string) (string, error) {
-		return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "O-02",
+		return r.a.drop(wire.Call{Root: r.roots["pj"], Agent: "lead", Role: "lead", CallID: id, Lane: "L-02",
 			Note: "abandoned", Discard: true, Force: true})
 	}
-	f.refuse = "lane O-02 is dirty (--discard to drop its uncommitted changes)"
+	f.refuse = "lane L-02 is dirty (--discard to drop its uncommitted changes)"
 	if _, err := drop("d1"); err == nil || err.Error() != "drop: "+f.refuse {
 		t.Fatalf("refused Free: %v", err)
 	}
@@ -161,24 +161,24 @@ func TestDropByLane(t *testing.T) {
 	ended := p.ended["T-2"]
 	r.a.mu.Unlock()
 	if st := r.state("pj", "T-2"); st == stDropped || ended || row() != "T-2" {
-		t.Errorf("a refused drop left T-2 %s (ended mark %t), O-02's row %q", st, ended, row())
+		t.Errorf("a refused drop left T-2 %s (ended mark %t), L-02's row %q", st, ended, row())
 	}
 	f.refuse = ""
 	reply, err := drop("d2")
-	if want := "STOPPED\ndiscarded in O-02\nDROPPED T-2 from O-02 (abandoned)"; err != nil || reply != want {
+	if want := "STOPPED\ndiscarded in L-02\nDROPPED T-2 from L-02 (abandoned)"; err != nil || reply != want {
 		t.Fatalf("drop: %q, %v; want %q", reply, err, want)
 	}
-	if len(f.frees) != 1 || f.frees[0] != (port.FreeInput{Lane: "O-02", Branch: "task/T-2", Target: "target", Discard: true}) {
-		t.Errorf("Free calls %+v; want one for O-02's task/T-2 at the target, discarding", f.frees)
+	if len(f.frees) != 1 || f.frees[0] != (port.FreeInput{Lane: "L-02", Branch: "task/T-2", Target: "target", Discard: true}) {
+		t.Errorf("Free calls %+v; want one for L-02's task/T-2 at the target, discarding", f.frees)
 	}
-	if len(f.stops) != 1 || f.stops[0] != "pj-o-02 force=true" {
-		t.Errorf("stops %q; want pj-o-02 with force", f.stops)
+	if len(f.stops) != 1 || f.stops[0] != "pj-l-02 force=true" {
+		t.Errorf("stops %q; want pj-l-02 with force", f.stops)
 	}
 	if st := r.state("pj", "T-2"); st != stDropped || row() != "" {
-		t.Errorf("after DROPPED: T-2 %s, O-02's row %q; want dropped, no row", st, row())
+		t.Errorf("after DROPPED: T-2 %s, L-02's row %q; want dropped, no row", st, row())
 	}
 	rows, err := store.ReadLanesAt(r.roots["pj"])
-	if _, ok := rows["O-02"]; ok || err != nil {
-		t.Errorf("the lanes table still has O-02: %+v, %v", rows, err)
+	if _, ok := rows["L-02"]; ok || err != nil {
+		t.Errorf("the lanes table still has L-02: %+v, %v", rows, err)
 	}
 }

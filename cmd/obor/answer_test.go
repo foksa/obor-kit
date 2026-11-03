@@ -14,7 +14,7 @@ import (
 func TestAnswerRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "ANSWERED T-01 (attempt 2): obor serve sends the worker the answer", "")
 	env := func(role string) []string {

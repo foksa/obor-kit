@@ -246,7 +246,7 @@ func projectKey(task string) bool {
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).
 func roleKind(cfg *config.Config, role string) string {
 	rc, _ := cfg.Role(role)
-	if lt, ok := cfg.LaneType(rc.Type); ok && lt.Kind != "" {
+	if lt, ok := cfg.Model(rc.Type); ok && lt.Kind != "" {
 		return lt.Kind
 	}
 	return agents.Default

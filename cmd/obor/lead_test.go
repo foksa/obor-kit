@@ -27,8 +27,7 @@ func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
 	t.Helper()
 	p := testkit.New(t)
 	p.Config(append([]func(map[string]any){
-		testkit.Set("lane_types", `{"opus": {"kind": "claude", "args": ["--model", "opus"]}}`),
-		testkit.Set("roles.lead", `{"type": "opus"}`),
+		testkit.Set("roles.lead", "opus"),
 	}, edits...)...)
 	f := herdrtest.New()
 	return &leadFx{p: p, f: f, srv: herdrtest.Serve(t, f)}
@@ -65,7 +64,7 @@ func startCall(name, pane string, args ...string) string {
 	return "agent.start " + string(b)
 }
 
-var leadStart = startCall("pj-lead", "w1:p1", "--model", "opus") // no Remote Control default (T-280)
+var leadStart = startCall("pj-lead", "w1:p1", "--permission-mode", "auto", "--model", "opus") // no Remote Control default (T-280)
 
 func TestLeadRunningTouchesNothing(t *testing.T) {
 	t.Parallel()
@@ -92,9 +91,9 @@ func TestLeadLabelledPaneSession(t *testing.T) {
 		want  string
 		start []string // the agent.start args
 	}{
-		{nil, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--model", "opus", "/obor:lead"}}, // T-594: the lead skill is the first prompt
-		{[]string{"--fresh"}, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--model", "opus", "/obor:lead"}},
-		{[]string{"--resume"}, "RESTARTED pj-lead (pane w1:p1, session old-sid)", []string{"--model", "opus", "--resume", "old-sid"}},
+		{nil, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--permission-mode", "auto", "--model", "opus", "/obor:lead"}}, // T-594: the lead skill is the first prompt
+		{[]string{"--fresh"}, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--permission-mode", "auto", "--model", "opus", "/obor:lead"}},
+		{[]string{"--resume"}, "RESTARTED pj-lead (pane w1:p1, session old-sid)", []string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
 	} {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid" // herdr still knows the ended session
@@ -157,39 +156,39 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
 		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"pj-lead","OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead"},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
-		!strings.Contains(c, startCall("pj-lead", "wn1:n2", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
+		!strings.Contains(c, startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}
 }
 
-// RV-51 #4: only a new pane needs roles.lead.type.
+// RV-51 #4: only a new pane needs roles.lead.
 func TestLeadNoRoleTypeFailsOnlyForANewPane(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("roles.lead", `{}`))
+	x := newLeadFx(t, testkit.Set("roles.lead", ""))
 	out, rc := x.run(t)
-	if rc != 1 || !strings.HasPrefix(lastLine(out), "FAIL roles.lead.type is not set") {
-		t.Errorf("no roles.lead.type, no pane: exit %d\n%s", rc, out)
+	if rc != 1 || !strings.HasPrefix(lastLine(out), "FAIL roles.lead is not set") {
+		t.Errorf("no roles.lead, no pane: exit %d\n%s", rc, out)
 	}
 	if c := x.calls(); strings.Contains(c, "tab create") || strings.Contains(c, "agent.start") {
-		t.Errorf("no roles.lead.type: no tab, no start:\n%s", c)
+		t.Errorf("no roles.lead: no tab, no start:\n%s", c)
 	}
 }
 
 func TestLeadUntypedRunningOrLabelled(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("roles.lead", `{"agent": "my-lead"}`))
-	x.f.Agent("w1:p1", "my-lead", "working", x.p.Root).Label = "my-lead"
-	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK my-lead runs (pane w1:p1)" {
+	x := newLeadFx(t, testkit.Set("roles.lead", ""))
+	x.f.Agent("w1:p1", "pj-lead", "working", x.p.Root).Label = "pj-lead"
+	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK pj-lead runs (pane w1:p1)" {
 		t.Errorf("untyped running lead: exit %d\n%s", rc, out)
 	}
 
-	x = newLeadFx(t, testkit.Set("roles.lead", `{"agent": "my-lead"}`))
-	x.f.Shell("w1:p1", "my-lead", x.p.Root).Session = "old-sid"
+	x = newLeadFx(t, testkit.Set("roles.lead", ""))
+	x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
 	out, rc := x.run(t, "--resume")
-	if rc != 0 || lastLine(out) != "RESTARTED my-lead (pane w1:p1, session old-sid)" {
+	if rc != 0 || lastLine(out) != "RESTARTED pj-lead (pane w1:p1, session old-sid)" {
 		t.Fatalf("untyped labelled pane: exit %d\n%s", rc, out)
 	}
-	if c := x.calls(); !strings.Contains(c, `"kind":"claude","name":"my-lead","pane_id":"w1:p1"`) ||
+	if c := x.calls(); !strings.Contains(c, `"kind":"claude","name":"pj-lead","pane_id":"w1:p1"`) ||
 		!strings.Contains(c, `"--resume","old-sid"`) || strings.Contains(c, "tab create") {
 		t.Errorf("untyped labelled pane: resumes old-sid in w1:p1 as claude, no new tab:\n%s", c)
 	}
@@ -233,7 +232,7 @@ func TestLeadUsage(t *testing.T) {
 // T-594: only a Claude lead gets the skill as its first prompt, in a labelled pane and in a new tab; --resume none.
 func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	t.Parallel()
-	x := newLeadFx(t, testkit.Set("lane_types", `{"cx": {"kind": "codex"}}`), testkit.Set("roles.lead", `{"type": "cx"}`))
+	x := newLeadFx(t, testkit.Set("roles.lead", "luna"))
 	x.f.Shell("w1:p1", "pj-lead", x.p.Root)
 	if out, rc := x.run(t); rc != 0 || !strings.HasPrefix(lastLine(out), "RESTARTED pj-lead") {
 		t.Fatalf("codex lead, labelled pane: exit %d\n%s", rc, out)
@@ -242,7 +241,7 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 		t.Errorf("codex lead, labelled pane: started with no /obor:lead:\n%s", c)
 	}
 
-	x = newLeadFx(t, testkit.Set("lane_types", `{"cx": {"kind": "codex"}}`), testkit.Set("roles.lead", `{"type": "cx"}`))
+	x = newLeadFx(t, testkit.Set("roles.lead", "luna"))
 	if out, rc := x.run(t); rc != 0 || lastLine(out) != "OK lead: pj-lead in pane wn1:n2" { // its own workspace, T-632
 		t.Fatalf("codex lead, new tab: exit %d\n%s", rc, out)
 	}

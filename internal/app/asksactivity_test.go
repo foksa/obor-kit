@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// askSeed is a project whose task T-1 is dispatched to lane O-01, its worker identified in pane w1:p1.
+// askSeed is a project whose task T-1 is dispatched to lane L-01, its worker identified in pane w1:p1.
 func askSeed(t *testing.T) (*harness, *proj) {
 	t.Helper()
 	h, _ := newIdentHarness(t)
@@ -19,7 +19,7 @@ func askSeed(t *testing.T) (*harness, *proj) {
 	h.connect()
 	p := h.proj()
 	t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01", Branch: "task/T-1", Target: "b"})
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01", Branch: "task/T-1", Target: "b"})
 	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	p.setLanes(h.lanes.lanes)
 	h.a.reconcile(p)
@@ -37,7 +37,7 @@ func TestActivityKeepsAnUnansweredAsk(t *testing.T) {
 				t.Parallel()
 				h, p := askSeed(t)
 				if companion != "stalled" {
-					h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "O-01", Reason: companion})
+					h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Lane: "L-01", Reason: companion})
 				}
 				if companion == "stalled" || activity != "working" { // the sampled path resumes a stall only
 					h.tick(11 * time.Minute)

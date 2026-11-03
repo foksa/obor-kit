@@ -6,9 +6,9 @@
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_AGENT, OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE
 //	         (no lane: unset) and the cwd as obor setup gives them; an unknown agent gets OBOR_AGENT only, in the pane's
-//	         cwd. Kind and args from the dispatch's type (the launch's, else a lane agent's lane row type, T-722), else
-//	         the lane / role / lead / agents entry type (lane_types: args, then --settings for claude); no type: the
-//	         kind herdr reports for the pane, else claude, no args.
+//	         cwd. Kind and args from the dispatch's model (the launch's, else a lane agent's lane row model, T-722), else
+//	         the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
+//	         claude); no model: the kind herdr reports for the pane, else claude, no args.
 //	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
 //	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
@@ -299,9 +299,9 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 	}
 	l.dispatchType(t, typ)
 	if t.info.Type != "" {
-		lt, ok := l.Cfg.LaneType(t.info.Type)
+		lt, ok := l.Cfg.Model(t.info.Type)
 		if !ok || lt.Kind == "" {
-			return nil, project.Failf("unknown lane type %s (not in lane_types with a kind)", t.info.Type)
+			return nil, project.Failf("unknown model %s (models: %s)", t.info.Type, strings.Join(l.Cfg.ModelNames(), ", "))
 		}
 		t.kind = lt.Kind
 	}
@@ -336,10 +336,10 @@ func (l *Launcher) dispatchType(t *target, typ string) {
 	if typ == "" && t.info.Lane != "" && l.Cfg != nil {
 		row, _, _ := store.ReadLaneAt(l.Cfg.Root, t.info.Lane)
 		if row.Task != "" {
-			typ, effort = config.ParseTypeRef(store.LaneTypeRef(row.Type, t.info.Type))
+			typ, effort = config.ParseModelRef(row.Type)
 		}
 		if row.Type != "" {
-			l.say("type %s (lane %s's dispatch)", row.Type, t.info.Lane)
+			l.say("model %s (lane %s's dispatch)", row.Type, t.info.Lane)
 		}
 	}
 	if typ != "" {
@@ -754,14 +754,14 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// args are the type's launch args (config.LaneType.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280)
+// args are the type's launch args (config.Model.LaunchArgs; a role without a type: the defaults of the resolved kind; a lead keeps Remote Control, T-280)
 // with effort in place of the type's ("": the type's, T-695), and t.env the start's own env (agents.Kind.StartEnv:
 // OpenCode's model and effort) for the env line. An effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) args(t *target, effort string) ([]string, error) {
-	lt := config.LaneType{Kind: t.kind}
+	lt := config.Model{Kind: t.kind}
 	switch {
 	case t.info.Type != "":
-		lt, _ = l.Cfg.LaneType(t.info.Type)
+		lt, _ = l.Cfg.Model(t.info.Type)
 	case t.info.Role == "":
 		if t.kind != opencode.Name { // no type, no args; still not an earlier OpenCode start's model (T-707)
 			t.env = map[string]string{opencode.ModelVar: ""}

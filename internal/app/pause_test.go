@@ -49,7 +49,7 @@ func TestPauseGatesDispatch(t *testing.T) {
 	}
 
 	// A plain dispatch is refused with the reason; a dispatch --after too (nothing recorded).
-	if _, err := r.dispatch("d1", "O-01"); err == nil || !strings.Contains(err.Error(), "paused: quota") {
+	if _, err := r.dispatch("d1", "L-01"); err == nil || !strings.Contains(err.Error(), "paused: quota") {
 		t.Errorf("dispatch while paused: %v, want refused with the reason", err)
 	}
 	if _, err := r.waitAfter("d2", "T-2"); err == nil || !strings.Contains(err.Error(), "paused: quota") {
@@ -99,7 +99,7 @@ func TestPauseReplayAndExpiry(t *testing.T) {
 	if ps := r.app.Status().Project.Paused; ps == nil || ps.Why != "kept" {
 		t.Fatalf("paused after the restart: %+v, want kept", ps)
 	}
-	if _, err := r.dispatch("d1", "O-01"); err == nil || !strings.Contains(err.Error(), "paused: kept") {
+	if _, err := r.dispatch("d1", "L-01"); err == nil || !strings.Contains(err.Error(), "paused: kept") {
 		t.Errorf("dispatch after the restart: %v, want refused", err)
 	}
 	if _, err := r.pause("", "p2", wire.Call{Note: "past", Until: r.clock.Now().Add(-time.Minute).Unix()}); err == nil {

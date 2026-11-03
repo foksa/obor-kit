@@ -1,11 +1,11 @@
 # T-xx — <title: one goal>
 
 Difficulty: <hard | medium | simple>
-<!-- Obor picks the lane type from this line (config `difficulty`); `obor spec set` refuses a spec without it.
+<!-- Obor picks the model from this line (config `difficulty`); `obor spec set` refuses a spec without it.
 hard: state machines, crash/replay, concurrency, cross-package redesign. medium: a specified feature or fix in one or
-two packages. simple: mechanical with a full oracle. Optional: a line `Type: <lane type>[, <lane type>…]` directly
-under Difficulty (e.g. `Type: opus`) tries those lane types first, then the level's. Any type may name an effort,
-`<type>:<effort>` (`Type: opus:high`, `sonnet:low`): the agent starts at that effort. Delete this comment. -->
+two packages. simple: mechanical with a full oracle. Optional: a line `Model: <model>[, <model>…]` directly under
+Difficulty (e.g. `Model: opus`) tries those models first, then the level's. Any model may name an effort,
+`<model>:<effort>` (`Model: opus:high`, `sonnet:low`): the agent starts at that effort. Delete this comment. -->
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>
 

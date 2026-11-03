@@ -11,24 +11,24 @@ import (
 // left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
 	cfg := `{"prefix":"pj","done_file":"done.md","merge":{"scratch_dir":"../custom-scratch","trailer":"T"},
-		"lane_types":{"opus":{"kind":"claude","args":["a","b"],"max":4,
-			"settings":{"permissions":{"allow":["Bash(ls)"],"deny":["Bash(rm)"]},"model":"opus"}}},
+		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
+		"stop_hook":{"permissions":{"allow":["Bash(ls)"],"deny":["Bash(rm)"]},"model":"opus"},
 		"notify":{"slack":{"url":"u","channel":"c"},"mail":"m"},
 		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
 	local := `{"prefix":"qq","merge":{"scratch_dir":null},
-		"lane_types":{"opus":{"args":["c"],"max":null,"settings":{"permissions":{"allow":["Bash(cat)"]}}}},
+		"kinds":{"claude":{"args":["c"],"prompt_extra":null}},"stop_hook":{"permissions":{"allow":["Bash(cat)"]}},
 		"notify":{"slack":{"channel":"d"}},"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
 		{"null scratch_dir resets to the derived default", ".merge.scratch_dir", `"../proj-wt/merge"`},
 		{"a sibling of a null key is kept", ".merge.trailer", `"T"`},
-		{"nested settings.permissions keep deny", ".lane_types.opus.settings",
+		{"nested permissions keep deny", ".stop_hook",
 			`{"permissions":{"allow":["Bash(cat)"],"deny":["Bash(rm)"]},"model":"opus"}`},
 		{"nested notify keeps its sibling", ".notify", `{"slack":{"url":"u","channel":"d"},"mail":"m"}`},
 		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
 		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},
-		{"null lane type max clears it", ".lane_types.opus.max", ``},
-		{"a list is replaced", ".lane_types.opus.args", `["c"]`},
+		{"null prompt_extra clears it", ".kinds.claude.prompt_extra", ``},
+		{"a list is replaced", ".kinds.claude.args", `["c"]`},
 		{"flat overlay", ".prefix", `"qq"`},
 		{"an untouched key stays", ".done_file", `"done.md"`},
 	} {
@@ -47,8 +47,8 @@ func TestOverlayMatchesJq(t *testing.T) {
 	if cmd, ok := c.Command("check"); !ok || cmd.Heavy || cmd.Timeout != 5 {
 		t.Errorf("typed command after a null heavy: %+v", cmd)
 	}
-	if lt, _ := c.LaneType("opus"); lt.Max != 0 || lt.Kind != "claude" {
-		t.Errorf("typed lane type after a null max: %+v", lt)
+	if m, _ := c.Model("opus"); m.PromptExtra != "" || !reflect.DeepEqual(m.Args, []string{"--permission-mode", "auto", "--model", "opus", "c"}) {
+		t.Errorf("typed model after a null prompt_extra: %+v", m)
 	}
 	if c.Data.Slots == nil || c.Data.Slots.Max != nil || c.Data.Slots.Dir != "/s" {
 		t.Errorf("typed slots after a null max: %+v", c.Data.Slots)
@@ -56,8 +56,8 @@ func TestOverlayMatchesJq(t *testing.T) {
 }
 
 func TestOverlayUnknownKeyInLocalFails(t *testing.T) {
-	for _, local := range []string{`{"typo":1}`, `{"commands":{"check":{"tmeout":5}}}`, `{"lane_types":{"opus":{"modle":"x"}}}`} {
-		_, err := Load(writeProject(t, `{"prefix":"pj","lane_types":{"opus":{"kind":"claude"}},"commands":{"check":"x"}}`, local))
+	for _, local := range []string{`{"typo":1}`, `{"commands":{"check":{"tmeout":5}}}`, `{"models":{"opus":{"modle":"x"}}}`} {
+		_, err := Load(writeProject(t, `{"prefix":"pj","models":{"opus":{"kind":"claude","model":"o"}},"commands":{"check":"x"}}`, local))
 		if err == nil || !strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), "local.json") {
 			t.Errorf("%s: %v, want an unknown field error naming local.json", local, err)
 		}
@@ -69,16 +69,15 @@ func TestOverlayUnknownKeyInLocalFails(t *testing.T) {
 }
 
 func TestOverlayOrderedMapsKeepOrder(t *testing.T) {
-	c := load(t, `{"prefix":"pj","lane_types":{"z":{"kind":"codex"},"a":{"kind":"codex"}},
-		"lanes":{"Z-01":"z","A-01":{"type":"a","agent":"x"},"M-01":"z"},"commands":{"zz":"z","mm":{"cmd":"m"}}}`,
-		`{"lanes":{"B-01":"a","A-01":{"agent":"y"},"Z-01":"a"},"lane_types":{"b":{"kind":"codex"},"z":{"max":2}},
-		"commands":{"aa":"a","zz":{"timeout":3}}}`)
-	got, _ := c.Get(".lanes")
-	if want := `{"Z-01":"a","A-01":{"type":"a","agent":"y"},"M-01":"z","B-01":"a"}`; string(got) != want {
-		t.Errorf(".lanes = %s, want %s (a known key keeps its place and merges, a new one is appended)", got, want)
+	c := load(t, `{"prefix":"pj","models":{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a1"}},
+		"commands":{"zz":"z","mm":{"cmd":"m"}}}`,
+		`{"models":{"b":{"kind":"codex","model":"b1"},"a":{"model":"a2"}},"commands":{"aa":"a","zz":{"timeout":3}}}`)
+	got, _ := c.Get(".models")
+	if want := `{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a2"},"b":{"kind":"codex","model":"b1"}}`; string(got) != want {
+		t.Errorf(".models = %s, want %s (a known key keeps its place and merges, a new one is appended)", got, want)
 	}
 	for _, k := range []struct{ got, want []string }{
-		{c.Data.LaneTypes.Keys, []string{"z", "a", "b"}}, {c.Data.Commands.Keys, []string{"zz", "mm", "aa"}}} {
+		{c.Data.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Commands.Keys, []string{"zz", "mm", "aa"}}} {
 		if !reflect.DeepEqual(k.got, k.want) {
 			t.Errorf("keys = %q, want %q", k.got, k.want)
 		}

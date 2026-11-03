@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "name": "obor-kit",
+  "prefix": "ob",
+  "lanes_dir": "../obor-kit-wt",
+  "done_file_sections": [
+    "Summary",
+    "Self-check",
+    "Skipped",
+    "Open questions"
+  ],
+  "paths": {
+    "reviews": "docs/reviews"
+  },
+  "commands": {
+    "after_merge": {
+      "cmd": "make build",
+      "timeout": 300,
+      "restart_serve": true,
+      "when": [
+        "cmd/**",
+        "internal/**",
+        "go.mod",
+        "go.sum",
+        "Makefile"
+      ]
+    },
+    "check": {
+      "cmd": "make -s check",
+      "timeout": 1200,
+      "heavy": true
+    },
+    "check_affected": {
+      "cmd": "make -s check-affected",
+      "timeout": 1200,
+      "heavy": true
+    },
+    "guard": {
+      "cmd": "set -e; n=0; while IFS= read -r f; do case \"$f\" in *.sh|bin/obor|githooks/*) if [ -f \"$f\" ]; then /bin/bash -n \"$f\"; n=$((n + 1)); fi ;; esac; done < \"$OBOR_CHANGED_FILES\"; /bin/bash bin/obor config validate; jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null; echo \"guard OK: bash -n on $n changed script(s), obor config validate, plugin JSON\"",
+      "timeout": 120
+    },
+    "check_milestone": {
+      "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...",
+      "timeout": 600
+    }
+  },
+  "difficulty": {
+    "medium": [
+      "deepseek",
+      "sonnet:medium",
+      "opus:medium"
+    ],
+    "simple": [
+      "deepseek",
+      "sonnet:medium",
+      "opus:medium"
+    ]
+  },
+  "protected_files": [
+    "docs/design.md"
+  ],
+  "lanes": 4,
+  "roles": {
+    "reviewer": "terra:xhigh",
+    "lead": "opus:high",
+    "deep_dive": "opus:high",
+    "integrator": "opus:medium",
+    "researcher": "sonnet:medium"
+  },
+  "merge": {
+    "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+    "summary_regex": "[0-9]+ pass|[0-9]+ fail",
+    "guard": "guard",
+    "nightly_at": "02:00",
+    "classes": [
+      {
+        "name": "go",
+        "paths": [
+          "cmd/**",
+          "internal/**"
+        ],
+        "checks": [
+          "check_affected"
+        ]
+      }
+    ],
+    "neutral": [
+      "docs/**",
+      "ADOPTION-*.md",
+      "AGENTS.md",
+      "BRIEF.md",
+      "CLAUDE.md",
+      "QUESTIONS.md",
+      "STATUS.md",
+      ".gitignore"
+    ],
+    "affected_full": [
+      "Makefile",
+      "internal/testkit/**",
+      "internal/herdrtest/**",
+      "internal/herdr/herdrtest/**"
+    ],
+    "fail_grep": "^--- FAIL|^FAIL\\s"
+  },
+  "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
+  "agents": {
+    "hk-fable": {
+      "type": "fable"
+    }
+  },
+  "guards": {
+    "allow_push": [
+      "ob-lead"
+    ]
+  },
+  "slots": {
+    "max": 1,
+    "cpus": 4
+  },
+  "setup": {
+    "confirmed": true
+  },
+  "handoff_tokens": 500000,
+  "kinds": {
+    "opencode": {
+      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
+    }
+  }
+}

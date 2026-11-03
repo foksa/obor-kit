@@ -26,29 +26,29 @@ func (r *loopRig) keysTo(agent string) int {
 	return n
 }
 
-// retryWake is the fetch rig with T-1 dispatched to pj-o1, running as kind with an inbox record or not, working and
+// retryWake is the fetch rig with T-1 dispatched to pj-l-01, running as kind with an inbox record or not, working and
 // undelivered for 5 minutes: its retry.work wake goes out.
 func retryWake(t *testing.T, kind string, recorded bool) *loopRig {
 	t.Helper()
 	r := fetchRig(t)
 	if recorded {
-		r.inbox.record("pj-o1")
+		r.inbox.record("pj-l-01")
 	}
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 result work")
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = kind })
 	r.workerIs("working")
-	r.waitFor("pj-o1 seen as "+kind, func() bool {
+	r.waitFor("pj-l-01 seen as "+kind, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
-			if a.Name == "pj-o1" && a.Agent == kind {
+			if a.Name == "pj-l-01" && a.Agent == kind {
 				return true
 			}
 		}
 		r.push()
 		return false
 	})
-	if len(r.promptsTo("pj-o1")) != 0 || r.inbox.tries("pj-o1", wake("T-1/1/work")) != 0 {
+	if len(r.promptsTo("pj-l-01")) != 0 || r.inbox.tries("pj-l-01", wake("T-1/1/work")) != 0 {
 		t.Fatalf("precondition: the work job's wake went with the start, nothing sent since: %q", r.steps())
 	}
 	r.later(5 * time.Minute)
@@ -80,18 +80,18 @@ func TestWakeByKind(t *testing.T) {
 			same(t, r.result("retry.work"), `"sent"`, "retry.work result")
 			w := wake("T-1/1/work")
 			if c.posted {
-				if n := r.inbox.count("pj-o1", w); n != 1 {
-					t.Errorf("posted %d wakes to pj-o1, want 1", n)
+				if n := r.inbox.count("pj-l-01", w); n != 1 {
+					t.Errorf("posted %d wakes to pj-l-01, want 1", n)
 				}
-				eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
-				if n := r.keysTo("pj-o1"); n != 0 {
-					t.Errorf("%d send_keys to pj-o1, want none (no ctrl+u for a post)", n)
+				eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
+				if n := r.keysTo("pj-l-01"); n != 0 {
+					t.Errorf("%d send_keys to pj-l-01, want none (no ctrl+u for a post)", n)
 				}
 				return
 			}
-			eq(t, r.promptsTo("pj-o1"), []string{w}, "typed to pj-o1")
-			if n := r.inbox.count("pj-o1", w); n != 0 {
-				t.Errorf("posted %d wakes to pj-o1, want none", n)
+			eq(t, r.promptsTo("pj-l-01"), []string{w}, "typed to pj-l-01")
+			if n := r.inbox.count("pj-l-01", w); n != 0 {
+				t.Errorf("posted %d wakes to pj-l-01, want none", n)
 			}
 		})
 	}
@@ -103,7 +103,7 @@ func TestWakeByKind(t *testing.T) {
 func TestWakePostRefusedThenReplayed(t *testing.T) {
 	t.Parallel()
 	r := fetchRig(t)
-	r.inbox.record("pj-o1")
+	r.inbox.record("pj-l-01")
 	r.inbox.failOnce(false)
 	r.start()
 	r.mustDispatch("d1")
@@ -115,7 +115,7 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 	if n := r.countPrefix("1 fact failed{retry.work: "); n != 1 {
 		t.Fatalf("refused posts %d, want 1: %q", n, r.steps())
 	}
-	if tried, posted := r.inbox.tries("pj-o1", w), r.inbox.count("pj-o1", w); tried != 2 || posted != 1 {
+	if tried, posted := r.inbox.tries("pj-l-01", w), r.inbox.count("pj-l-01", w); tried != 2 || posted != 1 {
 		t.Fatalf("tried %d, posted %d wakes, want 2 and 1 (one refusal, then the post)", tried, posted)
 	}
 	if r.count("1 intent retry.work") != 1 {
@@ -124,10 +124,10 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 	r.stop()
 	r.start()
 	r.passes()
-	if n := r.inbox.count("pj-o1", w); n != 1 {
+	if n := r.inbox.count("pj-l-01", w); n != 1 {
 		t.Errorf("posted %d wakes, want 1 (once after the refusal, not again on replay)", n)
 	}
-	eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
+	eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
 }
 
 // A posted wake that broke after a byte went out is sent (with the error): never posted again under its key, not after
@@ -135,7 +135,7 @@ func TestWakePostRefusedThenReplayed(t *testing.T) {
 func TestWakePostPartialNotRepeated(t *testing.T) {
 	t.Parallel()
 	r := fetchRig(t)
-	r.inbox.record("pj-o1")
+	r.inbox.record("pj-l-01")
 	r.inbox.fail(true)
 	r.start()
 	r.mustDispatch("d1")
@@ -148,10 +148,10 @@ func TestWakePostPartialNotRepeated(t *testing.T) {
 	r.stop()
 	r.start()
 	r.passes()
-	if n := r.inbox.tries("pj-o1", wake("T-1/1/work")); n != 1 {
+	if n := r.inbox.tries("pj-l-01", wake("T-1/1/work")); n != 1 {
 		t.Errorf("tried %d posts of the wake, want 1", n)
 	}
-	eq(t, r.promptsTo("pj-o1"), []string(nil), "typed to pj-o1")
+	eq(t, r.promptsTo("pj-l-01"), []string(nil), "typed to pj-l-01")
 }
 
 // A brief to a Claude role agent is posted to its session (none typed); to Codex and OpenCode it is typed (none

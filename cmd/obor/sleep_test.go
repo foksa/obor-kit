@@ -87,13 +87,13 @@ func (f *sleepServe) call(_ context.Context, method string, c wire.Call) (string
 	return "", errors.New("unexpected " + method)
 }
 
-// sleepFx is a project with lane O-01 registered in the machine's list (the test's state home), a sleeper on it run
+// sleepFx is a project with lane L-01 registered in the machine's list (the test's state home), a sleeper on it run
 // from the main checkout as the owner, whose serve is a sleepServe (up, nothing open), whose agent stops are recorded
 // and whose herdr is a fake with no panes.
 func sleepFx(t *testing.T) (p *testkit.Project, s *sleeper, out *bytes.Buffer, stops *[]stopCall, f *sleepServe) {
 	t.Helper()
 	p = testkit.New(t)
-	p.Lane("O-01", "task/T-02")
+	p.Lane("L-01", "task/T-02")
 	p.Config()
 	out, stops = &bytes.Buffer{}, &[]stopCall{}
 	cfg, warn, err := config.LoadReader(p.Root)
@@ -168,13 +168,13 @@ func launchdServe(t *testing.T, s *sleeper, state string, pid string) service.Se
 func TestStopRefusedFromAWorker(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "O-01", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working"}}
 	s.Force = true
 	for _, c := range []struct {
 		name, cwd, role, want string
 	}{
-		{"lane cwd, no OBOR_ROLE", p.LaneDir("O-01"), "", "(lane O-01)"},
-		{"lane cwd, OBOR_ROLE=lead", p.LaneDir("O-01"), "lead", "(lane O-01)"},
+		{"lane cwd, no OBOR_ROLE", p.LaneDir("L-01"), "", "(lane L-01)"},
+		{"lane cwd, OBOR_ROLE=lead", p.LaneDir("L-01"), "lead", "(lane L-01)"},
 		{"main checkout, OBOR_ROLE=worker", p.Root, "worker", "(OBOR_ROLE=worker)"},
 	} {
 		out.Reset()
@@ -209,7 +209,7 @@ func TestStopRefusedWhileServeIsDown(t *testing.T) {
 func TestStopRefusesATaskInProgress(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
-	f.tasks = []wire.TaskStatus{{Task: "T-01", Lane: "O-01", State: "merged"}, {Task: "T-03", State: "waiting"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "merged"}, {Task: "T-03", State: "waiting"}}
 	if rc := s.stop(context.Background()); rc != 1 ||
 		!strings.Contains(out.String(), "FAIL tasks in progress: T-03 (no lane, waiting)") || strings.Contains(out.String(), "T-01") {
 		t.Errorf("T-03 waiting (T-01 merged): exit %d\n%s", rc, out)
@@ -254,7 +254,7 @@ func TestStopReplacesATimedPause(t *testing.T) {
 	}
 }
 
-// T-711 (RV-84 #1): the caller's own herdr pane runs the agent of a busy lane (its label pj-o-01; its cwd the main
+// T-711 (RV-84 #1): the caller's own herdr pane runs the agent of a busy lane (its label pj-l-01; its cwd the main
 // checkout, OBOR_ROLE unset: the owner's identity otherwise): obor stop --force refuses before any drop, clears its
 // pause and does nothing; so it does when the pane's cwd is in the lane under a label of no agent.
 func TestStopRefusesTheCallersLane(t *testing.T) {
@@ -262,15 +262,15 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	p, s, out, stops, f := sleepFx(t)
 	fk := p.Herdr()
 	s.H = &herdr.Socket{Path: herdrtest.Serve(t, fk).Path}
-	fk.Agent("w1:p1", "pj-o-01", "working", p.Root).Label = "pj-o-01"
+	fk.Agent("w1:p1", "pj-l-01", "working", p.Root).Label = "pj-l-01"
 	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "O-01", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "L-01", State: "working"}}
 	if r := caller(s.Env, s.Cwd, s.Cfg); r.Role != "" {
 		t.Fatalf("precondition: the caller resolves to role %q, want the owner's", r.Role)
 	}
 	if rc := s.stop(context.Background()); rc != 1 ||
-		!strings.Contains(out.String(), "FAIL lane O-01's agent runs in this pane (w1:p1)") {
+		!strings.Contains(out.String(), "FAIL lane L-01's agent runs in this pane (w1:p1)") {
 		t.Errorf("exit %d\n%s", rc, out)
 	}
 	pausedThenCleared(t, f, out)
@@ -281,8 +281,8 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 
 	out.Reset()
 	f.calls = nil
-	fk.Agent("w1:p1", "", "working", p.LaneDir("O-01")).Label = "someone"
-	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL lane O-01's agent runs in this pane") {
+	fk.Agent("w1:p1", "", "working", p.LaneDir("L-01")).Label = "someone"
+	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL lane L-01's agent runs in this pane") {
 		t.Errorf("cwd in the lane: exit %d\n%s", rc, out)
 	}
 	if len(f.calls) != 2 {
@@ -297,7 +297,7 @@ func TestStopForceFailedDropRefuses(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "O-01", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "L-01", State: "working"}}
 	f.dropErr = errors.New("drop: refused")
 	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL drop T-03 (no lane, waiting): drop: refused") {
 		t.Errorf("exit %d\n%s", rc, out)
@@ -448,11 +448,11 @@ func TestStopStepsAndStart(t *testing.T) {
 	}
 	p, s, out, stops, f := sleepFx(t)
 	log, state := fakeLaunchctl(t)
-	o1 := p.LaneDir("O-01")
+	o1 := p.LaneDir("L-01")
 	fk := p.Herdr()
 	srv := herdrtest.Serve(t, fk)
 	s.H = &herdr.Socket{Path: srv.Path}
-	fk.Agent("w1:p1", "pj-o-01", "idle", o1).Label = "pj-o-01"
+	fk.Agent("w1:p1", "pj-l-01", "idle", o1).Label = "pj-l-01"
 	fk.Agent("w1:p2", "pj-int", "working", p.Root).Label = "pj-int"
 	fk.Agent("w1:p3", "pj-lead", "idle", p.Root).Label = "pj-lead"               // the caller's agent (OBOR_AGENT)
 	fk.Agent("w1:p9", "pj-rev", "idle", p.Root).Label = "pj-rev"                 // the caller's own pane (HERDR_PANE_ID)
@@ -461,17 +461,17 @@ func TestStopStepsAndStart(t *testing.T) {
 	fk.Agent("w1:p6", "pj-advisor2", "idle", t.TempDir()).Label = "pj-deep-dive" // another project's pane
 	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p9", "OBOR_AGENT=pj-lead", "OBOR_ROLE=lead")
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "O-01", State: "gating"}, {Task: "T-01", Lane: "O-01", State: "merged"},
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "gating"}, {Task: "T-01", Lane: "L-01", State: "merged"},
 		{Task: "T-03", State: "waiting"}}
 	svc := launchdServe(t, s, state, "4242")
 
 	if rc := s.stop(context.Background()); rc != 0 {
 		t.Fatalf("stop: exit %d\n%s", rc, out)
 	}
-	if want := []string{"pause " + stopPause, "drop O-01", "drop T-03"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
+	if want := []string{"pause " + stopPause, "drop L-01", "drop T-03"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
 		t.Errorf("calls %q, want %q (the pause kept: serve is down)", f.calls, want)
 	}
-	want := []stopCall{{"pj-o-01", "w1:p1", true}, {"pj-int", "w1:p2", true}}
+	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-int", "w1:p2", true}}
 	if len(*stops) != 2 || (*stops)[0] != want[0] || (*stops)[1] != want[1] {
 		t.Errorf("agents stopped %+v, want %+v", *stops, want)
 	}
@@ -486,7 +486,7 @@ func TestStopStepsAndStart(t *testing.T) {
 		!strings.Contains(out.String(), "serve: down (pid 4242: serve.flock and serve.sock released)") {
 		t.Errorf("launchd's serve not uninstalled and confirmed down: plist %v, calls\n%s\n%s", err, b, out)
 	}
-	for _, w := range []string{"DROPPED O-01", "DROPPED T-03", "pause: PAUSED until cleared"} {
+	for _, w := range []string{"DROPPED L-01", "DROPPED T-03", "pause: PAUSED until cleared"} {
 		if !strings.Contains(out.String(), w) {
 			t.Errorf("no %q line:\n%s", w, out)
 		}
@@ -619,7 +619,7 @@ func TestStopAndStartRestoreATimedPause(t *testing.T) {
 func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.zz_future", map[string]any{}))
+	p.Config(testkit.Set("roles.zz_future", ""))
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
 		"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
 	rc, stdout, stderr := run(t, p.Root, env, "status")

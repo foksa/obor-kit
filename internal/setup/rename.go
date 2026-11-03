@@ -7,8 +7,7 @@ package setup
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
 //	1 config   .obor/config.json and .obor/local.json: name, prefix, and every agent name that is <old prefix>-… or the
-//	           old lead's (roles.*.agent, lanes.*.agent, guards.allow_push) → the new default; names that follow
-//	           neither are kept
+//	           old lead's (guards.allow_push) → the new default; names that follow neither are kept
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
 //	3 files    ~/.obor/agents/<old>.inbox copied to <new>.… (no overwrite); each lane worktree's opencode.json
@@ -28,14 +27,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/roles"
 	"obor/internal/store"
 )
 
@@ -185,31 +182,6 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 			}
 		}
 	}
-	for _, role := range roles.All() {
-		p := []string{"roles", role.Name, "agent"}
-		if cur, ok := stringAt(out, p...); ok && r.mapAgent(cur) != cur {
-			if err := set(p, r.mapAgent(cur)); err != nil {
-				return nil, err
-			}
-		}
-	}
-	var lanes map[string]json.RawMessage
-	if raw, _ := config.MemberAt(out, []string{"lanes"}); raw != nil {
-		_ = json.Unmarshal(raw, &lanes)
-	}
-	names := make([]string, 0, len(lanes))
-	for l := range lanes {
-		names = append(names, l)
-	}
-	sort.Strings(names)
-	for _, l := range names {
-		p := []string{"lanes", l, "agent"}
-		if cur, ok := stringAt(out, p...); ok && r.mapAgent(cur) != cur {
-			if err := set(p, r.mapAgent(cur)); err != nil {
-				return nil, err
-			}
-		}
-	}
 	if raw, _ := config.MemberAt(out, []string{"guards", "allow_push"}); raw != nil {
 		var list []string
 		if json.Unmarshal(raw, &list) == nil {
@@ -262,9 +234,6 @@ func (r *renamer) agentPairs(rows map[string]store.LaneRow) []agentPair {
 		next := r.mapAgent(old)
 		if next != old {
 			next = r.prefix + "-" + strings.ToLower(l.Name)
-			if conf := r.cfg.Data.Lanes.M[l.Name].Agent; conf != "" {
-				next = r.mapAgent(conf)
-			}
 		}
 		out = append(out, agentPair{old, next})
 	}

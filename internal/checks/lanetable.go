@@ -19,8 +19,8 @@ func NewLaneTable(cfg *config.Config) *LaneTable {
 	return &LaneTable{Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
 }
 
-// LaneStatus is one lane's row of the lane table. Type is its lane type: the dispatch's while it holds a task
-// (taskType), else the config's.
+// LaneStatus is one lane's row of the lane table. Type is the model it runs: the dispatch's while it holds a task
+// (taskType), else none.
 type LaneStatus struct {
 	Lane, Type, Dir string
 	Branch, Task    string // "" when detached / no task id in the branch
@@ -70,7 +70,7 @@ func (p *LaneTable) States() []LaneStatus {
 //
 // A lane whose row holds its task at its current HEAD is not merged until the task has merge evidence.
 func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
-	s := LaneStatus{Lane: l.Name, Type: l.Type, Dir: l.Dir, State: "missing"}
+	s := LaneStatus{Lane: l.Name, Dir: l.Dir, State: "missing"}
 	if !project.IsDir(l.Dir) {
 		return s
 	}
@@ -130,23 +130,21 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	return s
 }
 
-// taskType is the lane type of lane l in state s (T-721): a working or done lane's is the type its row's dispatch
-// runs (the row holds its task; store.LaneTypeRef: a row from before T-721 has none, the config's), any other lane's
-// the config's ("": an untyped lane).
+// taskType is the model lane l runs in state s (T-721, T-765): a working or done lane's is the model its row's
+// dispatch runs (the row holds its task; a row from before T-721 names none), any other lane's none.
 func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 	if s.State != "working" && s.State != "done" {
-		return l.Type
+		return ""
 	}
 	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task {
-		typ, _ := config.ParseTypeRef(store.LaneTypeRef(row.Type, l.Type))
+		typ, _ := config.ParseModelRef(row.Type)
 		return typ
 	}
-	return l.Type
+	return ""
 }
 
 // Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while its branch is not
-// merged; its agent is its row's (the lanes table, read-only). Its type is the config's, the lane's reservation ("":
-// a pool lane), never the type its dispatch runs (T-738: that is the dispatch's, store.LaneTypeRef).
+// merged; its agent is its row's (the lanes table, read-only).
 type Lanes struct{}
 
 func (Lanes) Lanes(root string) ([]port.Lane, error) {
@@ -156,8 +154,8 @@ func (Lanes) Lanes(root string) ([]port.Lane, error) {
 	}
 	var out []port.Lane
 	lp := NewLaneTable(cfg)
-	for i, s := range lp.States() {
-		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), Type: cfg.Lanes()[i].Type, State: s.State,
+	for _, s := range lp.States() {
+		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State,
 			Agent: lp.Rows()[s.Lane].Agent}
 		if s.State == "working" || s.State == "done" {
 			l.Task = s.Task

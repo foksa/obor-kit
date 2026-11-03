@@ -45,7 +45,7 @@ func TestSubmitWaitsForLockOfLiveGit(t *testing.T) {
 	if _, err := os.Stat(lock); err != nil {
 		t.Fatalf("precondition: no lock: %v", err)
 	}
-	if _, err := s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1"); err != nil {
+	if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1"); err != nil {
 		t.Fatalf("submit with the lock held by a live git: %v", err)
 	}
 	if asked < 2 {
@@ -68,7 +68,7 @@ func TestSubmitRemovesStaleLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.GitAlive = func(string) bool { return false }
-	if _, err := s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1"); err != nil {
+	if _, err := s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1"); err != nil {
 		t.Fatalf("submit with a stale lock: %v", err)
 	}
 	if !x.committed() {
@@ -90,7 +90,7 @@ func TestStaleLockRemovedOnce(t *testing.T) {
 	s.Git = x.stub("git-relock", fmt.Sprintf(`if [ "$3" = add ]; then : > '%[1]s'; touch -t 200001010000 '%[1]s'; fi
 exec '%[2]s' "$@"`, lock, real))
 	s.GitAlive = func(string) bool { return false }
-	_, err = s.Submit(ctx, "T-05", "1", "O-01", "feature", "pj-o1")
+	_, err = s.Submit(ctx, "T-05", "1", "L-01", "feature", "pj-l1")
 	if err == nil || !strings.Contains(err.Error(), "git add") || !strings.Contains(err.Error(), "Another git process") {
 		t.Fatalf("submit: %v; want git add's lock error", err)
 	}

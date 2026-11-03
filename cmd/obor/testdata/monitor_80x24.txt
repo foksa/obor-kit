@@ -1,18 +1,18 @@
 obor-kit · serve launchd 4821 6h · merging · herdr ok   ⠋ gate T-660 1m12s
 NEEDS YOU ─────────────────────────────────────────────────────────────────────
-  ● T-640 (O-02) 48m  held: open questions: which table?
-    → obor resume T-640 "<decision>" | obor drop O-02 "<why>"
+  ● T-640 (L-02) 48m  held: open questions: which table?
+    → obor resume T-640 "<decision>" | obor drop L-02 "<why>"
 LANES ─────────────────────────────────────────────────────────────────────────
-  ● O-01  working  T-659  12m  ob-o-01 working  r2  work (fetched)
-  ● O-02  held     T-640  48m  ob-o-02 idle     r1
-  ● O-03  gating   T-660   1m  -
+  ● L-01  working  T-659  12m  ob-l-01 working  r2  work (fetched)
+  ● L-02  held     T-640  48m  ob-l-02 idle     r1
+  ● L-03  gating   T-660   1m  -
   ● S-01  free     -           -
 ROLES ─────────────────────────────────────────────────────────────────────────
   ● ob-int    idle     2h
   ● ob-terra  working  5m  briefed 12m ago
   ● ob-fable  no pane
 QUEUE ─────────────────────────────────────────────────────────────────────────
-  merge T-660 (O-03): gating
+  merge T-660 (L-03): gating
   merge T-661: submitted
   queued T-664: waiting (after T-662)
   queued T-665: waiting for a free lane (medium: opus, sonnet)

@@ -56,15 +56,13 @@ type fx struct {
 	shellWait time.Duration
 }
 
-// newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, lane types opus: claude --model opus, luna:
-// codex -m gpt-6-luna; edits on top) and a fake herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
+// newFx is a project with a config (prefix pj, lanes_dir ../proj-wt, the built-in models; edits on top) and a fake
+// herdr: tab w1:t1 with pane w1:p1, tab w1:t2 with w1:q1 (200×50 each),
 // both shells of this project (workspace w1, cwd the root: the project's own tabs, T-632).
 func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	x := bare(t)
-	types := testkit.Set("lane_types", `{"opus": {"kind": "claude", "args": ["--model", "opus"]},
-		"luna": {"kind": "codex", "args": ["-m", "gpt-6-luna"]}}`)
-	x.Config(append([]func(map[string]any){types}, edits...)...)
+	x.Config(edits...)
 	return x
 }
 
@@ -129,7 +127,7 @@ func (x *fx) runIn(t *testing.T, dir string, args ...string) (string, int) {
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w
-// direction=right env={OBOR_AGENT=pj-o-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1".
+// direction=right env={OBOR_AGENT=pj-l-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1".
 func (x *fx) reqs() []string {
 	all := x.srv.Requests()
 	var out []string
@@ -298,13 +296,13 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 		t.Errorf("config validates: %v", fails)
 	}
 	d := cfg.Data
-	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || len(d.Lanes.Keys) != 0 {
-		t.Errorf("name, prefix, lanes_dir filled, no lanes: %q %q %q %v", d.Name, d.Prefix, d.LanesDir, d.Lanes.Keys)
+	if d.Name != "My Proj" || d.Prefix != "mp" || d.LanesDir != "../proj-wt" || d.Lanes != 0 {
+		t.Errorf("name, prefix, lanes_dir filled, no lanes: %q %q %q %v", d.Name, d.Prefix, d.LanesDir, d.Lanes)
 	}
 	if _, ok := cfg.Command("lane_setup"); ok || len(d.LaneLinks) != 0 {
 		t.Errorf("the example's lane_setup and lane_links cleared: %v", d.LaneLinks)
 	}
-	if !regexp.MustCompile(`(?m)^  "lanes": \{\}`).MatchString(x.Read(".obor/config.json")) {
+	if !regexp.MustCompile(`(?m)^  "lanes": 0,`).MatchString(x.Read(".obor/config.json")) {
 		t.Errorf("config at indent 2:\n%s", x.Read(".obor/config.json"))
 	}
 	// T-470: BACKLOG.md and docs/decisions.md instead of a STATUS file (paths.status is gone).
@@ -352,8 +350,8 @@ func TestInitCreatesConfigDocsAndGitignoreUncommitted(t *testing.T) {
 	}
 	has(t, x.Read("docs/agents/task-spec.md"), "## Protected files this task may edit", "the task spec template copied")
 	hasNot(t, x.Read("docs/agents/task-spec.md"), "Files you may touch", "no files section (T-496)")
-	has(t, x.Read("docs/agents/roster.md"), "mp-o1", "prefix filled")
-	has(t, x.Read("docs/agents/roster.md"), "../proj-wt/O-01", "lanes_dir filled")
+	has(t, x.Read("docs/agents/roster.md"), "mp-l-01", "prefix filled")
+	has(t, x.Read("docs/agents/roster.md"), "../proj-wt/L-01", "lanes_dir filled")
 	filepath.Walk(x.Path("docs"), func(p string, fi os.FileInfo, _ error) error {
 		if b, _ := os.ReadFile(p); !fi.IsDir() && strings.Contains(string(b), "{{") {
 			t.Errorf("placeholder left in %s", p)
@@ -540,7 +538,7 @@ func TestInitGitignoresTheReviewsDir(t *testing.T) {
 // before the line was ignored leaves it out.
 func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}, "deep_dive": {"type": "opus"}}`))
+	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
 	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
 		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
 	}
@@ -566,7 +564,7 @@ func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
 	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
 		t.Run(line, func(t *testing.T) {
 			t.Parallel()
-			x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+			x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
 			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
 			gi := x.Read(".gitignore")
 			out := x.ok(t, "role", "reviewer", "--new-tab", "review")
@@ -630,26 +628,28 @@ func TestSetupUsageNamesNoInit(t *testing.T) {
 
 // --- lane -------------------------------------------------------------------------------------------------------------
 
-// bash setup.test.sh case_lane_adds_config_entry_worktree_links_and_runs_lane_setup
+// bash setup.test.sh case_lane_adds_config_entry_worktree_links_and_runs_lane_setup; T-765: the lane is the next
+// L-NN and raises lanes by one.
 func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("lane_links", []any{"ref", "assets/img", "missing"}),
 		testkit.Set("commands.lane_setup", "pwd > setup-ran"))
 	x.Write("ref/a", "")
 	x.Write("assets/img/b", "")
-	lane := x.LaneDir("O-01")
-	if x.Exists(lane) {
-		t.Fatal("precondition: no lane dir")
+	lane := x.LaneDir("L-01")
+	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.Data.Lanes != 0 {
+		t.Fatal("precondition: no lane dir, no lanes")
 	}
-	out := x.ok(t, "lane", "O-01", "opus")
-	if want := "OK lane O-01 (opus) at " + lane; last(out) != want {
+	out := x.ok(t, "lane", "L-01")
+	if want := "OK lane L-01 at " + lane; last(out) != want {
 		t.Errorf("last line %q, want %q", last(out), want)
 	}
+	has(t, out, "config lanes = 1 (uncommitted)", "the count raised")
 	cfg, _ := config.Load(x.Root)
-	if cfg.Data.Lanes.M["O-01"].Type != "opus" {
-		t.Error("config entry")
+	if cfg.Data.Lanes != 1 || !cfg.HasLane("L-01") {
+		t.Errorf("lanes = %d", cfg.Data.Lanes)
 	}
-	if !regexp.MustCompile(`(?m)^  "lanes": \{`).MatchString(x.Read(".obor/config.json")) {
+	if !regexp.MustCompile(`(?m)^  "lanes": 1`).MatchString(x.Read(".obor/config.json")) {
 		t.Error("config kept at indent 2")
 	}
 	if x.Git(lane, "rev-parse", "HEAD") != x.Git(x.Root, "rev-parse", "main") {
@@ -670,67 +670,50 @@ func TestLaneAddsConfigWorktreeLinksAndRunsLaneSetup(t *testing.T) {
 	has(t, x.Git(x.Root, "status", "--porcelain"), "M .obor/config.json", "config edit left uncommitted")
 
 	os.Remove(lane + "/setup-ran")
-	out = x.ok(t, "lane", "O-01", "opus")
+	out = x.ok(t, "lane", "L-01")
 	for _, want := range []string{"skip worktree " + lane + " (exists)", "skip link ref (exists)",
-		"skip config lanes.O-01 (already opus)"} {
+		"skip config lanes (L-01 is lane 1 of 1)"} {
 		has(t, out, want, "rerun")
 	}
 	if !x.Exists(lane + "/setup-ran") {
 		t.Error("lane_setup reruns")
 	}
-	cfg, _ = config.Load(x.Root)
-	if strings.Join(cfg.Data.Lanes.Keys, ",") != "O-01" {
-		t.Errorf("one entry after rerun: %v", cfg.Data.Lanes.Keys)
+	if cfg, _ = config.Load(x.Root); cfg.Data.Lanes != 1 {
+		t.Errorf("lanes after rerun: %d", cfg.Data.Lanes)
 	}
 }
 
-// T-724: `obor setup lane <LANE>` with no type makes an untyped pool lane: worktree, links, lane_setup and the config
-// entry "" (it is a string, not null), and a typed rerun of it, like an untyped rerun of a typed lane, is refused.
-func TestLaneWithoutATypeMakesAnUntypedPoolLane(t *testing.T) {
+// T-765: lanes are L-01 … L-NN in order: setup lane takes a configured lane or the next one, nothing else, and one
+// name only (no type).
+func TestLaneTakesOnlyTheNextLNN(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("commands.lane_setup", "pwd > setup-ran"))
-	lane := x.LaneDir("L-01")
-	if pre, _ := config.Load(x.Root); x.Exists(lane) || pre.HasLane("L-01") {
-		t.Fatal("precondition: no lane dir, no lanes.L-01")
+	x := newFx(t)
+	for _, name := range []string{"O-01", "L-02", "review"} {
+		x.failing(t, "FAIL lanes are L-01 … L-NN in order (lanes: 0): the next one is L-01", "lane", name)
+		if x.Exists(x.LaneDir(name)) {
+			t.Errorf("worktree %s made", name)
+		}
 	}
-	out := x.ok(t, "lane", "L-01")
-	if want := "OK lane L-01 (untyped) at " + lane; last(out) != want {
-		t.Errorf("last line %q, want %q", last(out), want)
+	x.ok(t, "lane", "L-01")
+	x.failing(t, "FAIL lanes are L-01 … L-NN in order (lanes: 1): the next one is L-02", "lane", "L-03")
+	x.ok(t, "lane", "L-02")
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 2 {
+		t.Errorf("lanes = %d, want 2", cfg.Data.Lanes)
 	}
-	cfg, err := config.Load(x.Root)
-	if err != nil || !cfg.HasLane("L-01") || cfg.Data.Lanes.M["L-01"].Type != "" {
-		t.Errorf("lanes.L-01 must be configured with no type: %v %+v", err, cfg.Data.Lanes.M)
-	}
-	if !regexp.MustCompile(`"L-01": ""`).MatchString(x.Read(".obor/config.json")) {
-		t.Errorf("config holds the empty string:\n%s", x.Read(".obor/config.json"))
-	}
-	if x.Read(lane+"/setup-ran") != lane+"\n" {
-		t.Error("lane_setup ran in the lane")
-	}
-	if _, err := os.Stat(filepath.Join(lane, ".git")); err != nil {
-		t.Errorf("worktree: %v", err)
-	}
-	out = x.ok(t, "lane", "L-01")
-	has(t, out, "skip config lanes.L-01 (already untyped)", "an untyped rerun")
-	x.failing(t, "FAIL lane L-01 is already configured untyped (edit .obor/config.json to pin it: \"lanes\": {\"L-01\": \"opus\"}; for an object-form lane change only type)", "lane", "L-01", "opus")
-	x.ok(t, "lane", "O-01", "opus")
-	x.failing(t, "FAIL lane O-01 is already configured with type opus", "lane", "O-01")
-	if out, rc := x.run(t, "lane"); rc != 1 || !strings.Contains(last(out), "usage: obor setup lane <LANE> [<type>] |") {
-		t.Errorf("no lane name: exit %d, %q", rc, last(out))
+	for _, args := range [][]string{{"lane"}, {"lane", "L-03", "opus"}} {
+		if out, rc := x.run(t, args...); rc != 1 || !strings.Contains(last(out), "usage: obor setup lane <L-NN> |") {
+			t.Errorf("%q: exit %d, %q", args, rc, last(out))
+		}
 	}
 }
 
-// T-724: a pane on an untyped lane is labelled and starts nothing; --start refuses (no type without a dispatch).
-func TestPaneOnAnUntypedLaneNeverStarts(t *testing.T) {
+// T-765: a lane pane without --start is labelled and starts nothing; with --start it runs the default kind with no
+// model (no dispatch names one), as obor restart does.
+func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.ok(t, "lane", "L-01")
 	x.reset()
-	x.failing(t, "FAIL lane L-01 has no type (untyped pool lane): --start needs one, a dispatch gives it (edit .obor/config.json to pin it: \"lanes\": {\"L-01\": \"<type>\"}; for an object-form lane change only type)",
-		"pane", "L-01", "--tab", "w1:t1", "--start")
-	if got := strings.Join(x.reqs(), "\n"); strings.Contains(got, "pane.split") || strings.Contains(got, "agent.start") {
-		t.Errorf("a refused --start touched herdr: %s", got)
-	}
 	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
 	has(t, out, "no agent started", "a pane without --start")
 	got := strings.Join(x.reqs(), "\n")
@@ -739,73 +722,42 @@ func TestPaneOnAnUntypedLaneNeverStarts(t *testing.T) {
 	if strings.Contains(got, "agent.start") {
 		t.Errorf("no agent starts: %s", got)
 	}
+	x.reset()
+	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
+	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=["+settings+"] kind=claude name=pj-l-01", "the default kind, no model")
 }
 
-// bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup
-func TestLaneRefusesUnknownTypeTypeChangeAndFailingSetup(t *testing.T) {
+// bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup: a failing lane_setup fails the lane.
+func TestLaneRefusesAFailingSetup(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("commands.lane_setup", "echo boom; exit 3"))
-	x.failing(t, "FAIL unknown lane type nope (not in lane_types with a kind)", "lane", "O-01", "nope")
-	if x.Exists(x.LaneDir("O-01")) {
-		t.Error("no worktree for an unknown type")
-	}
-	out := x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("O-01")+": echo boom; exit 3", "lane", "O-01", "opus")
+	out := x.failing(t, "FAIL lane_setup exited 3 in "+x.LaneDir("L-01")+": echo boom; exit 3", "lane", "L-01")
 	has(t, out, "boom", "setup output shown")
-	x.failing(t, "FAIL lane O-01 is already configured with type opus", "lane", "O-01", "luna")
 }
 
-// T-189: lane and role names share one runtime namespace; refused before any worktree or herdr call.
-// bash setup.test.sh case_setup_refuses_lane_role_collisions, case_setup_role_refuses_lane_collisions,
-// case_setup_role_refuses_prefix_lower_lane_alias, case_setup_role_refuses_compact_lane_alias,
-// case_setup_role_refuses_lower_lane_alias, case_setup_role_refuses_configured_lane_alias,
-// case_setup_role_refuses_state_lane_alias, case_setup_lane_refuses_compact_alias_of_new_lane
+// T-189: lane and role names share one runtime namespace; refused before any worktree or herdr call. T-765: lane
+// agents are <prefix>-l-NN and role agents <prefix>-<role>, so only a lane row's agent (a name the store recorded)
+// can collide.
 func TestLaneAndRoleCollisionsRefused(t *testing.T) {
 	t.Parallel()
-	reviewer := func(agent string) func(map[string]any) {
-		if agent == "" {
-			return testkit.Set("roles.reviewer", `{"type": "opus"}`)
-		}
-		return testkit.Set("roles.reviewer", `{"type": "opus", "agent": "`+agent+`"}`)
-	}
-	o1 := testkit.Set("lanes", `{"O-01": "opus"}`)
 	for _, c := range []struct {
 		name  string
-		edits []func(map[string]any)
-		state bool // lane O-01's row names agent state-agent
+		lanes int
 		args  []string
 		want  string
 	}{
-		{"lane = role worktree", []func(map[string]any){reviewer("")}, false, []string{"lane", "review", "opus"},
-			"FAIL lane review collides with a role worktree"},
-		{"lane agent = role agent", []func(map[string]any){reviewer("pj-o-01")}, false, []string{"lane", "O-01", "opus"},
-			"FAIL lane O-01 agent pj-o-01 collides with a role agent"},
-		{"compact alias of a new lane", []func(map[string]any){reviewer("pj-o1")}, false, []string{"lane", "O-01", "opus"},
-			"FAIL lane O-01 agent pj-o1 collides with a role agent"},
-		{"new lane named like a role agent", []func(map[string]any){reviewer("o-01")}, false, []string{"lane", "O-01", "opus"},
-			"FAIL lane O-01 is named like role agent o-01"},
-		{"prefix-lower alias", []func(map[string]any){reviewer("pj-o-01"), o1}, false,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent pj-o-01 collides with a configured lane agent"},
-		{"compact alias", []func(map[string]any){reviewer("pj-o1"), o1}, false,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent pj-o1 collides with a configured lane agent"},
-		{"lower alias", []func(map[string]any){reviewer("o-01"), o1}, false,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent o-01 is named like lane O-01"},
-		{"configured lane agent", []func(map[string]any){reviewer("custom-lane"),
-			testkit.Set("lanes", `{"O-01": {"type": "opus", "agent": "custom-lane"}}`)}, false,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent custom-lane collides with a configured lane agent"},
-		{"lane row agent", []func(map[string]any){reviewer("state-agent"), o1}, true,
-			[]string{"role", "reviewer", "--new-tab", "review"}, "FAIL role reviewer agent state-agent collides with a configured lane agent"},
+		{"a new lane whose row names a role agent", 0, []string{"lane", "L-01"},
+			"FAIL lane L-01 agent pj-rev collides with a role agent"},
+		{"a role agent a lane's row names", 1, []string{"role", "reviewer", "--new-tab", "review"},
+			"FAIL role reviewer agent pj-rev collides with a configured lane agent"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := newFx(t, c.edits...)
-			if c.state {
-				x.State("O-01", map[string]any{"lane": "O-01", "agent": "state-agent"})
-			}
+			x := newFx(t, testkit.Set("roles.reviewer", "opus"), testkit.Set("lanes", c.lanes))
+			x.State("L-01", map[string]any{"lane": "L-01", "agent": "pj-rev"})
 			x.failing(t, c.want, c.args...)
-			for _, wt := range []string{"review", "O-01"} {
-				if x.Exists(x.LaneDir(wt)) {
-					t.Errorf("worktree %s made", wt)
-				}
+			if x.Exists(x.LaneDir("L-01")) {
+				t.Error("worktree L-01 made")
 			}
 			if calls := x.reqs(); len(calls) > 0 {
 				t.Errorf("herdr calls: %v", calls)
@@ -822,16 +774,16 @@ const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup"
 func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
-	lane := x.LaneDir("O-01")
-	out := x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	if last(out) != "OK O-01: pj-o-01 in pane w1:n1" {
+	x.ok(t, "lane", "L-01")
+	lane := x.LaneDir("L-01")
+	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
-		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1",
-		"pane.rename label=pj-o-01 pane_id=w1:n1", "agent.get target=pj-o-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[--model opus " + settings + "] kind=claude name=pj-o-01 pane_id=w1:n1"}
+		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1",
+		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
+		"agent.start args=[" + settings + "] kind=claude name=pj-l-01 pane_id=w1:n1"}
 	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -841,26 +793,26 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 func TestPaneSplitsTheLargestPane(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
-	x.ok(t, "lane", "O-02", "opus")
+	x.ok(t, "lane", "L-01")
+	x.ok(t, "lane", "L-02")
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 100, 50, "w1:p1")
 	x.h.Tab("w1:t1", 100, 2, "w1:p2")
-	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
 
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 50, 20, "w1:p1")
 	x.h.Tab("w1:t1", 150, 20, "w1:p2")
-	x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-02,OBOR_LANE=O-02,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "wide → right")
+	x.ok(t, "pane", "--start", "L-02", "--tab", "w1:t1")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-l-02,OBOR_LANE=L-02,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "wide → right")
 }
 
 // T-557: panes of the same area go to the last one, as before; 50×20 and 100×10 are both 1000 cells.
 func TestPaneSplitsTheLastOfTiedPanes(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
+	x.ok(t, "lane", "L-01")
 	x.h.Panes = nil
 	x.h.Tab("w1:t1", 50, 20, "w1:p1")
 	x.h.Tab("w1:t1", 100, 10, "w1:p2")
@@ -868,24 +820,25 @@ func TestPaneSplitsTheLastOfTiedPanes(t *testing.T) {
 	if p1.W*p1.H != p2.W*p2.H {
 		t.Fatalf("precondition: areas %d and %d differ", p1.W*p1.H, p2.W*p2.H)
 	}
-	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
 }
 
 // bash setup.test.sh case_pane_new_tab_creates_a_tab_with_cwd_and_env
 func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("lane_types.luna.args", []any{}))
-	x.ok(t, "lane", "T-01", "luna")
-	lane := x.LaneDir("T-01")
-	out := x.ok(t, "pane", "--start", "T-01", "--new-tab", "workers")
-	if last(out) != "OK T-01: pj-t-01 in pane w1:n1" {
+	x := newFx(t)
+	x.ok(t, "lane", "L-01")
+	x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
+	lane := x.LaneDir("L-01")
+	out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
+	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
 	want := []string{"agent.list", "pane.list",
-		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-t-01,OBOR_LANE=T-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
-		"pane.rename label=pj-t-01 pane_id=w1:n1", "agent.get target=pj-t-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[-c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_AGENT\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-t-01 pane_id=w1:n1",
+		"tab.create cwd=" + lane + " env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
+		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
+		"agent.start args=[-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_AGENT\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-l-01 pane_id=w1:n1",
 		"pane.process_info pane_id=w1:n1"} // the fresh Codex start's pid: the rollout it holds is its session (T-588)
 	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -896,14 +849,14 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 func TestSetupRoleStartsNoAgentWithoutStart(t *testing.T) {
 	t.Parallel()
 	count := func(x *fx) int { return strings.Count(strings.Join(x.reqs(), "\n"), "agent.start") }
-	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
 	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
 	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-rev", "the pane is labelled")
 	has(t, out, "no agent started (started on first use; --start starts it now)", "the no-agent line")
 	if n := count(x); n != 0 {
 		t.Errorf("role without --start: %d agent.start, want 0", n)
 	}
-	y := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+	y := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
 	y.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
 	if n := count(y); n != 1 {
 		t.Errorf("role with --start: %d agent.start, want 1", n)
@@ -914,7 +867,7 @@ func TestSetupRoleStartsNoAgentWithoutStart(t *testing.T) {
 // the caller's when that holds no pane of the project (T-632).
 func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
 	x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
@@ -936,50 +889,18 @@ func TestNewTabInTheProjectsWorkspace(t *testing.T) {
 func TestPaneRefusesAFullTab(t *testing.T) {
 	t.Parallel()
 	x := newFx(t, testkit.Set("limits.max_panes_per_tab", 3))
-	x.ok(t, "lane", "O-01", "opus")
+	x.ok(t, "lane", "L-01")
 	x.h.Tab("w1:t1", 200, 50, "w1:p2")
-	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	has(t, strings.Join(x.reqs(), "\n"), "pane.split ", "precondition: 2 of 3 panes is not full")
 
 	x.noAgents()
 	x.h.Pane("w1:n1").Label = ""
 	x.reset()
-	x.failing(t, "FAIL tab w1:t1 is full (3 of 3 panes; --new-tab <label>)", "pane", "--start", "O-01", "--tab", "w1:t1")
+	x.failing(t, "FAIL tab w1:t1 is full (3 of 3 panes; --new-tab <label>)", "pane", "--start", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "no split")
 	hasNot(t, calls, "agent.start", "no agent start")
-}
-
-// T-741: only dispatch enforces lane_types.<type>.max; setup places a lane pane and a role pane of a type at its max.
-func TestPaneIgnoresATypeAtItsMax(t *testing.T) {
-	t.Parallel()
-	roles := testkit.Set("roles", `{"lead": {"type": "opus"}, "integrator": {"type": "opus"}}`)
-	setup := func(t *testing.T) *fx {
-		x := newFx(t, testkit.Set("lane_types.opus.max", 1), roles)
-		for _, l := range []string{"O-01", "O-02"} {
-			x.ok(t, "lane", l, "opus")
-		}
-		// opus is at its max of 1: a lane agent and a role agent run, and both would have counted before.
-		x.running([2]string{"pj-o-01", x.LaneDir("O-01")}, [2]string{"pj-int", x.Root})
-		x.reset()
-		return x
-	}
-	t.Run("a lane pane of a type at max is placed", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.ok(t, "pane", "--start", "O-02", "--tab", "w1:t1")
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-o-02",
-			"started")
-	})
-	t.Run("a role pane of a type at max is placed", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		out, rc := x.run(t, "role", "lead", "--new-tab", "lead", "--start")
-		if rc != 0 {
-			t.Fatalf("exit %d\n%s", rc, out)
-		}
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead", "started")
-	})
 }
 
 // R-28 §2: the new pane is labelled the agent name before the start; a label another pane holds, or --pane labelled
@@ -988,24 +909,24 @@ func TestPaneIgnoresATypeAtItsMax(t *testing.T) {
 func TestPaneLabelSetAndRefused(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
-	out := x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1")
-	has(t, out, "labelled pane w1:p1 pj-o-01", "said")
-	if x.h.Pane("w1:p1").Label != "pj-o-01" {
+	x.ok(t, "lane", "L-01")
+	out := x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
+	has(t, out, "labelled pane w1:p1 pj-l-01", "said")
+	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-o-01 pane_id=w1:p1\nagent.get target=pj-o-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=[--model opus "+settings+"] kind=claude name=pj-o-01 pane_id=w1:p1",
+	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+settings+"] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"rename, the name-held check, then the start")
 
 	x.noAgents()
-	if out := x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1"); last(out) != "OK O-01: pj-o-01 in pane w1:p1" {
+	if out := x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1"); last(out) != "OK L-01: pj-l-01 in pane w1:p1" {
 		t.Errorf("own label on --pane → fine: %q", last(out))
 	}
 
 	x.noAgents()
 	x.reset()
-	x.failing(t, "FAIL pane w1:p1 is already labelled pj-o-01 (obor restart pj-o-01, or herdr pane rename w1:p1 --clear)",
-		"pane", "--start", "O-01", "--tab", "w1:t1")
+	x.failing(t, "FAIL pane w1:p1 is already labelled pj-l-01 (obor restart pj-l-01, or herdr pane rename w1:p1 --clear)",
+		"pane", "--start", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
 	hasNot(t, calls, "pane.split", "held label → no split")
 	hasNot(t, calls, "agent.start", "held label → no start")
@@ -1013,13 +934,13 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	x.h.Pane("w1:p1").Label = ""
 	x.h.Pane("w1:q1").Label = "advisor"
 	x.reset()
-	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-o-01 (herdr pane rename w1:q1 --clear to reuse it)",
-		"pane", "--start", "O-01", "--pane", "w1:q1")
+	x.failing(t, "FAIL pane w1:q1 is labelled advisor, not pj-l-01 (herdr pane rename w1:q1 --clear to reuse it)",
+		"pane", "--start", "L-01", "--pane", "w1:q1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "foreign label on --pane → no start")
 
 	x.srv.Fail("pane.rename", "pane_not_found", "gone")
 	x.reset()
-	x.failing(t, "FAIL herdr pane rename w1:p1 pj-o-01 failed", "pane", "--start", "O-01", "--pane", "w1:p1")
+	x.failing(t, "FAIL herdr pane rename w1:p1 pj-l-01 failed", "pane", "--start", "L-01", "--pane", "w1:p1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "agent.start", "rename failed → no start")
 }
 
@@ -1027,10 +948,10 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 func TestPaneSkipsALaneWhoseAgentRuns(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
-	x.running([2]string{"someone", x.LaneDir("O-01")})
-	out := x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t1")
-	if last(out) != "OK O-01: someone already running" {
+	x.ok(t, "lane", "L-01")
+	x.running([2]string{"someone", x.LaneDir("L-01")})
+	out := x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+	if last(out) != "OK L-01: someone already running" {
 		t.Errorf("last line %q", last(out))
 	}
 	if got := x.reqs(); strings.Join(got, ",") != "agent.list" {
@@ -1053,22 +974,24 @@ func TestPaneNotReadyHints(t *testing.T) {
 		{"> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n", notReady,
 			"FAIL agent not ready: a 'Trust this folder?' dialog in pane w1:n1: answer it there (Enter = trust; once per repo)"},
 		{"Updating Codex via npm install -g @openai/codex\nUpdated to 0.161.0. Restart Codex.\n$ \n", exited,
-			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: run herdr agent start pj-t-01 --kind codex --pane w1:n1 again"},
-		{"", notReady, "FAIL agent not ready: pj-t-01 waits at a startup dialog in pane w1:n1: answer it there"},
-		{"$ \n", exited, "FAIL herdr agent start pj-t-01 failed (pane w1:n1)"},
+			"FAIL agent not ready: codex updated itself and exited in pane w1:n1: run herdr agent start pj-l-01 --kind codex --pane w1:n1 again"},
+		{"", notReady, "FAIL agent not ready: pj-l-01 waits at a startup dialog in pane w1:n1: answer it there"},
+		{"$ \n", exited, "FAIL herdr agent start pj-l-01 failed (pane w1:n1)"},
 	} {
 		x := newFx(t)
-		x.ok(t, "lane", "T-01", "luna")
+		x.ok(t, "lane", "L-01")
+		x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 		x.screen = c.screen
 		x.srv.Fail("agent.start", c.fail.Code, c.fail.Message)
-		out := x.failing(t, c.want, "pane", "--start", "T-01", "--tab", "w1:t1")
-		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name=pj-t-01 pane_id=w1:n1", "precondition: agent start ran")
+		out := x.failing(t, c.want, "pane", "--start", "L-01", "--tab", "w1:t1")
+		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name=pj-l-01 pane_id=w1:n1", "precondition: agent start ran")
 		has(t, out, "("+c.fail.Code+")", "herdr's error printed")
 	}
 	x := newFx(t)
-	x.ok(t, "lane", "T-01", "luna")
+	x.ok(t, "lane", "L-01")
+	x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
 	x.screen = "Trust this folder?"
-	x.ok(t, "pane", "--start", "T-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
 	hasNot(t, strings.Join(x.reqs(), "\n"), "pane.read", "a start herdr took: no screen read")
 }
 
@@ -1076,15 +999,15 @@ func TestPaneNotReadyHints(t *testing.T) {
 func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.failing(t, "FAIL unknown lane O-09 (obor setup lane O-09 [<type>] first)", "pane", "O-09", "--tab", "w1:t1")
-	x.ok(t, "lane", "O-01", "opus")
-	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "O-01", "--tab", "w1:t1", "--new-tab", "x")
-	x.ok(t, "lane", "O-02", "opus")
-	x.ok(t, "pane", "--start", "O-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
+	x.failing(t, "FAIL unknown lane L-09 (lanes: 0; obor setup lane L-09 first)", "pane", "L-09", "--tab", "w1:t1")
+	x.ok(t, "lane", "L-01")
+	x.failing(t, "FAIL pass at most one of --tab, --new-tab, --pane", "pane", "--start", "L-01", "--tab", "w1:t1", "--new-tab", "x")
+	x.ok(t, "lane", "L-02")
+	x.ok(t, "pane", "--start", "L-02") // not in a herdr pane: the project's tab with most panes, the first of equals (T-632)
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:p1", "no caller: the project's first tab")
 	x.reset()
 	x.env = []string{"HERDR_PANE_ID=w1:q1"}
-	x.ok(t, "pane", "--start", "O-01")
+	x.ok(t, "pane", "--start", "L-01")
 	has(t, strings.Join(x.reqs(), "\n"), "target_pane_id=w1:q1", "no --tab: the caller's tab")
 }
 
@@ -1092,7 +1015,7 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 
 // The reviewer and the deep dive run in the main checkout (T-718; before it, T-179: a detached worktree each): setup
 // role makes no worktree, and an old one (roles.<role>.worktree, else review / deep-dive) is named with its removal
-// line, never removed.
+// line, never removed (T-765: roles.<role>.worktree is gone, so review / deep-dive).
 func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1101,13 +1024,11 @@ func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 		edit                       func(map[string]any)
 	}{
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
-			false, testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
+			false, testkit.Set("roles", `{"reviewer": "luna"}`)},
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
-			true, testkit.Set("roles", `{"reviewer": {"type": "luna"}}`)},
+			true, testkit.Set("roles", `{"reviewer": "luna"}`)},
 		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=pj-deep-dive,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
-			true, testkit.Set("roles", `{"deep_dive": {"type": "luna"}}`)},
-		{"deep-dive", "dd", "pj-dd", "OK deep_dive: pj-dd in pane w1:n1", "{OBOR_AGENT=pj-dd,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive}",
-			true, testkit.Set("roles", `{"deep_dive": {"type": "luna", "worktree": "dd", "agent": "pj-dd"}}`)},
+			true, testkit.Set("roles", `{"deep_dive": "luna"}`)},
 	} {
 		x := newFx(t, c.edit)
 		wt := x.LaneDir(c.wt)
@@ -1129,9 +1050,9 @@ func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 			t.Errorf("%s: removal hint shown = %v, want %v:\n%s", c.role, got, c.old, out)
 		}
 		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+x.Root+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-m gpt-6-luna ", c.role+" start")
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never -m gpt-6-luna ", c.role+" start")
 		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent+" pane_id=w1:n1", c.role+" start: the agent")
-		if cfg, _ := config.Load(x.Root); len(cfg.Data.Lanes.Keys) != 0 {
+		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 0 {
 			t.Errorf("%s: added to the lanes", c.role)
 		}
 	}
@@ -1142,9 +1063,8 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
-	x.failing(t, "FAIL roles.integrator.type is not set (a lane_types key)", "role", "integrator", "--pane", "w1:p3", "--start")
-	x.Config(testkit.Set("lane_types", `{"opus": {"kind": "claude", "args": ["--model", "opus"]}}`),
-		testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+	x.failing(t, `FAIL roles.integrator is not set (a model ref, e.g. "opus:high")`, "role", "integrator", "--pane", "w1:p3", "--start")
+	x.Config(testkit.Set("roles", `{"integrator": "opus"}`))
 	x.reset()
 	out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start")
 	if last(out) != "OK integrator: pj-int in pane w1:p3" {
@@ -1153,7 +1073,7 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
 		"pane.read lines=30 pane_id=w1:p3 source=visible strip_ansi=true", "pane.rename label=pj-int pane_id=w1:p3",
 		"agent.get target=pj-int", "agent.get target=w1:p3", "agent.get target=w1:p3",
-		"agent.start args=[--model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p3"}
+		"agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p3"}
 	got := x.reqs()
 	for i, r := range got {
 		if strings.HasPrefix(r, "pane.send_input") {
@@ -1180,8 +1100,8 @@ func (x *fx) envLines() []string {
 // before (a stale OBOR_AGENT, OBOR_LANE) starts the new agent with its own: cd, exports and unsets, before the start.
 func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
-	x.ok(t, "lane", "O-01", "opus")
+	x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
+	x.ok(t, "lane", "L-01")
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
@@ -1196,17 +1116,17 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "--start", "O-01", "--pane", "w1:p1")
+	x.ok(t, "pane", "--start", "L-01", "--pane", "w1:p1")
 	lines = x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("O-01")+" && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL && echo obor-env-") {
-		t.Errorf("typed %q, want a lane's env: its worktree, pj-o-01, worker, O-01", lines)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("L-01")+" && export OBOR_AGENT=pj-l-01 OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL && echo obor-env-") {
+		t.Errorf("typed %q, want a lane's env: its worktree, pj-l-01, worker, L-01", lines)
 	}
 
 	// a new pane gets its env from herdr at creation: nothing typed
 	x.noAgents()
 	x.h.Pane("w1:p1").Label = ""
 	x.reset()
-	x.ok(t, "pane", "--start", "O-01", "--tab", "w1:t2")
+	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t2")
 	if lines := x.envLines(); len(lines) != 0 {
 		t.Errorf("a new pane got a typed env line: %q", lines)
 	}
@@ -1218,7 +1138,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	t.Parallel()
 	t.Run("cd fails: the failure mark, no start, FAIL", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+		x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
 		pane.OnRun = "fail"
@@ -1235,7 +1155,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 	})
 	t.Run("the line runs: the success mark, the agent starts", func(t *testing.T) {
 		t.Parallel()
-		x := newFx(t, testkit.Set("roles", `{"integrator": {"type": "opus"}}`))
+		x := newFx(t, testkit.Set("roles", `{"integrator": "opus"}`))
 		x.h.Tab("w1:t1", 200, 50, "w1:p3")
 		pane := x.h.Pane("w1:p3")
 		if out := x.ok(t, "role", "integrator", "--pane", "w1:p3", "--start"); last(out) != "OK integrator: pj-int in pane w1:p3" {
@@ -1249,7 +1169,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		if !strings.Contains(pane.Screen, okWord) || strings.Contains(pane.Screen, badWord) {
 			t.Errorf("the screen shows the success mark only, want %q:\n%s", okWord, pane.Screen)
 		}
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--model opus "+settings+"] kind=claude name=pj-int pane_id=w1:p3",
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--permission-mode auto --model opus "+settings+"] kind=claude name=pj-int pane_id=w1:p3",
 			"the agent starts after the env line succeeded")
 	})
 }
@@ -1270,24 +1190,24 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 // bash setup.test.sh case_role_lead_new_tab_gets_role_and_agent_env
 func TestRoleLeadNewTabGetsRoleAndAgentEnv(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"lead": {"type": "opus"}}`))
+	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=pj-lead,OBOR_OPENCODE_MODEL=,OBOR_ROLE=lead} focus=false label=lead", "env")
-	has(t, calls, "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named as OBOR_AGENT, no Remote Control default (T-280)")
+	has(t, calls, "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named as OBOR_AGENT, no Remote Control default (T-280)")
 }
 
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
 func TestLeadKeepsRemoteControl(t *testing.T) {
 	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"lead": {"type": "opus"}}`))
+	x := newFx(t, testkit.Set("roles", `{"lead": "opus"}`))
 	if out := x.ok(t, "role", "lead", "--new-tab", "lead", "--start"); last(out) != "OK lead: pj-lead in pane w1:n1" {
 		t.Fatalf("setup role lead: %q", out)
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
+	has(t, calls, "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 
@@ -1295,11 +1215,11 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 func TestRoleTriageRunsInTheRootWithAgentEnvOnlyAndCreatesBugsMd(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.failing(t, "FAIL roles.triage.type is not set (a lane_types key)", "role", "triage", "--new-tab", "triage", "--start")
+	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. "opus:high")`, "role", "triage", "--new-tab", "triage", "--start")
 	if x.Exists("docs/BUGS.md") {
 		t.Fatal("precondition: no BUGS.md after the FAIL")
 	}
-	x.Config(testkit.Set("roles", `{"triage": {"type": "opus"}}`))
+	x.Config(testkit.Set("roles", `{"triage": "opus"}`))
 	if out := x.ok(t, "role", "triage", "--new-tab", "triage", "--start"); last(out) != "OK triage: pj-triage in pane w1:n1" {
 		t.Errorf("last line %q", last(out))
 	}
@@ -1872,16 +1792,17 @@ func TestCodexSetupStartRecordsItsSession(t *testing.T) {
 		args            []string
 		edit            func(map[string]any)
 	}{
-		{"setup pane", "pj-t-01", "T-01", []string{"pane", "--start", "T-01", "--tab", "w1:t1"}, func(map[string]any) {}},
+		{"setup pane", "pj-l-01", "L-01", []string{"pane", "--start", "L-01", "--tab", "w1:t1"}, func(map[string]any) {}},
 		{"setup role", "pj-rev", "review", []string{"role", "reviewer", "--tab", "w1:t1", "--start"},
-			testkit.Set("roles", `{"reviewer": {"type": "luna", "worktree": "review"}}`)},
+			testkit.Set("roles", `{"reviewer": "luna"}`)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := newFx(t, c.edit)
 			x.rollout = 10 * time.Second
 			if c.args[0] == "pane" {
-				x.ok(t, "lane", c.wt, "luna")
+				x.ok(t, "lane", c.wt)
+				x.State(c.wt, map[string]any{"task": "T-1", "type": "luna"})
 			}
 			cwd := x.LaneDir(c.wt)
 			rollout := filepath.Join(x.Base, "home", ".codex", "sessions", "2026", "10", "30", "rollout-cx-new.jsonl")

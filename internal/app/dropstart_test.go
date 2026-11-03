@@ -97,10 +97,10 @@ func (r *concRig) worker(proj, id, agent string) {
 	a.reconcile(p)
 }
 
-// dispatchT2 records pj's T-2 dispatch onto lane O-02 (its worker's pane is in the rig).
+// dispatchT2 records pj's T-2 dispatch onto lane L-02 (its worker's pane is in the rig).
 func dispatchT2(r *concRig) {
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
-		"pj-wt", "O-02"), Agent: "pj-o-02", Target: "target", Branch: "task/T-2"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+		"pj-wt", "L-02"), Agent: "pj-l-02", Target: "target", Branch: "task/T-2"})
 	p := r.proj("pj")
 	r.a.mu.Lock()
 	p.dispatching = true
@@ -134,7 +134,7 @@ var dropStartCases = []struct {
 		r.add("pq", "T-3", verdictStep(wire.MethodResolved, "r1"), event.KindResult, verdictResult{Job: "T-3/1/resolve", SHA: "m"})
 	}},
 	{"submit", "pq", "T-6", "submit", func(r *concRig) {
-		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "O-06"})
+		r.add("pq", "T-6", event.StepSubmitted, event.KindFact, submitData{Lane: "L-06"})
 	}},
 	{"review", "pq", "T-3", "restart", func(r *concRig) {
 		r.add("pq", "T-3", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-3", SHA: "c",
@@ -155,9 +155,9 @@ var dropStartCases = []struct {
 		r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Pane: "w1:p2"})
 	}},
 	{"fix", "pq", "T-7", "prompt", func(r *concRig) {
-		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
 		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
-		r.worker("pq", "w2:p7", "pq-o-07") // for its fix job's wake (an agent no pane proves gets none)
+		r.worker("pq", "w2:p7", "pq-l-07") // for its fix job's wake (an agent no pane proves gets none)
 	}},
 }
 
@@ -330,7 +330,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
 	p := r.proj("pj")
-	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 		Target: "b", Patch: "p"}})
 	delete(r.a.obs, "w1:p9") // no integrator runs: the review job's step starts it
@@ -389,10 +389,10 @@ func (r *concRig) pauseDrop(name string) (writing chan struct{}, release func())
 	return writing, func() { close(gate) }
 }
 
-// submitT7 is pq-o-07's task_done for T-7 (lane O-07 holds it in the lane table).
+// submitT7 is pq-l-07's task_done for T-7 (lane L-07 holds it in the lane table).
 func submitT7(r *concRig) (string, error) {
-	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{{Name: "O-07", Task: "T-7", Agent: "pq-o-07"}}}
-	return r.app("pq").taskDone(wire.Call{Root: r.proj("pq").root, Task: "T-7", Agent: "pq-o-07", Role: "worker", Lane: "O-07",
+	r.app("pq").lanes = &fakeLanes{lanes: []port.Lane{{Name: "L-07", Task: "T-7", Agent: "pq-l-07"}}}
+	return r.app("pq").taskDone(wire.Call{Root: r.proj("pq").root, Task: "T-7", Agent: "pq-l-07", Role: "worker", Lane: "L-07",
 		CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 }
 
@@ -403,7 +403,7 @@ func TestDropAndSubmission(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) *concRig {
 		r := newConcRig(t)
-		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "O-07", Agent: "pq-o-07"})
+		r.add("pq", "T-7", event.StepSubmitted, event.KindFact, submitData{Lane: "L-07", Agent: "pq-l-07"})
 		r.add("pq", "T-7", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
 		return r
 	}
@@ -473,7 +473,7 @@ func TestDropAndSubmission(t *testing.T) {
 		r.app("pq").mu.Unlock()
 		for _, n := range []int{attempt, attempt + 1} { // decided before the drop, recorded after
 			rec, err := p.log.Append(event.Record{Task: "T-7", Attempt: n, Step: event.StepSubmitted, Kind: event.KindFact,
-				Data: []byte(`{"lane":"O-07","agent":"pq-o-07"}`)}, r.app("pq").opt.Now())
+				Data: []byte(`{"lane":"L-07","agent":"pq-l-07"}`)}, r.app("pq").opt.Now())
 			if err != nil {
 				t.Fatal(err)
 			}

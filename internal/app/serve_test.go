@@ -147,11 +147,11 @@ func (f *schedScratch) Type(context.Context, string, string, bool) (bool, error)
 	return true, nil
 }
 
-// seedSched is project pj with an integrator (serve false: without, so no merge loop), lane O-01's T-1 submitted at
+// seedSched is project pj with an integrator (serve false: without, so no merge loop), lane L-01's T-1 submitted at
 // sha s1 and gated into a conflict. before, when given, acts on the harness's snapshot before the connect takes it.
 func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, *schedScratch) {
 	h := newHarness(t)
-	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`
+	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`
 	if !serve {
 		cfg = `{"name":"pj","prefix":"pj"}`
 	}
@@ -166,14 +166,14 @@ func seedSched(t *testing.T, serve bool, before ...func(h *harness)) (*harness, 
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"} // the lane holds T-1
+	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"} // the lane holds T-1
 	h.a.mu.Unlock()
 	if !serve {
 		return h, f
 	}
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
 	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict})
 	return h, f
 }
@@ -237,7 +237,7 @@ func TestPausedScratchReservation(t *testing.T) {
 			}
 			p := h.a.p
 			h.a.needsYou(p, p.folded.loop["T-1"], cause, cause)
-			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
 			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			p = reloadProj(t, h)
 			mt := p.folded.loop["T-1"]
@@ -291,7 +291,7 @@ func TestPausedScratchReleased(t *testing.T) {
 			h.pass(ctx)
 			p := h.a.p
 			h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
-			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+			addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
 			addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 			if !busy(p, "T-2") {
 				t.Fatal("precondition: the paused T-1 holds the scratch")
@@ -333,7 +333,7 @@ func TestMergeLoopNeedsIntegrator(t *testing.T) {
 			}
 			continue
 		}
-		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
 		addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
 		h.pass(context.Background())
 		if len(f.gated) != 0 {
@@ -538,7 +538,7 @@ func TestLoadedAfterReplay(t *testing.T) {
 // restart).
 func serveHarness(t *testing.T, h *harness, on bool) *proj {
 	t.Helper()
-	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`
+	cfg := `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`
 	if !on {
 		cfg = `{"name":"pj","prefix":"pj"}`
 	}
@@ -620,7 +620,7 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			} else { // a review job: T-1 gated green, its review job out
 				h, f = seedSched(t, false)
 				serveHarness(t, h, true)
-				addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+				addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
 				addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
 				f.Launch(context.Background(), port.Launch{})
 				h.pass(context.Background())

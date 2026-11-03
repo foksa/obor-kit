@@ -21,7 +21,7 @@ func TestStopNoPanePlainFail(t *testing.T) {
 	}{{
 		name: "no pane labelled the agent",
 		prep: func(x *fx) {},
-		want: "no pane labelled pj-o-01 (pass --pane)",
+		want: "no pane labelled pj-l-01 (pass --pane)",
 	}, {
 		name: "herdr pane list failed",
 		prep: func(x *fx) { x.srv.Fail("pane.list", "internal", "boom") },
@@ -31,19 +31,19 @@ func TestStopNoPanePlainFail(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
 			c.prep(x)
-			labelled := false // precondition: pj-o-01 is the config's lane agent, and no pane is labelled it
+			labelled := false // precondition: pj-l-01 is the config's lane agent, and no pane is labelled it
 			x.f.Locked(func() {
 				for _, p := range x.f.Panes {
-					labelled = labelled || p.Label == "pj-o-01"
+					labelled = labelled || p.Label == "pj-l-01"
 				}
 			})
 			if labelled {
-				t.Fatal("precondition: a pane is labelled pj-o-01")
+				t.Fatal("precondition: a pane is labelled pj-l-01")
 			}
 			var out bytes.Buffer
-			_, err := x.launcher(&out).Stop(context.Background(), "pj-o-01", "", false)
+			_, err := x.launcher(&out).Stop(context.Background(), "pj-l-01", "", false)
 			if err == nil || err.Error() != c.want {
-				t.Fatalf("stop of pj-o-01: %v, want %q", err, c.want)
+				t.Fatalf("stop of pj-l-01: %v, want %q", err, c.want)
 			}
 			if got := port.NotFound(err); got != c.gone {
 				t.Errorf("port.NotFound(%v) = %v, want %v", err, got, c.gone)

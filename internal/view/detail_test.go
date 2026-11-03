@@ -12,17 +12,17 @@ import (
 // it ran: the lane and the agent of its newest dispatch. Its spec's text is on the page too.
 func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	p.Spec("T-01", "# T-01 — a task title\n\nDifficulty: simple\n")
-	p.Submit("O-01")
-	row, ok := p.Row("O-01")
+	p.Submit("L-01")
+	row, ok := p.Row("L-01")
 	if !ok || row.Agent == "" {
-		t.Fatalf("precondition: the dispatch recorded an agent on O-01: %+v", row)
+		t.Fatalf("precondition: the dispatch recorded an agent on L-01: %+v", row)
 	}
 	p.MergedAt("T-01", "cafe1234", false, time.Now().Unix())
-	p.ClearState("O-01")
+	p.ClearState("L-01")
 	p.Git(o1, "checkout", "-q", "--detach")
 	v, err := Load(context.Background(), p.Root, time.Now(), 5)
 	if err != nil {
@@ -37,8 +37,8 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 	if !ok {
 		t.Fatal("the merged task has no page")
 	}
-	if d.Lane != "O-01" || d.Agent != row.Agent {
-		t.Errorf("merged task: lane %q, agent %q; want O-01 and %q (its dispatch's)", d.Lane, d.Agent, row.Agent)
+	if d.Lane != "L-01" || d.Agent != row.Agent {
+		t.Errorf("merged task: lane %q, agent %q; want L-01 and %q (its dispatch's)", d.Lane, d.Agent, row.Agent)
 	}
 	if d.Spec != "# T-01 — a task title\n\nDifficulty: simple\n" || d.Title != "a task title" {
 		t.Errorf("spec %q, title %q; want the stored spec's text and title", d.Spec, d.Title)

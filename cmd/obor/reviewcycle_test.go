@@ -16,7 +16,7 @@ import (
 func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	t.Helper()
 	p = testkit.New(t)
-	p.Config(testkit.Set("roles.reviewer", `{}`))
+	p.Config(testkit.Set("roles.reviewer", ""))
 	p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
 	p.Git(p.Root, "add", "BACKLOG.md")
 	p.Git(p.Root, "commit", "-q", "-m", "backlog")

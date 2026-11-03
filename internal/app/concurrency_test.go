@@ -155,8 +155,8 @@ func (f *concScratch) Target(context.Context, string) (string, bool, error) {
 }
 
 // concRig is three projects, each on its own app (obor serve serves one project, T-522): pj (workspace w1; T-1
-// submitted and held in its gate, T-5 submitted behind it, T-2 dispatched onto lane O-02; the dispatch switch on), pq
-// (w2; T-3 submitted) and pr (w3; T-4 green, its review job out). Each workspace runs its integrator; O-02's pane runs
+// submitted and held in its gate, T-5 submitted behind it, T-2 dispatched onto lane L-02; the dispatch switch on), pq
+// (w2; T-3 submitted) and pr (w3; T-4 green, its review job out). Each workspace runs its integrator; L-02's pane runs
 // pj's worker. r.a is pj's app.
 type concRig struct {
 	t      *testing.T
@@ -174,13 +174,13 @@ func newConcRig(t *testing.T) *concRig {
 	kit, _ := filepath.Abs("../..")
 	r := &concRig{t: t, apps: map[string]*App{}, roots: map[string]string{}, fakes: map[string]*concScratch{}, kit: kit}
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
-	lane := filepath.Join(base, "pj-wt", "O-02")
+	lane := filepath.Join(base, "pj-wt", "L-02")
 	for _, name := range []string{"pj", "pq", "pr"} {
 		root := filepath.Join(base, name)
 		if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cfg := `{"name":"` + name + `","prefix":"` + name + `","roles":{"integrator":{}}}`
+		cfg := `{"name":"` + name + `","prefix":"` + name + `","roles":{"integrator":""}}`
 		if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -204,19 +204,19 @@ func newConcRig(t *testing.T) *concRig {
 				{ID: "w1:p9", Workspace: "w1", Cwd: r.roots["pj"], Agent: "claude", Label: "pj-int", Status: "idle"},
 				{ID: "w2:p9", Workspace: "w2", Cwd: r.roots["pq"], Agent: "claude", Label: "pq-int", Status: "idle"},
 				{ID: "w3:p9", Workspace: "w3", Cwd: r.roots["pr"], Agent: "claude", Label: "pr-int", Status: "idle"},
-				{ID: "w1:p2", Workspace: "w1", Cwd: lane, Agent: "claude", Label: "pj-o-02", Status: "idle", Session: "s"},
+				{ID: "w1:p2", Workspace: "w1", Cwd: lane, Agent: "claude", Label: "pj-l-02", Status: "idle", Session: "s"},
 			}})
 	}
 
-	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01"})
+	r.add("pj", "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
 	r.add("pj", "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	r.add("pj", "T-5", event.StepSubmitted, event.KindFact, submitData{Lane: "O-05"})
+	r.add("pj", "T-5", event.StepSubmitted, event.KindFact, submitData{Lane: "L-05"})
 	r.add("pj", "T-5", event.StepSubmit, event.KindResult, submitOut{SHA: "s5"})
-	r.add("pq", "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "O-03"})
+	r.add("pq", "T-3", event.StepSubmitted, event.KindFact, submitData{Lane: "L-03"})
 	r.add("pq", "T-3", event.StepSubmit, event.KindResult, submitOut{SHA: "s3"})
-	r.add("pr", "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "O-04"})
+	r.add("pr", "T-4", event.StepSubmitted, event.KindFact, submitData{Lane: "L-04"})
 	r.add("pr", "T-4", event.StepSubmit, event.KindResult, submitOut{SHA: "s4"})
-	r.add("pr", "T-4", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-04", Input: "s4"})
+	r.add("pr", "T-4", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-04", Input: "s4"})
 	r.add("pr", "T-4", event.StepGate, event.KindResult, gateOut{Outcome: outGreen, Candidate: port.Candidate{Task: "T-4", SHA: "c-T-4",
 		Target: "b", Patch: "p"}})
 	r.add("pr", "T-4", event.StepReview, event.KindIntent, promptData{Agent: "pr-int", Job: "T-4/1/review", Patch: "p"})
@@ -367,8 +367,8 @@ func (r *concRig) running(name, task string) string {
 func TestHeldGateBlocksNothingElse(t *testing.T) {
 	t.Parallel()
 	r := newConcRig(t)
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
-		"pj-wt", "O-02"), Agent: "pj-o-02", Target: "target", Branch: "task/T-2"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: filepath.Join(filepath.Dir(r.roots["pj"]),
+		"pj-wt", "L-02"), Agent: "pj-l-02", Target: "target", Branch: "task/T-2"})
 	r.run()
 	defer r.stop()
 	if task := r.entered("pj"); task != "T-1" {
@@ -476,7 +476,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 	defer r.a.closeLog()
 	dispatchT2(r)
 	p, f := r.proj("pj"), r.fakes["pj"]
-	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
+	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'L-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 	fx, err := r.a.loopOf(p)
@@ -494,7 +494,7 @@ func TestLaneRowWriteFailureStopsStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.a.drive(context.Background(), p, fx, "T-2")
-	if row, ok, err := store.ReadLaneAt(p.root, "O-02"); err != nil || !ok || row.Task != "T-2" {
+	if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || !ok || row.Task != "T-2" {
 		t.Errorf("row after the retry = %+v %v %v, want T-2", row, ok, err)
 	}
 	if f.restarts != 1 {
@@ -525,13 +525,13 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 			dispatchT2(r)
 			p, f := r.proj("pj"), r.fakes["pj"]
 			if c.prev {
-				prev := []store.LaneRow{{Lane: "O-02", Task: "T-0", Branch: "task/T-0", Agent: "pj-o-02", Base: "b",
+				prev := []store.LaneRow{{Lane: "L-02", Task: "T-0", Branch: "task/T-0", Agent: "pj-l-02", Base: "b",
 					Head: "h", DispatchedAt: 1}}
 				if err := store.WriteLanes(p.log.DB(), prev); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'O-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
+			if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes WHEN NEW.lane = 'L-02' BEGIN SELECT RAISE(FAIL, 'injected lane-row failure'); END`); err != nil {
 				t.Fatal(err)
 			}
 			fx, err := r.a.loopOf(p)
@@ -543,7 +543,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 				if got := r.status("pj").LogError; !strings.Contains(got, "injected lane-row failure") {
 					t.Fatalf("pass %d: status log_error = %q, want the lane-row error", pass, got)
 				}
-				if row, ok, err := store.ReadLaneAt(p.root, "O-02"); err != nil || (ok && row.Task == "T-2") {
+				if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || (ok && row.Task == "T-2") {
 					t.Fatalf("pass %d: row = %+v %v %v; want not T-2 while the write fails", pass, row, ok, err)
 				}
 				if f.restarts != 0 {
@@ -554,7 +554,7 @@ func TestLaneRowWriteFailurePersistent(t *testing.T) {
 				t.Fatal(err)
 			}
 			r.a.drive(context.Background(), p, fx, "T-2")
-			if row, ok, err := store.ReadLaneAt(p.root, "O-02"); err != nil || !ok || row.Task != "T-2" {
+			if row, ok, err := store.ReadLaneAt(p.root, "L-02"); err != nil || !ok || row.Task != "T-2" {
 				t.Errorf("row after the failure is removed = %+v %v %v, want T-2", row, ok, err)
 			}
 			if f.restarts != 1 {
@@ -606,7 +606,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	defer r.a.closeLog()
 	p := r.proj("pj")
 	f := r.fakes["pj"]
-	r.a.lanes = &fakeLanes{lanes: []port.Lane{{Name: "O-02", Dir: filepath.Join(t.TempDir(), "O-02"), State: "free"}}}
+	r.a.lanes = &fakeLanes{lanes: []port.Lane{{Name: "L-02", Dir: filepath.Join(t.TempDir(), "L-02"), State: "free"}}}
 	fx := f.loopWithSpecs(r.kit)
 	entered, release := make(chan struct{}), make(chan struct{})
 	fx.Specs = pauseSpecs{f, func() { close(entered); <-release }}
@@ -618,7 +618,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		reply, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d1", Task: "T-8", Lane: "O-02"})
+		reply, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d1", Task: "T-8", Lane: "L-02", Types: []string{"sonnet"}})
 		done <- result{reply, err}
 	}()
 	<-entered
@@ -647,7 +647,7 @@ func TestPauseWaitsForDispatchAdmission(t *testing.T) {
 	}
 	t.Logf("pause replied %q after the admitted dispatch", pr.reply)
 
-	_, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "O-02"})
+	_, err := r.a.dispatchCall(context.Background(), wire.Call{Root: p.root, CallID: "d2", Task: "T-9", Lane: "L-02", Types: []string{"sonnet"}})
 	if err == nil || !strings.Contains(err.Error(), "paused: quota") {
 		t.Errorf("dispatch after PAUSED: %v, want refused with the reason", err)
 	}

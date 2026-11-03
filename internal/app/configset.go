@@ -106,12 +106,12 @@ func (a *App) configSet(ctx context.Context, p *proj, file ConfigFile, c wire.Ca
 		if err != nil {
 			return "", fmt.Errorf("config: %v", err)
 		}
-		if ch.Lane != "" {
+		for _, lane := range ch.Dropped {
 			a.mu.Lock()
-			task := p.laneHolds(ch.Lane)
+			task := p.laneHolds(lane)
 			a.mu.Unlock()
 			if task != "" {
-				return "", fmt.Errorf("config: lane %s has task %s: change its type once the lane is free", ch.Lane, task)
+				return "", fmt.Errorf("config: lane %s has task %s: lower lanes once it is free", lane, task)
 			}
 		}
 		if string(ch.Doc) == string(cur) {

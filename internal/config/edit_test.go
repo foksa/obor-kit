@@ -20,61 +20,25 @@ const editDoc = `{
       "opus:high"
     ]
   },
-  "lane_types": {
-    "opus": {
-      "kind": "claude",
+  "kinds": {
+    "codex": {
       "args": [
-        "--model",
-        "opus",
-        "--effort",
-        "medium",
-        "--permission-mode",
-        "auto"
-      ],
-      "max": 4
-    },
-    "sonnet": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "sonnet"
-      ]
-    },
-    "luna": {
-      "kind": "codex",
-      "args": [
-        "-m",
-        "gpt-6-luna",
         "-c",
-        "model_reasoning_effort=high",
-        "-s",
-        "workspace-write"
+        "sandbox_workspace_write.network_access=true"
       ]
-    },
-    "deepseek": {
+    }
+  },
+  "models": {
+    "kimi": {
       "kind": "opencode",
-      "args": [
-        "--auto",
-        "--model",
-        "opencode-go/deepseek"
-      ]
+      "model": "opencode-go/kimi"
     }
   },
-  "lanes": {
-    "L-01": "",
-    "L-02": {
-      "type": "opus",
-      "agent": "pj-two"
-    }
-  },
+  "lanes": 2,
   "roles": {
-    "lead": {
-      "type": "opus:high"
-    },
-    "integrator": {},
-    "deep_dive": {
-      "type": "sonnet"
-    }
+    "lead": "opus:high",
+    "integrator": "",
+    "deep_dive": "sonnet"
   }
 }
 `
@@ -85,8 +49,8 @@ func editProject(t *testing.T) *Config {
 	return load(t, editDoc, "")
 }
 
-// T-753: each editable key, set: the file's other members keep their bytes and layout, the result loads with the new
-// value, and the change says the old and the new value.
+// T-753, T-765: each editable key, set: the file's other members keep their bytes and layout, the result loads with
+// the new value, and the change says the old and the new value.
 func TestEditSetsEachField(t *testing.T) {
 	for _, c := range []struct {
 		key, val, old, new string
@@ -94,48 +58,30 @@ func TestEditSetsEachField(t *testing.T) {
 	}{
 		{"difficulty.hard", `["sonnet","opus:high"]`, `["opus:high"]`, `["sonnet","opus:high"]`,
 			func(n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"sonnet", "opus:high"}) }},
-		{"difficulty.simple", `["luna:xhigh"]`, `["deepseek","sonnet","haiku"]`, `["luna:xhigh"]`,
-			func(n *Config) bool { return slices.Equal(n.DifficultyList("simple"), []string{"luna:xhigh"}) }},
-		{"lane_types.opus.model", `"fable"`, `"opus"`, `"fable"`, func(n *Config) bool {
-			lt, _ := n.LaneType("opus")
-			return lt.Model() == "fable" && slices.Equal(lt.Args, []string{"--model", "fable", "--effort", "medium", "--permission-mode", "auto"})
+		{"difficulty.simple", `["luna:xhigh","kimi"]`, `["deepseek","sonnet","haiku"]`, `["luna:xhigh","kimi"]`,
+			func(n *Config) bool { return slices.Equal(n.DifficultyList("simple"), []string{"luna:xhigh", "kimi"}) }},
+		{"lanes", `4`, `2`, `4`, func(n *Config) bool { return len(n.Lanes()) == 4 && n.HasLane("L-04") }},
+		{"lanes", `1`, `2`, `1`, func(n *Config) bool { return len(n.Lanes()) == 1 && !n.HasLane("L-02") }},
+		{"kinds.codex.args", `["--x"]`, `["-c","sandbox_workspace_write.network_access=true"]`, `["--x"]`, func(n *Config) bool {
+			m, _ := n.Model("terra")
+			return slices.Equal(m.Args, []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6.1-terra", "--x"})
 		}},
-		{"lane_types.opus.effort", `"high"`, `"medium"`, `"high"`, func(n *Config) bool {
-			lt, _ := n.LaneType("opus")
-			return lt.Effort() == "high" && slices.Equal(lt.Args, []string{"--model", "opus", "--effort", "high", "--permission-mode", "auto"})
+		{"kinds.claude.args", `["--strict-mcp-config"]`, "", `["--strict-mcp-config"]`, func(n *Config) bool {
+			m, _ := n.Model("opus")
+			return slices.Equal(m.Args, []string{"--permission-mode", "auto", "--model", "opus", "--strict-mcp-config"})
 		}},
-		{"lane_types.sonnet.effort", `"low"`, "", `"low"`, func(n *Config) bool {
-			lt, _ := n.LaneType("sonnet")
-			return lt.Effort() == "low" && slices.Equal(lt.Args, []string{"--model", "sonnet", "--effort", "low"})
+		{"kinds.codex.args", `[]`, `["-c","sandbox_workspace_write.network_access=true"]`, "", func(n *Config) bool {
+			m, _ := n.Model("terra")
+			return len(m.Args) == 6
 		}},
-		{"lane_types.luna.model", `"gpt-7"`, `"gpt-6-luna"`, `"gpt-7"`, func(n *Config) bool {
-			lt, _ := n.LaneType("luna")
-			return lt.Model() == "gpt-7" && slices.Equal(lt.Args, []string{"-m", "gpt-7", "-c", "model_reasoning_effort=high", "-s", "workspace-write"})
-		}},
-		{"lane_types.luna.effort", `"xhigh"`, `"high"`, `"xhigh"`, func(n *Config) bool {
-			lt, _ := n.LaneType("luna")
-			return lt.Effort() == "xhigh" && slices.Equal(lt.Args, []string{"-m", "gpt-6-luna", "-c", "model_reasoning_effort=xhigh", "-s", "workspace-write"})
-		}},
-		{"lane_types.deepseek.model", `"opencode-go/kimi"`, `"opencode-go/deepseek"`, `"opencode-go/kimi"`, func(n *Config) bool {
-			lt, _ := n.LaneType("deepseek")
-			return slices.Equal(lt.Args, []string{"--auto", "--model", "opencode-go/kimi"})
-		}},
-		{"lane_types.opus.max", `2`, `4`, `2`, func(n *Config) bool { lt, _ := n.LaneType("opus"); return lt.Max == 2 }},
-		{"lane_types.opus.max", `0`, `4`, `0`, func(n *Config) bool { lt, _ := n.LaneType("opus"); return lt.Max == 0 }},
-		{"lane_types.opus.max", `""`, `4`, `0`, func(n *Config) bool { lt, _ := n.LaneType("opus"); return lt.Max == 0 }},
-		{"lanes.L-01", `"sonnet"`, `""`, `"sonnet"`, func(n *Config) bool { return n.Data.Lanes.M["L-01"].Type == "sonnet" }},
-		{"lanes.L-02", `""`, `"opus"`, `""`, func(n *Config) bool {
-			return n.Data.Lanes.M["L-02"] == LaneEntry{Type: "", Agent: "pj-two"} // an object lane keeps its agent
-		}},
-		{"roles.integrator.type", `"sonnet"`, "", `"sonnet"`, func(n *Config) bool { rc, _ := n.Role("integrator"); return rc.Type == "sonnet" }},
-		{"roles.lead.type", `"luna:low"`, `"opus:high"`, `"luna:low"`, func(n *Config) bool {
+		{"roles.integrator", `"sonnet"`, "", `"sonnet"`, func(n *Config) bool { rc, _ := n.Role("integrator"); return rc.Type == "sonnet" }},
+		{"roles.lead", `"luna:low"`, `"opus:high"`, `"luna:low"`, func(n *Config) bool {
 			rc, _ := n.Role("lead")
 			return rc.Type == "luna" && rc.Effort == "low"
 		}},
-		{"roles.lead.type", `""`, `"opus:high"`, "", func(n *Config) bool { rc, _ := n.Role("lead"); return rc.Type == "" && rc.Configured }},
-		{"roles.deep_dive.type", `""`, `"sonnet"`, "", func(n *Config) bool { // an optional role stays configured
+		{"roles.deep_dive.type", `"kimi:high"`, `"sonnet"`, `"kimi:high"`, func(n *Config) bool { // the Setup page's key
 			rc, _ := n.Role("deep_dive")
-			return rc.Type == "" && rc.Configured
+			return rc.Type == "kimi" && rc.Effort == "high"
 		}},
 	} {
 		cfg := editProject(t)
@@ -159,12 +105,16 @@ func TestEditSetsEachField(t *testing.T) {
 			t.Errorf("%s = %s: the result fails validate: %q", c.key, c.val, fails)
 		}
 		// the layout is the file's: indented by two, a final newline; only the edited member's lines differ
-		if !strings.HasSuffix(string(ch.Doc), "}\n") || !strings.Contains(string(ch.Doc), "\n  \"lane_types\": {\n    \"opus\": {\n") {
+		if !strings.HasSuffix(string(ch.Doc), "}\n") || !strings.Contains(string(ch.Doc), "\n  \"models\": {\n    \"kimi\": {\n") {
 			t.Errorf("%s = %s: the layout is not the file's:\n%s", c.key, c.val, ch.Doc)
 		}
 		if lines := diffLines(editDoc, string(ch.Doc)); lines > 12 {
 			t.Errorf("%s = %s: %d lines differ, want only the edited member's:\n%s", c.key, c.val, lines, ch.Doc)
 		}
+	}
+	ch, err := editProject(t).Edit([]byte(editDoc), "lanes", json.RawMessage(`0`))
+	if err != nil || !slices.Equal(ch.Dropped, []string{"L-01", "L-02"}) {
+		t.Errorf("lanes = 0: dropped %q, %v; want L-01, L-02 (serve refuses while one has a task)", ch.Dropped, err)
 	}
 }
 
@@ -195,29 +145,26 @@ func TestEditRefuses(t *testing.T) {
 	cfg := editProject(t)
 	for _, c := range []struct{ key, val, want string }{
 		{"difficulty.extreme", `["opus"]`, "is not a level"},
-		{"difficulty.hard", `["gpt"]`, `"gpt" is not a lane type of this project`},
+		{"difficulty.hard", `["gpt"]`, `"gpt" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna, kimi)`},
 		{"difficulty.hard", `["opus:turbo"]`, `effort "turbo" is not one of claude's`},
-		{"difficulty.hard", `"opus"`, "takes a list of type references"},
-		{"difficulty.hard", `null`, "takes a list of type references"},
-		{"lane_types.gpt.model", `"x"`, `"gpt" is not a lane type of this project`},
-		{"lane_types.opus.model", `"--dangerous"`, "is no model"},
-		{"lane_types.opus.model", `"a b"`, "is no model"},
-		{"lane_types.opus.model", `3`, "takes a string"},
-		{"lane_types.opus.effort", `"turbo"`, `effort "turbo" is not one of claude's`},
-		{"lane_types.deepseek.effort", `"high"`, "opencode sets no effort in its args"},
-		{"lane_types.opus.max", `-1`, "takes a whole number"},
-		{"lane_types.opus.max", `"two"`, "takes a whole number"},
-		{"lane_types.opus.args", `["x"]`, "is not an editable key"},
-		{"lane_types.opus.kind", `"codex"`, "is not an editable key"},
-		{"lanes.L-09", `"opus"`, `"L-09" is not a lane of this project`},
-		{"lanes.L-01", `"gpt"`, `"gpt" is not a lane type of this project`},
-		{"roles.worker.type", `"opus"`, `"worker" is not a configured role`},
-		{"roles.triage.type", `"opus"`, `"triage" is not a configured role`},
-		{"roles.nobody.type", `"opus"`, `"nobody" is not a configured role`},
+		{"difficulty.hard", `"opus"`, "takes a list of model refs"},
+		{"difficulty.hard", `null`, "takes a list of model refs"},
+		{"lanes", `-1`, "takes a whole number"},
+		{"lanes", `"two"`, "takes a whole number"},
+		{"lanes.L-01", `"opus"`, "is not an editable key"},
+		{"kinds.cursor.args", `["x"]`, `"cursor" is not a kind`},
+		{"kinds.claude.args", `"x"`, "takes a list of strings"},
+		{"kinds.claude.args", `["--"]`, "`--` is not allowed"},
+		{"kinds.claude.prompt_extra", `"x"`, "is not an editable key"},
+		{"models.kimi.model", `"x"`, "is not an editable key"},
+		{"lane_types.opus.max", `2`, "is not an editable key"},
+		{"roles.worker", `"opus"`, `"worker" is not a configured role`},
+		{"roles.triage", `"opus"`, `"triage" is not a configured role`},
+		{"roles.nobody", `"opus"`, `"nobody" is not a configured role`},
+		{"roles.lead", `""`, "takes a model ref"},
 		{"roles.lead.agent", `"x"`, "is not an editable key"},
-		{"roles.lead.type", `"gpt:high"`, `"gpt" is not a lane type of this project`},
+		{"roles.lead", `"gpt:high"`, `"gpt" is not a model`},
 		{"merge.scratch_dir", `"x"`, "is not an editable key"},
-		{"lanes", `{}`, "is not an editable key"},
 	} {
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -226,33 +173,14 @@ func TestEditRefuses(t *testing.T) {
 	}
 }
 
-// T-753: a lane or lane type local.json sets is not in config.json: the edit is refused, not written where it would
-// not count.
-func TestEditRefusesLocalOnly(t *testing.T) {
-	cfg := load(t, `{"name":"pj","lane_types":{"opus":{"kind":"claude"}},"lanes":{"L-01":""}}`,
-		`{"lane_types":{"haiku":{"kind":"claude","args":["--model","haiku"]}},"lanes":{"L-02":""}}`)
-	doc, _ := os.ReadFile(filepath.Join(cfg.Root, ".obor", "config.json"))
-	for _, key := range []string{"lane_types.haiku.model", "lanes.L-02"} {
-		if _, err := cfg.Edit(doc, key, json.RawMessage(`"opus"`)); err == nil || !strings.Contains(err.Error(), "local.json sets it") {
-			t.Errorf("%s: %v, want local.json's refusal", key, err)
-		}
-	}
-}
-
-// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count, and an
-// args rewrite would copy this machine's args into the committed file.
+// T-754: a key .obor/local.json sets is refused before anything is written: the committed value would not count.
 func TestEditRefusesLocalOverride(t *testing.T) {
 	for _, c := range []struct{ name, local, key, val, at string }{
-		{"an args override", `{"lane_types":{"opus":{"args":["--model","fable","--effort","low"]}}}`,
-			"lane_types.opus.model", `"fable"`, "lane_types.opus.args"},
-		{"an effort in the overridden args", `{"lane_types":{"luna":{"args":["-m","gpt-6-luna","-c","model_reasoning_effort=low"]}}}`,
-			"lane_types.luna.effort", `"high"`, "lane_types.luna.args"},
-		{"a max override", `{"lane_types":{"opus":{"max":2}}}`, "lane_types.opus.max", `3`, "lane_types.opus.max"},
-		{"a max set to null", `{"lane_types":{"opus":{"max":null}}}`, "lane_types.opus.max", `3`, "lane_types.opus.max"},
-		{"a type local.json replaces", `{"lane_types":{"opus":null}}`, "lane_types.opus.max", `3`, "lane_types.opus"},
+		{"a kind's args", `{"kinds":{"codex":{"args":["-c","x=1"]}}}`, "kinds.codex.args", `["y"]`, "kinds.codex.args"},
+		{"a kind local.json replaces", `{"kinds":{"codex":null}}`, "kinds.codex.args", `["y"]`, "kinds.codex"},
 		{"a level", `{"difficulty":{"hard":["sonnet"]}}`, "difficulty.hard", `["opus:high"]`, "difficulty.hard"},
-		{"a role's type", `{"roles":{"lead":{"type":"sonnet"}}}`, "roles.lead.type", `"opus:high"`, "roles.lead.type"},
-		{"a lane", `{"lanes":{"L-01":"opus"}}`, "lanes.L-01", `"sonnet"`, "lanes.L-01"},
+		{"a role", `{"roles":{"lead":"sonnet"}}`, "roles.lead", `"opus:high"`, "roles.lead"},
+		{"the lanes", `{"lanes":3}`, "lanes", `4`, "lanes"},
 	} {
 		cfg, doc := localProject(t, c.local)
 		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))
@@ -268,32 +196,17 @@ func TestEditRefusesLocalOverride(t *testing.T) {
 	}
 }
 
-// T-754: local.json's own type and args stay out of the committed file, and a member it leaves alone (another type,
-// another level, a type's max, a lane's agent) does not keep that member's own edit from counting.
+// T-754: a member local.json leaves alone (another level, another kind) does not keep an edit from counting, and
+// local.json's own values stay out of the committed file.
 func TestEditIgnoresLocalElsewhere(t *testing.T) {
 	for _, c := range []struct {
 		name, local, key, val, leak string
 		check                       func(doc []byte, n *Config) bool
 	}{
-		{"another type", `{"lane_types":{"haiku":{"kind":"claude","args":["--model","haiku"]}}}`,
-			"lane_types.opus.model", `"fable"`, "haiku", func(_ []byte, n *Config) bool {
-				lt, _ := n.LaneType("opus")
-				return lt.Model() == "fable" &&
-					slices.Equal(lt.Args, []string{"--model", "fable", "--effort", "medium", "--permission-mode", "auto"})
-			}},
 		{"another level", `{"difficulty":{"simple":["sonnet"]}}`, "difficulty.hard", `["opus"]`, "simple",
 			func(_ []byte, n *Config) bool { return slices.Equal(n.DifficultyList("hard"), []string{"opus"}) }},
-		{"the type's own max", `{"lane_types":{"opus":{"max":2}}}`, "lane_types.opus.model", `"fable"`, `"max": 2`,
-			func(doc []byte, n *Config) bool {
-				lt, _ := n.LaneType("opus")
-				max, _ := MemberAt(doc, []string{"lane_types", "opus", "max"})
-				return lt.Model() == "fable" && string(max) == "4"
-			}},
-		{"an object lane's agent", `{"lanes":{"L-02":{"agent":"pj-other"}}}`, "lanes.L-02", `"sonnet"`, "pj-other",
-			func(doc []byte, n *Config) bool {
-				agent, _ := MemberAt(doc, []string{"lanes", "L-02", "agent"})
-				return n.Data.Lanes.M["L-02"].Type == "sonnet" && string(agent) == `"pj-two"`
-			}},
+		{"another kind", `{"kinds":{"claude":{"args":["--strict-mcp-config"]}}}`, "kinds.codex.args", `["--y"]`, "strict",
+			func(_ []byte, n *Config) bool { return slices.Equal(n.Data.Kinds.M["codex"].Args, []string{"--y"}) }},
 	} {
 		cfg, doc := localProject(t, c.local)
 		ch, err := cfg.Edit(doc, c.key, json.RawMessage(c.val))

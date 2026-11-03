@@ -7,8 +7,8 @@ import (
 	"obor/internal/launch"
 )
 
-// T-722: a lane is a pool; the type a dispatch chose (the launch's, else the lane row's) picks the kind and args of the
-// lane agent's start, in place of lanes.<LANE>.type (opus here), effort included.
+// T-722, T-765: every lane is pooled; the model a dispatch chose (the launch's, else the lane row's) picks the kind and
+// args of the lane agent's start, effort included; with neither, the default kind starts with no model.
 func TestStartTakesTheDispatchType(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -17,25 +17,25 @@ func TestStartTakesTheDispatchType(t *testing.T) {
 		has       []string // in agent.start
 		lacks     []string
 	}{
-		{"no dispatch type: the lane's configured type", "", launch.Request{Agent: "pj-o-01", Fresh: true},
-			[]string{"kind=claude", "--model opus"}, []string{"gpt-6-luna"}},
-		{"the launch's type and effort", "", launch.Request{Agent: "pj-o-01", Fresh: true, Type: "luna", Effort: "xhigh"},
+		{"no dispatch model: the default kind, no model", "", launch.Request{Agent: "pj-l-01", Fresh: true},
+			[]string{"kind=claude"}, []string{"gpt-6-luna", "--model"}},
+		{"the launch's type and effort", "", launch.Request{Agent: "pj-l-01", Fresh: true, Type: "luna", Effort: "xhigh"},
 			[]string{"kind=codex", "-m gpt-6-luna", "model_reasoning_effort=xhigh"}, []string{"--model opus", "kind=claude"}},
-		{"the launch's type before the row's", "opus:low", launch.Request{Agent: "pj-o-01", Fresh: true, Type: "luna"},
+		{"the launch's type before the row's", "opus:low", launch.Request{Agent: "pj-l-01", Fresh: true, Type: "luna"},
 			[]string{"kind=codex", "-m gpt-6-luna"}, []string{"--model opus", "low"}},
-		{"the lane row's type and effort", "luna:high", launch.Request{Agent: "pj-o-01", Fresh: true},
+		{"the lane row's type and effort", "luna:high", launch.Request{Agent: "pj-l-01", Fresh: true},
 			[]string{"kind=codex", "-m gpt-6-luna", "model_reasoning_effort=high"}, []string{"--model opus", "kind=claude"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
 			if c.row != "" {
-				x.p.State("O-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-o-01","type":"`+c.row+`"}`)
+				x.p.State("L-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-l-01","type":"`+c.row+`"}`)
 			}
-			if row, ok := x.p.Row("O-01"); c.row != "" && (!ok || row.Type != c.row) {
+			if row, ok := x.p.Row("L-01"); c.row != "" && (!ok || row.Type != c.row) {
 				t.Fatalf("lane row %+v (%v), want type %s", row, ok, c.row)
 			}
-			x.shell("w1:p3", "pj-o-01", "")
+			x.shell("w1:p3", "pj-l-01", "")
 			out, ok := x.restart(c.req)
 			if !ok {
 				t.Fatal(out)
@@ -76,13 +76,13 @@ func TestRestartResumesOnlyTheRowTypesKind(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
-			x.sid("pj-o-01", "sid-1") // a claude session
-			if x.recorded("pj-o-01") != "sid-1" {
+			x.sid("pj-l-01", "sid-1") // a claude session
+			if x.recorded("pj-l-01") != "sid-1" {
 				t.Fatal("precondition: sid-1 is recorded")
 			}
-			x.p.State("O-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-o-01","type":"`+c.row+`"}`)
-			x.shell("w1:p3", "pj-o-01", "")
-			out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+			x.p.State("L-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-l-01","type":"`+c.row+`"}`)
+			x.shell("w1:p3", "pj-l-01", "")
+			out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 			if !ok {
 				t.Fatal(out)
 			}

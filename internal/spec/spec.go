@@ -173,30 +173,44 @@ func Difficulty(text string) (level string, ok bool) {
 	return level, slices.Contains(Levels, level)
 }
 
-// Types is the lane types of the spec's optional `Type: <type>[, <type>…]` line: the first non-blank line after the
-// `Difficulty:` line. Each is a type reference, `<type>[:<effort>]` as written (config.ParseTypeRef, T-695). nil when there is no such line (a `Type:` elsewhere is ignored).
-func Types(text string) []string {
+// Models is the model refs of the spec's optional `Model: <model>[, <model>…]` line (T-765; it was `Type:`): the
+// first non-blank line after the `Difficulty:` line. Each is a model ref, `<model>[:<effort>]` as written
+// (config.ParseModelRef, T-695). nil when there is no such line (a `Model:` elsewhere is ignored).
+func Models(text string) []string {
+	v, ok := lineAfterDifficulty(text, "Model:")
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, t := range strings.Split(v, ",") {
+		if t = strings.TrimSpace(t); t != "" && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// OldTypeLine: the first non-blank line after the spec's `Difficulty:` line is the `Type:` line before T-765 (now
+// `Model:`): obor spec set refuses it, so it is not silently ignored.
+func OldTypeLine(text string) bool {
+	_, ok := lineAfterDifficulty(text, "Type:")
+	return ok
+}
+
+// lineAfterDifficulty is the rest of the first non-blank line after the `Difficulty:` line when it starts with
+// prefix; ok false otherwise.
+func lineAfterDifficulty(text, prefix string) (string, bool) {
 	rest, _, found := difficultyLine(text)
 	if !found {
-		return nil
+		return "", false
 	}
 	for _, next := range rest {
 		if strings.TrimSpace(next) == "" {
 			continue
 		}
-		v, ok := strings.CutPrefix(next, "Type:")
-		if !ok {
-			return nil
-		}
-		var out []string
-		for _, t := range strings.Split(v, ",") {
-			if t = strings.TrimSpace(t); t != "" && !slices.Contains(out, t) {
-				out = append(out, t)
-			}
-		}
-		return out
+		return strings.CutPrefix(next, prefix)
 	}
-	return nil
+	return "", false
 }
 
 // difficultyLine finds the `Difficulty:` line (the first non-blank line under the title): its value, and the lines

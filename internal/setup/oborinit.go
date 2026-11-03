@@ -20,8 +20,9 @@ package setup
 //	commands   detect: a Makefile with a check: target → make check; go.mod → go test ./...; package.json → its
 //	           lockfile picks bun / pnpm / npm, the check script else the test script, lane_setup the install,
 //	           lane_ready test -d node_modules. Only keys still null are written; nothing found → they stay null.
-//	lanes      L-01 and L-02, untyped pool lanes (setup lane; a task's Type:/Difficulty: picks the model); roles.lead, roles.integrator and roles.reviewer keep their type
-//	           when its kind's CLI is on PATH, else opus (the example's reviewer is a Codex type: no codex → opus). A
+//	lanes      L-01 and L-02 (setup lane: lanes 2; a task's Model:/Difficulty: picks the model); roles.lead,
+//	           roles.integrator and roles.reviewer keep their model when its kind's CLI is on PATH, else opus (the
+//	           example's reviewer is a Codex model: no codex → opus). A
 //	           configured lane whose dir is a worktree of this repo and whose setup finished (lane_ready, else the
 //	           lane_setup marker) is skipped; one whose lane_setup failed the last time (or whose lane_ready does) is
 //	           set up again, and lane_ready must pass after that, else the lane's step FAILs.
@@ -37,8 +38,8 @@ package setup
 //	           <prefix>-monitor (T-658).
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
-// The output ends with the setup table (T-647, setup show): per difficulty level each of its lane types with its
-// model, effort and lanes, the roles' types, and whether the owner confirmed them.
+// The output ends with the setup table (T-647, setup show): per difficulty level each of its model refs with what runs
+// it, the lanes, the roles' models, and whether the owner confirmed them.
 
 import (
 	"bytes"
@@ -185,28 +186,29 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 		return err
 	}
 	var made, had []string
-	// Two untyped pool lanes: a task's Type:/Difficulty: picks the model per dispatch (T-724).
-	for _, l := range [][2]string{{"L-01", ""}, {"L-02", ""}} {
-		// A configured lane keeps its type (the user may have pinned one): only a missing lane gets the default.
-		if s.cfg.HasLane(l[0]) {
-			l[1] = s.cfg.Data.Lanes.M[l[0]].Type
-			done, err := s.laneDone(ctx, l[0], filepath.Join(s.cfg.LanesDir(), l[0]))
+	// Two lanes: a task's Model:/Difficulty: picks the model per dispatch (T-724, T-765).
+	for _, l := range []string{"L-01", "L-02"} {
+		if s.cfg.HasLane(l) {
+			done, err := s.laneDone(ctx, l, filepath.Join(s.cfg.LanesDir(), l))
 			if err != nil {
 				return err
 			}
 			if done {
-				had = append(had, strings.TrimSpace(l[0]+" "+typeWord(l[1])))
+				had = append(had, l)
 				continue
 			}
 		}
-		if err := s.lane(ctx, laneArgs(l)); err != nil {
+		if err := s.lane(ctx, []string{l}); err != nil {
+			return err
+		}
+		if err := s.load(); err != nil { // the next lane follows the count this one wrote
 			return err
 		}
 		// The rerun's lane_setup must leave the lane ready: a lane the user is told "done" is one they can use (T-613).
-		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l[0])); !ok {
-			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l[0], c.Cmd, out)
+		if c, out, ok := s.laneReady(ctx, filepath.Join(s.cfg.LanesDir(), l)); !ok {
+			return project.Failf("lane %s: lane_ready still fails after lane_setup (%s): %s", l, c.Cmd, out)
 		}
-		made = append(made, l[0]+" "+typeWord(l[1]))
+		made = append(made, l)
 	}
 	if err := s.load(); err != nil {
 		return err
@@ -481,24 +483,25 @@ func (s *Setup) detectedLine() string {
 
 // --- roles ------------------------------------------------------------------------------------------------------
 
-// initRoleTypes keeps the lead's, the integrator's and the reviewer's type when it is a lane type whose kind's CLI is
-// on PATH, else sets it to opus: "lead opus, integrator opus, reviewer sol" (a change written "reviewer sol → opus").
+// initRoleTypes keeps the lead's, the integrator's and the reviewer's model ref when it names a model whose kind's
+// CLI is on PATH, else sets it to opus: "lead opus, integrator opus, reviewer sol" (a change written "reviewer sol →
+// opus").
 func (s *Setup) initRoleTypes() (string, error) {
 	var parts []string
 	changed := false
 	for _, role := range []string{"lead", "integrator", "reviewer"} {
 		rc, _ := s.cfg.Role(role)
-		lt, _ := s.cfg.LaneType(rc.Type)
+		lt, _ := s.cfg.Model(rc.Type)
 		if rc.Type != "" && lt.Kind != "" {
 			if _, err := lookPath(s.Env.Get("PATH"), lt.Kind); err == nil {
-				parts = append(parts, role+" "+rc.Type)
+				parts = append(parts, role+" "+config.ModelRef(rc.Type, rc.Effort))
 				continue
 			}
 		}
-		if err := s.editConfig([]string{"roles", role, "type"}, "opus"); err != nil {
+		if err := s.editConfig([]string{"roles", role}, "opus"); err != nil {
 			return "", err
 		}
-		was := rc.Type
+		was := config.ModelRef(rc.Type, rc.Effort)
 		if was == "" {
 			was = "unset"
 		}
@@ -513,8 +516,8 @@ func (s *Setup) initRoleTypes() (string, error) {
 	return strings.Join(parts, ", "), nil
 }
 
-// initDifficulty writes `difficulty` from the kinds init detected (RV-88 #1): the built-in lists keep only the types
-// of the Claude kind, which init requires on PATH. A non-Claude type (deepseek on OpenCode) joins a list only when the
+// initDifficulty writes `difficulty` from the kinds init detected (RV-88 #1): the built-in lists keep only the models
+// of the Claude kind, which init requires on PATH. A non-Claude model (deepseek on OpenCode) joins a list only when the
 // user lists it: init has no flag or prompt for that, so a machine without OpenCode never sends its first simple task
 // to a CLI that cannot start. An existing `difficulty` is kept.
 func (s *Setup) initDifficulty() error {
@@ -524,8 +527,8 @@ func (s *Setup) initDifficulty() error {
 	out := map[string][]string{}
 	for level, listed := range config.DifficultyDefault {
 		for _, ref := range listed {
-			typ, _ := config.ParseTypeRef(ref)
-			if lt, ok := s.cfg.LaneType(typ); ok && lt.Kind == agents.Default {
+			typ, _ := config.ParseModelRef(ref)
+			if lt, ok := s.cfg.Model(typ); ok && lt.Kind == agents.Default {
 				out[level] = append(out[level], ref)
 			}
 		}
@@ -672,9 +675,6 @@ func (s *Setup) initPanes(ctx context.Context, add func(name, state, format stri
 
 // laneAgent is the lane's worker agent name.
 func (s *Setup) laneAgent(lane string) string {
-	if a := s.cfg.Data.Lanes.M[lane].Agent; a != "" {
-		return a
-	}
 	return s.cfg.AgentName("worker", lane)
 }
 
@@ -734,12 +734,4 @@ func (s *Setup) initPluginLinks() (state, what string, err error) {
 		changed = true
 	}
 	return doneOr(changed), pluginSettings + " is untracked: in lane_links, linked into the lanes (commit it to share it by git instead)", nil
-}
-
-// laneArgs is `obor setup lane`'s arguments for an init lane {name, type}: no type argument for an untyped one.
-func laneArgs(l [2]string) []string {
-	if l[1] == "" {
-		return l[:1]
-	}
-	return l[:]
 }

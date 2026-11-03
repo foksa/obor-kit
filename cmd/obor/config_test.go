@@ -21,7 +21,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 	if rc, _, _ := run(t, p.Root, nil, "whoami"); rc != 3 {
 		t.Errorf("whoami without .obor/config.json: exit %d", rc)
 	}
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Write(".obor/local.json", `{"merge": {"receipt_max_age": 60}}`)
 
@@ -50,7 +50,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 		{p.Root, []string{"config", "get", ".nosuch"}, 1, ""},
 		{p.Root, []string{"config", "get", ".mcp.jobs"}, 0, ""}, // a known field, unset: null prints nothing (obsolete, T-437)
 		{p.Root, []string{"config", "get", ".mcp.nope"}, 1, ""},
-		{p.Root, []string{"config", "get", ".lane_types.opus"}, 0, "{\n  \"kind\": \"claude\",\n  \"args\": []\n}\n"},
+		{p.Root, []string{"config", "get", ".lanes"}, 0, "1\n"},
 		{p.Root, []string{"config", "get"}, 2, ""},
 		{p.Root, []string{"config", "bogus"}, 2, ""},
 		{p.Root, []string{"config", "validate", "--roles"}, 2, ""},
@@ -72,7 +72,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Lane("O-01", "")
+	p.Lane("L-01", "")
 	for _, c := range []struct {
 		edits []func(map[string]any)
 		rc    int
@@ -88,7 +88,7 @@ func TestConfigValidateBinary(t *testing.T) {
 			"FAIL .roles.integrator: required: serve dispatches and merges nothing without an integrator\n"},
 	} {
 		// The fixture carries the integrator serve needs (T-428); these cases are about the other lines.
-		p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", map[string]any{})}, c.edits...)...)
+		p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", "")}, c.edits...)...)
 		if rc, stdout, stderr := run(t, p.Root, nil, "config", "validate"); rc != c.rc || stdout != c.out {
 			t.Errorf("validate: exit %d, %q (%s); want %d, %q", rc, stdout, stderr, c.rc, c.out)
 		}
@@ -113,15 +113,15 @@ func whoamiIn(t *testing.T, dir string, env ...string) (string, map[string]any) 
 func TestWhoami(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-02")
+	lane := p.Lane("L-01", "task/T-02")
 	p.Config()
 
 	// bash config.test.sh case_whoami_unarmed
 	text, j := whoamiIn(t, lane)
-	if text != "role: worker\nlane: O-01\nsource: cwd\nlane row: none\n" {
+	if text != "role: worker\nlane: L-01\nsource: cwd\nlane row: none\n" {
 		t.Errorf("unarmed lane: %q", text)
 	}
-	if want := map[string]any{"role": "worker", "lane": "O-01", "source": "cwd"}; !reflect.DeepEqual(j, want) {
+	if want := map[string]any{"role": "worker", "lane": "L-01", "source": "cwd"}; !reflect.DeepEqual(j, want) {
 		t.Errorf("unarmed --json: %v", j)
 	}
 	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead"); !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\n") {
@@ -141,15 +141,15 @@ func TestWhoami(t *testing.T) {
 	p.Git(p.Root, "commit", "-q", "-m", "spec T-02 in git")
 	p.Spec("T-02", "# T-02\n\n## Files you may touch\n`lib/obor.sh`\n\n## Protected files this task may edit\n"+
 		"`docs/design.md`, `docs/*.md` (a glob unlocks nothing)\n\n## Tests\n`not/this.sh`\n")
-	p.State("O-01", `{"lane":"O-01","task":"T-02","branch":"task/T-02","agent":"pj-o1","base":"main",
+	p.State("L-01", `{"lane":"L-01","task":"T-02","branch":"task/T-02","agent":"pj-l1","base":"main",
 		"dispatched_at":1,"allowed":["stale/copy.sh"],"blocks":0}`)
-	text, _ = whoamiIn(t, lane, "OBOR_ROLE=worker", "OBOR_LANE=O-01")
-	if want := "role: worker\nlane: O-01\nsource: env+cwd\ntask: T-02\nbranch: task/T-02\nbase: main\nspec: rev 1\n" +
+	text, _ = whoamiIn(t, lane, "OBOR_ROLE=worker", "OBOR_LANE=L-01")
+	if want := "role: worker\nlane: L-01\nsource: env+cwd\ntask: T-02\nbranch: task/T-02\nbase: main\nspec: rev 1\n" +
 		"protected file unlocked: docs/design.md\n"; text != want {
 		t.Errorf("armed: %q, want %q", text, want)
 	}
 	_, j = whoamiIn(t, lane)
-	if want := map[string]any{"role": "worker", "lane": "O-01", "source": "cwd", "task": "T-02",
+	if want := map[string]any{"role": "worker", "lane": "L-01", "source": "cwd", "task": "T-02",
 		"branch": "task/T-02", "base": "main", "protected": []any{"docs/design.md"}, "rev": 1.0}; !reflect.DeepEqual(j, want) {
 		t.Errorf("armed --json: %v", j)
 	}
@@ -157,7 +157,7 @@ func TestWhoami(t *testing.T) {
 	if _, j := whoamiIn(t, lane); j["protected"] != nil || j["rev"] != 2.0 {
 		t.Errorf("new rev not shown: %v rev %v", j["protected"], j["rev"])
 	}
-	p.State("O-01", `{"lane":"O-01","task":"T-09","branch":"task/T-09","base":"main","blocks":0}`)
+	p.State("L-01", `{"lane":"L-01","task":"T-09","branch":"task/T-09","base":"main","blocks":0}`)
 	if text, j := whoamiIn(t, lane); !strings.Contains(text, "spec: none in obor serve's store\n") || j["rev"] != nil {
 		t.Errorf("no spec: %q %v", text, j)
 	}
@@ -171,8 +171,8 @@ func TestWhoami(t *testing.T) {
 func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-02")
-	p.Config(testkit.Set("roles.deep_dive", `{"type": "opus"}`))
+	lane := p.Lane("L-01", "task/T-02")
+	p.Config(testkit.Set("roles.deep_dive", "opus"))
 	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=lead", "OBOR_AGENT=lead-mp")
 	if !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\nlane row: none\n") {
 		t.Errorf("lead: %q", text)
@@ -185,7 +185,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	}
 	if text, j := whoamiIn(t, lane); strings.Contains(text, "lead:") || j["lead"] != nil {
 		t.Errorf("a worker has no lead line: %q", text)
-	} else if !strings.Contains(text, "\nlane: O-01\n") {
+	} else if !strings.Contains(text, "\nlane: L-01\n") {
 		t.Errorf("a worker's lane line is missing: %q", text)
 	}
 	dd := p.Lane("deep-dive", "")

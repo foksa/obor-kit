@@ -9,24 +9,22 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-695: the effort a start runs at: the request's (a dispatch's type reference), else the role's type reference
-// (roles.<role>.type `opus:max`), else the type's args. The kind sets it once, in place of the args' own; OpenCode's
+// T-695: the effort a start runs at: the request's (a dispatch's model ref), else the role's model ref (roles.<role>
+// `opus:max`), else none (the kind's default). The kind sets it once, in place of any kinds args' own; OpenCode's
 // reaches obor's plugin through the env line (OBOR_OPENCODE_MODEL, T-703), which unsets it when the start names none.
 func TestStartEffort(t *testing.T) {
 	t.Parallel()
-	const types = `{"opus":{"kind":"claude","args":["--model","opus","--effort","medium"]},` +
-		`"luna":{"kind":"codex","args":["-m","gpt-6-luna","-c","model_reasoning_effort=high"]},` +
-		`"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"bare":{"kind":"opencode","args":["--auto"]}}`
+	const models = `{"oc":{"kind":"opencode","model":"go/ds"},"bare":{"kind":"opencode","model":""}}`
 	for _, c := range []struct {
 		name, role, kind, effort string
 		has, lacks               []string // in agent.start's args
 		env, noEnv               string   // in, not in the env line
 	}{
-		{"a request's effort replaces the type's, once", "opus", "claude", "high",
+		{"a request's effort replaces the kinds args' own, once", "opus", "claude", "high",
 			[]string{"--effort high"}, []string{"medium"}, "unset OBOR_OPENCODE_MODEL", "export OBOR_OPENCODE_MODEL"},
 		{"the role's effort", "opus:max", "claude", "", []string{"--effort max"}, []string{"medium"}, "", ""},
 		{"the request's effort before the role's", "opus:max", "claude", "low", []string{"--effort low"}, []string{"max", "medium"}, "", ""},
-		{"no effort: the type's args", "opus", "claude", "", []string{"--effort medium"}, nil, "", ""},
+		{"no effort: the kinds args' own", "opus", "claude", "", []string{"--effort medium"}, nil, "", ""},
 		{"codex: the role's effort", "luna:xhigh", "codex", "", []string{"-c model_reasoning_effort=xhigh"},
 			[]string{"model_reasoning_effort=high"}, "unset OBOR_OPENCODE_MODEL", ""},
 		{"opencode: the model and effort reach the plugin as model#variant", "oc:high", "opencode", "",
@@ -36,7 +34,8 @@ func TestStartEffort(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
+			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`),
+				testkit.Set("kinds", `{"claude":{"args":["--effort","medium"]},"codex":{"args":["-c","model_reasoning_effort=high"]}}`))
 			x.agent("w1:p7", "pj-rev", c.kind, "idle")
 			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Effort: c.effort})
 			if !ok {
@@ -74,13 +73,13 @@ func TestStartEffort(t *testing.T) {
 // before anything is stopped or typed.
 func TestStartEffortRefused(t *testing.T) {
 	t.Parallel()
-	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"bare":{"kind":"opencode","args":["--auto"]}}`
+	const models = `{"bare":{"kind":"opencode","model":""}}`
 	for _, c := range []struct{ role, effort, want string }{
 		{"opus", "turbo", `effort "turbo" is not one of claude's`},
 		{"bare", "high", "needs a model"},
 	} {
 		// the fixture's HOME is a temp dir: no opencode config or state names a model
-		x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.role+`"}}`))
+		x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.role+`"}`))
 		x.agent("w1:p7", "pj-rev", "claude", "idle")
 		out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Effort: c.effort})
 		if ok || !strings.Contains(out, c.want) {
@@ -94,7 +93,7 @@ func TestStartEffortRefused(t *testing.T) {
 
 // T-695: the scheduled restart's argv carries the effort (Args and ParseRequest are one mapping).
 func TestRequestArgsCarryTheEffort(t *testing.T) {
-	r := launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: "go", Effort: "high"}
+	r := launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "go", Effort: "high"}
 	back, err := launch.ParseRequest(launch.Args(r))
 	if err != nil || back != r {
 		t.Errorf("ParseRequest(Args(%+v)) = %+v, %v", r, back, err)
@@ -106,9 +105,9 @@ func TestRequestArgsCarryTheEffort(t *testing.T) {
 // unsets XDG_STATE_HOME (the T-696 per-agent state dir is gone) or OPENCODE_CONFIG_CONTENT, so a user's own stay.
 func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 	t.Parallel()
-	const types = `{"oc":{"kind":"opencode","args":["--auto","--model","go/ds"]},"bare":{"kind":"opencode","args":["--auto"]},"cl":{"kind":"claude","args":[]},"cx":{"kind":"codex","args":[]}}`
-	x := setup(t, testkit.Set("lane_types", types),
-		testkit.Set("roles", `{"reviewer":{"type":"oc:high"},"advisor":{"type":"bare"},"integrator":{"type":"cl"},"deep_dive":{"type":"cx"}}`))
+	const models = `{"oc":{"kind":"opencode","model":"go/ds"},"bare":{"kind":"opencode","model":""}}`
+	x := setup(t, testkit.Set("models", models),
+		testkit.Set("roles", `{"reviewer":"oc:high","advisor":"bare","integrator":"opus","deep_dive":"luna"}`))
 	x.agent("w1:p9", "pj-deep-dive", "codex", "idle")
 	x.agent("w1:p7", "pj-rev", "opencode", "idle")
 	x.agent("w1:p6", "pj-advisor", "opencode", "idle")

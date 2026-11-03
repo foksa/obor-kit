@@ -18,7 +18,7 @@ import (
 func (h *harness) session(agent, id, tr string, at int64) string {
 	h.t.Helper()
 	reply, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: agent, Kind: "claude", Session: id, Transcript: tr,
-		Pane: "w1:p1", Lane: "O-01", Task: "T-1", Started: at, Source: "SessionStart hook"})
+		Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: at, Source: "SessionStart hook"})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -53,27 +53,27 @@ func TestSessionFacts(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.connect()
-	if got := h.sessions("pj-o-01"); len(got) != 0 {
+	if got := h.sessions("pj-l-01"); len(got) != 0 {
 		t.Fatalf("precondition: no session recorded, got %q", got)
 	}
 	now := time.Now().Unix()
-	eqs(t, h.session("pj-o-01", "s1", "/t/s1.jsonl", now-60), "SESSION pj-o-01 s1", "reply")
-	eqs(t, strings.Join(h.sessions("pj-o-01"), ","), "s1 /t/s1.jsonl", "one fact, id and transcript")
-	eqs(t, h.current("pj-o-01"), "s1", "current")
+	eqs(t, h.session("pj-l-01", "s1", "/t/s1.jsonl", now-60), "SESSION pj-l-01 s1", "reply")
+	eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "s1 /t/s1.jsonl", "one fact, id and transcript")
+	eqs(t, h.current("pj-l-01"), "s1", "current")
 
-	h.session("pj-o-01", "s2", "/t/s2.jsonl", now)
-	eqs(t, strings.Join(h.sessions("pj-o-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "a second start: a second fact")
-	eqs(t, h.current("pj-o-01"), "s2", "current = newest")
+	h.session("pj-l-01", "s2", "/t/s2.jsonl", now)
+	eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "a second start: a second fact")
+	eqs(t, h.current("pj-l-01"), "s2", "current = newest")
 
-	eqs(t, h.session("pj-o-01", "s1", "/t/s1.jsonl", now+60), "SESSION pj-o-01 s1", "a repeat's reply")
-	eqs(t, strings.Join(h.sessions("pj-o-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "a repeat (a resume): no fact")
-	eqs(t, h.current("pj-o-01"), "s2", "current unchanged by the repeat")
+	eqs(t, h.session("pj-l-01", "s1", "/t/s1.jsonl", now+60), "SESSION pj-l-01 s1", "a repeat's reply")
+	eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "a repeat (a resume): no fact")
+	eqs(t, h.current("pj-l-01"), "s2", "current unchanged by the repeat")
 
 	ss, err := store.ReadSessionsAt(h.root)
 	if err != nil || len(ss) != 2 {
 		t.Fatalf("store: %d sessions (%v), want 2", len(ss), err)
 	}
-	if s, ok := store.Current(ss, "pj-o-01"); !ok || s.ID != "s2" || s.Transcript != "/t/s2.jsonl" || s.Lane != "O-01" ||
+	if s, ok := store.Current(ss, "pj-l-01"); !ok || s.ID != "s2" || s.Transcript != "/t/s2.jsonl" || s.Lane != "L-01" ||
 		s.Task != "T-1" || s.Pane != "w1:p1" || s.Kind != "claude" || s.Started != now {
 		t.Errorf("store's current %+v, want s2 with its fields", s)
 	}
@@ -82,8 +82,8 @@ func TestSessionFacts(t *testing.T) {
 	h.a.closeLog()
 	h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
 	h.connect()
-	eqs(t, strings.Join(h.sessions("pj-o-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "replay: the same facts")
-	eqs(t, h.current("pj-o-01"), "s2", "replay: current")
+	eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "s1 /t/s1.jsonl,s2 /t/s2.jsonl", "replay: the same facts")
+	eqs(t, h.current("pj-l-01"), "s2", "replay: current")
 }
 
 // T-577: the identity reads the recorded session first: a pane whose herdr session is the record is identified by
@@ -95,29 +95,29 @@ func TestSessionIdentityCrossCheck(t *testing.T) {
 		t.Parallel()
 		h, out := newIdentHarness(t)
 		h.connect()
-		h.session("pj-o-01", "s1", "", time.Now().Unix())
+		h.session("pj-l-01", "s1", "", time.Now().Unix())
 		h.connect()
-		eqs(t, h.where("pj-o-01"), "identified w1:p1 session", "herdr's session is the record")
+		eqs(t, h.where("pj-l-01"), "identified w1:p1 session", "herdr's session is the record")
 
 		h.status("w1:p1", func(p *port.Pane) { p.Session = "s-herdr" })
-		eqs(t, h.where("pj-o-01"), "identified w1:p1 label", "a differing herdr session: by label")
+		eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "a differing herdr session: by label")
 		h.status("w1:p1", func(p *port.Pane) { p.Status = "working" })
-		const line = "herdr reports session s-herdr for pj-o-01 at pane w1:p1; its recorded session is s1 (kept)"
+		const line = "herdr reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)"
 		if n := strings.Count(out.String(), line); n != 1 {
 			t.Errorf("logged %d times, want once:\n%s", n, out)
 		}
-		eqs(t, h.current("pj-o-01"), "s1", "not adopted")
+		eqs(t, h.current("pj-l-01"), "s1", "not adopted")
 	})
 	t.Run("start", func(t *testing.T) {
 		t.Parallel()
 		h, out := newIdentHarness(t)
 		h.pane("w1:p1").Label, h.pane("w1:p1").Session = "", "s-herdr"
-		h.started("pj-o-01", "w1:p1", "t1", "")
+		h.started("pj-l-01", "w1:p1", "t1", "")
 		h.connect()
-		h.session("pj-o-01", "s1", "", time.Now().Unix())
+		h.session("pj-l-01", "s1", "", time.Now().Unix())
 		h.connect()
-		eqs(t, h.where("pj-o-01"), "identified w1:p1 start", "a differing herdr session: by start")
-		if !strings.Contains(out.String(), "herdr reports session s-herdr for pj-o-01 at pane w1:p1; its recorded session is s1 (kept)") {
+		eqs(t, h.where("pj-l-01"), "identified w1:p1 start", "a differing herdr session: by start")
+		if !strings.Contains(out.String(), "herdr reports session s-herdr for pj-l-01 at pane w1:p1; its recorded session is s1 (kept)") {
 			t.Errorf("not logged:\n%s", out)
 		}
 	})
@@ -129,7 +129,7 @@ func TestSessionInStatus(t *testing.T) {
 	h, _ := newIdentHarness(t)
 	h.connect()
 	now := time.Now().Unix()
-	h.session("pj-o-01", "s1", "/t/s1.jsonl", now)
+	h.session("pj-l-01", "s1", "/t/s1.jsonl", now)
 	h.connect()
 	st := h.a.Status()
 	var got *wire.AgentStatus
@@ -138,8 +138,8 @@ func TestSessionInStatus(t *testing.T) {
 			got = &st.Project.Agents[i]
 		}
 	}
-	if got == nil || got.Name != "pj-o-01" {
-		t.Fatalf("pj-o-01 not in the status: %+v", st.Project.Agents)
+	if got == nil || got.Name != "pj-l-01" {
+		t.Fatalf("pj-l-01 not in the status: %+v", st.Project.Agents)
 	}
 	if got.Session != "s1" || got.Transcript != "/t/s1.jsonl" || got.Started != now {
 		t.Errorf("status session %q %q %d, want s1 /t/s1.jsonl %d", got.Session, got.Transcript, got.Started, now)

@@ -284,7 +284,7 @@ func TestNightlyReplay(t *testing.T) {
 			t.Parallel()
 			f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
 			r := nightlyRig(t, f, "02:00")
-			r.p.Dispatched("O-01")
+			r.p.Dispatched("L-01")
 			if err := app.WriteLog(r.p.Root, r.clock.Now(), c.recs...); err != nil {
 				t.Fatal(err)
 			}

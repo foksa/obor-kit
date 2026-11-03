@@ -17,7 +17,7 @@ import (
 
 // Kind is one agent CLI as obor drives it.
 type Kind interface {
-	Name() string // herdr's --kind and lane_types.<t>.kind
+	Name() string // herdr's --kind and models.<name>.kind
 
 	// Start is the argv after the binary: the type's args, the kind's settings and MCP registration (none without a
 	// kit), then the resume form or the first prompt (never both).
@@ -70,7 +70,7 @@ type Kind interface {
 type Start struct {
 	Kit      string         // this kit's root ("": no kit to name; no MCP registration on the command line)
 	Args     []string       // the type's args as given
-	Settings map[string]any // the settings to start with (config.LaneType.LaunchArgs); nil: none
+	Settings map[string]any // the settings to start with (config.Model.LaunchArgs); nil: none
 	Resume   string         // the session id to resume ("": fresh)
 	Prompt   string         // the first prompt of a fresh start, one line ("": none)
 	Read     ReadFile       // reads a file an arg names (a config file); nil: none is read
@@ -180,7 +180,7 @@ type Caps struct {
 	Turns         bool // LastTurn reads the session's turns from its transcript (T-563)
 	Sessions      bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
 	ProjectPlugin bool // loads obor's plugin from the project's .claude/settings.json (a worktree needs the file too, T-705)
-	ModelArg      bool // its own default model may not work: a lane type should name one (--model, T-705)
+	ModelArg      bool // its own default model may not work: a model should name its id (T-705)
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
 	VersionVar string
 }
@@ -266,20 +266,13 @@ func CheckEffortArgs(kind string, args []string, effort string) error {
 	return nil
 }
 
-// ModelEditor is a kind whose lane type names its model in the args (obor web's setup edit, T-753): WithModel is args
-// with model in place of the model they name (appended when they name none; "" drops it), every other arg as it is.
+// ModelEditor is a kind that names its model in the args (config.Model, T-765): WithModel is args with model in place
+// of the model they name (appended when they name none; "" drops it), every other arg as it is.
 type ModelEditor interface {
 	WithModel(args []string, model string) []string
 }
 
-// EffortEditor is a kind whose lane type sets its effort in the args (T-753): WithEffortArg is args with effort in place
-// of the one they set (appended when they set none; "" drops it), every other arg as it is.
-type EffortEditor interface {
-	WithEffortArg(args []string, effort string) []string
-}
-
-// ModelArgs is the args of a lane type of kind with model as its model (ModelEditor); an error for a kind whose model
-// is no arg.
+// ModelArgs is args of kind with model as their model (ModelEditor); an error for a kind whose model is no arg.
 func ModelArgs(kind string, args []string, model string) ([]string, error) {
 	e, ok := kinds[kind].(ModelEditor)
 	if !ok {
@@ -288,31 +281,9 @@ func ModelArgs(kind string, args []string, model string) ([]string, error) {
 	return e.WithModel(args, model), nil
 }
 
-// EffortArgs is the args of a lane type of kind with effort as its effort (EffortEditor), effort one of the kind's
-// (CheckEffortArgs); an error for a kind whose effort is no arg (OpenCode's is a type reference's :<effort>).
-func EffortArgs(kind string, args []string, effort string) ([]string, error) {
-	e, ok := kinds[kind].(EffortEditor)
-	if !ok {
-		return nil, fmt.Errorf("kind %s sets no effort in its args: name it in a type reference (<type>:<effort>)", kind)
-	}
-	if err := CheckEffortArgs(kind, args, effort); err != nil {
-		return nil, err
-	}
-	return e.WithEffortArg(args, effort), nil
-}
-
-// EffortsInArgs is the efforts a lane type of kind sets in its args (EffortEditor's Efforts; none for any other kind).
-func EffortsInArgs(kind string) []string {
-	k, ok := kinds[kind]
-	if _, edits := k.(EffortEditor); !ok || !edits {
-		return nil
-	}
-	return k.Efforts()
-}
-
 // SetFlag is args with the value of the flag any of names spells (`<name> <value>` or `<name>=<value>`) set to value:
 // the first one keeps its place and spelling, a later one is dropped; none: names[0] value appended. Value "" drops
-// every one. Every other arg stays as it is (a bridge's WithModel, WithEffortArg; T-753).
+// every one. Every other arg stays as it is (a bridge's WithModel; T-753).
 func SetFlag(args, names []string, value string) []string {
 	out := make([]string, 0, len(args)+2)
 	set := false

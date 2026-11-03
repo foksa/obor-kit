@@ -15,13 +15,14 @@ import (
 
 const noConfig = "FAIL no usable .obor/config.json (obor config validate)"
 
-const dispatchUsage = "usage: obor dispatch <T-xx> [--types <type[:effort],…>] [--after <T-yy,T-zz>] [--force]"
+const dispatchUsage = "usage: obor dispatch <T-xx> [--model <model[:effort]>,…] [--after <T-yy,T-zz>] [--force]"
 
-// dispatchCmd is `obor dispatch <T-xx> [--types a,b] [--after …] [--force]`: a socket request to obor serve, the only
-// dispatcher (T-408). The lane types come from the level of the spec's Difficulty line (config difficulty); --types
-// overrides them; each may name an effort (`opus:high`: an opus lane, its agent started at effort high, T-695). It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane
-// of the level is free (T-538), either followed by "; idle: <LANE> (<type>), …" while lanes stay free (T-483); or its
-// refusal (exit 1: FAIL). Serve down: FAIL obor serve is not running.
+// dispatchCmd is `obor dispatch <T-xx> [--model a,b] [--after …] [--force]`: a socket request to obor serve, the only
+// dispatcher (T-408). The models come from the level of the spec's Difficulty line (config difficulty), the spec's
+// Model: line first; --model overrides them; each may name an effort (`opus:high`: its agent started at effort high,
+// T-695). It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane is
+// free or every model is paused (T-538, T-765), either followed by "; idle: <LANE>, …" while lanes stay free (T-483);
+// or its refusal (exit 1: FAIL). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {
 	return request(context.Background(), project.OSEnv, wire.MethodDispatch, func(cfg *config.Config, c *wire.Call) error {
 		return dispatchArgs(args, cfg, c)
@@ -36,7 +37,7 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 		switch a := args[i]; a {
 		case "--force":
 			c.Force = true
-		case "--types", "--after":
+		case "--model", "--after":
 			list := &c.Types
 			if a == "--after" {
 				list = &c.After

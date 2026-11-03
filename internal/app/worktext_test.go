@@ -49,7 +49,7 @@ func writeRoleFile(t *testing.T, path, text string) {
 func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "# Worker here\nproject rules\n")
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestWorkTextCarriesBothRoleTexts(t *testing.T) {
 func TestWorkTextSkipsAMissingProjectDoc(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestWorkTextNamesARoleTextTooLargeToCarry(t *testing.T) {
 	t.Parallel()
 	big := "# Role: worker\n" + strings.Repeat("K", roleTextMax)
 	p, kit := roleFixture(t, big, "# Worker here\nproject rules\n")
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 	t.Parallel()
 	at := "# Role: worker\n" + strings.Repeat("K", roleTextMax-len("# Role: worker\n"))
 	p, kit := roleFixture(t, at, "")
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,27 +114,31 @@ func TestRoleTextAtTheCapIsInlined(t *testing.T) {
 	}
 }
 
-// T-721: the job's prompt_extra is the type's its dispatch chose (the lane row's), not the config's lane type; a
-// dispatch recorded before T-721 (no type) takes the config's lane type's.
-func TestWorkTextPromptExtraIsTheDispatchsType(t *testing.T) {
+// T-721, T-765: the job's prompt_extra is the kind's of the model its dispatch chose (kinds.<kind>.prompt_extra); a
+// dispatch recorded before T-721 (no model) carries none.
+func TestWorkTextPromptExtraIsTheDispatchsModels(t *testing.T) {
 	t.Parallel()
 	p, kit := roleFixture(t, "# Role: worker\nkit rules\n", "")
-	cfg := `{"name":"pj","paths":{"agents":"doc/roles"},"lanes":{"O-01":"opus"},"lane_types":{
-		"opus":{"kind":"claude","prompt_extra":"Opus extra."},"sonnet":{"kind":"claude","prompt_extra":"Sonnet extra."}}}`
+	cfg := `{"name":"pj","paths":{"agents":"doc/roles"},"lanes":1,"kinds":{
+		"claude":{"prompt_extra":"Claude extra."},"codex":{"prompt_extra":"Codex extra."}}}`
 	writeRoleFile(t, filepath.Join(p.root, ".obor", "config.json"), cfg)
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01", disp: dispatchData{Lane: "O-01", Type: "sonnet:high"}}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "luna:high"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Sonnet extra.") || strings.Contains(text, "Opus extra.") {
-		t.Errorf("a sonnet:high dispatch on an opus lane: want sonnet's prompt_extra only:\n%s", text)
+	if !strings.Contains(text, "Codex extra.") || strings.Contains(text, "Claude extra.") {
+		t.Errorf("a luna:high dispatch: want codex's prompt_extra only:\n%s", text)
 	}
-	text, err = workText(p, mtask{task: "T-9", lane: "O-01", disp: dispatchData{Lane: "O-01"}}, kit)
+	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01", Type: "opus"}}, kit)
+	if err != nil || !strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
+		t.Errorf("an opus dispatch: want claude's prompt_extra only (%v):\n%s", err, text)
+	}
+	text, err = workText(p, mtask{task: "T-9", lane: "L-01", disp: dispatchData{Lane: "L-01"}}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "Opus extra.") || strings.Contains(text, "Sonnet extra.") {
-		t.Errorf("a dispatch with no type: want the lane's configured opus prompt_extra only:\n%s", text)
+	if strings.Contains(text, "Claude extra.") || strings.Contains(text, "Codex extra.") {
+		t.Errorf("a dispatch with no model: want no prompt_extra:\n%s", text)
 	}
 }
 
@@ -145,7 +149,7 @@ func TestWorkerPromptNamesNoRoleText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prompt, err := workerPrompt(config.Fallback(t.TempDir()), kit, "T-9", config.LaneType{PromptExtra: "Extra."})
+	prompt, err := workerPrompt(config.Fallback(t.TempDir()), kit, "T-9", config.Model{PromptExtra: "Extra."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +171,7 @@ func TestWorkTextDropsOnlyAnEmptyProjectSection(t *testing.T) {
 	kitRole := "# Role: worker\nkit rules\n\n## This project\n<!-- fill in: kit note -->\n"
 	doc := "# Worker here\nproject rules\n\n## This project\n- run make build\n"
 	p, kit := roleFixture(t, kitRole, doc)
-	text, err := workText(p, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(p, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +208,7 @@ func TestWorkJobSaysEachRuleOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeRoleFile(t, filepath.Join(root, "docs", "agents", "worker.md"), string(doc))
-	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +243,7 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	if err := os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "O-01"}, kit)
+	text, err := workText(&proj{root: root}, mtask{task: "T-9", lane: "L-01"}, kit)
 	if err != nil {
 		t.Fatal(err)
 	}

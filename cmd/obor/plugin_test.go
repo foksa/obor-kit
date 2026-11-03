@@ -29,12 +29,12 @@ func waitFor(cond func() bool) bool {
 func TestPluginBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(lane)
-	p.SubmitAgo("O-01", 900)
+	p.SubmitAgo("L-01", 900)
 	p.Herdr().Agent("w9:l", "pj-lead", "idle", p.Root).Label = "pj-lead"
-	p.Herdr().Shell("w9:o1", "pj-o-01", lane)
+	p.Herdr().Shell("w9:o1", "pj-l-01", lane)
 	srv := herdrtest.Serve(t, p.Herdr())
 	// herdr is reached over HERDR_SOCKET_PATH, as herdr runs its plugins. HERDR_PANE_ID is a pane a plugin command can
 	// carry (T-301): the restore below restarts that pane now, never as its own (SCHEDULED).
@@ -56,12 +56,12 @@ func TestPluginBinary(t *testing.T) {
 	if rc, stdout, stderr := run(t, plugin, env, "plugin", "restore"); rc != 0 || stdout+stderr != "" {
 		t.Fatalf("obor plugin restore: exit %d, %q, %q; want 0, silent", rc, stdout, stderr)
 	}
-	if !waitFor(func() bool { return strings.Contains(p.Read(restoreLog), "RESTARTED pj-o-01 (pane w9:o1") }) {
+	if !waitFor(func() bool { return strings.Contains(p.Read(restoreLog), "RESTARTED pj-l-01 (pane w9:o1") }) {
 		t.Fatalf("restore.log:\n%s", p.Read(restoreLog))
 	}
 	got := p.Read(restoreLog)
 	if !strings.Contains(got, " skip pj-lead (pane w9:l): runs claude") ||
-		!strings.Contains(got, " restore pj-o-01 (pane w9:o1) in "+p.Root+" (worker, no recorded session: --fresh)") {
+		!strings.Contains(got, " restore pj-l-01 (pane w9:o1) in "+p.Root+" (worker, no recorded session: --fresh)") {
 		t.Errorf("restore.log: want the lead skipped and the worker restored:\n%s", got)
 	}
 }

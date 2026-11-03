@@ -224,7 +224,7 @@ func TestShorten(t *testing.T) {
 // them as background.
 func TestBuildBackground(t *testing.T) {
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	cfg, err := config.Load(p.Root)
@@ -236,7 +236,7 @@ func TestBuildBackground(t *testing.T) {
 		t.Fatalf("precondition: the config names a lead and an integrator: %q %q", lead, integ)
 	}
 	ss := wire.Status{Project: &wire.ProjectStatus{Root: p.Root, Agents: []wire.AgentStatus{
-		{Name: "w1", Pane: "p1", Lane: "O-01", Status: "working"}, {Name: integ, Pane: "p2", Status: "idle"},
+		{Name: "w1", Pane: "p1", Lane: "L-01", Status: "working"}, {Name: integ, Pane: "p2", Status: "idle"},
 		{Name: lead, Pane: "p3", Status: "working"}}}}
 	bg := map[string][]Background{"w1": {{PID: 1, Command: "a", Age: 40}}, integ: {{PID: 2, Command: "b", Age: 50}},
 		lead: {{PID: 3, Command: "c", Background: true, Label: "l", Age: 60}}}

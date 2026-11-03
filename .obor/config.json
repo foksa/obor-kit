@@ -47,151 +47,25 @@
   "difficulty": {
     "medium": [
       "deepseek",
-      "sonnet",
-      "opus"
+      "sonnet:medium",
+      "opus:medium"
     ],
     "simple": [
       "deepseek",
-      "sonnet",
-      "opus"
+      "sonnet:medium",
+      "opus:medium"
     ]
   },
   "protected_files": [
     "docs/design.md"
   ],
-  "lane_types": {
-    "opus": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "opus",
-        "--effort",
-        "medium",
-        "--permission-mode",
-        "auto"
-      ],
-      "max": 4
-    },
-    "sonnet": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "sonnet",
-        "--effort",
-        "medium",
-        "--permission-mode",
-        "auto"
-      ]
-    },
-    "haiku": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "haiku",
-        "--permission-mode",
-        "auto"
-      ]
-    },
-    "luna": {
-      "kind": "codex",
-      "args": [
-        "-m",
-        "gpt-6-luna",
-        "-c",
-        "model_reasoning_effort=high",
-        "-s",
-        "workspace-write",
-        "-a",
-        "never"
-      ]
-    },
-    "fable": {
-      "kind": "claude",
-      "args": [
-        "--model",
-        "fable",
-        "--permission-mode",
-        "auto"
-      ]
-    },
-    "luna-xh": {
-      "kind": "codex",
-      "args": [
-        "-m",
-        "gpt-6-luna",
-        "-c",
-        "model_reasoning_effort=xhigh",
-        "-s",
-        "workspace-write",
-        "-a",
-        "never"
-      ]
-    },
-    "sol": {
-      "kind": "codex",
-      "args": [
-        "-m",
-        "gpt-6.1-sol",
-        "-c",
-        "model_reasoning_effort=high",
-        "-s",
-        "workspace-write",
-        "-a",
-        "never"
-      ]
-    },
-    "deepseek": {
-      "kind": "opencode",
-      "args": [
-        "--auto",
-        "--standalone",
-        "--model",
-        "opencode-go/deepseek-v4.1-flash"
-      ],
-      "max": 2,
-      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
-    },
-    "terra": {
-      "kind": "codex",
-      "args": [
-        "-m",
-        "gpt-6.1-terra",
-        "-c",
-        "model_reasoning_effort=high",
-        "-s",
-        "workspace-write",
-        "-a",
-        "never"
-      ]
-    }
-  },
-  "lanes": {
-    "L-01": "",
-    "L-02": "",
-    "L-03": "",
-    "L-04": ""
-  },
+  "lanes": 4,
   "roles": {
-    "reviewer": {
-      "type": "terra:xhigh",
-      "worktree": "review",
-      "agent": "ob-terra"
-    },
-    "lead": {
-      "agent": "ob-lead",
-      "type": "opus:high",
-      "handoff_tokens": 500000
-    },
-    "deep_dive": {
-      "type": "opus:high",
-      "worktree": "deep-dive"
-    },
-    "integrator": {
-      "type": "opus"
-    },
-    "researcher": {
-      "type": "sonnet"
-    }
+    "reviewer": "terra:xhigh",
+    "lead": "opus:high",
+    "deep_dive": "opus:high",
+    "integrator": "opus:medium",
+    "researcher": "sonnet:medium"
   },
   "merge": {
     "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
@@ -245,5 +119,11 @@
   },
   "setup": {
     "confirmed": true
+  },
+  "handoff_tokens": 500000,
+  "kinds": {
+    "opencode": {
+      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
+    }
   }
 }

@@ -46,17 +46,17 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 			},
 		},
 		{
-			name: "the same name in two lane types",
-			cfg:  `{"lane_types":{"x":{"kind":"claude","bar":1},"y":{"kind":"codex","bar":2}}}`,
-			warn: []string{"lane_types.x.bar", "lane_types.y.bar"},
+			name: "the same name in two models",
+			cfg:  `{"models":{"x":{"kind":"claude","bar":1},"y":{"kind":"codex","bar":2}}}`,
+			warn: []string{"models.x.bar", "models.y.bar"},
 		},
 		{
 			name: "an unknown member sharing a name with a known one elsewhere",
-			cfg:  `{"merge":{"guard":"g","future":{"guard":1}},"lane_types":{"x":{"kind":"claude","max":3,"merge":{"guard":2}}}}`,
-			warn: []string{"merge.future", "lane_types.x.merge"},
+			cfg:  `{"merge":{"guard":"g","future":{"guard":1}},"models":{"x":{"kind":"claude","model":"m3","merge":{"guard":2}}}}`,
+			warn: []string{"merge.future", "models.x.merge"},
 			check: func(t *testing.T, c *Config) {
-				if c.Data.Merge.Guard != "g" || c.Data.LaneTypes.M["x"].Max != 3 {
-					t.Errorf("known members lost: merge.guard=%q max=%d", c.Data.Merge.Guard, c.Data.LaneTypes.M["x"].Max)
+				if c.Data.Merge.Guard != "g" || c.Data.Models.M["x"].Model != "m3" {
+					t.Errorf("known members lost: merge.guard=%q model=%q", c.Data.Merge.Guard, c.Data.Models.M["x"].Model)
 				}
 			},
 		},
@@ -73,7 +73,7 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 		},
 		{
 			name: "inside a map and an any stay untouched",
-			cfg:  `{"notify":{"a":{"future":1}},"lane_types":{"x":{"kind":"claude","settings":{"future":1}}},"merge":{"future":1}}`,
+			cfg:  `{"notify":{"a":{"future":1}},"merge":{"future":1}}`,
 			warn: []string{"merge.future"},
 		},
 	} {

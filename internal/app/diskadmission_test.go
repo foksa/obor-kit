@@ -166,7 +166,7 @@ func TestRV59LowDiskPendingGate(t *testing.T) {
 			gates := p.folded.loop["T-1"].gates
 			r.a.mu.Unlock()
 			step := nth(event.StepGate, gates+1)
-			r.add("pj", "T-1", step, event.KindIntent, gateIn{Kind: c.kind, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", step, event.KindIntent, gateIn{Kind: c.kind, Lane: "L-01", Input: "s1"})
 
 			f := &diskCount{}
 			f.free.Store(gib)

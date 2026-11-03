@@ -62,7 +62,7 @@ func TestOpenCodeStoppedReset(t *testing.T) {
 				r.waitFor("worker working", func() bool { return r.taskState() == "working" })
 			}
 
-			agent, lane := "pj-o1", "O-01"
+			agent, lane := "pj-l-01", "L-01"
 			if c.roleAgent {
 				agent, lane = "pj-rev", ""
 			}
@@ -149,11 +149,11 @@ func TestStoppedRoleAgentLine(t *testing.T) {
 
 // turnCall is a worker's UserPromptSubmit or Stop hook telling serve its next turn began or ended (T-540).
 func (r *loopRig) turnCall() (string, error) {
-	return r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-o1", Role: "worker", Lane: "O-01"})
+	return r.line(wire.MethodTurn, wire.NewCallID(), wire.Call{Agent: "pj-l-01", Role: "worker", Lane: "L-01"})
 }
 
 // stopReason is the worker's stop the rig's stoppedCall records.
-const stopReason = "pj-o1 stopped: rate_limit (429 Too Many Requests)"
+const stopReason = "pj-l-01 stopped: rate_limit (429 Too Many Requests)"
 
 // stopsInForce is how many needs-you{stopReason} of T-1 are in force.
 func (r *loopRig) stopsInForce() int {
@@ -176,7 +176,7 @@ func stoppedWorker(t *testing.T) *loopRig {
 	r.workerNext("n1")
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	r.workerIs("working")
-	if reply, err := r.stoppedCall("pj-o1", "worker", "O-01", "s1"); err != nil || reply != "STOPPED pj-o1 (needs-you T-1)" {
+	if reply, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1"); err != nil || reply != "STOPPED pj-l-01 (needs-you T-1)" {
 		t.Fatalf("stopped: %q, %v", reply, err)
 	}
 	if n := r.stopsInForce(); n != 1 {
@@ -187,7 +187,7 @@ func stoppedWorker(t *testing.T) *loopRig {
 
 // T-532, T-540: a worker whose turn ends on an API error gets one fact stopped carrying its task, and the watchdog's
 // needs-you{<agent> stopped: <error> (<details>)} of the task folded from it, posted to the lead as
-// "[obor] needs-you T-1 (O-01): …"; its working status does not end it, nor does an idle wait stall it; its next
+// "[obor] needs-you T-1 (L-01): …"; its working status does not end it, nor does an idle wait stall it; its next
 // turn's hook (the turn request) ends it: fact resumed.
 func TestStoppedWorkerNeedsYou(t *testing.T) {
 	t.Parallel()
@@ -198,7 +198,7 @@ func TestStoppedWorkerNeedsYou(t *testing.T) {
 	if r.hasPrefix("0 fact needs-you") {
 		t.Errorf("a second record for the stop: %q, want the needs-you folded from stopped", r.steps())
 	}
-	const line = "[obor] needs-you T-1 (O-01): " + stopReason
+	const line = "[obor] needs-you T-1 (L-01): " + stopReason
 	r.waitFor("the needs-you line posted", func() bool {
 		for _, p := range r.inbox.posted() {
 			if strings.HasPrefix(p, "pj-lead: "+line) {
@@ -222,7 +222,7 @@ func TestStoppedWorkerNeedsYou(t *testing.T) {
 		t.Fatalf("while stopped: %q, want only the stop in force", r.steps())
 	}
 	reply, err := r.turnCall()
-	if err != nil || reply != "TURN pj-o1 (the stop of T-1 ended)" {
+	if err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
 		t.Fatalf("turn: %q, %v", reply, err)
 	}
 	if !r.has("0 fact resumed") {
@@ -231,7 +231,7 @@ func TestStoppedWorkerNeedsYou(t *testing.T) {
 	if f := r.app.Status().Project.Facts; len(f) != 0 {
 		t.Errorf("facts in force %+v after the next turn, want none", f)
 	}
-	if again, err := r.turnCall(); err != nil || again != "TURN pj-o1 (no stop)" || r.count("0 fact resumed") != 1 {
+	if again, err := r.turnCall(); err != nil || again != "TURN pj-l-01 (no stop)" || r.count("0 fact resumed") != 1 {
 		t.Errorf("a later turn: %q, %v, %d resumed; want nothing recorded", again, err, r.count("0 fact resumed"))
 	}
 }
@@ -255,8 +255,8 @@ func TestStoppedWorkerOneRecordReplay(t *testing.T) {
 		return nil
 	})
 
-	reply, err := r.stoppedCall("pj-o1", "worker", "O-01", "s1")
-	if err != nil || reply != "STOPPED pj-o1 (needs-you T-1)" {
+	reply, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1")
+	if err != nil || reply != "STOPPED pj-l-01 (needs-you T-1)" {
 		t.Fatalf("stopped: %q, %v", reply, err)
 	}
 	if n := r.stopsInForce(); n != 1 {
@@ -267,7 +267,7 @@ func TestStoppedWorkerOneRecordReplay(t *testing.T) {
 	if n := r.stopsInForce(); n != 1 {
 		t.Fatalf("after replay: stops in force %d, want 1: %q", n, r.steps())
 	}
-	again, err := r.stoppedCall("pj-o1", "worker", "O-01", "s1")
+	again, err := r.stoppedCall("pj-l-01", "worker", "L-01", "s1")
 	if err != nil || again != reply {
 		t.Errorf("identical retry: %q, %v; want %q", again, err, reply)
 	}
@@ -305,7 +305,7 @@ func TestStoppedWorkerNextTurnSameSecond(t *testing.T) {
 	if r.stopsInForce() != 1 {
 		t.Fatalf("precondition: the stop in force before the hook: %q", r.steps())
 	}
-	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-o1 (the stop of T-1 ended)" {
+	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
 		t.Fatalf("turn: %q, %v", reply, err)
 	}
 	if r.stopsInForce() != 0 || !r.has("0 fact resumed") {
@@ -352,7 +352,7 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 	r.workerNext("n1")
 	r.waitFor("working", func() bool { return r.taskState() == "working" })
 	rollout := filepath.Join(t.TempDir(), "rollout-2026-10-15T13-25-21-c1.jsonl")
-	c := codexRig{loopRig: r, reason: "pj-o1 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"}
+	c := codexRig{loopRig: r, reason: "pj-l-01 stopped: usage_limit_exceeded (" + cdxLimitMsg + ")"}
 	c.append = func(s string) {
 		f, err := os.OpenFile(rollout, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -387,14 +387,14 @@ func codexStoppedWith(t *testing.T, limited string) codexRig {
 }
 
 // T-563: a Codex worker (no StopFailure hook) whose rollout's last turn ended on its usage limit is read when it goes
-// idle with its task open: one fact stopped with the turn, its needs-you{pj-o1 stopped: usage_limit_exceeded
+// idle with its task open: one fact stopped with the turn, its needs-you{pj-l-01 stopped: usage_limit_exceeded
 // (<message>)} folded from it and posted to the lead, as the hook's (while the turn's start was the last event,
 // nothing: codexStopped); more idle checks and a replay record nothing more; a later turn's start in the rollout (the
 // pane working) ends it: fact resumed, and its clean end records nothing.
 func TestStoppedCodexUsageLimit(t *testing.T) {
 	t.Parallel()
 	r := codexStopped(t)
-	line := "pj-lead: [obor] needs-you T-1 (O-01): " + r.reason
+	line := "pj-lead: [obor] needs-you T-1 (L-01): " + r.reason
 	r.waitFor("the needs-you line posted", func() bool {
 		for _, p := range r.inbox.posted() {
 			if strings.HasPrefix(p, line) {
@@ -444,7 +444,7 @@ func TestStoppedCodexUsageLimit(t *testing.T) {
 func TestStoppedCodexOncePerTurn(t *testing.T) {
 	t.Parallel()
 	r := codexStopped(t)
-	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-o1 (the stop of T-1 ended)" {
+	if reply, err := r.turnCall(); err != nil || reply != "TURN pj-l-01 (the stop of T-1 ended)" {
 		t.Fatalf("turn: %q, %v", reply, err)
 	}
 	if r.inForce() != 0 {

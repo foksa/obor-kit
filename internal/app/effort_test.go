@@ -9,20 +9,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"obor/internal/testkit"
 )
 
-// T-695: effort beside the type. A type reference `opus:high` (the built-in hard level, a spec's Type: line, --types)
-// matches a lane of type opus; the dispatch records and replies the effort, the worker's start request carries it, and
-// status shows it.
+// T-695: effort beside the model. A model ref `opus:high` (the built-in hard level, a spec's Model: line, --model):
+// the dispatch records and replies the effort, the worker's start request carries it, and status shows it.
 
-// effortRig is a dispatch rig whose lane O-01 (agent pj-o1) is a free opus lane.
+// effortRig is a dispatch rig whose lane L-01 (agent pj-l-01) is free.
 func effortRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
-	r := newDispatchRig(t, append([]func(map[string]any){testkit.Set("lanes.O-01", map[string]any{"type": "opus", "agent": "pj-o1"})},
-		edits...)...)
-	r.setLane(func(l *port.Lane) { l.Type, l.Agent = "opus", "pj-o1" })
+	r := newDispatchRig(t, edits...)
+	r.setLane(func(l *port.Lane) { l.Agent = "pj-l-01" })
 	return r
 }
 
@@ -43,17 +39,17 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	r.start()
 	r.specLevel("hard") // the built-in hard level is opus:high
 	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort high") {
-		t.Fatalf("hard dispatch: %q, %v; want O-01 at effort high", reply, err)
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort high") {
+		t.Fatalf("hard dispatch: %q, %v; want L-01 at effort high", reply, err)
 	}
-	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "O-01" || d["type"] != "opus:high" {
-		t.Errorf("dispatch fact %v, want effort high and type opus:high on O-01 (T-721)", d)
+	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "high" || d["lane"] != "L-01" || d["type"] != "opus:high" {
+		t.Errorf("dispatch fact %v, want effort high and type opus:high on L-01 (T-721)", d)
 	}
-	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
-	if row, ok := r.p.Row("O-01"); !ok || row.Task != "T-1" || row.Type != "opus:high" {
+	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-l-01"); return ok })
+	if row, ok := r.p.Row("L-01"); !ok || row.Task != "T-1" || row.Type != "opus:high" {
 		t.Errorf("lane row %+v (%v), want T-1 with type opus:high (T-721)", row, ok)
 	}
-	if l, _ := r.launchOf("pj-o1"); l.Effort != "high" || !l.Fresh || l.Type != "opus" {
+	if l, _ := r.launchOf("pj-l-01"); l.Effort != "high" || !l.Fresh || l.Type != "opus" {
 		t.Errorf("worker start %+v, want a fresh start of the dispatch's type opus at effort high (T-722)", l)
 	}
 	if st := r.taskStatus("T-1"); st.Effort != "high" {
@@ -64,9 +60,9 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 func TestEffortSpecTypeAndTypesNameIt(t *testing.T) {
 	r := effortRig(t)
 	r.start()
-	r.setSpec("s1", "# T-1 — Typed\n\nDifficulty: medium\nType: opus:max\n")
-	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort max") {
-		t.Fatalf("Type: opus:max dispatch: %q, %v", reply, err)
+	r.setSpec("s1", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n")
+	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort max") {
+		t.Fatalf("Model: opus:max dispatch: %q, %v", reply, err)
 	}
 	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "max" {
 		t.Errorf("dispatch fact %v, want effort max", d)
@@ -75,8 +71,8 @@ func TestEffortSpecTypeAndTypesNameIt(t *testing.T) {
 	r2 := effortRig(t)
 	r2.start()
 	r2.specLevel("medium")
-	if reply, err := r2.dispatchLevel("d1", "opus:low"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued) effort low") {
-		t.Fatalf("--types opus:low: %q, %v", reply, err)
+	if reply, err := r2.dispatchLevel("d1", "opus:low"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort low") {
+		t.Fatalf("--model opus:low: %q, %v", reply, err)
 	}
 }
 
@@ -85,14 +81,14 @@ func TestEffortPlainTypeNamesNone(t *testing.T) {
 	r.start()
 	r.specLevel("medium")
 	reply, err := r.dispatchLevel("d1", "opus")
-	if err != nil || reply != "DISPATCHED T-1 → O-01 (queued)" {
-		t.Fatalf("--types opus: %q, %v; want no effort in the reply", reply, err)
+	if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as opus" {
+		t.Fatalf("--model opus: %q, %v; want no effort in the reply", reply, err)
 	}
 	if d := r.factData("T-1", event.StepDispatched); d["effort"] != nil || d["type"] != "opus" {
-		t.Errorf("dispatch fact %v, want no effort (the type's args) and type opus (T-721)", d)
+		t.Errorf("dispatch fact %v, want no effort (the kind's default) and type opus (T-721)", d)
 	}
-	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-o1"); return ok })
-	if l, _ := r.launchOf("pj-o1"); l.Effort != "" || l.Type != "opus" {
+	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-l-01"); return ok })
+	if l, _ := r.launchOf("pj-l-01"); l.Effort != "" || l.Type != "opus" {
 		t.Errorf("worker start %+v, want the dispatch's type opus (T-722) and no effort", l)
 	}
 }
@@ -109,17 +105,17 @@ func TestEffortRefusals(t *testing.T) {
 	}
 	set := func(callID, typ string) error {
 		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: callID, Task: "T-2", Spec: "# T-2 — A\n\nDifficulty: medium\nType: " + typ + "\n"})
+			CallID: callID, Task: "T-2", Spec: "# T-2 — A\n\nDifficulty: medium\nModel: " + typ + "\n"})
 		return err
 	}
 	if err := set("s1", "opus:turbo"); err == nil || !strings.Contains(err.Error(), `effort "turbo" is not one of claude's`) {
-		t.Errorf("spec set Type: opus:turbo: %v; want a refusal", err)
+		t.Errorf("spec set Model: opus:turbo: %v; want a refusal", err)
 	}
-	if err := set("s2", "ghost:high"); err == nil || !strings.Contains(err.Error(), "names a lane type this project does not have") {
-		t.Errorf("spec set Type: ghost:high: %v; want the unknown type refused", err)
+	if err := set("s2", "ghost:high"); err == nil || !strings.Contains(err.Error(), `"ghost" is not a model`) {
+		t.Errorf("spec set Model: ghost:high: %v; want the unknown model refused", err)
 	}
 	if err := set("s3", "opus:high"); err != nil {
-		t.Errorf("spec set Type: opus:high: %v", err)
+		t.Errorf("spec set Model: opus:high: %v", err)
 	}
 }
 
@@ -129,13 +125,13 @@ func TestDispatchWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 	r := effortRig(t)
 	r.start()
 	r.specLevel("medium")
-	settings := filepath.Join(r.p.LaneDir("O-01"), ".claude", "settings.json")
+	settings := filepath.Join(r.p.LaneDir("L-01"), ".claude", "settings.json")
 	if err := os.Remove(settings); err != nil {
 		t.Fatalf("precondition: the lane had the plugin enabled: %v", err)
 	}
 	reply, err := r.dispatchLevel("d1", "opus")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → O-01 (queued)") ||
-		!strings.Contains(reply, "WARN lane O-01 has no enabled obor plugin") {
+	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued)") ||
+		!strings.Contains(reply, "WARN lane L-01 has no enabled obor plugin") {
 		t.Fatalf("dispatch without the plugin: %q, %v; want DISPATCHED … and the WARN", reply, err)
 	}
 }

@@ -102,21 +102,21 @@ func (r result) hasNot(what string, needles ...string) result {
 // nudges is the old nudge ledger: the hook writes none (T-465).
 func (f hfx) nudges() string { return f.Root + "/.obor/state/nudges" }
 
-// state writes lane O-01's row (task T-01, agent pj-o1, base main) dispatched at.
+// state writes lane L-01's row (task T-01, agent pj-l1, base main) dispatched at.
 func (f hfx) state(at int64) {
-	f.State("O-01", `{"lane":"O-01","task":"T-01","branch":"task/T-01","agent":"pj-o1","base":"main","dispatched_at":`+
+	f.State("L-01", `{"lane":"L-01","task":"T-01","branch":"task/T-01","agent":"pj-l1","base":"main","dispatched_at":`+
 		strconv.FormatInt(at, 10)+`,"allowed":["src/**"]}`)
 }
 
 func ago(secs int64) int64 { return time.Now().Unix() - secs }
 
-func (f hfx) integrator() { f.Config(testkit.Set("roles", `{"integrator": {"type": "opus"}}`)) }
+func (f hfx) integrator() { f.Config(testkit.Set("roles", `{"integrator": "opus"}`)) }
 
-// doneLane: lane O-04 on task/T-04 with a commit and its task_done.
+// doneLane: lane L-04 on task/T-04 with a commit and its task_done.
 func (f hfx) doneLane() string {
-	o4 := f.Lane("O-04", "task/T-04")
+	o4 := f.Lane("L-04", "task/T-04")
 	f.Commit(o4)
-	f.Submit("O-04")
+	f.Submit("L-04")
 	return o4
 }
 
@@ -139,7 +139,7 @@ func session(sid, tr string) string {
 func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	f.Lane("O-01", "task/T-01")
+	f.Lane("L-01", "task/T-01")
 	f.Config(testkit.Set("roles", `{"lead": {"handoff_tokens": 300000}, "integrator": {"type": "opus", "handoff_tokens": 300000}}`))
 	tr := transcript(f, f.Base+"/projects/p/s1.jsonl", 900000)
 	if ctx, _, _, ok := project.ContextTokens(tr); !ok || ctx != 900000 {
@@ -157,14 +157,14 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 func TestStopWorkerHandoffUnaffected(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	tr := transcript(f, f.Base+"/projects/p/w1.jsonl", 900000)
 	f.stop(t, "-", o1, session("w1", tr)).block("precondition: the worker without its task_done").
 		hasNot("the worker's own block", "context is")
-	f.Submit("O-01")
+	f.Submit("L-01")
 	f.stop(t, "-", o1, session("w1", tr)).allow("a worker at 900k with its task_done")
 }
 
@@ -173,11 +173,11 @@ func TestStopWorkerHandoffUnaffected(t *testing.T) {
 func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
-	before, _ := f.Row("O-01")
+	f.Dispatched("L-01")
+	before, _ := f.Row("L-01")
 	f.stop(t, "-", o1, "").block("no task_done yet").
 		has("reason", "no task_done for T-01 yet", "call the obor task_done tool", "report argument",
 			"Summary, Self-check, Skipped, Open questions", "call task_done with a Blocked: report naming what you need", "Already sent one? Stop again.").
@@ -185,7 +185,7 @@ func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	if f.Exists(f.nudges()) {
 		t.Errorf("the worker hook wrote the nudges ledger: %s", f.Read(f.nudges()))
 	}
-	if after, _ := f.Row("O-01"); after != before {
+	if after, _ := f.Row("L-01"); after != before {
 		t.Errorf("the lane row changed: %+v, was %+v", after, before)
 	}
 }
@@ -194,14 +194,14 @@ func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 func TestStopWorkerAfterTaskDoneAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("precondition: no task_done yet")
-	f.Submit("O-01")
+	f.Submit("L-01")
 	f.stop(t, "-", o1, "").allow("task_done recorded")
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("a new attempt awaits its task_done")
 }
 
@@ -210,10 +210,10 @@ func TestStopWorkerAfterTaskDoneAllows(t *testing.T) {
 func TestStopWorkerAfterBlockedReportAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("precondition: no report yet")
 	f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: need help"})
 	f.stop(t, "-", o1, "").allow("Blocked: report recorded")
@@ -251,15 +251,15 @@ func (f hfx) appendFact(t *testing.T, task, step string, data any) {
 	f.appendEvent(t, task, step, "fact", data)
 }
 
-// blockedReport is the fixture a later attempt inherits: lane O-01's task dispatched, its Blocked: report recorded (the
+// blockedReport is the fixture a later attempt inherits: lane L-01's task dispatched, its Blocked: report recorded (the
 // needs-you{asks} fact serve's task_done records).
 func blockedReport(t *testing.T) (hfx, string) {
 	t.Helper()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: need help"})
 	return f, o1
 }
@@ -271,7 +271,7 @@ func TestStopWorkerBlockedReportDropRedispatchedBlocks(t *testing.T) {
 	f, o1 := blockedReport(t)
 	f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
 	f.appendFact(t, "T-01", "dropped", map[string]string{"reason": "gone"})
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.appendEvent(t, "T-01", "lane.prepare", "result", map[string]string{"base": "main"})
 	f.stop(t, "-", o1, "").block("the re-dispatched attempt has no report of its own").
 		has("reason", "no task_done for T-01 yet")
@@ -283,7 +283,7 @@ func TestStopWorkerBlockedReportSubmitSendbackBlocks(t *testing.T) {
 	t.Parallel()
 	f, o1 := blockedReport(t)
 	f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
-	f.Submit("O-01")
+	f.Submit("L-01")
 	f.appendFact(t, "T-01", "sendback", map[string]string{"note": "fix it"})
 	f.state(ago(100)) // the sendback's attempt: the lane awaits its task_done again
 	f.stop(t, "-", o1, "").block("the sent-back attempt has no report of its own").
@@ -300,10 +300,10 @@ func TestStopWorkerFreshBlockedReportAfterBoundaryAllows(t *testing.T) {
 	}{
 		{"drop and re-dispatch", func(t *testing.T, f hfx) {
 			f.appendFact(t, "T-01", "dropped", map[string]string{"reason": "gone"})
-			f.Dispatched("O-01")
+			f.Dispatched("L-01")
 		}},
 		{"submission and sendback", func(t *testing.T, f hfx) {
-			f.Submit("O-01")
+			f.Submit("L-01")
 			f.appendFact(t, "T-01", "sendback", map[string]string{"note": "fix it"})
 			f.state(ago(100))
 		}},
@@ -323,10 +323,10 @@ func TestStopWorkerFreshBlockedReportAfterBoundaryAllows(t *testing.T) {
 func TestStopWorkerOncePerLoop(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, `{"stop_hook_active": false}`).block("a new loop")
 	f.stop(t, "-", o1, `{"stop_hook_active": true}`).allow("the same loop: the worker asked")
 	f.stop(t, "-", o1, `{"stop_hook_active": null}`).block("stop_hook_active null is a new loop")
@@ -338,15 +338,15 @@ func TestStopWorkerOncePerLoop(t *testing.T) {
 func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("precondition: the dispatched lane's row awaits task_done")
-	f.ClearState("O-01")
+	f.ClearState("L-01")
 	f.stop(t, "-", o1, "").allow("no row: not a dispatched lane")
-	f.State("O-01", `{"lane":"O-01","task":"T-09","agent":"pj-o1","finished":1}`)
+	f.State("L-01", `{"lane":"L-01","task":"T-09","agent":"pj-l1","finished":1}`)
 	f.stop(t, "-", o1, "").allow("a row whose task_done is in")
-	f.State("O-01", `{"lane":"O-01","task":"T-09","agent":"pj-o1"}`)
+	f.State("L-01", `{"lane":"L-01","task":"T-09","agent":"pj-l1"}`)
 	f.stop(t, "-", o1, "").block("precondition: a row awaiting task_done blocks")
 	f.Write(".obor/state/obor.db", "not a database\n")
 	f.stop(t, "-", o1, "").allow("the lanes table unreadable: allow (the hook says so on stderr)")
@@ -356,10 +356,10 @@ func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 func TestStopWorkerRunningBackgroundTaskAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, `{"background_tasks":[{"id":"b1","type":"shell","status":"completed","command":"x"}]}`).block("a finished background task")
 	f.stop(t, "-", o1, `{"background_tasks":[{"id":"b2","type":"shell","status":"running","command":"make check"}]}`).allow("a running background task")
 }
@@ -368,10 +368,10 @@ func TestStopWorkerRunningBackgroundTaskAllows(t *testing.T) {
 func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	bg := `{"background_tasks":[{"id":"b1","type":"shell","status":"running","command":"cat <<EOF"}]}`
 	old := "@" + strconv.FormatInt(ago(4000), 10)
 	f.Write(o1+"/work.txt", "work\n")
@@ -404,14 +404,14 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 func TestStopNoConfigAllows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.stop(t, "-", o1, "").allow("worker lane without config")
 	if r := f.stop(t, "integrator", f.Root, "").allow("integrator without config"); r.err != "" {
 		t.Errorf("stderr: %q", r.err)
 	}
 	f.Config()
 	f.state(ago(100))
-	f.Dispatched("O-01")
+	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("the same lane with a config")
 }
 
@@ -428,7 +428,7 @@ func TestStopOtherRolesAllow(t *testing.T) {
 func TestStopInternalErrorAllowsWithStderr(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	f.Lane("O-01", "task/T-01")
+	f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.Write(".obor/config.json", "{broken\n")
 	if r := f.stop(t, "integrator", f.Root, "").allow("broken config"); !strings.HasPrefix(r.err, "obor stop hook: internal error") ||
@@ -469,7 +469,7 @@ func (f hfx) allowsWithError(t *testing.T, n int, role, cwd, extra string) {
 func TestStopRoleErrorWorkerLogUnreadable(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
-	o1 := f.Lane("O-01", "task/T-01")
+	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
 	f.Write(".obor/state/obor.db", "not a database\n")
@@ -491,8 +491,8 @@ func TestStopLeadAndIntegratorNeverBlock(t *testing.T) {
 				} else {
 					f.Config()
 				}
-				if row, ok, err := store.ReadLaneAt(f.Root, "O-04"); err != nil || !ok || row.Finished == 0 {
-					t.Fatalf("precondition: O-04 a done lane: %+v %v %v", row, ok, err)
+				if row, ok, err := store.ReadLaneAt(f.Root, "L-04"); err != nil || !ok || row.Finished == 0 {
+					t.Fatalf("precondition: L-04 a done lane: %+v %v %v", row, ok, err)
 				}
 				f.stop(t, role, f.Root, "", "OBOR_AGENT=pj-"+role).allow("a done lane")
 				f.stop(t, role, f.Root, "").allow("no agent name")

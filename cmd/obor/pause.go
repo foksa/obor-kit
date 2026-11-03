@@ -11,14 +11,22 @@ import (
 	"obor/internal/project"
 )
 
-const pauseUsage = `FAIL usage: obor pause [--for <dur>] "<why>" | obor pause --clear`
+const pauseUsage = `FAIL usage: obor pause [--model <name>] [--for <dur>] "<why>" | obor pause [--model <name>] --clear`
 
-// pauseCmd is `obor pause [--for <dur>] "<why>" | --clear`, the lead's or the owner's: a request to obor serve that
-// records the project's pause (wire.MethodPause): while it holds, dispatches are refused and waiting tasks wait; running
-// gates and merges finish. <dur> is a Go duration (90m, 3h). Serve's reply (PAUSED until …, PAUSE CLEARED, NOT
-// PAUSED), or FAIL: serve down, its refusal or a usage error (exit 1).
+// pauseCmd is `obor pause [--model <name>] [--for <dur>] "<why>" | [--model <name>] --clear`, the lead's or the
+// owner's: a request to obor serve that records the project's pause (wire.MethodPause): while it holds, dispatches are
+// refused and waiting tasks wait; running gates and merges finish. With --model only that model's (T-765): dispatch
+// skips it and a level's next model is used. <dur> is a Go duration (90m, 3h). Serve's reply (PAUSED until …, PAUSE
+// CLEARED, NOT PAUSED), or FAIL: serve down, its refusal or a usage error (exit 1).
 func pauseCmd(args []string) int {
 	var c wire.Call
+	if len(args) >= 2 && args[0] == "--model" {
+		c.Model, args = args[1], args[2:]
+		if c.Model == "" || strings.HasPrefix(c.Model, "-") {
+			fmt.Fprintln(out, pauseUsage)
+			return 1
+		}
+	}
 	switch {
 	case len(args) == 1 && args[0] == "--clear":
 		c.Clear = true
@@ -40,7 +48,7 @@ func pauseCmd(args []string) int {
 		return 1
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodPause, func(_ *config.Config, call *wire.Call) error {
-		call.Note, call.Until, call.Clear = c.Note, c.Until, c.Clear
+		call.Note, call.Until, call.Clear, call.Model = c.Note, c.Until, c.Clear, c.Model
 		return nil
 	})
 }

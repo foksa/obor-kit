@@ -18,7 +18,7 @@ type kind struct{}
 
 const name = "opencode"
 
-// Name is the kind's name (lane_types.<t>.kind).
+// Name is the kind's name (models.<name>.kind).
 const Name = name
 
 func (kind) Name() string { return name }
@@ -49,7 +49,7 @@ func (kind) Efforts() []string { return efforts }
 // CheckEffort: an effort needs the type's --model, as obor never guesses OpenCode's model (T-697).
 func (kind) CheckEffort(args []string, effort string) error {
 	if _, model := splitModel(args); effort != "" && model == "" {
-		return fmt.Errorf("opencode: effort %s needs a model: add --model provider/model to the type's args", effort)
+		return fmt.Errorf("opencode: effort %s needs a model id (models.<name>.model, provider/model)", effort)
 	}
 	return nil
 }

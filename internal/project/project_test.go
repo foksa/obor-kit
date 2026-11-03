@@ -27,7 +27,7 @@ func run(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// fixture: proj (main checkout, committed config) with lanes O-01 and review, and merge (the scratch), under proj-wt.
+// fixture: proj (main checkout, committed config) with lanes L-01 and review, and merge (the scratch), under proj-wt.
 func fixture(t *testing.T, cfg string) (root, wt string) {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -40,7 +40,7 @@ func fixture(t *testing.T, cfg string) (root, wt string) {
 	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
 	run(t, base, "git", "-c", "init.defaultBranch=main", "init", "-q", root)
 	run(t, root, "git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "--allow-empty", "-m", "init")
-	for _, l := range []string{"O-01", "review", "merge"} {
+	for _, l := range []string{"L-01", "review", "merge"} {
 		run(t, root, "git", "worktree", "add", "-q", "--detach", filepath.Join(wt, l), "main")
 	}
 	return root, wt
@@ -61,11 +61,11 @@ func role(t *testing.T, dir string) Role {
 
 func TestFindFromALaneGivesTheMainCheckout(t *testing.T) {
 	root, wt := fixture(t, `{"prefix":"pj"}`)
-	r, err := Find(filepath.Join(wt, "O-01"))
+	r, err := Find(filepath.Join(wt, "L-01"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Root != root || r.Top != filepath.Join(wt, "O-01") || !r.Linked() {
+	if r.Root != root || r.Top != filepath.Join(wt, "L-01") || !r.Linked() {
 		t.Errorf("Find = %+v", r)
 	}
 	if r, _ := Find(root); r.Linked() || r.Root != root {
@@ -80,11 +80,11 @@ func TestFindReadsGitFilesWithoutForkingGit(t *testing.T) {
 	_, wt := fixture(t, `{"prefix":"pj"}`)
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
-	if err := os.Mkdir(filepath.Join(wt, "O-01", "subdir"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(wt, "L-01", "subdir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Find(filepath.Join(wt, "O-01", "subdir"))
-	if err != nil || r.Root != filepath.Join(filepath.Dir(wt), "proj") || r.Top != filepath.Join(wt, "O-01") {
+	r, err := Find(filepath.Join(wt, "L-01", "subdir"))
+	if err != nil || r.Root != filepath.Join(filepath.Dir(wt), "proj") || r.Top != filepath.Join(wt, "L-01") {
 		t.Fatalf("Find from nested lane = %+v, %v", r, err)
 	}
 }
@@ -317,7 +317,7 @@ func TestProjectLockWaitContextAndHolderLine(t *testing.T) {
 }
 
 func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
-	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":{"type":"opus"},"deep_dive":{"type":"opus"}}}`)
+	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":"opus","deep_dive":"opus"}}`)
 	cfg, err := config.Load(root)
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
 	if !Reserved(cfg, "review") || !Reserved(cfg, "deep-dive") {
 		t.Error("role table worktree defaults were not reserved")
 	}
-	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"worker", "O-01", "cwd"}) {
+	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
 	if got := role(t, filepath.Join(wt, "review")); got != (Role{"none", "", "none"}) {
@@ -341,37 +341,23 @@ func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
 	if got := role(t, root); got != (Role{"lead", "", "env"}) {
 		t.Errorf("env: %+v", got)
 	}
-	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"worker", "O-01", "env+cwd"}) {
+	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "env+cwd"}) {
 		t.Errorf("env+cwd: %+v", got)
 	}
 	t.Setenv("OBOR_ROLE", "advisor")
 	if got := role(t, root); got != (Role{"advisor", "", "env"}) {
 		t.Errorf("table env role: %+v", got)
 	}
-	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"worker", "O-01", "env+cwd"}) {
+	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "env+cwd"}) {
 		t.Errorf("table env role + worker cwd: %+v", got)
 	}
 	// T-751: the owner's drive agent in a lane is the driver, not its worker; out of a lane it is no lane's.
 	t.Setenv("OBOR_ROLE", "driver")
-	if got := role(t, filepath.Join(wt, "O-01")); got != (Role{"driver", "O-01", "env+cwd"}) {
+	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"driver", "L-01", "env+cwd"}) {
 		t.Errorf("driver in its lane: %+v", got)
 	}
 	if got := role(t, root); got != (Role{"driver", "", "env"}) {
 		t.Errorf("driver env in the main checkout: %+v", got)
-	}
-}
-
-func TestConfiguredLaneWinsReservedRoleWorktree(t *testing.T) {
-	root, wt := fixture(t, `{"prefix":"pj","lanes":{"review":"opus"},"roles":{"reviewer":{"type":"opus"}}}`)
-	cfg, err := config.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if Reserved(cfg, "review") {
-		t.Fatal("configured lane review must take precedence over the reviewer worktree default")
-	}
-	if got := role(t, filepath.Join(wt, "review")); got != (Role{"worker", "review", "cwd"}) {
-		t.Errorf("configured lane review: %+v", got)
 	}
 }
 

@@ -1,0 +1,12 @@
+{
+  "slots": {
+    "dir": "/tmp/herd-check-slots",
+    "max": 1
+  },
+  "roles": {
+    "advisor": {
+      "type": "fable",
+      "agent": "ob-fable"
+    }
+  }
+}

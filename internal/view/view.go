@@ -475,11 +475,14 @@ func readFullCheck(root string) *FullCheck {
 // guard). None at all, or one older than the lane row's dispatched_at (a leftover from before this dispatch): missing.
 // No row: a marker at all is fresh, nothing to compare it against.
 func pluginMissing(p *checks.LaneTable, s checks.LaneStatus) bool {
-	lt, ok := p.Cfg.LaneType(s.Type)
-	if k, known := agents.Lookup(lt.Kind); ok && known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
+	kind := agents.Default // a lane whose dispatch names no model runs the default kind, as its start does
+	if m, ok := p.Cfg.Model(s.Type); ok {
+		kind = m.Kind
+	}
+	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
 		return !config.PluginEnabledIn(s.Dir)
 	}
-	if k, known := agents.Lookup(lt.Kind); !ok || !known || k.Caps().Hooks != agents.HooksPlugin {
+	if k, known := agents.Lookup(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
 		return false
 	}
 	m, ok := project.PluginMarkerAt(p.Root, s.Lane)

@@ -194,6 +194,8 @@ type folded struct {
 	calls  map[string]string         // answered verdict calls: the stored reply by <method>.<call id>
 	loop   map[string]*mtask         // the merge loop's tasks, by task
 	pause  *event.Pause              // the project's last pause fact (pause.go; nil: none or cleared)
+	// models: each model's last pause fact (obor pause --model, T-765; a cleared one is gone).
+	models map[string]*event.Pause
 	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names and the fact's seq (0: not delivered).
 	delivered map[string]int64
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).

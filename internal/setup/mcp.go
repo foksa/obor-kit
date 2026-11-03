@@ -157,14 +157,14 @@ func fix(m agents.MCPRegistration) string {
 	return "obor setup agents"
 }
 
-// mcpCmd is `obor setup mcp [--lane <type>]`, the doctor: per agent kind the project uses (usedKinds; the others are
+// mcpCmd is `obor setup mcp [--model <name>]`, the doctor: per agent kind the project uses (usedKinds; the others are
 // "not used", never a WARN) whether the obor MCP server is registered, then `obor mcp --check` (the handshake against
-// the server itself); --lane <type> instead asks for that lane type alone, from its effective start args (T-445).
+// the server itself); --model <name> instead asks for that model alone, from its effective start args (T-445).
 // Read-only.
 func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	lane := ""
 	switch {
-	case len(args) == 2 && args[0] == "--lane" && args[1] != "":
+	case len(args) == 2 && args[0] == "--model" && args[1] != "":
 		lane = args[1]
 	case len(args) != 0:
 		return errUsage
@@ -176,7 +176,7 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	bad := false
 	for _, name := range agents.Names() {
 		if used != nil && !used[name] {
-			s.say("mcp %s: not used (no lane type or role of this project runs it)", name)
+			s.say("mcp %s: not used (no model of a level, role or agent of this project runs it)", name)
 			continue
 		}
 		k, _ := agents.Lookup(name)
@@ -218,23 +218,24 @@ func (s *Setup) mcpCmd(_ context.Context, args []string) error {
 	return nil
 }
 
-// usedKinds are the kinds the project runs: every lane type's, and each role's (its type's kind, else agents.Default,
-// as launch starts it; the worker's are its lanes' types); nil when the config does not load (check every kind).
+// usedKinds are the kinds the project runs: every used model's (a level's, a role's, an agent's), and agents.Default
+// for a role with no model, as launch starts it; nil when the config does not load (check every kind).
 func (s *Setup) usedKinds() map[string]bool {
 	if s.load() != nil {
 		return nil
 	}
 	used := map[string]bool{}
-	for _, name := range s.cfg.Data.LaneTypes.Keys {
-		lt, _ := s.cfg.LaneType(name)
-		used[lt.Kind] = true
+	for _, name := range s.cfg.UsedModels() {
+		if m, ok := s.cfg.Model(name); ok {
+			used[m.Kind] = true
+		}
 	}
 	for _, role := range roles.All() {
 		rc, _ := s.cfg.Role(role.Name)
 		if role.Name == "worker" || role.Optional && !rc.Configured {
 			continue
 		}
-		if lt, ok := s.cfg.LaneType(rc.Type); ok && lt.Kind != "" {
+		if lt, ok := s.cfg.Model(rc.Type); ok && lt.Kind != "" {
 			used[lt.Kind] = true
 		} else {
 			used[agents.Default] = true
@@ -243,9 +244,9 @@ func (s *Setup) usedKinds() map[string]bool {
 	return used
 }
 
-// mcpLane is `obor setup mcp --lane <type>`: whether a start of that lane type gives its agent obor's server, read from
+// mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
 // its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a start with --strict-mcp-config
-// gets obor's --mcp-config (an explicit obor entry in the type's args wins), else the plugin manifest's server; codex:
+// gets obor's --mcp-config (an explicit obor entry in kinds.claude.args wins), else the plugin manifest's server; codex:
 // launch args on every start; opencode: the user config's mcp.servers.obor entry. It starts no agent and runs no
 // `claude -p` (T-445: a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake:
 // `obor setup mcp` runs it.
@@ -253,49 +254,49 @@ func (s *Setup) mcpLane(name string) error {
 	if err := s.load(); err != nil {
 		return err
 	}
-	lt, ok := s.cfg.LaneType(name)
+	lt, ok := s.cfg.Model(name)
 	switch {
 	case !ok:
-		return project.Failf("mcp lane %s: no lane type %s (lane_types)", name, name)
+		return project.Failf("mcp model %s: no model %s (models: %s)", name, name, strings.Join(s.cfg.ModelNames(), ", "))
 	case lt.Kind == "":
-		return project.Failf("mcp lane %s: the type has no kind", name)
+		return project.Failf("mcp model %s: the model has no kind", name)
 	}
 	bad := false
 	k, known := agents.Lookup(lt.Kind)
 	if !known {
-		s.say("WARN mcp lane %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList())
-		return project.Failf("mcp lane %s", name)
+		s.say("WARN mcp model %s (%s): not registered: obor registers its server for %s", name, lt.Kind, kindList())
+		return project.Failf("mcp model %s", name)
 	}
 	m := k.Install(s.Kit, s.Env.Get).MCP
 	// a lane never is the lead: the settings default applies
 	how, registered, static := m.Lane(lt.LaunchArgs(false, ""), os.ReadFile)
 	switch {
 	case !static && registered:
-		s.say("mcp lane %s (%s): registered per start (%s)", name, lt.Kind, how)
+		s.say("mcp model %s (%s): registered per start (%s)", name, lt.Kind, how)
 	case !static:
-		s.say("WARN mcp lane %s (%s): not registered: %s", name, lt.Kind, how)
+		s.say("WARN mcp model %s (%s): not registered: %s", name, lt.Kind, how)
 		bad = true
 	default: // the Manifest or Config entry serves the start
 		switch state, path, err := registration(m); {
 		case errors.Is(err, errComments):
-			s.say("WARN mcp lane %s (%s): not registered: %s is not read (comments) (%s)", name, lt.Kind, path, fix(m))
+			s.say("WARN mcp model %s (%s): not registered: %s is not read (comments) (%s)", name, lt.Kind, path, fix(m))
 			bad = true
 		case err != nil:
-			s.say("WARN mcp lane %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fix(m))
+			s.say("WARN mcp model %s (%s): not registered: %s: %v (%s)", name, lt.Kind, path, err, fix(m))
 			bad = true
 		case state == entryNone:
-			s.say("WARN mcp lane %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fix(m))
+			s.say("WARN mcp model %s (%s): not registered: no current %s in %s (%s)", name, lt.Kind, strings.Join(m.Key, "."), path, fix(m))
 			bad = true
 		case m.Where == agents.Manifest:
-			s.say("mcp lane %s (%s): registered by the plugin manifest (%s)", name, lt.Kind, path)
+			s.say("mcp model %s (%s): registered by the plugin manifest (%s)", name, lt.Kind, path)
 		default:
-			s.say("mcp lane %s (%s): registered (%s)", name, lt.Kind, path)
+			s.say("mcp model %s (%s): registered (%s)", name, lt.Kind, path)
 		}
 	}
 	if bad {
-		return project.Failf("mcp lane %s", name)
+		return project.Failf("mcp model %s", name)
 	}
-	s.say("OK mcp lane %s", name)
+	s.say("OK mcp model %s", name)
 	return nil
 }
 

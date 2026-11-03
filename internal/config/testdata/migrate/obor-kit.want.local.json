@@ -1,0 +1,9 @@
+{
+  "slots": {
+    "dir": "/tmp/herd-check-slots",
+    "max": 1
+  },
+  "roles": {
+    "advisor": "fable"
+  }
+}

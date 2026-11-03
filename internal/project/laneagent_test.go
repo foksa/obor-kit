@@ -32,23 +32,22 @@ func writeRows(t *testing.T, root string, agents map[string]string) {
 func TestLaneAgentReadsTheRow(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes_dir":"../wt",
-		"lane_types":{"opus":{"kind":"claude"}},"lanes":{"O-01":"opus"}}`), 0o644)
+	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes_dir":"../wt","lanes":1}`), 0o644)
 	cfg, err := config.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.LaneAgentAliases("O-01", LaneAgent(root, "O-01")); !reflect.DeepEqual(got, []string{"pj-o-01", "pj-o1"}) {
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"pj-l-01", "pj-l1"}) {
 		t.Errorf("no database: %q", got)
 	}
 	if _, ok := AgentLookup(cfg, "bob", ""); ok {
 		t.Error("bob known before the row names it")
 	}
-	writeRows(t, root, map[string]string{"O-01": "bob"})
-	if got := cfg.LaneAgentAliases("O-01", LaneAgent(root, "O-01")); !reflect.DeepEqual(got, []string{"bob", "pj-o-01", "pj-o1"}) {
+	writeRows(t, root, map[string]string{"L-01": "bob"})
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01", "pj-l1"}) {
 		t.Errorf("row: %q", got)
 	}
-	if got, ok := AgentLookup(cfg, "bob", ""); !ok || got.Role != "worker" || got.Lane != "O-01" {
+	if got, ok := AgentLookup(cfg, "bob", ""); !ok || got.Role != "worker" || got.Lane != "L-01" {
 		t.Errorf("AgentLookup(bob) = %+v, %v", got, ok)
 	}
 }
@@ -58,23 +57,22 @@ func TestLaneAgentReadsTheRow(t *testing.T) {
 func TestAgentLookupTakesNoBareLaneName(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes_dir":"../wt",
-		"lane_types":{"opus":{"kind":"claude"}},"lanes":{"O-01":"opus","O-02":"opus"}}`), 0o644)
+	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes_dir":"../wt","lanes":2}`), 0o644)
 	cfg, err := config.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeRows(t, root, map[string]string{"O-01": "o-01", "O-02": "pj-o-02"})
-	if got, ok := AgentLookup(cfg, "pj-o-02", ""); !ok || got.Lane != "O-02" {
-		t.Errorf("AgentLookup(pj-o-02) = %+v, %v; want lane O-02", got, ok)
+	writeRows(t, root, map[string]string{"L-01": "l-01", "L-02": "pj-l-02"})
+	if got, ok := AgentLookup(cfg, "pj-l-02", ""); !ok || got.Lane != "L-02" {
+		t.Errorf("AgentLookup(pj-l-02) = %+v, %v; want lane L-02", got, ok)
 	}
-	if got, ok := AgentLookup(cfg, "o-02", ""); ok {
-		t.Errorf("AgentLookup(o-02) = %+v; want unknown (bare lane name)", got)
+	if got, ok := AgentLookup(cfg, "l-02", ""); ok {
+		t.Errorf("AgentLookup(l-02) = %+v; want unknown (bare lane name)", got)
 	}
-	if names := cfg.LaneAgentAliases("O-02", LaneAgent(root, "O-02")); slices.Contains(names, "o-02") {
-		t.Errorf("LaneAgentAliases(O-02) = %q has the bare lane name", names)
+	if names := cfg.LaneAgentAliases("L-02", LaneAgent(root, "L-02")); slices.Contains(names, "l-02") {
+		t.Errorf("LaneAgentAliases(L-02) = %q has the bare lane name", names)
 	}
-	if got, ok := AgentLookup(cfg, "o-01", ""); !ok || got.Lane != "O-01" {
-		t.Errorf("AgentLookup(o-01) = %+v, %v; want lane O-01 (its row's agent)", got, ok)
+	if got, ok := AgentLookup(cfg, "l-01", ""); !ok || got.Lane != "L-01" {
+		t.Errorf("AgentLookup(l-01) = %+v, %v; want lane L-01 (its row's agent)", got, ok)
 	}
 }

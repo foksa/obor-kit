@@ -32,7 +32,7 @@ func TestRunExportsChangedFiles(t *testing.T) {
 	f.p.Write(filepath.Join(f.lane, "shared.txt"), "tracked edit\n")
 	f.p.Git(f.lane, "add", "shared.txt") // staged
 	f.p.Write(filepath.Join(f.lane, "new.txt"), "untracked\n")
-	f.p.Submit("O-01")
+	f.p.Submit("L-01")
 	before := laneIndex(t, f)
 	if !strings.Contains(before, "shared.txt") {
 		t.Fatalf("precondition: shared.txt staged: %q", before)
@@ -109,7 +109,7 @@ func TestRunWritesReceipts(t *testing.T) {
 	}
 	b, _ := os.ReadFile(filepath.Join(ReceiptDir(state), tree+"-ok"))
 	fields := strings.Fields(string(b))
-	if len(fields) != 6 || fields[0] != tree || fields[1] != "ok" || fields[2] != CmdHash(cmd("ok")) || fields[4] != "O-01" {
+	if len(fields) != 6 || fields[0] != tree || fields[1] != "ok" || fields[2] != CmdHash(cmd("ok")) || fields[4] != "L-01" {
 		t.Errorf("receipt line %q", b)
 	}
 
@@ -129,7 +129,7 @@ func TestRunWritesReceipts(t *testing.T) {
 		{"receipt from the future", tree, c, now.Add(-2 * time.Hour), false},
 	} {
 		lane, ok := FindReceipt(state, tc.tree, tc.c, time.Hour, tc.now)
-		if ok != tc.ok || (ok && lane != "O-01") {
+		if ok != tc.ok || (ok && lane != "L-01") {
 			t.Errorf("%s: found %v (%q), want %v", tc.name, ok, lane, tc.ok)
 		}
 	}

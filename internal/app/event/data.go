@@ -10,6 +10,7 @@ import (
 // Pause is a pause fact's data, and the pause in force in the status: why, until when (epoch seconds, 0: until
 // cleared), who paused and since when.
 type Pause struct {
+	Model  string `json:"model,omitempty"` // a model's pause (obor pause --model, T-765); "": the project's
 	Why    string `json:"why,omitempty"`
 	Until  int64  `json:"until,omitempty"`
 	Caller string `json:"caller,omitempty"`

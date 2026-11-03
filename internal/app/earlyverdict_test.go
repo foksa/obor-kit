@@ -18,7 +18,7 @@ func TestEarlyVerdict(t *testing.T) {
 	t.Parallel()
 	gate := func(outcome string) func(r *concRig) {
 		return func(r *concRig) {
-			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+			r.add("pj", "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 			r.add("pj", "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outcome, Candidate: port.Candidate{Task: "T-1", SHA: "c",
 				Target: "b", Patch: "p"}})
 		}
@@ -145,20 +145,20 @@ func TestEarlyTaskDone(t *testing.T) {
 	p := r.proj("pj")
 	p.dispatching = true
 	lane := r.a.obs["w1:p2"].pane.Cwd
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: lane, Agent: "pj-o-02"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
-	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "O-02", Dir: lane, Task: "T-2", Agent: "pj-o-02"}}
+	r.a.lanes.(*fakeLanes).lanes = []port.Lane{{Name: "L-02", Dir: lane, Task: "T-2", Agent: "pj-l-02"}}
 	f := &startJobFakes{concScratch: r.fakes["pj"]}
 	var fetched wire.JobReply
 	var doneErr error
 	var during string
 	f.start = func(port.Launch) {
-		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "early"})
+		raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "early"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = json.Unmarshal([]byte(raw), &fetched)
-		_, doneErr = r.a.taskDone(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", Task: "T-2",
+		_, doneErr = r.a.taskDone(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", Task: "T-2",
 			CallID: "done", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: x"})
 		r.a.mu.Lock()
 		during = p.folded.loop["T-2"].state
@@ -211,10 +211,10 @@ func TestStartAgainSameJob(t *testing.T) {
 	p := r.proj("pj")
 	p.dispatching = true
 	lane := r.a.obs["w1:p2"].pane.Cwd
-	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-02", Dir: lane, Agent: "pj-o-02"})
+	r.add("pj", "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: lane, Agent: "pj-l-02"})
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
-	r.add("pj", "T-2", event.StepWork, event.KindIntent, promptData{Agent: "pj-o-02", Job: "T-2/1/work"})
-	r.add("pj", "T-2", event.StepStartWork, event.KindIntent, startData{Lane: "O-02", Agent: "pj-o-02", Pane: "w1:p2"})
+	r.add("pj", "T-2", event.StepWork, event.KindIntent, promptData{Agent: "pj-l-02", Job: "T-2/1/work"})
+	r.add("pj", "T-2", event.StepStartWork, event.KindIntent, startData{Lane: "L-02", Agent: "pj-l-02", Pane: "w1:p2"})
 	r.add("pj", "T-2", event.StepStartWork, event.KindResult, startOut{Refused: "has background tasks"})
 	r.add("pj", "T-2", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeStart, Reason: "start: refused"})
 	r.add("pj", "T-2", event.StepUnblocked, event.KindFact, event.FactData{Merge: true, Reason: wire.ResumeRetry})

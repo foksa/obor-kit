@@ -19,7 +19,7 @@ import (
 // laneAt is the fixed dispatch time of these tests.
 var laneAt = time.Unix(1760000000, 0)
 
-// laneFx is a project with lane O-01 (type opus) on branch task/T-01, a config committed on main after the lane was
+// laneFx is a project with lane L-01 (type opus) on branch task/T-01, a config committed on main after the lane was
 // made: what a lane.prepare finds. target is main's HEAD (the dispatch fact's target).
 func laneFx(t *testing.T, edits ...func(map[string]any)) (*testkit.Project, string, string) {
 	t.Helper()
@@ -27,7 +27,7 @@ func laneFx(t *testing.T, edits ...func(map[string]any)) (*testkit.Project, stri
 	p.Write(".gitignore", ".obor/state/\n.task-done.md\n")
 	p.Git(p.Root, "add", "-A")
 	p.Git(p.Root, "commit", "-q", "-m", "fixture")
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config(edits...)
 	return p, lane, p.Git(p.Root, "rev-parse", "HEAD")
 }
@@ -42,10 +42,10 @@ func laneAdapter(t *testing.T, p *testkit.Project, git string) Lane {
 	return Lane{Cfg: cfg, Out: io.Discard, Git: git}
 }
 
-// laneInput is the lane.prepare step of task T-01 in lane O-01 at laneAt.
+// laneInput is the lane.prepare step of task T-01 in lane L-01 at laneAt.
 func laneInput(lane, target string) port.PrepareInput {
-	return port.PrepareInput{Task: "T-01", Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target,
-		Agent: "pj-o-01", At: laneAt}
+	return port.PrepareInput{Task: "T-01", Lane: "L-01", Dir: lane, Branch: "task/T-01", Target: target,
+		Agent: "pj-l-01", At: laneAt}
 }
 
 // TestLanePrepare: a fresh prepare puts the branch at the target; base and head are the target (serve's lane row).
@@ -66,7 +66,7 @@ func TestLanePrepare(t *testing.T) {
 	if got := p.Git(lane, "branch", "--show-current"); got != "task/T-01" {
 		t.Errorf("lane branch = %q, want task/T-01", got)
 	}
-	if p.Exists(".obor/state/lanes/O-01.json") {
+	if p.Exists(".obor/state/lanes/L-01.json") {
 		t.Error("prepare wrote a lane state file (serve's row replaces it, T-439)")
 	}
 }
@@ -112,11 +112,11 @@ func TestLanePrepareRefused(t *testing.T) {
 		{"lane_setup red", []func(map[string]any){
 			testkit.Set("commands.lane_ready", "test -f ready"),
 			testkit.Set("commands.lane_setup", "echo install broke; exit 3")}, false,
-			"lane_setup in O-01: rc 3: install broke"},
+			"lane_setup in L-01: rc 3: install broke"},
 		{"lane_ready still red", []func(map[string]any){
 			testkit.Set("commands.lane_ready", "test -f ready"),
 			testkit.Set("commands.lane_setup", "true")}, false,
-			"lane_setup in O-01: ran, but commands.lane_ready still fails"},
+			"lane_setup in L-01: ran, but commands.lane_ready still fails"},
 		{"lane_ready red, no lane_setup", []func(map[string]any){
 			testkit.Set("commands.lane_ready", "false")}, false,
 			"commands.lane_setup is not set"},
@@ -187,11 +187,11 @@ func TestLaneFree(t *testing.T) {
 		discardedLines []string
 	}{
 		{name: "clean"},
-		{name: "dirty", dirty: true, refusal: "lane O-01 is dirty"},
+		{name: "dirty", dirty: true, refusal: "lane L-01 is dirty"},
 		{name: "commits", commit: true, refusal: "task/T-01 has commits not in the target"},
-		{name: "dirty, discard", dirty: true, discard: true, discardedLines: []string{"discarded in O-01:", "scratch.txt"}},
+		{name: "dirty, discard", dirty: true, discard: true, discardedLines: []string{"discarded in L-01:", "scratch.txt"}},
 		{name: "commits, discard", commit: true, discard: true,
-			discardedLines: []string{"discarded commits on task/T-01:", "work in O-01"}},
+			discardedLines: []string{"discarded commits on task/T-01:", "work in L-01"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -206,7 +206,7 @@ func TestLaneFree(t *testing.T) {
 			if c.dirty {
 				p.Write(filepath.Join(lane, "scratch.txt"), "x\n")
 			}
-			in := port.FreeInput{Lane: "O-01", Dir: lane, Branch: "task/T-01", Target: target, Discard: c.discard}
+			in := port.FreeInput{Lane: "L-01", Dir: lane, Branch: "task/T-01", Target: target, Discard: c.discard}
 			line, err := l.Free(context.Background(), in)
 			if c.refusal != "" {
 				var refused port.Refused

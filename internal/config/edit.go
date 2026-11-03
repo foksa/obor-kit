@@ -13,29 +13,26 @@ import (
 	"obor/internal/roles"
 )
 
-// The setup edit (T-753): the owner changes one setup value from obor web's Setup page, and serve, the one writer,
-// writes .obor/config.json and commits it. Exactly these keys are editable:
+// The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page, and serve, the one
+// writer, writes .obor/config.json and commits it. Exactly these keys are editable:
 //
-//	difficulty.<level>         the level's ordered list of type references, each naming a lane type
-//	lane_types.<type>.model    the model its args name (per kind: agents.ModelArgs)
-//	lane_types.<type>.effort   the effort its args set (per kind: agents.EffortArgs)
-//	lane_types.<type>.max      its cap (0 or null: none)
-//	lanes.<LANE>               an existing lane's type ("": pooled)
-//	roles.<role>.type          a configured role's type reference ("": the role's default)
+//	difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
+//	roles.<role>         a configured role's model ref
+//	lanes                how many lanes (L-01 … L-NN)
+//	kinds.<kind>.args    the args appended to every start of a kind
 //
-// Adding or removing lanes or lane types, other args and any other key stay obor setup's or a hand edit's.
+// Any other key stays obor setup's or a hand edit's.
 //
 // A key .obor/local.json overrides (the key itself, a member of it, or an ancestor local.json replaces) is refused:
-// writing it to config.json would report success and change nothing that runs, and an args rewrite would copy this
-// machine's args into the committed file (T-754).
+// writing it to config.json would report success and change nothing that runs (T-754).
 
 // Change is one setup edit applied to a config.json: its new bytes (in the file's own layout, Relayout) and the key's
 // value before and after, each one line of JSON ("" for a value the config leaves unset).
 type Change struct {
 	Doc      []byte
 	Old, New string
-	// Lane is the lane a lanes.<LANE> edit changes ("": another key): serve refuses it while the lane has a task.
-	Lane string
+	// Dropped are the lanes a lower lanes count removes: serve refuses the edit while one of them has a task.
+	Dropped []string
 }
 
 // Rev is a config.json's revision as the Setup page reads it (T-760): the sha256 of its bytes, its first 16 hex
@@ -47,39 +44,40 @@ func Rev(doc []byte) string {
 }
 
 // EditKeys are the editable keys as patterns, for errors.
-const EditKeys = "difficulty.<level>, lane_types.<type>.model|effort|max, lanes.<LANE>, roles.<role>.type"
+const EditKeys = "difficulty.<level>, roles.<role>, lanes, kinds.<kind>.args"
 
 // Edit is the change of the setup value at key to val (JSON) in doc, the bytes of c's config.json, and c's local.json
-// as it is, an error names why the key is not editable, val not a value it takes (an unknown level, lane, lane type or
-// role, a type reference naming no lane type, an effort the kind does not take) or the key is one .obor/local.json
-// overrides (edit it there: the committed value would not count). Edit does not validate the whole config: the caller
-// loads the result (LoadWith) and runs Validate.
+// as it is, an error names why the key is not editable, val not a value it takes (an unknown level, role or kind, a
+// model ref naming no model or an effort its kind does not take) or the key is one .obor/local.json overrides (edit it
+// there: the committed value would not count). Edit does not validate the whole config: the caller loads the result
+// (LoadWith) and runs Validate.
 func (c *Config) Edit(doc []byte, key string, val json.RawMessage) (Change, error) {
 	parts := strings.Split(key, ".")
 	switch {
 	case len(parts) == 2 && parts[0] == "difficulty":
 		return c.editLevel(doc, parts[1], val)
-	case len(parts) == 3 && parts[0] == "lane_types":
-		return c.editLaneType(doc, parts[1], parts[2], val)
-	case len(parts) == 2 && parts[0] == "lanes":
-		return c.editLane(doc, parts[1], val)
-	case len(parts) == 3 && parts[0] == "roles" && parts[2] == "type":
+	case len(parts) == 2 && parts[0] == "roles",
+		len(parts) == 3 && parts[0] == "roles" && parts[2] == "type": // roles.<role>.type: the Setup page's key until its redesign
 		return c.editRole(doc, parts[1], val)
+	case key == "lanes":
+		return c.editLanes(doc, val)
+	case len(parts) == 3 && parts[0] == "kinds" && parts[2] == "args":
+		return c.editKindArgs(doc, parts[1], val)
 	}
 	return Change{}, fmt.Errorf("%s is not an editable key (%s)", Compact(key), EditKeys)
 }
 
-// editLevel sets difficulty.<level> to a list of type references, each naming a lane type of c.
+// editLevel sets difficulty.<level> to a list of model refs, each naming a model of c.
 func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Change, error) {
 	if _, ok := DifficultyDefault[level]; !ok {
 		return Change{}, fmt.Errorf("%s is not a level: hard, medium or simple", Compact(level))
 	}
 	var refs []string
 	if err := json.Unmarshal(val, &refs); err != nil || refs == nil {
-		return Change{}, fmt.Errorf("difficulty.%s takes a list of type references", level)
+		return Change{}, fmt.Errorf("difficulty.%s takes a list of model refs", level)
 	}
 	for _, ref := range refs {
-		if err := c.CheckTypeRef(ref); err != nil {
+		if err := c.CheckModelRef(ref); err != nil {
 			return Change{}, fmt.Errorf("difficulty.%s: %v", level, err)
 		}
 	}
@@ -87,91 +85,48 @@ func (c *Config) editLevel(doc []byte, level string, val json.RawMessage) (Chang
 	return c.change("difficulty."+level, doc, []string{"difficulty", level}, refs, old, Compact(refs))
 }
 
-// editLaneType sets a lane type's model or effort (rewritten inside its args, per kind) or its max.
-func (c *Config) editLaneType(doc []byte, name, field string, val json.RawMessage) (Change, error) {
-	lt, ok := c.LaneType(name)
-	if !ok {
-		return Change{}, fmt.Errorf("%s is not a lane type of this project (lane types: %s)", Compact(name),
-			strings.Join(c.LaneTypeNames(), ", "))
+// editLanes sets the lanes count (a whole number, 0 or more): a lower count's dropped lanes are in Change.Dropped.
+func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
+	var n int
+	if err := json.Unmarshal(val, &n); err != nil || n < 0 {
+		return Change{}, fmt.Errorf("lanes takes a whole number (L-01 … L-NN)")
 	}
-	if own, err := MemberAt(doc, []string{"lane_types", name}); err != nil || own == nil {
-		return Change{}, fmt.Errorf("lane type %s is not in .obor/config.json (local.json sets it): edit it there", name)
+	ch, err := c.change("lanes", doc, []string{"lanes"}, n, Compact(c.Data.Lanes), Compact(n))
+	for i := n + 1; i <= c.Data.Lanes; i++ {
+		ch.Dropped = append(ch.Dropped, LaneName(i))
 	}
-	key := "lane_types." + name + "." + field
-	switch field {
-	case "model", "effort":
-		var s string
-		if err := json.Unmarshal(val, &s); err != nil {
-			return Change{}, fmt.Errorf("%s takes a string", key)
-		}
-		s = strings.TrimSpace(s)
-		if strings.HasPrefix(s, "-") || strings.ContainsAny(s, " \t\n") {
-			return Change{}, fmt.Errorf("%s: %s is no %s", key, Compact(s), field)
-		}
-		base, err := committedArgs(doc, name) // never lt.Args: the merged args may be this machine's (T-754)
-		if err != nil {
-			return Change{}, err
-		}
-		var args []string
-		committed := LaneType{Args: base}
-		old := committed.Model()
-		if field == "model" {
-			args, err = agents.ModelArgs(lt.Kind, base, s)
-		} else {
-			old = committed.Effort()
-			args, err = agents.EffortArgs(lt.Kind, base, s)
-		}
-		if err != nil {
-			return Change{}, fmt.Errorf("%s: %v", key, err)
-		}
-		var v any = args
-		if len(args) == 0 {
-			v = nil // no args left: the key goes, as a type without args is written
-		}
-		return c.change(key, doc, []string{"lane_types", name, "args"}, v, unsetOr(old), unsetOr(s))
-	case "max":
-		n := 0
-		if t := bytes.TrimSpace(val); len(t) > 0 && string(t) != "null" && string(t) != `""` {
-			if err := json.Unmarshal(t, &n); err != nil || n < 0 {
-				return Change{}, fmt.Errorf("%s takes a whole number, 0 or empty for no cap", key)
-			}
-		}
-		var v any = n
-		if n == 0 {
-			v = nil
-		}
-		return c.change(key, doc, []string{"lane_types", name, "max"}, v, Compact(lt.Max), Compact(n))
-	}
-	return Change{}, fmt.Errorf("%s is not an editable key (%s)", Compact(key), EditKeys)
-}
-
-// editLane sets an existing lane's type: "" (pooled) or a lane type of c.
-func (c *Config) editLane(doc []byte, lane string, val json.RawMessage) (Change, error) {
-	if !c.HasLane(lane) {
-		return Change{}, fmt.Errorf("%s is not a lane of this project: obor setup adds lanes", Compact(lane))
-	}
-	var typ string
-	if err := json.Unmarshal(val, &typ); err != nil {
-		return Change{}, fmt.Errorf("lanes.%s takes a lane type (\"\": pooled)", lane)
-	}
-	if _, ok := c.LaneType(typ); typ != "" && !ok {
-		return Change{}, fmt.Errorf("lanes.%s: %s is not a lane type of this project (lane types: %s)", lane, Compact(typ),
-			strings.Join(c.LaneTypeNames(), ", "))
-	}
-	own, err := MemberAt(doc, []string{"lanes", lane})
-	if err != nil || own == nil {
-		return Change{}, fmt.Errorf("lane %s is not in .obor/config.json (local.json sets it): edit it there", lane)
-	}
-	path := []string{"lanes", lane}
-	if _, isObject := object(own); isObject { // {type, agent}: only its type
-		path = append(path, "type")
-	}
-	ch, err := c.change("lanes."+lane, doc, path, typ, Compact(c.Data.Lanes.M[lane].Type), Compact(typ))
-	ch.Lane = lane
 	return ch, err
 }
 
-// editRole sets a configured role's type reference ("": the key goes, the role's default type).
+// editKindArgs sets kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty
+// list drops the key.
+func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Change, error) {
+	if _, ok := agents.Lookup(kind); !ok {
+		return Change{}, fmt.Errorf("%s is not a kind (kinds: %s)", Compact(kind), strings.Join(agents.Names(), ", "))
+	}
+	var args []string
+	if err := json.Unmarshal(val, &args); err != nil {
+		return Change{}, fmt.Errorf("kinds.%s.args takes a list of strings", kind)
+	}
+	if slices.Contains(args, "--") {
+		return Change{}, fmt.Errorf("kinds.%s.args: `--` is not allowed: obor adds the first prompt itself", kind)
+	}
+	var v any = args
+	if len(args) == 0 {
+		v = nil
+	}
+	old := ""
+	if cur := c.Data.Kinds.M[kind].Args; len(cur) > 0 {
+		old = Compact(cur)
+	}
+	newLine := ""
+	if len(args) > 0 {
+		newLine = Compact(args)
+	}
+	return c.change("kinds."+kind+".args", doc, []string{"kinds", kind, "args"}, v, old, newLine)
+}
+
+// editRole sets a configured role's model ref.
 func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change, error) {
 	rc, ok := c.Role(role)
 	if !ok || role == "worker" || rc.Role.Optional && !rc.Configured {
@@ -181,36 +136,17 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 				names = append(names, r.Name)
 			}
 		}
-		return Change{}, fmt.Errorf("%s is not a configured role (roles: %s; a worker's type is its lane's)", Compact(role),
-			strings.Join(names, ", "))
+		return Change{}, fmt.Errorf("%s is not a configured role (roles: %s; a worker's model is its dispatch's)",
+			Compact(role), strings.Join(names, ", "))
 	}
 	var ref string
-	if err := json.Unmarshal(val, &ref); err != nil {
-		return Change{}, fmt.Errorf("roles.%s.type takes a type reference (<type>[:<effort>])", role)
+	if err := json.Unmarshal(val, &ref); err != nil || ref == "" {
+		return Change{}, fmt.Errorf("roles.%s takes a model ref (<model>[:<effort>])", role)
 	}
-	if ref != "" {
-		if err := c.CheckTypeRef(ref); err != nil {
-			return Change{}, fmt.Errorf("roles.%s.type: %v", role, err)
-		}
+	if err := c.CheckModelRef(ref); err != nil {
+		return Change{}, fmt.Errorf("roles.%s: %v", role, err)
 	}
-	old := unsetOr(TypeRef(rc.Type, rc.Effort))
-	path := []string{"roles", role, "type"}
-	if ref != "" {
-		return c.change("roles."+role+".type", doc, path, ref, old, Compact(ref))
-	}
-	// "": the key goes; an entry left empty stays as {} (an optional role is configured by its entry)
-	ch, err := c.change("roles."+role+".type", doc, path, nil, old, "")
-	if err != nil {
-		return Change{}, err
-	}
-	if entry, _ := MemberAt(ch.Doc, []string{"roles", role}); entry == nil {
-		out, err := EditJSON(ch.Doc, []string{"roles", role}, json.RawMessage("{}"))
-		if err != nil {
-			return Change{}, err
-		}
-		return relaid(doc, out, old, "")
-	}
-	return ch, nil
+	return c.change("roles."+role, doc, []string{"roles", role}, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
 }
 
 // change is c's edit of key: doc with path (the member the key writes) set to v (nil deletes it), laid out as doc is,
@@ -294,20 +230,6 @@ func (c *Config) applied(doc []byte, path []string, v any) bool {
 		return false
 	}
 	return b.String() == want
-}
-
-// committedArgs is the args doc sets for lane type name (nil when it sets none): the base an args rewrite starts from,
-// never the merged type's args, which may be this machine's own (T-754).
-func committedArgs(doc []byte, name string) ([]string, error) {
-	raw, err := MemberAt(doc, []string{"lane_types", name, "args"})
-	if err != nil || raw == nil {
-		return nil, err
-	}
-	var args []string
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, fmt.Errorf("lane_types.%s.args is not a list of strings", name)
-	}
-	return args, nil
 }
 
 // relaid is the change to out, edited from doc, laid out as doc is.

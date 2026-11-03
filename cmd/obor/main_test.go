@@ -162,11 +162,11 @@ func TestHas(t *testing.T) {
 func TestMergeIsUnknown(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	lane := p.Lane("O-01", "task/T-01")
+	lane := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Write(filepath.Join(lane, "feature.txt"), "feature\n")
 	head := p.Git(p.Root, "rev-parse", "HEAD")
-	for _, args := range [][]string{{"merge", "O-01", "T-01", "summary"}, {"merge", "--ff-retry", "T-01"}} {
+	for _, args := range [][]string{{"merge", "L-01", "T-01", "summary"}, {"merge", "--ff-retry", "T-01"}} {
 		rc, stdout, stderr := run(t, p.Root, nil, args...)
 		if rc != 2 || stdout != "" || !strings.Contains(stderr, "obor: unknown subcommand: merge") {
 			t.Errorf("obor %q: exit %d, %q, %q; want 2, unknown subcommand", args, rc, stdout, stderr)
@@ -184,7 +184,7 @@ func TestMergeIsUnknown(t *testing.T) {
 func TestStatusExitCodesAndLeadFlag(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Lane("O-01", "task/T-01")
+	p.Lane("L-01", "task/T-01")
 	if rc, _, stderr := run(t, p.Root, nil, "status"); rc != 3 || !strings.Contains(stderr, "not an obor project") {
 		t.Errorf("no config: exit %d, %q; want 3, not an obor project", rc, stderr)
 	}
@@ -231,12 +231,12 @@ func TestPreToolUseDenyIsOneOborLine(t *testing.T) {
 func TestRestartCommand(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "")
+	o1 := p.Lane("L-01", "")
 	p.Config()
 	f := p.Herdr()
 	f.Shell("w1:p2", "pj-int", p.Root)
-	a := f.Agent("w1:p1", "pj-o-01", "idle", o1)
-	a.Label = "pj-o-01"
+	a := f.Agent("w1:p1", "pj-l-01", "idle", o1)
+	a.Label = "pj-l-01"
 	// The agent's group leader is a live pid (this test's own), and herdr lists no process in its group (RV-24 #1:
 	// an empty list proves no exit), so the stop still times out.
 	a.Foreground, a.OnQuit = os.Getpid(), "stay" // the live fake would quit on /exit: this agent ignores it
@@ -250,9 +250,9 @@ func TestRestartCommand(t *testing.T) {
 	}{
 		{[]string{"restart"}, 1, "FAIL " + restartUsage},
 		{[]string{"restart", "a", "b"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-o-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --sid or --fresh"},
+		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --sid or --fresh"},
 		// T-466: --keep-inbox went with the inbox: an unknown flag.
-		{[]string{"restart", "pj-o-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + restartUsage},
+		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + restartUsage},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
 		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
 	} {
@@ -263,9 +263,9 @@ func TestRestartCommand(t *testing.T) {
 		}
 	}
 	// A direct stop that gives up prints its evidence, then the one-line FAIL last (T-213).
-	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-o-01", "--stop")
+	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-l-01", "--stop")
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if rc != 1 || lines[len(lines)-1] != "FAIL pj-o-01 did not exit in 1s (pane w1:p1; the input was cleared; --force terminates it)" ||
+	if rc != 1 || lines[len(lines)-1] != "FAIL pj-l-01 did not exit in 1s (pane w1:p1; the input was cleared; --force terminates it)" ||
 		!strings.Contains(stdout, "agent status:") || !strings.Contains(stdout, "pane processes:") ||
 		strings.Index(stdout, "agent status:") > strings.Index(stdout, "FAIL ") {
 		t.Errorf("obor restart --stop that cannot stop: evidence, then FAIL last: exit %d\n%s", rc, stdout)
@@ -310,7 +310,7 @@ func runIn(t *testing.T, dir string, env []string, stdin string, args ...string)
 func TestLaneCommands(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	// The installed fake is a snapshot: the agent stays in group 2 with no process listed, and whether pid 2 runs is
 	// the host's (none on macOS: the exit is proven at once; else drop's worker stop waits OBOR_RESTART_WAIT).
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state-home", "OBOR_RESTART_WAIT=1"}
@@ -319,8 +319,8 @@ func TestLaneCommands(t *testing.T) {
 		last string
 	}{
 		{[]string{"dispatch", "T-05"}, "FAIL no usable .obor/config.json (obor config validate)"},
-		{[]string{"drop", "O-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
-		{[]string{"sendback", "O-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
+		{[]string{"drop", "L-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
+		{[]string{"sendback", "L-01", "why"}, "FAIL no usable .obor/config.json (obor config validate)"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || strings.TrimSpace(stdout) != c.last {
 			t.Errorf("no config: obor %v: exit %d, %q", c.args, rc, stdout)
@@ -328,8 +328,8 @@ func TestLaneCommands(t *testing.T) {
 	}
 	p.Config()
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "T-01: merged")
-	a := p.Herdr().Agent("w1:p1", "pj-o1", "idle", o1)
-	a.Label = "pj-o1"
+	a := p.Herdr().Agent("w1:p1", "pj-l1", "idle", o1)
+	a.Label = "pj-l1"
 	env = append(env, "HERDR_SOCKET_PATH="+herdrtest.Serve(t, p.Herdr()).Path)
 	for _, c := range []struct {
 		prep func()
@@ -338,14 +338,14 @@ func TestLaneCommands(t *testing.T) {
 		last string
 	}{
 		{nil, []string{"dispatch"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"dispatch", "O-01", "T-05"}, 1, "FAIL " + dispatchUsage},
+		{nil, []string{"dispatch", "L-01", "T-05"}, 1, "FAIL " + dispatchUsage},
 		{nil, []string{"dispatch", "T-05", "x"}, 1, "FAIL " + dispatchUsage},
 		{nil, []string{"dispatch", "T-05", "--agent"}, 1, "FAIL " + dispatchUsage},
 		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"drop", "O-01"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
-		{nil, []string{"drop", "O-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
-		{nil, []string{"sendback", "O-01"}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
-		{nil, []string{"sendback", "O-01", ""}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
+		{nil, []string{"drop", "L-01"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
+		{nil, []string{"drop", "L-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <LANE> "<why>" [--discard] [--force] | obor drop <T-xx> "<why>"`},
+		{nil, []string{"sendback", "L-01"}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
+		{nil, []string{"sendback", "L-01", ""}, 1, `FAIL usage: obor sendback <LANE> "<why>"`},
 		{nil, []string{"drop", "Z-09", "why"}, 1, "FAIL unknown lane Z-09 (not in the config's lanes)"},
 		// A drop that passes these checks is a request to obor serve: TestDropServeRequest.
 	} {

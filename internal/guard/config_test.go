@@ -84,17 +84,17 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
-	env := []string{"OBOR_AGENT=pj-o1", "OBOR_STATE_HOME=" + f.Base + "/state",
+	env := []string{"OBOR_AGENT=pj-l1", "OBOR_STATE_HOME=" + f.Base + "/state",
 		"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1"}
 	penv := f.Env(env...)
 	out := f.session(t, o1, "sid-0", env...)
-	contains(t, out, "clean config", "obor: role worker, lane O-01, task T-05")
+	contains(t, out, "clean config", "obor: role worker, lane L-01, task T-05")
 	lacks(t, out, "clean config", "WARN", "config unreadable")
 
 	unknownKey(f.Project, `[]`)
 	out = f.session(t, o1, "sid-1", env...)
 	contains(t, out, "unknown key", "obor: WARN:", `keep_warm`, `merge.future`, "obor config validate",
-		"obor: role worker, lane O-01, task T-05", "Protected files this task may edit: docs/design.md")
+		"obor: role worker, lane L-01, task T-05", "Protected files this task may edit: docs/design.md")
 	lacks(t, out, "unknown key", "config unreadable")
 
 	for i, b := range brokenConfigs {
@@ -108,7 +108,7 @@ func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 		if strings.Count(out, "\n") != 1 {
 			t.Errorf("%s: want one line, got\n%s", b.name, out)
 		}
-		in, err := project.ReadInbox("pj-o1", penv)
+		in, err := project.ReadInbox("pj-l1", penv)
 		if err != nil || in != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: sid}) {
 			t.Errorf("%s: .inbox = %+v, %v", b.name, in, err)
 		}

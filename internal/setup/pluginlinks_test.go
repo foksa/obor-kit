@@ -93,8 +93,8 @@ func TestSetupLaneLinksAnUntrackedPluginSettings(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.Write(filepath.Join(x.Root, ".claude", "settings.json"), `{"enabledPlugins":{"obor@obor-kit":true}}`+"\n")
-	x.ok(t, "lane", "O-01", "opus")
-	if !config.PluginEnabledIn(x.LaneDir("O-01")) {
+	x.ok(t, "lane", "L-01")
+	if !config.PluginEnabledIn(x.LaneDir("L-01")) {
 		t.Error("the new lane does not see the enabled plugin")
 	}
 }
@@ -103,33 +103,33 @@ func TestSetupLaneLinksAnUntrackedPluginSettings(t *testing.T) {
 func TestPaneWithoutStartStartsNoAgent(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
-	x.ok(t, "lane", "O-01", "opus")
+	x.ok(t, "lane", "L-01")
 	x.reset()
-	out := x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
-	if !strings.Contains(calls, "pane.split") || !strings.Contains(calls, "env={OBOR_AGENT=pj-o-01,OBOR_LANE=O-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker}") ||
-		!strings.Contains(calls, "pane.rename label=pj-o-01 pane_id=w1:n1") {
+	if !strings.Contains(calls, "pane.split") || !strings.Contains(calls, "env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker}") ||
+		!strings.Contains(calls, "pane.rename label=pj-l-01 pane_id=w1:n1") {
 		t.Errorf("the pane is split with the env and labelled:\n%s", calls)
 	}
 	if strings.Contains(calls, "agent.start") {
 		t.Errorf("an agent was started without --start:\n%s", calls)
 	}
-	if p := x.h.Pane("w1:n1"); p == nil || p.Label != "pj-o-01" || p.Name != "" || p.Kind != "" {
-		t.Errorf("pane: %+v, want labelled pj-o-01 and no agent", p)
+	if p := x.h.Pane("w1:n1"); p == nil || p.Label != "pj-l-01" || p.Name != "" || p.Kind != "" {
+		t.Errorf("pane: %+v, want labelled pj-l-01 and no agent", p)
 	}
 	if !strings.Contains(out, "no agent started") {
 		t.Errorf("output does not say no agent was started:\n%s", out)
 	}
 	// a second run reuses the labelled pane
 	x.reset()
-	x.ok(t, "pane", "O-01", "--tab", "w1:t1")
+	x.ok(t, "pane", "L-01", "--tab", "w1:t1")
 	if strings.Contains(strings.Join(x.reqs(), "\n"), "pane.split") {
 		t.Errorf("a rerun split another pane:\n%s", strings.Join(x.reqs(), "\n"))
 	}
 	// --start starts the agent in the labelled pane
 	x.reset()
-	x.ok(t, "pane", "O-01", "--pane", "w1:n1", "--start")
-	if p := x.h.Pane("w1:n1"); p == nil || p.Name != "pj-o-01" || p.Kind != "claude" {
+	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
+	if p := x.h.Pane("w1:n1"); p == nil || p.Name != "pj-l-01" || p.Kind != "claude" {
 		t.Errorf("with --start the pane holds %+v", p)
 	}
 }

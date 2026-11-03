@@ -19,7 +19,7 @@ func TestPaneInputSubmitsOnlyOnEnter(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := New()
-			f.Agent("w1:p1", "pj-o-01", "idle", "")
+			f.Agent("w1:p1", "pj-l-01", "idle", "")
 			if p := f.Pane("w1:p1"); p == nil || p.Kind == "" {
 				t.Fatal("precondition: pane w1:p1 hosts an agent")
 			}

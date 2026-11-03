@@ -19,38 +19,37 @@ const strictMCP = `--mcp-config {"mcpServers":{"obor":{"args":["mcp"],"command":
 
 // T-445: --strict-mcp-config leaves a Claude agent without the plugin manifest's obor server (no job_next). A start whose
 // args carry it gets --mcp-config with this kit's server, right before the strict flag (a flag must follow the variadic
-// value: a prompt straight after it would be read as a second config); an explicit obor entry in the type's args wins
+// value: a prompt straight after it would be read as a second config); an explicit obor entry in kinds.claude.args wins
 // (no second one); a start without the flag is unchanged.
 func TestStartStrictMCPConfig(t *testing.T) {
 	t.Parallel()
 	const oborEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	types := `{"plain":{"kind":"claude","args":["--model","opus"]},` +
-		`"strict":{"kind":"claude","args":["--model","opus","--strict-mcp-config"]},` +
-		`"mine":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` + jsonStr(oborEntry) + `]},` +
-		`"other":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` + jsonStr(otherEntry) + `]}}`
+	kindArgs := map[string]string{"plain": `[]`, "strict": `["--strict-mcp-config"]`,
+		"mine":  `["--strict-mcp-config","--mcp-config",` + jsonStr(oborEntry) + `]`,
+		"other": `["--strict-mcp-config","--mcp-config",` + jsonStr(otherEntry) + `]`}
 	for _, c := range []struct {
 		name, typ string
-		lead      bool // the lead role's type: no --settings after the args
+		lead      bool // the lead role's model: no --settings after the args
 		wake      bool // the start carries a job's first prompt
 		want      string
 	}{
 		{"strict flag: obor adds its --mcp-config", "strict", false, false,
-			`--model opus ` + strictMCP + ` --strict-mcp-config ` + settings},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings},
 		{"strict flag, a wake: the prompt is not a second config", "strict", false, true,
-			`--model opus ` + strictMCP + ` --strict-mcp-config ` + settings + " -- " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings + " -- " + wake},
 		{"strict flag last, a lead without --settings, a wake", "strict", true, true,
-			`--model opus ` + strictMCP + ` --strict-mcp-config -- ` + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config -- ` + wake},
 		{"an explicit obor entry wins: no second --mcp-config, a wake", "mine", false, true,
-			`--model opus --strict-mcp-config --mcp-config ` + oborEntry + " " + settings + " -- " + wake},
+			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " " + settings + " -- " + wake},
 		{"an explicit obor config trailing the args of a lead: the prompt is positional", "mine", true, true,
-			`--model opus --strict-mcp-config --mcp-config ` + oborEntry + " -- " + wake},
+			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " -- " + wake},
 		{"a config naming no obor server: obor adds its own, a wake", "other", false, true,
-			`--model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " " + settings + " -- " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " " + settings + " -- " + wake},
 		{"a trailing unrelated config and the generated one, a lead: the prompt is positional", "other", true, true,
-			`--model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " -- " + wake},
-		{"no strict flag: unchanged, a wake", "plain", false, true, `--model opus ` + settings + " " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " -- " + wake},
+		{"no strict flag: unchanged, a wake", "plain", false, true, `--permission-mode auto --model opus ` + settings + " " + wake},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -58,7 +57,7 @@ func TestStartStrictMCPConfig(t *testing.T) {
 			if c.lead {
 				role, agent = "lead", "pj-lead"
 			}
-			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"`+role+`":{"type":"`+c.typ+`"}}`))
+			x := setup(t, testkit.Set("kinds.claude.args", kindArgs[c.typ]), testkit.Set("roles", `{"`+role+`":"opus"}`))
 			x.shell("w1:p7", agent, "")
 			req := launch.Request{Agent: agent, Fresh: true}
 			if c.wake {
@@ -77,7 +76,7 @@ func TestStartStrictMCPConfig(t *testing.T) {
 	}
 }
 
-// jsonStr is s as a JSON string (config.LaneType.Args holds the words as the config writes them).
+// jsonStr is s as a JSON string (config.Model.Args holds the words as the config writes them).
 func jsonStr(s string) string { return config.Compact(s) }
 
 // MCPArgs is the pair a start adds, from the kind, the kit and the args alone: the --mcp-config value may be inline JSON
@@ -167,15 +166,14 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 	const oborEntry = `{"mcpServers":{"obor":{"command":"/other/bin/obor","args":["mcp"]}}}`
 	const otherEntry = `{"mcpServers":{"other":{"command":"/bin/other"}}}`
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	types := `{"variadic":{"kind":"claude","args":["--model","opus","--strict-mcp-config","--mcp-config",` +
-		jsonStr(otherEntry) + `,` + jsonStr(oborEntry) + `]}}`
-	x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"variadic"}}`))
+	kindArgs := `["--strict-mcp-config","--mcp-config",` + jsonStr(otherEntry) + `,` + jsonStr(oborEntry) + `]`
+	x := setup(t, testkit.Set("kinds.claude.args", kindArgs), testkit.Set("roles", `{"reviewer":"opus"}`))
 	x.shell("w1:p7", "pj-rev", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: wake})
 	if !ok {
 		t.Fatalf("start failed:\n%s", out)
 	}
-	want := "--model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " -- " + wake
+	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " -- " + wake
 	eq(t, x.startCall(), "agent.start args=["+want+"] kind=claude name=pj-rev pane_id=w1:p7", "agent start")
 	if strings.Contains(x.startCall(), claude.MCPConfig("/kit")) {
 		t.Errorf("obor added a second obor entry: %q", x.startCall())

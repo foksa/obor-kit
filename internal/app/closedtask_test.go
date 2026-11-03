@@ -148,7 +148,7 @@ func TestRejectSettlesWatchdogNotification(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app("pr"), r.proj("pr")
-			r.add("pr", "T-4", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-04", Reason: "pane exited"})
+			r.add("pr", "T-4", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-04", Reason: "pane exited"})
 			if len(p.folded.active["T-4"]) != 1 {
 				t.Fatalf("precondition: watchdog facts of T-4: %v, want one", p.folded.active["T-4"])
 			}

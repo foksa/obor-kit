@@ -69,9 +69,9 @@ func TestPauseRequest(t *testing.T) {
 		t.Errorf("pause --clear: %+v", c)
 	}
 
-	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "pause: the lead or the owner pauses, not pj-o1 (role worker)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "pause: the lead or the owner pauses, not pj-l1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "pause", "x"); rc != 1 ||
-		stdout != "FAIL pause: the lead or the owner pauses, not pj-o1 (role worker)\n" {
+		stdout != "FAIL pause: the lead or the owner pauses, not pj-l1 (role worker)\n" {
 		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()

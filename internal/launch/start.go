@@ -47,7 +47,7 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.AgentInfo, error) {
 		l.release(ctx, s.Agent, s.Pane, true)
 	}
 	k, ok := agents.Lookup(s.Kind)
-	if !ok { // dispatch and obor config validate refuse such a lane type (DD-v0.13 D1)
+	if !ok { // dispatch and obor config validate refuse such a model's kind (DD-v0.13 D1)
 		return port.AgentInfo{}, project.Failf("%s: kind %s has no bridge (obor config validate)", s.Agent, s.Kind)
 	}
 	kit := l.Kit

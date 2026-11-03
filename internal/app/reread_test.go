@@ -20,7 +20,7 @@ func noPane(h *harness) {
 
 // freshPane is a pane of pj's workspace as a fresh read of herdr's panes lists it (fn: any other field the read's).
 func freshPane(h *harness, id, cwd string, fn func(p *port.Pane)) port.Pane {
-	p := port.Pane{ID: id, Workspace: "w1", Cwd: cwd, Agent: "claude", Label: "pj-o-01", Status: "idle"}
+	p := port.Pane{ID: id, Workspace: "w1", Cwd: cwd, Agent: "claude", Label: "pj-l-01", Status: "idle"}
 	if fn != nil {
 		fn(&p)
 	}
@@ -83,12 +83,12 @@ func TestRereadErrorRecordsNothingAndRetries(t *testing.T) {
 		t.Errorf("needs-you{no pane in lane} after a failed re-read: %d", n)
 	}
 	h.panes.snapErr = nil
-	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("O-01"), nil))
+	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("L-01"), nil))
 	if !h.step(t, fx) {
 		t.Fatalf("the next pass did not read herdr's panes again (%d reads)", h.panes.snaps)
 	}
-	if got := known(h, "w1:p1").Cwd; got != h.lane("O-01") {
-		t.Errorf("the pane's cwd after the retry is %q, want the lane %q", got, h.lane("O-01"))
+	if got := known(h, "w1:p1").Cwd; got != h.lane("L-01") {
+		t.Errorf("the pane's cwd after the retry is %q, want the lane %q", got, h.lane("L-01"))
 	}
 	h.step(t, fx) // the start the re-read found the pane for
 	if ag.restarts != 1 {
@@ -109,7 +109,7 @@ func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 		t.Fatal("precondition: the no-pane clock started")
 	}
 	h.now = h.now.Add(2 * minute)
-	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("O-01"), nil))
+	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("L-01"), nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	p := h.proj()
@@ -131,8 +131,8 @@ func TestRereadCanceledContextRecordsNothing(t *testing.T) {
 	if !h.step(t, fx) {
 		t.Fatal("the next pass did not read herdr's panes again")
 	}
-	if got := known(h, "w1:p1").Cwd; got != h.lane("O-01") {
-		t.Errorf("the pane's cwd after the retry is %q, want the lane %q", got, h.lane("O-01"))
+	if got := known(h, "w1:p1").Cwd; got != h.lane("L-01") {
+		t.Errorf("the pane's cwd after the retry is %q, want the lane %q", got, h.lane("L-01"))
 	}
 }
 
@@ -146,7 +146,7 @@ func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 	}
 	at := since(h)
 	h.now = h.now.Add(2 * minute)
-	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("O-01"), nil))
+	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("L-01"), nil))
 	h.panes.after = func() { h.remove("w1:p1", port.EventClosed) } // the stream's close lands between the read and its use
 	if h.step(t, fx) {
 		t.Error("the pass went on with a pane the stream had closed")
@@ -179,7 +179,7 @@ func TestRereadDoesNotResurrectAClosedPane(t *testing.T) {
 func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	t.Parallel()
 	h, fx, _, _ := promptRig(t, false, noPane)
-	other := port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-o-03", Status: "idle"}
+	other := port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-l-03", Status: "idle"}
 	h.snap.Panes = append(h.snap.Panes, other)
 	h.a.event(context.Background(), port.Event{Kind: port.EventCreated, Pane: "w1:p3", New: other})
 	if h.step(t, fx) {
@@ -187,13 +187,13 @@ func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	}
 	h.now = h.now.Add(2 * minute)
 	h.panes.snap = snapshot(
-		freshPane(h, "w1:p1", h.lane("O-01"), func(p *port.Pane) { p.Status, p.Label = "working", "stale" }),
+		freshPane(h, "w1:p1", h.lane("L-01"), func(p *port.Pane) { p.Status, p.Label = "working", "stale" }),
 		freshPane(h, "w1:p3", h.root, func(p *port.Pane) { p.Status = "working" }))
 	h.panes.after = func() { h.status("w1:p3", func(p *port.Pane) { p.Status = "idle" }) } // the newer status, mid-read
 	if !h.step(t, fx) {
 		t.Fatal("the re-read did not find the pane in the lane")
 	}
-	if got := known(h, "w1:p1"); got.Cwd != h.lane("O-01") || got.Status != "idle" || got.Label != "pj-o-01" {
+	if got := known(h, "w1:p1"); got.Cwd != h.lane("L-01") || got.Status != "idle" || got.Label != "pj-l-01" {
 		t.Errorf("the lane's pane after the re-read is %+v, want the lane's cwd and the stream's status and label", got)
 	}
 	if got := known(h, "w1:p3"); got.Status != "idle" {

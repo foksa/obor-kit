@@ -33,18 +33,18 @@ func (r *loopRig) driverTold() []event.Message {
 	return out
 }
 
-// toDrive is how often line reached the drive agent pj-o1-drive (typed into its pane w1:p5, or posted to its inbox).
+// toDrive is how often line reached the drive agent pj-l-01-drive (typed into its pane w1:p5, or posted to its inbox).
 func (r *loopRig) toDrive(line string) int {
-	return r.typedTo("w1:p5", line) + r.inbox.count("pj-o1-drive", line)
+	return r.typedTo("w1:p5", line) + r.inbox.count("pj-l-01-drive", line)
 }
 
 // driveStatus sets the drive agent's pane status and waits until the app sees it.
 func (r *loopRig) driveStatus(status string) {
 	r.t.Helper()
 	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Status = status })
-	r.waitFor("pj-o1-drive "+status, func() bool {
+	r.waitFor("pj-l-01-drive "+status, func() bool {
 		for _, a := range r.app.Status().Project.Agents {
-			if a.Name == "pj-o1-drive" && a.Status == status {
+			if a.Name == "pj-l-01-drive" && a.Status == status {
 				return true
 			}
 		}
@@ -60,7 +60,7 @@ func (r *loopRig) leadAnswer(callID, text string) (string, error) {
 		Role: "lead", CallID: callID, Task: "T-1", Note: text})
 }
 
-// driving is the drive rig with T-1 a new drive on O-01, driving, its agent pj-o1-drive up in w1:p5.
+// driving is the drive rig with T-1 a new drive on L-01, driving, its agent pj-l-01-drive up in w1:p5.
 func driving(t *testing.T) *loopRig {
 	t.Helper()
 	r := newDriveRig(t)
@@ -82,13 +82,13 @@ func TestTellLeadReachesTheLead(t *testing.T) {
 		t.Fatalf("precondition: drive lines before tell-lead: %d", n)
 	}
 	want := "TOLD pj-lead (T-1; its answer arrives here as an [obor answer] line)"
-	reply, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "may I change the  API contract?")
+	reply, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "may I change the  API contract?")
 	if err != nil || reply != want {
 		t.Fatalf("tell-lead: %q, %v; want %q", reply, err, want)
 	}
 	line := `[obor T-1 drive] may I change the API contract? (reply: obor answer T-1 "…")`
 	r.waitFor("the line posted to the lead", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	if again, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "may I change the  API contract?"); err != nil ||
+	if again, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "may I change the  API contract?"); err != nil ||
 		again != want {
 		t.Errorf("a repeated call id: %q, %v; want the stored reply", again, err)
 	}
@@ -108,15 +108,15 @@ func TestTellLeadRefusesOthers(t *testing.T) {
 	r := driving(t)
 	n := len(r.records())
 	for i, c := range []struct{ agent, role, lane string }{
-		{"pj-o1", "worker", "O-01"}, {"pj-rev", "reviewer", ""}, {"pj-lead", "lead", ""}, {"", "", ""},
+		{"pj-l-01", "worker", "L-01"}, {"pj-rev", "reviewer", ""}, {"pj-lead", "lead", ""}, {"", "", ""},
 	} {
 		_, err := r.tellLead("r"+string(rune('0'+i)), c.agent, c.role, c.lane, "hello")
 		if err == nil || !strings.Contains(err.Error(), "for a drive agent to tell its lead") {
 			t.Errorf("tell-lead by %q (role %q): %v; want refused naming the drive agent", c.agent, c.role, err)
 		}
 	}
-	if _, err := r.tellLead("r9", "pj-o2-drive", "driver", "O-02", "hello"); err == nil ||
-		!strings.Contains(err.Error(), "no open drive in lane O-02") {
+	if _, err := r.tellLead("r9", "pj-l-02-drive", "driver", "L-02", "hello"); err == nil ||
+		!strings.Contains(err.Error(), "no open drive in lane L-02") {
 		t.Errorf("tell-lead from a lane with no drive: %v; want refused", err)
 	}
 	r.passes()
@@ -131,7 +131,7 @@ func TestTellLeadRefusesOthers(t *testing.T) {
 func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
 	t.Parallel()
 	r := driving(t)
-	if reply, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "while driving"); err != nil ||
+	if reply, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "while driving"); err != nil ||
 		!strings.HasPrefix(reply, "TOLD pj-lead (T-1;") {
 		t.Fatalf("tell-lead while driving: %q, %v; want posted", reply, err)
 	}
@@ -147,7 +147,7 @@ func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
 	n := len(r.records())
 	want := "tell-lead: T-1 is awaiting-accept (landed: gate, review and merge follow; the lead cannot answer a drive " +
 		"until it is driving again)"
-	if _, err := r.tellLead("t2", "pj-o1-drive", "driver", "O-01", "while landed"); err == nil || err.Error() != want {
+	if _, err := r.tellLead("t2", "pj-l-01-drive", "driver", "L-01", "while landed"); err == nil || err.Error() != want {
 		t.Errorf("tell-lead while landed: %v; want %q", err, want)
 	}
 	if got := len(r.records()); got != n {
@@ -157,7 +157,7 @@ func TestTellLeadOnlyWhileTheDriveCanBeAnswered(t *testing.T) {
 		t.Fatalf("sendback: %v", err)
 	}
 	r.waitFor("back to driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
-	if reply, err := r.tellLead("t3", "pj-o1-drive", "driver", "O-01", "back driving"); err != nil ||
+	if reply, err := r.tellLead("t3", "pj-l-01-drive", "driver", "L-01", "back driving"); err != nil ||
 		!strings.HasPrefix(reply, "TOLD pj-lead (T-1;") {
 		t.Errorf("tell-lead after the sendback: %q, %v; want posted again", reply, err)
 	}
@@ -179,7 +179,7 @@ func TestTellLeadRefusedWhileTheDriveIsDispatched(t *testing.T) {
 	n := len(r.records())
 	want := "tell-lead: T-1 is dispatched (landed: gate, review and merge follow; the lead cannot answer a drive " +
 		"until it is driving again)"
-	if _, err := r.tellLead("t1", "pj-o1-drive", "driver", "O-01", "hi"); err == nil || err.Error() != want {
+	if _, err := r.tellLead("t1", "pj-l-01-drive", "driver", "L-01", "hi"); err == nil || err.Error() != want {
 		t.Errorf("tell-lead on a dispatched drive: %v; want %q", err, want)
 	}
 	if got := len(r.records()); got != n {
@@ -194,7 +194,7 @@ func TestAnswerToDriveDelivered(t *testing.T) {
 	t.Parallel()
 	r := driving(t)
 	r.driveStatus("working")
-	want := "ANSWERED T-1: obor serve sends pj-o1-drive the answer"
+	want := "ANSWERED T-1: obor serve sends pj-l-01-drive the answer"
 	if reply, err := r.leadAnswer("a1", "yes, change it"); err != nil || reply != want {
 		t.Fatalf("answer on the drive: %q, %v; want %q", reply, err, want)
 	}

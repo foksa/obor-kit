@@ -83,11 +83,6 @@ func (kind) WithModel(args []string, model string) []string {
 	return agents.SetFlag(args, []string{"--model"}, model)
 }
 
-// WithEffortArg: --effort <effort> in place of the args' own (T-753).
-func (kind) WithEffortArg(args []string, effort string) []string {
-	return agents.SetFlag(args, []string{"--effort"}, effort)
-}
-
 // withEffort is args without their --effort (either spelling), then --effort effort; args as they are for effort "".
 func withEffort(args []string, effort string) []string {
 	if effort == "" {

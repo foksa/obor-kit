@@ -24,7 +24,7 @@ func seedHold(t *testing.T) (*harness, *schedScratch) {
 	t.Helper()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"),
-		`{"name":"pj","prefix":"pj","roles":{"integrator":{},"reviewer":{},"deep_dive":{}}}`)
+		`{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""}}`)
 	h.snap.Panes = append(h.snap.Panes,
 		port.Pane{ID: "w1:rev", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-rev", Status: "idle"},
 		port.Pane{ID: "w1:dd", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-deep-dive", Status: "idle"})
@@ -35,11 +35,11 @@ func seedHold(t *testing.T) (*harness, *schedScratch) {
 	}
 	h.connect()
 	h.a.mu.Lock()
-	h.a.p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1"}
+	h.a.p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1"}
 	h.a.mu.Unlock()
-	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "O-01", Agent: "pj-o-01", Pane: "w1:p1"})
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01", Agent: "pj-l-01", Pane: "w1:p1"})
 	addRecord(t, h, "T-1", event.StepSubmit, event.KindResult, submitOut{SHA: "s1"})
-	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "O-01", Input: "s1"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindIntent, gateIn{Kind: port.InputLane, Lane: "L-01", Input: "s1"})
 	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outConflict})
 	acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 1, "candidate1")
 	return h, f
@@ -180,7 +180,7 @@ func TestMergeHoldGatesGoOn(t *testing.T) {
 	h, f := seedHold(t)
 	ctx := context.Background()
 	h.work("w1:rev", true)
-	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "O-02"})
+	addRecord(t, h, "T-2", event.StepSubmitted, event.KindFact, submitData{Lane: "L-02"})
 	addRecord(t, h, "T-2", event.StepSubmit, event.KindResult, submitOut{SHA: "s2"})
 	h.pass(ctx)
 	if got := h.state("T-1"); got != stAccepted {

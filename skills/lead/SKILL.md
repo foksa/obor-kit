@@ -17,8 +17,10 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
 2. `obor status` (serve up? lanes, needs-you, the full check, the pause, the lines not delivered yet).
 3. Models, effort and lanes: if `obor setup show` says `confirmed: no` (or the config has no `setup.confirmed`), this is
    the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
-   effort, how many lanes of each type, the lead's, integrator's and reviewer's models. Write the answers into
-   `.obor/config.json` (`difficulty`, `lane_types`, `lanes`, `roles`), then set `setup.confirmed: true` and commit.
+   effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
+   (`difficulty`, `lanes`, `roles`, model refs `<model>[:<effort>]`; `kinds`, `models` when asked), then set
+   `setup.confirmed: true` and commit. A config of the shape before T-765 (lane types) does not load: `obor setup
+   migrate` rewrites it once.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
@@ -35,11 +37,13 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   protected unlocks apply at the guard's next call).
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
-  with a full oracle); `obor spec set` refuses one without. An optional `Type: <lane type>[, …]` line right under it (e.g. `opus` vs `sonnet`) puts those types ahead of the level's: a free lane of the named type wins, else the level's first free lane; `--types` overrides it. `obor dispatch <T-xx>` takes the first free lane of the
-  level's types that have a lane (config `difficulty`; a level with no lane at all uses medium's, then hard's, and the
-  reply says so); none free: the task waits for one, never for a higher level, and the reply says so.
-  `--types a,b` overrides the level (smoke tests, Haiku). Wherever a type is named (`Type:`, `--types`, config
-  `difficulty`, `roles.*.type`), `<type>:<effort>` names the effort too: `opus:high` runs on an opus lane at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
+  with a full oracle); `obor spec set` refuses one without. An optional `Model: <model>[, …]` line right under it (e.g.
+  `opus` vs `sonnet`; it was `Type:`, which spec set now refuses) puts those models ahead of the level's.
+  `obor dispatch <T-xx>` runs the level's first model (config `difficulty`) on the first free lane (every lane is
+  pooled); a model paused with `obor pause --model <name> [--for 3h] "<why>"` is skipped and the next one used; none
+  free, or every model paused: the task waits and the reply says why. There are no caps. `--model a,b` overrides the
+  level (smoke tests, Haiku). Wherever a model is named (`Model:`, `--model`, config `difficulty`, `roles.<role>`),
+  `<model>:<effort>` names the effort too: `opus:high` runs opus at effort high. Add `--after T-yy[,T-zz]` and serve dispatches it once
   those are merged and a lane is free. A second `obor dispatch` of a waiting task replaces its request. `--force` takes a
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
 - "When Y, do X" is never only chat: an `--after` dispatch; when Y is a merge, a watch with `--note "<what to do>"`
@@ -95,7 +99,7 @@ anything non-trivial, a mid model for small well-specified tasks, the cheapest f
 Speak up unprompted about anything systemic (complexity, fragile dependencies, your own mistakes).
 
 ## Handoff
-Past `roles.lead.handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
+Past `handoff_tokens` each prompt carries a reminder; nothing forces it. At the next logical break (not
 mid-task, ask the person first if they are talking with you): write the Handoff section at the top of `BACKLOG.md`
 (state, in-flight lanes, open decisions, next steps), commit it, then `obor restart <you> --fresh`.
 

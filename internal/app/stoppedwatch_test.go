@@ -17,7 +17,7 @@ import (
 func TestStoppedBeforeTheNextCheck(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	f := &schedScratch{h: h}
 	h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
 	if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
@@ -26,7 +26,7 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 	h.lanes.lanes[0].Task = "" // the last check saw the lane free: the dispatch writes T-1 after it
 	h.connect()
 	h.lanes.lanes[0].Task = "T-1"
-	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"), Agent: "pj-o-01",
+	addRecord(t, h, "T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"), Agent: "pj-l-01",
 		Branch: "task/T-1", Target: "b"})
 	addRecord(t, h, "T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	if mt := h.a.p.folded.loop["T-1"]; mt.state != stDispatched || !mt.awaitsTaskDone() {
@@ -36,9 +36,9 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 		t.Fatal("precondition: T-1 has a watch; the case is a stop before the watchdog's next look")
 	}
 
-	reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01", CallID: "s1",
+	reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "s1",
 		Error: "rate_limit", Details: "429 Too Many Requests"})
-	if err != nil || reply != "STOPPED pj-o-01 (needs-you T-1)" {
+	if err != nil || reply != "STOPPED pj-l-01 (needs-you T-1)" {
 		t.Fatalf("stopped: %q, %v; want the task's needs-you", reply, err)
 	}
 	var d stoppedData
@@ -53,11 +53,11 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 			}
 		}
 	}
-	if d.Task != "T-1" || d.NeedsYou == nil || d.NeedsYou.Cause != causeStopped || d.NeedsYou.Lane != "O-01" {
-		t.Fatalf("stopped %+v; want T-1's needs-you in lane O-01", d)
+	if d.Task != "T-1" || d.NeedsYou == nil || d.NeedsYou.Cause != causeStopped || d.NeedsYou.Lane != "L-01" {
+		t.Fatalf("stopped %+v; want T-1's needs-you in lane L-01", d)
 	}
-	if w := h.a.p.tasks["T-1"]; w == nil || w.lane.Name != "O-01" || w.lane.Task != "T-1" {
-		t.Errorf("the stop left no watch of T-1 in O-01: %+v", w)
+	if w := h.a.p.tasks["T-1"]; w == nil || w.lane.Name != "L-01" || w.lane.Task != "T-1" {
+		t.Errorf("the stop left no watch of T-1 in L-01: %+v", w)
 	}
 
 	h.tick(time.Minute) // the check keeps the same watch and records nothing more
@@ -83,13 +83,13 @@ func TestStoppedBeforeTheNextCheck(t *testing.T) {
 // current one, though its name sorts later (T-615's rule).
 func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 	t.Parallel()
-	old := func() *watch { return &watch{lane: port.Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-0"}} }
-	cur := func() *watch { return &watch{lane: port.Lane{Name: "O-01", Agent: "pj-o-01", Task: "T-1"}} }
+	old := func() *watch { return &watch{lane: port.Lane{Name: "L-01", Agent: "pj-l-01", Task: "T-0"}} }
+	cur := func() *watch { return &watch{lane: port.Lane{Name: "L-01", Agent: "pj-l-01", Task: "T-1"}} }
 	for _, c := range []struct {
 		name  string
-		then  string               // a second task dispatched to O-01 after T-1 ("" none)
+		then  string               // a second task dispatched to L-01 after T-1 ("" none)
 		want  string               // the lane's current task
-		watch func(p *proj) *watch // the watches on O-01 before each call; the one to keep (nil: a new one)
+		watch func(p *proj) *watch // the watches on L-01 before each call; the one to keep (nil: a new one)
 	}{
 		{"old watch, new task", "", "T-1",
 			func(p *proj) *watch { p.tasks["T-0"] = old(); delete(p.tasks, "T-1"); return nil }},
@@ -102,7 +102,7 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t)
-			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+			h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 			f := &schedScratch{h: h}
 			h.a.opt.Loop = func(string) (*Loop, error) { return &Loop{Scratch: f, Agents: f, Typer: f}, nil }
 			if err := os.MkdirAll(h.lanes.lanes[0].Dir, 0o755); err != nil {
@@ -116,20 +116,20 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 				tasks = append(tasks, c.then)
 			}
 			for _, task := range tasks {
-				addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "O-01", Dir: h.lane("O-01"),
-					Agent: "pj-o-01", Branch: "task/" + task, Target: "b"})
+				addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+					Agent: "pj-l-01", Branch: "task/" + task, Target: "b"})
 				addRecord(t, h, task, event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 			}
 			p := h.a.p
 			for _, task := range tasks {
-				if mt := p.folded.loop[task]; mt == nil || !mt.awaitsTaskDone() || mt.lane != "O-01" {
-					t.Fatalf("precondition: %s %+v; want waiting on its worker in O-01", task, mt)
+				if mt := p.folded.loop[task]; mt == nil || !mt.awaitsTaskDone() || mt.lane != "L-01" {
+					t.Fatalf("precondition: %s %+v; want waiting on its worker in L-01", task, mt)
 				}
 			}
 			if c.then != "" && !(p.folded.loop[c.then].dispSeq > p.folded.loop["T-1"].dispSeq && "T-1" < c.then) {
 				t.Fatalf("precondition: %s not the newer dispatch sorting after T-1", c.then)
 			}
-			stale := "T-0" // the watch on O-01 not of the current task
+			stale := "T-0" // the watch on L-01 not of the current task
 			if c.then != "" {
 				stale = "T-1"
 			}
@@ -138,13 +138,13 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			h.a.mu.Lock()
 			keep := c.watch(p)
 			h.a.mu.Unlock()
-			staleWatch := keep == nil && c.name != "no watch yet" // the case leaves a stale watch on O-01
+			staleWatch := keep == nil && c.name != "no watch yet" // the case leaves a stale watch on L-01
 			if p.tasks[c.want] != keep || (p.tasks[stale] != nil) != staleWatch {
 				t.Fatalf("precondition: watches %+v; want the case's", p.tasks)
 			}
-			reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01",
+			reply, err := h.a.stoppedCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01",
 				CallID: "s1", Error: "rate_limit", Details: "429 Too Many Requests"})
-			if err != nil || reply != "STOPPED pj-o-01 (needs-you "+c.want+")" {
+			if err != nil || reply != "STOPPED pj-l-01 (needs-you "+c.want+")" {
 				t.Fatalf("stopped: %q, %v; want %s's needs-you", reply, err, c.want)
 			}
 			if !p.stops(c.want) || p.stops(stale) {
@@ -152,8 +152,8 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 					c.want)
 			}
 			w := p.tasks[c.want]
-			if w == nil || w.lane.Name != "O-01" || w.lane.Task != c.want || (keep != nil && w != keep) {
-				t.Errorf("%s's watch %+v; want O-01's (the current one kept: %v)", c.want, w, keep != nil)
+			if w == nil || w.lane.Name != "L-01" || w.lane.Task != c.want || (keep != nil && w != keep) {
+				t.Errorf("%s's watch %+v; want L-01's (the current one kept: %v)", c.want, w, keep != nil)
 			}
 			if p.tasks[stale] != nil {
 				t.Errorf("the stale watch of %s still in force after the stop", stale)
@@ -163,8 +163,8 @@ func TestStoppedCurrentTaskNotAnOldWatch(t *testing.T) {
 			h.a.mu.Lock()
 			keep = c.watch(p)
 			h.a.mu.Unlock()
-			reply, err = h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-o-01", Role: "worker", Lane: "O-01"})
-			if err != nil || reply != "TURN pj-o-01 (the stop of "+c.want+" ended)" {
+			reply, err = h.a.turnCall(wire.Call{Root: h.root, Agent: "pj-l-01", Role: "worker", Lane: "L-01"})
+			if err != nil || reply != "TURN pj-l-01 (the stop of "+c.want+" ended)" {
 				t.Fatalf("turn: %q, %v; want %s's stop ended", reply, err, c.want)
 			}
 			if p.stops(c.want) {

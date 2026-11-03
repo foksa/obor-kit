@@ -53,23 +53,23 @@ func (r *loopRig) resultOf(attempt int, step string) string {
 func TestReplayEndedTaskIntents(t *testing.T) {
 	t.Parallel()
 	submitted := func(n int) logRec {
-		return logRec{n, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}}
+		return logRec{n, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}
 	}
-	submit := logRec{1, event.StepSubmit, event.KindIntent, event.ClassGit, map[string]any{"lane": "O-01", "agent": "pj-o1"}}
+	submit := logRec{1, event.StepSubmit, event.KindIntent, event.ClassGit, map[string]any{"lane": "L-01", "agent": "pj-l-01"}}
 	work := func(n int) logRec {
-		return logRec{n, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-o1",
+		return logRec{n, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-l-01",
 			"job": "T-1/" + string(rune('0'+n)) + "/work"}}
 	}
-	refused := logRec{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Step: event.StepWork,
+	refused := logRec{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Step: event.StepWork,
 		Reason: "work: refused"}}
 	dropped := func(n int) logRec {
-		return logRec{n, event.StepDropped, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Reason: "why"}}
+		return logRec{n, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Reason: "why"}}
 	}
 	merged := func(n int) logRec {
 		return logRec{n, event.StepMerged, event.KindFact, "", map[string]any{"outside": true}}
 	}
-	start := logRec{1, event.StepStartWork, event.KindIntent, event.ClassStart, map[string]any{"lane": "O-01",
-		"agent": "pj-o1", "pane": "w1:p1"}}
+	start := logRec{1, event.StepStartWork, event.KindIntent, event.ClassStart, map[string]any{"lane": "L-01",
+		"agent": "pj-l-01", "pane": "w1:p1"}}
 	for _, c := range []struct {
 		name    string
 		recs    []logRec
@@ -143,10 +143,10 @@ func TestDropSettlesOpenIntents(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
 	r.writeLog([]logRec{
-		{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "O-01", "agent": "pj-o1"}},
-		{1, event.StepNeedsYou, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Cause: "gate", Reason: "owner"}},
-		{1, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-o1", "job": "T-1/1/work"}},
-		{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "O-01", Merge: true, Step: event.StepWork,
+		{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}},
+		{1, event.StepNeedsYou, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Cause: "gate", Reason: "owner"}},
+		{1, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-l-01", "job": "T-1/1/work"}},
+		{1, event.StepFailed, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Step: event.StepWork,
 			Reason: "work: refused"}},
 	})
 	r.start()

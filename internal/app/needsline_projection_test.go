@@ -55,7 +55,7 @@ func needsMessages(t *testing.T, p *proj) []event.Message {
 func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":{}}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
 	in := &countPoster{}
 	fx := &Loop{Inbox: in, Typer: in}
 	h.a.opt.Loop = func(string) (*Loop, error) { return fx, nil }
@@ -64,12 +64,12 @@ func TestRV52VerifyProjectionFailureDoesNotDuplicate(t *testing.T) {
 	p := h.proj()
 	t.Cleanup(func() { p.log.Close(); h.a.closeLog() })
 
-	d := event.FactData{Lane: "O-01", Cause: "lane", Reason: "lane: prepare\nfailed"}
+	d := event.FactData{Lane: "L-01", Cause: "lane", Reason: "lane: prepare\nfailed"}
 	if !h.a.record(p, event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact}, d) {
 		t.Fatal("the needs-you was refused")
 	}
 	r := p.folded.active["T-1"][len(p.folded.active["T-1"])-1]
-	p.folded.lr.rows["O-01"] = store.LaneRow{Lane: "O-01", Task: "T-1", Agent: "pj-o1"} // a row to write: the write fails
+	p.folded.lr.rows["L-01"] = store.LaneRow{Lane: "L-01", Task: "T-1", Agent: "pj-l-01"} // a row to write: the write fails
 	if _, err := p.log.DB().Exec(`CREATE TRIGGER lanes_fail BEFORE INSERT ON lanes BEGIN SELECT RAISE(ABORT, 'injected lane-row failure'); END`); err != nil {
 		t.Fatal(err)
 	}

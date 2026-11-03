@@ -59,7 +59,7 @@ warns on the keys that no longer do anything.
 {
   "version": 1,
   "name": "axis-alies",                       // display name
-  "prefix": "aa",                             // agent names: aa-o1, aa-s1, aa-int; tab names
+  "prefix": "aa",                             // agent names: aa-l-01, aa-int; tab names
   "lanes_dir": "../axis-alies-wt",
   "branches": { "main": "main", "task": "task/{id}" },
   "task_id_pattern": "T-[0-9]+[a-z]?",        // ERE
@@ -75,30 +75,42 @@ warns on the keys that no longer do anything.
   },
   "lane_links": ["reference", "public/assets"],  // symlinked from the root into new lanes and the scratch
   "protected_files": ["src/engine/types.ts"],    // lead-only; globs
-  "lane_types": {                                // how to start/reset an agent for a lane of this type
-    "opus":   { "kind": "claude", "args": ["--model","opus","--effort","medium","--permission-mode","auto"], "max": 4 },
-    "sonnet": { "kind": "claude", "args": ["--model","sonnet","--effort","medium","--permission-mode","auto"] },
-    "haiku":  { "kind": "claude", "args": ["--model","haiku","--permission-mode","auto"] },
-    "luna":   { "kind": "codex",  "args": ["-m","gpt-6-luna","-c","model_reasoning_effort=high","-s","workspace-write","-a","never"],
-                "prompt_extra": "Network is unavailable; deps are installed." }
+  "lanes": 3,                                    // L-01 … L-03 under lanes_dir, every one pooled (T-765)
+  "difficulty": { "hard": ["opus:high"], "medium": ["sonnet:medium", "deepseek"], "simple": ["deepseek"] },
+  "roles": { "lead": "opus:high", "integrator": "opus", "reviewer": "sol:high" },  // model refs
+  "kinds": {                                     // per kind: args after the model, the work jobs' prompt_extra
+    "codex": { "args": ["-c", "sandbox_workspace_write.network_access=true"],
+               "prompt_extra": "Network is unavailable; deps are installed." }
   },
-  "lanes": { "O-01": "opus", "S-01": "sonnet", "T-01": "luna" },  // lane name → lane type; dir = lanes_dir/<name>
-  "roles": { "integrator": { "type": "opus" }, "reviewer": { "type": "sol", "worktree": "review" } },
+  "models": { "muse": { "kind": "opencode", "model": "" } },  // a model the built-in table lacks, or an override
+  "handoff_tokens": 500000,                      // the lead's handoff reminder threshold
   "merge": { "scratch_dir": null, "trailer": "Co-Authored-By: …", "summary_regex": "[0-9]+ pass|[0-9]+ fail",
              "fail_grep": "error|FAIL|Expected|Received" }
 }
 ```
-`.obor/local.json` (per machine, never committed): `lanes_dir` override, `limits` (`max_panes_per_tab`,
-per-type `max`), baseline `dir` overrides, `lane_types.*.args` overrides.
+`.obor/local.json` (per machine, never committed): `lanes_dir` override, `limits` (`max_panes_per_tab`), baseline `dir`
+overrides, and any key above (an object merges key by key; a list or scalar replaces).
 
-Per-kind defaults live in the plugin, overridable per lane type: Claude `--settings
-'{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'` for every agent except leads (only the lead keeps Remote
-Control and auto memory, T-280/T-471); a lane type's `settings` overlay those keys.
+**Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
+(`opus:high`), in `difficulty` levels, `roles.<role>`, `agents.<name>.type` and a spec's `Model:` line. The built-in
+models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
+opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol → `gpt-6.1-sol`, luna → `gpt-6-luna`.
+`models.<name>` adds one or overrides a built-in (`kind`, `model`; `""`: the kind's own choice). A start is its kind's
+base args (claude `--permission-mode auto`; codex `-s workspace-write -a never`; opencode `--auto --standalone`), the
+model, then `kinds.<kind>.args`; the effort is the kind's own flag (T-695), refused when the kind does not take it.
+`lanes` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks). There are no caps. The
+shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, `roles.<role>` objects) is refused by the loader
+with "run obor setup migrate", which rewrites it once (types to refs, args every type of a kind shares to `kinds`,
+the most common prompt_extra, unknown types to `models`, lanes to L-01 … in config order, `git worktree move` while
+every lane is free) and commits it.
+
+Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
+for every agent except leads (only the lead keeps Remote Control and auto memory, T-280/T-471).
 Permission mode and posted lines (T-499): a Claude lane's job wakes and a Claude role agent's briefs are posted to its
 session's inbox, not typed. A session in `--permission-mode bypassPermissions` holds a posted message for its 5-minute
 dialog and drops it while serve records `sent` (phase-5 advice §8); the delivery timers re-wake a worker, a brief is
-not retried. Run Claude lane types in `auto` (every obor-kit lane type does); a `bypassPermissions` lane type is at
-its own risk.
+not retried. Claude starts run in `auto` (its base args); a `bypassPermissions` in `kinds.claude.args` is at its own
+risk.
 Dispatch launches a fresh process per task (R-28, T-157).
 
 **Identity (R-28, T-154/T-159):** the env inside the process (`OBOR_ROLE`/`OBOR_AGENT`/`OBOR_LANE`) and the herdr
@@ -116,7 +128,10 @@ the task's stored spec). What is recorded, in what
 order, and what a restart does with it: `docs/state-model.md` ("The log"). `.obor/state/` also holds serve's own
 bookkeeping (logs, backups, receipts). `obor pause [--for 3h] "<why>"` is a request to serve: fact `paused{why,
 until}` (`docs/state-model.md` row 46); while it holds, a dispatch is refused with the reason and waiting tasks wait;
-running gates, accepts and merges finish; `obor pause --clear` ends it; `obor status` shows it.
+running gates, accepts and merges finish; `obor pause --clear` ends it; `obor status` shows it. `obor pause --model
+<name> [--for 3h] "<why>"` (T-765) pauses one model (fact `paused{model, …}`): dispatch skips it and a level's next
+model is used; every model of a request paused, the task waits and its reply names each pause (`--model <name>
+--clear` ends it).
 
 ## Roles
 Resolution (`obor whoami`, `project.DetectRole`):
@@ -164,28 +179,28 @@ start `obor restart` uses too.
 Reads the store's `lanes` table read-only (each lane's task and merge evidence) plus the worktree facts git answers
 (`missing`, `free`, `dirty-free`, `working`, `done`; `checks.LaneTable`), joined to obor serve's answer (its tasks,
 agents, needs-you, pause, the lines not typed yet) when serve is up. The row, how serve projects it from the log and
-every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per lane: `lane, type, dir, branch, task,
+every reader: `docs/state-model.md` ("The log", the `lanes` bullet). Fields per lane (`type`: the model its open
+dispatch runs, "" none): `lane, type, dir, branch, task,
 state, done_age, dirty, warning, op, task_state, attempt, running, agent, agent_status`. Text output: serve's line, one line per
 lane, serve's tasks on no lane, needs-you with the commands that answer them, the full check, the pause.
 
 ## obor web's write path (T-753, T-760)
 `obor web` reads the read model like `obor status` and has two verbs, the Setup page's edits: `POST /api/config`
-(`{changes: [{key, value}], base}`: a list of changes, each `difficulty.<level>`, `lane_types.<type>.model|effort|max`,
-`lanes.<LANE>` or `roles.<role>.type`, and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
+(`{changes: [{key, value}], base}`: a list of changes, each `difficulty.<level>`, `roles.<role>`, `lanes` (the
+count) or `kinds.<kind>.args` (T-765), and `base`, the `.obor/config.json` revision the page read, `config.Rev`: the
 setup's `config_rev`) and `POST /api/pause` (set with a reason and an optional duration, or clear). Web writes nothing:
 each is a request on the project's app socket (`config_set`, `pause`), so serve stays the one writer; serve down is
 503. A POST is taken only on those two routes, only with the page's own Origin, the listen address as Host (no DNS
 rebinding) and a JSON body (403 otherwise); every other route is GET/HEAD (405). Serve applies the changes in order to
-`.obor/config.json`, each to the bytes the one before wrote (`config.Edit`: model and effort rewritten inside `args`
-per kind), runs `config.Validate` once on the result (refused for a new FAIL), writes the file in its own layout and
+`.obor/config.json`, each to the bytes the one before wrote (`config.Edit`), runs `config.Validate` once on the result (refused for a new FAIL), writes the file in its own layout and
 commits that one file on main once (`config: <key> <old> → <new> (owner, web)`; several: the keys as the subject, one
 `- <key> <old> → <new>` line each in the body), behind the publish admission (never while a publish moves main). All
 or nothing: any change refused refuses them all and nothing is written. Refused: a config revision that is not the
 base (another tab, the lead or a hand edit changed it since the page read it: the page never overwrites theirs),
 uncommitted changes to the config (a hand edit is never committed under the owner's), a key `.obor/local.json`
-overrides (named), a lane that has a task, a name the config lacks. Fact `config.set` records the changes (one record)
+overrides (named), a lower lanes count while a lane it drops has a task, a name the config lacks. Fact `config.set` records the changes (one record)
 and the lead gets one line listing them (`[obor] config: <key> <old> → <new>; … (owner, web)`); serve reads the config
-per call, so they count from the next dispatch or start. Adding lanes or lane types, other args and other keys stay
+per call, so they count from the next dispatch or start. `models`, a kind's prompt_extra and other keys stay
 `obor setup`'s or a hand edit's. The page (T-760) is a Svelte app in `web/`, built by `make web` into
 `internal/web/dist` and committed (the gate never builds it: `TestDistFresh` fails on a stale build); it stages the
 edits and sends them as one POST.
@@ -256,14 +271,15 @@ full check and the pause.
   `.obor/state/logs/<task|nightly|milestone>-<name>.log`, so a RED can be triaged without a re-run.
 - **dispatch** (obor serve, `internal/app`): branch from the root's current branch; refuse unless the lane is `free`
   (or `dirty-free` with `--force`) and its agent is not working/blocked; `checkout -B`; the `lanes` row records the
-  dispatch; **launch** a fresh worker (`agent.start`: `Agents.Launch(Launch{Fresh: true})` with env, label and type args) whose
+  dispatch; **launch** a fresh worker (`agent.start`: `Agents.Launch(Launch{Fresh: true})` with env, label and the
+  dispatch's model's args) whose
   first prompt is the work job's wake, `[obor job <id>] call the obor job_next tool`. The worker's `job_next` is the
   delivery. No screen reading (R-28 §4, T-157). An undelivered wake is retried after 5 minutes, then becomes needs-you.
 - **drive** (T-751, owner 2026-11-03): the owner iterates by hand on a task's branch in a plain interactive agent (role
   `driver`: a lane's write limits and push denial, commits on its branch, no job pull, Stop-hook demand or wrong-tab
   guard), then lands it through the same gate, integrator and merge. A drive is a task on a lane, so the dispatch's
   machinery does the work. `obor drive <name>` is a new task (spec `Owner drive: <name>`) dispatched as a drive onto
-  the first free untyped lane (counted toward no type's max); `obor drive <T-xx>` takes over a task its worker works on
+  the first free lane; `obor drive <T-xx>` takes over a task its worker works on
   (serve stops the worker; lane, branch and spec stay). After lane.prepare the task is **driving**: serve sends it no
   jobs, no watchdog watches it (no idle or stall needs-you), a merge watch has no line for it; the CLI starts the drive
   agent in a pane split in the caller's tab. `obor land` (a clean worktree; it commits nothing) records the submission
@@ -314,7 +330,7 @@ When the user types into a worker's pane by mistake, the worker must not act on 
   name from the store's `lanes` row or `OBOR_LANE`, task from that row) and not to run any tool until the user
   confirms in the next message. Accident guard, not a security boundary (the tag is not secret).
 - Handoff reminder (T-232): the same hook, for a lead or integrator whose session context is above its
-  `roles.*.handoff_tokens` (`0` = off), adds a reminder to every prompt: hand off at the next logical break, not
+  `handoff_tokens` (the lead's; the integrator's `integrator_handoff_tokens`; `0` = off), adds a reminder to every prompt: hand off at the next logical break, not
   mid-work. It is a reminder, not a block: the agent picks the break, writes the Handoff section of `BACKLOG.md` and
   commits it (the lead; the integrator hands off after the merge in hand), then runs `obor restart <you> --fresh`,
   which from its own pane is scheduled: a detached run waits until the agent is idle and restarts it fresh.
@@ -495,7 +511,7 @@ Everything file- or git-based stays in the Go binary: plugins have no timers or 
 starts `bin/obor`.
 
 ## Lines to the lead (T-466, 2026-10-27 — owner decision, phase 4)
-Serve posts two kinds of lines to the lead (`roles.lead.agent`) into its Claude session, and delivers a brief to a role
+Serve posts two kinds of lines to the lead (`<prefix>-lead`) into its Claude session, and delivers a brief to a role
 agent (posted to a Claude session, typed into another kind's pane, T-499); nothing is typed into the pane the owner
 writes in, and nothing else goes to a chat agent but a job's wake. State in `docs/state-model.md` row 47.
 - **`obor send <project> "<text>"`** (a lead or the owner): `<project>` is a path into an obor project. One `obor serve`

@@ -24,7 +24,7 @@ func TestSpecSetRequest(t *testing.T) {
 		name, dir, role string
 	}{
 		{"the lead", p.Root, "lead"},
-		{"from a lane, OBOR_ROLE=lead", p.LaneDir("O-01"), "worker"},
+		{"from a lane, OBOR_ROLE=lead", p.LaneDir("L-01"), "worker"},
 	} {
 		rc, stdout, stderr := run(t, c.dir, env, "spec", "set", "T-07", draft)
 		if rc != 0 || stdout != "SET T-07 rev 1\n" {
@@ -67,9 +67,9 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("a refused set asked serve (%d requests, %d before)", after, n)
 	}
 
-	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "spec set: only the lead sets a spec, not pj-o1 (role worker)")
+	home2, refusing := startFakeServe(t, p.Root, wire.Status{}, "", "spec set: only the lead sets a spec, not pj-l1 (role worker)")
 	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "spec", "set", "T-07", draft); rc != 1 ||
-		stdout != "FAIL spec set: only the lead sets a spec, not pj-o1 (role worker)\n" {
+		stdout != "FAIL spec set: only the lead sets a spec, not pj-l1 (role worker)\n" {
 		t.Errorf("refusal: exit %d, %q", rc, stdout)
 	}
 	refusing.stop()

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -116,10 +117,17 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if cfg.Data.Name != "proj" || cfg.Data.Prefix != "proj" {
 		t.Errorf("name %q prefix %q", cfg.Data.Name, cfg.Data.Prefix)
 	}
-	for lane, typ := range map[string]string{"L-01": "", "L-02": ""} { // untyped pool lanes (T-724)
-		if got := cfg.Data.Lanes.M[lane].Type; got != typ {
-			t.Errorf("lanes.%s = %q, want %s", lane, got, typ)
-		}
+	if cfg.Data.Lanes != 2 {
+		t.Errorf("lanes = %d, want 2 (T-765)", cfg.Data.Lanes)
+	}
+	// T-765: init writes the new shape: no lane types, a lanes count, roles as model refs.
+	doc := x.Read(".obor/config.json")
+	if key := config.OldShape([]byte(doc)); key != "" || strings.Contains(doc, "lane_types") ||
+		!regexp.MustCompile(`(?m)^  "lanes": 2,?$`).MatchString(doc) ||
+		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus"`) {
+		t.Errorf("config.json is not the new shape (old key %q):\n%s", key, doc)
+	}
+	for _, lane := range []string{"L-01", "L-02"} {
 		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
 			t.Errorf("no worktree for %s: %v", lane, err)
 		}
@@ -510,25 +518,20 @@ func TestOborInitRerunChangesNothing(t *testing.T) {
 	}
 }
 
-// A lane whose type the user changed keeps it on a rerun (the summary's "change it, then obor init again"): exit 0,
-// lanes already, no new lane or pane; a configured lane whose worktree is gone gets it back, with its own type.
-func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
+// A lanes count the user raised is kept on a rerun: exit 0, lanes already, no new pane; a configured lane whose
+// worktree is gone gets it back.
+func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	t.Parallel()
 	x := newInitFx(t, true)
 	x.init(t)
-	doc, err := config.EditJSON([]byte(x.Read(".obor/config.json")), []string{"lanes", "L-01"}, "sonnet")
-	if err != nil {
-		t.Fatal(err)
-	}
-	x.Write(".obor/config.json", string(doc))
 	agents, wt := x.agents(t), x.Git(x.Root, "worktree", "list")
 	x.reset()
 	out := x.init(t)
 	cfg, err := config.Load(x.Root)
-	if err != nil || cfg.Data.Lanes.M["L-01"].Type != "sonnet" {
-		t.Fatalf("L-01 type after the rerun: %q (%v)", cfg.Data.Lanes.M["L-01"].Type, err)
+	if err != nil || cfg.Data.Lanes != 2 {
+		t.Fatalf("lanes after the rerun: %d (%v)", cfg.Data.Lanes, err)
 	}
-	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "L-01 sonnet") {
+	if stateOf(out, "lanes") != "already" || !strings.Contains(summary(out, "lanes"), "L-01, L-02") {
 		t.Errorf("lanes step %q", summary(out, "lanes"))
 	}
 	if got := x.agents(t); len(got) != len(agents) {
@@ -547,8 +550,8 @@ func TestOborInitRerunKeepsAChangedLaneType(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.LanesDir(), "L-01", ".git")); err != nil || stateOf(out, "lanes") != "done" {
 		t.Errorf("worktree not recreated (%v), lanes %q", err, summary(out, "lanes"))
 	}
-	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes.M["L-01"].Type != "sonnet" {
-		t.Errorf("recreated lane's type %q", cfg.Data.Lanes.M["L-01"].Type)
+	if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 2 {
+		t.Errorf("lanes after the recreation %d", cfg.Data.Lanes)
 	}
 }
 
@@ -785,7 +788,7 @@ func TestOborInitReviewerOpusWithoutCodex(t *testing.T) {
 	if rc, _ := cfg.Role("reviewer"); rc.Type != "opus" {
 		t.Errorf("reviewer type %q, want opus", rc.Type)
 	}
-	has(t, summary(out, "lanes"), "reviewer sol → opus", "lanes step")
+	has(t, summary(out, "lanes"), "reviewer sol:high → opus", "lanes step")
 	// T-708: the reviewer's pane is labelled and holds no agent; its type decides what the first review starts.
 	if a := x.h.Pane(x.paneOf(cfg.AgentName("reviewer", ""))); a == nil || a.Kind != "" || a.Name != "" {
 		t.Errorf("reviewer pane: %+v, want labelled with no agent", a)
@@ -823,13 +826,13 @@ func TestOborInitSetsTheLeadsType(t *testing.T) {
 		t.Errorf("config changed on a rerun")
 	}
 
-	x.editConfig(t, []string{"roles", "lead", "type"}, "sonnet")
+	x.editConfig(t, []string{"roles", "lead"}, "sonnet")
 	out = x.init(t)
 	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
-	if lead := cfg.Data.Roles.Lead; lead == nil || lead.Type != "sonnet" {
-		t.Errorf("a kept lead type: %+v", lead)
+	if lead := cfg.Data.Roles.Lead; lead == nil || *lead != "sonnet" {
+		t.Errorf("a kept lead model: %v", lead)
 	}
 	if got := summary(out, "lanes"); !strings.Contains(got, "lead sonnet") || strings.Contains(got, "lead sonnet →") {
 		t.Errorf("lanes step %q", got)
@@ -1009,12 +1012,12 @@ func TestOborInitDifficultyListsOnlyDetectedKinds(t *testing.T) {
 	if len(cfg.Data.Difficulty) == 0 {
 		t.Fatalf("difficulty not written:\n%s", x.Read(".obor/config.json"))
 	}
-	if _, ok := cfg.LaneType("deepseek"); !ok {
+	if _, ok := cfg.Model("deepseek"); !ok {
 		t.Fatal("precondition: deepseek is a lane type of the default config")
 	}
 	for level, list := range cfg.Data.Difficulty {
 		for _, ref := range list {
-			if typ, _ := config.ParseTypeRef(ref); typ == "deepseek" {
+			if typ, _ := config.ParseModelRef(ref); typ == "deepseek" {
 				t.Errorf("level %s lists %s without OpenCode opted in", level, ref)
 			}
 		}

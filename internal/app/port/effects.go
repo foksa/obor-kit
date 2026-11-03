@@ -35,11 +35,11 @@ type Launch struct {
 	Fresh, Force     bool
 	// Prompt is the CLI's first prompt for a fresh session: a job's wake.
 	Prompt string
-	// Effort is the effort to start with (a dispatch's type reference, T-695), replacing the type's; "": a role's
-	// configured effort (roles.<role>.type), else the type's args.
+	// Effort is the effort to start with (a dispatch's model ref, T-695); "": a role's configured effort (roles.<role>),
+	// else the kind's default.
 	Effort string
-	// Type is the lane type to start with (a dispatch's choice, T-722), in place of the agent's configured one
-	// (lanes.<LANE>.type); "": a lane agent's lane row type (its last dispatch's), else the configured one.
+	// Type is the model to start with (a dispatch's choice, T-722); "": a lane agent's lane row model (its last
+	// dispatch's), else the configured one (a role's).
 	Type string
 }
 
@@ -104,7 +104,7 @@ type AgentEnv struct {
 type Start struct {
 	Agent, Kind, Pane string
 	Label             string   // the pane's label now: renamed to Agent when it differs
-	Args              []string // the type's launch args (config.LaneType.LaunchArgs)
+	Args              []string // the type's launch args (config.Model.LaunchArgs)
 	Resume            string   // the session id to resume; "" for a new one
 	Prompt            string   // the CLI's first prompt (a job's wake); "" for none
 	Lane              string   // the agent's lane: a session a fresh start reports is recorded with it

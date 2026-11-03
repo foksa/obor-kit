@@ -108,11 +108,11 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-o-02", Cwd: "/proj-wt/O-02"}) {
+	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
 	want := []herdr.Agent{
-		{Name: "pj-o-01", Pane: "w1:p1", Status: "idle", Cwd: "/proj-wt/O-01", Kind: "claude", Session: "5e1d0c2b-aaaa", Seq: 1},
+		{Name: "pj-l-01", Pane: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Kind: "claude", Session: "5e1d0c2b-aaaa", Seq: 1},
 		{Pane: "w1:p3", Status: "working", Cwd: "/elsewhere", Kind: "claude", Seq: 1},
 	}
 	if !reflect.DeepEqual(snap.Agents, want) {
@@ -122,7 +122,7 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(agents, want) {
 		t.Errorf("Agents = %+v, %v", agents, err)
 	}
-	if a, err := c.Agent(ctx, "pj-o-01"); err != nil || a != want[0] {
+	if a, err := c.Agent(ctx, "pj-l-01"); err != nil || a != want[0] {
 		t.Errorf("Agent = %+v, %v", a, err)
 	}
 	_, err = c.Agent(ctx, "nope")
@@ -135,7 +135,7 @@ func TestSocketRequestParams(t *testing.T) {
 	t.Parallel()
 	srv := herdrtest.Serve(t, fixture())
 	c := srv.Client()
-	agent := map[string]any{"pane_id": "w1:p1", "name": "pj-o-01", "agent": "claude", "agent_status": "working"}
+	agent := map[string]any{"pane_id": "w1:p1", "name": "pj-l-01", "agent": "claude", "agent_status": "working"}
 
 	srv.Reply("agent.prompt", map[string]any{"type": "agent_prompted", "agent": agent})
 	srv.Reply("agent.start", map[string]any{"type": "agent_started", "agent": agent, "argv": []string{"claude"}})
@@ -143,14 +143,14 @@ func TestSocketRequestParams(t *testing.T) {
 	srv.Reply("pane.close", map[string]any{"type": "ok"})
 	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 
-	a, err := c.Prompt(ctx, "pj-o-01", "hello")
+	a, err := c.Prompt(ctx, "pj-l-01", "hello")
 	if err != nil || a.Status != "working" || a.Pane != "w1:p1" {
 		t.Errorf("Prompt = %+v, %v", a, err)
 	}
-	if a, err := c.Start(ctx, "pj-o-04", "claude", "w1:p2", "--model", "haiku"); err != nil || a.Name != "pj-o-01" {
+	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", "--model", "haiku"); err != nil || a.Name != "pj-l-01" {
 		t.Errorf("Start = %+v, %v", a, err)
 	}
-	if id, err := c.Split(ctx, "w1:p1", "down", "/proj-wt/O-04", "OBOR_AGENT=pj-o-04"); err != nil || id != "w1:p9" {
+	if id, err := c.Split(ctx, "w1:p1", "down", "/proj-wt/L-04", "OBOR_AGENT=pj-l-04"); err != nil || id != "w1:p9" {
 		t.Errorf("Split = %q, %v", id, err)
 	}
 	if err := c.Close(ctx, "w1:p9"); err != nil {
@@ -161,9 +161,9 @@ func TestSocketRequestParams(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ method, want string }{
-		{"agent.prompt", `{"target":"pj-o-01","text":"hello"}`},
-		{"agent.start", `{"args":["--model","haiku"],"kind":"claude","name":"pj-o-04","pane_id":"w1:p2"}`},
-		{"pane.split", `{"cwd":"/proj-wt/O-04","direction":"down","env":{"OBOR_AGENT":"pj-o-04"},"target_pane_id":"w1:p1"}`},
+		{"agent.prompt", `{"target":"pj-l-01","text":"hello"}`},
+		{"agent.start", `{"args":["--model","haiku"],"kind":"claude","name":"pj-l-04","pane_id":"w1:p2"}`},
+		{"pane.split", `{"cwd":"/proj-wt/L-04","direction":"down","env":{"OBOR_AGENT":"pj-l-04"},"target_pane_id":"w1:p1"}`},
 		{"pane.close", `{"pane_id":"w1:p9"}`},
 		{"notification.show", `{"body":"T-319 merged","title":"obor"}`},
 	} {
@@ -178,7 +178,7 @@ func TestSocketErrors(t *testing.T) {
 	srv := herdrtest.Serve(t, fixture())
 	c := srv.Client()
 	srv.Fail("agent.prompt", "agent_blocked", "agent is blocked")
-	_, err := c.Prompt(ctx, "pj-o-01", "hi")
+	_, err := c.Prompt(ctx, "pj-l-01", "hi")
 	if e := herdrErr(t, err); e.Kind != herdr.Failed || e.Code != "agent_blocked" || e.Op != "agent.prompt" {
 		t.Errorf("blocked prompt = %v, want failed agent_blocked", err)
 	}
@@ -219,7 +219,7 @@ func TestSocketStartSentOnce(t *testing.T) {
 	if count(srv, "agent.start") != 0 {
 		t.Fatal("precondition: no start yet")
 	}
-	_, err := slow.Start(ctx, "pj-o-04", "claude", "w1:p4", "--model", "opus", "--", prompt)
+	_, err := slow.Start(ctx, "pj-l-04", "claude", "w1:p4", "--model", "opus", "--", prompt)
 	if !errors.Is(err, errUnavailable) || !strings.Contains(err.Error(), "timed out after 50ms") {
 		t.Fatalf("a start answered after the bound = %v, want unavailable: timed out after 50ms", err)
 	}
@@ -315,7 +315,7 @@ func TestSubscribeEvents(t *testing.T) {
 	if n := srv.Push("pane.agent_status_changed", map[string]any{"pane_id": "w1:p1", "workspace_id": "w1", "agent_status": "done", "agent": "claude"}); n != 1 {
 		t.Fatalf("status push reached %d connections, want 1", n)
 	}
-	if ev := next(t, st); ev.Kind != herdr.EventStatus || ev.Pane != "w1:p1" || ev.Status != "done" || ev.Agent != "claude" || ev.Now.Name != "pj-o-01" {
+	if ev := next(t, st); ev.Kind != herdr.EventStatus || ev.Pane != "w1:p1" || ev.Status != "done" || ev.Agent != "claude" || ev.Now.Name != "pj-l-01" {
 		t.Errorf("status event = %+v", ev)
 	}
 	f.Set("w1:p3", func(p *herdrtest.Pane) { p.Status = "idle" })
@@ -581,14 +581,14 @@ func TestStreamDropsCreatedOlderThanSnapshot(t *testing.T) {
 	srv := herdrtest.Serve(t, f)
 	_, ran := onSnapshot(srv, 2, func() {
 		pushLive(srv, herdr.EventCreated, "", "pane_created",
-			map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p1", "cwd": "/proj-wt/O-01"}})
+			map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p1", "cwd": "/proj-wt/L-01"}})
 	})
 	st, err := srv.Client().Subscribe(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if !ran() || agentOf(st.Snapshot, "w1:p1").Name != "pj-o-01" {
+	if !ran() || agentOf(st.Snapshot, "w1:p1").Name != "pj-l-01" {
 		t.Fatalf("precondition: race ran %v, snapshot agents %+v", ran(), st.Snapshot.Agents)
 	}
 	// The next lifecycle event, on the connection the queued creation came on.
@@ -700,7 +700,7 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 	}
 	byID := map[string]any{"agent": "claude", "kind": "id", "value": "5e1d0c2b-aaaa"}
 	late := func(p *herdrtest.Pane) {
-		p.Kind, p.Name, p.Status, p.Session, p.Seq = "claude", "pj-o-02", "idle", "abcd-1234", 1
+		p.Kind, p.Name, p.Status, p.Session, p.Seq = "claude", "pj-l-02", "idle", "abcd-1234", 1
 	}
 	for _, tc := range []struct {
 		name  string
@@ -712,21 +712,21 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 	}{
 		{"late agent detection", "w1:p2", late, "pane_agent_detected",
 			map[string]any{"type": "pane_agent_detected", "pane_id": "w1:p2", "workspace_id": "w1", "agent": "claude"},
-			func(a herdr.Agent) bool { return a.Name == "pj-o-02" && a.Kind == "claude" && a.Session == "abcd-1234" }},
+			func(a herdr.Agent) bool { return a.Name == "pj-l-02" && a.Kind == "claude" && a.Session == "abcd-1234" }},
 		{"a status event brings a new agent", "w1:p2", late, herdr.EventStatus,
 			map[string]any{"pane_id": "w1:p2", "workspace_id": "w1", "agent_status": "idle", "agent": "claude"},
-			func(a herdr.Agent) bool { return a.Name == "pj-o-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
-		{"cwd change", "w1:p1", func(p *herdrtest.Pane) { p.Cwd = "/proj-wt/O-09" }, "pane_updated",
-			update("/proj-wt/O-09", byID),
-			func(a herdr.Agent) bool { return a.Cwd == "/proj-wt/O-09" && a.Name == "pj-o-01" }},
+			func(a herdr.Agent) bool { return a.Name == "pj-l-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
+		{"cwd change", "w1:p1", func(p *herdrtest.Pane) { p.Cwd = "/proj-wt/L-09" }, "pane_updated",
+			update("/proj-wt/L-09", byID),
+			func(a herdr.Agent) bool { return a.Cwd == "/proj-wt/L-09" && a.Name == "pj-l-01" }},
 		{"session path replacement", "w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/t/new.jsonl" }, "pane_updated",
-			update("/proj-wt/O-01", map[string]any{"agent": "claude", "kind": "path", "value": "/t/new.jsonl"}),
-			func(a herdr.Agent) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-o-01" }},
+			update("/proj-wt/L-01", map[string]any{"agent": "claude", "kind": "path", "value": "/t/new.jsonl"}),
+			func(a herdr.Agent) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-l-01" }},
 		{"RV-36 #11: a name change alone (the pane payload has no name)", "w1:p1",
-			func(p *herdrtest.Pane) { p.Name = "renamed-agent" }, "pane_updated", update("/proj-wt/O-01", byID),
-			func(a herdr.Agent) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/O-01" }},
+			func(p *herdrtest.Pane) { p.Name = "renamed-agent" }, "pane_updated", update("/proj-wt/L-01", byID),
+			func(a herdr.Agent) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/L-01" }},
 		{"an update that changes nothing obor watches", "w1:p1", func(*herdrtest.Pane) {}, "pane_updated",
-			update("/proj-wt/O-01", byID), nil},
+			update("/proj-wt/L-01", byID), nil},
 	} {
 		f := fixture()
 		srv := herdrtest.Serve(t, f)
@@ -829,7 +829,7 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	c := srv.Client()
 
 	panes, err := c.Panes(ctx)
-	if err != nil || len(panes) != 5 || panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-o-02", Cwd: "/proj-wt/O-02"}) {
+	if err != nil || len(panes) != 5 || panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
 		t.Errorf("Panes = %+v, %v", panes, err)
 	}
 	if lastParams(t, srv, "pane.list") != "{}" {
@@ -846,21 +846,21 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	_, err = c.Layout(ctx, "w9:x")
 	notFound(t, err, "pane.layout", "pane_not_found")
 
-	id, err := c.Split(ctx, "w2:a", "right", "/lane", "OBOR_AGENT=pj-o-01", "OBOR_LANE=O-01")
+	id, err := c.Split(ctx, "w2:a", "right", "/lane", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01")
 	if err != nil || f.Pane(id) == nil || f.Pane(id).Cwd != "/lane" || f.Pane("w2:a").W != 50 {
 		t.Errorf("Split = %q, %v; want a new pane in /lane, w2:a halved", id, err)
 	}
-	if got := lastParams(t, srv, "pane.split"); got != `{"cwd":"/lane","direction":"right","env":{"OBOR_AGENT":"pj-o-01","OBOR_LANE":"O-01"},"target_pane_id":"w2:a"}` {
+	if got := lastParams(t, srv, "pane.split"); got != `{"cwd":"/lane","direction":"right","env":{"OBOR_AGENT":"pj-l-01","OBOR_LANE":"L-01"},"target_pane_id":"w2:a"}` {
 		t.Errorf("pane.split params = %s", got)
 	}
 	_, err = c.Split(ctx, "w9:x", "down", "/x")
 	notFound(t, err, "pane.split", "pane_not_found")
 
-	root, err := c.NewTab(ctx, "w2", "pj-o-03", "/proj-wt/O-03", "OBOR_AGENT=pj-o-03")
-	if err != nil || !strings.HasPrefix(root, "w2:") || f.Pane(root) == nil || f.Pane(root).Cwd != "/proj-wt/O-03" {
-		t.Errorf("NewTab = %q, %v; want a root pane in w2, in /proj-wt/O-03", root, err)
+	root, err := c.NewTab(ctx, "w2", "pj-l-03", "/proj-wt/L-03", "OBOR_AGENT=pj-l-03")
+	if err != nil || !strings.HasPrefix(root, "w2:") || f.Pane(root) == nil || f.Pane(root).Cwd != "/proj-wt/L-03" {
+		t.Errorf("NewTab = %q, %v; want a root pane in w2, in /proj-wt/L-03", root, err)
 	}
-	if got := lastParams(t, srv, "tab.create"); got != `{"cwd":"/proj-wt/O-03","env":{"OBOR_AGENT":"pj-o-03"},"focus":false,"label":"pj-o-03","workspace_id":"w2"}` {
+	if got := lastParams(t, srv, "tab.create"); got != `{"cwd":"/proj-wt/L-03","env":{"OBOR_AGENT":"pj-l-03"},"focus":false,"label":"pj-l-03","workspace_id":"w2"}` {
 		t.Errorf("tab.create params = %s", got)
 	}
 	if _, err := c.NewTab(ctx, "", "lead", "/proj"); err != nil {
@@ -969,10 +969,10 @@ func TestSocketRenames(t *testing.T) {
 	srv := herdrtest.Serve(t, f)
 	c := srv.Client()
 
-	if err := c.RenamePane(ctx, "w1:p2", "pj-o-05"); err != nil || f.Pane("w1:p2").Label != "pj-o-05" {
+	if err := c.RenamePane(ctx, "w1:p2", "pj-l-05"); err != nil || f.Pane("w1:p2").Label != "pj-l-05" {
 		t.Errorf("RenamePane: %v, label %q", err, f.Pane("w1:p2").Label)
 	}
-	if got := lastParams(t, srv, "pane.rename"); got != `{"label":"pj-o-05","pane_id":"w1:p2"}` {
+	if got := lastParams(t, srv, "pane.rename"); got != `{"label":"pj-l-05","pane_id":"w1:p2"}` {
 		t.Errorf("pane.rename params = %s", got)
 	}
 	if err := c.RenamePane(ctx, "w1:p2", ""); err != nil || f.Pane("w1:p2").Label != "" {
@@ -983,16 +983,16 @@ func TestSocketRenames(t *testing.T) {
 	}
 	notFound(t, c.RenamePane(ctx, "w9:x", "l"), "pane.rename", "pane_not_found")
 
-	if err := c.RenameAgent(ctx, "w1:p3", "pj-o-03"); err != nil || f.Pane("w1:p3").Name != "pj-o-03" {
+	if err := c.RenameAgent(ctx, "w1:p3", "pj-l-03"); err != nil || f.Pane("w1:p3").Name != "pj-l-03" {
 		t.Errorf("RenameAgent: %v, name %q", err, f.Pane("w1:p3").Name)
 	}
-	if got := lastParams(t, srv, "agent.rename"); got != `{"name":"pj-o-03","target":"w1:p3"}` {
+	if got := lastParams(t, srv, "agent.rename"); got != `{"name":"pj-l-03","target":"w1:p3"}` {
 		t.Errorf("agent.rename params = %s", got)
 	}
-	if err := c.RenameAgent(ctx, "pj-o-03", ""); err != nil || f.Pane("w1:p3").Name != "" {
+	if err := c.RenameAgent(ctx, "pj-l-03", ""); err != nil || f.Pane("w1:p3").Name != "" {
 		t.Errorf("RenameAgent clear: %v, name %q", err, f.Pane("w1:p3").Name)
 	}
-	if got := lastParams(t, srv, "agent.rename"); got != `{"name":null,"target":"pj-o-03"}` {
+	if got := lastParams(t, srv, "agent.rename"); got != `{"name":null,"target":"pj-l-03"}` {
 		t.Errorf("agent.rename clear params = %s", got)
 	}
 	notFound(t, c.RenameAgent(ctx, "nope", "x"), "agent.rename", "agent_not_found")

@@ -37,7 +37,7 @@ func TestStartPromptDelivery(t *testing.T) {
 			r.start()
 			r.mustDispatch("d1")
 			r.waitStep("1 intent agent.start")
-			r.waitFor("pj-o1 up", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.starts == 1 })
+			r.waitFor("pj-l-01 up", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.starts == 1 })
 			if r.has("1 result agent.start") {
 				t.Fatalf("precondition: the start pending: %q", r.steps())
 			}
@@ -73,17 +73,17 @@ func TestStartPromptDelivery(t *testing.T) {
 			r.start()
 			r.waitStep("1 result work")
 			r.passes()
-			same(t, r.result("agent.start"), `{"line":"started (seen in the snapshot)","agent":"pj-o1","pane":"w1:p1"}`,
+			same(t, r.result("agent.start"), `{"line":"started (seen in the snapshot)","agent":"pj-l-01","pane":"w1:p1"}`,
 				"the replayed start")
 			same(t, r.disp.called("start"), 1, "starts")
 			same(t, r.result("work"), `"sent (start prompt)"`, "work result")
 			same(t, r.disp.called("prompt"), 0, "Prompter calls for the work job")
 		}},
 		{"a lane whose kind has no bridge: the dispatch refused, nothing recorded (DD-v0.13 D1)", func(t *testing.T) {
-			r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "pi", "args": []any{}}))
+			r := newDispatchRig(t, testkit.Set("models.sonnet", map[string]any{"kind": "pi", "model": "x"}))
 			r.start()
-			reply, err := r.dispatch("d1", "O-01")
-			if err == nil || err.Error() != "dispatch T-1: lane O-01's kind pi has no bridge (obor config validate)" {
+			reply, err := r.dispatch("d1", "L-01")
+			if err == nil || err.Error() != "dispatch T-1: model sonnet's kind pi has no bridge (obor config validate)" {
 				t.Fatalf("dispatch: %q, %v; want refused: no bridge", reply, err)
 			}
 			r.passes()
@@ -103,7 +103,7 @@ func TestStartPromptDelivery(t *testing.T) {
 			r.waitStep("1 result work.2")
 			same(t, r.disp.called("start"), 1, "precondition: no second start")
 			same(t, r.result("work.2"), `"sent"`, "work.2 result")
-			eq(t, r.promptsTo("pj-o1"), []string{wake("T-1/1/work"), wake("T-1/1/work.2")}, "typed to pj-o1")
+			eq(t, r.promptsTo("pj-l-01"), []string{wake("T-1/1/work"), wake("T-1/1/work.2")}, "typed to pj-l-01")
 		}},
 	} {
 		t.Run(row.name, row.run)

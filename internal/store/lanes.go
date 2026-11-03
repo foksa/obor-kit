@@ -12,25 +12,13 @@ import (
 
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, agent, base: the
 // target sha, head: merge-base(HEAD, target)) and when it was dispatched (unix seconds). Finished is when the attempt's
-// task_done was recorded (unix seconds; 0: the task awaits it). Type is the type reference its dispatch chose,
-// `<type>[:<effort>]` (T-721; "": a dispatch recorded before T-721, the config's lane type is the reader's fallback).
+// task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
+// `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721).
 type LaneRow struct {
 	Lane, Task, Branch, Agent string
 	Base, Head                string
 	DispatchedAt, Finished    int64
 	Type                      string
-}
-
-// LaneTypeRef is the one answer to "what type does this lane run now" (T-738): the type reference its open dispatch
-// recorded (a lane row's Type, a dispatch fact's type), else, for one recorded before T-721 (none), configured: the
-// lane's type in the config as it is read now. A legacy dispatch on a lane the config has since blanked is "": its
-// type is unknown and it counts toward no type's max. The cap count, a redo, the worker prompt, a restart and obor
-// status read a lane's type through it.
-func LaneTypeRef(recorded, configured string) string {
-	if recorded != "" {
-		return recorded
-	}
-	return configured
 }
 
 // laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since

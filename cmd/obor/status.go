@@ -179,14 +179,18 @@ func writeBackground(w io.Writer, bs []view.Background) {
 	}
 }
 
-// laneLine is l's line: its lane, type, branch, the state column (T-657), the task's age and id, then serve's state of
+// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column (T-657), the task's age and id, then serve's state of
 // the task, the effort its dispatch named (T-695), a dirty or warned worktree and the agent.
 func laneLine(l view.Lane) string {
 	ago := "-"
 	if l.DoneAge != nil {
 		ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
 	}
-	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, l.Type, orDash(l.Branch),
+	model := l.Type
+	if model == "" {
+		model = "-"
+	}
+	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, model, orDash(l.Branch),
 		l.Column, ago, orDash(l.Task))
 	if l.TaskState != "" {
 		line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
@@ -311,7 +315,7 @@ func mergeLine(m view.MergeItem) string {
 }
 
 // waitLine is a waiting dispatch's queue line after "queued <T-xx>: ": its --after tasks and its last refusal, the lane
-// it waits for (its level and types; the reason when it is not a free lane: "opus at its max 4", T-723), or its spec
+// it waits for (its level and models; the reason when it is not a free lane: "opus paused: …", T-765), or its spec
 // stored and never dispatched.
 func waitLine(w view.WaitItem, now time.Time) string {
 	switch w.WaitsOn {

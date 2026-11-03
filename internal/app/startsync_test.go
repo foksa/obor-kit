@@ -95,7 +95,7 @@ func gateDone(r *concRig, task, outcome string) {
 // loop's shutdown waits for the launch.
 func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 	t.Parallel()
-	r, p, f := heldRig(t, "pj-o-02")
+	r, p, f := heldRig(t, "pj-l-02")
 	dispatchT2(r)
 	r.add("pj", "T-2", event.StepPrepare, event.KindResult, prepareOut{Base: "b"})
 	r.run()
@@ -105,7 +105,7 @@ func TestDeliveryKeepsTheStartOwned(t *testing.T) {
 		t.Fatal("T-2's start never began")
 	}
 
-	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-o-02", Role: "worker", Lane: "O-02", CallID: "fetched"})
+	raw, err := r.a.jobNext(wire.Call{Root: p.root, Agent: "pj-l-02", Role: "worker", Lane: "L-02", CallID: "fetched"})
 	var job wire.JobReply
 	_ = json.Unmarshal([]byte(raw), &job)
 	if err != nil || job.State != "job" || job.Job != "T-2/1/work" {

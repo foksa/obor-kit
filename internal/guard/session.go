@@ -131,7 +131,7 @@ type Began struct {
 // T-739; else its lane's, role's or agents entry's configured type), else agents.Default.
 func sessionKind(cfg *config.Config, agent, cwd string) string {
 	if info, ok := project.AgentLookup(cfg, agent, cwd); ok {
-		if lt, ok := cfg.LaneType(project.RunningType(cfg, info)); ok && lt.Kind != "" {
+		if lt, ok := cfg.Model(project.RunningType(cfg, info)); ok && lt.Kind != "" {
 			return lt.Kind
 		}
 	}
@@ -170,12 +170,12 @@ func roleText(role, kit, top, agents string) string {
 	return "obor: role text: " + text + project + " — read it before acting"
 }
 
-// laneKind is the kind the configured lane named lane runs now (project.RunningType: its open dispatch's type, else
-// its configured one, T-739; "" when it is not a lane or the type has none).
+// laneKind is the kind the configured lane named lane runs now (project.RunningType: its open dispatch's model,
+// T-739; "" when it is not a lane or the type has none).
 func laneKind(cfg *config.Config, lane string) string {
 	for _, l := range cfg.Lanes() {
 		if l.Name == lane {
-			lt, _ := cfg.LaneType(project.RunningType(cfg, config.AgentInfo{Role: "worker", Lane: l.Name, Type: l.Type}))
+			lt, _ := cfg.Model(project.RunningType(cfg, config.AgentInfo{Role: "worker", Lane: l.Name}))
 			return lt.Kind
 		}
 	}

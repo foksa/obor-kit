@@ -15,6 +15,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
+	"obor/internal/store"
 )
 
 // where is the placement of a new agent: at most one of --tab, --new-tab, --pane.
@@ -46,7 +47,7 @@ func parseWhere(args []string) (where, error) {
 	return w, nil
 }
 
-// agent is who to start: its herdr name, lane type, cwd, role and lane ("" for a role).
+// agent is who to start: its herdr name, model, cwd, role and lane ("" for a role).
 type agent struct {
 	name, typ, cwd string
 	effort         string // the role's effort (roles.<role>.type's `:<effort>`, T-695); "": the type's args
@@ -56,7 +57,7 @@ type agent struct {
 	prompt         string // the first prompt ("": the role's StartPrompt); a drive agent's line (T-751)
 }
 
-// Drive is the owner's drive agent to start (obor drive, T-751): its name, lane, worktree, lane type and effort, and its
+// Drive is the owner's drive agent to start (obor drive, T-751): its name, lane, worktree, model and effort, and its
 // one-line first prompt.
 type Drive struct {
 	Agent, Lane, Cwd, Type, Effort, Prompt string
@@ -92,16 +93,13 @@ func (s *Setup) pane(ctx context.Context, args []string) error {
 			continue
 		}
 		if _, err := os.Stat(l.Dir); err != nil {
-			return project.Failf("no lane dir %s (obor setup lane %s %s)", l.Dir, lane, l.Type)
-		}
-		name := s.cfg.Data.Lanes.M[lane].Agent
-		if name == "" {
-			name = s.cfg.AgentName("worker", lane)
+			return project.Failf("no lane dir %s (obor setup lane %s)", l.Dir, lane)
 		}
 		worker, _ := roles.Lookup("worker")
-		return s.start(ctx, agent{name: name, typ: l.Type, cwd: l.Dir, role: worker, lane: lane, noStart: !startNow}, w)
+		return s.start(ctx, agent{name: s.cfg.AgentName("worker", lane), cwd: l.Dir, role: worker, lane: lane,
+			noStart: !startNow}, w)
 	}
-	return project.Failf("unknown lane %s (obor setup lane %s [<type>] first)", lane, lane)
+	return project.Failf("unknown lane %s (lanes: %d; obor setup lane %s first)", lane, s.cfg.Data.Lanes, lane)
 }
 
 func (s *Setup) role(ctx context.Context, args []string) error {
@@ -122,7 +120,7 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	}
 	rc, _ := s.cfg.Role(role.Name)
 	if rc.Type == "" {
-		return project.Failf("roles.%s.type is not set (a lane_types key)", role.Name)
+		return project.Failf("roles.%s is not set (a model ref, e.g. \"opus:high\")", role.Name)
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
 	if err := refuseRoleCollisions(s.cfg, role.Name, a.name); err != nil {
@@ -191,15 +189,19 @@ func (s *Setup) copyFile(src, rel string) error {
 
 // start places a's pane, labels it and starts the agent (see the package doc); a running agent → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) error {
-	// An untyped lane (lanes.<LANE> = "") is a pool lane: its type comes with a dispatch, so a pane labels it and
-	// starts nothing (no type without a dispatch).
-	untyped := a.lane != "" && a.typ == ""
-	if untyped && !a.noStart {
-		return project.Failf("lane %s has no type (untyped pool lane): --start needs one, a dispatch gives it (edit .obor/config.json to pin it: \"lanes\": {\"%s\": \"<type>\"}; for an object-form lane change only type)", a.lane, a.lane)
+	// A lane's model comes with its dispatch (T-765: every lane is pooled): --start runs the model the lane row's open
+	// dispatch names, else the default kind with no model, as obor restart does (launch.dispatchType).
+	if a.lane != "" && a.typ == "" {
+		if row, _, _ := store.ReadLaneAt(s.root, a.lane); row.Task != "" {
+			a.typ, a.effort = config.ParseModelRef(row.Type)
+		}
 	}
-	lt, _ := s.cfg.LaneType(a.typ)
-	if lt.Kind == "" && !untyped {
-		return project.Failf("unknown lane type %s (not in lane_types with a kind)", a.typ)
+	lt, ok := s.cfg.Model(a.typ)
+	switch {
+	case a.typ == "" && a.lane != "":
+		lt = config.Model{Kind: agents.Default}
+	case !ok || lt.Kind == "":
+		return project.Failf("unknown model %s (models: %s)", a.typ, strings.Join(s.cfg.ModelNames(), ", "))
 	}
 	if !config.AgentNameRE.MatchString(a.name) {
 		return project.Failf("bad herdr agent name %s", a.name)
@@ -250,14 +252,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 		}
 	}
 
-	var vars map[string]string
-	if !untyped {
-		if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
-			return project.Failf("%s: %v (obor config validate)", a.name, err)
-		}
-		if vars, err = lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get}); err != nil {
-			return project.Failf("%s: %v", a.name, err)
-		}
+	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, a.effort); err != nil {
+		return project.Failf("%s: %v (obor config validate)", a.name, err)
+	}
+	vars, err := lt.StartEnv(agents.Start{Effort: a.effort, Read: os.ReadFile, Env: s.Env.Get})
+	if err != nil {
+		return project.Failf("%s: %v", a.name, err)
 	}
 	var env []string
 	// An empty value goes to herdr too: the pane may inherit setup's own env (an OpenCode agent running setup), and an

@@ -104,16 +104,16 @@ func frameLines(t *testing.T, m *monitor, now time.Time) []string {
 func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 	t.Helper()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	// The lane's task dispatched 4 minutes ago: working, its elapsed time counted from the row.
-	p.State("O-01", map[string]any{"lane": "O-01", "task": "T-01", "branch": "task/T-01",
+	p.State("L-01", map[string]any{"lane": "L-01", "task": "T-01", "branch": "task/T-01",
 		"dispatched_at": now.Add(-4 * time.Minute).Unix()})
 	addEvent(t, p.Root, now.Add(-9*time.Minute), event.KindFact, "T-01", event.StepDispatched,
-		map[string]any{"lane": "O-01"})
+		map[string]any{"lane": "L-01"})
 	addEvent(t, p.Root, now.Add(-8*time.Minute), event.KindFact, "T-01", event.StepSubmitted,
-		map[string]any{"lane": "O-01", "report": "Summary: x"})
+		map[string]any{"lane": "L-01", "report": "Summary: x"})
 	addEvent(t, p.Root, now.Add(-7*time.Minute), event.KindResult, "T-01", event.StepGate,
 		map[string]any{"outcome": "green", "line": "GREEN T-01"})
 	addEvent(t, p.Root, now.Add(-6*time.Minute), event.KindResult, "T-01", "gate.2",
@@ -123,7 +123,7 @@ func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 	addEvent(t, p.Root, now.Add(-4*time.Minute), event.KindFact, "T-01", event.StepSendback,
 		map[string]any{"note": "fix the test"})
 	addEvent(t, p.Root, now.Add(-3*time.Minute), event.KindFact, "T-01", event.StepNeedsYou,
-		map[string]any{"lane": "O-01", "reason": "held: decide", "cause": "held"})
+		map[string]any{"lane": "L-01", "reason": "held: decide", "cause": "held"})
 	addEvent(t, p.Root, now.Add(-2*time.Minute), event.KindFact, "T-01", event.StepMerged,
 		map[string]any{"head": "abcdef0123456789"})
 	addEvent(t, p.Root, now.Add(-100*time.Second), event.KindFact, "review", event.StepReviewRequest,
@@ -138,7 +138,7 @@ func monitorFx(t *testing.T, now time.Time) (*testkit.Project, *statusServe) {
 			Why: "dispatch T-02: no free lane of the types"}},
 		Facts: []event.Record{
 			{Seq: 1, TS: now.Add(-4 * time.Minute).UTC().Format(time.RFC3339), Task: "T-09", Step: event.StepNeedsYou,
-				Kind: event.KindFact, Data: json.RawMessage(`{"lane":"O-09","reason":"asks: may I?"}`)},
+				Kind: event.KindFact, Data: json.RawMessage(`{"lane":"L-09","reason":"asks: may I?"}`)},
 		},
 		Watches: []wire.WatchStatus{{Task: "T-02", By: "pj-lead", Note: "restart serve, then release",
 			Since: now.Add(-3 * time.Minute).Unix()}},
@@ -171,11 +171,11 @@ func TestMonitorSections(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"T-09 (O-09)", "asks: may I?", `→ obor answer T-09 "<text>"`,
-		"O-01", "review request since 3m (now)", "watch T-02 since 3m (by pj-lead) — restart serve, then release",
+		"T-09 (L-09)", "asks: may I?", `→ obor answer T-09 "<text>"`,
+		"L-01", "review request since 3m (now)", "watch T-02 since 3m (by pj-lead) — restart serve, then release",
 		"queued T-02: waiting (after T-01): dispatch T-02: no free lane of the types",
 		"paused: quota, until cleared (obor pause --clear ends it; no dispatch meanwhile)",
-		"dispatched T-01 (O-01)", "submitted T-01", "gate T-01 pass (GREEN T-01)",
+		"dispatched T-01 (L-01)", "submitted T-01", "gate T-01 pass (GREEN T-01)",
 		"gate T-01 fail (RED T-01: e2e failed)", "accepted T-01", "sendback T-01: fix the test",
 		"held T-01: decide", "merged T-01 abcdef0", "review requested (after T-01)", "review started RV-3",
 		"line to pj-lead: [obor other] hi", "serve restarted",
@@ -186,7 +186,7 @@ func TestMonitorSections(t *testing.T) {
 	}
 	lane := ""
 	for _, l := range lines {
-		if strings.HasPrefix(l, "  ● O-01 ") {
+		if strings.HasPrefix(l, "  ● L-01 ") {
 			lane = l
 		}
 	}
@@ -198,8 +198,8 @@ func TestMonitorSections(t *testing.T) {
 	}
 	// Section order: serve's lines, needs-you, the lanes, the review and watches and queue, the events.
 	at := func(sub string) int { return strings.Index(text, sub) }
-	for _, pair := range [][2]string{{"serve up", "T-09 (O-09)"}, {"asks: may I?", "O-01 "},
-		{"O-01 ", "review request since"}, {"review request since", "watch T-02 since"},
+	for _, pair := range [][2]string{{"serve up", "T-09 (L-09)"}, {"asks: may I?", "L-01 "},
+		{"L-01 ", "review request since"}, {"review request since", "watch T-02 since"},
 		{"queued T-02:", "line to pj-lead"}} {
 		if a, b := at(pair[0]), at(pair[1]); a < 0 || b < 0 || a > b {
 			t.Errorf("section order: %q before %q: %d, %d\n%s", pair[0], pair[1], a, b, text)
@@ -249,7 +249,7 @@ func TestMonitorTruncatesLaterSections(t *testing.T) {
 	if !strings.Contains(lines[0], "serve up") || !strings.HasPrefix(lines[1], "NEEDS YOU") {
 		t.Errorf("the first two lines %q %q, want the header and NEEDS YOU", lines[0], lines[1])
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "T-09 (O-09)") {
+	if !strings.Contains(strings.Join(lines, "\n"), "T-09 (L-09)") {
 		t.Errorf("the needs-you is gone before the events:\n%s", strings.Join(lines, "\n"))
 	}
 	if lines[len(lines)-1] != "…" {
@@ -326,7 +326,7 @@ func TestMonitorReconnects(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	ss := wire.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
@@ -370,7 +370,7 @@ func TestMonitorRedrawsOnRecordsAndTime(t *testing.T) {
 	t.Parallel()
 	now := time.Now().Truncate(time.Second)
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	p.Commit(o1)
 	serveStatus(t, wire.SocketPath(p.Root), wire.Status{Since: now.UTC().Format(time.RFC3339), Connected: true,
@@ -385,7 +385,7 @@ func TestMonitorRedrawsOnRecordsAndTime(t *testing.T) {
 	if _, drawn := m.tick(); drawn {
 		t.Error("a frame drawn though nothing changed")
 	}
-	addEvent(t, p.Root, clock, event.KindFact, "T-01", event.StepSubmitted, map[string]any{"lane": "O-01"})
+	addEvent(t, p.Root, clock, event.KindFact, "T-01", event.StepSubmitted, map[string]any{"lane": "L-01"})
 	if _, drawn := m.tick(); !drawn {
 		t.Error("no frame on a new record")
 	}
@@ -457,7 +457,7 @@ func TestMonitorFollowsConfigChanges(t *testing.T) {
 			}
 		}
 	}
-	p.Config(testkit.Set("roles.deep_dive", map[string]any{"type": "opus"}))
+	p.Config(testkit.Set("roles.deep_dive", "opus"))
 	later(time.Minute)
 	cfg, err := config.Load(p.Root)
 	if err != nil {

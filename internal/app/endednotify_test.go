@@ -31,7 +31,7 @@ func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			a, p := r.app("pq"), r.proj("pq")
-			r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "O-03", Reason: "pane exited"})
+			r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-03", Reason: "pane exited"})
 			if len(p.folded.active["T-3"]) != 1 {
 				t.Fatalf("watchdog facts of T-3: %v, want one", p.folded.active["T-3"])
 			}
@@ -49,7 +49,7 @@ func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 				t.Fatal("precondition: the notification is not pending")
 			}
 			if c.cleared {
-				r.add("pq", "T-3", event.StepResumed, event.KindFact, event.FactData{Lane: "O-03"})
+				r.add("pq", "T-3", event.StepResumed, event.KindFact, event.FactData{Lane: "L-03"})
 				if p.inForce(fact) {
 					t.Fatal("precondition: the resumed fact is still in force")
 				}
@@ -81,7 +81,7 @@ func TestEndedTaskSettlesWatchdogNotification(t *testing.T) {
 				t.Error("the ended task's watchdog fact is still in force")
 			}
 			// A lane row still naming the task (its row not yet freed) brings nothing back: nothing is shown.
-			p.setLanes([]port.Lane{{Name: "O-03", Task: "T-3", Agent: "pq-o-03"}})
+			p.setLanes([]port.Lane{{Name: "L-03", Task: "T-3", Agent: "pq-l-03"}})
 			panes := a.panes.(*fakePanes)
 			a.notify(context.Background())
 			if len(panes.notes) != 0 {

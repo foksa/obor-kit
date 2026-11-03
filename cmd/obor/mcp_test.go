@@ -41,7 +41,7 @@ func TestMcpCheck(t *testing.T) {
 func TestMcpBinaryServes(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-o-01", "OBOR_LANE=O-01", "OBOR_STATE_HOME=" + p.Base + "/no-serve", callDown}
+	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01", "OBOR_STATE_HOME=" + p.Base + "/no-serve", callDown}
 	in := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,

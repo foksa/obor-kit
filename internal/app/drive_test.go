@@ -17,15 +17,14 @@ import (
 	"obor/internal/testkit"
 )
 
-// The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free untyped lane, or a
-// take-over of a working task), the driving state, obor land's request, and the merge loop after it. Lane O-01 is made
-// untyped and free for a new drive; the CLI's start of the drive agent is the rig's pane w1:p5 (driveAgentUp).
+// The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free lane, or a
+// take-over of a working task), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
+// free for a new drive; the CLI's start of the drive agent is the rig's pane w1:p5 (driveAgentUp).
 
-// newDriveRig is the dispatch rig with O-01 an untyped (pool) lane, free, and the app started.
+// newDriveRig is the dispatch rig with L-01 free, and the app started.
 func newDriveRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	t.Helper()
 	r := newDispatchRig(t, edits...)
-	r.setLane(func(l *port.Lane) { l.Type = "" })
 	r.start()
 	return r
 }
@@ -49,19 +48,19 @@ func (r *loopRig) landDrive(callID, task, summary string) (string, error) {
 // stateOf is task's state in obor serve status ("" when not listed).
 func (r *loopRig) stateOf(task string) string { return r.task(task).State }
 
-// driveAgentUp is the CLI's start of the drive agent pj-o1-drive in the lane (pane w1:p5, labelled), identified by the
+// driveAgentUp is the CLI's start of the drive agent pj-l-01-drive in the lane (pane w1:p5, labelled), identified by the
 // app (seen in a pane is not enough: obor drive's DRIVING answer needs it identified). The pane is announced as created
 // rather than with a workspace event: that ends serve's stream (a refresh), and a call that landed in the resubscribe's
 // gap answered "its agent is not running" under load (T-757).
 func (r *loopRig) driveAgentUp() {
 	r.t.Helper()
-	r.f.Agent("w1:p5", "pj-o1-drive", "idle", r.lane)
-	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Workspace, p.Label = "w1", "pj-o1-drive" })
-	r.waitFor("pj-o1-drive identified", func() bool {
-		if app.IsIdentified(r.app, r.p.Root, "pj-o1-drive") {
+	r.f.Agent("w1:p5", "pj-l-01-drive", "idle", r.lane)
+	r.f.Set("w1:p5", func(p *herdrtest.Pane) { p.Workspace, p.Label = "w1", "pj-l-01-drive" })
+	r.waitFor("pj-l-01-drive identified", func() bool {
+		if app.IsIdentified(r.app, r.p.Root, "pj-l-01-drive") {
 			return true
 		}
-		r.paneCreated("w1:p5", "pj-o1-drive")
+		r.paneCreated("w1:p5", "pj-l-01-drive")
 		return false
 	})
 }
@@ -99,21 +98,21 @@ func (r *loopRig) launchesOf(agent string) int {
 	return n
 }
 
-// hardType is the rig config's hard level's first lane type (a new drive's default).
+// hardType is the rig config's hard level's first model ref (a new drive's default).
 func (r *loopRig) hardType() string {
 	r.t.Helper()
 	cfg, err := config.Load(r.p.Root)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	types, _ := cfg.DifficultyTypes("hard")
+	types := cfg.DifficultyList("hard")
 	if len(types) == 0 {
 		r.t.Fatal("precondition: the rig config has no hard type")
 	}
 	return types[0]
 }
 
-// A new drive takes the first free untyped lane: a new task id, its spec "Owner drive: <name>" stored, fact dispatch
+// A new drive takes the first free lane: a new task id, its spec "Owner drive: <name>" stored, fact dispatch
 // {drive}; serve prepares the lane on the task branch and the task is driving: no worker start, no work job, no job at
 // all. A repeated call id gets the stored reply; the same name again starts its agent again (T-755), nothing recorded.
 func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
@@ -122,7 +121,7 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 	if n := len(r.records()); n != 0 {
 		t.Fatalf("precondition: records before the drive: %q", r.steps())
 	}
-	want := "DRIVE T-1 → O-01 (pj-o1-drive, " + r.hardType() + ")"
+	want := "DRIVE T-1 → L-01 (pj-l-01-drive, " + r.hardType() + ")"
 	if reply, err := r.drive("v1", "web design"); err != nil || reply != want {
 		t.Fatalf("drive: %q, %v; want %q", reply, err, want)
 	}
@@ -133,14 +132,14 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 	if err != nil || !ok || !strings.Contains(row.Text, "Owner drive: web design") {
 		t.Errorf("T-1's spec %q (%v, %v), want the drive's", row.Text, ok, err)
 	}
-	lr, ok, err := store.ReadLaneAt(r.p.Root, "O-01")
-	if err != nil || !ok || lr.Task != "T-1" || lr.Agent != "pj-o1-drive" || lr.Branch != "task/T-1" || lr.Base == "" ||
+	lr, ok, err := store.ReadLaneAt(r.p.Root, "L-01")
+	if err != nil || !ok || lr.Task != "T-1" || lr.Agent != "pj-l-01-drive" || lr.Branch != "task/T-1" || lr.Base == "" ||
 		lr.Finished != 0 {
-		t.Errorf("O-01's lane row %+v (%v, %v): want T-1's drive, prepared, not finished", lr, ok, err)
+		t.Errorf("L-01's lane row %+v (%v, %v): want T-1's drive, prepared, not finished", lr, ok, err)
 	}
-	if _, starts := r.disp.applied(); starts != 0 || r.launchesOf("pj-o1") != 0 || r.workPrompts() != 0 {
+	if _, starts := r.disp.applied(); starts != 0 || r.launchesOf("pj-l-01") != 0 || r.workPrompts() != 0 {
 		t.Errorf("a drive started a worker (%d starts, %d launches) or sent a work job (%d)", starts,
-			r.launchesOf("pj-o1"), r.workPrompts())
+			r.launchesOf("pj-l-01"), r.workPrompts())
 	}
 	if ts := r.task("T-1"); ts.Job != "" {
 		t.Errorf("a driving task has job %q open", ts.Job)
@@ -156,8 +155,7 @@ func TestDriveNewOnAFreeUntypedLane(t *testing.T) {
 	}
 }
 
-// No free untyped lane: refused with the lanes' states, nothing recorded and no wait (a typed lane is a reservation
-// for its type, a working one holds its task).
+// No free lane: refused with the lanes' states, nothing recorded and no wait (a working lane holds its task).
 func TestDriveNoFreeLaneRefused(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -165,8 +163,8 @@ func TestDriveNoFreeLaneRefused(t *testing.T) {
 		lane func(l *port.Lane)
 		why  string
 	}{
-		{"typed lane", func(l *port.Lane) { l.Type = "sonnet" }, "no free untyped lane (O-01 (sonnet) free)"},
-		{"working lane", func(l *port.Lane) { l.State, l.Task = "working", "T-9" }, "no free untyped lane (O-01 working T-9)"},
+		{"working lane", func(l *port.Lane) { l.State, l.Task = "working", "T-9" }, "no free lane (L-01 working T-9)"},
+		{"dirty lane", func(l *port.Lane) { l.State = "dirty-free" }, "no free lane (L-01 dirty-free)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -187,16 +185,13 @@ func TestDriveNoFreeLaneRefused(t *testing.T) {
 	}
 }
 
-// --type is honoured, effort included, and a drive is no worker task for lane_types' max (sonnet's max 1; every
-// prepare held, so each task stays on the lane it took): a drive of sonnet:high on the untyped O-01 does not count, so
-// T-2's dispatch of sonnet still takes O-02; and with sonnet at its max (T-2's) a second drive of sonnet still takes
-// the untyped O-03.
-func TestDriveTypeHonouredNotCapped(t *testing.T) {
+// --model is honoured, effort included (every prepare held, so each task stays on the lane it took): a drive of
+// sonnet:high takes L-01, T-2's dispatch of sonnet L-02, a second drive L-03; an unknown model is refused.
+func TestDriveModelHonoured(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t, testkit.Set("lane_types.sonnet", map[string]any{"kind": "claude", "max": 1}))
-	r.setLane(func(l *port.Lane) { l.Type = "" })
-	r.addLanes(port.Lane{Name: "O-02", Dir: r.p.Lane("O-02", ""), Type: "sonnet", State: "free"},
-		port.Lane{Name: "O-03", Dir: r.p.Lane("O-03", ""), State: "free"})
+	r := newDispatchRig(t, testkit.Set("lanes", 3))
+	r.addLanes(port.Lane{Name: "L-02", Dir: r.p.Lane("L-02", ""), State: "free"},
+		port.Lane{Name: "L-03", Dir: r.p.Lane("L-03", ""), State: "free"})
 	r.disp.set(func(d *dispatchFakes) { d.cut["prepare"] = "before" })
 	r.start()
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
@@ -204,7 +199,7 @@ func TestDriveTypeHonouredNotCapped(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply, err := r.drive("v1", "tweak", "sonnet:high")
-	if err != nil || reply != "DRIVE T-3 → O-01 (pj-o1-drive, sonnet:high)" {
+	if err != nil || reply != "DRIVE T-3 → L-01 (pj-l-01-drive, sonnet:high)" {
 		t.Fatalf("drive: %q, %v", reply, err)
 	}
 	var d map[string]any
@@ -217,14 +212,14 @@ func TestDriveTypeHonouredNotCapped(t *testing.T) {
 		t.Errorf("the drive's dispatch fact %v: want type sonnet:high, effort high, drive", d)
 	}
 	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d2", Task: "T-2",
-		Types: []string{"sonnet"}}); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2 → O-02") {
-		t.Fatalf("T-2 of sonnet beside a sonnet drive: %q, %v; want dispatched (a drive does not count)", reply, err)
+		Types: []string{"sonnet"}}); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2 → L-02") {
+		t.Fatalf("T-2 of sonnet beside a sonnet drive: %q, %v; want dispatched", reply, err)
 	}
-	if reply, err := r.drive("v2", "second", "sonnet"); err != nil || !strings.HasPrefix(reply, "DRIVE T-4 → O-03 (") {
-		t.Errorf("a drive with sonnet at its max: %q, %v; want O-03", reply, err)
+	if reply, err := r.drive("v2", "second", "sonnet"); err != nil || !strings.HasPrefix(reply, "DRIVE T-4 → L-03 (") {
+		t.Errorf("a second drive: %q, %v; want L-03", reply, err)
 	}
 	if _, err := r.drive("v3", "bad", "nosuch"); err == nil || !strings.Contains(err.Error(), "nosuch") {
-		t.Errorf("an unknown --type: %v, want refused by name", err)
+		t.Errorf("an unknown --model: %v, want refused by name", err)
 	}
 }
 
@@ -237,15 +232,15 @@ func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	r.start()
 	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
 	r.mustDispatch("d1")
-	r.waitJob("pj-o1", "T-1/1/work")
+	r.waitJob("pj-l-01", "T-1/1/work")
 	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
-	before, _, _ := store.ReadLaneAt(r.p.Root, "O-01")
+	before, _, _ := store.ReadLaneAt(r.p.Root, "L-01")
 	r.connectedAgain()
 	reply, err := r.drive("v1", "T-1")
-	if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → O-01 (pj-o1-drive, sonnet) taking over from pj-o1; STOPPED pj-o1") {
+	if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over from pj-l-01; STOPPED pj-l-01") {
 		t.Fatalf("take-over: %q, %v", reply, err)
 	}
-	if !slices.Contains(r.workerStops(), "pj-o1 w1:p1") { // by its pane, as serve identifies it (T-758)
+	if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") { // by its pane, as serve identifies it (T-758)
 		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
 	}
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
@@ -256,8 +251,8 @@ func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	if !r.has("1 fact drive") {
 		t.Errorf("no drive fact: %q", r.steps())
 	}
-	after, _, _ := store.ReadLaneAt(r.p.Root, "O-01")
-	if after.Branch != before.Branch || after.Base != before.Base || after.Agent != "pj-o1-drive" || after.Task != "T-1" {
+	after, _, _ := store.ReadLaneAt(r.p.Root, "L-01")
+	if after.Branch != before.Branch || after.Base != before.Base || after.Agent != "pj-l-01-drive" || after.Task != "T-1" {
 		t.Errorf("lane row %+v after the take-over, before %+v: want the branch and base kept, the drive agent", after, before)
 	}
 	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasSuffix(reply, " again: its agent is not running") ||
@@ -274,7 +269,7 @@ func TestDriveTakeOverWhileGatingRefused(t *testing.T) {
 	r.start()
 	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
 	r.mustDispatch("d1")
-	r.waitJob("pj-o1", "T-1/1/work")
+	r.waitJob("pj-l-01", "T-1/1/work")
 	release := make(chan struct{})
 	r.scratch.arm("Gate", func(ctx context.Context) error {
 		select {
@@ -339,17 +334,17 @@ func TestDriveLandGatesReviewsMergesAndStopsTheAgent(t *testing.T) {
 	if r.mainMerges() != 1 {
 		t.Errorf("not merged: %q", r.steps())
 	}
-	if !slices.Contains(r.workerStops(), "pj-o1-drive w1:p5") {
+	if !slices.Contains(r.workerStops(), "pj-l-01-drive w1:p5") {
 		t.Errorf("the drive agent was not stopped after the merge: %q", r.workerStops())
 	}
-	if lr, _, _ := store.ReadLaneAt(r.p.Root, "O-01"); lr.Finished == 0 {
-		t.Errorf("O-01's row %+v is not finished after the merge", lr)
+	if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Finished == 0 {
+		t.Errorf("L-01's row %+v is not finished after the merge", lr)
 	}
 	if st := r.stateOf("T-1"); st != "" {
 		t.Errorf("T-1 still open after the merge: %s", st)
 	}
-	if r.launchesOf("pj-o1") != 0 || len(r.driveLines()) != 0 {
-		t.Errorf("a worker started (%d) or a come-back line was sent (%q)", r.launchesOf("pj-o1"), r.driveLines())
+	if r.launchesOf("pj-l-01") != 0 || len(r.driveLines()) != 0 {
+		t.Errorf("a worker started (%d) or a come-back line was sent (%q)", r.launchesOf("pj-l-01"), r.driveLines())
 	}
 }
 
@@ -444,12 +439,12 @@ func TestDriveDrop(t *testing.T) {
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	r.driveAgentUp()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-		Role: "lead", CallID: "x1", Lane: "O-01", Note: "not needed"})
-	if err != nil || !strings.Contains(reply, "DROPPED T-1 from O-01") {
+		Role: "lead", CallID: "x1", Lane: "L-01", Note: "not needed"})
+	if err != nil || !strings.Contains(reply, "DROPPED T-1 from L-01") {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	r.waitFor("dropped", func() bool { return r.stateOf("T-1") == "dropped" })
-	if !slices.Contains(r.workerStops(), "pj-o1-drive w1:p5") { // by its pane, as serve identifies it (T-758)
+	if !slices.Contains(r.workerStops(), "pj-l-01-drive w1:p5") { // by its pane, as serve identifies it (T-758)
 		t.Errorf("the drive agent was not stopped at its pane: %q", r.workerStops())
 	}
 	if n := r.disp.called("free"); n != 1 {
@@ -477,8 +472,8 @@ func TestDriveReplayedAsDriving(t *testing.T) {
 	if len(r.records()) != n {
 		t.Errorf("the replay recorded more: %q", r.steps()[n:])
 	}
-	if lr, _, _ := store.ReadLaneAt(r.p.Root, "O-01"); lr.Task != "T-1" || lr.Agent != "pj-o1-drive" || lr.Finished != 0 {
-		t.Errorf("O-01's row after the replay: %+v", lr)
+	if lr, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); lr.Task != "T-1" || lr.Agent != "pj-l-01-drive" || lr.Finished != 0 {
+		t.Errorf("L-01's row after the replay: %+v", lr)
 	}
 	if reply, err := r.drive("v1", "web"); err != nil || !strings.HasPrefix(reply, "DRIVE T-1") {
 		t.Errorf("the stored reply after the replay: %q, %v", reply, err)

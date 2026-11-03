@@ -131,7 +131,7 @@ func (r *loopRig) woken(agent string) []string {
 
 // fetch is agent's job_next: the text of job with its tag when job_next hands out job (false: another job, or none).
 func (r *loopRig) fetch(agent, job string) (string, bool) {
-	role, lane := "worker", "O-01"
+	role, lane := "worker", "L-01"
 	if agent == "pj-int" {
 		role, lane = "integrator", ""
 	}
@@ -157,14 +157,14 @@ func gitOK(dir string, args ...string) bool {
 	return exec.Command("git", append([]string{"-C", dir}, args...)...).Run() == nil
 }
 
-// foreign is lane O-02 on task T-20 with its worker pj-o2 in the project's workspace: no step of T-1 may touch it.
+// foreign is lane L-02 on task T-20 with its worker pj-l-02 in the project's workspace: no step of T-1 may touch it.
 func (r *loopRig) foreign() string {
 	r.t.Helper()
-	lane := r.p.Lane("O-02", "task/T-20")
-	r.p.State("O-02", map[string]any{"lane": "O-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-o2",
+	lane := r.p.Lane("L-02", "task/T-20")
+	r.p.State("L-02", map[string]any{"lane": "L-02", "task": "T-20", "branch": "task/T-20", "agent": "pj-l-02",
 		"base": "main", "dispatched_at": 1})
-	w := r.f.Agent("w1:p2", "pj-o2", "idle", lane)
-	w.Workspace, w.Label = "w1", "pj-o2" // labelled by its launch
+	w := r.f.Agent("w1:p2", "pj-l-02", "idle", lane)
+	w.Workspace, w.Label = "w1", "pj-l-02" // labelled by its launch
 	return lane
 }
 
@@ -201,7 +201,7 @@ var scenarios = map[string]scenario{
 
 // Each step's effect at both crash points (before it; done, result lost): the restart ends the task as without the
 // crash: merged exactly once (one merge on main, one fact merged, after_merge's effect once: run again only after a
-// cut between it and its result, idempotent (T-525), the lane's work committed once), no prompt sent twice, one integrator start per job (T-602), before any job reaches it, and lane O-02 untouched. A red or failed
+// cut between it and its result, idempotent (T-525), the lane's work committed once), no prompt sent twice, one integrator start per job (T-602), before any job reaches it, and lane L-02 untouched. A red or failed
 // resolved gate replays on the same pinned resolution: one sendback, or one needs-you.
 func TestLoopRecovery(t *testing.T) {
 	t.Parallel()
@@ -291,7 +291,7 @@ func TestLoopRecovery(t *testing.T) {
 						want, early.Load())
 				}
 				for _, s := range r.workerStops() {
-					if s != "pj-o1 w1:p1" {
+					if s != "pj-l-01 w1:p1" {
 						t.Errorf("a stop of %s", s)
 					}
 				}
@@ -325,7 +325,7 @@ func TestLoopRecovery(t *testing.T) {
 					t.Errorf("main has %d submit commits of T-1, want the one", n)
 				}
 				if len(r.workerStops()) != 1 {
-					t.Errorf("stops %q, want pj-o1 once", r.stopped())
+					t.Errorf("stops %q, want pj-l-01 once", r.stopped())
 				}
 			})
 		}
@@ -378,9 +378,9 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 	r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 	r.waitFor("the crash", crashed.Load)
 	r.stop()
-	// T-06's dispatch onto O-01 and its lane.prepare, in the log: its row takes the lane (T-439).
-	d, _ := json.Marshal(map[string]any{"lane": "O-01", "dir": r.lane, "agent": "pj-o1", "branch": "task/T-06",
-		"target": "main", "reply": "DISPATCHED T-06 → O-01 (queued)"})
+	// T-06's dispatch onto L-01 and its lane.prepare, in the log: its row takes the lane (T-439).
+	d, _ := json.Marshal(map[string]any{"lane": "L-01", "dir": r.lane, "agent": "pj-l-01", "branch": "task/T-06",
+		"target": "main", "reply": "DISPATCHED T-06 → L-01 (queued)"})
 	if err := app.WriteLog(r.p.Root, time.Now(),
 		event.Record{Task: "T-06", Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact, Data: d},
 		event.Record{Task: "T-06", Attempt: 1, Step: event.StepPrepare, Kind: event.KindIntent, Class: event.ClassGit},
@@ -391,11 +391,11 @@ func TestLoopAfterMergeCrashThenLaneReused(t *testing.T) {
 	r.setLane(func(l *port.Lane) { l.Task = "T-06" })
 	r.start()
 	r.merged(1)
-	if len(r.workerStops()) != 0 || r.f.Pane("w1:p1").Name != "pj-o1" {
+	if len(r.workerStops()) != 0 || r.f.Pane("w1:p1").Name != "pj-l-01" {
 		t.Errorf("the lane's worker was stopped: %q", r.stopped())
 	}
 	for _, step := range []string{"agent.stop"} {
-		if res := r.result(step); res != `"skipped: lane O-01 holds T-06"` {
+		if res := r.result(step); res != `"skipped: lane L-01 holds T-06"` {
 			t.Errorf("%s's result %s, want skipped", step, res)
 		}
 	}

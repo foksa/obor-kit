@@ -255,8 +255,8 @@ func TestBackup(t *testing.T) {
 	h.tick(11 * time.Minute) // a record to back up
 	// T-665: the nightly backup prunes the prompts older than 14 days, keeps the rest.
 	for _, r := range []store.PromptRow{
-		{Seq: 1, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
-		{Seq: 2, Agent: "pj-o1", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-24T12:00:00Z", Text: "fresh"},
+		{Seq: 1, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/1/work", Task: "T-1", TS: "2026-10-10T12:00:00Z", Text: "old"},
+		{Seq: 2, Agent: "pj-l-01", Kind: store.PromptJob, Job: "T-1/2/work", Task: "T-1", TS: "2026-10-24T12:00:00Z", Text: "fresh"},
 	} {
 		if err := store.WritePrompt(h.a.p.log.DB(), r); err != nil {
 			t.Fatal(err)

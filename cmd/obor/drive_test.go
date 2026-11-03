@@ -18,9 +18,9 @@ func TestLandRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
 	p.Spec("T-01", "# T-01 — Owner drive: web page\n")
-	lane := p.LaneDir("O-01")
+	lane := p.LaneDir("L-01")
 	st := wire.Status{Connected: true, Project: &wire.ProjectStatus{Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "O-01", State: wire.TaskDriving}, {Task: "T-02", Lane: "O-02", State: "working"}}}}
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: wire.TaskDriving}, {Task: "T-02", Lane: "L-02", State: "working"}}}}
 	home, serve := startFakeServe(t, p.Root, st, "LANDED T-01: submitted (gate, review and merge follow)", "")
 	env := []string{"OBOR_STATE_HOME=" + home}
 	lands := func() []wire.Call {
@@ -30,7 +30,7 @@ func TestLandRequest(t *testing.T) {
 
 	p.Write(filepath.Join(lane, "page.html"), "<p>draft</p>\n")
 	rc, stdout, _ := run(t, p.Root, env, "land", "T-01")
-	if rc != 1 || !strings.Contains(stdout, "FAIL lane O-01 has uncommitted changes") || !strings.Contains(stdout, "page.html") {
+	if rc != 1 || !strings.Contains(stdout, "FAIL lane L-01 has uncommitted changes") || !strings.Contains(stdout, "page.html") {
 		t.Errorf("land with a dirty worktree: rc %d, %q; want FAIL naming page.html", rc, stdout)
 	}
 	if n := len(lands()); n != 0 {
@@ -71,15 +71,15 @@ func TestLandRequest(t *testing.T) {
 	}
 }
 
-// obor drive's request: a name is a new drive (Note, --type as its one type), a task id a take-over (--type refused);
+// obor drive's request: a name is a new drive (Note, --model as its one model), a task id a take-over (--model refused);
 // serve's refusal is the caller's FAIL and nothing is started.
 func TestDriveRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "", "drive web: no free untyped lane (O-01 (opus) free)")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "", "drive web: no free untyped lane (L-01 (opus) free)")
 	env := []string{"OBOR_STATE_HOME=" + home}
-	rc, stdout, _ := run(t, p.Root, env, "drive", "web", "--type", "sonnet:high")
-	if rc != 1 || !strings.Contains(stdout, "FAIL drive web: no free untyped lane (O-01 (opus) free)") {
+	rc, stdout, _ := run(t, p.Root, env, "drive", "web", "--model", "sonnet:high")
+	if rc != 1 || !strings.Contains(stdout, "FAIL drive web: no free untyped lane (L-01 (opus) free)") {
 		t.Errorf("refused drive: rc %d, %q", rc, stdout)
 	}
 	rc, _, _ = run(t, p.Root, env, "drive", "T-07")
@@ -93,13 +93,13 @@ func TestDriveRequest(t *testing.T) {
 	if c := calls[1]; c.Task != "T-07" || c.Note != "" || len(c.Types) != 0 {
 		t.Errorf("a take-over's call %+v", c)
 	}
-	for _, args := range [][]string{{"drive"}, {"drive", "a", "b"}, {"drive", "--type"}, {"drive", "-x"}} {
+	for _, args := range [][]string{{"drive"}, {"drive", "a", "b"}, {"drive", "--model"}, {"drive", "-x"}} {
 		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.Contains(stdout, "FAIL usage: obor drive") {
 			t.Errorf("%q: rc %d, %q; want usage", args, rc, stdout)
 		}
 	}
-	if rc, stdout, _ := run(t, p.Root, env, "drive", "T-07", "--type", "opus"); rc != 1 || !strings.Contains(stdout, "--type is a new drive's") {
-		t.Errorf("a take-over with --type: rc %d, %q", rc, stdout)
+	if rc, stdout, _ := run(t, p.Root, env, "drive", "T-07", "--model", "opus"); rc != 1 || !strings.Contains(stdout, "--model is a new drive's") {
+		t.Errorf("a take-over with --model: rc %d, %q", rc, stdout)
 	}
 	if calls, _ := serve.requests(); len(calls) != 2 {
 		t.Errorf("usage errors sent requests: %d calls", len(calls))
@@ -110,15 +110,15 @@ func TestDriveRequest(t *testing.T) {
 func TestParseDrive(t *testing.T) {
 	t.Parallel()
 	for reply, want := range map[string]drive{
-		"DRIVE T-3 → O-01 (pj-o-01-drive, opus:high)":                                            {"T-3", "O-01", "pj-o-01-drive", "opus:high"},
-		"DRIVE T-1 → O-02 (pj-o-02-drive, -) taking over from pj-o-02; STOPPED pj-o-02":          {"T-1", "O-02", "pj-o-02-drive", "-"},
-		"DRIVE T-1 → O-02 (pj-o-02-drive, sonnet) taking over from pj-o-02; pj-o-02 not running": {"T-1", "O-02", "pj-o-02-drive", "sonnet"},
+		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                            {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
+		"DRIVE T-1 → L-02 (pj-l-02-drive, -) taking over from pj-l-02; STOPPED pj-l-02":          {"T-1", "L-02", "pj-l-02-drive", "-"},
+		"DRIVE T-1 → L-02 (pj-l-02-drive, sonnet) taking over from pj-l-02; pj-l-02 not running": {"T-1", "L-02", "pj-l-02-drive", "sonnet"},
 	} {
 		if got, ok := parseDrive(reply); !ok || got != want {
 			t.Errorf("parseDrive(%q) = %+v, %v; want %+v", reply, got, ok, want)
 		}
 	}
-	if _, ok := parseDrive("DISPATCHED T-1 → O-01 (queued)"); ok {
+	if _, ok := parseDrive("DISPATCHED T-1 → L-01 (queued)"); ok {
 		t.Error("parseDrive read a dispatch's reply")
 	}
 }
@@ -128,13 +128,13 @@ func TestParseDrive(t *testing.T) {
 func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DRIVING T-07 → O-01: pj-o1-drive runs already (pane w1:p5)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)", "")
 	rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home}, "drive", "T-07")
 	if calls, _ := serve.requests(); len(calls) != 1 || calls[0].Task != "T-07" {
 		t.Fatalf("precondition: calls %+v, want T-07's drive", calls)
 	}
-	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → O-01: pj-o1-drive runs already") ||
-		!strings.Contains(stdout, "OK T-07 → O-01: pj-o1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
+	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → L-01: pj-l1-drive runs already") ||
+		!strings.Contains(stdout, "OK T-07 → L-01: pj-l1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
 		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
 	}
 }
@@ -145,10 +145,10 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 func TestTellLeadRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("O-01", "task/T-01")
+	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "TOLD pj-lead (T-01; its answer arrives here as an [obor answer] line)", "")
-	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-o1-drive", "OBOR_LANE=O-01"}
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-l1-drive", "OBOR_LANE=L-01"}
 	for _, args := range [][]string{{"tell-lead"}, {"tell-lead", " "}, {"tell-lead", "a", "b"}} {
 		if rc, stdout, _ := run(t, o1, env, args...); rc != 1 || !strings.Contains(stdout, `FAIL usage: obor tell-lead "<text>"`) {
 			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
@@ -165,9 +165,9 @@ func TestTellLeadRequest(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("%d requests, want 1", len(calls))
 	}
-	if c := calls[0]; c.Role != "driver" || c.Lane != "O-01" || c.Agent != "pj-o1-drive" ||
+	if c := calls[0]; c.Role != "driver" || c.Lane != "L-01" || c.Agent != "pj-l1-drive" ||
 		c.Note != "may I change the contract?" || c.Root != p.Root || c.CallID == "" {
-		t.Errorf("request %+v; want role driver, lane O-01, agent pj-o1-drive, the text, root, a call id", c)
+		t.Errorf("request %+v; want role driver, lane L-01, agent pj-l1-drive, the text, root, a call id", c)
 	}
 
 	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "tell-lead: it is for a drive agent to tell its lead")
@@ -186,7 +186,7 @@ func TestDrivePromptNamesTheLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := drivePrompt(cfg, drive{task: "T-01", lane: "O-01"})
+	got := drivePrompt(cfg, drive{task: "T-01", lane: "L-01"})
 	for _, want := range []string{`obor tell-lead "<text>"`, "[obor answer] lines", "obor land T-01"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("drive prompt %q, want %q in it", got, want)
@@ -207,7 +207,7 @@ func TestDrivePromptSaysCommitAsYouGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := drivePrompt(cfg, drive{task: "T-01", lane: "O-01"})
+	got := drivePrompt(cfg, drive{task: "T-01", lane: "L-01"})
 	for _, want := range []string{"commit on that branch as you go", "obor land T-01",
 		"commits nothing and refuses uncommitted changes"} {
 		if !strings.Contains(got, want) {

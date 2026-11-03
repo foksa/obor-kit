@@ -32,8 +32,8 @@ func TestMain(m *testing.M) { testkit.Main(m) }
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
 
-// fx is a project with lane O-01 (type opus: claude --model opus), lane type luna (codex -m gpt-6-luna), roles
-// integrator and lead (opus) and reviewer (luna), a fake herdr with no panes, every pid alive and a ps that lists no
+// fx is a project with lane L-01, the built-in models (opus: claude --permission-mode auto --model opus; luna: codex
+// -s workspace-write -a never -m gpt-6-luna), roles integrator and lead (opus) and reviewer (luna), a fake herdr with no panes, every pid alive and a ps that lists no
 // process.
 type fx struct {
 	t      *testing.T
@@ -107,11 +107,10 @@ func setup(t *testing.T, edits ...func(map[string]any)) *fx {
 	t.Helper()
 	p := testkit.New(t)
 	f := p.Herdr()
-	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: p.Lane("O-01", ""), claude: filepath.Join(p.Base, "claude"),
+	x := &fx{t: t, p: p, f: f, srv: herdrtest.Serve(t, f), lane: p.Lane("L-01", ""), claude: filepath.Join(p.Base, "claude"),
 		gone: map[string]bool{}, ps: func(...string) ([]byte, error) { return nil, nil }}
 	p.Config(append([]func(map[string]any){
-		testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]}}`),
-		testkit.Set("roles", `{"integrator":{"type":"opus"},"lead":{"type":"opus"},"reviewer":{"type":"luna"}}`),
+		testkit.Set("roles", `{"integrator":"opus","lead":"opus","reviewer":"luna"}`),
 	}, edits...)...)
 	return x
 }
@@ -349,54 +348,54 @@ func TestRestartWho(t *testing.T) {
 		out   string // in the output too
 	}{{
 		// bash restart.test.sh case_lane_agent_dead_pane_starts_with_lane_env_type_args_and_resume
-		name: "lane agent, dead pane: lane env, type args + settings, --resume <sid>",
-		prep: func(x *fx) { x.sid("pj-o-01", "sid-1"); x.shell("w1:p3", "pj-o-01", "").Session = "sid-1" },
-		req:  launch.Request{Agent: "pj-o-01"},
+		name: "lane agent, dead pane: lane env, settings (no dispatch: no model), --resume <sid>",
+		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p3", "pj-l-01", "").Session = "sid-1" },
+		req:  launch.Request{Agent: "pj-l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=pj-o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=pj-l-01 OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=pj-o-01 pane_id=w1:p3",
-		line:  "RESTARTED pj-o-01 (pane w1:p3, session sid-1)",
+		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=pj-l-01 pane_id=w1:p3",
+		line:  "RESTARTED pj-l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// bash restart.test.sh case_lane_agent_named_lane_lower_with_null_state_agent; T-302: the bare lane name is
 		// the lane's only when its state file names it
 		name: "lane agent named <lane lower> by the lane state file: the lane",
 		prep: func(x *fx) {
-			x.p.State("O-01", `{"agent":"o-01"}`)
-			x.sid("o-01", "sid-1")
-			x.shell("w1:p3", "o-01", "")
+			x.p.State("L-01", `{"agent":"l-01"}`)
+			x.sid("l-01", "sid-1")
+			x.shell("w1:p3", "l-01", "")
 		},
-		req: launch.Request{Agent: "o-01"},
+		req: launch.Request{Agent: "l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=o-01 OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=l-01 OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=o-01 pane_id=w1:p3",
-		line:  "RESTARTED o-01 (pane w1:p3, session sid-1)",
+		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
+		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
 	}, {
-		// T-302: another project's agent may be named like a lane; no lane env, no lane type args
+		// T-302: another project's agent may be named like a lane; no lane env, no lane settings
 		name: "agent named <lane lower>, lane state agent null: not the lane",
 		prep: func(x *fx) {
-			x.p.State("O-01", `{"agent":null}`)
-			x.sid("o-01", "sid-1")
-			x.shell("w1:p3", "o-01", "")
+			x.p.State("L-01", `{"agent":null}`)
+			x.sid("l-01", "sid-1")
+			x.shell("w1:p3", "l-01", "")
 		},
-		req: launch.Request{Agent: "o-01"},
+		req: launch.Request{Agent: "l-01"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=export OBOR_AGENT=o-01 && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=export OBOR_AGENT=l-01 && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--resume sid-1] kind=claude name=o-01 pane_id=w1:p3",
-		line:  "RESTARTED o-01 (pane w1:p3, session sid-1)",
+		start: "agent.start args=[--resume sid-1] kind=claude name=l-01 pane_id=w1:p3",
+		line:  "RESTARTED l-01 (pane w1:p3, session sid-1)",
 	}, {
 		// bash restart.test.sh case_lane_agent_matched_by_pane_cwd
 		name: "an agent whose pane cwd is a lane worktree: that lane",
 		prep: func(x *fx) { x.sid("odd-name", "sid-1"); x.shell("w1:p3", "odd-name", x.lane) },
 		req:  launch.Request{Agent: "odd-name"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=odd-name OBOR_ROLE=worker OBOR_LANE=O-01 && unset OBOR_OPENCODE_MODEL"
+			return "pane.send_input keys=[Enter] pane_id=w1:p3 text=cd " + q(x.lane) + " && export OBOR_AGENT=odd-name OBOR_ROLE=worker OBOR_LANE=L-01 && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
+		start: "agent.start args=[" + settings + " --resume sid-1] kind=claude name=odd-name pane_id=w1:p3",
 		line:  "RESTARTED odd-name (pane w1:p3, session sid-1)",
-		out:   "lane O-01 (pane w1:p3 cwd)",
+		out:   "lane L-01 (pane w1:p3 cwd)",
 	}, {
 		// bash restart.test.sh case_role_agent_gets_role_env_and_type
 		name: "role agent: role env, its type, cwd the main checkout, OBOR_LANE unset",
@@ -405,7 +404,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
 	}, {
 		// bash restart.test.sh case_lead_agent_is_a_role_agent, case_lead_unsets_obor_lane
@@ -415,7 +414,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
+		start: "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
@@ -434,20 +433,19 @@ func TestRestartWho(t *testing.T) {
 	}, {
 		// bash restart.test.sh case_triage_gets_obor_agent_only
 		name: "triage role: its type, cwd root, OBOR_AGENT only",
-		edit: []func(map[string]any){testkit.Set("roles", `{"lead":{"type":"opus"},"triage":{"type":"opus"}}`)},
+		edit: []func(map[string]any){testkit.Set("roles", `{"lead":"opus","triage":"opus"}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-triage", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-triage && unset OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-718: the main checkout, no worktree
 		name: "deep_dive role (T-179, T-718): its type, cwd the root, OBOR_ROLE=deep_dive",
 		edit: []func(map[string]any){
-			testkit.Set("roles", `{"lead":{"type":"opus"},"deep_dive":{"type":"opus"}}`),
-			testkit.Set("lanes", `{"O-01":"opus"}`),
+			testkit.Set("roles", `{"lead":"opus","deep_dive":"opus"}`),
 		},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
@@ -455,23 +453,22 @@ func TestRestartWho(t *testing.T) {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) +
 				" && export OBOR_AGENT=pj-deep-dive OBOR_ROLE=deep_dive && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (adv)
 		name: "agents entry: its type args + settings, its cwd, OBOR_AGENT only; args line",
 		edit: []func(map[string]any){
-			testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus"]},"fable":{"kind":"claude","args":["--model","fable","--permission-mode","plan"]}}`),
-			testkit.Set("agents", `{"adv":{"type":"fable","cwd":"sub"},"des":{"type":"opus","role":"designer"},"pj-int":{"type":"fable"}}`),
+			testkit.Set("agents", `{"adv":{"type":"fable:low","cwd":"sub"},"des":{"type":"opus","role":"designer"},"pj-int":{"type":"fable"}}`),
 		},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "adv", Pane: "w1:p6", Sid: "s-adv"},
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root+"/sub") + " && export OBOR_AGENT=adv && unset OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model fable --permission-mode plan " + settings + " --resume s-adv] kind=claude name=adv pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model fable --effort low " + settings + " --resume s-adv] kind=claude name=adv pane_id=w1:p6",
 		line:  "RESTARTED adv (pane w1:p6, session s-adv)",
-		out:   "args (claude): --model fable --permission-mode plan " + settings + " --resume s-adv\n",
+		out:   "args (claude): --permission-mode auto --model fable --effort low " + settings + " --resume s-adv\n",
 	}, {
 		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (des)
 		name: "agents entry with a role: cwd the main checkout, OBOR_ROLE from the entry",
@@ -481,13 +478,12 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=des OBOR_ROLE=designer && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + "] kind=claude name=des pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=des pane_id=w1:p6",
 		line:  "RESTARTED des (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (pj-int)
 		name: "a role wins over an agents entry of the same name",
 		edit: []func(map[string]any){
-			testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus"]},"fable":{"kind":"claude","args":["--model","fable"]}}`),
 			testkit.Set("agents", `{"pj-int":{"type":"fable"}}`),
 		},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
@@ -495,25 +491,12 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
 		},
-		start: "agent.start args=[--model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p6",
 		line:  "RESTARTED pj-int (pane w1:p6, session new)",
 	}, {
-		// T-280: a lead keeps Remote Control unless its type sets settings
-		name: "a lead whose type sets settings: those settings",
-		edit: []func(map[string]any){
-			testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus"],"settings":{"x":1}}}`),
-		},
-		prep: func(x *fx) { x.shell("w1:p6", "", "") },
-		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
-		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-lead OBOR_ROLE=lead && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
-		},
-		start: "agent.start args=[--model opus --settings {\"x\":1} /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
-		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
-	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
-		name: "a lead without a type: no args",
-		edit: []func(map[string]any){testkit.Set("roles", `{"lead":{"agent":"pj-lead"}}`)},
+		name: "a lead without a model: no args",
+		edit: []func(map[string]any){testkit.Set("roles", `{"lead":""}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-lead", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
@@ -564,14 +547,14 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 		req  launch.Request
 		args string
 	}{
-		{"agent and pane", launch.Request{Agent: "pj-o-01", Pane: "w1:p3"}, "pj-o-01 --pane w1:p3"},
-		{"sid", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Sid: "sid-9"}, "pj-o-01 --pane w1:p3 --sid sid-9"},
-		{"fresh", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Fresh: true}, "pj-o-01 --pane w1:p3 --fresh"},
-		{"force", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Force: true}, "pj-o-01 --pane w1:p3 --force"},
-		{"every combinable field", launch.Request{Agent: "pj-o-01", Pane: "w1:p3", Fresh: true, Force: true, Prompt: "go"},
-			"pj-o-01 --pane w1:p3 --fresh --force --prompt go"},
-		{"type and effort (T-722)", launch.Request{Agent: "pj-o-01", Fresh: true, Effort: "high", Type: "luna"},
-			"pj-o-01 --fresh --effort high --type luna"},
+		{"agent and pane", launch.Request{Agent: "pj-l-01", Pane: "w1:p3"}, "pj-l-01 --pane w1:p3"},
+		{"sid", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Sid: "sid-9"}, "pj-l-01 --pane w1:p3 --sid sid-9"},
+		{"fresh", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, "pj-l-01 --pane w1:p3 --fresh"},
+		{"force", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Force: true}, "pj-l-01 --pane w1:p3 --force"},
+		{"every combinable field", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Force: true, Prompt: "go"},
+			"pj-l-01 --pane w1:p3 --fresh --force --prompt go"},
+		{"type and effort (T-722)", launch.Request{Agent: "pj-l-01", Fresh: true, Effort: "high", Type: "luna"},
+			"pj-l-01 --fresh --effort high --type luna"},
 		{"no pane", launch.Request{Agent: "pj-lead"}, "pj-lead"},
 		{"fresh with a first prompt", launch.Request{Agent: "pj-w", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"},
 			"pj-w --fresh --prompt [obor job T-1/1/work] call the obor job_next tool"},
@@ -596,10 +579,10 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 func TestParseRequestRefusals(t *testing.T) {
 	t.Parallel()
 	for _, c := range [][]string{
-		{"pj-o-01", "--keep-inbox"},
-		{"pj-o-01", "--bogus"},
-		{"pj-o-01", "pj-int"},
-		{"pj-o-01", "--pane"},
+		{"pj-l-01", "--keep-inbox"},
+		{"pj-l-01", "--bogus"},
+		{"pj-l-01", "pj-int"},
+		{"pj-l-01", "--pane"},
 	} {
 		if req, err := launch.ParseRequest(c); err == nil {
 			t.Errorf("ParseRequest(%q) = %+v, want an error", c, req)
@@ -613,18 +596,18 @@ func TestRestartNoSessionFailsFreshStartsNew(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.shell("w1:p9", "", x.lane)
-	x.shell("w1:p4", "pj-o-01", "")
-	if x.recorded("pj-o-01") != "" {
+	x.shell("w1:p4", "pj-l-01", "")
+	if x.recorded("pj-l-01") != "" {
 		t.Fatal("precondition: no recorded sid")
 	}
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p4 (from label)", "the labelled pane, not the lane cwd one")
-	eq(t, last(out), "FAIL no session to resume for pj-o-01 (pass --fresh to start a new one)", "no session")
+	eq(t, last(out), "FAIL no session to resume for pj-l-01 (pass --fresh to start a new one)", "no session")
 	if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
 		t.Errorf("nothing typed or started: %q", x.srv.Calls())
 	}
-	out, ok = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p4, session new)", "--fresh")
+	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session new)", "--fresh")
 	lacks(t, x.startCall(), "--resume", "--fresh: no --resume")
 	contains(t, x.startCall(), "pane_id=w1:p4", "started in the labelled pane")
 }
@@ -645,46 +628,46 @@ func TestRestartWhereRefusals(t *testing.T) {
 		line: "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)",
 	}, {
 		name: "no pane labelled the agent",
-		prep: func(x *fx) { x.sid("pj-o-01", "sid-1"); x.shell("w1:p9", "", "/elsewhere") },
-		req:  launch.Request{Agent: "pj-o-01"},
-		line: "FAIL no pane labelled pj-o-01 (pass --pane)",
+		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p9", "", "/elsewhere") },
+		req:  launch.Request{Agent: "pj-l-01"},
+		line: "FAIL no pane labelled pj-l-01 (pass --pane)",
 	}, {
 		name: "the herdr name alone (an unlabelled pane) is not used",
 		prep: func(x *fx) {
-			x.sid("pj-o-01", "sid-1")
-			a := x.agent("w1:p2", "pj-o-01", "claude", "idle")
+			x.sid("pj-l-01", "sid-1")
+			a := x.agent("w1:p2", "pj-l-01", "claude", "idle")
 			a.Label, a.Foreground = "", 1
 			x.shell("w1:p3", "", x.lane)
 		},
-		req:  launch.Request{Agent: "pj-o-01"},
-		line: "FAIL no pane labelled pj-o-01 (pass --pane)",
+		req:  launch.Request{Agent: "pj-l-01"},
+		line: "FAIL no pane labelled pj-l-01 (pass --pane)",
 	}, {
 		name: "--pane labelled for another agent",
-		prep: func(x *fx) { x.sid("pj-o-01", "sid-1"); x.shell("w1:p4", "pj-rev", "") },
-		req:  launch.Request{Agent: "pj-o-01", Pane: "w1:p4"},
-		line: "FAIL pane w1:p4 is labelled pj-rev, not pj-o-01",
+		prep: func(x *fx) { x.sid("pj-l-01", "sid-1"); x.shell("w1:p4", "pj-rev", "") },
+		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p4"},
+		line: "FAIL pane w1:p4 is labelled pj-rev, not pj-l-01",
 	}, {
 		name: "another pane already labelled the agent",
 		prep: func(x *fx) {
-			x.sid("pj-o-01", "sid-1")
-			x.shell("w1:p3", "pj-o-01", "")
+			x.sid("pj-l-01", "sid-1")
+			x.shell("w1:p3", "pj-l-01", "")
 			x.shell("w1:p4", "", "")
 		},
-		req:  launch.Request{Agent: "pj-o-01", Pane: "w1:p4"},
-		line: "FAIL pane w1:p3 is already labelled pj-o-01 (obor restart pj-o-01 there)",
+		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p4"},
+		line: "FAIL pane w1:p3 is already labelled pj-l-01 (obor restart pj-l-01 there)",
 	}, {
 		name: "no agent, the foreground is another program",
 		prep: func(x *fx) {
-			x.sid("pj-o-01", "sid-1")
-			s := x.shell("w1:p4", "pj-o-01", "")
+			x.sid("pj-l-01", "sid-1")
+			s := x.shell("w1:p4", "pj-l-01", "")
 			s.Foreground, s.Procs = 200, []herdr.Process{{PID: 200, Argv0: "/usr/bin/vim", Name: "vim"}}
 		},
-		req:  launch.Request{Agent: "pj-o-01"},
+		req:  launch.Request{Agent: "pj-l-01"},
 		line: "FAIL w1:p4 runs another program (vim)",
 	}, {
 		name: "--sid and --fresh",
 		prep: func(x *fx) {},
-		req:  launch.Request{Agent: "pj-o-01", Sid: "s", Fresh: true},
+		req:  launch.Request{Agent: "pj-l-01", Sid: "s", Fresh: true},
 		line: "FAIL pass --sid or --fresh, not both",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
@@ -700,31 +683,28 @@ func TestRestartWhereRefusals(t *testing.T) {
 	}
 }
 
-// T-301: two projects with the same names. The kit has lane O-02 (agent alias o-02); axis has its integrator o-02 in
-// its own worktree O-02. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's
+// T-301: two projects with the same names. The kit has lane L-02 (agent alias l-02); axis has its agent l-02 (an
+// agents entry, role integrator) in its own worktree L-02. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's
 // checkout) took axis's integrator pane for the kit's lane and started it in the kit's lane worktree.
 func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Parallel()
-	kitEdits := []func(map[string]any){
-		testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus"]}}`),
-		testkit.Set("roles", `{"integrator":{"type":"opus"}}`),
-	}
-	// fixtures: the kit (x, lanes O-01 and O-02), axis (its integrator o-02 in <axis>-wt/O-02, no lanes) and the
+	kitEdits := []func(map[string]any){testkit.Set("roles", `{"integrator":"opus"}`)}
+	// fixtures: the kit (x, lanes L-01 and L-02), axis (its integrator l-02 in <axis>-wt/L-02, no lanes) and the
 	// integrator's pane w2:pF in axis's worktree.
 	fixtures := func(t *testing.T) (x *fx, axis *config.Config, axisWt string) {
 		x = setup(t)
-		x.p.Lane("O-02", "")
+		x.p.Lane("L-02", "")
 		x.p.Config(kitEdits...)
 		a := testkit.New(t)
-		axisWt = a.Lane("O-02", "")
-		a.Config(testkit.Set("lanes", `{}`),
-			testkit.Set("lane_types", `{"opus":{"kind":"claude","args":["--model","opus","--strict-mcp-config"]}}`),
-			testkit.Set("roles", `{"integrator":{"type":"opus","agent":"o-02","worktree":"O-02"}}`))
+		axisWt = a.Lane("L-02", "")
+		a.Config(testkit.Set("lanes", 0), testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`),
+			testkit.Set("roles", `{"integrator":"opus"}`),
+			testkit.Set("agents", `{"l-02":{"type":"opus","cwd":`+strconv.Quote(axisWt)+`,"role":"integrator"}}`))
 		axis, err := config.Load(a.Root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		pane := x.agent("w2:pF", "o-02", "claude", "idle")
+		pane := x.agent("w2:pF", "l-02", "claude", "idle")
 		pane.Cwd = axisWt
 		return x, axis, axisWt
 	}
@@ -734,7 +714,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		if cfg != nil {
 			l.Cfg = cfg
 		}
-		line, err := l.Restart(context.Background(), launch.Request{Agent: "o-02", Pane: "w2:pF", Fresh: true, Force: true})
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "l-02", Pane: "w2:pF", Fresh: true, Force: true})
 		return result(x.t, &out, line, err)
 	}
 
@@ -745,14 +725,14 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The kit's lane O-02 runs an agent named o-02 too (a real name since T-302: its state file says so).
-		x.p.State("O-02", `{"lane":"O-02","agent":"o-02"}`)
-		if info, ok := project.AgentLookup(kit, "o-02", ""); !ok || info.Lane != "O-02" {
-			t.Fatalf("precondition: the kit's config takes o-02 for its lane O-02: %+v %v", info, ok)
+		// The kit's lane L-02 runs an agent named l-02 too (a real name since T-302: its state file says so).
+		x.p.State("L-02", `{"lane":"L-02","agent":"l-02"}`)
+		if info, ok := project.AgentLookup(kit, "l-02", ""); !ok || info.Lane != "L-02" {
+			t.Fatalf("precondition: the kit's config takes l-02 for its lane L-02: %+v %v", info, ok)
 		}
 		out, ok := restart(x, nil)
 		eq(t, failLine(out), "FAIL pane w2:pF is not this project's: its cwd "+axisWt+" is outside "+x.p.Root+
-			" (another project's agent? run obor restart o-02 in its own project)", "result")
+			" (another project's agent? run obor restart l-02 in its own project)", "result")
 		contains(t, out, "pane screen", "evidence")
 		contains(t, x.p.Read(".obor/state/launch.log"), "pane w2:pF is not this project's", "evidence logged")
 		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
@@ -763,22 +743,22 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		t.Parallel()
 		x, axis, axisWt := fixtures(t)
 		out, ok := restart(x, axis)
-		if !ok || last(out) != "RESTARTED o-02 (pane w2:pF, session new)" {
+		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+axisWt+" && export OBOR_AGENT=o-02 OBOR_ROLE=integrator",
+		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+axisWt+" && export OBOR_AGENT=l-02 OBOR_ROLE=integrator",
 			"started in axis's worktree")
-		contains(t, x.startCall(), "--strict-mcp-config", "axis's lane type")
+		contains(t, x.startCall(), "--strict-mcp-config", "axis's kinds.claude.args")
 	})
 	t.Run("control: the kit's own lane pane restarts in the kit's lane worktree", func(t *testing.T) {
 		t.Parallel()
 		x, _, _ := fixtures(t)
-		x.f.Pane("w2:pF").Cwd = x.p.LaneDir("O-02")
+		x.f.Pane("w2:pF").Cwd = x.p.LaneDir("L-02")
 		out, ok := restart(x, nil)
-		if !ok || last(out) != "RESTARTED o-02 (pane w2:pF, session new)" {
+		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+x.p.LaneDir("O-02")+" && export OBOR_AGENT=o-02",
+		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+x.p.LaneDir("L-02")+" && export OBOR_AGENT=l-02",
 			"started in the kit's lane")
 	})
 	t.Run("control: a pane in another worktree of the kit's repository is the kit's", func(t *testing.T) {
@@ -788,7 +768,7 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 		x.p.Git(x.p.Root, "worktree", "add", "-q", "--detach", stable, "main")
 		x.f.Pane("w2:pF").Cwd = stable
 		out, ok := restart(x, nil)
-		if !ok || last(out) != "RESTARTED o-02 (pane w2:pF, session new)" {
+		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
 	})
@@ -798,32 +778,32 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 func TestRestartLabel(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.sid("pj-o-01", "sid-1")
-	a := x.agent("w1:p2", "pj-o-01", "claude", "idle")
-	a.Label, a.Foreground = "", 1 // herdr still names w1:p2 pj-o-01, its agent exited
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+	x.sid("pj-l-01", "sid-1")
+	a := x.agent("w1:p2", "pj-l-01", "claude", "idle")
+	a.Label, a.Foreground = "", 1 // herdr still names w1:p2 pj-l-01, its agent exited
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p3 (from label)", "the label wins over the herdr name")
 	if ok {
 		t.Errorf("another pane holds the herdr name: no move\n%s", out)
 	}
-	eq(t, last(out), "FAIL pane w1:p2 holds the name pj-o-01: restart it there (obor restart pj-o-01)",
+	eq(t, last(out), "FAIL pane w1:p2 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
 		"the name is elsewhere: FAIL with a hint")
 
 	x.reset()
 	x.shell("w1:p4", "", "")
-	out, ok = x.restart(launch.Request{Agent: "pj-o-01", Pane: "w1:p4"})
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p4, session sid-1)", "an unlabelled --pane is fine")
-	contains(t, out, "labelled pane w1:p4 pj-o-01", "said")
-	eq(t, x.f.Panes[0].Label, "pj-o-01", "label set in herdr")
-	env, ren, start := x.index("pane.send_input keys=[Enter] pane_id=w1:p4 text=cd "), x.index("pane.rename label=pj-o-01 pane_id=w1:p4"), x.index("agent.start")
+	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p4"})
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p4, session sid-1)", "an unlabelled --pane is fine")
+	contains(t, out, "labelled pane w1:p4 pj-l-01", "said")
+	eq(t, x.f.Panes[0].Label, "pj-l-01", "label set in herdr")
+	env, ren, start := x.index("pane.send_input keys=[Enter] pane_id=w1:p4 text=cd "), x.index("pane.rename label=pj-l-01 pane_id=w1:p4"), x.index("agent.start")
 	if !(env >= 0 && env < ren && ren < start) {
 		t.Errorf("env, then label, then start: %q", x.srv.Calls())
 	}
 
 	x.f.Panes[0].Kind, x.f.Panes[0].Foreground = "", 0 // the agent exited again
 	n := len(x.srv.Calls())
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "pane w1:p4 (from label)", "found by the label just set")
 	lacks(t, strings.Join(x.srv.Calls()[n:], "\n"), "pane.rename", "already labelled: no rename")
 	lacks(t, out, "labelled pane", "nothing said")
@@ -832,8 +812,8 @@ func TestRestartLabel(t *testing.T) {
 	x.shell("w1:p5", "", "")
 	x.srv.Fail("pane.rename", "pane_not_found", "gone")
 	n = len(x.srv.Calls())
-	out, ok = x.restart(launch.Request{Agent: "pj-o-01", Pane: "w1:p5"})
-	eq(t, last(out), "FAIL herdr pane rename w1:p5 pj-o-01 failed", "rename failing")
+	out, ok = x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p5"})
+	eq(t, last(out), "FAIL herdr pane rename w1:p5 pj-l-01 failed", "rename failing")
 	if ok || strings.Contains(strings.Join(x.srv.Calls()[n:], "\n"), "agent.start") {
 		t.Error("no start after a failed rename")
 	}
@@ -853,8 +833,7 @@ const codexUpdate = "-c check_for_update_on_startup=false"
 func TestStartFirstPrompt(t *testing.T) {
 	t.Parallel()
 	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]},` +
-		`"oc":{"kind":"opencode","args":["--auto"]}}`
+	const models = `{"oc":{"kind":"opencode","model":""}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, role, typ, kind string
@@ -864,24 +843,24 @@ func TestStartFirstPrompt(t *testing.T) {
 	}{
 		// bash-free cases: the table is the spec
 		{"claude, wake", "reviewer", "opus", "claude", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- --model opus" + settings + " " + wake},
+			"-- --permission-mode auto --model opus" + settings + " " + wake},
 		{"claude, no wake", "reviewer", "opus", "claude", launch.Request{Fresh: true}, false,
-			"-- --model opus" + settings},
+			"-- --permission-mode auto --model opus" + settings},
 		{"claude, resume carries no wake", "reviewer", "opus", "claude", launch.Request{Prompt: wake}, true,
-			"-- --model opus" + settings + " --resume sid-1"},
+			"-- --permission-mode auto --model opus" + settings + " --resume sid-1"},
 		{"codex, wake", "reviewer", "luna", "codex", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- -m gpt-6-luna " + codexUpdate + " " + codexMCP + " " + wake},
+			"-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP + " " + wake},
 		{"codex, no wake: still registered", "reviewer", "luna", "codex", launch.Request{Fresh: true}, false,
-			"-- -m gpt-6-luna " + codexUpdate + " " + codexMCP},
+			"-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP},
 		{"codex, resume carries no wake", "reviewer", "luna", "codex", launch.Request{Prompt: wake}, true,
-			"-- resume sid-1 -m gpt-6-luna " + codexUpdate + " " + codexMCP},
+			"-- resume sid-1 -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP},
 		{"opencode, wake after --prompt", "reviewer", "oc", "opencode", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- --auto --prompt " + wake},
-		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- --auto"},
+			"-- --auto --standalone --prompt " + wake},
+		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- --auto --standalone"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", types), testkit.Set("roles", `{"reviewer":{"type":"`+c.typ+`"}}`))
+			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", "pj-rev", c.kind, "idle")
 			a.Session = "sid-1"
 			c.req.Agent = "pj-rev"
@@ -915,9 +894,9 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
 			x.poll = bound // let herdr's immediate timeout win before started() polls the new agent
-			x.shell("w1:p3", "pj-o-01", "")
+			x.shell("w1:p3", "pj-l-01", "")
 			x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnStart = c.status })
-			out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: c.prompt})
+			out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: c.prompt})
 			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
 			contains(t, out, "(timeout)", "precondition: herdr gave up")
 			if ok != c.ok {
@@ -928,10 +907,10 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 				eqInt(t, len(x.calls("agent.rename")), 0, "not named")
 				return
 			}
-			eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "result")
-			contains(t, out, "pj-o-01 runs in w1:p3 (working on its first prompt): started", "said")
-			eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=pj-o-01 target=w1:p3", "named")
-			eq(t, x.f.Pane("w1:p3").Name, "pj-o-01", "herdr knows the name")
+			eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+			contains(t, out, "pj-l-01 runs in w1:p3 (working on its first prompt): started", "said")
+			eq(t, strings.Join(x.calls("agent.rename"), "\n"), "agent.rename name=pj-l-01 target=w1:p3", "named")
+			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
 		})
 	}
 }
@@ -941,7 +920,7 @@ func TestStartBusyOnFirstPrompt(t *testing.T) {
 func TestRestartResolvesFromOnePaneList(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	pane := x.shell("w1:p3", "pj-o-01", "")
+	pane := x.shell("w1:p3", "pj-l-01", "")
 	lists := 0
 	x.srv.Before(func(r herdrtest.Request) {
 		if r.Method != "pane.list" {
@@ -951,7 +930,7 @@ func TestRestartResolvesFromOnePaneList(t *testing.T) {
 			x.f.Locked(func() { pane.Label = "" })
 		}
 	})
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	eqInt(t, len(x.calls("agent.start")), 1, "precondition: the restart got as far as the start")
 	lacks(t, out, "no pane labelled", "found in the first list")
 	if !ok {
@@ -965,8 +944,8 @@ func TestStartAgentNeverUp(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
 	x.wait = 200 * time.Millisecond
-	x.shell("w1:p3", "pj-o-01", "").OnStart = "never"
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true, Prompt: strings.Repeat("a long brief ", 130)})
+	x.shell("w1:p3", "pj-l-01", "").OnStart = "never"
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: strings.Repeat("a long brief ", 130)})
 	eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start, sent once")
 	lacks(t, out, "(timeout)", "precondition: herdr answered the start with success")
 	if ok || strings.Contains(out, "RESTARTED") {
@@ -974,7 +953,7 @@ func TestStartAgentNeverUp(t *testing.T) {
 	}
 	contains(t, out, "no claude agent came up in w1:p3 within 200ms", "why")
 	eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: "+
-		"run obor restart pj-o-01 --pane w1:p3 again or start it by hand)", "result")
+		"run obor restart pj-l-01 --pane w1:p3 again or start it by hand)", "result")
 	eqInt(t, len(x.calls("agent.rename")), 0, "nothing named")
 }
 
@@ -985,8 +964,8 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 	t.Run("the shell back: the start after the mark", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
@@ -1001,8 +980,8 @@ func TestRestartWaitsForTheEnvLine(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = 200 * time.Millisecond
-		x.shell("w1:p3", "pj-o-01", "").OnRun = "hang"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		x.shell("w1:p3", "pj-l-01", "").OnRun = "hang"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		eqInt(t, len(x.calls("pane.send_input pane_id=w1:p3")), 1, "precondition: the env line typed")
 		if ok {
 			t.Fatalf("restarted while the shell still ran the env line:\n%s", out)
@@ -1019,9 +998,9 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 	t.Run("cd fails: the failure mark, no start, FAIL", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		pane := x.shell("w1:p3", "pj-o-01", "")
+		pane := x.shell("w1:p3", "pj-l-01", "")
 		pane.OnRun = "fail"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if ok {
 			t.Fatalf("restarted after a failed env line:\n%s", out)
 		}
@@ -1038,8 +1017,8 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 	t.Run("the line runs: the success mark, the agent starts", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		pane := x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		pane := x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		if !ok {
 			t.Fatalf("restart failed:\n%s", out)
 		}
@@ -1050,7 +1029,7 @@ func TestRestartFailsWhenTheEnvLineFailed(t *testing.T) {
 		okWord, badWord := envWords(t, runs[0])
 		contains(t, pane.Screen, okWord, "the screen: the success mark")
 		lacks(t, pane.Screen, badWord, "the screen: the failure mark")
-		if s := x.startCall(); !strings.Contains(s, "name=pj-o-01 pane_id=w1:p3") {
+		if s := x.startCall(); !strings.Contains(s, "name=pj-l-01 pane_id=w1:p3") {
 			t.Errorf("the agent started after the env line succeeded, got %q", s)
 		}
 	})
@@ -1079,11 +1058,11 @@ func TestStartEndsWithTheAgentUp(t *testing.T) {
 		line     string // the result (a RESTARTED line, or the FAIL's start)
 	}{
 		{"named at once: RESTARTED without herdr's answer", "", false, 0,
-			"RESTARTED pj-o-01 (pane w1:p3, session new)"},
+			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
 		{"unnamed: named by the launch, RESTARTED without herdr's answer", "unnamed", false, 1,
-			"RESTARTED pj-o-01 (pane w1:p3, session new)"},
+			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
 		{"never named: the rename refused, RESTARTED with a warning", "unnamed", true, 1,
-			"RESTARTED pj-o-01 (pane w1:p3, session new)"},
+			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1091,7 +1070,7 @@ func TestStartEndsWithTheAgentUp(t *testing.T) {
 			release, ended := make(chan struct{}), make(chan struct{})
 			defer close(release) // herdr's answer comes after the test's checks
 			x.pendingStart(release, ended)
-			x.shell("w1:p3", "pj-o-01", "").OnStart = c.onStart
+			x.shell("w1:p3", "pj-l-01", "").OnStart = c.onStart
 			if c.noRename {
 				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
 			}
@@ -1101,7 +1080,7 @@ func TestStartEndsWithTheAgentUp(t *testing.T) {
 				err  error
 			}, 1)
 			go func() {
-				line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-o-01", Fresh: true})
+				line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
 				done <- struct {
 					line string
 					err  error
@@ -1128,11 +1107,11 @@ func TestStartEndsWithTheAgentUp(t *testing.T) {
 			lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
 			eqInt(t, len(x.calls("agent.rename target=w1:p3")), c.renames, "renames")
 			if c.noRename {
-				contains(t, out.String(), "warning: pj-o-01 started in w1:p3, but herdr has no agent of that name there", "warned")
+				contains(t, out.String(), "warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there", "warned")
 				eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name")
 				return
 			}
-			eq(t, x.f.Pane("w1:p3").Name, "pj-o-01", "herdr knows the name")
+			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
 		})
 	}
 }
@@ -1148,7 +1127,7 @@ func TestStartNotTakenForAnOldAgent(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-o-01", Kind: "claude", Pane: "w1:p3"})
+		done <- x.launcher(&out).Start(context.Background(), launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3"})
 	}()
 	select {
 	case err := <-done:
@@ -1164,7 +1143,7 @@ func TestStartNotTakenForAnOldAgent(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the start did not end with herdr's answer")
 	}
-	eq(t, x.f.Pane("w1:p3").Name, "", "the old agent is not named pj-o-01")
+	eq(t, x.f.Pane("w1:p3").Name, "", "the old agent is not named pj-l-01")
 }
 
 // pendingStart holds herdr's agent start answer until release: herdr acts (its state shows the start), the call has
@@ -1229,12 +1208,12 @@ func TestStartRenamesOnlyItsAgent(t *testing.T) {
 			rel, entered := x.srv.Hold("agent.start")
 			var pending atomic.Bool
 			x.holdsAgent(&pending)
-			pane := x.shell("w1:p3", "pj-o-01", "")
+			pane := x.shell("w1:p3", "pj-l-01", "")
 			pane.OnStart, pane.Session = "unnamed", "started"
 			done := make(chan error, 1)
 			go func() {
 				done <- x.launcher(&bytes.Buffer{}).Start(context.Background(),
-					launch.Start{Agent: "pj-o-01", Kind: "claude", Pane: "w1:p3", Label: "pj-o-01", Prompt: "wake"})
+					launch.Start{Agent: "pj-l-01", Kind: "claude", Pane: "w1:p3", Label: "pj-l-01", Prompt: "wake"})
 			}()
 			select {
 			case <-entered:
@@ -1258,7 +1237,7 @@ func TestStartRenamesOnlyItsAgent(t *testing.T) {
 				if err != nil {
 					t.Fatalf("the start: %v", err)
 				}
-				eq(t, pane.Name, "pj-o-01", "the started agent named")
+				eq(t, pane.Name, "pj-l-01", "the started agent named")
 				eqInt(t, len(x.calls("agent.rename target=w1:p3")), 1, "renames")
 				return
 			}
@@ -1280,33 +1259,33 @@ func TestStartNamesTheAgent(t *testing.T) {
 		noRename bool
 		want     string
 	}{
-		{"unnamed after the start: renamed, RESTARTED", false, "RESTARTED pj-o-01 (pane w1:p3, session new)"},
+		{"unnamed after the start: renamed, RESTARTED", false, "RESTARTED pj-l-01 (pane w1:p3, session new)"},
 		{"unnamed and the rename refused: RESTARTED, warned with the reason", true,
-			"warning: pj-o-01 started in w1:p3, but herdr has no agent of that name there (herdr agent rename w1:p3 pj-o-01: " +
+			"warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there (herdr agent rename w1:p3 pj-l-01: " +
 				"herdr agent.rename: not found: no agent named (agent_not_found))"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
-			x.shell("w1:p3", "pj-o-01", "").OnStart = "unnamed"
+			x.shell("w1:p3", "pj-l-01", "").OnStart = "unnamed"
 			if c.noRename {
 				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
 			}
-			out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+			out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 			eqInt(t, len(x.calls("agent.start")), 1, "precondition: one start")
 			lacks(t, out, "(timeout)", "precondition: herdr answered the start")
 			if !ok {
 				t.Fatalf("not started: %s", out)
 			}
 			if c.noRename {
-				eqInt(t, len(x.calls("agent.rename name=pj-o-01 target=w1:p3")), 1, "precondition: the rename was tried")
+				eqInt(t, len(x.calls("agent.rename name=pj-l-01 target=w1:p3")), 1, "precondition: the rename was tried")
 				contains(t, out, c.want, "warned")
-				eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "result: the start stands")
+				eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result: the start stands")
 				return
 			}
 			eq(t, last(out), c.want, "result")
-			contains(t, out, "named the agent in w1:p3 pj-o-01 (herdr had no name for it)", "said")
-			eq(t, x.f.Pane("w1:p3").Name, "pj-o-01", "herdr knows the name")
+			contains(t, out, "named the agent in w1:p3 pj-l-01 (herdr had no name for it)", "said")
+			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
 		})
 	}
 }
@@ -1320,13 +1299,13 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 	t.Run("idle: /exit, wait for the shell, then start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.agent("w1:p3", "pj-o-01", "claude", "idle")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.sid("pj-l-01", "sid-1")
+		x.agent("w1:p3", "pj-l-01", "claude", "idle")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if e, s := x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit"), x.index("agent.start"); e < 0 || e > s {
 			t.Errorf("/exit before the start: %q", x.srv.Calls())
 		}
@@ -1336,10 +1315,10 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		x.sid("pj-o-01", "sid-1")
-		x.agent("w1:p3", "pj-o-01", "claude", "done").OnQuit = "stay"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
+		x.sid("pj-l-01", "sid-1")
+		x.agent("w1:p3", "pj-l-01", "claude", "done").OnQuit = "stay"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
 		}
@@ -1347,15 +1326,15 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 	t.Run("working: FAIL; --force: Escape, then /exit, start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.agent("w1:p3", "pj-o-01", "claude", "working")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, failLine(out), "FAIL pj-o-01 is working (--force to restart anyway)", "result")
+		x.sid("pj-l-01", "sid-1")
+		x.agent("w1:p3", "pj-l-01", "claude", "working")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, failLine(out), "FAIL pj-l-01 is working (--force to restart anyway)", "result")
 		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 || x.startCall() != "" {
 			t.Errorf("nothing typed or started: %q", x.srv.Calls())
 		}
-		out, ok = x.restart(launch.Request{Agent: "pj-o-01", Force: true})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "--force restarts")
+		out, ok = x.restart(launch.Request{Agent: "pj-l-01", Force: true})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "--force restarts")
 		esc, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
 		if !(ok && esc >= 0 && esc < exit) {
 			t.Errorf("--force: Escape, then /exit: %q", x.srv.Calls())
@@ -1369,7 +1348,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
-		eq(t, x.startCall(), "agent.start args=[resume cx-9 -m gpt-6-luna "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
+		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never -m gpt-6-luna "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
 		contains(t, out, "resuming cx-9 (from herdr)", "source")
 		_ = ok
 	})
@@ -1378,39 +1357,39 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 	t.Run("a shell in the agent's group, no exit dialog: no pre-check, restarts", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		a := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+		x.sid("pj-l-01", "sid-1")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		a.Procs = append(a.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}, herdr.Process{PID: 301, Argv0: "node"})
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-o-01 ") || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") || len(x.calls("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")) != 1 {
 			t.Errorf("/exit, then restarted:\n%s\n%q", out, x.srv.Calls())
 		}
 	})
 	t.Run("exit dialog: Escape + FAIL; --force: Exit and stop tasks", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		a := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+		x.sid("pj-l-01", "sid-1")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		a.OnQuit = "dialog"
 		if len(a.Procs) != 1 {
 			t.Fatal("precondition: no background task seen")
 		}
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_keys keys=[esc] pane_id=w1:p3", "Escape closes the dialog")
 		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 0, "no Enter into the exit dialog")
 		eqInt(t, len(x.calls("pane.send_keys keys=[1] pane_id=w1:p3")), 0, "no option chosen")
-		eq(t, failLine(out), "FAIL pj-o-01 has background tasks (finish them, or --force to stop them)", "result")
+		eq(t, failLine(out), "FAIL pj-l-01 has background tasks (finish them, or --force to stop them)", "result")
 		if ok || x.startCall() != "" || x.f.Panes[0].Screen != "" {
 			t.Error("nothing started; dialog closed")
 		}
 		n := len(x.srv.Calls())
-		out, ok = x.restart(launch.Request{Agent: "pj-o-01", Force: true})
+		out, ok = x.restart(launch.Request{Agent: "pj-l-01", Force: true})
 		calls := strings.Join(x.srv.Calls()[n:], "\n")
 		eqInt(t, strings.Count(calls, "pane.send_keys keys=[1] pane_id=w1:p3"), 1, "chose 1. Exit and stop tasks, once")
 		lacks(t, calls, "pane.send_keys keys=[esc] pane_id=w1:p3", "no Escape")
 		contains(t, out, "exit dialog: chose 1. Exit and stop tasks (--force)", "said")
-		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-o-01 ") {
+		if !ok || !strings.HasPrefix(last(out), "RESTARTED pj-l-01 ") {
 			t.Errorf("--force restarts:\n%s", out)
 		}
 	})
@@ -1431,9 +1410,9 @@ func TestRestartReleasesTheName(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		x.sid("pj-o-01", "sid-1")
-		x.agent("w1:p3", "pj-o-01", "claude", "idle").Foreground = 1 // exited; herdr not done with it yet
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.sid("pj-l-01", "sid-1")
+		x.agent("w1:p3", "pj-l-01", "claude", "idle").Foreground = 1 // exited; herdr not done with it yet
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		clr, start := x.index("agent.rename name=null target=w1:p3"), x.index("agent.start")
 		if !ok || clr < 0 || clr > start {
 			t.Errorf("cleared before agent start:\n%s\n%q", out, x.srv.Calls())
@@ -1443,15 +1422,15 @@ func TestRestartReleasesTheName(t *testing.T) {
 	t.Run("start fails twice: retried once, herdr's error, FAIL", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.shell("w1:p3", "pj-o-01", "")
-		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-o-01 taken"}
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		taken := herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"}
 		x.srv.Once("agent.start", taken, taken)
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Pane: "w1:p3"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Pane: "w1:p3"})
 		lacks(t, strings.Join(x.calls("agent.rename"), "\n"), "w1:p3 --clear", "unnamed pane: no clear by pane")
 		eqInt(t, len(x.calls("agent.start")), 2, "agent_name_taken: retried once")
 		contains(t, out, "agent_name_taken", "herdr's error printed")
-		eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart pj-o-01 --pane w1:p3 again or start it by hand)", "result")
+		eq(t, failLine(out), "FAIL start failed in w1:p3 (no agent runs there: the pane is at its shell, maybe mid-command: run obor restart pj-l-01 --pane w1:p3 again or start it by hand)", "result")
 		if ok {
 			t.Error("failed")
 		}
@@ -1459,27 +1438,27 @@ func TestRestartReleasesTheName(t *testing.T) {
 	t.Run("start agent_name_taken once: name cleared, retried, RESTARTED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.shell("w1:p3", "pj-o-01", "")
-		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-o-01 taken"})
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		contains(t, out, "agent start: name pj-o-01 taken: clearing it and retrying", "said")
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_name_taken", Message: "name pj-l-01 taken"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		contains(t, out, "agent start: name pj-l-01 taken: clearing it and retrying", "said")
 		eqInt(t, len(x.calls("agent.start")), 2, "retried once")
-		if clr, start := x.index("agent.rename name=null target=pj-o-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
+		if clr, start := x.index("agent.rename name=null target=pj-l-01"), len(x.srv.Calls())-1; clr < 0 || clr > start {
 			t.Errorf("cleared before the retry: %q", x.srv.Calls())
 		}
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		_ = ok
 	})
 	t.Run("start blocked at a startup dialog (agent_not_ready): FAIL that says so, not retried", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-o-01", "")
+		x.shell("w1:p3", "pj-l-01", "")
 		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_not_ready", Message: "blocked during startup"})
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		contains(t, out, "agent_not_ready", "herdr's error printed")
 		eqInt(t, len(x.calls("agent.start")), 1, "not retried")
-		eq(t, failLine(out), "FAIL start failed in w1:p3 (pj-o-01 waits at a startup dialog in pane w1:p3: answer it there)", "result")
+		eq(t, failLine(out), "FAIL start failed in w1:p3 (pj-l-01 waits at a startup dialog in pane w1:p3: answer it there)", "result")
 		if ok {
 			t.Error("a failure")
 		}
@@ -1517,22 +1496,22 @@ func TestRestartCuts(t *testing.T) {
 	}{{
 		name: "--pane elsewhere while the old pane's exited agent holds the name",
 		prep: func(x *fx) {
-			x.sid("pj-o-01", "sid-1")
-			a := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+			x.sid("pj-l-01", "sid-1")
+			a := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 			a.Label, a.Foreground, a.Session = "", 1, "sid-old"
 			x.shell("w1:p8", "", "").Session = "sid-target"
 		},
-		req:  launch.Request{Agent: "pj-o-01", Pane: "w1:p8"},
-		line: "FAIL pane w1:p3 holds the name pj-o-01: restart it there (obor restart pj-o-01)",
+		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p8"},
+		line: "FAIL pane w1:p3 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
 	}, {
 		name: "--pane elsewhere while the old pane runs the live agent (--force)",
 		prep: func(x *fx) {
-			x.sid("pj-o-01", "sid-1")
-			x.agent("w1:p3", "pj-o-01", "claude", "idle").Label = ""
+			x.sid("pj-l-01", "sid-1")
+			x.agent("w1:p3", "pj-l-01", "claude", "idle").Label = ""
 			x.agent("w1:p8", "", "claude", "idle").Label = ""
 		},
-		req:  launch.Request{Agent: "pj-o-01", Pane: "w1:p8", Force: true},
-		line: "FAIL pane w1:p3 holds the name pj-o-01: restart it there (obor restart pj-o-01)",
+		req:  launch.Request{Agent: "pj-l-01", Pane: "w1:p8", Force: true},
+		line: "FAIL pane w1:p3 holds the name pj-l-01: restart it there (obor restart pj-l-01)",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1606,51 +1585,51 @@ func TestRestartSuspended(t *testing.T) {
 	stat("T", syscall.SIGSTOP)
 	x := setup(t)
 	atSh(x)
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	if ok {
 		t.Fatal("restarted next to a suspended agent:\n" + out)
 	}
-	eq(t, last(out), "FAIL pj-o-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "restart --fresh")
+	eq(t, last(out), "FAIL pj-l-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "restart --fresh")
 	contains(t, out, fmt.Sprintf("(pid %d) is stopped", sleep), "the stopped child named")
 	nothing(x)
-	x.sid("pj-o-01", "sid-1")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
-	eq(t, last(out), "FAIL pj-o-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "restart, same session")
-	out, _ = x.stop("pj-o-01", "", false)
-	eq(t, last(out), "FAIL pj-o-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "stop")
+	x.sid("pj-l-01", "sid-1")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
+	eq(t, last(out), "FAIL pj-l-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "restart, same session")
+	out, _ = x.stop("pj-l-01", "", false)
+	eq(t, last(out), "FAIL pj-l-01 is suspended in pane w1:p3 (Ctrl+Z): fg it and /exit, or close the pane", "stop")
 	nothing(x)
 
 	// The same child running (not stopped) at the shell: starts, as before.
 	stat("SRI", syscall.SIGCONT)
 	x = setup(t)
 	atSh(x)
-	x.shell("w1:p3", "pj-o-01", "")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "a running child: starts")
+	x.shell("w1:p3", "pj-l-01", "")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a running child: starts")
 
 	// No child the shell stopped (the fake herdr's shell, pid 1, with the real ps): starts.
 	x = setup(t)
 	x.ps = nil
-	x.shell("w1:p3", "pj-o-01", "")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "no stopped child: starts")
+	x.shell("w1:p3", "pj-l-01", "")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "no stopped child: starts")
 
 	// ps cannot say (denied, as in a sandbox): a warning, and it starts.
 	x = setup(t)
 	x.ps = func(...string) ([]byte, error) { return nil, errors.New("operation not permitted") }
-	x.shell("w1:p3", "pj-o-01", "")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+	x.shell("w1:p3", "pj-l-01", "")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 	contains(t, out, "warning: cannot check pane w1:p3 for a suspended agent (ps: operation not permitted)", "warned")
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "ps denied: starts")
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "ps denied: starts")
 
 	// An agent in the foreground: ps is not asked.
 	x = setup(t)
 	asked := 0
 	x.ps = func(...string) ([]byte, error) { asked++; return []byte("1 T 9 claude\n"), nil }
-	x.agent("w1:p3", "pj-o-01", "claude", "idle")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "agent running: restarted")
+	x.agent("w1:p3", "pj-l-01", "claude", "idle")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "agent running: restarted")
 	eqInt(t, asked, 0, "ps asked only at a shell")
 }
 
@@ -1658,23 +1637,23 @@ func TestRestartSuspended(t *testing.T) {
 func TestRestartRecordedSession(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.record("pj-o-01", "sid-x")
+	x.record("pj-l-01", "sid-x")
 	x.transcript("/Users/someone/other-project", "sid-x")
-	x.shell("w1:p3", "pj-o-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+	x.shell("w1:p3", "pj-l-01", "")
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "another project's sid")
 	if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
 		t.Error("nothing typed or started")
 	}
 	x.transcript(x.lane, "sid-x")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 	contains(t, out, "resuming sid-x (from record)", "source printed")
-	eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-x)", "transcript under the lane → resumes")
+	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "transcript under the lane → resumes")
 
 	x.reset()
-	x.shell("w1:p3", "pj-o-01", "")
-	x.record("pj-o-01", "sid-stale")
-	out, _ = x.restart(launch.Request{Agent: "pj-o-01", Sid: "sid-y"})
+	x.shell("w1:p3", "pj-l-01", "")
+	x.record("pj-l-01", "sid-stale")
+	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Sid: "sid-y"})
 	contains(t, out, "resuming sid-y (from --sid)", "source printed")
 	contains(t, x.calls("agent.start")[1], "--resume sid-y", "--sid wins over the stale record")
 
@@ -1712,23 +1691,23 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restart: transcript in the pane's cwd: resumed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "resumed")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "resumed")
 		contains(t, x.startCall(), "--resume sid-1", "the transcript's session")
 		lacks(t, out, "starting fresh", "no fresh start")
 	})
 	t.Run("restart: transcript under another cwd: refused", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-o-01", "sid-x")
+		x.record("pj-l-01", "sid-x")
 		x.transcript("/Users/someone/other-project", "sid-x")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal(out)
 		}
@@ -1742,13 +1721,13 @@ func TestSessionResumeRule(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.claude = filepath.Join(x.p.Base, "cl[aude")
-		x.record("pj-o-01", "sid-x")
+		x.record("pj-l-01", "sid-x")
 		x.transcript("/Users/someone/other-project", "sid-x")
 		if _, err := os.Stat(filepath.Join(x.claude, "projects")); err != nil {
 			t.Fatalf("precondition: the transcript exists under the bracketed dir: %v", err)
 		}
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal(out)
 		}
@@ -1761,7 +1740,7 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restart: unreadable projects dir: refused, never fresh", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-o-01", "sid-x")
+		x.record("pj-l-01", "sid-x")
 		x.transcript("/Users/someone/other-project", "sid-x")
 		projects := filepath.Join(x.claude, "projects")
 		if err := os.Chmod(projects, 0); err != nil {
@@ -1771,8 +1750,8 @@ func TestSessionResumeRule(t *testing.T) {
 		if _, err := os.ReadDir(projects); err == nil {
 			t.Skip("the projects dir is readable despite mode 0 (root)")
 		}
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal(out)
 		}
@@ -1785,20 +1764,20 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restart: transcript nowhere (never prompted): fresh, said", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-o-01", "sid-x")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.record("pj-l-01", "sid-x")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
 		contains(t, out, "recorded session sid-x has no transcript (never prompted): starting fresh", "said")
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session new)", "a new session")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
 		lacks(t, x.startCall(), "--resume", "no resume")
 	})
 	t.Run("restore: a role with no recorded session: fresh, said", func(t *testing.T) {
 		t.Parallel()
 		f := newRfx(t)
-		f.p.Config(testkit.Set("roles", `{"reviewer": {"type": "opus"}}`))
+		f.p.Config(testkit.Set("roles", `{"reviewer": "opus"}`))
 		rev := f.p.Lane("review", "review")
 		f.shell("w1:p7", rev, "pj-rev")
 		f.pl.Restore(context.Background())
@@ -1809,16 +1788,16 @@ func TestSessionResumeRule(t *testing.T) {
 	t.Run("restore: a worker of a busy lane with no recorded session: fresh, as before", func(t *testing.T) {
 		t.Parallel()
 		f := newRfx(t)
-		lane := f.p.Lane("O-01", "task/T-01")
+		lane := f.p.Lane("L-01", "task/T-01")
 		f.p.Commit(lane)
 		f.p.Config()
-		f.shell("w1:p1", lane, "pj-o-01")
+		f.shell("w1:p1", lane, "pj-l-01")
 		f.pl.Restore(context.Background())
-		f.wantCalls(f.p.Root + " restart pj-o-01 --pane w1:p1 --fresh")
+		f.wantCalls(f.p.Root + " restart pj-l-01 --pane w1:p1 --fresh")
 		log := f.restoreLog()
-		has(t, log, " restore pj-o-01 (pane w1:p1) in "+f.p.Root+" (worker, no recorded session: --fresh)",
+		has(t, log, " restore pj-l-01 (pane w1:p1) in "+f.p.Root+" (worker, no recorded session: --fresh)",
 			"the fresh start is logged")
-		lacks(t, log, "skip pj-o-01", "the busy lane's worker is not skipped")
+		lacks(t, log, "skip pj-l-01", "the busy lane's worker is not skipped")
 	})
 }
 
@@ -1830,20 +1809,20 @@ func TestStop(t *testing.T) {
 	t.Run("idle: /exit, STOPPED, no start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.agent("w1:p3", "pj-o-01", "claude", "idle")
-		out, ok := x.stop("pj-o-01", "", false)
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		x.agent("w1:p3", "pj-l-01", "claude", "idle")
+		out, ok := x.stop("pj-l-01", "", false)
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "only /exit typed")
-		if !ok || x.startCall() != "" || x.f.Panes[0].Label != "pj-o-01" || x.f.Panes[0].Kind != "" {
+		if !ok || x.startCall() != "" || x.f.Panes[0].Label != "pj-l-01" || x.f.Panes[0].Kind != "" {
 			t.Errorf("stopped, labelled, not started: %+v %q", x.f.Panes[0], x.srv.Calls())
 		}
 	})
 	t.Run("at a shell already", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.stop("pj-o-01", "", false)
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3, already at a shell)", "result")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.stop("pj-l-01", "", false)
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3, already at a shell)", "result")
 		if !ok || len(x.calls("pane.send_input")) > 0 {
 			t.Error("nothing typed")
 		}
@@ -1851,9 +1830,9 @@ func TestStop(t *testing.T) {
 	t.Run("working, no force: FAIL, nothing typed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.agent("w1:p3", "pj-o-01", "claude", "working")
-		out, ok := x.stop("pj-o-01", "", false)
-		eq(t, failLine(out), "FAIL pj-o-01 is working (left running; --force stops it)", "result")
+		x.agent("w1:p3", "pj-l-01", "claude", "working")
+		out, ok := x.stop("pj-l-01", "", false)
+		eq(t, failLine(out), "FAIL pj-l-01 is working (left running; --force stops it)", "result")
 		if ok || len(x.calls("pane.send_input")) > 0 || len(x.calls("pane.send_keys")) > 0 {
 			t.Error("nothing typed")
 		}
@@ -1861,10 +1840,10 @@ func TestStop(t *testing.T) {
 	t.Run("working, --force: Escape, idle, input cleared, /exit (one step)", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		a := x.agent("w1:p3", "pj-o-01", "claude", "working")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		a.Procs = append(a.Procs, herdr.Process{PID: 300, Argv0: "/bin/zsh"}) // a background task: --force stops it too
-		out, ok := x.stop("pj-o-01", "", true)
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		out, ok := x.stop("pj-l-01", "", true)
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		esc, clr, exit := x.index("pane.send_keys keys=[esc] pane_id=w1:p3"), x.index("pane.send_keys keys=[ctrl+c] pane_id=w1:p3"), x.index("pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit")
 		if !ok || esc < 0 || esc > clr || clr > exit {
 			t.Errorf("Escape, then ctrl+c (the restored prompt cleared), then /exit: %q", x.srv.Calls())
@@ -1875,21 +1854,21 @@ func TestStop(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		a := x.agent("w1:p3", "pj-o-01", "claude", "blocked")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "blocked")
 		a.OnEsc = "ignore"
-		out, ok := x.stop("pj-o-01", "", true)
-		contains(t, out, "warning: pj-o-01 still blocked 60ms after Escape: exiting anyway", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		out, ok := x.stop("pj-l-01", "", true)
+		contains(t, out, "warning: pj-l-01 still blocked 60ms after Escape: exiting anyway", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		_ = ok
 	})
 	t.Run("--force, never exits, no agent process seen: FAIL, no signal", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		a := x.agent("w1:p3", "pj-o-01", "claude", "working")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
 		a.OnQuit, a.Procs = "stay", []herdr.Process{} // herdr lists nothing in the group: no exit, no leader
-		out, ok := x.stop("pj-o-01", "", true)
-		eq(t, failLine(out), `FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "", not claude)`, "result")
+		out, ok := x.stop("pj-l-01", "", true)
+		eq(t, failLine(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "", not claude)`, "result")
 		eqInt(t, len(x.kills), 0, "no signal")
 		if ok {
 			t.Error("failed")
@@ -1905,7 +1884,7 @@ func TestStopForceTerminates(t *testing.T) {
 	// ignoring: an idle Claude leading group 2 with uvx, that ignores /exit; a signal in dies (pid 2 gone, unlisted)
 	// takes the leader, and with leftovers the uvx stays until the next signal.
 	ignoring := func(x *fx, dies syscall.Signal, leftovers bool) *herdrtest.Pane {
-		p := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+		p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 		p.OnQuit = "stay"
 		p.Procs = []herdr.Process{{PID: 2, Argv0: "/Users/u/.local/bin/claude"}, {PID: 300, Argv0: "uvx"}}
 		x.onKill = func(_ int, sig syscall.Signal) {
@@ -1926,12 +1905,12 @@ func TestStopForceTerminates(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		ignoring(x, syscall.SIGTERM, false)
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		contains(t, out, "in the group: 2 claude", "evidence")
 		eqInt(t, len(x.kills), 0, "no signal")
 	})
@@ -1940,53 +1919,53 @@ func TestStopForceTerminates(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		ignoring(x, syscall.SIGTERM, false)
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2 only")
-		contains(t, out, "terminated pj-o-01 (claude pid 2, SIGTERM): it did not exit in 60ms\n", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (claude pid 2, SIGTERM): it did not exit in 60ms\n", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("--force, SIGTERM ignored: SIGKILL, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
 		ignoring(x, syscall.SIGKILL, false)
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 killed", "TERM, then KILL once")
-		contains(t, out, "terminated pj-o-01 (claude pid 2, SIGKILL): it did not exit in 60ms\n", "said")
+		contains(t, out, "terminated pj-l-01 (claude pid 2, SIGKILL): it did not exit in 60ms\n", "said")
 	})
 	t.Run("--force, restart: SIGTERM, leftovers stopped, then the start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		x.sid("pj-o-01", "sid-1")
+		x.sid("pj-l-01", "sid-1")
 		ignoring(x, syscall.SIGTERM, true)
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Force: true})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Force: true})
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 terminated", "TERM to the agent, then TERM to its leftovers")
-		contains(t, out, "terminated pj-o-01 (claude pid 2, SIGTERM)", "agent terminated")
-		contains(t, out, "stopped 1 leftover process(es) of pj-o-01 (uvx)", "leftover line")
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+		contains(t, out, "terminated pj-l-01 (claude pid 2, SIGTERM)", "agent terminated")
+		contains(t, out, "stopped 1 leftover process(es) of pj-l-01 (uvx)", "leftover line")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 	})
 	t.Run("--force, TERM and KILL ignored: FAIL with evidence, no start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.wait = shortWait
-		x.sid("pj-o-01", "sid-1")
+		x.sid("pj-l-01", "sid-1")
 		ignoring(x, 0, false)
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01", Force: true})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Force: true})
 		if ok {
 			t.Fatal("must fail")
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 killed", "TERM, then KILL once")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms, nor on SIGTERM and SIGKILL (pane w1:p3)", "result")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms, nor on SIGTERM and SIGKILL (pane w1:p3)", "result")
 		contains(t, out, "agent status: idle\n", "evidence")
 		eq(t, x.startCall(), "", "no start")
 	})
@@ -2003,7 +1982,7 @@ func TestStopForceTerminates(t *testing.T) {
 			fail: `not terminated: the group's leader (pid 2) is "vim", not claude`},
 		// No longer listed is gone (T-312): the agent counts as exited, what is left is the leftovers' ladder's.
 		{name: "leader gone from the list: exited, its leftovers signalled", when: "wait", procs: []herdr.Process{{PID: 300, Argv0: "uvx"}},
-			kills: "2 terminated,2 killed", fail: "pj-o-01 exited, but its leftover process(es) (uvx) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)"},
+			kills: "2 terminated,2 killed", fail: "pj-l-01 exited, but its leftover process(es) (uvx) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)"},
 		{name: "shell changed: no signal", when: "wait", shell: 7,
 			fail: "not terminated: the pane's shell is pid 7, not 1"},
 		{name: "leader changed after TERM: no KILL", when: "term", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
@@ -2033,7 +2012,7 @@ func TestStopForceTerminates(t *testing.T) {
 			} else {
 				x.onKill = func(int, syscall.Signal) { change() }
 			}
-			out, ok := x.stop("pj-o-01", "", true)
+			out, ok := x.stop("pj-l-01", "", true)
 			if ok || !changed {
 				t.Fatalf("must fail after the change:\n%s", out)
 			}
@@ -2073,16 +2052,16 @@ func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...str
 func TestOneRestartLock(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.sid("pj-o-01", "sid-1")
-	x.agent("w1:p3", "pj-o-01", "claude", "idle")
+	x.sid("pj-l-01", "sid-1")
+	x.agent("w1:p3", "pj-l-01", "claude", "idle")
 	var seen []string
-	lane, agent := launch.RestartLock(x.p.Root, "O-01", ""), launch.RestartLock(x.p.Root, "", "pj-int")
+	lane, agent := launch.RestartLock(x.p.Root, "L-01", ""), launch.RestartLock(x.p.Root, "", "pj-int")
 	x.wrap = func(h port.PaneControl) port.PaneControl { return lockSpy{h, []*project.Lock{lane, agent}, &seen} }
-	out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 	if !ok {
 		t.Fatal(out)
 	}
-	eq(t, strings.Join(seen, " "), "run:restart-O-01.lock run:restart-O-01.lock start:restart-O-01.lock",
+	eq(t, strings.Join(seen, " "), "run:restart-L-01.lock run:restart-L-01.lock start:restart-L-01.lock",
 		"the lane's restart lock held at the /exit, the env line and the start")
 	if lane.Held() {
 		t.Error("held after the restart")
@@ -2123,9 +2102,9 @@ func (b *lockedBuf) String() string {
 func TestConcurrentRestartWaits(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	x.sid("pj-o-01", "sid-1")
-	x.agent("w1:p3", "pj-o-01", "claude", "idle")
-	first := launch.RestartLock(x.p.Root, "O-01", "") // the restart already running (another obor process)
+	x.sid("pj-l-01", "sid-1")
+	x.agent("w1:p3", "pj-l-01", "claude", "idle")
+	first := launch.RestartLock(x.p.Root, "L-01", "") // the restart already running (another obor process)
 	if ok, err := first.Try(); !ok || err != nil {
 		t.Fatalf("precondition: the first restart holds the lock: %v, %v", ok, err)
 	}
@@ -2137,12 +2116,12 @@ func TestConcurrentRestartWaits(t *testing.T) {
 	l := x.launcher(&out)
 	done := make(chan res, 1)
 	go func() {
-		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-o-01"})
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01"})
 		done <- res{line, err}
 	}()
 	// Wait for the second restart's waiting line: it is what proves it reached the lock (under load, not within any
 	// fixed sample of the test).
-	said := "waiting for the restart of lane O-01 (pid " + strconv.Itoa(os.Getpid()) + ")\n"
+	said := "waiting for the restart of lane L-01 (pid " + strconv.Itoa(os.Getpid()) + ")\n"
 	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(out.String(), said); {
 		select {
 		case r := <-done:
@@ -2166,7 +2145,7 @@ func TestConcurrentRestartWaits(t *testing.T) {
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, out.String())
 	}
-	eq(t, r.line, "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+	eq(t, r.line, "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 	eqInt(t, len(x.calls("agent.start")), 1, "started once the first ended")
 }
 
@@ -2203,8 +2182,8 @@ func (f failCalls) ProcessInfo(ctx context.Context, pane string) (port.ProcessIn
 func TestGiveUpCarriesEvidence(t *testing.T) {
 	t.Parallel()
 	stuck := func(x *fx) {
-		x.sid("pj-o-01", "sid-1")
-		p := x.agent("w1:p3", "pj-o-01", "claude", "done")
+		x.sid("pj-l-01", "sid-1")
+		p := x.agent("w1:p3", "pj-l-01", "claude", "done")
 		p.OnQuit = "stay"
 		var lines []string
 		for i := 1; i <= 20; i++ {
@@ -2219,11 +2198,11 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		stuck(x)
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal("must fail")
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
 		tail := out
 		contains(t, tail, "\nagent status: done\n", "status labelled")
 		contains(t, tail, "\npane screen (last 15 non-empty lines):\n", "screen labelled")
@@ -2238,7 +2217,7 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		contains(t, string(log), " pj-o-01 pane w1:p3: pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)\nagent status: done\n", "log head")
+		contains(t, string(log), " pj-l-01 pane w1:p3: pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)\nagent status: done\n", "log head")
 		contains(t, string(log), "in the group: 301 /usr/bin/sleep 60", "log carries the processes")
 		eqInt(t, strings.Count(string(log), "did not exit"), 1, "one block per failure")
 	})
@@ -2247,12 +2226,12 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait
 		stuck(x)
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
 		}
 		contains(t, out, "agent status: done\n", "stop gives up the same way")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "the one-line result is last")
 		contains(t, out, "pane processes:", "processes")
 	})
 	t.Run("herdr cannot read the screen or the processes: FAIL still printed, the gaps said", func(t *testing.T) {
@@ -2263,11 +2242,11 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return failCalls{h, map[string]bool{"screen": true}, errors.New("herdr went away")}
 		}
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal("must fail")
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "FAIL line last")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "FAIL line last")
 		contains(t, out, "(screen unavailable: ", "screen gap")
 		contains(t, out, "herdr went away", "why")
 		contains(t, out, "foreground: claude", "processes still given")
@@ -2275,18 +2254,18 @@ func TestGiveUpCarriesEvidence(t *testing.T) {
 		x.wrap = func(h port.PaneControl) port.PaneControl {
 			return failCalls{h, map[string]bool{"process-info": true}, errors.New("herdr went away")}
 		}
-		out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
+		out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 		contains(t, out, "(process info unavailable: ", "process gap")
 		contains(t, out, "  draft in the box", "screen still given")
 	})
 	t.Run("start failure at a startup dialog carries it too", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-o-01", "")
+		x.shell("w1:p3", "pj-l-01", "")
 		x.srv.Once("agent.start", herdrtest.Failure{Code: "agent_not_ready", Message: "blocked during startup"})
-		out, _ := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
+		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
 		contains(t, out, "agent status:", "evidence")
-		eq(t, last(out), "FAIL start failed in w1:p3 (pj-o-01 waits at a startup dialog in pane w1:p3: answer it there)", "FAIL last")
+		eq(t, last(out), "FAIL start failed in w1:p3 (pj-l-01 waits at a startup dialog in pane w1:p3: answer it there)", "FAIL last")
 		contains(t, out, "pane screen (last 15 non-empty lines):", "screen")
 	})
 }
@@ -2340,9 +2319,9 @@ func TestStopLeftoverMCP(t *testing.T) {
 	t.Run("leader exits, shell gets the foreground: no kill", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.agent("w1:p3", "pj-o-01", "claude", "idle")
-		out, ok := x.stop("pj-o-01", "", false)
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		x.agent("w1:p3", "pj-l-01", "claude", "idle")
+		out, ok := x.stop("pj-l-01", "", false)
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
 		contains(t, out, "stopped claude in pane w1:p3", "said")
 		lacks(t, out, "leftover", "no leftovers")
@@ -2358,15 +2337,15 @@ func TestStopLeftoverMCP(t *testing.T) {
 				p.Foreground = 1
 			}
 		}
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to pgid 2 only")
-		contains(t, out, "stopped 2 leftover process(es) of pj-o-01 (uvx, python)\n", "leftover line")
+		contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)\n", "leftover line")
 		contains(t, out, "stopped claude in pane w1:p3", "stopped line")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("TERM ignored: KILL once, then the shell", func(t *testing.T) {
 		t.Parallel()
@@ -2377,23 +2356,23 @@ func TestStopLeftoverMCP(t *testing.T) {
 				p.Foreground = 1
 			}
 		}
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 killed", "TERM, then KILL once")
-		contains(t, out, "stopped 2 leftover process(es) of pj-o-01 (uvx, python)", "leftover line")
+		contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)", "leftover line")
 	})
 	t.Run("TERM and KILL ignored: FAIL with evidence", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		mcp(x)
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated,2 killed", "TERM, then KILL once")
-		eq(t, last(out), "FAIL pj-o-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)", "result")
+		eq(t, last(out), "FAIL pj-l-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)", "result")
 		contains(t, out, "agent status: idle\n", "evidence")
 		contains(t, out, "in the group: 300 uvx", "evidence: processes")
 		lacks(t, out, "stopped 2 leftover", "no success line")
@@ -2421,7 +2400,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 					p.Procs = []herdr.Process{}
 				}
 			}
-			out, ok := x.stop("pj-o-01", "", false)
+			out, ok := x.stop("pj-l-01", "", false)
 			if !ok {
 				t.Fatal(out)
 			}
@@ -2431,9 +2410,9 @@ func TestStopLeftoverMCP(t *testing.T) {
 			if c.after == 0 {
 				lacks(t, out, "leftover", "nothing stopped")
 			} else {
-				contains(t, out, "stopped 2 leftover process(es) of pj-o-01 (uvx, python)\n", "leftover line")
+				contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)\n", "leftover line")
 			}
-			eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		})
 	}
 	t.Run("restart: leftovers stopped, then the start", func(t *testing.T) {
@@ -2441,16 +2420,16 @@ func TestStopLeftoverMCP(t *testing.T) {
 		x := setup(t)
 		x.wait = shortWait // the exit wait is given up on (the leftovers keep the foreground)
 		x.up = bound       // the start's outcome, not a give-up: 60ms failed under the gate's load (T-721)
-		x.sid("pj-o-01", "sid-1")
+		x.sid("pj-l-01", "sid-1")
 		p := mcp(x)
 		x.onKill = func(int, syscall.Signal) { p.Foreground = 1 }
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to the group")
-		contains(t, out, "stopped 2 leftover process(es) of pj-o-01 (uvx, python)", "leftover line")
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+		contains(t, out, "stopped 2 leftover process(es) of pj-l-01 (uvx, python)", "leftover line")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 	})
 	t.Run("leader still alive after the wait: FAIL as today, no kill", func(t *testing.T) {
 		t.Parallel()
@@ -2458,12 +2437,12 @@ func TestStopLeftoverMCP(t *testing.T) {
 		x.wait = shortWait
 		mcp(x)
 		x.onExit = nil // the leader never exits: listed and alive throughout
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 	})
 	t.Run("pgid == ShellPID or ≤ 1: never killed", func(t *testing.T) {
@@ -2479,11 +2458,11 @@ func TestStopLeftoverMCP(t *testing.T) {
 				p.Shell, p.Foreground = 2, 9
 			}
 		})
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok || !quit.Load() {
 			t.Fatalf("must fail after /exit:\n%s", out)
 		}
-		eq(t, last(out), "FAIL pj-o-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the pane's shell is pid 2, not 1)", "result")
+		eq(t, last(out), "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the pane's shell is pid 2, not 1)", "result")
 		eqInt(t, len(x.kills), 0, "shell's group not killed")
 
 		// The foreground group is 1 (shell 5): not recorded, the wait is today's.
@@ -2494,11 +2473,11 @@ func TestStopLeftoverMCP(t *testing.T) {
 		q := &atomic.Bool{}
 		y.quitTyped(q)
 		y.procInfo(func(p *herdrtest.Pane) { p.Shell, p.Foreground = 5, 1 })
-		out, ok = y.stop("pj-o-01", "", false)
+		out, ok = y.stop("pj-l-01", "", false)
 		if ok || !q.Load() {
 			t.Fatalf("must fail after /exit:\n%s", out)
 		}
-		eq(t, last(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
+		eq(t, last(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		eqInt(t, len(y.kills), 0, "group 1 not killed")
 	})
 }
@@ -2506,7 +2485,7 @@ func TestStopLeftoverMCP(t *testing.T) {
 // leftoverMCP: an idle Claude in w1:p3 leading group 2 (listed, alive) that exits on /exit, its pid gone and no
 // longer listed, but leaves uvx and python in its group (T-217; one consistent process model, RV-24).
 func leftoverMCP(x *fx) *herdrtest.Pane {
-	p := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+	p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 	p.OnQuit = "stay"
 	p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "/usr/local/bin/uvx"}, {PID: 301, Name: "python"}}
 	x.onExit = func() {
@@ -2531,18 +2510,18 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
 			x.wait = shortWait
-			p := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+			p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 			p.OnQuit = "stay"
 			p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
 			x.onExit = func() { unreadable(x) }
-			out, ok := x.stop("pj-o-01", "", force)
+			out, ok := x.stop("pj-l-01", "", force)
 			if ok {
 				t.Fatal("must fail:\n" + out)
 			}
 			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-			want := "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)"
+			want := "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)"
 			if force {
-				want = "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: process info unavailable: "
+				want = "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: process info unavailable: "
 			}
 			contains(t, last(out), want, "result")
 			eqInt(t, len(x.kills), 0, "no kill")
@@ -2552,16 +2531,16 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 	t.Run("restart, process info unreadable after the exit: no kill, no start", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
+		x.sid("pj-l-01", "sid-1")
 		leftoverMCP(x)
 		exit := x.onExit
 		x.onExit = func() { exit(); unreadable(x) }
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
 		contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "/exit sent")
-		contains(t, last(out), "FAIL pj-o-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: process info unavailable: ", "result")
+		contains(t, last(out), "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: process info unavailable: ", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 		eq(t, x.startCall(), "", "no start")
 	})
@@ -2570,11 +2549,11 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		x := setup(t)
 		leftoverMCP(x)
 		x.onExit = func() { x.gone["2"] = true } // the pid is gone, process info still lists it
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
-		eq(t, last(out), "FAIL pj-o-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the agent (pid 2) is still in the group)", "result")
+		eq(t, last(out), "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the agent (pid 2) is still in the group)", "result")
 		eqInt(t, len(x.kills), 0, "no kill")
 		contains(t, out, "agent status: idle", "evidence")
 	})
@@ -2587,12 +2566,12 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 				p.Foreground, p.Procs = 9, []herdr.Process{{PID: 9, Argv0: "other-program"}}
 			}
 		}
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM only")
-		eq(t, last(out), "FAIL pj-o-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM (pane w1:p3; no SIGKILL: the foreground is group 9, not 2)", "result")
+		eq(t, last(out), "FAIL pj-l-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM (pane w1:p3; no SIGKILL: the foreground is group 9, not 2)", "result")
 		contains(t, out, "in the group: 9 other-program", "evidence")
 	})
 	t.Run("process info unreadable after TERM: no KILL", func(t *testing.T) {
@@ -2600,12 +2579,12 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		x := setup(t)
 		leftoverMCP(x)
 		x.onKill = func(int, syscall.Signal) { unreadable(x) }
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM only")
-		contains(t, last(out), "FAIL pj-o-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM (pane w1:p3; no SIGKILL: process info unavailable: ", "result")
+		contains(t, last(out), "FAIL pj-l-01 exited, but its leftover process(es) (uvx, python) kept the foreground after SIGTERM (pane w1:p3; no SIGKILL: process info unavailable: ", "result")
 	})
 	// The shell is pid 1 until /exit, then shell (fg stays group 2), and from TERM on afterTerm.
 	shellChange := func(x *fx, shell, afterTerm int) {
@@ -2626,19 +2605,19 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 		x := setup(t)
 		leftoverMCP(x)
 		shellChange(x, 7, 7)
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
 		eqInt(t, len(x.kills), 0, "no signal")
-		eq(t, last(out), "FAIL pj-o-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the pane's shell is pid 7, not 1)", "result")
+		eq(t, last(out), "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the pane's shell is pid 7, not 1)", "result")
 	})
 	t.Run("shell identity changes after TERM: no KILL", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		leftoverMCP(x)
 		shellChange(x, 1, 7)
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail:\n" + out)
 		}
@@ -2651,14 +2630,14 @@ func TestStopUnprovenLeftovers(t *testing.T) {
 // resumed when none is recorded. The record is never rewritten from herdr.
 func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Parallel()
-	record := func(x *fx) string { return x.recorded("pj-o-01") + "\n" }
+	record := func(x *fx) string { return x.recorded("pj-l-01") + "\n" }
 	t.Run("record == herdr: resumes it, no warning", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-1")
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-1"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-1)", "result")
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-1"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -2667,10 +2646,10 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("record != herdr: resumes the record, warns, record kept", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-rec")
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-live"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-rec)", "result")
+		x.sid("pj-l-01", "sid-rec")
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
 		if !ok {
 			t.Fatal(out)
 		}
@@ -2682,10 +2661,10 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("stale record of another project, herdr set: the record is checked, not replaced", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-o-01", "sid-old")
+		x.record("pj-l-01", "sid-old")
 		x.transcript("/Users/someone/other-project", "sid-old")
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-live"
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "FAIL recorded session sid-old is not from "+x.lane+" (pass --fresh, or --sid <id>)", "checked")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
@@ -2695,29 +2674,29 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("no herdr session: record, transcript checked", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-o-01", "sid-x")
+		x.record("pj-l-01", "sid-x")
 		x.transcript("/Users/someone/other-project", "sid-x")
-		x.shell("w1:p3", "pj-o-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "checked")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
 		}
 		x.transcript(x.lane, "sid-x")
-		out, _ = x.restart(launch.Request{Agent: "pj-o-01"})
+		out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
 		contains(t, out, "resuming sid-x (from record)", "source")
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-x)", "record resumed")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "record resumed")
 		eq(t, record(x), "sid-x\n", "record kept")
 	})
 	t.Run("no record, herdr set: herdr", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-h"
-		if x.recorded("pj-o-01") != "" {
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-h"
+		if x.recorded("pj-l-01") != "" {
 			t.Fatal("precondition: no record")
 		}
-		out, ok := x.restart(launch.Request{Agent: "pj-o-01"})
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-h)", "result")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-h)", "result")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -2726,15 +2705,15 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 	t.Run("--sid and --fresh unchanged: no warning, record kept", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sid("pj-o-01", "sid-old")
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-live"
-		out, _ := x.restart(launch.Request{Agent: "pj-o-01", Sid: "sid-y"})
+		x.sid("pj-l-01", "sid-old")
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Sid: "sid-y"})
 		contains(t, out, "resuming sid-y (from --sid)", "--sid wins")
-		eq(t, last(out), "RESTARTED pj-o-01 (pane w1:p3, session sid-y)", "--sid result")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-y)", "--sid result")
 		x.reset()
-		x.shell("w1:p3", "pj-o-01", "").Session = "sid-live"
-		out2, _ := x.restart(launch.Request{Agent: "pj-o-01", Fresh: true})
-		eq(t, last(out2), "RESTARTED pj-o-01 (pane w1:p3, session new)", "--fresh result")
+		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
+		out2, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+		eq(t, last(out2), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
 		if strings.Contains(out+out2, "warning: recorded session") {
 			t.Errorf("no warning: %q", out+out2)
 		}
@@ -2788,15 +2767,14 @@ func (s slowAfterQuit) ProcessInfo(ctx context.Context, pane string) (port.Proce
 }
 
 // T-292: stop for every agent kind. The leader to prove is the program of the kind herdr sees running (RV-33 #2: not
-// the lane type's kind); the quit is the kind's own (opencode: /exit, then a second Enter for the popup); a kind with
+// a configured kind); the quit is the kind's own (opencode: /exit, then a second Enter for the popup); a kind with
 // no quit (no bridge: Cursor's rows went with T-495) goes straight to the proven SIGTERM, without the wait.
 func TestStopEveryKind(t *testing.T) {
 	t.Parallel()
-	// kind: lane O-01 of a lane type of that kind; its agent runs as leader of group 2 and ignores the quit.
+	// kind: lane L-01's agent of that kind (as herdr sees it); it runs as leader of group 2 and ignores the quit.
 	kind := func(t *testing.T, kind string, leader herdr.Process) (*fx, *herdrtest.Pane) {
-		x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"claude"},"luna":{"kind":"codex"},"oc":{"kind":"opencode"},"cu":{"kind":"cursor"},"gem":{"kind":"gemini"}}`),
-			testkit.Set("lanes", `{"O-01":"`+map[string]string{"opencode": "oc", "cursor": "cu", "gemini": "gem", "claude": "opus"}[kind]+`"}`))
-		p := x.agent("w1:p3", "pj-o-01", kind, "idle")
+		x := setup(t)
+		p := x.agent("w1:p3", "pj-l-01", kind, "idle")
 		p.OnQuit = "stay"
 		p.Procs = []herdr.Process{leader}
 		x.onKill = func(_ int, sig syscall.Signal) {
@@ -2811,15 +2789,15 @@ func TestStopEveryKind(t *testing.T) {
 		t.Parallel()
 		x, _ := kind(t, "opencode", herdr.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
 		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 1, "one second Enter")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		contains(t, out, "terminated pj-o-01 (opencode pid 2, SIGTERM): it did not exit in 60ms\n", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (opencode pid 2, SIGTERM): it did not exit in 60ms\n", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("opencode, the popup takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
 		t.Parallel()
@@ -2827,13 +2805,13 @@ func TestStopEveryKind(t *testing.T) {
 		p.OnQuit = ""
 		enters := 0
 		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		eqInt(t, enters, 1, "the second Enter sent")
 		eqInt(t, len(x.kills), 0, "no signal")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	// T-712: Claude Code's slash-command menu (many plugin commands) took the Enter in the owner's run: the second Enter submits.
 	t.Run("claude, the slash-command menu takes the first Enter, no --force: the second Enter exits it, STOPPED", func(t *testing.T) {
@@ -2842,13 +2820,13 @@ func TestStopEveryKind(t *testing.T) {
 		p.OnQuit = ""
 		enters := 0
 		x.wrap = func(h port.PaneControl) port.PaneControl { return popup{h, &enters} }
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		eqInt(t, enters, 1, "the second Enter sent")
 		eqInt(t, len(x.kills), 0, "no signal")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("opencode, a wait shorter than two polls, --force: the second Enter is sent before the give-up", func(t *testing.T) {
 		t.Parallel()
@@ -2856,28 +2834,28 @@ func TestStopEveryKind(t *testing.T) {
 		x.wait = shortWait
 		quit := false
 		x.wrap = func(h port.PaneControl) port.PaneControl { return slowAfterQuit{h, &quit} }
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
 		eqInt(t, len(x.calls("pane.send_keys keys=[enter] pane_id=w1:p3")), 1, "the second Enter, from the give-up")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("leader opencode, herdr kind opencode in a claude lane, --force: proven by herdr's kind, SIGTERM, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "opencode"})
 		x.wait = shortWait
 		p.Kind = "opencode" // herdr sees opencode in the claude lane's pane
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "opencode's quit typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		contains(t, out, "terminated pj-o-01 (opencode pid 2, SIGTERM)", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (opencode pid 2, SIGTERM)", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	// RV-33 #2: the proof reads the kind herdr sees running, as the quit does, not the configured one.
 	t.Run("retyped lane: configured opus, herdr kind codex, leader codex, quit ignored, --force: SIGTERM, STOPPED", func(t *testing.T) {
@@ -2885,41 +2863,41 @@ func TestStopEveryKind(t *testing.T) {
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "codex"})
 		x.wait = shortWait
 		p.Kind = "codex" // the old codex worker still runs in the lane now typed opus
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/quit", "codex's quit typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		contains(t, out, "terminated pj-o-01 (codex pid 2, SIGTERM): it did not exit in 60ms\n", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (codex pid 2, SIGTERM): it did not exit in 60ms\n", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("retyped lane, leader matching no known kind, --force: refused, no signal", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "vim"})
 		x.wait = shortWait
 		p.Kind = "codex"
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if ok {
 			t.Fatal("must fail")
 		}
 		eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/quit", "codex's quit typed")
 		eqInt(t, len(x.kills), 0, "no signal")
-		eq(t, last(out), `FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "vim", not codex)`, "result")
+		eq(t, last(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "vim", not codex)`, "result")
 	})
 	t.Run("a kind with no quit in a pane configured as claude: proven by herdr's kind, SIGTERM at once, STOPPED", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "gemini"})
 		p.Kind = "gemini"
 		x.onExit = func() { t.Error("no quit typed") }
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		contains(t, out, "terminated pj-o-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	// RV-33 #3: a popup kind that gives up leaves no quit in its input for the next typed message.
 	for _, c := range []struct{ kind, argv0, clear string }{
@@ -2929,7 +2907,7 @@ func TestStopEveryKind(t *testing.T) {
 			t.Parallel()
 			x, _ := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
 			x.wait = shortWait
-			out, ok := x.stop("pj-o-01", "", false)
+			out, ok := x.stop("pj-l-01", "", false)
 			if ok {
 				t.Fatal("must fail")
 			}
@@ -2939,7 +2917,7 @@ func TestStopEveryKind(t *testing.T) {
 			eq(t, keys[2], "pane.send_keys keys=[enter] pane_id=w1:p3", "the second Enter next")
 			eq(t, strings.Join(keys[3:], "\n"), c.clear, "the clear keys after the wait")
 			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
+			eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; the input was cleared; --force terminates it)", "result")
 		})
 	}
 	// T-712: text a person typed into an idle agent's input is cleared before the quit, or the quit joins it.
@@ -2952,7 +2930,7 @@ func TestStopEveryKind(t *testing.T) {
 			t.Parallel()
 			x, p := kind(t, c.kind, herdr.Process{PID: 2, Argv0: c.argv0})
 			p.OnQuit, p.Input = "", "t"
-			out, ok := x.stop("pj-o-01", "", false)
+			out, ok := x.stop("pj-l-01", "", false)
 			if !ok {
 				t.Fatal(out)
 			}
@@ -2964,14 +2942,14 @@ func TestStopEveryKind(t *testing.T) {
 				t.Errorf("input %q, kind %q: the quit must have run on an empty input", p.Input, p.Kind)
 			}
 			eqInt(t, len(x.calls("pane.send_input")), 1, "the quit typed once")
-			eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		})
 	}
 	t.Run("claude, working, --force: Escape then ctrl+c only, no ctrl+u (unchanged)", func(t *testing.T) {
 		t.Parallel()
 		x, p := kind(t, "claude", herdr.Process{PID: 2, Argv0: "claude"})
 		p.OnQuit, p.Status = "", "working"
-		out, ok := x.stop("pj-o-01", "", true)
+		out, ok := x.stop("pj-l-01", "", true)
 		if !ok {
 			t.Fatal(out)
 		}
@@ -2982,25 +2960,25 @@ func TestStopEveryKind(t *testing.T) {
 		t.Parallel()
 		x, _ := kind(t, "gemini", herdr.Process{PID: 2, Argv0: "gemini"})
 		x.onExit = func() { t.Error("no quit typed") }
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if !ok {
 			t.Fatal(out)
 		}
 		eqInt(t, len(x.calls("pane.send_input")), 0, "nothing typed")
 		eqInt(t, len(x.calls("pane.send_keys")), 0, "no clear key either: a kind without a clear sequence is unchanged")
 		eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-		contains(t, out, "terminated pj-o-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
-		eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+		contains(t, out, "terminated pj-l-01 (gemini pid 2, SIGTERM): it has no clean quit\n", "said")
+		eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 	})
 	t.Run("a kind with no quit, leader not its program: refused, no signal", func(t *testing.T) {
 		t.Parallel()
 		x, _ := kind(t, "gemini", herdr.Process{PID: 2, Argv0: "node"})
-		out, ok := x.stop("pj-o-01", "", false)
+		out, ok := x.stop("pj-l-01", "", false)
 		if ok {
 			t.Fatal("must fail")
 		}
 		eqInt(t, len(x.kills), 0, "no signal")
-		eq(t, last(out), `FAIL pj-o-01 has no clean quit (pane w1:p3; not terminated: the group's leader (pid 2) is "node", not gemini)`, "result")
+		eq(t, last(out), `FAIL pj-l-01 has no clean quit (pane w1:p3; not terminated: the group's leader (pid 2) is "node", not gemini)`, "result")
 	})
 }
 
@@ -3009,12 +2987,12 @@ func TestStopEveryKind(t *testing.T) {
 // group has the foreground after the wait) is never signalled.
 func TestStopPerKind(t *testing.T) {
 	t.Parallel()
-	kinds := []struct{ kind, typ, quit string }{{"claude", "opus", "/exit"}, {"codex", "luna", "/quit"}, {"opencode", "oc", "/exit"}}
+	kinds := []struct{ kind, typ, quit string }{{"claude", "opus", "/exit"}, {"codex", "luna", "/quit"}, {"opencode", "deepseek", "/exit"}}
 	for _, k := range kinds {
 		lane := func(t *testing.T, leader string, onQuit string) (*fx, *herdrtest.Pane) {
-			x := setup(t, testkit.Set("lane_types", `{"opus":{"kind":"claude"},"luna":{"kind":"codex"},"oc":{"kind":"opencode"}}`),
-				testkit.Set("lanes", `{"O-01":"`+k.typ+`"}`))
-			p := x.agent("w1:p3", "pj-o-01", k.kind, "idle")
+			x := setup(t)
+			x.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01","type":"`+k.typ+`"}`)
+			p := x.agent("w1:p3", "pj-l-01", k.kind, "idle")
 			p.OnQuit = onQuit
 			p.Procs = []herdr.Process{{PID: 2, Argv0: leader}}
 			x.onKill = func(_ int, sig syscall.Signal) {
@@ -3028,32 +3006,32 @@ func TestStopPerKind(t *testing.T) {
 		t.Run(k.kind+": clean quit, no signal, STOPPED", func(t *testing.T) {
 			t.Parallel()
 			x, _ := lane(t, k.kind, "")
-			out, ok := x.stop("pj-o-01", "", false)
+			out, ok := x.stop("pj-l-01", "", false)
 			if !ok {
 				t.Fatal(out)
 			}
 			eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text="+k.quit, "the kind's quit typed")
 			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		})
 		t.Run(k.kind+": quit ignored, --force: SIGTERM to its leader's group, STOPPED", func(t *testing.T) {
 			t.Parallel()
 			x, _ := lane(t, k.kind, "stay")
 			x.wait = shortWait
-			out, ok := x.stop("pj-o-01", "", true)
+			out, ok := x.stop("pj-l-01", "", true)
 			if !ok {
 				t.Fatal(out)
 			}
 			eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text="+k.quit, "the kind's quit typed")
 			eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-			contains(t, out, "terminated pj-o-01 ("+k.kind+" pid 2, SIGTERM): it did not exit in 60ms\n", "said")
-			eq(t, last(out), "STOPPED pj-o-01 (pane w1:p3)", "result")
+			contains(t, out, "terminated pj-l-01 ("+k.kind+" pid 2, SIGTERM): it did not exit in 60ms\n", "said")
+			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
 		})
 		t.Run(k.kind+": quit ignored, no --force: FAIL, no signal", func(t *testing.T) {
 			t.Parallel()
 			x, _ := lane(t, k.kind, "stay")
 			x.wait = shortWait
-			out, ok := x.stop("pj-o-01", "", false)
+			out, ok := x.stop("pj-l-01", "", false)
 			if ok {
 				t.Fatal("must fail")
 			}
@@ -3064,12 +3042,12 @@ func TestStopPerKind(t *testing.T) {
 			t.Parallel()
 			x, _ := lane(t, "zsh", "stay")
 			x.wait = shortWait
-			out, ok := x.stop("pj-o-01", "", true)
+			out, ok := x.stop("pj-l-01", "", true)
 			if ok {
 				t.Fatal("must fail")
 			}
 			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, failLine(out), `FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "zsh", not `+k.kind+`)`, "result")
+			eq(t, failLine(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "zsh", not `+k.kind+`)`, "result")
 		})
 		t.Run(k.kind+": --force, another group in the foreground after the wait: FAIL, no signal", func(t *testing.T) {
 			t.Parallel()
@@ -3080,13 +3058,13 @@ func TestStopPerKind(t *testing.T) {
 					p.Foreground = 5 // the user's next job, after the quit was typed
 				}
 			})
-			out, ok := x.stop("pj-o-01", "", true)
+			out, ok := x.stop("pj-l-01", "", true)
 			if ok {
 				t.Fatal("must fail")
 			}
 			eqInt(t, len(x.calls("pane.send_input")), 1, "precondition: the quit was typed")
 			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, failLine(out), "FAIL pj-o-01 did not exit in 60ms (pane w1:p3; not terminated: the foreground is group 5, not 2)", "result")
+			eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the foreground is group 5, not 2)", "result")
 		})
 	}
 }
@@ -3102,14 +3080,14 @@ func TestStopGone(t *testing.T) {
 		last       string
 	}{
 		{name: "dead pid, still listed: exited; the listed agent refuses the leftovers' signal", dead: true,
-			last: "FAIL pj-o-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the agent (pid 2) is still in the group)"},
+			last: "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the agent (pid 2) is still in the group)"},
 		{name: "pid no longer listed, still alive: exited; leftovers stopped", drop: true, kills: "2 terminated",
-			last: "STOPPED pj-o-01 (pane w1:p3)"},
+			last: "STOPPED pj-l-01 (pane w1:p3)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t)
-			p := x.agent("w1:p3", "pj-o-01", "claude", "idle")
+			p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
 			p.OnQuit = "stay"
 			p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
 			x.onExit = func() {
@@ -3119,7 +3097,7 @@ func TestStopGone(t *testing.T) {
 				}
 			}
 			x.onKill = func(int, syscall.Signal) { p.Foreground, p.Procs = 1, nil }
-			out, _ := x.stop("pj-o-01", "", false)
+			out, _ := x.stop("pj-l-01", "", false)
 			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
 			lacks(t, out, "did not exit", "the exit counted")
 			eq(t, strings.Join(x.kills, ","), c.kills, "signals")
@@ -3133,24 +3111,24 @@ func TestStopGone(t *testing.T) {
 func TestLaunchReportsIdentity(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
-	pane := x.shell("w1:p3", "pj-o-01", "")
+	pane := x.shell("w1:p3", "pj-l-01", "")
 	pane.Session = "original-task-session"
-	s, err := x.launcher(&bytes.Buffer{}).Launch(context.Background(), launch.Request{Agent: "pj-o-01", Fresh: true})
+	s, err := x.launcher(&bytes.Buffer{}).Launch(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
 	if err != nil {
 		t.Fatalf("the start: %v", err)
 	}
-	eq(t, s.Line, "RESTARTED pj-o-01 (pane w1:p3, session new)", "the start's line")
+	eq(t, s.Line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "the start's line")
 	eq(t, s.Pane+" "+s.Kind+" "+s.Session, "w1:p3 claude original-task-session", "the identity the start reports")
 }
 
-// T-474 (RV-50 #5): a role with no configured type still gets its kind's launch defaults: Claude's memory off for
+// T-474 (RV-50 #5): a role with no configured model still gets its kind's launch defaults: Claude's memory off for
 // every role but the lead.
 func TestUntypedRoleLaunchDefaults(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ role, agent string }{{"integrator", "pj-int"}, {"reviewer", "pj-rev"}, {"lead", "pj-lead"}} {
 		t.Run(c.role, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("roles."+c.role, `{}`))
+			x := setup(t, testkit.Set("roles."+c.role, ""))
 			x.shell("w1:p1", c.agent, x.p.Root)
 			if out, ok := x.restart(launch.Request{Agent: c.agent, Fresh: true}); !ok {
 				t.Fatal(out)
@@ -3165,14 +3143,14 @@ func TestUntypedRoleLaunchDefaults(t *testing.T) {
 // T-500: the restart lock is <state>/restart-<lane>.lock (no lane: the agent's); Held probes it without taking it.
 func TestRestartLockHeld(t *testing.T) {
 	root := t.TempDir()
-	lock := launch.RestartLock(root, "O-01", "pj-o-01")
-	if want := filepath.Join(project.StateDir(root), "restart-O-01.lock"); lock.Path != want {
+	lock := launch.RestartLock(root, "L-01", "pj-l-01")
+	if want := filepath.Join(project.StateDir(root), "restart-L-01.lock"); lock.Path != want {
 		t.Errorf("path = %q, want %q", lock.Path, want)
 	}
 	if got := launch.RestartLock(root, "", "pj-int").Path; got != filepath.Join(project.StateDir(root), "restart-pj-int.lock") {
 		t.Errorf("no lane: path = %q, want the agent's", got)
 	}
-	probe := launch.RestartLock(root, "O-01", "")
+	probe := launch.RestartLock(root, "L-01", "")
 	if probe.Held() {
 		t.Fatal("held before anyone took it")
 	}
@@ -3185,7 +3163,7 @@ func TestRestartLockHeld(t *testing.T) {
 	if !lock.Held() || !probe.Held() {
 		t.Errorf("Held = %v (holder) / %v (probe), want true / true", lock.Held(), probe.Held())
 	}
-	if launch.RestartLock(root, "O-02", "").Held() {
+	if launch.RestartLock(root, "L-02", "").Held() {
 		t.Error("another lane's lock is held")
 	}
 	lock.Unlock()
@@ -3198,7 +3176,6 @@ func TestRestartLockHeld(t *testing.T) {
 // carries none, a role without a Prompt and a kind without skills start bare.
 func TestFreshStartRolePrompt(t *testing.T) {
 	t.Parallel()
-	const types = `{"opus":{"kind":"claude","args":["--model","opus"]},"luna":{"kind":"codex","args":["-m","gpt-6-luna"]}}`
 	for _, c := range []struct {
 		name, agent, role, typ, kind string
 		req                          launch.Request
@@ -3213,8 +3190,7 @@ func TestFreshStartRolePrompt(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			x := setup(t, testkit.Set("lane_types", types),
-				testkit.Set("roles", `{"lead":{"type":"`+c.typ+`"},"reviewer":{"type":"`+c.typ+`"}}`))
+			x := setup(t, testkit.Set("roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
 			a.Session = "sid-1"
 			c.req.Agent = c.agent

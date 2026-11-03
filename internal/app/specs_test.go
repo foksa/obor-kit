@@ -32,7 +32,7 @@ func TestSpecSet(t *testing.T) {
 	}
 	for _, role := range []string{"worker", "integrator"} {
 		reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
-			Agent: "pj-o1", Role: role, CallID: "w-" + role, Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
+			Agent: "pj-l-01", Role: role, CallID: "w-" + role, Task: "T-1", Spec: "# T-1 — widened by " + role + "\n"})
 		if err == nil || !strings.Contains(err.Error(), "only the lead or the owner sets a spec") {
 			t.Errorf("spec set by role %q: %q, %v; want refused", role, reply, err)
 		}
@@ -58,7 +58,7 @@ func TestDispatchNeedsStoredSpec(t *testing.T) {
 	r := newDispatchRig(t)
 	r.disp.refuse["T-1"] = "no spec for T-1 in obor serve's store" // what the real Check says to ""
 	r.start()
-	if _, err := r.dispatch("d1", "O-01"); err == nil || !strings.Contains(err.Error(), "no spec for T-1") {
+	if _, err := r.dispatch("d1", "L-01"); err == nil || !strings.Contains(err.Error(), "no spec for T-1") {
 		t.Fatalf("dispatch without a stored spec: %v; want refused", err)
 	}
 	if n := len(r.records()); n != 0 {
@@ -96,7 +96,7 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 			r.start()
 			r.setSpec("s1", "# T-1 — Red\n\nDifficulty: medium\n\n## Files you may touch\n`red.txt`\n")
 			r.submit()
-			job := r.waitJob("pj-o1", "T-1/2/fix")
+			job := r.waitJob("pj-l-01", "T-1/2/fix")
 			if !strings.Contains(job, "The spec of T-1 (rev 1") { // the worker's last job carried none
 				t.Errorf("first fix job has no spec rev 1:\n%s", job)
 			}
@@ -106,7 +106,7 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 			}
 			r.submit()
 			r.waitStep("2 fact submitted")
-			job = r.waitJob("pj-o1", "T-1/3/fix")
+			job = r.waitJob("pj-l-01", "T-1/3/fix")
 			if got := strings.Contains(job, "The spec of T-1"); got != (c.wantFix != "") ||
 				c.wantFix != "" && !strings.Contains(job, c.wantFix) {
 				t.Errorf("second fix job: spec %v, want %q:\n%s", got, c.wantFix, job)

@@ -135,10 +135,10 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 		t.Errorf("no model, no effort: %q (set %v), %v; want the variable unset", v, set, err)
 	}
 	_, _, err := start([]string{"--auto"}, "high")
-	if err == nil || !strings.Contains(err.Error(), "add --model") {
-		t.Errorf("effort without --model: %v; want a refusal telling to add --model to the type", err)
+	if err == nil || !strings.Contains(err.Error(), "needs a model id") {
+		t.Errorf("effort without --model: %v; want a refusal naming the missing model id", err)
 	}
-	if cerr := agents.CheckEffortArgs("opencode", []string{"--auto"}, "high"); cerr == nil || !strings.Contains(cerr.Error(), "add --model") {
+	if cerr := agents.CheckEffortArgs("opencode", []string{"--auto"}, "high"); cerr == nil || !strings.Contains(cerr.Error(), "needs a model id") {
 		t.Errorf("CheckEffortArgs without --model: %v; want the same refusal", cerr)
 	}
 	if cerr := agents.CheckEffortArgs("opencode", []string{"--model", "p/m"}, "high"); cerr != nil {

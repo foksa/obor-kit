@@ -53,11 +53,11 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 		method := map[string]string{"answer": wire.MethodAnswer, "resume": wire.MethodResume,
 			"sendback": wire.MethodSendback, "drop": wire.MethodDrop}[verb]
 		switch {
-		case verb == "sendback" && arg != "O-01", verb == "drop" && arg != "O-01" && arg != fact.Task:
-			r.t.Fatalf("%q names %s: neither T-1's lane O-01 nor the task", path, arg)
+		case verb == "sendback" && arg != "L-01", verb == "drop" && arg != "L-01" && arg != fact.Task:
+			r.t.Fatalf("%q names %s: neither T-1's lane L-01 nor the task", path, arg)
 		case verb == "sendback": // obor sendback <LANE>: the CLI asks serve for the lane's task, T-1
 			c.Task = "T-1"
-		case verb == "drop" && arg == "O-01":
+		case verb == "drop" && arg == "L-01":
 			c.Task, c.Lane = "", arg
 		}
 		return wire.Verdict(context.Background(), r.sock, method, c)
@@ -71,7 +71,7 @@ func (r *loopRig) runPath(fact event.Record, verb, callID, text string) (string,
 func asked(t *testing.T) *loopRig {
 	t.Helper()
 	r := fetchRig(t)
-	r.inbox.record("pj-o1")
+	r.inbox.record("pj-l-01")
 	r.start()
 	r.mustDispatch("d1")
 	r.waitStep("1 result work")
@@ -81,7 +81,7 @@ func asked(t *testing.T) *loopRig {
 	if _, err := r.answer("lead", "a0", "yes"); err == nil || !strings.Contains(err.Error(), "T-1 has no open question") {
 		t.Fatalf("answer with no question: %v; want refused", err)
 	}
-	if _, err := r.callDone("pj-o1", "worker", "b1", "Summary: half done\nBlocked: may I edit internal/x.go?\n"); err != nil {
+	if _, err := r.callDone("pj-l-01", "worker", "b1", "Summary: half done\nBlocked: may I edit internal/x.go?\n"); err != nil {
 		t.Fatal(err)
 	}
 	r.waitStep("0 fact needs-you{asks: may I edit internal/x.go?}")
@@ -105,7 +105,7 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 		t.Errorf("an empty answer: %v; want refused", err)
 	}
 	r.workerIs("idle") // the worker stopped and waits
-	want := "ANSWERED T-1: obor serve sends pj-o1 the answer"
+	want := "ANSWERED T-1: obor serve sends pj-l-01 the answer"
 	reply, err := r.answer("", "a2", "yes, edit internal/x.go too") // the owner: no role
 	if err != nil || reply != want {
 		t.Fatalf("answer: %q, %v; want %q", reply, err, want)
@@ -114,9 +114,9 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 		t.Errorf("facts in force after the answer %+v, want none", f)
 	}
 	line := "[obor answer] yes, edit internal/x.go too"
-	r.waitFor("the answer posted to pj-o1", func() bool { return r.inbox.count("pj-o1", line) == 1 })
+	r.waitFor("the answer posted to pj-l-01", func() bool { return r.inbox.count("pj-l-01", line) == 1 })
 	r.passes()
-	if n := r.inbox.count("pj-o1", line); n != 1 {
+	if n := r.inbox.count("pj-l-01", line); n != 1 {
 		t.Errorf("the answer posted %d times, want once", n)
 	}
 	if r.hasPrefix("2 ") || r.taskState() != "working" {
@@ -129,7 +129,7 @@ func TestAnswerSendsTheWorkerTheAnswer(t *testing.T) {
 		t.Errorf("a second answer with no question: %v; want refused", err)
 	}
 	full := "Summary: done.\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
-	if reply, err := r.callDone("pj-o1", "worker", "t1", full); err != nil || reply != "submitted" {
+	if reply, err := r.callDone("pj-l-01", "worker", "t1", full); err != nil || reply != "submitted" {
 		t.Fatalf("task_done after the answer: %q, %v", reply, err)
 	}
 	r.waitStep("1 fact submitted")
@@ -154,7 +154,7 @@ func TestAnswerAfterTheStopHooksTurn(t *testing.T) {
 	if reply, err := r.runPath(fact, "answer", "a1", "yes"); err != nil || !strings.HasPrefix(reply, "ANSWERED T-1") {
 		t.Fatalf("%s: %q, %v; want ANSWERED", r.answerOf(fact), reply, err)
 	}
-	r.waitFor("the answer posted", func() bool { return r.inbox.count("pj-o1", "[obor answer] yes") == 1 })
+	r.waitFor("the answer posted", func() bool { return r.inbox.count("pj-l-01", "[obor answer] yes") == 1 })
 	if r.facts() != 0 {
 		t.Errorf("facts in force after the answer: %d, want none", r.facts())
 	}
@@ -179,11 +179,11 @@ func TestNeedsYouAnswerPathsAreAccepted(t *testing.T) {
 		r.work("feature.txt", "feature\n")
 		r.submit()
 		if err := app.WriteLog(r.p.Root, time.Now(), []event.Record{
-			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"O-01","agent":"pj-o1"}`)},
-			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"O-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "submitted", Kind: event.KindFact, Data: []byte(`{"lane":"L-01","agent":"pj-l-01"}`)},
+			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindIntent, Class: event.ClassGit, Data: []byte(`{"kind":"lane","lane":"L-01"}`)},
 			{Task: "T-1", Attempt: 1, Step: "gate", Kind: event.KindResult, Data: []byte(`{"outcome":"red","line":"RED T-1"}`)},
 			{Task: "T-1", Attempt: 1, Step: "needs-you", Kind: event.KindFact,
-				Data: []byte(`{"lane":"O-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
+				Data: []byte(`{"lane":"L-01","reason":"gate red after 2 sendbacks: RED T-1","merge":true,"cause":"red"}`)},
 		}...); err != nil {
 			t.Fatal(err)
 		}
