@@ -230,13 +230,21 @@ func TestAskVerdictWaitsForServe(t *testing.T) {
 				}
 				defer ln.Close()
 				close(back)
-				conn, err := ln.Accept()
-				if err != nil {
-					return
-				}
-				defer conn.Close()
-				if _, err := bufio.NewReader(conn).ReadBytes('\n'); err == nil {
-					_, _ = conn.Write([]byte(`{"reply":"accepted T-1"}` + "\n"))
+				// A serve that is back keeps accepting: a connection the kernel resets before its line (the case the
+				// call's retry is for, T-767) must not end this stand-in.
+				for {
+					conn, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					_, rerr := bufio.NewReader(conn).ReadBytes('\n')
+					if rerr == nil {
+						_, _ = conn.Write([]byte(`{"reply":"accepted T-1"}` + "\n"))
+					}
+					conn.Close()
+					if rerr == nil {
+						return
+					}
 				}
 			}()
 			start := time.Now()

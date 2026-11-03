@@ -121,9 +121,11 @@ func verdictAsk(ctx context.Context, path string, req Request) (Answer, error) {
 }
 
 // lostReply is a transport failure that may follow an app which recorded the call and then went away unanswered: the
-// connection closed before a line, or reset.
+// connection closed before a line, reset, or a write to a connection the app has closed (EPIPE: a serve that went away
+// between the dial and the request, T-767). The call is sent again with its call id, which the app's stored reply
+// answers.
 func lostReply(err error) bool {
-	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF)
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, io.EOF)
 }
 
 // absent is a request that certainly did not land: the dial was refused or the socket missing (no serve, or one that
