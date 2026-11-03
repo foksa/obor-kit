@@ -2,6 +2,8 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -34,6 +36,14 @@ type Change struct {
 	Old, New string
 	// Lane is the lane a lanes.<LANE> edit changes ("": another key): serve refuses it while the lane has a task.
 	Lane string
+}
+
+// Rev is a config.json's revision as the Setup page reads it (T-760): the sha256 of its bytes, its first 16 hex
+// characters. A setup edit names the revision its page read, and serve refuses it when the file is another one now:
+// another tab, the lead or a hand edit changed it since (an edit built from a stale page never undoes theirs).
+func Rev(doc []byte) string {
+	sum := sha256.Sum256(doc)
+	return hex.EncodeToString(sum[:8])
 }
 
 // EditKeys are the editable keys as patterns, for errors.

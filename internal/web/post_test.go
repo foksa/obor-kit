@@ -63,14 +63,15 @@ func TestPostOnlyFromThePage(t *testing.T) {
 	spy := &callSpy{reply: "SET lanes.O-01 \"\" → \"opus\""}
 	s.Call, s.Listen = spy.call, "127.0.0.1:8787"
 	h := s.Handler()
-	const body = `{"key":"lanes.O-01","value":"opus"}`
+	const body = `{"changes":[{"key":"lanes.O-01","value":"opus"}],"base":"r1"}`
 	w := post(h, "/api/config?project=pj", body, "127.0.0.1:8787")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"reply":"SET lanes.O-01`) {
 		t.Fatalf("the page's POST: %d %s", w.Code, w.Body.String())
 	}
 	calls := spy.all()
-	if len(calls) != 1 || calls[0].method != wire.MethodConfig || calls[0].root != p.Root || calls[0].c.Key != "lanes.O-01" ||
-		string(calls[0].c.Value) != `"opus"` || calls[0].c.Source != "web" || calls[0].c.CallID == "" ||
+	if len(calls) != 1 || calls[0].method != wire.MethodConfig || calls[0].root != p.Root || len(calls[0].c.Changes) != 1 ||
+		calls[0].c.Changes[0].Key != "lanes.O-01" || string(calls[0].c.Changes[0].Value) != `"opus"` ||
+		calls[0].c.Base != "r1" || calls[0].c.Source != "web" || calls[0].c.CallID == "" ||
 		calls[0].c.Agent != "" || calls[0].c.Role != "" || calls[0].c.Root != p.Root {
 		t.Fatalf("serve was asked %+v, want one config_set of lanes.O-01 from the owner on the web", calls)
 	}
@@ -149,7 +150,7 @@ func TestPostServeDownIs503(t *testing.T) {
 	_, _, s := fixture(t)
 	h := s.Handler()
 	for _, c := range []struct{ url, body string }{
-		{"/api/config?project=pj", `{"key":"lanes.O-01","value":"opus"}`},
+		{"/api/config?project=pj", `{"changes":[{"key":"lanes.O-01","value":"opus"}],"base":"r1"}`},
 		{"/api/pause?project=pj", `{"reason":"lunch"}`},
 	} {
 		w := post(h, c.url, c.body, DefaultListen)
@@ -205,14 +206,18 @@ func TestPauseViaWeb(t *testing.T) {
 		t.Errorf("a bad body asked serve: %d calls", got)
 	}
 	spy.err = errors.New("config: lane O-01 has task T-1: change its type once the lane is free")
-	w = post(h, "/api/config?project=pj", `{"key":"lanes.O-01","value":"opus"}`, DefaultListen)
+	w = post(h, "/api/config?project=pj", `{"changes":[{"key":"lanes.O-01","value":"opus"}],"base":"r1"}`, DefaultListen)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "lane O-01 has task T-1") {
 		t.Errorf("serve's refusal: %d %s, want 400 with it", w.Code, w.Body.String())
 	}
-	if w := post(h, "/api/config?project=pj", `{"key":"lanes.O-01"}`, DefaultListen); w.Code != http.StatusBadRequest {
-		t.Errorf("a config change without a value: %d, want 400", w.Code)
+	for _, body := range []string{`{"changes":[{"key":"lanes.O-01"}],"base":"r1"}`, `{"changes":[],"base":"r1"}`,
+		`{"changes":[{"key":"lanes.O-01","value":"opus"}]}`, `{"key":"lanes.O-01","value":"opus"}`,
+		`{"changes":[{"value":"opus"}],"base":"r1"}`} {
+		if w := post(h, "/api/config?project=pj", body, DefaultListen); w.Code != http.StatusBadRequest {
+			t.Errorf("config %s: %d, want 400 (changes with a key and a value, and the base, are required)", body, w.Code)
+		}
 	}
-	if w := post(h, "/api/config?project=nope", `{"key":"a","value":1}`, DefaultListen); w.Code != http.StatusNotFound {
+	if w := post(h, "/api/config?project=nope", `{"changes":[{"key":"lanes.O-01","value":"opus"}],"base":"r1"}`, DefaultListen); w.Code != http.StatusNotFound {
 		t.Errorf("an unknown project: %d, want 404", w.Code)
 	}
 }

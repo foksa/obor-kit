@@ -30,7 +30,7 @@ const (
 	MethodVerify   = "review_verify" // obor review verify: Call.After the fix tasks, Call.Findings the findings to re-run, Call.Note the lead's note
 	MethodSession  = "session"       // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
 	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, the reply "SET <task> rev <n>" (or "UNCHANGED <task> rev <n>")
-	MethodConfig   = "config_set"    // the owner's setup edit (obor web, T-753): Call.Key set to Call.Value in .obor/config.json, committed on main
+	MethodConfig   = "config_set"    // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main
 	MethodBackup   = "backup"        // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
 	MethodSend     = "send"          // Call.Root the target project, Call.From the sender project, Call.Note the text
 	MethodBrief    = "brief"         // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
@@ -99,10 +99,10 @@ type Call struct {
 	Report string `json:"report,omitempty"`
 	// spec_set's (specs.go): the spec's text.
 	Spec string `json:"spec,omitempty"`
-	// config_set's (configset.go, T-753): the key path (config.EditKeys) and its new value as JSON; Source is where the
-	// owner made it ("web").
-	Key   string          `json:"key,omitempty"`
-	Value json.RawMessage `json:"value,omitempty"`
+	// config_set's (configset.go, T-753, T-760): the changes, applied in order as one commit, and Base, the config.json
+	// revision (config.Rev) the changes were made on ("": not checked); Source is where the owner made them ("web").
+	Changes []ConfigChange `json:"changes,omitempty"`
+	Base    string         `json:"base,omitempty"`
 	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
 	Until int64 `json:"until,omitempty"`
 	Clear bool  `json:"clear,omitempty"`
@@ -160,4 +160,10 @@ type Answer struct {
 	Status *Status `json:"status,omitempty"`
 	Reply  string  `json:"reply,omitempty"`
 	Error  string  `json:"error,omitempty"`
+}
+
+// ConfigChange is one change of a config_set call: an editable key (config.EditKeys) and its new value as JSON.
+type ConfigChange struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
 }

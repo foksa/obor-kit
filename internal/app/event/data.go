@@ -18,17 +18,24 @@ type Pause struct {
 	Reply  string `json:"reply"`
 }
 
-// ConfigSet is a setup edit's fact data (T-753): the key, its value before and after (one line of JSON each, "" unset),
-// who made it and where (owner, web), the commit on the main branch, and the call that recorded it with its reply.
+// ConfigSet is a setup edit's fact data (T-753, T-760): its changes (each key with its value before and after), who
+// made them and where (owner, web), their one commit on the main branch, and the call that recorded it with its reply.
+// A record from before T-760 is one change, as key, old and new at the top: only Call and Reply are folded.
 type ConfigSet struct {
-	Key    string `json:"key"`
-	Old    string `json:"old"`
-	New    string `json:"new"`
-	By     string `json:"by"`
-	Source string `json:"source,omitempty"`
-	Commit string `json:"commit"`
-	Call   string `json:"call,omitempty"`
-	Reply  string `json:"reply"`
+	Changes []ConfigSetChange `json:"changes"`
+	By      string            `json:"by"`
+	Source  string            `json:"source,omitempty"`
+	Commit  string            `json:"commit"`
+	Call    string            `json:"call,omitempty"`
+	Reply   string            `json:"reply"`
+}
+
+// ConfigSetChange is one change of a ConfigSet: the key and its value before and after (one line of JSON each, ""
+// unset).
+type ConfigSetChange struct {
+	Key string `json:"key"`
+	Old string `json:"old"`
+	New string `json:"new"`
 }
 
 // Message is a line fact's data: the agent it goes to and the line typed, who sent it, the brief it ends, and the

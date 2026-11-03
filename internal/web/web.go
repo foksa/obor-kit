@@ -1,10 +1,13 @@
-// Package web is `obor web` (T-667): a localhost page for every obor project on the machine, standard library only. It
-// serves the read model's JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), and
-// the drill-down pages of view.Detail — plus one embedded HTML page (vanilla JS, no framework, no build step). Its own
+// Package web is `obor web` (T-667): a localhost page for every obor project on the machine. It serves the read model's
+// JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), and the drill-down pages of
+// view.Detail — plus the page itself (T-760): a Svelte app whose source is web/ at the repo's root, built by `make web`
+// into dist/ here, committed and embedded (the Go build needs no Node; TestDistFresh fails when dist/ is older than
+// web/'s sources). Its own
 // process, never inside serve: serve is the one writer with a replayed state machine, and a handler in its process
 // would share its restarts. Localhost only, no auth: remote access is an SSH tunnel.
 //
-// Two verbs (T-753), the owner's setup edits from the Setup page: POST /api/config (one config change) and POST
+// Two verbs (T-753), the owner's setup edits from the Setup page: POST /api/config (a list of config changes, one
+// commit, T-760) and POST
 // /api/pause (set or clear the pause). Neither writes anything itself: each is a request to the project's serve (its
 // app socket), the one writer; serve not running is 503. Every other route is GET or HEAD only (405). A POST is taken
 // only on those two routes and only when its Origin is the page's own origin, its Host the listen address (no DNS
@@ -13,10 +16,11 @@ package web
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -164,15 +168,33 @@ type ProjectsEntry struct {
 	Running  []view.Running `json:"running"`
 	Roles    []view.Role    `json:"roles"`
 	// Background is how many long-running background processes the project's agents have (T-714).
-	Background int    `json:"background"`
-	Error      string `json:"error,omitempty"`
+	Background int `json:"background"`
+	// Lanes is each lane's state column and task (the fleet page's lane strip, T-760), FullCheck the last full check,
+	// Paused the pause in force and Events the project's newest worded events (at most fleetEvents).
+	Lanes     []LaneDot       `json:"lanes"`
+	FullCheck *view.FullCheck `json:"full_check"`
+	Paused    *view.Pause     `json:"paused"`
+	Events    []view.Event    `json:"events"`
+	Error     string          `json:"error,omitempty"`
 }
+
+// LaneDot is one lane as the fleet page shows it: its name, its state column, its task and its configured type.
+type LaneDot struct {
+	Lane   string `json:"lane"`
+	Column string `json:"column"`
+	Task   string `json:"task,omitempty"`
+	Type   string `json:"type,omitempty"`
+}
+
+// fleetEvents is how many of each project's newest events /api/projects carries.
+const fleetEvents = 5
 
 // projectsAPI is the machine's projects with their counts.
 func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 	out := make([]ProjectsEntry, 0)
 	for _, p := range s.projects() {
-		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}, Roles: []view.Role{}}
+		e := ProjectsEntry{Name: p.Name, Root: p.Root, Running: []view.Running{}, Roles: []view.Role{},
+			Lanes: []LaneDot{}, Events: []view.Event{}}
 		ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 		v, err := s.build(ctx, p.Root)
 		cancel()
@@ -182,12 +204,19 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 			e.Up, e.NeedsYou, e.Queue = v.Serve.Up, len(v.NeedsYou), len(v.Queue.Merge)+len(v.Queue.Waiting)
 			e.Running = append(e.Running, v.Running...)
 			e.Background = v.BackgroundCount()
+			e.FullCheck, e.Paused = v.FullCheck, v.Paused
+			e.Events = append(e.Events, v.Events[:min(fleetEvents, len(v.Events))]...)
 			for _, r := range v.Roles {
 				if r.Status == "working" || r.Brief != nil { // a brief waiting to be delivered counts, as on the project page
 					e.Roles = append(e.Roles, r)
 				}
 			}
 			for _, l := range v.Lanes {
+				d := LaneDot{Lane: l.Lane, Column: l.Column, Type: l.Type}
+				if l.Task != nil {
+					d.Task = *l.Task
+				}
+				e.Lanes = append(e.Lanes, d)
 				if l.State == "free" || l.State == "dirty-free" { // a free lane keeps its last branch's task
 					e.Free++
 				} else {
@@ -286,11 +315,15 @@ func (s *Server) jobAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, prompt)
 }
 
-// configBody is POST /api/config's body: the key path (config.EditKeys) and its new value.
+// configBody is POST /api/config's body (T-760): the changes, each a key path (config.EditKeys) and its new value, and
+// the config.json revision the page read them on (the setup's config_rev).
 type configBody struct {
-	Key   string          `json:"key"`
-	Value json.RawMessage `json:"value"`
+	Changes []wire.ConfigChange `json:"changes"`
+	Base    string              `json:"base"`
 }
+
+// maxChanges bounds one POST /api/config: a setup page has far fewer fields.
+const maxChanges = 100
 
 // pauseBody is POST /api/pause's body: a pause's reason and its duration (a Go duration, "": until cleared), or clear.
 type pauseBody struct {
@@ -304,8 +337,9 @@ type replyBody struct {
 	Reply string `json:"reply"`
 }
 
-// configAPI is POST /api/config?project=<name>: one setup change, a config_set request to the project's serve (it
-// validates, writes and commits; its refusal is a 400 with its reason).
+// configAPI is POST /api/config?project=<name>: the setup changes, one config_set request to the project's serve (it
+// validates them together, writes and commits them as one, or refuses them all: a 400 with its reason). The base is
+// required: serve refuses the changes when config.json is not the one the page read.
 func (s *Server) configAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
 	if !ok {
@@ -315,11 +349,17 @@ func (s *Server) configAPI(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &b) {
 		return
 	}
-	if b.Key == "" || len(b.Value) == 0 {
-		fail(w, http.StatusBadRequest, "a key and a value are required")
+	if len(b.Changes) == 0 || len(b.Changes) > maxChanges || b.Base == "" {
+		fail(w, http.StatusBadRequest, fmt.Sprintf("changes (1 to %d) and the base the page read are required", maxChanges))
 		return
 	}
-	s.ask(w, r, p, wire.MethodConfig, wire.Call{Key: b.Key, Value: b.Value})
+	for _, c := range b.Changes {
+		if c.Key == "" || len(c.Value) == 0 {
+			fail(w, http.StatusBadRequest, "every change needs a key and a value")
+			return
+		}
+	}
+	s.ask(w, r, p, wire.MethodConfig, wire.Call{Changes: b.Changes, Base: b.Base})
 }
 
 // pauseAPI is POST /api/pause?project=<name>: set the project's pause (a reason, an optional duration) or clear it,
@@ -460,18 +500,41 @@ func (s *Server) eventsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//go:embed page.html
-var pageHTML []byte
+// dist is the built page (web/, `make web`): index.html, its hashed assets and source.sha256.
+//
+//go:embed all:dist
+var dist embed.FS
 
-// page is the one embedded HTML page: the page itself routes by the URL's hash.
+// distFS is dist/ as the page's root.
+var distFS, _ = fs.Sub(dist, "dist")
+
+// assets serves the built page's hashed files: a name never changes its content, so they are cached for good.
+var assets = http.FileServerFS(distFS)
+
+// page is the built page: its hashed files under /assets/, and index.html for every other path (the page routes by
+// the URL's hash).
 func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		fail(w, http.StatusNotFound, "no such route: "+r.URL.Path)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/assets/") {
+		if _, err := fs.Stat(distFS, strings.TrimPrefix(r.URL.Path, "/")); err != nil {
+			fail(w, http.StatusNotFound, "no such file: "+r.URL.Path)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		assets.ServeHTTP(w, r)
+		return
+	}
+	index, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "the page is not built: make web")
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(pageHTML)
+	_, _ = w.Write(index)
 }
 
 // project is the project the request names: ok false when it names none or an unknown one (the response is written).
