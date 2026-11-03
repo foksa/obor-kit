@@ -13,8 +13,8 @@ import (
 // and a clock it advances), one scenario a subtest: a transition between the page's first read and its cursor is shown,
 // a change with no record shows after the periodic refresh, a failed redraw is retried, each project's cursor is kept
 // when navigating back, the task pipeline's step per stage, a stopped role agent's status and the agents' background
-// processes (T-714), a busy lane's type (T-721), the setup page's cards with its 7 days / all switch (T-750) and its edit
-// controls (T-753). No node
+// processes (T-714), a busy lane's type (T-721), the setup page's cards with its 7 days / all switch (T-750), its edit
+// controls (T-753) and their disable while a change is in flight (T-756). No node
 // on PATH: skipped (node is no runtime dependency; cmd/obor's opencode test does the same).
 func TestPageScript(t *testing.T) {
 	node, err := exec.LookPath("node")
@@ -38,7 +38,8 @@ func TestPageScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"transitionAfterFirstRead", "changeWithoutRecord", "failedRedrawRetried",
-		"cursorKeptPerProject", "failedFirstDraw", "pipeline", "stoppedRole", "background", "laneType", "setupRoute", "setupEdit"} {
+		"cursorKeptPerProject", "failedFirstDraw", "pipeline", "stoppedRole", "background", "laneType", "setupRoute", "setupEdit",
+		"setupBusy"} {
 		t.Run(name, func(t *testing.T) {
 			out, err := exec.Command(node, file, name).CombinedOutput()
 			if err != nil {

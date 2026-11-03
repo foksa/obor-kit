@@ -499,6 +499,67 @@ const scenarios = {
     check(JSON.stringify(last.body) === JSON.stringify({ clear: true }) && html().includes('id="pause-why"'),
       "clear sends clear and the form is back: " + JSON.stringify(last));
   },
+  // T-756: while a setup change's reply is in flight every edit control on the page is disabled and a second click
+  // sends nothing; the refreshed setup enables them again, and so does a refusal (which shows its error as before).
+  async setupBusy() {
+    let setupReads = 0;
+    let release = null;
+    let fail = false;
+    const setup = () => ({
+      difficulty: [{ level: "hard", types: ["opus", "sonnet"] }, { level: "simple", types: [] }],
+      types: [],
+      lane_types: [{ name: "opus", kind: "claude", model: "opus", effort: "high", max: 0, efforts: ["low", "high"] }],
+      lanes: [{ lane: "L-01", type: "", agent: "pj-l-01", state: "free" }],
+      roles: [{ role: "lead", agent: "pj-lead", type: "opus", status: "" }],
+      paused: null, distribution: [],
+    });
+    // ctrls is every edit control the page draws; off is those it drew disabled
+    const ctrls = () => html().match(/<(?:button|select|input)\b[^>]*data-act="[a-z]+"[^>]*>/g) || [];
+    const off = () => ctrls().filter((t) => / disabled/.test(t));
+    server.routes["/api/view"] = () => viewWith({});
+    server.routes["/api/setup"] = () => { setupReads++; return setup(); };
+    server.routes["/api/config"] = () => fail ? { status: 400, error: "config: no such type" }
+      : new Promise((res) => { release = () => res({ reply: "SET difficulty.hard" }); });
+    await navigate("#/s/proj");
+    await tick(100);
+    check(setupReads === 1, `precondition: the setup was read once (${setupReads})`);
+    check(ctrls().length === 12 && off().length === 0,
+      `precondition: the page's 12 edit controls start enabled (${ctrls().length} drawn, ${off().length} disabled)`);
+    check(/id="pause-why" placeholder="reason">/.test(html()), "precondition: the pause form's inputs are enabled: " + html());
+
+    setupAct({ dataset: { act: "down", level: "hard", i: "0" } });
+    await tick(100);
+    check(server.posts.length === 1, `precondition: the first click sent one change (${server.posts.length})`);
+    check(off().length === ctrls().length && ctrls().length > 0,
+      "every edit control is disabled while the change is in flight: " + html());
+    check(/id="pause-why" placeholder="reason" disabled/.test(html()),
+      "the pause form's inputs are disabled too: " + html());
+
+    setupAct({ dataset: { act: "rm", level: "hard", i: "1" } });
+    await tick(100);
+    check(server.posts.length === 1, `a second click while the change is in flight sends nothing (${server.posts.length})`);
+    check(setupReads === 1, `and reads no setup (${setupReads})`);
+
+    release();
+    await tick(100);
+    check(setupReads === 2, `the refreshed setup was read after the reply (${setupReads})`);
+    check(off().length === 0, "the refreshed setup enables every edit control again: " + html());
+    server.posts = [];
+    setupAct({ dataset: { act: "rm", level: "hard", i: "1" } });
+    await tick(100);
+    const last = server.posts[server.posts.length - 1];
+    check(last && JSON.stringify(last.body) === JSON.stringify({ key: "difficulty.hard", value: ["opus"] }),
+      "the next click sends the refreshed list: " + JSON.stringify(last));
+    check(off().length === ctrls().length, "its change disables the controls again: " + html());
+
+    release();
+    await tick(100);
+    fail = true;
+    setupAct({ dataset: { act: "role", role: "lead" }, value: "sonnet" });
+    await tick(100);
+    check(/data-err="roles.lead.type">config: no such type</.test(html()), "a refusal shows next to its field: " + html());
+    check(off().length === 0, "a refused change enables the controls again: " + html());
+  },
 };
 
 (async () => {
