@@ -1,8 +1,9 @@
-// The Setup page's staged edits (T-760): a change is a key (config.EditKeys) and its new value, kept until the owner
-// commits them all at once (POST /api/config: one commit, all or nothing). They are made on the config revision the
-// page read when the first was staged (base): serve refuses them once config.json is another file, so a tab never
-// overwrites what another tab, the lead or a hand edit saved meanwhile.
-import type { Setup } from "./types";
+// The Setup page's staged edits (T-760, T-766): a change is a key (config.EditKeys: difficulty.<level>, roles.<role>,
+// lanes) and its new value, kept until the owner commits them all at once (POST /api/config: one commit, all or
+// nothing). They are made on the config revision the page read when the first was staged (base): serve refuses them
+// once config.json is another file, so a tab never overwrites what another tab, the lead or a hand edit saved
+// meanwhile.
+import type { Setup, SetupModel } from "./types";
 
 export type Value = string | number | string[];
 export type Staged = Record<string, Value>;
@@ -11,13 +12,8 @@ export type Staged = Record<string, Value>;
 export function current(s: Setup, key: string): Value | undefined {
   const p = key.split(".");
   if (p[0] === "difficulty" && p.length === 2) return s.difficulty.find((d) => d.level === p[1])?.types;
-  if (p[0] === "lane_types" && p.length === 3) {
-    const t = s.lane_types.find((x) => x.name === p[1]);
-    if (!t) return undefined;
-    return p[2] === "model" ? t.model : p[2] === "effort" ? t.effort : p[2] === "max" ? t.max : undefined;
-  }
-  if (p[0] === "lanes" && p.length === 2) return s.lanes.find((l) => l.lane === p[1])?.type;
-  if (p[0] === "roles" && p.length === 3 && p[2] === "type") return s.roles.find((r) => r.role === p[1])?.type;
+  if (p[0] === "roles" && p.length === 2) return s.roles.find((r) => r.role === p[1])?.type;
+  if (key === "lanes") return s.lanes.length;
   return undefined;
 }
 
@@ -38,7 +34,7 @@ export const value = (staged: Staged, s: Setup, key: string) => (key in staged ?
 export function show(v: Value | undefined): string {
   if (v === undefined) return "—";
   if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
-  if (v === "" ) return "unset";
+  if (v === "") return "unset";
   if (v === 0) return "0";
   return String(v);
 }
@@ -57,24 +53,52 @@ export function move<T>(list: T[], i: number, d: number): T[] {
   return out;
 }
 
-// typeRef is a role's or level's type reference as its type and effort ("opus:high" → opus, high).
+// splitRef is a model ref as its model and effort ("opus:high" → opus, high).
 export function splitRef(ref: string): [string, string] {
   const i = ref.indexOf(":");
   return i < 0 ? [ref, ""] : [ref.slice(0, i), ref.slice(i + 1)];
 }
-export const joinRef = (type: string, effort: string) => (type && effort ? `${type}:${effort}` : type);
+export const joinRef = (model: string, effort: string) => (model && effort ? `${model}:${effort}` : model);
 
-// CLAUDE_MODELS are the model aliases Claude Code takes; other kinds' choices come from this project's own lane types.
-const CLAUDE_MODELS = ["opus", "sonnet", "haiku", "fable"];
-
-// models is the model choices for a lane type of kind: the known ones, every model this project's lane types of that
-// kind name, and the type's own (so the select always holds it).
-export function models(s: Setup, kind: string, own: string): string[] {
-  const out = new Set<string>(kind === "claude" ? CLAUDE_MODELS : []);
-  for (const t of s.lane_types) if (t.kind === kind && t.model) out.add(t.model);
-  if (own) out.add(own);
-  return [...out];
+// chip is a model ref as a level's chip shows it: "opus · high", or the model alone at its kind's default effort.
+export function chip(ref: string): string {
+  const [m, e] = splitRef(ref);
+  return e ? `${m} · ${e}` : m;
 }
 
-// LOCKED are a lane's states that hold a task: serve refuses its type change until it is free.
+// addRef is a level's list with ref appended; a ref the list already has: the list as it is (dispatch tries it once).
+export const addRef = (list: string[], ref: string) => (!ref || list.includes(ref) ? list : [...list, ref]);
+
+// model is the setup's model named name (undefined: none such).
+export const model = (s: Setup, name: string): SetupModel | undefined => s.models.find((m) => m.name === name);
+
+// efforts is the efforts model name's kind takes (none: the kind sets its own).
+export const efforts = (s: Setup, name: string) => model(s, name)?.efforts || [];
+
+// usedBy is, by model name, what names it as the page shows the setup (staged edits in): its levels and roles. roleName
+// is a role as the page labels it.
+export function usedBy(staged: Staged, s: Setup, roleName: (r: string) => string): Record<string, string[]> {
+  const u: Record<string, string[]> = {};
+  const add = (ref: string, who: string) => {
+    const m = splitRef(ref)[0];
+    if (m && !(u[m] || []).includes(who)) u[m] = [...(u[m] || []), who];
+  };
+  for (const d of s.difficulty) for (const ref of (value(staged, s, "difficulty." + d.level) as string[]) || []) add(ref, d.level);
+  for (const r of s.roles) add((value(staged, s, "roles." + r.role) as string) || "", roleName(r.role));
+  return u;
+}
+
+// inUse is the models the Models card lists: those a level or role names, and any paused one (its pause still acts),
+// in the config's order.
+export const inUse = (s: Setup, used: Record<string, string[]>) => s.models.filter((m) => used[m.name] || m.paused);
+
+// busyDropped is the lanes a lanes count of n drops that hold a task (serve refuses the change while one does).
+export const busyDropped = (s: Setup, n: number) => s.lanes.slice(Math.max(0, n)).filter((l) => LOCKED.has(l.state)).map((l) => l.lane);
+
+// LOCKED are a lane's states that hold a task.
 export const LOCKED = new Set(["working", "done", "missing"]);
+
+// pauseBody is POST /api/pause's body for model's pause (reason, a duration or "until cleared") or its clear.
+export function pauseBody(model: string, clear: boolean, reason = "", dur = "") {
+  return clear ? { model, clear: true } : { model, reason: reason.trim(), for: dur === "until cleared" ? "" : dur };
+}

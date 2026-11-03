@@ -334,11 +334,13 @@ type configBody struct {
 // maxChanges bounds one POST /api/config: a setup page has far fewer fields.
 const maxChanges = 100
 
-// pauseBody is POST /api/pause's body: a pause's reason and its duration (a Go duration, "": until cleared), or clear.
+// pauseBody is POST /api/pause's body: a pause's reason and its duration (a Go duration, "": until cleared), or clear;
+// with model, that model's pause (obor pause --model, T-766).
 type pauseBody struct {
 	Reason string `json:"reason"`
 	For    string `json:"for"`
 	Clear  bool   `json:"clear"`
+	Model  string `json:"model"`
 }
 
 // replyBody is a POST's answer: serve's reply line.
@@ -382,7 +384,7 @@ func (s *Server) pauseAPI(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &b) {
 		return
 	}
-	c := wire.Call{Clear: b.Clear}
+	c := wire.Call{Clear: b.Clear, Model: strings.TrimSpace(b.Model)}
 	if !b.Clear {
 		c.Note = strings.TrimSpace(b.Reason)
 		if c.Note == "" {

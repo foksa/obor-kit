@@ -23,6 +23,8 @@ type ProjectStatus struct {
 	Facts    []event.Record `json:"facts"`
 	LogError string         `json:"log_error,omitempty"`
 	Paused   *event.Pause   `json:"paused,omitempty"` // the pause in force (pause.go)
+	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page).
+	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor monitor lists them (T-658).
 	Watches []WatchStatus `json:"watches,omitempty"`
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.

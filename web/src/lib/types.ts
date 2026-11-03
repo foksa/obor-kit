@@ -340,23 +340,30 @@ export interface SetupLevel {
   types: string[];
 }
 
+// SetupType is a model ref the setup names and what runs it (T-765).
 export interface SetupType {
   ref: string;
   name: string;
   kind: string;
   model: string;
   effort: string;
-  max: number;
-  unused?: boolean;
 }
 
-export interface SetupLaneType {
+// SetupModel is a model the config knows: built-in or models' own, its kind's efforts and its pause (T-766).
+export interface SetupModel {
   name: string;
   kind: string;
   model: string;
-  effort: string;
-  max: number;
+  builtin: boolean;
   efforts: string[];
+  paused: Pause | null;
+}
+
+// SetupKind is an agent kind: the args its starts get and whether it has a prompt_extra (T-766).
+export interface SetupKind {
+  name: string;
+  args: string[];
+  prompt_extra: boolean;
 }
 
 export interface SetupLane {
@@ -383,10 +390,11 @@ export interface DispatchCount {
 export interface Setup {
   difficulty: SetupLevel[];
   types: SetupType[];
+  models: SetupModel[];
+  kinds: SetupKind[];
   lanes: SetupLane[];
   roles: SetupRole[];
   paused: Pause | null;
-  lane_types: SetupLaneType[];
   distribution: DispatchCount[];
   config_rev: string;
 }

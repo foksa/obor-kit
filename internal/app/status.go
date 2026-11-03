@@ -76,6 +76,15 @@ func (a *App) Status() wire.Status {
 			c := *held
 			ps.Paused = &c
 		}
+		for m := range p.folded.models {
+			if held := p.modelPaused(m, now); held != nil {
+				if ps.ModelPauses == nil {
+					ps.ModelPauses = map[string]*event.Pause{}
+				}
+				c := *held
+				ps.ModelPauses[m] = &c
+			}
+		}
 		ps.Messages = p.messageStatus(now)
 		if s := p.reviewStatus(now); s != "" && p.folded.review != nil {
 			ps.Review = "review request " + s
