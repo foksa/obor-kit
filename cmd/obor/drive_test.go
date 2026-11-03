@@ -196,3 +196,22 @@ func TestDrivePromptNamesTheLead(t *testing.T) {
 		t.Errorf("drive prompt %q: want one line, no backticks", got)
 	}
 }
+
+// The drive agent's first prompt says to commit on the branch as it goes, and that obor land commits nothing and refuses
+// uncommitted changes (T-762).
+func TestDrivePromptSaysCommitAsYouGo(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drivePrompt(cfg, drive{task: "T-01", lane: "O-01"})
+	for _, want := range []string{"commit on that branch as you go", "obor land T-01",
+		"commits nothing and refuses uncommitted changes"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("drive prompt %q, want %q in it", got, want)
+		}
+	}
+}

@@ -44,11 +44,12 @@ obor_hook() {
 }
 
 # obor_pre_commit (needs common, set by obor_hook): refuse a commit in a lane worktree unless OBOR_MERGE=1 (obor serve
-# sets it). The main checkout is not checked (the agent guard covers commit -a there). Fails closed: in a linked
-# worktree of an obor project, a classifier that can't answer (no binary, stale, hanging, past the timeout) refuses; the
-# hook never fetches a binary (no network).
+# sets it) or the classifier says role driver (the owner's drive agent commits on its branch, T-762). The main checkout is
+# not checked (the agent guard covers commit -a there). Fails closed: in a linked worktree of an obor project, a
+# classifier that can't answer (no binary, stale, hanging, past the timeout) refuses; the hook never fetches a binary (no
+# network).
 obor_pre_commit() {
-  local gitdir kit out rc source_line pid watchdog
+  local gitdir kit out rc source_line role_line pid watchdog
   [ "${OBOR_MERGE:-}" = 1 ] && return 0
   # The main checkout is not a lane: only a linked worktree (own git dir) needs the classifier.
   gitdir=$(git rev-parse --git-dir 2> /dev/null) && gitdir=$(cd "$gitdir" && pwd -P) || return 0
@@ -77,14 +78,18 @@ obor_pre_commit() {
     kill -TERM "$watchdog" 2> /dev/null || :
     wait "$watchdog" 2> /dev/null || :
     source_line=$(grep -m1 '^source: ' "$out") || source_line=
+    role_line=$(grep -m1 '^role: ' "$out") || role_line=
     rm -f "$out"
   else
     source_line=
+    role_line=
   fi
   case "${source_line:-}" in
     'source: env' | 'source: none') [ "$rc" = 0 ] && return 0 ;;
     'source: cwd' | 'source: env+cwd')
       if [ "$rc" = 0 ]; then
+        # The owner's drive agent (role driver) commits in its lane (T-762); every other role stays refused.
+        [ "${role_line:-}" = 'role: driver' ] && return 0
         echo "obor: no commits in a lane: obor serve commits it (OBOR_MERGE=1 to commit by hand)" >&2
         return 1
       fi

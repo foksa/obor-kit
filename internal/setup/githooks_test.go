@@ -238,6 +238,23 @@ func TestGithooks(t *testing.T) {
 			x.commits(t, x.lane, x.gitEnv("OBOR_MERGE=1"), 0, "", "lane commit with OBOR_MERGE=1")
 			x.commits(t, x.Root, x.gitEnv(), 0, "", "main commit")
 		}},
+		// T-762: the owner's drive agent (role driver) commits on its branch in its lane; a worker and any other role
+		// stay refused, and the main checkout and OBOR_MERGE=1 are as before.
+		{"pre-commit allows a drive agent's commit in its lane, refuses a worker's", func(t *testing.T, x *hx) {
+			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=driver"), 0, "", "drive agent commit in its lane")
+			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=worker"), 1, lane, "worker commit in its lane")
+			x.commits(t, x.lane, x.gitEnv(), 1, lane, "no OBOR_ROLE in a lane (cwd: worker)")
+			x.commits(t, x.Root, x.gitEnv("OBOR_ROLE=driver"), 0, "", "main commit with OBOR_ROLE=driver")
+			x.commits(t, x.lane, x.gitEnv("OBOR_ROLE=driver", "OBOR_MERGE=1"), 0, "", "drive agent commit with OBOR_MERGE=1")
+		}},
+		// T-762: only the role whoami names is allowed: an unknown role in a lane, or a whoami without one, refuses.
+		{"pre-commit refuses an unknown role in a lane", func(t *testing.T, x *hx) {
+			env, _ := x.cold(t)
+			x.binary("#!/bin/bash\necho 'role: bogus'\necho 'source: env+cwd'\n")
+			x.commits(t, x.lane, env, 1, lane, "unknown role in a lane")
+			x.binary("#!/bin/bash\necho 'role: driver'\n")
+			x.commits(t, x.lane, env, 1, unknown, "a driver line without a source line")
+		}},
 		// bash case_pre_commit_fails_closed_in_lane_without_a_usable_binary
 		{"pre-commit fails closed in a lane without a usable binary (none, stale, hanging); never fetches", func(t *testing.T, x *hx) {
 			env, curlLog := x.cold(t)
