@@ -154,11 +154,14 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		Prompt: drivePrompt(cfg, d)})
 }
 
-// drivePrompt is the drive agent's first prompt: one line saying what it is (no backticks: typed by herdr).
+// drivePrompt is the drive agent's first prompt: one line saying what it is, how it reaches the lead and how the lead's
+// answers arrive (T-761; no backticks: typed by herdr).
 func drivePrompt(cfg *config.Config, d drive) string {
 	return fmt.Sprintf("[obor drive] You are the owner's drive of %s in lane %s, on branch %s: work with the owner here "+
 		"and commit your work on that branch (no push). When the owner is done, obor land %s sends it through the gate, "+
-		"the integrator and the merge.", d.task, d.lane, branchOf(cfg, d.task), d.task)
+		"the integrator and the merge. To reach this project's lead (direction, contracts, protected docs, queued work): "+
+		"obor tell-lead \"<text>\"; the lead's answers arrive here as [obor answer] lines.", d.task, d.lane,
+		branchOf(cfg, d.task), d.task)
 }
 
 // waitPrepared waits until d's lane row holds d.task prepared (its base recorded): serve's lane.prepare ran.
@@ -266,4 +269,25 @@ func dirtyPaths(dir string) []string {
 		}
 	}
 	return paths
+}
+
+const tellLeadUsage = `usage: obor tell-lead "<text>"`
+
+// tellLeadCmd is `obor tell-lead "<text>"` (T-761; obor lead starts the lead, so the drive's way to it has this name):
+// run in a drive agent's pane (role driver, its lane from its cwd), a request to obor serve that posts
+// "[obor <T-xx> drive] <text> (reply: obor answer <T-xx> "…")" to this project's lead as a lead line; the lead's obor
+// answer comes back to the drive agent as an "[obor answer] …" line. Serve's reply (TOLD …), or FAIL: serve down, the
+// caller no drive agent (serve names who it is for), no open drive in the lane.
+func tellLeadCmd(args []string) int {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		fmt.Fprintln(out, "FAIL "+tellLeadUsage)
+		return 1
+	}
+	env := project.OSEnv
+	return request(context.Background(), env, wire.MethodTellLead, func(cfg *config.Config, c *wire.Call) error {
+		cwd, _ := os.Getwd()
+		repo, _ := project.Find(cwd)
+		c.Lane, c.Note = project.DetectRole(repo, cfg, env).Lane, args[0]
+		return nil
+	})
 }

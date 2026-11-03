@@ -14,6 +14,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -470,4 +471,60 @@ func laneStates(ls []port.Lane, held map[string]string) string {
 		return "no lanes"
 	}
 	return strings.Join(out, ", ")
+}
+
+// tellLine is the line obor tell-lead posts to the lead (T-761): the drive's task and the text, then the reply in one
+// command.
+func tellLine(task, text string) string {
+	return "[obor " + task + " drive] " + strings.Join(strings.Fields(text), " ") + ` (reply: obor answer ` + task + ` "…")`
+}
+
+// tellLeadCall answers the socket's tell_lead request (T-761): the drive agent's text to its own project's lead, a lead
+// line (fact message{driver}) posted to the lead's session as every lead line is. The caller is the drive agent (role
+// driver) of an open drive on c.Lane, its lane; the lead's obor answer on that task comes back to it as a line. A call
+// id is required and a repeated one gets the stored reply. Refused: any other caller (a worker, a reviewer, the lead,
+// the owner), no open drive on the lane, no text, no lead configured.
+func (a *App) tellLeadCall(c wire.Call) (string, error) {
+	if c.CallID == "" {
+		return "", errors.New("tell-lead: a call id is required")
+	}
+	p, reply, stored := a.callProj(wire.MethodTellLead, c)
+	switch {
+	case p == nil:
+		return "", fmt.Errorf("tell-lead: no served project at %s", c.Root)
+	case stored:
+		return reply, nil
+	case c.Role != roles.Driver:
+		return "", fmt.Errorf("tell-lead: it is for a drive agent to tell its lead (obor tell-lead in an obor drive's pane), "+
+			"not %s (role %s); the lead answers with obor answer, workers ask with a Blocked: report", Dash(c.Agent),
+			Dash(c.Role))
+	case strings.TrimSpace(c.Note) == "":
+		return "", errors.New("tell-lead: a text is required")
+	case !a.merges(p):
+		return "", mergeOff(p)
+	}
+	a.mu.Lock()
+	lead, task := p.out.lead(), ""
+	for _, t := range p.loopTasks() {
+		if m := p.folded.loop[t]; m.drive && m.lane == c.Lane && !states[m.state].ended {
+			task = t
+		}
+	}
+	a.mu.Unlock()
+	switch {
+	case task == "":
+		return "", fmt.Errorf("tell-lead: no open drive in lane %s (obor status lists the drives)", Dash(c.Lane))
+	case lead == "":
+		return "", errors.New("tell-lead: no lead configured (roles.lead.agent)")
+	}
+	m := event.Message{To: lead, From: cmp.Or(c.Agent, roles.Driver), Task: task, Line: tellLine(task, c.Note),
+		Driver: true, Call: c.CallID, Reply: "TOLD " + lead + " (" + task + "; its answer arrives here as an [obor answer] line)"}
+	if !a.inboxed(lead) {
+		m.Reply = "TOLD " + lead + " (" + task + "; queued: no session recorded for " + lead + ")"
+	}
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
+		return "", fmt.Errorf("tell-lead: the event log of %s refused it", p.name)
+	}
+	a.wake()
+	return m.Reply, nil
 }

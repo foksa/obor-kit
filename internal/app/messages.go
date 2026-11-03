@@ -287,8 +287,11 @@ func (p *proj) foldMsg(r event.Record) {
 		_ = json.Unmarshal(r.Data, &m)
 		if m.Call != "" {
 			method := wire.MethodSend
-			if r.Step == event.StepBriefed {
+			switch {
+			case r.Step == event.StepBriefed:
 				method = wire.MethodBrief
+			case m.Driver: // obor tell-lead's (T-761)
+				method = wire.MethodTellLead
 			}
 			p.folded.calls[verdictStep(method, m.Call)] = m.Reply
 		}
@@ -349,9 +352,11 @@ func (p *proj) foldMsg(r event.Record) {
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
 		p.folded.calls[verdictStep(wire.MethodAnswer, m.Call)] = m.Reply
-		p.retireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
+		if !m.Driver { // a drive's answers (T-761) answer no question: each is its own line
+			p.retireAnswers(m.Task, r.Seq) // a newer answer (or a stalled worker's resume) ends an older undelivered one
+			p.answered(m.Task)
+		}
 		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m, answer: true}
-		p.answered(m.Task)
 	case r.Kind == event.KindFact && r.Step == event.StepWorked:
 		var d workedData
 		_ = json.Unmarshal(r.Data, &d)

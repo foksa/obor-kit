@@ -107,6 +107,8 @@ func main() {
 		exit(driveCmd(args))
 	case "land":
 		exit(landCmd(args))
+	case "tell-lead":
+		exit(tellLeadCmd(args))
 	case "answer":
 		exit(answerCmd(args))
 	case "sendback":
@@ -221,6 +223,7 @@ var commands = map[string][]string{
 	"drop":            nil,
 	"drive":           nil,
 	"land":            nil,
+	"tell-lead":       nil,
 	"answer":          nil,
 	"sendback":        nil,
 	"resume":          nil,

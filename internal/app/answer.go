@@ -14,7 +14,9 @@ import (
 // The answer is fact answered{to: the worker, line "[obor answer] <text>"} of the project's lines: its fold ends the
 // question (the task's watchdog facts end, as a resumed fact ends them), and the worker gets the line as its kind
 // takes one (deliver: posted to a Claude session's inbox, typed for the others), in the same attempt. Refused when the
-// task has no question in force: a plain note to a worker has no path (obor sendback is the other). An answer result
+// task has no question in force: a plain note to a worker has no path (obor sendback is the other). A driving task
+// (T-761) takes an answer with no question: the drive agent gets the line as a worker does (answered{driver}); each
+// answer is its own line (a newer one ends no older), and a land or a drop closes an undelivered one unsent. An answer result
 // of an older log (answer.<call id>, a fix job of the next attempt) still folds as it did.
 
 func answerReply(task, agent string) string {
@@ -33,7 +35,7 @@ func (a *App) answer(c wire.Call) (string, error) {
 		return reply, err
 	}
 	m := event.Message{To: mt.agent, From: cmp.Or(c.Agent, "owner"), Line: "[obor answer] " + c.Note, Call: c.CallID,
-		Task: c.Task}
+		Task: c.Task, Driver: mt.drive}
 	m.Reply = answerReply(c.Task, mt.agent)
 	if note := a.unnamed(p, mt.agent, ""); note != "" {
 		m.Reply += " (" + note + ")"
@@ -47,9 +49,12 @@ func (a *App) answer(c wire.Call) (string, error) {
 }
 
 // unanswerable is why mt cannot be answered now (under mu; "": it can): its worker works on it (working or
-// dispatched, not a needs-you of the merge loop) and asked a question that is in force.
+// dispatched, not a needs-you of the merge loop) and asked a question that is in force; or it is driving (T-761: the
+// lead answers a drive's line with no question open, each answer its own line to the drive agent).
 func (p *proj) unanswerable(mt mtask) string {
 	switch {
+	case mt.drive && mt.state == stDriving:
+		return ""
 	case mt.state != stWorking && mt.state != stDispatched:
 		return fmt.Sprintf("%s is %s, not waiting on an answer", mt.task, mt.state)
 	case !p.asks(mt.task):

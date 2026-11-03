@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/config"
+	"obor/internal/testkit"
 )
 
 // obor land (T-751) is one socket request after two checks of its own: the task is a driving one in serve's status
@@ -134,5 +136,63 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → O-01: pj-o1-drive runs already") ||
 		!strings.Contains(stdout, "OK T-07 → O-01: pj-o1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
 		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
+	}
+}
+
+// obor tell-lead "<text>" (T-761): one request to obor serve carrying the text, the caller's role and its lane (a
+// drive agent: OBOR_ROLE=driver in its lane's cwd), serve's reply printed; a usage error sends nothing; serve's refusal
+// is FAIL, exit 1.
+func TestTellLeadRequest(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	o1 := p.Lane("O-01", "task/T-01")
+	p.Config()
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "TOLD pj-lead (T-01; its answer arrives here as an [obor answer] line)", "")
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-o1-drive", "OBOR_LANE=O-01"}
+	for _, args := range [][]string{{"tell-lead"}, {"tell-lead", " "}, {"tell-lead", "a", "b"}} {
+		if rc, stdout, _ := run(t, o1, env, args...); rc != 1 || !strings.Contains(stdout, `FAIL usage: obor tell-lead "<text>"`) {
+			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
+		}
+	}
+	if _, n := serve.requests(); n != 0 {
+		t.Fatalf("a usage error sent %d requests", n)
+	}
+	rc, stdout, _ := run(t, o1, env, "tell-lead", "may I change the contract?")
+	if rc != 0 || stdout != "TOLD pj-lead (T-01; its answer arrives here as an [obor answer] line)\n" {
+		t.Errorf("tell-lead: exit %d, %q", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if len(calls) != 1 {
+		t.Fatalf("%d requests, want 1", len(calls))
+	}
+	if c := calls[0]; c.Role != "driver" || c.Lane != "O-01" || c.Agent != "pj-o1-drive" ||
+		c.Note != "may I change the contract?" || c.Root != p.Root || c.CallID == "" {
+		t.Errorf("request %+v; want role driver, lane O-01, agent pj-o1-drive, the text, root, a call id", c)
+	}
+
+	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "tell-lead: it is for a drive agent to tell its lead")
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2, "OBOR_ROLE=lead"}, "tell-lead", "hi"); rc != 1 ||
+		stdout != "FAIL tell-lead: it is for a drive agent to tell its lead\n" {
+		t.Errorf("serve's refusal: exit %d, %q", rc, stdout)
+	}
+}
+
+// The drive agent's first prompt names how it reaches the lead and how the lead's answers arrive (T-761); one line.
+func TestDrivePromptNamesTheLead(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drivePrompt(cfg, drive{task: "T-01", lane: "O-01"})
+	for _, want := range []string{`obor tell-lead "<text>"`, "[obor answer] lines", "obor land T-01"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("drive prompt %q, want %q in it", got, want)
+		}
+	}
+	if strings.ContainsAny(got, "\n`") {
+		t.Errorf("drive prompt %q: want one line, no backticks", got)
 	}
 }

@@ -144,3 +144,10 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
 - Back to the drive, never to a worker: a red gate, the integrator's sendback or hold (any count) make the task
   `driving` again, with one line to you: `[obor] T-xx back to its owner's drive: <why>`.
 - `obor status`, the monitor and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.
+- A drive and you message each other (T-761). The drive agent runs `obor tell-lead "<text>"` (`obor lead` starts you,
+  so its way to you has this name; a worker, reviewer, the owner or you are refused): you get the line
+  `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, posted like your other lines. Your `obor answer T-xx
+  "<text>"` on a driving task needs no open question: the drive agent gets `[obor answer] <text>` typed into (or posted
+  to) its pane once it is idle, held while it is busy (reply `ANSWERED T-xx: obor serve sends <agent> the answer`).
+  Each answer is its own line; one still undelivered when the drive lands or is dropped closes unsent. Use it for
+  direction: contracts, protected docs, queued work.
