@@ -244,7 +244,7 @@ func (s *sleeper) start(ctx context.Context) int {
 		s.say("marker: none (already)")
 	}
 	svc := serviceOf(s.Cfg, s.Env)
-	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	sctx, cancel := context.WithTimeout(ctx, service.Deadline)
 	defer cancel()
 	switch {
 	case !svc.Supported():
@@ -457,7 +457,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 func (s *sleeper) stopServe(ctx context.Context, c wire.Call) error {
 	root := s.Cfg.Root
 	svc := serviceOf(s.Cfg, s.Env)
-	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	sctx, cancel := context.WithTimeout(ctx, service.Deadline)
 	defer cancel()
 	pid, launchd, how := servePID(root), false, "its exit"
 	if svc.Supported() {

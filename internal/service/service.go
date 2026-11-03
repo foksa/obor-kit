@@ -179,7 +179,10 @@ func (s Service) Current(ctx context.Context) bool {
 }
 
 // Install writes the plist and loads it (bootstrap; one loaded before is booted out first, so a reinstall takes the
-// new plist). FAIL when the label is another project's (owner).
+// new plist). A bootstrap launchd refuses — the label it still knows, or half knows while the old one is torn down
+// (T-771: "Bootstrap failed: 5: Input/output error" left the label gone) — is booted out and bootstrapped once more;
+// an install that ends with the label not loaded is a FAIL naming the label's state and the next step. FAIL when the
+// label is another project's (owner).
 func (s Service) Install(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
@@ -204,14 +207,39 @@ func (s Service) Install(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if loaded {
-		if _, err := launchctl(ctx, "bootout", s.target()); err != nil {
+		if err := s.bootout(ctx); err != nil {
 			return "", err
 		}
 	}
-	if _, err := launchctl(ctx, "bootstrap", fmt.Sprintf("gui/%d", s.UID), plist); err != nil {
-		return "", err
+	domain := fmt.Sprintf("gui/%d", s.UID)
+	_, err = launchctl(ctx, callTimeout, "bootstrap", domain, plist)
+	if err != nil {
+		_ = s.bootout(ctx) // not loaded at all: its error is the expected one
+		if _, again := launchctl(ctx, callTimeout, "bootstrap", domain, plist); again != nil {
+			err = fmt.Errorf("%v; after a bootout, again: %v", err, again)
+		} else {
+			err = nil
+		}
+	}
+	pid, loaded := s.PID(ctx)
+	switch {
+	case err != nil && loaded:
+		return "", fmt.Errorf("%v: %s is loaded (pid %d), maybe from the plist before this one: obor serve install again", err, s.Label(), pid)
+	case err != nil:
+		return "", fmt.Errorf("%v: %s is not loaded in launchd: obor serve install again (launchctl print %s shows launchd's view)", err, s.Label(), s.target())
+	case !loaded:
+		return "", fmt.Errorf("launchctl bootstrap %s %s returned, but %s is not loaded in launchd: obor serve install again (log %s)",
+			domain, plist, s.Label(), s.LogPath())
 	}
 	return fmt.Sprintf("INSTALLED %s (%s; log %s)", s.Label(), plist, s.LogPath()), nil
+}
+
+// bootout unloads the label (launchd stops its serve first: up to its ExitTimeOut) and waits, up to settle, until
+// launchd no longer knows it, so a bootstrap after it does not meet the label half torn down.
+func (s Service) bootout(ctx context.Context) error {
+	_, err := launchctl(ctx, stopTimeout, "bootout", s.target())
+	s.poll(ctx, func(_ int, loaded bool) bool { return !loaded })
+	return err
 }
 
 // Uninstall unloads the agent (bootout, which stops its serve) and removes its plist. Another project's label
@@ -230,7 +258,7 @@ func (s Service) Uninstall(ctx context.Context) (string, error) {
 		return fmt.Sprintf("%s is not installed", s.Label()), nil
 	}
 	if loaded {
-		if _, err := launchctl(ctx, "bootout", s.target()); err != nil {
+		if err := s.bootout(ctx); err != nil {
 			return "", err
 		}
 	}
@@ -240,13 +268,16 @@ func (s Service) Uninstall(ctx context.Context) (string, error) {
 	return "UNINSTALLED " + s.Label(), nil
 }
 
-// Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over. Another project's
-// label (owner): FAIL, nothing done.
+// Restart kills the agent's serve and starts it again (kickstart -k): a new binary takes over. kickstart -k waits
+// for the old serve to exit (launchd's ExitTimeOut), so it runs under stopTimeout. A kickstart error is not the last
+// word (T-771): launchd may have restarted serve all the same, so the agent's pid is read (up to settle) — a new one
+// is RESTARTED with a warning line, anything else a FAIL naming the state it left. Another project's label (owner):
+// FAIL, nothing done.
 func (s Service) Restart(ctx context.Context) (string, error) {
 	if !s.Supported() {
 		return Elsewhere, nil
 	}
-	_, loaded, err := s.owner(ctx)
+	old, loaded, err := s.owner(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -256,10 +287,41 @@ func (s Service) Restart(ctx context.Context) (string, error) {
 	if err := s.rotateLog(); err != nil {
 		return "", err
 	}
-	if _, err := launchctl(ctx, "kickstart", "-k", s.target()); err != nil {
-		return "", err
+	_, err = launchctl(ctx, stopTimeout, "kickstart", "-k", s.target())
+	if err == nil {
+		return "RESTARTED " + s.Label(), nil
 	}
-	return "RESTARTED " + s.Label(), nil
+	// The caller's deadline may be what ended launchctl: the read gets its own.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settle+callTimeout)
+	defer cancel()
+	restarted := func(pid int, loaded bool) bool { return loaded && pid != 0 && pid != old }
+	pid, loaded := s.poll(rctx, restarted)
+	switch {
+	case restarted(pid, loaded):
+		return fmt.Sprintf("RESTARTED %s (pid %d)\nwarning: %v: serve restarted all the same (pid %d before)",
+			s.Label(), pid, err, old), nil
+	case !loaded:
+		return "", fmt.Errorf("%v: %s is no longer loaded in launchd: obor serve install", err, s.Label())
+	case pid == 0:
+		return "", fmt.Errorf("%v: %s is loaded but no serve runs (log %s): obor serve restart again", err, s.Label(), s.LogPath())
+	}
+	return "", fmt.Errorf("%v: %s still runs the old serve (pid %d), not restarted: obor serve restart again", err, s.Label(), pid)
+}
+
+// poll reads the agent's pid until done says so or settle has passed, every pollEvery: the last read.
+func (s Service) poll(ctx context.Context, done func(pid int, loaded bool) bool) (int, bool) {
+	until := time.Now().Add(settle)
+	for {
+		pid, loaded := s.PID(ctx)
+		if done(pid, loaded) || !time.Now().Before(until) {
+			return pid, loaded
+		}
+		select {
+		case <-ctx.Done():
+			return pid, loaded
+		case <-time.After(pollEvery):
+		}
+	}
 }
 
 var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)\s*$`)
@@ -270,7 +332,7 @@ func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
 	if !s.Supported() {
 		return 0, false
 	}
-	out, err := launchctl(ctx, "print", s.target())
+	out, err := launchctl(ctx, callTimeout, "print", s.target())
 	if err != nil {
 		return 0, false
 	}
@@ -280,13 +342,32 @@ func (s Service) PID(ctx context.Context) (pid int, loaded bool) {
 	return pid, true
 }
 
-// launchctl runs launchctl (from PATH) under a timeout; its error carries its output.
-func launchctl(ctx context.Context, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// Deadline is the most a verb (Install, Uninstall, Restart) may take: each bootout and kickstart under stopTimeout,
+// Install's retry included. Callers give their context at least this.
+const Deadline = 3 * time.Minute
+
+// The launchctl timeouts (vars: the tests shorten them). callTimeout is for the calls launchd answers at once (print,
+// bootstrap); stopTimeout for the ones that wait for serve to exit (kickstart -k, bootout: launchd's ExitTimeOut, 20s
+// by default, before it SIGKILLs serve — the flat 10s it once had killed launchctl mid-kickstart, T-771). settle is
+// how long a verb reads launchd's state after a call that changes it, every pollEvery.
+var (
+	callTimeout = 10 * time.Second
+	stopTimeout = 45 * time.Second
+	settle      = 5 * time.Second
+	pollEvery   = 250 * time.Millisecond
+)
+
+// launchctl runs launchctl (from PATH) under timeout; its error carries its output.
+func launchctl(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("launchctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		msg := fmt.Sprintf("launchctl %s: %v", strings.Join(args, " "), err)
+		if said := strings.TrimSpace(string(out)); said != "" {
+			msg += ": " + said
+		}
+		return string(out), errors.New(msg)
 	}
 	return string(out), nil
 }
