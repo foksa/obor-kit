@@ -47,6 +47,9 @@ const (
 	// MethodLand (the owner's, the lead's or the drive agent's; obor land): Call.Task the driving task, Call.Report the
 	// summary its submission carries. The reply is LANDED <task>: submitted.
 	MethodLand = "land"
+	// MethodTellLead (the drive agent's; obor tell-lead, T-761): Call.Lane the drive's lane, Call.Note the text. Serve posts
+	// "[obor <task> drive] <text> (reply: obor answer <task> "…")" to the lead as a lead line. The reply is TOLD ….
+	MethodTellLead = "tell_lead"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from

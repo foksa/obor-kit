@@ -261,7 +261,13 @@ full check and the pause.
   agent in a pane split in the caller's tab. `obor land` (a clean worktree; it commits nothing) records the submission
   on the owner's behalf, the summary as its report; from there it is an ordinary submitted task, and after the merge
   agent.stop stops the drive agent. A red gate, the integrator's sendback or hold go back to driving with one line to
-  the lead, never to a worker; `obor drop` works on it unchanged.
+  the lead, never to a worker; `obor drop` works on it unchanged. The drive and the lead message each other (T-761):
+  the drive agent's `obor tell-lead "<text>"` (role driver only; its lane from its cwd) is fact message{driver} to the
+  lead, the line `[obor T-xx drive] <text> (reply: obor answer T-xx "…")`, delivered as every lead line; the lead's
+  `obor answer T-xx "<text>"` on a driving task needs no question in force: fact answered{driver} to the drive agent,
+  the line `[obor answer] <text>` delivered as an answer to a worker is (when its pane is idle). Each such answer is its
+  own line (a newer one ends no older); a land or a drop closes an undelivered one unsent. The drive agent's first
+  prompt names both.
 - **merge hold** (T-718, owner 2026-11-02: fewer worktrees): the reviewer and the deep dive run in the main checkout,
   like the advisor and the researcher, with no worktree of their own. So the code does not move under them, the merge
   loop's publish (the step that moves the integration branch) waits while either one works: its agent has a brief open
