@@ -6,6 +6,12 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~22:30: pruning wave merged except T-844/T-845 (restores); T-841 gating, T-846 (P12 v0.26 removals) on
+  L-04; review queued after T-841, T-844, T-845, T-846 (covers T-838). **Then v0.26**: UPGRADE-v0.26 + release notes
+  must say: store older than v0.22 upgrades through v0.24 first (T-840); remove a global opencode `mcp.servers.obor` by
+  hand if an obor before v0.25 put it there (T-835); `obor monitor` and the pre-v0.23 config message are gone (T-846);
+  removed config keys past their window are now unknown keys (T-830); every wire call carries the caller's version
+  (T-826); only the lead moves HEAD in the main checkout (T-841); S2 needs-you as a block (T-827, internal).
 - 2026-11-04 ~21:45: RV-109 closed (6 lost scenarios in T-833/T-834/T-836 → restores T-844, T-845; RV-108's → T-842,
   T-843). **Concern:** statement-coverage pruning keeps losing scenarios (entry point, timing) on deepseek; owner moved
   T-838 to sonnet:medium (attempt 2, same lane). Judge the wave's net when it ends (lines out vs restore rounds).
