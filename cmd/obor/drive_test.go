@@ -148,7 +148,7 @@ func TestTellLeadRequest(t *testing.T) {
 	o1 := p.Lane("L-01", "task/T-01")
 	p.Config()
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "TOLD pj-lead (T-01; its answer arrives here as an [obor answer] line)", "")
-	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-l1-drive", "OBOR_LANE=L-01"}
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=driver", "OBOR_AGENT=pj-l1-drive", "OBOR_LANE=L-01"} // a stale name (T-786)
 	for _, args := range [][]string{{"tell-lead"}, {"tell-lead", " "}, {"tell-lead", "a", "b"}} {
 		if rc, stdout, _ := run(t, o1, env, args...); rc != 1 || !strings.Contains(stdout, `FAIL usage: obor tell-lead "<text>"`) {
 			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
@@ -165,9 +165,9 @@ func TestTellLeadRequest(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("%d requests, want 1", len(calls))
 	}
-	if c := calls[0]; c.Role != "driver" || c.Lane != "L-01" || c.Agent != "pj-l1-drive" ||
+	if c := calls[0]; c.Role != "driver" || c.Lane != "L-01" || c.Agent != "pj-l-01-drive" ||
 		c.Note != "may I change the contract?" || c.Root != p.Root || c.CallID == "" {
-		t.Errorf("request %+v; want role driver, lane L-01, agent pj-l1-drive, the text, root, a call id", c)
+		t.Errorf("request %+v; want role driver, lane L-01, agent pj-l-01-drive (derived), the text, root, a call id", c)
 	}
 
 	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "tell-lead: it is for a drive agent to tell its lead")

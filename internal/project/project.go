@@ -222,21 +222,18 @@ func LaneOf(r *Repo, cfg *config.Config) string {
 	return filepath.Base(r.Top)
 }
 
-// SelfAgent is the herdr agent name of a session in role (DetectRole of its cwd): OBOR_AGENT; else the lane row's
-// agent; else the setup name (<prefix>-<lane lower>), or for a role the derived name (config.AgentName). "" when none.
-func SelfAgent(cfg *config.Config, role Role, env Env) string {
-	if a := env.Get("OBOR_AGENT"); a != "" {
-		return a
+// SelfAgent is the herdr agent name of a session in role (DetectRole: OBOR_ROLE, its lane's cwd winning): the name
+// config.Self derives from the role's slot and the current config (T-786). "" when none (no role, the owner). An
+// OBOR_AGENT in the environment is never read: a stored copy went stale on every rename.
+func SelfAgent(cfg *config.Config, role Role) string {
+	if cfg == nil {
+		return ""
 	}
-	switch {
-	case role.Lane != "":
-		if agent := LaneAgent(cfg.Root, role.Lane); agent != "" {
-			return agent
-		}
-		worker, _ := roles.Lookup("worker")
-		return worker.AgentName(cfg.Data.Prefix, role.Lane)
-	case role.Role == "lead", role.Role == "integrator", role.Role == "reviewer", role.Role == "deep_dive":
-		return cfg.AgentName(role.Role, "")
-	}
-	return ""
+	return cfg.Self(role.Role, role.Lane)
+}
+
+// Self is the session's own agent name: SelfAgent of DetectRole of its repo r (nil: no repo) and env. Every "who am
+// I" (hooks, the MCP server, CLI calls to serve) is this one call.
+func Self(r *Repo, cfg *config.Config, env Env) string {
+	return SelfAgent(cfg, DetectRole(r, cfg, env))
 }

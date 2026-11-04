@@ -22,9 +22,10 @@ func TestSpecSetRequest(t *testing.T) {
 
 	for _, c := range []struct {
 		name, dir, role string
+		agent           string // derived from the role (T-786), whatever OBOR_AGENT says
 	}{
-		{"the lead", p.Root, "lead"},
-		{"from a lane, OBOR_ROLE=lead", p.LaneDir("L-01"), "worker"},
+		{"the lead", p.Root, "lead", "pj-lead"},
+		{"from a lane, OBOR_ROLE=lead", p.LaneDir("L-01"), "worker", "pj-l-01"},
 	} {
 		rc, stdout, stderr := run(t, c.dir, env, "spec", "set", "T-07", draft)
 		if rc != 0 || stdout != "SET T-07 rev 1\n" {
@@ -32,9 +33,9 @@ func TestSpecSetRequest(t *testing.T) {
 		}
 		calls, _ := serve.requests()
 		got := calls[len(calls)-1]
-		if got.CallID == "" || got.Task != "T-07" || got.Spec != text || got.Role != c.role || got.Agent != "pj-lead" ||
+		if got.CallID == "" || got.Task != "T-07" || got.Spec != text || got.Role != c.role || got.Agent != c.agent ||
 			got.Root != p.Root {
-			t.Errorf("%s: call %+v; want T-07's text, role %s", c.name, got, c.role)
+			t.Errorf("%s: call %+v; want T-07's text, role %s, agent %s", c.name, got, c.role, c.agent)
 		}
 	}
 

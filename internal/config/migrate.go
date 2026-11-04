@@ -26,7 +26,7 @@ import (
 //	moved     roles.lead.handoff_tokens → handoff_tokens, roles.integrator.handoff_tokens → integrator_handoff_tokens.
 //	lanes     the count of lanes; Lanes is their old names in config order (the caller renames them to L-01 … L-NN).
 //	agents    a role's or lane's agent that is not the new default (<prefix>-<role>, <prefix>-l-NN) is renamed to it,
-//	          in guards.allow_push too, and so is an agents entry that becomes a role (T-779; not when its derived name
+//	          and so is an agents entry that becomes a role (T-779; not when its derived name
 //	          is a pane label already: a note says so instead). Agents lists each old → new (the caller relabels their
 //	          panes).
 
@@ -137,9 +137,6 @@ func Migrate(config, local []byte) (Migration, error) {
 			if out, err = EditJSON(out, []string{"lanes"}, len(m.Lanes)); err != nil {
 				return Migration{}, err
 			}
-		}
-		if out, err = renamePush(out, m.Agents); err != nil {
-			return Migration{}, fmt.Errorf("%s: %v", file, err)
 		}
 		var ind bytes.Buffer
 		if err := json.Indent(&ind, out, "", "  "); err != nil {
@@ -596,27 +593,6 @@ func agentLabels(merged []byte, prefix string, lanes []string) map[string]bool {
 func mustMember(doc []byte, path ...string) json.RawMessage {
 	raw, _ := MemberAt(doc, path)
 	return raw
-}
-
-// renamePush is doc with each name of guards.allow_push that agents renames as its new name.
-func renamePush(doc []byte, agents []AgentRename) ([]byte, error) {
-	raw, _ := MemberAt(doc, []string{"guards", "allow_push"})
-	var list []string
-	if raw == nil || json.Unmarshal(raw, &list) != nil {
-		return doc, nil
-	}
-	changed := false
-	for i, a := range list {
-		for _, r := range agents {
-			if a == r.Old {
-				list[i], changed = r.New, true
-			}
-		}
-	}
-	if !changed {
-		return doc, nil
-	}
-	return EditJSON(doc, []string{"guards", "allow_push"}, list)
 }
 
 // mergedLanes is the lane names of config's lanes with local's merged over them (a key local adds comes last).

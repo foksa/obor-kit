@@ -418,10 +418,11 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("herdr's panes not listed (%v): its agents may still run; obor stop again once herdr answers", err)
 	}
-	ownPane, ownAgent := s.Env.Get("HERDR_PANE_ID"), s.Env.Get("OBOR_AGENT")
+	repo, _ := project.Find(s.Cwd)
+	ownPane, ownAgent := s.Env.Get("HERDR_PANE_ID"), project.Self(repo, s.Cfg, s.Env) // derived (T-786)
 	stopped := 0
 	for _, p := range panes {
-		if p.Label == "" || p.Kind == "" || p.ID == ownPane || p.Label == ownAgent {
+		if p.Label == "" || p.Kind == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
 			continue
 		}
 		info, ok := project.AgentLookup(s.Cfg, p.Label, "")

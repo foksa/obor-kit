@@ -91,9 +91,8 @@ type guard struct {
 	root, top              string
 
 	protected []string
-	allowPush []string
 
-	detected     project.Role // the role of the cwd (whose agent SelfAgent names)
+	detected     project.Role // the session's role (project.DetectRole)
 	role, lane   string
 	laneDir      string
 	restricted   bool
@@ -176,9 +175,6 @@ func load(input []byte, env project.Env) *guard {
 	g.broken = err
 	g.repo, g.top, g.root, g.cfg = repo, repo.Top, repo.Root, cfg
 	g.protected = cfg.Data.ProtectedFiles
-	if cfg.Data.Guards != nil {
-		g.allowPush = cfg.Data.Guards.AllowPush
-	}
 	g.detectRole()
 	return g
 }
@@ -497,6 +493,6 @@ func (g *guard) recordBackground() {
 	if !g.background || strings.TrimSpace(g.cmd) == "" {
 		return
 	}
-	project.AppendBackground(g.root, project.BackgroundCall{At: time.Now().Unix(), Agent: sessionAgent(g.cfg, g.detected, g.env),
+	project.AppendBackground(g.root, project.BackgroundCall{At: time.Now().Unix(), Agent: project.SelfAgent(g.cfg, g.detected),
 		Pane: g.env.Get("HERDR_PANE_ID"), Session: g.session, Description: g.description, Command: g.cmd})
 }

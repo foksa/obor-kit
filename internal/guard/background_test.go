@@ -41,7 +41,7 @@ func TestBackgroundBashCallRecorded(t *testing.T) {
 		t.Fatalf("calls = %+v, want one", calls)
 	}
 	c := calls[0]
-	if c.Command != "python convert.py --all" || c.Description != "convert maps" || c.Agent != "w1" || c.Pane != "p-9" ||
+	if c.Command != "python convert.py --all" || c.Description != "convert maps" || c.Agent != "pj-l-01" || c.Pane != "p-9" ||
 		c.Session != "s-1" || c.At == 0 {
 		t.Errorf("call = %+v", c)
 	}

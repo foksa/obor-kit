@@ -49,13 +49,14 @@ func TestResumeRequest(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("%d requests, want 3", len(calls))
 	}
-	for i, want := range []struct{ role, note, to string }{{"lead", "yes, edit x.go", ""},
-		{"", "as the owner", wire.ResumeSendback}, {"worker", "", wire.ResumeRegate}} {
+	// The agent is derived from the role (T-786): the owner (no role) is no agent, a stale OBOR_AGENT is never read.
+	for i, want := range []struct{ role, agent, note, to string }{{"lead", "pj-lead", "yes, edit x.go", ""},
+		{"", "", "as the owner", wire.ResumeSendback}, {"worker", "pj-l-01", "", wire.ResumeRegate}} {
 		c := calls[i]
-		if c.Task != "T-01" || c.Note != want.note || c.To != want.to || c.Role != want.role || c.Agent != "pj-lead" ||
+		if c.Task != "T-01" || c.Note != want.note || c.To != want.to || c.Role != want.role || c.Agent != want.agent ||
 			c.Root != p.Root || c.CallID == "" {
-			t.Errorf("request %d: %+v; want task T-01, note %q, to %q, role %q, agent pj-lead, root, a call id", i+1, c,
-				want.note, want.to, want.role)
+			t.Errorf("request %d: %+v; want task T-01, note %q, to %q, role %q, agent %q, root, a call id", i+1, c,
+				want.note, want.to, want.role, want.agent)
 		}
 	}
 	if calls[0].CallID == calls[1].CallID {

@@ -46,7 +46,7 @@ func UserPromptSubmit(input []byte, env project.Env, out io.Writer) {
 	role := project.DetectRole(repo, cfg, env)
 	switch role.Role {
 	case "lead", "integrator":
-		if ctx := handoffReminder(cfg, env, role.Role, project.SelfAgent(cfg, role, env), ev.SessionID, ev.TranscriptPath); ctx != "" {
+		if ctx := handoffReminder(cfg, env, role.Role, project.SelfAgent(cfg, role), ev.SessionID, ev.TranscriptPath); ctx != "" {
 			promptContext(out, ctx)
 		}
 		return

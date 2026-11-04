@@ -6,8 +6,8 @@ package setup
 //
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
-//	1 config   .obor/config.json and .obor/local.json: name, prefix, and every agent name that is <old prefix>-… or the
-//	           old lead's (guards.allow_push) → the new default; names that follow neither are kept
+//	1 config   .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them, T-765;
+//	           guards.allow_push lists roles, T-786: nothing to rewrite)
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
 //	3 files    ~/.obor/agents/<old>.inbox copied to <new>.… (no overwrite); each lane worktree's opencode.json
@@ -165,8 +165,7 @@ func (r *renamer) config(context.Context) error {
 	return nil
 }
 
-// renameDoc is a config file with the new name and prefix and the mapped agent names; the other members keep their
-// values. forceNames: set name and prefix even when the file has none (the main config; local.json only changes the
+// renameDoc is a config file with the new name and prefix; the other members keep their values. forceNames: set name and prefix even when the file has none (the main config; local.json only changes the
 // ones it overrides). A changed file is written indented (EditJSON leaves what it edits compact).
 func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 	out := doc
@@ -180,22 +179,6 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 		if (ok || forceNames) && cur != kv[1] {
 			if err := set([]string{kv[0]}, kv[1]); err != nil {
 				return nil, err
-			}
-		}
-	}
-	if raw, _ := config.MemberAt(out, []string{"guards", "allow_push"}); raw != nil {
-		var list []string
-		if json.Unmarshal(raw, &list) == nil {
-			mapped := make([]string, len(list))
-			changed := false
-			for i, a := range list {
-				mapped[i] = r.mapAgent(a)
-				changed = changed || mapped[i] != a
-			}
-			if changed {
-				if err := set([]string{"guards", "allow_push"}, mapped); err != nil {
-					return nil, err
-				}
 			}
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"obor/internal/app/wire"
+	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/version"
 )
@@ -199,6 +200,17 @@ type serverInfo struct {
 // role is the session's role: OBOR_ROLE.
 func (s *server) role() string { return s.env.Get("OBOR_ROLE") }
 
+// self is the caller's agent name: project.Self of the server's cwd in repo r under the current config, read at each
+// call (T-786: derived, never OBOR_AGENT, so a rename applies at once). A config that does not load names no one ("":
+// serve refuses the call).
+func (s *server) self(r *project.Repo) string {
+	cfg, _, err := config.LoadHook(r.Root)
+	if err != nil {
+		return ""
+	}
+	return project.Self(r, cfg, s.env)
+}
+
 // call answers one tools/call: the tool must be in the role's table (else invalid params, the JSON-RPC answer to an
 // unknown tool), its required arguments must be there, and the app's refusal — like serve being down — is a tool
 // error result, never a broken server.
@@ -232,7 +244,7 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rp
 	if err != nil {
 		return errorResult(t.name + ": not in an obor project (no .obor/config.json)"), nil
 	}
-	c := wire.Call{Agent: s.env.Get("OBOR_AGENT"), Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
+	c := wire.Call{Agent: s.self(root), Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
 		Pane: s.env.Get("HERDR_PANE_ID"), CallID: wire.NewCallID(), Root: root.Root}
 	switch t.method {
 	case wire.MethodJobNext:

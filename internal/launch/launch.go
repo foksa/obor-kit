@@ -4,10 +4,10 @@
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
 //	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
-//	         OBOR_AGENT, OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE
-//	         (no lane: unset) and the cwd as obor setup gives them; an unknown agent gets OBOR_AGENT only, in the pane's
-//	         cwd. Kind and args from the dispatch's model (the launch's, else a lane agent's lane row model, T-722), else
-//	         the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
+//	         OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE (no lane:
+//	         unset) and the cwd as obor setup gives them, OBOR_AGENT unset (T-786: a name is derived, never exported);
+//	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
+//	         launch's, else a lane agent's lane row model, T-722), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
 //	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
@@ -705,23 +705,28 @@ func (l *Launcher) envOrOS() project.Env {
 	return l.Env
 }
 
-// envLine is the shell line that sets the agent's env (and cwd) as obor setup does.
+// envLine is the shell line that sets the agent's env (and cwd) as obor setup does: OBOR_ROLE and OBOR_LANE, never
+// the agent's name (T-786: derived from them, project.Self); a stale OBOR_AGENT of a reused shell is unset.
 func envLine(t *target) string {
-	line := "export OBOR_AGENT=" + shellQuote(t.agent)
 	role := t.info.Role
 	if r, ok := roles.Lookup(role); ok {
 		role = r.EnvValue
 	}
+	unset, set := []string{"OBOR_AGENT"}, []string{}
 	if role != "" {
-		line += " OBOR_ROLE=" + shellQuote(role)
+		set = append(set, "OBOR_ROLE="+shellQuote(role))
 	}
 	if t.info.Lane != "" {
-		line += " OBOR_LANE=" + shellQuote(t.info.Lane)
+		set = append(set, "OBOR_LANE="+shellQuote(t.info.Lane))
 	} else {
-		line += " && unset OBOR_LANE"
+		unset = append(unset, "OBOR_LANE")
 	}
 	if t.known && role == "" {
-		line += " OBOR_ROLE"
+		unset = append(unset, "OBOR_ROLE")
+	}
+	line := "unset " + strings.Join(unset, " ")
+	if len(set) > 0 {
+		line += " && export " + strings.Join(set, " ")
 	}
 	if t.info.Cwd != "" {
 		line = "cd " + shellQuote(t.info.Cwd) + " && " + line

@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// T-581: Turn and StopFailure name the lane's agent when OBOR_AGENT is unset (an OpenCode plugin's shared process
-// carries no env identity), for every kind; OBOR_AGENT still wins (the Claude and Codex controls); a cwd that is no
-// lane names no agent (nothing is sent).
+// T-581, T-786: Turn and StopFailure name the lane's derived agent with no env (an OpenCode plugin's shared process
+// carries none), for every kind; a stale OBOR_AGENT is ignored; a cwd that is no lane names no agent (nothing is sent).
 func TestTurnAndStopFailureResolveTheLaneAgent(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"claude", "codex", "opencode"} {
@@ -28,13 +27,18 @@ func TestTurnAndStopFailureResolveTheLaneAgent(t *testing.T) {
 				t.Errorf("StopFailure from the lane: %+v, %v, %v; want the lane's agent", stop, ok, err)
 			}
 
-			// The environment still names the session: unchanged for Claude and Codex.
+			// A stale OBOR_AGENT (a reused shell, a renamed project) is ignored: the derived name (T-786).
 			env := f.Env("OBOR_AGENT=pj-other")
-			if turn, _ := Turn(turnEvent, env); turn.Agent != "pj-other" {
-				t.Errorf("Turn with OBOR_AGENT: agent %q, want pj-other", turn.Agent)
+			if turn, _ := Turn(turnEvent, env); turn.Agent != "pj-l-01" {
+				t.Errorf("Turn with a stale OBOR_AGENT: agent %q, want pj-l-01", turn.Agent)
 			}
-			if stop, _, _ := StopFailure(failureEvent, env, time.Now()); stop.Agent != "pj-other" {
-				t.Errorf("StopFailure with OBOR_AGENT: agent %q, want pj-other", stop.Agent)
+			if stop, _, _ := StopFailure(failureEvent, env, time.Now()); stop.Agent != "pj-l-01" {
+				t.Errorf("StopFailure with a stale OBOR_AGENT: agent %q, want pj-l-01", stop.Agent)
+			}
+			// A role in the main checkout: its derived name, not the stale one.
+			intEvent := []byte(`{"hook_event_name": "StopFailure", "cwd": "` + f.Root + `", "error": "rate_limit"}`)
+			if stop, _, _ := StopFailure(intEvent, f.Env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-old-int"), time.Now()); stop.Agent != "pj-int" {
+				t.Errorf("StopFailure of the integrator with a stale OBOR_AGENT: agent %q, want pj-int", stop.Agent)
 			}
 
 			// The main checkout is no lane: no agent to name.

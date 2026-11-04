@@ -130,52 +130,61 @@ func TestGitPushDeniedInEveryFormLookAlikesAllowed(t *testing.T) {
 	})
 }
 
-// bash case_allow_push (T-105)
+// bash case_allow_push (T-105, T-786): an entry is a role ("lead") or a role's derived name ("pj-lead", read as its
+// slot); the session's role is what counts, never the name in a (stale) OBOR_AGENT.
 func TestAllowPushListedNonWorkerOnly(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P, L := f.P, f.L
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", `["pj-lead", "pj-l-01"]`))
-	check(t, f.Project, []tc{
-		bash("lead pj-lead", P, "git push", ""),
-		bash("lead pj-lead", P, "git -C "+L+" push origin main", ""),
-		bash("lead pj-lead", P, "git -c user.name=x push", ""),
-		bash("lead pj-lead", P, "gh repo create r --push", ""),
-		bash("lead pj-lead", P, "gh pr create --title t", ""),
-		bash("lead pj-lead", P, "gh repo sync owner/repo", ""),
-		bash("- pj-lead", P, "git push", ""),
-		// Listed, but a worker: OBOR_ROLE=worker, or a lane cwd (even with a non-worker OBOR_ROLE).
-		bash("worker pj-lead", P, "git push", "guards.allow_push"),
-		bash("worker pj-lead", P, "gh pr create", "guards.allow_push"),
-		bash("- pj-lead", L, "git push", "guards.allow_push"),
-		bash("lead pj-lead", L, "gh repo create r --push", "guards.allow_push"),
-		bash("- pj-l-01", L, "git push", "guards.allow_push"),
-		// Unlisted agent, or unknown identity.
-		bash("lead pj-ui", P, "git push", "guards.allow_push"),
-		bash("lead pj-ui", P, "git -C x push", "guards.allow_push"),
-		bash("lead pj-ui", P, "gh repo create r --push", "gh repo create --push"),
-		bash("lead pj-ui", P, "gh pr create", "gh pr create (pushes the branch)"),
-		bash("lead pj-ui", P, "gh pr create --head b --base main", "gh pr create"),
-		bash("lead pj-ui", P, "gh repo sync owner/repo", "gh repo sync <repo>"),
-		bash("lead pj-ui", P, "gh repo sync -b main owner/repo", "gh repo sync"),
-		bash("lead pj-ui", P, "bash -c 'gh pr create'", "gh pr create"),
-		bash("-", P, "git push", "guards.allow_push"),
-		bash("-", P, "gh pr create", "guards.allow_push"),
-		// Not pushes.
-		bash("lead pj-ui", P, "gh repo create r", ""),
-		bash("lead pj-ui", P, "gh repo sync", ""),
-		bash("lead pj-ui", P, "gh repo sync -b main", ""),
-		bash("lead pj-ui", P, "gh pr list", ""),
-		bash("lead pj-ui", P, "gh pr view create", ""),
-		bash("lead pj-ui", P, "echo gh pr create", ""),
-		bash("lead pj-ui", P, "gh", ""),
-	})
-	// No guards.allow_push → everyone denied.
-	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
-	check(t, f.Project, []tc{
-		bash("lead pj-lead", P, "git push", "guards.allow_push"),
-		bash("lead pj-lead", P, "gh pr create", "guards.allow_push"),
-	})
+	for _, list := range []string{`["lead", "worker"]`, `["pj-lead", "pj-l-01"]`} {
+		f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("guards.allow_push", list))
+		check(t, f.Project, []tc{
+			bash("lead", P, "git push", ""),
+			bash("lead", P, "git -C "+L+" push origin main", ""),
+			bash("lead", P, "git -c user.name=x push", ""),
+			bash("lead", P, "gh repo create r --push", ""),
+			bash("lead", P, "gh pr create --title t", ""),
+			bash("lead", P, "gh repo sync owner/repo", ""),
+			bash("lead pj-old-lead", P, "git push", ""), // a stale OBOR_AGENT changes nothing
+			// Listed, but a worker: OBOR_ROLE=worker, or a lane cwd (even with a non-worker OBOR_ROLE).
+			bash("worker", P, "git push", "guards.allow_push"),
+			bash("worker pj-lead", P, "gh pr create", "guards.allow_push"),
+			bash("-", L, "git push", "guards.allow_push"),
+			bash("lead", L, "gh repo create r --push", "guards.allow_push"),
+			bash("- pj-l-01", L, "git push", "guards.allow_push"),
+			// An unlisted role, or no role: an OBOR_AGENT naming the lead is no identity.
+			bash("integrator", P, "git push", "guards.allow_push"),
+			bash("integrator pj-lead", P, "git -C x push", "guards.allow_push"),
+			bash("reviewer", P, "gh repo create r --push", "gh repo create --push"),
+			bash("reviewer", P, "gh pr create", "gh pr create (pushes the branch)"),
+			bash("reviewer", P, "gh pr create --head b --base main", "gh pr create"),
+			bash("reviewer", P, "gh repo sync owner/repo", "gh repo sync <repo>"),
+			bash("reviewer", P, "gh repo sync -b main owner/repo", "gh repo sync"),
+			bash("reviewer", P, "bash -c 'gh pr create'", "gh pr create"),
+			bash("- pj-lead", P, "git push", "guards.allow_push"),
+			bash("-", P, "gh pr create", "guards.allow_push"),
+			// Not pushes.
+			bash("reviewer", P, "gh repo create r", ""),
+			bash("reviewer", P, "gh repo sync", ""),
+			bash("reviewer", P, "gh repo sync -b main", ""),
+			bash("reviewer", P, "gh pr list", ""),
+			bash("reviewer", P, "gh pr view create", ""),
+			bash("reviewer", P, "echo gh pr create", ""),
+			bash("reviewer", P, "gh", ""),
+		})
+	}
+	// No guards.allow_push, or an entry that names no role → everyone denied.
+	for _, list := range []string{"", `["pj-boss"]`} {
+		edits := []func(map[string]any){testkit.Set("protected_files", `["src/core/types.ts"]`)}
+		if list != "" {
+			edits = append(edits, testkit.Set("guards.allow_push", list))
+		}
+		f.Config(edits...)
+		check(t, f.Project, []tc{
+			bash("lead", P, "git push", "guards.allow_push"),
+			bash("lead pj-boss", P, "gh pr create", "guards.allow_push"),
+		})
+	}
 }
 
 // bash case_pkill_killall

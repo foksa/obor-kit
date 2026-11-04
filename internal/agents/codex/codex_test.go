@@ -18,7 +18,7 @@ func TestKind(t *testing.T) {
 		t.Fatalf("codex not registered: %v", agents.Names())
 	}
 	mcp := []string{"-c", `mcp_servers.obor.command="/kit/bin/obor"`, "-c", `mcp_servers.obor.args=["mcp"]`,
-		"-c", `mcp_servers.obor.env_vars=["OBOR_ROLE","OBOR_AGENT","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]`,
+		"-c", `mcp_servers.obor.env_vars=["OBOR_ROLE","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]`,
 		"-c", `mcp_servers.obor.env={OBOR_NO_SELF_HOST="1"}`, "-c", `mcp_servers.obor.default_tools_approval_mode="approve"`}
 	noUpdate := []string{"-c", "check_for_update_on_startup=false"}
 	for _, c := range []struct {
@@ -49,7 +49,7 @@ func TestKind(t *testing.T) {
 	if n != 1 {
 		t.Errorf("a start carries the update check %d times, want once", n)
 	}
-	if codex.EnvVarsTOML() != `["OBOR_ROLE","OBOR_AGENT","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]` {
+	if codex.EnvVarsTOML() != `["OBOR_ROLE","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]` {
 		t.Errorf("EnvVarsTOML = %s", codex.EnvVarsTOML())
 	}
 	for screen, want := range map[string]string{"Updated Codex to 0.9, restart codex": "updated itself and exited",

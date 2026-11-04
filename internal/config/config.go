@@ -647,6 +647,50 @@ func (c *Config) AgentName(role, lane string) string {
 	return rc.Role.AgentName(c.Data.Prefix, lane)
 }
 
+// Self is the herdr agent name of the slot role (of lane, for a lane-bound role) holds: a worker's derived name, the
+// drive agent's (roles.DriveAgent of its lane's worker), another table role's derived name; "" for no role, a role
+// outside the table or a lane-bound role without a lane. The one derivation of "who am I" (T-786): a name obor can
+// derive is never stored (no OBOR_AGENT).
+func (c *Config) Self(role, lane string) string {
+	switch {
+	case role == roles.Driver:
+		if w := c.AgentName("worker", lane); w != "" {
+			return roles.DriveAgent(w)
+		}
+		return ""
+	case roles.LaneBound(role):
+		return c.AgentName("worker", lane)
+	}
+	return c.AgentName(role, "")
+}
+
+// PushAllowed: guards.allow_push lists role (T-105, T-786). An entry is a role ("lead"); one that is no role but a
+// role's derived name ("ob-lead", a config written before T-786) is read as that role's slot.
+func (c *Config) PushAllowed(role string) bool {
+	if role == "" || c.Data.Guards == nil {
+		return false
+	}
+	for _, entry := range c.Data.Guards.AllowPush {
+		if c.pushSlot(entry) == role {
+			return true
+		}
+	}
+	return false
+}
+
+// pushSlot is the role an allow_push entry names: the role itself, else the role whose derived name it is ("": none).
+func (c *Config) pushSlot(entry string) string {
+	if r, ok := roles.Lookup(entry); ok {
+		return r.Name
+	}
+	for _, r := range roles.All() {
+		if !roles.LaneBound(r.Name) && entry != "" && c.AgentName(r.Name, "") == entry {
+			return r.Name
+		}
+	}
+	return ""
+}
+
 // roleAgents is every table role but the worker, an optional one only when configured.
 func (c *Config) roleAgents() []RoleConfig {
 	var out []RoleConfig

@@ -22,7 +22,7 @@ import (
 // (record). paneLabel is a herdr pane's label ("" when
 // it cannot tell; cmd/obor: one bounded `herdr pane get`), asked only for the lost-identity warning. The session it
 // returns is what cmd/obor reports to serve (T-577; ok false: no project, no agent name or no session id).
-func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(pane string) string) (Began, bool) {
+func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	var ev struct {
 		Cwd            string `json:"cwd"`
 		SessionID      string `json:"session_id"`
@@ -38,9 +38,9 @@ func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(p
 	if repo == nil || errors.Is(err, config.ErrNoConfig) {
 		return Began{}, false
 	}
-	agent := env.Get("OBOR_AGENT")
+	agent := project.Self(repo, cfg, env) // derived, never OBOR_AGENT (T-786)
 	kind := sessionKind(cfg, agent, ev.Cwd)
-	if err != nil { // DD-v0.13 A1: say so, keep the session's records, guard nothing else on a default config
+	if err != nil { // DD-v0.13 A1: say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
 		record(agent, ev.SessionID, env)
 		return Began{}, false
@@ -103,24 +103,16 @@ func SessionStart(input []byte, env project.Env, out io.Writer, paneLabel func(p
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
 	record(agent, ev.SessionID, env)
-	began := Began{Root: cfg.Root, Agent: sessionAgent(cfg, w.Role, env), Kind: kind, ID: ev.SessionID,
+	began := Began{Root: cfg.Root, Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane}
 	if w.State != nil {
 		began.Task = w.State.Task
 	}
-	// Lost identity (T-126, R-28 §2): this pane is labelled obor agent X but OBOR_AGENT is unset.
-	if pane := env.Get("HERDR_PANE_ID"); agent == "" && pane != "" {
-		if label := paneLabel(pane); label != "" {
-			if _, known := project.AgentLookup(cfg, label, ""); known {
-				fmt.Fprintf(out, "obor: WARNING: this pane is labelled obor agent %s but OBOR_AGENT is unset (herdr restore?) — run obor restart %s from another pane\n", label, label)
-			}
-		}
-	}
 	return began, began.ID != "" && recordable(began.Agent)
 }
 
-// Began is an agent session the SessionStart hook saw begin (T-577): the project, the agent (OBOR_AGENT, else its
-// lane's: T-581), its kind, the session id and its transcript file ("": the event names none), and the pane, lane and
+// Began is an agent session the SessionStart hook saw begin (T-577): the project, the agent (project.Self: derived,
+// T-786), its kind, the session id and its transcript file ("": the event names none), and the pane, lane and
 // task it began in.
 type Began struct {
 	Root, Agent, Kind, ID, Transcript string
@@ -136,16 +128,6 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 		}
 	}
 	return agents.Default
-}
-
-// sessionAgent is the agent a hook event is about: OBOR_AGENT when the session's environment names one, else, in a
-// lane, the agent its lane state names (a kind whose hooks run in one shared process carries no env identity: T-308,
-// T-581); "" outside a lane.
-func sessionAgent(cfg *config.Config, role project.Role, env project.Env) string {
-	if role.Lane == "" {
-		return env.Get("OBOR_AGENT")
-	}
-	return project.SelfAgent(cfg, role, env)
 }
 
 // roleText is the line naming this role's text (T-204): the kit's templates/agents/<role>.md, read in place, plus the

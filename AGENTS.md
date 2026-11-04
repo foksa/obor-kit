@@ -35,6 +35,8 @@ checks placement against `docs/module-map.md` at accept).
 
 ## Helpers
 - One owner per helper: grep `internal/` for a twin before writing one. No line-count targets: simpler, not shorter.
+- A name obor can derive is never stored; state is keyed by slot or task (DD-consolidation I3, T-786: an agent's name
+  comes from `project.Self`, never an exported `OBOR_AGENT`).
 
 ## Tests
 - The merge gate is `make check` (`commands.check`, heavy): `make build`, gofmt, `go vet`, `go test ./...`,

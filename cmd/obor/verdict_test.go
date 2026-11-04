@@ -87,7 +87,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 			t.Errorf("obor has %s: exit %d, want 1", verb, rc)
 		}
 	}
-	worker := append(append([]string(nil), env...), "OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01")
+	worker := append(append([]string(nil), env...), "OBOR_ROLE=worker", "OBOR_LANE=L-01", "OBOR_AGENT=pj-stale")
 	// serve answers status before its project is loaded (its first subscribe or tick replays the log): wait for it.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		if _, stdout, _ := run(t, p.Root, worker, "resume", "T-01"); !strings.Contains(stdout, "no served project") {
