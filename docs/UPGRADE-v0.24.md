@@ -34,3 +34,6 @@ Re-run the installer, then `obor serve restart` in each project. Nothing else is
 
 - A project with `merge.nightly_at` set now runs its nightly every night at that time, merges or not. Switch it with
   `obor nightly on HH:MM` / `obor nightly off` (one commit on main, no serve restart).
+
+## v0.24.2 (dispatch uses the lane's labelled pane)
+Re-run the installer, then `obor serve restart` in each project. Nothing else is required.
