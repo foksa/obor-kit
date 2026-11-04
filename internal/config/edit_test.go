@@ -64,7 +64,7 @@ func TestEditSetsEachField(t *testing.T) {
 		{"lanes", `1`, `2`, `1`, func(n *Config) bool { return len(n.Lanes()) == 1 && !n.HasLane("L-02") }},
 		{"kinds.codex.args", `["--x"]`, `["-c","sandbox_workspace_write.network_access=true"]`, `["--x"]`, func(n *Config) bool {
 			m, _ := n.Model("terra")
-			return slices.Equal(m.Args, []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6.1-terra", "--x"})
+			return slices.Equal(m.Args, []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra", "--x"})
 		}},
 		{"kinds.claude.args", `["--strict-mcp-config"]`, "", `["--strict-mcp-config"]`, func(n *Config) bool {
 			m, _ := n.Model("opus")
@@ -72,7 +72,7 @@ func TestEditSetsEachField(t *testing.T) {
 		}},
 		{"kinds.codex.args", `[]`, `["-c","sandbox_workspace_write.network_access=true"]`, "", func(n *Config) bool {
 			m, _ := n.Model("terra")
-			return len(m.Args) == 6
+			return len(m.Args) == len(KindBaseArgs["codex"])+2
 		}},
 		{"roles.integrator", `"sonnet"`, "", `"sonnet"`, func(n *Config) bool { rc, _ := n.Role("integrator"); return rc.Type == "sonnet" }},
 		{"roles.lead", `"luna:low"`, `"opus:high"`, `"luna:low"`, func(n *Config) bool {

@@ -841,7 +841,7 @@ func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
 	want := []string{"agent.list", "pane.list",
 		"tab.create cwd=" + lane + " env={OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker} focus=false label=workers workspace_id=w1",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-l-01 pane_id=w1:n1",
+		"agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-l-01 pane_id=w1:n1",
 		"pane.process_info pane_id=w1:n1"} // the fresh Codex start's pid: the rollout it holds is its session (T-588)
 	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -1052,7 +1052,7 @@ func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 			t.Errorf("%s: a removal hint is no part of setup role any more:\n%s", c.role, out)
 		}
 		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+x.Root+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never -m gpt-6-luna ", c.role+" start")
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna ", c.role+" start")
 		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent+" pane_id=w1:n1", c.role+" start: the agent")
 		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 0 {
 			t.Errorf("%s: added to the lanes", c.role)

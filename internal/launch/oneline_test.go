@@ -24,7 +24,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 		head            string // the start args before the prompt
 	}{
 		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " "},
-		{"codex", "luna", "codex", "-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
+		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
 		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
