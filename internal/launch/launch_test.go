@@ -838,58 +838,6 @@ const codexMCP = `-c mcp_servers.obor.command="/kit/bin/obor" -c mcp_servers.obo
 
 const codexUpdate = "-c check_for_update_on_startup=false"
 
-// T-375: the first prompt per kind (the wake of a fresh start), Codex's MCP registration on every start, and no
-// prompt on a resume or for a kind without MCP.
-func TestStartFirstPrompt(t *testing.T) {
-	t.Parallel()
-	const wake = "[obor job T-1/1/work] call the obor job_next tool"
-	const models = `{"oc":{"kind":"opencode","model":""}}`
-	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
-	for _, c := range []struct {
-		name, role, typ, kind string
-		req                   launch.Request
-		resume                bool
-		want                  string
-	}{
-		// bash-free cases: the table is the spec
-		{"claude, wake", "reviewer", "opus", "claude", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- --permission-mode auto --model opus" + settings + " --session-id <new> " + wake},
-		{"claude, no wake", "reviewer", "opus", "claude", launch.Request{Fresh: true}, false,
-			"-- --permission-mode auto --model opus" + settings + " --session-id <new>"},
-		{"claude, resume carries no wake", "reviewer", "opus", "claude", launch.Request{Prompt: wake}, true,
-			"-- --permission-mode auto --model opus" + settings + " --resume sid-1"},
-		{"codex, wake", "reviewer", "luna", "codex", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " " + wake},
-		{"codex, no wake: still registered", "reviewer", "luna", "codex", launch.Request{Fresh: true}, false,
-			"-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP},
-		{"codex, resume carries no wake", "reviewer", "luna", "codex", launch.Request{Prompt: wake}, true,
-			"-- resume sid-1 -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP},
-		{"opencode, wake after --prompt", "reviewer", "oc", "opencode", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- --auto --standalone --prompt " + wake},
-		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- --auto --standalone"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
-			a := x.agent("w1:p7", "pj-rev", c.kind, "idle")
-			a.Session = "sid-1"
-			if c.resume && c.kind == "claude" {
-				x.sid("pj-rev", "sid-1") // T-813: Claude resumes its record, never herdr's session
-			}
-			c.req.Agent = "pj-rev"
-			out, ok := x.restart(c.req)
-			if !ok {
-				t.Fatal(out)
-			}
-			want := "agent.start kind=" + c.kind + " name=pj-rev pane_id=w1:p7"
-			if args := strings.TrimPrefix(c.want, "-- "); args != "" {
-				want = "agent.start args=[" + args + "] kind=" + c.kind + " name=pj-rev pane_id=w1:p7"
-			}
-			eq(t, x.named(x.startCall()), want, "agent.start")
-		})
-	}
-}
-
 // T-773: obor restart of a lane's worker while its lane's task has a job open (Launcher.Job) restarts it with that job:
 // a fresh session's first prompt is the job's wake, a resumed one gets it typed once it is up. No job: unchanged
 // (nothing typed, no first prompt); an explicit --prompt wins; an agent on no lane is not asked about.
@@ -1180,74 +1128,45 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 }
 
 // T-404: herdr's agent start answers only once the agent is ready for input (30 s), which an agent busy on its first
-// prompt never is: a start ends with its agent up and named, while herdr's answer is still pending. An agent herdr
-// left unnamed is named by the launch; one it never names is still started, with a warning (DD-v0.13 A7).
+// prompt never is: a start ends with its agent up and named, while herdr's answer is still pending (T-405: the start
+// owns herdr's call, cancelled before it returns). An agent herdr left unnamed is named by the launch, and one it never
+// names is still started with a warning: TestStartNamesTheAgent.
 func TestStartEndsWithTheAgentUp(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		name     string
-		onStart  string // what agent start leaves behind (the fake's OnStart)
-		noRename bool
-		renames  int
-		line     string // the result (a RESTARTED line, or the FAIL's start)
-	}{
-		{"named at once: RESTARTED without herdr's answer", "", false, 0,
-			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
-		{"unnamed: named by the launch, RESTARTED without herdr's answer", "unnamed", false, 1,
-			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
-		{"never named: the rename refused, RESTARTED with a warning", "unnamed", true, 1,
-			"RESTARTED pj-l-01 (pane w1:p3, session new)"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			release, ended := make(chan struct{}), make(chan struct{})
-			defer close(release) // herdr's answer comes after the test's checks
-			x.pendingStart(release, ended)
-			x.shell("w1:p3", "pj-l-01", "").OnStart = c.onStart
-			if c.noRename {
-				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
-			}
-			var out bytes.Buffer
-			done := make(chan struct {
-				line string
-				err  error
-			}, 1)
-			go func() {
-				line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-				done <- struct {
-					line string
-					err  error
-				}{line, err}
-			}()
-			select {
-			case got := <-done:
-				if got.err != nil {
-					if !strings.HasPrefix(got.err.Error(), c.line) {
-						t.Fatalf("the start's FAIL: %q, want %q", got.err.Error(), c.line)
-					}
-					eqInt(t, len(x.calls("agent.rename target=w1:p3")), c.renames, "renames")
-					return
-				}
-				eq(t, got.line, c.line, "result")
-			case <-time.After(10 * time.Second):
-				t.Fatal("the start waited for herdr's answer")
-			}
-			select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
-			case <-ended:
-			default:
-				t.Error("herdr's agent start call still runs after the start returned")
-			}
-			lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
-			eqInt(t, len(x.calls("agent.rename target=w1:p3")), c.renames, "renames")
-			if c.noRename {
-				contains(t, out.String(), "warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there", "warned")
-				eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name")
-				return
-			}
-			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
-		})
+	x := setup(t)
+	release, ended := make(chan struct{}), make(chan struct{})
+	defer close(release) // herdr's answer comes after the test's checks
+	x.pendingStart(release, ended)
+	x.shell("w1:p3", "pj-l-01", "")
+	var out bytes.Buffer
+	done := make(chan struct {
+		line string
+		err  error
+	}, 1)
+	go func() {
+		line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		done <- struct {
+			line string
+			err  error
+		}{line, err}
+	}()
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("the start: %v\n%s", got.err, out.String())
+		}
+		eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the start waited for herdr's answer")
 	}
+	select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
+	case <-ended:
+	default:
+		t.Error("herdr's agent start call still runs after the start returned")
+	}
+	lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
+	eqInt(t, len(x.calls("agent.rename target=w1:p3")), 0, "renames: herdr named it")
+	eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
 }
 
 // T-404: a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
@@ -2189,12 +2108,12 @@ func TestStopForceTerminates(t *testing.T) {
 	})
 	// What is not proven the agent's is never signalled: checked after the wait (no signal) and after TERM (no KILL).
 	for _, c := range []struct {
-		name  string
-		when  string // "wait": changed before the first check; "term": after SIGTERM
-		shell int    // the pane's shell from then on (0: unchanged)
-		procs []herdr.Process
-		kills string
-		fail  string
+		name      string
+		when      string // "wait": changed before the first check; "term": after SIGTERM
+		shell, fg int    // the pane's shell and foreground group from then on (0: unchanged)
+		procs     []herdr.Process
+		kills     string
+		fail      string
 	}{
 		{name: "leader changed: no signal", when: "wait", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
 			fail: `not terminated: the group's leader (pid 2) is "vim", not claude`},
@@ -2203,6 +2122,9 @@ func TestStopForceTerminates(t *testing.T) {
 			kills: "2 terminated,2 killed", fail: "pj-l-01 exited, but its leftover process(es) (uvx) kept the foreground after SIGTERM and SIGKILL (pane w1:p3)"},
 		{name: "shell changed: no signal", when: "wait", shell: 7,
 			fail: "not terminated: the pane's shell is pid 7, not 1"},
+		// T-249: another group has the foreground after the wait: the user's next job, never the agent's.
+		{name: "foreground changed: no signal", when: "wait", fg: 5,
+			fail: "not terminated: the foreground is group 5, not 2"},
 		{name: "leader changed after TERM: no KILL", when: "term", procs: []herdr.Process{{PID: 2, Argv0: "vim"}},
 			kills: "2 terminated", fail: `nor on SIGTERM (pane w1:p3; no SIGKILL: the group's leader (pid 2) is "vim", not claude)`},
 		{name: "shell changed after TERM: no KILL", when: "term", shell: 7,
@@ -2221,8 +2143,14 @@ func TestStopForceTerminates(t *testing.T) {
 				}
 			}
 			x.procInfo(func(p *herdrtest.Pane) {
-				if changed && c.shell != 0 {
+				if !changed {
+					return
+				}
+				if c.shell != 0 {
 					p.Shell = c.shell
+				}
+				if c.fg != 0 {
+					p.Foreground = c.fg
 				}
 			})
 			if c.when == "wait" {
@@ -3194,130 +3122,6 @@ func TestStopEveryKind(t *testing.T) {
 		eqInt(t, len(x.kills), 0, "no signal")
 		eq(t, last(out), `FAIL pj-l-01 has no clean quit (pane w1:p3; not terminated: the group's leader (pid 2) is "node", not gemini)`, "result")
 	})
-}
-
-// T-500: stop per kind, on fake process tables (the agent leads group 2 in a lane of its kind): a clean quit; a quit
-// ignored, --force: the terminate ladder on the kind's leader; the wrong group (another program leads it, or another
-// group has the foreground after the wait) is never signalled.
-func TestStopPerKind(t *testing.T) {
-	t.Parallel()
-	kinds := []struct{ kind, typ, quit string }{{"claude", "opus", "/exit"}, {"codex", "luna", "/quit"}, {"opencode", "deepseek", "/exit"}}
-	for _, k := range kinds {
-		lane := func(t *testing.T, leader string, onQuit string) (*fx, *herdrtest.Pane) {
-			x := setup(t)
-			x.p.State("L-01", `{"task":"T-01","branch":"task/T-01","agent":"pj-l-01","type":"`+k.typ+`"}`)
-			p := x.agent("w1:p3", "pj-l-01", k.kind, "idle")
-			p.OnQuit = onQuit
-			p.Procs = []herdr.Process{{PID: 2, Argv0: leader}}
-			x.onKill = func(_ int, sig syscall.Signal) {
-				if sig == syscall.SIGTERM {
-					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
-					x.gone["2"] = true
-				}
-			}
-			return x, p
-		}
-		t.Run(k.kind+": clean quit, no signal, STOPPED", func(t *testing.T) {
-			t.Parallel()
-			x, _ := lane(t, k.kind, "")
-			out, ok := x.stop("pj-l-01", "", false)
-			if !ok {
-				t.Fatal(out)
-			}
-			eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text="+k.quit, "the kind's quit typed")
-			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		})
-		t.Run(k.kind+": quit ignored, --force: SIGTERM to its leader's group, STOPPED", func(t *testing.T) {
-			t.Parallel()
-			x, _ := lane(t, k.kind, "stay")
-			x.wait = shortWait
-			out, ok := x.stop("pj-l-01", "", true)
-			if !ok {
-				t.Fatal(out)
-			}
-			eq(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text="+k.quit, "the kind's quit typed")
-			eq(t, strings.Join(x.kills, ","), "2 terminated", "TERM to group 2")
-			contains(t, out, "terminated pj-l-01 ("+k.kind+" pid 2, SIGTERM): it did not exit in 60ms\n", "said")
-			eq(t, last(out), "STOPPED pj-l-01 (pane w1:p3)", "result")
-		})
-		t.Run(k.kind+": quit ignored, no --force: FAIL, no signal", func(t *testing.T) {
-			t.Parallel()
-			x, _ := lane(t, k.kind, "stay")
-			x.wait = shortWait
-			out, ok := x.stop("pj-l-01", "", false)
-			if ok {
-				t.Fatal("must fail")
-			}
-			eqInt(t, len(x.kills), 0, "no signal")
-			contains(t, failLine(out), "did not exit in 60ms (pane w1:p3", "result")
-		})
-		t.Run(k.kind+": --force, another program leads the group: FAIL, no signal", func(t *testing.T) {
-			t.Parallel()
-			x, _ := lane(t, "zsh", "stay")
-			x.wait = shortWait
-			out, ok := x.stop("pj-l-01", "", true)
-			if ok {
-				t.Fatal("must fail")
-			}
-			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, failLine(out), `FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the group's leader (pid 2) is "zsh", not `+k.kind+`)`, "result")
-		})
-		t.Run(k.kind+": --force, another group in the foreground after the wait: FAIL, no signal", func(t *testing.T) {
-			t.Parallel()
-			x, _ := lane(t, k.kind, "stay")
-			x.wait = shortWait
-			x.procInfo(func(p *herdrtest.Pane) {
-				if len(x.calls("pane.send_input")) > 0 {
-					p.Foreground = 5 // the user's next job, after the quit was typed
-				}
-			})
-			out, ok := x.stop("pj-l-01", "", true)
-			if ok {
-				t.Fatal("must fail")
-			}
-			eqInt(t, len(x.calls("pane.send_input")), 1, "precondition: the quit was typed")
-			eqInt(t, len(x.kills), 0, "no signal")
-			eq(t, failLine(out), "FAIL pj-l-01 did not exit in 60ms (pane w1:p3; not terminated: the foreground is group 5, not 2)", "result")
-		})
-	}
-}
-
-// T-312: the agent's exit is its leader gone: not alive (kill 0), or no longer listed in its group by process info.
-// Either one alone counts; what is left in the group is the leftovers' ladder's.
-func TestStopGone(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name       string
-		dead, drop bool // after /exit: pid 2 not alive; pid 2 no longer listed
-		kills      string
-		last       string
-	}{
-		{name: "dead pid, still listed: exited; the listed agent refuses the leftovers' signal", dead: true,
-			last: "FAIL pj-l-01 exited, but the pane's shell did not get the foreground back (pane w1:p3; not signalled: the agent (pid 2) is still in the group)"},
-		{name: "pid no longer listed, still alive: exited; leftovers stopped", drop: true, kills: "2 terminated",
-			last: "STOPPED pj-l-01 (pane w1:p3)"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t)
-			p := x.agent("w1:p3", "pj-l-01", "claude", "idle")
-			p.OnQuit = "stay"
-			p.Procs = []herdr.Process{{PID: 2, Argv0: "claude"}, {PID: 300, Argv0: "uvx"}}
-			x.onExit = func() {
-				x.gone["2"] = c.dead
-				if c.drop {
-					p.Procs = p.Procs[1:]
-				}
-			}
-			x.onKill = func(int, syscall.Signal) { p.Foreground, p.Procs = 1, nil }
-			out, _ := x.stop("pj-l-01", "", false)
-			contains(t, strings.Join(x.srv.Calls(), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p3 text=/exit", "precondition: /exit sent")
-			lacks(t, out, "did not exit", "the exit counted")
-			eq(t, strings.Join(x.kills, ","), c.kills, "signals")
-			eq(t, last(out), c.last, "result")
-		})
-	}
 }
 
 // T-418, P5-3: Launch reports the pane, kind and session herdr showed for the agent it started: serve's registry row

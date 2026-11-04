@@ -271,32 +271,13 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	}
 }
 
-// bash restore.test.sh case_free_lane_worker_not_started
-func TestRestoreFreeLaneWorkerNotStarted(t *testing.T) {
-	f := newRfx(t)
-	o1, o2 := f.p.Lane("L-01", "task/T-01"), f.p.Lane("L-02", "task/T-02")
-	f.p.Commit(o2)
-	f.p.Config()
-	f.shell("w1:p1", o1, "pj-l-01")
-	f.shell("w1:p2", o2, "pj-l-02")
-	f.shell("w1:p3", f.p.Root, "pj-lead")
-	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-l-02 --pane w1:p2 --fresh", f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
-	has(t, f.restoreLog(), " skip pj-l-01 (pane w1:p1): lane L-01 is free (dispatch starts its worker)",
-		"the skip is logged")
-
-	f.p.Config(testkit.Set("stop_idle_workers", false))
-	f.calls = nil
-	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-l-02 --pane w1:p2 --fresh",
-		f.p.Root+" restart pj-lead --pane w1:p3 --fresh")
-}
-
-// bash restore.test.sh case_role_panes_restored_not_skipped
+// bash restore.test.sh case_role_panes_restored_not_skipped; T-169: stop_idle_workers false keeps the free lane's
+// worker too (obor dispatch would start it, so the restore skips it by default).
 func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f := newRfx(t)
 	o1 := f.p.Lane("L-01", "task/T-01")
-	f.p.Config(testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
+	roles := testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`)
+	f.p.Config(roles)
 	rev, dd := f.p.Lane("review", "review"), f.p.Lane("deep-dive", "deep-dive")
 	f.shell("w1:p1", o1, "pj-l-01")
 	f.shell("w1:p7", rev, "pj-rev")
@@ -311,5 +292,15 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 		"and so does the other role (§T-627)")
 	if strings.Contains(log, "skip pj-rev") || strings.Contains(log, "skip pj-deep-dive") {
 		t.Errorf("a role pane skipped:\n%s", log)
+	}
+
+	f.p.Config(roles, testkit.Set("stop_idle_workers", false))
+	before := len(f.restoreLog())
+	f.calls = nil
+	f.pl.Restore(context.Background())
+	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-rev --pane w1:p7 --fresh",
+		f.p.Root+" restart pj-deep-dive --pane w1:p8 --fresh")
+	if rest := f.restoreLog()[before:]; strings.Contains(rest, "skip pj-l-01") {
+		t.Errorf("stop_idle_workers false: the free lane's worker skipped:\n%s", rest)
 	}
 }
