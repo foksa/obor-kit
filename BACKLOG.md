@@ -177,6 +177,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-110, accepted) (RV-110, accepted) #1 T-840's schema-8 refusal test reads old rows only through ReadLanes; ReadLaneAt/ReadLanesAt (guard, Stop hook, whoami) are not exercised on schema 8; needs a pre-v0.22 serve during an upgrade (no project runs one); fix 10-15 test lines in internal/store/store_test.go if it ever matters
 - (RV-108, accepted) (RV-108, accepted) #1 the stop bound (T-829) does not bound the herdr calls inside Launcher.Stop: a forced stop with a slow herdr can outlast the CLI's 75 s (drop) or be cut by drive/move's 60 s request context; second review round on T-825/T-829, low likelihood; fix: one derived deadline through every herdr call of Stop (20-40 prod + 40-70 test lines)
 - (RV-106, accepted) review close leaves a still-queued verify brief alive (reviewverify.go:77, reviewcycle.go:132): it can start the stopped reviewer on a deleted review and hold merges up to the cap; low (close while a verify waits on a busy/unavailable reviewer); fix 40-80 lines (close retires it). Workaround: wait for the verify, or obor brief <reviewer> --fresh before closing.
 - (RV-106, accepted) a verify brief whose delivery broke after some bytes (sent: <error>) counts its tasks as covered (review.go:641-653); low; fix 20-50 lines (uncertain delivery not counted).
