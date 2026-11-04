@@ -29,3 +29,28 @@ func TestSubjectOf(t *testing.T) {
 		}
 	}
 }
+
+// T-807: the merge's body is the report's whole Summary section (an opening sentence and its bullets stay whole),
+// while summaryOf is still the one-line subject; a report with no Summary heading gives its first paragraph.
+func TestSummarySection(t *testing.T) {
+	t.Parallel()
+	const report = "Summary: Cut the subject at 100.\n" +
+		"- internal/app/steps.go: the whole section into GateInput.Body\n" +
+		"- internal/app/subject_test.go: these cases\n" +
+		"\nSelf-check: ok.\nSkipped: none.\nOpen questions: none."
+	want := "Cut the subject at 100.\n" +
+		"- internal/app/steps.go: the whole section into GateInput.Body\n" +
+		"- internal/app/subject_test.go: these cases"
+	if got := summarySection(report); got != want {
+		t.Errorf("summarySection = %q, want the whole section %q", got, want)
+	}
+	if got := summaryOf(report); got != "Cut the subject at 100." {
+		t.Errorf("summaryOf = %q, want the one-line subject", got)
+	}
+	if got, want := summarySection("Summary:\n- one\n- two\nSelf-check: ok."), "- one\n- two"; got != want {
+		t.Errorf("a heading alone on its line: %q, want its bullets %q", got, want)
+	}
+	if got, want := summarySection("Did it in two files.\nAnd a test.\n\nSelf-check: ok."), "Did it in two files.\nAnd a test."; got != want {
+		t.Errorf("no Summary heading: %q, want the first paragraph %q", got, want)
+	}
+}

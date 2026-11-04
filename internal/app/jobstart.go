@@ -258,8 +258,8 @@ func subjectOf(title, report string) string {
 	return summaryOf(report)
 }
 
-// summaryOf is the report's summary for the lane's commit: the rest of its Summary line, else the line after it,
-// without a list marker, cut at a word boundary within 100 characters.
+// summaryOf is the report's summary line, a subject (T-807: never the merge's body): the rest of its Summary line,
+// else the line after it, without a list marker, cut at a word boundary within 100 characters.
 func summaryOf(report string) string {
 	lines := strings.Split(report, "\n")
 	for i, l := range lines {
@@ -288,4 +288,18 @@ func summaryOf(report string) string {
 		}
 	}
 	return "merged by obor serve"
+}
+
+// summarySection is the report's whole Summary section, the merge's body (T-807): its heading's own text and every
+// line up to the next section (fetch.go's reportSection; a multi-line Summary with bullets stays whole). A report with
+// no Summary heading: its first paragraph.
+func summarySection(report string) string {
+	if s := reportSection(report, "Summary"); s != "" {
+		return s
+	}
+	text := strings.TrimSpace(report)
+	if i := strings.Index(text, "\n\n"); i > 0 {
+		text = text[:i]
+	}
+	return strings.TrimSpace(text)
 }

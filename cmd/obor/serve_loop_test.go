@@ -336,6 +336,26 @@ func TestServeLoopHappyPath(t *testing.T) {
 	}
 }
 
+// T-807: the merge's body is the worker report's whole Summary section — an opening sentence and its bullets — all the
+// way from the task_done through serve's gate onto main; with no stored spec title its subject is still the one line.
+func TestServeLoopMergeBodyKeepsSummary(t *testing.T) {
+	r := newServeRig(t)
+	r.p.Write(filepath.Join(r.lane, "feature.txt"), "feature\n")
+	r.p.Submit("L-01", "Summary: Cut the merge subject at 100.\n"+
+		"- internal/app/steps.go: the report's whole Summary section into GateInput.Body\n"+
+		"- cmd/obor/serve_loop_test.go: this end-to-end merge\n"+
+		"\nSelf-check: ok.\nSkipped: none.\nOpen questions: none.")
+	r.start()
+	r.accept("c1", r.job("T-1/1/review"))
+	r.merged()
+	want := "Merge T-1: Cut the merge subject at 100.\n\nSummary: Cut the merge subject at 100.\n" +
+		"- internal/app/steps.go: the report's whole Summary section into GateInput.Body\n" +
+		"- cmd/obor/serve_loop_test.go: this end-to-end merge"
+	if got := r.p.Git(r.p.Root, "log", "-1", "--format=%B", "main"); got != want {
+		t.Errorf("main's merge message\n%s\nwant\n%s", got, want)
+	}
+}
+
 // A conflict is a resolve job naming serve's worktree (no --ff-retry): the integrator commits the resolution there,
 // says resolved, the app gates it, then review, accept, merged with the resolution.
 func TestServeLoopConflictResolved(t *testing.T) {

@@ -280,7 +280,8 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		g.Spec, g.SpecRev = row.Text, row.Rev
-		g.Title, g.Summary = spec.Title(row.Text), summaryOf(mt.report) // the merge's subject and body (T-802)
+		// the merge's subject and body (T-802, T-807)
+		g.Title, g.Summary, g.Body = spec.Title(row.Text), summaryOf(mt.report), summarySection(mt.report)
 		o, err := fx.Scratch.Gate(ctx, g)
 		if err != nil {
 			return nil, err
