@@ -271,13 +271,13 @@ type Scratch interface {
 
 // GateInput is one gate: Input is the sha gated, per Kind: InputLane submit's sha (merged onto the target),
 // InputResolved the verdict's pin (checked as committed), InputMoved submit's sha again (merged onto the moved target,
-// never the old candidate: one merge commit per task, T-403). Summary is the merge's subject: "Merge <task>: <summary>",
-// the same for a moved gate (T-360). Spec is the task's spec and SpecRev its rev, the store's current one (T-440): the
+// never the old candidate: one merge commit per task, T-403). The merge's subject is "Merge <task>: <Title>" (no title
+// stored: the Summary's first line), the same for a moved and a resolved gate (T-360, T-802); the Summary stays in the body. Spec is the task's spec and SpecRev its rev, the store's current one (T-440): the
 // gate puts both into the merge commit's message (T-521; a resolved gate amends the integrator's message), and the
 // review job names that rev; "" (none stored, a task dispatched before T-440) adds nothing.
 type GateInput struct {
 	Task, Lane, Kind, Input string
-	Summary                 string
+	Summary, Title          string // the worker's summary line; the spec's title ("": none stored)
 	Spec                    string
 	SpecRev                 int
 	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, the guard,

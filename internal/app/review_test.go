@@ -523,3 +523,15 @@ func TestReviewRequest(t *testing.T) {
 		})
 	}
 }
+
+// T-802: the review count's subject reader (mergeRE) finds a resolved merge by its "Merge T-xx: <title>" subject, and
+// not git's default one.
+func TestMergeSubjectResolved(t *testing.T) {
+	t.Parallel()
+	if m := mergeRE.FindStringSubmatch("Merge commit 'c73bfccc' into HEAD"); m != nil {
+		t.Fatalf("precondition: git's default subject matches mergeRE: %q", m)
+	}
+	if m := mergeRE.FindStringSubmatch("Merge T-1470: Resolved title"); m == nil || m[1] != "T-1470" {
+		t.Errorf("mergeRE on a resolved merge's subject: %q, want T-1470", m)
+	}
+}

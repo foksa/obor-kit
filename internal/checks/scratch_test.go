@@ -188,14 +188,14 @@ func TestRV39MovedSubject(t *testing.T) {
 	y.Write("other.txt", "other\n")
 	y.Git(y.Root, "add", "other.txt")
 	y.Git(y.Root, "commit", "-qm", "unrelated")
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "Expected spec title"})
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Title: "Expected spec title", Summary: "worker words"})
 	if o.Kind != port.OutcomeGreen {
 		t.Fatalf("moved gate: %s %q; want green", o.Kind, o.Line)
 	}
 	if got := y.Git(y.Root, "log", "-1", "--format=%s", o.Candidate.SHA); got != "Merge T-05: Expected spec title" {
 		t.Errorf("moved merge subject %q, want %q", got, "Merge T-05: Expected spec title")
 	}
-	if got := y.Git(y.Root, "log", "-1", "--format=%b", o.Candidate.SHA); !strings.Contains(got, "moved main") {
+	if got := y.Git(y.Root, "log", "-1", "--format=%b", o.Candidate.SHA); !strings.Contains(got, "moved main") || !strings.Contains(got, "Summary: worker words") {
 		t.Errorf("moved merge body %q, want the moved target named", got)
 	}
 }
@@ -246,7 +246,8 @@ func TestScratchMovedGateConflict(t *testing.T) {
 	}
 	y.eq(got, res, "the resolution's sha pinned against the submitted sha")
 	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res})
-	y.eq(c.SHA+" "+c.Target, res+" "+y.Git(y.Root, "rev-parse", res+"^1"), "the pinned resolution, against its first parent")
+	y.eq(c.Target, y.Git(y.Root, "rev-parse", res+"^1"), "checked against the resolution's first parent")
+	y.eq(y.tree(c.SHA), y.tree(res), "the candidate is the resolution's tree (T-802: its message amended)")
 }
 
 var cutSteps = []cutStep{
@@ -298,10 +299,10 @@ var cutSteps = []cutStep{
 		call: gateStep(port.InputResolved),
 		end: func(y *sx, in cutIn, out any) {
 			c := out.(port.GateOutcome).Candidate
-			y.eq(c.SHA, in.sha, "the resolution is the candidate")
+			y.eq(y.tree(c.SHA), y.tree(in.sha), "the candidate is the resolution's tree (T-802: its message amended)")
 			y.eq(c.Target, y.Git(y.Root, "rev-parse", in.sha+"^1"), "checked against its first parent")
-			y.eq(y.ref(candidateRefs+"T-05")+" "+y.ref(resolvedRefs+"T-05"), in.sha+" "+in.sha, "pins")
-			y.eq(y.head(y.serve), in.sha, "serve's worktree at the resolution")
+			y.eq(y.ref(candidateRefs+"T-05")+" "+y.ref(resolvedRefs+"T-05"), c.SHA+" "+in.sha, "pins")
+			y.eq(y.head(y.serve), c.SHA, "serve's worktree at the amended resolution")
 		},
 	},
 	{
@@ -495,8 +496,10 @@ func TestScratchGateResolvedAfterRed(t *testing.T) {
 		t.Fatal("precondition: another gate moved serve's worktree off the resolution")
 	}
 	c := y.green(resolved)
-	y.eq(c.SHA+" "+c.Target, sha+" "+y.Git(y.Root, "rev-parse", sha+"^1"), "the pinned resolution, against its first parent")
-	y.eq(y.head(y.serve), sha, "serve's worktree reset to the pin")
+	y.eq(c.Target, y.Git(y.Root, "rev-parse", sha+"^1"), "checked against the pinned resolution's first parent")
+	y.eq(y.tree(c.SHA), y.tree(sha), "the candidate is the pinned resolution's tree (message amended, T-802)")
+	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^"), y.Git(y.Root, "rev-parse", sha+"^"), "the pinned resolution's parents")
+	y.eq(y.head(y.serve), c.SHA, "serve's worktree reset to the pin, then amended")
 }
 
 // Submit twice commits once and pins the same sha; a worker commit after the submission is not what the gate merges.
