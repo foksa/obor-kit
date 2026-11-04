@@ -119,7 +119,6 @@ func claudeLive(l *lab, turn bool) {
 	} else {
 		report("PASS", "CC-L5", st.Quit+" (a second Enter after a poll) exits with status 0", where5)
 	}
-	report("SKIP", "CC-L5", "the exit dialog (Key "+st.Dialog.Key.String()+") needs a background task, which needs model turns", at(claudeGo, "var exitDialog"))
 
 	ccResume(l, k, pane, base, settings, sid, turn)
 
@@ -287,8 +286,6 @@ func ccTurn(l *lab, k agents.Kind, hooks []record) {
 		return
 	}
 	report("PASS", "CC-L4", "the envelope (auth + user line) started a turn under --permission-mode auto", where4)
-	report("SKIP", "CC-L4", "the plain-text line (not the envelope) is not sent: one model call per kind", where4)
-	report("SKIP", "CC-L4", "crossSessionInbound's effect (the inbound policy) is not probed: the run sends no cross-session line", where4)
 	p := stops[0].payload()
 	if strings.TrimSpace(p.LastMessage) == "" {
 		report("FAIL", "CC-L6", "the Stop payload has no last_assistant_message", where6)

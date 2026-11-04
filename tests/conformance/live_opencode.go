@@ -102,7 +102,7 @@ func ocL3(labels []string, where string) {
 	case slices.Equal(labels, []string{"start"}):
 		report("PASS", "OC-L3", fact+": the per-start entry runs, alone", where)
 	case slices.Contains(labels, "start"):
-		report("WARN", "OC-L3", fact+": another obor server runs beside it", where)
+		report("FAIL", "OC-L3", fact+": another obor server runs beside it", where)
 	default:
 		report("FAIL", "OC-L3", fact+": the per-start entry does not run", where)
 	}
@@ -124,7 +124,7 @@ func ocL4(l *lab, link, where string) {
 	case n == 1 && len(loads) == 1:
 		report("PASS", "OC-L4", fact+": the per-start plugin, once", where)
 	case n > 1:
-		report("WARN", "OC-L4", fact+": set up more than once", where)
+		report("FAIL", "OC-L4", fact+": set up more than once", where)
 	default:
 		report("FAIL", "OC-L4", fact, where)
 	}

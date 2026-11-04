@@ -340,9 +340,9 @@ or herdr update, and in part nightly. It fails loudly instead of letting a lane 
 |---|---|---|---|
 | H-S1 | static | every method and param obor sends exists in `herdr api schema --json`; `pane.agent_status_changed` still needs `pane_id` | `socket.go` call sites (F3.1), P2 |
 | H-S2 | static | `ping` protocol and capabilities recorded; the run warns on a new protocol rather than failing | `socket.go:113` |
-| H-L1 | live | `agent.start` over the socket: when it answers (before or after ready), what status, and `timeout_ms` honoured | `socket.go:436`, `start.go:110` (F3.4) |
+| H-L1 | live | `agent.start` over the socket: answers within obor's 10 s client timeout (the line records when, what status and whether `launch_pending`); `timeout_ms` honoured | `socket.go:436`, `start.go:110` (F3.4) |
 | H-L2 | live | `agent.prompt` to a pane showing a known dialog → `agent_blocked`, nothing typed; `pane.send_input` → typed | `launch.go:533` (F3.3) |
-| H-L3 | live | `pane.rename` emits `pane.updated` (or not) on a status-subscribed stream | F3.2 |
+| H-L3 | live | `pane.rename` emits no `pane.updated` on a status-subscribed stream: the stream's reread is where a relabel is seen | F3.2 |
 | H-L4 | live | `pane.wait_for_output --match` sees a marker already on screen and one printed later | `launch.go:633` (P7) |
 | H-L5 | live | lifecycle event spellings on the wire (`pane_created` vs `pane.created`) | `socket.go:645` |
 | H-L6 | live | stop/start of the named session: panes come back as shells with labels and cwd; whether the startup hook would fire (log only, no plugin linked) | `internal/launch/restore.go` (P9) |
@@ -357,8 +357,8 @@ or herdr update, and in part nightly. It fails loudly instead of letting a lane 
 | CC-L1 | live | `Start()` argv in a lane: the stub server sees `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`, cwd = lane; strict hides a second (manifest) server; `--resume` keeps `--settings` and `--mcp-config` | `claude.go:45-75` (F1.1) |
 | CC-L2 | live | SessionStart payload `session_id`, `transcript_path`; with `--session-id` they equal the given id; `transcript_path` is a realpath (symlinked scratch dir) | `guard/session.go`, F4.3, F4.4 |
 | CC-L3 | live | `--settings '{"env":{"X":"1"}}'` reaches hooks and the stub MCP server | P8 |
-| CC-L4 | live, TURN | inbox: the envelope and the plain-text line each start a turn under `--permission-mode auto`; not held; `crossSessionInbound` effect | `claude.go:279-304` (F4.2) |
-| CC-L5 | live | trust dialog text still matches `trustRE`; `/exit` + recipe exits 0; exit dialog regex with a background task | `start.go` `notReady`, `claude.go:210-214` |
+| CC-L4 | live, TURN | inbox: the envelope starts a turn under `--permission-mode auto`, not held (the plain-text line and `crossSessionInbound`'s effect are not probed: one model call per kind) | `claude.go:279-304` (F4.2) |
+| CC-L5 | live | trust dialog text still matches `trustRE`; `/exit` + recipe exits 0 (the exit dialog regex is not probed: it needs a background task, which needs model turns) | `start.go` `notReady`, `claude.go:210-214` |
 | CC-L6 | live, TURN | Stop payload `last_assistant_message`; StopFailure stays docs-only (cannot be forced safely) | `guard/stop.go` |
 
 ### Codex (driver: `internal/agents/codex`)
@@ -371,7 +371,7 @@ or herdr update, and in part nightly. It fails loudly instead of letting a lane 
 | CX-L1 | live | `Start()` argv with `--strict-config`: starts; stub MCP sees only the allowlist + forwarded vars, cwd = lane, ppid = the codex pid, with and without `--no-daemon` | F1.1, P3 |
 | CX-L2 | live | the update screen does not show with `check_for_update_on_startup=false`; `/quit` exits 0 | `codex.go:48-52,127` |
 | CX-L3 | live, TURN | a rollout appears after the first turn and the process holds it open (`lsof`), as `reportRollout` expects | `session.go:64` |
-| CX-L5 | live | a SessionStart hook given per launch (`-c hooks…`) runs without a trust prompt, or needs `--dangerously-bypass-hook-trust` | P6 |
+| CX-L5 | – | not in the suite: a SessionStart hook given per launch and its trust prompt are P6's Codex half (deleted until then; the driver sends none) | P6 |
 
 ### opencode (driver: `internal/agents/opencode`, `opencode/obor.js`)
 
@@ -381,8 +381,8 @@ or herdr update, and in part nightly. It fails loudly instead of letting a lane 
 | OC-S2 | static | `node --check opencode/obor.js` plus its unit tests (`obor.test.js`) | obor.js |
 | OC-L1 | live | `--standalone`: the stub MCP is the TUI's grandchild, sees the pane env, cwd = lane | F1.1 |
 | OC-L2 | live | obor.js hook env: what the hook sees for a role agent in the main checkout (today: role `none`) | F1.3, P5 |
-| OC-L3 | live | `OPENCODE_CONFIG_CONTENT` (and `OPENCODE_CONFIG`) with `mcp.servers.obor`: replaces or merges with a global `obor` entry; which `command` runs | P1 |
-| OC-L4 | live | `plugins: ["file://…/obor.js"]` from the env config loads under `--standalone` (plugin writes a marker); loaded twice if the global link is also there? | P1 |
+| OC-L3 | live | `OPENCODE_CONFIG` with `mcp.servers.obor`: the per-start entry is the only obor server that runs; which `command` runs | P1 |
+| OC-L4 | live | `plugins: ["file://…/obor.js"]` from the env config loads under `--standalone` (plugin writes a marker), set up once, with no global link | P1 |
 | OC-L5 | live, TURN (fake or free provider, as T-703) | `session.execution.started/succeeded` reach the plugin; `OBOR_OPENCODE_MODEL` switches the first turn; `/exit` + second Enter exits | obor.js `sessionHooks`, `modelSwitch`; `opencode.go:105` |
 
 **Running it (judgement).** Nightly runs `TIER=static` for all kinds; it takes seconds and needs no session. The
@@ -393,13 +393,18 @@ into verified ones.
 
 ## 7. Not verified here
 
-- Whether `agent.start` over the socket answers before or after the agent is ready (docs vs T-544; H-L1).
-- Whether `pane.rename` emits `pane.updated` (H-L3).
+- Whether `agent.start` answers at once (`launch_pending`) or once the agent is ready (docs vs T-544; H-L1): the live
+  line records it per start and the 2026-11-04 run saw an at-once answer with the agent up 3.7–4.4 s later, so obor's
+  poll is still needed.
 - Precedence of `OPENCODE_CONFIG_CONTENT`/`OPENCODE_CONFIG` over the global config, and plugin loading from it
   (OC-L3, OC-L4).
-- Claude: inbox line formats and hold policy under `auto` (CC-L4); `--settings` `env` reaching MCP and hooks (CC-L3).
+- Claude: `--settings` `env` reaching MCP and hooks (CC-L3).
+- Claude: not probed: the plain-text inbox line (rather than the envelope) starting a turn under
+  `--permission-mode auto`, and `crossSessionInbound`'s effect on a held message (CC-L4: one model call per kind); the
+  exit dialog (CC-L5: needs a background task, which needs model turns).
 - Codex: when the daemon would be used for an interactive pane with the real `~/.codex` (only observed: not for the
-  running reviewer); per-launch hooks and trust (CX-L5).
+  running reviewer); per-launch hooks and trust are not probed (CX-L5 is deleted until P6's Codex half is a task: the
+  driver sends no per-launch hook).
 - herdr 0.9.4/0.9.5 protocol numbers.
 - That Claude never runs the plugin from `~/.claude/plugins/cache/*` for these projects: inferred from the running
   MCP binaries' versions (§1.1), not from Claude's docs.

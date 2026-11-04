@@ -18,8 +18,9 @@ import (
 var codexAllow = []string{"HOME", "LOGNAME", "PATH", "SHELL", "USER", "__CF_USER_TEXT_ENCODING", "LANG", "LC_ALL", "TERM", "TMPDIR", "TZ"}
 
 // codexLive: on a scratch CODEX_HOME (auth.json copied, removed after; a config.toml with the model and the scratch
-// dirs trusted), a start with --no-daemon and then one without, each with --strict-config and a per-launch SessionStart
-// hook: CX-L1 per start, CX-L2, CX-L5, H-L1; with TURN=1 one turn on the first (CX-L3).
+// dirs trusted), a start with --no-daemon and then one without, each with --strict-config: CX-L1 per start, CX-L2,
+// H-L1; with TURN=1 one turn on the first (CX-L3). The per-launch SessionStart hook is not probed (CX-L5 deleted
+// until P6's Codex half is a task: the driver sends none).
 func codexLive(l *lab, turn bool) {
 	k := kindOf("codex")
 	src := os.Getenv("CODEX_HOME")
@@ -67,8 +68,6 @@ func codexLive(l *lab, turn bool) {
 		report("FAIL", "CX-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
 		return
 	}
-	hook := fmt.Sprintf(`hooks.SessionStart=[{hooks=[{type="command",command=%q,timeout=10}]}]`,
-		shq(filepath.Join(l.kit, "bin", "obor"))+" hook SessionStart")
 	st := k.Stop()
 	where2 := at(codexGo, "func (kind) NotReady") + ", " + at(codexGo, "func (kind) Stop") + ", CAP §3.6"
 	whereT := at("internal/launch/session.go", "func") + ", F4.5"
@@ -111,78 +110,16 @@ func codexLive(l *lab, turn bool) {
 			out.note("codex: after /quit these processes still ran on the scratch CODEX_HOME (a daemon?): " + strings.Join(ps, ", "))
 		}
 	}
-
-	// 3 and 4: CX-L5, a SessionStart hook given per launch, without and with --dangerously-bypass-hook-trust.
-	cxL5(l, k, pane, hook, quit)
 }
 
-// hookReviewRE is Codex's prompt to review hooks it has not trusted yet.
-var hookReviewRE = regexp.MustCompile(`(?i)review hooks|trust all`)
-
-// cxL5: does a SessionStart hook given with -c hooks… run without a trust prompt, or does it need
-// --dangerously-bypass-hook-trust (P6)?
-func cxL5(l *lab, k agents.Kind, pane, hook string, quit func(bool)) {
-	where := "P6, CAP §3.3"
-	l.fresh()
-	screen, ok := l.codexUp(k, pane, "", []string{"--strict-config", "--no-daemon", "-c", hook})
-	if !ok {
-		report("FAIL", "CX-L5", "codex with -c hooks.SessionStart did not start: "+screen, where)
-		return
-	}
-	var prompted bool
-	poll(8*time.Second, func() bool {
-		screen = l.visible(pane)
-		prompted = hookReviewRE.MatchString(screen)
-		return prompted || len(l.records("hook", "SessionStart")) > 0
-	})
-	ran := len(l.records("hook", "SessionStart")) > 0
-	if prompted {
-		// "esc skip": nothing is trusted; again while the review still shows.
-		poll(10*time.Second, func() bool {
-			_ = l.keys(pane, "esc")
-			time.Sleep(time.Second)
-			return !hookReviewRE.MatchString(l.visible(pane))
-		})
-	}
-	quit(false)
-	if !prompted {
-		if ran {
-			report("PASS", "CX-L5", "a SessionStart hook given per launch (-c hooks.SessionStart) runs without a trust prompt", where)
-		} else {
-			report("SKIP", "CX-L5", "no trust prompt, but the per-launch SessionStart hook did not run before a turn: "+tail(screen, 3), where)
-		}
-		return
-	}
-	l.fresh()
-	screen2, ok := l.codexUp(k, pane, "", []string{"--strict-config", "--no-daemon", "-c", hook, "--dangerously-bypass-hook-trust"})
-	bypassRan := ok && len(l.waitRecords("hook", "SessionStart", 8*time.Second)) > 0
-	again := ok && hookReviewRE.MatchString(l.visible(pane))
-	if ok {
-		quit(false)
-	}
-	fact := "a per-launch SessionStart hook (-c hooks.SessionStart) stops the start at Codex's hook review (" + tail(screen, 3) + ")"
-	switch {
-	case !ok:
-		report("FAIL", "CX-L5", fact+"; with --dangerously-bypass-hook-trust codex did not start: "+screen2, where)
-	case again:
-		report("FAIL", "CX-L5", fact+"; --dangerously-bypass-hook-trust still prompts", where)
-	case bypassRan:
-		report("WARN", "CX-L5", fact+"; with --dangerously-bypass-hook-trust it starts and the hook runs: P6's Codex half needs that flag", where)
-	default:
-		report("WARN", "CX-L5", fact+"; with --dangerously-bypass-hook-trust it starts without a prompt, the hook not run before a turn: P6's Codex half needs that flag", where)
-	}
-}
-
-// codexUp starts codex in pane with the driver's argv for args (H-L1 when mode is not ""): the screen once it is up;
+// codexUp starts codex in pane with the driver's argv for args (H-L1 per start): the screen once it is up;
 // ok false when it did not come up, the screen then herdr's answer and the last lines.
 func (l *lab) codexUp(k agents.Kind, pane, mode string, args []string) (string, bool) {
 	argv := k.Start(agents.Start{Kit: l.kit, Args: args})
 	t0 := time.Now()
 	s := l.start("conf-codex", "codex", pane, argv, 30*time.Second)
 	ready := l.readyAfter(s, t0, "idle", "blocked")
-	if mode != "" {
-		reportStart("codex "+mode, s, ready)
-	}
+	reportStart("codex "+mode, s, ready)
 	if l.atShell(pane) {
 		return answer(s) + "; " + tail(l.screen(pane), 4), false
 	}
