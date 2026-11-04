@@ -412,10 +412,15 @@ func fast(t *testing.T) {
 	t.Cleanup(func() { callTimeout, stopTimeout, settle, pollEvery = c, st, se, p })
 }
 
-// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied.
+// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied. Its bootstrap and the print
+// checking it run with the default callTimeout, not fast's 300ms: starting the fake launchctl under a loaded suite (the
+// merge gate) can outlast that and the call is SIGKILLed, failing Install for no reason of the test's (T-779 gate).
 func installed(t *testing.T, log string) Service {
 	t.Helper()
 	s := darwin(t)
+	c := callTimeout
+	callTimeout = 10 * time.Second
+	defer func() { callTimeout = c }()
 	if _, err := s.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
