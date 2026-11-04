@@ -82,9 +82,9 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, w
 		return "", "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	case mt.task == "":
 		return "", "", fmt.Errorf("dispatch %s: %s is not open in obor serve", c.Task, c.Task)
-	case mt.drive || !mt.may(vMove) || mt.state == stDispatched && mt.base == "":
+	case mt.drive || !mt.may(vMove) || mt.is(stDispatched) && mt.base == "":
 		return "", "", fmt.Errorf("dispatch %s: %s is %s: obor dispatch --model moves a task its worker works on, not "+
-			"one gating, merging or under review", c.Task, c.Task, mt.state)
+			"one gating, merging or under review", c.Task, c.Task, mt.shown())
 	case busy != "":
 		return "", "", busyErr("dispatch", c.Task, busy)
 	}
@@ -130,7 +130,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call, stopped string) (reply, w
 	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: worker, Branch: mt.disp.Branch, Target: mt.disp.Target, Redo: true,
 		Force: c.Force, Types: c.Types, Effort: effort, Type: ref, Caller: callerOf(c), Call: c.CallID,
 		Reply: moveReply(c.Task, mt.lane, mt.disp.Type, ref, attempt)}
-	if mt.state == stWorking && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it
+	if mt.is(stWorking) && mt.work == "" { // a sent-back attempt (sendback, red gate): its fix moves with it
 		d.Fix, d.Answer = mt.line, mt.answer
 	} else { // the dispatched attempt itself: a fix a move gave it is still outstanding
 		d.Fix, d.Answer = mt.disp.Fix, mt.disp.Answer

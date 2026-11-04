@@ -115,7 +115,7 @@ type idleWait struct {
 // The interval is the pane's, not the job's (T-606): alternating jobs cannot postpone it by replacing each other.
 func (a *App) integratorWait(p *proj, task string, w Where) (force, wait bool) {
 	for _, mt := range p.folded.loop {
-		if mt.task != task && mt.openJob() && mt.state != stNeedsYou {
+		if mt.task != task && mt.openJob() && !mt.paused() {
 			p.idleWait = idleWait{}
 			return false, true
 		}

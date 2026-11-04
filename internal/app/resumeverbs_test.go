@@ -170,19 +170,22 @@ func TestResumeActByState(t *testing.T) {
 		act  string // "": refused
 		err  string
 	}{
-		{"held", mtask{state: stNeedsYou, left: stAwaiting, needs: needsOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}}, "", wire.ResumeReprompt, ""},
-		{"held --sendback", mtask{state: stNeedsYou, left: stAwaiting, needs: needsOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}},
+		{"held", mtask{state: stAwaiting, needs: heldOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}}, "", wire.ResumeReprompt, ""},
+		{"held --sendback", mtask{state: stAwaiting, needs: heldOf(event.CauseHeld), attemptVars: attemptVars{job: "review"}},
 			wire.ResumeSendback, "", "--sendback does not fit: obor resume T-1 sends the integrator its job anew"},
-		{"red past K", mtask{state: stNeedsYou, left: stRed, needs: needsOf(causeRed)}, "", "", "say --regate or --sendback (red: why)"},
-		{"red past K --regate", mtask{state: stNeedsYou, left: stRed, needs: needsOf(causeRed)}, wire.ResumeRegate, wire.ResumeRegate, ""},
-		{"red past K --sendback", mtask{state: stNeedsYou, left: stRed, needs: needsOf(causeRed)}, wire.ResumeSendback, actSendback, ""},
-		{"sendbacks past K", mtask{state: stNeedsYou, left: stFail, needs: needsOf(causeSendbacks)}, "", "", "say --regate or --sendback"},
-		{"a failed step", mtask{state: stNeedsYou, left: stSubmitted, needs: needsOf("submit" + failedSuffix)}, "", wire.ResumeRetry, ""},
-		{"a failed step --regate", mtask{state: stNeedsYou, left: stSubmitted, needs: needsOf("submit" + failedSuffix)}, wire.ResumeRegate, "",
+		{"red past K", mtask{state: stRed, needs: heldOf(causeRed)}, "", "", "say --regate or --sendback (red: why)"},
+		{"red past K --regate", mtask{state: stRed, needs: heldOf(causeRed)}, wire.ResumeRegate, wire.ResumeRegate, ""},
+		{"red past K --sendback", mtask{state: stRed, needs: heldOf(causeRed)}, wire.ResumeSendback, actSendback, ""},
+		{"sendbacks past K", mtask{state: stAwaiting, needs: closedOf(causeSendbacks), attemptVars: attemptVars{job: "review"}}, "", "",
+			"say --regate or --sendback"},
+		{"a failed step", mtask{state: stSubmitted, needs: heldOf("submit" + failedSuffix)}, "", wire.ResumeRetry, ""},
+		{"a failed step --regate", mtask{state: stSubmitted, needs: heldOf("submit" + failedSuffix)}, wire.ResumeRegate, "",
 			"--regate does not fit: obor resume T-1 retries the failed step"},
-		{"a gate failure", mtask{state: stNeedsYou, left: stFail, needs: needsOf(causeGate)}, "", wire.ResumeRegate, ""},
-		{"a gate failure --regate", mtask{state: stNeedsYou, left: stFail, needs: needsOf(causeGate)}, wire.ResumeRegate, wire.ResumeRegate, ""},
-		{"rejected", mtask{state: stRejected, needs: needsOf(causeRejected)}, "", "", "rejected (rejected: why): obor drop T-1 frees its lane"},
+		{"a gate failure", mtask{state: stSubmitted, needs: closedOf(causeGate)}, "", wire.ResumeRegate, ""},
+		{"a gate failure --regate", mtask{state: stSubmitted, needs: closedOf(causeGate)}, wire.ResumeRegate, wire.ResumeRegate, ""},
+		{"a gate failure due", mtask{state: stSubmitted, needs: block{cause: causeGate, why: "gate: x"}}, "", "",
+			"T-1 is fail; retry when it settles"},
+		{"rejected", mtask{state: stRejected, needs: heldOf(causeRejected)}, "", "", "rejected (rejected: why): obor drop T-1 frees its lane"},
 		{"green", mtask{state: stGreen}, "", actSendback, ""},
 		{"awaiting", mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, "", actSendback, ""},
 		{"awaiting --regate", mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}}, wire.ResumeRegate, "",
@@ -191,7 +194,7 @@ func TestResumeActByState(t *testing.T) {
 		{"driving --sendback", mtask{state: stDriving, drive: true}, wire.ResumeSendback, "", "sends the drive agent the line"},
 		{"a landed drive", mtask{state: stSubmitted, drive: true}, "", "", "T-1 is submitted; retry when it settles"},
 		{"a drive dispatched", mtask{state: stDispatched, drive: true}, "", "", "the lead cannot answer a drive until it is driving"},
-		{"a drive's needs-you", mtask{state: stNeedsYou, left: stDispatched, drive: true, needs: needsOf("lane")}, "", wire.ResumeRetry, ""},
+		{"a drive's needs-you", mtask{state: stDispatched, drive: true, needs: heldOf("lane")}, "", wire.ResumeRetry, ""},
 		{"working, nothing asked", mtask{state: stWorking}, "", "", "T-1 is working with nothing to resume"},
 		{"gating", mtask{state: stSubmitted}, "", "", "T-1 is submitted; retry when it settles"},
 		{"dropped", mtask{state: stDropped}, "", "", "resume: T-1 is dropped"},
@@ -208,8 +211,8 @@ func TestResumeActByState(t *testing.T) {
 	}
 	// a hold's decision is required; a gate failure's is not
 	p := &proj{}
-	if !p.resumeNeedsText(withLane(mtask{state: stNeedsYou, needs: needsOf(event.CauseHeld)}), wire.ResumeReprompt) ||
-		p.resumeNeedsText(withLane(mtask{state: stNeedsYou, needs: needsOf(causeGate)}), wire.ResumeRegate) {
+	if !p.resumeNeedsText(withLane(mtask{state: stAwaiting, needs: heldOf(event.CauseHeld)}), wire.ResumeReprompt) ||
+		p.resumeNeedsText(withLane(mtask{state: stSubmitted, needs: closedOf(causeGate)}), wire.ResumeRegate) {
 		t.Error("resumeNeedsText: want a hold's decision required, a regate's not")
 	}
 }

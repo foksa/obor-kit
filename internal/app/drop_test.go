@@ -31,7 +31,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 	r.add("pq", "T-3", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-03", Merge: true, Cause: causeGate, Reason: "gate: FAIL T-3 is already in the target"})
 	r.run()
 	defer r.stop()
-	r.waitFor("T-3 needs-you", func() bool { return r.state("pq", "T-3") == stNeedsYou })
+	r.waitFor("T-3 needs-you", func() bool { return r.state("pq", "T-3") == wire.PhaseNeedsYou })
 	facts := func() int { return len(r.status("pq").Facts) }
 	if facts() != 1 {
 		t.Fatalf("precondition: want one fact in force, got %d", facts())
@@ -46,7 +46,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 		!strings.Contains(err.Error(), "say why") {
 		t.Errorf("drop without a why: %v", err)
 	}
-	if r.state("pq", "T-3") != stNeedsYou {
+	if r.state("pq", "T-3") != wire.PhaseNeedsYou {
 		t.Fatalf("a refused drop moved the task to %s", r.state("pq", "T-3"))
 	}
 	for _, id := range []string{"d1", "d1"} { // a repeated call id gets the stored reply
@@ -79,7 +79,7 @@ func TestDropNeedsYouTask(t *testing.T) {
 	b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 	b.loadProject()
 	p := b.p
-	if mt := p.folded.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.Seq != 0 {
+	if mt := p.folded.loop["T-3"]; mt == nil || mt.state != stDropped || mt.needs.fact.Seq != 0 {
 		t.Errorf("replay: %+v; want T-3 dropped with no needs-you", mt)
 	}
 	if got := p.folded.calls[verdictStep(wire.MethodDrop, "d1")]; got != "DROPPED T-3" {

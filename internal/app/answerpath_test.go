@@ -35,10 +35,14 @@ func answerSeed(t *testing.T, cause, state, job string, watch bool) (*harness, *
 	if state == stWaiting { // a waiting task holds no lane yet
 		mt.lane = ""
 	}
-	if !h.a.needsYou(p, mt, cause, cause+": probe") || mt.needs.Seq == 0 {
+	switch cause {
+	case causeGate, causePublish, causeSendbacks, causeResolveRejected: // its phase's work failed: a due block first
+		mt.block(block{cause: cause, why: cause + ": probe"})
+	}
+	if !h.a.needsYou(p, mt, cause, cause+": probe") || !mt.needs.held() {
 		t.Fatalf("precondition: %s's needs-you not in force", cause)
 	}
-	return h, p, mt.needs
+	return h, p, mt.needs.fact
 }
 
 // runAnswer runs cmd, one command of an answerPath, as the lead does: obor resume through its own parser (ResumeArgs)
@@ -83,10 +87,10 @@ func TestAnswerPathEveryCause(t *testing.T) {
 		{causeRed, stRed, "", false, choice + drop},
 		{causeUndelivered, stAwaiting, event.StepReview, false, resume + drop},
 		{causeStalled, stAwaiting, event.StepReview, false, resume + drop},
-		{causeGate, stFail, "", false, resume + drop},
-		{causePublish, stFail, "", false, resume + drop},
-		{causeSendbacks, stFail, event.StepReview, false, choice + drop},
-		{causeResolveRejected, stFail, event.StepResolve, false, choice + drop},
+		{causeGate, stSubmitted, "", false, resume + drop},
+		{causePublish, stAccepted, "", false, resume + drop},
+		{causeSendbacks, stAwaiting, event.StepReview, false, choice + drop},
+		{causeResolveRejected, stResolving, event.StepResolve, false, choice + drop},
 		{causeFix, stWorking, "", false, choice + drop},
 		{causeLane, stDispatched, "", false, resume + drop},
 		{causeStart, stDispatched, "", false, resume + drop},

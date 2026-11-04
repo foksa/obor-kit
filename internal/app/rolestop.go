@@ -128,14 +128,14 @@ func (a *App) stopRoles(ctx context.Context, p *proj, fx *Loop) {
 	}
 }
 
-// integratorBusy: a task of p has an integrator job open (out, or a needs-you left it out) or queued (a green task
+// integratorBusy: a task of p has an integrator job open (out, also while a needs-you holds it) or queued (a green task
 // with no kept accept to review, a conflict to resolve) (under mu).
 func (p *proj) integratorBusy() bool {
 	for _, mt := range p.folded.loop {
 		switch {
-		case mt.openJob(), mt.state == stConflict:
+		case mt.openJob(), mt.is(stConflict):
 			return true
-		case mt.state == stGreen && (mt.accepted == "" || mt.accepted != mt.cand.Patch):
+		case mt.is(stGreen) && (mt.accepted == "" || mt.accepted != mt.cand.Patch):
 			return true
 		}
 	}

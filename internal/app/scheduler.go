@@ -35,14 +35,15 @@ func (p *proj) passOrder() []string {
 
 // scratchHolder is the task of p other than except whose merge is open in the scratch (rule: one merge there at a
 // time) and why: a conflict, its resolve job, the merge resolved, also while a needs-you pauses that work (held,
-// RV-38 #9). It is released when the task abandons it (reject, regate, a new attempt) or merges. "": none. Under mu.
+// RV-38 #9). It is released when the task abandons it (reject, a closed block, regate, a new attempt) or merges. "":
+// none. Under mu.
 func (p *proj) scratchHolder(except string) (task, why string) {
 	for _, t := range p.passOrder() {
 		mt := p.folded.loop[t]
-		if t == except || !states[mt.kept()].scratch {
+		if t == except || !states[mt.state].scratch || mt.needs.closed() {
 			continue
 		}
-		if mt.state == stNeedsYou {
+		if mt.paused() {
 			return t, wire.ScratchHeld
 		}
 		return t, mt.state
@@ -94,7 +95,7 @@ func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
 	var out []wire.ScratchWait
 	for _, task := range p.passOrder() {
 		mt := p.folded.loop[task]
-		if states[mt.state].uses == "" || task == p.running.Task || p.ended[task] {
+		if states[mt.state].uses == "" || mt.paused() || task == p.running.Task || p.ended[task] {
 			continue
 		}
 		w := wire.ScratchWait{Task: task}

@@ -111,7 +111,7 @@ var afterSteps = []string{event.StepAfterMerge, event.StepStop}
 // tries is how many counted failures of one step make a needs-you (the failure rule: App.do).
 const tries = 3
 
-// The states of a merge-loop task.
+// The states of a merge-loop task: each a phase; a needs-you is a block on it (mtask.needs, block.go), never a state.
 const (
 	stSubmitted  = "submitted"           // submit it (pin the lane's commit), then gate it
 	stGreen      = "green"               // gate green: keep the accept, or a review job
@@ -120,7 +120,6 @@ const (
 	stConflict   = wire.ScratchConflict  // the merge conflicts in the scratch: a resolve job
 	stResolving  = wire.ScratchResolving // the resolve job is out
 	stResolved   = wire.ScratchResolved  // gate the merge the integrator committed in the scratch
-	stFail       = "fail"                // the owner decides (why)
 	stAccepted   = "accepted"            // publish it
 	stMoved      = "moved"               // gate the candidate again on the new target
 	stPublished  = "published"           // the target holds the candidate
@@ -130,7 +129,6 @@ const (
 	stWaiting    = "waiting"             // a dispatch waiting for its After tasks to merge (readiness rule 1)
 	stDispatched = "dispatched"          // a dispatch's steps: lane.prepare, agent.start, the work job
 	stWorking    = "working"             // the work job delivered, or sent back: the fix job; then task_done
-	stNeedsYou   = "needs-you"           // the owner decides; a task_done is the next attempt
 	stDriving    = wire.TaskDriving      // the owner's drive agent works on it (T-751): no jobs, no watchdog; obor land submits it
 )
 
@@ -140,20 +138,18 @@ type mtask struct {
 	attempt           int
 	state             string
 	sendbacks         int
-	attemptVars                    // what a new attempt resets (next)
-	resolved          string       // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
-	why, cause        string       // stFail: the needs-you's reason and cause
-	report            string       // the last submission's report (task_done's)
-	after             int          // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
-	head              string       // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
-	mergedSeq         int64        // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
-	dropped           string       // stDropped: obor drop's why
-	droppedSeq        int64        // stDropped: the dropped fact's seq (the idle line's last end, T-803)
-	needs             event.Record // the needs-you fact in force (Seq 0: none)
-	left              string       // the state the last needs-you left: obor resume's retry goes back to it
+	attemptVars              // what a new attempt resets (next)
+	resolved          string // stResolved: the resolved merge's sha, pinned at refs/obor/resolved/<task>
+	report            string // the last submission's report (task_done's)
+	after             int    // stMerged: how many afterSteps have a result (all: a merge outside the app did them)
+	head              string // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
+	mergedSeq         int64  // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
+	dropped           string // stDropped: obor drop's why
+	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end, T-803)
+	needs             block  // the needs-you on its phase (block.go; none: it goes on)
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
-	// base (""), its refusal or agent.start's (refused, cause); the step counters (the last N used); agent.start done.
+	// base (""), its refusal or agent.start's (refused; its cause: refusedCause); the step counters (the last N used); agent.start done.
 	disp                    dispatchData
 	at                      time.Time
 	dispSeq                 int64
@@ -454,7 +450,7 @@ func (a *App) failed(ctx context.Context, p *proj, mt mtask, step string, err er
 	}
 	a.mu.Lock()
 	m := p.folded.loop[mt.task]
-	tell := m.attempt == mt.attempt && m.fails[step].n >= tries && m.needs.Seq == 0
+	tell := m.attempt == mt.attempt && m.fails[step].n >= tries && !m.needs.held()
 	a.mu.Unlock()
 	if tell {
 		base, _ := event.StepN(step)
@@ -526,7 +522,7 @@ func (a *App) drive(ctx context.Context, p *proj, fx *Loop, task string) {
 	if running {
 		return // its gate or publish runs: the task goes on once that has folded
 	}
-	if states[mt.state].landed {
+	if mt.landed() {
 		// A merge outside the app (the owner's, by hand in git): merged, no second publish. Git that cannot tell:
 		// the task waits for the next pass.
 		landed, err := fx.Scratch.Landed(ctx, task)
@@ -602,14 +598,21 @@ func (a *App) release(p *proj, task string) {
 
 // stepName names the step pick selects for mt, for a refused drop's reply.
 func (mt mtask) stepName() string {
-	if f := states[mt.state].name; f != nil {
+	if f := states[mt.state].name; f != nil && !mt.paused() {
 		return f(mt)
 	}
-	return "a step (" + mt.state + ")"
+	return "a step (" + mt.shown() + ")"
 }
 
-// pick is mt's next step (under mu), nil when it waits: its state's pick.
+// pick is mt's next step (under mu), nil when it waits: a block first — a due one is recorded (pickDue), a held one
+// waits for the owner — else its state's pick.
 func (a *App) pick(p *proj, m *mtask) step {
+	switch {
+	case m.needs.due():
+		return a.pickDue(p, *m)
+	case m.needs.held():
+		return nil
+	}
 	if f := states[m.state].pick; f != nil {
 		return f(a, p, *m)
 	}
@@ -672,8 +675,9 @@ func (a *App) pickRed(p *proj, mt mtask) step {
 	}
 }
 
-// pickFail goes to the owner (row 22), unless a merge outside the app took the lane meanwhile (row 34).
-func (a *App) pickFail(p *proj, mt mtask) step {
+// pickDue records a due block's needs-you: the owner decides (row 22), unless a merge outside the app took the lane
+// meanwhile (row 34).
+func (a *App) pickDue(p *proj, mt mtask) step {
 	return func(ctx context.Context, fx *Loop) bool {
 		landed, err := fx.Scratch.Landed(ctx, mt.task)
 		switch {
@@ -684,7 +688,7 @@ func (a *App) pickFail(p *proj, mt mtask) step {
 			return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact},
 				event.MergedData{Outside: true})
 		}
-		return a.needsYou(p, &mt, mt.cause, mt.why)
+		return a.needsYou(p, &mt, mt.needs.cause, mt.needs.why)
 	}
 }
 
@@ -719,8 +723,8 @@ func (a *App) pickJob(p *proj, mt mtask) step {
 
 // pickMerged runs the next after-merge step (rows 37–38).
 func (a *App) pickMerged(p *proj, mt mtask) step {
-	if mt.after >= len(afterSteps) || mt.needs.Seq != 0 {
-		return nil // done, or a step's needs-you: no more tries until obor resume
+	if mt.after >= len(afterSteps) {
+		return nil // done (a step's needs-you: pick waits until obor resume)
 	}
 	return func(ctx context.Context, fx *Loop) bool { return a.afterStep(ctx, p, fx, mt) }
 }
@@ -747,10 +751,7 @@ func (a *App) pickWorking(p *proj, mt mtask) step {
 
 // pickRejected deletes the pins, then tells the owner (row 29).
 func (a *App) pickRejected(p *proj, mt mtask) step {
-	switch {
-	case mt.needs.Seq != 0:
-		return nil
-	case !p.log.Done(event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepUnpin}):
+	if !p.log.Done(event.Key{Task: mt.task, Attempt: mt.attempt, Step: event.StepUnpin}) {
 		return func(ctx context.Context, fx *Loop) bool { return a.unpin(ctx, p, fx, mt) }
 	}
 	return func(context.Context, *Loop) bool {

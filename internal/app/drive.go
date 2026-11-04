@@ -243,7 +243,7 @@ func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker stri
 	busy := p.busy(c.Task)
 	dir := p.laneDir(mt)
 	a.mu.Unlock()
-	st := mt.kept()
+	st := mt.state // a blocked task's phase: a take-over fixes a worker's needs-you by hand
 	switch {
 	case mt.task == "":
 		return "", "", fmt.Errorf("drive %s: %s is not open in obor serve", c.Task, c.Task)
@@ -252,7 +252,7 @@ func (a *App) takeOver(p *proj, c wire.Call, stopped string) (reply, worker stri
 		return reply, "", err
 	case !mt.may(vDrive) || st == stDispatched && mt.base == "":
 		return "", "", fmt.Errorf("drive %s: %s is %s: obor drive takes over a task its worker works on, not one gating, "+
-			"merging or under review", c.Task, c.Task, mt.state)
+			"merging or under review", c.Task, c.Task, mt.shown())
 	case busy != "":
 		return "", "", busyErr("drive", c.Task, busy)
 	}
@@ -290,8 +290,8 @@ func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, erro
 	}
 	w := a.whereIs(p, mt.agent)
 	a.mu.Unlock()
-	if st := mt.kept(); !mt.drive || st != stDriving && st != stDispatched {
-		return "", fmt.Errorf("drive %s: %s is %s, not driving", task, task, Dash(mt.state))
+	if st := mt.state; !mt.drive || st != stDriving && st != stDispatched {
+		return "", fmt.Errorf("drive %s: %s is %s, not driving", task, task, Dash(mt.shown()))
 	}
 	if w.State == Identified {
 		return fmt.Sprintf("DRIVING %s → %s: %s runs already (pane %s)", task, mt.lane, mt.agent, w.Pane.ID), nil
@@ -309,7 +309,8 @@ func (p *proj) foldDrive(r event.Record) {
 	}
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
-	mt.drive, mt.agent, mt.state, mt.needs, mt.left = true, d.Agent, stDriving, event.Record{}, ""
+	mt.unblock()
+	mt.drive, mt.agent, mt.state = true, d.Agent, stDriving
 	mt.attemptVars = attemptVars{}
 	mt.disp.Drive = true
 	if d.Type != "" {
@@ -379,7 +380,7 @@ func (a *App) landCall(c wire.Call) (string, error) {
 	case mt.task == "":
 		return "", fmt.Errorf("land: %s is not open in obor serve", c.Task)
 	case !mt.may(vLand):
-		return "", fmt.Errorf("land: %s is %s, not driving", c.Task, mt.state)
+		return "", fmt.Errorf("land: %s is %s, not driving", c.Task, mt.shown())
 	case report == "":
 		return "", fmt.Errorf("land %s: a summary is required", c.Task)
 	case busy != "":

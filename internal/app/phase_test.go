@@ -17,13 +17,13 @@ var statePhase = map[string]string{
 	stDriving: wire.PhaseDriving, stSubmitted: wire.PhaseSubmitted, stRed: wire.PhaseGating,
 	stResolved: wire.PhaseGating, stMoved: wire.PhaseGating, stGreen: wire.PhaseReview, stConflict: wire.PhaseReview,
 	stAwaiting: wire.PhaseReviewing, stResolving: wire.PhaseReviewing, stAccepted: wire.PhasePublish,
-	stPublished: wire.PhasePublish, stMerged: wire.PhaseMerged, stFail: wire.PhaseNeedsYou,
-	stNeedsYou: wire.PhaseNeedsYou, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
+	stPublished: wire.PhasePublish, stMerged: wire.PhaseMerged, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
 }
 
 // T-788 (S5): every state of the table, with and without each live overlay, has exactly one phase: a needs-you in
 // force wins (held only for the integrator's hold verdict, C7), then the gate or publish running or pending, then the
-// merge hold, else the state's row. A green task is in review.
+// merge hold, else the state's row. A green task is in review. T-827: the merge loop's needs-you is a block on any
+// state (due or held), and wins over every overlay but on an ended state (merged, rejected), whose row it leaves.
 func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	t.Parallel()
 	if len(statePhase) != len(states) {
@@ -35,6 +35,8 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 			t.Errorf("%s: row phase %q, want %q", st, row.phase, want)
 		}
 		mt := &mtask{task: "T-1", lane: "L-01", state: st}
+		due := &mtask{task: "T-1", lane: "L-01", state: st, needs: block{cause: causeGate, why: "gate: x"}}
+		held := &mtask{task: "T-1", lane: "L-01", state: st, needs: heldOf(causeStalled)}
 		for _, c := range []struct {
 			name string
 			o    overlays
@@ -50,20 +52,27 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 			{"a step and the hold", overlays{step: wire.PhaseMerging, hold: "reviewer"}, wire.PhaseMerging},
 			{"a needs-you and a step", overlays{blocked: true, step: wire.PhaseGating}, wire.PhaseNeedsYou},
 		} {
-			if st == stNeedsYou { // the loop's needs-you wins over every overlay
-				c.want = wire.PhaseNeedsYou
-			}
 			if got := phase(mt, c.o); got != c.want {
 				t.Errorf("%s, %s: phase %q, want %q", st, c.name, got, c.want)
+			}
+			blocked := wire.PhaseNeedsYou // the loop's needs-you wins over every overlay
+			if row.ended {
+				blocked = c.want
+			}
+			if got := phase(held, c.o); got != blocked {
+				t.Errorf("%s held, %s: phase %q, want %q", st, c.name, got, blocked)
+			}
+			if got := phase(due, c.o); !row.ended && got != wire.PhaseNeedsYou {
+				t.Errorf("%s due, %s: phase %q, want needs-you", st, c.name, got)
 			}
 		}
 	}
 	// held is the integrator's hold verdict alone (C7): another cause of the loop's needs-you is needs-you.
-	held := &mtask{task: "T-1", state: stNeedsYou, left: stAwaiting, needs: needsOf(event.CauseHeld)}
+	held := &mtask{task: "T-1", state: stAwaiting, needs: heldOf(event.CauseHeld)}
 	if got := phase(held, overlays{step: wire.PhaseGating, hold: "reviewer"}); got != wire.PhaseHeld {
 		t.Errorf("the integrator's hold: phase %q, want held", got)
 	}
-	other := &mtask{task: "T-1", state: stNeedsYou, left: stAwaiting, needs: needsOf(causeStalled)}
+	other := &mtask{task: "T-1", state: stAwaiting, needs: heldOf(causeStalled)}
 	if got := phase(other, overlays{}); got != wire.PhaseNeedsYou {
 		t.Errorf("a stalled job's needs-you: phase %q, want needs-you, not held", got)
 	}
@@ -161,14 +170,14 @@ func TestStageIgnoresTheWatchdogsNeedsYou(t *testing.T) {
 	}{
 		{"working, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stWorking}, nil, wire.PhaseNeedsYou, ""},
 		{"dispatching, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stDispatched}, nil, wire.PhaseNeedsYou, ""},
-		{"merge loop held", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stAwaiting, needs: needsOf(event.CauseHeld)},
+		{"merge loop held", &mtask{task: "T-1", lane: "L-01", state: stAwaiting, needs: heldOf(event.CauseHeld)},
 			nil, wire.PhaseHeld, wire.StageHeld},
-		{"merge loop red past K", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stRed, needs: needsOf(causeRed)},
+		{"merge loop red past K", &mtask{task: "T-1", lane: "L-01", state: stRed, needs: heldOf(causeRed)},
 			nil, wire.PhaseNeedsYou, wire.StageHeld},
-		{"needs-you left by a dispatch", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stDispatched,
-			needs: needsOf(causeStalled)}, nil, wire.PhaseNeedsYou, ""},
-		{"needs-you left by an undelivered fix job", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stWorking,
-			needs: needsOf(causeStalled), attemptVars: attemptVars{work: "fix"}}, nil, wire.PhaseNeedsYou, ""},
+		{"needs-you on a dispatch", &mtask{task: "T-1", lane: "L-01", state: stDispatched,
+			needs: heldOf(causeStalled)}, nil, wire.PhaseNeedsYou, ""},
+		{"needs-you on an undelivered fix job", &mtask{task: "T-1", lane: "L-01", state: stWorking,
+			needs: heldOf(causeStalled), attemptVars: attemptVars{work: "fix"}}, nil, wire.PhaseNeedsYou, ""},
 		{"gating, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stSubmitted},
 			map[string]string{"T-1": wire.PhaseGating}, wire.PhaseNeedsYou, wire.StageGating},
 	} {

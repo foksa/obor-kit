@@ -50,15 +50,15 @@ func checkRow(t *testing.T, w rowWant) {
 		c.verdict(m, verdictResult{Patch: "p", Note: "why", SHA: "s"})
 		want, takes := w.verdicts[m]
 		if !takes {
-			want = mt.state
+			want = mt.shown()
 		}
-		same(t, c.state, want, mt.state+": state after "+m)
+		same(t, c.shown(), want, mt.state+": state after "+m)
 	}
 	same(t, mt.openJob(), w.open, mt.state+": job open")
 	p := &proj{folded: folded{loop: map[string]*mtask{"T-1": &mt}}}
 	same(t, busy(p, "T-2"), w.scratch, mt.state+": scratch busy for another task")
 	same(t, busy(p, "T-1"), false, mt.state+": scratch busy for itself")
-	same(t, row.landed, w.landed, mt.state+": drive checks a merge outside")
+	same(t, mt.landed(), w.landed, mt.state+": drive checks a merge outside")
 	same(t, row.ended, w.ended, mt.state+": ended")
 	if w.verbs&vDrop == 0 {
 		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, ended: map[string]bool{}, held: map[string]string{}}
@@ -83,10 +83,18 @@ func needsOf(cause string) event.Record {
 	return event.Record{Seq: 1, Kind: event.KindFact, Step: event.StepNeedsYou, Data: data}
 }
 
+// heldOf is a held block: the needs-you fact of cause in force.
+func heldOf(cause string) block { return block{fact: needsOf(cause)} }
+
+// closedOf is a held block that began due (a closed one): its phase's work ended with cause.
+func closedOf(cause string) block {
+	return block{cause: cause, why: cause + ": why", fact: needsOf(cause)}
+}
+
 func TestStatesOneRowPerState(t *testing.T) {
 	t.Parallel()
-	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stFail, stAccepted,
-		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stNeedsYou, stDriving}
+	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stAccepted,
+		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving}
 	var got []string
 	for st := range states {
 		got = append(got, st)
@@ -94,7 +102,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("states %v, want the 19 of loop.go %v", got, want)
+		t.Fatalf("states %v, want the 17 of loop.go %v", got, want)
 	}
 }
 
@@ -117,7 +125,7 @@ func TestStateAwaitingAcceptRow26(t *testing.T) {
 		verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stWorking, wire.MethodReject: stRejected}})
 	// row 22: past K sendbacks the integrator's sendback goes to the owner
 	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stAwaiting, attemptVars: attemptVars{job: "review"}, sendbacks: K}, name: "review", open: true,
-		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: stFail, wire.MethodReject: stRejected}})
+		landed: true, verdicts: map[string]string{wire.MethodAccept: stAccepted, wire.MethodSendback: "fail", wire.MethodReject: stRejected}})
 }
 
 // T-751: the owner's drive waits for obor land (its only step, the lead's line when it came back, needs a line); the
@@ -146,7 +154,7 @@ func TestStateConflictRow23(t *testing.T) {
 func TestStateResolvingRow30(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve.2"}}, name: "resolve.2", open: true, scratch: true,
-		landed: true, verdicts: map[string]string{wire.MethodResolved: stResolved, wire.MethodReject: stFail}})
+		landed: true, verdicts: map[string]string{wire.MethodResolved: stResolved, wire.MethodReject: "fail"}})
 }
 
 func TestStateResolvedRow18(t *testing.T) {
@@ -155,10 +163,12 @@ func TestStateResolvedRow18(t *testing.T) {
 		refuse: "T-1 is resolved; retry when it settles", scratch: true})
 }
 
-func TestStateFailRow22(t *testing.T) {
+// TestBlockDueRow22: a due block (here a gate failure on a resolved merge) takes only a drop, records its needs-you
+// next, is checked for a merge outside first, and frees the scratch its phase held.
+func TestBlockDueRow22(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stFail}, name: "a step (fail)", refuse: "T-1 is fail; retry when it settles",
-		landed: true})
+	checkRow(t, rowWant{verbs: vDrop, mt: mtask{state: stResolved, needs: block{cause: causeGate, why: "gate: x"}},
+		name: "a step (fail)", refuse: "T-1 is fail; retry when it settles", landed: true})
 }
 
 func TestStateAcceptedRow33(t *testing.T) {
@@ -186,11 +196,11 @@ func TestStateMergedRow38(t *testing.T) {
 
 func TestStateRejectedRow29(t *testing.T) {
 	t.Parallel()
-	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: needsOf(causeRejected)}, waits: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: heldOf(causeRejected)}, waits: true,
 		name: "a step (rejected)", ended: true, cause: causeRejected,
 		resume: resumeRule{closed: true}})
 	// a failed unpin's needs-you is retried
-	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: needsOf("unpin failed")}, waits: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stRejected, needs: heldOf("unpin failed")}, waits: true,
 		name: "a step (rejected)", ended: true, cause: "unpin failed"})
 }
 
@@ -249,12 +259,12 @@ func TestStateWaitingRow2a(t *testing.T) {
 		attempt int
 	}{
 		{mtask{state: stWaiting, attempt: 3}, true, 3},
-		{mtask{state: stNeedsYou, left: stWaiting, attempt: 3}, true, 3},
+		{mtask{state: stWaiting, needs: heldOf(causeAfter), attempt: 3}, true, 3},
 		{mtask{state: stMerged, attempt: 3}, true, 4},
 		{mtask{state: stWorking, attempt: 3}, false, 4},
 	} {
 		if c.mt.dispatchable() != c.ok || c.mt.nextAttempt() != c.attempt {
-			t.Errorf("%s: dispatchable %v, attempt %d; want %v, %d", c.mt.kept(), c.mt.dispatchable(), c.mt.nextAttempt(),
+			t.Errorf("%s: dispatchable %v, attempt %d; want %v, %d", c.mt.shown(), c.mt.dispatchable(), c.mt.nextAttempt(),
 				c.ok, c.attempt)
 		}
 	}
@@ -275,17 +285,23 @@ func TestStateWorkingRow24(t *testing.T) {
 		landed: true, cause: causeUndelivered})
 }
 
-func TestStateNeedsYouRow40(t *testing.T) {
+// TestBlockHeldRow40: a held block keeps its phase: the owner decides (resume, drop, a task_done; a take-over when the
+// phase takes one), nothing runs, and what the phase holds stays held.
+func TestBlockHeldRow40(t *testing.T) {
 	t.Parallel()
-	// the state it left is kept: a resolve job held stays open, in the scratch
-	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stNeedsYou, left: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: needsOf(event.CauseHeld),
+	// a resolve job held stays open, in the scratch
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve"}, needs: heldOf(event.CauseHeld),
 		lane: "L-01", agent: "l-01"}, waits: true, name: "a step (needs-you)", open: true, scratch: true, landed: true,
 		cause: event.CauseHeld})
-	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit | vDrive, mt: mtask{state: stNeedsYou, left: stDispatched, needs: needsOf("lane"), lane: "L-01",
+	// a resolve rejected (closed): its job ended, the scratch is free
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve"},
+		needs: closedOf(causeResolveRejected), lane: "L-01", agent: "l-01"}, waits: true, name: "a step (needs-you)", landed: true,
+		cause: causeResolveRejected})
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit | vDrive, mt: mtask{state: stDispatched, needs: heldOf("lane"), lane: "L-01",
 		agent: "l-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 	// a needs-you whose task has no lane (a waiting one): resume (retry) or drop it
-	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stNeedsYou, left: stWaiting, needs: needsOf(causeAfter)}, waits: true,
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stWaiting, needs: heldOf(causeAfter)}, waits: true,
 		name: "a step (needs-you)", landed: true,
 		cause: causeAfter, resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 }

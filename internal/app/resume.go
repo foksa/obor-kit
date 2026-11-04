@@ -96,7 +96,7 @@ func (a *App) resume(c wire.Call) (string, error) {
 	case actAnswer, actLine, actDrive:
 		return a.resumeLine(p, c, mt, act)
 	}
-	d := mt.needs.Fact()
+	d := mt.needs.fact.Fact()
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepUnblocked, Kind: event.KindFact},
 		event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: act, Merge: true, Cause: d.Cause, Call: c.CallID,
 			Note: c.Note}) {
@@ -150,7 +150,7 @@ func (p *proj) resumeNeedsText(mt mtask, act string) bool {
 	case actAnswer, actLine, actDrive, actSendback:
 		return true
 	}
-	return act == wire.ResumeReprompt && mt.needs.Fact().Cause == event.CauseHeld
+	return act == wire.ResumeReprompt && mt.needs.fact.Fact().Cause == event.CauseHeld
 }
 
 // resumeAct is the action obor resume takes on mt with flag ("", regate or sendback) now (under mu), or the refusal: a
@@ -170,9 +170,9 @@ func (p *proj) resumeAct(mt mtask, flag string) (string, error) {
 	case flag != "" && (flag == def || slices.Contains(choice, flag)):
 		return flag, nil
 	case flag == "":
-		return "", fmt.Errorf("resume %s: say %s (%s)", t, flags(choice), mt.needs.Fact().Reason)
+		return "", fmt.Errorf("resume %s: say %s (%s)", t, flags(choice), mt.needs.fact.Fact().Reason)
 	case def == "":
-		return "", fmt.Errorf("resume %s: --%s does not fit (%s): say %s", t, flag, mt.needs.Fact().Reason, flags(choice))
+		return "", fmt.Errorf("resume %s: --%s does not fit (%s): say %s", t, flag, mt.needs.fact.Fact().Reason, flags(choice))
 	}
 	return "", fmt.Errorf("resume %s: --%s does not fit: obor resume %s %s", t, flag, t, resumeDoes(def))
 }
@@ -189,29 +189,29 @@ func flags(choice []string) string {
 // resumeFits is what obor resume may do with mt now (under mu): its default action, the flags that choose another
 // (or, with no default, the owner's choice between them), or why nothing fits.
 func (p *proj) resumeFits(mt mtask) (def string, choice []string, err error) {
-	t, st := mt.task, mt.state
+	t, st := mt.task, mt.shown()
 	if !mt.may(vResume) {
-		if states[st].pick != nil && !states[st].ended {
+		if mt.needs.due() || states[mt.state].pick != nil && !states[mt.state].ended {
 			return "", nil, fmt.Errorf("resume: %s is %s; retry when it settles", t, st)
 		}
 		return "", nil, fmt.Errorf("resume: %s is %s", t, st)
 	}
-	working := st == stWorking || st == stDispatched
+	working := mt.is(stWorking) || mt.is(stDispatched)
 	switch {
-	case mt.drive && st == stDriving:
+	case mt.drive && mt.is(stDriving):
 		return actDrive, nil, nil
 	case working && p.asks(t):
 		return actAnswer, []string{wire.ResumeRegate}, nil // a Blocked "re-gate, not my diff": --regate
 	case working && (p.has(t, event.StepNeedsYou, reasonStalled) || p.stops(t)):
 		return actLine, nil, nil
-	case st == stGreen || st == stAwaiting || st == stResolving: // a drive's goes back to driving (foldSendback)
+	case mt.is(stGreen) || mt.is(stAwaiting) || mt.is(stResolving): // a drive's goes back to driving (foldSendback)
 		return actSendback, nil, nil
-	case mt.needs.Seq == 0 && mt.drive:
+	case !mt.needs.held() && mt.drive:
 		return "", nil, errors.New("resume: " + driveAnswerable(mt))
-	case mt.needs.Seq == 0:
+	case !mt.needs.held():
 		return "", nil, fmt.Errorf("resume: %s is %s with nothing to resume (no question, no needs-you)", t, st)
 	}
-	d := mt.needs.Fact()
+	d := mt.needs.fact.Fact()
 	rule := mt.resumeRule(d.Cause)
 	to := cmp.Or(rule.to, resumeDefaultOf(d.Cause))
 	switch {
@@ -239,10 +239,10 @@ func (p *proj) resumeFits(mt mtask) (def string, choice []string, err error) {
 // needs-you in force that is not a reject's, and a target that fits it (reprompt needs an integrator job of the
 // attempt, retry a failed step). A question's --regate (no needs-you) gates the lane as it is.
 func (mt mtask) resumeTo(task, to string) (string, error) {
-	d := mt.needs.Fact()
-	rule := mt.resumeRule(d.Cause) // the state the needs-you left: a dispatch's step runs again, an undelivered fix job is sent anew
+	d := mt.needs.fact.Fact()
+	rule := mt.resumeRule(d.Cause) // by its phase: a dispatch's step runs again, an undelivered fix job is sent anew
 	switch {
-	case mt.needs.Seq == 0:
+	case !mt.needs.held():
 		return "", fmt.Errorf("resume: %s has no needs-you of the merge loop", task)
 	case rule.closed:
 		return "", fmt.Errorf("resume: %s is rejected (%s): obor drop %s frees its lane", task, d.Reason, task)
@@ -258,7 +258,7 @@ func (mt mtask) resumeTo(task, to string) (string, error) {
 
 // repromptable: the attempt has an integrator job to send anew: its last one, or the review job of a green candidate a
 // needs-you held before it was sent.
-func (mt mtask) repromptable() bool { return mt.job != "" || mt.kept() == stGreen }
+func (mt mtask) repromptable() bool { return mt.job != "" || mt.state == stGreen }
 
 // resumeLine records obor resume's line (an answer, a stalled or stopped worker's line, a drive's line): fact
 // answered{to: the worker or the drive agent, line "[obor answer] <text>"}, whose fold ends the task's question and
@@ -302,7 +302,7 @@ func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
 	defer a.release(p, c.Task)
 	method := wire.MethodSendback
 	job := ""
-	reply := fmt.Sprintf("SENDBACK %s (attempt %d, %s)", c.Task, mt.attempt, mt.state)
+	reply := fmt.Sprintf("SENDBACK %s (attempt %d, %s)", c.Task, mt.attempt, mt.shown())
 	if mt.openJob() {
 		job = JobID(mt.jobKey())
 		reply = fmt.Sprintf("SENDBACK %s (job %s)", c.Task, job)
@@ -337,11 +337,11 @@ func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
 // until the merge loop sends it back to driving. obor resume and obor tell-lead share it (T-764): the reply tell-lead
 // advertises must be one the drive can get.
 func driveAnswerable(mt mtask) string {
-	if mt.state == stDriving {
+	if mt.is(stDriving) {
 		return ""
 	}
 	return fmt.Sprintf("%s is %s (landed: gate, review and merge follow; the lead cannot answer a drive until it is "+
-		"driving again)", mt.task, mt.state)
+		"driving again)", mt.task, mt.shown())
 }
 
 // answered ends task's question (an answer's fold): all its watchdog facts end, the question with them, and the stall

@@ -194,7 +194,7 @@ func TestClosedTaskMergeNeedsYouLine(t *testing.T) {
 				t.Fatal("the merge-loop needs-you was not recorded")
 			}
 			a.mu.Lock()
-			needs := p.folded.loop[c.task].needs
+			needs := p.folded.loop[c.task].needs.fact
 			a.mu.Unlock()
 			if needs.Seq == 0 {
 				t.Fatal("precondition: the merge-loop needs-you is not in force")

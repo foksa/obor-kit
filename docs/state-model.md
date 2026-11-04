@@ -203,12 +203,18 @@ Task, exactly the states the code has (`internal/app/loop.go`): **submitted** (s
 · **green** (gate green: a review job, or an accept already bound to the patch) · **awaiting-accept** (the review job
 is out) · **red** (gate red: a sendback, or the owner after K) · **conflict** (the merge conflicts in the scratch: a
 resolve job) · **resolving** (the resolve job is out) · **resolved** (gate the merge the integrator committed in the
-scratch) · **fail** (the owner decides why) · **accepted** (publish it) · **moved** (gate the candidate again on the
+scratch) · **accepted** (publish it) · **moved** (gate the candidate again on the
 new target) · **published** (the target holds the candidate) · **merged** (terminal, then the after-merge steps) ·
 **rejected** (terminal; the owner is told) · **dropped** (terminal; the lead abandoned it) · **waiting** (a dispatch
 that waits for the tasks it names to merge, row 2a) · **dispatched** (a dispatch's steps: `lane.prepare`,
 `agent.start`, the work job) · **working** (the work job delivered, or
-sent back: the fix job; then its `task_done`) · **needs-you** (the owner decides; the state it left is kept).
+sent back: the fix job; then its `task_done`).
+A merge-loop needs-you is no state but a block on one (T-827, `mtask.needs`, `internal/app/block.go`): **due** (the
+state's own work failed: a gate or publish failure, a refused submit, sendbacks past K, a resolve rejected; the next
+pass records the needs-you, row 22; obor status shows `fail`) or **held** (the needs-you in force; obor status shows
+`needs-you`). The state is kept throughout: a held block pauses its work (an open job stays open, a merge open in the
+scratch stays held), a block that began due ended it (no job open, the scratch free); a merged or rejected task's
+needs-you leaves its state as it is. Obor resume (row 40) goes to a state by the kept state and the needs-you's cause.
 The code mirrors this as one table, `states` in `internal/app/states.go` (T-436): a row per state with its next
 step, step name, verdicts, sendback, resume rule and scratch, each naming its rows here and tested as
 `TestState<Name>Row<N>`; a new state or step is a row there and here.

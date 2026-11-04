@@ -81,7 +81,8 @@ func (a *App) nextNotify(tried map[event.Key]bool) (*proj, event.Record, bool) {
 	return p, br, found
 }
 
-// needsYou is p's needs-you facts in force: the watchdogs' and the merge loop's.
+// needsYou is p's needs-you facts in force, the one source obor status, notify and the view read: the watchdogs' and
+// the project's (folded.active, the nightly's among them) and the merge loop's (a held block, mtask.needs).
 func (p *proj) needsYou() []event.Record {
 	var out []event.Record
 	for _, fs := range p.folded.active {
@@ -92,8 +93,8 @@ func (p *proj) needsYou() []event.Record {
 		}
 	}
 	for _, mt := range p.folded.loop {
-		if mt.needs.Seq != 0 {
-			out = append(out, mt.needs)
+		if mt.needs.held() {
+			out = append(out, mt.needs.fact)
 		}
 	}
 	return out

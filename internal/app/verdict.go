@@ -235,7 +235,7 @@ func (a *App) hold(p *proj, c wire.Call, job event.Key) (string, error) {
 	var lane string
 	held, drive := false, false
 	if mt := p.folded.loop[c.Task]; mt != nil {
-		lane, held, drive = mt.lane, mt.needs.Seq != 0 && mt.needs.Fact().Cause == event.CauseHeld, mt.drive
+		lane, held, drive = mt.lane, mt.needs.held() && mt.needs.fact.Fact().Cause == event.CauseHeld, mt.drive
 	}
 	a.mu.Unlock()
 	if drive { // a drive's hold goes back to its owner (T-751): the job ends, the lead gets a line, no needs-you

@@ -257,7 +257,7 @@ func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
-			c.Task, mt.state)
+			c.Task, mt.shown())
 	}
 	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
 		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + levelNote(nl.level, nl.types) + idleNote(nl.ls, "", held)}
@@ -374,7 +374,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	}
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
-			c.Task, mt.state)
+			c.Task, mt.shown())
 	}
 	a.mu.Lock()
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
@@ -561,15 +561,23 @@ func noLane(paused map[string]string, types []string) string {
 	return why
 }
 
-// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive (T-751), or a needs-you it
-// left.
-func (m *mtask) dispatching() bool {
-	return m.state == stDispatched || m.state == stWorking && m.work != "" || m.state == stDriving || m.redoable()
+// refusedCause is the cause of mt's refused dispatch step: the lane's prepare (no base yet), else the agent's start.
+func (m *mtask) refusedCause() string {
+	if m.base == "" {
+		return causeLane
+	}
+	return causeStart
 }
 
-// redoable: mt is a needs-you its dispatch left (a new dispatch of the task redoes it).
+// dispatching: mt is a dispatch not yet submitted (its lane is reserved for it), a drive (T-751), also while a
+// needs-you holds one.
+func (m *mtask) dispatching() bool {
+	return m.state == stDispatched || m.state == stWorking && m.work != "" || m.is(stDriving)
+}
+
+// redoable: a needs-you holds mt's dispatch (a new dispatch of the task redoes it).
 func (m *mtask) redoable() bool {
-	return m.state == stNeedsYou && (m.left == stDispatched || m.left == stWorking && m.work != "")
+	return m.paused() && (m.state == stDispatched || m.state == stWorking && m.work != "")
 }
 
 // foldDispatch folds fact dispatch: a new attempt of the task, dispatched. A redo of a needs-you keeps the sendbacks.
@@ -624,7 +632,7 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
-			c.Task, mt.state)
+			c.Task, mt.shown())
 	}
 	caller := callerOf(c)
 	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Caller: caller, Call: c.CallID,
@@ -637,9 +645,9 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 }
 
 // dispatchable: a dispatch (or a waiting one) of mt's task may be recorded: none yet, ended (merged, rejected,
-// dropped), waiting, or a needs-you its dispatch or its wait left.
+// dropped), waiting, or a needs-you holding its dispatch or its wait.
 func (m *mtask) dispatchable() bool {
-	if st := m.kept(); st == "" || st == stWaiting || states[st].ended {
+	if st := m.state; st == "" || st == stWaiting || states[st].ended {
 		return true
 	}
 	return m.redoable()
@@ -648,7 +656,7 @@ func (m *mtask) dispatchable() bool {
 // nextAttempt is the attempt a dispatch of mt's task records: a waiting task's own (its wait recorded the next), else
 // the next.
 func (m *mtask) nextAttempt() int {
-	if m.kept() == stWaiting {
+	if m.state == stWaiting {
 		return m.attempt
 	}
 	return m.attempt + 1
@@ -775,14 +783,14 @@ func (a *App) waitCurrent(p *proj, mt mtask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	m := p.folded.loop[mt.task]
-	return m != nil && m.state == stWaiting && m.attempt == mt.attempt && m.disp.Call == mt.disp.Call
+	return m != nil && m.is(stWaiting) && m.attempt == mt.attempt && m.disp.Call == mt.disp.Call
 }
 
 // waitsOn: task waits (or its wait's needs-you is open), itself or through the tasks it waits for, for target (under
 // mu).
 func (p *proj) waitsOn(task, target string, seen map[string]bool) bool {
 	m := p.folded.loop[task]
-	if m == nil || m.kept() != stWaiting || seen[task] {
+	if m == nil || m.state != stWaiting || seen[task] {
 		return false
 	}
 	seen[task] = true
@@ -802,7 +810,7 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 	}
 	switch {
 	case mt.refused != "":
-		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.cause, mt.refused) }
+		return func(context.Context, *Loop) bool { return a.needsYou(p, &mt, mt.refusedCause(), mt.refused) }
 	case mt.base == "":
 		return func(ctx context.Context, fx *Loop) bool { return a.prepare(ctx, p, fx, mt) }
 	case !mt.started:
