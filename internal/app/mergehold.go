@@ -168,7 +168,7 @@ func (a *App) holdLine(p *proj, task, role string) bool {
 // mu; obor status shows wire.MergeHold of it).
 func (a *App) holdRole(p *proj, mt *mtask) string {
 	h, ok := p.holds[mt.task]
-	if !ok || h.told || mt.state != stAccepted || p.running.Task == mt.task {
+	if !ok || h.told || !mt.is(stAccepted) || p.running.Task == mt.task {
 		return ""
 	}
 	return a.holder(p)

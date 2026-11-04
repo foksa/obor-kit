@@ -47,17 +47,19 @@ func (a *App) Status() wire.Status {
 			ps.Agents = append(ps.Agents, as)
 		}
 		sort.Slice(ps.Agents, func(i, j int) bool { return ps.Agents[i].Pane < ps.Agents[j].Pane })
-		for _, fs := range p.folded.active {
-			ps.Facts = append(ps.Facts, fs...)
+		for _, fs := range p.folded.active { // the needs-you among them: p.needsYou's
+			for _, f := range fs {
+				if f.Step != event.StepNeedsYou {
+					ps.Facts = append(ps.Facts, f)
+				}
+			}
 		}
+		ps.Facts = append(ps.Facts, p.needsYou()...)
 		intents := p.log.OpenIntents()
 		steps := p.stepPhases(intents)
 		for _, mt := range p.folded.loop {
-			if mt.needs.Seq != 0 {
-				ps.Facts = append(ps.Facts, mt.needs)
-			}
 			if mt.state != stMerged {
-				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state,
+				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
 					Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps), Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
@@ -65,7 +67,7 @@ func (a *App) Status() wire.Status {
 				if role := a.holdRole(p, mt); role != "" {
 					ts.Hold = wire.MergeHold(role)
 				}
-				if mt.state == stWaiting {
+				if mt.is(stWaiting) {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
 				}
@@ -223,7 +225,7 @@ func answerPath(p *proj, r event.Record, mt mtask) string {
 	case strings.HasPrefix(d.Reason, reasonAsks):
 		return resumeCmds(p, r.Task, mt)
 	case !d.Merge:
-		if mt.needs.Seq == 0 && (d.Reason == reasonStalled || d.Cause == causeStopped) && p != nil {
+		if !mt.needs.held() && (d.Reason == reasonStalled || d.Cause == causeStopped) && p != nil {
 			cmds = append(cmds, resumeCmds(p, r.Task, mt)) // the worker gets the line (T-746)
 		}
 	default:
@@ -245,7 +247,7 @@ func answerPath(p *proj, r event.Record, mt mtask) string {
 // resumeCmds is the obor resume form mt's task takes now ("": none; under mu): resumeFits' default with its text
 // placeholder, and each flag that chooses another action.
 func resumeCmds(p *proj, task string, mt mtask) string {
-	if p == nil && (mt.state == stWorking || mt.state == stDispatched) {
+	if p == nil && (mt.is(stWorking) || mt.is(stDispatched)) {
 		return ""
 	}
 	def, choice, err := p.resumeFits(mt)

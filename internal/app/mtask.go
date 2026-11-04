@@ -29,7 +29,8 @@ func (p *proj) foldLoop(r event.Record) {
 	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it.
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
 		if mt != nil {
-			mt.state, mt.needs, mt.dropped, mt.droppedSeq = stDropped, event.Record{}, r.Fact().Reason, r.Seq
+			mt.unblock()
+			mt.state, mt.dropped, mt.droppedSeq = stDropped, r.Fact().Reason, r.Seq
 		}
 		return
 	}
@@ -72,7 +73,8 @@ func (p *proj) foldLoop(r event.Record) {
 		case event.StepMerged:
 			var d event.MergedData
 			_ = json.Unmarshal(r.Data, &d)
-			mt.state, mt.needs = stMerged, event.Record{}
+			mt.unblock()
+			mt.state = stMerged
 			mt.head, mt.mergedSeq = d.Head, r.Seq
 			if d.Outside {
 				mt.after = len(afterSteps)
@@ -87,13 +89,7 @@ func (p *proj) foldLoop(r event.Record) {
 		case event.StepNeedsYou:
 			// An older log's hold of the open questions before review (T-604) ends here: the review job goes out (T-649).
 			if r.Fact().Merge && r.Fact().Cause != causeOpen {
-				mt.needs = r
-				if mt.state != stNeedsYou {
-					mt.left = mt.state
-				}
-				if mt.state != stRejected && mt.state != stMerged {
-					mt.state = stNeedsYou
-				}
+				mt.block(block{fact: r})
 			}
 		case event.StepSpecSeen:
 			if rev := r.Fact().Rev; rev > mt.specRev { // the newer rev task_done's refusal showed the worker (T-819)
@@ -104,18 +100,18 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.specRev = rev
 			}
 			switch job := r.Fact().Job; {
-			case mt.state == stDispatched && mt.work != "" && job == JobID(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}):
+			case mt.is(stDispatched) && mt.work != "" && job == JobID(event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}):
 				mt.state = stWorking
 			case mt.job != "" && job == JobID(mt.jobKey()):
 				mt.delivered = true
 			}
 		case event.StepLost:
-			if mt.job != "" && r.Fact().Job == JobID(mt.jobKey()) && (mt.state == stAwaiting || mt.state == stResolving) {
+			if mt.job != "" && r.Fact().Job == JobID(mt.jobKey()) && (mt.is(stAwaiting) || mt.is(stResolving)) {
 				mt.state = mt.jobState(false)
 				mt.lost++
 			}
 		case event.StepUnblocked:
-			mt.unblock(r.Fact())
+			mt.resumed(r.Fact())
 		}
 	case event.KindIntent:
 		switch step {
@@ -141,8 +137,9 @@ func (p *proj) foldLoop(r event.Record) {
 		if method, _ := verdictMethod(r.Step); method != "" {
 			var v verdictResult
 			_ = json.Unmarshal(r.Data, &v)
-			if mt.state == stNeedsYou && mt.job != "" && v.Job == JobID(mt.jobKey()) {
-				mt.state, mt.needs = mt.jobState(true), event.Record{} // a verdict on a held (or late) job ends the needs-you
+			if mt.onHold() && mt.job != "" && v.Job == JobID(mt.jobKey()) {
+				mt.unblock() // a verdict on a held (or late) job ends the needs-you
+				mt.state = mt.jobState(true)
 			}
 			mt.verdict(method, v)
 			return
@@ -155,7 +152,7 @@ func (p *proj) foldLoop(r event.Record) {
 			_ = json.Unmarshal(r.Data, &d)
 			mt.submits, mt.input = n, d.SHA
 			if d.Refused != "" {
-				mt.state, mt.why, mt.cause = stFail, "submit: "+d.Refused, causeGate
+				mt.block(block{cause: causeGate, why: "submit: " + d.Refused})
 			}
 		case event.StepGate:
 			mt.gates, mt.line = n, g.Line
@@ -170,15 +167,15 @@ func (p *proj) foldLoop(r event.Record) {
 			case outConflict:
 				mt.state = stConflict
 			default:
-				mt.state, mt.why, mt.cause = stFail, "gate: "+g.Line, causeGate
+				mt.block(block{cause: causeGate, why: "gate: " + g.Line})
 			}
 		case event.StepPrepare:
 			var d prepareOut
 			_ = json.Unmarshal(r.Data, &d)
 			mt.prepares, mt.base = n, d.Base
 			if d.Refused != "" {
-				mt.refused, mt.cause = "lane: "+d.Refused, causeLane
-			} else if mt.drive && mt.state == stDispatched && d.Base != "" {
+				mt.refused = "lane: " + d.Refused
+			} else if mt.drive && mt.is(stDispatched) && d.Base != "" {
 				mt.state = stDriving // a new drive: the lane is the owner's now (T-751)
 			}
 		case event.StepStartWork:
@@ -186,7 +183,7 @@ func (p *proj) foldLoop(r event.Record) {
 			_ = json.Unmarshal(r.Data, &d)
 			mt.starts, mt.started = n, d.Refused == ""
 			if d.Refused != "" {
-				mt.refused, mt.cause = "start: "+d.Refused, causeStart
+				mt.refused = "start: " + d.Refused
 			} else {
 				mt.startAt = event.RecordTime(r)
 			}
@@ -198,7 +195,7 @@ func (p *proj) foldLoop(r event.Record) {
 			case outMoved:
 				mt.state = stMoved
 			default:
-				mt.state, mt.why, mt.cause = stFail, "publish: "+g.Line, causePublish
+				mt.block(block{cause: causePublish, why: "publish: " + g.Line})
 			}
 		default:
 			if i := slices.Index(afterSteps, r.Step); i >= 0 {
@@ -242,10 +239,10 @@ func (mt *mtask) jobKey() event.Key {
 }
 
 // openJob: the attempt's last integrator job is open, the one a verdict answers (docs/state-model.md "Jobs"): it is
-// out (awaiting-accept, resolving), or a needs-you left it out. A verdict result, job.lost, unblocked{reprompt|regate}
-// and a sendback close it, as each moves the state on; unblocked{retry} goes back to the state it left.
+// out (awaiting-accept, resolving), also while a block pauses it (a closed block ended it). A verdict result, job.lost,
+// unblocked{reprompt|regate} and a sendback close it, as each moves the phase on; unblocked{retry} keeps the phase.
 func (mt *mtask) openJob() bool {
-	return mt.job != "" && len(states[mt.kept()].verdicts) > 0
+	return mt.job != "" && len(states[mt.state].verdicts) > 0 && !mt.needs.closed()
 }
 
 // jobState is the state of the attempt's last job: out (open), or due to be sent.
@@ -262,13 +259,12 @@ func (mt *mtask) jobState(open bool) string {
 	return stGreen
 }
 
-// unblock folds obor resume's d: the needs-you ends, and the failure counts with it; reprompt sends the job anew (its
-// next key), retry goes back to the state the needs-you left (its pending step runs again), regate gates again. A
-// gate that failed runs again as it was (a lane gate on a new submit); a held or failed publish is published again (a
-// moved target re-gates); a merged task goes on with its after-merge steps; anything else submits and gates the lane
-// afresh.
-func (mt *mtask) unblock(d event.FactData) {
-	mt.needs, mt.fails, mt.lost = event.Record{}, nil, 0
+// resumed folds obor resume's d: the block ends, and the failure counts with it; the task goes to resumeTarget's phase
+// (reprompt: the job anew under its next key; retry: the paused phase's pending step again; regate: the gate or the
+// publish again). A dispatch's refused step runs again under its next key, an undelivered job is sent anew.
+func (mt *mtask) resumed(d event.FactData) {
+	mt.unblock()
+	mt.fails, mt.lost = nil, 0
 	if d.Note != "" { // the integrator's next job carries it (decisionText)
 		mt.decision = "Lead's decision (obor resume, " + Dash(d.Cause) + "): " + d.Note
 		switch d.Cause {
@@ -276,23 +272,11 @@ func (mt *mtask) unblock(d event.FactData) {
 			mt.decision = "Lead's decision on your hold: " + d.Note
 		}
 	}
-	switch {
-	case d.Reason == wire.ResumeReprompt:
-		mt.state = mt.jobState(false)
-	case d.Reason == wire.ResumeRetry && mt.left != "":
-		mt.state = mt.left
-	case mt.state == stMerged:
-	case d.Cause == causePublish:
-		mt.state = stAccepted
-	case d.Cause == causeGate:
-		mt.state = gateState(mt.kind)
-	default:
-		mt.state = stSubmitted
-	}
+	mt.state = mt.resumeTarget(d.Reason, d.Cause)
 	if mt.state == stSubmitted && d.Reason != wire.ResumeRetry {
 		mt.input = "" // the lane may have moved on: submit it again
 	}
-	if mt.state == stDispatched { // a refused step runs again under its next key, an undelivered job is sent anew
+	if mt.state == stDispatched {
 		mt.refused = ""
 		if d.Cause == causeUndelivered {
 			mt.work = ""
@@ -318,19 +302,22 @@ func gateState(kind string) string {
 // (v.Lead); one that no longer fits the state changes nothing.
 func (mt *mtask) verdict(method string, v verdictResult) {
 	if method == stepAnswer { // an older log's answer: its fix job the next attempt
-		if mt.state == stWorking || mt.state == stDispatched {
+		if mt.is(stWorking) || mt.is(stDispatched) {
 			mt.next(v.Note, true)
 		}
 		return
 	}
 	if method == wire.MethodSendback && v.Lead {
-		if st := mt.state; st == stGreen || st == stAwaiting || st == stResolving || st == stNeedsYou {
+		if mt.is(stGreen) || mt.is(stAwaiting) || mt.is(stResolving) || mt.onHold() {
 			// The lead's sendback starts the next attempt but does not count toward K: K counts the gate's and the
 			// integrator's sendbacks (T-619).
-			mt.needs = event.Record{}
+			mt.unblock()
 			mt.next(v.Note, false)
 		}
 		return
+	}
+	if mt.paused() {
+		return // the owner decides first: a verdict on a held job ended the block already (foldLoop)
 	}
 	for _, r := range states[mt.state].verdicts {
 		if r.method == method {

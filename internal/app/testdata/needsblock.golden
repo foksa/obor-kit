@@ -1,0 +1,467 @@
+== red gate past K, due
+  status: state red, phase gating, stage "gating", attempt 3, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (red); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is red; retry when it settles
+  resume --regate: refused: resume: T-1 is red; retry when it settles
+  resume --sendback: refused: resume: T-1 is red; retry when it settles
+== red gate past K, held
+  status: state needs-you, phase needs-you, stage "held", attempt 3, job ""
+  facts: needs-you{gate red after 2 sendbacks: gate red}
+  needs-you: gate red after 2 sendbacks: gate red
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+  resume cmds: obor resume T-1 --regate | obor resume T-1 --sendback "<why>" | obor drop T-1
+  resume --: refused: resume T-1: say --regate or --sendback (gate red after 2 sendbacks: gate red)
+  resume --regate: regate (text needed false)
+  resume --sendback: sendback (text needed true)
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 3, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, red): decided", work "", fixed false, fails 0
+  after sendback:
+    status: state working, phase working, stage "", attempt 4, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop drive move submit
+    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
+    resume cmds: obor drop T-1
+    input "", decision "", work "", fixed false, fails 0
+== sendbacks past K, due
+  status: state fail, phase needs-you, stage "held", attempt 3, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (fail); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is fail; retry when it settles
+  resume --regate: refused: resume: T-1 is fail; retry when it settles
+  resume --sendback: refused: resume: T-1 is fail; retry when it settles
+== sendbacks past K, held
+  status: state needs-you, phase needs-you, stage "held", attempt 3, job ""
+  facts: needs-you{sent back 2 times, the integrator would again: again}
+  needs-you: sent back 2 times, the integrator would again: again
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+  resume cmds: obor resume T-1 --regate | obor resume T-1 --sendback "<why>" | obor drop T-1
+  resume --: refused: resume T-1: say --regate or --sendback (sent back 2 times, the integrator would again: again)
+  resume --regate: regate (text needed false)
+  resume --sendback: sendback (text needed true)
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 3, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 2
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, sendbacks): decided", work "", fixed false, fails 0
+  after sendback:
+    status: state working, phase working, stage "", attempt 4, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop drive move submit
+    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
+    resume cmds: obor drop T-1
+    input "", decision "", work "", fixed false, fails 0
+== resolve rejected, due
+  status: state fail, phase needs-you, stage "held", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (fail); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is fail; retry when it settles
+  resume --regate: refused: resume: T-1 is fail; retry when it settles
+  resume --sendback: refused: resume: T-1 is fail; retry when it settles
+== resolve rejected, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{resolve rejected: cannot}
+  needs-you: resolve rejected: cannot
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 --regate | obor resume T-1 --sendback "<why>" | obor drop T-1
+  resume --: refused: resume T-1: say --regate or --sendback (resolve rejected: cannot)
+  resume --regate: regate (text needed false)
+  resume --sendback: sendback (text needed true)
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, resolve rejected): decided", work "", fixed false, fails 0
+  after sendback:
+    status: state working, phase working, stage "", attempt 2, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop drive move submit
+    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "", work "", fixed false, fails 0
+== gate failure, due
+  status: state fail, phase needs-you, stage "held", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (fail); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is fail; retry when it settles
+  resume --regate: refused: resume: T-1 is fail; retry when it settles
+  resume --sendback: refused: resume: T-1 is fail; retry when it settles
+== gate failure, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{gate: gate fail}
+  needs-you: gate: gate fail
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: regate (text needed false)
+  resume --regate: regate (text needed false)
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 gates it again
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, gate): decided", work "", fixed false, fails 0
+== resolved gate failure, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{gate: boom}
+  needs-you: gate: boom
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: regate (text needed false)
+  resume --regate: regate (text needed false)
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 gates it again
+  after regate:
+    status: state resolved, phase gating, stage "gating", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: gate.3; job open false; scratch "T-1" "resolved"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, gate): decided", work "", fixed false, fails 0
+== submit refused, due
+  status: state fail, phase needs-you, stage "held", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (fail); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is fail; retry when it settles
+  resume --regate: refused: resume: T-1 is fail; retry when it settles
+  resume --sendback: refused: resume: T-1 is fail; retry when it settles
+== submit refused, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{submit: no commit}
+  needs-you: submit: no commit
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: regate (text needed false)
+  resume --regate: regate (text needed false)
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 gates it again
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, gate): decided", work "", fixed false, fails 0
+== gate step failed, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{gate failed: boom}
+  needs-you: gate failed: boom
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    status: state submitted, phase gate pending, stage "gating", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: gate; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, gate failed): decided", work "", fixed false, fails 0
+== publish failure, due
+  status: state fail, phase needs-you, stage "held", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: a step (fail); job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is fail; retry when it settles
+  resume --regate: refused: resume: T-1 is fail; retry when it settles
+  resume --sendback: refused: resume: T-1 is fail; retry when it settles
+== publish failure, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{publish: push refused}
+  needs-you: publish: push refused
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: regate (text needed false)
+  resume --regate: regate (text needed false)
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 gates it again
+  after regate:
+    status: state accepted, phase publish, stage "publish", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: publish.2; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, publish): decided", work "", fixed false, fails 0
+== worker question while working
+  status: state working, phase needs-you, stage "", attempt 1, job "T-1/1/work"
+  facts: needs-you{asks:  which way}
+  needs-you: asks:  which way
+  verbs: resume drop drive move submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+  resume cmds: obor resume T-1 "<answer>" | obor resume T-1 --regate | obor drop T-1
+  resume --: answer (text needed true)
+  resume --regate: regate (text needed false)
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the worker the answer
+  after regate:
+    status: state submitted, phase submitted, stage "submitted", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: submit; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, -): decided", work "work", fixed false, fails 0
+== dispatch refused, due
+  status: state dispatched, phase dispatching, stage "", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: resume drop drive move submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is dispatched with nothing to resume (no question, no needs-you)
+  resume --regate: refused: resume: T-1 is dispatched with nothing to resume (no question, no needs-you)
+  resume --sendback: refused: resume: T-1 is dispatched with nothing to resume (no question, no needs-you)
+== dispatch refused, held
+  status: state needs-you, phase needs-you, stage "", attempt 1, job ""
+  facts: needs-you{lane: dirty lane}
+  needs-you: lane: dirty lane
+  verbs: resume drop drive submit
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done true; in loop false; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    status: state dispatched, phase dispatching, stage "", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop drive move submit
+    next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, lane): decided", work "", fixed false, fails 0
+== waiting needs-you
+  status: state needs-you, phase needs-you, stage "", attempt 1, job ""
+  facts: needs-you{after: T-0 dropped}
+  needs-you: after: T-0 dropped
+  verbs: resume drop submit
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    status: state waiting, phase waiting, stage "", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop
+    next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, after): decided", work "", fixed false, fails 0
+== undelivered fix job
+  status: state needs-you, phase needs-you, stage "", attempt 2, job "T-1/2/fix"
+  facts: needs-you{job not delivered: T-1/2/fix prompted twice}
+  needs-you: job not delivered: T-1/2/fix prompted twice
+  verbs: resume drop drive submit
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    status: state working, phase working, stage "", attempt 2, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop drive move submit
+    next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
+    resume cmds: obor drop T-1
+    input "", decision "Lead's decision (obor resume, job not delivered): decided", work "", fixed false, fails 0
+== after-merge step failed
+  facts: needs-you{after_merge failed: boom}
+  needs-you: after_merge failed: boom
+  verbs: resume
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop false; sendbacks 0
+  resume cmds: obor resume T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    facts: 
+    needs-you: 
+    verbs: resume
+    next: a step (merged); job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop false; sendbacks 0
+    resume cmds: 
+    input "sha1", decision "Lead's decision (obor resume, after_merge failed): decided", work "", fixed false, fails 0
+== rejected
+  status: state rejected, phase rejected, stage "", attempt 1, job ""
+  facts: needs-you{rejected by the integrator: no}
+  needs-you: rejected by the integrator: no
+  verbs: resume drop
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is rejected (rejected by the integrator: no): obor drop T-1 frees its lane
+  resume --regate: refused: resume: T-1 is rejected (rejected by the integrator: no): obor drop T-1 frees its lane
+  resume --sendback: refused: resume: T-1 is rejected (rejected by the integrator: no): obor drop T-1 frees its lane
+== held review verdict
+  status: state needs-you, phase held, stage "held", attempt 1, job "T-1/1/review"
+  facts: needs-you{held: which way}
+  needs-you: held: which way
+  verbs: resume drop submit
+  next: waits; job open true; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 "<decision>" | obor drop T-1
+  resume --: reprompt (text needed true)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 sends the integrator its job anew
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the integrator its job anew
+  after reprompt:
+    status: state green, phase review, stage "review", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop
+    next: review.2; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor resume T-1 "<why>" | obor drop T-1
+    input "sha1", decision "Lead's decision on your hold: decided", work "", fixed false, fails 0
+== held review, accepted
+  status: state accepted, phase publish, stage "publish", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: drop
+  next: publish; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is accepted; retry when it settles
+  resume --regate: refused: resume: T-1 is accepted; retry when it settles
+  resume --sendback: refused: resume: T-1 is accepted; retry when it settles
+== held review, lead's sendback
+  status: state working, phase working, stage "", attempt 2, job ""
+  facts: 
+  needs-you: 
+  verbs: resume drop drive move submit
+  next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
+  resume cmds: obor drop T-1
+  resume --: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)
+  resume --regate: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)
+  resume --sendback: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)
+== stalled review job, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job "T-1/1/review"
+  facts: needs-you{job stalled: integrator gone}
+  needs-you: job stalled: integrator gone
+  verbs: resume drop submit
+  next: waits; job open true; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: reprompt (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 sends the integrator its job anew
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the integrator its job anew
+  after reprompt:
+    status: state green, phase review, stage "review", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: resume drop
+    next: review.2; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor resume T-1 "<why>" | obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, job stalled): decided", work "", fixed false, fails 0
+== stalled resolve job, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job "T-1/1/resolve"
+  facts: needs-you{job stalled: integrator gone}
+  needs-you: job stalled: integrator gone
+  verbs: resume drop submit
+  next: waits; job open true; scratch "T-1" "held"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: reprompt (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 sends the integrator its job anew
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the integrator its job anew
+  after reprompt:
+    status: state conflict, phase review, stage "review", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: resolve.2; job open false; scratch "T-1" "conflict"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, job stalled): decided", work "", fixed false, fails 0
+== resolved gate step failed, held
+  status: state needs-you, phase needs-you, stage "held", attempt 1, job ""
+  facts: needs-you{gate.2 failed: boom}
+  needs-you: gate.2 failed: boom
+  verbs: resume drop submit
+  next: waits; job open false; scratch "T-1" "held"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+  resume cmds: obor resume T-1 | obor drop T-1
+  resume --: retry (text needed false)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 retries the failed step
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 retries the failed step
+  after retry:
+    status: state resolved, phase gate pending, stage "gating", attempt 1, job ""
+    facts: 
+    needs-you: 
+    verbs: drop
+    next: gate.2; job open false; scratch "T-1" "resolved"; dispatchable false; awaits task_done false; in loop true; sendbacks 0
+    resume cmds: obor drop T-1
+    input "sha1", decision "Lead's decision (obor resume, gate failed): decided", work "", fixed false, fails 0
+== held fix job, drive take-over
+  status: state driving, phase driving, stage "", attempt 2, job ""
+  facts: 
+  needs-you: 
+  verbs: resume drop land
+  next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done false; in loop true; sendbacks 1
+  resume cmds: obor resume T-1 "<text>" | obor drop T-1
+  resume --: drive (text needed true)
+  resume --regate: refused: resume T-1: --regate does not fit: obor resume T-1 sends the drive agent the line
+  resume --sendback: refused: resume T-1: --sendback does not fit: obor resume T-1 sends the drive agent the line
+== held, merged outside
+  facts: 
+  needs-you: 
+  verbs: resume
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop false; sendbacks 0
+  resume cmds: 
+  resume --: refused: resume: T-1 is merged with nothing to resume (no question, no needs-you)
+  resume --regate: refused: resume: T-1 is merged with nothing to resume (no question, no needs-you)
+  resume --sendback: refused: resume: T-1 is merged with nothing to resume (no question, no needs-you)
+== held, dropped
+  status: state dropped, phase dropped, stage "", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: 
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop false; sendbacks 0
+  resume cmds: 
+  resume --: refused: resume: T-1 is dropped
+  resume --regate: refused: resume: T-1 is dropped
+  resume --sendback: refused: resume: T-1 is dropped
+== due, dropped
+  status: state dropped, phase dropped, stage "", attempt 1, job ""
+  facts: 
+  needs-you: 
+  verbs: 
+  next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done false; in loop false; sendbacks 0
+  resume cmds: 
+  resume --: refused: resume: T-1 is dropped
+  resume --regate: refused: resume: T-1 is dropped
+  resume --sendback: refused: resume: T-1 is dropped

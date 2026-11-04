@@ -148,7 +148,7 @@ func TestDroppedEndsTheTask(t *testing.T) {
 			t.Parallel()
 			r := newConcRig(t)
 			needsYouT7(r)
-			if s := r.state("pq", "T-7"); s != stNeedsYou {
+			if s := r.state("pq", "T-7"); s != wire.PhaseNeedsYou {
 				t.Fatalf("precondition: T-7 is %s, want needs-you", s)
 			}
 			c.act(t, r)

@@ -182,8 +182,8 @@ func TestOpenQuestionsHoldReachesTheLead(t *testing.T) {
 				Note: "the question changes the config contract"}); err != nil {
 				t.Fatal(err)
 			}
-			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != event.CauseHeld {
-				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.Fact().Cause)
+			if mt := h.a.p.folded.loop["T-1"]; !mt.onHold() || mt.needs.fact.Fact().Cause != event.CauseHeld {
+				t.Fatalf("after the hold: T-1 %s (%s); want the lead's held needs-you", mt.state, mt.needs.fact.Fact().Cause)
 			}
 			const decision = "keep the schema; add the field later"
 			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "r1", Task: "T-1",
@@ -238,8 +238,8 @@ func TestOldPreReviewHoldFolds(t *testing.T) {
 			if c.replay {
 				p = reloadProj(t, h)
 			}
-			if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.needs.Seq != 0 {
-				t.Fatalf("folded: T-1 %s, needs %d; want green with no needs-you", mt.state, mt.needs.Seq)
+			if mt := p.folded.loop["T-1"]; mt.state != stGreen || mt.needs.fact.Seq != 0 {
+				t.Fatalf("folded: T-1 %s, needs %d; want green with no needs-you", mt.state, mt.needs.fact.Seq)
 			}
 			mt := pickGreenStep(t, h, f, false)
 			if mt.state != stAwaiting || mt.job != event.StepReview {

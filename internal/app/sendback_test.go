@@ -73,25 +73,25 @@ func TestLeadSendback(t *testing.T) {
 			gate(r, outRed)
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeRed,
 				Reason: "gate red after 2 sendbacks"})
-		}, stNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
+		}, wire.PhaseNeedsYou, "SENDBACK T-6 (attempt 1, needs-you)", "", 1},
 		{"needs-you after a hold", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
 			r.add("pq", "T-6", event.StepReview, event.KindIntent, promptData{Agent: "pq-int", Job: "T-6/1/review", Patch: "p6"})
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: event.CauseHeld,
 				Reason: "held: ask the owner", Job: "T-6/1/review"})
-		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 sends the integrator its job anew", 1},
+		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 sends the integrator its job anew", 1},
 		{"needs-you after a gate fail", func(r *concRig) {
 			sub(r)
 			gate(r, outFail)
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-06", Merge: true, Cause: causeGate,
 				Reason: "gate: gate fail"})
-		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 gates it again", 1},
+		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 gates it again", 1},
 		{"needs-you with no lane", func(r *concRig) { // a waiting task: no lane, no worker to send the task to
 			r.add("pq", "T-6", event.StepWaiting, event.KindFact, dispatchData{After: []string{"T-7"}})
 			r.add("pq", "T-6", event.StepNeedsYou, event.KindFact, event.FactData{Merge: true, Cause: causeAfter,
 				Reason: "after: T-6 waits for T-7, which is dropped"})
-		}, stNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 retries the failed step", 1},
+		}, wire.PhaseNeedsYou, "", "resume T-6: --sendback does not fit: obor resume T-6 retries the failed step", 1},
 		{"accepted", func(r *concRig) {
 			sub(r)
 			gate(r, outGreen)
@@ -145,7 +145,7 @@ func TestLeadSendback(t *testing.T) {
 			b := New(Options{Root: r.roots["pq"], Now: r.a.opt.Now}, &fakePanes{}, &fakeLanes{})
 			b.loadProject()
 			p := b.p
-			if mt := p.folded.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.Seq != 0 {
+			if mt := p.folded.loop["T-6"]; mt == nil || mt.state != stWorking || mt.attempt != 2 || mt.needs.fact.Seq != 0 {
 				t.Errorf("replay: %+v; want T-6 working, attempt 2, no needs-you", mt)
 			}
 			if got := p.folded.calls[verdictStep(wire.MethodSendback, "s1")]; got != c.reply {
@@ -181,8 +181,8 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 			h.a.mu.Unlock()
 			addRecord(t, h, "T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Merge: true, Cause: c.cause,
 				Reason: c.cause + ": the integrator's limit"})
-			if mt := h.a.p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.needs.Fact().Cause != c.cause {
-				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.Fact().Cause, c.cause)
+			if mt := h.a.p.folded.loop["T-1"]; !mt.onHold() || mt.needs.fact.Fact().Cause != c.cause {
+				t.Fatalf("precondition: T-1 %s (%s); want the %s needs-you", mt.state, mt.needs.fact.Fact().Cause, c.cause)
 			}
 			const why = "use the config store; drop the extra test"
 			reply, err := h.a.resume(wire.Call{Root: h.root, Agent: "pj-lead", Role: "lead", CallID: "s1", Task: "T-1",
@@ -191,9 +191,9 @@ func TestLeadSendbackFromNeedsYou(t *testing.T) {
 				t.Fatalf("sendback: %q, %v", reply, err)
 			}
 			mt := h.a.p.folded.loop["T-1"]
-			if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != c.sendbacks || mt.needs.Seq != 0 {
+			if mt.state != stWorking || mt.attempt != 2 || mt.sendbacks != c.sendbacks || mt.needs.fact.Seq != 0 {
 				t.Errorf("after the sendback: T-1 %s, attempt %d, sendbacks %d, needs %d; want working, attempt 2, %d, none",
-					mt.state, mt.attempt, mt.sendbacks, mt.needs.Seq, c.sendbacks)
+					mt.state, mt.attempt, mt.sendbacks, mt.needs.fact.Seq, c.sendbacks)
 			}
 			fixStep(t, h, f)
 			jr := fixJob(t, h)
@@ -216,7 +216,7 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 		attempt   int
 	}{
 		{"below K", K - 1, stWorking, 2},
-		{"at K", K, stFail, 1},
+		{"at K", K, "fail", 1}, // a due block: the owner decides
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -233,12 +233,13 @@ func TestIntegratorSendbackStillCounts(t *testing.T) {
 				t.Fatalf("sendback: %q, %v", reply, err)
 			}
 			mt := h.a.p.folded.loop["T-1"]
-			if mt.state != c.state || mt.attempt != c.attempt || mt.sendbacks != K {
+			if mt.shown() != c.state || mt.attempt != c.attempt || mt.sendbacks != K {
 				t.Errorf("after the integrator's sendback: T-1 %s, attempt %d, sendbacks %d; want %s, attempt %d, %d",
-					mt.state, mt.attempt, mt.sendbacks, c.state, c.attempt, K)
+					mt.shown(), mt.attempt, mt.sendbacks, c.state, c.attempt, K)
 			}
-			if c.state == stFail && mt.cause != causeSendbacks {
-				t.Errorf("at K the cause is %q; want %q (the owner decides)", mt.cause, causeSendbacks)
+			if c.state == "fail" && (!mt.needs.due() || mt.needs.cause != causeSendbacks || mt.state != stAwaiting) {
+				t.Errorf("at K: %s, block %+v; want a due block of %q on awaiting-accept (the owner decides)", mt.state,
+					mt.needs, causeSendbacks)
 			}
 			if n := countStep(t, h, event.StepFix); n != 0 {
 				t.Errorf("%d fix jobs; want none before the loop sends one", n)

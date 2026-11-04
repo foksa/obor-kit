@@ -10,10 +10,11 @@ import (
 // The merge loop's states as one table (docs/state-model.md "States" and "Transitions": the code mirrors it, row by
 // row). A state's row says what each function decides for it: pick its next step, stepName that step's name, verdict
 // the integrator's verdicts it takes, verbs which of the lead's task verbs it takes (mtask.may), resume what obor
-// resume does with a needs-you that left it, scratch whether it holds the scratch, uses whether its step needs it,
+// resume does with a needs-you on it, scratch whether it holds the scratch, uses whether its step needs it,
 // landed whether a merge outside the app may have landed it, ended whether it ended already, failed whether it ended
-// without a merge, phase what obor status and web show for it (phaseOf adds the live overlays). A new state is one
-// row here (and one test, TestState<Name>Row<N>).
+// without a merge, phase what obor status and web show for it (phaseOf adds the live overlays). A needs-you is no
+// state: a block on one (mtask.needs, block.go), which pick, may and phase see first. A new state is one row here (and
+// one test, TestState<Name>Row<N>).
 type stateRow struct {
 	pick     func(a *App, p *proj, mt mtask) step // its next step (under mu); nil, or no pick: it waits
 	name     func(mt mtask) string                // the step pick selects, for a refused drop's reply (nil: "a step (<state>)")
@@ -51,17 +52,22 @@ const (
 // dispatch's lane prepared (mt.base).
 const workVerbs = vResume | vDrop | vDrive | vMove | vSubmit
 
-// may: mt's state takes v. A needs-you takes its row's verbs and a take-over when the state it left takes one (a worker's
-// needs-you: obor drive fixes it by hand).
+// may: mt's state takes v. A block decides first (one rule for every verb): a due one takes only a drop (its
+// needs-you is recorded on the next pass); a held one takes obor resume, a drop and a task_done (the next attempt), and
+// a take-over when its phase takes one (a worker's needs-you: obor drive fixes it by hand). A merged or rejected
+// task's needs-you leaves its row's verbs as they are.
 func (mt mtask) may(v verb) bool {
 	vs := states[mt.state].verbs
-	if mt.state == stNeedsYou {
-		vs |= states[mt.left].verbs & vDrive
+	switch {
+	case mt.needs.due():
+		vs = vDrop
+	case mt.paused():
+		vs = vResume | vDrop | vSubmit | vs&vDrive
 	}
 	return vs&v != 0
 }
 
-// resumeRule is what obor resume may do with a needs-you that left a state (App.resume).
+// resumeRule is what obor resume may do with a needs-you on a state (App.resume).
 type resumeRule struct {
 	to         string // the default target ("": the cause's, resumeDefaultOf)
 	only       string // the one target that fits ("": any the cause allows)
@@ -98,14 +104,12 @@ func init() {
 			phase: wire.PhaseReviewing, verdicts: []verdictRule{
 				{wire.MethodResolved, func(mt *mtask, v verdictResult) { mt.state, mt.resolved = stResolved, v.SHA }},
 				{wire.MethodReject, func(mt *mtask, v verdictResult) {
-					mt.state, mt.why, mt.cause = stFail, "resolve rejected: "+v.Note, causeResolveRejected
+					mt.block(block{cause: causeResolveRejected, why: "resolve rejected: " + v.Note})
 				}},
 			}},
 		// rows 30, 18: gate the merge the integrator committed in the scratch (it holds the scratch itself)
 		stResolved: {pick: (*App).pickGate, name: gateName, verbs: vDrop, scratch: true, uses: wire.ScratchGating,
 			phase: wire.PhaseGating},
-		// row 22: the owner decides (unless a merge outside the app took the lane meanwhile)
-		stFail: {pick: (*App).pickFail, verbs: vDrop, landed: true, phase: wire.PhaseNeedsYou},
 		// rows 20, 26, 33, 35: publish it
 		stAccepted: {pick: (*App).pickAccepted, name: func(mt mtask) string { return nth(event.StepPublish, mt.pubs+1) },
 			verbs: vDrop, uses: wire.ScratchPublishing, phase: wire.PhasePublish},
@@ -145,9 +149,6 @@ func init() {
 				}
 				return resumeRule{}
 			}},
-		// row 40: the owner decides; the state it left is kept (mtask.kept): obor resume does what its cause takes
-		// (resumeAct), a take-over too when the state it left takes one (mtask.may)
-		stNeedsYou: {verbs: vResume | vDrop | vSubmit, landed: true, phase: wire.PhaseNeedsYou},
 		// T-751: the owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
 		// red gate, a sendback or a hold sent it back; no jobs, no watchdog; obor resume is a line to the drive agent
 		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand,
@@ -163,9 +164,9 @@ func (a *App) phaseOf(p *proj, mt *mtask, steps map[string]string) string {
 }
 
 // stageOf is mt's merge-loop stage ("": not in the merge loop), from its state, its steps and the merge hold, and the
-// merge loop's needs-you (one left from a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's (T-797).
+// merge loop's needs-you (a block on a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's (T-797).
 func (a *App) stageOf(p *proj, mt *mtask, steps map[string]string) string {
-	if mt.state == stNeedsYou && (mt.left == stWaiting || mt.left == stDispatched || mt.left == stWorking) {
+	if mt.paused() && (mt.state == stWaiting || mt.state == stDispatched || mt.state == stWorking) {
 		return "" // a needs-you its dispatch or worker left (redoable): the worker's, never the merge loop's
 	}
 	return wire.PhaseStage(phase(mt, overlays{step: steps[mt.task], hold: a.holdRole(p, mt)}))
@@ -179,13 +180,13 @@ type overlays struct {
 	step, hold string
 }
 
-// phase is mt's phase with the overlays o: a needs-you first — the merge loop's (held: the integrator's hold verdict
-// alone, C7) or a watchdog's — then its step running or pending, then the merge hold, else its state's row.
+// phase is mt's phase with the overlays o: a needs-you first — the merge loop's block (held: the integrator's hold
+// verdict alone, C7) or a watchdog's — then its step running or pending, then the merge hold, else its state's row.
 func phase(mt *mtask, o overlays) string {
 	switch {
-	case mt.state == stNeedsYou && mt.needs.Seq != 0 && mt.needs.Fact().Cause == event.CauseHeld:
+	case mt.onHold() && mt.needs.fact.Fact().Cause == event.CauseHeld:
 		return wire.PhaseHeld
-	case mt.state == stNeedsYou || o.blocked:
+	case mt.paused() || o.blocked:
 		return wire.PhaseNeedsYou
 	case o.step != "":
 		return o.step
@@ -246,7 +247,7 @@ func (p *proj) busy(task string) string {
 	if m := p.folded.loop[task]; m != nil {
 		mt = *m
 	}
-	if mt.state == stNeedsYou { // it runs no step: an open intent is the failed step's, which obor resume retries
+	if mt.onHold() { // it runs no step: an open intent is the failed step's, which obor resume retries
 		return ""
 	}
 	for _, step := range []string{nth(event.StepGate, mt.gates+1), nth(event.StepPublish, mt.pubs+1)} {
@@ -292,21 +293,12 @@ func foldSendback(mt *mtask, v verdictResult) {
 		mt.sendback(v.Note)
 		return
 	}
-	mt.state, mt.why, mt.cause = stFail, fmt.Sprintf("sent back %d times, the integrator would again: %s", K, v.Note),
-		causeSendbacks
+	mt.block(block{cause: causeSendbacks, why: fmt.Sprintf("sent back %d times, the integrator would again: %s", K, v.Note)})
 }
 
-// kept is the state mt's needs-you left (needs-you), else its state.
-func (mt *mtask) kept() string {
-	if mt.state == stNeedsYou {
-		return mt.left
-	}
-	return mt.state
-}
-
-// resumeRule is obor resume's rule for mt's needs-you with cause.
+// resumeRule is obor resume's rule for mt's needs-you with cause, by its phase.
 func (mt mtask) resumeRule(cause string) resumeRule {
-	if f := states[mt.kept()].resume; f != nil {
+	if f := states[mt.state].resume; f != nil {
 		return f(mt, cause)
 	}
 	return resumeRule{}

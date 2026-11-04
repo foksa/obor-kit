@@ -1,13 +1,9 @@
 package app
 
 // awaitsTaskDone: mt's attempt is its worker's and no task_done submitted it yet: dispatched, working (the work job or
-// a fix job), or a needs-you either of those left.
+// a fix job), also while a needs-you holds either.
 func (mt *mtask) awaitsTaskDone() bool {
-	st := mt.state
-	if st == stNeedsYou {
-		st = mt.left
-	}
-	return st == stDispatched || st == stWorking
+	return mt.state == stDispatched || mt.state == stWorking
 }
 
 // inLoop: mt (nil: none) is submitted and not ended: the merge loop holds it (gate, review, publish, a needs-you of

@@ -164,7 +164,7 @@ func (p *proj) clear(task string) {
 
 // inForce: the fact r is still in force.
 func (p *proj) inForce(r event.Record) bool {
-	if mt := p.folded.loop[r.Task]; mt != nil && mt.needs.Seq == r.Seq && r.Seq != 0 {
+	if mt := p.folded.loop[r.Task]; mt != nil && mt.needs.fact.Seq == r.Seq && r.Seq != 0 {
 		return true
 	}
 	for _, f := range p.folded.active[r.Task] {

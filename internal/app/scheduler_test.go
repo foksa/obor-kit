@@ -67,7 +67,7 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 	p := h.a.p
 	check := func(state, why string, resolved bool) {
 		t.Helper()
-		if got := p.folded.loop["T-1"].state; got != state {
+		if got := p.folded.loop["T-1"].shown(); got != state {
 			t.Fatalf("precondition: T-1 %s, want %s", got, state)
 		}
 		owner, q := schedStatus(t, h)
@@ -87,7 +87,7 @@ func TestScratchOwnedByAnOpenMerge(t *testing.T) {
 		t.Fatalf("resolving: gated %v; want none", f.gated)
 	}
 	h.a.needsYou(p, p.folded.loop["T-1"], event.CauseHeld, "held")
-	check(stNeedsYou, wire.ScratchHeld, false)
+	check(wire.PhaseNeedsYou, wire.ScratchHeld, false)
 	h.pass(ctx)
 	if len(f.gated) != 0 {
 		t.Fatalf("held: gated %v; want none", f.gated)

@@ -246,8 +246,8 @@ func TestPausedScratchReservation(t *testing.T) {
 			if cause == "start.resolve failed" {
 				want = stConflict
 			}
-			if mt.state != stNeedsYou || mt.left != want {
-				t.Fatalf("precondition: T-1 %s (left %s), want needs-you left %s", mt.state, mt.left, want)
+			if !mt.onHold() || mt.state != want {
+				t.Fatalf("precondition: T-1 %s (held %v), want a needs-you held on %s", mt.state, mt.onHold(), want)
 			}
 			if p.folded.loop["T-2"].state != stSubmitted || p.folded.loop["T-2"].input != "s2" {
 				t.Fatalf("precondition: T-2 submitted at s2: %+v", *p.folded.loop["T-2"])
@@ -315,7 +315,7 @@ func TestPausedScratchReleased(t *testing.T) {
 				addRecord(t, h, "T-1", event.StepSendback, event.KindFact, noteData{Note: "fix"})
 			}
 			if busy(p, "T-2") {
-				t.Fatalf("%s: T-1 (%s, left %s) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].left)
+				t.Fatalf("%s: T-1 (%s, %+v) still holds the scratch", release, p.folded.loop["T-1"].state, p.folded.loop["T-1"].needs)
 			}
 		})
 	}
@@ -600,8 +600,8 @@ func TestMergeLoopOffRefusesOldVerdict(t *testing.T) {
 	if got := countRecords(t, h); got != n {
 		t.Errorf("records while off: %d, want %d (none new)", got, n)
 	}
-	if mt := p.folded.loop["T-1"]; mt.state != stNeedsYou || mt.left != stResolving || !mt.openJob() {
-		t.Errorf("T-1 while off: %s (left %s, open %v); want unchanged: held, its resolve job open", mt.state, mt.left,
+	if mt := p.folded.loop["T-1"]; !mt.onHold() || mt.state != stResolving || !mt.openJob() {
+		t.Errorf("T-1 while off: %s (held %v, open %v); want unchanged: held, its resolve job open", mt.state, mt.onHold(),
 			mt.openJob())
 	}
 	if reply, err := call(wire.MethodHold, held); err != nil || reply != want {
@@ -664,9 +664,9 @@ func TestMergeLoopOffRefusesAllCalls(t *testing.T) {
 			if got := countRecords(t, h); got != n {
 				t.Errorf("%s while off: %d records, want %d (none new)", method, got, n)
 			}
-			if mt := p.folded.loop["T-1"]; mt.state != before.state || mt.needs.Seq != before.needs.Seq || mt.job != before.job {
+			if mt := p.folded.loop["T-1"]; mt.state != before.state || mt.needs.fact.Seq != before.needs.fact.Seq || mt.job != before.job {
 				t.Errorf("%s while off: T-1 %s (needs %d, job %s); want %s (needs %d, job %s)", method, mt.state,
-					mt.needs.Seq, mt.job, before.state, before.needs.Seq, before.job)
+					mt.needs.fact.Seq, mt.job, before.state, before.needs.fact.Seq, before.job)
 			}
 
 			serveHarness(t, h, true)

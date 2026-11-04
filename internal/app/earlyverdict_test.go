@@ -54,13 +54,13 @@ func TestEarlyVerdict(t *testing.T) {
 		{name: "review reject", setup: []func(*concRig){gate(outGreen)}, job: "review", method: wire.MethodReject,
 			state: stRejected, attempt: 1},
 		{name: "review hold", setup: []func(*concRig){gate(outGreen)}, job: "review", method: wire.MethodHold,
-			state: stNeedsYou, attempt: 1},
+			state: wire.PhaseNeedsYou, attempt: 1},
 		{name: "resolve resolved", setup: []func(*concRig){gate(outConflict)}, job: "resolve", method: wire.MethodResolved,
 			state: stResolved, attempt: 1},
 		{name: "resolve reject", setup: []func(*concRig){gate(outConflict)}, job: "resolve", method: wire.MethodReject,
-			state: stFail, attempt: 1},
+			state: "fail", attempt: 1}, // a due block: its needs-you is recorded next,
 		{name: "resolve hold", setup: []func(*concRig){gate(outConflict)}, job: "resolve", method: wire.MethodHold,
-			state: stNeedsYou, attempt: 1},
+			state: wire.PhaseNeedsYou, attempt: 1},
 		{name: "review.2 after job.lost: accept", setup: []func(*concRig){gate(outGreen), sent("review"), lost("review")},
 			job: "review.2", method: wire.MethodAccept, state: stAccepted, attempt: 1},
 		{name: "resolve.2 after job.lost: resolved",
@@ -115,11 +115,11 @@ func TestEarlyVerdict(t *testing.T) {
 			if verdictErr != nil {
 				t.Fatalf("%s during the start: %v", row.method, verdictErr)
 			}
-			same(t, during.state+" "+strconv.Itoa(during.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the verdict")
+			same(t, during.shown()+" "+strconv.Itoa(during.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the verdict")
 			r.a.mu.Lock()
 			after := *p.folded.loop["T-1"]
 			r.a.mu.Unlock()
-			same(t, after.state+" "+strconv.Itoa(after.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the start")
+			same(t, after.shown()+" "+strconv.Itoa(after.attempt), row.state+" "+strconv.Itoa(row.attempt), "state after the start")
 			same(t, resultOf(p, key), `"sent (start prompt)"`, row.job+" result")
 			same(t, len(f.typed), 0, "Prompter calls")
 			same(t, deliveredOf(r, job), 1, "delivered facts of "+job)

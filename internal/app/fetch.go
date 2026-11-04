@@ -37,12 +37,9 @@ const viaMCP = "mcp"
 
 // workerJob is mt's open worker job: the attempt's work job (dispatched, or working on it; open from its intent,
 // which comes before the start that carries its wake: startJob), else its last fix job once sent; also while a
-// needs-you left one of those. False: none.
+// needs-you holds one of those. False: none.
 func (mt *mtask) workerJob() (event.Key, bool) {
-	st := mt.state
-	if st == stNeedsYou {
-		st = mt.left
-	}
+	st := mt.state // its phase, also while a needs-you holds it
 	switch {
 	case (st == stDispatched || st == stWorking) && mt.work != "":
 		return event.Key{Task: mt.task, Attempt: mt.attempt, Step: mt.work}, true
@@ -135,14 +132,14 @@ func (a *App) callerJob(p *proj, c wire.Call) (mtask, event.Key, bool, error) {
 				p.integrator, Dash(c.Agent))
 		}
 		// The job the call names (its wake's id) when it is open, else the oldest open one; never a held one (a
-		// needs-you left it: the owner's, T-602): a fresh session started for one job gets that job.
+		// needs-you holds it: the owner's, T-602): a fresh session started for one job gets that job.
 		var best *mtask
 		var seq int64
 		var bestKey event.Key
 		for _, t := range p.loopTasks() { // equal seqs (no intent found): the first task by name
 			mt := p.folded.loop[t]
 			k, ok := mt.integratorJob()
-			if !ok || mt.state == stNeedsYou {
+			if !ok || mt.paused() {
 				continue
 			}
 			if c.Job != "" && JobID(k) == c.Job {
@@ -357,8 +354,8 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	case c.Agent == "" || c.Agent != mt.agent && c.Agent != l.Agent || c.Lane != "" && c.Lane != mt.lane:
 		return "", fmt.Errorf("task_done: not your task (%s is %s's in lane %s, not %s's)", c.Task, mt.agent, mt.lane,
 			Dash(c.Agent))
-	case !mt.may(vSubmit) || mt.state == stDispatched && mt.base == "" && dispatching: // no dispatch adapters: no prepare runs
-		return "", fmt.Errorf("task_done: %s is %s, not open for a submission", c.Task, mt.state)
+	case !mt.may(vSubmit) || mt.is(stDispatched) && mt.base == "" && dispatching: // no dispatch adapters: no prepare runs
+		return "", fmt.Errorf("task_done: %s is %s, not open for a submission", c.Task, mt.shown())
 	case busy != "":
 		return "", busyErr("task_done", c.Task, busy)
 	case l.Name == "":
@@ -386,7 +383,7 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	a.hook(hookTaskDoneCheck)
 	attempt := mt.attempt
-	if mt.state == stNeedsYou {
+	if mt.paused() { // a needs-you's task_done is the next attempt
 		attempt++
 	}
 	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepSubmitted, Kind: event.KindFact},

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -274,9 +275,9 @@ func TestRereadOfAPaneRelabelledToAnotherAgentIsNeedsYou(t *testing.T) {
 	p := h.proj()
 	h.a.mu.Lock()
 	m := p.folded.loop["T-1"]
-	st, next := m.state, h.a.pick(p, m)
+	st, next := m.shown(), h.a.pick(p, m)
 	h.a.mu.Unlock()
-	if st != stNeedsYou || next != nil {
+	if st != wire.PhaseNeedsYou || next != nil {
 		t.Errorf("T-1 after the needs-you: state %q, a next step %v; want needs-you and no step (no new wait, no read)",
 			st, next != nil)
 	}

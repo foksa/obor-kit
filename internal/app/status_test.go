@@ -19,7 +19,7 @@ func TestAnswerPathWaitingTaskNamesTheTask(t *testing.T) {
 	} {
 		raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: reason})
 		r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
-		path := answerPath(nil, r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
+		path := answerPath(nil, r, mtask{task: "T-8", state: stWaiting, needs: block{fact: r}})
 		if strings.Contains(path, "<LANE>") {
 			t.Errorf("%q: path %q names <LANE>, want the task", reason, path)
 		}

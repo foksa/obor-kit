@@ -360,7 +360,7 @@ func (r *concRig) state(name, task string) string {
 	a, p := r.app(name), r.proj(name)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return p.folded.loop[task].state
+	return p.folded.loop[task].shown()
 }
 
 func (r *concRig) running(name, task string) string {
@@ -669,7 +669,7 @@ func TestWaitingNeedsYouDropCommand(t *testing.T) {
 	t.Parallel()
 	raw, _ := json.Marshal(event.FactData{Merge: true, Cause: causeAfter, Reason: "after: T-8 waits for T-1, which is dropped"})
 	r := event.Record{Seq: 1, Task: "T-8", Step: event.StepNeedsYou, Data: raw}
-	path := answerPath(nil, r, mtask{task: "T-8", state: stNeedsYou, left: stWaiting, needs: r})
+	path := answerPath(nil, r, mtask{task: "T-8", state: stWaiting, needs: block{fact: r}})
 	t.Log(path)
 	if strings.Contains(path, "<LANE>") {
 		t.Error("waiting task has no lane; advertised drop command cannot run")
