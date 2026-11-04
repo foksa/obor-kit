@@ -146,6 +146,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-105, accepted) T-819 spec notice: an older job_next delivery recorded after a newer spec set retires the newer notice (fetch.go:97, messages.go:460); low (spec set during the first job_next), the task_done rev check still tells the worker; fix 20-50 lines (retire only notices at or below the delivered rev).
+- (RV-105, accepted) T-819 spec notice: a Claude inbox post that breaks after some bytes is reported (worker told) (messages.go:854, specs.go:99); low, the task_done rev check is the backstop; fix 10-30 lines (report 'delivery uncertain').
 - (RV-104, accepted) #2 remainder: obor idle's ack call reads the epoch under a.mu and records after releasing it, so an ack racing a brief/dispatch replies ACKED for an epoch that just ended (folding ignores it); low (two actions within ms), fix 20-50 lines.
 - (RV-104, accepted) #3 remainder: Ctrl-C/SIGTERM during a live conformance run: cancellation is checked only before the kinds start, so setup or H-L6 can race the cleanup; occasional, recovery is a rerun (setup stops a pre-existing obor-conf-<kind> session), fix 40-100 lines.
 - (RV-104, accepted) #4 remainder: obor status does not read .obor/state/conformance.json (passed/partial/failed); the run output and the file carry it; a status line is a 40-100 line feature, not asked for.
