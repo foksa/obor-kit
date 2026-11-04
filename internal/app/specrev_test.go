@@ -4,22 +4,20 @@ import (
 	"context"
 	"fmt"
 	"obor/internal/app/wire"
-	"obor/internal/herdr/herdrtest"
 	"strings"
 	"testing"
-	"time"
 )
 
-// T-819: a spec set reaches a working worker (one line, the reply says so) and a task_done of work done against an
-// older rev is refused once, with the same rev and note.
+// T-819, T-824: a spec set sends no line; a task_done of work done against an older rev is refused once, with the same
+// rev and note.
 
-// specRevLine is what a set of a working task's spec sends its worker, and what its task_done at the older rev says.
+// specRevLine is task_done's refusal of an older rev: the new rev, the set's note and what to do next.
 func specRevLine(task string, rev int, note string) string {
-	line := fmt.Sprintf("%s spec is now rev %d", task, rev)
+	line := fmt.Sprintf("spec is now rev %d", rev)
 	if note != "" {
 		line += ": " + note
 	}
-	return line + " — read obor spec show " + task + " and adjust; say in your report what you redid."
+	return line + " — read obor spec show " + task + ", adjust, then submit again"
 }
 
 // setSpecTask is the lead's obor spec set of task with note, text as its spec.
@@ -39,8 +37,7 @@ func (r *loopRig) setSpecT(callID, text, note string) string {
 }
 
 // workingT1 is the fetch rig with T-1's spec (rev 1) stored, dispatched, and its work job fetched by pj-l-01 at rev 1:
-// the task working, the worker able to submit. serve is connected to herdr on the stream after the worker's start's
-// refresh: spec set delivers its line at once (T-821), and in the resubscribe's gap it would find pj-l-01 unidentified.
+// the task working, the worker able to submit.
 func workingT1(t *testing.T) *loopRig {
 	t.Helper()
 	r := fetchRig(t)
@@ -58,69 +55,33 @@ func workingT1(t *testing.T) *loopRig {
 	return r
 }
 
-// A spec set on a working task sends its worker one line through the worker-line delivery (the line names the new rev
-// and the note), and the reply says so. A repeated call id gets the stored reply and sends nothing.
-func TestSpecSetTellsTheWorkingWorker(t *testing.T) {
+// A spec set on a working task replies with the plain set line and sends the worker no line: its next task_done at the
+// older rev is the only notice.
+func TestSpecSetOnAWorkingTaskSendsNoLine(t *testing.T) {
 	t.Parallel()
 	r := workingT1(t)
-	want := "SET T-1 rev 2 (worker told)"
 	if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\n## Files you may touch\n`more.txt`\n",
-		"widen the guard"); got != want {
-		t.Fatalf("spec set on a working task: %q, want %q", got, want)
+		"widen the guard"); got != "SET T-1 rev 2" {
+		t.Fatalf("spec set on a working task: %q, want SET T-1 rev 2", got)
 	}
-	line := "[obor] " + specRevLine("T-1", 2, "widen the guard")
-	r.waitFor("the spec line posted to pj-l-01", func() bool { return r.inbox.count("pj-l-01", line) == 1 })
+	if n := r.inbox.count("pj-l-01", "[obor] "+specRevLine("T-1", 2, "widen the guard")); n != 0 {
+		t.Errorf("the spec line posted %d times, want none", n)
+	}
 	r.passes()
-	if n := r.inbox.count("pj-l-01", line); n != 1 {
-		t.Errorf("the spec line posted %d times, want once", n)
+	if n := r.inbox.count("pj-l-01", "[obor] "+specRevLine("T-1", 2, "widen the guard")); n != 0 {
+		t.Errorf("the spec line posted %d times after the passes, want none", n)
 	}
-	if n := r.taskStep("msg", "fact spec.line"); n != 1 {
-		t.Errorf("spec.line facts %d, want one: %q", n, r.steps())
+	if n := r.typedTo("pj-l-01", "[obor] "+specRevLine("T-1", 2, "widen the guard")); n != 0 {
+		t.Errorf("the spec line typed %d times, want none", n)
 	}
-	if got := r.setSpecT("s2", "# T-1 — other text\n\nDifficulty: medium\n", "another note"); got != want {
-		t.Errorf("the same call id again: %q, want the stored reply %q", got, want)
+	for _, m := range r.waiting() {
+		if m.To == "pj-l-01" {
+			t.Errorf("a line to the worker is queued: %+v", m)
+		}
 	}
-	if n := r.taskStep("msg", "fact spec.line"); n != 1 {
-		t.Errorf("the repeated call id sent another line: %q", r.steps())
+	if got := r.setSpecT("s2", "# T-1 — other text\n\nDifficulty: medium\n", "another note"); got != "SET T-1 rev 2" {
+		t.Errorf("the same call id again: %q, want the stored reply", got)
 	}
-}
-
-// A task with no working worker gets no line: a waiting one (no lane yet) and a merged one. The reply is the plain
-// set line.
-func TestSpecSetTellsNoWorkerWhenNotWorking(t *testing.T) {
-	t.Parallel()
-	t.Run("waiting", func(t *testing.T) {
-		t.Parallel()
-		r := startWithT2(t)
-		if reply, err := r.waitAfter("d1", "T-2"); err != nil || reply != waitingAfter2 {
-			t.Fatalf("precondition: T-1 waits for T-2: %q, %v", reply, err)
-		}
-		reply, err := r.setSpecTask("s1", "T-1", "# T-1 — Widened\n\nDifficulty: medium\n", "widen it")
-		if err != nil || reply != "SET T-1 rev 1" {
-			t.Fatalf("spec set on a waiting task: %q, %v; want SET T-1 rev 1", reply, err)
-		}
-		if n := r.taskStep("msg", "fact spec.line"); n != 0 {
-			t.Errorf("a waiting task's spec set sent %d lines: %q", n, r.steps())
-		}
-	})
-	t.Run("merged", func(t *testing.T) {
-		t.Parallel()
-		r := newLoopRig(t, "echo 1 pass")
-		r.p.Dispatched("L-01")
-		r.p.SubmitAgo("L-01", 0)
-		r.p.MergedAt("T-1", "sha", true, time.Now().Unix())
-		r.start()
-		if n := r.taskStep("T-1", "fact merged"); n != 1 {
-			t.Fatalf("precondition: T-1's merged fact in the log: %d, want 1", n)
-		}
-		reply, err := r.setSpecTask("s1", "T-1", "# T-1 — Widened\n\nDifficulty: medium\n", "widen it")
-		if err != nil || reply != "SET T-1 rev 1" {
-			t.Fatalf("spec set on a merged task: %q, %v; want SET T-1 rev 1", reply, err)
-		}
-		if n := r.taskStep("msg", "fact spec.line"); n != 0 {
-			t.Errorf("a merged task's spec set sent %d lines: %q", n, r.steps())
-		}
-	})
 }
 
 // A task_done of work fetched at an older rev is refused once, naming the new rev and the set's note, and submits
@@ -129,7 +90,7 @@ func TestTaskDoneRefusesAnOlderSpecRev(t *testing.T) {
 	t.Parallel()
 	r := workingT1(t)
 	if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\n## Files you may touch\n`more.txt`\n",
-		"widen the guard"); got != "SET T-1 rev 2 (worker told)" {
+		"widen the guard"); got != "SET T-1 rev 2" {
 		t.Fatalf("spec set: %q", got)
 	}
 	want := specRevLine("T-1", 2, "widen the guard")
@@ -192,7 +153,7 @@ func TestMoveAfterSpecSetStartsOnTheNewRev(t *testing.T) {
 		t.Fatalf("precondition: attempt 1's job carries rev 1: %q", jr.Text)
 	}
 	if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\nmore\n", "widen the guard"); got !=
-		"SET T-1 rev 2 (worker told)" {
+		"SET T-1 rev 2" {
 		t.Fatalf("spec set: %q", got)
 	}
 	if reply, err := r.moveTo("m1", "opus"); err != nil ||
@@ -206,87 +167,6 @@ func TestMoveAfterSpecSetStartsOnTheNewRev(t *testing.T) {
 	}
 	if reply, err := r.callDone("pj-l-01", "worker", "t1", report); err != nil || reply != "submitted" {
 		t.Fatalf("task_done of the moved attempt: %q, %v; want submitted", reply, err)
-	}
-}
-
-// T-821: a spec notice is queued, delivered or seen, and spec set's reply says which; a stale task_done's refusal is
-// the call id's answer for good.
-
-// workerKind makes pj-l-01's pane run kind, busy (working), and waits until the app sees it, connected to herdr on
-// a stream after the rig's pushes (connectedAgain: spec set's delivery at once must not land in a resubscribe's gap).
-func (r *loopRig) workerKind(kind string) {
-	r.t.Helper()
-	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind = kind })
-	r.workerIs("working")
-	r.connectedAgain()
-}
-
-// A busy Claude worker is told at once (its inbox reaches a working session): the reply says so. A busy Codex or
-// opencode worker is not: the reply says why it is queued, nothing is typed while it works, and the line is typed
-// once its pane is idle.
-func TestSpecSetBusyWorkerToldOrQueued(t *testing.T) {
-	t.Parallel()
-	const text = "# T-1 — Work\n\nDifficulty: medium\n\nmore\n"
-	line := "[obor] " + specRevLine("T-1", 2, "widen the guard")
-	t.Run("claude", func(t *testing.T) {
-		t.Parallel()
-		r := workingT1(t)
-		r.workerKind("claude")
-		if got := r.setSpecT("s2", text, "widen the guard"); got != "SET T-1 rev 2 (worker told)" {
-			t.Fatalf("spec set to a busy Claude worker: %q, want SET T-1 rev 2 (worker told)", got)
-		}
-		if n := r.inbox.count("pj-l-01", line); n != 1 {
-			t.Errorf("the line posted %d times by the time spec set replied, want once", n)
-		}
-		r.passes()
-		if n, typed := r.inbox.count("pj-l-01", line), r.typedTo("pj-l-01", line); n != 1 || typed != 0 {
-			t.Errorf("posted %d, typed %d after the passes; want posted once, never typed", n, typed)
-		}
-	})
-	for _, kind := range []string{"codex", "opencode"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			r := workingT1(t)
-			r.workerKind(kind)
-			if got := r.setSpecT("s2", text, "widen the guard"); got != "SET T-1 rev 2 (queued: busy)" {
-				t.Fatalf("spec set to a busy %s worker: %q, want SET T-1 rev 2 (queued: busy)", kind, got)
-			}
-			r.passes()
-			if n, typed := r.inbox.count("pj-l-01", line), r.typedTo("pj-l-01", line); n != 0 || typed != 0 {
-				t.Fatalf("while busy: posted %d, typed %d; want nothing", n, typed)
-			}
-			r.workerIs("idle")
-			r.waitFor("the line typed at idle", func() bool { return r.typedTo("pj-l-01", line) == 1 })
-			r.passes()
-			if n, typed := r.inbox.count("pj-l-01", line), r.typedTo("pj-l-01", line); n != 0 || typed != 1 {
-				t.Errorf("after idle: posted %d, typed %d; want typed once", n, typed)
-			}
-		})
-	}
-}
-
-// A task_done while the line is still queued (its worker busy) is refused by the rev check, and that retires the line:
-// the worker idle afterwards gets nothing typed; its next task_done submits.
-func TestSpecLineQueuedSubmissionRefusedThenRetired(t *testing.T) {
-	t.Parallel()
-	r := workingT1(t)
-	r.workerKind("opencode")
-	if got := r.setSpecT("s2", "# T-1 — Work\n\nDifficulty: medium\n\nmore\n", "widen the guard"); got !=
-		"SET T-1 rev 2 (queued: busy)" {
-		t.Fatalf("precondition: the line queued: %q", got)
-	}
-	want := specRevLine("T-1", 2, "widen the guard")
-	if reply, err := r.callDone("pj-l-01", "worker", "t1", report); err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("task_done with the line queued: %q, %v; want the refusal naming %q", reply, err, want)
-	}
-	r.workerIs("idle")
-	r.passes()
-	r.passes()
-	if n := r.typedTo("pj-l-01", "[obor] "+want); n != 0 {
-		t.Errorf("the line typed %d times after the refusal showed the rev; want retired", n)
-	}
-	if reply, err := r.callDone("pj-l-01", "worker", "t2", report); err != nil || reply != "submitted" {
-		t.Fatalf("task_done after the refusal: %q, %v; want submitted", reply, err)
 	}
 }
 

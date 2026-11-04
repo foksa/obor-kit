@@ -12,8 +12,8 @@ import (
 
 // T-440: obor spec set is serve's request: the lead stores a spec (rev 1), the same text again changes nothing, another
 // text is the next rev; a repeated call id gets its stored reply; the owner (no role) sets one too (DD-v0.11 A3); every
-// other role is refused and stores nothing. The rig's T-1 is dispatched to its idle worker, so a new rev sends it the
-// line and the reply says so (T-819).
+// other role is refused and stores nothing. A set on a dispatched task sends no line (T-824); the reply is the plain
+// set line.
 func TestSpecSet(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -22,10 +22,10 @@ func TestSpecSet(t *testing.T) {
 		t.Fatalf("precondition: a spec before any set: %v, %v", ok, err)
 	}
 	for _, c := range []struct{ call, text, want string }{
-		{"s1", "# T-1 — A\n\nDifficulty: medium\n", "SET T-1 rev 1 (worker told)"},
+		{"s1", "# T-1 — A\n\nDifficulty: medium\n", "SET T-1 rev 1"},
 		{"s2", "# T-1 — A\n\nDifficulty: medium\n", "UNCHANGED T-1 rev 1"},
-		{"s3", "# T-1 — B\n\nDifficulty: medium\n", "SET T-1 rev 2 (worker told)"},
-		{"s1", "# T-1 — C\n\nDifficulty: medium\n", "SET T-1 rev 1 (worker told)"}, // s1's stored reply: nothing stored
+		{"s3", "# T-1 — B\n\nDifficulty: medium\n", "SET T-1 rev 2"},
+		{"s1", "# T-1 — C\n\nDifficulty: medium\n", "SET T-1 rev 1"}, // s1's stored reply: nothing stored
 	} {
 		if got := r.setSpec(c.call, c.text); got != c.want {
 			t.Errorf("spec set %s: %q, want %q", c.call, got, c.want)
@@ -44,8 +44,8 @@ func TestSpecSet(t *testing.T) {
 	}
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
 		CallID: "o1", Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
-	if err != nil || reply != "SET T-1 rev 3 (worker told)" {
-		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3 (worker told)", reply, err)
+	if err != nil || reply != "SET T-1 rev 3" {
+		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)
 	}
 	if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 3 || row.SetBy != "owner" {
 		t.Errorf("stored spec %+v, %v, %v; want rev 3 set by owner", row, ok, err)
@@ -126,7 +126,7 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 			if c.widen {
 				r.setSpec("s2", "# T-1 — Red\n\nDifficulty: medium\n\n## Files you may touch\n`red.txt`, `more.txt`\n")
 				// The worker fetched its fix job at the old rev: its task_done is refused once, then submits (T-819).
-				if reply, err := r.taskDone(report); err == nil || !strings.Contains(err.Error(), "T-1 spec is now rev 2") {
+				if reply, err := r.taskDone(report); err == nil || !strings.Contains(err.Error(), "spec is now rev 2") {
 					t.Fatalf("task_done at the old rev: %q, %v; want the refusal naming rev 2", reply, err)
 				}
 			}

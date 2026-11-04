@@ -38,10 +38,6 @@ const (
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
 const StepAnswered = "answered"
 
-// StepSpecLine is the fact of the line a working worker gets when its task's spec is a new rev (task MsgTask; data:
-// Message, Task the task whose spec changed; T-819).
-const StepSpecLine = "spec.line"
-
 // The dispatch's steps.
 const (
 	StepDispatched = "dispatch"     // fact: the request passed its refusals (data: dispatchData)
