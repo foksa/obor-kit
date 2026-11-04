@@ -16,8 +16,9 @@ import (
 )
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
-// (agents.Kind.Install): by the kit's manifest (Claude), by launch args on every start (Codex), or by the obor entry of
-// the CLI's user config (OpenCode), each entry at its MCPRegistration.Key. This file reads and edits those files.
+// (agents.Kind.Install): by the kit's manifest (Claude), per start (Codex's launch args, OpenCode's generated config,
+// T-809), or by the obor entry of a CLI's user config (a Config registration, at its MCPRegistration.Key; none today).
+// This file reads and edits those files.
 
 // configFile is the file of m's entry: Path, or AltPath when that is the only one there (it is edited too when it is
 // plain JSON, errComments when it is not).
@@ -79,7 +80,21 @@ func (s *Setup) configMCP(kind string, m agents.MCPRegistration, remove bool) er
 	case !remove:
 		v = json.RawMessage(mustJSON(m.Entry))
 	}
-	if doc, err = config.EditJSON(doc, m.Key, v); err != nil {
+	if err := s.writeUserConfig(kind, path, doc, m.Key, v); err != nil {
+		return err
+	}
+	if remove {
+		s.say("OK agents %s: %s removed from %s (restart %s)", kind, key, path, kind)
+	} else {
+		s.say("OK agents %s: %s set in %s (user-global; restart %s to load it)", kind, key, path, kind)
+	}
+	return nil
+}
+
+// writeUserConfig writes doc with v at key (nil: the key removed) as path, every other key as it was.
+func (s *Setup) writeUserConfig(kind, path string, doc []byte, key []string, v json.RawMessage) error {
+	doc, err := config.EditJSON(doc, key, v)
+	if err != nil {
 		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -91,11 +106,6 @@ func (s *Setup) configMCP(kind string, m agents.MCPRegistration, remove bool) er
 	}
 	if err := os.WriteFile(path, append(b.Bytes(), '\n'), 0o644); err != nil {
 		return project.Failf("agents %s: %v", kind, err)
-	}
-	if remove {
-		s.say("OK agents %s: %s removed from %s (restart %s)", kind, key, path, kind)
-	} else {
-		s.say("OK agents %s: %s set in %s (user-global; restart %s to load it)", kind, key, path, kind)
 	}
 	return nil
 }
@@ -242,7 +252,7 @@ func (s *Setup) usedKinds() map[string]bool {
 // mcpLane is `obor setup mcp --model <name>`: whether a start of that model gives its agent obor's server, read from
 // its effective start args as its kind says (agents.MCPRegistration.Lane) — claude: a lane's start carries
 // --strict-mcp-config, so obor adds its --mcp-config (an explicit obor entry in kinds.claude.args wins); codex: launch
-// args on every start; opencode: the user config's mcp.servers.obor entry. It starts no agent and runs no `claude -p`
+// args on every start; opencode: the start's generated config (OPENCODE_CONFIG, T-809). It starts no agent and runs no `claude -p`
 // (T-445: a headless run in a lane worktree inherits the worker role and its Stop hook). No handshake: `obor setup mcp`
 // runs it.
 func (s *Setup) mcpLane(name string) error {

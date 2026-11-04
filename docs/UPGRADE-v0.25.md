@@ -1,5 +1,11 @@
 # Upgrading an obor project from v0.24 to v0.25
 
+## v0.25.1 (opencode: obor's MCP server and plugin per start)
+Run `obor setup agents` once per machine: it removes the global opencode entries (`mcp.servers.obor` in
+`~/.config/opencode/opencode.json` and the `plugins/obor.js` link) when they are obor's, then restart opencode agents.
+Each opencode start now names its own config (`OPENCODE_CONFIG`, `.obor/state/opencode.json`) with the launching kit's
+`obor mcp` and plugin; while the global link is there opencode loads that copy instead and the per-start plugin never runs.
+
 ## v0.25.0 (derived identity, inbox per project, setup migrate gone)
 Upgrade from v0.24.x only: a project whose config still has the pre-v0.23 shape or an `agents` key must run
 `obor setup migrate` with v0.24 first (v0.25 has no migrate command and refuses such a config, naming the key).

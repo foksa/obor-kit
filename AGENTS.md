@@ -59,4 +59,4 @@ worker role text `templates/agents/worker.md` + `docs/agents/worker.md`. Never r
 A job is fetched, not typed (T-375, T-437): the first prompt is the constant wake `[obor job <id>] call the obor
 job_next tool`; call `job_next` first. A worker finishes only with `task_done`, its report as the argument (there is
 no done file). `obor setup mcp` shows whether the `obor mcp` server is registered per agent kind (Claude: the plugin
-manifest's `mcpServers`; Codex: launch args; OpenCode: `obor setup agents`).
+manifest's `mcpServers`; Codex: launch args; OpenCode: each start's generated config).

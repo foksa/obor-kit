@@ -1,6 +1,8 @@
 package opencode_test
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +13,8 @@ import (
 )
 
 // T-495: OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
-// second Enter and the clear keys, `opencode run`, its user config entry and plugin link, no transcript, typed
+// second Enter and the clear keys, `opencode run`, registered per start (the old user config entry and plugin link
+// retired, T-809), no transcript, typed
 // delivery, the plugin hook transport.
 func TestKind(t *testing.T) {
 	k, ok := agents.Lookup("opencode")
@@ -46,23 +49,43 @@ func TestKind(t *testing.T) {
 		t.Errorf("Headless = %+v", h)
 	}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	// T-809: nothing user-global; the old global entry and link retired.
 	in := k.Install("/kit", env(map[string]string{"HOME": "/h"}))
-	m := in.MCP
-	if m.Where != agents.Config || m.Path != "/h/.config/opencode/opencode.json" || m.AltPath != "/h/.config/opencode/opencode.jsonc" {
-		t.Errorf("MCP = %+v", m)
+	if m := in.MCP; m.Where != agents.PerStart || m.Path != "" || m.Entry != nil || in.Plugin != nil {
+		t.Errorf("Install = %+v: want per start, nothing user-global", in)
 	}
-	if cmd, _ := m.Entry["command"].([]string); m.Entry["type"] != "local" || !slices.Equal(cmd, []string{"/kit/bin/obor", "mcp"}) ||
-		m.Entry["environment"].(map[string]string)["OBOR_NO_SELF_HOST"] != "1" || m.Unpinned["environment"] != nil {
-		t.Errorf("Entry = %v, Unpinned = %v", m.Entry, m.Unpinned)
+	if how, reg, static := in.MCP.Lane([]string{"-m", "x"}, nil); !reg || static || !strings.Contains(how, "OPENCODE_CONFIG") ||
+		!strings.Contains(how, "/kit/bin/obor mcp") || !strings.Contains(how, "plugin /kit/opencode") {
+		t.Errorf("Lane = %q, %v, %v: want registered per start by the generated config", how, reg, static)
 	}
-	if _, reg, static := m.Lane([]string{"-m", "x"}, nil); !reg || !static {
-		t.Error("Lane: the user config serves every start")
+	r := in.Retired
+	if r == nil || r.MCP.Where != agents.Config || r.MCP.Path != "/h/.config/opencode/opencode.json" ||
+		r.MCP.AltPath != "/h/.config/opencode/opencode.jsonc" || !slices.Equal(r.MCP.Key, []string{"mcp", "servers", "obor"}) ||
+		r.Link == nil || *r.Link != (agents.Link{From: "/kit/opencode/obor.js", To: "/h/.config/opencode/plugins/obor.js"}) {
+		t.Fatalf("Retired = %+v", r)
 	}
-	if in.Plugin == nil || *in.Plugin != (agents.Link{From: "/kit/opencode/obor.js", To: "/h/.config/opencode/plugins/obor.js"}) {
-		t.Errorf("Plugin = %+v", in.Plugin)
+	if l := k.Install("/kit", env(map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"})).Retired.Link; l.To != "/x/opencode/plugins/obor.js" {
+		t.Errorf("Retired link under XDG_CONFIG_HOME = %+v", l)
 	}
-	if p := k.Install("/kit", env(map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"})).Plugin; p.To != "/x/opencode/plugins/obor.js" {
-		t.Errorf("Plugin under XDG_CONFIG_HOME = %+v", p)
+	for _, c := range []struct {
+		entry string
+		ours  bool
+	}{
+		{`{"type":"local","command":["/h/.obor/kit/bin/obor","mcp"],"environment":{"OBOR_NO_SELF_HOST":"1"}}`, true},
+		{`{"type":"local","command":["/other/kit/bin/obor","mcp"]}`, true},
+		{`{"type":"local","command":["/usr/bin/my-obor","mcp"]}`, false},
+		{`{"type":"local","command":["/k/bin/obor","serve"]}`, false},
+		{`{"type":"local","command":["/k/bin/obor","mcp","x"]}`, false},
+		{`{"type":"remote","url":"http://x"}`, false},
+		{`"obor"`, false},
+	} {
+		var v any
+		if err := json.Unmarshal([]byte(c.entry), &v); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Ours(v); got != c.ours {
+			t.Errorf("Ours(%s) = %v, want %v", c.entry, got, c.ours)
+		}
 	}
 	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "", "s1"); got != "" {
 		t.Errorf("Transcript = %q, want none", got)
@@ -99,7 +122,8 @@ func TestKind(t *testing.T) {
 // T-695, T-697, T-703: the type's model and the effort reach obor's plugin as OBOR_OPENCODE_MODEL
 // <provider>/<model>#<effort>, the model being the type's --model/-m only: obor never guesses OpenCode's model, so a
 // type without one unsets the variable (OpenCode's own choice stands, even when the user's files name a model) and an
-// effort on it is refused. The variable is the only one set: no config content, no state dir.
+// effort on it is refused. Without a kit and a state writer the variable is the only one set: no config content, no
+// state dir.
 func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	k, _ := agents.Lookup("opencode")
 	// The user's files name models; none may be read (Read is a trap).
@@ -152,5 +176,52 @@ func TestStartEnvModelReachesThePlugin(t *testing.T) {
 	}
 	if err := agents.CheckEffort("opencode", "turbo"); err == nil {
 		t.Error("CheckEffort(opencode, turbo): want a refusal")
+	}
+}
+
+// T-809: a start from a kit with a state writer writes one generated config, named by OPENCODE_CONFIG (a path, so the
+// env line stays short): mcp.servers.obor runs the launching kit's `bin/obor mcp`, pinned, and plugins names the kit's
+// plugin package dir; the model variable still rides along. A failed write is the start's error.
+func TestStartEnvNamesTheGeneratedConfig(t *testing.T) {
+	k, _ := agents.Lookup("opencode")
+	written := map[string][]byte{}
+	write := func(name string, data []byte) (string, error) {
+		written[name] = data
+		return "/p/.obor/state/" + name, nil
+	}
+	vars, err := k.StartEnv(agents.Start{Kit: "/kit", Args: []string{"--model", "p/m"}, Effort: "high", WriteState: write})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || written[opencode.ConfigFile] == nil {
+		t.Fatalf("written %v: want the one generated config", written)
+	}
+	if opencode.ConfigVar != "OPENCODE_CONFIG" || vars[opencode.ConfigVar] != "/p/.obor/state/opencode.json" || vars[opencode.ModelVar] != "p/m#high" || len(vars) != 2 {
+		t.Errorf("StartEnv = %v: want OPENCODE_CONFIG=<the file> and the model", vars)
+	}
+	var got struct {
+		MCP struct {
+			Servers map[string]struct {
+				Type        string
+				Command     []string
+				Environment map[string]string
+			}
+		}
+		Plugins []string
+	}
+	if err := json.Unmarshal(written[opencode.ConfigFile], &got); err != nil {
+		t.Fatalf("%v: %s", err, written[opencode.ConfigFile])
+	}
+	o := got.MCP.Servers["obor"]
+	if len(got.MCP.Servers) != 1 || o.Type != "local" || !slices.Equal(o.Command, []string{"/kit/bin/obor", "mcp"}) ||
+		len(o.Environment) != 1 || o.Environment[agents.Pin] != "1" {
+		t.Errorf("mcp.servers = %+v: want obor, the launching kit's bin/obor mcp, pinned", got.MCP.Servers)
+	}
+	if !slices.Equal(got.Plugins, []string{"file:///kit/opencode"}) {
+		t.Errorf("plugins = %q: want the kit's plugin package dir", got.Plugins)
+	}
+	if _, err := k.StartEnv(agents.Start{Kit: "/kit", WriteState: func(string, []byte) (string, error) { return "", errors.New("disk full") }}); err == nil ||
+		!strings.Contains(err.Error(), "disk full") {
+		t.Errorf("a failed write: %v; want the start's error", err)
 	}
 }

@@ -240,11 +240,12 @@ test("setup outside an obor project registers nothing: no guard, no context, no 
   assert.deepEqual(hooked, {});
 });
 
-// T-478: bin/obor's self-hosting rule, so obor-kit's own lanes run its guard, not the global link's older kit.
+// T-809: the plugin's own kit runs in every directory, an obor checkout's main checkout and lane included (kitFor and
+// its T-478 self-hosting rule are gone: the start's generated config names the launching kit).
 const kitCases = [
   ["outside a git repository: the plugin's kit", {}, "kit"],
-  ["an obor checkout's main checkout: its bin/obor", { checkout: "obor" }, "main"],
-  ["an obor checkout's lane worktree: the main checkout's bin/obor, not the lane's", { checkout: "obor", lane: true }, "main"],
+  ["an obor checkout's main checkout: the plugin's kit, not its bin/obor", { checkout: "obor" }, "kit"],
+  ["an obor checkout's lane worktree: the plugin's kit, not the main checkout's or the lane's", { checkout: "obor", lane: true }, "kit"],
   ["another repository's lane: the plugin's kit", { checkout: "other", lane: true }, "kit"],
 ];
 for (const [name, opts, want] of kitCases) {

@@ -83,6 +83,9 @@ type Start struct {
 	StrictMCP bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
+	// WriteState writes a file the start reads (OpenCode's generated config, T-809) as name in the project's state
+	// dir, replacing the last start's, and returns its path: the adapter's I/O; nil: the start writes none.
+	WriteState func(name string, data []byte) (path string, err error)
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.
@@ -115,8 +118,17 @@ type Headless struct {
 
 // Install is what setup registers for a kind.
 type Install struct {
-	MCP    MCPRegistration
-	Plugin *Link // a user-global plugin file to link; nil: none
+	MCP     MCPRegistration
+	Plugin  *Link    // a user-global plugin file to link; nil: none
+	Retired *Retired // what an earlier obor installed user-globally that setup now removes; nil: none
+}
+
+// Retired is a user-global registration an earlier obor made and obor setup agents removes while it is still obor's
+// (T-809: OpenCode's mcp.servers.obor entry and plugins/obor.js link, now per start): anything else there is left.
+type Retired struct {
+	MCP  MCPRegistration      // Config: the entry at Key in Path (AltPath); Entry unused
+	Ours func(entry any) bool // the entry (decoded JSON) is obor's: removed; else kept with a warning
+	Link *Link                // the link at To, removed when it links to an obor kit's copy of From; nil: none
 }
 
 // Where obor's MCP server reaches a CLI.

@@ -749,23 +749,34 @@ func shellQuote(s string) string {
 
 // args are the type's launch args (config.Model.LaunchArgs; a role without a type: the defaults of the resolved kind; a
 // lead keeps Remote Control, T-280; a lane's agent starts strict, T-770) with effort in place of the type's ("": the
-// type's, T-695), and t.env the start's own env (agents.Kind.StartEnv: OpenCode's model and effort) for the env line. An
-// effort the start cannot carry is a Fail (nothing stopped yet).
+// type's, T-695), and t.env the start's own env (agents.Kind.StartEnv: OpenCode's model and effort, its generated config)
+// for the env line. An effort the start cannot carry is a Fail (nothing stopped yet).
 func (l *Launcher) args(t *target, effort string) ([]string, error) {
+	kit := l.Kit
+	if kit == "" {
+		kit = project.KitRoot(l.Env)
+	}
+	in := agents.Start{Kit: kit, Effort: effort, Read: os.ReadFile, Env: l.envOrOS().Get, WriteState: project.StateWriter(l.Cfg.Root)}
 	lt := config.Model{Kind: t.kind}
 	switch {
 	case t.info.Type != "":
 		lt, _ = l.Cfg.Model(t.info.Type)
-	case t.info.Role == "":
-		if t.kind != opencode.Name { // no type, no args; still not an earlier OpenCode start's model (T-707)
-			t.env = map[string]string{opencode.ModelVar: ""}
+	case t.info.Role == "" && t.kind == opencode.Name: // no type, no args: its generated config still (T-809)
+		vars, err := lt.StartEnv(in)
+		if err != nil {
+			return nil, project.Failf("%s: %v", t.agent, err)
 		}
+		delete(vars, opencode.ModelVar)
+		t.env = vars
+		return nil, nil
+	case t.info.Role == "": // no type, no args; still not an earlier OpenCode start's model (T-707)
+		t.env = map[string]string{opencode.ModelVar: ""}
 		return nil, nil
 	}
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
-	vars, err := lt.StartEnv(agents.Start{Effort: effort, Read: os.ReadFile, Env: l.envOrOS().Get})
+	vars, err := lt.StartEnv(in)
 	if err != nil {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}

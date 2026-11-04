@@ -1,7 +1,10 @@
 package launch_test
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -162,5 +165,63 @@ func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 		if got := run(c.script + "\n" + show); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// T-809: an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
+// (OPENCODE_CONFIG=<project>/.obor/state/opencode.json, a path: the line stays short): obor's MCP server is the
+// launching kit's `bin/obor mcp` and its plugin the kit's package dir. Another kind's start names none.
+func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("models", `{"oc":{"kind":"opencode","model":"go/ds"}}`),
+		testkit.Set("roles", `{"reviewer":"oc","integrator":"opus"}`))
+	file := filepath.Join(x.p.Root, ".obor", "state", "opencode.json")
+	if _, err := os.Stat(file); err == nil {
+		t.Fatal("precondition: no generated config yet")
+	}
+	x.p.State("L-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-l-01","type":"oc"}`)
+	x.shell("w1:p3", "pj-l-01", "")
+	x.agent("w1:p7", "pj-rev", "opencode", "idle")
+	x.agent("w1:p8", "pj-int", "claude", "idle")
+	lineOf := func(req launch.Request) string {
+		before := len(x.calls("pane.send_input"))
+		if out, ok := x.restart(req); !ok {
+			t.Fatal(out)
+		}
+		for _, c := range x.calls("pane.send_input")[before:] {
+			if strings.Contains(c, " && export ") || strings.Contains(c, "export ") {
+				return c
+			}
+		}
+		t.Fatalf("%s: no env line typed", req.Agent)
+		return ""
+	}
+	want := "OPENCODE_CONFIG=" + file
+	for _, req := range []launch.Request{{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, {Agent: "pj-rev", Fresh: true}} {
+		if line := lineOf(req); !strings.Contains(line, want) {
+			t.Errorf("%s: the env line %q lacks %s", req.Agent, line, want)
+		}
+	}
+	if line := lineOf(launch.Request{Agent: "pj-int", Fresh: true}); strings.Contains(line, "OPENCODE_CONFIG") {
+		t.Errorf("a claude start names OPENCODE_CONFIG: %q", line)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		MCP struct {
+			Servers map[string]struct{ Command []string }
+		}
+		Plugins []string
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	if c := got.MCP.Servers["obor"].Command; strings.Join(c, " ") != "/kit/bin/obor mcp" {
+		t.Errorf("mcp.servers.obor.command = %q: want the launching kit's", c)
+	}
+	if strings.Join(got.Plugins, " ") != "file:///kit/opencode" {
+		t.Errorf("plugins = %q: want the kit's plugin dir", got.Plugins)
 	}
 }

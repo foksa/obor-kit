@@ -148,7 +148,9 @@ func newLab(kind, herdrBin string) (*lab, error) {
 }
 
 // makeKit builds the stub into root/kit/bin as obor-stub behind a bin/obor wrapper (obor.js runs `bash bin/obor`, so
-// it is a script; exec keeps the pid) and copies obor.js beside it, as a kit holds it.
+// it is a script; exec keeps the pid) and copies the opencode plugin package beside it, as a kit holds it: package.json
+// as shipped, obor.js with its setup wrapped to append {pid, url, dir} to out/plugin-marker.jsonl first (OC-L4 counts
+// the setups).
 func (l *lab) makeKit() error {
 	bin := filepath.Join(l.kit, "bin")
 	for _, d := range []string{bin, filepath.Join(l.kit, "out"), filepath.Join(l.kit, "opencode")} {
@@ -163,11 +165,28 @@ func (l *lab) makeKit() error {
 	if err := os.WriteFile(filepath.Join(bin, "obor"), []byte(wrapper), 0o755); err != nil {
 		return err
 	}
+	pkg, err := os.ReadFile("opencode/package.json")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(l.kit, "opencode", "package.json"), pkg, 0o644); err != nil {
+		return err
+	}
 	js, err := os.ReadFile("opencode/obor.js")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(l.kit, "opencode", "obor.js"), js, 0o644)
+	const entry = "\n  setup,\n};\n"
+	if !strings.HasSuffix(string(js), entry) {
+		return fmt.Errorf("opencode/obor.js does not end with its export's setup: the setup marker cannot wrap it")
+	}
+	marked := strings.TrimSuffix(string(js), entry) + "\n  setup: (ctx) => (confMarker(ctx), setup(ctx)),\n};\n" + fmt.Sprintf(`
+// obor conformance (the lab's makeKit): records each setup of this plugin.
+function confMarker(ctx) {
+  fs.appendFileSync(%q, JSON.stringify({ pid: process.pid, url: import.meta.url, dir: ctx?.location?.directory ?? "" }) + "\n");
+}
+`, filepath.Join(l.kit, "out", "plugin-marker.jsonl"))
+	return os.WriteFile(filepath.Join(l.kit, "opencode", "obor.js"), []byte(marked), 0o644)
 }
 
 // makeProject is a git repository with a minimal obor config committed on main and a lane worktree, as obor lays them

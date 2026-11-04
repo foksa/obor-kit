@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 
 // T-703: the env obor setup hands herdr for a new OpenCode pane carries the start's model and effort for obor's plugin
 // (OBOR_OPENCODE_MODEL provider/model#effort), and nothing of the T-696 workaround (no XDG_STATE_HOME, no
-// OPENCODE_CONFIG_CONTENT). A type without a model hands the variable empty, so a value the pane would inherit from
+// OPENCODE_CONFIG_CONTENT), and OPENCODE_CONFIG naming the start's generated config (T-809). A type without a model hands the variable empty, so a value the pane would inherit from
 // setup's own env (an OpenCode agent running setup) is none to the plugin. (A model without a model id: models.bare.) A new pane's shell is never typed at.
 func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 	t.Parallel()
@@ -43,6 +44,11 @@ func TestSetupOpencodePaneEnvCarriesTheModel(t *testing.T) {
 			hasNot(t, calls, "inherited/m", "the inherited model")
 			hasNot(t, calls, "XDG_STATE_HOME", "no state dir, the user's own untouched")
 			hasNot(t, calls, "OPENCODE_CONFIG_CONTENT", "no config content")
+			// T-809: the start's generated config, by path, with the launching kit's server and plugin.
+			file := filepath.Join(x.Root, ".obor", "state", "opencode.json")
+			has(t, calls, "OPENCODE_CONFIG="+file, "the generated config named")
+			has(t, x.Read(file), `"`+filepath.Join(kit, "bin", "obor")+`"`, "the kit's bin/obor")
+			has(t, x.Read(file), `"file://`+filepath.Join(kit, "opencode")+`"`, "the kit's plugin dir")
 			if len(x.envLines()) != 0 {
 				t.Errorf("a new pane's shell is typed at: %q", x.envLines())
 			}
