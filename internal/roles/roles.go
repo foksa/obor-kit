@@ -20,7 +20,7 @@ const (
 )
 
 // Role records the defaults shared by setup, config validation, and the guard.
-// EnvValue is empty for roles that setup deliberately does not export.
+// EnvValue is the role's OBOR_ROLE value: every role has one (T-796: triage too), so the derived identity covers it.
 type Role struct {
 	Name         string
 	EnvValue     string
@@ -41,7 +41,7 @@ var table = []Role{
 	// The reviewer and the deep dive read the main checkout (T-718): serve holds its merges while they work.
 	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdProject, Write: WriteReviewsOnly, GitReadOnly: true},
 	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdProject, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
-	{Name: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
+	{Name: "triage", EnvValue: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
 	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true, GitReadOnly: true},
 	// The owner's drive agent (T-751, obor drive): in a lane, with the worker's write limits and push denial, but it

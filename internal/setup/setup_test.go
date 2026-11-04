@@ -1213,8 +1213,9 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 
-// bash setup.test.sh case_role_triage_runs_in_the_root_with_agent_env_only_and_creates_bugs_md
-func TestRoleTriageRunsInTheRootWithNoRoleEnvAndCreatesBugsMd(t *testing.T) {
+// bash setup.test.sh case_role_triage_runs_in_the_root_with_agent_env_only_and_creates_bugs_md; T-796: OBOR_ROLE=triage,
+// so its identity is derived like every other role's.
+func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.failing(t, `FAIL roles.triage is not set (a model ref, e.g. "opus:high")`, "role", "triage", "--new-tab", "triage", "--start")
@@ -1226,8 +1227,7 @@ func TestRoleTriageRunsInTheRootWithNoRoleEnvAndCreatesBugsMd(t *testing.T) {
 		t.Errorf("last line %q", last(out))
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_OPENCODE_MODEL=} focus=false label=triage", "agent env only")
-	hasNot(t, calls, "OBOR_ROLE", "triage is not a lead, worker or integrator")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_OPENCODE_MODEL=,OBOR_ROLE=triage} focus=false label=triage", "the triage role env (T-796)")
 	has(t, x.Read("docs/BUGS.md"), "Severity", "BUGS.md from the template")
 	x.Write("docs/BUGS.md", "mine\n")
 	x.noAgents()

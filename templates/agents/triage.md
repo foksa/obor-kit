@@ -55,8 +55,8 @@ reports.
 
 ## This project
 <!-- fill in with the user: -->
-- Pane / agent: `{{prefix}}-triage` in the main checkout (`obor setup role triage`), model ref `roles.triage`; no
-  `OBOR_ROLE` (it isn't a lead, worker or integrator).
+- Pane / agent: `{{prefix}}-triage` in the main checkout (`obor setup role triage`), model ref `roles.triage`;
+  `OBOR_ROLE=triage` (T-796: its name, session and inbox are derived like every role's; git reads only, no MCP tools).
 - Lead agent (every bug goes to it): <!-- the project's lead agent -->
 
 - Test command for a single file: <!-- e.g. `make test T=<file>` -->

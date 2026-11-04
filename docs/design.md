@@ -146,7 +146,9 @@ model is used; every model of a request paused, the task waits and its reply nam
 
 ## Roles
 Resolution (`obor whoami`, `project.DetectRole`):
-1. `OBOR_ROLE` if set (`lead | integrator | worker | reviewer | deep_dive | advisor`; triage has none), set at pane creation with
+1. `OBOR_ROLE` if set (`lead | integrator | worker | reviewer | deep_dive | triage | advisor | researcher`: every role has
+   one, so the derived name, its session and inbox records and the caller identity cover it; T-796: triage too, still
+   git reads only, no protected file, no MCP tools), set at pane creation with
    `herdr pane split --env OBOR_ROLE=… --env OBOR_LANE=…`.
 2. Else cwd-derived: the toplevel is a linked worktree (`git-dir` ≠ `git-common-dir`) under `lanes_dir` → `worker`,
    `OBOR_LANE` = basename.
