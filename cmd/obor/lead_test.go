@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,13 @@ func startCall(name, pane string, args ...string) string {
 	return "agent.start " + string(b)
 }
 
+// uuidArg matches the session id obor names a fresh start with (T-813): random, so the tests write it "NEW".
+var uuidArg = regexp.MustCompile(`"--session-id","[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"`)
+
+func noSessionID(calls string) string {
+	return uuidArg.ReplaceAllString(calls, `"--session-id","NEW"`)
+}
+
 var leadStart = startCall("pj-lead", "w1:p1", "--permission-mode", "auto", "--model", "opus") // no Remote Control default (T-280)
 
 func TestLeadRunningTouchesNothing(t *testing.T) {
@@ -83,25 +91,32 @@ func TestLeadRunningTouchesNothing(t *testing.T) {
 	}
 }
 
-// T-553: `obor lead` starts fresh; --resume continues the last session (--fresh was removed, T-774).
+// T-553: `obor lead` starts fresh; --resume continues the recorded session (--fresh was removed, T-774). A fresh
+// start names its session itself, and herdr's session is no source of a Claude resume (T-813).
 func TestLeadLabelledPaneSession(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		args  []string
-		want  string
-		start []string // the agent.start args
+		args   []string
+		record bool
+		want   string
+		start  []string // the agent.start args
 	}{
-		{nil, "RESTARTED pj-lead (pane w1:p1, session new)", []string{"--permission-mode", "auto", "--model", "opus", "/obor:lead"}}, // T-594: the lead skill is the first prompt
-		{[]string{"--resume"}, "RESTARTED pj-lead (pane w1:p1, session old-sid)", []string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
+		{nil, false, "RESTARTED pj-lead (pane w1:p1, session new)", // T-594: the lead skill is the first prompt
+			[]string{"--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead"}},
+		{[]string{"--resume"}, true, "RESTARTED pj-lead (pane w1:p1, session old-sid)",
+			[]string{"--permission-mode", "auto", "--model", "opus", "--resume", "old-sid"}},
 	} {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid" // herdr still knows the ended session
+		if c.record {
+			x.p.Session("pj-lead", "old-sid")
+		}
 		out, rc := x.run(t, c.args...)
 		if rc != 0 || lastLine(out) != c.want {
 			t.Fatalf("labelled pane %v: exit %d\n%s", c.args, rc, out)
 		}
 		call := startCall("pj-lead", "w1:p1", c.start...)
-		if calls := x.calls(); !strings.Contains(calls, call) || strings.Contains(calls, "tab create") {
+		if calls := noSessionID(x.calls()); !strings.Contains(calls, call) || strings.Contains(calls, "tab create") {
 			t.Errorf("labelled pane %v: starts %s in pane w1:p1, no new tab:\n%s", c.args, call, calls)
 		}
 		if len(x.spawn) != 0 {
@@ -125,6 +140,7 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 	} {
 		x := newLeadFx(t)
 		x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
+		x.p.Session("pj-lead", "old-sid") // T-813: the resume's source is the record, not herdr's session
 		x.env = []string{"HERDR_PANE_ID=w1:p1"}
 		x.srv.Reply("pane.process_info", map[string]any{"type": "pane_process_info", "process_info": map[string]any{
 			"pane_id": "w1:p1", "shell_pid": 1, "foreground_process_group_id": 77,
@@ -156,7 +172,7 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
 		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"","OBOR_LANE":"","OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead","OPENCODE_CONFIG":""},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
-		!strings.Contains(c, startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
+		!strings.Contains(noSessionID(c), startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "--session-id", "NEW", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}
 }
@@ -184,6 +200,7 @@ func TestLeadUntypedRunningOrLabelled(t *testing.T) {
 
 	x = newLeadFx(t, testkit.Set("roles.lead", ""))
 	x.f.Shell("w1:p1", "pj-lead", x.p.Root).Session = "old-sid"
+	x.p.Session("pj-lead", "old-sid") // T-813: a resume reads the record, never herdr's session
 	out, rc := x.run(t, "--resume")
 	if rc != 0 || lastLine(out) != "RESTARTED pj-lead (pane w1:p1, session old-sid)" {
 		t.Fatalf("untyped labelled pane: exit %d\n%s", rc, out)

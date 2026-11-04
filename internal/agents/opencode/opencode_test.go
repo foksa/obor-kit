@@ -87,7 +87,7 @@ func TestKind(t *testing.T) {
 			t.Errorf("Ours(%s) = %v, want %v", c.entry, got, c.ours)
 		}
 	}
-	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "", "s1"); got != "" {
+	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "s1"); got != "" {
 		t.Errorf("Transcript = %q, want none", got)
 	}
 	if d, ok := k.Deliver("hi", nil); !ok || !d.Typed {

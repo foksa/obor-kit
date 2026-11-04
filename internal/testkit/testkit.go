@@ -266,6 +266,15 @@ func (p *Project) Read(path string) string {
 	return string(b)
 }
 
+// Session records agent's session in the project's log with its transcript file (written empty), as serve records one
+// its SessionStart hook confirmed (T-813: a restart resumes that path).
+func (p *Project) Session(agent, id string) {
+	p.t.Helper()
+	path := p.Write(filepath.Join(".obor", "state", "sessions", id+".jsonl"), "")
+	p.eventAt(store.SessionTask, store.StepSession, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: path,
+		Started: time.Now().Unix()}, time.Now())
+}
+
 // Exists reports whether Path(path) exists.
 func (p *Project) Exists(path string) bool {
 	_, err := os.Lstat(p.Path(path))

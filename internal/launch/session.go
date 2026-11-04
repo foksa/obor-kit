@@ -3,6 +3,7 @@ package launch
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,48 @@ func (l *Launcher) rollout() time.Duration {
 		return l.Rollout
 	}
 	return 10 * time.Second
+}
+
+// newSessionID is a fresh session id: a random UUID (version 4), the shape a CLI's session flag takes.
+func newSessionID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
+}
+
+// nameSession is the session id a fresh start of s runs as, for a kind whose sessions obor names (T-813): the id is
+// obor's, recorded for the agent before the agent runs, so the store and a restart know it before its SessionStart
+// hook reports it. "" when obor cannot make one (the kind then picks its own, and the hook records that one). No serve
+// listening: nothing said (its hook records the session anyway, with its transcript); a serve that refused it is
+// said, and the start goes on.
+func (l *Launcher) nameSession(ctx context.Context, s Start) string {
+	id, err := newSessionID()
+	if err != nil {
+		l.say("warning: %s: no session id to name this start: %v", s.Agent, err)
+		return ""
+	}
+	if err := l.report(ctx, l.chosenSession(s, id)); err != nil && !wire.Absent(err) {
+		l.say("warning: session %s of %s not recorded before the start: %v (its SessionStart hook records it)", id,
+			s.Agent, err)
+	}
+	return id
+}
+
+// chosenSession is the session fact of a start obor named: the agent, its kind and the id, where it starts and its
+// lane's task. Its transcript is the one the session itself reports (the SessionStart hook fills it in, T-813).
+func (l *Launcher) chosenSession(s Start, id string) store.Session {
+	r := store.Session{Agent: s.Agent, Kind: s.Kind, ID: id, Pane: s.Pane, Lane: s.Lane, Started: time.Now().Unix(),
+		Source: "launch"}
+	if l.Cfg != nil && s.Lane != "" {
+		if row, ok, _ := store.ReadLaneAt(l.Cfg.Root, s.Lane); ok {
+			r.Task = row.Task
+		}
+	}
+	return r
 }
 
 // proc is a process as it was when pinned: its pid and its start time ("" when ps gave none), so a pid the system
@@ -67,7 +110,7 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 	if !ok || !k.Caps().Sessions {
 		return
 	}
-	glob := k.Transcript(l.Env.Get, "", "*")
+	glob := k.Transcript(l.Env.Get, "*")
 	if glob == "" {
 		return
 	}

@@ -37,7 +37,7 @@ func TranscriptOf(root, sid string, env Env) string {
 		if !k.Caps().Transcript {
 			continue
 		}
-		matches, _ := filepath.Glob(k.Transcript(env.Get, "", sid))
+		matches, _ := filepath.Glob(k.Transcript(env.Get, sid))
 		for _, m := range matches {
 			if fi, err := os.Stat(m); err == nil && fi.Mode().IsRegular() {
 				return m

@@ -36,20 +36,20 @@ func TestStartStrictMCPConfig(t *testing.T) {
 		want      string
 	}{
 		{"strict flag: obor adds its --mcp-config", "strict", false, false,
-			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings + ` --session-id <new>`},
 		{"strict flag, a wake: the prompt is not a second config", "strict", false, true,
-			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings + " -- " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config ` + settings + " --session-id <new> -- " + wake},
 		{"strict flag last, a lead without --settings, a wake", "strict", true, true,
-			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config -- ` + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --session-id <new> -- ` + wake},
 		{"an explicit obor entry wins: no second --mcp-config, a wake", "mine", false, true,
-			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " " + settings + " -- " + wake},
+			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " " + settings + " --session-id <new> -- " + wake},
 		{"an explicit obor config trailing the args of a lead: the prompt is positional", "mine", true, true,
-			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " -- " + wake},
+			`--permission-mode auto --model opus --strict-mcp-config --mcp-config ` + oborEntry + " --session-id <new> -- " + wake},
 		{"a config naming no obor server: obor adds its own, a wake", "other", false, true,
-			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " " + settings + " -- " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " " + settings + " --session-id <new> -- " + wake},
 		{"a trailing unrelated config and the generated one, a lead: the prompt is positional", "other", true, true,
-			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " -- " + wake},
-		{"no strict flag: unchanged, a wake", "plain", false, true, `--permission-mode auto --model opus ` + settings + " " + wake},
+			`--permission-mode auto --model opus ` + strictMCP + ` --strict-mcp-config --mcp-config ` + otherEntry + " --session-id <new> -- " + wake},
+		{"no strict flag: unchanged, a wake", "plain", false, true, `--permission-mode auto --model opus ` + settings + " --session-id <new> " + wake},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -67,8 +67,8 @@ func TestStartStrictMCPConfig(t *testing.T) {
 			if !ok {
 				t.Fatalf("start failed:\n%s", out)
 			}
-			eq(t, x.startCall(), "agent.start args=["+c.want+"] kind=claude name="+agent+" pane_id=w1:p7", "agent start")
-			contains(t, out, "args (claude): "+c.want, "the launch line shows the args")
+			eq(t, x.named(x.startCall()), "agent.start args=["+c.want+"] kind=claude name="+agent+" pane_id=w1:p7", "agent start")
+			contains(t, x.named(out), "args (claude): "+c.want, "the launch line shows the args")
 			if strings.Contains(x.startCall(), claude.MCPConfig("/kit")+" "+wake) {
 				t.Errorf("the prompt right after the --mcp-config value is a second config: %q", x.startCall())
 			}
@@ -97,14 +97,14 @@ func TestLaneStartStrictMCP(t *testing.T) {
 		lacks []string
 	}{
 		{"a worker: strict, obor's server", nil, "", "pj-l-01", "w1:p3", "pj-l-01", true,
-			[]string{"args=[" + laneMCP + settings + " -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
+			[]string{"args=[" + laneMCP + settings + " --session-id <new> -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
 		{"a worker whose args name the flag: once", []func(map[string]any){testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`)},
 			"", "pj-l-01", "w1:p3", "pj-l-01", true,
-			[]string{"args=[" + laneMCP + settings + " -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
+			[]string{"args=[" + laneMCP + settings + " --session-id <new> -- " + wake + "] kind=claude name=pj-l-01 pane_id=w1:p3"}, nil},
 		{"a lead: the user's servers, no flag", nil, "", "pj-lead", "w1:p6", "", false,
-			[]string{"args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead"}, []string{"--strict-mcp-config", "--mcp-config"}},
+			[]string{"args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead"}, []string{"--strict-mcp-config", "--mcp-config"}},
 		{"the integrator: the user's servers, no flag", nil, "", "pj-int", "w1:p5", "", false,
-			[]string{"args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int"}, []string{"--strict-mcp-config", "--mcp-config"}},
+			[]string{"args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-int"}, []string{"--strict-mcp-config", "--mcp-config"}},
 		{"a lane's codex agent: its own registration, no flag", nil, "luna", "pj-l-01", "w1:p3", "pj-l-01", true,
 			[]string{"-m gpt-6-luna", `mcp_servers.obor.command="/kit/bin/obor"`}, []string{"--strict-mcp-config"}},
 		{"a lane's opencode agent: no registration, no flag", nil, "deepseek", "pj-l-01", "w1:p3", "pj-l-01", true,
@@ -125,7 +125,7 @@ func TestLaneStartStrictMCP(t *testing.T) {
 			if !ok {
 				t.Fatalf("start failed:\n%s", out)
 			}
-			start := x.startCall()
+			start := x.named(x.startCall())
 			if !strings.HasPrefix(start, "agent.start args=[") {
 				t.Fatalf("no agent.start: %q", start)
 			}
@@ -240,8 +240,8 @@ func TestRV47StartVariadicConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("start failed:\n%s", out)
 	}
-	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " -- " + wake
-	eq(t, x.startCall(), "agent.start args=["+want+"] kind=claude name=pj-rev pane_id=w1:p7", "agent start")
+	want := "--permission-mode auto --model opus --strict-mcp-config --mcp-config " + otherEntry + " " + oborEntry + " " + settings + " --session-id <new> -- " + wake
+	eq(t, x.named(x.startCall()), "agent.start args=["+want+"] kind=claude name=pj-rev pane_id=w1:p7", "agent start")
 	if strings.Contains(x.startCall(), claude.MCPConfig("/kit")) {
 		t.Errorf("obor added a second obor entry: %q", x.startCall())
 	}

@@ -146,6 +146,67 @@ func TestSessionInStatus(t *testing.T) {
 	}
 }
 
+// T-813: a session obor named before a start (no transcript yet) is confirmed by its SessionStart hook. The same id
+// fills the transcript in, one record for the agent, nothing logged; another id — Claude ran what it was not given —
+// wins, one log line, and the pre-record stays in the history.
+func TestSessionConfirmation(t *testing.T) {
+	t.Parallel()
+	// launch is serve's fact for the id obor chose (the launcher's session request before the start).
+	launch := func(h *harness, id string, at int64) {
+		h.t.Helper()
+		if _, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: "pj-l-01", Kind: "claude", Session: id,
+			Pane: "w1:p1", Lane: "L-01", Started: at, Source: "launch"}); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	t.Run("the same id: one record, the hook's transcript", func(t *testing.T) {
+		t.Parallel()
+		h, out := newIdentHarness(t)
+		h.connect()
+		now := time.Now().Unix()
+		launch(h, "chosen", now)
+		eqs(t, h.current("pj-l-01"), "chosen", "precondition: the launch's id is current")
+
+		h.session("pj-l-01", "chosen", "/t/chosen.jsonl", now+1)
+		eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "chosen /t/chosen.jsonl", "one record, its transcript filled in")
+		eqs(t, h.current("pj-l-01"), "chosen", "the same session")
+		if strings.Contains(out.String(), "chosen") {
+			t.Errorf("logged a confirmation:\n%s", out)
+		}
+	})
+	t.Run("another id: the hook's wins, one log line", func(t *testing.T) {
+		t.Parallel()
+		h, out := newIdentHarness(t)
+		h.connect()
+		now := time.Now().Unix()
+		launch(h, "chosen", now)
+
+		h.session("pj-l-01", "ran", "/t/ran.jsonl", now+1)
+		eqs(t, h.current("pj-l-01"), "ran", "the session Claude ran")
+		eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "chosen ,ran /t/ran.jsonl", "the pre-record kept, the session added")
+		const line = "pj: pj-l-01 runs session ran, not chosen (the id obor chose): the reported session is recorded"
+		if n := strings.Count(out.String(), line); n != 1 {
+			t.Errorf("logged %d times, want once:\n%s", n, out)
+		}
+	})
+	t.Run("replay: the confirmation in its record's place", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newIdentHarness(t)
+		h.connect()
+		now := time.Now().Unix()
+		launch(h, "chosen", now)
+		h.session("pj-l-01", "chosen", "/t/chosen.jsonl", now+1)
+
+		h.a.closeLog()
+		h.a = New(Options{Root: h.root, Now: h.a.opt.Now, Out: h.a.opt.Out}, h.panes, h.lanes)
+		h.connect()
+		eqs(t, strings.Join(h.sessions("pj-l-01"), ","), "chosen /t/chosen.jsonl", "one record on replay too")
+		if ss, err := store.ReadSessionsAt(h.root); err != nil || len(ss) != 1 || ss[0].Transcript != "/t/chosen.jsonl" {
+			t.Errorf("store: %+v (%v), want the confirmation alone", ss, err)
+		}
+	})
+}
+
 // has fails when s lacks sub.
 func has(t *testing.T, s, sub, what string) {
 	t.Helper()

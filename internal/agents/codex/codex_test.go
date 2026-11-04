@@ -74,15 +74,14 @@ func TestKind(t *testing.T) {
 	}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	for _, c := range []struct {
-		env       func(string) string
-		cwd, want string
+		env  func(string) string
+		want string
 	}{
-		{env(map[string]string{"HOME": "/h"}), "", "/h/.codex/sessions/*/*/*/rollout-*-s1.jsonl"},
-		{env(map[string]string{"HOME": "/h", "CODEX_HOME": "/cx"}), "", "/cx/sessions/*/*/*/rollout-*-s1.jsonl"},
-		{env(map[string]string{"HOME": "/h"}), "/work", ""},
+		{env(map[string]string{"HOME": "/h"}), "/h/.codex/sessions/*/*/*/rollout-*-s1.jsonl"},
+		{env(map[string]string{"HOME": "/h", "CODEX_HOME": "/cx"}), "/cx/sessions/*/*/*/rollout-*-s1.jsonl"},
 	} {
-		if got := k.Transcript(c.env, c.cwd, "s1"); got != c.want {
-			t.Errorf("Transcript(cwd %q) = %q, want %q", c.cwd, got, c.want)
+		if got := k.Transcript(c.env, "s1"); got != c.want {
+			t.Errorf("Transcript = %q, want %q", got, c.want)
 		}
 	}
 	if d, ok := k.Deliver("hi", []byte(`{"socket":"/s"}`)); !ok || !d.Typed || d.Socket != "" {

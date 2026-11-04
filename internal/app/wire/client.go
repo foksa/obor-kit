@@ -134,6 +134,10 @@ func absent(err error) bool {
 	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 }
 
+// Absent: err is a call that certainly did not land (absent(): no serve is listening): a caller may then leave a
+// record to the agent's own hook (T-813: a Claude start's session, its SessionStart hook records it anyway).
+func Absent(err error) bool { return absent(err) }
+
 // askOnce is one request on its own connection; see ask.
 func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
 	ctx, cancel := context.WithTimeout(ctx, verdictDeadline) // a caller with no deadline still has one

@@ -23,7 +23,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 		name, typ, kind string
 		head            string // the start args before the prompt
 	}{
-		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " "},
+		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> "},
 		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
 		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt "},
 	} {
@@ -37,7 +37,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 			}
 			eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
 			args := strings.TrimPrefix(c.head, "-- ")
-			eq(t, x.startCall(), "agent.start args=["+args+one+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt one line")
+			eq(t, x.named(x.startCall()), "agent.start args=["+args+one+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt one line")
 			contains(t, x.startCall(), one, "the prompt's text, its line breaks one space each")
 			eq(t, x.f.Pane("w1:p7").Name, "pj-rev", "herdr ran the agent")
 		})

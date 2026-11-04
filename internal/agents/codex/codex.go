@@ -147,12 +147,8 @@ func (kind) Install(kit string, _ func(string) string) agents.Install {
 		Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, true, false }}}
 }
 
-// Transcript: $CODEX_HOME (default ~/.codex)/sessions/YYYY/MM/DD/rollout-<time>-<sid>.jsonl; the path records no
-// cwd.
-func (kind) Transcript(env func(string) string, cwd, sid string) string {
-	if cwd != "" {
-		return ""
-	}
+// Transcript: $CODEX_HOME (default ~/.codex)/sessions/YYYY/MM/DD/rollout-<time>-<sid>.jsonl.
+func (kind) Transcript(env func(string) string, sid string) string {
 	dir := env("CODEX_HOME")
 	if dir == "" {
 		dir = filepath.Join(env("HOME"), ".codex")

@@ -50,11 +50,12 @@ T-495): **what** differs per agent CLI, as data and pure functions; standard lib
 imports no obor package (every other layer may import it). `agents.Kind`: `Name`, `Start(Start) []string`
 (fresh/resume argv, MCP registration, first prompt; `Start.Read` is the adapter's file read, a `--mcp-config` path),
 `NotReady(screen)`, `StartEnv` (a start's own env: OpenCode's `OBOR_OPENCODE_MODEL` for obor's plugin, T-703), `Stop() Stop` (quit recipe), `Headless() Headless` (argv forms the guard denies), `Install(kit, env)
-Install` (MCP registration, plugin link), `Transcript(env, cwd, sid)`, `Session(first line)` (the session a
+Install` (MCP registration, plugin link), `Transcript(env, sid)` (a glob: the file of that session id, no cwd — a
+kind's directory for it is the kind's own, T-813), `Session(first line)` (the session a
 transcript begins with: Codex's `session_meta`, T-577), `Deliver(text, record) (Delivery, bool)` (typed
 vs inbox post), `Caps()` (hooks transport — the plugin marker is `Caps().Hooks == HooksPlugin` —, inbox, resume,
-transcript). `Install` and `Transcript` take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`,
-`CODEX_HOME`), `Transcript` a cwd (Claude's per-cwd check of a recorded sid). Registry: `agents.Lookup`, `Names`,
+transcript, a named session: `NamedSession`, obor chooses the id of a fresh start, T-813). `Install` and `Transcript`
+take the environment (config dirs: `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Registry: `agents.Lookup`, `Names`,
 `Default`. All I/O stays in the adapters, which ask the kind what differs; non-lead default settings stay in
 `config.LaneType.LaunchArgs`, which asks the kind to render them. No kind name outside the bridges (boundary test).
 Adding a kind = one package + a config entry.
@@ -107,8 +108,9 @@ Adding a kind = one package + a config entry.
   Implements `app.Scratch`.
 - `launch`: start, stop (the kill sequence) and restart an agent CLI in its pane (`Launcher`, panes via
   `app.PaneControl`; implements `app.Agents` and `app.Starter`); the per-lane restart lock (`restartlock.go`:
-  `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: a fresh start's session from the
-  transcript its process holds open (a Codex rollout, T-588), reported to serve.
+  `RestartLock`, T-500); the herdr plugin's restore (`Restorer`); `session.go`: the id obor names a fresh Claude
+  start and records before it runs (T-813), and a fresh Codex start's session from the transcript its process holds
+  open (a Codex rollout, T-588), both reported to serve.
 - `mcp`: stdio shim from an agent to the app's socket; typed tools per role: the worker's `job_next`/`task_done`, the
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,

@@ -40,3 +40,20 @@ func TestOwnedSessions(t *testing.T) {
 		t.Errorf("holder of x %q, want a", h)
 	}
 }
+
+// T-813: the confirmation of the id a launch recorded before its start — the same (agent, id), now with the
+// transcript the session reports — is that record, not a second one; a repeat that names no new transcript records
+// nothing.
+func TestOwnedConfirmation(t *testing.T) {
+	ss := []Session{{Agent: "a", ID: "x", Started: 10}, {Agent: "a", ID: "x", Transcript: "/t/x.jsonl", Started: 20}}
+	got := Owned(ss)
+	if len(got) != 1 || got[0].ID != "x" || got[0].Transcript != "/t/x.jsonl" || got[0].Started != 20 {
+		t.Fatalf("owned %+v, want x with the confirmation's transcript and start", got)
+	}
+	if Admits(got, Session{Agent: "a", ID: "x", Started: 30}) {
+		t.Error("a later repeat with no transcript is admitted")
+	}
+	if Admits(got, Session{Agent: "a", ID: "x", Transcript: "/t/x.jsonl", Started: 30}) {
+		t.Error("a repeat of the confirmed record is admitted")
+	}
+}

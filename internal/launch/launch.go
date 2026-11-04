@@ -13,9 +13,12 @@
 //	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
 //	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
-//	Session  the recorded sid, else the one herdr reports for the pane; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
-//	         recorded Claude sid must have its transcript under the start cwd; none anywhere (never prompted, T-627):
-//	         starts fresh, said. A session of another kind than the dispatch's type (T-722): starts fresh, said.
+//	Session  the recorded sid, else the one herdr reports for the pane (never herdr's for a kind whose sessions obor
+//	         names itself: Claude, T-813); --fresh: a new one. None → FAIL (pass --fresh), checked before anything is
+//	         stopped. A fresh start of such a kind records the id obor chose before the agent runs. A recorded Claude
+//	         sid resumes from the transcript the session itself reported (the SessionStart hook's path, T-813); none
+//	         anywhere (never prompted, T-627): starts fresh, said. A session of another kind than the dispatch's type
+//	         (T-722): starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
 //	         anything is stopped or typed: no fg resume.
 //	Start    the env line typed at the shell (never into another program), then Start (the one start, shared with
@@ -205,6 +208,9 @@ type target struct {
 	// the lane row's, T-722), not the configured one.
 	sidKind    string
 	dispatched bool
+	// transcript is the recorded session's transcript, as the session reported it (Claude's SessionStart hook,
+	// T-813); "" when the record names none (a start obor named, before its hook ran).
+	transcript string
 	pane       string
 	entry      port.PaneInfo // the pane as pane list shows it
 	panes      []port.PaneInfo
@@ -233,7 +239,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 		}
 	}
 	rec, _ := l.session(agent)
-	t.sid, t.sidKind = rec.ID, rec.Kind
+	t.sid, t.sidKind, t.transcript = rec.ID, rec.Kind, rec.Transcript
 	if !t.known && t.sid == "" && pane == "" {
 		return nil, project.Failf("unknown agent %s (no lane, role, agents entry or recorded session)", agent)
 	}
@@ -428,7 +434,8 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	// The session, checked before anything is stopped (T-124): none and no --fresh → FAIL.
 	// A kind that resumes nothing (agents.Caps.Resume false: OpenCode, T-581) always starts fresh: serve records its
 	// session, but there is nothing obor resumes. The recorded session wins (T-577): herdr's live one for the pane is a
-	// cross-check, said when it differs, and resumed only when none is recorded.
+	// cross-check, said when it differs. A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude,
+	// T-813) never adopts herdr's: obor chose the recorded id, and a session with no record is a new one.
 	sid, src := t.sid, "record"
 	if !agents.Resumes(t.kind) {
 		sid, src = "", ""
@@ -438,11 +445,11 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	} else {
 		if live := t.entry.Session; live != "" && !sameSid(live, sid) {
 			switch {
-			case sid == "":
-				sid, src = live, "herdr"
-			case !req.Fresh:
+			case sid != "" && !req.Fresh:
 				l.say("warning: herdr reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
 					sid, sid)
+			case sid == "" && !agents.NamedSession(t.kind):
+				sid, src = live, "herdr"
 			}
 		}
 		if req.Fresh {
@@ -544,41 +551,39 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		Terminal: t.entry.Terminal, Kind: t.kind, Session: seen.Session}, nil
 }
 
-// checkTranscript: a recorded sid must be from the start cwd (T-137: another project's run may have left it), for a
-// kind whose transcripts record their cwd (agents.Kind.Transcript: Claude's projects/<cwd as a slug>). A session with
-// no transcript anywhere was never prompted (Claude writes none before its first message, T-627): it is no session to
-// resume, so the restart starts fresh, said; fresh is true then.
+// checkTranscript: what a recorded session needs to resume. For a kind whose sessions obor names itself (T-813:
+// agents.Caps.NamedSession) that is the transcript the session reported, as the SessionStart hook recorded it: the
+// path is the session's own (Claude resolves symlinks and hashes a long cwd, so obor derives none), so a pane cwd
+// that moved or a symlinked lane no longer refuses it. A session with no transcript file was never prompted (Claude
+// writes none before its first message, T-627): it is no session to resume, so the restart starts fresh, said; fresh
+// is true then. A record that names no transcript yet (obor chose its id, and no SessionStart hook confirmed it)
+// resumes when the kind's own file of that id is somewhere. Other kinds are not checked: their sessions are not
+// obor's to check (Codex's rollout, which launch records itself).
 func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error) {
-	cwd := t.info.Cwd
-	if cwd == "" {
-		cwd = t.entry.Cwd
-	}
 	k, ok := agents.Lookup(t.kind)
-	switch {
-	case !ok || k.Transcript(l.Env.Get, "/", sid) == "": // any cwd tells whether its transcripts record one
-		l.say("recorded session %s not checked (%s keeps no transcript per cwd)", sid, t.kind)
-	case cwd == "":
-		l.say("warning: pane %s has no known cwd: recorded session %s not checked", t.pane, sid)
-	default:
-		_, err := os.Stat(k.Transcript(l.Env.Get, cwd, sid))
-		if err == nil {
+	if !ok || !k.Caps().NamedSession {
+		l.say("recorded session %s not checked (%s's sessions are not obor's)", sid, t.kind)
+		return false, nil
+	}
+	if path := t.transcript; path != "" {
+		if _, err := os.Stat(path); err == nil {
 			return false, nil
+		} else if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted" (RV-67 #4)
+			return false, project.Failf("recorded session %s: cannot check its transcript %s: %v (pass --fresh)", sid, path, err)
 		}
-		if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted" (RV-67 #4)
-			return false, project.Failf("recorded session %s: cannot check its transcript under %s: %v (pass --fresh)", sid, cwd, err)
-		}
-		// Under any cwd ("" asks for the kind's whole transcript dir): another project's, refuse as before.
-		found, err := transcriptElsewhere(k.Transcript(l.Env.Get, "", sid))
-		if err != nil {
-			return false, project.Failf("recorded session %s: cannot search its transcript: %v (pass --fresh)", sid, err)
-		}
-		if found {
-			return false, project.Failf("recorded session %s is not from %s (pass --fresh)", sid, cwd)
-		}
-		l.say("recorded session %s has no transcript (never prompted): starting fresh", sid)
+		l.say("recorded session %s has no transcript (%s): starting fresh", sid, path)
 		return true, nil
 	}
-	return false, nil
+	// No recorded path: the kind's own file of that id, anywhere (the hook has not filled the path in yet).
+	found, err := transcriptElsewhere(k.Transcript(l.Env.Get, sid))
+	if err != nil {
+		return false, project.Failf("recorded session %s: cannot search its transcript: %v (pass --fresh)", sid, err)
+	}
+	if found {
+		return false, nil
+	}
+	l.say("recorded session %s has no transcript (never prompted): starting fresh", sid)
+	return true, nil
 }
 
 // transcriptElsewhere: whether the transcript wild is "<projects>/*/<file>" names exists under any project dir. The

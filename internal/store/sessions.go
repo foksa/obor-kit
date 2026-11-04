@@ -57,24 +57,38 @@ func Holder(ss []Session, agent, id string) string {
 
 // Admits: s joins ss, the sessions recorded so far, as its agent's session (T-586, T-588): the one ownership rule, for
 // serve live and on replay (internal/app) and for the store's readers. Not when ss records s's (agent, id) already,
-// nor when id is another agent's current session (a log that holds such a duplicate keeps one owner, the earlier).
+// nor when id is another agent's current session (a log that holds such a duplicate keeps one owner, the earlier) —
+// except a record that names no transcript and is followed by one that does: the SessionStart hook's confirmation of
+// the id obor chose before the start fills in its transcript_path (T-813), and Owned keeps the confirmation.
 func Admits(ss []Session, s Session) bool {
 	if s.Agent == "" || s.ID == "" {
 		return false
 	}
 	for _, r := range ss {
-		if r.Agent == s.Agent && r.ID == s.ID {
+		if r.Agent == s.Agent && r.ID == s.ID && (r.Transcript != "" || s.Transcript == "") {
 			return false
 		}
 	}
 	return Holder(ss, s.Agent, s.ID) == ""
 }
 
-// Owned is ss, session facts in log order, as recorded: each that Admits the ones before it.
+// Owned is ss, session facts in log order, as recorded: each that Admits the ones before it, a confirmation of an
+// earlier record (T-813: same agent and id, now with the transcript) in that record's place, so an agent's sessions
+// stay one per id.
 func Owned(ss []Session) []Session {
 	var out []Session
 	for _, s := range ss {
-		if Admits(out, s) {
+		if !Admits(out, s) {
+			continue
+		}
+		replaced := false
+		for i := range out {
+			if out[i].Agent == s.Agent && out[i].ID == s.ID {
+				out[i], replaced = s, true
+				break
+			}
+		}
+		if !replaced {
 			out = append(out, s)
 		}
 	}
