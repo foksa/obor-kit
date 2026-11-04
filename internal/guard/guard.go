@@ -5,7 +5,8 @@
 // every role (T-543); writes — the editor tools and the Bash write targets alike (checkWrite, RV-83) — are checked
 // against protected_files and the role's write profile (config.Role: a reviewer or deep_dive writes only under
 // paths.reviews / paths.research, a custom role — advisor, researcher, triage, a project's own — only its write list,
-// T-801; a final symlink at its destination too), and an editor tool of a worker against its lane's boundary: no other
+// T-801; a role whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a
+// final symlink at its destination too), and an editor tool of a worker against its lane's boundary: no other
 // worktree of this repo (the main checkout included), no other obor project, no final symlink out of the lane. A
 // GitReadOnly role (reviewer, deep_dive, every custom role) runs git reads only (gitRead).
 // Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run
@@ -363,10 +364,28 @@ func (g *guard) checkWriteArg(arg, dir string) {
 	}
 }
 
-// sessionRole is this session's role as config.Role finds it (a table or custom role; ok false: none).
+// sessionRole is this session's role as config.Role finds it (a table or custom role; ok false: none). A non-empty role
+// the config does not find fails closed as a custom role writing nothing and reading git only (gone names it, T-814).
 func (g *guard) sessionRole() (roles.Role, bool) {
 	rc, ok := g.cfg.Role(g.role)
-	return rc.Role, ok
+	if ok || g.gone() == "" {
+		return rc.Role, ok
+	}
+	return roles.Custom(g.role, nil), true
+}
+
+// gone is why this session's role is one config.Role does not find (T-814), "" when it is known or the session has no
+// role ("" / "none"): the roles.<name> row was removed while the agent runs. Such a role writes nothing and runs git
+// reads only — fail closed, with a denial naming the missing row (checkWrite, gitRead).
+func (g *guard) gone() string {
+	if g.role == "" || g.role == "none" {
+		return ""
+	}
+	if _, ok := g.cfg.Role(g.role); ok {
+		return ""
+	}
+	return "roles." + g.role + " is not in .obor/config.json (removed while the agent runs?) — a role the config does " +
+		"not name writes nothing and runs git reads only; ask the lead to restore the row"
 }
 
 // writeProfile is the write profile of this session's role ("": none).
@@ -416,6 +435,9 @@ func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	}
 	r := rel(p, wt)
 	if wp == roles.WriteList {
+		if why := g.gone(); why != "" {
+			return r + " — " + why
+		}
 		role, _ := g.sessionRole()
 		return listDenial(g.role, role.WritePaths, r)
 	}

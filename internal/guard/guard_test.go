@@ -1204,6 +1204,43 @@ func TestCustomRoleGuard(t *testing.T) {
 	})
 }
 
+// T-814 (RV-104 #1): a custom role whose roles.<name> row the config no longer names — removed while its agent runs —
+// fails closed: editor and shell writes in the project and every git write are denied with a reason naming the missing
+// row, git reads stay allowed; the kit's default rows are unaffected and a lane cwd still resolves to the worker.
+func TestRemovedCustomRoleFailsClosed(t *testing.T) {
+	t.Parallel()
+	const why = "roles.ux_buddy is not in .obor/config.json"
+	f := fixture(t)
+	P, L := f.P, f.L
+	f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`),
+		testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`))
+	// Precondition: with its row the role writes its list and reads git, so the denials below come from the removal.
+	check(t, f.Project, []tc{
+		edit("ux_buddy", P, "Write", P+"/docs/ux/a.md", ""),
+		bash("ux_buddy", P, "git add docs/ux/a.md", "an ux_buddy doesn't run git add"),
+		bash("ux_buddy", P, "git status", ""),
+	})
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`)) // the row removed while the agent runs
+	check(t, f.Project, []tc{
+		edit("ux_buddy", P, "Edit", P+"/internal/x.go", why),
+		edit("ux_buddy", P, "Write", P+"/docs/ux/a.md", why),
+		bash("ux_buddy", P, "echo x > internal/x.go", why),
+		bash("ux_buddy", P, "cp README.md internal/x.go", why),
+		bash("ux_buddy", P, "git add docs/ux/a.md", why),
+		bash("ux_buddy", P, "git commit -m x", why),
+		bash("ux_buddy", P, "git status", ""),
+		bash("ux_buddy", P, "git log -3", ""),
+		// The kit's default rows (advisor, researcher, triage) are unaffected.
+		edit("advisor", P, "Write", P+"/docs/plan/m.md", ""),
+		edit("researcher", P, "Write", P+"/docs/research/r.md", ""),
+		edit("triage", P, "Write", P+"/docs/BUGS.md", ""),
+		bash("advisor", P, "git commit -m x", "an advisor doesn't run git commit"),
+		// A lane cwd still resolves the session to the worker, whatever its env role.
+		edit("ux_buddy", L, "Edit", L+"/src/a/x.go", ""),
+	})
+}
+
 // bash case_old_bypasses_denied (T-193)
 func TestOldBashBypassesDenied(t *testing.T) {
 	t.Parallel()
