@@ -827,52 +827,25 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 }
 
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
-// shell) and the agent in it are its intent's data. No pane in the lane for Gone: herdr's panes are read again (a cd in
-// one gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}. A failed
-// read is no answer: nothing is recorded and the next pass reads again.
+// shell) and the agent in it are its intent's data. A pending start keeps its recorded pane while herdr still has it; a
+// pane it names that is gone (its tab closed, a new labelled one made by obor setup pane) is chosen again, as a first
+// start's is, and never the recorded id (T-783). No pane in the lane for Gone: herdr's panes are read again (a cd in one
+// gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}. A failed read
+// is no answer: nothing is recorded and the next pass reads again.
 func (a *App) nextStart(p *proj, mt mtask) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
+	pending := false
 	if r, ok := p.log.Intent(key); ok { // a pending start: its recorded snapshot
 		_ = json.Unmarshal(r.Data, &d)
-	} else if o := a.placement(p, mt.disp.Dir, mt.agent); o != nil {
+		pending = true
+	}
+	if !pending || a.obs[d.Pane] == nil {
+		o := a.placement(p, mt.disp.Dir, mt.agent)
+		if o == nil {
+			return a.waitPane(p, mt)
+		}
 		d.Pane, d.Ran, d.Session = o.pane.ID, o.pane.Agent != "", o.pane.Session
-	} else {
-		now := a.opt.Now()
-		since, ok := p.nopane[mt.task]
-		if !ok {
-			p.nopane[mt.task] = now
-			return nil
-		}
-		if now.Sub(since) < a.opt.Gone {
-			return nil
-		}
-		return func(ctx context.Context, _ *Loop) bool {
-			// The snapshot's cwd can be stale (a cd in the pane gives no event, T-745): read herdr's panes again before
-			// the owner is told there is none. A failed or canceled read records nothing, so the task keeps waiting on
-			// the same clock and the next pass tries again (RV-89 #1).
-			panes, err := a.rereadPanes(ctx)
-			if err != nil {
-				return false
-			}
-			// The list answers which pane is in the lane now, and nothing else: a pane the stream closed since the read
-			// is not raised again, and every other field and pane stays the stream's (RV-89 #2). One the stream still
-			// has: its cwd is what changed, and the next pass starts the agent in it.
-			a.mu.Lock()
-			o := a.paneIn(p, panes, mt.disp.Dir, mt.agent)
-			closed := o != nil && a.obs[o.ID] == nil // the stream closed it since the read: that wins
-			if o != nil && !closed {
-				a.obs[o.ID].pane.Cwd = o.Cwd
-			}
-			if !closed { // the read settled the wait: a pane to start in, or none to wait for
-				delete(p.nopane, mt.task)
-			}
-			a.mu.Unlock()
-			if o == nil {
-				return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
-			}
-			return !closed
-		}
 	}
 	delete(p.nopane, mt.task)
 	// The work job the start runs under: one open from an earlier start, else the next.
@@ -881,6 +854,47 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 		work.Step = mt.work
 	}
 	return func(ctx context.Context, fx *Loop) bool { return a.startWorker(ctx, p, fx, mt, key, d, work) }
+}
+
+// waitPane is nextStart's wait for a pane of the lane (under mu): nothing until opt.Gone has passed since the first pass
+// without one, then herdr's panes are read again before the owner is told; the agent starts in a pane the read finds
+// (the next pass), and none is needs-you{no pane in lane}.
+func (a *App) waitPane(p *proj, mt mtask) step {
+	now := a.opt.Now()
+	since, ok := p.nopane[mt.task]
+	if !ok {
+		p.nopane[mt.task] = now
+		return nil
+	}
+	if now.Sub(since) < a.opt.Gone {
+		return nil
+	}
+	return func(ctx context.Context, _ *Loop) bool {
+		// The snapshot's cwd can be stale (a cd in the pane gives no event, T-745): read herdr's panes again before
+		// the owner is told there is none. A failed or canceled read records nothing, so the task keeps waiting on
+		// the same clock and the next pass tries again (RV-89 #1).
+		panes, err := a.rereadPanes(ctx)
+		if err != nil {
+			return false
+		}
+		// The list answers which pane is in the lane now, and nothing else: a pane the stream closed since the read
+		// is not raised again, and every other field and pane stays the stream's (RV-89 #2). One the stream still
+		// has: its cwd is what changed, and the next pass starts the agent in it.
+		a.mu.Lock()
+		o := a.paneIn(p, panes, mt.disp.Dir, mt.agent)
+		closed := o != nil && a.obs[o.ID] == nil // the stream closed it since the read: that wins
+		if o != nil && !closed {
+			a.obs[o.ID].pane.Cwd = o.Cwd
+		}
+		if !closed { // the read settled the wait: a pane to start in, or none to wait for
+			delete(p.nopane, mt.task)
+		}
+		a.mu.Unlock()
+		if o == nil {
+			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
+		}
+		return !closed
+	}
 }
 
 // placement is paneIn over the snapshot (under mu): the pane of p's workspace to start the lane at dir's agent in; nil:
@@ -946,10 +960,19 @@ func otherAgent(root, label string, names []string) bool {
 // startWorker runs agent.start (S): a fresh session of the lane's agent in its pane (Agents.Launch, force as the
 // dispatch said). A replay (the intent pending) first reads the snapshot (startSeen): started → the result, no second
 // start; not started → it starts again (Restart stops what is there); cannot tell → refused: needs-you{start: cannot
-// tell …}, never a second start. A launch refusal (background tasks without force, the name held by another pane) is
-// final: needs-you{start: why}. It runs under work job's intent and carries its wake (startJob).
+// tell …}, never a second start. A replay whose intent names another pane than d has its recorded pane gone, and its
+// start chose one again (nextStart): nothing of the intent's pane is left to compare with, so it starts as a first
+// start does there (T-783). A launch refusal (background tasks without force, the name held by another pane) is final:
+// needs-you{start: why}. It runs under work job's intent and carries its wake (startJob).
 func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
 	replay := p.log.Open(key)
+	if replay {
+		var rec startData
+		if r, ok := p.log.Intent(key); ok {
+			_ = json.Unmarshal(r.Data, &rec)
+		}
+		replay = rec.Pane == d.Pane
+	}
 	in := event.Intent{Key: key, Class: event.ClassStart, Data: d}
 	return a.startJob(ctx, p, mt, in, work, promptData{Agent: mt.agent}, func(ctx context.Context, first string) (any, error) {
 		if replay {
