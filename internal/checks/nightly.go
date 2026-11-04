@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,9 @@ import (
 // its own worktree (<merge.scratch_dir>-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check,
 // check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored), e2e and
-// conformance (T-798: non-gating, its result a line in the report, never RED), each skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
+// conformance (T-798: non-gating, its result a line in the report, never RED; T-805: its skip and warn counts and lines
+// in the report on a pass too), each skipped when unset. Non-blocking: every command runs even after a failure (a
+// failed lane_setup stops the rest).
 // It then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
 // merge.window_wait s).
@@ -57,10 +60,15 @@ func (s *session) nightly() *Result {
 			return nil
 		}
 		if name == "conformance" { // non-gating (T-798): a line in the report, never RED
-			results = append(results, name+" (non-gating) "+s.what(o))
-			if o.rc != 0 {
+			what, notes := s.conformance(o)
+			results = append(results, name+" (non-gating) "+what)
+			switch {
+			case o.rc != 0:
 				details = append(details, fmt.Sprintf("--- %s (rc %d, non-gating)", name, o.rc))
 				details = append(details, s.details(o)...)
+			case len(notes) > 0: // T-805: a skip is why a check did not run; a warn, what may break
+				details = append(details, fmt.Sprintf("--- %s (non-gating)", name))
+				details = append(details, notes...)
 			}
 			return nil
 		}
@@ -137,6 +145,25 @@ func (s *session) nightly() *Result {
 	}
 	return result(Red, "NIGHTLY RED %s on %s (%s)%s — %s", sha[:min(7, len(sha))], s.target, summary, s.loaded,
 		strings.Join(evidence, " | "))
+}
+
+// conformanceSummary is the conformance program's last line (tests/conformance/main.go): its counts.
+var conformanceSummary = regexp.MustCompile(`(?m)^conformance: ([0-9]+) pass, ([0-9]+) fail, ([0-9]+) skip, ([0-9]+) warn$`)
+
+// conformance is a conformance run's report (T-805): the run's counts line, with skip and warn in it when there are any
+// (merge.summary_regex keeps only pass and fail: a missing herdr or a newer herdr would read "0 pass, 0 fail"), and
+// the run's WARN/SKIP lines, a passing run's too.
+func (s *session) conformance(o output) (string, []string) {
+	var notes []string
+	for _, l := range lines(o.text) {
+		if strings.HasPrefix(l, "WARN ") || strings.HasPrefix(l, "SKIP ") {
+			notes = append(notes, l)
+		}
+	}
+	if m := conformanceSummary.FindStringSubmatch(o.text); m != nil && (m[3] != "0" || m[4] != "0") {
+		return fmt.Sprintf("%s pass, %s fail, %s skip, %s warn", m[1], m[2], m[3], m[4]), notes
+	}
+	return s.what(o), notes
 }
 
 // LastFullCheck reads root's .obor/state/last-full-check (Nightly): the sha, time and verdict (GREEN|RED) of the last
