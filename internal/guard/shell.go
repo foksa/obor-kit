@@ -814,8 +814,9 @@ func (s *shell) movesHead(sub string, args []string, dir string) bool {
 }
 
 // checkoutRef reports a `git checkout` of a ref (it moves HEAD) rather than of paths. A `--` makes what follows paths,
-// and a tree-ish before it belongs to that path checkout. -b / -B / --orphan create and switch to a branch. A single
-// operand "-" is the previous branch; one that names an existing path, or no operand at all, checks out paths.
+// and a tree-ish before it belongs to that path checkout. -b / -B / --orphan create and switch to a branch, and
+// --detach / -d detach HEAD: both move HEAD with or without an operand (T-848). A single operand "-" is the previous
+// branch; one that names an existing path, or no operand at all, checks out paths.
 func (s *shell) checkoutRef(args []string, dir string) bool {
 	var pos []string
 	for j := 0; j < len(args); j++ {
@@ -825,6 +826,8 @@ func (s *shell) checkoutRef(args []string, dir string) bool {
 			return false
 		case a == "-b" || a == "-B" || a == "--orphan" || strings.HasPrefix(a, "-b") || strings.HasPrefix(a, "-B") ||
 			strings.HasPrefix(a, "--orphan="):
+			return true
+		case a == "--detach" || a == "-d":
 			return true
 		case a == "-s" || a == "--source" || a == "--conflict" || a == "--pathspec-from-file":
 			j++
