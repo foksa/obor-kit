@@ -62,16 +62,24 @@ func TestServeStartsWithHerdrDown(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
 	r.srv.Die()
+	r.launch()
+	// Revive only once serve has logged herdr gone: serve's replay alone took 0.3 s on a loaded machine, so a fixed
+	// wait let it connect to a live herdr and the gone/back lines never happened (the T-833 gate's flake).
+	out := r.out
 	go func() {
-		time.Sleep(300 * time.Millisecond)
-		r.srv.Revive(t)
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			if strings.Contains(out.String(), "herdr: gone") {
+				r.srv.Revive(t)
+				return
+			}
+		}
 	}()
-	r.start() // returns after the first check: herdr is back
-	out := r.out.String()
-	if n, m := strings.Count(out, "herdr: gone"), strings.Count(out, "herdr: back"); n != 1 || m != 1 {
-		t.Errorf("%d gone and %d back lines, want one each:\n%s", n, m, out)
+	r.firstCheck() // returns after the first check: herdr is back
+	got := out.String()
+	if n, m := strings.Count(got, "herdr: gone"), strings.Count(got, "herdr: back"); n != 1 || m != 1 {
+		t.Errorf("%d gone and %d back lines, want one each:\n%s", n, m, got)
 	}
-	if strings.Index(out, "herdr: gone") > strings.Index(out, "herdr: connected") {
-		t.Errorf("connected before gone:\n%s", out)
+	if strings.Index(got, "herdr: gone") > strings.Index(got, "herdr: connected") {
+		t.Errorf("connected before gone:\n%s", got)
 	}
 }

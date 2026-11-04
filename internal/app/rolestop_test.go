@@ -95,50 +95,52 @@ func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
 	same(t, len(s.stops), 1, "stops after a second pass (the stop is done)")
 }
 
-// A verdict with another job queued (a green task to review) does not stop the integrator; that job's verdict does.
-func TestRoleStopIntegratorWaitsForQueuedJob(t *testing.T) {
+// The integrator is stopped only when no job is left and it is idle: another queued job's verdict comes first, and one
+// still ending its turn after the verdict (working) is never cut off.
+func TestRoleStopIntegratorWaitsForQueuedJobAndIdle(t *testing.T) {
 	t.Parallel()
-	r := newConcRig(t)
-	p := r.proj("pj")
-	s := newStopSpy(r)
-	ctx := context.Background()
-	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
-	if !runJob(r, p, "T-1", s) {
-		t.Fatal("precondition: T-1's review job not started")
-	}
-	acceptJob(r, p, "T-1", "p1", "a1")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 0, "stops with T-5's job queued")
+	t.Run("another job queued", func(t *testing.T) {
+		t.Parallel()
+		r := newConcRig(t)
+		p := r.proj("pj")
+		s := newStopSpy(r)
+		ctx := context.Background()
+		greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+		greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
+		if !runJob(r, p, "T-1", s) {
+			t.Fatal("precondition: T-1's review job not started")
+		}
+		acceptJob(r, p, "T-1", "p1", "a1")
+		r.a.stopRoles(ctx, p, &Loop{Agents: s})
+		same(t, len(s.stops), 0, "stops with T-5's job queued")
 
-	if !runJob(r, p, "T-5", s) {
-		t.Fatal("T-5's review job not started")
-	}
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 0, "stops while T-5's job is open")
-	acceptJob(r, p, "T-5", "p5", "a5")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, strings.Join(s.stops, ","), "pj-int w1:p9 force=false", "stops after T-5's verdict")
-}
-
-// The integrator still ends its turn after the verdict: it is stopped once idle, never cut off.
-func TestRoleStopIntegratorWaitsForIdle(t *testing.T) {
-	t.Parallel()
-	r := newConcRig(t)
-	p := r.proj("pj")
-	s := newStopSpy(r)
-	ctx := context.Background()
-	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	if !runJob(r, p, "T-1", s) {
-		t.Fatal("precondition: T-1's review job not started")
-	}
-	acceptJob(r, p, "T-1", "p1", "a1")
-	setStatus(r, "working")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 0, "stops while it works")
-	setStatus(r, "idle")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 1, "stops once idle")
+		if !runJob(r, p, "T-5", s) {
+			t.Fatal("T-5's review job not started")
+		}
+		r.a.stopRoles(ctx, p, &Loop{Agents: s})
+		same(t, len(s.stops), 0, "stops while T-5's job is open")
+		acceptJob(r, p, "T-5", "p5", "a5")
+		r.a.stopRoles(ctx, p, &Loop{Agents: s})
+		same(t, strings.Join(s.stops, ","), "pj-int w1:p9 force=false", "stops after T-5's verdict")
+	})
+	t.Run("still working", func(t *testing.T) {
+		t.Parallel()
+		r := newConcRig(t)
+		p := r.proj("pj")
+		s := newStopSpy(r)
+		ctx := context.Background()
+		greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
+		if !runJob(r, p, "T-1", s) {
+			t.Fatal("precondition: T-1's review job not started")
+		}
+		acceptJob(r, p, "T-1", "p1", "a1")
+		setStatus(r, "working")
+		r.a.stopRoles(ctx, p, &Loop{Agents: s})
+		same(t, len(s.stops), 0, "stops while it works")
+		setStatus(r, "idle")
+		r.a.stopRoles(ctx, p, &Loop{Agents: s})
+		same(t, len(s.stops), 1, "stops once idle")
+	})
 }
 
 // The next job after a stop starts the integrator fresh: no job.lost, no needs-you, and status no longer shows it
