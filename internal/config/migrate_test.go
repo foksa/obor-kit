@@ -19,13 +19,16 @@ func TestMigrateFixtures(t *testing.T) {
 	}{
 		{"obor-kit", []string{"L-01", "L-02", "L-03", "L-04"},
 			[]AgentRename{{"ob-terra", "ob-rev"}, {"ob-fable", "ob-advisor"}},
-			[]string{"lane_types.opus.max 4: dropped (no caps)", "lane_types.luna: no level, role or agent names it: dropped"}},
+			[]string{"lane_types.opus.max 4: dropped (no caps)", "lane_types.luna: no level, role or agent names it: dropped",
+				"config.json agents.hk-fable: dropped (advisor, researcher and triage are roles: roles.advisor, " +
+					"roles.researcher, roles.triage)"}},
 		{"axis-alies", []string{"D-01", "D-02", "D-03", "D-04", "OH-01", "OH-02"},
 			[]AgentRename{{"aa-o-02", "aa-int"}, {"lead-mp", "aa-lead"}, {"aa-d-01", "aa-l-01"}, {"aa-d-02", "aa-l-02"},
 				{"aa-d-03", "aa-l-03"}, {"aa-d-04", "aa-l-04"}, {"aa-oh-01", "aa-l-05"}, {"aa-oh-02", "aa-l-06"}},
 			[]string{"lane_types.muse: no level, role or agent names it: dropped",
 				"lane_types.opus.args --strict-mcp-config: dropped (not every claude type has it)",
 				`lane_types.fable.settings {"remoteControlAtStartup":false}: dropped`,
+				"config.json agents.triage: moved to roles.triage",
 				"config.json roles.integrator.worktree O-02 dropped (roles run in the main checkout)"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,6 +98,13 @@ func TestMigrateRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, m.Config)
 	}
+	if c.Data.Agents != nil {
+		t.Errorf("the agents key survived: %s", m.Config)
+	}
+	if !slices.Contains(m.Notes, "config.json agents.adv: dropped (advisor, researcher and triage are roles: "+
+		"roles.advisor, roles.researcher, roles.triage)") {
+		t.Errorf("notes = %q, want the dropped agents entry's", m.Notes)
+	}
 	if got := c.DifficultyList("hard"); !slices.Equal(got, []string{"opus:high", "big:max"}) {
 		t.Errorf("hard = %q, want opus:high (a built-in by kind and id), big:max (a ref's effort kept)", got)
 	}
@@ -120,6 +130,40 @@ func TestMigrateRules(t *testing.T) {
 	}
 	if _, err := Migrate([]byte(`{"prefix":"pj","lanes":2}`), nil); err == nil || !strings.Contains(err.Error(), "new shape already") {
 		t.Errorf("a new-shape config: %v, want a refusal", err)
+	}
+}
+
+// T-777: the agents key is no config key any more, so a new-shape config with it migrates too: an entry of a role
+// (its key, else its role field) moves its type to that role, the rest are dropped with a line, and the key goes.
+func TestMigrateAgentsToRoles(t *testing.T) {
+	m, err := Migrate([]byte(`{"prefix":"pj","lanes":1,"roles":{"integrator":"sonnet"},
+		"agents":{"advisor":{"type":"opus","cwd":"sub"},"helper":{"type":"opus","role":"triage"},
+			"hk-fable":{"type":"fable"}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(writeProject(t, string(m.Config), ""))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, m.Config)
+	}
+	if c.Data.Agents != nil {
+		t.Errorf("the agents key survived: %s", m.Config)
+	}
+	for role, want := range map[string]string{"integrator": "sonnet", "advisor": "opus", "triage": "opus"} {
+		if rc, _ := c.Role(role); ModelRef(rc.Type, rc.Effort) != want || !rc.Configured {
+			t.Errorf("roles.%s = %+v, want %q", role, rc, want)
+		}
+	}
+	for _, note := range []string{
+		"config.json agents.advisor: moved to roles.advisor",
+		"config.json agents.advisor.cwd sub: dropped",
+		"config.json agents.helper: moved to roles.triage",
+		"config.json agents.hk-fable: dropped (advisor, researcher and triage are roles: roles.advisor, " +
+			"roles.researcher, roles.triage)",
+	} {
+		if !slices.Contains(m.Notes, note) {
+			t.Errorf("notes lack %q:\n%s", note, strings.Join(m.Notes, "\n"))
+		}
 	}
 }
 

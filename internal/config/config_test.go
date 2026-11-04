@@ -152,12 +152,12 @@ func TestLoadErrors(t *testing.T) {
 func TestOrderedMapsKeepOrder(t *testing.T) {
 	c := load(t, `{"prefix":"pj","models":{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a1"}},
 		"kinds":{"opencode":{"args":["--o"]},"claude":{"args":["--c"]}},
-		"commands":{"zz":"z","aa":null,"mm":{"cmd":"m","timeout":5}},"agents":{"zed":{"type":"z"},"amy":{"type":"a"}}}`,
+		"commands":{"zz":"z","aa":null,"mm":{"cmd":"m","timeout":5}}}`,
 		`{"models":{"b":{"kind":"codex","model":"b1"},"z":{"kind":"codex","model":"z2"}}}`)
 	for _, k := range []struct {
 		got, want []string
 	}{{c.Data.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Kinds.Keys, []string{"opencode", "claude"}},
-		{c.Data.Commands.Keys, []string{"zz", "aa", "mm"}}, {c.Data.Agents.Keys, []string{"zed", "amy"}}} {
+		{c.Data.Commands.Keys, []string{"zz", "aa", "mm"}}} {
 		if !reflect.DeepEqual(k.got, k.want) {
 			t.Errorf("keys = %q, want %q (a known key keeps its place, a new one is appended)", k.got, k.want)
 		}
@@ -257,14 +257,11 @@ func TestRolesAndAgentNames(t *testing.T) {
 			t.Errorf("AgentName(%s) = %q, want %q", tc.role, got, tc.want)
 		}
 	}
-	if got, ok := c.Role("reviewer"); !ok || got.Agent != "pj-rev" || got.Type != "opus" || got.Worktree != "review" || !got.Configured {
+	if got, ok := c.Role("reviewer"); !ok || got.Agent != "pj-rev" || got.Type != "opus" || !got.Configured {
 		t.Errorf("reviewer = %+v, %v", got, ok)
 	}
 	if got, _ := c.Role("deep_dive"); got.Type != "sonnet" || got.Effort != "high" {
 		t.Errorf("deep_dive = %+v: a role ref names its model and effort", got)
-	}
-	if got := c.RoleWorktrees(); !reflect.DeepEqual(got, []string{"review", "deep-dive"}) {
-		t.Errorf("RoleWorktrees = %q", got)
 	}
 	if got := c.Paths(); got.Reviews != "" || got.Get("tasks") != "" || got.Get("queue") != "" {
 		t.Errorf("Paths = %+v", got)
@@ -274,8 +271,7 @@ func TestRolesAndAgentNames(t *testing.T) {
 func TestAgentLookupPrecedence(t *testing.T) {
 	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lanes":2,
 		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"},
-		"agents":{"adv":{"type":"opus"},"des":{"type":"fable:max","cwd":"sub/","role":"designer"},
-			"far":{"type":"opus","cwd":"/tmp/x/../y"},"pj-int":{"type":"opus"},"pj-l-01":{"type":"opus"}}}`, "")
+		"agents":{"adv":{"type":"opus"}}}`, "")
 	// The agent L-01's state file names (project.LaneAgent; config reads no state files).
 	state := func(lane string) string {
 		if lane == "L-01" {
@@ -287,7 +283,7 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.LaneAgentAliases("L-01", state("L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01", "pj-l1"}) {
+	if got := c.LaneAgentAliases("L-01", state("L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01"}) {
 		t.Errorf("LaneAgentAliases = %#v", got)
 	}
 	if _, ok := c.AgentLookup("pj-advisor", "", state); ok {
@@ -302,9 +298,6 @@ func TestAgentLookupPrecedence(t *testing.T) {
 		"pj-lead":      {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
 		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: root}, // T-718: no worktree of its own
 		"pj-triage":    {Role: "triage", Cwd: root},
-		"adv":          {Type: "opus", Cwd: root},
-		"des":          {Role: "designer", Type: "fable", Effort: "max", Cwd: filepath.Join(root, "sub")},
-		"far":          {Type: "opus", Cwd: "/tmp/y"},
 	} {
 		if got, ok := c.AgentLookup(name, "", state); !ok || got != want {
 			t.Errorf("AgentLookup(%q) = %+v, %v; want %+v", name, got, ok, want)
@@ -316,8 +309,12 @@ func TestAgentLookupPrecedence(t *testing.T) {
 	if _, ok := c.AgentLookup("unknown", "", state); ok {
 		t.Error("unknown agent found")
 	}
-	if got, ok := c.AgentLookup("l-01", "", state); ok {
-		t.Errorf("bare lane name l-01 found: %+v (T-302)", got)
+	// T-777: the removed forms resolve to nothing: the compact lane alias (pj-l1), an agents entry (adv) and the bare
+	// lane name (l-01).
+	for _, name := range []string{"pj-l1", "adv", "l-01"} {
+		if got, ok := c.AgentLookup(name, "", state); ok {
+			t.Errorf("AgentLookup(%q) = %+v; want unknown", name, got)
+		}
 	}
 	if _, ok := c.AgentLookup("bob", "", nil); ok {
 		t.Error("bob is known without the state agent")
@@ -360,7 +357,7 @@ func TestLaunchArgs(t *testing.T) {
 func TestLookupCollectionDefaults(t *testing.T) {
 	t.Parallel()
 	c := load(t, `{"prefix":"pj","commands":{"check":{"cmd":"true"}},"models":{"m":{"kind":"claude","model":"x"}},
-		"kinds":{"claude":{"args":["--a"]}},"lanes":1,"agents":{"amy":{"type":"opus"}},
+		"kinds":{"claude":{"args":["--a"]}},"lanes":1,
 		"merge":{"classes":[{"name":"go","paths":["**/*.go"]}]}}`, "")
 	for _, tc := range []struct {
 		path, want string
@@ -373,14 +370,12 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		{".kinds.claude.prompt_extra", `""`, true},
 		{`.kinds["claude"].prompt_extra`, `""`, true},
 		{".models.m.kind", `"claude"`, true},
-		{".agents.amy.cwd", `""`, true},
 		{".merge.classes[0].full", "false", true},
 		{".merge.classes.0.full", "false", true},
 		{".commands.nope.heavy", "", false},
 		{".commands.check.nope", "", false},
 		{".kinds.codex.args", "", false},
 		{".models.nope.kind", "", false},
-		{".agents.bob.cwd", "", false},
 		{".merge.classes[1].full", "", false},
 		{".merge.classes[-1].full", "", false},
 		{".commands.Keys", "", false},

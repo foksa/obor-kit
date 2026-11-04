@@ -209,12 +209,9 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	l.Dir = filepath.Clean(l.Dir)
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
 	names := cfg.LaneAgentAliases(l.Name, "")
-	var pane port.Pane
-	if o := a.placement(p, l.Dir, append([]string{l.Agent}, names...)...); o != nil {
-		pane = o.pane
-	}
+	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
 	a.mu.Unlock()
-	agent := roles.DriveAgent(laneAgent(l, pane, names))
+	agent := roles.DriveAgent(laneAgent(l, cfg.AgentName("worker", l.Name)))
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Effort: effort, Type: ref,
 		Drive: true, Caller: callerOf(c), Call: c.CallID, Reply: driveReply(task, l.Name, agent, ref)}
 	if !a.record(p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact}, d) {

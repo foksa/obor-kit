@@ -87,7 +87,7 @@ func newLoopRig(t *testing.T, check string, edits ...func(map[string]any)) *loop
 	if check != "" {
 		commands["check"] = check
 	}
-	// The lane's worker is pj-l-01 (L-01's compact alias, its pane's label): serve's lane rows come from its log (T-439),
+	// The lane's worker is pj-l-01 (L-01's derived name, its pane's label): serve's lane rows come from its log (T-439),
 	// and T-1's is its submission's.
 	p.Config(append([]func(map[string]any){testkit.Set("roles.integrator", ""), testkit.Set("commands", commands)},
 		edits...)...)

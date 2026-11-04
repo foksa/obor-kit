@@ -167,10 +167,10 @@ func TestValidate(t *testing.T) {
 		{name: "kinds args with a bare --", edits: []edit{set("kinds.claude.args", []any{"--strict-mcp-config", "--"})},
 			want: []string{"FAIL .kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
 		{name: "kinds args with -- inside a value", edits: []edit{set("kinds.claude.args", []any{"--x=--"})}},
-		{name: "agents model unknown", edits: []edit{set("agents", `{"hk-fable": {"type": "ghost"}}`)},
-			want: []string{`FAIL .agents["hk-fable"].type: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		{name: "agents model missing", edits: []edit{set("agents", `{"adv": {}}`)},
-			want: []string{`FAIL .agents.adv.type: "" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
+		// T-777: the agents key is gone: advisor, researcher and triage are roles; validate refuses it with the hint.
+		{name: "the agents key is refused", edits: []edit{set("agents", `{"hk-fable": {"type": "fable"}}`)},
+			want: []string{"FAIL .agents: no longer a config key: advisor, researcher and triage are roles " +
+				"(roles.advisor, roles.researcher, roles.triage); obor setup migrate moves a matching entry and drops the rest"}},
 		{name: "roles.lead unknown", edits: []edit{set("roles.lead", "ghost")},
 			want: []string{`FAIL .roles.lead: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("models.extra", map[string]any{})},
@@ -194,15 +194,7 @@ func TestValidate(t *testing.T) {
 		{name: "checks.load_limit 0 (never wait) fine", edits: []edit{set("checks.load_limit", 0)}},
 		{name: "checks.load_limit negative", edits: []edit{set("checks.load_limit", -1)},
 			want: []string{"FAIL .checks.load_limit: must be a non-negative number (a load average; 0: never wait), got -1"}},
-		// T-302: the bare lane name is no alias: an agents entry so named only warns; a lane alias collides.
-		{name: "agent named like the lane", edits: []edit{set("agents", `{"l-01": {"type": "opus"}}`)},
-			want: []string{`WARN .lanes: agent "l-01" is named like lane L-01 but is not its agent (lookups take no bare lane name)`}},
-		{name: "agent named like a lane's alias", edits: []edit{set("agents", `{"pj-l1": {"type": "opus"}}`)},
-			want: []string{`FAIL .lanes: lane L-01's agent "pj-l1" collides with a role agent`}},
-		// bash config.test.sh case_validate_agents_ok
-		{name: "agents and roles.lead known", edits: []edit{
-			set("agents", `{"hk-fable": {"type": "fable:high", "cwd": "sub", "role": "advisor"}, "plain": {"type": "opus"}}`),
-			set("roles.lead", "opus")}},
+		// T-777: the compact alias (pj-l1) and the agents key are gone: a lane's agent is <prefix>-l-NN or its row's.
 		// bash config.test.sh case_validate_lane_ready
 		{name: "lane_ready string", edits: []edit{set("commands.lane_ready", "test -d node_modules")}},
 		{name: "lane_ready object", edits: []edit{set("commands.lane_ready", `{"cmd": "test -d node_modules", "timeout": 30}`)}},
@@ -275,7 +267,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("lanes", map[string]any{}), "lanes"},
 		{set("models", []any{}), "models"},
 		{set("kinds.claude.args", "x"), "args"},
-		{set("agents", `{"adv": {"type": "opus", "cwd": 5}}`), "cwd"},
 		{set("roles.mystery", "opus"), `unknown field "mystery"`},
 		{set("roles.integrator", 5), "integrator"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
@@ -425,12 +416,12 @@ func warnsKey(lines []string, key string) bool {
 	return false
 }
 
-// bash config.test.sh case_validate_lane_alias_state_agent: the lane state file's agent is one of the lane's names.
+// T-777: a lane row's agent is one of the lane's names; when it names a role's agent, that is a collision.
 func TestValidateLaneStateAgent(t *testing.T) {
 	p := newProject(t)
-	p.State("L-01", `{"lane":"L-01","agent":"state-agent"}`)
-	got := validate(t, p, set("agents", `{"state-agent": {"type": "opus"}}`))
-	if want := []string{`FAIL .lanes: lane L-01's agent "state-agent" collides with a role agent`}; !reflect.DeepEqual(got, want) {
+	p.State("L-01", `{"lane":"L-01","agent":"pj-rev"}`)
+	got := validate(t, p, set("roles.reviewer", "opus"))
+	if want := []string{`FAIL .lanes: lane L-01's agent "pj-rev" collides with a role agent`}; !reflect.DeepEqual(got, want) {
 		t.Errorf("validate = %q, want %q", got, want)
 	}
 }

@@ -763,37 +763,6 @@ func TestLaneRefusesAFailingSetup(t *testing.T) {
 	has(t, out, "boom", "setup output shown")
 }
 
-// T-189: lane and role names share one runtime namespace; refused before any worktree or herdr call. T-765: lane
-// agents are <prefix>-l-NN and role agents <prefix>-<role>, so only a lane row's agent (a name the store recorded)
-// can collide.
-func TestLaneAndRoleCollisionsRefused(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name  string
-		lanes int
-		args  []string
-		want  string
-	}{
-		{"a new lane whose row names a role agent", 0, []string{"lane", "L-01"},
-			"FAIL lane L-01 agent pj-rev collides with a role agent"},
-		{"a role agent a lane's row names", 1, []string{"role", "reviewer", "--new-tab", "review"},
-			"FAIL role reviewer agent pj-rev collides with a configured lane agent"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t, testkit.Set("roles.reviewer", "opus"), testkit.Set("lanes", c.lanes))
-			x.State("L-01", map[string]any{"lane": "L-01", "agent": "pj-rev"})
-			x.failing(t, c.want, c.args...)
-			if x.Exists(x.LaneDir("L-01")) {
-				t.Error("worktree L-01 made")
-			}
-			if calls := x.reqs(); len(calls) > 0 {
-				t.Errorf("herdr calls: %v", calls)
-			}
-		})
-	}
-}
-
 // --- pane -------------------------------------------------------------------------------------------------------------
 
 const settings = `--settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`
@@ -1046,13 +1015,13 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 // --- role -------------------------------------------------------------------------------------------------------------
 
 // The reviewer and the deep dive run in the main checkout (T-718; before it, T-179: a detached worktree each): setup
-// role makes no worktree, and an old one (roles.<role>.worktree, else review / deep-dive) is named with its removal
-// line, never removed (T-765: roles.<role>.worktree is gone, so review / deep-dive).
+// role makes no worktree and removes none (T-777: role worktrees are gone, so no old one is named any more, but a
+// leftover is left alone).
 func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		role, wt, agent, line, env string
-		old                        bool // the old worktree is there
+		old                        bool // a leftover worktree of the old name is there
 		edit                       func(map[string]any)
 	}{
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=pj-rev,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer}",
@@ -1077,9 +1046,8 @@ func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
 		if x.Exists(wt) != c.old {
 			t.Errorf("%s: worktree %s there = %v after setup role, want %v (made or removed)", c.role, c.wt, x.Exists(wt), c.old)
 		}
-		hint := "worktree " + wt + " is unused (the role runs in the main checkout): git -C " + x.Root + " worktree remove " + wt
-		if got := strings.Contains(out, hint); got != c.old {
-			t.Errorf("%s: removal hint shown = %v, want %v:\n%s", c.role, got, c.old, out)
+		if strings.Contains(out, "git worktree remove") {
+			t.Errorf("%s: a removal hint is no part of setup role any more:\n%s", c.role, out)
 		}
 		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+x.Root+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
 		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never -m gpt-6-luna ", c.role+" start")

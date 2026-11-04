@@ -20,7 +20,8 @@ import (
 //	kinds     the args every named type of a kind has beyond the kind's base args, its model and its effort go to
 //	          kinds.<kind>.args; the others are dropped (listed). prompt_extra: the most common one of the kind's named
 //	          types (the others listed as dropped).
-//	dropped   max (no caps), settings, roles.<role>.agent and .worktree, a lane's type and agent: each listed.
+//	dropped   max (no caps), settings, roles.<role>.agent and .worktree, a lane's type and agent, the agents key (T-777:
+//	          an entry of advisor, researcher or triage moves its type to that role; the rest are dropped): each listed.
 //	moved     roles.lead.handoff_tokens → handoff_tokens, roles.integrator.handoff_tokens → integrator_handoff_tokens.
 //	lanes     the count of lanes; Lanes is their old names in config order (the caller renames them to L-01 … L-NN).
 //	agents    a role's or lane's agent that is not the new default (<prefix>-<role>, <prefix>-l-NN) is renamed to it,
@@ -54,9 +55,10 @@ type migrated struct {
 	extra                                  [][]string
 }
 
-// Migrate rewrites config (config.json's bytes) and local (local.json's; nil: none) from the shape before T-765. The
-// lane types are read merged (local over config), so a ref in either file resolves; kinds and models go to
-// config.json. An error: a file is no JSON object, or neither has the old shape.
+// Migrate rewrites config (config.json's bytes) and local (local.json's; nil: none) from the shape before T-765, or a
+// config that still sets the removed agents key (T-777). The lane types are read merged (local over config), so a ref
+// in either file resolves; kinds and models go to config.json. An error: a file is no JSON object, or neither has
+// anything to migrate.
 func Migrate(config, local []byte) (Migration, error) {
 	if _, ok := object(config); !ok {
 		return Migration{}, fmt.Errorf("config.json is not a JSON object")
@@ -66,13 +68,15 @@ func Migrate(config, local []byte) (Migration, error) {
 			return Migration{}, fmt.Errorf("local.json is not a JSON object")
 		}
 	}
-	if OldShape(config) == "" && (local == nil || OldShape(local) == "") {
+	if OldShape(config) == "" && (local == nil || OldShape(local) == "") &&
+		!HasAgents(config) && !HasAgents(local) {
 		return Migration{}, fmt.Errorf("the config has the new shape already")
 	}
 	merged := config
 	if local != nil {
 		merged = merge(config, local)
 	}
+	configured := configuredRoles(merged)
 	var m Migration
 	types, err := oldTypes(merged)
 	if err != nil {
@@ -111,7 +115,7 @@ func Migrate(config, local []byte) (Migration, error) {
 			continue
 		}
 		file := []string{"config.json", "local.json"}[i]
-		out, lanes, err := m.rewrite(file, doc, table)
+		out, lanes, err := m.rewrite(file, doc, table, configured)
 		if err != nil {
 			return Migration{}, fmt.Errorf("%s: %v", file, err)
 		}
@@ -293,9 +297,16 @@ func (m *Migration) kindsOf(named []string, table map[string]*migrated) Ordered[
 	return out
 }
 
-// rewrite is doc (one config file) in the new shape: lane_types gone, refs rewritten (table), roles as refs, the
-// handoff thresholds moved, lanes as a count (lanes: the old names in order; nil: doc sets no lanes).
-func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated) ([]byte, []string, error) {
+// HasAgents reports whether doc sets the removed agents key (T-777): the one thing obor setup migrate still rewrites
+// in an otherwise new-shape config.
+func HasAgents(doc []byte) bool {
+	raw, _ := MemberAt(doc, []string{"agents"})
+	return raw != nil
+}
+
+// rewrite is doc (one config file) in the new shape: lane_types and agents gone, refs rewritten (table), roles as
+// refs, the handoff thresholds moved, lanes as a count (lanes: the old names in order; nil: doc sets no lanes).
+func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated, configured map[string]bool) ([]byte, []string, error) {
 	out, err := EditJSON(doc, []string{"lane_types"}, nil)
 	if err != nil {
 		return nil, nil, err
@@ -330,13 +341,8 @@ func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated)
 		}
 	}
 	if raw, _ := MemberAt(out, []string{"agents"}); raw != nil {
-		ms, _ := object(raw)
-		for _, e := range ms {
-			if s, ok := stringMember(e.Val, "type"); ok {
-				if out, err = EditJSON(out, []string{"agents", e.Key, "type"}, ref(s)); err != nil {
-					return nil, nil, err
-				}
-			}
+		if out, err = m.rewriteAgents(file, out, ref, configured); err != nil {
+			return nil, nil, err
 		}
 	}
 	if out, err = m.rewriteRoles(file, out, ref); err != nil {
@@ -366,6 +372,66 @@ func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated)
 	return out, names, err
 }
 
+// agentRoles are the roles an old agents entry belongs to (T-777): advisor, researcher and triage, the agent kinds the
+// owner made roles. An entry keyed by the role, or whose role field names it, moves to that role; every other entry is
+// dropped.
+var agentRoles = []string{"advisor", "researcher", "triage"}
+
+// rewriteAgents is doc without the agents key (T-777): an entry of a role above moves its type to roles.<role> (when
+// the role is not configured already, in either config file), every other entry is dropped with a note.
+func (m *Migration) rewriteAgents(file string, doc []byte, ref func(string) string, configured map[string]bool) ([]byte, error) {
+	raw, _ := MemberAt(doc, []string{"agents"})
+	ms, _ := object(raw)
+	out, err := EditJSON(doc, []string{"agents"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range ms {
+		role := agentRole(e)
+		typ, _ := stringMember(e.Val, "type")
+		switch {
+		case role == "":
+			m.note("%s agents.%s: dropped (advisor, researcher and triage are roles: roles.advisor, "+
+				"roles.researcher, roles.triage)", file, e.Key)
+		case configured[role]:
+			m.note("%s agents.%s: dropped (roles.%s is configured)", file, e.Key, role)
+		default:
+			configured[role] = true
+			if out, err = EditJSON(out, []string{"roles", role}, ref(typ)); err != nil {
+				return nil, err
+			}
+			m.note("%s agents.%s: moved to roles.%s", file, e.Key, role)
+			if cwd, ok := stringMember(e.Val, "cwd"); ok && cwd != "" {
+				m.note("%s agents.%s.cwd %s: dropped", file, e.Key, cwd)
+			}
+		}
+	}
+	return out, nil
+}
+
+// configuredRoles is every roles key of doc (the merged config), whether it holds a ref or an old role object.
+func configuredRoles(doc []byte) map[string]bool {
+	raw, _ := MemberAt(doc, []string{"roles"})
+	ms, _ := object(raw)
+	out := map[string]bool{}
+	for _, r := range ms {
+		out[r.Key] = true
+	}
+	return out
+}
+
+// agentRole is the role an old agents entry e belongs to ("" none): its key when that names a role, else its role
+// field when that does.
+func agentRole(e member) string {
+	if r, ok := stringMember(e.Val, "role"); ok && slices.Contains(agentRoles, r) {
+		return r
+	}
+	if slices.Contains(agentRoles, e.Key) {
+		return e.Key
+	}
+	return ""
+}
+
 // rewriteRoles is doc with each roles.<role> object as its model ref (ref of its type; none: ""), its agent and
 // worktree noted as dropped and its handoff_tokens moved to the top level.
 func (m *Migration) rewriteRoles(file string, doc []byte, ref func(string) string) ([]byte, error) {
@@ -378,7 +444,7 @@ func (m *Migration) rewriteRoles(file string, doc []byte, ref func(string) strin
 			continue
 		}
 		typ, _ := stringMember(e.Val, "type")
-		if wt, ok := stringMember(e.Val, "worktree"); ok && wt != "" && wt != oldWorktrees[e.Key] {
+		if wt, ok := stringMember(e.Val, "worktree"); ok && wt != "" {
 			m.note("%s roles.%s.worktree %s dropped (roles run in the main checkout)", file, e.Key, wt)
 		}
 		if n, _ := MemberAt(e.Val, []string{"handoff_tokens"}); n != nil {
@@ -412,13 +478,16 @@ func agentRenames(merged []byte, lanes []string) []AgentRename {
 	for _, e := range ms {
 		if role, ok := roles.Lookup(e.Key); ok {
 			agent, _ := stringMember(e.Val, "agent")
-			add(agent, role.AgentName(prefix, "", ""))
+			add(agent, role.AgentName(prefix, ""))
 		}
 	}
 	worker, _ := roles.Lookup("worker")
 	for i, lane := range lanes {
-		agent, _ := stringMember(json.RawMessage(mustMember(merged, "lanes", lane)), "agent")
-		add(worker.AgentName(prefix, lane, agent), worker.AgentName(prefix, LaneName(i+1), ""))
+		old, _ := stringMember(json.RawMessage(mustMember(merged, "lanes", lane)), "agent")
+		if old == "" {
+			old = worker.AgentName(prefix, lane)
+		}
+		add(old, worker.AgentName(prefix, LaneName(i+1)))
 	}
 	return out
 }

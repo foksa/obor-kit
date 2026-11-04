@@ -363,14 +363,11 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 			c.Task, mt.state)
 	}
 	a.mu.Lock()
-	var pane port.Pane
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
 	names := cfg.LaneAgentAliases(l.Name, "")
-	if o := a.placement(p, l.Dir, append([]string{l.Agent}, names...)...); o != nil {
-		pane = o.pane
-	}
+	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
 	a.mu.Unlock()
-	agent := laneAgent(l, pane, names)
+	agent := laneAgent(l, cfg.AgentName("worker", l.Name))
 	caller := callerOf(c)
 	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Caller: caller, Call: c.CallID,
@@ -406,22 +403,14 @@ func rowAgent(cfg *config.Config, lane, agent string) string {
 	return ""
 }
 
-// laneAgent is the name agent.start gives lane l's worker: the lane row's agent (rowAgent), else the lane pane's label when that
-// is one of the lane's names (hk-o3 stays hk-o3: a lane named by its compact alias keeps it; a pane labelled for
-// something else, a shell's "notes", is not the worker's), else the lane's default name (roles.AgentName: the
-// configured agent, else <prefix>-<lane lower>). herdr's live agent name is never read (RV-52 #2): it never
-// overrides the label.
-func laneAgent(l port.Lane, pane port.Pane, names []string) string {
+// laneAgent is the name agent.start gives lane l's worker: the lane row's agent (rowAgent), else its derived name
+// (<prefix>-<lane lower>, T-777: a lane pane's old label is no name of the worker any more). herdr's live agent name is
+// never read (RV-52 #2).
+func laneAgent(l port.Lane, derived string) string {
 	if l.Agent != "" {
 		return l.Agent
 	}
-	if pane.Label != "" && slices.Contains(names, pane.Label) {
-		return pane.Label
-	}
-	if len(names) > 0 {
-		return names[0]
-	}
-	return ""
+	return derived
 }
 
 // held is task's loop record (zero: none) and the lanes other tasks' open dispatches hold (lane → task).

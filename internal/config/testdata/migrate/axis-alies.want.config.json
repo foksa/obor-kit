@@ -40,7 +40,8 @@
     "integrator": "sonnet:medium",
     "reviewer": "terra:xhigh",
     "lead": "opus:high",
-    "deep_dive": "opus:high"
+    "deep_dive": "opus:high",
+    "triage": "opus:medium"
   },
   "merge": {
     "trailer": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
@@ -53,20 +54,6 @@
     "allow_push": [
       "aa-lead"
     ]
-  },
-  "agents": {
-    "fable-advisor": {
-      "type": "fable:high"
-    },
-    "sol-review": {
-      "type": "sol:high"
-    },
-    "o-02": {
-      "type": "opus:medium"
-    },
-    "triage": {
-      "type": "opus:medium"
-    }
   },
   "difficulty": {
     "hard": [

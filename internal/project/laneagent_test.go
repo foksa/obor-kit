@@ -37,14 +37,14 @@ func TestLaneAgentReadsTheRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"pj-l-01", "pj-l1"}) {
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"pj-l-01"}) {
 		t.Errorf("no database: %q", got)
 	}
 	if _, ok := AgentLookup(cfg, "bob", ""); ok {
 		t.Error("bob known before the row names it")
 	}
 	writeRows(t, root, map[string]string{"L-01": "bob"})
-	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01", "pj-l1"}) {
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01"}) {
 		t.Errorf("row: %q", got)
 	}
 	if got, ok := AgentLookup(cfg, "bob", ""); !ok || got.Role != "worker" || got.Lane != "L-01" {

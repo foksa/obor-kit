@@ -138,6 +138,51 @@ func TestSetupMigrateNewShapeIsAlready(t *testing.T) {
 	x.failing(t, "FAIL "+Usage(), "migrate", "--force")
 }
 
+// T-777: a new-shape config that still sets agents migrates too: a role's entry moves its type to roles.<role>, the
+// rest are dropped with a line each, the key goes, and config.json is committed on top of the old one.
+func TestSetupMigrateAgentsKey(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("lanes", 1))
+	x.Config(testkit.Set("lanes", 1), testkit.Set("agents", `{"triage":{"type":"opus"},"hk-fable":{"type":"fable"}}`))
+	cfg, err := config.Load(x.Root)
+	if err != nil {
+		t.Fatalf("precondition: the new-shape config with agents loads: %v", err)
+	}
+	if _, fails := cfg.Validate(config.ValidateOptions{}); len(fails) == 0 {
+		t.Fatal("precondition: validate refuses the agents key")
+	}
+	head := x.Git(x.Root, "rev-parse", "HEAD")
+	out := x.ok(t, "migrate")
+	for _, want := range []string{
+		"dropped: config.json agents.triage: moved to roles.triage",
+		"dropped: config.json agents.hk-fable: dropped (advisor, researcher and triage are roles: roles.advisor, " +
+			"roles.researcher, roles.triage)",
+		"OK migrate: committed .obor/config.json"} {
+		has(t, out, want, "output")
+	}
+	cfg, err = config.Load(x.Root)
+	if err != nil {
+		t.Fatalf("the migrated config does not load: %v", err)
+	}
+	if cfg.Data.Agents != nil {
+		t.Errorf("the agents key survived: %s", x.Read(".obor/config.json"))
+	}
+	if rc, _ := cfg.Role("triage"); rc.Type != "opus" || !rc.Configured {
+		t.Errorf("triage = %+v, want the entry's type as the role's model", rc)
+	}
+	if x.Git(x.Root, "rev-parse", "HEAD^") != head || x.Git(x.Root, "status", "--porcelain", "--", ".obor/config.json") != "" {
+		t.Errorf("config.json not committed on top of %s", head)
+	}
+	// once is enough: a rerun says so and changes nothing.
+	again := x.Git(x.Root, "rev-parse", "HEAD")
+	if out := x.ok(t, "migrate"); last(out) != "OK migrate: .obor/config.json has the new shape (models, a lanes count) (already)" {
+		t.Errorf("rerun: %q", last(out))
+	}
+	if x.Git(x.Root, "rev-parse", "HEAD") != again {
+		t.Error("the rerun committed")
+	}
+}
+
 // T-765: only local.json has the old shape (a machine's roles.advisor object, as obor-kit's own after its config.json
 // was migrated): local.json is rewritten, config.json stays byte for byte and nothing is committed.
 func TestSetupMigrateLocalOnly(t *testing.T) {

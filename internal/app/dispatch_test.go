@@ -872,10 +872,9 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 	}
 }
 
-// T-494, RV-52 #2 (T-587): agent.start names the lane's worker by its lane row's agent when that is still one of the
-// lane's names, else by the lane pane's label when it is one of the lane's names (pj-l1, the compact alias, stays pj-l1), else by the lane's default name (pj-l-01: no
-// agent in the config here). herdr's live agent name never counts: a label and a live name that are two of the
-// lane's aliases give the label, a live name with no label gives the default.
+// T-494, RV-52 #2 (T-587, T-777): agent.start names the lane's worker by its lane row's agent when that is still one
+// of the lane's names (pj-l-01), else by the lane's derived name (<prefix>-<lane lower>: pj-l-01). A pane's label is
+// no name any more (the compact alias pj-l1 went with T-777), and herdr's live agent name never counts.
 func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct {
@@ -884,13 +883,13 @@ func TestDispatchKeepsTheLaneAgentName(t *testing.T) {
 		label, agent string // w1:p1's label and the agent running in it ("": a shell)
 		want         string
 	}{
-		{"lane row, a lane name", "pj-l1", "", "", "pj-l1"},
-		{"lane row, not a lane name (before a rename): the default", "hk-l1", "", "", "pj-l-01"},
-		{"lane row not a lane name, a labelled pane: the label", "hk-l1", "pj-l1", "", "pj-l1"},
-		{"labelled pane", "", "pj-l1", "", "pj-l1"},
-		{"live name and label conflict: the label", "", "pj-l1", "pj-l-01", "pj-l1"},
-		{"live name and label conflict, reversed: the label", "", "pj-l-01", "pj-l1", "pj-l-01"},
-		{"a live name, no label: the default", "", "", "pj-l1", "pj-l-01"},
+		{"lane row, a lane name", "pj-l-01", "", "", "pj-l-01"},
+		{"lane row, not a lane name (before a rename): the derived name", "hk-l1", "", "", "pj-l-01"},
+		{"lane row not a lane name, a pane labelled an old alias: the derived name", "hk-l1", "pj-l1", "", "pj-l-01"},
+		{"a pane labelled an old alias: the derived name", "", "pj-l1", "", "pj-l-01"},
+		{"live name and label conflict: the derived name", "", "pj-l1", "pj-l-01", "pj-l-01"},
+		{"label a lane name, a live name the old alias: the derived name", "", "pj-l-01", "pj-l1", "pj-l-01"},
+		{"a live name, no label: the derived name", "", "", "pj-l1", "pj-l-01"},
 		{"label not a lane name", "", "notes", "", "pj-l-01"},
 		{"neither", "", "", "", "pj-l-01"},
 	} {

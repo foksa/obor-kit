@@ -123,13 +123,6 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 		return project.Failf("roles.%s is not set (a model ref, e.g. \"opus:high\")", role.Name)
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
-	if err := refuseRoleCollisions(s.cfg, role.Name, a.name); err != nil {
-		return err
-	}
-	if err := refuseLaneName(s.cfg, role.Name, a.name); err != nil {
-		return err
-	}
-	s.oldWorktreeHint(rc.OldWorktree())
 	switch role.Name {
 	case "triage":
 		if err := s.copyFile(filepath.Join(s.Kit, "templates", "BUGS.md"), "docs/BUGS.md"); err != nil {
@@ -141,30 +134,6 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 		}
 	}
 	return s.start(ctx, a, w)
-}
-
-// oldWorktreeHint names a role's old worktree for removal (T-718: the reviewer and the deep dive run in the main checkout
-// now), when it is still a worktree of this repo; it never removes it.
-func (s *Setup) oldWorktreeHint(name string) {
-	if name == "" {
-		return
-	}
-	dir := filepath.Join(s.cfg.LanesDir(), name)
-	if repo, err := project.Find(dir); err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
-		return
-	}
-	s.say("worktree %s is unused (the role runs in the main checkout): git -C %s worktree remove %s", dir, s.root, dir)
-}
-
-// refuseLaneName keeps a role's agent from a lane's bare lowercase name (o-01): no name of the lane since T-302, but
-// it reads like one.
-func refuseLaneName(cfg *config.Config, role, agent string) error {
-	for _, l := range cfg.Lanes() {
-		if strings.ToLower(l.Name) == agent {
-			return project.Failf("role %s agent %s is named like lane %s", role, agent, l.Name)
-		}
-	}
-	return nil
 }
 
 // copyFile copies src to rel under the root unless rel exists.

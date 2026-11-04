@@ -3,11 +3,8 @@ package roles
 
 import (
 	"obor/internal/agents"
-	"regexp"
 	"strings"
 )
-
-var compactLane = regexp.MustCompile(`^([a-z]+)-?0*([0-9]+)$`)
 
 type CwdRule string
 type WriteProfile string
@@ -86,12 +83,9 @@ func LookupEnv(value string) (Role, bool) {
 	return Role{}, false
 }
 
-// AgentName applies a configured roles.<name>.agent override, otherwise the
-// table default. A worker's suffix comes from its lane name.
-func (r Role) AgentName(prefix, lane, override string) string {
-	if override != "" {
-		return override
-	}
+// AgentName is the table default: <prefix>-<role suffix>, a worker's suffix from its lane name (T-765: a name is
+// derived, never configured).
+func (r Role) AgentName(prefix, lane string) string {
 	suffix := r.AgentSuffix
 	if r.Name == "worker" {
 		suffix = strings.ToLower(lane)
@@ -102,20 +96,11 @@ func (r Role) AgentName(prefix, lane, override string) string {
 	return prefix + "-" + suffix
 }
 
-// LaneAgentAliases returns every name that can identify a lane's worker, first
-// match wins: the lane row's agent, the configured one, <prefix>-<lane lower>,
-// <prefix>-<compact lane> (o-01 → o1); empty and repeated names dropped. The bare lane lower (o-01) is no name
-// (T-302): agent names are machine-wide, and another project's agent may be named like a lane here.
-func LaneAgentAliases(lane, prefix, stateAgent, configuredAgent string) []string {
-	lower := strings.ToLower(lane)
-	names := []string{stateAgent, configuredAgent, prefix + "-" + lower}
-	if match := compactLane.FindStringSubmatch(lower); len(match) == 3 {
-		number := strings.TrimLeft(match[2], "0")
-		if number == "" {
-			number = "0"
-		}
-		names = append(names, prefix+"-"+match[1]+number)
-	}
+// LaneAgentAliases returns every name that can identify a lane's worker, first match wins: the lane row's agent, then
+// <prefix>-<lane lower>; empty and repeated names dropped. The bare lane lower (o-01) is no name (T-302): agent names
+// are machine-wide, and another project's agent may be named like a lane here.
+func LaneAgentAliases(lane, prefix, stateAgent string) []string {
+	names := []string{stateAgent, prefix + "-" + strings.ToLower(lane)}
 	seen := make(map[string]bool)
 	unique := make([]string, 0, len(names))
 	for _, name := range names {
