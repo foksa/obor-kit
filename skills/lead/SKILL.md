@@ -102,7 +102,9 @@ never kept for a later, unrelated question, the next brief starts it clean). Res
 binaries; a findings doc) goes to the researcher: `obor brief <researcher> "…"`, it writes only `docs/research/` in the
 main checkout and you commit it; stop it when done. A result that should be reviewed and merged goes to a worker lane
 as a task whose deliverable is `docs/research/<topic>.md`; a subagent only for a quick lookup inside your own turn. Owner away: decide
-reversible calls. Decisions → `docs/decisions.md`; concerns and open items → `BACKLOG.md`. The second finding in
+reversible calls. Decisions → `docs/decisions.md`; concerns and open items → `BACKLOG.md`. A new role: write
+`docs/agents/<name>.md` (what it does, what it writes) and `roles.<name>` in config, commit, `obor setup role <name>`,
+then `obor brief`. The second finding in
 one function or invariant (two strikes) ends probe-sized fixes: spec a whole-function rewrite with a case → test
 table. Fix specs list every entry point of the finding's Extent line, one test each. Models: the strongest for
 anything non-trivial, a mid model for small well-specified tasks, the cheapest for mechanical bulk with an oracle.

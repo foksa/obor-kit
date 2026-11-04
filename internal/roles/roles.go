@@ -1,8 +1,11 @@
-// Package roles is the single source for role names and their runtime defaults.
+// Package roles is the single source for the built-in roles and their runtime defaults, and the shape of a custom role
+// (T-801: a roles.<name> row of the config, or one of the kit's default rows): config.Role is the one lookup of both.
 package roles
 
 import (
+	"fmt"
 	"obor/internal/agents"
+	"regexp"
 	"strings"
 )
 
@@ -10,13 +13,13 @@ type CwdRule string
 type WriteProfile string
 
 const (
-	CwdProject        CwdRule      = "project"
-	CwdLane           CwdRule      = "lane"
-	WriteNone         WriteProfile = "none"
-	WriteAll          WriteProfile = "all"
-	WriteSpec         WriteProfile = "spec"
-	WriteReviewsOnly  WriteProfile = "reviews"
-	WriteResearchOnly WriteProfile = "research"
+	CwdProject       CwdRule      = "project"
+	CwdLane          CwdRule      = "lane"
+	WriteNone        WriteProfile = "none"
+	WriteAll         WriteProfile = "all"
+	WriteSpec        WriteProfile = "spec"
+	WriteReviewsOnly WriteProfile = "reviews"
+	WriteList        WriteProfile = "list" // a custom role: only its WritePaths (none: writes nothing)
 )
 
 // Role records the defaults shared by setup, config validation, and the guard.
@@ -32,6 +35,14 @@ type Role struct {
 	Prompt       string // the first prompt of a fresh start of a Claude agent in this role ("": none)
 	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
 	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files (RV-83 #2)
+	// Custom is a role a config row defines (T-801), a kit default row or the project's own: main checkout, git
+	// read-only, never lane-bound or dispatchable, no push, no merge hold, writes only WritePaths.
+	Custom bool
+	// WritePaths are a custom role's writes, relative to the root: "dir/" a directory, anything else one file.
+	WritePaths []string
+	// Seeds are the files setup role copies for a custom role when missing: a write path → its kit template under
+	// templates/ (triage's docs/BUGS.md).
+	Seeds map[string]string
 }
 
 var table = []Role{
@@ -41,13 +52,75 @@ var table = []Role{
 	// The reviewer and the deep dive read the main checkout (T-718): serve holds its merges while they work.
 	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdProject, Write: WriteReviewsOnly, GitReadOnly: true},
 	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdProject, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
-	{Name: "triage", EnvValue: "triage", AgentSuffix: "triage", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
-	{Name: "advisor", EnvValue: "advisor", AgentSuffix: "advisor", Cwd: CwdProject, Write: WriteNone, Optional: true, GitReadOnly: true},
-	{Name: "researcher", EnvValue: "researcher", AgentSuffix: "researcher", Cwd: CwdProject, Write: WriteResearchOnly, Optional: true, GitReadOnly: true},
 	// The owner's drive agent (T-751, obor drive): in a lane, with the worker's write limits and push denial, but it
 	// commits on its branch, pulls no jobs, has no Stop-hook report demand and no wrong-tab guard. Never configured
 	// (no roles.driver): obor drive starts it, named Drive's way.
 	{Name: Driver, EnvValue: Driver, AgentSuffix: "drive", Cwd: CwdLane, Write: WriteSpec, Optional: true},
+}
+
+// defaultRows are the custom roles the kit ships (T-801: advisor, researcher and triage left the table): a config row of
+// the name sets its model (a string) or replaces its write list (an object with write). Their doc is the project's
+// <paths.agents>/<name>.md, else the kit's templates/agents/<name>.md.
+var defaultRows = []Role{
+	Custom("advisor", []string{"docs/research/", "docs/plan/"}),
+	Custom("researcher", []string{"docs/research/"}),
+	seeded(Custom("triage", []string{"docs/BUGS.md"}), "docs/BUGS.md", "BUGS.md"),
+}
+
+func seeded(r Role, path, template string) Role {
+	r.Seeds = map[string]string{path: template}
+	return r
+}
+
+// DefaultRow is the kit's default row of a custom role name.
+func DefaultRow(name string) (Role, bool) {
+	for _, r := range defaultRows {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return Role{}, false
+}
+
+// DefaultRows returns a copy of the kit's default rows, in their order.
+func DefaultRows() []Role { return append([]Role(nil), defaultRows...) }
+
+// Custom is the custom role name writing only write (T-801): an advisor-like role in the main checkout, its agent
+// <prefix>-<name, _ → ->, OBOR_ROLE=<name>.
+func Custom(name string, write []string) Role {
+	return Role{Name: name, EnvValue: name, AgentSuffix: strings.ReplaceAll(name, "_", "-"), Cwd: CwdProject,
+		Write: WriteList, WritePaths: write, Optional: true, GitReadOnly: true, Custom: true}
+}
+
+// CustomNameRE is what a custom role's name must match.
+var CustomNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,23}$`)
+
+// CheckCustomName is why name cannot name a custom role (nil: it can): it must match CustomNameRE and be neither a
+// table role's name nor its agent suffix (its own suffix, _ → -, neither), nor reserved (none, leads).
+func CheckCustomName(name string) error {
+	if !CustomNameRE.MatchString(name) {
+		return fmt.Errorf("a custom role's name must match %s", CustomNameRE)
+	}
+	if name == "none" || name == "leads" { // the role of a session with none; the removed roles.leads (T-467)
+		return fmt.Errorf("%s is reserved", name)
+	}
+	suffix := strings.ReplaceAll(name, "_", "-")
+	for _, r := range table {
+		for _, n := range []string{name, suffix} {
+			if n == r.Name || n == r.AgentSuffix || n == strings.ReplaceAll(r.Name, "_", "-") {
+				return fmt.Errorf("collides with the built-in role %s (its name or agent suffix)", r.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// DocFile is the file name of the role's text: a custom role's <name>.md, a table role's with _ → - (deep-dive.md).
+func (r Role) DocFile() string {
+	if r.Custom {
+		return r.Name + ".md"
+	}
+	return strings.ReplaceAll(r.Name, "_", "-") + ".md"
 }
 
 // Driver is the owner's drive agent's role (T-751).
@@ -60,10 +133,10 @@ func DriveAgent(worker string) string { return worker + "-drive" }
 // LaneBound: role works in a lane worktree and edits only there (the worker, the driver).
 func LaneBound(role string) bool { return role == "worker" || role == Driver }
 
-// All returns a copy in the stable setup/config order.
+// All returns a copy of the built-in table in its stable order (config.Config.Roles adds the custom rows).
 func All() []Role { return append([]Role(nil), table...) }
 
-// Lookup returns the table entry for a role name.
+// Lookup returns the table entry for a role name (a built-in role; config.Config.Role also finds custom ones).
 func Lookup(name string) (Role, bool) {
 	for _, role := range table {
 		if role.Name == name {

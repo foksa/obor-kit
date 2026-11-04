@@ -3,11 +3,11 @@
 // allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
 // mvdan.cc/sh/v3/syntax (shell.go); a load run of tests (-count > 1, -race, two test commands at once) is denied for
 // every role (T-543); writes — the editor tools and the Bash write targets alike (checkWrite, RV-83) — are checked
-// against protected_files and the role table's write profile (a reviewer or deep_dive writes only under paths.reviews /
-// paths.research, a researcher only under paths.research; a final symlink at its destination too), and an editor
-// tool of a worker against its lane's boundary: no other worktree of this repo (the main checkout included), no other
-// obor project, no final symlink out of the lane. A GitReadOnly role (reviewer, deep_dive, triage, advisor,
-// researcher) runs git reads only (gitRead).
+// against protected_files and the role's write profile (config.Role: a reviewer or deep_dive writes only under
+// paths.reviews / paths.research, a custom role — advisor, researcher, triage, a project's own — only its write list,
+// T-801; a final symlink at its destination too), and an editor tool of a worker against its lane's boundary: no other
+// worktree of this repo (the main checkout included), no other obor project, no final symlink out of the lane. A
+// GitReadOnly role (reviewer, deep_dive, every custom role) runs git reads only (gitRead).
 // Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run
 // headless (codex exec, claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -362,17 +363,21 @@ func (g *guard) checkWriteArg(arg, dir string) {
 	}
 }
 
-// writeProfile is the role table's write profile of this session's role.
-func (g *guard) writeProfile() roles.WriteProfile {
-	if r, ok := roles.Lookup(g.role); ok {
-		return r.Write
-	}
-	return ""
+// sessionRole is this session's role as config.Role finds it (a table or custom role; ok false: none).
+func (g *guard) sessionRole() (roles.Role, bool) {
+	rc, ok := g.cfg.Role(g.role)
+	return rc.Role, ok
 }
 
-// profiled: the write profile limits where the role writes (reviews / research).
+// writeProfile is the write profile of this session's role ("": none).
+func (g *guard) writeProfile() roles.WriteProfile {
+	r, _ := g.sessionRole()
+	return r.Write
+}
+
+// profiled: the write profile limits where the role writes (reviews, a custom role's write list).
 func profiled(wp roles.WriteProfile) bool {
-	return wp == roles.WriteReviewsOnly || wp == roles.WriteResearchOnly
+	return wp == roles.WriteReviewsOnly || wp == roles.WriteList
 }
 
 // checkWrite is the one path policy of a write to the physical path p, used by every write route the guard sees (the
@@ -402,14 +407,18 @@ func (g *guard) checkWrite(p string) {
 }
 
 // profileDenial is the deny reason of the write profile wp for the physical path p, "" when allowed. Inside this repo's
-// worktrees a reviewer / deep_dive writes only under paths.reviews (default docs/reviews) and paths.research, a
-// researcher only under paths.research (default docs/research). Outside the repo (scratch, /tmp) is not limited.
+// worktrees a reviewer / deep_dive writes only under paths.reviews (default docs/reviews) and paths.research, a custom
+// role (advisor, researcher, triage …) only its write list (T-801). Outside the repo (scratch, /tmp) is not limited.
 func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	wt := g.wtOf(p)
 	if wt == "" {
 		return ""
 	}
 	r := rel(p, wt)
+	if wp == roles.WriteList {
+		role, _ := g.sessionRole()
+		return listDenial(g.role, role.WritePaths, r)
+	}
 	paths := g.cfg.Paths()
 	research := strings.Trim(paths.Get("research"), "/")
 	var dirs []string
@@ -424,12 +433,6 @@ func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 		if research != "" {
 			dirs = append(dirs, research)
 		}
-	case roles.WriteResearchOnly:
-		if research == "" {
-			research = "docs/research"
-		}
-		dirs = append(dirs, research)
-		instead = "report the change in the findings doc instead"
 	default:
 		return ""
 	}
@@ -440,6 +443,27 @@ func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	}
 	return r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " +
 		strings.Join(dirs, ", ") + "; " + instead
+}
+
+// listDenial is the deny reason of a custom role's write list for r (a path relative to its worktree), "" when the list
+// takes it: an entry "dir/" takes everything under dir, any other entry that one file.
+func listDenial(role string, list []string, r string) string {
+	for _, w := range list {
+		clean := path.Clean(w)
+		if strings.HasSuffix(w, "/") && strings.HasPrefix(r, clean+"/") || r == clean {
+			return ""
+		}
+	}
+	a := "a "
+	if strings.ContainsRune("aeiou", rune(role[0])) {
+		a = "an "
+	}
+	if len(list) == 0 {
+		return r + " is outside the " + role + " write profile — " + a + role + " writes no file in the project; " +
+			"put what you would write in your answer instead"
+	}
+	return r + " is outside the " + role + " write profile — " + a + role + " writes only " + strings.Join(list, ", ") +
+		" (roles." + role + ".write); put anything else in your answer instead"
 }
 
 // edit guards Edit / Write / MultiEdit / NotebookEdit.

@@ -265,7 +265,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("lanes", map[string]any{}), "lanes"},
 		{set("models", []any{}), "models"},
 		{set("kinds.claude.args", "x"), "args"},
-		{set("roles.mystery", "opus"), `unknown field "mystery"`},
+		// T-801: roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
+		{set("roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), `unknown field "writes"`},
 		{set("roles.integrator", 5), "integrator"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
 		{set("stop_idle_workers", "no"), "stop_idle_workers"},

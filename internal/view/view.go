@@ -192,9 +192,6 @@ func Notes(root, warn string) []string {
 // done (T-672) or the lead did (T-677), and no pane runs it.
 const RoleStopped = "stopped"
 
-// roleNames is the roles a Role row is listed for (the worker's are the lanes, the lead is the reader).
-var roleNames = []string{"integrator", "reviewer", "deep_dive", "advisor", "researcher"}
-
 // Build is the project's view: serve's answer joined to the lane table and the store. Serve down: its error, no
 // agents and no roles (nothing stale), the lanes from git and the store alone.
 func Build(in Input) Project {
@@ -293,17 +290,14 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 	return l
 }
 
-// roles is one row per role agent on no lane that the config names (an optional role only when configured), with its
-// pane's status and session as serve sees it and its open brief.
+// roles is one row per role agent on no lane that the config names (config.RoleAgents: an optional role, a custom one
+// too, only when configured; the worker's are the lanes, the lead is the reader), with its pane's status and session as
+// serve sees it and its open brief.
 func roles(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background) []Role {
 	out := []Role{}
-	for _, name := range roleNames {
-		rc, ok := p.Cfg.Role(name)
-		if !ok || rc.Role.Optional && !rc.Configured {
-			continue
-		}
-		agent := p.Cfg.AgentName(name, "")
-		if agent == "" {
+	for _, rc := range p.Cfg.RoleAgents() {
+		name, agent := rc.Role.Name, rc.Agent
+		if name == "lead" || agent == "" {
 			continue
 		}
 		r := Role{Role: name, Agent: agent, Background: bg[agent]}

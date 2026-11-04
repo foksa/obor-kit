@@ -1,8 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -30,6 +34,8 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.difficulty()
 	v.classes()
 	v.integrator()
+	v.customRoles()
+	v.roleDocs()
 	v.optional()
 	v.laneAgents()
 	v.trunk()
@@ -106,10 +112,12 @@ func (v *validator) models() {
 			v.fail(".kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
 	}
-	for _, role := range roles.All() {
-		if ref := v.d.Roles.entry(role.Name); ref != nil {
-			v.modelRef(".roles."+role.Name, *ref, false)
+	for _, k := range v.d.Roles.Keys {
+		e, path := v.d.Roles.M[k], ".roles"+key(k)
+		if e.Object {
+			path += ".model"
 		}
+		v.modelRef(path, e.Model, false)
 	}
 }
 
@@ -129,7 +137,7 @@ func (v *validator) classes() {
 // so without the entry nothing lands: a v0.9.4 project that relied on the default <prefix>-int agent, or one written
 // without the role, would otherwise look valid and only queue up work.
 func (v *validator) integrator() {
-	if v.d.Roles.entry("integrator") == nil {
+	if _, ok := v.d.Roles.entry("integrator"); !ok {
 		v.fail(".roles.integrator", "required: serve dispatches and merges nothing without an integrator")
 	}
 }
@@ -174,10 +182,92 @@ func (v *validator) allowPush(entries []string) {
 		}
 	}
 	for _, e := range entries {
-		if v.c.pushSlot(e) == "" {
+		slot := v.c.pushSlot(e)
+		rc, _ := v.c.Role(slot)
+		switch {
+		case slot == "":
 			v.warns = append(v.warns, "WARN .guards.allow_push: "+Compact(e)+" is no role (nor a role's agent name): it allows no push")
+		case rc.Role.Custom:
+			v.fail(".guards.allow_push", Compact(e)+" is a custom role: it never pushes (remove it)")
 		}
 	}
+}
+
+// customRoles: each roles.<name> that is no table role defines a custom role (T-801): a name roles.CheckCustomName
+// takes, write paths inside the project and outside .obor/, and its doc <paths.agents>/<name>.md (a kit default row
+// may use the kit's). A table role takes a model ref string; the driver's is never configured (obor drive starts it).
+func (v *validator) customRoles() {
+	for _, k := range v.d.Roles.Keys {
+		e, path := v.d.Roles.M[k], ".roles"+key(k)
+		if r, table := roles.Lookup(k); table {
+			switch {
+			case r.Name == roles.Driver:
+				v.fail(path, "the drive agent's role is not configured: obor drive starts it")
+			case e.Object:
+				v.fail(path, "a built-in role takes a model ref string, not an object")
+			}
+			continue
+		}
+		if err := roles.CheckCustomName(k); err != nil {
+			v.fail(path, err.Error()+", got "+Compact(k))
+			continue
+		}
+		for i, w := range e.Write {
+			if why := writePathProblem(w); why != "" {
+				v.fail(path+".write"+idx(i), why+", got "+Compact(w))
+			}
+		}
+		if _, isDefault := roles.DefaultRow(k); isDefault {
+			continue
+		}
+		if doc := v.c.RoleDoc(k); !regularFile(filepath.Join(v.c.Root, doc)) {
+			v.fail(path, "no role doc: write "+doc+" (what the role does, what it writes)")
+		}
+	}
+}
+
+// writePathProblem is why a custom role's write path w cannot be one ("": it can): it is relative to the project
+// root, stays inside it and not in .obor/ (obor's own state).
+func writePathProblem(w string) string {
+	clean := path.Clean(w)
+	switch {
+	case w == "":
+		return "an empty path"
+	case strings.HasPrefix(w, "/") || clean == ".." || strings.HasPrefix(clean, "../"):
+		return "outside the project: a write path is relative to its root"
+	case clean == "." || clean == ".obor" || strings.HasPrefix(clean, ".obor/"):
+		return "in .obor/: obor's own state is no role's to write"
+	}
+	return ""
+}
+
+// roleDocs: a role doc under paths.agents (first line "# Role: …") named like a custom role the config has no row for
+// is no role's (no agent runs it: a row removed, or never added): WARN. A kit default row's doc is not (obor init stubs
+// one for each, configured or not).
+func (v *validator) roleDocs() {
+	dir := v.c.AgentsDir()
+	entries, _ := os.ReadDir(filepath.Join(v.c.Root, dir))
+	for _, ent := range entries {
+		name, ok := strings.CutSuffix(ent.Name(), ".md")
+		if _, isDefault := roles.DefaultRow(name); !ok || isDefault || roles.CheckCustomName(name) != nil {
+			continue
+		}
+		if rc, known := v.c.Role(name); known && rc.Configured {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(v.c.Root, dir, ent.Name()))
+		if err != nil || !bytes.HasPrefix(b, []byte("# Role:")) {
+			continue
+		}
+		v.warns = append(v.warns, "WARN .roles"+key(name)+": "+path.Join(dir, ent.Name())+" is a role doc but roles."+
+			name+" is not set: no agent runs it (add the row, or remove the doc)")
+	}
+}
+
+// regularFile: p is a regular file.
+func regularFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // laneAgents: no name of a lane's worker is a role's agent (T-189, T-191).
@@ -186,7 +276,7 @@ func (v *validator) laneAgents() {
 	if rc, _ := v.c.Role("worker"); rc.Configured {
 		names = append(names, rc.Agent)
 	}
-	for _, rc := range v.c.roleAgents() {
+	for _, rc := range v.c.RoleAgents() {
 		names = append(names, rc.Agent)
 	}
 	roleAgents := Unique(names...)
@@ -329,10 +419,8 @@ func (c *Config) UsedModels() []string {
 	for _, level := range []string{"hard", "medium", "simple"} {
 		refs = append(refs, c.DifficultyList(level)...)
 	}
-	for _, role := range roles.All() {
-		if ref := c.Data.Roles.entry(role.Name); ref != nil {
-			refs = append(refs, *ref)
-		}
+	for _, k := range c.Data.Roles.Keys {
+		refs = append(refs, c.Data.Roles.M[k].Model)
 	}
 	var out []string
 	for _, ref := range refs {

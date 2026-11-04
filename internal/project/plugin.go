@@ -21,9 +21,9 @@ func InboxFile(root, slot string) string {
 }
 
 // InboxSlot is the slot a session of role holds, its inbox record's key: the role (lead, reviewer …), a worker's lane
-// (L-03), the owner's drive agent's lane/drive (L-03/drive); "" for none (no role, a role outside the table, a
+// (L-03), the owner's drive agent's lane/drive (L-03/drive); "" for none (no role, a role cfg does not know, a
 // lane-bound role without its lane).
-func InboxSlot(role Role) string {
+func InboxSlot(cfg *config.Config, role Role) string {
 	switch {
 	case role.Role == roles.Driver:
 		if role.Lane == "" {
@@ -33,7 +33,10 @@ func InboxSlot(role Role) string {
 	case roles.LaneBound(role.Role):
 		return role.Lane
 	}
-	if _, ok := roles.Lookup(role.Role); !ok {
+	if cfg == nil {
+		return ""
+	}
+	if _, ok := cfg.Role(role.Role); !ok {
 		return ""
 	}
 	return role.Role
@@ -48,13 +51,13 @@ func AgentSlot(cfg *config.Config, agent string) string {
 	for _, l := range cfg.Lanes() {
 		for _, role := range []string{"worker", roles.Driver} {
 			if cfg.Self(role, l.Name) == agent {
-				return InboxSlot(Role{Role: role, Lane: l.Name})
+				return InboxSlot(cfg, Role{Role: role, Lane: l.Name})
 			}
 		}
 	}
-	for _, r := range roles.All() {
-		if !roles.LaneBound(r.Name) && cfg.Self(r.Name, "") == agent {
-			return r.Name
+	for _, rc := range cfg.Roles() {
+		if !roles.LaneBound(rc.Role.Name) && cfg.Self(rc.Role.Name, "") == agent {
+			return rc.Role.Name
 		}
 	}
 	return ""

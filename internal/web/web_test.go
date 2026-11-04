@@ -562,7 +562,7 @@ func TestListenLocalhostOnly(t *testing.T) {
 func TestViewOfANewerConfigWarns(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.zz_future", ""))
+	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
 	if _, err := config.Load(p.Root); err == nil {
 		t.Fatal("precondition: config.Load refuses the unknown key")
 	}

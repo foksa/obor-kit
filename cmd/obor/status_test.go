@@ -975,3 +975,44 @@ func TestStatusWarnsAClaudeLaneWithoutThePlugin(t *testing.T) {
 		t.Errorf("L-01 (plugin enabled) warned:\n%s", text)
 	}
 }
+
+// T-801: a custom role's agent is a role row of obor status (text and --json) like the advisor's, and obor restart
+// <agent> --stop stops it; once its row is removed it is no row and restart no longer knows it, nothing else changes.
+func TestStatusAndStopCustomRole(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Write("docs/agents/designer.md", "# Role: designer\n")
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.designer", `{"model": "opus", "write": ["docs/design/"]}`))
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	ss := wire.Status{Since: now.Add(-time.Hour).Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
+		Name: "proj", Root: p.Root, Agents: []wire.AgentStatus{{Name: "pj-designer", Status: "working"}},
+		Tasks: []wire.TaskStatus{}, Facts: []event.Record{}}}
+	st, text := statusOf(t, p, ss, nil, now)
+	if r := roleRowOf(t, st, "pj-designer"); r == nil || r.Role != "designer" || r.Status != "working" {
+		t.Fatalf("designer role row %+v (roles %+v), want role designer, working", r, st.Roles)
+	}
+	matchLine(t, text, `^agent pj-designer: working`, "the custom role's status line")
+
+	f := p.Herdr()
+	f.Shell("w1:p2", "pj-designer", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state"}
+	rc, stdout, stderr := run(t, p.Root, env, "restart", "pj-designer", "--stop")
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	if rc != 0 || lines[len(lines)-1] != "STOPPED pj-designer (pane w1:p2, already at a shell)" {
+		t.Errorf("restart pj-designer --stop: exit %d\n%s---\n%s", rc, stdout, stderr)
+	}
+
+	p.Config(testkit.Set("roles.integrator", "opus")) // the row removed
+	st, _ = statusOf(t, p, ss, nil, now)
+	if r := roleRowOf(t, st, "pj-designer"); r != nil {
+		t.Errorf("a removed custom role still has a row: %+v", r)
+	}
+	if r := roleRowOf(t, st, "pj-int"); r == nil {
+		t.Errorf("the integrator's row is gone with the custom role's (roles %+v)", st.Roles)
+	}
+	rc, stdout, _ = run(t, p.Root, env, "restart", "pj-designer", "--stop")
+	if rc != 1 || !strings.Contains(stdout, "FAIL unknown agent pj-designer") {
+		t.Errorf("restart of a removed role's agent: exit %d\n%s", rc, stdout)
+	}
+}

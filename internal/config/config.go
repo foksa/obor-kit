@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -143,18 +144,85 @@ func (c Command) MarshalJSON() ([]byte, error) {
 	return []byte(Compact(command(c))), nil
 }
 
-// Roles is roles: the model ref of each table role (nil: not configured; "": configured, no model named), and the
-// removed leads.
+// Roles is roles: roles.<name> in config order (T-801), a table role's model ref or a custom role's row (RoleEntry; a
+// null member is no member), and the removed leads.
 type Roles struct {
-	Lead       *string `json:"lead,omitempty"`
-	Integrator *string `json:"integrator,omitempty"`
-	Worker     *string `json:"worker,omitempty"`
-	Reviewer   *string `json:"reviewer,omitempty"`
-	DeepDive   *string `json:"deep_dive,omitempty"`
-	Triage     *string `json:"triage,omitempty"`
-	Advisor    *string `json:"advisor,omitempty"`
-	Researcher *string `json:"researcher,omitempty"`
-	Leads      any     `json:"leads,omitempty"` // removed in v0.12.0 (T-467): validate warns
+	Ordered[RoleEntry]
+	Leads any // removed in v0.12.0 (T-467): validate warns
+}
+
+func (r *Roles) UnmarshalJSON(b []byte) error {
+	*r = Roles{}
+	if string(b) == "null" {
+		return nil
+	}
+	ms, ok := object(b)
+	if !ok {
+		return errors.New("roles: must be an object")
+	}
+	var kept []member
+	for _, m := range ms {
+		switch {
+		case string(m.Val) == "null":
+		case m.Key == "leads":
+			if err := strict(m.Val, &r.Leads); err != nil {
+				return fmt.Errorf("roles.leads: %s", strings.TrimPrefix(err.Error(), "json: "))
+			}
+		default:
+			kept = append(kept, m)
+		}
+	}
+	return r.Ordered.UnmarshalJSON(joinMembers(kept))
+}
+
+func (r Roles) MarshalJSON() ([]byte, error) {
+	b, err := r.Ordered.MarshalJSON()
+	if err != nil || r.Leads == nil {
+		return b, err
+	}
+	return merge(b, []byte(`{"leads":`+Compact(r.Leads)+`}`)), nil
+}
+
+// entry is roles.<name>; ok false when not configured.
+func (r *Roles) entry(name string) (RoleEntry, bool) {
+	e, ok := r.M[name]
+	return e, ok
+}
+
+// RoleEntry is roles.<name> (T-801): a model ref string ("": configured, no model named), or a custom role's object
+// {"model": "<ref>", "write": ["<dir>/", "<file>"]} (Object). Write is nil when the entry names no write list (a
+// string, or an object without write: a kit default row keeps its own).
+type RoleEntry struct {
+	Model  string   `json:"model"`
+	Write  []string `json:"write,omitzero"`
+	Object bool     `json:"-"`
+}
+
+func (e *RoleEntry) UnmarshalJSON(b []byte) error {
+	*e = RoleEntry{}
+	if len(b) > 0 && b[0] == '"' {
+		return json.Unmarshal(b, &e.Model)
+	}
+	var o struct {
+		Model string    `json:"model"`
+		Write *[]string `json:"write"`
+	}
+	if err := strict(b, &o); err != nil {
+		return err
+	}
+	e.Model, e.Object = o.Model, true
+	if o.Write != nil {
+		e.Write = append([]string{}, *o.Write...)
+	}
+	return nil
+}
+
+func (e RoleEntry) MarshalJSON() ([]byte, error) {
+	if !e.Object {
+		return []byte(Compact(e.Model)), nil
+	}
+	type plain RoleEntry
+	return []byte(Compact(plain(e))), nil
 }
 
 // Setup is `setup`: what obor init records about the project's models, effort and lanes (T-647). `obor setup show`
@@ -167,12 +235,6 @@ type Setup struct {
 // SetupConfirmed is the owner's answer to the setup table (setup.confirmed): absent is not confirmed (T-647).
 func (c *Config) SetupConfirmed() bool {
 	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
-}
-
-// entry is roles.<name>, the role's model ref; nil when not configured.
-func (r *Roles) entry(name string) *string {
-	return map[string]*string{"lead": r.Lead, "integrator": r.Integrator, "worker": r.Worker, "reviewer": r.Reviewer,
-		"deep_dive": r.DeepDive, "triage": r.Triage, "advisor": r.Advisor, "researcher": r.Researcher}[name]
 }
 
 // MCP is the mcp section: jobs was the switch of obor serve's jobs by fetch (app-mcp), always on since T-437.
@@ -610,21 +672,76 @@ func (c *Config) Command(name string) (Command, bool) {
 // Paths returns the configured paths.
 func (c *Config) Paths() Paths { return Paths{Reviews: c.Data.Paths["reviews"], Values: c.Data.Paths} }
 
-// Role resolves a table role and its configured type override; the agent's name is derived (roles.AgentName).
+// Role is the one role lookup (T-801): a table role, a kit default row (roles.DefaultRow) or a custom role a
+// roles.<name> row adds, with its configured model ref; the agent's name is derived (roles.AgentName). A row whose
+// name cannot name a custom role (roles.CheckCustomName) is no role (validate fails it); the driver is never
+// configured (obor drive starts it).
 func (c *Config) Role(name string) (RoleConfig, bool) {
+	e, set := c.Data.Roles.entry(name)
 	role, ok := roles.Lookup(name)
-	if !ok {
+	switch {
+	case ok:
+		set = set && name != roles.Driver
+	case roles.CheckCustomName(name) != nil:
 		return RoleConfig{}, false
+	default:
+		role, ok = roles.DefaultRow(name)
+		switch {
+		case !ok && !set:
+			return RoleConfig{}, false
+		case !ok:
+			role = roles.Custom(name, e.Write)
+		case e.Write != nil: // an object replaces a default row's write list
+			role.WritePaths = e.Write
+		}
 	}
 	rc := RoleConfig{Role: role}
 	if role.Name != "worker" {
 		rc.Agent = role.AgentName(c.Data.Prefix, "")
 	}
-	if ref := c.Data.Roles.entry(name); ref != nil {
+	if set {
 		rc.Configured = true
-		rc.Type, rc.Effort = ParseModelRef(*ref)
+		rc.Type, rc.Effort = ParseModelRef(e.Model)
 	}
 	return rc, true
+}
+
+// AgentsDir is paths.agents (default docs/agents): the project's role docs, relative to the root.
+func (c *Config) AgentsDir() string {
+	if d := strings.Trim(c.Data.Paths["agents"], "/"); d != "" {
+		return d
+	}
+	return "docs/agents"
+}
+
+// RoleDoc is the project's doc of role name, relative to the root: <paths.agents>/<doc file> (roles.Role.DocFile; a
+// custom role's <name>.md).
+func (c *Config) RoleDoc(name string) string {
+	file := strings.ReplaceAll(name, "_", "-") + ".md"
+	if rc, ok := c.Role(name); ok {
+		file = rc.Role.DocFile()
+	}
+	return path.Join(c.AgentsDir(), file)
+}
+
+// Roles is every role c knows, configured or not: the table's, the kit's default rows, then each other roles.<name>
+// that names a custom role, in config order.
+func (c *Config) Roles() []RoleConfig {
+	var names []string
+	for _, r := range roles.All() {
+		names = append(names, r.Name)
+	}
+	for _, r := range roles.DefaultRows() {
+		names = append(names, r.Name)
+	}
+	names = Unique(append(names, c.Data.Roles.Keys...)...)
+	var out []RoleConfig
+	for _, name := range names {
+		if rc, ok := c.Role(name); ok {
+			out = append(out, rc)
+		}
+	}
+	return out
 }
 
 // AgentName is the herdr agent name of role (of lane, for a worker): the derived name (T-765).
@@ -655,9 +772,10 @@ func (c *Config) Self(role, lane string) string {
 
 // MayPush is the one rule for "this caller may push" (the agent guard's checkPush and the git pre-push hook through
 // `obor whoami --can-push`, T-793): a role that is not lane-bound (never a worker's or a driver's, T-751) and is
-// listed in guards.allow_push.
+// listed in guards.allow_push. A custom role never pushes (T-801; validate fails an allow_push that lists one).
 func (c *Config) MayPush(role string) bool {
-	return !roles.LaneBound(role) && c.PushAllowed(role)
+	rc, _ := c.Role(role)
+	return !roles.LaneBound(role) && !rc.Role.Custom && c.PushAllowed(role)
 }
 
 // PushAllowed: guards.allow_push lists role (T-105, T-786). An entry is a role ("lead"); one that is no role but a
@@ -676,23 +794,24 @@ func (c *Config) PushAllowed(role string) bool {
 
 // pushSlot is the role an allow_push entry names: the role itself, else the role whose derived name it is ("": none).
 func (c *Config) pushSlot(entry string) string {
-	if r, ok := roles.Lookup(entry); ok {
-		return r.Name
+	if rc, ok := c.Role(entry); ok {
+		return rc.Role.Name
 	}
-	for _, r := range roles.All() {
-		if !roles.LaneBound(r.Name) && entry != "" && c.AgentName(r.Name, "") == entry {
-			return r.Name
+	for _, rc := range c.Roles() {
+		if !roles.LaneBound(rc.Role.Name) && entry != "" && rc.Agent == entry {
+			return rc.Role.Name
 		}
 	}
 	return ""
 }
 
-// roleAgents is every table role but the worker, an optional one only when configured.
-func (c *Config) roleAgents() []RoleConfig {
+// RoleAgents is every role that counts as a role agent, in Roles order: every role but the worker, an optional one
+// (deep dive, a custom role, the driver) only when configured. Its agents are the ones obor brief reaches, obor restart
+// --stop stops, obor status and obor web list.
+func (c *Config) RoleAgents() []RoleConfig {
 	var out []RoleConfig
-	for _, role := range roles.All() {
-		rc, _ := c.Role(role.Name)
-		if role.Name != "worker" && (!role.Optional || rc.Configured) {
+	for _, rc := range c.Roles() {
+		if rc.Role.Name != "worker" && (!rc.Role.Optional || rc.Configured) {
 			out = append(out, rc)
 		}
 	}
@@ -719,7 +838,7 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 			}
 		}
 	}
-	for _, rc := range c.roleAgents() {
+	for _, rc := range c.RoleAgents() {
 		if rc.Agent != "" && rc.Agent == agent {
 			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: c.Root}, true
 		}

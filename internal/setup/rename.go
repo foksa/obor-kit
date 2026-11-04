@@ -215,12 +215,12 @@ func (r *renamer) pushRoles(out *[]byte, set func([]string, any) error) error {
 	}
 	changed := false
 	for i, e := range entries {
-		if _, isRole := roles.Lookup(e); isRole {
+		if _, isRole := r.cfg.Role(e); isRole {
 			continue
 		}
-		for _, role := range roles.All() {
-			if !roles.LaneBound(role.Name) && r.cfg.AgentName(role.Name, "") == e {
-				entries[i], changed = role.Name, true
+		for _, rc := range r.cfg.Roles() {
+			if !roles.LaneBound(rc.Role.Name) && rc.Agent == e {
+				entries[i], changed = rc.Role.Name, true
 				break
 			}
 		}
@@ -244,14 +244,11 @@ func stringAt(doc []byte, path ...string) (string, bool) {
 	return s, true
 }
 
-// roleAgents is the agent name of every role that counts (a table role but the worker, an optional one only when
-// configured).
+// roleAgents is the agent name of every role that counts (config.RoleAgents).
 func roleAgents(cfg *config.Config) []string {
 	var out []string
-	for _, r := range roles.All() {
-		if rc, _ := cfg.Role(r.Name); r.Name != "worker" && (!r.Optional || rc.Configured) {
-			out = append(out, cfg.AgentName(r.Name, ""))
-		}
+	for _, rc := range cfg.RoleAgents() {
+		out = append(out, rc.Agent)
 	}
 	return out
 }

@@ -162,6 +162,33 @@ func TestSessionRoleTextLine(t *testing.T) {
 	lacks(t, f.session(t, f.Root, "", env("OBOR_ROLE=deep_dive")...), "a role without a kit text", "obor: role text")
 }
 
+// T-801: a custom role's role text is its doc <paths.agents>/<name>.md (no kit text); a kit default row (researcher)
+// names the kit's text and the project's doc when it has one; a role the config does not know (its row removed) gets
+// none.
+func TestSessionCustomRoleText(t *testing.T) {
+	t.Parallel()
+	f, _ := sessionFx(t, true)
+	kit := f.Base + "/kit"
+	f.Write(kit+"/templates/agents/researcher.md", "# Role: researcher\n")
+	f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+	f.Config(testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("roles.researcher", "sonnet"))
+	env := func(kv ...string) []string { return append([]string{"OBOR_PLUGIN_ROOT=" + kit}, kv...) }
+
+	out := f.session(t, f.Root, "", env("OBOR_ROLE=ux_buddy")...)
+	contains(t, out, "custom role", "obor: role ux_buddy", "obor: role text: docs/agents/ux_buddy.md — read it before acting")
+	lacks(t, out, "custom role", "templates/agents/ux_buddy.md")
+	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=researcher")...), "default row, kit text",
+		"obor: role text: "+kit+"/templates/agents/researcher.md — read it before acting")
+	f.Write("docs/agents/researcher.md", "# Role: researcher — here\n")
+	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=researcher")...), "default row, project doc",
+		"obor: role text: "+kit+"/templates/agents/researcher.md, project: docs/agents/researcher.md — read it before acting")
+
+	f.Config(testkit.Set("roles.researcher", "sonnet")) // the ux_buddy row removed: its doc stays, no role text
+	out = f.session(t, f.Root, "", env("OBOR_ROLE=ux_buddy")...)
+	contains(t, out, "row removed", "obor: role ux_buddy")
+	lacks(t, out, "row removed", "obor: role text")
+}
+
 // bash plugin case_session_no_config, case_session_bad_stdin
 func TestSessionNoConfigOrBadInputSilent(t *testing.T) {
 	t.Parallel()

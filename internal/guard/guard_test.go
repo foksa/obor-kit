@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/roles"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -1126,7 +1127,7 @@ func TestReviewsWriteProfile(t *testing.T) {
 		bash("reviewer", P, "echo x > src/a/x.ts", "src/a/x.ts is outside the reviewer write profile"), // RV-83 #1
 		bash("integrator", P, "echo x > src/a/x.ts", ""),
 		edit("integrator", P, "Edit", P+"/src/a/x.ts", ""),
-		edit("advisor", P, "Edit", P+"/src/a/x.ts", ""),
+		edit("advisor", P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the advisor write profile"), // T-801
 	))
 	f.Config(testkit.Set("paths.reviews", "notes/rv"))
 	check(t, f.Project, []tc{
@@ -1135,18 +1136,22 @@ func TestReviewsWriteProfile(t *testing.T) {
 	})
 }
 
-// T-704: the researcher writes only under docs/research (paths.research), runs no git write, and reads anywhere.
+// T-704, T-801: the researcher (a kit default custom row) writes only under docs/research/, the advisor only under
+// docs/research/ and docs/plan/; both run no git write and read anywhere. An object row replaces the write list.
 func TestResearcherWriteProfile(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P := f.P
+	f.Config(testkit.Set("roles.researcher", "sonnet"), testkit.Set("roles.advisor", "opus")) // a string: the default rows
 	check(t, f.Project, []tc{
 		edit("researcher", P, "Write", P+"/docs/research/x.md", ""),
 		edit("researcher", P, "Edit", P+"/docs/research/sub/y.md", ""),
 		edit("researcher", P, "Write", f.Base+"/outside/scratch.txt", ""),
-		edit("researcher", P, "Edit", P+"/internal/x.go", "internal/x.go is outside the researcher write profile — a researcher writes only under docs/research"),
+		edit("researcher", P, "Edit", P+"/internal/x.go", "internal/x.go is outside the researcher write profile — a researcher writes only docs/research/"),
 		edit("researcher", P, "Write", P+"/docs/reviews/R-01.md", "outside the researcher write profile"),
 		edit("researcher", P, "Write", P+"/docs/research-old/x.md", "outside the researcher write profile"),
+		edit("researcher", P, "Write", P+"/docs/plan/p.md", "outside the researcher write profile"),
+		bash("researcher", P, "echo x > internal/x.go", "outside the researcher write profile"),
 		bash("researcher", P, "git commit -m x", "a researcher doesn't run git commit"),
 		bash("researcher", P, "git add docs/research/x.md", "a researcher doesn't run git add"),
 		bash("researcher", P, "git push", "git push"),
@@ -1154,12 +1159,48 @@ func TestResearcherWriteProfile(t *testing.T) {
 		bash("researcher", P, "git log -3", ""),
 		bash("researcher", P, "cat internal/x.go", ""),
 		bash("advisor", P, "git status", ""),
-		edit("advisor", P, "Edit", P+"/internal/x.go", ""),
+		bash("advisor", P, "git commit -m x", "an advisor doesn't run git commit"),
+		edit("advisor", P, "Write", P+"/docs/research/topic-advice.md", ""),
+		edit("advisor", P, "Write", P+"/docs/plan/milestone.md", ""),
+		edit("advisor", P, "Edit", P+"/internal/x.go", "internal/x.go is outside the advisor write profile — an advisor writes only docs/research/, docs/plan/"),
 	})
-	f.Config(testkit.Set("paths.research", "notes/res"))
+	f.Config(testkit.Set("roles.researcher", `{"model": "sonnet", "write": ["notes/res/"]}`))
 	check(t, f.Project, []tc{
 		edit("researcher", P, "Write", P+"/notes/res/x.md", ""),
-		edit("researcher", P, "Write", P+"/docs/research/x.md", "writes only under notes/res"),
+		edit("researcher", P, "Write", P+"/docs/research/x.md", "writes only notes/res/"),
+	})
+}
+
+// T-801: a custom role writes exactly its write list (a dir/ entry: under it; a file entry: that file), elsewhere in
+// the project is denied (outside it is not limited); it runs git reads only and never pushes, even when allow_push
+// lists it; a string row writes nothing.
+func TestCustomRoleGuard(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P := f.P
+	f.Write("docs/agents/designer.md", "# Role: designer\n")
+	f.Write("docs/agents/buddy.md", "# Role: buddy\n")
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`),
+		testkit.Set("roles.designer", `{"model": "opus", "write": ["docs/design/", "STYLE.md"]}`),
+		testkit.Set("roles.buddy", "sonnet"), testkit.Set("guards.allow_push", `["designer"]`))
+	check(t, f.Project, []tc{
+		edit("designer", P, "Write", P+"/docs/design/a.md", ""),
+		edit("designer", P, "Edit", P+"/docs/design/sub/b.md", ""),
+		edit("designer", P, "Write", P+"/STYLE.md", ""),
+		edit("designer", P, "Write", f.Base+"/outside/scratch.txt", ""),
+		edit("designer", P, "Write", P+"/STYLE.md.bak", "STYLE.md.bak is outside the designer write profile — a designer writes only docs/design/, STYLE.md"),
+		edit("designer", P, "Write", P+"/docs/design-old/x.md", "outside the designer write profile"),
+		edit("designer", P, "Edit", P+"/internal/x.go", "outside the designer write profile"),
+		edit("designer", P, "Edit", P+"/src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("designer", P, "echo x > internal/x.go", "outside the designer write profile"),
+		bash("designer", P, "echo x > docs/design/c.md", ""),
+		bash("designer", P, "git commit -m x", "a designer doesn't run git commit"),
+		bash("designer", P, "git add docs/design/a.md", "a designer doesn't run git add"),
+		bash("designer", P, "git push origin main", "git push"),
+		bash("designer", P, "git status", ""),
+		bash("designer", P, "git log -3", ""),
+		edit("buddy", P, "Write", P+"/docs/x.md", "docs/x.md is outside the buddy write profile — a buddy writes no file in the project"),
+		bash("buddy", P, "git status", ""),
 	})
 }
 
@@ -1522,8 +1563,14 @@ func TestTriageRoleGuard(t *testing.T) {
 	f := fixture(t)
 	P := f.P
 	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
-	if r, ok := roles.Lookup("triage"); !ok || !r.GitReadOnly || r.Write != roles.WriteNone || r.EnvValue != "triage" {
-		t.Fatalf("precondition: triage in the roles table, git read-only, write none, env triage: %+v", r)
+	cfg, err := config.Load(f.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// T-801: triage is a kit default custom row, writing only docs/BUGS.md.
+	if rc, ok := cfg.Role("triage"); !ok || !rc.Role.GitReadOnly || !rc.Role.Custom || rc.Role.EnvValue != "triage" ||
+		!reflect.DeepEqual(rc.Role.WritePaths, []string{"docs/BUGS.md"}) {
+		t.Fatalf("precondition: triage a custom role, git read-only, writes docs/BUGS.md, env triage: %+v", rc.Role)
 	}
 	check(t, f.Project, []tc{
 		bash("triage", P, "git commit -m x", "a triage doesn't run git commit"),
@@ -1534,6 +1581,7 @@ func TestTriageRoleGuard(t *testing.T) {
 		edit("triage", P, "Write", P+"/src/core/types.ts", "src/core/types.ts is a protected file"),
 		bash("triage", P, "printf x > src/core/types.ts", "src/core/types.ts is a protected file"),
 		edit("triage", P, "Write", P+"/docs/BUGS.md", ""),
+		edit("triage", P, "Write", P+"/docs/NOTES.md", "docs/NOTES.md is outside the triage write profile"),
 		// The owner (no role) in the main checkout: unchanged.
 		bash("-", P, "git commit -m x", ""),
 		edit("-", P, "Write", P+"/src/core/types.ts", ""),

@@ -57,6 +57,8 @@ func (o *Ordered[V]) name() string {
 		return "models"
 	case Command:
 		return "commands"
+	case RoleEntry:
+		return "roles"
 	}
 	return "agents"
 }

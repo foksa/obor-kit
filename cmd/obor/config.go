@@ -49,7 +49,7 @@ func configCmd(args []string) int {
 	return 0
 }
 
-// whoami is `obor whoami [--json]`: role, lane (only when the role has one) and source; the lane row's task, branch and
+// whoami is `obor whoami [--json]`: role, agent name (when it derives one), lane (only when the role has one) and source; the lane row's task, branch and
 // base, the task's stored spec rev and the protected files it unlocks, or "lane row: none".
 func whoami(args []string) int {
 	asJSON, canPush := false, false
@@ -86,6 +86,9 @@ func whoami(args []string) int {
 		fmt.Fprintln(out, project.StoppedLine)
 	}
 	fmt.Fprintf(out, "role: %s\n", w.Role.Role)
+	if w.Agent != "" {
+		fmt.Fprintf(out, "agent: %s\n", w.Agent)
+	}
 	if w.Role.Lane != "" {
 		fmt.Fprintf(out, "lane: %s\n", w.Role.Lane)
 	}

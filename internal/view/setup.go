@@ -12,7 +12,6 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/config"
-	roletable "obor/internal/roles"
 	"obor/internal/store"
 )
 
@@ -146,16 +145,9 @@ func (d Detail) Setup() (Setup, error) {
 	if d.Project.Lead != nil {
 		status["lead"] = d.Project.Lead.Status
 	}
-	for _, role := range roletable.All() {
-		if role.Name == "worker" { // the worker's rows are the lanes
-			continue
-		}
-		rc, _ := cfg.Role(role.Name)
-		if role.Optional && !rc.Configured {
-			continue
-		}
-		s.Roles = append(s.Roles, SetupRole{Role: role.Name, Agent: cfg.AgentName(role.Name, ""),
-			Type: config.ModelRef(rc.Type, rc.Effort), Status: status[role.Name]})
+	for _, rc := range cfg.RoleAgents() { // the worker's rows are the lanes; a custom role is listed like any other
+		s.Roles = append(s.Roles, SetupRole{Role: rc.Role.Name, Agent: rc.Agent,
+			Type: config.ModelRef(rc.Type, rc.Effort), Status: status[rc.Role.Name]})
 	}
 	s.Types = setupTypes(cfg, s.Difficulty, s.Roles)
 	for _, name := range cfg.ModelNames() {

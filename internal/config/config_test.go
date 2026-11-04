@@ -107,7 +107,7 @@ func TestLocalOverlay(t *testing.T) {
 }
 
 func TestUnknownKeyFails(t *testing.T) {
-	for _, cfg := range []string{`{"prefix":"pj","typo_key":1}`, `{"prefix":"pj","roles":{"mystery":"opus"}}`,
+	for _, cfg := range []string{`{"prefix":"pj","typo_key":1}`, `{"prefix":"pj","roles":{"mystery":{"model":"opus","writes":[]}}}`,
 		`{"prefix":"pj","models":{"m":{"kind":"claude","modle":"x"}}}`, `{"prefix":"pj","commands":{"c":{"cmd":"x","tmeout":5}}}`,
 		`{"prefix":"pj","kinds":{"claude":{"argz":[]}}}`} {
 		_, err := Load(writeProject(t, cfg, ""))

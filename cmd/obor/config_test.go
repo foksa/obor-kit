@@ -136,17 +136,17 @@ func TestWhoami(t *testing.T) {
 
 	// bash config.test.sh case_whoami_unarmed
 	text, j := whoamiIn(t, lane)
-	if text != "role: worker\nlane: L-01\nsource: cwd\nlane row: none\n" {
+	if text != "role: worker\nagent: pj-l-01\nlane: L-01\nsource: cwd\nlane row: none\n" {
 		t.Errorf("unarmed lane: %q", text)
 	}
-	if want := map[string]any{"role": "worker", "lane": "L-01", "source": "cwd"}; !reflect.DeepEqual(j, want) {
+	if want := map[string]any{"role": "worker", "agent": "pj-l-01", "lane": "L-01", "source": "cwd"}; !reflect.DeepEqual(j, want) {
 		t.Errorf("unarmed --json: %v", j)
 	}
 	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=lead"); !strings.Contains(text, "role: lead\n") || !strings.Contains(text, "source: env\n") {
 		t.Errorf("OBOR_ROLE=lead: %q", text)
 	}
-	if text, _ := whoamiIn(t, p.Root); !strings.Contains(text, "role: none\n") {
-		t.Errorf("main checkout: %q", text)
+	if text, j := whoamiIn(t, p.Root); !strings.Contains(text, "role: none\n") || strings.Contains(text, "agent:") || j["agent"] != nil {
+		t.Errorf("main checkout: %q, no agent line", text)
 	}
 	if rc, _, _ := run(t, p.Root, nil, "whoami", "--bogus"); rc != 2 {
 		t.Errorf("whoami --bogus: exit %d, want 2", rc)
@@ -162,12 +162,12 @@ func TestWhoami(t *testing.T) {
 	p.State("L-01", `{"lane":"L-01","task":"T-02","branch":"task/T-02","agent":"pj-l1","base":"main",
 		"dispatched_at":1,"allowed":["stale/copy.sh"],"blocks":0}`)
 	text, _ = whoamiIn(t, lane, "OBOR_ROLE=worker", "OBOR_LANE=L-01")
-	if want := "role: worker\nlane: L-01\nsource: env+cwd\ntask: T-02\nbranch: task/T-02\nbase: main\nspec: rev 1\n" +
+	if want := "role: worker\nagent: pj-l-01\nlane: L-01\nsource: env+cwd\ntask: T-02\nbranch: task/T-02\nbase: main\nspec: rev 1\n" +
 		"protected file unlocked: docs/design.md\n"; text != want {
 		t.Errorf("armed: %q, want %q", text, want)
 	}
 	_, j = whoamiIn(t, lane)
-	if want := map[string]any{"role": "worker", "lane": "L-01", "source": "cwd", "task": "T-02",
+	if want := map[string]any{"role": "worker", "agent": "pj-l-01", "lane": "L-01", "source": "cwd", "task": "T-02",
 		"branch": "task/T-02", "base": "main", "protected": []any{"docs/design.md"}, "rev": 1.0}; !reflect.DeepEqual(j, want) {
 		t.Errorf("armed --json: %v", j)
 	}
@@ -198,7 +198,7 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 	if strings.Contains(text, "\nlane: ") { // T-554: no empty `lane:` line for a role without a lane
 		t.Errorf("a lead has no lane line: %q", text)
 	}
-	if want := map[string]any{"role": "lead", "lane": "", "source": "env"}; !reflect.DeepEqual(j, want) {
+	if want := map[string]any{"role": "lead", "agent": "pj-lead", "lane": "", "source": "env"}; !reflect.DeepEqual(j, want) {
 		t.Errorf("lead --json: %v", j)
 	}
 	if text, j := whoamiIn(t, lane); strings.Contains(text, "lead:") || j["lead"] != nil {
@@ -240,5 +240,42 @@ func TestWhoamiCanPush(t *testing.T) {
 		if rc != c.rc || stdout != "" || stderr != "" {
 			t.Errorf("%s: exit %d (want %d), stdout %q stderr %q", c.name, rc, c.rc, stdout, stderr)
 		}
+	}
+}
+
+// T-801: whoami in a custom role's env says its role and derived name (a default row's too); once its row is removed the
+// role derives no name (no agent line).
+func TestWhoamiCustomRole(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
+		testkit.Set("roles.researcher", "sonnet"))
+	text, j := whoamiIn(t, p.Root, "OBOR_ROLE=ux_buddy")
+	if text != "role: ux_buddy\nagent: pj-ux-buddy\nsource: env\nlane row: none\n" || j["agent"] != "pj-ux-buddy" || j["role"] != "ux_buddy" {
+		t.Errorf("custom role: %q %v", text, j)
+	}
+	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=researcher"); !strings.Contains(text, "role: researcher\nagent: pj-researcher\n") {
+		t.Errorf("default row: %q", text)
+	}
+	if rc, out, _ := run(t, p.Root, nil, "config", "validate"); rc != 0 || !strings.Contains(out, "OK") {
+		t.Errorf("config validate: exit %d, %q", rc, out)
+	}
+	// No push for a custom role, even with an allow_push naming it (validate fails that; the pre-push hook asks this).
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`),
+		testkit.Set("roles.researcher", "sonnet"), testkit.Set("guards.allow_push", `["lead", "ux_buddy"]`))
+	if rc, _, _ := run(t, p.Root, []string{"OBOR_ROLE=lead"}, "whoami", "--can-push"); rc != 0 {
+		t.Errorf("precondition: the listed lead may push: exit %d", rc)
+	}
+	if rc, _, _ := run(t, p.Root, []string{"OBOR_ROLE=ux_buddy"}, "whoami", "--can-push"); rc != 1 {
+		t.Errorf("a custom role listed in allow_push: whoami --can-push exit %d, want 1", rc)
+	}
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet"))
+	if text, _ := whoamiIn(t, p.Root, "OBOR_ROLE=ux_buddy"); strings.Contains(text, "agent:") {
+		t.Errorf("row removed: %q, want no agent line", text)
+	}
+	if rc, out, _ := run(t, p.Root, nil, "config", "validate"); rc != 0 ||
+		!strings.Contains(out, "WARN .roles.ux_buddy: docs/agents/ux_buddy.md is a role doc but roles.ux_buddy is not set") {
+		t.Errorf("row removed: config validate exit %d, %q; want OK with the doc's WARN", rc, out)
 	}
 }

@@ -243,6 +243,40 @@ func TestBriefToStoppedRoleAgent(t *testing.T) {
 	}
 }
 
+// T-801: a custom role's agent is reached by obor brief like the advisor: a brief to it stopped (its labelled pane at a
+// shell) starts it fresh with the brief's line, and serve never stops it once the brief is finished (the lead does).
+func TestBriefReachesCustomRole(t *testing.T) {
+	t.Parallel()
+	root := lineRoot(t)
+	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","ux_buddy":{"model":"","write":["docs/ux/"]}}}`
+	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	a, p := lineApp(t, root, &now)
+	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
+		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
+		{ID: "w:ux", Workspace: "w", Cwd: root, Label: "pj-ux-buddy", Status: "idle"},
+	}})
+	reply, err := a.briefCall(wire.Call{Root: p.root, CallID: "b-ux", To: "pj-ux-buddy", Note: "review the flows",
+		Role: "lead", Agent: "pj-lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reply, "serve starts it fresh") {
+		t.Errorf("reply %q, want it started fresh", reply)
+	}
+	f := &startJobFakes{concScratch: newConcScratch("")}
+	a.deliver(context.Background(), p, &Loop{Agents: f, Typer: f})
+	if want := (port.Launch{Agent: "pj-ux-buddy", Pane: "w:ux", Fresh: true, Prompt: "[obor pj-lead] review the flows"}); len(f.launches) != 1 || f.launches[0] != want {
+		t.Errorf("launches %+v, want %+v", f.launches, want)
+	}
+	s := &reviewStopSpy{}
+	now = now.Add(time.Hour)
+	a.stopRoles(context.Background(), p, &Loop{Agents: s, Review: &reviewGitFake{}})
+	same(t, len(s.stops), 0, "serve's stops of the custom role")
+}
+
 // reviewStopSpy is agentsSpy that records every Stop.
 type reviewStopSpy struct {
 	agentsSpy

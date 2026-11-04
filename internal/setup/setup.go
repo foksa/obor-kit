@@ -119,11 +119,12 @@ type Setup struct {
 // Usage is the one usage line.
 func Usage() string {
 	var names []string
-	for _, r := range roles.All() {
+	for _, r := range append(roles.All(), roles.DefaultRows()...) {
 		if r.Name != "worker" && r.Name != roles.Driver {
 			names = append(names, r.Name)
 		}
 	}
+	names = append(names, "<custom role>")
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
 		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--model <name>] | show | rename --name N --prefix P"

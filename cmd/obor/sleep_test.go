@@ -619,7 +619,7 @@ func TestStopAndStartRestoreATimedPause(t *testing.T) {
 func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	p.Config(testkit.Set("roles.zz_future", ""))
+	p.Config(testkit.Set("zz_future", "")) // T-801: roles.<name> is a custom role now, no unknown key
 	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
 		"HERDR_SOCKET_PATH=" + herdrtest.Serve(t, p.Herdr()).Path}
 	rc, stdout, stderr := run(t, p.Root, env, "status")
