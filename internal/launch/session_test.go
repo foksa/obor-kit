@@ -29,8 +29,8 @@ func TestResumeRecordedSession(t *testing.T) {
 	t.Run("herdr reports another: the recorded one resumed, said", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Started: now.Unix()}}
-		x.transcript(x.lane, "sid-rec")
+		path := x.transcript("sid-rec")
+		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Transcript: path, Started: now.Unix()}}
 		x.shell("w1:p3", "pj-l-01", "").Session = "sid-herdr"
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		if !ok {
@@ -46,8 +46,8 @@ func TestResumeRecordedSession(t *testing.T) {
 	t.Run("herdr reports none: the recorded one resumed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Started: now.Unix()}}
-		x.transcript(x.lane, "sid-rec")
+		path := x.transcript("sid-rec")
+		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Transcript: path, Started: now.Unix()}}
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
@@ -59,11 +59,11 @@ func TestResumeRecordedSession(t *testing.T) {
 	t.Run("serve's store: the newest session fact", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
+		path := x.transcript("sid-2")
 		recordSessions(t, x.p.Root,
 			store.Session{Agent: "pj-l-01", ID: "sid-1", Started: now.Add(-time.Hour).Unix()},
-			store.Session{Agent: "pj-l-01", ID: "sid-2", Started: now.Unix()},
+			store.Session{Agent: "pj-l-01", ID: "sid-2", Transcript: path, Started: now.Unix()},
 			store.Session{Agent: "pj-l-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
-		x.transcript(x.lane, "sid-2")
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-2)", "the newest of its own")

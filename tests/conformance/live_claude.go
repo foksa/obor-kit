@@ -97,7 +97,7 @@ func claudeLive(l *lab, turn bool) {
 		},
 	}
 	base := []string{"--model", "haiku", "--permission-mode", "auto", "--plugin-dir", plugin}
-	argv := k.Start(agents.Start{Kit: l.kit, Args: append(slices.Clone(base), "--session-id", sid), Settings: settings, StrictMCP: true})
+	argv := k.Start(agents.Start{Kit: l.kit, Args: base, Session: sid, Settings: settings, StrictMCP: true})
 	where1 := at(claudeGo, "func (kind) Start") + ", " + at(claudeGo, "func MCPConfig") + ", F1.1, CAP §2.2"
 
 	t0 := time.Now()
@@ -115,7 +115,7 @@ func claudeLive(l *lab, turn bool) {
 	hooks := l.waitRecords("hook", "SessionStart", 20*time.Second)
 	hidden := len(l.records("mcp", "manifest")) == 0
 	ccL1(l, pane, mcp, where1)
-	ccL2(l, k, sid, link, hooks)
+	ccL2(sid, hooks)
 	ccL3(mcp, hooks)
 
 	if turn {
@@ -257,28 +257,32 @@ func ccL1(l *lab, pane string, mcp []record, where string) {
 	report("PASS", "CC-L1", fmt.Sprintf("strict start: the obor server sees OBOR_ROLE, OBOR_LANE, HERDR_PANE_ID, %s and runs in the lane (cwd %s)", agents.Pin, r.Cwd), where)
 }
 
-// ccL2: SessionStart's session_id is --session-id's and its transcript_path the driver's Transcript of the realpath.
-func ccL2(l *lab, k agents.Kind, sid, link string, hooks []record) {
-	where := "internal/guard/session.go, " + at(claudeGo, "func (kind) Transcript") + ", F4.3, F4.4"
+// ccL2: SessionStart reports the id --session-id gave (obor's choice, T-813) and a transcript_path of its own — the
+// realpath Claude resolved, under its config dir — and that path is the file of that id: obor records it and derives
+// none.
+func ccL2(sid string, hooks []record) {
+	where := "internal/guard/session.go, " + at(claudeGo, "func (kind) Start") + ", F4.3, F4.4"
 	if len(hooks) == 0 {
 		report("FAIL", "CC-L2", "no SessionStart hook ran in 20s (--settings hooks)", where)
 		return
 	}
 	r := hooks[0]
 	p := r.payload()
-	env := func(n string) string { return r.Env[n] }
-	real := k.Transcript(env, l.lane, sid)
-	viaLink := k.Transcript(env, link, sid)
+	fi, statErr := os.Stat(p.TranscriptPath)
 	fact := fmt.Sprintf("SessionStart: session_id %s, source %s, cwd %s, transcript_path %s", p.SessionID, p.Source, p.Cwd, p.TranscriptPath)
 	switch {
 	case p.SessionID != sid:
 		report("FAIL", "CC-L2", fact+": not the --session-id given ("+sid+")", where)
-	case p.TranscriptPath == real:
-		report("PASS", "CC-L2", fact+": the id given, and the path Transcript derives from the realpath (started in a symlinked dir)", where)
-	case p.TranscriptPath == viaLink:
-		report("FAIL", "CC-L2", fact+": the path of the symlinked cwd, not its realpath: Transcript of a recorded realpath misses it", where)
+	case p.TranscriptPath == "":
+		report("FAIL", "CC-L2", fact+": no transcript_path: obor would have none to record", where)
+	case filepath.Base(p.TranscriptPath) != sid+".jsonl":
+		report("FAIL", "CC-L2", fact+": not the file of that id: the path obor records must be the session's own", where)
+	case !filepath.IsAbs(p.TranscriptPath):
+		report("FAIL", "CC-L2", fact+": not an absolute path", where)
+	case statErr != nil || !fi.Mode().IsRegular():
+		report("FAIL", "CC-L2", fact+": not an existing file: a restart could not resume it", where)
 	default:
-		report("FAIL", "CC-L2", fact+": neither path Transcript derives ("+real+")", where)
+		report("PASS", "CC-L2", fact+": the id given and its own path, the one obor records", where)
 	}
 }
 

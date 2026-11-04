@@ -38,10 +38,10 @@ func MCPConfig(kit string) string {
 
 // Start is the type's args (with in.Effort: their --effort replaced by --effort <effort>, T-695), then
 // --strict-mcp-config for a lane's agent (in.StrictMCP, T-770: once, also when the args name it), then --settings
-// <settings>, then --resume <sid>, with obor's --mcp-config pair spliced in before the strict flag (the flag stops
-// --mcp-config's variadic value), then one `--` when a config flag could take the prompt, then the prompt. The prompt is
-// positional, never a config value; a resume carries none. The only `--` is obor's own (config validate refuses one in
-// the args).
+// <settings>, then --session-id <in.Session> (a fresh start obor names, T-813) or --resume <sid>, with obor's
+// --mcp-config pair spliced in before the strict flag (the flag stops --mcp-config's variadic value), then one `--`
+// when a config flag could take the prompt, then the prompt. The prompt is positional, never a config value; a
+// resume carries none. The only `--` is obor's own (config validate refuses one in the args).
 func (kind) Start(in agents.Start) []string {
 	args := withEffort(in.Args, in.Effort)
 	if in.StrictMCP {
@@ -54,6 +54,8 @@ func (kind) Start(in agents.Start) []string {
 	if in.Resume != "" {
 		args = append(args, "--resume", in.Resume)
 		prompt = ""
+	} else if in.Session != "" {
+		args = append(args, "--session-id", in.Session)
 	}
 	p := parse(args)
 	out := make([]string, 0, len(args)+4)
@@ -243,20 +245,15 @@ func (kind) Install(kit string, _ func(string) string) agents.Install {
 		Unpinned: map[string]any{"command": "bash", "args": shim}, Lane: lane}}
 }
 
-var slugRE = regexp.MustCompile(`[^A-Za-z0-9]`)
-
-// Transcript: $CLAUDE_CONFIG_DIR (default ~/.claude)/projects/<cwd, every non-alphanumeric as ->/<sid>.jsonl; any
-// project dir without a cwd.
-func (kind) Transcript(env func(string) string, cwd, sid string) string {
+// Transcript: $CLAUDE_CONFIG_DIR (default ~/.claude)/projects/<dir>/<sid>.jsonl with any project dir (*): Claude
+// derives the dir from its start cwd as it sees fit (resolved symlinks, a hash past 200 characters), so only the
+// session id names the file and the path recorded by the session itself is the true one (T-813).
+func (kind) Transcript(env func(string) string, sid string) string {
 	dir := env("CLAUDE_CONFIG_DIR")
 	if dir == "" {
 		dir = filepath.Join(env("HOME"), ".claude")
 	}
-	project := "*"
-	if cwd != "" {
-		project = slugRE.ReplaceAllString(cwd, "-")
-	}
-	return filepath.Join(dir, "projects", project, sid+".jsonl")
+	return filepath.Join(dir, "projects", "*", sid+".jsonl")
 }
 
 // LastTurn: none read; the StopFailure hook reports a stop (T-532).
@@ -307,7 +304,8 @@ func (kind) Deliver(text string, record []byte) (agents.Delivery, bool) {
 }
 
 func (kind) Caps() agents.Caps {
-	return agents.Caps{Hooks: agents.HooksNative, ProjectPlugin: true, Inbox: true, Resume: true, Skills: true, Transcript: true}
+	return agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true, Resume: true,
+		Skills: true, Transcript: true}
 }
 
 // inbox is the record's part Deliver reads and InboxRecord writes.

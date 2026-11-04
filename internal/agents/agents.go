@@ -42,10 +42,11 @@ type Kind interface {
 	// file operations.
 	Install(kit string, env func(string) string) Install
 
-	// Transcript is the path (a glob) of session sid's transcript (env: HOME and the kind's own config dir variable);
-	// with cwd, only the file of a session started in cwd, "" when this kind's transcripts do not record their cwd.
+	// Transcript is the path (a glob) of session sid's transcript (env: HOME and the kind's own config dir variable).
+	// It takes no cwd: how a kind names its transcript's directory is the kind's own (Claude resolves symlinks and
+	// hashes a long path, T-813), and the one true path is the one the session itself reports (the SessionStart hook).
 	// "" when the kind keeps none obor can find.
-	Transcript(env func(string) string, cwd, sid string) string
+	Transcript(env func(string) string, sid string) string
 	// LastTurn is the last turn a part of a session's transcript records, whole lines only (a partial last line is
 	// not read); ok false: none in it. The adapter passes the transcript's end, then earlier parts while none is found.
 	// A kind whose hooks report a stop reads none (Caps.Turns false).
@@ -85,6 +86,10 @@ type Start struct {
 	StrictMCP bool
 	// Env is the start's environment (HOME, XDG_CONFIG_HOME, …), for a kind that reads its own config; nil: none.
 	Env func(string) string
+	// Session is the session id this start runs as, for a kind that takes one on its command line (Claude's
+	// --session-id, T-813: obor chooses it and records it before the start); "" for one that takes none. A resume
+	// names Resume instead.
+	Session string
 	// WriteState writes a file the start reads (OpenCode's generated config, T-809) as name in the project's state
 	// dir, replacing the last start's, and returns its path: the adapter's I/O; nil: the start writes none.
 	WriteState func(name string, data []byte) (path string, err error)
@@ -190,13 +195,17 @@ const (
 
 // Caps are a kind's capabilities.
 type Caps struct {
-	Hooks         HookTransport
-	Inbox         bool // Deliver posts over the session's inbox socket
-	Resume        bool // Start honours Resume
-	Skills        bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
-	Transcript    bool // Transcript finds the session file
-	Turns         bool // LastTurn reads the session's turns from its transcript (T-563)
-	Sessions      bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	Hooks      HookTransport
+	Inbox      bool // Deliver posts over the session's inbox socket
+	Resume     bool // Start honours Resume
+	Skills     bool // a first prompt may be a plugin's slash command (/obor:lead, T-594)
+	Transcript bool // Transcript finds the session file
+	Turns      bool // LastTurn reads the session's turns from its transcript (T-563)
+	Sessions   bool // Session reads the session a transcript begins with: launch reports a fresh start's (T-577)
+	// NamedSession: a fresh start names its session id (Start.Session: obor's choice, recorded before the start) and
+	// its transcript is the path the session itself reports: obor is the only source of its session ids, so herdr's
+	// agent_session is never adopted for a resume (T-813).
+	NamedSession  bool
 	ProjectPlugin bool // loads obor's plugin from the project's .claude/settings.json (a worktree needs the file too, T-705)
 	ModelArg      bool // its own default model may not work: a model should name its id (T-705)
 	// VersionVar is the session's environment variable holding the CLI's version, for the plugin marker ("": none)
@@ -307,6 +316,13 @@ func Skills(name string) bool {
 func Resumes(name string) bool {
 	k, ok := kinds[name]
 	return ok && k.Caps().Resume
+}
+
+// NamedSession: the kind named name starts a session obor names itself (its Caps.NamedSession, T-813); an unknown
+// kind's sessions are not obor's.
+func NamedSession(name string) bool {
+	k, ok := kinds[name]
+	return ok && k.Caps().NamedSession
 }
 
 // CheckEffort is why the kind named kind cannot start with effort ("" takes any kind): an unknown kind, a kind that

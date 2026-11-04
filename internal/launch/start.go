@@ -54,7 +54,13 @@ func (l *Launcher) start(ctx context.Context, s Start) (port.AgentInfo, error) {
 	if kit == "" {
 		kit = project.KitRoot(l.Env)
 	}
-	s.Args = startArgs(k, s, kit)
+	// A kind whose sessions obor names (T-813): the id is obor's, recorded for the agent before it runs, so the store
+	// and a restart know it before its SessionStart hook reports it (the hook confirms it, with its transcript).
+	session := ""
+	if s.Resume == "" && k.Caps().NamedSession {
+		session = l.nameSession(ctx, s)
+	}
+	s.Args = startArgs(k, s, kit, session)
 	shown := strings.Join(s.Args, " ")
 	if shown == "" {
 		shown = "none"

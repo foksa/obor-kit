@@ -240,19 +240,26 @@ func last(out string) string {
 	return lines[len(lines)-1]
 }
 
-// sid records agent's session id in serve's store (as its session request does), with its Claude transcript under the
-// lane worktree and the main checkout (T-137).
+// sid records agent's session in serve's store with the transcript its SessionStart hook reported, as a confirmed
+// session has it (T-813: the path is the session's own, no cwd slug).
 func (x *fx) sid(agent, sid string) {
 	x.t.Helper()
-	recordSessions(x.t, x.p.Root, store.Session{Agent: agent, Kind: "claude", ID: sid, Started: time.Now().Unix()})
-	x.transcript(x.lane, sid)
-	x.transcript(x.p.Root, sid)
+	x.recordAt(agent, sid, x.transcript(sid))
 }
 
-// record puts agent's session id in serve's store alone (no transcript): the one record a restart reads.
+// record puts agent's session id in serve's store with no transcript: a start obor named, before its SessionStart
+// hook confirmed it.
 func (x *fx) record(agent, sid string) {
 	x.t.Helper()
 	recordSessions(x.t, x.p.Root, store.Session{Agent: agent, Kind: "claude", ID: sid, Started: time.Now().Unix()})
+}
+
+// recordAt is record with transcript as the path the session reported (the file is the test's to write: one that is
+// gone is a session never prompted).
+func (x *fx) recordAt(agent, sid, transcript string) {
+	x.t.Helper()
+	recordSessions(x.t, x.p.Root, store.Session{Agent: agent, Kind: "claude", ID: sid, Transcript: transcript,
+		Started: time.Now().Unix()})
 }
 
 // recorded is agent's current session id in serve's store ("": none).
@@ -261,11 +268,13 @@ func (x *fx) recorded(agent string) string {
 	return s.ID
 }
 
-// transcript is Claude's transcript of sid for a session started in cwd.
-func (x *fx) transcript(cwd, sid string) {
+// transcript writes Claude's transcript of sid and returns its path, in the dir Claude picks for a project (the hook
+// reports just that path).
+func (x *fx) transcript(sid string) string {
 	x.t.Helper()
-	slug := regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(cwd, "-")
-	x.p.Write(filepath.Join(x.claude, "projects", slug, sid+".jsonl"), "")
+	path := filepath.Join(x.claude, "projects", "-work-lane", sid+".jsonl")
+	x.p.Write(path, "")
+	return path
 }
 
 // shell is a pane at its shell (no agent), labelled label.
@@ -301,6 +310,28 @@ func hasParts(line, query string) bool {
 }
 
 func (x *fx) startCall() string { return strings.Join(x.calls("agent.start"), "\n") }
+
+// namedSession is the session id the launcher recorded before its start for a kind whose sessions obor names (T-813);
+// "" when none was reported.
+func (x *fx) namedSession() string {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	for i := len(x.reported) - 1; i >= 0; i-- {
+		if x.reported[i].Kind == "claude" && x.reported[i].Transcript == "" {
+			return x.reported[i].ID
+		}
+	}
+	return ""
+}
+
+// named is s with the session id obor chose hidden as the tables write it, "<new>": the id is random (a uuid; the
+// start that carries it is TestStartNamesItsSession's).
+func (x *fx) named(s string) string {
+	if id := x.namedSession(); id != "" {
+		s = strings.ReplaceAll(s, id, "<new>")
+	}
+	return s
+}
 
 // index is the position of the first request matching query (-1: none).
 func (x *fx) index(query string) int {
@@ -418,13 +449,13 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=lead"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
+		start: "agent.start args=[--permission-mode auto --model opus --session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6", // T-729
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_unknown_agent_with_sid_gets_obor_agent_only
 		name: "unknown agent with a sid: OBOR_AGENT and OBOR_LANE unset only, no cd, no type args",
 		prep: func(x *fx) {
-			x.record("triage", "sid-t")
+			x.sid("triage", "sid-t")
 			x.shell("w1:p8", "triage", "").Session = "sid-t"
 		},
 		req: launch.Request{Agent: "triage"},
@@ -433,7 +464,6 @@ func TestRestartWho(t *testing.T) {
 		},
 		start: "agent.start args=[--resume sid-t] kind=claude name=triage pane_id=w1:p8",
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
-		out:   "warning: pane w1:p8 has no known cwd: recorded session sid-t not checked",
 	}, {
 		// bash restart.test.sh case_triage_gets_obor_agent_only; T-796: OBOR_ROLE=triage like every other role
 		name: "triage role: its type, cwd root, OBOR_ROLE=triage (no OBOR_AGENT)",
@@ -443,7 +473,7 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=triage"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-718: the main checkout, no worktree
@@ -457,7 +487,7 @@ func TestRestartWho(t *testing.T) {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) +
 				" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=deep_dive"
 		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",
+		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-deep-dive pane_id=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
 	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
@@ -468,9 +498,9 @@ func TestRestartWho(t *testing.T) {
 		env: func(x *fx) string {
 			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=lead"
 		},
-		start: "agent.start args=[/obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
+		start: "agent.start args=[--session-id <new> /obor:lead] kind=claude name=pj-lead pane_id=w1:p6",
 		line:  "RESTARTED pj-lead (pane w1:p6, session new)",
-		out:   "args (claude): /obor:lead",
+		out:   "args (claude): --session-id <new> /obor:lead",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -483,6 +513,7 @@ func TestRestartWho(t *testing.T) {
 			if !ok {
 				t.Fatalf("restart failed:\n%s", out)
 			}
+			out = x.named(out)
 			eq(t, last(out), c.line, "result line")
 			runs := x.calls("pane.send_input")
 			if len(runs) != 1 {
@@ -493,7 +524,7 @@ func TestRestartWho(t *testing.T) {
 				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
 			eq(t, runs[0][:len(runs[0])-len(m[0])], c.env(x), "env line (cwd, OBOR_ROLE, OBOR_LANE, a stale OBOR_AGENT unset)")
-			eq(t, x.startCall(), c.start, "agent start (kind, pane, type args, resume)")
+			eq(t, x.named(x.startCall()), c.start, "agent start (kind, pane, type args, resume)")
 			if c.out != "" {
 				contains(t, out, c.out, "output")
 			}
@@ -805,9 +836,9 @@ func TestStartFirstPrompt(t *testing.T) {
 	}{
 		// bash-free cases: the table is the spec
 		{"claude, wake", "reviewer", "opus", "claude", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- --permission-mode auto --model opus" + settings + " " + wake},
+			"-- --permission-mode auto --model opus" + settings + " --session-id <new> " + wake},
 		{"claude, no wake", "reviewer", "opus", "claude", launch.Request{Fresh: true}, false,
-			"-- --permission-mode auto --model opus" + settings},
+			"-- --permission-mode auto --model opus" + settings + " --session-id <new>"},
 		{"claude, resume carries no wake", "reviewer", "opus", "claude", launch.Request{Prompt: wake}, true,
 			"-- --permission-mode auto --model opus" + settings + " --resume sid-1"},
 		{"codex, wake", "reviewer", "luna", "codex", launch.Request{Fresh: true, Prompt: wake}, false,
@@ -825,6 +856,9 @@ func TestStartFirstPrompt(t *testing.T) {
 			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", "pj-rev", c.kind, "idle")
 			a.Session = "sid-1"
+			if c.resume && c.kind == "claude" {
+				x.sid("pj-rev", "sid-1") // T-813: Claude resumes its record, never herdr's session
+			}
 			c.req.Agent = "pj-rev"
 			out, ok := x.restart(c.req)
 			if !ok {
@@ -834,7 +868,7 @@ func TestStartFirstPrompt(t *testing.T) {
 			if args := strings.TrimPrefix(c.want, "-- "); args != "" {
 				want = "agent.start args=[" + args + "] kind=" + c.kind + " name=pj-rev pane_id=w1:p7"
 			}
-			eq(t, x.startCall(), want, "agent.start")
+			eq(t, x.named(x.startCall()), want, "agent.start")
 		})
 	}
 }
@@ -1716,55 +1750,108 @@ func TestRestartSuspended(t *testing.T) {
 	eqInt(t, asked, 0, "ps asked only at a shell")
 }
 
-// bash restart.test.sh case_stale_recorded_sid_fails, case_recorded_sid_checked_against_pane_cwd_codex_skipped
+// T-813: a recorded session resumes from the transcript its SessionStart hook reported: obor derives no path from the
+// cwd, so a symlinked or long lane path, or a pane whose cwd moved, resumes it. A transcript that is gone was never
+// prompted (T-627): fresh, said. A record with no path yet (obor named the session, no hook confirmed it) resumes when
+// the kind's own file of that id is somewhere. Codex's sessions are not obor's: not checked.
 func TestRestartRecordedSession(t *testing.T) {
 	t.Parallel()
-	x := setup(t)
-	x.record("pj-l-01", "sid-x")
-	x.transcript("/Users/someone/other-project", "sid-x")
-	x.shell("w1:p3", "pj-l-01", "")
-	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-	eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "another project's sid")
-	if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
-		t.Error("nothing typed or started")
-	}
-	x.transcript(x.lane, "sid-x")
-	out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
-	contains(t, out, "resuming sid-x (from record)", "source printed")
-	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "transcript under the lane → resumes")
-
-	// No lane or role: the pane's cwd is checked; herdr's session is not checked; Codex records are not checked.
-	x.reset()
-	x.record("triage", "sid-t")
-	x.transcript("/Users/someone/elsewhere", "sid-t")
-	x.shell("w1:p8", "triage", "/work/maps/").Session = "sid-t"
-	out, _ = x.restart(launch.Request{Agent: "triage"})
-	eq(t, last(out), "FAIL recorded session sid-t is not from /work/maps (pass --fresh)", "the pane cwd")
-	x.transcript("/work/maps", "sid-t")
-	out, _ = x.restart(launch.Request{Agent: "triage"})
-	eq(t, last(out), "RESTARTED triage (pane w1:p8, session sid-t)", "transcript under the pane cwd")
-
-	x.reset()
-	x.shell("w1:p8", "", "/work/maps").Session = "sid-h"
-	out, _ = x.restart(launch.Request{Agent: "scout", Pane: "w1:p8"})
-	contains(t, out, "resuming sid-h (from herdr)", "herdr's session, unchecked")
-
-	x.reset()
-	x.record("pj-rev", "cx-1")
-	x.shell("w1:p7", "pj-rev", "")
-	out, _ = x.restart(launch.Request{Agent: "pj-rev"})
-	contains(t, out, "recorded session cx-1 not checked (codex keeps no transcript per cwd)", "said")
-	contains(t, x.startCall(), "args=[resume cx-1", "codex resumes its record")
+	t.Run("the hook's path: resumes, whatever the pane's cwd", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		path := x.transcript("sid-x")
+		x.recordAt("pj-l-01", "sid-x", path)
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		contains(t, out, "resuming sid-x (from record)", "source printed")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "the recorded path: resumes")
+		lacks(t, out, "is not from", "no cwd refusal")
+		if !ok {
+			t.Fatal(out)
+		}
+	})
+	t.Run("a symlinked lane cwd: resumes, no not-from-cwd refusal", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		link := filepath.Join(x.p.Base, "lane-link")
+		if err := os.Symlink(x.lane, link); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(x.claude, "projects", "a-long-hashed-project-dir", "sid-s.jsonl")
+		x.p.Write(path, "")
+		x.recordAt("pj-l-01", "sid-s", path)
+		x.shell("w1:p3", "pj-l-01", link)
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, out, "resuming sid-s (from record)", "the recorded path, not a slug of the symlink")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-s)", "resumed")
+		lacks(t, out, "is not from", "no cwd refusal")
+	})
+	t.Run("a transcript gone: fresh, said", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.recordAt("pj-l-01", "sid-y", filepath.Join(x.claude, "projects", "-gone", "sid-y.jsonl"))
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, out, "recorded session sid-y has no transcript ("+filepath.Join(x.claude, "projects", "-gone", "sid-y.jsonl")+"): starting fresh", "said")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
+		lacks(t, x.startCall(), "--resume", "no resume")
+	})
+	t.Run("no recorded path, the kind's file of that id: resumes", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.transcript("sid-z") // the hook has not filled the path in yet; the file is Claude's
+		x.record("pj-l-01", "sid-z")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-z)", "searched by id")
+		lacks(t, out, "starting fresh", "no fresh start")
+	})
+	t.Run("config dir with glob metacharacters, no recorded path: the search still finds it", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.claude = filepath.Join(x.p.Base, "cl[aude")
+		x.transcript("sid-g")
+		x.record("pj-l-01", "sid-g")
+		if _, err := os.Stat(filepath.Join(x.claude, "projects")); err != nil {
+			t.Fatalf("precondition: the transcript exists under the bracketed dir: %v", err)
+		}
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-g)", "found without a glob")
+	})
+	t.Run("Codex's sessions are not obor's: not checked", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.record("pj-rev", "cx-1")
+		x.shell("w1:p7", "pj-rev", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, out, "recorded session cx-1 not checked (codex's sessions are not obor's)", "said")
+		contains(t, x.startCall(), "args=[resume cx-1", "codex resumes its record")
+	})
 }
 
-// T-627: the session rule, restart and restore, as the state model's row 51 says it. A recorded session is resumed
-// when its transcript is under the pane's cwd, refused when it is under another, and started fresh (said) when it
-// exists nowhere: Claude writes no transcript before the first prompt, so a session never prompted has none. A pane
-// with no recorded session starts fresh in restore, role or worker (a role started fresh with no prompt has no
-// transcript either).
+// T-627, T-813: the session rule, restart and restore, as the state model's row 51 says it. A recorded session
+// resumes from the transcript the session itself reported; none anywhere means it was never prompted (Claude writes
+// no transcript before the first prompt), so the restart starts fresh, said. A pane with no recorded session starts
+// fresh in restore, role or worker (a role started fresh with no prompt has no transcript either).
 func TestSessionResumeRule(t *testing.T) {
 	t.Parallel()
-	t.Run("restart: transcript in the pane's cwd: resumed", func(t *testing.T) {
+	t.Run("restart: a confirmed transcript: resumed", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-1")
@@ -1777,48 +1864,28 @@ func TestSessionResumeRule(t *testing.T) {
 		contains(t, x.startCall(), "--resume sid-1", "the transcript's session")
 		lacks(t, out, "starting fresh", "no fresh start")
 	})
-	t.Run("restart: transcript under another cwd: refused", func(t *testing.T) {
+	t.Run("restart: a transcript under another project's dir: resumed (the hook's path)", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
-		x.record("pj-l-01", "sid-x")
-		x.transcript("/Users/someone/other-project", "sid-x")
+		path := filepath.Join(x.claude, "projects", "-users-someone-other-project", "sid-x.jsonl")
+		x.p.Write(path, "")
+		x.recordAt("pj-l-01", "sid-x", path)
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		if ok {
+		if !ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "refused")
-		lacks(t, out, "starting fresh", "never fresh")
-		if x.startCall() != "" || len(x.calls("pane.send_input")) > 0 {
-			t.Errorf("nothing typed or started")
-		}
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "the recorded path resumes")
+		lacks(t, out, "is not from", "no cwd refusal")
 	})
-	t.Run("restart: config dir with glob metacharacters, transcript under another cwd: refused", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.claude = filepath.Join(x.p.Base, "cl[aude")
-		x.record("pj-l-01", "sid-x")
-		x.transcript("/Users/someone/other-project", "sid-x")
-		if _, err := os.Stat(filepath.Join(x.claude, "projects")); err != nil {
-			t.Fatalf("precondition: the transcript exists under the bracketed dir: %v", err)
-		}
-		x.shell("w1:p3", "pj-l-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		if ok {
-			t.Fatal(out)
-		}
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "refused")
-		lacks(t, out, "starting fresh", "never fresh")
-		if x.startCall() != "" {
-			t.Errorf("nothing started")
-		}
-	})
-	t.Run("restart: unreadable projects dir: refused, never fresh", func(t *testing.T) {
+	t.Run("restart: unreadable projects dir, no recorded path: refused, never fresh", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.record("pj-l-01", "sid-x")
-		x.transcript("/Users/someone/other-project", "sid-x")
 		projects := filepath.Join(x.claude, "projects")
+		if err := os.MkdirAll(projects, 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Chmod(projects, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -1837,7 +1904,7 @@ func TestSessionResumeRule(t *testing.T) {
 			t.Errorf("nothing started")
 		}
 	})
-	t.Run("restart: transcript nowhere (never prompted): fresh, said", func(t *testing.T) {
+	t.Run("restart: no transcript anywhere (never prompted): fresh, said", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.record("pj-l-01", "sid-x")
@@ -2755,37 +2822,20 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		contains(t, x.startCall(), "--resume sid-rec", "the record resumed")
 		eq(t, record(x), "sid-rec\n", "record kept")
 	})
-	t.Run("stale record of another project, herdr set: the record is checked, not replaced", func(t *testing.T) {
+	t.Run("the record's transcript is gone, herdr set: fresh, said, the record kept", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.record("pj-l-01", "sid-old")
-		x.transcript("/Users/someone/other-project", "sid-old")
 		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "FAIL recorded session sid-old is not from "+x.lane+" (pass --fresh)", "checked")
-		if ok || x.startCall() != "" {
-			t.Error("nothing started")
+		if !ok {
+			t.Fatal(out)
 		}
+		contains(t, out, "recorded session sid-old has no transcript (never prompted): starting fresh", "said")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "a new session")
 		eq(t, record(x), "sid-old\n", "record kept")
 	})
-	t.Run("no herdr session: record, transcript checked", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		x.record("pj-l-01", "sid-x")
-		x.transcript("/Users/someone/other-project", "sid-x")
-		x.shell("w1:p3", "pj-l-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "checked")
-		if ok || x.startCall() != "" {
-			t.Error("nothing started")
-		}
-		x.transcript(x.lane, "sid-x")
-		out, _ = x.restart(launch.Request{Agent: "pj-l-01"})
-		contains(t, out, "resuming sid-x (from record)", "source")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "record resumed")
-		eq(t, record(x), "sid-x\n", "record kept")
-	})
-	t.Run("no record, herdr set: herdr", func(t *testing.T) {
+	t.Run("no record, herdr set: never herdr's for claude", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.shell("w1:p3", "pj-l-01", "").Session = "sid-h"
@@ -2793,7 +2843,24 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 			t.Fatal("precondition: no record")
 		}
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-h)", "result")
+		if ok {
+			t.Fatal(out)
+		}
+		eq(t, last(out), "FAIL no session to resume for pj-l-01 (pass --fresh to start a new one)", "no source but obor's")
+		lacks(t, out, "from herdr", "herdr's session not adopted")
+		if x.startCall() != "" || len(x.calls("pane.send_input")) > 0 {
+			t.Errorf("nothing typed or started")
+		}
+	})
+	t.Run("no record, herdr set: herdr for codex", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p7", "pj-rev", "").Session = "sid-h"
+		if x.recorded("pj-rev") != "" {
+			t.Fatal("precondition: no record")
+		}
+		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
+		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session sid-h)", "result")
 		if !ok || strings.Contains(out, "warning:") {
 			t.Errorf("no warning: %q", out)
 		}
@@ -3214,6 +3281,85 @@ func TestLaunchReportsIdentity(t *testing.T) {
 	eq(t, s.Pane+" "+s.Kind+" "+s.Session, "w1:p3 claude original-task-session", "the identity the start reports")
 }
 
+// T-813: a fresh start of a kind whose sessions obor names carries --session-id <id>, and the id is in the store
+// before the agent runs (the store and a restart know it before the SessionStart hook reports it). A resume carries
+// none. A refused record is said, and the start keeps its id.
+func TestStartNamesItsSession(t *testing.T) {
+	t.Parallel()
+	uuidRE := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	t.Run("fresh: the id in the argv, the store has it before the agent runs", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		var stored string
+		x.wrap = func(h port.PaneControl) port.PaneControl {
+			return startProbe{h, func() {
+				s, _ := store.CurrentAt(x.p.Root, "pj-l-01")
+				stored = s.ID
+			}}
+		}
+		x.shell("w1:p3", "pj-l-01", "")
+		var out bytes.Buffer
+		var reported store.Session
+		l := x.launcher(&out)
+		l.Report = func(_ context.Context, s store.Session) error { // serve's session fact
+			reported = s
+			recordSessions(t, x.p.Root, s)
+			return nil
+		}
+		line, err := l.Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+		if _, ok := result(t, &out, line, err); !ok {
+			t.Fatal(out.String())
+		}
+		if reported.Agent != "pj-l-01" || reported.Kind != "claude" || reported.Pane != "w1:p3" || reported.Lane != "L-01" ||
+			reported.Source != "launch" || reported.Transcript != "" || reported.Started == 0 {
+			t.Errorf("reported %+v, want the agent, kind, pane, lane and no transcript yet", reported)
+		}
+		if !uuidRE.MatchString(reported.ID) {
+			t.Errorf("session id %q is not a uuid", reported.ID)
+		}
+		eq(t, stored, reported.ID, "the store has the id when the agent starts")
+		contains(t, x.startCall(), "--session-id "+reported.ID, "the argv names the session")
+		lacks(t, x.startCall(), "--resume", "a fresh start resumes nothing")
+	})
+	t.Run("resume: the recorded id, no --session-id", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, x.startCall(), "--resume sid-1", "the record")
+		lacks(t, x.startCall(), "--session-id", "a resume names no session")
+	})
+	t.Run("a refused record: said, the start keeps its id", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.reportErr = errors.New("serve is down")
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, out, "not recorded before the start: serve is down", "said")
+		if !regexp.MustCompile(`--session-id [0-9a-f-]{36}`).MatchString(x.startCall()) {
+			t.Errorf("the start carries no session id: %q", x.startCall())
+		}
+	})
+}
+
+// startProbe notes what the store holds when the agent's start reaches herdr.
+type startProbe struct {
+	port.PaneControl
+	atStart func()
+}
+
+func (p startProbe) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
+	p.atStart()
+	return p.PaneControl.Start(ctx, name, kind, pane, args...)
+}
+
 // T-474 (RV-50 #5): a role with no configured model still gets its kind's launch defaults: Claude's memory off for
 // every role but the lead.
 func TestUntypedRoleLaunchDefaults(t *testing.T) {
@@ -3286,6 +3432,9 @@ func TestFreshStartRolePrompt(t *testing.T) {
 			x := setup(t, testkit.Set("roles", `{"lead":"`+c.typ+`","reviewer":"`+c.typ+`"}`))
 			a := x.agent("w1:p7", c.agent, c.kind, "idle")
 			a.Session = "sid-1"
+			if c.resume {
+				x.sid(c.agent, "sid-1") // T-813: a Claude resume is its record's, not herdr's session
+			}
 			c.req.Agent = c.agent
 			out, ok := x.restart(c.req)
 			if !ok {

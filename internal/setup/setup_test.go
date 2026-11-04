@@ -261,6 +261,12 @@ func last(out string) string {
 	return lines[len(lines)-1]
 }
 
+// named hides the session id obor names a fresh Claude start with (T-813): it is random, so the expectations write
+// it NEW.
+var namedRE = regexp.MustCompile(`--session-id [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
+
+func named(text string) string { return namedRE.ReplaceAllString(text, "--session-id NEW") }
+
 func has(t *testing.T, text, want, what string) {
 	t.Helper()
 	if !strings.Contains(text, want) {
@@ -736,7 +742,7 @@ func TestPaneOnALaneStartsTheDefaultKindWithoutADispatch(t *testing.T) {
 	}
 	x.reset()
 	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
-	has(t, strings.Join(x.reqs(), "\n"), "agent.start args=["+laneArgs+"] kind=claude name=pj-l-01", "the default kind, no model")
+	has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01", "the default kind, no model")
 }
 
 // T-770: the owner's drive agent (role driver) is a lane's agent too: its Claude start is strict — obor's MCP server
@@ -754,7 +760,7 @@ func TestDriveStartIsStrict(t *testing.T) {
 	}
 	reqs := strings.Join(x.reqs(), "\n")
 	has(t, reqs, "OBOR_ROLE=driver", "the drive agent's role")
-	has(t, reqs, "agent.start args=["+laneArgs+" -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
+	has(t, named(reqs), "agent.start args=["+laneArgs+" --session-id NEW -- drive T-1] kind=claude name=pj-l-01-drive", "a strict start, obor's server alone")
 }
 
 // bash setup.test.sh case_lane_refuses_unknown_type_type_change_and_failing_setup: a failing lane_setup fails the lane.
@@ -786,8 +792,8 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 	want := []string{"agent.list", "pane.list", "pane.layout pane_id=w1:p1",
 		"pane.split cwd=" + lane + " direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1",
 		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[" + laneArgs + "] kind=claude name=pj-l-01 pane_id=w1:n1"}
-	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		"agent.start args=[" + laneArgs + " --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:n1"}
+	if got := x.reqs(); named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
@@ -918,7 +924,7 @@ func TestPaneLabelSetAndRefused(t *testing.T) {
 	if x.h.Pane("w1:p1").Label != "pj-l-01" {
 		t.Error("label set in herdr")
 	}
-	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+"] kind=claude name=pj-l-01 pane_id=w1:p1",
+	has(t, named(strings.Join(x.reqs(), "\n")), "pane.rename label=pj-l-01 pane_id=w1:p1\nagent.get target=pj-l-01\nagent.get target=w1:p1\nagent.get target=w1:p1\nagent.start args=["+laneArgs+" --session-id NEW] kind=claude name=pj-l-01 pane_id=w1:p1",
 		"rename, the name-held check, then the start")
 
 	x.noAgents()
@@ -1075,14 +1081,14 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	want := []string{"agent.list", "pane.list", "pane.process_info pane_id=w1:p3", "<env line>",
 		"pane.read lines=30 pane_id=w1:p3 source=visible strip_ansi=true", "pane.rename label=pj-int pane_id=w1:p3",
 		"agent.get target=pj-int", "agent.get target=w1:p3", "agent.get target=w1:p3",
-		"agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p3"}
+		"agent.start args=[--permission-mode auto --model opus " + settings + " --session-id NEW] kind=claude name=pj-int pane_id=w1:p3"}
 	got := x.reqs()
 	for i, r := range got {
 		if strings.HasPrefix(r, "pane.send_input") {
 			got[i] = "<env line>"
 		}
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+	if named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s", strings.Join(got, "\n"))
 	}
 }
@@ -1171,7 +1177,7 @@ func TestSetupPaneStopsWhenTheEnvLineFailed(t *testing.T) {
 		if !strings.Contains(pane.Screen, okWord) || strings.Contains(pane.Screen, badWord) {
 			t.Errorf("the screen shows the success mark only, want %q:\n%s", okWord, pane.Screen)
 		}
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[--permission-mode auto --model opus "+settings+"] kind=claude name=pj-int pane_id=w1:p3",
+		has(t, named(strings.Join(x.reqs(), "\n")), "agent.start args=[--permission-mode auto --model opus "+settings+" --session-id NEW] kind=claude name=pj-int pane_id=w1:p3",
 			"the agent starts after the env line succeeded")
 	})
 }
@@ -1198,7 +1204,7 @@ func TestRoleLeadNewTabGetsRoleEnv(t *testing.T) {
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=lead,OPENCODE_CONFIG=} focus=false label=lead", "env")
-	has(t, calls, "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
+	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "the agent named by its derived name, no Remote Control default (T-280)")
 }
 
 // T-280: a lead of a type without settings keeps Remote Control; a worker does not. (Setup role lead, the one lead.)
@@ -1209,7 +1215,7 @@ func TestLeadKeepsRemoteControl(t *testing.T) {
 		t.Fatalf("setup role lead: %q", out)
 	}
 	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "agent.start args=[--permission-mode auto --model opus /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
+	has(t, named(calls), "agent.start args=[--permission-mode auto --model opus --session-id NEW /obor:lead] kind=claude name=pj-lead pane_id=w1:n1", "lead: type args, no --settings")
 	hasNot(t, calls, "remoteControlAtStartup", "lead")
 }
 

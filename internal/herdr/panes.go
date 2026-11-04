@@ -213,7 +213,7 @@ func (p Panes) transcript(a Agent) string {
 		}
 		return ""
 	}
-	matches, _ := filepath.Glob(k.Transcript(env, "", a.Session))
+	matches, _ := filepath.Glob(k.Transcript(env, a.Session))
 	path, newest := "", time.Time{}
 	for _, m := range matches {
 		if fi, err := os.Stat(m); err == nil && (path == "" || fi.ModTime().After(newest)) {

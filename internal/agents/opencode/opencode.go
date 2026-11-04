@@ -183,7 +183,7 @@ func Config(kit string) []byte {
 	return append(b, '\n')
 }
 
-func (kind) Transcript(func(string) string, string, string) string { return "" }
+func (kind) Transcript(func(string) string, string) string { return "" }
 
 // LastTurn: none read; OpenCode keeps its sessions in a database, not a transcript obor finds.
 func (kind) LastTurn([]byte) (agents.Turn, bool) { return agents.Turn{}, false }

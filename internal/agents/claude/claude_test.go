@@ -46,6 +46,13 @@ func TestStart(t *testing.T) {
 		{"resume: --resume last, the prompt dropped", agents.Start{Kit: "/kit", Args: []string{"--model", "opus"},
 			Settings: map[string]any{"a": 1}, Resume: "sid-1", Prompt: "go"},
 			[]string{"--model", "opus", "--settings", `{"a":1}`, "--resume", "sid-1"}},
+		// T-813: a fresh start runs as the session obor named, and a resume names no new one.
+		{"fresh, the session obor named: --session-id before the prompt", agents.Start{Kit: "/kit",
+			Args: []string{"--model", "opus"}, Session: "2f1c9a56-6e2b-4d7f-9a7e-3c0b8a1d5e42", Prompt: "go"},
+			[]string{"--model", "opus", "--session-id", "2f1c9a56-6e2b-4d7f-9a7e-3c0b8a1d5e42", "go"}},
+		{"resume: its id, never --session-id", agents.Start{Kit: "/kit", Args: []string{"--model", "opus"},
+			Session: "2f1c9a56-6e2b-4d7f-9a7e-3c0b8a1d5e42", Resume: "sid-1"},
+			[]string{"--model", "opus", "--resume", "sid-1"}},
 		{"strict: obor's config before the flag, -- before the prompt",
 			agents.Start{Kit: "/kit", Args: []string{"--strict-mcp-config"}, Prompt: "go"},
 			[]string{"--mcp-config", ours, "--strict-mcp-config", "--", "go"}},
@@ -141,17 +148,15 @@ func TestKind(t *testing.T) {
 	}
 
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	home := env(map[string]string{"HOME": "/h"})
 	for _, c := range []struct {
-		env       func(string) string
-		cwd, want string
+		env  func(string) string
+		want string
 	}{
-		{home, "", "/h/.claude/projects/*/s1.jsonl"},
-		{home, "/work/my.repo", "/h/.claude/projects/-work-my-repo/s1.jsonl"},
-		{env(map[string]string{"HOME": "/h", "CLAUDE_CONFIG_DIR": "/c"}), "", "/c/projects/*/s1.jsonl"},
+		{env(map[string]string{"HOME": "/h"}), "/h/.claude/projects/*/s1.jsonl"},
+		{env(map[string]string{"HOME": "/h", "CLAUDE_CONFIG_DIR": "/c"}), "/c/projects/*/s1.jsonl"},
 	} {
-		if got := k.Transcript(c.env, c.cwd, "s1"); got != c.want {
-			t.Errorf("Transcript(cwd %q) = %q, want %q", c.cwd, got, c.want)
+		if got := k.Transcript(c.env, "s1"); got != c.want {
+			t.Errorf("Transcript = %q, want %q", got, c.want)
 		}
 	}
 
@@ -182,7 +187,8 @@ func TestKind(t *testing.T) {
 	if got, ok := k.LastTurn([]byte(`{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"m","codex_error_info":"usage_limit_exceeded"}}}` + "\n")); ok { // T-563: its turns are not read (Caps.Turns false below)
 		t.Errorf("LastTurn = %+v, true; want none read", got)
 	}
-	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, ProjectPlugin: true, Inbox: true, Resume: true, Skills: true, Transcript: true}) {
+	if c := k.Caps(); c != (agents.Caps{Hooks: agents.HooksNative, NamedSession: true, ProjectPlugin: true, Inbox: true,
+		Resume: true, Skills: true, Transcript: true}) {
 		t.Errorf("Caps = %+v", c)
 	}
 }
