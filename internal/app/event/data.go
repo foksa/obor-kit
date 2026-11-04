@@ -62,6 +62,9 @@ type Message struct {
 	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
 	// running agent stopped first
 	Fresh bool `json:"fresh,omitempty"`
+	// Verify: a verify brief's (obor review verify, T-823): the fix tasks its coverage names, counted by ReviewCovered
+	// once its brief was delivered (one append with the brief, so a refused or superseded one covers nothing)
+	Verify []string `json:"verify,omitempty"`
 	// Idle is the seq of the idle fact this line announces (T-803, messages.go): the first line, or — with IdlePing —
 	// the 30-minute ping's.
 	Idle     int64 `json:"idle,omitempty"`

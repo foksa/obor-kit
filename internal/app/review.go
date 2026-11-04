@@ -539,7 +539,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
-	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief, false); !ok && lost == nil {
+	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief, false, nil); !ok && lost == nil {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused the brief"))
 	}
 	if lost != nil {
@@ -586,26 +586,45 @@ func closeCovered(body string) (covered []string, start string) {
 }
 
 // ReviewCovered is the open review's covered tasks and the sha its review started at, from the project's event log:
-// the last review.started fact's tasks and head, plus the tasks of each verify since it (T-822). ok is false when the
-// log has no started fact (a review started by an older obor: its close commit keeps the old format).
+// the last review.started fact's tasks and head, plus the tasks of each verify since it. A verify's are its brief's
+// (T-823: Message.Verify) once that brief was delivered: a brief still queued, refused or superseded covers nothing;
+// an older store's review.verify fact likewise (T-822). ok is false when the log has no started fact (a review started
+// by an older obor: its close commit keeps the old format).
 func ReviewCovered(root string) (covered []string, start string, ok bool) {
 	recs, err := event.ReadLog(root)
 	if err != nil {
 		return nil, "", false
 	}
+	delivered := deliveredLines(recs)
 	for _, r := range recs {
-		if r.Task != event.ReviewTask || r.Kind != event.KindFact {
+		if r.Kind != event.KindFact {
 			continue
 		}
-		var d ReviewData
-		if json.Unmarshal(r.Data, &d) != nil {
-			continue
-		}
-		switch {
-		case r.Step == event.StepReviewStarted:
-			covered, start, ok = d.Tasks, d.Head, true
-		case r.Step == event.StepReviewVerify && ok:
-			covered = append(covered, d.Tasks...)
+		switch r.Task {
+		case event.ReviewTask:
+			var d ReviewData
+			if json.Unmarshal(r.Data, &d) != nil {
+				continue
+			}
+			switch r.Step {
+			case event.StepReviewStarted:
+				covered, start, ok = d.Tasks, d.Head, true
+			case event.StepReviewVerify: // an older store's (T-822): its fact is the coverage
+				if ok {
+					covered = append(covered, d.Tasks...)
+				}
+			}
+		case event.MsgTask:
+			if r.Step != event.StepBriefed {
+				continue
+			}
+			var m event.Message
+			if json.Unmarshal(r.Data, &m) != nil || len(m.Verify) == 0 {
+				continue
+			}
+			if ok && delivered[r.Seq] {
+				covered = append(covered, m.Verify...)
+			}
 		}
 	}
 	seen := map[string]bool{}
@@ -617,6 +636,24 @@ func ReviewCovered(root string) (covered []string, start string, ok bool) {
 		}
 	}
 	return uniq, start, ok
+}
+
+// deliveredLines is the seqs of the log's lines a delivery reached (T-823): each has its delivery's result, and one
+// closed unsent (retiredResult) does not (messages.go, settleLine reads a result the same way).
+func deliveredLines(recs []event.Record) map[int64]bool {
+	out := map[int64]bool{}
+	for _, r := range recs {
+		if r.Task != event.MsgTask || r.Kind != event.KindResult || !strings.HasPrefix(r.Step, stepDeliver) {
+			continue
+		}
+		seq, err := strconv.ParseInt(strings.TrimPrefix(r.Step, stepDeliver), 10, 64)
+		var res string
+		_ = json.Unmarshal(r.Data, &res)
+		if err == nil && res != retiredResult {
+			out[seq] = true
+		}
+	}
+	return out
 }
 
 // reviewScope is where the next review's range starts, and the tasks a closed cycle already covered: the previous
