@@ -15,7 +15,7 @@ import (
 
 // Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:
 // idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is
-// terminated. Working/blocked → Escape, wait (≤ Idle, 30 s) for it to go idle, then the same exit (T-773: no "left
+// terminated. Working/blocked → Escape, wait (≤ Idle, port.StopBound) for it to go idle, then the same exit (T-773: no "left
 // running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
 // unless force; force → exits anyway after the wait (the kind's Stop.Dialog option when the dialog asks); an agent that
 // ignores the exit is terminated (terminate). No session check, no start. Returns the STOPPED line.
@@ -71,7 +71,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		_ = l.H.SendKeys(ctx, t.pane, "esc")
 		idle := l.Idle
 		if idle <= 0 {
-			idle = 30 * time.Second
+			idle = port.StopBound
 		}
 		if !l.until(ctx, idle, func() bool {
 			a, err := l.H.Agent(ctx, t.pane)

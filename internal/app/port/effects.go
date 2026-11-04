@@ -17,7 +17,7 @@ type Agents interface {
 	// type or role, after stopping what runs there. Returns the one-line result and the agent it started.
 	Launch(ctx context.Context, req Launch) (Started, error)
 	// Stop quits agent in pane ("": the pane labelled agent) and leaves the pane at its shell; force also stops a
-	// working one. Returns the STOPPED line.
+	// working one (up to StopBound to go idle after Escape). Returns the STOPPED line.
 	Stop(ctx context.Context, agent, pane string, force bool) (string, error)
 }
 
@@ -82,6 +82,11 @@ func NotFound(err error) bool {
 // CodeNeedsForce is the ErrorCode of a stop without force that refused an agent only a forced stop ends: still working
 // after Escape, or its exit dialog names background tasks (launch's Stop, T-773).
 const CodeNeedsForce = "needs_force"
+
+// StopBound is how long a stop waits for a working agent to go idle after Escape before it refuses without force, or
+// exits anyway with it: launch's Idle default, and the bound a CLI call whose serve side may stop an agent covers
+// (wire's deadline table; T-825).
+const StopBound = 30 * time.Second
 
 // NeedsForce: err is such a refusal (CodeNeedsForce in the chain).
 func NeedsForce(err error) bool { return ErrorCode(err) == CodeNeedsForce }

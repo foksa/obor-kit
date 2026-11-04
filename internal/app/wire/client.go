@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"obor/internal/app/port"
 )
 
 // Ask is the status of the app listening on the unix socket at path.
@@ -42,12 +44,23 @@ func NewCallID() string {
 }
 
 // Verdict sends the verdict call c (MethodAccept, …) to the app listening at path: its reply line, or the app's
-// refusal as the error. The call has its method's deadline (callDeadline) or ctx's, the earlier.
+// refusal as the error. The call has its method's deadline (callDeadline) or ctx's, the earlier. A call its deadline
+// ends says serve may still be working on it: a stop inside the call can outlast the answer (T-825).
 func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, callDeadline(method))
+	d := callDeadline(method)
+	if dl, ok := ctx.Deadline(); ok { // ctx's earlier deadline is the one that ends the call
+		if left := time.Until(dl); left < d {
+			d = max(left, 0)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	ans, err := verdictAsk(ctx, path, Request{Method: method, Call: &c})
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) && cut(err) {
+			return "", fmt.Errorf("obor serve did not answer %s in %s: it may still be working on it (obor status shows whether it landed)",
+				method, d.Round(time.Millisecond))
+		}
 		return "", err
 	}
 	return ans.Reply, nil
@@ -61,6 +74,9 @@ const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
+	// stopCallDeadline is a call whose serve side may stop an agent (T-825: a dispatch — a move is one — drop, or a
+	// drive's take-over): the stop's own bound (port.StopBound) plus the verdict margin for the rest of the call.
+	stopCallDeadline = port.StopBound + verdictDeadline
 )
 
 // callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the table
@@ -72,6 +88,8 @@ func callDeadline(method string) time.Duration {
 		}
 	}
 	switch method {
+	case MethodDispatch, MethodDrop, MethodDrive:
+		return stopCallDeadline
 	case MethodTurn, MethodSession:
 		return turnDeadline
 	case MethodStopped:
@@ -138,10 +156,20 @@ func absent(err error) bool {
 // record to the agent's own hook (T-813: a Claude start's session, its SessionStart hook records it anyway).
 func Absent(err error) bool { return absent(err) }
 
+// cut is a transport failure the call's own deadline caused: ctx closed the connection under the read (net.ErrClosed,
+// "use of closed network connection") or ended the dial. A verdict maps it to the deadline's own line (T-825).
+func cut(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // askOnce is one request on its own connection; see ask.
 func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
-	ctx, cancel := context.WithTimeout(ctx, verdictDeadline) // a caller with no deadline still has one
-	defer cancel()
+	// A caller with no deadline still has one; a caller's own (a verdict's table, a stop's bound) is its own.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, verdictDeadline)
+		defer cancel()
+	}
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
