@@ -408,7 +408,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 		r.writeLog([]logRec{{1, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true,
 			Reason: "continue later"}}})
 		r.start()
-		r.passes()
+		r.waitFor("T-1 dropped", func() bool { return r.taskState() == "dropped" })
 	}
 	for _, state := range []string{"working", "blocked"} {
 		t.Run("drop with the work kept, lane "+state+": the same lane, its branch kept", func(t *testing.T) {
