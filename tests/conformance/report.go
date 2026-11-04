@@ -36,9 +36,30 @@ type kindResult struct {
 	Fail    int    `json:"fail"`
 	Skip    int    `json:"skip"`
 	Warn    int    `json:"warn"`
-	// Passed is the last version a run of this tier passed: at least one PASS and no FAIL. A failed run keeps the
-	// earlier one.
+	// State is how far this run got: StatePassed (no FAIL, no SKIP), StatePartial (any SKIP: checked with gaps) or
+	// StateFailed (a FAIL). A reader shows partial as checked with gaps, never as passed.
+	State string `json:"state"`
+	// Passed is the last version a run of this tier passed whole: at least one PASS, no FAIL and no SKIP. A partial or
+	// failed run keeps the earlier one (T-816: a run that skipped its TURN checks has not passed the version).
 	Passed string `json:"passed,omitempty"`
+}
+
+// The three ways a kind's run can end (kindResult.State).
+const (
+	StatePassed  = "passed"
+	StatePartial = "partial"
+	StateFailed  = "failed"
+)
+
+// state is how far the run got: any FAIL is failed, else any SKIP is partial, else passed.
+func (k *kindResult) state() string {
+	switch {
+	case k.Fail > 0:
+		return StateFailed
+	case k.Skip > 0:
+		return StatePartial
+	}
+	return StatePassed
 }
 
 // versions is the versions file: kind → tier → its last run.
@@ -122,8 +143,9 @@ func (r *run) save(path, tier string, at time.Time) error {
 			v.Kinds[name] = map[string]kindResult{}
 		}
 		k.At = at.UTC().Format(time.RFC3339)
+		k.State = k.state()
 		k.Passed = v.Kinds[name][tier].Passed
-		if k.Fail == 0 && k.Pass > 0 {
+		if k.State == StatePassed && k.Pass > 0 {
 			k.Passed = k.Version
 		}
 		v.Kinds[name][tier] = k

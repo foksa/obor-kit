@@ -130,6 +130,56 @@ func TestSaveOnlySkipsIsNoPass(t *testing.T) {
 	}
 }
 
+// T-816 (RV-104 #4): the versions file says how far each kind's run got — passed, partial (any SKIP) or failed — and
+// only a run with no SKIP advances the passed version, so a run whose TURN checks were skipped is not recorded as a
+// pass.
+func TestSaveRecordsPassedPartialOrFailedPerKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conformance.json")
+	r := newRun(&bytes.Buffer{})
+	r.begin("herdr", "0.9.3")
+	r.report("PASS", "H-L1", "f", "w")
+	r.begin("claude", "2.1.318")
+	r.report("PASS", "CC-L1", "f", "w")
+	r.report("SKIP", "CC-L4", "the plain-text line is not sent: one model call per kind", "w")
+	r.begin("codex", "0.166.0")
+	r.report("PASS", "CX-L1", "f", "w")
+	r.report("FAIL", "CX-L2", "f", "w")
+	if err := r.save(path, "live", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	v := readVersions(t, path)
+	if got := v.Kinds["herdr"]["live"]; got.State != StatePassed || got.Passed != "0.9.3" {
+		t.Errorf("herdr live = %+v, want state passed and passed 0.9.3", got)
+	}
+	if got := v.Kinds["claude"]["live"]; got.State != StatePartial || got.Passed != "" {
+		t.Errorf("claude live = %+v, want state partial and no passed version (a SKIP was not checked)", got)
+	}
+	if got := v.Kinds["codex"]["live"]; got.State != StateFailed || got.Passed != "" {
+		t.Errorf("codex live = %+v, want state failed and no passed version", got)
+	}
+}
+
+func TestAPartialRunKeepsTheLastGaplessPassedVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conformance.json")
+	whole := newRun(&bytes.Buffer{})
+	whole.begin("claude", "2.1.318")
+	whole.report("PASS", "CC-L1", "f", "w")
+	if err := whole.save(path, "live", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	partial := newRun(&bytes.Buffer{})
+	partial.begin("claude", "2.1.320")
+	partial.report("PASS", "CC-L1", "f", "w")
+	partial.report("SKIP", "CC-L4", "needs TURN=1 (a model call)", "w")
+	if err := partial.save(path, "live", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got := readVersions(t, path).Kinds["claude"]["live"]
+	if got.Version != "2.1.320" || got.State != StatePartial || got.Passed != "2.1.318" {
+		t.Errorf("claude live = %+v, want version 2.1.320 partial, passed still 2.1.318", got)
+	}
+}
+
 func TestSaveRefusesAnUnreadableFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "conformance.json")
 	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {

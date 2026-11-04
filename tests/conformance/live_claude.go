@@ -325,7 +325,9 @@ func ccTurn(l *lab, k agents.Kind, hooks []record) {
 		report("SKIP", "CC-L6", "no turn", where6)
 		return
 	}
-	report("PASS", "CC-L4", "the envelope (auth + user line) started a turn under --permission-mode auto (the plain-text line and crossSessionInbound are not sent: one model call per kind)", where4)
+	report("PASS", "CC-L4", "the envelope (auth + user line) started a turn under --permission-mode auto", where4)
+	report("SKIP", "CC-L4", "the plain-text line (not the envelope) is not sent: one model call per kind", where4)
+	report("SKIP", "CC-L4", "crossSessionInbound's effect (the inbound policy) is not probed: the run sends no cross-session line", where4)
 	p := stops[0].payload()
 	if strings.TrimSpace(p.LastMessage) == "" {
 		report("FAIL", "CC-L6", "the Stop payload has no last_assistant_message", where6)
