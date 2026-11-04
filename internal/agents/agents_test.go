@@ -116,7 +116,7 @@ func (noEffort) Efforts() []string { return nil }
 func TestCheckEffort(t *testing.T) {
 	for _, c := range []struct{ kind, effort, refusal string }{
 		{"claude", "xhigh", ""}, {"claude", "max", ""}, {"claude", "minimal", "not one of claude's (low, medium, high, xhigh, max)"},
-		{"codex", "minimal", ""}, {"codex", "max", "not one of codex's (minimal, low, medium, high, xhigh)"},
+		{"codex", "max", ""}, {"codex", "ultra", ""}, {"codex", "minimal", "not one of codex's (low, medium, high, xhigh, max, ultra)"},
 		{"opencode", "max", ""}, {"cursor", "high", "has no bridge"}, {"cursor", "", ""}, {"claude", "", ""},
 	} {
 		err := agents.CheckEffort(c.kind, c.effort)

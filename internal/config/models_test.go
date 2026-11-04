@@ -52,6 +52,8 @@ func TestModelEffortPerKind(t *testing.T) {
 	}{
 		{"opus", "high", "--effort high"},
 		{"terra", "xhigh", "-c model_reasoning_effort=xhigh"},
+		{"terra", "max", "-c model_reasoning_effort=max"},
+		{"terra", "ultra", "-c model_reasoning_effort=ultra"},
 	} {
 		m, _ := c.Model(tc.model)
 		if err := c.CheckModelRef(tc.model + ":" + tc.effort); err != nil {
@@ -71,7 +73,7 @@ func TestModelEffortPerKind(t *testing.T) {
 	}
 	for ref, refusal := range map[string]string{
 		"opus:minimal": `effort "minimal" is not one of claude's`,
-		"luna:max":     `effort "max" is not one of codex's`,
+		"luna:minimal": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 		"deepseek:big": `effort "big" is not one of opencode's`,
 	} {
 		if err := c.CheckModelRef(ref); err == nil || !strings.Contains(err.Error(), refusal) {
@@ -139,7 +141,7 @@ func TestUnknownModelRefused(t *testing.T) {
 		"gpt:high":  `"gpt" is not a model`,
 		"opus:":     "names no effort after the colon",
 		"muse:high": "effort high needs a model",
-		"sol:turbo": `effort "turbo" is not one of codex's (minimal, low, medium, high, xhigh)`,
+		"sol:turbo": `effort "turbo" is not one of codex's (low, medium, high, xhigh, max, ultra)`,
 	} {
 		if err := c.CheckModelRef(ref); err == nil || !strings.Contains(err.Error(), refusal) {
 			t.Errorf("CheckModelRef(%s) = %v, want %q", ref, err, refusal)

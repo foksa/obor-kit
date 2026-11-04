@@ -59,9 +59,10 @@ func (kind) Start(in agents.Start) []string {
 // effortKey is Codex's reasoning effort setting.
 const effortKey = "model_reasoning_effort"
 
-// efforts are Codex's model_reasoning_effort values: `codex --help` lists none, so they are the values of its config
-// reference for model_reasoning_effort (minimal, low, medium, high, xhigh; owner's list, T-695).
-var efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
+// efforts are Codex's model_reasoning_effort values: `codex --help` lists none, so they are the efforts of Codex 0.166's
+// built-in models (low, medium, high, xhigh, max, ultra; luna tops out at max, per-model limits are not checked;
+// no minimal, T-799).
+var efforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 
 func (kind) Efforts() []string { return efforts }
 
