@@ -18,6 +18,11 @@ func logged(name, then string) string {
 	return fmt.Sprintf(`echo "%s $(git rev-parse HEAD) ${CHECK_PRIORITY:-none} ${OBOR_GATE:-0}" >> "$TMP_DIR/ran"; %s`, name, then)
 }
 
+// nightly is a config edit: merge.nightly_commands is names, in order (T-817).
+func nightly(names ...any) func(map[string]any) {
+	return testkit.Set("merge.nightly_commands", names)
+}
+
 func TestNightly(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -75,7 +80,7 @@ func TestNightly(t *testing.T) {
 		// T-805: a passing conformance run's skips and warns are in the report (RV-103 #1: herdr missing from
 		// nightly's PATH reads "0 pass, 0 fail" today)
 		{"conformance exit 0 with SKIP lines: the line carries their count, every SKIP line printed, still GREEN", func(t *testing.T) {
-			x := newFx(t, cmd("conformance", logged("conformance",
+			x := newFx(t, nightly("conformance"), cmd("conformance", logged("conformance",
 				`echo "SKIP H-S1 herdr is not installed (herdr.sock, CAP §5.1)"; echo "SKIP H-S2 herdr is not installed (herdr.go:12, CAP §5.1)"; echo "conformance: 0 pass, 0 fail, 2 skip, 0 warn"`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 0 pass, 0 fail, 2 skip, 0 warn, [0-9]+s\)$`)
@@ -86,7 +91,7 @@ func TestNightly(t *testing.T) {
 				`^`+head+` [0-9]+ GREEN conformance \(non-gating\) 0 pass, 0 fail, 2 skip, 0 warn, [0-9]+s\n$`, "state file")
 		}},
 		{"conformance exit 0 with a WARN line: the line carries its count, the WARN line printed, still GREEN", func(t *testing.T) {
-			x := newFx(t, cmd("conformance", logged("conformance",
+			x := newFx(t, nightly("conformance"), cmd("conformance", logged("conformance",
 				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "WARN H-S2 herdr's protocol is newer than obor's (herdr.go:9, CAP §6)"; echo "conformance: 1 pass, 0 fail, 0 skip, 1 warn"`)))
 			head := x.head(x.Root)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 1 pass, 0 fail, 0 skip, 1 warn, [0-9]+s\)$`)
@@ -95,20 +100,20 @@ func TestNightly(t *testing.T) {
 			x.lacks(x.out.String(), "PASS H-S1", "no PASS lines")
 		}},
 		{"conformance exit 0 all PASS: one line as today, no details", func(t *testing.T) {
-			x := newFx(t, cmd("conformance", logged("conformance",
+			x := newFx(t, nightly("conformance"), cmd("conformance", logged("conformance",
 				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "conformance: 2 pass, 0 fail, 0 skip, 0 warn"`)))
 			head := x.head(x.Root)
-			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 2 pass, 0 fail, [0-9]+s\)$`)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 2 pass, 0 fail, 0 skip, 0 warn, [0-9]+s\)$`)
 			x.eq(x.out.String(), "", "no detail lines")
 		}},
 		// T-798: the conformance suite's static tier is a line in the report, never RED
-		{"a failing conformance command is a non-gating line: GREEN, its details printed", func(t *testing.T) {
-			x := newFx(t, cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
+		{"a failing conformance command is a non-gating WARN line: GREEN, its FAIL lines printed", func(t *testing.T) {
+			x := newFx(t, nightly("conformance"), cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
 				cmd("conformance", logged("conformance", "echo FAIL H-S1 a method is gone; echo 3 pass, 1 fail; exit 1")))
 			head := x.head(x.Root)
-			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 7 pass, 0 fail, conformance \(non-gating\) 3 pass, 1 fail, [0-9]+s\)$`)
-			x.contains(x.out.String(), "--- conformance (rc 1, non-gating)\n", "conformance details")
-			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ GREEN check 7 pass, 0 fail, conformance \(non-gating\) 3 pass, 1 fail, [0-9]+s\n$`, "state file")
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 7 pass, 0 fail, WARN conformance \(rc 1, non-gating\): 3 pass, 1 fail, [0-9]+s\)$`)
+			x.contains(x.out.String(), "--- conformance (non-gating)\nFAIL H-S1 a method is gone\n", "conformance details")
+			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ GREEN check 7 pass, 0 fail, WARN conformance \(rc 1, non-gating\): 3 pass, 1 fail, [0-9]+s\n$`, "state file")
 		}},
 		// bash case_lane_setup_failure_and_timeout
 		{"lane_setup failure → RED, nothing else runs; a timeout → RED timed out", func(t *testing.T) {
@@ -201,5 +206,46 @@ func TestNightlyBackup(t *testing.T) {
 	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, [0-9]+s\)$`)
 	if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db")); len(got) != 1 {
 		t.Errorf("backups = %v, want one", got)
+	}
+}
+
+// T-817: merge.nightly_commands runs after the gating checks and the backup, in order, each non-gating: one report
+// line, never RED; a nonzero exit is a WARN line.
+func TestNightlyCommands(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		test func(t *testing.T)
+	}{
+		{"two commands in order, one line each: the last line, its WARN/SKIP/FAIL lines, a failing one a WARN line; still GREEN", func(t *testing.T) {
+			x := newFx(t, nightly("slow_a", "slow_b"),
+				cmd("slow_a", logged("slow_a", `echo "SKIP S-1 herdr is not installed"; echo "WARN S-2 herdr is newer"; echo "slow_a: 2 pass"`)),
+				cmd("slow_b", logged("slow_b", `echo "FAIL b-1 a method is gone"; echo "0 pass, 1 fail"; exit 1`)))
+			head := x.head(x.Root)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(slow_a \(non-gating\) 2 pass, WARN slow_b \(rc 1, non-gating\): 0 pass, 1 fail, [0-9]+s\)$`)
+			x.eq(x.Read(filepath.Join(x.Base, "ran")), strings.ReplaceAll("slow_a H merge 0\nslow_b H merge 0\n", "H", head),
+				"both ran once, in order, at the head, under the check slot")
+			x.contains(x.out.String(), "--- slow_a (non-gating)\nSKIP S-1 herdr is not installed\nWARN S-2 herdr is newer\n", "slow_a's notes")
+			x.contains(x.out.String(), "--- slow_b (non-gating)\nFAIL b-1 a method is gone\n", "slow_b's notes")
+			x.match(x.Read(".obor/state/last-full-check"),
+				` GREEN slow_a \(non-gating\) 2 pass, WARN slow_b \(rc 1, non-gating\): 0 pass, 1 fail, [0-9]+s\n$`, "state file")
+		}},
+		{"after the gating checks and the backup: its line comes last", func(t *testing.T) {
+			x := newFx(t, nightly("slow_a"), cmd("check", "true"), cmd("slow_a", logged("slow_a", "echo done")))
+			db, err := store.OpenRW(event.DBFile(x.Root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, slow_a \(non-gating\) done, [0-9]+s\)$`)
+		}},
+		{"unset: a command no list names does not run, no line", func(t *testing.T) {
+			x := newFx(t, cmd("slow_a", logged("slow_a", "echo hi")))
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(no commands, [0-9]+s\)$`)
+			x.gone(filepath.Join(x.Base, "ran"), "nothing ran")
+			x.eq(x.out.String(), "", "no detail lines")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) { t.Parallel(); c.test(t) })
 	}
 }

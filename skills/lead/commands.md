@@ -79,7 +79,8 @@ commit is on main: pull before you edit the config by hand. A pause set or clear
 
 ## obor nightly on|off (T-781)
 `merge.nightly_at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
-on, serve runs `obor nightly` (check, check_milestone, baseline, the forced gate, e2e, the store backup) every night at
+on, serve runs `obor nightly` (check, check_milestone, baseline, the forced gate, e2e, the store backup, then the
+config's `merge.nightly_commands` — obor-kit's `conformance` and `trim_go_cache`, each non-gating) every night at
 that time, whatever merged since; off, never.
 - `obor nightly on HH:MM` — `NIGHTLY ON at HH:MM` (`… already` when it was; nothing committed). A time that is not
   `00:00`–`23:59` is refused, the config unchanged.

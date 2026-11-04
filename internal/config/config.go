@@ -259,6 +259,10 @@ type Merge struct {
 	FullEvery    any      `json:"full_every,omitempty"` // removed in v0.12.0 (T-465): validate warns
 	// NightlyAt is when obor serve runs the nightly full check ("HH:MM" local time; "": never, T-464).
 	NightlyAt string `json:"nightly_at,omitempty"`
+	// NightlyCommands are commands.<name> keys `obor nightly` runs after its gating checks and the backup, in order,
+	// each non-gating (T-817): one report line, never RED; a nonzero exit a WARN line. A name must be a defined
+	// command and no gating one. Unset: none.
+	NightlyCommands []string `json:"nightly_commands,omitzero"`
 	// ReceiptMaxAge is how old (s) a worker's green-run receipt may be for the gate to reuse it (default 86400; 0: never).
 	ReceiptMaxAge int `json:"receipt_max_age"`
 }

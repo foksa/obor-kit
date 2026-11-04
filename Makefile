@@ -1,5 +1,6 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
 # `make check-affected` → its per-merge tier (commands.check_affected),
+# `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
 # `make release V=x.y.z` → the whole release (scripts/release); `make ship` → the owner's push, publish and install
@@ -26,7 +27,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -42,6 +43,20 @@ test:
 # on a FAIL. Nightly runs TIER=static as a non-gating line (commands.conformance).
 conformance:
 	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
+
+# trim-go-cache (commands.trim_go_cache, T-817) deletes the Go build cache's files unused for 48 h (mtime: Go refreshes
+# an entry's when it uses it, at most hourly) and prints "go cache: freed <size>, <size> left". Go's own trim keeps them
+# five days, too long at four lanes' rate (the cache reached 53 GiB in about a day).
+trim-go-cache:
+	@d=$$($(GO) env GOCACHE) || exit 1; \
+	if [ ! -d "$$d" ]; then echo "go cache: freed 0 B, 0 B left"; exit 0; fi; \
+	if stat -c %s "$$d" >/dev/null 2>&1; then st="stat -c %s"; else st="stat -f %z"; fi; \
+	freed=$$(find "$$d" -type f -mtime +1 -exec $$st {} + 2>/dev/null | awk '{s+=$$1} END {printf "%.0f", s+0}'); \
+	find "$$d" -type f -mtime +1 -exec rm -f {} +; \
+	left=$$(find "$$d" -type f -exec $$st {} + 2>/dev/null | awk '{s+=$$1} END {printf "%.0f", s+0}'); \
+	awk -v f="$$freed" -v l="$$left" 'function size(n) { if (n >= 1073741824) return sprintf("%.1f GiB", n/1073741824); \
+	  if (n >= 1048576) return sprintf("%.1f MiB", n/1048576); if (n >= 1024) return sprintf("%.1f KiB", n/1024); \
+	  return sprintf("%d B", n) } BEGIN { printf "go cache: freed %s, %s left\n", size(f), size(l) }'
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full

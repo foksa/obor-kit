@@ -46,6 +46,10 @@
     "conformance": {
       "cmd": "make -s conformance TIER=static",
       "timeout": 300
+    },
+    "trim_go_cache": {
+      "cmd": "make -s trim-go-cache",
+      "timeout": 600
     }
   },
   "difficulty": {
@@ -76,6 +80,10 @@
     "summary_regex": "[0-9]+ pass|[0-9]+ fail",
     "guard": "guard",
     "nightly_at": "02:00",
+    "nightly_commands": [
+      "conformance",
+      "trim_go_cache"
+    ],
     "classes": [
       {
         "name": "go",

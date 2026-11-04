@@ -14,14 +14,14 @@ import (
 // The nightly full check (T-464, T-781, T-782; docs/state-model.md row 45): merge.nightly_at is its switch, the lead's
 // (obor nightly on HH:MM | off, through config_set): set, the merge loop runs what obor nightly runs every night at or
 // after that time, in its own worktree (not the scratch), while no gate or publish runs. Off stops new runs, not
-// settling: every pass settles a result's missing needs-you and a hand GREEN, on or off. Nothing else decides
-// whether it runs (the nightly runs more than the merge gate: check_milestone, the baseline, the forced gate, e2e, the
-// store backup). The Loop is built each pass from the config as it is, so a switch counts from the next pass; a run in
-// progress is not stopped by off. Its intent/result is the day's key nightly.<YYYY-MM-DD> (G): a restart runs a
-// pending one again, a day with a result runs none. A RED one is the project's needs-you{full-check RED <sha7>} until a
-// GREEN one ends it; a run that ends neither GREEN nor RED is a counted failure (fact failed), tried again nightlyRetry
-// after the last one, the tries-th the day's needs-you{nightly failed: …}. A GREEN full check run by hand (obor
-// nightly: last-full-check) ends a RED one's needs-you too.
+// settling: every pass settles a result's missing needs-you and a hand GREEN, on or off. Nothing else decides whether
+// it runs (the nightly runs more than the merge gate: check_milestone, the baseline, the forced gate, e2e, the store
+// backup, then merge.nightly_commands, each non-gating, T-817). The Loop is built each pass from the config as it is,
+// so a switch counts from the next pass; a run in progress is not stopped by off. Its intent/result is the day's key
+// nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
+// project's needs-you{full-check RED <sha7>} until a GREEN one ends it; a run that ends neither GREEN nor RED is a
+// counted failure (fact failed), tried again nightlyRetry after the last one, the tries-th the day's needs-you{nightly
+// failed: …}. A GREEN full check run by hand (obor nightly: last-full-check) ends a RED one's needs-you too.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
 // another process holds, merge.window_wait).
