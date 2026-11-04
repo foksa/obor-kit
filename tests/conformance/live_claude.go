@@ -43,21 +43,6 @@ func uuid() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-// payload is a hook's stdin, the fields the checks read.
-type payload struct {
-	SessionID      string `json:"session_id"`
-	TranscriptPath string `json:"transcript_path"`
-	Cwd            string `json:"cwd"`
-	Source         string `json:"source"`
-	LastMessage    string `json:"last_assistant_message"`
-}
-
-func (r record) payload() payload {
-	var p payload
-	_ = json.Unmarshal([]byte(r.Stdin), &p)
-	return p
-}
-
 // hookCmd is a Claude or Codex hook entry that runs the stub as hook name.
 func (l *lab) hookCmd(name string) map[string]any {
 	return map[string]any{"type": "command", "command": shq(filepath.Join(l.kit, "bin", "obor")) + " hook " + name, "timeout": 10}
@@ -115,7 +100,6 @@ func claudeLive(l *lab, turn bool) {
 	hooks := l.waitRecords("hook", "SessionStart", 20*time.Second)
 	hidden := len(l.records("mcp", "manifest")) == 0
 	ccL1(l, pane, mcp, where1)
-	ccL2(sid, hooks)
 	ccL3(mcp, hooks)
 
 	if turn {
@@ -124,6 +108,8 @@ func claudeLive(l *lab, turn bool) {
 		report("SKIP", "CC-L4", "needs TURN=1 (a model call)", at(claudeGo, "func (kind) Deliver")+", F4.2")
 		report("SKIP", "CC-L6", "needs TURN=1 (a model call)", "internal/guard/stop.go")
 	}
+	// CC-L2's existence check runs after the turn: Claude creates the transcript at the first prompt (CAP §2.4, T-820).
+	ccL2(out, sid, hooks, turn, "internal/guard/session.go, "+at(claudeGo, "func (kind) Start")+", F4.3, F4.4")
 
 	st := k.Stop()
 	where5 := at(claudeGo, "func (kind) Stop") + ", CAP §2.6"
@@ -255,35 +241,6 @@ func ccL1(l *lab, pane string, mcp []record, where string) {
 		return
 	}
 	report("PASS", "CC-L1", fmt.Sprintf("strict start: the obor server sees OBOR_ROLE, OBOR_LANE, HERDR_PANE_ID, %s and runs in the lane (cwd %s)", agents.Pin, r.Cwd), where)
-}
-
-// ccL2: SessionStart reports the id --session-id gave (obor's choice, T-813) and a transcript_path of its own — the
-// realpath Claude resolved, under its config dir — and that path is the file of that id: obor records it and derives
-// none.
-func ccL2(sid string, hooks []record) {
-	where := "internal/guard/session.go, " + at(claudeGo, "func (kind) Start") + ", F4.3, F4.4"
-	if len(hooks) == 0 {
-		report("FAIL", "CC-L2", "no SessionStart hook ran in 20s (--settings hooks)", where)
-		return
-	}
-	r := hooks[0]
-	p := r.payload()
-	fi, statErr := os.Stat(p.TranscriptPath)
-	fact := fmt.Sprintf("SessionStart: session_id %s, source %s, cwd %s, transcript_path %s", p.SessionID, p.Source, p.Cwd, p.TranscriptPath)
-	switch {
-	case p.SessionID != sid:
-		report("FAIL", "CC-L2", fact+": not the --session-id given ("+sid+")", where)
-	case p.TranscriptPath == "":
-		report("FAIL", "CC-L2", fact+": no transcript_path: obor would have none to record", where)
-	case filepath.Base(p.TranscriptPath) != sid+".jsonl":
-		report("FAIL", "CC-L2", fact+": not the file of that id: the path obor records must be the session's own", where)
-	case !filepath.IsAbs(p.TranscriptPath):
-		report("FAIL", "CC-L2", fact+": not an absolute path", where)
-	case statErr != nil || !fi.Mode().IsRegular():
-		report("FAIL", "CC-L2", fact+": not an existing file: a restart could not resume it", where)
-	default:
-		report("PASS", "CC-L2", fact+": the id given and its own path, the one obor records", where)
-	}
 }
 
 // ccL3: --settings env reaches the hooks and the MCP server.

@@ -751,19 +751,6 @@ func chain(ps []proc, n int) string {
 	return strings.Join(parts, " < ")
 }
 
-// record is one stub record (stubmcp.Record).
-type record struct {
-	Mode  string            `json:"mode"`
-	Name  string            `json:"name"`
-	PID   int               `json:"pid"`
-	PPID  int               `json:"ppid"`
-	Cwd   string            `json:"cwd"`
-	Argv  []string          `json:"argv"`
-	Env   map[string]string `json:"env"`
-	Stdin string            `json:"stdin"`
-	file  string
-}
-
 // records are the stub records of mode (and name, "*" any) written since the last fresh.
 func (l *lab) records(mode, name string) []record {
 	pattern := mode + "-*.json"
