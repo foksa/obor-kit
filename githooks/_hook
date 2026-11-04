@@ -43,13 +43,40 @@ obor_hook() {
   esac
 }
 
+# obor_ask KIT OUT ARGS…: run KIT's obor binary with ARGS (this checkout's own build, never fetched, stdin from
+# /dev/null), its stdout to the file OUT, under a watchdog (OBOR_PRE_COMMIT_WHOAMI_TIMEOUT seconds, default 2): its exit
+# status, or non-zero when it is missing, hangs or is killed.
+obor_ask() {
+  local kit=$1 out=$2 pid watchdog
+  shift 2
+  # No job control (T-279: where setpgid is refused, `set -m` printed to git's stderr and the group kill missed): a
+  # simple background command is the binary's own pid. The watchdog sleeps in the background and waits, so a TERM
+  # ends it at once, its sleep with it.
+  OBOR_NO_SELF_HOST=1 OBOR_NO_FETCH=1 "$kit/bin/obor" "$@" < /dev/null > "$out" 2> /dev/null &
+  pid=$!
+  (
+    s=
+    trap 'kill "$s"; exit 0' TERM
+    sleep "${OBOR_PRE_COMMIT_WHOAMI_TIMEOUT:-2}" &
+    s=$!
+    wait "$s"
+    kill -KILL "$pid"
+  ) > /dev/null 2>&1 &
+  watchdog=$!
+  local rc=0
+  wait "$pid" 2> /dev/null || rc=1
+  kill -TERM "$watchdog" 2> /dev/null || :
+  wait "$watchdog" 2> /dev/null || :
+  return "$rc"
+}
+
 # obor_pre_commit (needs common, set by obor_hook): refuse a commit in a lane worktree unless OBOR_MERGE=1 (obor serve
 # sets it) or the classifier says role driver (the owner's drive agent commits on its branch, T-762). The main checkout is
 # not checked (the agent guard covers commit -a there). Fails closed: in a linked worktree of an obor project, a
 # classifier that can't answer (no binary, stale, hanging, past the timeout) refuses; the hook never fetches a binary (no
 # network).
 obor_pre_commit() {
-  local gitdir kit out rc source_line role_line pid watchdog
+  local gitdir kit out rc source_line role_line
   [ "${OBOR_MERGE:-}" = 1 ] && return 0
   # The main checkout is not a lane: only a linked worktree (own git dir) needs the classifier.
   gitdir=$(git rev-parse --git-dir 2> /dev/null) && gitdir=$(cd "$gitdir" && pwd -P) || return 0
@@ -60,23 +87,7 @@ obor_pre_commit() {
   out=$(mktemp "${TMPDIR:-/tmp}/obor-precommit.XXXXXX") || out=
   rc=1
   if [ -n "$out" ]; then
-    # No job control (T-279: where setpgid is refused, `set -m` printed to git's stderr and the group kill missed): a
-    # simple background command is the binary's own pid. The watchdog sleeps in the background and waits, so a TERM
-    # ends it at once, its sleep with it.
-    OBOR_NO_SELF_HOST=1 OBOR_NO_FETCH=1 "$kit/bin/obor" whoami < /dev/null > "$out" 2> /dev/null &
-    pid=$!
-    (
-      s=
-      trap 'kill "$s"; exit 0' TERM
-      sleep "${OBOR_PRE_COMMIT_WHOAMI_TIMEOUT:-2}" &
-      s=$!
-      wait "$s"
-      kill -KILL "$pid"
-    ) > /dev/null 2>&1 &
-    watchdog=$!
-    wait "$pid" 2> /dev/null && rc=0
-    kill -TERM "$watchdog" 2> /dev/null || :
-    wait "$watchdog" 2> /dev/null || :
+    obor_ask "$kit" "$out" whoami && rc=0
     source_line=$(grep -m1 '^source: ' "$out") || source_line=
     role_line=$(grep -m1 '^role: ' "$out") || role_line=
     rm -f "$out"
@@ -100,9 +111,19 @@ obor_pre_commit() {
   return 1
 }
 
-# obor_pre_push: always refuse unless OBOR_ALLOW_PUSH=1: the user pushes.
+# obor_pre_push: OBOR_ALLOW_PUSH=1 passes (the owner by hand); else the binary decides (`obor whoami --can-push`, T-793):
+# a role that is not lane-bound and is listed in guards.allow_push may push, the same rule as the agent guard. Fails
+# closed: no binary, a stale one, a hang or an answer other than "yes" refuses.
 obor_pre_push() {
+  local kit out rc=1
   [ "${OBOR_ALLOW_PUSH:-}" = 1 ] && return 0
-  echo "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand" >&2
+  kit=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+  out=$(mktemp "${TMPDIR:-/tmp}/obor-prepush.XXXXXX") || out=
+  if [ -n "$out" ]; then
+    obor_ask "$kit" "$out" whoami --can-push && rc=0
+    rm -f "$out"
+  fi
+  [ "$rc" = 0 ] && return 0
+  echo "obor: this role may not push: list it in guards.allow_push, or set OBOR_ALLOW_PUSH=1 to push by hand" >&2
   return 1
 }

@@ -52,11 +52,13 @@ func configCmd(args []string) int {
 // whoami is `obor whoami [--json]`: role, lane (only when the role has one) and source; the lane row's task, branch and
 // base, the task's stored spec rev and the protected files it unlocks, or "lane row: none".
 func whoami(args []string) int {
-	asJSON := false
+	asJSON, canPush := false, false
 	switch {
 	case len(args) == 0:
 	case len(args) == 1 && args[0] == "--json":
 		asJSON = true
+	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question (T-793)
+		canPush = true
 	default:
 		errf("usage: obor whoami [--json]")
 		return 2
@@ -68,6 +70,12 @@ func whoami(args []string) int {
 	w, err := guard.Whoami(repo, cfg, project.OSEnv)
 	if err != nil {
 		errf("%v", err)
+		return 1
+	}
+	if canPush { // exit 0 = may push (config.MayPush), 1 = may not
+		if cfg.MayPush(w.Role.Role) {
+			return 0
+		}
 		return 1
 	}
 	if asJSON {

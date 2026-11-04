@@ -217,3 +217,28 @@ func TestWhoamiDeepDiveAndLead(t *testing.T) {
 		t.Errorf("deep-dive worktree is a lane: %q", text)
 	}
 }
+
+// T-793: `whoami --can-push` (hidden; the pre-push hook's question) exits 0 for a non-lane-bound role in
+// guards.allow_push and 1 otherwise, printing nothing.
+func TestWhoamiCanPush(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	lane := p.Lane("L-01", "task/T-02")
+	p.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
+	for _, c := range []struct {
+		name string
+		dir  string
+		env  []string
+		rc   int
+	}{
+		{"lead listed", p.Root, []string{"OBOR_ROLE=lead"}, 0},
+		{"reviewer not listed", p.Root, []string{"OBOR_ROLE=reviewer"}, 1},
+		{"no role", p.Root, nil, 1},
+		{"worker in its lane, listed", lane, []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01"}, 1},
+	} {
+		rc, stdout, stderr := run(t, c.dir, c.env, "whoami", "--can-push")
+		if rc != c.rc || stdout != "" || stderr != "" {
+			t.Errorf("%s: exit %d (want %d), stdout %q stderr %q", c.name, rc, c.rc, stdout, stderr)
+		}
+	}
+}
