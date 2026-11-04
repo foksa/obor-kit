@@ -6,6 +6,21 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~11:15 (lead restart: T-787 moved inbox records into the project; this session had none, so other leads
+  and serve could not reach it). **Wave 3 of DD-consolidation merged** on main (unreleased): T-785 brief --fresh, restart
+  flags gone; T-786 derived identity, no OBOR_AGENT, allow_push roles; T-787 project inbox by slot, rename refuses old
+  plist; T-788 one task phase, held = verdict; T-789 setup migrate deleted (codex projects migrated by owner 11-04);
+  T-790 spec titles from `T-xx: title` (+ spec set refuses untitled). **In flight**: T-791 (L-01, accepted by lead:
+  no-identity refusal + per-kind tests; the opencode failure was kit skew: global opencode MCP runs ~/.obor/kit 0.24.2),
+  T-792 (L-02, dispatch refuses a merged task). **Paused**: deepseek, crouton in obor-kit until v0.25 is installed
+  (watch T-791 says so). Config has `models.crouton` (owner trial at xhigh, after v0.25). **Researcher** (tab research)
+  writes docs/research/agent-cli-and-herdr-capabilities.md; then the agent-driver deep dive (Open, first line).
+  **Next**: when T-790..T-792 merged (watch): obor review T-785..T-792, close; v0.25 notes (restart flags gone,
+  OBOR_AGENT gone, inbox per project: `rm -r ~/.obor/agents ~/.obor/inbox` + restart every role agent and lead,
+  setup migrate gone, titles); `make release`; owner `make ship`; tell axis leads. Until v0.25 is everywhere, a 0.24.2
+  `obor send obor-kit` may not reach this lead (it reads the global inbox). Owner feedback to act on after the review:
+  AGENTS.md rule "an empty derived value is an error", spec rule live smoke per agent kind for identity/mcp/launch,
+  S1 + test pruning as wave 4, CLI retry on closed serve socket.
 - 2026-11-04: **v0.24.2 shipped** (v0.24.0 and v0.24.1 tagged, never shipped on their own; notes carry all three). v0.24.0: consolidation waves 1-2 (T-772..T-780: one `obor resume`, task ids, move a task, monitor gone, no `agents` key, derived names, upgrade check in make release; RV-98/RV-99). v0.24.1: nightly is the lead's switch, `obor nightly on|off` (T-781/T-782, RV-100; owner: no "due" logic). v0.24.2: dispatch uses the lane's labelled pane (T-783/T-784, RV-101; axis-alies' report). Axis leads sent the v0.24 steps (axis-alies: setup migrate for its agents key; axis-maps: close axis-monitor). Next: confirm both serves on 0.24.2 and migrated; wave 3 of DD-consolidation (C3+C4, I3+I4, S5+S6, C7 wording, I6+I7); C8 (delete migrate code) in v0.25 after codex-image-tool/codex-img-viewer migrate.
 - 2026-11-03 evening: **v0.23.1 shipped** (T-770 strict MCP for Claude workers, T-771 serve restart; RV-97 closed); before it **v0.23.0 shipped** (axis leads sent the migrate steps; their serves refuse the old config until they migrate): config names models directly (T-765), Setup
   page for it (T-766), project list keeps unloadable projects (T-767), roles always name a model (T-769 replaced
@@ -131,6 +146,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-04) **Agent-driver deep dive, planned (owner):** ob-researcher writes
+  docs/research/agent-cli-and-herdr-capabilities.md (Claude Code 2.1.318, codex 0.166.0, opencode 2.2.0, herdr 0.9.3:
+  facts with sources). When it says done: commit it, `obor restart ob-researcher --stop`; once T-791/T-792 merged,
+  `obor brief ob-deep-dive --fresh`: how internal/agents drivers and herdr calls use them vs that doc (identity channel
+  per kind, MCP/plugin registration is user-global → kit version skew, T-791 hold (b): per-launch registration;
+  herdr misuse history), proposals ranked, then a conformance suite per driver.
+- (lead 11-04) T-787 moved inbox records into the project: lines to ob-lead are undelivered until the lead restarts
+  (`obor restart ob-lead --fresh` at a break). v0.25 notes: restart every role agent.
 - (DD-consolidation I6, lead 11-04) one relabel implementation: not a task; migrate's relabel goes with `setup
   migrate` in v0.25 (C8), leaving rename's alone. Wave 3 = T-785 (C3+C4), T-786 (I3), T-787 (I4+I7, after T-786),
   T-788 (S5+S6+C7), T-789 (C8, after T-786; codex projects migrated 11-04).
