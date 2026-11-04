@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-04 (owner): **The store opens schema 9 and newer** (`upgradeFrom` 9; T-840): an older store upgrades through
+  v0.24 first. **setup's retire step for the old global opencode entry goes** (T-835): no machine has it; the next
+  release notes say how to remove it by hand.
 - 2026-11-04 (owner): **Wave 4 is S2, not S1** (S1 landed in T-775: `verbs` column, `mtask.may`, `p.busy`): a needs-you
   becomes a block on the phase (T-827, opus:high, case → test table, golden replay first). **Test pruning starts with a
   measured survey** (T-828, `docs/research/test-pruning.md`), then pruning tasks split by package. **Lanes stay 4**:

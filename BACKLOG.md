@@ -8,7 +8,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Handoff (lead; rewrite at each handoff)
 - 2026-11-04 ~20:30: RV-107 closed (#1 → T-829 stop bound, L-01). T-828 survey merged
   (docs/research/test-pruning.md); pruning P1-P10 = T-830..T-839 dispatched (T-830..T-832 running, the rest queue for
-  lanes; T-836, T-838 after T-829). Held: **P11** store migrations below schema 9 (owner: raise `upgradeFrom` to 9?);
+  lanes; T-836, T-838 after T-829). P11 = T-840 (owner: raise to 9); retire step deletion folded into T-835 (owner); v0.26 notes must say both (store < v0.22: upgrade through v0.24; remove a global opencode `mcp.servers.obor` by hand). Held:
   **P12** v0.26 removals (`obor monitor` case, pre-v0.23 shape message) after T-830/T-831, at the v0.26 release;
   `TestSetupAgentsRetires…` + `agents.Retired` once the owner says no machine has the global opencode entry.
 - 2026-11-04 ~19:40 (lead, fresh session). Steps 1-2 done (AGENTS.md rules, 5560ff43). Step 3 was misread: the
