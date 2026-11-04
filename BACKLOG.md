@@ -14,6 +14,16 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   obor (Later); (2) integrator out of the main checkout (its own read-only worktree) instead of more guard deny rows;
   (3) move/drop/take-over answer at once and report the stop as a later line (ends the deadline patches, RV-108 #1);
   (4) judge the pruning wave's net (lines out vs 4 review rounds and 4 restore tasks) before any more pruning.
+  **Owner to choose tomorrow — is simplification moving?** By size, no: prod Go 41.9k (v0.20.1) → 44.9k (v0.23.0,
+  consolidation declared) → 43.8k (v0.25.0, low) → 45.5k (v0.26.0); tests 66.0k → 74.5k; pruning netted ~1k, not the
+  survey's 6-8k (restores + new safety tables). The model got simpler (one resume verb, derived names, one phase,
+  needs-you block), but each fix closes its gap by adding a mechanism. Experiments the lead proposed (one wave each,
+  measured): **E1** no integrator review: merge on a green gate, batched terra review only; compare findings with
+  today's waves (the integrator accepted every pruning task terra later found holes in) — if no worse, the role, its
+  job type, held verdicts and part of the merge loop go (lead's pick to try first). **E2** reviewer and integrator in
+  their own read-only worktree: if nothing breaks, the main-checkout deny rows (T-841, T-848) go. **E3** move, drop and
+  take-over answer at once, the stop is a later line: then the deadline code (T-825, T-829, RV-108 #1) goes. **E4** a
+  feature freeze for v0.27: each task names what it removes, no new config keys.
 - 2026-11-04 ~22:30: pruning wave merged except T-844/T-845 (restores); T-841 gating, T-846 (P12 v0.26 removals) on
   L-04; review queued after T-841, T-844, T-845, T-846 (covers T-838). **Then v0.26**: UPGRADE-v0.26 + release notes
   must say: store older than v0.22 upgrades through v0.24 first (T-840); remove a global opencode `mcp.servers.obor` by
