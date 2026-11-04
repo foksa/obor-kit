@@ -110,8 +110,9 @@ func TestSendToProjectWhoseConfigDoesNotLoad(t *testing.T) {
 	q := testkit.New(t)
 	q.Config(testkit.Set("name", "other"), testkit.Set("prefix", "ot"))
 	q.Write("sub/x.txt", "x\n")
-	// The shape before T-765: this binary refuses it, a serve of the version that wrote it does not.
-	q.Write(".obor/config.json", `{"name":"other","prefix":"ot","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	// The shape before T-765: this binary refuses it (lanes is a count here, an object of typed lanes there), a serve of
+	// the version that wrote it does not.
+	q.Write(".obor/config.json", `{"name":"other","prefix":"ot","lanes":{"L-01":{"type":"opus"}}}`+"\n")
 	if _, err := config.LoadDaemon(q.Root); err == nil {
 		t.Fatal("precondition: the target's old-shape config loads")
 	}

@@ -49,29 +49,6 @@ func TestOverlayMatchesJq(t *testing.T) {
 	}
 }
 
-// T-789: the shape before v0.23 is just invalid now (its one-time migration lived one release): the loader names the
-// key and says which release migrates it, whichever file has it.
-func TestOldShapeRefused(t *testing.T) {
-	for _, tc := range []struct{ name, cfg, local, key, file string }{
-		{"lane types in config.json", `{"prefix":"pj","lane_types":{"opus":{"kind":"claude"}}}`, "", "lane_types", "config.json"},
-		{"the agents key in config.json", `{"prefix":"pj","agents":{"triage":{"type":"opus"}}}`, "", "agents", "config.json"},
-		{"lane types only in local.json", `{"prefix":"pj"}`, `{"lane_types":{"opus":{"kind":"claude"}}}`, "lane_types", "local.json"},
-	} {
-		cfg := `{"prefix":"pj"}`
-		if tc.cfg != "" {
-			cfg = tc.cfg
-		}
-		_, err := Load(writeProject(t, cfg, tc.local))
-		if err == nil || !strings.Contains(err.Error(), `unknown field "`+tc.key+`"`) ||
-			!strings.Contains(err.Error(), OldShapeHint) || !strings.Contains(err.Error(), tc.file) {
-			t.Errorf("%s: %v, want the unknown field %q, %q and %s", tc.name, err, tc.key, OldShapeHint, tc.file)
-		}
-	}
-	if _, err := Load(writeProject(t, `{"prefix":"pj","lanes":2}`, "")); err != nil {
-		t.Errorf("the current shape: %v, want it to load", err)
-	}
-}
-
 func TestMerge(t *testing.T) {
 	for _, tc := range []struct{ a, b, want string }{
 		{`{"a":1,"b":{"c":1,"d":2}}`, `{"b":{"d":3,"e":4},"f":5}`, `{"a":1,"b":{"c":1,"d":3,"e":4},"f":5}`},

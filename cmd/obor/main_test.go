@@ -138,7 +138,7 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "status"}, 0}, {[]string{"has", "restart"}, 0}, {[]string{"has", "version"}, 0}, {[]string{"has", "config", "get"}, 0},
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
-		{[]string{"has", "monitor"}, 0}, {[]string{"has", "setup", "monitor"}, 1}, // T-776: the command stays, the setup step is gone
+		{[]string{"has", "monitor"}, 1}, {[]string{"has", "setup", "monitor"}, 1}, // T-846: obor monitor is unknown now; the setup step went with T-776
 		{[]string{"has", "setup", "migrate"}, 1}, // T-789: the one-time migration code lived one release
 		{[]string{"has", "merge"}, 1},            // T-409: obor serve merges
 		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},
@@ -182,15 +182,14 @@ func TestMergeIsUnknown(t *testing.T) {
 	}
 }
 
-// T-776: obor monitor is removed (obor status and obor web remain): one line naming them, exit 1, and nothing else
-// (it reads no project, so it answers outside one too).
-func TestMonitorIsRemoved(t *testing.T) {
+// T-846: obor monitor's one-minor notice is over (T-776, obor status and obor web remain): it is an unknown subcommand
+// now, exit 2 and the same error every command this binary lacks gets.
+func TestMonitorIsUnknown(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{{"monitor"}, {"monitor", "--json"}} {
 		rc, stdout, stderr := run(t, t.TempDir(), nil, args...)
-		if rc != 1 || stdout != "" || strings.Count(stderr, "\n") != 1 ||
-			!strings.Contains(stderr, "removed, use `obor web` or `obor status`") {
-			t.Errorf("obor %q: exit %d, stdout %q, stderr %q; want exit 1 and one line naming obor web or obor status",
+		if rc != 2 || stdout != "" || stderr != "obor: unknown subcommand: monitor\n" {
+			t.Errorf("obor %q: exit %d, stdout %q, stderr %q; want exit 2, no stdout and the unknown subcommand there",
 				args, rc, stdout, stderr)
 		}
 	}
