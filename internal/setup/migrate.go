@@ -1,7 +1,7 @@
 package setup
 
-// `obor setup migrate` (T-765): rewrite a config of the shape before T-765 (lane_types, typed lanes, roles.<role>
-// objects) once, by config.Migrate's rules, and commit it. Lanes not named L-01 … L-NN in config order are renamed:
+// `obor setup migrate` (T-765, T-777): rewrite a config of the shape before T-765 (lane_types, typed lanes,
+// roles.<role> objects) or one that still sets the removed agents key once, by config.Migrate's rules, and commit it. Lanes not named L-01 … L-NN in config order are renamed:
 // refused unless every lane is free (its worktree clean, its HEAD in the main branch, no agent running in it); then
 // each worktree is moved (git worktree move, through a temporary name so a swap cannot collide), its lane_setup marker
 // with it, and every pane labelled with a renamed agent (Migration.Agents) is relabelled. It prints the old and the
@@ -41,7 +41,8 @@ func (s *Setup) migrate(ctx context.Context, args []string) error {
 	case err != nil:
 		return project.Failf("cannot read %s", localPath)
 	}
-	if config.OldShape(doc) == "" && (local == nil || config.OldShape(local) == "") {
+	if config.OldShape(doc) == "" && (local == nil || config.OldShape(local) == "") &&
+		!config.HasAgents(doc) && !config.HasAgents(local) {
 		s.ok("migrate", true, ".obor/config.json has the new shape (models, a lanes count)")
 		return nil
 	}
@@ -67,8 +68,8 @@ func (s *Setup) migrate(ctx context.Context, args []string) error {
 		}
 		s.renameMarker(mv[0], mv[1])
 	}
-	oldConfig := config.OldShape(doc) != "" // else only local.json has the old shape: config.json stays as it is
-	if oldConfig {
+	configChanged := config.OldShape(doc) != "" || config.HasAgents(doc) // else only local.json changes (or config.json stays as it is)
+	if configChanged {
 		if err := project.WriteAtomic(cfgPath, m.Config); err != nil {
 			return project.Failf("cannot write %s", cfgPath)
 		}
@@ -79,7 +80,7 @@ func (s *Setup) migrate(ctx context.Context, args []string) error {
 		}
 	}
 	relabelled := s.relabel(ctx, m.Agents)
-	if oldConfig {
+	if configChanged {
 		s.say("old .obor/config.json:\n%s", strings.TrimRight(string(doc), "\n"))
 		s.say("new .obor/config.json:\n%s", strings.TrimRight(string(m.Config), "\n"))
 	}
@@ -102,14 +103,14 @@ func (s *Setup) migrate(ctx context.Context, args []string) error {
 	if _, err := config.Load(s.root); err != nil {
 		return project.Failf("the migrated config does not load: %v (fix it by hand, then obor config validate)", err)
 	}
-	if !oldConfig {
+	if !configChanged {
 		s.ok("migrate", false, ".obor/local.json rewritten (not committed): obor config validate")
 		return nil
 	}
 	if _, err := project.Git(s.root, "add", "--", ".obor/config.json"); err != nil {
 		return project.Failf("git add .obor/config.json: %v", err)
 	}
-	if _, err := project.Git(s.root, "commit", "-q", "-m", "obor setup migrate: models and a lanes count (T-765)", "--",
+	if _, err := project.Git(s.root, "commit", "-q", "-m", "obor setup migrate: models, a lanes count and no agents key (T-765, T-777)", "--",
 		".obor/config.json"); err != nil {
 		return project.Failf("git commit .obor/config.json: %v", err)
 	}

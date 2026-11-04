@@ -103,11 +103,6 @@
     "fail_grep": "^--- FAIL|^FAIL\\s"
   },
   "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
-  "agents": {
-    "hk-fable": {
-      "type": "fable"
-    }
-  },
   "guards": {
     "allow_push": [
       "ob-lead"

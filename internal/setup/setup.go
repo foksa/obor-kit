@@ -22,8 +22,7 @@
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
 //	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root (the reviewer
-//	        and the deep dive too, T-718: no worktree of their own; an old one, roles.<role>.worktree or review /
-//	        deep-dive, is named with its `git worktree remove` line, never removed). triage also copies
+//	        and the deep dive too, T-718: no worktree of their own). triage also copies
 //	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
 //	        docs/reviews) to the main checkout's .gitignore, once (T-731).
 //	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
@@ -49,15 +48,13 @@
 //	        (the tab reused when there is one), the pane labelled <prefix>-monitor (config.MonitorLabel); a pane left at
 //	        its shell gets the command again, a monitor that runs is left alone.
 //
-//	migrate  rewrite a config of the shape before T-765 (lane_types, typed lanes, role objects) to models and a lanes
-//	        count, once: see migrate.go.
+//	migrate  rewrite a config of the shape before T-765 (lane_types, typed lanes, role objects) or one that still sets
+//	        the removed agents key to models and a lanes count, once: see migrate.go.
 //
 //	show  the setup table, read-only (T-647): per difficulty level each model ref, in order, with its kind, model id
 //	        and effort; the lanes; the roles' models; whether the owner confirmed it.
 //
 // obor init (P7-2): see oborinit.go.
-//
-// Pane and role refuse names that collide between lanes and roles (T-189) before any herdr call or worktree.
 package setup
 
 import (
@@ -273,53 +270,5 @@ func (s *Setup) ensureWorktree(dir string) error {
 		return project.Failf("git worktree add --detach %s %s", dir, branch)
 	}
 	s.say("worktree %s (detached at %s)", dir, branch)
-	return nil
-}
-
-// roleAgents is the agent name of every role that counts (a table role but the worker, an optional one only when
-// configured).
-func roleAgents(cfg *config.Config) []string {
-	var out []string
-	for _, r := range roles.All() {
-		if rc, _ := cfg.Role(r.Name); r.Name != "worker" && (!r.Optional || rc.Configured) {
-			out = append(out, cfg.AgentName(r.Name, ""))
-		}
-	}
-	return out
-}
-
-// refuseLaneCollisions keeps a new lane's name and agent names out of the roles' (T-189: one runtime namespace).
-func refuseLaneCollisions(cfg *config.Config, lane string) error {
-	for _, wt := range cfg.RoleWorktrees() {
-		if wt == lane {
-			return project.Failf("lane %s collides with a role worktree", lane)
-		}
-	}
-	taken := roleAgents(cfg)
-	for _, a := range cfg.LaneAgentAliases(lane, project.LaneAgent(cfg.Root, lane)) {
-		for _, r := range taken {
-			if a == r {
-				return project.Failf("lane %s agent %s collides with a role agent", lane, a)
-			}
-		}
-	}
-	// T-302: the bare lane name (o-01) is no alias any more, but a role agent so named still reads like the lane.
-	for _, r := range taken {
-		if r == strings.ToLower(lane) {
-			return project.Failf("lane %s is named like role agent %s", lane, r)
-		}
-	}
-	return nil
-}
-
-// refuseRoleCollisions keeps a role's agent out of the lanes' names (T-189).
-func refuseRoleCollisions(cfg *config.Config, role, agent string) error {
-	for _, l := range cfg.Lanes() {
-		for _, a := range cfg.LaneAgentAliases(l.Name, project.LaneAgent(cfg.Root, l.Name)) {
-			if a == agent {
-				return project.Failf("role %s agent %s collides with a configured lane agent", role, agent)
-			}
-		}
-	}
 	return nil
 }

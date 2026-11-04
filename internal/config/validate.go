@@ -25,6 +25,7 @@ var (
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data, stateAgent: o.StateAgent}
 	v.top()
+	v.removed()
 	v.models()
 	v.lanes()
 	v.difficulty()
@@ -81,9 +82,19 @@ func (v *validator) lanes() {
 	}
 }
 
+// removed refuses a key that was removed with a replacement the reader must use: agents.<name> (T-777: advisor,
+// researcher and triage are roles, migrated by obor setup migrate), never a WARN because there is no working shape to
+// keep. The WARN-only removals are in warnings.
+func (v *validator) removed() {
+	if v.d.Agents != nil {
+		v.fail(".agents", "no longer a config key: advisor, researcher and triage are roles "+
+			"(roles.advisor, roles.researcher, roles.triage); obor setup migrate moves a matching entry and drops the rest")
+	}
+}
+
 // models: every models entry and kinds key names a kind with a bridge (agents.Lookup), no kinds args carry a bare
 // `--` (obor adds the first prompt after its own options, so a `--` would turn --settings and --resume into
-// positionals, RV-47-verify-3 N2); each role and agent names a known model with an effort its kind takes (T-695).
+// positionals, RV-47-verify-3 N2); each role names a known model with an effort its kind takes (T-695).
 func (v *validator) models() {
 	bridged := func(path, kind string) {
 		if _, ok := agents.Lookup(kind); !ok {
@@ -105,9 +116,6 @@ func (v *validator) models() {
 		if slices.Contains(v.d.Kinds.M[k].Args, "--") {
 			v.fail(".kinds"+key(k)+".args", "`--` is not allowed: obor adds the first prompt itself")
 		}
-	}
-	for _, k := range v.d.Agents.Keys {
-		v.modelRef(".agents"+key(k)+".type", v.d.Agents.M[k].Type, true)
 	}
 	for _, role := range roles.All() {
 		if ref := v.d.Roles.entry(role.Name); ref != nil {
@@ -187,7 +195,7 @@ func (v *validator) laneAgents() {
 	for _, rc := range v.c.roleAgents() {
 		names = append(names, rc.Agent)
 	}
-	roleAgents := Unique(append(names, v.d.Agents.Keys...)...)
+	roleAgents := Unique(names...)
 	for _, lane := range v.c.Lanes() {
 		state := ""
 		if v.stateAgent != nil {
@@ -331,9 +339,6 @@ func (c *Config) UsedModels() []string {
 		if ref := c.Data.Roles.entry(role.Name); ref != nil {
 			refs = append(refs, *ref)
 		}
-	}
-	for _, k := range c.Data.Agents.Keys {
-		refs = append(refs, c.Data.Agents.M[k].Type)
 	}
 	var out []string
 	for _, ref := range refs {

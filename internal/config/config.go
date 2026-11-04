@@ -80,22 +80,25 @@ type Data struct {
 	// HandoffTokens is the lead's automatic handoff threshold (T-175); absent: the guard's default.
 	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
 	// IntegratorHandoffTokens is the integrator's (T-215): default 150000; 0 = off.
-	IntegratorHandoffTokens *int64              `json:"integrator_handoff_tokens,omitempty"`
-	StopIdleWorkers         *bool               `json:"stop_idle_workers,omitempty"`
-	Agents                  Ordered[AgentEntry] `json:"agents,omitzero"`
-	Roles                   Roles               `json:"roles"`
-	Setup                   Setup               `json:"setup,omitzero"`
-	Leads                   any                 `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
-	Merge                   Merge               `json:"merge"`
-	MCP                     MCP                 `json:"mcp"`
-	Slots                   *Slots              `json:"slots,omitempty"`
-	Checks                  *Checks             `json:"checks,omitempty"`
-	StopHook                any                 `json:"stop_hook,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	Limits                  *Limits             `json:"limits,omitempty"`
-	Heartbeat               any                 `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	Cache                   Cache               `json:"cache"`
-	Inbox                   any                 `json:"inbox,omitempty"`  // removed in v0.12.0 (T-466): validate warns
-	Notify                  any                 `json:"notify,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	IntegratorHandoffTokens *int64 `json:"integrator_handoff_tokens,omitempty"`
+	StopIdleWorkers         *bool  `json:"stop_idle_workers,omitempty"`
+	// Agents is a removed key (T-777): advisor, researcher and triage are roles (roles.advisor, roles.researcher,
+	// roles.triage); validate refuses it.
+	Agents any     `json:"agents,omitempty"`
+	Roles  Roles   `json:"roles"`
+	Setup  Setup   `json:"setup,omitzero"`
+	Leads  any     `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
+	Merge  Merge   `json:"merge"`
+	MCP    MCP     `json:"mcp"`
+	Slots  *Slots  `json:"slots,omitempty"`
+	Checks *Checks `json:"checks,omitempty"`
+	// StopHook is a removed key (T-465): validate warns.
+	StopHook  any     `json:"stop_hook,omitempty"`
+	Limits    *Limits `json:"limits,omitempty"`
+	Heartbeat any     `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	Cache     Cache   `json:"cache"`
+	Inbox     any     `json:"inbox,omitempty"`  // removed in v0.12.0 (T-466): validate warns
+	Notify    any     `json:"notify,omitempty"` // removed in v0.12.0 (T-465): validate warns
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
@@ -157,13 +160,6 @@ func (c Command) MarshalJSON() ([]byte, error) {
 		return []byte(Compact(c.Cmd)), nil
 	}
 	return []byte(Compact(command(c))), nil
-}
-
-// AgentEntry is agents.<name>: an agent that is no lane or role (T-145); Type is the model ref it starts with.
-type AgentEntry struct {
-	Type string `json:"type"`
-	Cwd  string `json:"cwd,omitempty"`
-	Role string `json:"role,omitempty"`
 }
 
 // Roles is roles: the model ref of each table role (nil: not configured; "": configured, no model named), and the
@@ -571,21 +567,7 @@ type RoleConfig struct {
 	// Type is the model roles.<role> names ("": none), Effort the effort after it (`opus:high`, T-695; "": the kind's
 	// default).
 	Type, Effort string
-	// Worktree is the reviewer's and the deep dive's old worktree (oldWorktrees): a name reserved under lanes_dir (no
-	// lane). They no longer run there (T-718: the main checkout; obor setup role names it for removal).
-	Worktree   string
-	Configured bool
-}
-
-// oldWorktrees is the worktree each role ran in by default before T-718; these roles run in the main checkout now.
-var oldWorktrees = map[string]string{"reviewer": "review", "deep_dive": "deep-dive"}
-
-// OldWorktree is the worktree the role no longer runs in (T-718: the reviewer's or the deep dive's Worktree; "": none).
-func (rc RoleConfig) OldWorktree() string {
-	if _, moved := oldWorktrees[rc.Role.Name]; moved {
-		return rc.Worktree
-	}
-	return ""
+	Configured   bool
 }
 
 // AgentInfo is the role, lane, model (Type) and cwd resolved for a configured agent, and the effort its model ref
@@ -639,15 +621,15 @@ func (c *Config) Command(name string) (Command, bool) {
 // Paths returns the configured paths.
 func (c *Config) Paths() Paths { return Paths{Reviews: c.Data.Paths["reviews"], Values: c.Data.Paths} }
 
-// Role resolves a table role and its configured agent, type, and worktree overrides.
+// Role resolves a table role and its configured type override; the agent's name is derived (roles.AgentName).
 func (c *Config) Role(name string) (RoleConfig, bool) {
 	role, ok := roles.Lookup(name)
 	if !ok {
 		return RoleConfig{}, false
 	}
-	rc := RoleConfig{Role: role, Worktree: oldWorktrees[name]}
+	rc := RoleConfig{Role: role}
 	if role.Name != "worker" {
-		rc.Agent = role.AgentName(c.Data.Prefix, "", "")
+		rc.Agent = role.AgentName(c.Data.Prefix, "")
 	}
 	if ref := c.Data.Roles.entry(name); ref != nil {
 		rc.Configured = true
@@ -656,13 +638,13 @@ func (c *Config) Role(name string) (RoleConfig, bool) {
 	return rc, true
 }
 
-// AgentName is the herdr agent name of role (of lane, for a worker): the configured agent, else the table default.
+// AgentName is the herdr agent name of role (of lane, for a worker): the derived name (T-765).
 func (c *Config) AgentName(role, lane string) string {
 	rc, ok := c.Role(role)
 	if !ok {
 		return ""
 	}
-	return rc.Role.AgentName(c.Data.Prefix, lane, rc.Agent)
+	return rc.Role.AgentName(c.Data.Prefix, lane)
 }
 
 // MonitorLabel is the label of the project's monitor pane, <prefix>-monitor: obor setup monitor creates it and the
@@ -681,26 +663,14 @@ func (c *Config) roleAgents() []RoleConfig {
 	return out
 }
 
-// RoleWorktrees is the old worktree name of every configured role (RoleConfig.Worktree: reviewer → review, deep_dive →
-// deep-dive). A linked worktree of such a name under lanes_dir is no lane.
-func (c *Config) RoleWorktrees() []string {
-	var out []string
-	for _, role := range roles.All() {
-		if rc, _ := c.Role(role.Name); rc.Configured && rc.Worktree != "" {
-			out = append(out, rc.Worktree)
-		}
-	}
-	return out
-}
-
 // LaneAgentAliases returns the names that identify this lane's worker; stateAgent is the agent its lane row names
 // ("" none: config reads no store; callers pass project.LaneAgent).
 func (c *Config) LaneAgentAliases(lane, stateAgent string) []string {
-	return roles.LaneAgentAliases(lane, c.Data.Prefix, stateAgent, "")
+	return roles.LaneAgentAliases(lane, c.Data.Prefix, stateAgent)
 }
 
-// AgentLookup follows lane → lead → role → agents precedence, then resolves an unmatched cwd at to a lane. stateAgent
-// is the agent a lane's row names (nil: none; project.AgentLookup passes project.LaneAgent).
+// AgentLookup follows lane → role precedence, then resolves an unmatched cwd at to a lane. stateAgent is the agent a
+// lane's row names (nil: none; project.AgentLookup passes project.LaneAgent).
 func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) string) (AgentInfo, bool) {
 	for _, lane := range c.Lanes() {
 		state := ""
@@ -717,14 +687,6 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 		if rc.Agent != "" && rc.Agent == agent {
 			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: c.Root}, true
 		}
-	}
-	if e, ok := c.Data.Agents.M[agent]; ok {
-		cwd := e.Cwd
-		if !filepath.IsAbs(cwd) {
-			cwd = filepath.Join(c.Root, cwd)
-		}
-		typ, effort := ParseModelRef(e.Type)
-		return AgentInfo{Role: e.Role, Type: typ, Effort: effort, Cwd: filepath.Clean(cwd)}, true
 	}
 	for _, lane := range c.Lanes() {
 		if at != "" && filepath.Clean(at) == filepath.Clean(lane.Dir) {

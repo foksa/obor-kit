@@ -962,32 +962,6 @@ func TestProtectedAfterCdUsesTheRightCwd(t *testing.T) {
 	})
 }
 
-// bash case_role_worktree_not_a_lane (RV-02 #7)
-func TestRoleWorktreesUnderLanesDirAreNotLanes(t *testing.T) {
-	t.Parallel()
-	f := fixture(t)
-	V := f.LaneDir("review") // the reviewer's old worktree (T-718), reserved under lanes_dir
-	f.Git(f.P, "worktree", "add", "-q", "--detach", V, "main")
-	// The config keeps its lanes: written before the role worktree existed.
-	cfg := map[string]any{}
-	json.Unmarshal([]byte(f.Read(".obor/config.json")), &cfg)
-	cfg["roles"] = testkit.JSON(`{"reviewer": "opus", "advisor": "opus"}`)
-	b, _ := json.Marshal(cfg)
-	f.Write(".obor/config.json", string(b))
-	check(t, f.Project, []tc{
-		bash("reviewer", V, "git commit -m x", "a reviewer doesn't run git commit"),
-		bash("reviewer", V, "git checkout -b review-notes", "a reviewer doesn't run git checkout"),
-		bash("reviewer", V, "git status", ""),
-		bash("-", V, "git commit -m x", ""),
-		bash("reviewer", V, "echo x > src/core/types.ts", "src/core/types.ts is a protected file"),
-		edit("reviewer", V, "Edit", V+"/src/core/types.ts", "protected"),
-		bash("reviewer", V, "git push", "git push"),
-		bash("-", f.L, "git commit -m x", "workers don't run git commit"),
-		bash("reviewer", f.L, "git commit -m x", "workers don't run git commit"),
-		bash("worker", V, "git commit -m x", "workers don't run git commit"),
-	})
-}
-
 // bash case_cp_source_not_a_target (RV-02 #8)
 func TestCpChecksItsTargetNotItsSources(t *testing.T) {
 	t.Parallel()
@@ -1117,29 +1091,6 @@ func TestNoIdentityFromTheSessionID(t *testing.T) {
 	if code, reason := call("-", edit("", P, "Edit", P+"/src/core/types.ts", ""), "sid-int"); code != 0 {
 		t.Errorf("integrator's session id → no integrator rules: %q", reason)
 	}
-}
-
-// bash case_role_pane_worktrees_not_lanes (T-179)
-func TestReviewerAndDeepDiveDefaultWorktreesAreNotLanes(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
-	rev, dd := p.Lane("review", ""), p.Lane("deep-dive", "")
-	if !strings.Contains(p.Read(".obor/config.json"), `"lanes": 0`) {
-		t.Fatal("precondition: no lanes")
-	}
-	var cases []tc
-	for role, wt := range map[string]string{"reviewer": rev, "deep_dive": dd} {
-		cases = append(cases,
-			bash(role, wt, "git checkout -q --detach main", "doesn't run git checkout"), // the lead detaches it (RV-83 #2)
-			bash(role, wt, "git log -1", ""),
-			edit(role, wt, "Write", wt+"/notes.md", "outside the "+role+" write profile"),
-			edit(role, wt, "Write", wt+"/docs/reviews/notes.md", ""),
-			edit(role, wt, "Write", wt+"/src/core/types.ts", "protected"))
-	}
-	check(t, p, cases)
-	p.Config(testkit.Set("protected_files", `["src/core/types.ts"]`), testkit.Set("lanes", 0))
-	check(t, p, []tc{bash("deep_dive", dd, "git checkout -q --detach main", "worker")})
 }
 
 // bash case_reviews_write_profile (T-193)

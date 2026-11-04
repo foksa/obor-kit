@@ -25,9 +25,6 @@ func (s *Setup) lane(ctx context.Context, args []string) error {
 	if next := config.LaneName(s.cfg.Data.Lanes + 1); !configured && lane != next {
 		return project.Failf("lanes are L-01 … L-NN in order (lanes: %d): the next one is %s", s.cfg.Data.Lanes, next)
 	}
-	if err := refuseLaneCollisions(s.cfg, lane); err != nil {
-		return err
-	}
 	dir := filepath.Join(s.cfg.LanesDir(), lane)
 	if err := s.ensureWorktree(dir); err != nil {
 		return err

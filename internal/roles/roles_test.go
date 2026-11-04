@@ -2,6 +2,7 @@ package roles
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -47,7 +48,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
-		if r.EnvValue != check.env || r.AgentName("pj", "L-01", "") != check.agent ||
+		if r.EnvValue != check.env || r.AgentName("pj", "L-01") != check.agent ||
 			r.Cwd != check.cwd || r.Write != check.write || r.Stoppable != check.stoppable || r.Dispatchable != check.dispatchable {
 			t.Errorf("%s = %+v", check.name, r)
 		}
@@ -68,35 +69,42 @@ func TestOptionalRoles(t *testing.T) {
 	}
 }
 
-func TestRoleAgentAndWorktreeOverrides(t *testing.T) {
-	worker, _ := Lookup("worker")
-	if got := worker.AgentName("pj", "L-01", "custom-worker"); got != "custom-worker" {
-		t.Errorf("worker override = %q", got)
-	}
+func TestRoleLookupAndDefaults(t *testing.T) {
 	if _, ok := Lookup("unknown"); ok {
 		t.Fatal("unknown role found")
 	}
 	if _, ok := LookupEnv(""); ok {
 		t.Fatal("empty env value found a role")
 	}
+	worker, _ := Lookup("worker")
+	if got := worker.AgentName("pj", "L-01"); got != "pj-l-01" {
+		t.Errorf("worker agent = %q, want the derived pj-l-01", got)
+	}
+	if got := worker.AgentName("", "L-01"); got != "" {
+		t.Errorf("no prefix: agent = %q, want none", got)
+	}
 }
 
+// T-777: a lane's worker has two names: the one its lane row records and the derived <prefix>-<lane lower>. The
+// compact alias (pj-l1) and a configured name are no names any more.
 func TestLaneAgentAliases(t *testing.T) {
-	tests := []struct {
-		name, lane, state, configured string
-		want                          []string
+	for _, test := range []struct {
+		name, lane, state string
+		want              []string
 	}{
-		{"all aliases", "L-01", "state-lane", "custom-lane", []string{"state-lane", "custom-lane", "pj-l-01", "pj-l1"}},
-		{"no optional aliases", "S-01", "", "", []string{"pj-s-01", "pj-s1"}},
-		{"deduplicates aliases", "l1", "pj-l1", "pj-l1", []string{"pj-l1"}},
-		{"bare lane name only as the state agent", "L-01", "l-01", "", []string{"l-01", "pj-l-01", "pj-l1"}},
-	}
-	for _, test := range tests {
+		{"the row's agent then the derived name", "L-01", "bob", []string{"bob", "pj-l-01"}},
+		{"no row: the derived name alone", "L-01", "", []string{"pj-l-01"}},
+		{"deduplicates", "L-01", "pj-l-01", []string{"pj-l-01"}},
+		{"the bare lane name only when the row names it", "L-01", "l-01", []string{"l-01", "pj-l-01"}},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := LaneAgentAliases(test.lane, "pj", test.state, test.configured); !reflect.DeepEqual(got, test.want) {
+			if got := LaneAgentAliases(test.lane, "pj", test.state); !reflect.DeepEqual(got, test.want) {
 				t.Errorf("LaneAgentAliases = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+	if names := LaneAgentAliases("L-01", "pj", ""); slices.Contains(names, "pj-l1") {
+		t.Errorf("LaneAgentAliases(%q) = %q has the removed compact alias", "L-01", names)
 	}
 }
 

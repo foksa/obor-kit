@@ -192,8 +192,8 @@ type Role struct {
 }
 
 // DetectRole is the session's role: OBOR_ROLE / OBOR_LANE from env; a directory in a linked worktree directly under
-// lanes_dir (not the merge scratch, nor a role's worktree) → a worker in that lane. The lane cwd wins over the env,
-// except OBOR_ROLE=driver there: the owner's drive agent (T-751).
+// lanes_dir (not the merge scratch) → a worker in that lane. The lane cwd wins over the env, except OBOR_ROLE=driver
+// there: the owner's drive agent (T-751).
 func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 	envRole, envLane := env.Get("OBOR_ROLE"), env.Get("OBOR_LANE")
 	cwdLane := LaneOf(r, cfg)
@@ -214,7 +214,7 @@ func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 }
 
 // LaneOf is the lane whose worktree r is: a linked worktree directly under lanes_dir (compared physically), not the
-// merge scratch, and not a role's worktree unless the config names it a lane. "" when none.
+// merge scratch. "" when none (T-777: a lane is any L-NN worktree; no role has a worktree of its own).
 func LaneOf(r *Repo, cfg *config.Config) string {
 	if r == nil || cfg == nil || !r.Linked() {
 		return ""
@@ -223,30 +223,11 @@ func LaneOf(r *Repo, cfg *config.Config) string {
 	if filepath.Dir(r.Top) != Physical(cfg.LanesDir()) || r.Top == Physical(config.AbsUnder(cfg.Root, scratch)) {
 		return ""
 	}
-	name := filepath.Base(r.Top)
-	if Reserved(cfg, name) {
-		return ""
-	}
-	return name
-}
-
-// Reserved reports whether name is a role worktree (a configured roles.<role>.worktree or a configured reviewer /
-// deep_dive's default) and not an explicit lane: a linked worktree of that name under lanes_dir is no lane.
-func Reserved(cfg *config.Config, name string) bool {
-	if cfg.HasLane(name) {
-		return false
-	}
-	for _, wt := range cfg.RoleWorktrees() {
-		if wt == name {
-			return true
-		}
-	}
-	return false
+	return filepath.Base(r.Top)
 }
 
 // SelfAgent is the herdr agent name of a session in role (DetectRole of its cwd): OBOR_AGENT; else the lane row's
-// agent; else the obor setup name (<prefix>-<lane lower>), or for a role config.AgentName (roles.<role>.agent or
-// the setup name). "" when none.
+// agent; else the setup name (<prefix>-<lane lower>), or for a role the derived name (config.AgentName). "" when none.
 func SelfAgent(cfg *config.Config, role Role, env Env) string {
 	if a := env.Get("OBOR_AGENT"); a != "" {
 		return a
@@ -257,7 +238,7 @@ func SelfAgent(cfg *config.Config, role Role, env Env) string {
 			return agent
 		}
 		worker, _ := roles.Lookup("worker")
-		return worker.AgentName(cfg.Data.Prefix, role.Lane, "")
+		return worker.AgentName(cfg.Data.Prefix, role.Lane)
 	case role.Role == "lead", role.Role == "integrator", role.Role == "reviewer", role.Role == "deep_dive":
 		return cfg.AgentName(role.Role, "")
 	}

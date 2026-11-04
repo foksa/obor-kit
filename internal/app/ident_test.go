@@ -36,13 +36,11 @@ func newIdentHarness(t *testing.T) (*harness, *bytes.Buffer) {
 	return h, out
 }
 
-// withLead gives pj a lead role (pj-lead), an integrator (pj-int) and the configured agent pj-other (agents.pj-other,
-// no lane or role): every name a start row or a recorded session may prove a pane with (T-605), lane L-01's worker
-// pj-l-01 included.
+// withLead gives pj a lead role (pj-lead), an integrator (pj-int) and an advisor (pj-advisor, no lane): every name a
+// start row or a recorded session may prove a pane with (T-605), lane L-01's worker pj-l-01 included.
 func (h *harness) withLead() {
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj",`+
-		`"lanes":1,"roles":{"integrator":"","lead":""},`+
-		`"agents":{"pj-other":{"type":"opus"}}}`)
+		`"lanes":1,"roles":{"integrator":"","lead":"","advisor":""}}`)
 }
 
 // sids makes agent → session each agent's current recorded session in the store (once the project is loaded): put in
@@ -462,16 +460,16 @@ func TestIdentMoveAddressReused(t *testing.T) {
 }
 
 // 14 (RV-53 #2): a session claim and a label claim on one terminal: the lead's recorded session s1 is w1:p1's session, w1:p1 is
-// labelled pj-other: the lead owns t1, pj-other has no proof; whoIs(w1:p1) is the lead.
+// labelled pj-advisor: the lead owns t1, pj-advisor has no proof; whoIs(w1:p1) is the lead.
 func TestIdentSessionBeatsLabel(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	h.pane("w1:p1").Label = "pj-other"
+	h.pane("w1:p1").Label = "pj-advisor"
 	h.sids(map[string]string{"pj-lead": "s1"})
 	h.connect()
 	eqs(t, h.where("pj-lead"), "identified w1:p1 session", "the lead")
-	eqs(t, h.where("pj-other"), "unavailable no proof", "the label")
+	eqs(t, h.where("pj-advisor"), "unavailable no proof", "the label")
 	eqs(t, h.who("w1:p1"), "pj-lead", "whoIs(w1:p1)")
 	var owned []string
 	for _, pane := range h.snap.Panes {
@@ -742,7 +740,7 @@ func TestIdentOrderIndependent(t *testing.T) {
 	for i := range 40 {
 		h, _ := newIdentHarness(t)
 		h.withLead()
-		h.pane("w1:p1").Label = "pj-other"
+		h.pane("w1:p1").Label = "pj-advisor"
 		h.sids(map[string]string{"pj-lead": "s1"})
 		h.started("pj-l-01", "w1:p4", "t4", "")
 		h.snap.Panes = append(h.snap.Panes,
@@ -754,13 +752,13 @@ func TestIdentOrderIndependent(t *testing.T) {
 			h.snap.Panes[a], h.snap.Panes[b] = h.snap.Panes[b], h.snap.Panes[a]
 		})
 		h.connect()
-		got := h.table("pj-lead", "pj-int", "pj-l-01", "pj-l-02", "pj-other")
+		got := h.table("pj-lead", "pj-int", "pj-l-01", "pj-l-02", "pj-advisor")
 		if i == 0 {
 			first = got
 			eqs(t, h.where("pj-lead"), "identified w1:p1 session", "the lead")
 			eqs(t, h.where("pj-l-01"), "identified w1:p4 start", "pj-l-01")
 			eqs(t, h.where("pj-l-02"), "ambiguous w1:p5 w1:p6", "pj-l-02")
-			eqs(t, h.where("pj-other"), "unavailable no proof", "pj-other")
+			eqs(t, h.where("pj-advisor"), "unavailable no proof", "pj-advisor")
 			continue
 		}
 		if got != first {
@@ -965,16 +963,16 @@ func TestIdentAmbiguityStillPrompts(t *testing.T) {
 	}
 }
 
-// #2: the lead's session and pj-other's label on one terminal: one owner, the lead.
+// #2: the lead's session and pj-advisor's label on one terminal: one owner, the lead.
 func TestIdentOnePaneTwoAgents(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
-	h.pane("w1:p1").Label = "pj-other"
+	h.pane("w1:p1").Label = "pj-advisor"
 	h.sids(map[string]string{"pj-lead": "s1"})
 	h.connect()
 	eqs(t, h.where("pj-lead"), "identified w1:p1 session", "session identity")
-	eqs(t, h.where("pj-other"), "unavailable no proof", "label identity")
+	eqs(t, h.where("pj-advisor"), "unavailable no proof", "label identity")
 }
 
 // #2: a label identity, then a second pane labelled the same: refused, not the old pane kept.
@@ -1032,10 +1030,10 @@ func TestIdentBriefUsesPaneAddress(t *testing.T) {
 
 // T-505: the identity table's transitions; each failed on the code it was found on.
 // V1: pj-l-01's and the lead's recorded session are both w1:p1's session s1 (equal proof of t1): t1 is unowned whatever its
-// label names, a third label (pj-other) included; neither tied claimant is identified.
+// label names, a third label (pj-advisor) included; neither tied claimant is identified.
 func TestIdentEqualProofTerminal(t *testing.T) {
 	t.Parallel()
-	for _, label := range []string{"", "pj-l-01", "pj-lead", "pj-other"} {
+	for _, label := range []string{"", "pj-l-01", "pj-lead", "pj-advisor"} {
 		t.Run("label="+label, func(t *testing.T) {
 			t.Parallel()
 			h, _ := newIdentHarness(t)
@@ -1046,14 +1044,14 @@ func TestIdentEqualProofTerminal(t *testing.T) {
 			eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1)")
 			eqs(t, h.where("pj-l-01"), "unavailable no proof", "pj-l-01")
 			eqs(t, h.where("pj-lead"), "unavailable no proof", "the lead")
-			if label == "pj-other" {
-				eqs(t, h.where("pj-other"), "unavailable no proof", "pj-other")
+			if label == "pj-advisor" {
+				eqs(t, h.where("pj-advisor"), "unavailable no proof", "pj-advisor")
 			}
 		})
 	}
 }
 
-// V1: the tie on t1, and serve's start of pj-other in w1:p1 (a lower-ranked start claim): t1 stays unowned; once the
+// V1: the tie on t1, and serve's start of pj-advisor in w1:p1 (a lower-ranked start claim): t1 stays unowned; once the
 // lead's session is no longer s1 the tie ends and pj-l-01 owns t1 again by session.
 func TestIdentEqualProofStartClaim(t *testing.T) {
 	t.Parallel()
@@ -1064,19 +1062,19 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	h.sids(sids)
 	h.connect()
 	eqs(t, h.who("w1:p1"), "", "precondition: the tie")
-	// pj-other's start row (foldStart's) after the tie: one folded before it is retired by the lead's session.
+	// pj-advisor's start row (foldStart's) after the tie: one folded before it is retired by the lead's session.
 	h.a.mu.Lock()
-	h.proj().reg.recordStart("pj-other", startRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"})
+	h.proj().reg.recordStart("pj-advisor", startRow{Pane: "w1:p1", Terminal: "t1", Kind: "claude"})
 	h.a.mu.Unlock()
 	h.connect()
 	h.a.mu.Lock()
-	_, kept := h.proj().reg.start("pj-other")
+	_, kept := h.proj().reg.start("pj-advisor")
 	h.a.mu.Unlock()
 	if !kept {
-		t.Fatal("precondition: pj-other's start row")
+		t.Fatal("precondition: pj-advisor's start row")
 	}
 	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1) during the tie")
-	eqs(t, h.where("pj-other"), "unavailable no proof", "pj-other during the tie")
+	eqs(t, h.where("pj-advisor"), "unavailable no proof", "pj-advisor during the tie")
 	delete(sids, "pj-lead")
 	h.a.mu.Lock()
 	h.proj().folded.sessions = slices.DeleteFunc(h.proj().folded.sessions, func(s store.Session) bool { return s.Agent == "pj-lead" })
@@ -1086,15 +1084,15 @@ func TestIdentEqualProofStartClaim(t *testing.T) {
 	eqs(t, h.who("w1:p1"), "pj-l-01", "whoIs(w1:p1) after the tie")
 }
 
-// V1 control: without the tie, pj-other's start claim owns t1 (the start claim is a real proof).
+// V1 control: without the tie, pj-advisor's start claim owns t1 (the start claim is a real proof).
 func TestIdentStartClaimWithoutTie(t *testing.T) {
 	t.Parallel()
 	h, _ := newIdentHarness(t)
 	h.withLead()
 	h.pane("w1:p1").Label = ""
-	h.started("pj-other", "w1:p1", "t1", "")
+	h.started("pj-advisor", "w1:p1", "t1", "")
 	h.connect()
-	eqs(t, h.where("pj-other"), "identified w1:p1 start", "pj-other")
+	eqs(t, h.where("pj-advisor"), "identified w1:p1 start", "pj-advisor")
 }
 
 // stopNotFound is an adapter's "no such agent" (NotFound).

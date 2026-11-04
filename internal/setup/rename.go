@@ -33,6 +33,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/roles"
 	"obor/internal/store"
 )
 
@@ -219,6 +220,18 @@ func stringAt(doc []byte, path ...string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// roleAgents is the agent name of every role that counts (a table role but the worker, an optional one only when
+// configured).
+func roleAgents(cfg *config.Config) []string {
+	var out []string
+	for _, r := range roles.All() {
+		if rc, _ := cfg.Role(r.Name); r.Name != "worker" && (!r.Optional || rc.Configured) {
+			out = append(out, cfg.AgentName(r.Name, ""))
+		}
+	}
+	return out
 }
 
 // agentPairs are the project's agents with the name each had and gets: the roles' agents and every lane's (its row's

@@ -316,20 +316,15 @@ func TestProjectLockWaitContextAndHolderLine(t *testing.T) {
 	waiter.Unlock()
 }
 
-func TestDetectRoleCwdEnvAndReserved(t *testing.T) {
+func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":"opus","deep_dive":"opus"}}`)
-	cfg, err := config.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !Reserved(cfg, "review") || !Reserved(cfg, "deep-dive") {
-		t.Error("role table worktree defaults were not reserved")
-	}
 	if got := role(t, filepath.Join(wt, "L-01")); got != (Role{"worker", "L-01", "cwd"}) {
 		t.Errorf("lane: %+v", got)
 	}
-	if got := role(t, filepath.Join(wt, "review")); got != (Role{"none", "", "none"}) {
-		t.Errorf("reserved worktree: %+v", got)
+	// T-777: role worktrees are gone; no name under lanes_dir is reserved any more (a leftover review worktree is a
+	// lane of that name).
+	if got := role(t, filepath.Join(wt, "review")); got != (Role{"worker", "review", "cwd"}) {
+		t.Errorf("leftover worktree under lanes_dir: %+v", got)
 	}
 	if got := role(t, filepath.Join(wt, "merge")); got != (Role{"none", "", "none"}) {
 		t.Errorf("merge scratch: %+v", got)

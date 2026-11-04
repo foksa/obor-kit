@@ -460,44 +460,6 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-deep-dive pane_id=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
 	}, {
-		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (adv)
-		name: "agents entry: its type args + settings, its cwd, OBOR_AGENT only; args line",
-		edit: []func(map[string]any){
-			testkit.Set("agents", `{"adv":{"type":"fable:low","cwd":"sub"},"des":{"type":"opus","role":"designer"},"pj-int":{"type":"fable"}}`),
-		},
-		prep: func(x *fx) { x.shell("w1:p6", "", "") },
-		req:  launch.Request{Agent: "adv", Pane: "w1:p6", Sid: "s-adv"},
-		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root+"/sub") + " && export OBOR_AGENT=adv && unset OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
-		},
-		start: "agent.start args=[--permission-mode auto --model fable --effort low " + settings + " --resume s-adv] kind=claude name=adv pane_id=w1:p6",
-		line:  "RESTARTED adv (pane w1:p6, session s-adv)",
-		out:   "args (claude): --permission-mode auto --model fable --effort low " + settings + " --resume s-adv\n",
-	}, {
-		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (des)
-		name: "agents entry with a role: cwd the main checkout, OBOR_ROLE from the entry",
-		edit: []func(map[string]any){testkit.Set("agents", `{"des":{"type":"opus","role":"designer"}}`)},
-		prep: func(x *fx) { x.shell("w1:p6", "", "") },
-		req:  launch.Request{Agent: "des", Pane: "w1:p6", Fresh: true},
-		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=des OBOR_ROLE=designer && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
-		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=des pane_id=w1:p6",
-		line:  "RESTARTED des (pane w1:p6, session new)",
-	}, {
-		// bash restart.test.sh case_agents_entry_gets_type_args_cwd_env (pj-int)
-		name: "a role wins over an agents entry of the same name",
-		edit: []func(map[string]any){
-			testkit.Set("agents", `{"pj-int":{"type":"fable"}}`),
-		},
-		prep: func(x *fx) { x.shell("w1:p6", "", "") },
-		req:  launch.Request{Agent: "pj-int", Pane: "w1:p6", Fresh: true},
-		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && export OBOR_AGENT=pj-int OBOR_ROLE=integrator && unset OBOR_LANE && unset OBOR_OPENCODE_MODEL"
-		},
-		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-int pane_id=w1:p6",
-		line:  "RESTARTED pj-int (pane w1:p6, session new)",
-	}, {
 		// bash restart.test.sh case_lead_type_from_leads_entry_or_none (pj-lead)
 		name: "a lead without a model: no args",
 		edit: []func(map[string]any){testkit.Set("roles", `{"lead":""}`)},
@@ -687,23 +649,23 @@ func TestRestartWhereRefusals(t *testing.T) {
 	}
 }
 
-// T-301: two projects with the same names. The kit has lane L-02 (agent alias l-02); axis has its agent l-02 (an
-// agents entry, role integrator) in its own worktree L-02. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's
-// checkout) took axis's integrator pane for the kit's lane and started it in the kit's lane worktree.
+// T-301: two projects with the same names. The kit has lane L-02 (agent pj-l-02); axis has a lane L-02 too, in its own
+// worktree. A restart that loaded the kit's config (axis's scheduled self-restart, spawned in the kit's checkout) took
+// axis's lane pane for the kit's lane and started it in the kit's lane worktree. T-777: an agents entry is no name any
+// more; the pane's lane cwd is what makes it axis's.
 func TestRestartOtherProjectsPane(t *testing.T) {
 	t.Parallel()
 	kitEdits := []func(map[string]any){testkit.Set("roles", `{"integrator":"opus"}`)}
-	// fixtures: the kit (x, lanes L-01 and L-02), axis (its integrator l-02 in <axis>-wt/L-02, no lanes) and the
-	// integrator's pane w2:pF in axis's worktree.
+	// fixtures: the kit (x, lanes L-01 and L-02), axis (its lane L-02 in <axis>-wt/L-02) and its worker's pane w2:pF in
+	// axis's worktree.
 	fixtures := func(t *testing.T) (x *fx, axis *config.Config, axisWt string) {
 		x = setup(t)
 		x.p.Lane("L-02", "")
 		x.p.Config(kitEdits...)
 		a := testkit.New(t)
 		axisWt = a.Lane("L-02", "")
-		a.Config(testkit.Set("lanes", 0), testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`),
-			testkit.Set("roles", `{"integrator":"opus"}`),
-			testkit.Set("agents", `{"l-02":{"type":"opus","cwd":`+strconv.Quote(axisWt)+`,"role":"integrator"}}`))
+		a.Config(testkit.Set("lanes", 2), testkit.Set("kinds.claude.args", `["--strict-mcp-config"]`),
+			testkit.Set("roles", `{"integrator":"opus"}`))
 		axis, err := config.Load(a.Root)
 		if err != nil {
 			t.Fatal(err)
@@ -743,15 +705,15 @@ func TestRestartOtherProjectsPane(t *testing.T) {
 			t.Errorf("nothing stopped, typed or started: %q", x.srv.Calls())
 		}
 	})
-	t.Run("control: axis's config restarts its integrator in its own worktree", func(t *testing.T) {
+	t.Run("control: axis's config restarts its lane worker in its own worktree", func(t *testing.T) {
 		t.Parallel()
 		x, axis, axisWt := fixtures(t)
 		out, ok := restart(x, axis)
 		if !ok || last(out) != "RESTARTED l-02 (pane w2:pF, session new)" {
 			t.Fatalf("restarted:\n%s", out)
 		}
-		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+axisWt+" && export OBOR_AGENT=l-02 OBOR_ROLE=integrator",
-			"started in axis's worktree")
+		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "cd "+axisWt+" && export OBOR_AGENT=l-02 OBOR_ROLE=worker",
+			"started in axis's worktree, its lane's worker")
 		contains(t, x.startCall(), "--strict-mcp-config", "axis's kinds.claude.args")
 	})
 	t.Run("control: the kit's own lane pane restarts in the kit's lane worktree", func(t *testing.T) {
