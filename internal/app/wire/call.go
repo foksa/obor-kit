@@ -81,15 +81,18 @@ type JobReply struct {
 // Lane, Types and Force are a dispatch's: the lane it names, else the first free lane of the types; force also takes a
 // dirty-free lane and stops the agent's background tasks.
 type Call struct {
-	Root   string `json:"root"`
-	Agent  string `json:"agent"`
-	Role   string `json:"role"`
-	CallID string `json:"call_id"`
-	Task   string `json:"task"`
-	Job    string `json:"job,omitempty"`
-	Patch  string `json:"patch,omitempty"`
-	Note   string `json:"note,omitempty"`
-	To     string `json:"to,omitempty"`
+	Root  string `json:"root"`
+	Agent string `json:"agent"`
+	Role  string `json:"role"`
+	// Version is the calling binary's version.Version (T-826), stamped by the client on every call (Verdict): an empty
+	// one is a binary older than the field, and serve names either difference in its refusal.
+	Version string `json:"version,omitempty"`
+	CallID  string `json:"call_id"`
+	Task    string `json:"task"`
+	Job     string `json:"job,omitempty"`
+	Patch   string `json:"patch,omitempty"`
+	Note    string `json:"note,omitempty"`
+	To      string `json:"to,omitempty"`
 	// A dispatch's.
 	Lane  string   `json:"lane,omitempty"`
 	Types []string `json:"types,omitempty"`

@@ -11,6 +11,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/store"
+	"obor/internal/version"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -369,8 +370,16 @@ func (l *memListener) Accept() (net.Conn, error) {
 func (l *memListener) Close() error   { l.once.Do(func() { close(l.done) }); return nil }
 func (l *memListener) Addr() net.Addr { return &net.UnixAddr{Name: "mem", Net: "unix"} }
 
-// send writes one request line to the app listening on l and returns the connection to read the answer from.
+// send writes one request line to the app listening on l and returns the connection to read the answer from: the
+// call carries this binary's version, as wire.Verdict's does (T-826).
 func (l *memListener) send(t *testing.T, method string, c wire.Call) net.Conn {
+	t.Helper()
+	c.Version = version.Version
+	return l.sendRaw(t, method, c)
+}
+
+// sendRaw writes one request line as given: a test of the skew itself sends another version, or none (an older binary).
+func (l *memListener) sendRaw(t *testing.T, method string, c wire.Call) net.Conn {
 	t.Helper()
 	client, server := net.Pipe()
 	l.conns <- server

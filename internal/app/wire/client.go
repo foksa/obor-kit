@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"obor/internal/app/port"
+	"obor/internal/version"
 )
 
 // Ask is the status of the app listening on the unix socket at path.
@@ -164,6 +165,10 @@ func cut(err error) bool {
 
 // askOnce is one request on its own connection; see ask.
 func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
+	// Every call names the binary that sent it (T-826): one place, so a serve that answers another version says so.
+	if req.Call != nil {
+		req.Call.Version = version.Version
+	}
 	// A caller with no deadline still has one; a caller's own (a verdict's table, a stop's bound) is its own.
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
