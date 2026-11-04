@@ -192,7 +192,7 @@ func TestWaitingRefusals(t *testing.T) {
 		t.Fatalf("a refusal recorded: %q", r.steps())
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
+		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d3", "T-3"); err != nil || reply != waitingAfter3 {
@@ -338,7 +338,7 @@ func TestWaitingForATaskMergedByHand(t *testing.T) {
 	t.Parallel()
 	r := startWithT2(t)
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
+		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d1", "T-3"); err != nil || reply != waitingAfter3 {
@@ -363,7 +363,7 @@ func TestWaitingCycleRefused(t *testing.T) {
 	r := startWithT2(t)
 	for _, task := range []string{"T-3", "T-4"} {
 		if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-			CallID: "s-" + task, Task: task, Spec: "# " + task + "\n\nDifficulty: medium\n"}); err != nil {
+			CallID: "s-" + task, Task: task, Spec: "# " + task + " — Other\n\nDifficulty: medium\n"}); err != nil {
 			t.Fatal(err)
 		}
 	}

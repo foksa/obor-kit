@@ -104,18 +104,36 @@ func globRegexp(glob string) string {
 	return b.String()
 }
 
-// Title is a spec text's title: the text after the dash of its first "# <task> — <title>" heading ("" when it has
-// no such heading).
+// Title is a spec text's title: the text after the task id of its first "# <task> <sep> <title>" heading, for a sep of
+// "—", "–", "-" or ":" ("" when it has no such heading or no title).
 func Title(text string) string {
 	for _, l := range strings.Split(text, "\n") {
-		if h, ok := strings.CutPrefix(l, "# "); ok {
-			if _, title, ok := strings.Cut(h, "—"); ok && strings.TrimSpace(title) != "" {
+		h, ok := strings.CutPrefix(l, "# ")
+		if !ok {
+			continue
+		}
+		rest := strings.TrimSpace(h[idEnd(h):])
+		for _, sep := range []string{"—", "–", "-", ":"} {
+			if title, ok := strings.CutPrefix(rest, sep); ok {
 				return strings.TrimSpace(title)
 			}
-			return ""
 		}
+		return ""
 	}
 	return ""
+}
+
+// idEnd is where a heading's task id ends: the first space, ":" or long dash after it, or a "-" that follows a digit.
+func idEnd(h string) int {
+	for i, r := range h {
+		switch {
+		case r == ' ' || r == ':' || r == '—' || r == '–':
+			return i
+		case r == '-' && i > 0 && h[i-1] >= '0' && h[i-1] <= '9':
+			return i
+		}
+	}
+	return len(h)
 }
 
 // Overlap reports whether globs a and b may match a common path (false: provably disjoint). Read as Match reads them,
