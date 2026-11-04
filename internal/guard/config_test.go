@@ -80,13 +80,12 @@ func TestConfigUnreadableFailsClosed(t *testing.T) {
 
 // DD-v0.13 A1, SessionStart: an unknown key is one WARN line naming it, then the usual context; a config that does not
 // load is one line saying so (no role line: nothing is guarded on the default config's view); its default config
-// derives no name (T-786), so the last readable session's .inbox stays as it was (never one under a wrong name).
+// derives no name (T-786), so the last readable session's inbox record stays as it was (never one under a wrong name).
 func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
 	env := []string{"OBOR_STATE_HOME=" + f.Base + "/state",
 		"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1"}
-	penv := f.Env(env...)
 	out := f.session(t, o1, "sid-0", env...)
 	contains(t, out, "clean config", "obor: role worker, lane L-01, task T-05")
 	lacks(t, out, "clean config", "WARN", "config unreadable")
@@ -108,7 +107,7 @@ func TestSessionConfigUnknownKeyAndUnreadable(t *testing.T) {
 		if strings.Count(out, "\n") != 1 {
 			t.Errorf("%s: want one line, got\n%s", b.name, out)
 		}
-		in, err := project.ReadInbox("pj-l-01", penv)
+		in, err := project.ReadInbox(f.Root, "L-01")
 		if err != nil || in != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
 			t.Errorf("%s: .inbox = %+v, %v; want the last readable session's (sid-1)", b.name, in, err)
 		}

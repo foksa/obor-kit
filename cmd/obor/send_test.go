@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -242,7 +243,7 @@ func TestBriefFresh(t *testing.T) {
 	}
 }
 
-// T-485: the poster reads the lead's <agent>.inbox, dials its socket and writes the auth line (the record's token)
+// T-485, DD-consolidation I4: the poster reads the inbox record of the lead's slot in its project, dials its socket and writes the auth line (the record's token)
 // then the user line with the text as it is, and the session reads both before the connection ends; no record, or a
 // record whose socket is gone (a dial refused), posts nothing (began false); inboxed is true only for a record whose
 // socket is there.
@@ -253,7 +254,8 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": filepath.Join(dir, "state")})
+	pj := testkit.New(t)
+	pj.Config()
 	sock := filepath.Join(dir, "s.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -270,19 +272,19 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		c.Close()
 		got <- string(b)
 	}()
-	p := poster{env}
+	p := poster{pj.Root}
 	ctx := context.Background()
 
 	if began, err := p.Post(ctx, agents.Default, "pj-lead", "x"); began || err == nil || !strings.Contains(err.Error(), "no session recorded for pj-lead") {
 		t.Errorf("no record: began %v, %v; want refused before a byte", began, err)
 	}
-	if _, ok := inboxed(env)("pj-lead"); ok {
+	if _, ok := inboxed(pj.Root)("pj-lead"); ok {
 		t.Error("inboxed with no record")
 	}
-	if err := project.WriteInbox("pj-lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}, env); err != nil {
+	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Token: "tok-1", Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
-	if s, ok := inboxed(env)("pj-lead"); !ok || s != "s1" {
+	if s, ok := inboxed(pj.Root)("pj-lead"); !ok || s != "s1" {
 		t.Errorf("inboxed = %q, %v; want the recording session s1 with a record whose socket is there", s, ok)
 	}
 	const line = `[obor other] release "v0.12" is out`
@@ -300,13 +302,13 @@ func TestPosterPostsToTheInbox(t *testing.T) {
 		t.Fatal("the session read nothing")
 	}
 
-	if err := project.WriteInbox("pj-lead", project.Inbox{Socket: filepath.Join(dir, "gone.sock")}, env); err != nil {
+	if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: filepath.Join(dir, "gone.sock")}); err != nil {
 		t.Fatal(err)
 	}
 	if began, err := p.Post(ctx, agents.Default, "pj-lead", line); began || err == nil {
 		t.Errorf("a dead socket: began %v, %v; want refused before a byte", began, err)
 	}
-	if _, ok := inboxed(env)("pj-lead"); ok {
+	if _, ok := inboxed(pj.Root)("pj-lead"); ok {
 		t.Error("inboxed with a record whose socket is gone")
 	}
 }
@@ -333,7 +335,9 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": filepath.Join(dir, "state")})
+	pj := testkit.New(t)
+	pj.Lane("L-01", "task/T-1")
+	pj.Config()
 	sock := filepath.Join(dir, "s.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -352,14 +356,14 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 			c.Close()
 		}
 	}()
-	p := poster{env}
+	p := poster{pj.Root}
 	ctx := context.Background()
 
 	if began, err := p.Post(ctx, withInbox, "pj-l-01", "x"); began || err == nil ||
 		!strings.Contains(err.Error(), "no session recorded for pj-l-01") || strings.Contains(err.Error(), "Claude") {
 		t.Errorf("no record: began %v, %v; want refused, \"no session recorded\" naming no product", began, err)
 	}
-	if err := project.WriteInbox("pj-l-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}, env); err != nil {
+	if err := project.WriteInbox(pj.Root, "L-01", project.Inbox{Socket: sock, Token: "t", Session: "s1"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{without, "pi"} {
@@ -379,5 +383,75 @@ func TestPosterUsesTheGivenKind(t *testing.T) {
 	case <-dials:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the kind with an inbox dialled nothing")
+	}
+}
+
+// DD-consolidation I4: two projects with the same prefix both have a pj-lead; each one's record is in its own project,
+// so serve's poster for each project posts its lead's line into that project's lead session, never the other's.
+func TestPosterKeepsProjectsWithOnePrefixApart(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "in") // short: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	type side struct {
+		root string
+		got  chan string
+	}
+	var sides []side
+	for i, name := range []string{"one", "two"} {
+		pj := testkit.New(t)
+		pj.Config(testkit.Set("name", name)) // both keep the prefix pj
+		sock := filepath.Join(dir, strconv.Itoa(i)+".sock")
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { ln.Close() })
+		got := make(chan string, 4)
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				b, _ := io.ReadAll(c)
+				c.Close()
+				got <- string(b)
+			}
+		}()
+		if err := project.WriteInbox(pj.Root, "lead", project.Inbox{Socket: sock, Token: name, Session: "s-" + name}); err != nil {
+			t.Fatal(err)
+		}
+		sides = append(sides, side{pj.Root, got})
+	}
+	if sides[0].root == sides[1].root {
+		t.Fatal("precondition: two projects")
+	}
+	for i, s := range sides {
+		if sess, ok := inboxed(s.root)("pj-lead"); !ok || sess != "s-"+[]string{"one", "two"}[i] {
+			t.Errorf("project %d: inboxed = %q, %v; want its own lead's session", i, sess, ok)
+		}
+	}
+	ctx := context.Background()
+	for i, s := range sides {
+		name := []string{"one", "two"}[i]
+		if began, err := (poster{s.root}).Post(ctx, agents.Default, "pj-lead", "to "+name); !began || err != nil {
+			t.Fatalf("project %s: began %v, %v", name, began, err)
+		}
+		select {
+		case b := <-s.got:
+			if !strings.Contains(b, `"token":"`+name+`"`) || !strings.Contains(b, "to "+name) {
+				t.Errorf("project %s's lead read %q, want its own line with its own token", name, b)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("project %s's lead read nothing", name)
+		}
+		select {
+		case b := <-sides[1-i].got:
+			t.Errorf("the other project's lead read %q", b)
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }

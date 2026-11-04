@@ -559,8 +559,13 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
 - **Lines to the lead are posted, never typed** (T-485, owner 2026-10-28: nothing types into the pane the owner writes
   in, and an idle lead must still be woken). Claude Code binds an inbox socket per session
   (`CLAUDE_CODE_MESSAGING_SOCKET`, with `CLAUDE_CODE_MESSAGING_TOKEN`; needs Claude Code ≥ 2.1.224); every agent's
-  SessionStart hook records it as `${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.inbox` (0600;
-  a session without one removes it). Serve posts the line to the socket that record names (the auth line, then a
+  SessionStart hook records it as `<root>/.obor/state/inbox/<slot>` in its project's main checkout (0600; a session
+  without one removes it; DD-consolidation I4): keyed by the project and the slot (`lead`, `reviewer`, `L-03`, the
+  drive agent's `L-03/drive` as `L-03.drive`), never by an agent name, so two projects with one prefix keep apart and
+  a rename moves nothing. Serve and `obor send`/`brief` read their own project's records, the slot of an agent being
+  the one whose derived name it is under the config as it is now (`project.AgentSlot`); there is no global record
+  (`~/.obor/agents` is gone: a live agent records again at its next SessionStart). Serve posts the line to the socket
+  that record names (the auth line, then a
   `user` message; `cmd/obor`'s `poster`): no pane lookup, no idle rule. An idle lead starts a new turn with it, a busy
   one reads it between tool calls; it arrives as a message from another session, and the owner's half-typed draft
   stays in the box. No record → the line waits, untried; a refused dial (its socket gone) → fact `failed` with its

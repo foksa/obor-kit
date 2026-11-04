@@ -12,7 +12,8 @@ import (
 )
 
 // `obor setup rename` (T-587): a project with guards naming its agents (and one off-prefix), local.json, a dispatched
-// store, session files of the old agents, and a stub herdr (on PATH) holding the workspace. Agent names follow the
+// store, files of the old agents in the global state home (left alone: the inbox records are the project's, by slot,
+// DD-consolidation I4), and a stub herdr (on PATH) holding the workspace. Agent names follow the
 // prefix (T-765: no configured role or lane agents).
 
 func renameProject(t *testing.T) *fx {
@@ -106,20 +107,18 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 		t.Errorf("L-02 row agent = %q, want it untouched", row.Agent)
 	}
 
+	// DD-consolidation I4: no inbox copy step; the old global files stay as they were, none is added.
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
-	for from, to := range map[string]string{"pj-l-01.inbox": "ob-l-01.inbox", "pj-lead.inbox": "ob-lead.inbox"} {
-		if b, err := os.ReadFile(filepath.Join(agents, to)); err != nil || string(b) != "old "+from+"\n" {
-			t.Errorf("%s = %q, %v; want the copy of %s", to, b, err, from)
-		}
-		if _, err := os.Stat(filepath.Join(agents, from)); err != nil {
-			t.Errorf("%s is gone: the old files stay", from)
+	if entries, err := os.ReadDir(agents); err != nil || len(entries) != 4 {
+		t.Errorf("%s: %d entries, %v; want the 4 old files only (nothing copied)", agents, len(entries), err)
+	}
+	for _, f := range []string{"ob-l-01.inbox", "ob-lead.inbox"} {
+		if _, err := os.Stat(filepath.Join(agents, f)); err == nil {
+			t.Errorf("%s was written: rename copies no inbox record", f)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(agents, "bob.inbox")); err != nil {
-		t.Errorf("bob.inbox: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(agents, "ob-l-01.sid")); err == nil {
-		t.Error("a .sid file was copied: only the inbox record is (T-599)")
+	if strings.Contains(out, "copied") {
+		t.Errorf("output names a copy:\n%s", out)
 	}
 
 	if b, _ := os.ReadFile(filepath.Join(dir, "label")); strings.TrimSpace(string(b)) != "newp" {
@@ -242,10 +241,49 @@ func TestRenameRewritesALanesOpencodeKitPath(t *testing.T) {
 	if !strings.Contains(got, `"model": "m/x"`) || !strings.Contains(got, `"$schema"`) {
 		t.Errorf("opencode.json = %s, want its other members as they were", got)
 	}
-	if !strings.Contains(out, "; kit path in L-01/opencode.json") {
+	if !strings.Contains(out, "OK 3 files: kit path in L-01/opencode.json") {
 		t.Errorf("step 3 line missing:\n%s", out)
 	}
-	if again := x.rename(t); !strings.Contains(again, "OK 3 files: no agent file left to copy, no kit path to correct (already)") {
+	if again := x.rename(t); !strings.Contains(again, "OK 3 files: no kit path to correct (already)") {
 		t.Errorf("a rerun changes nothing:\n%s", again)
+	}
+}
+
+// DD-consolidation I7: while the project's serve LaunchAgent is installed under the old name (obor.serve.<old>), the
+// rename is refused before any step runs: no config, no herdr call, no file changed; with none installed it runs.
+func TestRenameRefusesWhileTheOldServeAgentIsInstalled(t *testing.T) {
+	x := renameProject(t)
+	dir := x.stubHerdr(t, "proj")
+	before := x.Read(".obor/config.json")
+	var asked []string
+	plist := filepath.Join(x.Base, "Library", "LaunchAgents", "obor.serve.proj.plist")
+	x.installed = func(cfg *config.Config) (string, bool) {
+		asked = append(asked, cfg.ProjectName())
+		return plist, true
+	}
+	out, rc := x.run(t, "rename", "--name", "newp", "--prefix", "ob")
+	if rc != 1 || last(out) != "FAIL the serve LaunchAgent "+plist+" is installed under the old name: run `obor serve uninstall` first, then obor setup rename again" {
+		t.Fatalf("exit %d, want the refusal:\n%s", rc, out)
+	}
+	if len(asked) != 1 || asked[0] != "proj" {
+		t.Errorf("asked for %v, want the old name's (proj) once", asked)
+	}
+	if strings.Contains(out, "OK ") {
+		t.Errorf("a step ran before the refusal:\n%s", out)
+	}
+	if x.Read(".obor/config.json") != before {
+		t.Error("config.json changed although the old serve agent is installed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "herdr.log")); err == nil {
+		t.Error("herdr was called although the old serve agent is installed")
+	}
+
+	x.installed = func(*config.Config) (string, bool) { return plist, false }
+	out = x.rename(t)
+	if !strings.Contains(out, "OK 1 config: ") || !strings.Contains(out, "OK 5 finish") {
+		t.Errorf("not installed: want the rename to run:\n%s", out)
+	}
+	if cfg, err := config.Load(x.Root); err != nil || cfg.Data.Name != "newp" {
+		t.Errorf("not installed: config name = %v, %v; want newp", cfg, err)
 	}
 }

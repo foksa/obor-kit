@@ -110,7 +110,7 @@ func (r *serveRig) start() {
 	r.cancel, r.done = cancel, make(chan struct{})
 	wired := mergeLoop(r.p.Env(), panes, &serveEnd{stop: cancel}) // cancel: serve's self-restart ends it as a signal does (T-656)
 	r.app = app.New(app.Options{Root: r.p.Root, Tick: 20 * time.Millisecond, Retry: 5 * time.Millisecond,
-		Out: r, Refresh: refreshed, Inboxed: inboxed(r.p.Env()), Loop: func(root string) (*app.Loop, error) {
+		Out: r, Refresh: refreshed, Inboxed: inboxed(r.p.Root), Loop: func(root string) (*app.Loop, error) {
 			l, err := wired(root)
 			if err != nil {
 				return nil, err

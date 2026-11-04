@@ -415,43 +415,53 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 	out := f.session(t, o1, "sid-bad", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	contains(t, out, "unreadable database", "could not read this lane or its spec", "obor: role worker, lane L-01")
 	lacks(t, out, "unreadable database", "No lane row", "Protected files this task may edit:")
-	if in, err := project.ReadInbox("pj-l-01", f.Env()); err != nil || in.Session != "sid-bad" {
+	if in, err := project.ReadInbox(f.Root, "L-01"); err != nil || in.Session != "sid-bad" {
 		t.Errorf("inbox = %+v, %v; want session sid-bad (the bookkeeping still runs)", in, err)
 	}
 }
 
-// T-485, T-786: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox under its derived name, mode 0600,
-// with the socket, the token and the session id; a stale OBOR_AGENT (a reused shell) is ignored; a later session
-// without one removes it; a session that derives no name (the owner in the main checkout) writes none.
+// T-485, T-786, DD-consolidation I4: a session with CLAUDE_CODE_MESSAGING_SOCKET records the inbox of its slot in the
+// project's main checkout (<root>/.obor/state/inbox/<slot>), mode 0600, with the socket, the token and the session id:
+// a worker under its lane, the lead under lead, the drive agent under its lane's .drive; nothing in the global state
+// home; a stale OBOR_AGENT (a reused shell) is ignored; a later session without one removes it; a session that holds no
+// slot (the owner in the main checkout) writes none.
 func TestSessionRecordsTheInbox(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
 	state := f.Base + "/state"
-	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": state})
-	inbox := project.InboxFile("pj-l-01", env)
-	if inbox != state+"/agents/pj-l-01.inbox" {
-		t.Fatalf("inbox record at %s, want in the agents dir", inbox)
+	dir := f.Root + "/.obor/state/inbox"
+	if got := project.InboxFile(f.Root, "L-01/drive"); got != dir+"/L-01.drive" {
+		t.Fatalf("drive slot's record at %s, want %s/L-01.drive", got, dir)
 	}
 	f.session(t, f.Root, "sid-1", "OBOR_AGENT=pj-l-01", "OBOR_STATE_HOME="+state, "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
-	if f.Exists(state + "/agents") {
+	if f.Exists(dir) {
 		t.Error("no role in the main checkout (a stale OBOR_AGENT only) → something written")
 	}
-	for _, role := range []string{"", "lead"} {
-		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state,
+	for _, c := range []struct{ label, cwd, role, slot string }{
+		{"a worker", o1, "", "L-01"},
+		{"a worker with OBOR_ROLE=lead in its lane", o1, "lead", "L-01"},
+		{"the lead", f.Root, "lead", "lead"},
+		{"the drive agent", o1, "driver", "L-01/drive"},
+	} {
+		inbox := project.InboxFile(f.Root, c.slot)
+		f.session(t, c.cwd, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+c.role, "OBOR_STATE_HOME="+state,
 			"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1")
-		got, err := project.ReadInbox("pj-l-01", env)
+		got, err := project.ReadInbox(f.Root, c.slot)
 		if err != nil || got != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
-			t.Fatalf("role %q: inbox %+v, %v", role, got, err)
+			t.Fatalf("%s: inbox of slot %s %+v, %v", c.label, c.slot, got, err)
 		}
 		if fi, err := os.Stat(inbox); err != nil || fi.Mode().Perm() != 0o600 {
-			t.Errorf("role %q: inbox mode %v, %v; want 0600", role, fi.Mode(), err)
+			t.Errorf("%s: inbox mode %v, %v; want 0600", c.label, fi.Mode(), err)
 		}
-		if f.Exists(project.InboxFile("pj-old", env)) {
-			t.Errorf("role %q: an inbox under the stale OBOR_AGENT", role)
+		if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+			t.Errorf("%s: %d records in %s, want only slot %s's", c.label, len(entries), dir, c.slot)
 		}
-		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state)
+		if f.Exists(state + "/agents") {
+			t.Errorf("%s: a record in the global state home", c.label)
+		}
+		f.session(t, c.cwd, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+c.role, "OBOR_STATE_HOME="+state)
 		if f.Exists(inbox) {
-			t.Errorf("role %q: a session without a messaging socket kept the inbox record", role)
+			t.Errorf("%s: a session without a messaging socket kept the inbox record", c.label)
 		}
 	}
 }

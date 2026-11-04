@@ -42,7 +42,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	kind := sessionKind(cfg, agent, ev.Cwd)
 	if err != nil { // DD-v0.13 A1: say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
-		record(agent, ev.SessionID, env)
+		record(repo.Root, agent, project.InboxSlot(project.DetectRole(repo, cfg, env)), ev.SessionID, env)
 		return Began{}, false
 	}
 	if len(unknown) > 0 {
@@ -102,7 +102,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		}
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
-	record(agent, ev.SessionID, env)
+	record(repo.Root, agent, project.InboxSlot(w.Role), ev.SessionID, env)
 	began := Began{Root: cfg.Root, Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane}
 	if w.State != nil {
@@ -164,12 +164,13 @@ func laneKind(cfg *config.Config, lane string) string {
 	return ""
 }
 
-// record writes this session's inbox under agent's name (every agent, role-free; none without a usable name; T-485:
-// obor serve posts the lead's lines there, nothing is typed), as the bridge of the kind whose environment this is
-// builds it (Kind.InboxRecord); a session with none (messaging off, no inbox kind) removes a stale record. The
-// session itself is recorded by serve alone (the session request), never in a file.
-func record(agent, sessionID string, env project.Env) {
-	if !recordable(agent) {
+// record writes this session's inbox under its slot in the project at root (DD-consolidation I4: every agent,
+// role-free; none for a session that derives no agent name or holds no slot; T-485: obor serve posts the lead's lines
+// there, nothing is typed), as the bridge of the kind whose environment this is builds it (Kind.InboxRecord); a
+// session with none (messaging off, no inbox kind) removes a stale record. The session itself is recorded by serve
+// alone (the session request), never in a file.
+func record(root, agent, slot, sessionID string, env project.Env) {
+	if !recordable(agent) || slot == "" {
 		return
 	}
 	for _, name := range agents.Names() {
@@ -177,11 +178,11 @@ func record(agent, sessionID string, env project.Env) {
 		var in project.Inbox
 		if b := k.InboxRecord(env.Get); b != nil && json.Unmarshal(b, &in) == nil && in.Socket != "" {
 			in.Session = sessionID
-			_ = project.WriteInbox(agent, in, env)
+			_ = project.WriteInbox(root, slot, in)
 			return
 		}
 	}
-	_ = os.Remove(project.InboxFile(agent, env))
+	_ = os.Remove(project.InboxFile(root, slot))
 }
 
 // recordable: agent is a name records are kept under (not empty, no path).

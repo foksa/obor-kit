@@ -99,7 +99,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		}
 	}
 	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
-		Inboxed: inboxed(env), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
+		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
 		panes, checks.Lanes{})
 	served := make(chan struct{})
 	go func() {
@@ -172,7 +172,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		l := &app.Loop{Scratch: checks.Scratch{Options: o}, Agents: agents, Typer: panes, Nightly: nightly(o),
-			Disk: diskOf(repo.Root, &cache), Inbox: poster{env}}
+			Disk: diskOf(repo.Root, &cache), Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root}
 		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}

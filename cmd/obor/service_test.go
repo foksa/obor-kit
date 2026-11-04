@@ -11,6 +11,7 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/testkit"
 )
 
 // obor serve install / restart / uninstall in a project: the plist of its config name under HOME's LaunchAgents,
@@ -172,4 +173,30 @@ func kitEnv(t *testing.T, shim bool) project.Env {
 		}
 		return os.LookupEnv(k)
 	})
+}
+
+// DD-consolidation I7: setup's Installed is the plist of the project's serve LaunchAgent under HOME, there or not.
+func TestServeInstalledIsThePlistOfTheConfigName(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	installed := serveInstalled(testkit.MapEnv(map[string]string{"HOME": home}))
+	plist := filepath.Join(home, "Library", "LaunchAgents", "obor.serve.proj.plist")
+	if got, ok := installed(cfg); ok || got != plist {
+		t.Fatalf("no plist: %s, %v; want %s, false", got, ok, plist)
+	}
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("<plist/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := installed(cfg); !ok || got != plist {
+		t.Errorf("a plist there: %s, %v; want %s, true", got, ok, plist)
+	}
 }

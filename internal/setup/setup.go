@@ -41,8 +41,8 @@
 //	        T-306; another kit's copy re-linked, anything else there left alone) and the obor entry of its user config
 //	        (OpenCode: mcp.servers.obor). --remove deletes those.
 //
-//	rename --name N --prefix P  rename the project and its agents (config, lane rows, ~/.obor/agents files, the herdr
-//	        workspace): see rename.go.
+//	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
+//	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
 //
 //	migrate  rewrite a config of the shape before T-765 (lane_types, typed lanes, role objects) or one that still sets
 //	        the removed agents key to models and a lanes count, once: see migrate.go.
@@ -101,6 +101,9 @@ type Setup struct {
 	// Serve is `obor serve install` for the project of cfg (cmd/obor passes the service adapter: setup does not import
 	// it): obor init's last step. state is done, already or skipped; line says what.
 	Serve func(ctx context.Context, cfg *config.Config) (state, line string, err error)
+	// Installed is the plist of cfg's serve LaunchAgent when it is installed (cmd/obor passes the service adapter's;
+	// nil: none is): obor setup rename refuses while it is (DD-consolidation I7).
+	Installed func(cfg *config.Config) (plist string, ok bool)
 	// ShellWait bounds the wait for a pane a new tab or a split made to be an available shell (T-628; 0: 10 s).
 	ShellWait time.Duration
 
