@@ -26,7 +26,7 @@ import (
 // from git (ReviewGit: the next id, the integration branch's head, the merges and files since the previous review),
 // the head marked as the reviewed one (ReviewGit.Mark; T-718: the reviewer reads the main checkout, whose merges serve
 // holds while it works: mergehold.go), and the reviewer's fresh start with the brief as its first prompt (the
-// path of `obor restart <reviewer> --fresh --prompt`, its brief recorded the same way: briefed with no line). Then
+// same path as obor brief's fresh start, its brief recorded the same way: briefed with no line). Then
 // fact review.started{id, head, tasks}: no line to the lead (T-650; obor status counts from its head). Any step
 // failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
 // dropped or rejected ends the request with the lead's line "[obor] review request ended: T-b dropped" (fact message

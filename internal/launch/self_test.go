@@ -86,8 +86,6 @@ func TestRestartOwnPane(t *testing.T) {
 				"SCHEDULED restart of pj-l-01 (pane w1:p3): runs once it is idle"},
 			{"--fresh --force", launch.Request{Agent: "pj-l-01", Fresh: true, Force: true}, false,
 				"restart pj-l-01 --pane w1:p3 --fresh --force", "SCHEDULED restart of pj-l-01 (pane w1:p3): runs once it is idle"},
-			{"--sid", launch.Request{Agent: "pj-l-01", Sid: "sid-2"}, false, "restart pj-l-01 --pane w1:p3 --sid sid-2",
-				"SCHEDULED restart of pj-l-01 (pane w1:p3): runs once it is idle"},
 			{"--stop", launch.Request{Agent: "pj-l-01"}, true, "restart pj-l-01 --pane w1:p3 --stop",
 				"SCHEDULED stop of pj-l-01 (pane w1:p3): runs once it is idle"},
 		} {
@@ -400,37 +398,26 @@ func TestScheduledWaitsThenDecidesFresh(t *testing.T) {
 		}
 		contains(t, x.startCall(), "--resume sid-after", "new session resumed")
 	})
-	t.Run("#7 --sid and --fresh while the session changes: the explicit choice wins", func(t *testing.T) {
+	t.Run("#7 --fresh while the session changes: a new session, herdr's not resumed", func(t *testing.T) {
 		t.Parallel()
-		for _, c := range []struct {
-			req           launch.Request
-			line, started string
-		}{
-			{launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Sid: "sid-x"}, "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "--resume sid-x"},
-			{launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, "RESTARTED pj-l-01 (pane w1:p3, session new)", ""},
-		} {
-			x := setup(t)
-			x.sid("pj-l-01", "sid-before")
-			a := x.agent("w1:p3", "pj-l-01", "claude", "working")
-			a.Session = "sid-before"
-			out, ok, _, _ := run(x, a, c.req, false, time.Minute, func(n int) error {
+		x := setup(t)
+		x.sid("pj-l-01", "sid-before")
+		a := x.agent("w1:p3", "pj-l-01", "claude", "working")
+		a.Session = "sid-before"
+		out, ok, _, _ := run(x, a, launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, false, time.Minute,
+			func(n int) error {
 				if n > 2 {
 					a.Status, a.Session = "idle", "sid-after"
 				}
 				return nil
 			})
-			eq(t, last(out), c.line, "result")
-			if !ok || strings.Contains(out, "warning: recorded session") {
-				t.Errorf("no session warning: %q", out)
-			}
-			lacks(t, x.startCall(), "sid-after", "not herdr's new session")
-			if c.started != "" {
-				contains(t, x.startCall(), c.started, "explicit session")
-			} else {
-				lacks(t, x.startCall(), "--resume", "a new session")
-			}
-			eq(t, record(x), "sid-before\n", "record kept")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+		if !ok || strings.Contains(out, "warning: recorded session") {
+			t.Errorf("no session warning: %q", out)
 		}
+		lacks(t, x.startCall(), "sid-after", "not herdr's new session")
+		lacks(t, x.startCall(), "--resume", "a new session")
+		eq(t, record(x), "sid-before\n", "record kept")
 	})
 	t.Run("#8 pane relabelled or renamed to another agent while waiting: FAIL, no /exit (also --force)", func(t *testing.T) {
 		t.Parallel()
@@ -621,10 +608,10 @@ func TestSameAgentAfterScheduledWait(t *testing.T) {
 			}
 		}
 	})
-	t.Run("any other error, --sid and --fresh: same FAIL", func(t *testing.T) {
+	t.Run("any other error, a resume and --fresh: same FAIL", func(t *testing.T) {
 		t.Parallel()
 		for _, req := range []launch.Request{
-			{Agent: claude.agent, Pane: claude.pane, Sid: "sid-x"},
+			{Agent: claude.agent, Pane: claude.pane},
 			{Agent: claude.agent, Pane: claude.pane, Fresh: true},
 		} {
 			x := setupFor(t, claude)

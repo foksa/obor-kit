@@ -265,9 +265,15 @@ func TestRestartCommand(t *testing.T) {
 	}{
 		{[]string{"restart"}, 1, "FAIL " + restartUsage},
 		{[]string{"restart", "a", "b"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --sid or --fresh"},
+		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
 		// T-466: --keep-inbox went with the inbox: an unknown flag.
 		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + restartUsage},
+		// T-785: the flags restart gave up are refused by name, with where their choice went, before anything is read.
+		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, `FAIL --prompt is gone: obor brief <agent> --fresh "<text>"`},
+		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + restartGone["--type"]},
+		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + restartGone["--effort"]},
+		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + restartGone["--sid"]},
+		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + restartGone["--type"]},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
 		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
 	} {

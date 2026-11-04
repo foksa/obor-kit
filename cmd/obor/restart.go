@@ -17,17 +17,30 @@ import (
 	"obor/internal/store"
 )
 
-const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh | --sid <id>] [--force] [--type <type>] | " +
-	"obor restart <agent> --stop [--pane <id>] [--force] | " +
-	"obor restart <advisor|researcher agent> --fresh --prompt \"<brief>\""
+const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh] [--force] | " +
+	"obor restart <agent> --stop [--pane <id>] [--force]"
+
+// restartGone is each flag restart no longer takes, with the one-line replacement (T-785).
+var restartGone = map[string]string{
+	"--prompt": `--prompt is gone: obor brief <agent> --fresh "<text>"`,
+	"--type":   "--type is gone: obor dispatch T-xx --model <model> for a task, roles.<role> in the config (obor setup) for a role",
+	"--effort": "--effort is gone: obor dispatch T-xx --model <model>:<effort> for a task, roles.<role> in the config (obor setup) for a role",
+	"--sid":    "--sid is gone: a restart resumes the recorded session (--fresh starts a new one)",
+}
 
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
-// A role agent restarted --fresh with a
-// --prompt is a brief (T-466; not the merge-hold roles', T-734: refused, their first prompt goes by obor brief): serve records it (app.MethodBrief, no line: the start carried it) and tells the lead
-// when that agent has finished; serve down is a note before the result line, not a failure.
+// A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here (T-785).
 func restart(args []string) int {
 	usage := func() int { fmt.Fprintln(out, "FAIL "+restartUsage); return 1 }
+	// A flag restart gave up (T-785): refused by name, with where its choice went.
+	for _, a := range args {
+		flag, _, _ := strings.Cut(a, "=")
+		if gone, ok := restartGone[flag]; ok {
+			fmt.Fprintln(out, "FAIL "+gone)
+			return 1
+		}
+	}
 	// --stop is restart's own flag, not a Request field: take it out, then let launch.ParseRequest own every flag
 	// that maps to one (T-303: its write side is Request.Args, so the two cannot drift).
 	stopIt, rest := false, make([]string, 0, len(args))
@@ -45,8 +58,8 @@ func restart(args []string) int {
 	switch {
 	case req.Agent == "":
 		return usage()
-	case stopIt && (req.Fresh || req.Sid != ""):
-		fmt.Fprintln(out, "FAIL --stop takes no --sid or --fresh")
+	case stopIt && req.Fresh:
+		fmt.Fprintln(out, "FAIL --stop takes no --fresh")
 		return 1
 	}
 
@@ -58,10 +71,6 @@ func restart(args []string) int {
 		fmt.Fprintln(out, "FAIL the config does not load (obor config validate)")
 		return 1
 	}
-	if req.Prompt != "" && l.Cfg != nil && holdsMerges(l.Cfg, req.Agent) {
-		fmt.Fprintf(out, "FAIL %s takes its first prompt through obor brief %s \"<text>\" (a brief to a stopped role agent starts it fresh, after serve holds merges)\n", req.Agent, req.Agent)
-		return 1
-	}
 	ctx := context.Background()
 	var line string
 	var err error
@@ -70,19 +79,7 @@ func restart(args []string) int {
 	} else {
 		line, err = l.Restart(ctx, req)
 	}
-	if err == nil && req.Fresh && req.Prompt != "" && l.Cfg != nil && strings.HasPrefix(line, "RESTARTED ") &&
-		roleAgent(l.Cfg, req.Agent) {
-		if _, berr := brief(ctx, l.Cfg, req.Agent, "", req.Prompt, project.OSEnv); berr != nil {
-			fmt.Fprintf(out, "note: brief not recorded (the lead hears nothing when %s finishes): %v\n", req.Agent, berr)
-		}
-	}
 	return launchResult(out, line, err)
-}
-
-// holdsMerges: agent is the reviewer's or the deep dive's, whose work serve holds merges for (T-734).
-func holdsMerges(cfg *config.Config, agent string) bool {
-	info, ok := project.AgentLookup(cfg, agent, "")
-	return ok && (info.Role == "reviewer" || info.Role == "deep_dive")
 }
 
 // launchResult prints a launch's result (obor restart): the evidence of a give-up, then the result line
@@ -128,8 +125,7 @@ func resolveLaneJob(root, lane string, ask func() (wire.Status, error)) (string,
 		return "", nil // no task on the lane: the plain restart
 	}
 	return "", fmt.Errorf("%s holds %s and obor serve cannot tell its job (%v): start obor serve (obor serve restart "+
-		"for the installed service, obor serve in a pane; obor status --facts checks it), then retry, or pass "+
-		"--prompt to restart without its job", lane, row.Task, err)
+		"for the installed service, obor serve in a pane; obor status --facts checks it), then retry", lane, row.Task, err)
 }
 
 // laneJob is the open worker job (a work or fix job, never the integrator's review or resolve job) of the task st's

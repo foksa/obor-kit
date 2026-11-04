@@ -82,6 +82,16 @@ moved or whose name changed is left out).
 - The line the target's lead reads names its sender, so the reply is one command: `[obor <name>] <text> (reply: obor
   send <name> "…")`.
 
+## obor brief (T-785)
+`obor brief <role-agent> [--fresh] "<text>"` — the one way to brief a role agent (reviewer, deep dive, advisor,
+researcher). Serve holds the line until the agent is idle, records the brief and tells you when that agent has
+finished; a brief to a stopped role agent starts it fresh, its first prompt the text.
+- `--fresh` stops a running agent first (as `obor restart <agent> --stop` does) and starts it clean on the text: one
+  command instead of stop and brief. Reviewer and deep dive go through serve's admission either way (a publish in
+  flight finishes first; merges are held while they work).
+- `restart --prompt`, `--type`, `--effort` and `--sid` are gone: a first prompt is `obor brief --fresh`, a model is
+  `obor dispatch <T-xx> --model <model>` for a task or `roles.<role>` in the config (the Setup page) for a role.
+
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
 is no line to you (T-650): `obor status` shows the review.

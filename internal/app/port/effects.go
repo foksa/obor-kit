@@ -28,12 +28,12 @@ type Started struct {
 	Line, Pane, Terminal, Kind, Session string
 }
 
-// Launch is one agent (re)start: Agent in Pane ("": the pane labelled Agent), resuming Sid (else the recorded
-// session) or Fresh; Force stops a working agent first.
+// Launch is one agent (re)start: Agent in Pane ("": the pane labelled Agent), resuming the recorded session or Fresh;
+// Force stops a working agent first. A CLI restart sets only these (T-785: no --sid, --prompt, --type or --effort).
 type Launch struct {
-	Agent, Pane, Sid string
-	Fresh, Force     bool
-	// Prompt is the CLI's first prompt for a fresh session: a job's wake.
+	Agent, Pane  string
+	Fresh, Force bool
+	// Prompt is the first prompt for a fresh session: a job's wake, or a brief's text (serve's).
 	Prompt string
 	// Effort is the effort to start with (a dispatch's model ref, T-695); "": a role's configured effort (roles.<role>),
 	// else the kind's default.

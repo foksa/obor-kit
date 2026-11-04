@@ -86,7 +86,8 @@ checkout, never lanes: serve holds merges while either works (`merge held: <role
 verifies: `obor brief <reviewer> "<text>"` in the same session. At most two review rounds per feature; then accept the rest in `BACKLOG.md`
 (`review-brief.md` §3). Serve stops the reviewer once the review is closed
 (`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
-`obor restart <deep-dive> --stop`; the next one starts clean. A brief to a stopped role agent starts it fresh.
+`obor restart <deep-dive> --stop`; the next one starts clean on its brief (`obor brief <deep-dive> "<text>"`, and
+`--fresh` stops a running one first). `obor brief` is the one way to brief a role agent.
 Milestone end: deep dive, then tag. Messages to another project's lead: `obor send <name> "<text>"` (the names
 `obor projects` lists; a path into the project works too). A line you receive names its sender, so the reply is one
 command: `obor send <that name> "<text>"`. Workers and

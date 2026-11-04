@@ -52,7 +52,7 @@ otherwise.
 ## Prompt cache and context size
 - An idle pane is free, but its next prompt after cache expiry re-reads the whole context at full price → keep
   sessions short: every dispatch starts a fresh worker, the reviewer gets a fresh session per review
-  (`obor restart <reviewer> --fresh`), `/clear` the integrator when it holds no job and advisors per topic.
+  (`obor brief <reviewer> --fresh "…"`), `/clear` the integrator when it holds no job and advisors per topic.
 - Above `roles.lead.handoff_tokens` (default 500k) each prompt reminds the lead to hand off; nothing forces it, the
   lead picks the next logical break, writes the Handoff and restarts itself fresh (`obor restart <lead> --fresh`).
 

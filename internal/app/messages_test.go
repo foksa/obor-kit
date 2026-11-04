@@ -457,8 +457,8 @@ func TestBriefFinishedLineToTheLead(t *testing.T) {
 	}
 }
 
-// T-466: a brief without a line (obor restart --fresh --prompt: the start carried it) is recorded while the agent
-// already works on it; idle → the lead's finished line.
+// T-466: a brief without a line (a review's start carried it) is recorded while the agent already works on it;
+// idle → the lead's finished line.
 func TestBriefOfAFreshStart(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "working")

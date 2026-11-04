@@ -118,7 +118,9 @@ func TestLeadOwnPaneStartsOnceItExits(t *testing.T) {
 		args []string
 		want string
 	}{
-		{nil, "restart pj-lead --pane w1:p1 --fresh --prompt /obor:lead"},
+		// The scheduled run carries no first prompt (T-785): a fresh start of a role agent gets its role's (T-729),
+		// the lead's /obor:lead.
+		{nil, "restart pj-lead --pane w1:p1 --fresh"},
 		{[]string{"--resume"}, "restart pj-lead --pane w1:p1"},
 	} {
 		x := newLeadFx(t)
