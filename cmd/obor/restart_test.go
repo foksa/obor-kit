@@ -40,7 +40,9 @@ func TestLaneJob(t *testing.T) {
 
 // T-778: obor restart of a lane's worker resolves its job before anything stops: serve down (no socket) or serving
 // another project on a lane whose row holds a task is an error naming the task and serve's state (the restart refuses);
-// serve up gives the job; a lane with no task and serve down is the plain restart (no job, no error).
+// serve up gives the job; a lane with no task and serve down is the plain restart (no job, no error). RV-99 #6: the
+// refusal names obor serve restart (installed service) or obor serve (in a pane) and obor status --facts to check, no
+// obor serve status.
 func TestServeLaneJobServeDown(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -53,10 +55,14 @@ func TestServeLaneJobServeDown(t *testing.T) {
 	if err == nil || job != "" {
 		t.Fatalf("serve down, lane with a task: %q, %v; want an error", job, err)
 	}
-	for _, want := range []string{"L-01 holds T-5", "obor serve cannot tell its job", "start obor serve"} {
+	for _, want := range []string{"L-01 holds T-5", "obor serve cannot tell its job", "start obor serve",
+		"obor serve restart for the installed service", "obor serve in a pane", "obor status --facts checks it"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
+	}
+	if strings.Contains(err.Error(), "serve status") { // RV-99 #6: obor serve status is gone (T-774)
+		t.Errorf("error %q names obor serve status", err)
 	}
 	if job, err := serveLaneJob(context.Background(), cfg, "L-02"); job != "" || err != nil {
 		t.Errorf("serve down, lane with no task: %q, %v; want the plain restart", job, err)

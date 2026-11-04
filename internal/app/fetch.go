@@ -283,6 +283,7 @@ func (p *proj) laneDir(mt mtask) string {
 // needs-you{asks: <what it needs>} (row 16a; the task stays working, the owner is notified). A repeated call id gets
 // the stored reply.
 func (a *App) taskDone(c wire.Call) (string, error) {
+	a.hook(hookTaskDoneWaits)
 	a.submitMu.Lock() // one submission decision at a time
 	defer a.submitMu.Unlock()
 	if c.CallID == "" || c.Task == "" && c.Lane == "" {

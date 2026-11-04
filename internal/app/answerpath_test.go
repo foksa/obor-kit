@@ -135,7 +135,8 @@ func TestAnswerPathEveryCause(t *testing.T) {
 }
 
 // RV-54 #4, T-775: obor resume's arguments: --regate and --sendback are its flags (one, anywhere after the task); any
-// other nonblank argument is the text, a single word too, the old keywords included; nothing else parses.
+// other nonblank argument is the text, a single word too, the old keywords included, one starting with - or -- too
+// (RV-99 #5); after -- every argument is the text; nothing else parses.
 func TestResumeArgs(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -154,12 +155,22 @@ func TestResumeArgs(t *testing.T) {
 		{[]string{"T-1", "--sendback", "fix x"}, wire.ResumeSendback, "fix x", true},
 		{[]string{"T-1", "fix x", "--sendback"}, wire.ResumeSendback, "fix x", true},
 		{[]string{"T-1", "--regate", "--sendback"}, "", "", false},
-		{[]string{"T-1", "--reprompt", "yes"}, "", "", false},
+		{[]string{"T-1", "--reprompt", "yes"}, "", "", false}, // --reprompt is a text: two texts
 		{[]string{"T-1", "--regate", "yes", "more"}, "", "", false},
 		{[]string{"T-1", "yes", "more"}, "", "", false},
 		{[]string{"T-1", " "}, "", "", false},
 		{[]string{"T-1", "--regate", ""}, "", "", false},
 		{[]string{"--regate", "T-1"}, "", "", false},
+		// RV-99 #5: only --regate and --sendback are flags; any other argument is the text, -- ends the flags
+		{[]string{"T-1", "- use A\n- use B"}, "", "- use A\n- use B", true},
+		{[]string{"T-1", "--force is safe"}, "", "--force is safe", true},
+		{[]string{"T-1", "--force is safe", "--sendback"}, wire.ResumeSendback, "--force is safe", true},
+		{[]string{"T-1", "-x"}, "", "-x", true},
+		{[]string{"T-1", "--", "--regate"}, "", "--regate", true},
+		{[]string{"T-1", "--regate", "--", "--sendback"}, wire.ResumeRegate, "--sendback", true},
+		{[]string{"T-1", "--", "--"}, "", "--", true},
+		{[]string{"T-1", "--", "--regate", "yes"}, "", "", false},
+		{[]string{"T-1", "--regate", "--regate"}, "", "", false},
 		{[]string{""}, "", "", false},
 		{nil, "", "", false},
 	} {
