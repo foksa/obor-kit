@@ -8,14 +8,17 @@ A review, from its request to its close: `obor review` builds and sends the brie
 `obor review` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
 - **Reviews dir**: `obor config get .paths.reviews`, in the main checkout (T-718: the reviewer runs there, no
   worktree of its own) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
-  (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names.
+  (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names, and, since T-822, its body
+  names the tasks its cycle **Covered** and the sha its review **Start**ed at.
 - **Next id**: the previous id + 1 (e.g. `RV-55.md`; none yet: `RV-1`).
 - **Head**: the integration branch's sha (`<sha>`).
-- **Merged tasks since then**:
-  `git log --first-parent --merges --format='%h %s' <prev-sha>..HEAD` → one `Merge T-xx: …` line per task.
-- **Files**: `git diff --name-only <prev-sha>..HEAD` for the whole batch.
-- **Out of scope** and **contracts** are yours: tasks merged since `<prev-sha>` you deliberately leave for later,
-  docs-only commits, the previous review's findings (unless verifying), anything the specs mark out of scope, and the
+- **Merged tasks since then**: since T-822 the merges on `Start..HEAD` (an older close commit without a `Start:` line:
+  `git log --first-parent --merges --format='%h %s' <prev-sha>..HEAD`) that no closed cycle covered: the tasks the
+  previous close's `Covered:` line names are left out. So a task merged while the previous review's verify ran (after
+  its start, not in its scope) is reviewed now, one a verify covered is not reviewed twice.
+- **Files**: `git diff --name-only <the same start>..HEAD` for the whole batch.
+- **Out of scope** and **contracts** are yours: tasks in the scope you deliberately leave for later, docs-only
+  commits, the previous review's findings (unless verifying), anything the specs mark out of scope, and the
   design docs the specs cite. They go into `--note`.
 
 ## 2. Start it: `obor review`
@@ -67,8 +70,9 @@ for a publish in flight (T-730: no merge moves the head between its read and the
 branch's head reviewed (`refs/obor/reviewed`; nothing to detach: the reviewer reads the main checkout, held still
 while it works) and briefs the open review's reviewer in its same, still-running session (`obor brief`: serve delivers
 it once the pane is idle and tells you when it has finished). The open review is the next RV by git whose
-`<reviews>/<RV-xx>.md` is in the main checkout; none, or a task with no merge since the previous review: refused,
-nothing sent. The brief (`--findings` default: every finding):
+`<reviews>/<RV-xx>.md` is in the main checkout; none, or a task with no merge since the previous review started (the
+previous close commit's `Start:` sha — a task merged after the review started, which it does not cover, is allowed
+and joins the cycle's covered set): refused, nothing sent. The brief (`--findings` default: every finding):
 ```
 The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha>. Re-run your probes for #<n>, … and report
 fixed / incomplete / regressed per finding. Write <reviews>/<RV-xx>-verify.md. Do not commit.
@@ -83,7 +87,18 @@ deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `
 section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
 integration branch in the main checkout (with `BACKLOG.md`; the reviewed sha is `refs/obor/reviewed`: the last
 verify's head, else the review's, not your doc commits since) and stops the reviewer (`obor restart <reviewer>
---stop`). Refused before any change: no open review, no `refs/obor/reviewed` (a review started before T-718: `git
+--stop`). Since T-822 the commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
+and the sha its review started at:
+
+```
+Covered: T-a, T-b, T-c
+Start: <the review start sha>
+```
+
+so the next review's scope takes the merges this cycle did not cover (a task merged while your verify ran stays
+unreviewed until a cycle covers it; `obor status`' `review due` and `make release` count it). A close commit from an
+older obor has no such body: the next review falls back to the sha range. Refused before any change: no open review,
+no `refs/obor/reviewed` (a review started before T-718: `git
 update-ref refs/obor/reviewed <sha>` by hand), the main checkout not on the integration branch or dirty outside
 `BACKLOG.md` and the review's files. Nothing else of the review
 is kept; the reviewer's evidence lives only in its session.

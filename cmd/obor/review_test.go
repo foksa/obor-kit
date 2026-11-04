@@ -57,12 +57,13 @@ func TestReviewGit(t *testing.T) {
 	p := testkit.New(t)
 	g := reviewGit{root: p.Root}
 	ctx := context.Background()
-	if last, err := g.Last(ctx, "main"); err != nil || last != "" {
-		t.Fatalf("no close yet: %q, %v", last, err)
+	if last, err := g.Last(ctx, "main"); err != nil || last != (app.ReviewClose{}) {
+		t.Fatalf("no close yet: %+v, %v", last, err)
 	}
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · 0000000 · approved")
 	base := p.Git(p.Root, "rev-parse", "HEAD")
-	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-4 closed · "+base[:7]+" · approved · T-8")
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-4 closed · "+base[:7]+" · approved · T-8",
+		"-m", "Covered: T-5, T-6\nStart: "+base)
 	p.Git(p.Root, "checkout", "-q", "-b", "task/T-9")
 	p.Write("a.txt", "a\n")
 	p.Git(p.Root, "add", "a.txt")
@@ -70,8 +71,9 @@ func TestReviewGit(t *testing.T) {
 	p.Git(p.Root, "checkout", "-q", "main")
 	p.Git(p.Root, "merge", "-q", "--no-ff", "-m", "Merge T-9: a", "task/T-9")
 	head := p.Git(p.Root, "rev-parse", "HEAD")
-	if last, err := g.Last(ctx, "main"); err != nil || last != "RV-4 closed · "+base[:7]+" · approved · T-8" {
-		t.Errorf("last: %q, %v", last, err)
+	if last, err := g.Last(ctx, "main"); err != nil || last.Subject != "RV-4 closed · "+base[:7]+" · approved · T-8" ||
+		last.Body != "Covered: T-5, T-6\nStart: "+base {
+		t.Errorf("last: %+v, %v", last, err)
 	}
 	if h, err := g.Head(ctx, "main"); err != nil || h != head {
 		t.Errorf("head %q, %v; want %s", h, err, head)

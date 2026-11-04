@@ -19,17 +19,21 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark. marked is every Mark's sha.
+// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark. marked is every Mark's sha. last is the
+// newest close commit's subject and lastBody its body (T-822: the Covered and Start lines).
 type reviewGitFake struct {
-	last    string
-	merges  []string
-	from    []string // every Merges call's from
-	files   []string
-	markErr error
-	marked  []string
+	last     string
+	lastBody string
+	merges   []string
+	from     []string // every Merges call's from
+	files    []string
+	markErr  error
+	marked   []string
 }
 
-func (g *reviewGitFake) Last(context.Context, string) (string, error) { return g.last, nil }
+func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
+	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
+}
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
 	return "abcdef0123456789abcdef0123456789abcdef01", nil
 }
@@ -558,5 +562,113 @@ func TestReviewClaimIsInFlight(t *testing.T) {
 	r.a.mu.Unlock()
 	if n.ok {
 		t.Error("idle while a pass starts the review request")
+	}
+}
+
+// T-822: a review cycle covers task ids, not a sha range. The next review's scope is the merges since the previous
+// close's review start sha that its cycle did not cover, so a task merged while its verify ran is in; an old close
+// commit (no Covered line) keeps today's sha range.
+func TestReviewScopeCoversTasks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		body   string
+		from   string
+		scope  string
+		absent string
+	}{
+		{"a close commit with its Covered set: the cycle's tasks are left out",
+			"Covered: T-a, T-b\nStart: 3333333", "3333333", "T-c (ccccccc)", "T-b (bbbbbbb)"},
+		{"an old close commit: the range starts at the reviewed sha", "", "1111111", "T-a (aaaaaaa), T-b (bbbbbbb), T-c (ccccccc)", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReviewRig(t)
+			r.git.last, r.git.lastBody = "RV-4 closed · 1111111 · approved · T-9", tc.body
+			r.git.merges = []string{"aaaaaaa1 Merge T-a: one", "bbbbbbb2 Merge T-b: two", "ccccccc3 Merge T-c: three"}
+			r.mustCall("r1", nil, "", false)
+			r.pass()
+			if len(r.agents.launches) != 1 {
+				t.Fatalf("launches %+v, want one", r.agents.launches)
+			}
+			if len(r.git.from) != 1 || r.git.from[0] != tc.from {
+				t.Errorf("the scope read from %q, want %q", r.git.from, tc.from)
+			}
+			brief := r.agents.launches[0].Prompt
+			if !strings.Contains(brief, "In scope: "+tc.scope+";") {
+				t.Errorf("the brief's scope %q, want %q", brief, tc.scope)
+			}
+			if tc.absent != "" && strings.Contains(brief, tc.absent) {
+				t.Errorf("the brief names a covered task: %q", brief)
+			}
+		})
+	}
+}
+
+// T-822: the "review due" count is the next review's scope: a merge its cycle covered is not counted (the same count
+// the release check makes).
+func TestReviewDueCountsUncovered(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.git.last = "RV-4 closed · 1111111 · approved"
+	r.git.lastBody = "Covered: T-a, T-b\nStart: 3333333"
+	r.git.merges = []string{"aaaaaaa1 Merge T-a: one", "bbbbbbb2 Merge T-b: two", "ccccccc3 Merge T-c: three",
+		"ddddddd4 Merge T-d: four", "eeeeeee5 Merge T-e: five", "fffffff6 Merge T-f: six"}
+	r.submitted("T-x")
+	r.merged("T-x") // a merge folded: the pass reads the count again
+	r.tick()
+	if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "review due: 4 merges since RV-4" || from != "3333333" {
+		t.Errorf("4 uncovered merges: %q (counted from %q)", got, from)
+	}
+	r.now = r.now.Add(reviewDueEvery) // RV-5 closed: nothing folded since, so the count is read again
+	r.git.last = "RV-5 closed · 7777777 · approved"
+	r.git.lastBody = "Covered: T-c, T-d, T-e, T-f\nStart: 8888888"
+	r.tick()
+	if got := r.a.Status().Project.Review; got != "" {
+		t.Errorf("a cycle covered them: %q, want no review due", got)
+	}
+}
+
+// T-822: the close commit's Covered set is the review's in-scope tasks plus each verify's.
+func TestReviewCoveredAddsVerifyTasks(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	if _, _, ok := ReviewCovered(r.p.root); ok {
+		t.Fatal("precondition: a start is recorded before any review ran")
+	}
+	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
+		ReviewData{ID: "RV-5", Head: "abcdef0123456789", Tasks: []string{"T-a", "T-b"}})
+	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerify, Kind: event.KindFact},
+		ReviewData{Tasks: []string{"T-d"}})
+	covered, start, ok := ReviewCovered(r.p.root)
+	if !ok || start != "abcdef0123456789" || strings.Join(covered, ",") != "T-a,T-b,T-d" {
+		t.Errorf("covered %q, start %q, ok %t; want T-a,T-b,T-d at the start's head", covered, start, ok)
+	}
+}
+
+// T-822: obor review verify of a task merged since the previous close's review start (here: during the previous verify,
+// so not after the sha its close names) is allowed: the verify's range is the next review's scope.
+func TestReviewVerifyOutsideScope(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.git.last = "RV-4 closed · 2222222 · approved"
+	r.git.lastBody = "Covered: T-a, T-b\nStart: 3333333"
+	r.git.merges = []string{"ccccccc3 Merge T-c: three"}
+	s, err := reviewConfig(r.p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(r.p.root, s.Reviews), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.p.root, s.Reviews, "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, err := verifyText(context.Background(), r.git, r.p.root, s, []string{"T-c"}, nil, "")
+	if err != nil {
+		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
+	}
+	if !strings.Contains(text, "fixed in T-c (ccccccc)") {
+		t.Errorf("the brief: %q", text)
 	}
 }

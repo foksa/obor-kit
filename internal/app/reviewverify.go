@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
@@ -20,10 +21,11 @@ import (
 // verifyGitWait bounds a verify's git once admitted.
 const verifyGitWait = 30 * time.Second
 
-// OpenCycle is the open review by git: its id (the newest "RV-<n> closed" commit + 1), the previous review's id and
-// reviewed sha ("": none) and its review file in the main checkout.
+// OpenCycle is the open review by git: its id (the newest "RV-<n> closed" commit + 1), the previous review's id,
+// reviewed sha and coverage start ("" when it has neither: no close commit yet), and its review file in the main
+// checkout.
 type OpenCycle struct {
-	ID, Prev, PrevSHA, File string
+	ID, Prev, PrevSHA, From, File string
 }
 
 // OpenReview is the open review of the project at root (obor review verify and close): no review file
@@ -33,8 +35,9 @@ func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (O
 	if err != nil {
 		return OpenCycle{}, err
 	}
-	n, prev, prevSHA := PreviousReview(last)
-	c := OpenCycle{ID: "RV-" + strconv.Itoa(n), Prev: prev, PrevSHA: prevSHA}
+	n, prev, prevSHA := PreviousReview(last.Subject)
+	from, _ := reviewScope(last)
+	c := OpenCycle{ID: "RV-" + strconv.Itoa(n), Prev: prev, PrevSHA: prevSHA, From: from}
 	c.File = filepath.Join(root, s.Reviews, c.ID+".md")
 	if _, err := os.Stat(c.File); err != nil {
 		return c, fmt.Errorf("no open review: no %s/%s.md in %s (%s is not written yet, or the last review is closed)",
@@ -46,9 +49,10 @@ func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (O
 // verifyCall answers the socket's review_verify request (the lead or the owner): the open review's reviewer briefed
 // (recordBrief: its fact is a brief's, so a repeated call id gets the brief's stored reply) with review-brief.md §4's
 // text for the fix tasks (Call.After), the findings (Call.Findings; none: every finding) and the lead's note. Once
-// admitted, serve reads the head and each task's merge since the previous review and marks the head reviewed
-// (ReviewedRef). Refused, nothing marked or recorded: no reviewer setup, no open review, a task with no merge since
-// the previous review, git failing, a publish still running after admitWait.
+// admitted, serve reads the head and each task's merge in the next review's scope and marks the head reviewed
+// (ReviewedRef); the tasks are recorded as covered by the cycle (T-822). Refused, nothing marked or recorded: no
+// reviewer setup, no open review, a task with no merge since the previous review, git failing, a publish still running
+// after admitWait.
 func (a *App) verifyCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodVerify + ": a call id is required")
@@ -95,12 +99,15 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("review verify: the event log of %s refused it", p.name)
 	}
+	// T-822: the verified tasks join the cycle's covered set (obor review close lists it in the close commit's body).
+	a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerify, Kind: event.KindFact}, ReviewData{Tasks: c.After})
 	a.wake()
 	return reply, nil
 }
 
-// verifyText finds the open review and each task's merge since the previous review and marks the integration
-// branch's head reviewed: the verify brief.
+// verifyText finds the open review and each task's merge in the next review's scope (T-822: a task merged after the
+// review started, which it does not cover, is allowed) and marks the integration branch's head reviewed: the verify
+// brief.
 func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, tasks, findings []string, note string) (string, error) {
 	c, err := OpenReview(ctx, g, root, s)
 	if err != nil {
@@ -110,7 +117,7 @@ func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, ta
 	if err != nil {
 		return "", err
 	}
-	merges, err := g.Merges(ctx, c.PrevSHA, head)
+	merges, err := g.Merges(ctx, c.From, head)
 	if err != nil {
 		return "", err
 	}

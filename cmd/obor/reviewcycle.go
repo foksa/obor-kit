@@ -100,8 +100,9 @@ func reviewVerifyCmd(args []string) int {
 // main checkout, each accepted finding a line in BACKLOG.md's Open section naming the review, the commit "RV-<n> closed
 // · <reviewed sha> · approved · <summary>" on the integration branch in the main checkout (BACKLOG.md with it), then
 // the reviewer stopped (obor restart --stop). The reviewed sha is app.ReviewedRef: the last verify's head, else the
-// review's. Refused before any change: no open review, no reviewed sha, the main checkout not on the integration
-// branch or dirty outside BACKLOG.md and the review's files.
+// review's. The body lists the cycle's covered tasks and its review start sha (app.ReviewCovered; T-822), so the next
+// review's scope takes the merges it did not cover. Refused before any change: no open review, no reviewed sha, the
+// main checkout not on the integration branch or dirty outside BACKLOG.md and the review's files.
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string
@@ -205,7 +206,13 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		}
 	}
 	subject := c.id + " closed · " + strings.TrimSpace(sha) + " · approved · " + summary
-	if _, err := gitIn(ctx, root, "commit", "-q", "--allow-empty", "-m", subject); err != nil {
+	args := []string{"commit", "-q", "--allow-empty", "-m", subject}
+	// T-822: the body lists the cycle's covered tasks and where its review started, so the next review's scope takes
+	// the merges this cycle did not cover. No start recorded (a review started by an older obor): the old format.
+	if covered, start, ok := app.ReviewCovered(root); ok {
+		args = append(args, "-m", "Covered: "+strings.Join(covered, ", ")+"\nStart: "+start)
+	}
+	if _, err := gitIn(ctx, root, args...); err != nil {
 		return c, "", err
 	}
 	return c, "CLOSED " + subject, nil
