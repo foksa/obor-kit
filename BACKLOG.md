@@ -6,6 +6,21 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~19:00 (lead → fresh session). **v0.25.0 and v0.25.1 shipped** today; all upgrade steps done on this
+  machine (`obor setup agents` removed the global opencode obor entry + link; backup was in the old session's
+  scratchpad; `~/.obor/agents` and `~/.obor/inbox` removed). axis-alies on 0.25.1 (lanes restarted, its lead restarts
+  for the skill); axis-maps stopped by the owner (`obor start` there brings 0.25.1). Reviews RV-102..RV-106 closed.
+  Nothing in flight, no watches, no owner decisions pending. crouton removed from config (its stale pause is invisible).
+  Conformance: `make conformance TIER=live TURN=1` (CONF_OPENCODE_MODEL=opencode-go/deepseek-v4.1-flash) in tab
+  `conformance` (w5:t15): 34 pass, CC-L2 fail fixed by T-820.
+  **Next, in order (owner OK'd 11-04):** (1) AGENTS.md rule "an empty derived value is an error" (T-791, T-814 class);
+  (2) spec rule + template line: a task touching identity/MCP/launch runs `make conformance TIER=live` per kind before
+  merge; (3) CLI retry on serve's closed socket during its restart; (4) wave 4: DD-consolidation S1 (one "may the lead
+  act" check, hard, case → test table) + test pruning (tests 71.6k vs prod 43.9k); (5) P4 version on every wire call.
+  Later: P9 herdr restore plugin; trim the conformance suite (~3.8k lines: settled probes become assertions).
+  **Concern:** machine load (load avg up to 37) turned gates red several times today (flakes in internal/app,
+  cmd/obor, internal/setup); owner to choose 3 lanes or keep fixing flakes. Owner-side optional: herdr 0.9.5 +
+  `herdr integration install opencode`; restart the owner's own opencode service (pid 2883, old obor mcp children).
 - 2026-11-04 ~11:15 (lead restart: T-787 moved inbox records into the project; this session had none, so other leads
   and serve could not reach it). **Wave 3 of DD-consolidation merged** on main (unreleased): T-785 brief --fresh, restart
   flags gone; T-786 derived identity, no OBOR_AGENT, allow_push roles; T-787 project inbox by slot, rename refuses old
