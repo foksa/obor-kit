@@ -6,6 +6,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04: **v0.24.2 shipped** (v0.24.0 and v0.24.1 tagged, never shipped on their own; notes carry all three). v0.24.0: consolidation waves 1-2 (T-772..T-780: one `obor resume`, task ids, move a task, monitor gone, no `agents` key, derived names, upgrade check in make release; RV-98/RV-99). v0.24.1: nightly is the lead's switch, `obor nightly on|off` (T-781/T-782, RV-100; owner: no "due" logic). v0.24.2: dispatch uses the lane's labelled pane (T-783/T-784, RV-101; axis-alies' report). Axis leads sent the v0.24 steps (axis-alies: setup migrate for its agents key; axis-maps: close axis-monitor). Next: confirm both serves on 0.24.2 and migrated; wave 3 of DD-consolidation (C3+C4, I3+I4, S5+S6, C7 wording, I6+I7); C8 (delete migrate code) in v0.25 after codex-image-tool/codex-img-viewer migrate.
 - 2026-11-03 evening: **v0.23.1 shipped** (T-770 strict MCP for Claude workers, T-771 serve restart; RV-97 closed); before it **v0.23.0 shipped** (axis leads sent the migrate steps; their serves refuse the old config until they migrate): config names models directly (T-765), Setup
   page for it (T-766), project list keeps unloadable projects (T-767), roles always name a model (T-769 replaced
   T-768 after two strikes). RV-95, RV-96 closed. After ship: obor send axis-alies/axis-maps the UPGRADE-v0.23 steps
