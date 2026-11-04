@@ -1129,44 +1129,66 @@ func envWords(t *testing.T, line string) (ok, bad string) {
 
 // T-404: herdr's agent start answers only once the agent is ready for input (30 s), which an agent busy on its first
 // prompt never is: a start ends with its agent up and named, while herdr's answer is still pending (T-405: the start
-// owns herdr's call, cancelled before it returns). An agent herdr left unnamed is named by the launch, and one it never
-// names is still started with a warning: TestStartNamesTheAgent.
+// owns herdr's call, cancelled before it returns). An agent herdr left unnamed is named by the launch; one it never
+// names is still started, with a warning (DD-v0.13 A7).
 func TestStartEndsWithTheAgentUp(t *testing.T) {
 	t.Parallel()
-	x := setup(t)
-	release, ended := make(chan struct{}), make(chan struct{})
-	defer close(release) // herdr's answer comes after the test's checks
-	x.pendingStart(release, ended)
-	x.shell("w1:p3", "pj-l-01", "")
-	var out bytes.Buffer
-	done := make(chan struct {
-		line string
-		err  error
-	}, 1)
-	go func() {
-		line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
-		done <- struct {
-			line string
-			err  error
-		}{line, err}
-	}()
-	select {
-	case got := <-done:
-		if got.err != nil {
-			t.Fatalf("the start: %v\n%s", got.err, out.String())
-		}
-		eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
-	case <-time.After(10 * time.Second):
-		t.Fatal("the start waited for herdr's answer")
+	for _, c := range []struct {
+		name     string
+		onStart  string // what agent start leaves behind (the fake's OnStart)
+		noRename bool
+		renames  int
+	}{
+		{"named at once: RESTARTED without herdr's answer", "", false, 0},
+		{"unnamed: named by the launch, RESTARTED without herdr's answer", "unnamed", false, 1},
+		{"never named: the rename refused, RESTARTED with a warning", "unnamed", true, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t)
+			release, ended := make(chan struct{}), make(chan struct{})
+			defer close(release) // herdr's answer comes after the test's checks
+			x.pendingStart(release, ended)
+			x.shell("w1:p3", "pj-l-01", "").OnStart = c.onStart
+			if c.noRename {
+				x.srv.Fail("agent.rename", "agent_not_found", "no agent named")
+			}
+			var out bytes.Buffer
+			done := make(chan struct {
+				line string
+				err  error
+			}, 1)
+			go func() {
+				line, err := x.launcher(&out).Restart(context.Background(), launch.Request{Agent: "pj-l-01", Fresh: true})
+				done <- struct {
+					line string
+					err  error
+				}{line, err}
+			}()
+			select {
+			case got := <-done:
+				if got.err != nil {
+					t.Fatalf("the start: %v\n%s", got.err, out.String())
+				}
+				eq(t, got.line, "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+			case <-time.After(10 * time.Second):
+				t.Fatal("the start waited for herdr's answer")
+			}
+			select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
+			case <-ended:
+			default:
+				t.Error("herdr's agent start call still runs after the start returned")
+			}
+			lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
+			eqInt(t, len(x.calls("agent.rename target=w1:p3")), c.renames, "renames")
+			if c.noRename {
+				contains(t, out.String(), "warning: pj-l-01 started in w1:p3, but herdr has no agent of that name there", "warned")
+				eq(t, x.f.Pane("w1:p3").Name, "", "herdr kept no name")
+				return
+			}
+			eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
+		})
 	}
-	select { // T-405: the start owns herdr's call: ended (cancelled) before the start returns
-	case <-ended:
-	default:
-		t.Error("herdr's agent start call still runs after the start returned")
-	}
-	lacks(t, out.String(), "(timeout)", "herdr's answer is not waited for")
-	eqInt(t, len(x.calls("agent.rename target=w1:p3")), 0, "renames: herdr named it")
-	eq(t, x.f.Pane("w1:p3").Name, "pj-l-01", "herdr knows the name")
 }
 
 // T-404: a start is its own agent. An agent of the kind already in the pane (herdr lost its name) is not taken for the
@@ -2788,6 +2810,23 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 			t.Errorf("no warning: %q", out)
 		}
 		contains(t, x.startCall(), "--resume sid-1", "resumed")
+	})
+	t.Run("two of its own records, a newer one of another agent: the newest of its own resumed", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		now := time.Now()
+		path := x.transcript("sid-2")
+		recordSessions(t, x.p.Root,
+			store.Session{Agent: "pj-l-01", ID: "sid-1", Started: now.Add(-time.Hour).Unix()},
+			store.Session{Agent: "pj-l-01", ID: "sid-2", Transcript: path, Started: now.Unix()},
+			store.Session{Agent: "pj-l-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
+		x.shell("w1:p3", "pj-l-01", "")
+		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-2)", "the newest of its own")
+		if !ok {
+			t.Fatal(out)
+		}
+		contains(t, x.startCall(), "--resume sid-2", "the newest of its own resumed")
 	})
 	t.Run("record != herdr: resumes the record, warns, record kept", func(t *testing.T) {
 		t.Parallel()

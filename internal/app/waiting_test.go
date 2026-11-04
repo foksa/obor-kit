@@ -71,13 +71,16 @@ func (r *loopRig) taskStatus(task string) wire.TaskStatus {
 	return wire.TaskStatus{}
 }
 
-// startWithT2 starts the rig with T-2 seeded and waits until its needs-you is folded.
+// startWithT2 starts the rig with T-2 seeded and waits until its needs-you is folded and its fail step settled: drop
+// refuses a task whose step still runs ("retry when it settles"), and under load that step outlasts the test's first
+// call (T-845's gate).
 func startWithT2(t *testing.T, more ...event.Record) *loopRig {
 	t.Helper()
 	r := newDispatchRig(t)
 	r.seedT2(more...)
 	r.start()
 	r.waitFor("T-2 needs-you", func() bool { return r.taskStatus("T-2").State == "needs-you" })
+	r.waitFor("T-2 settled", func() bool { return app.Settled(r.app, r.p.Root, "T-2") })
 	return r
 }
 
