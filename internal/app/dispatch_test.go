@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
@@ -944,4 +945,54 @@ func TestDispatchAfterARenameIgnoresTheReplayedRowAgent(t *testing.T) {
 	if got != "pj-l-01" {
 		t.Errorf("agent.start launched %q, want pj-l-01 (the row's hk-l1 is no name of the lane)", got)
 	}
+}
+
+// T-792: a task that merged takes no new attempt, whatever flags the request carries: refused, nothing recorded. A
+// dropped task is dispatched again.
+func TestDispatchOfAnEndedTask(t *testing.T) {
+	t.Parallel()
+	t.Run("merged: refused with each flag, nothing recorded", func(t *testing.T) {
+		t.Parallel()
+		r := newDispatchRig(t)
+		r.writeLog([]logRec{{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}, {1, event.StepMerged, event.KindFact, "", event.MergedData{Head: "0123456789abcdef"}}})
+		r.start()
+		r.passes()
+		if st := r.taskState(); st != "" && st != "merged" {
+			t.Fatalf("precondition: state %q", st)
+		}
+		before := len(r.records())
+		if r.count("1 fact merged") != 1 {
+			t.Fatalf("precondition: no merged fact in %q", r.steps())
+		}
+		for i, c := range []wire.Call{
+			{Task: "T-1"},
+			{Task: "T-1", Types: []string{"sonnet"}},
+			{Task: "T-1", Types: []string{"sonnet"}, Lane: "L-01"},
+			{Task: "T-1", Types: []string{"sonnet"}, After: []string{"T-2"}},
+			{Task: "T-1", Types: []string{"sonnet"}, Lane: "L-01", Force: true},
+		} {
+			c.Root, c.Agent, c.Role, c.CallID = r.p.Root, "pj-lead", "lead", fmt.Sprintf("d%d", i)
+			reply, err := r.dispatchCall(c)
+			if err == nil || err.Error() != "T-1 merged 0123456: a new attempt needs a new task id" || reply != "" {
+				t.Errorf("call %+v: reply %q, error %v; want the merged refusal", c, reply, err)
+			}
+		}
+		r.passes()
+		if n := len(r.records()); n != before {
+			t.Errorf("refusals recorded %q", r.steps())
+		}
+		if n := r.disp.called("prepare"); n != 0 {
+			t.Errorf("prepared %d times after a refusal", n)
+		}
+	})
+	t.Run("dropped: dispatched again", func(t *testing.T) {
+		t.Parallel()
+		r := newDispatchRig(t)
+		r.writeLog([]logRec{{1, event.StepSubmitted, event.KindFact, "", map[string]any{"lane": "L-01", "agent": "pj-l-01"}}, {1, event.StepDropped, event.KindFact, "", event.FactData{Lane: "L-01", Merge: true, Reason: "why"}}})
+		r.start()
+		r.passes()
+		if reply, err := r.dispatch("d1", "L-01"); err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as sonnet" {
+			t.Fatalf("dispatch of a dropped task: %q, %v", reply, err)
+		}
+	})
 }
