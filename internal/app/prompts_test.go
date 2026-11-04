@@ -207,8 +207,8 @@ func TestPromptsWorkJobRefetchedAfterASpecRev(t *testing.T) {
 
 	first := r.workerNext("n1")
 	r.waitFor("the delivered fact", func() bool { return len(r.deliveries()) == 1 })
-	if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
-		t.Fatalf("spec set: %q, want SET T-1 rev 1", reply)
+	if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1 (worker told)" {
+		t.Fatalf("spec set: %q, want SET T-1 rev 1 (worker told)", reply)
 	}
 	second := r.workerNext("n2")
 	if second.Job != "T-1/1/work" || second.Text == first.Text || !strings.Contains(second.Text, "Do the thing.") {
@@ -249,8 +249,8 @@ func TestPromptsFixJobRefetchedAfterASpecRev(t *testing.T) {
 		t.Fatalf("the fix job: %+v", first)
 	}
 	r.waitFor("delivered", func() bool { return len(r.deliveries()) == 3 })
-	if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1" {
-		t.Fatalf("spec set: %q, want SET T-1 rev 1", reply)
+	if reply := r.spec("sp1", specOne); reply != "SET T-1 rev 1 (worker told)" {
+		t.Fatalf("spec set: %q, want SET T-1 rev 1 (worker told)", reply)
 	}
 	second := r.workerNext("f2")
 	if second.Job != "T-1/2/fix" || second.Text == first.Text || !strings.Contains(second.Text, "Do the thing.") {

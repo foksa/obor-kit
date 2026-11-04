@@ -22,8 +22,8 @@ import (
 
 const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
-	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721).
-	SchemaVersion = 9
+	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819).
+	SchemaVersion = 10
 	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.12 (schema 2–5) is refused, and upgrades
 	// through v0.12.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
 	// IF NOT EXISTS, so the version is what a migration updates).
@@ -151,7 +151,7 @@ var schema = []string{
 		agent TEXT NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL, dispatched_at INTEGER NOT NULL,
 		finished INTEGER NOT NULL, type TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS specs (task TEXT PRIMARY KEY, text TEXT NOT NULL, rev INTEGER NOT NULL,
-		set_by TEXT NOT NULL, set_at TEXT NOT NULL)`,
+		set_by TEXT NOT NULL, set_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL,
 		agent TEXT NOT NULL, kind TEXT NOT NULL, job TEXT NOT NULL, task TEXT NOT NULL, ts TEXT NOT NULL,
 		rev INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL)`,
@@ -228,6 +228,20 @@ func initSchema(db *sql.DB) error {
 		if n == 0 {
 			if _, err := tx.ExecContext(ctx, "ALTER TABLE lanes ADD COLUMN type TEXT NOT NULL DEFAULT ''"); err != nil {
 				return fmt.Errorf("store: migrate lanes: %w", err)
+			}
+		}
+	}
+	// Version 10 gave the spec row the note its set carried (T-819): an older specs table gets the column, empty (a
+	// rev set before T-819 has none).
+	if found && got < 10 {
+		var n int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('specs') WHERE name = 'note'").
+			Scan(&n); err != nil {
+			return fmt.Errorf("store: read specs: %w", err)
+		}
+		if n == 0 {
+			if _, err := tx.ExecContext(ctx, "ALTER TABLE specs ADD COLUMN note TEXT NOT NULL DEFAULT ''"); err != nil {
+				return fmt.Errorf("store: migrate specs: %w", err)
 			}
 		}
 	}

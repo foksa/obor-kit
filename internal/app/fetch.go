@@ -279,9 +279,10 @@ func (p *proj) laneDir(mt mtask) string {
 
 // taskDone answers task_done (rows 16–17): the worker's report submits its task: fact submitted{lane, agent, pane,
 // call id, report}, then the merge loop gates it. Refused (nothing recorded): not the caller's task, no attempt open
-// for it, the report empty or a section missing. A Blocked: report submits nothing: it records the watchdog fact
-// needs-you{asks: <what it needs>} (row 16a; the task stays working, the owner is notified). A repeated call id gets
-// the stored reply.
+// for it, the report empty or a section missing, or the job fetched at an older spec rev than the store's (T-819: the
+// refusal records spec.seen and names the rev and the set's note, so the next task_done submits). A Blocked: report
+// submits nothing: it records the watchdog fact needs-you{asks: <what it needs>} (row 16a; the task stays working, the
+// owner is notified) and is never refused for the rev. A repeated call id gets the stored reply.
 func (a *App) taskDone(c wire.Call) (string, error) {
 	a.hook(hookTaskDoneWaits)
 	a.submitMu.Lock() // one submission decision at a time
@@ -362,6 +363,20 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 		return "", fmt.Errorf("task_done: lane %s holds %s, not %s", l.Name, Dash(l.Task), c.Task)
 	case blocked:
 		return a.ask(p, c.Task, l, asks)
+	}
+	// A job carried at an older spec rev than the store's: the lead changed the spec under the worker (T-819). The
+	// refusal shows the newer rev (and what the set changed), nothing is submitted, and the fact marks it seen for
+	// this attempt, so the worker's next task_done submits.
+	row, hasSpec, err := specOf(p, c.Task)
+	if err != nil {
+		return "", fmt.Errorf("task_done: %v", err)
+	}
+	if hasSpec && mt.specRev > 0 && row.Rev > mt.specRev {
+		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSpecSeen, Kind: event.KindFact},
+			event.FactData{Rev: row.Rev}) {
+			return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
+		}
+		return "", fmt.Errorf("task_done: %s", specRevLine(c.Task, row.Rev, row.Note))
 	}
 	a.hook(hookTaskDoneCheck)
 	attempt := mt.attempt

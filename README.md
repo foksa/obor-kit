@@ -74,7 +74,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 |---|---|
 | `obor status` | serve, lanes, agents, what needs you, the last full check |
 | `obor web` | a page for every project on this machine: lanes, queue, needs-you, events, task reports and agent prompts, and the Setup page's edits, which serve commits (localhost, `--listen 127.0.0.1:<port>`) |
-| `obor spec set T-xx <file>` | store a task spec (it needs a `Difficulty:` line) |
+| `obor spec set T-xx <file> [--note "<what changed>"]` | store a task spec (it needs a `Difficulty:` line); a working worker is told and must re-read it before it can submit |
 | `obor dispatch T-xx [--after T-yy]` | run it on the first free lane of its tier, now or after T-yy merges |
 | `obor watch T-xx[,T-yy]` | one line to the lead when they merge (or one is dropped) |
 | `obor resume` · `drop` | act on a needs-you (by task id) |

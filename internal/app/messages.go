@@ -123,12 +123,12 @@ func (o *outbox) allBriefs() iter.Seq2[string, *brief] { return maps.All(o.brief
 // queued is a line not delivered yet: its fact's seq and time, its data, whether it is a lead line (fact message,
 // posted to the inbox whatever today's lead name; fact briefed: a role brief), whether it is a brief's line (fact
 // briefed with a line: a newer brief ends it), whether it is an answer's line (fact answered: retireAnswers ends it
-// once its question is settled another way, T-746), where its delivery is (state, T-748), the seq of the delivery
-// intent whose post carries it (0: none; T-654: only that post's result settles it, and a post refused before a byte
-// goes again with exactly its members), why the last delivery pass held it ("": not held; T-746: not folded), and
-// its last refusal before a byte went out (refused: the reason; refusedPost: it was an inbox post, so the next
-// attempt to an idle identified agent types it; folded from fact failed). obor status and the line's needs-you say
-// why it waits (why).
+// once its question is settled another way, T-746; a spec rev's line, T-819, ends as one when the task settles), where
+// its delivery is (state, T-748), the seq of the delivery intent whose post carries it (0: none; T-654: only that
+// post's result settles it, and a post refused before a byte goes again with exactly its members), why the last
+// delivery pass held it ("": not held; T-746: not folded), and its last refusal before a byte went out (refused: the
+// reason; refusedPost: it was an inbox post, so the next attempt to an idle identified agent types it; folded from
+// fact failed). obor status and the line's needs-you say why it waits (why).
 type queued struct {
 	seq         int64
 	at          time.Time
@@ -357,6 +357,10 @@ func (p *proj) foldMsg(r event.Record) {
 			b.stop = nil
 			b.worked, b.logged, b.followed = d.Worked, d.Worked, !d.Worked
 		}
+	case r.Kind == event.KindFact && r.Step == event.StepSpecLine: // a new spec rev's line to a working worker (T-819)
+		var m event.Message
+		_ = json.Unmarshal(r.Data, &m)
+		p.out.msgs[r.Seq] = &queued{seq: r.Seq, at: event.RecordTime(r), msg: m, answer: true}
 	case r.Kind == event.KindFact && r.Step == event.StepAnswered:
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)

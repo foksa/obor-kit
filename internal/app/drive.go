@@ -205,7 +205,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if ahead {
 		return "", fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
 	}
-	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", callerOf(c), a.opt.Now()); err != nil {
+	if _, _, err := store.SetSpec(p.log.DB(), task, "# "+task+" — "+driveTitle+name+"\n", "", callerOf(c), a.opt.Now()); err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
 	a.mu.Lock()

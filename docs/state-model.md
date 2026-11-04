@@ -26,10 +26,15 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
   `obor status` (through `checks.LaneTable`), the agent lookups of `project.LaneAgent` (launch, setup). `obor mcp`'s
   `task_done` names only the caller's lane
   (`OBOR_LANE`): serve resolves it to the row's task.
-- The tasks' specs are the same database's `specs` table (T-440): `task, text, rev, set_by, set_at`. serve is its
-  one writer: `obor spec set T-xx <path>` (any file, read once) is a `spec_set` socket request, accepted from the lead
-  or the owner (no role; `set_by` "owner") and refused for every other role (a worker cannot unlock files, T-238); a set with another text is the next rev, the same text changes
-  nothing. Readers: dispatch (a stored spec is required, row 2), the work job's text
+- The tasks' specs are the same database's `specs` table (T-440): `task, text, rev, set_by, set_at, note` (the note:
+  what the set that made this rev changed, T-819). serve is its one writer:
+  `obor spec set T-xx <path> [--note "<what changed>"]` (any file, read once) is a `spec_set` socket request, accepted
+  from the lead or the owner (no role; `set_by` "owner") and refused for every other role (a worker cannot unlock
+  files, T-238); a set with another text is the next rev, the same text changes nothing. A set while the task has a
+  working (or dispatching) worker sends it one line through the line delivery (`spec.line`; it is retired when the
+  task settles, as an answer's line is), and the worker's `task_done` on a job it fetched at an older rev
+  (`delivered`'s `rev`) is refused once, naming the rev and the note (`spec.seen` marks it seen for the attempt), then
+  accepted; a Blocked: report is not refused. Readers: dispatch (a stored spec is required, row 2), the work job's text
   (it carries the current rev; a fix job carries it when the rev changed since the worker's last fetch: the
   `delivered` fact records the rev a job carried), the guard's protected unlocks, whoami and SessionStart (read-only: a
   change applies at the next hook call), the commit subject (`titleOf`), the flakes rule, `obor spec
