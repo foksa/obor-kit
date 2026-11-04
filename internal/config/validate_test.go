@@ -94,7 +94,8 @@ func TestValidate(t *testing.T) {
 		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
 			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
 		// T-830: paths.status, paths.queue and paths.tasks are map entries, not keys with a field: past their window they
-		// load with no WARN (paths is free-form; nothing reads them).
+		// load with no WARN (paths is free-form). paths.tasks is still read: internal/checks/legacySpecDir names the
+		// pre-T-521 spec dir for legacy merge evidence, so only status and queue are dead (T-842).
 		{name: "removed paths keys load silently", edits: []edit{set("paths.status", "STATUS.md"),
 			set("paths.queue", "docs/QUEUE.md"), set("paths.tasks", "docs/tasks")}},
 		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project

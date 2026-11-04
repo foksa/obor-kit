@@ -217,6 +217,34 @@ func TestRV39MovedSubject(t *testing.T) {
 	y.eq(y.Git(y.Root, "rev-parse", "main^2"), sha, "main's merge merges the submitted sha")
 }
 
+// T-403 (restored by T-842): the moved gate's merge of the submitted sha conflicts as a lane gate's does; the
+// resolution is accepted against that sha and gates as committed, as before. The cut table's "gate moved" row has an
+// unrelated main edit and "gate resolved" takes its conflict from a lane gate, so this is the one moved-conflict
+// sequence: conflict, resolve, regate green.
+func TestScratchMovedGateConflict(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	y.Write(filepath.Join(y.lane, "shared.txt"), "lane\n")
+	sha := y.submit()
+	y.green(lane(sha))
+	y.Write("shared.txt", "main\n")
+	y.Git(y.Root, "commit", "-qam", "main edit")
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	if o.Kind != port.OutcomeConflict {
+		t.Fatalf("moved gate: %s %q; want a conflict", o.Kind, o.Line)
+	}
+	y.eq(strings.Join(o.Files, " "), "shared.txt", "the conflicting file")
+	res := y.resolveServe()
+	got, err := y.s.Resolved(ctx, "T-05", sha)
+	if err != nil {
+		t.Fatalf("resolve of %s: %v", sha, err)
+	}
+	y.eq(got, res, "the resolution's sha pinned against the submitted sha")
+	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res})
+	y.eq(c.Target, y.Git(y.Root, "rev-parse", res+"^1"), "checked against the resolution's first parent")
+	y.eq(y.tree(c.SHA), y.tree(res), "the candidate is the resolution's tree (T-802: its message amended)")
+}
+
 var cutSteps = []cutStep{
 	{
 		name:  "submit",
