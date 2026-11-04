@@ -26,13 +26,19 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
 
 test:
 	$(GO) test ./...
+
+# The conformance suite (T-798, deep dive §6): tests/conformance, behind the conformance build tag so go test ./... and
+# make check never run it. KIND=herdr (default: all kinds that exist), TIER=static (default). Prints PASS/FAIL/SKIP/WARN
+# lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line (commands.conformance).
+conformance:
+	@KIND="$(KIND)" TIER="$(TIER)" $(GO) run -tags conformance ./tests/conformance
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full

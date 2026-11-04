@@ -16,8 +16,8 @@ import (
 // Nightly is `obor nightly`: the milestone check tier in
 // its own worktree (<merge.scratch_dir>-nightly, added when missing) reset to the head of the main checkout's current
 // branch: commands.lane_setup, then check,
-// check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
-// skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
+// check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored), e2e and
+// conformance (T-798: non-gating, its result a line in the report, never RED), each skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
 // It then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
 // merge.window_wait s).
@@ -56,6 +56,14 @@ func (s *session) nightly() *Result {
 		if !ok {
 			return nil
 		}
+		if name == "conformance" { // non-gating (T-798): a line in the report, never RED
+			results = append(results, name+" (non-gating) "+s.what(o))
+			if o.rc != 0 {
+				details = append(details, fmt.Sprintf("--- %s (rc %d, non-gating)", name, o.rc))
+				details = append(details, s.details(o)...)
+			}
+			return nil
+		}
 		results = append(results, name+" "+s.what(o))
 		if o.rc == 0 {
 			return nil
@@ -72,7 +80,7 @@ func (s *session) nightly() *Result {
 		return r
 	}
 	if len(failed) == 0 {
-		for _, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e"} {
+		for _, name := range []string{"check", "check_milestone", "baseline", "gate", "e2e", "conformance"} {
 			switch name {
 			case "baseline":
 				dir := s.baselineDir()
