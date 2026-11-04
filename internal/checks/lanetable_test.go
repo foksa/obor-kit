@@ -85,28 +85,41 @@ func ltCommit(t *testing.T, dir string) {
 	ltGit(t, dir, "commit", "-q", "-m", "work")
 }
 
+// TestLaneStates (T-470): the lane table's states and each lane's type (T-721, T-765: a working lane's type is the
+// model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a row with none, recorded before T-721, has
+// none, nor has a free lane whatever its row says: a lane's model is its task's only while it holds it).
 func TestLaneStates(t *testing.T) {
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
 		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06"})
 	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
 	os.WriteFile(filepath.Join(dir("L-02"), "scratch.txt"), []byte("x"), 0o644)
 	ltSubmit(t, p.Root, "L-03", "T-03", true, 0) // merged: free, whatever the log says
+	ltSetType(t, p.Root, "L-03", "sonnet")       // a free lane has no type, whatever its row says
 	ltCommit(t, dir("L-04"))
 	ltSubmit(t, p.Root, "L-04", "T-04", true, 0)
+	ltSetType(t, p.Root, "L-04", "sonnet:high")
 	ltCommit(t, dir("L-05"))
 	ltSubmit(t, p.Root, "L-05", "T-05", false, 0) // dispatched, no task_done yet
+	ltSetType(t, p.Root, "L-05", "sonnet:low")
 	// T-196: a dirty lane is free only when its task has merge evidence ("T-06:" commit reachable from HEAD).
 	os.WriteFile(filepath.Join(dir("L-06"), "scratch.txt"), []byte("x"), 0o644)
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-06: merged work")
-	got := map[string]string{}
+	type laneRow struct{ state, task, typ, warning string }
+	got := map[string]laneRow{}
 	for _, s := range p.States() {
-		got[s.Lane] = s.State + " " + s.Task + " " + s.Warning
+		got[s.Lane] = laneRow{s.State, s.Task, s.Type, s.Warning}
 	}
-	want := map[string]string{"L-01": "free T-01 ", "L-02": "working T-02 ", "L-03": "free T-03 ",
-		"L-04": "working T-04 ", "L-05": "working T-05 ", "L-06": "dirty-free T-06 "}
+	want := map[string]laneRow{
+		"L-01": {"free", "T-01", "", ""},
+		"L-02": {"working", "T-02", "", ""}, // a row from before T-721: no type
+		"L-03": {"free", "T-03", "", ""},
+		"L-04": {"working", "T-04", "sonnet", ""},
+		"L-05": {"working", "T-05", "sonnet", ""},
+		"L-06": {"dirty-free", "T-06", "", ""},
+	}
 	for l, w := range want {
 		if got[l] != w {
-			t.Errorf("%s: %q, want %q", l, got[l], w)
+			t.Errorf("%s: %+v, want %+v", l, got[l], w)
 		}
 	}
 	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
@@ -151,36 +164,6 @@ func ltSetType(t *testing.T, root, lane, typ string) {
 	}
 	if err := store.WriteLanes(db, rows); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// T-721, T-765: a working or done lane's type is the model its row's dispatch chose (a ref's model: sonnet:low is
-// sonnet); a row with none (recorded before T-721) has none, nor has a free lane whatever its row says (a lane's model
-// is its task's only while it holds it).
-func TestLaneTypeIsTheDispatchs(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
-		"L-04": "T-04"})
-	dir := func(l string) string { return filepath.Join(filepath.Dir(p.Root), "proj-wt", l) }
-	ltCommit(t, dir("L-01"))
-	ltSubmit(t, p.Root, "L-01", "T-01", false, 0)
-	ltSetType(t, p.Root, "L-01", "sonnet:low")
-	ltCommit(t, dir("L-02"))
-	ltSubmit(t, p.Root, "L-02", "T-02", false, 0) // a row from before T-721: no type
-	ltSubmit(t, p.Root, "L-03", "T-03", true, 0)  // at main: merged, free
-	ltSetType(t, p.Root, "L-03", "sonnet")
-	ltCommit(t, dir("L-04"))
-	ltSubmit(t, p.Root, "L-04", "T-04", true, 0)
-	ltSetType(t, p.Root, "L-04", "sonnet:high")
-	got := map[string]string{}
-	for _, s := range p.States() {
-		got[s.Lane] = s.State + " " + s.Type
-	}
-	want := map[string]string{"L-01": "working sonnet", "L-02": "working ", "L-03": "free ",
-		"L-04": "working sonnet"}
-	for l, w := range want {
-		if got[l] != w {
-			t.Errorf("%s: %q, want %q", l, got[l], w)
-		}
 	}
 }
 
@@ -304,19 +287,6 @@ func TestSpecMatchGlobs(t *testing.T) {
 	}
 }
 
-// A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is.
-func TestMergeEvidenceSubject(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": ""})
-	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-05 widened (lead: spec)")
-	if NewLaneTable(p.Cfg).MergeEvidence("T-05") {
-		t.Fatal("a lead commit mentioning T-05 counts as merged")
-	}
-	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-05: work")
-	if !NewLaneTable(p.Cfg).MergeEvidence("T-05") {
-		t.Error("Merge T-05: commit → merged")
-	}
-}
-
 // stateOf is lane's row of p's table (the zero row when it has none).
 func stateOf(p *LaneTable, lane string) LaneStatus {
 	for _, s := range p.States() {
@@ -327,9 +297,19 @@ func stateOf(p *LaneTable, lane string) LaneStatus {
 	return LaneStatus{}
 }
 
-// T-802: a resolved merge, as the gate amends it (title subject, spec and summary in the body), is merge evidence.
-func TestMergeEvidenceResolvedMerge(t *testing.T) {
-	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": ""})
+// A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is. T-802: a resolved merge, as the
+// gate amends it (title subject, spec and summary in the body), is evidence too — git's own "Merge commit '<sha>' into
+// HEAD" is not. One repo, read between commits.
+func TestMergeEvidenceSubjects(t *testing.T) {
+	p := ltFixture(t, "", nil)
+	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-05 widened (lead: spec)")
+	if NewLaneTable(p.Cfg).MergeEvidence("T-05") {
+		t.Fatal("a lead commit mentioning T-05 counts as merged")
+	}
+	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-05: work")
+	if !NewLaneTable(p.Cfg).MergeEvidence("T-05") {
+		t.Error("Merge T-05: commit → merged")
+	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
 		"Merge commit 'abc' into HEAD\n\n# Conflicts:\n#\tshared.txt")
 	if NewLaneTable(p.Cfg).MergeEvidence("T-07") {
