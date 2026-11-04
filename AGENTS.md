@@ -37,6 +37,9 @@ checks placement against `docs/module-map.md` at accept).
 - One owner per helper: grep `internal/` for a twin before writing one. No line-count targets: simpler, not shorter.
 - A name obor can derive is never stored; state is keyed by slot or task (DD-consolidation I3, T-786: an agent's name
   comes from `project.Self`, never an exported `OBOR_AGENT`).
+- An empty derived value is an error, never a default: a name, role, path or id that obor derives and gets back empty
+  (or unknown) fails closed with a message naming what is missing; no silent fallback to "no role", "no agent" or the
+  main checkout (T-791: an opencode worker's MCP calls lost their name; T-814: a removed role kept write rights).
 
 ## Tests
 - The merge gate is `make check` (`commands.check`, heavy): `make build`, gofmt, `go vet`, `go test ./...`,
@@ -51,6 +54,9 @@ checks placement against `docs/module-map.md` at accept).
 - Tests stub herdr. Never link a real herdr plugin from a test or probe: herdr's plugin registry is user-global (even
   with `HERDR_CONFIG_PATH`), so it would act on the user's real panes. A live probe uses only a throwaway named
   session (`herdr --session <probe-name>`) in a scratch dir and never addresses the default session (T-150).
+- A task that touches agent identity, the MCP server or how an agent is launched runs `make conformance TIER=live
+  TURN=1 KIND=<kind>` for each agent kind it affects (claude, codex, opencode) before `task_done`, and puts each
+  summary line in its report: stubs do not catch a real CLI's behaviour (T-791 passed every unit test).
 
 ## Workflow
 Workers: read your spec and the `docs/design.md` sections it cites; the rest (tests to run, no git writes) is the

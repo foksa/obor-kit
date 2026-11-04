@@ -17,6 +17,8 @@ Difficulty (e.g. `Model: opus`) tries those models first, then the level's. Any 
 - <tests to add, with the fixture approach>
 - Fix tasks: one test per entry point / branch in the finding's Extent; the first action after setup is the named
   entry, no conditional steps.
+- Identity, MCP or launch tasks: `make conformance TIER=live TURN=1 KIND=<kind>` for each affected kind (claude, codex,
+  opencode) before `task_done`, summary lines in the report. Delete this line otherwise.
 
 ## Protected files this task may edit
 <!-- Optional: delete it when the task edits no protected file (protected_files in .obor/config.json). One exact path
