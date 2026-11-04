@@ -220,40 +220,6 @@ func (f *releaseFixture) mergeBody(t *testing.T, branch, subject, body string, f
 	return f.Git(f.Root, "rev-parse", "HEAD")
 }
 
-// T-642: make release refuses while a merge after the last "RV-n closed" commit changes anything but docs, naming the
-// tasks a review has not seen; --dry-run reports it too, and nothing runs or changes.
-func TestMakeReleaseRefusesUnreviewed(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		prepare func(t *testing.T, f *releaseFixture)
-		want    string
-	}{
-		{"code merges after the close", func(t *testing.T, f *releaseFixture) {
-			f.closeReview(t, 1, f.headShort(t))
-			f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
-			f.merge(t, "topic/b", "Merge T-6: more", map[string]string{"scripts/b": "#!/bin/sh\n"})
-		}, `unreviewed since RV-1: T-5, T-6 (run obor review, close it, then release; or UNREVIEWED="<why>" make release V=1.2.4)`},
-		{"no close commit: every merge counts", func(t *testing.T, f *releaseFixture) {
-			f.merge(t, "topic/c", "Merge T-7: code", map[string]string{"cmd/x.go": "package main\n"})
-		}, `unreviewed since the first commit (no RV closed yet): T-7 (run obor review`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f := newReleaseFixture(t)
-			tc.prepare(t, f)
-			head := f.Git(f.Root, "rev-parse", "HEAD")
-			for _, args := range [][]string{{"V=1.2.4"}, {"V=1.2.4", "DRY=1"}} {
-				out, failed := f.release(t, args...)
-				if !failed || !strings.Contains(out, "FAIL "+tc.want) {
-					t.Errorf("%q: want a FAIL %q (failed %v):\n%s", args, tc.want, failed, out)
-				}
-				f.untouched(t, "1.2.4", head)
-			}
-		})
-	}
-}
-
 // T-642: a merge after the close whose files are all docs passes the check (docs/ of any kind, a .md anywhere), and so
 // does a code merge the close commit came after.
 func TestMakeReleaseAllowsDocsAndReviewedMerges(t *testing.T) {
@@ -314,58 +280,89 @@ func TestMakeReleaseUnreviewedOverride(t *testing.T) {
 	}
 }
 
-// T-642 review finding: only a subject is a close commit. A merge message carries a whole spec, which may quote a close
-// line at the start of a line; that must not become the newest review (it would silently disable the check).
-func TestMakeReleaseIgnoresCloseLinesInMergeBodies(t *testing.T) {
-	t.Parallel()
-	f := newReleaseFixture(t)
-	f.closeReview(t, 1, f.headShort(t))
-	body := "Spec quote:\n\nRV-99 closed · abc1234 · approved"
-	f.mergeBody(t, "topic/a", "Merge T-5: code", body, map[string]string{"internal/a.go": "package internal\n"})
-	// Precondition: the body really has the close line at a line start (else this is vacuous).
-	if msg := f.Git(f.Root, "log", "-1", "--format=%B"); !strings.Contains(msg, "\nRV-99 closed · abc1234 · approved") {
-		t.Fatalf("precondition: the merge body does not quote a close line: %q", msg)
-	}
-	head := f.Git(f.Root, "rev-parse", "HEAD")
-	out, failed := f.release(t, "V=1.2.4")
-	if !failed || !strings.Contains(out, "FAIL unreviewed since RV-1: T-5 (") {
-		t.Fatalf("a close line in a merge body must not count as the review (failed %v):\n%s", failed, out)
-	}
-	f.untouched(t, "1.2.4", head)
-}
-
-// T-640: make release refuses off main, a dirty tree, a V not greater than VERSION, and a guide without its heading;
-// each refusal leaves the repo as it was (nothing committed, no tag, no check, no worktree).
+// T-640, T-642, T-648: make release's refusals share one fixture, a row each: off main, a dirty tree, a V not greater
+// than VERSION, a guide missing or without this version's heading, unreviewed merges (with and without a close, and
+// --dry-run reporting them too), a close line quoted in a merge body (only a subject is a close commit), and a foreign
+// directory at the scratch path. Each refusal leaves the repo as it was: nothing committed, no tag, no check, no
+// worktree.
 func TestMakeReleaseRefusals(t *testing.T) {
-	t.Parallel()
+	f := newReleaseFixture(t)
+	base := f.Git(f.Root, "rev-parse", "HEAD")
 	for _, tc := range []struct {
 		name    string
 		version string
 		prepare func(t *testing.T, f *releaseFixture)
 		want    string
+		dry     bool // the dry run reports the same refusal
 	}{
 		{"not main", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.Git(f.Root, "checkout", "-q", "-b", "other")
-		}, "not main"},
+		}, "not main", false},
 		{"dirty tree", "1.2.4", func(t *testing.T, f *releaseFixture) {
 			f.Write("notes.txt", "uncommitted\n")
-		}, "dirty"},
-		{"V not greater", "1.2.2", func(t *testing.T, f *releaseFixture) {}, "must be greater"},
-		{"no guide", "1.3.1", func(t *testing.T, f *releaseFixture) {}, "docs/UPGRADE-v1.3.md"},
-		{"guide without this version's heading", "1.2.5", func(t *testing.T, f *releaseFixture) {}, "no v1.2.5 heading"},
+		}, "dirty", false},
+		{"V not greater", "1.2.2", nil, "must be greater", false},
+		{"no guide", "1.3.1", nil, "docs/UPGRADE-v1.3.md", false},
+		{"guide without this version's heading", "1.2.5", nil, "no v1.2.5 heading", false},
+		{"unreviewed: no close commit, every merge counts", "1.2.4", func(t *testing.T, f *releaseFixture) {
+			f.merge(t, "topic/c", "Merge T-7: code", map[string]string{"cmd/x.go": "package main\n"})
+		}, `unreviewed since the first commit (no RV closed yet): T-7 (run obor review`, false},
+		{"unreviewed: code merges after the close", "1.2.4", func(t *testing.T, f *releaseFixture) {
+			f.closeReview(t, 1, f.headShort(t))
+			f.merge(t, "topic/a", "Merge T-5: code", map[string]string{"internal/a.go": "package internal\n"})
+			f.merge(t, "topic/b", "Merge T-6: more", map[string]string{"scripts/b": "#!/bin/sh\n"})
+		}, `unreviewed since RV-1: T-5, T-6 (run obor review, close it, then release; or UNREVIEWED="<why>" make release V=1.2.4)`, true},
+		{"close line in a merge body", "1.2.4", func(t *testing.T, f *releaseFixture) {
+			f.closeReview(t, 1, f.headShort(t))
+			body := "Spec quote:\n\nRV-99 closed · abc1234 · approved"
+			f.mergeBody(t, "topic/e", "Merge T-20: code", body, map[string]string{"internal/e.go": "package internal\n"})
+			// Precondition: the body really has the close line at a line start (else this is vacuous).
+			if msg := f.Git(f.Root, "log", "-1", "--format=%B"); !strings.Contains(msg, "\nRV-99 closed · abc1234 · approved") {
+				t.Fatalf("precondition: the merge body does not quote a close line: %q", msg)
+			}
+		}, `unreviewed since RV-1: T-20 (`, false},
+		{"foreign scratch", "1.2.4", func(t *testing.T, f *releaseFixture) {
+			writeFile(t, filepath.Join(f.scratch("1.2.4"), "someone-elses.txt"), "keep me\n")
+		}, "is not this repo's worktree", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f := newReleaseFixture(t)
-			head := f.Git(f.Root, "rev-parse", "HEAD")
+			t.Cleanup(func() {
+				f.Git(f.Root, "checkout", "-q", "-f", "main")
+				f.Git(f.Root, "reset", "-q", "--hard", base)
+				f.Git(f.Root, "clean", "-qfd")
+				for _, v := range []string{"1.2.2", "1.2.4", "1.2.5", "1.3.1"} {
+					os.RemoveAll(f.scratch(v))
+				}
+				os.Remove(f.log)
+			})
 			if tc.prepare != nil {
 				tc.prepare(t, f)
 			}
-			out, failed := f.release(t, "V="+tc.version)
-			if !failed || !strings.Contains(out, "FAIL") || !strings.Contains(out, tc.want) {
-				t.Errorf("want a FAIL naming %q (failed %v):\n%s", tc.want, failed, out)
+			head := f.Git(f.Root, "rev-parse", "HEAD")
+			args := [][]string{{"V=" + tc.version}}
+			if tc.dry {
+				args = append(args, []string{"V=" + tc.version, "DRY=1"})
 			}
-			f.untouched(t, tc.version, head)
+			for _, a := range args {
+				out, failed := f.release(t, a...)
+				if !failed || !strings.Contains(out, "FAIL") || !strings.Contains(out, tc.want) {
+					t.Errorf("%q: want a FAIL naming %q (failed %v):\n%s", a, tc.want, failed, out)
+					continue
+				}
+				if tc.name == "foreign scratch" {
+					if got := readFile(t, filepath.Join(f.scratch(tc.version), "someone-elses.txt")); got != "keep me\n" {
+						t.Errorf("the foreign directory's file is %q, want it untouched", got)
+					}
+					if f.hasTag("v" + tc.version) {
+						t.Error("the refused release made the tag")
+					}
+					if got := f.Git(f.Root, "worktree", "list", "--porcelain"); strings.Count(got, "worktree ") != 1 {
+						t.Errorf("the refused release registered a worktree:\n%s", got)
+					}
+					continue
+				}
+				f.untouched(t, tc.version, head)
+			}
 		})
 	}
 }
@@ -751,8 +748,10 @@ echo "obor $(cat "`+s.verfile+`")"
 	return s
 }
 
-// T-640: make ship pushes main and the tag, publishes and installs; a second run skips all three; a ship without a tag
-// refuses.
+// T-640, T-715, T-719: one ship run covers the family: a ship without a tag refuses; the ship after a release pushes
+// main and the tag, publishes and installs, and ends by telling the leads (`obor projects --notify <the tag's
+// docs/releases/v<version>.md>`); a notify that fails fails the ship after the follow line, naming the repair; a
+// second run skips push, publish and install and notifies again.
 func TestMakeShip(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
@@ -765,14 +764,18 @@ func TestMakeShip(t *testing.T) {
 	if out, failed := f.release(t, "V=1.2.4"); failed {
 		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
 	}
-	out, failed = f.make(t, "ship")
-	if failed {
-		t.Fatalf("make ship failed:\n%s", out)
+	notes := f.Git(f.Root, "show", "v1.2.4:docs/releases/v1.2.4.md")
+	if strings.TrimSpace(notes) == "" {
+		t.Fatalf("precondition: the tag has release notes, got %q", notes)
 	}
-	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4", "installed the kit",
-		"serves and web follow the new binary within a minute"} {
+	writeFile(t, filepath.Join(f.Base, "notify-broken"), "")
+	out, failed = f.make(t, "ship")
+	// The ship did its work and then failed at the notify: its four lines are all there, then the repair.
+	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4",
+		"installed the kit", "serves and web follow the new binary within a minute", "FAIL axis-alies: send: serve down",
+		"obor projects --notify <the notes"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("ship does not say %q:\n%s", want, out)
+			t.Errorf("a failing notify must leave %q after the reminder (failed %v):\n%s", want, failed, out)
 		}
 	}
 	if got, want := f.Git(f.origin, "rev-parse", "refs/heads/main"), f.Git(f.Root, "rev-parse", "refs/heads/main"); got != want {
@@ -790,14 +793,26 @@ func TestMakeShip(t *testing.T) {
 		t.Errorf("install.sh ran %d times, want once", n)
 	}
 
-	ghBefore, instBefore := gh, readFile(t, f.instlog)
+	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {
+		t.Fatal(err)
+	}
+	out, failed = f.make(t, "ship")
+	if failed || !strings.Contains(out, "told the leads") ||
+		!strings.Contains(out, "serves and web follow the new binary within a minute") {
+		t.Fatalf("the ship with a working notify must succeed and tell the leads (failed %v):\n%s", failed, out)
+	}
+	if strings.Contains(out, "restarted the serves") {
+		t.Errorf("ship claims to restart serves:\n%s", out)
+	}
+
+	ghBefore, instBefore := readFile(t, f.ghlog), readFile(t, f.instlog)
 	head := f.Git(f.Root, "rev-parse", "HEAD")
 	out, failed = f.make(t, "ship")
 	if failed {
 		t.Fatalf("the second ship failed:\n%s", out)
 	}
 	for _, want := range []string{"push skipped", "publish skipped", "install skipped",
-		"serves and web follow the new binary within a minute"} {
+		"serves and web follow the new binary within a minute", "told the leads"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the second ship does not say %q:\n%s", want, out)
 		}
@@ -811,43 +826,12 @@ func TestMakeShip(t *testing.T) {
 	if got := readFile(t, f.instlog); got != instBefore {
 		t.Errorf("the second ship installed again: %q", got)
 	}
-}
-
-// T-715: ship ends by telling the leads: `obor projects --notify <the tag's docs/releases/v<version>.md>`; a send that
-// fails fails the ship (after the follow line, T-719), naming the repair.
-func TestMakeShipNotifiesTheLeads(t *testing.T) {
-	t.Parallel()
-	f := newShipFixture(t)
-	if out, failed := f.release(t, "V=1.2.4"); failed {
-		t.Fatalf("make release V=1.2.4 failed:\n%s", out)
-	}
-	notes := f.Git(f.Root, "show", "v1.2.4:docs/releases/v1.2.4.md")
-	if strings.TrimSpace(notes) == "" {
-		t.Fatalf("precondition: the tag has release notes, got %q", notes)
-	}
-	writeFile(t, filepath.Join(f.Base, "notify-broken"), "")
-	out, failed := f.make(t, "ship")
-	if !failed || !strings.Contains(out, "FAIL axis-alies: send: serve down") ||
-		!strings.Contains(out, "obor projects --notify <the notes") ||
-		!strings.Contains(out, "serves and web follow the new binary within a minute") {
-		t.Errorf("a failing notify must fail the ship naming the repair, after the reminder (failed %v):\n%s", failed, out)
-	}
-	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {
-		t.Fatal(err)
-	}
-	out, failed = f.make(t, "ship")
-	if failed || !strings.Contains(out, "told the leads") {
-		t.Fatalf("the second ship must notify (failed %v):\n%s", failed, out)
-	}
 	log := readFile(t, f.notified)
-	if n := strings.Count(log, "projects --notify notes: "); n != 2 {
-		t.Errorf("notify ran %d times over two ships, want 2:\n%s", n, log)
+	if n := strings.Count(log, "projects --notify notes: "); n != 3 { // the two ships and the refused notify, each once
+		t.Errorf("notify ran %d times over three ships, want 3:\n%s", n, log)
 	}
 	if !strings.Contains(log, strings.Fields(notes)[0]) {
 		t.Errorf("notify was not given the tag's notes %q:\n%s", notes, log)
-	}
-	if strings.Contains(out, "restarted the serves") {
-		t.Errorf("ship claims to restart serves:\n%s", out)
 	}
 }
 

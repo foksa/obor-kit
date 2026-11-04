@@ -289,45 +289,31 @@ func taskLines(t *testing.T, st wire.Status) map[string]string {
 	return lines
 }
 
-func TestStatusShowsRunningGate(t *testing.T) {
-	st := heldGateStatus()
-	if st.Project.Tasks[0].Running != "gate" {
-		t.Fatalf("precondition: T-1 must be held in its gate, Running = %q", st.Project.Tasks[0].Running)
-	}
-	line := taskLines(t, st)["T-1"]
-	if !strings.HasSuffix(line, "gating (submitted, attempt 1), running gate") {
-		t.Errorf("held gate line = %q, want the phase, the state, then \"running gate\"", line)
-	}
-}
-
-func TestStatusShowsRunningPublish(t *testing.T) {
-	st := heldGateStatus()
-	if st.Project.Tasks[1].Running != "publish.2" {
-		t.Fatalf("precondition: T-2 must be publishing, Running = %q", st.Project.Tasks[1].Running)
-	}
-	line := taskLines(t, st)["T-2"]
-	if !strings.HasSuffix(line, "merging (accepted, attempt 1), running publish.2") {
-		t.Errorf("publishing line = %q, want the phase, the state, then \"running publish.2\"", line)
-	}
-}
-
-func TestStatusNumberedStepKeepsStep(t *testing.T) {
-	st := heldGateStatus()
-	st.Project.Tasks[0].Running = "gate.3"
-	line := taskLines(t, st)["T-1"]
-	if !strings.HasSuffix(line, "gating (submitted, attempt 1), running gate.3") {
-		t.Errorf("numbered gate line = %q, want \"running gate.3\" with its number", line)
-	}
-}
-
-func TestStatusIdleTaskHasNoRunning(t *testing.T) {
-	st := heldGateStatus()
-	if st.Project.Tasks[2].Running != "" {
-		t.Fatalf("precondition: T-3 must be idle, Running = %q", st.Project.Tasks[2].Running)
-	}
-	line := taskLines(t, st)["T-3"]
-	if strings.Contains(line, "running") {
-		t.Errorf("idle task line = %q, want no running step", line)
+// A task line ends with the step it runs: a held gate or publish, numbered steps kept, and nothing on an idle task.
+func TestStatusTaskLines(t *testing.T) {
+	for _, c := range []struct {
+		name, task, set, want string
+		running               bool
+	}{
+		{"held gate", "T-1", "", "gating (submitted, attempt 1), running gate", true},
+		{"publishing", "T-2", "", "merging (accepted, attempt 1), running publish.2", true},
+		{"numbered gate", "T-1", "gate.3", "gating (submitted, attempt 1), running gate.3", true},
+		{"idle task", "T-3", "", "", false},
+	} {
+		st := heldGateStatus()
+		if c.set != "" {
+			st.Project.Tasks[0].Running = c.set
+		}
+		line, ok := taskLines(t, st)[c.task]
+		if !ok || line == "" {
+			t.Fatalf("%s: no task line of %s in %+v", c.name, c.task, st.Project.Tasks)
+		}
+		if c.running && !strings.HasSuffix(line, c.want) {
+			t.Errorf("%s: line = %q, want the phase, the state, then %q", c.name, line, c.want)
+		}
+		if !c.running && strings.Contains(line, "running") {
+			t.Errorf("%s: line = %q, want no running step", c.name, line)
+		}
 	}
 }
 
@@ -891,39 +877,9 @@ func TestStatusEventsBad(t *testing.T) {
 	}
 }
 
-// T-695: the effort a task's dispatch named is on its lane's line and in --json (lanes[].effort); a task without one
-// shows none.
-func TestStatusShowsTheEffort(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	o1 := p.Lane("L-01", "task/T-01")
-	o2 := p.Lane("L-02", "task/T-02")
-	p.Config()
-	p.Commit(o1)
-	p.Commit(o2)
-	now := time.Now()
-	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
-		Name: "pj", Root: p.Root, Merging: true,
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Effort: "high"},
-			{Task: "T-02", Lane: "L-02", Attempt: 1, State: "working"}}}}
-	st, text := statusOf(t, p, ss, nil, now)
-	if len(st.Lanes) != 2 {
-		t.Fatalf("precondition: two lanes, got %+v", st.Lanes)
-	}
-	matchLine(t, text, `^L-01 +- .*serve: working \(attempt 1\)  effort: high$`, "L-01 at effort high")
-	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)$`, "L-02 with no effort")
-	b, err := json.Marshal(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), `"effort":"high"`) || st.Lanes[0].Effort != "high" || st.Lanes[1].Effort != "" {
-		t.Errorf("--json lanes %+v: want L-01's effort high, L-02's none", st.Lanes)
-	}
-}
-
-// T-721, T-765: a working lane's model is the one its dispatch chose (the lane row's), on its line and in --json
-// (lanes[].type); a row from before T-721 (no model) shows none ("-"), as does a free lane.
-func TestStatusShowsTheDispatchsType(t *testing.T) {
+// T-695, T-721, T-765: the effort a task's dispatch named and the model its lane row holds are on its line and in
+// --json (lanes[].effort, lanes[].type); a task without them shows none, as does a free lane.
+func TestStatusShowsEffortAndType(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	o1 := p.Lane("L-01", "task/T-01")
@@ -933,7 +889,7 @@ func TestStatusShowsTheDispatchsType(t *testing.T) {
 	p.Commit(o1)
 	p.Commit(o2)
 	p.State("L-01", map[string]any{"task": "T-01", "branch": "task/T-01", "type": "sonnet:high"})
-	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"})
+	p.State("L-02", map[string]any{"task": "T-02", "branch": "task/T-02"}) // a row from before T-721: no model
 	now := time.Now()
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: p.Root, Merging: true,
@@ -944,16 +900,17 @@ func TestStatusShowsTheDispatchsType(t *testing.T) {
 		st.Lanes[2].State != "free" {
 		t.Fatalf("precondition: L-01 and L-02 working, L-03 free; got %+v", st.Lanes)
 	}
-	matchLine(t, text, `^L-01 +sonnet .*effort: high$`, "L-01 of its dispatch's type sonnet")
-	matchLine(t, text, `^L-02 +- `, "L-02: no model in its row")
+	matchLine(t, text, `^L-01 +sonnet .*serve: working \(attempt 1\)  effort: high$`, "L-01 of type sonnet at effort high")
+	matchLine(t, text, `^L-02 +- .*serve: working \(attempt 1\)$`, "L-02: no model, no effort")
 	matchLine(t, text, `^L-03 +- `, "L-03 free: no model")
 	b, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"type":"sonnet"`) || st.Lanes[0].Type != "sonnet" || st.Lanes[1].Type != "" ||
-		st.Lanes[2].Type != "" {
-		t.Errorf("--json lanes %+v: want L-01's model sonnet, L-02's and L-03's none", st.Lanes)
+	if !strings.Contains(string(b), `"type":"sonnet"`) || !strings.Contains(string(b), `"effort":"high"`) ||
+		st.Lanes[0].Type != "sonnet" || st.Lanes[0].Effort != "high" || st.Lanes[1].Type != "" ||
+		st.Lanes[1].Effort != "" || st.Lanes[2].Type != "" {
+		t.Errorf("--json lanes %+v: want L-01's model sonnet and effort high, L-02's and L-03's none", st.Lanes)
 	}
 }
 

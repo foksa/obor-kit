@@ -34,9 +34,10 @@ func newLeadFx(t *testing.T, edits ...func(map[string]any)) *leadFx {
 	return &leadFx{p: p, f: f, srv: herdrtest.Serve(t, f)}
 }
 
-// launcher tunes a launcher for tests: fast waits, a ps with no stopped job, detached runs recorded.
+// launcher tunes a launcher for tests: fast waits, a ps with no stopped job, detached runs recorded. A codex start
+// looks for its rollout up to 10 s by default (wrong here: no Codex writes one), so the bound is a poll too.
 func (x *leadFx) launcher(l *launch.Launcher) {
-	l.Wait, l.Poll, l.Sched = time.Second, time.Millisecond, time.Second
+	l.Wait, l.Poll, l.Sched, l.Rollout = time.Second, time.Millisecond, time.Second, time.Millisecond
 	l.PS = func(args ...string) ([]byte, error) { return nil, nil }
 	l.Spawn = func(dir string, args []string, out string) error { x.spawn = append(x.spawn, args); return nil }
 }
