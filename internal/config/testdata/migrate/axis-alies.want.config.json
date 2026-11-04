@@ -41,6 +41,7 @@
     "reviewer": "terra:xhigh",
     "lead": "opus:high",
     "deep_dive": "opus:high",
+    "advisor": "fable",
     "triage": "opus:medium"
   },
   "merge": {

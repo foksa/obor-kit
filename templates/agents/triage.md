@@ -55,7 +55,7 @@ reports.
 
 ## This project
 <!-- fill in with the user: -->
-- Pane / agent: `{{prefix}}-triage` in the main checkout (`obor setup role triage`), type `roles.triage.type`; env
+- Pane / agent: `{{prefix}}-triage` in the main checkout (`obor setup role triage`), model ref `roles.triage`; env
   `OBOR_AGENT` only (no `OBOR_ROLE`: it isn't a lead, worker or integrator).
 - Lead agent (every bug goes to it): <!-- the project's lead agent -->
 

@@ -42,4 +42,4 @@ it links obor's opencode plugin into `~/.config/opencode/plugins/` (`$XDG_CONFIG
 file guard and session context there (there is no Stop hook, so nothing nudges a missing `task_done`), and writes
 the `mcp.servers.obor` entry of `opencode.json`; restart the opencode agents after it. Claude and Codex need nothing
 (the plugin manifest, launch args). `--remove` undoes it.
-Optional: offer a bug-triage agent (`roles.triage.type` = a lane type, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).
+Optional: offer a bug-triage agent (`roles.triage` = a model ref, e.g. `opus:high`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).

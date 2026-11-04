@@ -23,11 +23,13 @@ func TestMigrateFixtures(t *testing.T) {
 				"config.json agents.hk-fable: dropped (advisor, researcher and triage are roles: roles.advisor, " +
 					"roles.researcher, roles.triage)"}},
 		{"axis-alies", []string{"D-01", "D-02", "D-03", "D-04", "OH-01", "OH-02"},
-			[]AgentRename{{"aa-o-02", "aa-int"}, {"lead-mp", "aa-lead"}, {"aa-d-01", "aa-l-01"}, {"aa-d-02", "aa-l-02"},
-				{"aa-d-03", "aa-l-03"}, {"aa-d-04", "aa-l-04"}, {"aa-oh-01", "aa-l-05"}, {"aa-oh-02", "aa-l-06"}},
+			[]AgentRename{{"aa-o-02", "aa-int"}, {"lead-mp", "aa-lead"}, {"fable-advisor", "aa-advisor"},
+				{"triage", "aa-triage"}, {"aa-d-01", "aa-l-01"}, {"aa-d-02", "aa-l-02"}, {"aa-d-03", "aa-l-03"},
+				{"aa-d-04", "aa-l-04"}, {"aa-oh-01", "aa-l-05"}, {"aa-oh-02", "aa-l-06"}},
 			[]string{"lane_types.muse: no level, role or agent names it: dropped",
 				"lane_types.opus.args --strict-mcp-config: dropped (not every claude type has it)",
 				`lane_types.fable.settings {"remoteControlAtStartup":false}: dropped`,
+				"config.json agents.fable-advisor: moved to roles.advisor",
 				"config.json agents.triage: moved to roles.triage",
 				"config.json roles.integrator.worktree O-02 dropped (roles run in the main checkout)"}},
 	} {
@@ -164,6 +166,85 @@ func TestMigrateAgentsToRoles(t *testing.T) {
 		if !slices.Contains(m.Notes, note) {
 			t.Errorf("notes lack %q:\n%s", note, strings.Join(m.Notes, "\n"))
 		}
+	}
+}
+
+// T-779: an agents entry whose name spells a role (`fable-advisor`) moves to it with the model the entry names; a
+// second entry for the already-configured role is dropped with the line that would add its model by hand.
+func TestMigrateAgentNameToRole(t *testing.T) {
+	m, err := Migrate([]byte(`{"prefix":"pj","lanes":1,"roles":{"advisor":"sonnet"},
+		"agents":{"fable-advisor":{"type":"fable"}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(writeProject(t, string(m.Config), ""))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, m.Config)
+	}
+	if rc, _ := c.Role("advisor"); ModelRef(rc.Type, rc.Effort) != "sonnet" {
+		t.Errorf("roles.advisor = %+v, want the configured sonnet kept", rc)
+	}
+	if len(m.Agents) != 0 {
+		t.Errorf("agents = %v, want none: the entry was dropped, not moved", m.Agents)
+	}
+	if want := `config.json agents.fable-advisor: dropped (roles.advisor is configured): add its model by hand: ` +
+		`roles.advisor: "fable"`; !slices.Contains(m.Notes, want) {
+		t.Errorf("notes lack %q:\n%s", want, strings.Join(m.Notes, "\n"))
+	}
+}
+
+// T-779: a name that spells two roles (`triage-advisor`) is no mapping: dropped with the line naming both roles to
+// add by hand, and neither role is created.
+func TestMigrateAgentAmbiguousName(t *testing.T) {
+	m, err := Migrate([]byte(`{"prefix":"pj","lanes":1,"agents":{"triage-advisor":{"type":"opus"}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(writeProject(t, string(m.Config), ""))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, m.Config)
+	}
+	for _, role := range []string{"advisor", "triage"} {
+		if rc, _ := c.Role(role); rc.Configured {
+			t.Errorf("roles.%s = %+v, want it unset", role, rc)
+		}
+	}
+	if len(m.Agents) != 0 {
+		t.Errorf("agents = %v, want none", m.Agents)
+	}
+	if want := `config.json agents.triage-advisor: dropped (its name names advisor and triage): add the one you ` +
+		`mean by hand: roles.advisor: "opus" or roles.triage: "opus"`; !slices.Contains(m.Notes, want) {
+		t.Errorf("notes lack %q:\n%s", want, strings.Join(m.Notes, "\n"))
+	}
+}
+
+// T-779: the derived role name is a pane label already (the integrator's agent): the agent's pane is not relabelled,
+// one line names both panes and the command, and the role still gets the entry's model.
+func TestMigrateAgentRenameCollides(t *testing.T) {
+	m, err := Migrate([]byte(`{"prefix":"pj","lanes":1,"roles":{"integrator":{"type":"opus","agent":"pj-advisor"}},
+		"agents":{"fable-advisor":{"type":"fable"}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(writeProject(t, string(m.Config), ""))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, m.Config)
+	}
+	if rc, _ := c.Role("advisor"); ModelRef(rc.Type, rc.Effort) != "fable" || !rc.Configured {
+		t.Errorf("roles.advisor = %+v, want fable", rc)
+	}
+	if want := []AgentRename{{"pj-advisor", "pj-int"}}; !slices.Equal(m.Agents, want) {
+		t.Errorf("agents = %v, want %v (the advisor's pane is not relabelled)", m.Agents, want)
+	}
+	found := false
+	for _, n := range m.Notes {
+		if strings.Contains(n, "agents.fable-advisor: not relabelled: pj-advisor is a pane label already "+
+			"(panes fable-advisor and pj-advisor)") && strings.Contains(n, "herdr pane rename") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("notes lack the collision line:\n%s", strings.Join(m.Notes, "\n"))
 	}
 }
 
