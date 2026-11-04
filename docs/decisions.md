@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-04 (owner): **Spec changes reach a worker only at task_done**: the early spec-change line (T-819/T-821) is
+  deleted (7 review findings in two rounds); `obor spec set --note` and the task_done refusal against an older spec
+  rev stay (T-824). v0.25.1 waits for it.
 - 2026-11-04 (owner): **P8 and P6 go ahead** (docs/research/agent-driver-deep-dive.md; probes in T-804's live run):
   an agent's identity env stays a typed export (herdr's agent.start takes only args, so no `env` prefix), but one
   registry of obor's vars: each start unsets every one it does not set (T-812, with obor.js keeping the identity vars: OC-L2); obor chooses a Claude agent's session id and uses the
