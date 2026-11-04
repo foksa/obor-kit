@@ -42,15 +42,12 @@ func oldShapeKey(key string) bool {
 // fails the load.
 type Data struct {
 	Version          *int              `json:"version,omitempty"`
-	Obor             any               `json:"obor,omitempty"` // removed in v0.17.0 (T-597): validate warns
 	Name             string            `json:"name,omitempty"`
 	Prefix           string            `json:"prefix,omitempty"`
 	LanesDir         string            `json:"lanes_dir"`
 	Branches         Branches          `json:"branches"`
 	TaskIDPattern    string            `json:"task_id_pattern"`
 	Paths            map[string]string `json:"paths"`
-	Spec             Spec              `json:"spec,omitzero"`
-	DoneFile         any               `json:"done_file,omitempty"` // removed in v0.12.0 (T-470: task_done): validate warns
 	DoneFileSections []string          `json:"done_file_sections"`
 	Commands         Ordered[Command]  `json:"commands"`
 	LaneLinks        []string          `json:"lane_links"`
@@ -69,28 +66,17 @@ type Data struct {
 	StopIdleWorkers         *bool   `json:"stop_idle_workers,omitempty"`
 	Roles                   Roles   `json:"roles"`
 	Setup                   Setup   `json:"setup,omitzero"`
-	Leads                   any     `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
 	Merge                   Merge   `json:"merge"`
 	MCP                     MCP     `json:"mcp"`
 	Slots                   *Slots  `json:"slots,omitempty"`
 	Checks                  *Checks `json:"checks,omitempty"`
-	// StopHook is a removed key (T-465): validate warns.
-	StopHook  any     `json:"stop_hook,omitempty"`
-	Limits    *Limits `json:"limits,omitempty"`
-	Heartbeat any     `json:"heartbeat,omitempty"` // removed in v0.12.0 (T-465): validate warns
-	Cache     Cache   `json:"cache"`
-	Inbox     any     `json:"inbox,omitempty"`  // removed in v0.12.0 (T-466): validate warns
-	Notify    any     `json:"notify,omitempty"` // removed in v0.12.0 (T-465): validate warns
+	Limits                  *Limits `json:"limits,omitempty"`
+	Cache                   Cache   `json:"cache"`
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
 }
 
-// Spec holds only removed keys (T-496: no "Files you may touch" enforcement; placement is checked at accept).
-type Spec struct {
-	FilesHeading any `json:"files_heading,omitempty"` // removed in v0.13.0 (T-496): validate warns
-	EnforceFiles any `json:"enforce_files,omitempty"` // removed in v0.13.0 (T-496): validate warns
-}
 type Guards struct {
 	AllowPush []string `json:"allow_push,omitzero"`
 }
@@ -145,11 +131,14 @@ func (c Command) MarshalJSON() ([]byte, error) {
 }
 
 // Roles is roles: roles.<name> in config order (T-801), a table role's model ref or a custom role's row (RoleEntry; a
-// null member is no member), and the removed leads.
+// null member is no member).
 type Roles struct {
 	Ordered[RoleEntry]
-	Leads any // removed in v0.12.0 (T-467): validate warns
 }
+
+// knows: a roles member is a role; `leads` is not (removed in v0.12.0, T-467: one lead per project), so the schema walk
+// drops it as an unknown key.
+func (Roles) knows(key string) bool { return key != "leads" }
 
 func (r *Roles) UnmarshalJSON(b []byte) error {
 	*r = Roles{}
@@ -162,25 +151,11 @@ func (r *Roles) UnmarshalJSON(b []byte) error {
 	}
 	var kept []member
 	for _, m := range ms {
-		switch {
-		case string(m.Val) == "null":
-		case m.Key == "leads":
-			if err := strict(m.Val, &r.Leads); err != nil {
-				return fmt.Errorf("roles.leads: %s", strings.TrimPrefix(err.Error(), "json: "))
-			}
-		default:
+		if string(m.Val) != "null" {
 			kept = append(kept, m)
 		}
 	}
 	return r.Ordered.UnmarshalJSON(joinMembers(kept))
-}
-
-func (r Roles) MarshalJSON() ([]byte, error) {
-	b, err := r.Ordered.MarshalJSON()
-	if err != nil || r.Leads == nil {
-		return b, err
-	}
-	return merge(b, []byte(`{"leads":`+Compact(r.Leads)+`}`)), nil
 }
 
 // entry is roles.<name>; ok false when not configured.
@@ -237,10 +212,8 @@ func (c *Config) SetupConfirmed() bool {
 	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
 }
 
-// MCP is the mcp section: jobs was the switch of obor serve's jobs by fetch (app-mcp), always on since T-437.
-type MCP struct {
-	Jobs any `json:"jobs,omitempty"` // removed in v0.11.0 (T-437): validate warns unless true
-}
+// MCP is the mcp section: it holds no live key (jobs, its one switch, went with T-437), so mcp.jobs is an unknown key.
+type MCP struct{}
 
 type Merge struct {
 	ScratchDir   string           `json:"scratch_dir"`
@@ -256,7 +229,6 @@ type Merge struct {
 	// AffectedFull are globs of files whose change makes `obor affected go` answer "full" (build and test support).
 	AffectedFull []string `json:"affected_full,omitzero"`
 	Guard        string   `json:"guard,omitempty"`
-	FullEvery    any      `json:"full_every,omitempty"` // removed in v0.12.0 (T-465): validate warns
 	// NightlyAt is when obor serve runs the nightly full check ("HH:MM" local time; "": never, T-464).
 	NightlyAt string `json:"nightly_at,omitempty"`
 	// NightlyCommands are commands.<name> keys `obor nightly` runs after its gating checks and the backup, in order,
@@ -290,10 +262,9 @@ type Checks struct {
 	LoadLimit *float64 `json:"load_limit,omitempty"`
 }
 
-// Cache holds only a removed key (prompt-cache awareness went with obor status --herdr, T-463).
-type Cache struct {
-	WarnTokens any `json:"warn_tokens,omitempty"` // removed in v0.12.0 (T-463): validate warns
-}
+// Cache is the cache section: it holds no live key (prompt-cache awareness went with obor status --herdr, T-463), so
+// cache.warn_tokens is an unknown key.
+type Cache struct{}
 
 // Defaults is a fresh copy each call: decoding reuses a slice's backing array. A null in the files leaves a default.
 func Defaults() Data {

@@ -348,7 +348,7 @@ func (v *validator) trunk() {
 
 // warnings: merge.neutral globs that may share a path with a class glob (that class's files would merge guard-only,
 // T-92), removed keys still set. Each removed key WARNs for two minor versions after its removal, then is an unknown
-// key (the table in validate_test.go: TestRemovedKeysWithinTwoVersions).
+// key (validate_test.go: TestRemovedKeysWithinTwoVersions, its window read from VERSION).
 func (c *Config) warnings(o ValidateOptions) []string {
 	var out []string
 	neutral := c.Data.Merge.Neutral
@@ -371,17 +371,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 	}
 	removed("paths.research", c.Data.Paths["research"] != "")
 	removed("paths.questions", c.Data.Paths["questions"] != "")
-	removed("obor", c.Data.Obor != nil)                                          // v0.17.0, T-597: one kit per machine
-	removed("cache.warn_tokens", c.Data.Cache.WarnTokens != nil)                 // v0.12.0, T-463
-	removed("heartbeat", c.Data.Heartbeat != nil)                                // v0.12.0, T-465: the heartbeat, its nudges and obor notify went
-	removed("stop_hook", c.Data.StopHook != nil)                                 // v0.12.0, T-465
-	removed("notify", c.Data.Notify != nil)                                      // v0.12.0, T-465
-	removed("inbox", c.Data.Inbox != nil)                                        // v0.12.0, T-466: obor tell, the inbox and the obor mod went
-	removed("merge.full_every", c.Data.Merge.FullEvery != nil)                   // v0.12.0, T-465: its one reader was the heartbeat's full-check due
-	if on, ok := c.Data.MCP.Jobs.(bool); c.Data.MCP.Jobs != nil && !(ok && on) { // true is how obor runs: no warning
-		out = append(out, "WARN mcp.jobs "+Compact(c.Data.MCP.Jobs)+" is obsolete: every agent fetches its jobs "+
-			"(T-437), remove it")
-	}
 	for _, name := range c.ModelNames() { // T-705: opencode's own default model may refuse requests, and effort needs one (T-703)
 		m, _ := c.Model(name)
 		if kd, known := agents.Lookup(m.Kind); known && kd.Caps().ModelArg && m.ID == "" && c.modelUsed(name) {
@@ -389,17 +378,6 @@ func (c *Config) warnings(o ValidateOptions) []string {
 				"work, and an effort needs one): set its \"model\", e.g. \"opencode-go/deepseek-v4.1-flash\"")
 		}
 	}
-	removed("roles.leads", c.Data.Roles.Leads != nil)              // v0.12.0, T-467: one lead per project
-	removed("done_file", c.Data.DoneFile != nil)                   // v0.12.0, T-470: task_done replaced the done file
-	removed("spec.files_heading", c.Data.Spec.FilesHeading != nil) // v0.13.0, T-496: the per-file guard went
-	removed("spec.enforce_files", c.Data.Spec.EnforceFiles != nil) // v0.13.0, T-496
-	removed("paths.status", c.Data.Paths["status"] != "")          // v0.12.0, T-470: no STATUS file
-	removed("paths.queue", c.Data.Paths["queue"] != "")            // v0.12.0, T-470: the queue went (obor dispatch --after)
-	if c.Data.Paths["tasks"] != "" {
-		out = append(out, "WARN paths.tasks: no longer written; keep a custom path while its unfinished tasks have specs there (docs/tasks needs no key), then remove it")
-	}
-	leads, _ := c.Data.Leads.(map[string]any)
-	removed("leads.cross_ttl", leads["cross_ttl"] != nil) // v0.12.0, T-470: leads.cross_ttl had no reader
 	return out
 }
 

@@ -187,8 +187,10 @@ func (r *serveRig) Stop(_ context.Context, agent, pane string, _ bool) (string, 
 }
 
 // seen waits until the app's snapshot has agent (or, !want, has it no more): a workspace event makes it read anew.
+// The deadline is waitFor's 30 s: under a loaded machine (load 40+, four lanes) the app's pass lagged the pane by more
+// than the 5 s this had and a start.review failed with "pj-int never seen" (T-830's gate).
 func (r *serveRig) seen(agent string, want bool) error {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		has := false
 		for _, a := range r.app.Status().Project.Agents {
 			has = has || a.Name == agent
