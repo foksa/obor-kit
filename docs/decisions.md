@@ -5,8 +5,8 @@ at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
 - 2026-11-04 (owner): **P8 and P6 go ahead** (docs/research/agent-driver-deep-dive.md; probes in T-804's live run):
-  an agent's identity env is part of its start command (`env OBOR_ROLE=… <agent>`), not exported into the pane's
-  shell (T-812, with obor.js keeping the identity vars: OC-L2); obor chooses a Claude agent's session id and uses the
+  an agent's identity env stays a typed export (herdr's agent.start takes only args, so no `env` prefix), but one
+  registry of obor's vars: each start unsets every one it does not set (T-812, with obor.js keeping the identity vars: OC-L2); obor chooses a Claude agent's session id and uses the
   recorded transcript path (T-813). Codex (reviews only) keeps its `lsof` session lookup; opencode keeps its plugin's.
   crouton removed from config (trial not worth it).
 - 2026-11-04 (owner): **Custom roles per project**: one `roles.<name>` row in config plus `docs/agents/<name>.md`, so
