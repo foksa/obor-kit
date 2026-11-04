@@ -293,7 +293,8 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 	if len(stops) == 0 {
 		report("FAIL", "OC-L5", "no stop hook (session.execution.succeeded) in 120s; hooks run: "+orNone(strings.Join(slices.Compact(seen), " ")), where5)
 	} else {
-		report("PASS", "OC-L5", "session.execution.* reach obor.js (hooks "+strings.Join(slices.Compact(seen), " ")+"); the model switch is not read back", where5)
+		report("PASS", "OC-L5", "session.execution.* reach obor.js (hooks "+strings.Join(slices.Compact(seen), " ")+")", where5)
+		report("SKIP", "OC-L5", "the model switch ("+opencode.ModelVar+") is not read back: the turn's answer does not name the model it ran on", where5)
 	}
 	if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
 		l.stopAgent(pane)

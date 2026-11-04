@@ -10,6 +10,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,27 +42,19 @@ var liveIDs = map[string][]string{
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5"},
 }
 
-var (
-	labsMu sync.Mutex
-	labs   = map[*lab]bool{} // open labs, closed on an interrupt too
-)
-
 func live(kinds []string, turn bool) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sig
-		fmt.Fprintln(os.Stderr, "conformance: interrupted, stopping the throwaway sessions")
-		labsMu.Lock()
-		for l := range labs {
-			l.close()
-		}
-		labsMu.Unlock()
-		os.Exit(130)
-	}()
+	stopped := make(chan struct{})
+	go interrupt(sig, stopped, os.Stderr, os.Exit)
 	defer signal.Stop(sig)
 	herdrBin, err := exec.LookPath("herdr")
 	for _, kind := range kinds {
+		select {
+		case <-stopped: // an interrupt: the labs are closing, so nothing more is checked
+			return
+		default:
+		}
 		version := ""
 		if kind == "herdr" && err == nil {
 			version = herdrVersion(herdrBin)
@@ -88,6 +81,9 @@ func live(kinds []string, turn bool) {
 			}
 			continue
 		}
+		if l.ctx.Err() != nil { // an interrupt closed it while it was being set up: the runner stops using it
+			continue
+		}
 		liveKinds[kind](l, turn)
 		l.close()
 	}
@@ -101,19 +97,21 @@ func skipAll(kind, why string) {
 
 // lab is one kind's throwaway herdr session and its scratch dir.
 type lab struct {
-	kind     string
-	herdr    string // the herdr binary
-	root     string // the scratch dir (symlinks resolved)
-	kit      string // root/kit: bin/obor (the stub's wrapper), bin/obor-stub, opencode/obor.js, out/
-	main     string // root/proj: the main checkout, .obor/config.json committed
-	lane     string // root/proj-wt/L-01: a lane worktree on task/T-1
-	session  string // obor-conf-<kind>
-	sock     string
-	env      []string  // the server's clean environment
-	server   *exec.Cmd // the running server
-	cleanups []func()
-	seq      atomic.Int64
-	closed   bool
+	kind      string
+	herdr     string // the herdr binary
+	root      string // the scratch dir (symlinks resolved)
+	kit       string // root/kit: bin/obor (the stub's wrapper), bin/obor-stub, opencode/obor.js, out/
+	main      string // root/proj: the main checkout, .obor/config.json committed
+	lane      string // root/proj-wt/L-01: a lane worktree on task/T-1
+	session   string // obor-conf-<kind>
+	sock      string
+	env       []string  // the server's clean environment
+	server    *exec.Cmd // the running server
+	cleanups  []func()
+	seq       atomic.Int64
+	closeOnce sync.Once       // close runs once; a second caller (an interrupt while the runner closes) waits for it
+	ctx       context.Context // cancelled when the lab closes: the runner stops using it
+	cancel    context.CancelFunc
 }
 
 // newLab makes the scratch dir and starts the session. A lab it returns with an error is closed by the caller.
@@ -131,9 +129,8 @@ func newLab(kind, herdrBin string) (*lab, error) {
 	l := &lab{kind: kind, herdr: herdrBin, root: root, kit: filepath.Join(root, "kit"), main: filepath.Join(root, "proj"),
 		lane: filepath.Join(root, "proj-wt", "L-01"), session: "obor-conf-" + kind}
 	l.sock = filepath.Join(home, ".config", "herdr", "sessions", l.session, "herdr.sock")
-	labsMu.Lock()
-	labs[l] = true
-	labsMu.Unlock()
+	l.ctx, l.cancel = context.WithCancel(context.Background())
+	openLab(l)
 	if err := l.makeKit(); err != nil {
 		return l, fmt.Errorf("scratch kit: %v", err)
 	}
@@ -289,10 +286,13 @@ func (l *lab) stopServer() {
 // close stops and deletes the session, stops what the run left running in the scratch dir, and removes it (KEEP=1
 // keeps it).
 func (l *lab) close() {
-	if l.closed {
-		return
-	}
-	l.closed = true
+	l.closeOnce.Do(l.closeNow) // once: the runner and an interrupt may both close it, and the second waits
+}
+
+// closeNow is close's work: cancel the lab's context first, so the runner stops using it, then stop the session, what
+// it left running and its scratch dir, and forget it.
+func (l *lab) closeNow() {
+	l.cancel()
 	for i := len(l.cleanups) - 1; i >= 0; i-- {
 		l.cleanups[i]()
 	}
