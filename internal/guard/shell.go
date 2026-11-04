@@ -1206,6 +1206,9 @@ sub:
 		deny(unreadable(g.broken))
 	}
 	if r, ok := g.sessionRole(); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
+		if why := g.gone(); why != "" {
+			deny("git " + strings.Join(W[i:min(i+2, n)], " ") + " — " + why)
+		}
 		a := "a "
 		if strings.ContainsRune("aeiou", rune(g.role[0])) {
 			a = "an "
