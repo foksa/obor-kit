@@ -17,7 +17,7 @@ type Agents interface {
 	// type or role, after stopping what runs there. Returns the one-line result and the agent it started.
 	Launch(ctx context.Context, req Launch) (Started, error)
 	// Stop quits agent in pane ("": the pane labelled agent) and leaves the pane at its shell; force also stops a
-	// working one (up to StopBound to go idle after Escape). Returns the STOPPED line.
+	// working one (up to StopIdle to go idle after Escape). Returns the STOPPED line.
 	Stop(ctx context.Context, agent, pane string, force bool) (string, error)
 }
 
@@ -83,10 +83,23 @@ func NotFound(err error) bool {
 // after Escape, or its exit dialog names background tasks (launch's Stop, T-773).
 const CodeNeedsForce = "needs_force"
 
-// StopBound is how long a stop waits for a working agent to go idle after Escape before it refuses without force, or
-// exits anyway with it: launch's Idle default, and the bound a CLI call whose serve side may stop an agent covers
-// (wire's deadline table; T-825).
-const StopBound = 30 * time.Second
+// The stop's waits and the one bound they fit in (T-829): launch's Stop keeps to the bound whatever
+// OBOR_RESTART_WAIT says, and a CLI call whose serve side may stop an agent covers it (wire's deadline table, T-825).
+
+// StopIdle is how long a stop waits for a working agent to go idle after Escape before it refuses without force, or
+// exits anyway with it: launch's Idle default.
+const StopIdle = 30 * time.Second
+
+// StopQuit is how long a stop waits for an agent to exit after its quit: launch's Wait default for a stop (an
+// OBOR_RESTART_WAIT larger than it is capped so the total holds).
+const StopQuit = 20 * time.Second
+
+// StopTerminate is the kill sequence a stop may still run after those waits: the agent's ladder (SIGTERM ≤ 3 s, then
+// SIGKILL ≤ 2 s), and its leftovers' (the same).
+const StopTerminate = 10 * time.Second
+
+// StopBound is the most a stop may take: its idle wait, its quit wait and its terminate together.
+const StopBound = StopIdle + StopQuit + StopTerminate
 
 // NeedsForce: err is such a refusal (CodeNeedsForce in the chain).
 func NeedsForce(err error) bool { return ErrorCode(err) == CodeNeedsForce }

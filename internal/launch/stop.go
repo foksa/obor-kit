@@ -13,12 +13,17 @@ import (
 	"obor/internal/project"
 )
 
+// StopBound is the most a Stop may take: its idle wait, its quit wait and the terminate together (T-829). It is
+// port.StopBound: the one number launch and wire (whose CLI deadline covers the same stop) both read.
+const StopBound = port.StopBound
+
 // Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:
 // idle/done → the kind's quit (agents.Kind.Stop), the exit dialog closed, wait for the shell; a kind with no quit is
-// terminated. Working/blocked → Escape, wait (≤ Idle, port.StopBound) for it to go idle, then the same exit (T-773: no "left
+// terminated. Working/blocked → Escape, wait (≤ Idle, port.StopIdle) for it to go idle, then the same exit (T-773: no "left
 // running"); still working after Escape, or an agent whose quit opens its kind's dialog (background tasks) → FAIL
 // unless force; force → exits anyway after the wait (the kind's Stop.Dialog option when the dialog asks); an agent that
-// ignores the exit is terminated (terminate). No session check, no start. Returns the STOPPED line.
+// ignores the exit is terminated (terminate). The whole stop keeps to StopBound, whatever OBOR_RESTART_WAIT says
+// (T-829). No session check, no start. Returns the STOPPED line.
 func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (string, error) {
 	if !config.AgentNameRE.MatchString(agent) {
 		return "", project.Failf("bad agent name %q", agent)
@@ -62,6 +67,13 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	if running == "" || l.atShell(ctx, t.pane) {
 		return nil
 	}
+	// One bound for the whole stop (T-829): the idle wait, the quit wait (however long OBOR_RESTART_WAIT asks for) and
+	// the terminate after a quit that was not obeyed. kill is the share of the bound the terminate may need and each
+	// wait leaves for it: StopTerminate, or half of a shorter bound (a test's), which no ladder waits out.
+	bound := l.bound()
+	deadline := time.Now().Add(bound)
+	kill := min(port.StopTerminate, bound/2)
+	left := func() time.Duration { return max(time.Until(deadline)-kill, 0) }
 	recipe := recipeOf(running)
 	restored := false // AfterEscape ran: the interrupted prompt is already cleared
 	if status := t.entry.Status; status == "working" || status == "blocked" {
@@ -69,10 +81,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
 		}
 		_ = l.H.SendKeys(ctx, t.pane, "esc")
-		idle := l.Idle
-		if idle <= 0 {
-			idle = port.StopBound
-		}
+		idle := min(l.idle(), left())
 		if !l.until(ctx, idle, func() bool {
 			a, err := l.H.Agent(ctx, t.pane)
 			return err != nil || (a.Status != "working" && a.Status != "blocked")
@@ -116,7 +125,10 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	}
 	chose, polls := false, 0
 	var dialogErr error
-	exited := l.until(ctx, l.wait(), func() bool {
+	// The quit's wait, capped so the terminate still has its part of the bound (T-829: OBOR_RESTART_WAIT may ask for
+	// longer, never past it).
+	wait := min(l.wait(), left())
+	exited := l.until(ctx, wait, func() bool {
 		if l.exited(ctx, t.pane, before.pgid) {
 			return true
 		}
@@ -166,9 +178,9 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 				}
 				cleared = "; the input was cleared"
 			}
-			return l.giveUp(ctx, t, "%s did not exit in %s (pane %s%s; --force terminates it)", t.agent, l.wait(), t.pane, cleared)
+			return l.giveUp(ctx, t, "%s did not exit in %s (pane %s%s; --force terminates it)", t.agent, wait, t.pane, cleared)
 		}
-		if err := l.terminate(ctx, t, before, running, fmt.Sprintf("did not exit in %s", l.wait())); err != nil {
+		if err := l.terminate(ctx, t, before, running, fmt.Sprintf("did not exit in %s", wait)); err != nil {
 			return err
 		}
 	}

@@ -76,7 +76,8 @@ const (
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
 	// stopCallDeadline is a call whose serve side may stop an agent (T-825: a dispatch — a move is one — drop, or a
-	// drive's take-over): the stop's own bound (port.StopBound) plus the verdict margin for the rest of the call.
+	// drive's take-over): the stop's own bound (port.StopBound, which launch's Stop keeps to; T-829) plus the verdict
+	// margin for the rest of the call.
 	stopCallDeadline = port.StopBound + verdictDeadline
 )
 
