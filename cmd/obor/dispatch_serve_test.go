@@ -16,6 +16,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/herdr"
 	"obor/internal/testkit"
+	"obor/internal/version"
 )
 
 // fakeServe answers a project's app socket (<root>/.obor/state/serve.sock): status with st, every other request with
@@ -136,6 +137,7 @@ func TestDispatchServeRequest(t *testing.T) {
 		}
 		got.CallID = ""
 		c.want.Root, c.want.Agent, c.want.Role = p.Root, "pj-lead", "lead"
+		c.want.Version = version.Version // every call names its binary (T-826)
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: call %+v, want %+v", c.name, got, c.want)
 		}

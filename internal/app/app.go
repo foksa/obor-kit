@@ -89,6 +89,7 @@ type App struct {
 	p         *proj             // Options.Root's project once loaded (loadProject); nil before
 	spaces    map[string]string // workspace id → label, from the last snapshot
 	obs       map[string]*seen  // by pane id: every pane of the last snapshot and the events since
+	skews     map[string]bool   // by agent and version: the wire callers whose obor differs from serve's and were logged (T-826)
 	stopped   bool              // Serve has ended: the socket takes no more requests
 	checks    int               // full checks done (a tick's, a connect's), for the tests to wait on
 	follows   int               // the binary watch's ticks (Options.Follow, follow.go), for it and the tests

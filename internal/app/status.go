@@ -9,6 +9,7 @@ import (
 	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/version"
 	"slices"
 	"sort"
 	"strings"
@@ -315,6 +316,9 @@ func (a *App) Listen(ln net.Listener) {
 			var req wire.Request
 			var ans wire.Answer
 			unreadable := json.Unmarshal(b, &req) != nil
+			if !unreadable && req.Call != nil {
+				a.noteSkew(*req.Call)
+			}
 			switch {
 			case unreadable:
 				ans.Error = "unreadable request"
@@ -387,12 +391,51 @@ func (a *App) Listen(ln net.Listener) {
 			default:
 				ans.Error = "unknown method " + req.Method
 			}
+			if ans.Error != "" && req.Call != nil {
+				if skew := versionSkew(*req.Call); skew != "" {
+					ans.Error += fmt.Sprintf(" (caller %s runs %s, serve %s)", callerOf(*req.Call), skew, version.Version)
+				}
+			}
 			out, _ := json.Marshal(ans)
 			// The answer is written once its effect is done, which may wait for a stop (T-825): its own bound, not the
 			// request line's.
 			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			_, _ = c.Write(append(out, '\n'))
 		}()
+	}
+}
+
+// versionSkew is c's caller's obor as text when it differs from this serve's (T-826): its version, or "an older obor"
+// for a call that carried none (a binary before the field); "" when they match. A difference alone refuses nothing:
+// obor-kit's dev builds differ after every merge, so only a refusal names it and serve's log says it once.
+func versionSkew(c wire.Call) string {
+	switch {
+	case c.Version == version.Version:
+		return ""
+	case c.Version == "":
+		return "an older obor"
+	}
+	return "obor " + c.Version
+}
+
+// noteSkew writes serve's one log line for a call whose caller runs another obor: the first per (agent, version), not
+// each call (T-826).
+func (a *App) noteSkew(c wire.Call) {
+	skew := versionSkew(c)
+	if skew == "" {
+		return
+	}
+	agent := callerOf(c)
+	key := agent + "\x00" + c.Version
+	a.mu.Lock()
+	if a.skews == nil {
+		a.skews = map[string]bool{}
+	}
+	seen := a.skews[key]
+	a.skews[key] = true
+	a.mu.Unlock()
+	if !seen {
+		a.logf("caller %s runs %s, serve %s", agent, skew, version.Version)
 	}
 }
 
