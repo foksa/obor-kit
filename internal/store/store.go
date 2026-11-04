@@ -24,10 +24,10 @@ const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
 	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819).
 	SchemaVersion = 10
-	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.12 (schema 2–5) is refused, and upgrades
-	// through v0.12.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
+	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.22 (schema 2–8) is refused, and upgrades
+	// through v0.24.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
 	// IF NOT EXISTS, so the version is what a migration updates).
-	upgradeFrom = 6
+	upgradeFrom = 9
 
 	writerBusyTimeout = 5 * time.Second        // serve waits for a reader's snapshot to end, it does not fail
 	readerBusyTimeout = 500 * time.Millisecond // a hook fails fast instead of holding its caller
@@ -191,44 +191,13 @@ func initSchema(db *sql.DB) error {
 		case got > SchemaVersion:
 			return fmt.Errorf("store: schema version %d is newer than this obor (%d): upgrade obor", got, SchemaVersion)
 		case got < upgradeFrom:
-			return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.12.0 first",
+			return fmt.Errorf("store: schema version %d is older than this obor (%d): upgrade through v0.24.0 first",
 				got, SchemaVersion)
-		}
-	}
-	// Version 8 gave the prompts table its own key (T-670): a job fetched again after its text changed gets another
-	// row, so its fact's seq no longer keys it. A version-7 table is renamed here, and its rows are copied into the
-	// new one the schema below creates.
-	movedPrompts := false
-	if found && got == 7 {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'prompts'").
-			Scan(&n); err != nil {
-			return fmt.Errorf("store: read prompts: %w", err)
-		}
-		if n > 0 {
-			if _, err := tx.ExecContext(ctx, "ALTER TABLE prompts RENAME TO prompts_v7"); err != nil {
-				return fmt.Errorf("store: migrate prompts: %w", err)
-			}
-			movedPrompts = true
 		}
 	}
 	for _, ddl := range schema {
 		if _, err := tx.ExecContext(ctx, ddl); err != nil {
 			return fmt.Errorf("store: create schema: %w", err)
-		}
-	}
-	// Version 9 gave the lane row its dispatch's type (T-721): an older lanes table gets the column, empty (serve
-	// rewrites the rows from the log on load).
-	if found && got < 9 {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('lanes') WHERE name = 'type'").
-			Scan(&n); err != nil {
-			return fmt.Errorf("store: read lanes: %w", err)
-		}
-		if n == 0 {
-			if _, err := tx.ExecContext(ctx, "ALTER TABLE lanes ADD COLUMN type TEXT NOT NULL DEFAULT ''"); err != nil {
-				return fmt.Errorf("store: migrate lanes: %w", err)
-			}
 		}
 	}
 	// Version 10 gave the spec row the note its set carried (T-819): an older specs table gets the column, empty (a
@@ -252,15 +221,6 @@ func initSchema(db *sql.DB) error {
 			return fmt.Errorf("store: write schema version: %w", err)
 		}
 	case got < SchemaVersion: // migrated above: every table is there now
-		if movedPrompts {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO prompts (seq, agent, kind, job, task, ts, rev, text)
-				SELECT seq, agent, kind, job, task, ts, 0, text FROM prompts_v7`); err != nil {
-				return fmt.Errorf("store: migrate prompts: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx, "DROP TABLE prompts_v7"); err != nil {
-				return fmt.Errorf("store: migrate prompts: %w", err)
-			}
-		}
 		if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = 'schema_version'",
 			strconv.Itoa(SchemaVersion)); err != nil {
 			return fmt.Errorf("store: write schema version: %w", err)
