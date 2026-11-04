@@ -255,51 +255,67 @@ func workJobText(t *testing.T, kit, cfg string) string {
 	return text
 }
 
-// T-678: the work job names the project's configured done_file_sections, once, not the defaults.
+// T-678: the work job names the project's configured done_file_sections once, not the defaults; with the default
+// config, it names the default labels once.
 func TestWorkJobNamesTheConfiguredReportSections(t *testing.T) {
 	t.Parallel()
 	kit, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := workJobText(t, kit, `{"name":"pj","done_file_sections":["Summary","Verification"]}`)
-	want := "Your final report has these sections: Summary, Verification."
-	if n := strings.Count(text, want); n != 1 {
-		t.Errorf("the job names the configured sections %d times, want once (%q):\n%s", n, want, text)
-	}
-	if strings.Contains(text, "Summary, Self-check, Skipped, Open questions") {
-		t.Errorf("the job names the default sections, not the configured ones:\n%s", text)
-	}
-}
-
-// T-678: with the default config the work job names the default labels once.
-func TestWorkJobNamesTheDefaultReportSectionsOnce(t *testing.T) {
-	t.Parallel()
-	kit, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := workJobText(t, kit, `{"name":"pj"}`)
-	want := "Your final report has these sections: Summary, Self-check, Skipped, Open questions."
-	if n := strings.Count(text, want); n != 1 {
-		t.Errorf("the job names the default sections %d times, want once (%q):\n%s", n, want, text)
+	for _, c := range []struct{ name, cfg, want, not string }{
+		{"configured", `{"name":"pj","done_file_sections":["Summary","Verification"]}`,
+			"Your final report has these sections: Summary, Verification.",
+			"Summary, Self-check, Skipped, Open questions"},
+		{"default", `{"name":"pj"}`,
+			"Your final report has these sections: Summary, Self-check, Skipped, Open questions.", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			text := workJobText(t, kit, c.cfg)
+			if n := strings.Count(text, c.want); n != 1 {
+				t.Errorf("the job names the sections %d times, want once (%q):\n%s", n, c.want, text)
+			}
+			if c.not != "" && strings.Contains(text, c.not) {
+				t.Errorf("the job names %q, not the wanted sections:\n%s", c.not, text)
+			}
+		})
 	}
 }
 
-// The fix job names the role texts for a worker started fresh, both paths (T-603, fix job: the texts are not repeated).
+// The fix job names the role texts for a worker started fresh (T-603): the kit's and the project's when the checkout has
+// one, the kit's alone when it does not.
 func TestFixJobNamesBothRoleTexts(t *testing.T) {
 	t.Parallel()
-	p, kit := roleFixture(t, "# Role: worker\nkit\n", "# Worker here\nproject rules\n")
-	read, err := fixRead(p, kit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
-	want := "If this session did not get the work job (a fresh start), read " +
-		filepath.Join(kit, "templates", "agents", "worker.md") + " and " +
-		filepath.Join(p.root, "doc/roles/worker.md") + " first."
-	if !strings.Contains(text, want) {
-		t.Errorf("the fix job has no %q:\n%s", want, text)
+	for _, c := range []struct {
+		name, doc string
+		want      func(p *proj, kit string) string
+		absent    bool // the checkout has no project doc to name
+	}{
+		{"both", "# Worker here\nproject rules\n", func(p *proj, kit string) string {
+			return "If this session did not get the work job (a fresh start), read " +
+				filepath.Join(kit, "templates", "agents", "worker.md") + " and " +
+				filepath.Join(p.root, "doc/roles/worker.md") + " first."
+		}, false},
+		{"kit alone", "", func(_ *proj, kit string) string {
+			return "read " + filepath.Join(kit, "templates", "agents", "worker.md") + " first."
+		}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p, kit := roleFixture(t, "# Role: worker\nkit\n", c.doc)
+			read, err := fixRead(p, kit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
+			if !strings.Contains(text, c.want(p, kit)) {
+				t.Errorf("the fix job has no %q:\n%s", c.want(p, kit), text)
+			}
+			if c.absent && strings.Contains(text, p.root) {
+				t.Errorf("the fix job names a project doc the checkout lacks:\n%s", text)
+			}
+		})
 	}
 }
 
@@ -316,22 +332,5 @@ func TestFixJobCarriesAChangedRevOnly(t *testing.T) {
 	if text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}, specRev: 2}, row,
 		"read it."); strings.Contains(text, "The spec of T-9") {
 		t.Errorf("a fix job at the spec's rev repeats it: %q", text)
-	}
-}
-
-func TestFixJobNamesTheKitRoleTextAloneWithoutAProjectDoc(t *testing.T) {
-	t.Parallel()
-	p, kit := roleFixture(t, "# Role: worker\nkit\n", "")
-	read, err := fixRead(p, kit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := fixText(mtask{task: "T-9", attempt: 2, attemptVars: attemptVars{line: "add a test"}}, store.SpecRow{}, read)
-	want := "read " + filepath.Join(kit, "templates", "agents", "worker.md") + " first."
-	if !strings.Contains(text, want) {
-		t.Errorf("the fix job has no %q:\n%s", want, text)
-	}
-	if strings.Contains(text, p.root) {
-		t.Errorf("the fix job names a project doc the checkout lacks:\n%s", text)
 	}
 }

@@ -435,28 +435,25 @@ func (r *loopRig) newIdleEpoch(line string) {
 	}
 }
 
-// T-815: a reviewer's brief ends the acknowledged idle epoch, and the brief's end starts a new one.
+// T-815: a hold role's brief (a reviewer's, a deep dive's) ends the acknowledged idle epoch, and the brief's end starts
+// a new one.
 func TestReviewerBriefEndsIdleAndANewEpochStarts(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
-	rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
-	rev.Workspace, rev.Label = "w1", "pj-rev"
-	line := r.idleAcked()
-	r.briefEndsIdle("pj-rev", "review the wave")
-	r.finishesBrief("w1:p6", "pj-rev", "[obor] pj-rev finished (briefed 5m ago)")
-	r.newIdleEpoch(line)
-}
-
-// T-815: the deep dive holds the same: its brief ends the idle epoch, and its end starts a new one.
-func TestDeepDiveBriefEndsIdleAndANewEpochStarts(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.deep_dive", ""))
-	dd := r.f.Agent("w1:p7", "pj-deep-dive", "idle", r.p.Root)
-	dd.Workspace, dd.Label = "w1", "pj-deep-dive"
-	line := r.idleAcked()
-	r.briefEndsIdle("pj-deep-dive", "dig into the flake")
-	r.finishesBrief("w1:p7", "pj-deep-dive", "[obor] pj-deep-dive finished (briefed 5m ago)")
-	r.newIdleEpoch(line)
+	for _, c := range []struct{ role, pane, agent, brief string }{
+		{"reviewer", "w1:p6", "pj-rev", "review the wave"},
+		{"deep_dive", "w1:p7", "pj-deep-dive", "dig into the flake"},
+	} {
+		t.Run(c.role, func(t *testing.T) {
+			t.Parallel()
+			r := newLoopRig(t, "echo 1 pass", testkit.Set("roles."+c.role, ""))
+			a := r.f.Agent(c.pane, c.agent, "idle", r.p.Root)
+			a.Workspace, a.Label = "w1", c.agent
+			line := r.idleAcked()
+			r.briefEndsIdle(c.agent, c.brief)
+			r.finishesBrief(c.pane, c.agent, "[obor] "+c.agent+" finished (briefed 5m ago)")
+			r.newIdleEpoch(line)
+		})
+	}
 }
 
 // T-815: a brief of a role that does not hold the merge keeps the idle epoch in force: its acknowledgement stands.
@@ -540,24 +537,26 @@ func (r *loopRig) endReview(callID, line string) {
 	r.newIdleEpoch(line)
 }
 
-// T-818: a request for now ends the acknowledged epoch, and its end starts a new one.
+// T-818: a review request (for now, or queued on --after) ends the acknowledged epoch, and its end starts a new one.
 func TestReviewRequestEndsIdleAndANewEpochStarts(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
-	line := r.idleAcked()
-	r.requestReview("r1", nil, "REVIEW REQUESTED (now)")
-	r.reviewEndsIdle()
-	r.endReview("r2", line)
-}
-
-// T-818: a queued request (--after) holds the pipeline the same until it ends.
-func TestQueuedReviewRequestEndsIdleAndANewEpochStarts(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
-	line := r.idleAcked()
-	r.requestReview("r1", []string{"T-1"}, "REVIEW REQUESTED (after T-1)")
-	r.reviewEndsIdle()
-	r.endReview("r2", line)
+	for _, c := range []struct {
+		name  string
+		after []string
+		want  string
+	}{
+		{"now", nil, "REVIEW REQUESTED (now)"},
+		{"after T-1", []string{"T-1"}, "REVIEW REQUESTED (after T-1)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+			line := r.idleAcked()
+			r.requestReview("r1", c.after, c.want)
+			r.reviewEndsIdle()
+			r.endReview("r2", line)
+		})
+	}
 }
 
 // T-818: a restart with the request pending replays it: not idle, the acknowledgement refused, and its end starts the

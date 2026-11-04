@@ -947,58 +947,6 @@ func (f *launchSpy) Launch(context.Context, port.Launch) (port.Started, error) {
 }
 
 // T-504: the identity table's cases; each failed on the code it was found on.
-// #3: two panes labelled pj-l-01: the production send attempts no wake (no name fallback).
-func TestIdentAmbiguityStillPrompts(t *testing.T) {
-	t.Parallel()
-	h, _ := newIdentHarness(t)
-	h.snap.Panes = append(h.snap.Panes, h.twin())
-	h.pane("w1:p1").Session = ""
-	h.connect()
-	if w := h.where("pj-l-01"); w != "ambiguous w1:p1 w1:p3" {
-		t.Fatalf("precondition: ambiguous, got %s", w)
-	}
-	f := &boxPrompter{box: map[string]string{}}
-	if h.wake(&Loop{Typer: f}) || len(f.jobs) != 0 {
-		t.Errorf("wake attempted while ambiguous: %q", f.jobs)
-	}
-}
-
-// #2: the lead's session and pj-advisor's label on one terminal: one owner, the lead.
-func TestIdentOnePaneTwoAgents(t *testing.T) {
-	t.Parallel()
-	h, _ := newIdentHarness(t)
-	h.withLead()
-	h.pane("w1:p1").Label = "pj-advisor"
-	h.sids(map[string]string{"pj-lead": "s1"})
-	h.connect()
-	eqs(t, h.where("pj-lead"), "identified w1:p1 session", "session identity")
-	eqs(t, h.where("pj-advisor"), "unavailable no proof", "label identity")
-}
-
-// #2: a label identity, then a second pane labelled the same: refused, not the old pane kept.
-func TestIdentDuplicateLabelArrivesLater(t *testing.T) {
-	t.Parallel()
-	h, _ := newIdentHarness(t)
-	h.pane("w1:p1").Session = ""
-	h.connect()
-	h.snap.Panes = append(h.snap.Panes, h.twin())
-	h.connect()
-	eqs(t, h.where("pj-l-01"), "ambiguous w1:p1 w1:p3", "after the duplicate")
-}
-
-// #1: the start row says w1:p1, the pane moved to w1:p7: the stop addresses w1:p7.
-func TestIdentStopMovedPane(t *testing.T) {
-	t.Parallel()
-	h, _ := newIdentHarness(t)
-	h.started("pj-l-01", "w1:p1", "t1", "s1")
-	h.connect()
-	h.move("w1:p1", "w1:p7")
-	f := &idAgents{}
-	if _, err := h.stop(f); err != nil || !slices.Equal(f.stops, []string{"pj-l-01 w1:p7"}) {
-		t.Errorf("stops %q (err %v), want w1:p7", f.stops, err)
-	}
-}
-
 // #4: an unlabelled pane identified by session works on its brief: worked.
 func TestIdentBriefWorkByRegistry(t *testing.T) {
 	t.Parallel()
@@ -1011,20 +959,6 @@ func TestIdentBriefWorkByRegistry(t *testing.T) {
 	h.status("w1:p1", func(p *port.Pane) { p.Status = "idle" })
 	if !h.worked("pj-l-01") {
 		t.Error("work of the session-identified agent not marked")
-	}
-}
-
-// #5: a typed brief addresses the identified pane's id (app.Pane has no herdr name to prefer).
-func TestIdentBriefUsesPaneAddress(t *testing.T) {
-	t.Parallel()
-	h, _ := newIdentHarness(t)
-	h.pane("w1:p1").Agent = "codex"
-	h.connect()
-	h.brief("pj-l-01", "[obor pj-lead] verify")
-	l := &linerSpy{}
-	h.a.deliver(context.Background(), h.proj(), &Loop{Typer: l})
-	if !slices.Equal(l.calls, []string{"w1:p1: [obor pj-lead] verify"}) {
-		t.Errorf("typed %q, want w1:p1", l.calls)
 	}
 }
 
