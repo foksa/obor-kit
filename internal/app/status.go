@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
@@ -19,7 +20,7 @@ func (a *App) Status() wire.Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.opt.Now()
-	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, HerdrNote: a.opt.HerdrNote}
+	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, HerdrNote: a.herdrNote()}
 	if p := a.p; p != nil {
 		ps := wire.ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
 			Facts: []event.Record{}}
@@ -386,4 +387,14 @@ func (a *App) Listen(ln net.Listener) {
 			_, _ = c.Write(append(out, '\n'))
 		}()
 	}
+}
+
+// herdrNote is the status note for the server serve is connected to: its version and protocol when it speaks a newer
+// protocol than obor's, else none. It follows each snapshot, so a herdr started or upgraded after serve shows at once.
+// The caller holds a.mu.
+func (a *App) herdrNote() string {
+	if !a.connected || a.herdrProt <= a.herdrOwn {
+		return ""
+	}
+	return fmt.Sprintf("herdr %s, protocol %d (newer than obor's %d)", a.herdrVer, a.herdrProt, a.herdrOwn)
 }

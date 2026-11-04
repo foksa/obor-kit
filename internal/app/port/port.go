@@ -29,6 +29,9 @@ type Pane struct {
 
 // Snapshot is herdr's session at one moment: the workspace labels by id and every pane.
 type Snapshot struct {
+	Version    string // herdr's version and protocol as the snapshot said (Protocol 0: not read)
+	Protocol   int
+	Speaks     int // the protocol obor itself speaks: Protocol above it is a newer herdr
 	Workspaces map[string]string
 	Panes      []Pane
 }

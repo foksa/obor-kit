@@ -272,24 +272,6 @@ type Snapshot struct {
 	Agents     []Agent
 }
 
-// VersionProtocol reads the herdr session snapshot's version and protocol without checking compatibility.
-// Serve uses it to report the server it found before its protocol check stops dispatch.
-func (s *Socket) VersionProtocol(ctx context.Context) (string, int, error) {
-	var r struct {
-		Snapshot *struct {
-			Version  string `json:"version"`
-			Protocol int    `json:"protocol"`
-		} `json:"snapshot"`
-	}
-	if err := s.call(ctx, 0, &r, "session.snapshot", nil); err != nil {
-		return "", 0, err
-	}
-	if r.Snapshot == nil {
-		return "", 0, &Error{Kind: BadAnswer, Op: "session.snapshot", Msg: "no snapshot in the answer"}
-	}
-	return r.Snapshot.Version, r.Snapshot.Protocol, nil
-}
-
 // Workspace is one herdr workspace: its id and the label it shows.
 type Workspace struct{ ID, Label string }
 

@@ -83,7 +83,7 @@ func TestServeBinary(t *testing.T) {
 	if !strings.Contains(out.String(), "obor serve: running (project "+p.Root+", socket "+sock+")") {
 		t.Errorf("serve's start line names no project and socket:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "herdr: fake, protocol "+strconv.Itoa(herdr.Protocol)) {
+	if !strings.Contains(out.String(), "herdr: fake protocol "+strconv.Itoa(herdr.Protocol)+"\n") {
 		t.Errorf("serve did not report its herdr snapshot before running:\n%s", out.String())
 	}
 	// T-646: serve registers the project it serves in the machine's list of obor projects by name.
@@ -285,31 +285,61 @@ func TestServeDump(t *testing.T) {
 }
 
 // A herdr on a newer protocol than obor's is served, not refused: serve's log names its version and protocol once,
-// and obor status carries the same note.
+// and obor status (text and JSON) carries the same note. The note follows the server serve is connected to (T-806):
+// herdr coming up after serve, and herdr restarted on another protocol, change it; a restart as the same one does not
+// log again.
 func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()
 	f := herdrtest.New()
 	srv := herdrtest.Serve(t, f)
-	srv.Protocol(herdr.Protocol + 1)
+	srv.Die()
 	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path}
 	cmd, out := startServe(t, p.Root, env)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	want := "herdr fake, protocol " + strconv.Itoa(herdr.Protocol+1) + " (newer than obor's " + strconv.Itoa(herdr.Protocol) + ")"
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		rc, stdout, _ := run(t, p.Root, env, "status")
-		if rc == 0 && strings.Contains(stdout, want) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("obor status never carried %q: exit %d %q; serve output:\n%s", want, rc, stdout, out.String())
+	note := func(n int) string {
+		return "herdr fake, protocol " + strconv.Itoa(n) + " (newer than obor's " + strconv.Itoa(herdr.Protocol) + ")"
+	}
+	waitNote := func(want string) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+			rc, stdout, _ := run(t, p.Root, env, "status")
+			rcj, js, _ := run(t, p.Root, env, "status", "--json")
+			if rc == 0 && rcj == 0 && strings.Contains(stdout, want) && strings.Contains(js, `"herdr_note": "`+want+`"`) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("obor status never carried %q in text and JSON: exit %d %q; json %q; serve output:\n%s",
+					want, rc, stdout, js, out.String())
+			}
 		}
 	}
-	if n := strings.Count(out.String(), want); n != 1 {
+	line := func(n int) string { return "herdr: fake protocol " + strconv.Itoa(n) + "\n" }
+
+	// Serve started with herdr down; herdr comes up newer.
+	srv.Protocol(herdr.Protocol + 1)
+	srv.Revive(t)
+	waitNote(note(herdr.Protocol + 1))
+	if n := strings.Count(out.String(), line(herdr.Protocol+1)); n != 1 {
 		t.Errorf("serve's log names the newer herdr %d times, want once:\n%s", n, out.String())
 	}
 	if strings.Contains(out.String(), "update obor or herdr") {
 		t.Errorf("serve refused a newer protocol:\n%s", out.String())
+	}
+	// The same version again: no second line.
+	srv.DropConns()
+	if !waitFor(func() bool { return strings.Count(out.String(), "herdr: connected") >= 2 }) {
+		t.Fatalf("serve never connected again:\n%s", out.String())
+	}
+	if n := strings.Count(out.String(), line(herdr.Protocol+1)); n != 1 {
+		t.Errorf("a reconnect to the same herdr logged it %d times in all, want 1:\n%s", n, out.String())
+	}
+	// Another protocol: the note changes, one more line.
+	srv.Protocol(herdr.Protocol + 2)
+	srv.DropConns()
+	waitNote(note(herdr.Protocol + 2))
+	if n := strings.Count(out.String(), line(herdr.Protocol+2)); n != 1 {
+		t.Errorf("serve's log names the upgraded herdr %d times, want once:\n%s", n, out.String())
 	}
 }

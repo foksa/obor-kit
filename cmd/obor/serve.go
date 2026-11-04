@@ -87,23 +87,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 		fmt.Fprintf(flushWriter{}, "obor serve: the machine's project list is not updated (%v)\n", err)
 	}
 	panes := herdr.Panes{S: herdrSocket(env)}
-	infoCtx, cancelInfo := context.WithTimeout(ctx, 2*time.Second)
-	version, protocol, infoErr := panes.S.VersionProtocol(infoCtx)
-	cancelInfo()
-	herdrNote := ""
-	if infoErr == nil {
-		switch {
-		case protocol == herdr.Protocol:
-			fmt.Fprintf(flushWriter{}, "herdr: %s, protocol %d\n", version, protocol)
-		case protocol > herdr.Protocol: // accepted; `make conformance` checks the methods obor sends against its schema
-			herdrNote = fmt.Sprintf("herdr %s, protocol %d (newer than obor's %d)", version, protocol, herdr.Protocol)
-			fmt.Fprintln(flushWriter{}, herdrNote)
-		default:
-			fmt.Fprintf(flushWriter{}, "herdr %s speaks protocol %d, obor speaks %d: update obor or herdr so they match\n",
-				version, protocol, herdr.Protocol)
-		}
-	}
-	a := app.New(app.Options{Root: root, HerdrNote: herdrNote, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
+	a := app.New(app.Options{Root: root, Out: flushWriter{}, Refresh: refreshed, Loop: mergeLoop(env, panes, end),
 		Inboxed: inboxed(root), Exit: stop, Binary: binaryWatch(env), Tick: serveTick, Follow: serveTick},
 		panes, checks.Lanes{})
 	served := make(chan struct{})

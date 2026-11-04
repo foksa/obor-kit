@@ -43,6 +43,12 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 		}
 	}
 	a.connected = true
+	if snap.Protocol != 0 && (snap.Version != a.herdrVer || snap.Protocol != a.herdrProt) {
+		a.logf("herdr: %s protocol %d", snap.Version, snap.Protocol)
+	}
+	if snap.Protocol != 0 {
+		a.herdrVer, a.herdrProt, a.herdrOwn = snap.Version, snap.Protocol, snap.Speaks
+	}
 	a.logf("herdr: connected; %d panes, %d in the project", len(snap.Panes), a.projectPanes())
 	p := a.p
 	if p != nil {

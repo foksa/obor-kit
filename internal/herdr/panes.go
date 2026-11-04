@@ -88,7 +88,7 @@ func (p Panes) appPane(a Agent) port.Pane {
 }
 
 func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
-	out := port.Snapshot{Workspaces: map[string]string{}}
+	out := port.Snapshot{Workspaces: map[string]string{}, Version: s.Version, Protocol: s.Protocol, Speaks: Protocol}
 	for _, w := range s.Workspaces {
 		out.Workspaces[w.ID] = w.Label
 	}
