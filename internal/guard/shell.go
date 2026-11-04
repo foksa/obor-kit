@@ -28,7 +28,9 @@ import (
 //     (incl. the commands a nested string came from) is a git write verb (gitWrites) or pkill/killall, or the word is
 //     a pattern that can be pkill/killall; words inside a substitution don't count (they are walked on their own).
 //     Nothing is evaluated (no environment reads beyond the above).
-//   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo for the main-checkout rule.
+//   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo for the main-checkout rules: a
+//     non-lead runs no verb there that moves HEAD or changes the tree or index wholesale (T-841); a checkout of paths
+//     and restore keep the checkWrite rule.
 //   - writers: > >> &> >| <> targets, tee, rm, mv and cp targets (incl. <dir>/<source basename>), sed -i, git
 //     checkout/restore paths (non-workers; workers can't run them at all): each goes through checkWrite, the same
 //     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
@@ -794,6 +796,63 @@ loop:
 var gitWrites = []string{"commit", "merge", "rebase", "reset", "checkout", "switch", "restore", "stash", "cherry-pick",
 	"revert", "push", "tag", "worktree", "clean", "am", "apply"}
 
+// mainHeadWrites are the git verbs that move HEAD or change the tree or index wholesale: in the main checkout only the
+// lead runs one (T-841), because serve publishes to main from there. checkout and switch are checked by movesHead
+// (a checkout of paths keeps the checkWrite rule); restore writes paths only and is not here.
+var mainHeadWrites = []string{"reset", "rebase", "merge", "stash", "cherry-pick", "revert", "am", "apply", "clean"}
+
+// movesHead reports a git subcommand that moves HEAD or changes the tree or index wholesale in dir: switch, a checkout
+// of a ref, or one of mainHeadWrites.
+func (s *shell) movesHead(sub string, args []string, dir string) bool {
+	switch sub {
+	case "switch":
+		return true
+	case "checkout":
+		return s.checkoutRef(args, dir)
+	}
+	return oneOf(sub, mainHeadWrites...)
+}
+
+// checkoutRef reports a `git checkout` of a ref (it moves HEAD) rather than of paths. A `--` makes what follows paths,
+// and a tree-ish before it belongs to that path checkout. -b / -B / --orphan create and switch to a branch. A single
+// operand "-" is the previous branch; one that names an existing path, or no operand at all, checks out paths.
+func (s *shell) checkoutRef(args []string, dir string) bool {
+	var pos []string
+	for j := 0; j < len(args); j++ {
+		a := args[j]
+		switch {
+		case a == "--":
+			return false
+		case a == "-b" || a == "-B" || a == "--orphan" || strings.HasPrefix(a, "-b") || strings.HasPrefix(a, "-B") ||
+			strings.HasPrefix(a, "--orphan="):
+			return true
+		case a == "-s" || a == "--source" || a == "--conflict" || a == "--pathspec-from-file":
+			j++
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+		default:
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) == 0 || len(pos) > 1 {
+		return false
+	}
+	if pos[0] == "-" {
+		return true
+	}
+	p, ok := s.g.phys(pos[0], dir)
+	if !ok {
+		return true
+	}
+	_, err := os.Lstat(p)
+	return err != nil
+}
+
+// headDeny is the reason a non-lead may not move HEAD or change the tree or index in the main checkout (T-841).
+func headDeny(sub string) string {
+	return "git " + sub + " in the main checkout moves HEAD or changes the tree or index, and serve publishes to main " +
+		"from this checkout — only the lead runs it here; read a commit with `git show <sha>:<path>` or `git diff`"
+}
+
 // workerIndexWrites: git verbs that write the index; denied for workers only. Not in gitWrites: add, rm and mv are
 // common words, so a lead's "$X rm file" must stay allowed after an unresolved command word.
 var workerIndexWrites = []string{"add", "rm", "mv"}
@@ -1204,6 +1263,13 @@ sub:
 
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
+	}
+	// Only the lead moves HEAD or changes the tree or index in the main checkout: serve publishes to main from there
+	// (T-841). A path checkout keeps the checkWrite rule below. A worker never runs one anywhere (the rule below), and
+	// the role-less owner in the main checkout is the lead's own session.
+	if g.role != "lead" && g.role != "none" && g.role != "worker" &&
+		s.movesHead(sub, W[i+1:], dir) && g.isMain(dir, gitDir, workTree) {
+		deny(headDeny(sub))
 	}
 	if r, ok := g.sessionRole(); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
 		if why := g.gone(); why != "" {
