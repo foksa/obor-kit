@@ -478,13 +478,15 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
   says `partial:<class>` or `full:<reason>` (the file that decided it). A failing guard → RED (never falls back).
 - `obor nightly`: full check + baseline + gate (forced) + `commands.e2e` if set, in its own nightly worktree
   (`<merge.scratch_dir>-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
-  backs the store up; writes `state/last-full-check` (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …`
-  / `NIGHTLY RED …` last. `merge.nightly_at` is its switch (T-781): set (`"HH:MM"`), serve runs it every night at
-  that time, whatever merged since (it runs more than the merge gate); unset, never. The lead or the owner switches it
-  with `obor nightly on HH:MM` / `obor nightly off` (serve's `config_set`: one commit on main; counts from serve's next
-  pass, no restart; a run in progress is not stopped). Serve records the outcome (`docs/state-model.md` row 45);
-  `obor status` prints the next run (`nightly check at HH:MM (in …)`, or `nightly: off (obor nightly on HH:MM)`) and
-  the last full check and its age.
+  backs the store up and runs `merge.nightly_commands` in order, after the gates (each a `commands.<name>` that is no
+  gating command; T-817: non-gating, one report line — its last output line — never RED, a nonzero exit a `WARN` line,
+  and every `WARN`/`SKIP`/`FAIL` line it printed below it); writes `state/last-full-check`
+  (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …` / `NIGHTLY RED …` last. `merge.nightly_at` is its
+  switch (T-781): set (`"HH:MM"`), serve runs it every night at that time, whatever merged since (it runs more than
+  the merge gate); unset, never. The lead or the owner switches it with `obor nightly on HH:MM` / `obor nightly off`
+  (serve's `config_set`: one commit on main; counts from serve's next pass, no restart; a run in progress is not
+  stopped). Serve records the outcome (`docs/state-model.md` row 45); `obor status` prints the next run (`nightly
+  check at HH:MM (in …)`, or `nightly: off (obor nightly on HH:MM)`) and the last full check and its age.
 
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
 Slow tests and long property gates run only at milestone end (+ an optional non-blocking nightly), never in per-task
@@ -494,7 +496,8 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   keeps today's per-merge behaviour (opt-in).
 - Serve's gate runs only per-merge commands (check, or the change-based partial set of v2.5; plus gate/baseline with
   `at: merge`).
-- `obor nightly` (v2.5) runs the milestone tier: check + check_milestone + baseline + gate + e2e; **non-blocking**
+- `obor nightly` (v2.5) runs the milestone tier: check + check_milestone + baseline + gate + e2e, then its
+  `merge.nightly_commands` (T-817: non-gating); **non-blocking**
   (reports, never holds merges; serve's nightly run records `needs-you{full-check RED <sha7>}`, T-464).
 - The integrator runs `obor nightly` before the milestone merge into `main` (blocking:
   the milestone merge waits for GREEN, or for a lead decision logged in `docs/decisions.md`).

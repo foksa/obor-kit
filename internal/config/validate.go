@@ -33,6 +33,7 @@ func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v.lanes()
 	v.difficulty()
 	v.classes()
+	v.nightlyCommands()
 	v.integrator()
 	v.customRoles()
 	v.roleDocs()
@@ -118,6 +119,29 @@ func (v *validator) models() {
 			path += ".model"
 		}
 		v.modelRef(path, e.Model, false)
+	}
+}
+
+// gatingCommands are the commands a merge or the nightly gates on, a merge class's checks beside them:
+// merge.nightly_commands must name none of them (T-817).
+var gatingCommands = []string{"lane_setup", "check", "check_milestone", "baseline", "gate", "e2e", "guard"}
+
+// nightlyCommands: every merge.nightly_commands entry is a defined commands.<name> and no gating command — nightly
+// runs it non-gating, after its gates (T-817).
+func (v *validator) nightlyCommands() {
+	gating := slices.Clone(gatingCommands)
+	for _, class := range v.d.Merge.Classes {
+		gating = append(gating, class.Checks...)
+	}
+	for i, name := range v.d.Merge.NightlyCommands {
+		path := ".merge.nightly_commands" + idx(i)
+		if _, ok := v.c.Command(name); !ok {
+			v.fail(path, "no commands"+key(name)+": define it, or remove it")
+			continue
+		}
+		if slices.Contains(gating, name) {
+			v.fail(path, Compact(name)+" is a gating command: nightly runs it as a gate, never non-gating")
+		}
 	}
 }
 
