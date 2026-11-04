@@ -2,8 +2,11 @@ package launch_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -76,5 +79,71 @@ func TestEveryStartPathTypesTheRegistryEnv(t *testing.T) {
 				t.Errorf("after a stale shell, the env line %q leaves %q, want %q", line, got, want)
 			}
 		})
+	}
+}
+
+// T-809: an OpenCode start, a lane's worker and a role agent alike, names its generated config in the env line
+// (OPENCODE_CONFIG=<project>/.obor/state/opencode.json, a path: the line stays short): the file that line names holds
+// obor's MCP server (the launching kit's `bin/obor mcp`) and plugin (the kit's package dir). Another kind's start
+// names none.
+func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
+	t.Parallel()
+	x := setup(t, testkit.Set("models", `{"oc":{"kind":"opencode","model":"go/ds"}}`),
+		testkit.Set("roles", `{"reviewer":"oc","integrator":"opus"}`))
+	file := filepath.Join(x.p.Root, ".obor", "state", "opencode.json")
+	if _, err := os.Stat(file); err == nil {
+		t.Fatal("precondition: no generated config yet")
+	}
+	x.p.State("L-01", `{"task":"T-1","branch":"task/T-1","agent":"pj-l-01","type":"oc"}`)
+	x.shell("w1:p3", "pj-l-01", "")
+	x.agent("w1:p7", "pj-rev", "opencode", "idle")
+	x.agent("w1:p8", "pj-int", "claude", "idle")
+	// lineOf runs req's restart and reads the env line it typed: the line, and the config path it names ("" when none).
+	lineOf := func(req launch.Request) (string, string) {
+		before := len(x.calls("pane.send_input"))
+		if out, ok := x.restart(req); !ok {
+			t.Fatal(out)
+		}
+		for _, c := range x.calls("pane.send_input")[before:] {
+			_, line, _ := strings.Cut(c, " text=")
+			if !strings.Contains(line, "export ") {
+				continue
+			}
+			_, rest, ok := strings.Cut(line, "OPENCODE_CONFIG=")
+			if !ok {
+				return line, ""
+			}
+			config, _, _ := strings.Cut(rest, " ")
+			return line, strings.Trim(config, "'")
+		}
+		t.Fatalf("%s: no env line typed", req.Agent)
+		return "", ""
+	}
+	for _, req := range []launch.Request{{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, {Agent: "pj-rev", Fresh: true}} {
+		if line, config := lineOf(req); config != file {
+			t.Errorf("%s: the env line %q names config %q, want %s", req.Agent, line, config, file)
+		}
+	}
+	if line, config := lineOf(launch.Request{Agent: "pj-int", Fresh: true}); config != "" {
+		t.Errorf("a claude start names OPENCODE_CONFIG: %q", line)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		MCP struct {
+			Servers map[string]struct{ Command []string }
+		}
+		Plugins []string
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	if c := got.MCP.Servers["obor"].Command; strings.Join(c, " ") != "/kit/bin/obor mcp" {
+		t.Errorf("mcp.servers.obor.command = %q: want the launching kit's", c)
+	}
+	if strings.Join(got.Plugins, " ") != "file:///kit/opencode" {
+		t.Errorf("plugins = %q: want the kit's plugin dir", got.Plugins)
 	}
 }

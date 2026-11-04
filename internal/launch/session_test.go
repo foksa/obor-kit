@@ -373,3 +373,56 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 		eq(t, x.recorded("pj-l-01"), "", "nothing recorded")
 	})
 }
+
+// T-589: the start pins the agent's process; the search never looks at the pane again. The pane is held by another
+// agent (pid 999, with its own rollout) before the background search runs: the first agent records its own rollout
+// when its process lives, nothing when it is gone (its pid under another process), never the replacement's.
+func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
+	t.Parallel()
+	for _, gone := range []bool{false, true} {
+		name := "the process lives: its own rollout"
+		if gone {
+			name = "the process is gone, its pid reused: nothing"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
+			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
+			var gen atomic.Int32
+			x.ps = func(args ...string) ([]byte, error) {
+				if strings.Join(args, " ") == "-o lstart= -p 205" {
+					return []byte("start-" + strconv.Itoa(int(gen.Load())) + "\n"), nil
+				}
+				return nil, nil
+			}
+			pid := map[string]int{"w1:p5": 205}
+			x.wrap = func(h port.PaneControl) port.PaneControl { return pids{h, x.f, pid} }
+			x.shell("w1:p5", "pj-int", "")
+			if out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true}); !ok {
+				t.Fatal(out)
+			}
+			// Another agent now holds the pane, and pid 205 is either still the first agent's or a stranger's.
+			pid["w1:p5"] = 999
+			x.hold(999, writeRollout(x, "cx-replacement", x.p.Root, time.Now()))
+			if gone {
+				gen.Store(1)
+				x.hold(205, writeRollout(x, "cx-stranger", x.p.Root, time.Now()))
+				deadline := time.Now().Add(bound)
+				for !strings.Contains(x.log(), "is gone") && time.Now().Before(deadline) {
+					time.Sleep(5 * time.Millisecond)
+				}
+				contains(t, x.log(), "warning: pj-int (pid 205) is gone: its codex session is not recorded", "said")
+				x.mu.Lock()
+				defer x.mu.Unlock()
+				if len(x.reported) != 0 {
+					t.Errorf("recorded for a gone process: %+v", x.reported)
+				}
+				return
+			}
+			own := writeRollout(x, "cx-own", x.p.Root, time.Now())
+			x.hold(205, own)
+			got := awaitReports(t, x, 1)
+			eq(t, got["pj-int"].ID+" "+got["pj-int"].Transcript, "cx-own "+own, "its own rollout, not the replacement's")
+		})
+	}
+}
