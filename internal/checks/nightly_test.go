@@ -72,6 +72,35 @@ func TestNightly(t *testing.T) {
 			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ RED failed: check, e2e; check 1 pass, 2 fail, gate rc=0, e2e rc=5, [0-9]+s\n$`, "state file")
 			x.gone(x.window(), "lock released")
 		}},
+		// T-805: a passing conformance run's skips and warns are in the report (RV-103 #1: herdr missing from
+		// nightly's PATH reads "0 pass, 0 fail" today)
+		{"conformance exit 0 with SKIP lines: the line carries their count, every SKIP line printed, still GREEN", func(t *testing.T) {
+			x := newFx(t, cmd("conformance", logged("conformance",
+				`echo "SKIP H-S1 herdr is not installed (herdr.sock, CAP §5.1)"; echo "SKIP H-S2 herdr is not installed (herdr.go:12, CAP §5.1)"; echo "conformance: 0 pass, 0 fail, 2 skip, 0 warn"`)))
+			head := x.head(x.Root)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 0 pass, 0 fail, 2 skip, 0 warn, [0-9]+s\)$`)
+			x.contains(x.out.String(), "--- conformance (non-gating)\n"+
+				"SKIP H-S1 herdr is not installed (herdr.sock, CAP §5.1)\n"+
+				"SKIP H-S2 herdr is not installed (herdr.go:12, CAP §5.1)\n", "both SKIP lines below the conformance line")
+			x.match(x.Read(".obor/state/last-full-check"),
+				`^`+head+` [0-9]+ GREEN conformance \(non-gating\) 0 pass, 0 fail, 2 skip, 0 warn, [0-9]+s\n$`, "state file")
+		}},
+		{"conformance exit 0 with a WARN line: the line carries its count, the WARN line printed, still GREEN", func(t *testing.T) {
+			x := newFx(t, cmd("conformance", logged("conformance",
+				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "WARN H-S2 herdr's protocol is newer than obor's (herdr.go:9, CAP §6)"; echo "conformance: 1 pass, 0 fail, 0 skip, 1 warn"`)))
+			head := x.head(x.Root)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 1 pass, 0 fail, 0 skip, 1 warn, [0-9]+s\)$`)
+			x.contains(x.out.String(), "--- conformance (non-gating)\n"+
+				"WARN H-S2 herdr's protocol is newer than obor's (herdr.go:9, CAP §6)\n", "the WARN line below the conformance line")
+			x.lacks(x.out.String(), "PASS H-S1", "no PASS lines")
+		}},
+		{"conformance exit 0 all PASS: one line as today, no details", func(t *testing.T) {
+			x := newFx(t, cmd("conformance", logged("conformance",
+				`echo "PASS H-S1 obor sends only fields herdr knows (herdr.go:40, CAP §6)"; echo "conformance: 2 pass, 0 fail, 0 skip, 0 warn"`)))
+			head := x.head(x.Root)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(conformance \(non-gating\) 2 pass, 0 fail, [0-9]+s\)$`)
+			x.eq(x.out.String(), "", "no detail lines")
+		}},
 		// T-798: the conformance suite's static tier is a line in the report, never RED
 		{"a failing conformance command is a non-gating line: GREEN, its details printed", func(t *testing.T) {
 			x := newFx(t, cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
