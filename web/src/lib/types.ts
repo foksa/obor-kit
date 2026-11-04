@@ -152,6 +152,15 @@ export interface WatchStatus {
   since: number;
 }
 
+// Idle is the project's idle state (T-803): the pipeline is empty since its fact's time, what ended it, and the
+// lead's acknowledgement (acked and why).
+export interface Idle {
+  since: number;
+  last?: string;
+  acked?: boolean;
+  why?: string;
+}
+
 export interface MergeItem {
   task: string;
   title?: string;
@@ -235,6 +244,7 @@ export interface ProjectView {
   messages: MessageStatus[];
   review?: string;
   watches?: WatchStatus[];
+  idle?: Idle;
   queue: Queue;
   events: Event[];
   notes?: string[];
