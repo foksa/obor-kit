@@ -1,9 +1,10 @@
 // Package opencode is the OpenCode bridge (agents.Kind): --prompt, no resume, /exit with its popup's second Enter,
-// `opencode run` denied, obor's MCP server in the user config and obor's plugin (<kit>/opencode/obor.js, its hook
-// transport) linked into it, prompts typed.
+// `opencode run` denied, obor's MCP server and plugin (<kit>/opencode, its hook transport) in each start's generated
+// config (OPENCODE_CONFIG, T-809), prompts typed.
 package opencode
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,8 @@ func (kind) CheckEffort(args []string, effort string) error {
 	return nil
 }
 
-// StartEnv: ModelVar <provider>/<model>[#<effort>] when the type's args name a model (the effort replaces a #variant
+// StartEnv: ConfigVar, the path of the start's generated config (Config of in.Kit, written by in.WriteState; neither
+// set: none), and ModelVar <provider>/<model>[#<effort>] when the type's args name a model (the effort replaces a #variant
 // the model names), else ModelVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has
 // no --model flag (2.2.0: only `opencode run` and `mini` take one) and, for a new session, ranks the variant it
 // remembers in its state (model.json) above the config's; obor's plugin switches the session in its prompt hook, after
@@ -70,7 +72,15 @@ func (k kind) StartEnv(in agents.Start) (map[string]string, error) {
 		model, _, _ = strings.Cut(model, "#")
 		model += "#" + in.Effort
 	}
-	return map[string]string{ModelVar: model}, nil
+	vars := map[string]string{ModelVar: model}
+	if in.Kit != "" && in.WriteState != nil {
+		path, err := in.WriteState(ConfigFile, Config(in.Kit))
+		if err != nil {
+			return nil, fmt.Errorf("opencode: the start's config: %v", err)
+		}
+		vars[ConfigVar] = path
+	}
+	return vars, nil
 }
 
 // WithModel: --model <model> in place of the args' own (--model or -m, T-753). OpenCode has no effort arg: a type
@@ -112,25 +122,62 @@ func (kind) Headless() agents.Headless {
 		ValueOpts: []string{"--server", "-s", "--session", "--prompt", "--completions", "--log-level"}}
 }
 
-// Install: OpenCode 2's mcp.servers.obor in the user config (<XDG_CONFIG_HOME|~/.config>/opencode/opencode.json, or
-// opencode.jsonc when that is the only one): a local server, the kit's shim with the one argument, pinned to the kit
-// (T-420); and obor's plugin linked as plugins/obor.js there (T-306; user-global, once per user).
+// Install: nothing user-global (T-809): obor's MCP server and plugin reach each start through its generated config
+// (StartEnv, ConfigVar). Retired are what obor setup agents wrote before: mcp.servers.obor in the user config
+// (<XDG_CONFIG_HOME|~/.config>/opencode/opencode.json, or opencode.jsonc when that is the only one) and the link
+// plugins/obor.js there. With that link present opencode sets up its global copy and never the start's (T-804 OC-L4),
+// so setup removes both.
 func (kind) Install(kit string, env func(string) string) agents.Install {
 	conf := env("XDG_CONFIG_HOME")
 	if conf == "" {
 		conf = filepath.Join(env("HOME"), ".config")
 	}
 	conf = filepath.Join(conf, name)
-	shim := []string{filepath.Join(kit, "bin", "obor"), "mcp"}
+	how := ConfigVar + " (the start's generated config: " + filepath.Join(kit, "bin", "obor") + " mcp, plugin " +
+		filepath.Join(kit, name) + ")"
 	return agents.Install{
-		MCP: agents.MCPRegistration{Where: agents.Config,
-			Path: filepath.Join(conf, "opencode.json"), AltPath: filepath.Join(conf, "opencode.jsonc"),
-			Key:      []string{"mcp", "servers", "obor"},
-			Entry:    map[string]any{"type": "local", "command": shim, "environment": map[string]string{agents.Pin: "1"}},
-			Unpinned: map[string]any{"type": "local", "command": shim},
-			Lane:     func([]string, agents.ReadFile) (string, bool, bool) { return "", true, true }},
-		Plugin: &agents.Link{From: filepath.Join(kit, name, "obor.js"), To: filepath.Join(conf, "plugins", "obor.js")},
+		MCP: agents.MCPRegistration{Where: agents.PerStart,
+			Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, true, false }},
+		Retired: &agents.Retired{
+			MCP: agents.MCPRegistration{Where: agents.Config,
+				Path: filepath.Join(conf, "opencode.json"), AltPath: filepath.Join(conf, "opencode.jsonc"),
+				Key: []string{"mcp", "servers", "obor"}},
+			Ours: oborEntry,
+			Link: &agents.Link{From: filepath.Join(kit, name, "obor.js"), To: filepath.Join(conf, "plugins", "obor.js")},
+		},
 	}
+}
+
+// oborEntry: a decoded mcp.servers.obor entry runs some obor kit's `bin/obor mcp` (any kit's: the one setup wrote
+// was ~/.obor/kit's).
+func oborEntry(entry any) bool {
+	m, _ := entry.(map[string]any)
+	cmd, _ := m["command"].([]any)
+	if len(cmd) != 2 || cmd[1] != "mcp" {
+		return false
+	}
+	bin, _ := cmd[0].(string)
+	return filepath.Base(bin) == "obor" && filepath.Base(filepath.Dir(bin)) == "bin"
+}
+
+// ConfigVar is the variable that names a start's generated config (T-809): a path, so the typed env line stays short
+// (herdr refuses over-long lines).
+const ConfigVar = "OPENCODE_CONFIG"
+
+// ConfigFile is the generated config's name in the project's state dir.
+const ConfigFile = "opencode.json"
+
+// Config is the generated config of a start from kit: mcp.servers.obor runs the kit's `bin/obor mcp`, pinned to the
+// kit (agents.Pin, T-420), and plugins names the kit's plugin package dir (<kit>/opencode: opencode loads a package
+// dir from an env config, not a plain .js file, T-804 OC-L4).
+func Config(kit string) []byte {
+	b, _ := json.MarshalIndent(map[string]any{
+		"mcp": map[string]any{"servers": map[string]any{"obor": map[string]any{
+			"type": "local", "command": []string{filepath.Join(kit, "bin", "obor"), "mcp"},
+			"environment": map[string]string{agents.Pin: "1"}}}},
+		"plugins": []string{"file://" + filepath.Join(kit, name)},
+	}, "", "  ")
+	return append(b, '\n')
 }
 
 func (kind) Transcript(func(string) string, string, string) string { return "" }

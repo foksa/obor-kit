@@ -226,3 +226,15 @@ func SafeName(name string) string {
 		return '_'
 	}, name)
 }
+
+// StateWriter writes a start's file (agents.Start.WriteState) as name in root's state dir, atomically, and returns its
+// path.
+func StateWriter(root string) func(name string, data []byte) (string, error) {
+	return func(name string, data []byte) (string, error) {
+		path := filepath.Join(StateDir(root), name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", err
+		}
+		return path, WriteAtomic(path, data)
+	}
+}

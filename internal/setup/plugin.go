@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/port"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -264,12 +266,12 @@ func (s *Setup) resumeHint() {
 	s.say("%s", line)
 }
 
-// agentsCmd is `obor setup agents [--remove]` (user-global, once per user): for every kind,
-// what its bridge says to install (agents.Install): its plugin link (Plugin: e.g. OpenCode's
-// <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js, T-306), then the obor entry of its
-// user config (a Config registration, configMCP). A link to another kit's copy is re-linked; a file there that is no
-// link, or links elsewhere, is left alone. --remove deletes only that link and that entry. Nothing else is touched; a
-// kind with neither is said once.
+// agentsCmd is `obor setup agents [--remove]` (user-global, once per user): for every kind, what its bridge says to
+// install (agents.Install): its plugin link (Plugin), then the obor entry of its user config (a Config registration,
+// configMCP). A link to another kit's copy is re-linked; a file there that is no link, or links elsewhere, is left
+// alone. --remove deletes only that link and that entry. Either way a Retired registration (OpenCode's global
+// mcp.servers.obor entry and plugins/obor.js link, T-809: now per start) is removed while it is obor's (retire).
+// Nothing else is touched; a kind with none of these is said once.
 func (s *Setup) agentsCmd(args []string) error {
 	remove := len(args) == 1 && args[0] == "--remove"
 	if len(args) > 0 && !remove {
@@ -278,7 +280,7 @@ func (s *Setup) agentsCmd(args []string) error {
 	for _, name := range agents.Names() {
 		k, _ := agents.Lookup(name)
 		in := k.Install(s.Kit, s.Env.Get)
-		if in.Plugin == nil && in.MCP.Where != agents.Config {
+		if in.Plugin == nil && in.MCP.Where != agents.Config && in.Retired == nil {
 			s.say("agents %s: nothing to install", name)
 			continue
 		}
@@ -292,8 +294,66 @@ func (s *Setup) agentsCmd(args []string) error {
 				return err
 			}
 		}
+		if in.Retired != nil {
+			if err := s.retire(name, *in.Retired); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// retire removes r (what an earlier obor installed for kind): the link when it links to an obor kit's copy, the entry
+// when r.Ours says it is obor's. Another link, a file there, or an entry that is not obor's: a WARN, left alone.
+func (s *Setup) retire(kind string, r agents.Retired) error {
+	if l := r.Link; l != nil {
+		target, err := os.Readlink(l.To)
+		_, lerr := os.Lstat(l.To)
+		switch {
+		case lerr != nil:
+			s.say("OK agents %s: no %s (obor's plugin loads per start)", kind, l.To)
+		case err != nil:
+			s.say("WARN agents %s: %s is not obor's link: left alone", kind, l.To)
+		case !kitCopy(target, l.From):
+			s.say("WARN agents %s: %s links to %s (not an obor kit's): left alone", kind, l.To, target)
+		default:
+			if err := os.Remove(l.To); err != nil {
+				return project.Failf("agents %s: %v", kind, err)
+			}
+			s.say("OK agents %s: removed the global plugin link %s (obor's plugin loads per start; restart %s)", kind, l.To, kind)
+		}
+	}
+	m := r.MCP
+	path, key := configFile(m), strings.Join(m.Key, ".")
+	doc, err := readConfig(path)
+	if errors.Is(err, errComments) {
+		s.say("WARN agents %s: %s is not edited (comments would be lost): remove %s there by hand", kind, path, key)
+		return nil
+	}
+	if err != nil {
+		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
+	}
+	cur, err := config.MemberAt(doc, m.Key)
+	switch {
+	case err != nil:
+		return project.Failf("agents %s: %s: %v: left alone", kind, path, err)
+	case cur == nil:
+		s.say("OK agents %s: no %s in %s (obor's server is registered per start)", kind, key, path)
+		return nil
+	case !r.Ours(anyJSON(string(cur))):
+		s.say("WARN agents %s: %s in %s is not obor's (%s): left alone", kind, key, path, cur)
+		return nil
+	}
+	if err := s.writeUserConfig(kind, path, doc, m.Key, nil); err != nil {
+		return err
+	}
+	s.say("OK agents %s: removed the global %s from %s (obor's server is registered per start; restart %s)", kind, key, path, kind)
+	return nil
+}
+
+// kitCopy: target is another obor kit's copy of mine (a file of the same name in a dir of the same name).
+func kitCopy(target, mine string) bool {
+	return filepath.Base(target) == filepath.Base(mine) && filepath.Base(filepath.Dir(target)) == filepath.Base(filepath.Dir(mine))
 }
 
 // pluginLink links kind's l.To to l.From (remove: deletes the link); a link to a file of the same name in a dir of the
@@ -308,8 +368,7 @@ func (s *Setup) pluginLink(kind string, l agents.Link, remove bool) error {
 	if _, lerr := os.Lstat(link); lerr == nil && !exists {
 		return project.Failf("agents %s: %s is not a link: left alone", kind, link)
 	}
-	ours := exists && filepath.Base(target) == filepath.Base(mine) &&
-		filepath.Base(filepath.Dir(target)) == filepath.Base(filepath.Dir(mine))
+	ours := exists && kitCopy(target, mine)
 	switch {
 	case exists && !ours:
 		return project.Failf("agents %s: %s links to %s (not an obor kit's %s): left alone", kind, link, target,

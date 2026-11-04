@@ -36,10 +36,10 @@
 //	        path needs this); herdr's plugin list is read once, and an error reading it is a FAIL, not "linked"
 //	        (T-613); then one hint line unless herdr's config sets `[session] resume_agents_on_restore =
 //	        false` (never edited, T-159).
-//	agents [--remove]  what each kind's bridge says to install (user-global, once per user):
-//	        its plugin link (OpenCode: <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js → <kit>/opencode/obor.js,
-//	        T-306; another kit's copy re-linked, anything else there left alone) and the obor entry of its user config
-//	        (OpenCode: mcp.servers.obor). --remove deletes those.
+//	agents [--remove]  what each kind's bridge says to install (user-global, once per user): its plugin link
+//	        and the obor entry of its user config (none today; another kit's copy re-linked, anything else there left
+//	        alone; --remove deletes those), and the removal of what an older obor installed (T-809: OpenCode's
+//	        <XDG_CONFIG_HOME|~/.config>/opencode/plugins/obor.js link and mcp.servers.obor entry, when obor's).
 //
 //	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.

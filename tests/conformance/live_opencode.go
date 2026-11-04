@@ -17,10 +17,11 @@ import (
 	"obor/internal/agents/opencode"
 )
 
-// opencodeLive: on scratch XDG dirs holding what `obor setup agents` writes (the global mcp.servers.obor entry and the
-// obor.js link, from the driver's Install), three --standalone starts in the lane: as set up (OC-L1, H-L1, OC-L5's
-// quit), with OPENCODE_CONFIG_CONTENT (OC-L3, OC-L4) and with OPENCODE_CONFIG while a marker plugin is also linked
-// globally (OC-L3, OC-L4). With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
+// opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global and
+// removes the old entry and link), one --standalone start in the lane with the env the driver's StartEnv gives it
+// (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
+// mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
+// With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
 	k := kindOf("opencode")
 	xdg := map[string]string{}
@@ -36,20 +37,20 @@ func opencodeLive(l *lab, turn bool) {
 		}
 		return xdg[n]
 	})
-	if err := writeKey(inst.MCP.Path, inst.MCP.Key, inst.MCP.Entry); err != nil {
-		report("FAIL", "OC-L1", "the scratch global config: "+err.Error(), "deep dive §6")
+	where3, where4 := at(opencodeGo, "func (kind) Install")+", P1, CAP §4.2", at(opencodeGo, "func Config")+", P1, CAP §4.3"
+	if inst.MCP.Where != agents.PerStart || inst.Plugin != nil {
+		report("FAIL", "OC-L3", fmt.Sprintf("Install still registers globally (%s, plugin %v)", inst.MCP.Where, inst.Plugin != nil), where3)
 		return
 	}
-	if inst.Plugin != nil {
-		_ = os.MkdirAll(filepath.Dir(inst.Plugin.To), 0o755)
-		if err := os.Symlink(inst.Plugin.From, inst.Plugin.To); err != nil {
-			report("FAIL", "OC-L1", "the scratch obor.js link: "+err.Error(), "deep dive §6")
-			return
+	vars, err := k.StartEnv(agents.Start{Kit: l.kit, WriteState: func(name string, data []byte) (string, error) {
+		path := filepath.Join(l.root, "state", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", err
 		}
-	}
-	marker, err := l.markerPlugin()
-	if err != nil {
-		report("FAIL", "OC-L4", "the marker plugin: "+err.Error(), "deep dive §6")
+		return path, os.WriteFile(path, data, 0o644)
+	}})
+	if err != nil || vars[opencode.ConfigVar] == "" {
+		report("FAIL", "OC-L3", fmt.Sprintf("StartEnv names no generated config (%v, %v)", vars, err), at(opencodeGo, "func (k kind) StartEnv"))
 		return
 	}
 	pane, err := l.workspace("conf", l.lane)
@@ -61,19 +62,23 @@ func opencodeLive(l *lab, turn bool) {
 	for k, v := range xdg {
 		paneEnv[k] = v
 	}
+	for k, v := range vars {
+		paneEnv[k] = v
+	}
 	if st, err := l.shell(pane, "cd "+shq(l.lane)+" && "+exports(paneEnv), 10*time.Second); err != nil || st != 0 {
 		report("FAIL", "OC-L1", fmt.Sprintf("the env line failed (status %d, %v)", st, err), at(launchGo, "func envLine"))
 		return
 	}
 	st := k.Stop()
 	where5 := at(opencodeGo, "func (kind) Stop") + ", CAP §4.6"
-	where4 := "P1, CAP §4.3"
 	argv := k.Start(agents.Start{Args: []string{"--standalone"}})
 
-	// 1: as obor sets it up.
-	if l.opencodeStart(pane, argv, "as set up") {
+	l.fresh()
+	if l.opencodeStart(pane, argv, "as obor starts it") {
 		mcp := l.waitRecords("mcp", "", 30*time.Second)
 		ocL1(l, pane, mcp)
+		ocL3(l.serverLabels(), where3)
+		ocL4(l, inst.Retired, where4)
 		if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
 			report("FAIL", "OC-L5", fmt.Sprintf("%s + a second Enter: exit status %d (%v)", st.Quit, code, orOK(err)), where5)
 			l.stopAgent(pane)
@@ -81,65 +86,6 @@ func opencodeLive(l *lab, turn bool) {
 			report("PASS", "OC-L5", st.Quit+" + a second Enter exits with status 0", where5)
 		}
 	}
-
-	// 2: OPENCODE_CONFIG_CONTENT naming another obor command and the marker as a file and as a package dir.
-	content := envConfig(l.kit, "content", "file://"+marker.file, "file://"+marker.dir)
-	l.fresh()
-	if _, err := l.shell(pane, "export OPENCODE_CONFIG_CONTENT="+shq(content), 10*time.Second); err == nil && l.opencodeStart(pane, argv, "OPENCODE_CONFIG_CONTENT") {
-		ocL3("OPENCODE_CONFIG_CONTENT", "content", l.serverLabels())
-		loads := l.markerLoads()
-		fileN, dirN := countURL(loads, marker.file), countURL(loads, filepath.Join(marker.dir, "index.js"))
-		fact := fmt.Sprintf(`"plugins" in OPENCODE_CONFIG_CONTENT under --standalone: file://…/conf-marker.js set up %d time(s)%s; file://<package dir> set up %d time(s)`,
-			fileN, l.pluginWarning(marker.file), dirN)
-		switch {
-		case fileN > 0:
-			report("PASS", "OC-L4", fact+": a plain .js file loads", where4)
-		case dirN > 0:
-			report("WARN", "OC-L4", fact+": only a package dir loads, so P1 ships obor.js in a dir with a package.json", where4)
-		default:
-			report("FAIL", "OC-L4", fact+": no plugin from the env config loads", where4)
-		}
-		if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
-			l.stopAgent(pane)
-		}
-	}
-
-	// 3: OPENCODE_CONFIG (a file) naming the package dir, and the same plugin (its id) also in the global plugins dir,
-	// as setup links obor.js there.
-	file := filepath.Join(l.root, "opencode-conf.json")
-	global := filepath.Join(xdg["XDG_CONFIG_HOME"], "opencode", "plugins", "conf-marker.js")
-	l.fresh()
-	logFrom := l.opencodeLogSize()
-	js, _ := os.ReadFile(marker.file)
-	if err := os.WriteFile(file, []byte(envConfig(l.kit, "file", "file://"+marker.dir)), 0o644); err != nil {
-		report("FAIL", "OC-L3", err.Error(), "deep dive §6")
-	} else if err := os.WriteFile(global, js, 0o644); err != nil {
-		report("FAIL", "OC-L4", err.Error(), "deep dive §6")
-	} else if _, err := l.shell(pane, "unset OPENCODE_CONFIG_CONTENT && export OPENCODE_CONFIG="+shq(file), 10*time.Second); err == nil && l.opencodeStart(pane, argv, "OPENCODE_CONFIG") {
-		ocL3("OPENCODE_CONFIG", "file", l.serverLabels())
-		loads := l.markerLoads()
-		dirN, globalN := countURL(loads, filepath.Join(marker.dir, "index.js")), countURL(loads, global)
-		log := l.opencodeLogSince(logFrom)
-		loading := func(id string) int { return strings.Count(log, `msg="loading plugin" id=`+id+" ") }
-		fact := fmt.Sprintf("one plugin id in OPENCODE_CONFIG's plugins (package dir) and in the global plugins dir: "+
-			"opencode logs loading the package %d time(s), the global file %d time(s); setup ran %d time(s) from the package, %d from the global file",
-			loading(marker.dir), loading(global), dirN, globalN)
-		switch {
-		case dirN > 0 && globalN > 0:
-			report("WARN", "OC-L4", fact+": set up twice, so P1 removes the global link", where4)
-		case globalN == 1 && dirN == 0:
-			report("WARN", "OC-L4", fact+": one setup per plugin id and the global copy wins, so P1 must remove the global link or the per-launch plugin never runs", where4)
-		case dirN == 1 && globalN == 0:
-			report("PASS", "OC-L4", fact+": one setup per plugin id, the env config's", where4)
-		default:
-			report("FAIL", "OC-L4", fact, where4)
-		}
-		if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
-			l.stopAgent(pane)
-		}
-		_, _ = l.shell(pane, "unset OPENCODE_CONFIG", 10*time.Second)
-	}
-	_ = os.Remove(global)
 
 	if !turn {
 		report("SKIP", "OC-L2", "needs TURN=1: obor.js runs a hook only for a session's events, which need a turn", "F1.3, P5")
@@ -149,57 +95,41 @@ func opencodeLive(l *lab, turn bool) {
 	ocTurn(l, pane, argv, xdg, st)
 }
 
-// writeKey writes {key[0]: {key[1]: … value}} as the JSON file path (what setup merges into a user config).
-func writeKey(path string, key []string, value any) error {
-	v := value
-	for i := len(key) - 1; i >= 0; i-- {
-		v = map[string]any{key[i]: v}
+// ocL3: the start's generated config's mcp.servers.obor is the one obor server that runs (its `obor mcp`, no label).
+func ocL3(labels []string, where string) {
+	fact := "OPENCODE_CONFIG's mcp.servers.obor, nothing global: servers run " + orNone(strings.Join(labels, ", "))
+	switch {
+	case slices.Equal(labels, []string{"start"}):
+		report("PASS", "OC-L3", fact+": the per-start entry runs, alone", where)
+	case slices.Contains(labels, "start"):
+		report("WARN", "OC-L3", fact+": another obor server runs beside it", where)
+	default:
+		report("FAIL", "OC-L3", fact+": the per-start entry does not run", where)
 	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
 }
 
-// envConfig is an opencode config that registers obor as the stub labelled label and loads plugins.
-func envConfig(kit, label string, plugins ...string) string {
-	b, _ := json.Marshal(map[string]any{
-		"mcp":     map[string]any{"servers": map[string]any{"obor": map[string]any{"type": "local", "command": []string{filepath.Join(kit, "bin", "obor"), "mcp", label}}}},
-		"plugins": plugins,
-	})
-	return string(b)
-}
-
-// marker is a server plugin that appends {pid, url, dir} to out/plugin-marker.jsonl from its setup: as a plain file
-// (marker/conf-marker.js) and as a package dir (marker/pkg: package.json and index.js), one plugin id.
-type markerPaths struct{ file, dir string }
-
-func (l *lab) markerPlugin() (markerPaths, error) {
-	m := markerPaths{file: filepath.Join(l.root, "marker", "conf-marker.js"), dir: filepath.Join(l.root, "marker", "pkg")}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
-		return m, err
-	}
-	js := fmt.Sprintf(`// obor conformance: records each setup of this plugin.
-import fs from "node:fs";
-
-export default {
-  id: "obor.conformance-marker",
-  setup(ctx) {
-    fs.appendFileSync(%q, JSON.stringify({ pid: process.pid, url: import.meta.url, dir: ctx?.location?.directory ?? "" }) + "\n");
-  },
-};
-`, filepath.Join(l.kit, "out", "plugin-marker.jsonl"))
-	pkg := `{"name": "obor-conformance-marker", "version": "0.0.1", "type": "module", "main": "index.js", "exports": {".": "./index.js"}}` + "\n"
-	for path, text := range map[string]string{m.file: js, filepath.Join(m.dir, "index.js"): js, filepath.Join(m.dir, "package.json"): pkg} {
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			return m, err
+// ocL4: no global obor.js link (what setup used to write) and obor.js set up exactly once, from the config's package
+// dir (<kit>/opencode, its main obor.js).
+func ocL4(l *lab, retired *agents.Retired, where string) {
+	if retired != nil && retired.Link != nil {
+		if _, err := os.Lstat(retired.Link.To); err == nil {
+			report("FAIL", "OC-L4", "a global "+retired.Link.To+" is there: opencode would set up that copy, not the start's", where)
+			return
 		}
 	}
-	return m, nil
+	js := filepath.Join(l.kit, "opencode", "obor.js")
+	loads := l.markerLoads()
+	n := countURL(loads, js)
+	fact := fmt.Sprintf("no global plugins/obor.js; the start's plugins (file://<kit>/opencode) set up obor.js %d time(s)%s, %d setup(s) in all",
+		n, l.pluginWarning(filepath.Join(l.kit, "opencode")), len(loads))
+	switch {
+	case n == 1 && len(loads) == 1:
+		report("PASS", "OC-L4", fact+": the per-start plugin, once", where)
+	case n > 1:
+		report("WARN", "OC-L4", fact+": set up more than once", where)
+	default:
+		report("FAIL", "OC-L4", fact, where)
+	}
 }
 
 // pluginWarning is opencode's log line about the configured plugin at path (scratch XDG_DATA_HOME's log), as
@@ -248,7 +178,7 @@ func countURL(loads []markerLoad, path string) int {
 	return n
 }
 
-// serverLabels are the labels of the MCP servers the start ran ("" for the global entry's `obor mcp`), after the
+// serverLabels are the labels of the MCP servers the start ran ("start" for the generated config's `obor mcp`), after the
 // first one shows and a settle.
 func (l *lab) serverLabels() []string {
 	l.waitRecords("mcp", "*", 30*time.Second)
@@ -257,7 +187,7 @@ func (l *lab) serverLabels() []string {
 	for _, r := range l.records("mcp", "*") {
 		label := r.Name
 		if label == "" {
-			label = "global"
+			label = "start"
 		}
 		labels = append(labels, label)
 	}
@@ -278,11 +208,11 @@ func (l *lab) opencodeStart(pane string, argv []string, mode string) bool {
 	return true
 }
 
-// ocL1: under --standalone the obor server set up globally is the TUI's grandchild, sees the pane env, runs in the lane.
+// ocL1: under --standalone the obor server of the start's config is the TUI's grandchild, sees the pane env, runs in the lane.
 func ocL1(l *lab, pane string, mcp []record) {
 	where := "F1.1, " + at("internal/config/models.go", "--standalone") + ", CAP §4.2"
 	if len(mcp) == 0 {
-		report("FAIL", "OC-L1", "the global mcp.servers.obor entry ran no server in 30s", where)
+		report("FAIL", "OC-L1", "the start's mcp.servers.obor entry ran no server in 30s", where)
 		return
 	}
 	r := mcp[0]
@@ -313,22 +243,6 @@ func ocL1(l *lab, pane string, mcp []record) {
 		return
 	}
 	report("PASS", "OC-L1", fact+": the TUI's grandchild, with the pane's env (HERDR_PANE_ID, OBOR_*, a pane-only var), cwd = lane", where)
-}
-
-// ocL3: which obor command runs when the env config names one and the global config another.
-func ocL3(how, label string, labels []string) {
-	where := at(opencodeGo, "func (kind) Install") + ", P1, CAP §4.2"
-	fact := fmt.Sprintf("%s's mcp.servers.obor over the global one: servers run %s", how, orNone(strings.Join(labels, ", ")))
-	switch {
-	case slices.Equal(labels, []string{label}):
-		report("PASS", "OC-L3", fact+": the env config's command replaces the global entry", where)
-	case slices.Contains(labels, label):
-		report("WARN", "OC-L3", fact+": both commands run", where)
-	case slices.Contains(labels, "global"):
-		report("FAIL", "OC-L3", fact+": the global entry wins, the env config's is ignored", where)
-	default:
-		report("FAIL", "OC-L3", fact+": no obor server ran", where)
-	}
 }
 
 // ocTurn (TURN=1): a role agent (OBOR_ROLE=researcher) in the main checkout, OBOR_OPENCODE_MODEL from
@@ -389,21 +303,4 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 // opencodeLog is the scratch XDG_DATA_HOME's opencode log.
 func (l *lab) opencodeLog() string {
 	return filepath.Join(l.root, "xdg", "data", "opencode", "log", "opencode.log")
-}
-
-func (l *lab) opencodeLogSize() int64 {
-	fi, err := os.Stat(l.opencodeLog())
-	if err != nil {
-		return 0
-	}
-	return fi.Size()
-}
-
-// opencodeLogSince is the log after byte off.
-func (l *lab) opencodeLogSince(off int64) string {
-	b, _ := os.ReadFile(l.opencodeLog())
-	if off > int64(len(b)) {
-		return ""
-	}
-	return string(b[off:])
 }

@@ -48,14 +48,16 @@
 // The plugin may run in a process shared by several panes (opencode serve --service), so its env is not the pane's:
 // runHook drops the pane-identity vars and obor takes identity from the cwd and lane state (T-308).
 //
-// The kit is this plugin's, except inside an obor checkout, which runs its main checkout's bin/obor (kitFor, T-478: the
-// same rule as bin/obor's self-hosting, so obor-kit's own lanes run its guard, not an older global kit's).
+// The kit is this plugin's, in every directory (T-809): each start's generated config (OPENCODE_CONFIG) names the
+// launching kit's plugin package dir (<kit>/opencode, this file its main), so the kit that started the agent runs its
+// hooks; no rule picks another one.
 //
 // Outside an obor project (no .obor/config.json above the directory) every hook is a no-op. bin/obor missing, failing
 // or slower than 5 s: allow, except the guard, which then denies (bin/obor's own no-binary rule already fails closed).
-// Installed by `obor setup agents` (a link in ~/.config/opencode/plugins/); plain JS, node built-ins only.
+// Loaded per start from the generated config's plugins (T-809; opencode loads a package dir from an env config, not a
+// plain .js file, so package.json beside this file names it); plain JS, node built-ins only.
 
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,28 +69,9 @@ const GUARDED = new Set(["Bash", "Edit", "Write"]);
 // The vars that name a pane: the plugin's process env may be another pane's (see the top), so obor hook never sees them.
 const PANE_IDENTITY = ["OBOR_AGENT", "OBOR_ROLE", "OBOR_LANE", "HERDR_PANE_ID"];
 
-// The kit: this file's real path (through the plugins-dir link), two levels up.
+// The kit: this file's real path, two levels up.
 function kitRoot() {
   return path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))));
-}
-
-// oborCheckout: the main checkout of the repository at dir when it is an obor checkout (bin/obor and a
-// .claude-plugin/plugin.json named obor: bin/obor's is_obor_checkout), else "".
-function oborCheckout(dir) {
-  try {
-    const common = execFileSync("git", ["-C", dir, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const main = path.dirname(fs.realpathSync(path.resolve(dir, common)));
-    const manifest = JSON.parse(fs.readFileSync(path.join(main, ".claude-plugin", "plugin.json"), "utf8"));
-    return fs.existsSync(path.join(main, "bin", "obor")) && manifest.name === "obor" ? main : "";
-  } catch {
-    return "";
-  }
-}
-
-// kitFor is the kit whose bin/obor runs for dir: bin/obor's self-hosting rule (T-478), so inside an obor checkout (main
-// or a lane worktree) the MAIN checkout's, never a lane's own build; elsewhere this plugin's kit.
-function kitFor(dir) {
-  return oborCheckout(dir) || kitRoot();
 }
 
 // inProject: a directory at or above dir holds .obor/config.json.
@@ -331,7 +314,7 @@ async function setup(ctx) {
   const model = process.env[MODEL_VAR];
   const cwd = ctx.location?.directory || process.cwd();
   if (!inProject(cwd)) return;
-  const kit = kitFor(cwd);
+  const kit = kitRoot();
   const sessions = sessionHooks(path.resolve(cwd), databasePath(ctx.app?.channel));
   const context = new Map(); // session → its session-start run: the context text
 

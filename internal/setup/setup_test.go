@@ -1473,244 +1473,133 @@ func gitIn(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// --- agents (T-306, DD-v0.13 B1) -------------------------------------------------------------------------------------
+// --- agents (T-306, DD-v0.13 B1, T-809) -----------------------------------------------------------------------------
 
-// agents links <XDG_CONFIG_HOME>/opencode/plugins/obor.js to the kit's opencode/obor.js, idempotently;
-// re-links another kit's copy; leaves a foreign file or link and the rest of the dir alone; --remove deletes the link.
-func TestOpencodePluginLinksAndRemoves(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	dir := filepath.Join(conf, "opencode", "plugins")
-	link := filepath.Join(dir, "obor.js")
-	mine := filepath.Join(kit, "opencode", "obor.js")
-	target := func() string { s, _ := os.Readlink(link); return s }
-
-	if x.Exists(dir) {
-		t.Fatal("precondition: no plugins dir")
-	}
-	out := x.ok(t, "agents")
-	if target() != mine {
-		t.Fatalf("link %s → %q, want %s\n%s", link, target(), mine, out)
-	}
-	has(t, out, "OK agents opencode: "+link+" → "+mine, "said")
-	x.Write(filepath.Join(dir, "herdr-agent-state.js"), "// herdr's\n")
-	has(t, x.ok(t, "agents"), "OK agents opencode: "+link+" already links to "+mine, "rerun: idempotent")
-	if target() != mine {
-		t.Error("rerun keeps the link")
-	}
-
-	os.Remove(link)
-	other := filepath.Join(x.Base, "old-kit", "opencode", "obor.js")
-	if err := os.Symlink(other, link); err != nil {
-		t.Fatal(err)
-	}
-	has(t, x.ok(t, "agents"), "agents opencode: re-linked "+link+" to "+mine+" (was "+other+")", "another kit's copy → re-linked")
-	if target() != mine {
-		t.Error("re-linked to this kit")
-	}
-
-	x.ok(t, "agents", "--remove")
-	if _, err := os.Lstat(link); err == nil {
-		t.Error("--remove deletes the link")
-	}
-	if x.Read(filepath.Join(dir, "herdr-agent-state.js")) != "// herdr's\n" {
-		t.Error("other files in the plugins dir untouched")
-	}
-	has(t, x.ok(t, "agents", "--remove"), "not linked", "remove again: idempotent")
-
-	if err := os.Symlink("/elsewhere/mine.js", link); err != nil {
-		t.Fatal(err)
-	}
-	x.failing(t, "FAIL agents opencode: "+link+" links to /elsewhere/mine.js (not an obor kit's opencode/obor.js): left alone", "agents")
-	x.failing(t, "FAIL agents opencode: "+link+" links to /elsewhere/mine.js (not an obor kit's opencode/obor.js): left alone", "agents", "--remove")
-	os.Remove(link)
-	x.Write(link, "// a user's own obor.js\n")
-	x.failing(t, "FAIL agents opencode: "+link+" is not a link: left alone", "agents")
-	if x.Read(link) != "// a user's own obor.js\n" {
-		t.Error("a user's file is never replaced")
-	}
-	x.failing(t, "FAIL "+Usage(), "agents", "--bogus")
-}
-
-// Without XDG_CONFIG_HOME the plugins dir is ~/.config/opencode/plugins.
-func TestOpencodePluginDefaultsToHomeConfig(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	home := filepath.Join(x.Base, "home") // the fixture's HOME; no XDG_CONFIG_HOME
-	x.ok(t, "agents")
-	if s, _ := os.Readlink(filepath.Join(home, ".config", "opencode", "plugins", "obor.js")); s != filepath.Join(kit, "opencode", "obor.js") {
-		t.Errorf("link → %q", s)
-	}
-}
-
-// --- obor MCP registration (T-375) ------------------------------------------------------------------------------------
-
-// agents also sets mcp.servers.obor in opencode.json (OpenCode 2): created when absent, idempotent, a stale
-// entry replaced, every other key (and the other mcp servers) kept; --remove deletes only mcp.servers.obor; a .jsonc
-// config with comments is never edited.
-func TestOpencodePluginWritesTheMCPEntry(t *testing.T) {
+// T-809: obor setup agents removes what an older obor wrote user-globally for OpenCode, now per start: the
+// mcp.servers.obor entry of <XDG_CONFIG_HOME>/opencode/opencode.json when it runs an obor kit's `bin/obor mcp`, and
+// the plugins/obor.js link when it links to an obor kit's opencode/obor.js. The user's other servers, keys and plugins
+// stay; a rerun (and --remove) says there is nothing left.
+func TestSetupAgentsRetiresTheGlobalOpencodeEntries(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 	path := filepath.Join(conf, "opencode", "opencode.json")
-	want := `"obor": {
-        "command": [
-          "` + filepath.Join(kit, "bin", "obor") + `",
-          "mcp"
-        ],
-        "environment": {
-          "OBOR_NO_SELF_HOST": "1"
-        },
-        "type": "local"
-      }`
-
-	if x.Exists(path) {
-		t.Fatal("precondition: no opencode.json")
+	dir := filepath.Join(conf, "opencode", "plugins")
+	link := filepath.Join(dir, "obor.js")
+	x.Write(path, `{"theme":"dark","plugins":["my-plugin"],"mcp":{"keep":1,"servers":{"other":{"type":"remote","url":"http://x"},`+
+		`"obor":{"type":"local","command":["/home/u/.obor/kit/bin/obor","mcp"],"environment":{"OBOR_NO_SELF_HOST":"1"}}}}}`)
+	x.Write(filepath.Join(dir, "herdr-agent-state.js"), "// herdr's\n")
+	if err := os.Symlink("/home/u/.obor/kit/opencode/obor.js", link); err != nil {
+		t.Fatal(err)
 	}
-	has(t, x.ok(t, "agents"), "OK agents opencode: mcp.servers.obor set in "+path, "created")
-	has(t, x.Read(path), want, "type local, command <kit>/bin/obor mcp, under mcp.servers")
-	has(t, x.Read(path), `"servers"`, "the v2 shape")
-	before := x.Read(path)
-	has(t, x.ok(t, "agents"), "mcp.servers.obor already set in "+path, "rerun: idempotent")
-	if x.Read(path) != before {
-		t.Error("an equal entry is not rewritten")
+	if _, err := os.Lstat(link); err != nil || !strings.Contains(x.Read(path), "/home/u/.obor/kit/bin/obor") {
+		t.Fatal("precondition: the old global entry and link")
 	}
 
-	x.Write(path, `{"theme":"dark","mcp":{"keep":1,"servers":{"other":{"type":"remote","url":"http://x"},"obor":{"type":"local","command":["/old/obor","mcp"]}}}}`)
-	has(t, x.ok(t, "agents"), "mcp.servers.obor set in "+path, "another kit's path: replaced")
+	out := x.ok(t, "agents")
+	has(t, out, "OK agents opencode: removed the global plugin link "+link, "the link: said")
+	has(t, out, "OK agents opencode: removed the global mcp.servers.obor from "+path, "the entry: said")
+	if _, err := os.Lstat(link); err == nil {
+		t.Error("the old link is removed")
+	}
 	got := x.Read(path)
-	for _, s := range []string{want, `"theme": "dark"`, `"keep": 1`, `"other"`, `"url": "http://x"`} {
-		has(t, got, s, "the stale entry replaced, the rest kept")
+	if strings.Contains(got, "obor") {
+		t.Errorf("the old entry is removed: %s", got)
 	}
-	if strings.Contains(got, "/old/obor") {
-		t.Errorf("stale entry left: %s", got)
+	for _, keep := range []string{`"theme": "dark"`, `"my-plugin"`, `"keep": 1`, `"other"`, `"url": "http://x"`} {
+		has(t, got, keep, "the user's other keys, servers and plugins kept")
 	}
-
-	has(t, x.ok(t, "agents", "--remove"), "mcp.servers.obor removed from "+path, "remove")
-	got = x.Read(path)
-	if strings.Contains(got, "obor") || !strings.Contains(got, `"other"`) || !strings.Contains(got, `"keep"`) || !strings.Contains(got, `"theme"`) {
-		t.Errorf("--remove deletes only mcp.servers.obor: %s", got)
+	if x.Read(filepath.Join(dir, "herdr-agent-state.js")) != "// herdr's\n" {
+		t.Error("other files in the plugins dir untouched")
 	}
-	has(t, x.ok(t, "agents", "--remove"), "no mcp.servers.obor in "+path, "remove again: idempotent")
-
-	os.Remove(path)
-	x.Write(path+"c", "// comments\n{}\n")
-	if out, rc := x.run(t, "agents"); rc != 1 || !strings.Contains(last(out), "opencode.jsonc is not edited") {
-		t.Errorf("a .jsonc config with comments is left alone: exit %d\n%s", rc, out)
+	for _, args := range [][]string{{"agents"}, {"agents", "--remove"}} {
+		out = x.ok(t, args...)
+		has(t, out, "OK agents opencode: no "+link, strings.Join(args, " ")+": no link left")
+		has(t, out, "OK agents opencode: no mcp.servers.obor in "+path, strings.Join(args, " ")+": no entry left")
+		if x.Read(path) != got {
+			t.Errorf("%s: the config is not rewritten", args)
+		}
 	}
+	x.failing(t, "FAIL "+Usage(), "agents", "--bogus")
 }
 
-// An opencode.jsonc that is plain JSON is read and edited like opencode.json: the user's current file (only $schema
-// and mcp.servers.obor) is registered and left byte for byte; an empty one gets the entry.
-func TestOpencodeJSONCPlainJSON(t *testing.T) {
+// T-809: a global entry that is not obor's (another command) and a plugins/obor.js that is not obor's link (a link
+// elsewhere, a user's own file) are left alone with a WARN, and setup agents still succeeds.
+func TestSetupAgentsKeepsAnOpencodeEntryThatIsNotObors(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.jsonc")
-	cur := `{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "servers": {
-      "obor": {
-        "type": "local",
-        "command": ["` + filepath.Join(kit, "bin", "obor") + `", "mcp"],
-        "environment": {"OBOR_NO_SELF_HOST": "1"}
-      }
-    }
-  }
-}
-`
-	x.Write(path, cur)
-	out, _ := x.run(t, "mcp")
-	has(t, out, "mcp opencode: registered ("+path+")", "the current file is registered")
-	if strings.Contains(out, "WARN mcp opencode") {
-		t.Errorf("registered file warned:\n%s", out)
+	path := filepath.Join(conf, "opencode", "opencode.json")
+	link := filepath.Join(conf, "opencode", "plugins", "obor.js")
+	theirs := `{"mcp":{"servers":{"obor":{"type":"local","command":["/usr/local/bin/my-obor","serve"]}}}}`
+	x.Write(path, theirs)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	has(t, x.ok(t, "agents"), "mcp.servers.obor already set in "+path, "already set")
-	if x.Read(path) != cur {
-		t.Errorf("the registered file is unchanged: %q", x.Read(path))
+	if err := os.Symlink("/elsewhere/mine.js", link); err != nil {
+		t.Fatal(err)
 	}
-
-	x.Write(path, "")
-	if x.Exists(filepath.Join(conf, "opencode", "opencode.json")) {
-		t.Fatal("precondition: no opencode.json")
+	out := x.ok(t, "agents")
+	has(t, out, "WARN agents opencode: mcp.servers.obor in "+path+" is not obor's", "a foreign entry: warned")
+	has(t, out, "WARN agents opencode: "+link+" links to /elsewhere/mine.js (not an obor kit's): left alone", "a foreign link: warned")
+	if x.Read(path) != theirs {
+		t.Errorf("a foreign entry is kept as it was: %s", x.Read(path))
 	}
-	has(t, x.ok(t, "agents"), "mcp.servers.obor set in "+path, "empty .jsonc: entry written")
-	has(t, x.Read(path), `"servers"`, "written into the .jsonc")
-	has(t, x.ok(t, "mcp"), "mcp opencode: registered ("+path+")", "and then registered")
+	if s, _ := os.Readlink(link); s != "/elsewhere/mine.js" {
+		t.Errorf("a foreign link is kept: → %q", s)
+	}
+	os.Remove(link)
+	x.Write(link, "// a user's own obor.js\n")
+	has(t, x.ok(t, "agents"), "WARN agents opencode: "+link+" is not obor's link: left alone", "a user's file: warned")
+	if x.Read(link) != "// a user's own obor.js\n" {
+		t.Error("a user's file is never removed")
+	}
 }
 
-// `obor setup mcp` on a .jsonc config (comments): the opencode WARN is followed by the same paste block, the file is
-// left alone, and the doctor still fails.
-func TestSetupMCPDoctorJSONCPrintsPasteHint(t *testing.T) {
+// Without XDG_CONFIG_HOME the old link and entry are looked for under ~/.config/opencode.
+func TestSetupAgentsRetiresUnderHomeConfig(t *testing.T) {
+	t.Parallel()
+	x := bare(t)
+	home := filepath.Join(x.Base, "home") // the fixture's HOME; no XDG_CONFIG_HOME
+	link := filepath.Join(home, ".config", "opencode", "plugins", "obor.js")
+	path := filepath.Join(home, ".config", "opencode", "opencode.json")
+	x.Write(path, `{"mcp":{"servers":{"obor":{"type":"local","command":["`+filepath.Join(kit, "bin", "obor")+`","mcp"]}}}}`)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(kit, "opencode", "obor.js"), link); err != nil {
+		t.Fatal(err)
+	}
+	x.ok(t, "agents")
+	if _, err := os.Lstat(link); err == nil {
+		t.Error("the link under ~/.config is removed")
+	}
+	if strings.Contains(x.Read(path), "obor") {
+		t.Errorf("the entry under ~/.config is removed (an unpinned one too): %s", x.Read(path))
+	}
+}
+
+// A .jsonc config with comments is not edited (the entry is to remove by hand: a WARN); one that is plain JSON is
+// edited like opencode.json; a config that is not JSON is left alone with a FAIL naming the file.
+func TestSetupAgentsRetireLeavesUneditableConfigs(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
 	conf := filepath.Join(x.Base, "xdg")
 	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.jsonc")
-	x.Write(path, "// comments\n{}\n")
-	warn := "WARN mcp opencode: not registered: " + path + " is not read (comments) (obor setup agents)"
-	paste := `paste into ` + path + ` under "mcp.servers":
-  "obor": {
-    "command": [
-      "` + filepath.Join(kit, "bin", "obor") + `",
-      "mcp"
-    ],
-    "environment": {
-      "OBOR_NO_SELF_HOST": "1"
-    },
-    "type": "local"
-  }`
-
-	out, rc := x.run(t, "mcp")
-	if rc != 1 {
-		t.Errorf("exit %d, want 1\n%s", rc, out)
+	jsonc := filepath.Join(conf, "opencode", "opencode.jsonc")
+	commented := "// comments\n{\"mcp\":{\"servers\":{\"obor\":{\"type\":\"local\",\"command\":[\"/k/bin/obor\",\"mcp\"]}}}}\n"
+	x.Write(jsonc, commented)
+	has(t, x.ok(t, "agents"), "WARN agents opencode: "+jsonc+" is not edited (comments would be lost): remove mcp.servers.obor there by hand", "comments: warned")
+	if x.Read(jsonc) != commented {
+		t.Errorf("the jsonc config is not written: %q", x.Read(jsonc))
 	}
-	has(t, out, warn+"\n"+paste, "the WARN, then the paste block right after it")
-	if got := x.Read(path); got != "// comments\n{}\n" {
-		t.Errorf("the jsonc config is not written: %q", got)
+	x.Write(jsonc, `{"$schema":"https://opencode.ai/config.json","mcp":{"servers":{"obor":{"type":"local","command":["/k/bin/obor","mcp"]}}}}`)
+	has(t, x.ok(t, "agents"), "OK agents opencode: removed the global mcp.servers.obor from "+jsonc, "a plain-JSON .jsonc: edited")
+	if got := x.Read(jsonc); strings.Contains(got, "obor") || !strings.Contains(got, "$schema") {
+		t.Errorf("the .jsonc entry removed, the rest kept: %s", got)
 	}
-}
-
-// A .jsonc config (comments) is not edited: the WARN line is followed by the obor entry to paste under "mcp.servers", and
-// the FAIL stays the last line.
-func TestOpencodePluginJSONCPrintsPasteHint(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.jsonc")
-	x.Write(path, "// comments\n{}\n")
-	paste := `paste into ` + path + ` under "mcp.servers":
-  "obor": {
-    "command": [
-      "` + filepath.Join(kit, "bin", "obor") + `",
-      "mcp"
-    ],
-    "environment": {
-      "OBOR_NO_SELF_HOST": "1"
-    },
-    "type": "local"
-  }`
-
-	out := x.failing(t, "FAIL agents opencode: "+path+" is not edited (comments would be lost)", "agents")
-	has(t, out, "WARN agents opencode: "+path+" is not edited", "the WARN line")
-	has(t, out, paste, "the obor entry to paste, indented, under mcp.servers")
-	if got := x.Read(path); got != "// comments\n{}\n" {
-		t.Errorf("the jsonc config is not written: %q", got)
-	}
-}
-
-// A config that is not JSON is left alone with a FAIL naming the file.
-func TestOpencodePluginLeavesBrokenConfigAlone(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
 	path := filepath.Join(conf, "opencode", "opencode.json")
 	x.Write(path, "{ not json")
 	out, rc := x.run(t, "agents")
@@ -1719,16 +1608,13 @@ func TestOpencodePluginLeavesBrokenConfigAlone(t *testing.T) {
 	}
 }
 
-// `obor setup mcp` says per kind whether the server is registered, then runs the handshake; OpenCode unregistered is a
-// WARN and a FAIL, registered all OK.
+// `obor setup mcp` says per kind whether the server is registered, then runs the handshake: all OK, a broken handshake
+// a WARN and a FAIL.
 func TestSetupMCPDoctor(t *testing.T) {
 	t.Parallel()
 	x := bare(t)
 	x.env = []string{"XDG_CONFIG_HOME=" + filepath.Join(x.Base, "xdg")}
-	out, rc := x.run(t, "mcp")
-	if rc != 1 {
-		t.Errorf("opencode unregistered: exit %d\n%s", rc, out)
-	}
+	out := x.ok(t, "mcp")
 	has(t, out, "mcp claude: registered", "claude: the kit's plugin.json")
 	has(t, out, "mcp codex: registered per start", "codex: launch args")
 	has(t, out, "env OBOR_NO_SELF_HOST=1", "codex: the pin")
@@ -1736,40 +1622,15 @@ func TestSetupMCPDoctor(t *testing.T) {
 		t.Errorf("a pinned claude manifest warns about the pin:\n%s", out)
 	}
 	has(t, out, `env_vars=["OBOR_ROLE","OBOR_LANE","HERDR_PANE_ID","OBOR_STATE_HOME"]`, "codex: forwarded variables")
-	has(t, out, "WARN mcp opencode: not registered", "opencode: not yet")
-
-	x.ok(t, "agents")
-	out = x.ok(t, "mcp")
-	has(t, out, "mcp opencode: registered", "opencode: after obor setup agents")
+	has(t, out, "mcp opencode: registered per start (OPENCODE_CONFIG", "opencode: its generated config (T-809)")
 	has(t, out, "MCP OK (", "the handshake line of obor mcp --check")
 	has(t, last(out), "OK mcp", "result")
 
 	x.mcpCheck = func(project.Env) (string, error) { return "", errors.New("the server answered nothing") }
-	out, rc = x.run(t, "mcp")
+	out, rc := x.run(t, "mcp")
 	has(t, out, "WARN mcp check: the server answered nothing", "a broken handshake")
 	if rc != 1 || last(out) != "FAIL mcp" {
 		t.Errorf("broken handshake: exit %d, last %q", rc, last(out))
-	}
-}
-
-// The doctor says when an OpenCode entry or the Claude manifest lacks the pin, and still accepts it (a WARN, no FAIL).
-func TestSetupMCPDoctorUnpinned(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.json")
-	x.Write(path, `{"mcp":{"servers":{"obor":{"type":"local","command":["`+kit+`/bin/obor","mcp"]}}}}`)
-	out, rc := x.run(t, "mcp")
-	has(t, out, "WARN mcp opencode: registered without the OBOR_NO_SELF_HOST pin", "opencode: unpinned entry")
-	if rc != 0 || last(out) != "OK mcp" {
-		t.Errorf("an unpinned entry is accepted: exit %d, last %q", rc, last(out))
-	}
-	x.ok(t, "agents")
-	has(t, x.Read(path), `"OBOR_NO_SELF_HOST": "1"`, "obor setup agents writes the pin")
-	out = x.ok(t, "mcp")
-	if strings.Contains(out, "without the") {
-		t.Errorf("a rewritten entry is pinned:\n%s", out)
 	}
 }
 
