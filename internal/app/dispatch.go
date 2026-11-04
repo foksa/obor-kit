@@ -325,8 +325,11 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		}
 	}
 	mt, held := a.held(p, c.Task)
+	a.mu.Lock()
+	finished := p.finishedIn(c.Task)
+	a.mu.Unlock()
 	paused := a.pausedModels(p, c.Types)
-	l, ref, why := pickLane(ls, c, held, paused, mt.disp.Type)
+	l, ref, why := pickLane(ls, c, held, paused, mt.disp.Type, finished)
 	if why != "" && c.Level != "" && c.Lane == "" {
 		return "", noLaneError{task: c.Task, level: c.Level, types: c.Types, ls: ls, paused: paused}
 	}
@@ -338,7 +341,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		return "", fmt.Errorf("dispatch %s: model %s's kind %s has no bridge (obor config validate)", c.Task, typ, kind)
 	}
 	note := pluginNote(cfg, l, typ)
-	redo := l.Task == c.Task && (l.State == "working" || l.State == "blocked")
+	redo := l.Task == c.Task && !finished && (l.State == "working" || l.State == "blocked")
 	switch {
 	case redo:
 	case l.State == "dirty-free" && !c.Force:
@@ -477,12 +480,13 @@ func effortNote(effort string) string {
 }
 
 // pickLane is c's lane in ls and the model ref its dispatch runs (every lane is pooled, T-765): the lane it names
-// (c's first model), else the lane that holds c.Task (working or blocked on it: a redo, T-545) with ran, the model ref
-// the task's dispatch ran (effort kept, T-738), unless c's explicit models (no level) name another (c's first), else
-// for each model of c in order, skipped while paused, the first lane in config order that is free (dirty-free with
-// force) and not held for another task's dispatch; else why not. A redo that changes the model it runs is held to the
-// new model's pause like a fresh dispatch of it (T-742).
-func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[string]string, ran string) (port.Lane, string, string) {
+// (c's first model), else the lane that holds c.Task (working or blocked on it, and the task not finished: a redo,
+// T-545) with ran, the model ref the task's dispatch ran (effort kept, T-738), unless c's explicit models (no level)
+// name another (c's first), else for each model of c in order, skipped while paused, the first lane in config order
+// that is free (dirty-free with force) and not held for another task's dispatch; else why not. A redo that changes the
+// model it runs is held to the new model's pause like a fresh dispatch of it (T-742).
+func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[string]string, ran string,
+	finished bool) (port.Lane, string, string) {
 	first := ""
 	for _, t := range c.Types {
 		if typ, _ := config.ParseModelRef(t); paused[typ] == "" {
@@ -506,7 +510,7 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[st
 		return port.Lane{}, "", "unknown lane " + c.Lane + " (not in the config's lanes)"
 	}
 	for _, l := range ls {
-		if l.Task == c.Task && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
+		if l.Task == c.Task && !finished && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
 			l.Dir = filepath.Clean(l.Dir)
 			explicit := c.Level == "" && len(c.Types) > 0
 			ref := ran
@@ -564,7 +568,7 @@ func (p *proj) foldDispatch(r event.Record) {
 	at, _ := time.Parse(time.RFC3339, r.TS)
 	next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stDispatched, disp: d, at: at,
 		dispSeq: r.Seq, drive: d.Drive}
-	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
+	if mt := p.folded.loop[r.Task]; mt != nil && !states[mt.state].ended {
 		next.sendbacks = mt.sendbacks
 	}
 	p.folded.loop[r.Task] = next
@@ -594,7 +598,7 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 			return "", fmt.Errorf("dispatch %s: %s waits for %s itself: a cycle never dispatches", c.Task, dep, c.Task)
 		case m == nil && !spec:
 			return "", fmt.Errorf("dispatch %s: %s is no task (no spec in obor serve's store)", c.Task, dep)
-		case m != nil && (m.state == stDropped || m.state == stRejected):
+		case m != nil && states[m.state].failed:
 			return "", fmt.Errorf("dispatch %s: %s is %s: it never merges", c.Task, dep, m.state)
 		case m == nil || m.state != stMerged:
 			open = append(open, dep)
@@ -624,8 +628,7 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 // dispatchable: a dispatch (or a waiting one) of mt's task may be recorded: none yet, ended (merged, rejected,
 // dropped), waiting, or a needs-you its dispatch or its wait left.
 func (m *mtask) dispatchable() bool {
-	switch m.kept() {
-	case "", stMerged, stRejected, stDropped, stWaiting:
+	if st := m.kept(); st == "" || st == stWaiting || states[st].ended {
 		return true
 	}
 	return m.redoable()
@@ -645,7 +648,7 @@ func (p *proj) foldWaiting(r event.Record) {
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
 	next := &mtask{task: r.Task, attempt: r.Attempt, state: stWaiting, disp: d, dispSeq: r.Seq} // its seq: oldest first
-	if mt := p.folded.loop[r.Task]; mt != nil && mt.state != stMerged && mt.state != stRejected && mt.state != stDropped {
+	if mt := p.folded.loop[r.Task]; mt != nil && !states[mt.state].ended {
 		next.sendbacks = mt.sendbacks
 	}
 	p.folded.loop[r.Task] = next
@@ -663,7 +666,7 @@ func (a *App) pickWaiting(p *proj, mt mtask) step {
 	ready, unheld := true, []string(nil)
 	for _, dep := range mt.disp.After {
 		switch m := p.folded.loop[dep]; {
-		case m != nil && (m.state == stDropped || m.state == stRejected):
+		case m != nil && states[m.state].failed:
 			why := fmt.Sprintf("after: %s waits for %s, which is %s: obor drop %s, or dispatch it again without it",
 				mt.task, dep, m.state, mt.task)
 			return func(context.Context, *Loop) bool {

@@ -106,7 +106,7 @@ func TestMergeHoldWaitsWhileARoleWorks(t *testing.T) {
 				t.Fatalf("%s working: T-1 %s, %d publish records; want accepted, none", c.role, got,
 					countStep(t, h, nth(event.StepPublish, 1)))
 			}
-			if got, want := h.taskHold("T-1"), "merge held: "+c.role+" working"; got != want {
+			if got, want := h.taskHold("T-1"), "merge hold: "+c.role; got != want {
 				t.Errorf("status hold = %q, want %q", got, want)
 			}
 			h.work(c.pane, false)
@@ -134,7 +134,7 @@ func TestMergeHoldWaitsForAnOpenBrief(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.pass(ctx)
-			if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge held: reviewer working" {
+			if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge hold: reviewer" {
 				t.Fatalf("brief open: T-1 %s, hold %q; want accepted, held by the reviewer", got, h.taskHold("T-1"))
 			}
 			if note != "" {
@@ -212,7 +212,7 @@ func TestMergeHoldReplay(t *testing.T) {
 		t.Fatalf("replayed: T-1 %s, holds %v; want accepted, no hold", mt.state, p.holds)
 	}
 	h.pass(ctx)
-	if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge held: reviewer working" {
+	if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge hold: reviewer" {
 		t.Errorf("after replay, reviewer working: T-1 %s, hold %q; want held", got, h.taskHold("T-1"))
 	}
 	h.work("w1:rev", false)
@@ -245,7 +245,7 @@ func TestMergeHoldEndsWhenTheBriefedAgentIsGone(t *testing.T) {
 	}
 	h.work("w1:rev", true)
 	h.pass(ctx)
-	if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge held: reviewer working" {
+	if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge hold: reviewer" {
 		t.Fatalf("brief worked on: T-1 %s, hold %q; want accepted, held by the reviewer", got, h.taskHold("T-1"))
 	}
 	h.status("w1:rev", func(p *port.Pane) { p.Agent, p.Status = "", "" }) // the agent exits: its pane at its shell

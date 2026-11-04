@@ -6,8 +6,10 @@ the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane 
 
 ## obor status (T-657)
 Read the line under serve's to see what runs without an agent: `running: gate T-656 (make -s check, 2m14s) · after_merge
-T-655 (make build, 12s)` (else `running: nothing`); a lane's state column reads `gating`, `merging`, `reviewing` or
-`held` while serve works on it. `obor status --short` is just that line, serve's and needs-you (a status bar).
+T-655 (make build, 12s)` (else `running: nothing`); a lane's state column is its task's phase, the same word the queue's
+`merge` line and web show (T-788): `dispatching`, `working`, `submitted`, `gating`, `gate pending`, `review`, `reviewing`,
+`publish`, `merging`, `publish pending`, `merge hold: <role>`, `needs-you`, or `held` (the integrator's hold alone);
+an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
 
 ## obor web (T-667)
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen

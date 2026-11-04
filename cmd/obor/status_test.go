@@ -93,8 +93,9 @@ func TestStatusOverServe(t *testing.T) {
 		Name: "pj", Root: p.Root, Merging: true, Paused: &event.Pause{Why: "quota", Caller: "pj-lead"},
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01", Status: "idle"},
 			{Pane: "w1:p9", Name: "pj-int", Agent: "claude", Status: "working", Age: 300}},
-		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working"},
-			{Task: "T-05", Lane: "L-09", Attempt: 2, State: "needs-you"}, {Task: "T-04", Lane: "L-09", State: "dropped"},
+		Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "working", Phase: wire.PhaseNeedsYou},
+			{Task: "T-05", Lane: "L-09", Attempt: 2, State: "needs-you", Phase: wire.PhaseNeedsYou},
+			{Task: "T-04", Lane: "L-09", State: "dropped", Phase: wire.PhaseDropped},
 			{Task: "T-09", Attempt: 1, State: "waiting", After: []string{"T-03"}, Why: "dispatch T-09: lane L-01 is working on T-01"}},
 		Facts: []event.Record{
 			fact(t, 1, "T-01", event.FactData{Lane: "L-01", Reason: "asks: may I edit x.go?"}),
@@ -119,7 +120,7 @@ func TestStatusOverServe(t *testing.T) {
 	if want := "serve: up since " + since.Local().Format("Jan 2 15:04") + " (2h)"; lines[0] != want {
 		t.Errorf("first line %q, want %q", lines[0], want)
 	}
-	matchLine(t, text, `^L-01 +- +task/T-01 +held +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-l1 \(idle\)$`, "L-01")
+	matchLine(t, text, `^L-01 +- +task/T-01 +needs-you +- +\(T-01\)  serve: working \(attempt 1\)  agent: pj-l1 \(idle\)$`, "L-01")
 	matchLine(t, text, `^L-02 +- +- +free +- +\(-\)$`, "L-02")
 	for _, want := range []string{
 		"task T-05 (L-09): needs-you (attempt 2)",
@@ -159,7 +160,8 @@ func TestStatusOverServe(t *testing.T) {
 	matchLine(t, text, `^serve: up since .*; this project is not loaded \(obor serve's output says why\); herdr: not connected$`, "not loaded")
 }
 
-// Serve down: one line saying so, first, the lanes from the store and git alone (a done lane with its age, an opencode
+// Serve down: one line saying so, first, the lanes from the store and git alone (T-788: no phase, so a submitted lane
+// is working, with its task_done's age; an opencode
 // lane without its plugin marker warned), no agents and no role rows (T-664: nothing stale), no full check yet; herdr
 // is never asked.
 func TestStatusServeDown(t *testing.T) {
@@ -186,8 +188,8 @@ func TestStatusServeDown(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	want := []string{`^serve: down \(obor serve is not running \(dial: refused\)\)$`,
 		`^running: nothing$`,
-		`^L-01 +- +task/T-01 +done +12m +\(T-01\)  agent: pj-l-01$`,
-		`^L-02 +- +task/T-02 +done +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
+		`^L-01 +- +task/T-01 +working +12m +\(T-01\)  agent: pj-l-01$`,
+		`^L-02 +- +task/T-02 +working +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
 		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
 		`^nightly: off \(obor nightly on HH:MM\)$`, // merge.nightly_at unset (T-781)
 		`^full check: none yet$`}
@@ -237,7 +239,7 @@ func TestStatusJSON(t *testing.T) {
 		t.Errorf("serve: %+v, needs_you %v, messages %v; want down with its error, needs_you [], messages []", st.Serve,
 			st.NeedsYou, st.Messages)
 	}
-	if len(st.Lanes) != 2 || st.Lanes[0]["lane"] != "L-01" || st.Lanes[0]["task"] != "T-01" || st.Lanes[0]["state"] != "done" ||
+	if len(st.Lanes) != 2 || st.Lanes[0]["lane"] != "L-01" || st.Lanes[0]["task"] != "T-01" || st.Lanes[0]["state"] != "working" || st.Lanes[0]["done_age"] == nil ||
 		st.Lanes[1]["task"] != nil || st.Lanes[1]["state"] != "free" {
 		t.Errorf("lanes: %v", st.Lanes)
 	}
@@ -265,9 +267,9 @@ func heldGateStatus() wire.Status {
 	return wire.Status{Connected: true, Project: &wire.ProjectStatus{
 		Name: "pj", Root: "/work/pj",
 		Tasks: []wire.TaskStatus{
-			{Task: "T-1", Lane: "L-01", Attempt: 1, State: "submitted", Running: "gate"},
-			{Task: "T-2", Lane: "L-02", Attempt: 1, State: "accepted", Running: "publish.2"},
-			{Task: "T-3", Lane: "L-03", Attempt: 1, State: "accepted"},
+			{Task: "T-1", Lane: "L-01", Attempt: 1, State: "submitted", Phase: wire.PhaseGating, Running: "gate"},
+			{Task: "T-2", Lane: "L-02", Attempt: 1, State: "accepted", Phase: wire.PhaseMerging, Running: "publish.2"},
+			{Task: "T-3", Lane: "L-03", Attempt: 1, State: "accepted", Phase: wire.PhasePublish},
 		},
 	}}
 }
@@ -293,8 +295,8 @@ func TestStatusShowsRunningGate(t *testing.T) {
 		t.Fatalf("precondition: T-1 must be held in its gate, Running = %q", st.Project.Tasks[0].Running)
 	}
 	line := taskLines(t, st)["T-1"]
-	if !strings.HasSuffix(line, "submitted (attempt 1), running gate") {
-		t.Errorf("held gate line = %q, want the state then \"running gate\"", line)
+	if !strings.HasSuffix(line, "gating (submitted, attempt 1), running gate") {
+		t.Errorf("held gate line = %q, want the phase, the state, then \"running gate\"", line)
 	}
 }
 
@@ -304,8 +306,8 @@ func TestStatusShowsRunningPublish(t *testing.T) {
 		t.Fatalf("precondition: T-2 must be publishing, Running = %q", st.Project.Tasks[1].Running)
 	}
 	line := taskLines(t, st)["T-2"]
-	if !strings.HasSuffix(line, "accepted (attempt 1), running publish.2") {
-		t.Errorf("publishing line = %q, want the state then \"running publish.2\"", line)
+	if !strings.HasSuffix(line, "merging (accepted, attempt 1), running publish.2") {
+		t.Errorf("publishing line = %q, want the phase, the state, then \"running publish.2\"", line)
 	}
 }
 
@@ -313,7 +315,7 @@ func TestStatusNumberedStepKeepsStep(t *testing.T) {
 	st := heldGateStatus()
 	st.Project.Tasks[0].Running = "gate.3"
 	line := taskLines(t, st)["T-1"]
-	if !strings.HasSuffix(line, "submitted (attempt 1), running gate.3") {
+	if !strings.HasSuffix(line, "gating (submitted, attempt 1), running gate.3") {
 		t.Errorf("numbered gate line = %q, want \"running gate.3\" with its number", line)
 	}
 }
@@ -563,13 +565,14 @@ func TestStatusQueue(t *testing.T) {
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-int", Agent: "claude", Status: "idle", Age: 120,
 			Session: "s1"}},
 		Tasks: []wire.TaskStatus{
-			{Task: "T-10", Lane: "L-01", Attempt: 1, State: "working", Job: "T-10/1/work", Delivered: true},
-			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted"},
-			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict"},
-			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted"},
-			{Task: "T-12", Attempt: 1, State: "waiting", After: []string{"T-11"}},
-			{Task: "T-14", Attempt: 1, State: "waiting", Level: "medium", Types: []string{"sonnet"}},
-			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Job: "T-9/1/review"},
+			{Task: "T-10", Lane: "L-01", Attempt: 1, State: "working", Phase: wire.PhaseWorking, Job: "T-10/1/work",
+				Delivered: true},
+			{Task: "T-100", Lane: "L-04", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted},
+			{Task: "T-1000", Lane: "L-05", Attempt: 1, State: "conflict", Phase: wire.PhaseReview},
+			{Task: "T-11", Lane: "L-02", Attempt: 1, State: "submitted", Phase: wire.PhaseSubmitted},
+			{Task: "T-12", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-11"}},
+			{Task: "T-14", Attempt: 1, State: "waiting", Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"sonnet"}},
+			{Task: "T-9", Lane: "L-03", Attempt: 1, State: "awaiting-accept", Phase: wire.PhaseReviewing, Job: "T-9/1/review"},
 		},
 		// T-669, T-673: serve's scheduler: the conflict T-1000 holds the scratch, so T-100 and T-11 (in the pass's
 		// lexical order) wait on it; no task is next (as data: the view copies what serve says, it does not check it).
@@ -728,7 +731,8 @@ func TestStatusQueue(t *testing.T) {
 		t.Errorf("events %+v; want the dispatch of T-10 with its seq, time and task", js.Events)
 	}
 	for _, re := range []string{
-		`^merge T-9 \(L-03\): review \(awaiting-accept\), job T-9/1/review not fetched$`,
+		`^merge T-9 \(L-03\): reviewing \(awaiting-accept\), job T-9/1/review not fetched$`,
+		`^merge T-1000 \(L-05\): review \(conflict\)$`,
 		`^scratch T-1000: conflict$`,
 		`^merge T-100 \(L-04\): submitted, waits for T-1000 \(conflict\)$`,
 		`^merge T-11 \(L-02\): submitted, waits for T-1000 \(conflict\)$`,

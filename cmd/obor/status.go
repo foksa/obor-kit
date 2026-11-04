@@ -153,8 +153,12 @@ func laneSection(st view.Project, now time.Time) []string {
 	for _, t := range st.Tasks {
 		// dropped stays in serve's list for good (--json has it); a waiting one is the queue's
 		if !shown[t.Task] && t.State != "dropped" && t.State != "waiting" {
-			fmt.Fprintf(&b, "task %s (%s): %s (attempt %d)%s%s\n", t.Task, app.Dash(t.Lane), t.State, t.Attempt,
-				running(t.Running), hold(t.Hold))
+			state := "" // serve's state when it says more than the phase (T-788)
+			if t.State != t.Phase {
+				state = t.State + ", "
+			}
+			fmt.Fprintf(&b, "task %s (%s): %s (%sattempt %d)%s\n", t.Task, app.Dash(t.Lane), t.Phase, state, t.Attempt,
+				running(t.Running))
 		}
 	}
 	for _, a := range st.Agents {
@@ -264,11 +268,11 @@ func queueSection(st view.Project, now time.Time) []string {
 	for _, o := range q.Outbox {
 		age := app.Age(max(now.Sub(time.Unix(o.Since, 0)), 0))
 		if o.Kind == view.OutLine {
-			held := ""
-			if o.Held != "" { // why serve holds it (T-746)
-				held = "; held: " + o.Held
+			wait := ""
+			if o.Held != "" { // why serve holds it (T-746; C7: "held" is the integrator's verdict alone)
+				wait = "; undelivered: " + o.Held
 			}
-			out = append(out, fmt.Sprintf("undelivered to %s (from %s, %s%s): %s", o.To, app.Dash(o.From), age, held,
+			out = append(out, fmt.Sprintf("undelivered to %s (from %s, %s%s): %s", o.To, app.Dash(o.From), age, wait,
 				o.Line))
 			continue
 		}
@@ -292,16 +296,16 @@ func queueSection(st view.Project, now time.Time) []string {
 	return out
 }
 
-// mergeLine is a merge-loop task's queue line: its lane, its stage (serve's state when it says more), what it waits
-// for and why (serve's scheduler, T-669; no task is named next, T-673), an integrator job out and whether it was
-// fetched.
+// mergeLine is a merge-loop task's queue line: its lane, its phase (T-788: the lane line's; serve's state when it says
+// more), what it waits for and why (serve's scheduler, T-669; no task is named next, T-673), an integrator job out
+// and whether it was fetched.
 func mergeLine(m view.MergeItem) string {
 	line := "merge " + m.Task
 	if m.Lane != "" {
 		line += " (" + m.Lane + ")"
 	}
-	line += ": " + m.Stage
-	if m.State != m.Stage {
+	line += ": " + m.Phase
+	if m.State != m.Phase {
 		line += " (" + m.State + ")"
 	}
 	if m.WaitsOn != "" {
@@ -545,14 +549,6 @@ func why(line string) string {
 }
 
 // running is a task's running step as its status line ends ("": none).
-// hold is a task's merge hold for its line (T-718): ", merge held: <role> working" ("": none).
-func hold(h string) string {
-	if h == "" {
-		return ""
-	}
-	return ", " + h
-}
-
 func running(step string) string {
 	if step == "" {
 		return ""

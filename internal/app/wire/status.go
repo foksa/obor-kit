@@ -1,6 +1,8 @@
 package wire
 
 import (
+	"strings"
+
 	"obor/internal/app/event"
 )
 
@@ -113,14 +115,72 @@ type WatchStatus struct {
 // it no jobs and no watchdog needs-you until obor land submits it.
 const TaskDriving = "driving"
 
+// A task's phase (TaskStatus.Phase, T-788): what serve does for it now, computed once by serve from its state's row
+// (internal/app/states.go) and the live overlays (needs-you in force, a step running or pending, the merge hold); obor
+// status, the view and obor web show it as it is.
+const (
+	PhaseWaiting        = "waiting"         // waits for its --after tasks or a free lane
+	PhaseDispatching    = "dispatching"     // its dispatch's steps (lane, agent, the work job)
+	PhaseWorking        = "working"         // its worker works on it (the work or fix job)
+	PhaseDriving        = TaskDriving       // the owner's drive agent works in the lane (T-751)
+	PhaseSubmitted      = "submitted"       // submitted: its gate is next
+	PhaseGating         = "gating"          // its gate runs, or runs again next (resolved, moved, red)
+	PhaseGatePending    = "gate pending"    // its gate's intent waits: a failed step, or a replay to run (T-662)
+	PhaseReview         = "review"          // gate green: its review or resolve job is next
+	PhaseReviewing      = "reviewing"       // the integrator's review or resolve job is out
+	PhasePublish        = "publish"         // accepted: its publish is next
+	PhaseMerging        = "merging"         // its publish runs
+	PhasePublishPending = "publish pending" // its publish's intent waits (T-662)
+	PhaseMergeHold      = "merge hold: "    // + the role: its publish waits for the reviewer or the deep dive (T-718)
+	PhaseNeedsYou       = "needs-you"       // a needs-you is in force for it (or its lane): the owner decides
+	PhaseHeld           = "held"            // the integrator's hold verdict: the owner decides (C7: held means this alone)
+	PhaseMerged         = "merged"          // the target holds it: its after-merge steps
+	PhaseRejected       = "rejected"        // ended: rejected
+	PhaseDropped        = "dropped"         // ended: dropped
+)
+
+// MergeHold is the phase of a task whose publish waits for role (T-718).
+func MergeHold(role string) string { return PhaseMergeHold + role }
+
+// The merge loop's stages (PhaseStage): the pipeline's columns, in the order a task goes through them.
+const (
+	StageSubmitted = "submitted" // submitted, waits for the scratch
+	StageGating    = "gating"    // its gate runs, waits, or failed red
+	StageReview    = "review"    // gate green: the integrator's review or resolve job
+	StagePublish   = "publish"   // accepted: published onto the target
+	StageHeld      = "held"      // needs-you or held: the owner decides
+)
+
+// PhaseStage is the merge-loop stage of phase ("": not in the merge loop: waiting, dispatching, working, driving or
+// ended).
+func PhaseStage(phase string) string {
+	switch phase {
+	case PhaseSubmitted:
+		return StageSubmitted
+	case PhaseGating, PhaseGatePending:
+		return StageGating
+	case PhaseReview, PhaseReviewing:
+		return StageReview
+	case PhasePublish, PhaseMerging, PhasePublishPending:
+		return StagePublish
+	case PhaseNeedsYou, PhaseHeld:
+		return StageHeld
+	}
+	if strings.HasPrefix(phase, PhaseMergeHold) {
+		return StagePublish
+	}
+	return ""
+}
+
 // TaskStatus is one task of the merge loop that is not merged.
 type TaskStatus struct {
 	Task    string   `json:"task"`
 	Lane    string   `json:"lane"`
 	Attempt int      `json:"attempt"`
 	State   string   `json:"state"`
+	Phase   string   `json:"phase"`             // what serve does for it now (Phase*, T-788)
 	Running string   `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
-	Hold    string   `json:"hold,omitempty"`    // accepted: "merge held: <role> working" while its publish waits (T-718)
+	Hold    string   `json:"hold,omitempty"`    // accepted: "merge hold: <role>" while its publish waits (T-718)
 	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for
 	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
 	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its models came from

@@ -132,3 +132,14 @@ func (p *proj) laneRowsErr() error {
 
 // laneTask is the task lane's row holds ("" none; under mu): obor mcp's task_done names only the caller's lane.
 func (p *proj) laneTask(lane string) string { return p.folded.lr.rows[lane].Task }
+
+// finishedIn: task's lane row reads it finished (laneTable, under mu): its task_done submitted it, or it ended without
+// one and its row stays. A dispatch redoes no finished task in its lane (T-788: the lane table's done state before).
+func (p *proj) finishedIn(task string) bool {
+	for _, row := range p.laneTable() {
+		if row.Task == task && row.Finished != 0 {
+			return true
+		}
+	}
+	return false
+}

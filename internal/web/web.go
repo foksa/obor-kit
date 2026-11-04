@@ -222,15 +222,13 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 				if l.Task != nil {
 					d.Task = *l.Task
 				}
-				if l.State != "free" && l.State != "dirty-free" {
-					d.Title, d.TaskState, d.Agent, d.Since = l.Title, l.TaskState, l.Agent, l.Since
-				}
-				e.Lanes = append(e.Lanes, d)
-				if l.State == "free" || l.State == "dirty-free" { // a free lane keeps its last branch's task
+				if l.Free() { // a free lane keeps its last branch's task
 					e.Free++
 				} else {
+					d.Title, d.TaskState, d.Agent, d.Since = l.Title, l.TaskState, l.Agent, l.Since
 					e.Busy++
 				}
+				e.Lanes = append(e.Lanes, d)
 			}
 		}
 		out = append(out, e)

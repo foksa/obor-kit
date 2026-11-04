@@ -24,7 +24,7 @@ func NewLaneTable(cfg *config.Config) *LaneTable {
 type LaneStatus struct {
 	Lane, Type, Dir string
 	Branch, Task    string // "" when detached / no task id in the branch
-	State           string // free, dirty-free, working, done, missing (live: also stalled, waiting-bg, blocked)
+	State           string // free, dirty-free, working, missing (live: also stalled, waiting-bg, blocked)
 	DoneAge         *int64 // seconds since the task's task_done was recorded; nil without one
 	Dirty           bool
 	Warning         string // a live warning (agent-blocked …), or ""
@@ -65,8 +65,7 @@ func (p *LaneTable) States() []LaneStatus {
 //	missing     the lane dir is no worktree of its own
 //	free        its HEAD is in the main checkout's HEAD (merged) and nothing is uncommitted
 //	dirty-free  merged, with uncommitted changes (never free, T-196)
-//	done        not merged, its task submitted by task_done (its row's finished) and not sent back since
-//	working     anything else
+//	working     anything else (what serve does for its task is the task's phase, T-788: git facts only here)
 //
 // A lane whose row holds its task at its current HEAD is not merged until the task has merge evidence.
 func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
@@ -108,21 +107,16 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 		merged = false
 	}
 
-	fin := p.finished(s.Task)
-	submitted := fin != 0
-	if submitted {
+	if fin := p.finished(s.Task); fin != 0 {
 		age := max(p.Now-fin, 0)
 		s.DoneAge = &age
 	}
 
 	switch {
+	case merged && s.Dirty:
+		s.State = "dirty-free"
 	case merged:
 		s.State = "free"
-		if s.Dirty {
-			s.State = "dirty-free"
-		}
-	case submitted:
-		s.State = "done"
 	default:
 		s.State = "working"
 	}
@@ -130,10 +124,10 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	return s
 }
 
-// taskType is the model lane l runs in state s (T-721, T-765): a working or done lane's is the model its row's
+// taskType is the model lane l runs in state s (T-721, T-765): a working lane's is the model its row's
 // dispatch runs (the row holds its task; a row from before T-721 names none), any other lane's none.
 func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
-	if s.State != "working" && s.State != "done" {
+	if s.State != "working" {
 		return ""
 	}
 	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task {
@@ -157,7 +151,7 @@ func (Lanes) Lanes(root string) ([]port.Lane, error) {
 	for _, s := range lp.States() {
 		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State,
 			Agent: lp.Rows()[s.Lane].Agent}
-		if s.State == "working" || s.State == "done" {
+		if s.State == "working" {
 			l.Task = s.Task
 		}
 		out = append(out, l)

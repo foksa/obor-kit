@@ -220,8 +220,8 @@ func TestSetupAPI(t *testing.T) {
 		t.Fatalf("difficulty %+v, want hard, medium and simple", setup.Difficulty)
 	}
 	if len(setup.Lanes) != 1 || setup.Lanes[0].Lane != "L-01" || setup.Lanes[0].Agent != "pj-l-01" ||
-		setup.Lanes[0].State != "done" {
-		t.Errorf("lanes %+v, want L-01, done, pj-l-01", setup.Lanes)
+		setup.Lanes[0].State != "working" {
+		t.Errorf("lanes %+v, want L-01, working, pj-l-01", setup.Lanes)
 	}
 	roles := map[string]view.SetupRole{}
 	for _, role := range setup.Roles {

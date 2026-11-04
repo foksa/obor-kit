@@ -80,8 +80,8 @@ type Serve struct {
 	SinceTime time.Time `json:"-"` // Since, parsed (zero: unknown)
 }
 
-// Lane is one configured lane: its worktree as git and the store's row say (state free, dirty-free, working, done,
-// missing), serve's task on it and the agent serve sees there.
+// Lane is one configured lane: its worktree as git and the store's row say (state free, dirty-free, working,
+// missing), serve's task on it with its phase and the agent serve sees there.
 type Lane struct {
 	Lane        string  `json:"lane"`
 	Type        string  `json:"type"`
@@ -96,15 +96,16 @@ type Lane struct {
 	TaskState   string  `json:"task_state,omitempty"` // serve's state of the task
 	Attempt     int     `json:"attempt,omitempty"`
 	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
-	Hold        string  `json:"hold,omitempty"`    // "merge held: <role> working" while its publish waits (T-718)
+	Phase       string  `json:"phase,omitempty"`   // serve's phase of the task (wire.Phase*, T-788)
+	Hold        string  `json:"hold,omitempty"`    // "merge hold: <role>" while its publish waits (T-718)
 	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
-	// Column is the state column of obor status (T-657): held, gating, merging, gate pending,
-	// publish pending, the merge hold ("merge held: <role> working", T-718), reviewing, else State.
+	// Column is the state column of obor status (T-657): serve's phase of the task (T-788: computed once, by serve),
+	// else the lane's State (no task serve has: free, dirty-free, working, missing).
 	Column string `json:"column"`
 	// Since is when the state column began, as far as the view can tell (epoch seconds; nil: unknown, or a lane with
-	// no task): the held needs-you's fact, the gate or publish running on the task, the task_done's record (done), the
+	// no task): the needs-you's fact, the gate or publish running on the task, the task_done's record (submitted), the
 	// lane row's dispatch (a task working). obor web's fleet page shows it (T-658).
 	Since *int64 `json:"since,omitempty"`
 	// SpecRev is the store's current rev of the task's spec (0: none stored), Title its title.
@@ -269,7 +270,8 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 	}
 	for _, t := range ps.Tasks {
 		if t.Lane == s.Lane && t.Task == s.Task {
-			l.TaskState, l.Attempt, l.Running, l.Effort, l.Hold = t.State, t.Attempt, t.Running, t.Effort, t.Hold
+			l.TaskState, l.Phase, l.Attempt, l.Running, l.Effort, l.Hold = t.State, t.Phase, t.Attempt, t.Running, t.Effort,
+				t.Hold
 			if t.Job != "" {
 				l.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
@@ -283,7 +285,10 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 	if s.Task != "" {
 		l.SpecRev, l.Title = specs[s.Task].Rev, spec.Title(specs[s.Task].Text)
 	}
-	l.Column = column(l, v)
+	l.Column = l.State
+	if l.Phase != "" {
+		l.Column = l.Phase
+	}
 	l.Since = laneSince(l, v, p.Now, row.DispatchedAt)
 	return l
 }
@@ -336,64 +341,13 @@ func lead(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background
 	return nil
 }
 
-// column is l's state column (T-657): what serve does for its task now — held (needs-you), gating, merging
-// (publishing), the merge hold ("merge held: reviewer working": its publish waits, T-718), reviewing (an integrator
-// job is out) — else the lane table's state (done, working, free …). A gate or
-// publish whose effect does not run now but whose intent waits reads `gate pending` / `publish pending` (T-662): it is
-// not progress, it is stuck work (a failed step, a replay the next pass has yet to run).
-func column(l Lane, v *Project) string {
-	if l.TaskState == "needs-you" || held(v.NeedsYou, l) {
-		return "held"
-	}
-	for _, r := range v.Running {
-		if r.Task == "" || l.Task == nil || r.Task != *l.Task {
-			continue
-		}
-		switch r.Step {
-		case event.StepGate:
-			return "gating"
-		case event.StepPublish:
-			return "merging"
-		}
-	}
-	for _, p := range v.Pending {
-		if l.Task == nil || p.Task != *l.Task {
-			continue
-		}
-		switch p.Step {
-		case event.StepGate, event.StepPublish:
-			return p.Step + " pending"
-		}
-	}
-	if l.Hold != "" { // its publish waits for the reviewer or the deep dive (T-718)
-		return l.Hold
-	}
-	if l.TaskState == "awaiting-accept" || l.TaskState == "resolving" { // an integrator job is out
-		return "reviewing"
-	}
-	if l.TaskState == wire.TaskDriving { // the owner's drive agent works in the lane (T-751)
-		return wire.TaskDriving
-	}
-	return l.State
-}
-
-// held: a needs-you is in force for l's lane or its task (a watchdog's, the merge loop's, the project's).
-func held(needs []NeedsYou, l Lane) bool {
-	for _, n := range needs {
-		if n.Lane == l.Lane || l.Task != nil && n.Task == *l.Task {
-			return true
-		}
-	}
-	return false
-}
-
 // laneSince is when l's state column began, as far as the view can tell (nil: a free lane, no task, or nothing
-// recorded): the held needs-you's fact, the gate or publish running on its task (a waiting one: its failure's time,
-// else its intent's), the lane row's dispatch (a task working in the lane) or the task_done's record (done).
+// recorded): the needs-you's fact (needs-you, held), the gate or publish running on its task (a waiting one: its
+// failure's time, else its intent's), the task_done's record (a task submitted) or the lane row's dispatch.
 func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	at := func(n int64) *int64 { return &n }
 	switch l.Column {
-	case "held":
+	case wire.PhaseNeedsYou, wire.PhaseHeld:
 		var best *int64
 		for _, n := range v.NeedsYou {
 			if n.Since == 0 || n.Lane != l.Lane && (l.Task == nil || n.Task != *l.Task) {
@@ -404,13 +358,13 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 			}
 		}
 		return best
-	case "gating", "merging":
+	case wire.PhaseGating, wire.PhaseMerging:
 		for _, r := range v.Running {
 			if l.Task != nil && r.Task == *l.Task && r.Since != 0 {
 				return at(r.Since)
 			}
 		}
-	case "gate pending", "publish pending":
+	case wire.PhaseGatePending, wire.PhasePublishPending:
 		for _, p := range v.Pending {
 			if l.Task == nil || p.Task != *l.Task {
 				continue
@@ -422,10 +376,9 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 				return at(p.Since)
 			}
 		}
-	case "done":
-		if l.DoneAge != nil {
-			return at(now - *l.DoneAge)
-		}
+	}
+	if l.DoneAge != nil {
+		return at(now - *l.DoneAge)
 	}
 	if l.Task != nil && dispatched != 0 {
 		return at(dispatched)
@@ -565,4 +518,9 @@ func pauseOf(ps *event.Pause) *Pause {
 		p.Until = &n
 	}
 	return p
+}
+
+// Free: no task holds l: git says its branch merged (free, dirty-free) and serve has no phase of a task on it.
+func (l Lane) Free() bool {
+	return l.Phase == "" && (l.State == "free" || l.State == "dirty-free")
 }

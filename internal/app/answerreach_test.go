@@ -99,7 +99,7 @@ func TestUndeliverableLineSaysWhy(t *testing.T) {
 			reasons = append(reasons, f.Fact().Reason)
 		}
 	}
-	if len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(held: "+why+")") {
+	if len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(undelivered: "+why+")") {
 		t.Errorf("needs-you of the lines %q; want one naming why the line is held", reasons)
 	}
 }

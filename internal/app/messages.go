@@ -888,7 +888,7 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 				Age(msgWait), q.msg.Line)
 			if why := q.why(); why != "" { // why the last pass held it (T-746; two panes claiming its agent among
 				// them), or its last refusal (T-748)
-				reason += " (held: " + why + ")"
+				reason += " (undelivered: " + why + ")"
 			}
 			break
 		}

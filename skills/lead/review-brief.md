@@ -36,7 +36,7 @@ started is a needs-you (`review: RV-xx: started but not recorded: <error>`).
 
 The main checkout stays put while the reviewer works (T-718): serve holds each merge's publish while the reviewer (or
 the deep dive) has a brief open or its pane is not idle; gates, jobs and dispatch go on, `obor status` shows
-`merge held: reviewer working` on the waiting task, and after 30 min the merge goes ahead with one line to you
+`merge hold: reviewer` on the waiting task, and after 30 min the merge goes ahead with one line to you
 (`[obor] merge of T-x went ahead: reviewer still working after 30m`). Your own doc commits during a review are fine:
 they touch no code. The brief serve sends:
 ```

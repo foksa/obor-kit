@@ -44,6 +44,7 @@ export interface Lane {
   warning: string | null;
   op?: string;
   task_state?: string;
+  phase?: string;
   attempt?: number;
   running?: string;
   hold?: string;
@@ -109,6 +110,7 @@ export interface TaskStatus {
   lane: string;
   attempt: number;
   state: string;
+  phase: string;
   running?: string;
   hold?: string;
   after?: string[];
@@ -155,6 +157,7 @@ export interface MergeItem {
   title?: string;
   lane?: string;
   state: string;
+  phase: string;
   stage: string;
   waits_on?: string;
   why?: string;
@@ -291,6 +294,7 @@ export interface TaskDetail {
   lane?: string;
   agent?: string;
   state?: string;
+  phase?: string;
   attempt?: number;
   dispatched_at?: number;
   spec_rev?: number;

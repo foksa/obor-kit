@@ -26,7 +26,7 @@
   onDestroy(() => live.stop());
 
   const t = $derived(live.data);
-  const stage = $derived(t ? stageOf(t.state, t.records) : null);
+  const stage = $derived(t ? stageOf(t.phase, t.records) : null);
   const timeline = $derived((t?.records || []).map((r) => ({ r, m: milestone(r) })).filter((x) => x.m));
   const tabs = $derived.by(() => {
     if (!t) return [];

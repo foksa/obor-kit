@@ -103,10 +103,16 @@ func TestLaneStates(t *testing.T) {
 		got[s.Lane] = s.State + " " + s.Task + " " + s.Warning
 	}
 	want := map[string]string{"L-01": "free T-01 ", "L-02": "working T-02 ", "L-03": "free T-03 ",
-		"L-04": "done T-04 ", "L-05": "working T-05 ", "L-06": "dirty-free T-06 "}
+		"L-04": "working T-04 ", "L-05": "working T-05 ", "L-06": "dirty-free T-06 "}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %q, want %q", l, got[l], w)
+		}
+	}
+	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
+	for _, s := range p.States() {
+		if submitted := s.DoneAge != nil; submitted != (s.Lane == "L-03" || s.Lane == "L-04") {
+			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04", s.Lane, s.DoneAge)
 		}
 	}
 	if p.MergeEvidence("T-50") {
@@ -170,7 +176,7 @@ func TestLaneTypeIsTheDispatchs(t *testing.T) {
 		got[s.Lane] = s.State + " " + s.Type
 	}
 	want := map[string]string{"L-01": "working sonnet", "L-02": "working ", "L-03": "free ",
-		"L-04": "done sonnet"}
+		"L-04": "working sonnet"}
 	for l, w := range want {
 		if got[l] != w {
 			t.Errorf("%s: %q, want %q", l, got[l], w)
