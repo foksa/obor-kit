@@ -830,8 +830,8 @@ func TestOborInitSetsTheLeadsType(t *testing.T) {
 	if cfg, err = config.Load(x.Root); err != nil {
 		t.Fatal(err)
 	}
-	if lead := cfg.Data.Roles.Lead; lead == nil || *lead != "sonnet" {
-		t.Errorf("a kept lead model: %v", lead)
+	if lead, ok := cfg.Data.Roles.M["lead"]; !ok || lead.Model != "sonnet" {
+		t.Errorf("a kept lead model: %+v", lead)
 	}
 	if got := summary(out, "lanes"); !strings.Contains(got, "lead sonnet") || strings.Contains(got, "lead sonnet →") {
 		t.Errorf("lanes step %q", got)

@@ -42,7 +42,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	kind := sessionKind(cfg, agent, ev.Cwd)
 	if err != nil { // DD-v0.13 A1: say so, guard nothing else on a default config (it derives no name: nothing recorded)
 		fmt.Fprintln(out, "obor: "+unreadable(err))
-		record(repo.Root, agent, project.InboxSlot(project.DetectRole(repo, cfg, env)), ev.SessionID, env)
+		record(repo.Root, agent, project.InboxSlot(cfg, project.DetectRole(repo, cfg, env)), ev.SessionID, env)
 		return Began{}, false
 	}
 	if len(unknown) > 0 {
@@ -87,7 +87,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 	default:
 		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; protected files are denied for non-lead roles; "+loadRuns+".")
 	}
-	if line := roleText(w.Role.Role, project.KitRoot(env), repo.Top, cfg.Data.Paths["agents"]); line != "" {
+	if line := roleText(cfg, w.Role.Role, project.KitRoot(env), repo.Top); line != "" {
 		fmt.Fprintln(out, line)
 	}
 
@@ -102,7 +102,7 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		}
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
-	record(repo.Root, agent, project.InboxSlot(w.Role), ev.SessionID, env)
+	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
 	began := Began{Root: cfg.Root, Agent: agent, Kind: kind, ID: ev.SessionID,
 		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane}
 	if w.State != nil {
@@ -130,26 +130,45 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 	return agents.Default
 }
 
-// roleText is the line naming this role's text (T-204): the kit's templates/agents/<role>.md, read in place, plus the
-// project's <paths.agents>/<role>.md when the worktree has one. The lead's text is the obor:lead skill. "" when the
-// kit has no text for the role (none …).
-func roleText(role, kit, top, agents string) string {
-	file := strings.ReplaceAll(role, "_", "-") + ".md"
+// roleText is the line naming this role's text (T-204): the kit's templates/agents/<doc file>, read in place, plus the
+// project's <paths.agents>/<doc file> when the worktree has one; a custom role (T-801) without a kit text has the
+// project's doc alone. The lead's text is the obor:lead skill. "" when there is no text for the role (none …, a role
+// cfg does not know).
+func roleText(cfg *config.Config, role, kit, top string) string {
+	rc, known := cfg.Role(role)
+	if !known {
+		return ""
+	}
+	doc := cfg.RoleDoc(role)
 	project := ""
-	if fi, err := os.Stat(filepath.Join(top, agents, file)); err == nil && fi.Mode().IsRegular() {
-		project = ", project: " + filepath.Join(agents, file)
+	if regular(filepath.Join(top, doc)) {
+		project = doc
 	}
 	if role == "lead" {
-		return "obor: role text: run /obor:lead" + project + " — read it before acting"
+		return "obor: role text: run /obor:lead" + projectPart(project) + " — read it before acting"
 	}
-	text := filepath.Join(kit, "templates", "agents", file)
-	if role == "none" || kit == "" {
+	text := filepath.Join(kit, "templates", "agents", rc.Role.DocFile())
+	switch {
+	case kit != "" && regular(text):
+		return "obor: role text: " + text + projectPart(project) + " — read it before acting"
+	case project != "":
+		return "obor: role text: " + project + " — read it before acting"
+	}
+	return ""
+}
+
+// projectPart is the role-text line's mention of the project's doc ("": none).
+func projectPart(doc string) string {
+	if doc == "" {
 		return ""
 	}
-	if fi, err := os.Stat(text); err != nil || !fi.Mode().IsRegular() {
-		return ""
-	}
-	return "obor: role text: " + text + project + " — read it before acting"
+	return ", project: " + doc
+}
+
+// regular: p is a regular file.
+func regular(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // laneKind is the kind the configured lane named lane runs now (project.RunningType: its open dispatch's model,

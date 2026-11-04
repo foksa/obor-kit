@@ -11,7 +11,6 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/project"
-	"obor/internal/roles"
 )
 
 // Bash commands are parsed with mvdan.cc/sh/v3/syntax and walked statement by statement, in source order:
@@ -1206,7 +1205,7 @@ sub:
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
 	}
-	if r, ok := roles.Lookup(g.role); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
+	if r, ok := g.sessionRole(); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
 		a := "a "
 		if strings.ContainsRune("aeiou", rune(g.role[0])) {
 			a = "an "

@@ -11,11 +11,13 @@ A question from the lead: goal, constraints, options considered, files to read.
 
 ## Outputs
 Recommendation first, then reasoning, risks and a concrete plan (task breakdown or interface sketch), written by the
-advisor to the file the lead names (default `docs/research/<topic>-advice.md`); the lead commits it.
+advisor to the file the lead names: its advice under `docs/research/` (default `docs/research/<topic>-advice.md`), an
+implementation plan under `docs/plan/` (default `docs/plan/<topic>.md`). The lead commits it.
 
 ## Rules
-- Writes only its answer file: no code, config or other docs (Claude: auto mode, not plan mode; Codex: `-s
-  workspace-write`). No git writes. Cite file:line.
+- Writes only its advice or plan, under `docs/research/` or `docs/plan/` (the guard holds it to `roles.advisor`'s write
+  list): no code, config or other docs. It runs in auto mode, never plan mode (Codex: `-s workspace-write`). No git
+  writes. Cite file:line.
 - Answer the question asked; flag, don't expand into, adjacent issues.
 - `/clear` before each unrelated question.
 

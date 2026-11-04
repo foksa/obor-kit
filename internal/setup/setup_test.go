@@ -1238,6 +1238,29 @@ func TestRoleTriageRunsInTheRootWithItsRoleEnvAndCreatesBugsMd(t *testing.T) {
 	}
 }
 
+// T-801: obor setup role places a custom role like any other (its name with - or _), in the main checkout with
+// OBOR_ROLE=<name>, its agent <prefix>-<name, _ → ->; it seeds nothing (only a default row with Seeds does); a name with
+// no row is the usage line.
+func TestRoleCustomPlaced(t *testing.T) {
+	t.Parallel()
+	x := newFx(t)
+	x.failing(t, "FAIL "+Usage(), "role", "ux_buddy", "--new-tab", "ux", "--start")
+	x.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+	x.Config(testkit.Set("roles", `{"ux_buddy": {"model": "opus", "write": ["docs/ux/"]}}`))
+	if out := x.ok(t, "role", "ux-buddy", "--new-tab", "ux", "--start"); last(out) != "OK ux_buddy: pj-ux-buddy in pane w1:n1" {
+		t.Errorf("last line %q", last(out))
+	}
+	calls := strings.Join(x.reqs(), "\n")
+	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_OPENCODE_MODEL=,OBOR_ROLE=ux_buddy} focus=false label=ux", "the custom role's env")
+	has(t, calls, "name=pj-ux-buddy", "the custom role's agent")
+	if x.Exists("docs/BUGS.md") || x.Exists("docs/ux") {
+		t.Error("a custom role seeded a file")
+	}
+	if !strings.Contains(Usage(), "advisor|researcher|triage|<custom role>") {
+		t.Errorf("usage names the default rows and custom roles: %s", Usage())
+	}
+}
+
 // --- githooks ---------------------------------------------------------------------------------------------------------
 
 // tests/githooks.test.sh case_setup_githooks_sets_chains_removes (T-620)

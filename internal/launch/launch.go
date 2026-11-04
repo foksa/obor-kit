@@ -512,8 +512,8 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		prompt = wire.WakeLine(job)
 	case prompt == "":
 		// A fresh start without a first prompt gets its role's (T-729), e.g. the lead's /obor:lead.
-		if r, ok := roles.Lookup(t.info.Role); ok {
-			prompt = r.StartPrompt(t.kind)
+		if rc, ok := l.Cfg.Role(t.info.Role); ok {
+			prompt = rc.Role.StartPrompt(t.kind)
 		}
 	}
 	seen, err := l.start(ctx, Start{Agent: t.agent, Kind: t.kind, Pane: t.pane, Label: t.entry.Label, Args: args,

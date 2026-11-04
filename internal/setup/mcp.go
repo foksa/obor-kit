@@ -13,7 +13,6 @@ import (
 	"obor/internal/agents"
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/roles"
 )
 
 // The obor MCP server (`obor mcp`) is registered per agent kind, as its bridge says
@@ -230,11 +229,7 @@ func (s *Setup) usedKinds() map[string]bool {
 			used[m.Kind] = true
 		}
 	}
-	for _, role := range roles.All() {
-		rc, _ := s.cfg.Role(role.Name)
-		if role.Name == "worker" || role.Optional && !rc.Configured {
-			continue
-		}
+	for _, rc := range s.cfg.RoleAgents() {
 		if lt, ok := s.cfg.Model(rc.Type); ok && lt.Kind != "" {
 			used[lt.Kind] = true
 		} else {

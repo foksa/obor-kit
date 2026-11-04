@@ -269,3 +269,69 @@ func dispatchRecord(t *testing.T, root, task, step string, data any, at time.Tim
 		t.Fatal(err)
 	}
 }
+
+// T-801: a custom role and a kit default row the config names are role rows of the view (obor status, obor web) and of
+// the Setup page with their model refs, like any other role; an unnamed default row is neither; a removed row drops
+// out of both and leaves the others.
+func TestCustomRolesListed(t *testing.T) {
+	p := testkit.New(t)
+	p.Write("docs/agents/designer.md", "# Role: designer\n")
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet:medium"),
+		testkit.Set("roles.designer", map[string]any{"model": "opus:high", "write": []any{"docs/design/"}}))
+	now := time.Now()
+	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
+		Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
+			Agents: []wire.AgentStatus{{Pane: "w1:p4", Name: "pj-designer", Agent: "claude", Status: "idle", Age: 60}}}}
+	rows := func() (map[string]Role, map[string]SetupRole) {
+		cfg, err := config.Load(p.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: now})
+		s, err := Detail{Root: p.Root, Project: v}.Setup()
+		if err != nil {
+			t.Fatal(err)
+		}
+		view, setup := map[string]Role{}, map[string]SetupRole{}
+		for _, r := range v.Roles {
+			view[r.Role] = r
+		}
+		for _, r := range s.Roles {
+			setup[r.Role] = r
+		}
+		return view, setup
+	}
+	view, setup := rows()
+	if r, ok := view["designer"]; !ok || r.Agent != "pj-designer" || r.Status != "idle" {
+		t.Errorf("view designer %+v, %v; want pj-designer idle", r, ok)
+	}
+	if r, ok := view["researcher"]; !ok || r.Agent != "pj-researcher" {
+		t.Errorf("view researcher %+v, %v; want pj-researcher", r, ok)
+	}
+	for _, name := range []string{"advisor", "triage", "lead", "worker"} {
+		if _, ok := view[name]; ok {
+			t.Errorf("view lists %s (roles %+v)", name, view)
+		}
+	}
+	if r, ok := setup["designer"]; !ok || r.Agent != "pj-designer" || r.Type != "opus:high" || r.Status != "idle" {
+		t.Errorf("setup designer %+v, %v; want pj-designer on opus:high, idle", r, ok)
+	}
+	if r, ok := setup["researcher"]; !ok || r.Type != "sonnet:medium" {
+		t.Errorf("setup researcher %+v, %v; want sonnet:medium", r, ok)
+	}
+	if _, ok := setup["advisor"]; ok {
+		t.Errorf("setup lists the unnamed advisor: %+v", setup)
+	}
+
+	p.Config(testkit.Set("roles.integrator", "opus"), testkit.Set("roles.researcher", "sonnet:medium"))
+	view, setup = rows()
+	if _, ok := view["designer"]; ok {
+		t.Errorf("view still lists the removed designer: %+v", view)
+	}
+	if _, ok := setup["designer"]; ok {
+		t.Errorf("setup still lists the removed designer: %+v", setup)
+	}
+	if _, ok := view["researcher"]; !ok {
+		t.Errorf("view lost the researcher with the designer's row: %+v", view)
+	}
+}

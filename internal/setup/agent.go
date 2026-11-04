@@ -107,10 +107,6 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errUsage
 	}
-	role, ok := roles.Lookup(strings.ReplaceAll(args[0], "-", "_"))
-	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's (T-751)
-		return errUsage
-	}
 	w, err := parseWhere(args[1:])
 	if err != nil {
 		return err
@@ -118,16 +114,21 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if err := s.load(); err != nil {
 		return err
 	}
-	rc, _ := s.cfg.Role(role.Name)
+	rc, ok := s.cfg.Role(strings.ReplaceAll(args[0], "-", "_")) // a table role or a custom one (T-801)
+	role := rc.Role
+	if !ok || role.Name == "worker" || role.Name == roles.Driver { // a driver is obor drive's (T-751)
+		return errUsage
+	}
 	if rc.Type == "" {
 		return project.Failf("roles.%s is not set (a model ref, e.g. \"opus:high\")", role.Name)
 	}
 	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
-	switch role.Name {
-	case "triage":
-		if err := s.copyFile(filepath.Join(s.Kit, "templates", "BUGS.md"), "docs/BUGS.md"); err != nil {
+	for _, rel := range slices.Sorted(maps.Keys(role.Seeds)) { // a custom role's seeded files (triage's docs/BUGS.md)
+		if err := s.copyFile(filepath.Join(s.Kit, "templates", role.Seeds[rel]), rel); err != nil {
 			return err
 		}
+	}
+	switch role.Name {
 	case "reviewer", "deep_dive": // T-731: the reviews dir is gitignored, also in a project init made before it was
 		if err := s.ignoreLines(s.reviewsIgnore()); err != nil {
 			return err

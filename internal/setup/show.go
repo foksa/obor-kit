@@ -88,14 +88,16 @@ func (s *Setup) lanesLine() string {
 }
 
 // rolesLine is the lead's, the integrator's and the reviewer's model refs, then every other configured role's (deep
-// dive, triage, advisor, researcher): "lead opus:high (claude opus, effort high), integrator sonnet (claude sonnet), …".
+// dive, a custom role: config.RoleAgents): "lead opus:high (claude opus, effort high), integrator sonnet (claude
+// sonnet), …".
 func (s *Setup) rolesLine() string {
 	var parts []string
-	for _, role := range []string{"lead", "integrator", "reviewer", "deep_dive", "triage", "advisor", "researcher"} {
+	names := []string{"lead", "integrator", "reviewer"}
+	for _, rc := range s.cfg.RoleAgents() {
+		names = append(names, rc.Role.Name)
+	}
+	for _, role := range config.Unique(names...) {
 		rc, _ := s.cfg.Role(role)
-		if !rc.Configured && role != "lead" && role != "integrator" && role != "reviewer" {
-			continue
-		}
 		if rc.Type == "" {
 			parts = append(parts, role+" - (roles."+role+" not set)")
 			continue

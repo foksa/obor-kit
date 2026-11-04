@@ -7,7 +7,8 @@ import (
 )
 
 func TestRoleTableDefaultsAndProfiles(t *testing.T) {
-	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "triage", "advisor", "researcher", "driver"}
+	// T-801: advisor, researcher and triage are the kit's default custom rows, not table roles.
+	want := []string{"lead", "integrator", "worker", "reviewer", "deep_dive", "driver"}
 	all := All()
 	if len(all) != len(want) {
 		t.Fatalf("role count = %d, want %d", len(all), len(want))
@@ -18,11 +19,11 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		}
 	}
 	for _, role := range all {
-		if got, ok := Lookup(role.Name); !ok || got != role {
+		if got, ok := Lookup(role.Name); !ok || !reflect.DeepEqual(got, role) {
 			t.Errorf("Lookup(%q) = %+v, %v", role.Name, got, ok)
 		}
 		if role.EnvValue != "" {
-			if got, ok := LookupEnv(role.EnvValue); !ok || got != role {
+			if got, ok := LookupEnv(role.EnvValue); !ok || !reflect.DeepEqual(got, role) {
 				t.Errorf("LookupEnv(%q) = %+v, %v", role.EnvValue, got, ok)
 			}
 		}
@@ -41,9 +42,6 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true},
 		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false},
 		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false},
-		{"triage", "triage", "pj-triage", CwdProject, WriteNone, false, false},
-		{"advisor", "advisor", "pj-advisor", CwdProject, WriteNone, false, false},
-		{"researcher", "researcher", "pj-researcher", CwdProject, WriteResearchOnly, false, false},
 		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false},
 	}
 	for _, check := range checks {
@@ -55,8 +53,8 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 	}
 }
 
-// Optional roles count only when configured: triage, deep_dive, advisor and researcher; the driver is never
-// configured (obor drive starts it, T-751).
+// Optional table roles count only when configured: deep_dive; the driver is never configured (obor drive starts it,
+// T-751). Custom roles are optional too (TestCustomRoles).
 func TestOptionalRoles(t *testing.T) {
 	var optional []string
 	for _, role := range All() {
@@ -64,7 +62,7 @@ func TestOptionalRoles(t *testing.T) {
 			optional = append(optional, role.Name)
 		}
 	}
-	if want := []string{"deep_dive", "triage", "advisor", "researcher", "driver"}; !reflect.DeepEqual(optional, want) {
+	if want := []string{"deep_dive", "driver"}; !reflect.DeepEqual(optional, want) {
 		t.Errorf("optional roles = %q, want %q", optional, want)
 	}
 }
@@ -116,6 +114,70 @@ func TestDriverNameAndLaneBound(t *testing.T) {
 	for role, want := range map[string]bool{"worker": true, Driver: true, "lead": false, "integrator": false, "": false} {
 		if got := LaneBound(role); got != want {
 			t.Errorf("LaneBound(%q) = %v, want %v", role, got, want)
+		}
+	}
+}
+
+// T-801: a custom role (a config row, or one of the kit's default rows) is an advisor-like role: main checkout, git
+// reads only, optional, never dispatchable or stoppable by serve, writes only its list; its agent suffix is its name
+// with _ → -, its doc <name>.md.
+func TestCustomRoles(t *testing.T) {
+	r := Custom("ux_buddy", []string{"docs/ux/", "NOTES.md"})
+	want := Role{Name: "ux_buddy", EnvValue: "ux_buddy", AgentSuffix: "ux-buddy", Cwd: CwdProject, Write: WriteList,
+		WritePaths: []string{"docs/ux/", "NOTES.md"}, Optional: true, GitReadOnly: true, Custom: true}
+	if !reflect.DeepEqual(r, want) {
+		t.Errorf("Custom = %+v, want %+v", r, want)
+	}
+	if got := r.AgentName("pj", ""); got != "pj-ux-buddy" {
+		t.Errorf("agent = %q, want pj-ux-buddy", got)
+	}
+	if r.DocFile() != "ux_buddy.md" {
+		t.Errorf("custom doc file = %q, want ux_buddy.md", r.DocFile())
+	}
+	if dd, _ := Lookup("deep_dive"); dd.DocFile() != "deep-dive.md" {
+		t.Errorf("table doc file = %q, want deep-dive.md", dd.DocFile())
+	}
+	if LaneBound("ux_buddy") || r.Dispatchable || r.Stoppable || r.StartPrompt("claude") != "" {
+		t.Errorf("a custom role is lane-bound, dispatchable, stoppable or has a first prompt: %+v", r)
+	}
+	if _, ok := Lookup("ux_buddy"); ok {
+		t.Error("a custom role is in the built-in table")
+	}
+	defaults := map[string][]string{}
+	for _, d := range DefaultRows() {
+		if !d.Custom || d.Write != WriteList || !d.GitReadOnly || d.Cwd != CwdProject {
+			t.Errorf("default row %s is not a custom role: %+v", d.Name, d)
+		}
+		if _, inTable := Lookup(d.Name); inTable {
+			t.Errorf("default row %s is in the table too", d.Name)
+		}
+		defaults[d.Name] = d.WritePaths
+	}
+	if want := map[string][]string{"advisor": {"docs/research/", "docs/plan/"}, "researcher": {"docs/research/"},
+		"triage": {"docs/BUGS.md"}}; !reflect.DeepEqual(defaults, want) {
+		t.Errorf("default rows' writes = %v, want %v", defaults, want)
+	}
+	if tr, _ := DefaultRow("triage"); tr.Seeds["docs/BUGS.md"] != "BUGS.md" {
+		t.Errorf("triage seeds = %v, want docs/BUGS.md from templates/BUGS.md", tr.Seeds)
+	}
+	if _, ok := DefaultRow("lead"); ok {
+		t.Error("lead is a default row")
+	}
+}
+
+// T-801: a custom role's name matches [a-z][a-z0-9_]{0,23} and is no table role's name or agent suffix.
+func TestCheckCustomName(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		ok   bool
+	}{
+		{"buddy", true}, {"ux_buddy", true}, {"a", true}, {"designer2", true}, {"abcdefghijklmnopqrstuvwx", true},
+		{"abcdefghijklmnopqrstuvwxy", false}, {"Buddy", false}, {"ux-buddy", false}, {"2nd", false}, {"", false},
+		{"_x", false}, {"lead", false}, {"worker", false}, {"reviewer", false}, {"deep_dive", false},
+		{"driver", false}, {"int", false}, {"rev", false}, {"drive", false}, {"none", false}, {"leads", false},
+	} {
+		if err := CheckCustomName(c.name); (err == nil) != c.ok {
+			t.Errorf("CheckCustomName(%q) = %v, want ok %v", c.name, err, c.ok)
 		}
 	}
 }

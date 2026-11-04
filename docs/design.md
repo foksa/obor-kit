@@ -146,9 +146,8 @@ model is used; every model of a request paused, the task waits and its reply nam
 
 ## Roles
 Resolution (`obor whoami`, `project.DetectRole`):
-1. `OBOR_ROLE` if set (`lead | integrator | worker | reviewer | deep_dive | triage | advisor | researcher`: every role has
-   one, so the derived name, its session and inbox records and the caller identity cover it; T-796: triage too, still
-   git reads only, no protected file, no MCP tools), set at pane creation with
+1. `OBOR_ROLE` if set (`lead | integrator | worker | reviewer | deep_dive | driver` or a custom role's name: every role
+   has one, so the derived name, its session and inbox records and the caller identity cover it), set at pane creation with
    `herdr pane split --env OBOR_ROLE=… --env OBOR_LANE=…`.
 2. Else cwd-derived: the toplevel is a linked worktree (`git-dir` ≠ `git-common-dir`) under `lanes_dir` → `worker`,
    `OBOR_LANE` = basename.
@@ -157,6 +156,26 @@ Resolution (`obor whoami`, `project.DetectRole`):
 consult the role.** A `SessionStart` hook prints `obor whoami` (role, lane, task, the protected files the spec unlocks) into the
 session context, plus `obor: role text: <kit>/templates/agents/<role>.md[, project: docs/agents/<role>.md] — read it
 before acting` (lead: `run /obor:lead`; T-204).
+
+**Custom roles** (T-801, owner 2026-11-04). The built-in table (`internal/roles`) keeps only the roles serve treats
+specially: lead, integrator, worker, reviewer, deep_dive, driver. Any other role is a config row: `roles.<name>` is a
+model ref string (the role writes nothing) or `{"model": "<ref>", "write": ["<dir>/", "<file>"]}` (paths relative to
+the root, a trailing `/` a directory), plus its doc `<paths.agents>/<name>.md` (what it does, what it writes). The name
+matches `[a-z][a-z0-9_]{0,23}`, is no table role's name or agent suffix (nor `none`, `leads`); the agent is
+`<prefix>-<name, _ → ->`, `OBOR_ROLE=<name>`. `obor config validate` refuses a bad name, a collision, a write path
+outside the project or into `.obor/`, a missing doc (naming the file to write) and a `guards.allow_push` that lists a
+custom role; it warns of a role doc (`# Role:` first line) of a custom name whose row is missing (not a kit default
+row's: `obor init` stubs those). A custom role works like the advisor:
+main checkout, git reads only, never lane-bound or dispatchable, no merge hold, no push, no MCP tools; the lead places
+it with `obor setup role <name>`, briefs it with `obor brief`, stops it with `obor restart --stop`. Its writes are
+exactly its `write` list (the guard). `config.Role` is the one lookup of table and custom roles (identity, guard,
+SessionStart role text, `obor status`, obor web's role list and Setup page); removing a row leaves a running agent of
+it with no role agent name (no derived name, not listed), nothing else.
+The kit ships three default rows: **advisor** (`write: ["docs/research/", "docs/plan/"]`), **researcher**
+(`["docs/research/"]`) and **triage** (`["docs/BUGS.md"]`; `obor setup role triage` copies `templates/BUGS.md`). Each
+counts only when the config names it: a string sets its model, an object replaces its `write`. A default row's doc is
+the project's `docs/agents/<name>.md` if present, else the kit's `templates/agents/<name>.md`; the role-text line names
+the kit's text and the project's doc as for a table role. Agent names stay `<prefix>-advisor|researcher|triage`.
 
 **Role agents are stopped once done** (T-672, owner 2026-11-01: idle role agents hold memory). Nothing of a stopped
 role agent is resumed: its next use starts fresh. A stop is `launch.Stop` (`obor restart <agent> --stop`): the agent

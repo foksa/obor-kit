@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"obor/internal/agents"
-	"obor/internal/roles"
 )
 
 // The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page (the lead with obor
@@ -149,15 +148,14 @@ func (c *Config) editKindArgs(doc []byte, kind string, val json.RawMessage) (Cha
 	return c.change("kinds."+kind+".args", doc, []string{"kinds", kind, "args"}, v, old, newLine)
 }
 
-// editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused.
+// editRole sets a configured role's model ref; a role always names its model (T-769), so "" and null are refused. A
+// custom role's object row keeps its write list: its model is roles.<role>.model (T-801).
 func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change, error) {
 	rc, ok := c.Role(role)
 	if !ok || role == "worker" || rc.Role.Optional && !rc.Configured {
 		names := []string{}
-		for _, r := range roles.All() {
-			if rc, _ := c.Role(r.Name); r.Name != "worker" && (!r.Optional || rc.Configured) {
-				names = append(names, r.Name)
-			}
+		for _, rc := range c.RoleAgents() {
+			names = append(names, rc.Role.Name)
 		}
 		return Change{}, fmt.Errorf("%s is not a configured role (roles: %s; a worker's model is its dispatch's)",
 			Compact(role), strings.Join(names, ", "))
@@ -169,7 +167,11 @@ func (c *Config) editRole(doc []byte, role string, val json.RawMessage) (Change,
 	if err := c.CheckModelRef(ref); err != nil {
 		return Change{}, fmt.Errorf("roles.%s: %v", role, err)
 	}
-	return c.change("roles."+role, doc, []string{"roles", role}, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
+	at := []string{"roles", role}
+	if c.Data.Roles.M[role].Object {
+		at = append(at, "model")
+	}
+	return c.change(strings.Join(at, "."), doc, at, ref, unsetOr(ModelRef(rc.Type, rc.Effort)), Compact(ref))
 }
 
 // change is c's edit of key: doc with path (the member the key writes) set to v (nil deletes it), laid out as doc is,
