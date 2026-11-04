@@ -1356,7 +1356,7 @@ func (g *guard) isMain(dir, gitDir, workTree string) bool {
 // checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed, T-786:
 // an entry is a role, or a derived name read as its slot).
 func (g *guard) checkPush(what string) {
-	if !roles.LaneBound(g.role) && g.cfg.PushAllowed(g.role) { // never a worker's or a driver's (T-751)
+	if g.cfg.MayPush(g.role) { // never a worker's or a driver's (T-751)
 		return
 	}
 	deny(what + " is blocked — only a non-worker role listed in guards.allow_push may push; otherwise the user pushes")

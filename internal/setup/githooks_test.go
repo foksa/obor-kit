@@ -20,6 +20,20 @@ const hangBound = 15 * time.Second
 // commit / push / merge. The kit is a throwaway copy of this checkout's bin/, VERSION and githooks/ with a fresh build
 // as dist/obor, so the hooks' `bin/obor whoami` runs this code.
 
+// pushRefusal: the pre-push hook's refusal names both ways out (T-793).
+func pushRefusal(errOut string) bool {
+	return strings.Contains(errOut, "guards.allow_push") && strings.Contains(errOut, "OBOR_ALLOW_PUSH=1")
+}
+
+// remote adds a bare origin and returns its path.
+func (x *hx) remote() string {
+	x.t.Helper()
+	remote := filepath.Join(x.Base, "remote.git")
+	x.Git(x.Base, "init", "-q", "--bare", remote)
+	x.Git(x.Root, "remote", "add", "origin", remote)
+	return remote
+}
+
 // hx is a project (prefix pj, lane L-01 on task/T-05) with the hooks of kit installed by `obor setup githooks`.
 type hx struct {
 	*fx
@@ -206,7 +220,7 @@ func TestGithooks(t *testing.T) {
 			x.Git(x.Base, "init", "-q", "--bare", remote)
 			x.Git(x.Root, "remote", "add", "origin", remote)
 			rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main")
-			if rc != 1 || !strings.Contains(errOut, "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand") {
+			if rc != 1 || !pushRefusal(errOut) {
 				t.Errorf("push refused: exit %d\n%s", rc, errOut)
 			}
 			if got := x.Git(remote, "branch", "--list", "main"); got != "" {
@@ -217,6 +231,69 @@ func TestGithooks(t *testing.T) {
 			}
 			if x.Git(remote, "rev-parse", "main") != x.head(x.Root) {
 				t.Error("pushed")
+			}
+		}},
+		// T-793: the hook asks the binary (whoami --can-push): the agent guard's rule, config.MayPush.
+		{"pre-push allows a role in guards.allow_push, refuses one not listed and a lane-bound one", func(t *testing.T, x *hx) {
+			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead", "worker"}} })
+			remote := x.remote()
+			pushes := func(dir, branch string, env []string, rc int, what string) {
+				t.Helper()
+				got, errOut := x.git(env, dir, "push", "-q", "origin", branch)
+				if got != rc {
+					t.Errorf("%s: exit %d, want %d\n%s", what, got, rc, errOut)
+				}
+				if (rc != 0) != pushRefusal(errOut) {
+					t.Errorf("%s: refusal message %v, want %v\n%s", what, pushRefusal(errOut), rc != 0, errOut)
+				}
+				if has := x.Git(remote, "branch", "--list", branch) != ""; has != (rc == 0) {
+					t.Errorf("%s: pushed %v, want %v", what, has, rc == 0)
+				}
+			}
+			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=reviewer"), 1, "role not listed")
+			pushes(x.Root, "main", x.gitEnv(), 1, "no role (the owner without the env)")
+			x.Git(x.lane, "branch", "-f", "lanebranch", "HEAD")
+			pushes(x.lane, "lanebranch", x.gitEnv("OBOR_ROLE=worker"), 1, "lane-bound role listed in allow_push")
+			pushes(x.Root, "main", x.gitEnv("OBOR_ROLE=lead"), 0, "lead listed in allow_push")
+		}},
+		{"pre-push refuses without a usable binary (none, stale, hanging)", func(t *testing.T, x *hx) {
+			x.Config(func(c map[string]any) { c["guards"] = map[string]any{"allow_push": []string{"lead"}} })
+			remote := x.remote()
+			env, _ := x.cold(t)
+			env = append(env, "OBOR_ROLE=lead")
+			refused := func(env []string, what string) {
+				t.Helper()
+				rc, errOut := x.git(env, x.Root, "push", "-q", "origin", "main")
+				if rc != 1 || !pushRefusal(errOut) {
+					t.Errorf("%s: exit %d\n%s", what, rc, errOut)
+				}
+				if got := x.Git(remote, "branch", "--list", "main"); got != "" {
+					t.Errorf("%s: nothing pushed: %q", what, got)
+				}
+			}
+			refused(env, "no binary")
+			x.binary("#!/bin/bash\necho usage >&2\nexit 2\n")
+			refused(env, "stale binary (no --can-push)")
+			x.binary("#!/bin/bash\nexec sleep 30\n")
+			start := time.Now()
+			refused(append(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1"), "hanging binary")
+			if d := time.Since(start); d > hangBound {
+				t.Errorf("hanging binary: push returned after %v, want within the watchdog bound", d)
+			}
+			// Precondition for the pass above: the same stub that answers 0 lets the push through.
+			x.binary("#!/bin/bash\nexit 0\n")
+			if rc, errOut := x.git(env, x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Errorf("binary answering yes: exit %d\n%s", rc, errOut)
+			}
+		}},
+		{"pre-push: OBOR_ALLOW_PUSH=1 passes without asking the binary", func(t *testing.T, x *hx) {
+			x.remote()
+			env, _ := x.cold(t)
+			if rc, _ := x.git(env, x.Root, "push", "-q", "origin", "main"); rc != 1 {
+				t.Fatalf("precondition: refused without the override and without a binary: exit %d", rc)
+			}
+			if rc, errOut := x.git(append(env, "OBOR_ALLOW_PUSH=1"), x.Root, "push", "-q", "origin", "main"); rc != 0 {
+				t.Errorf("OBOR_ALLOW_PUSH=1 without a binary: exit %d\n%s", rc, errOut)
 			}
 		}},
 		// T-709: a stopped project's git hooks stand down (obor stop wrote .obor/state/stopped): a lane commit and a
@@ -411,7 +488,7 @@ func TestGithooks(t *testing.T) {
 			calls := filepath.Join(x.Base, "own.calls")
 			x.chain(".githooks", "pre-push", fmt.Sprintf("#!/bin/sh\necho passed >> %q\n", calls))
 			rc, errOut := x.git(x.gitEnv(), x.Root, "push", "-q", "origin", "main")
-			if rc != 1 || !strings.Contains(errOut, "obor: the user pushes; set OBOR_ALLOW_PUSH=1 to push by hand") {
+			if rc != 1 || !pushRefusal(errOut) {
 				t.Errorf("push refused after the chain passed: exit %d\n%s", rc, errOut)
 			}
 			if got := x.Read(calls); got != "passed\n" {
