@@ -354,7 +354,7 @@ func TestIdleLineAfterTheWatchLine(t *testing.T) {
 	}
 }
 
-// T-803: a dispatch ends the idle state (obor status shows none), as a review request does.
+// T-803: a dispatch ends the idle epoch (obor status shows none): the pipeline has work again.
 func TestDispatchEndsIdle(t *testing.T) {
 	t.Parallel()
 	r := newDispatchRig(t)
@@ -372,4 +372,137 @@ func TestDispatchEndsIdle(t *testing.T) {
 	if st := r.app.Status().Project.Idle; st != nil {
 		t.Errorf("idle state %+v after a dispatch, want none", st)
 	}
+}
+
+// T-815 (RV-104 #2): idle is an epoch. A hold agent's brief ends the epoch — obor status shows no idle state and
+// obor idle "…" is refused — and the brief's end starts a new one: one line, unacknowledged. A custom role's brief
+// ends nothing.
+
+// idleAcked runs T-1 to its merge, waits for its idle line and acknowledges it; it returns the line.
+func (r *loopRig) idleAcked() string {
+	r.t.Helper()
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
+		reply != "ACKED idle: nothing to dispatch" {
+		r.t.Fatalf("idle ack: %q, %v", reply, err)
+	}
+	return line
+}
+
+// briefEndsIdle briefs agent with text and asserts that the acknowledged epoch ended: no idle state in obor status,
+// and an acknowledgement refused as NOT IDLE.
+func (r *loopRig) briefEndsIdle(agent, text string) {
+	r.t.Helper()
+	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: agent, Note: text}); err != nil ||
+		!strings.HasPrefix(reply, "BRIEFED "+agent) {
+		r.t.Fatalf("brief of %s: %q, %v", agent, reply, err)
+	}
+	if st := r.app.Status().Project.Idle; st != nil {
+		r.t.Fatalf("idle state %+v while %s is briefed, want none", st, agent)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{Note: "still nothing"}); err != nil || reply != "NOT IDLE" {
+		r.t.Fatalf("the ack of an ended epoch: %q, %v; want NOT IDLE", reply, err)
+	}
+}
+
+// finishesBrief makes the agent in pane work on its brief and finish it; done is the finished line the lead gets.
+func (r *loopRig) finishesBrief(pane, agent, done string) {
+	r.t.Helper()
+	r.agentIs(pane, agent, "working")
+	r.clock.Add(5 * time.Minute)
+	r.passes()
+	r.agentIs(pane, agent, "idle")
+	r.waitFor("the finished line posted", func() bool { return r.inbox.count("pj-lead", done) == 1 })
+}
+
+// newIdleEpoch waits for the line the ended epoch's successor posts (the same last), then checks it is one line of a
+// new, unacknowledged epoch and that later passes add none.
+func (r *loopRig) newIdleEpoch(line string) {
+	r.t.Helper()
+	r.waitFor("the new idle line", func() bool { return r.inbox.count("pj-lead", line) == 2 })
+	st := r.app.Status().Project.Idle
+	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	if st == nil || st.Acked || st.Why != "" || st.Last != "T-1 merged "+sha || st.Since != r.clock.Now().Unix() {
+		r.t.Fatalf("status idle %+v, want a new, unacknowledged state since now with T-1's merge", st)
+	}
+	r.passes()
+	r.passes()
+	if n := r.inbox.count("pj-lead", line); n != 2 {
+		r.t.Errorf("%d idle lines %q, want the first epoch's and the new one's", n, line)
+	}
+}
+
+// T-815: a reviewer's brief ends the acknowledged idle epoch, and the brief's end starts a new one.
+func TestReviewerBriefEndsIdleAndANewEpochStarts(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
+	rev.Workspace, rev.Label = "w1", "pj-rev"
+	line := r.idleAcked()
+	r.briefEndsIdle("pj-rev", "review the wave")
+	r.finishesBrief("w1:p6", "pj-rev", "[obor] pj-rev finished (briefed 5m ago)")
+	r.newIdleEpoch(line)
+}
+
+// T-815: the deep dive holds the same: its brief ends the idle epoch, and its end starts a new one.
+func TestDeepDiveBriefEndsIdleAndANewEpochStarts(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.deep_dive", ""))
+	dd := r.f.Agent("w1:p7", "pj-deep-dive", "idle", r.p.Root)
+	dd.Workspace, dd.Label = "w1", "pj-deep-dive"
+	line := r.idleAcked()
+	r.briefEndsIdle("pj-deep-dive", "dig into the flake")
+	r.finishesBrief("w1:p7", "pj-deep-dive", "[obor] pj-deep-dive finished (briefed 5m ago)")
+	r.newIdleEpoch(line)
+}
+
+// T-815: a brief of a role that does not hold the merge keeps the idle epoch in force: its acknowledgement stands.
+func TestCustomRoleBriefKeepsIdle(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.researcher", "sonnet"))
+	line := r.idleAcked()
+	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-researcher", Note: "look at the docs"}); err != nil ||
+		!strings.HasPrefix(reply, "BRIEFED pj-researcher") {
+		t.Fatalf("brief of pj-researcher: %q, %v", reply, err)
+	}
+	st := r.app.Status().Project.Idle
+	if st == nil || !st.Acked || st.Why != "nothing to dispatch" {
+		t.Fatalf("idle state %+v after a custom role's brief, want the acknowledged epoch in force", st)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+		t.Errorf("obor idle (the state): %q, %v; want the epoch in force", reply, err)
+	}
+	r.passes()
+	if n := r.inbox.count("pj-lead", line); n != 1 {
+		t.Errorf("%d idle lines, want the one", n)
+	}
+}
+
+// T-815: serve restarts while the reviewer's brief is open: the replay folds the ended epoch, so the brief keeps the
+// pipeline not idle and its end starts the new epoch as without the restart.
+func TestReviewerBriefEndsIdleAcrossARestart(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
+	rev.Workspace, rev.Label = "w1", "pj-rev"
+	line := r.idleAcked()
+	if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review the wave"}); err != nil ||
+		!strings.HasPrefix(reply, "BRIEFED pj-rev") {
+		t.Fatalf("brief: %q, %v", reply, err)
+	}
+	r.waitFor("the brief posted", func() bool { return r.inbox.count("pj-rev", "[obor pj-lead] review the wave") == 1 })
+	r.waitBriefDelivered()
+	r.stop()
+	r.start()
+	if st := r.app.Status().Project.Idle; st != nil {
+		r.t.Fatalf("idle state %+v after a restart mid-brief, want none", st)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{Note: "still nothing"}); err != nil || reply != "NOT IDLE" {
+		r.t.Fatalf("the ack of an ended epoch after a restart: %q, %v; want NOT IDLE", reply, err)
+	}
+	r.finishesBrief("w1:p6", "pj-rev", "[obor] pj-rev finished (briefed 5m ago)")
+	r.newIdleEpoch(line)
 }

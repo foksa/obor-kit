@@ -12,12 +12,15 @@ import (
 	"time"
 )
 
-// Idle (T-803): serve says once when the pipeline empties, and the lead answers.
+// Idle (T-803, T-815): serve says once when the pipeline empties, and the lead answers.
 //
 // The state is the store's (docs/state-model.md "Lines to the lead"): fact idle{Last, End} on the task key idle marks
-// the pipeline empty since then (End is the merged or dropped fact it follows), fact idle.ack{Why} is the lead's
-// acknowledgement, and a dispatch, a waiting dispatch or a review request ends the idle state (the pipeline has work
-// again). A replay derives it all; a restart with an unacknowledged idle state pings again at most once.
+// the pipeline empty since then (End is the merged or dropped fact it follows), and fact idle.ack{Epoch, Why} is the
+// lead's acknowledgement of that epoch. Idle is an epoch: it ends when anything makes idleNow false — a dispatch, a
+// waiting dispatch, a needs-you, a hold agent's open brief (the reviewer's or the deep dive's, T-815) — and a new one
+// begins, one line and unacknowledged, when the pipeline is empty again, whatever ended the last one. An
+// acknowledgement of an ended epoch is refused. A replay derives it all; a restart with an unacknowledged idle state
+// pings again at most once.
 //
 // On the transition serve posts one line to the lead ("[obor] idle: nothing in flight (last: T-xx merged <sha7>) —
 // dispatch next, or obor idle \"<why nothing>\""), after a watch line firing for the same merge (notify records the
@@ -30,30 +33,42 @@ const idlePingAfter = 30 * time.Minute
 // idleNotify is the prefix of the notification's intent key, "<idleNotify><the idle fact's seq>".
 const idleNotify = "notify."
 
-// idleData is an idle fact's data (StepIdle: Last and End; StepIdleAck: Why, and the call's reply fields).
+// idleData is an idle fact's data (StepIdle: Last and End; StepIdleAck: Epoch, Why, and the call's reply fields).
 type idleData struct {
-	Last  string `json:"last,omitempty"` // "T-xx merged <sha7>", "T-xx dropped: <why>"
-	End   int64  `json:"end,omitempty"`  // the merged or dropped fact's seq this idle state follows
-	Why   string `json:"why,omitempty"`  // the acknowledgement's why nothing is in flight
+	Last  string `json:"last,omitempty"`  // "T-xx merged <sha7>", "T-xx dropped: <why>"
+	End   int64  `json:"end,omitempty"`   // the merged or dropped fact's seq this idle state follows
+	Epoch int64  `json:"epoch,omitempty"` // an ack's: the idle fact's seq it answers
+	Why   string `json:"why,omitempty"`   // the acknowledgement's why nothing is in flight
 	By    string `json:"by,omitempty"`
 	Call  string `json:"call,omitempty"`
 	Reply string `json:"reply,omitempty"`
 }
 
-// idleState is the project's idle state in force: its fact's seq and time, what ended the pipeline, whether a pass
-// recorded the first line and the ping's (folded from their message facts), and the lead's acknowledgement.
+// idleState is one idle epoch: its fact's seq and time, what ended the pipeline, whether a pass recorded the first
+// line and the ping's (folded from their message facts), the lead's acknowledgement, and whether anything ended the
+// epoch since (ended: no longer the state in force).
 type idleState struct {
 	seq    int64
 	at     time.Time
 	last   string
 	end    int64
+	ended  bool
 	lined  bool
 	pinged bool
 	ack    bool
 	why    string
 }
 
-// foldIdle folds r, a record of the project's idle state (T-803).
+// idle is idleNow's answer: what ended the pipeline last ("T-xx merged <sha7>", "T-xx dropped: <why>"), that fact's
+// seq, and whether nothing is in flight — the pipeline is empty, no needs-you is in force and no hold agent holds a
+// brief.
+type idle struct {
+	last string
+	end  int64
+	ok   bool
+}
+
+// foldIdle folds r, a record of the project's idle state (T-803, T-815).
 func (p *proj) foldIdle(r event.Record) {
 	switch {
 	case r.Task == event.IdleTask && r.Kind == event.KindFact && r.Step == event.StepIdle:
@@ -66,26 +81,32 @@ func (p *proj) foldIdle(r event.Record) {
 		if d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodIdle, d.Call)] = d.Reply
 		}
-		if p.folded.idle != nil {
-			p.folded.idle.ack, p.folded.idle.why = true, d.Why
+		// An acknowledgement names the epoch it read: one of an ended epoch, or of a later one, acknowledges nothing.
+		if st := p.folded.idle; st != nil && !st.ended && (d.Epoch == 0 || d.Epoch == st.seq) {
+			st.ack, st.why = true, d.Why
 		}
-	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting):
-		p.folded.idle = nil
-	case r.Task == event.ReviewTask && r.Kind == event.KindFact && r.Step == event.StepReviewRequest:
-		p.folded.idle = nil
+	}
+	// Idle is an epoch (T-815): anything that makes the pipeline not idle, or a later end, ends the recorded epoch, so
+	// the next idle transition begins a new one — a new line, unacknowledged — rather than reviving the last one.
+	if st := p.folded.idle; st != nil && !st.ended {
+		if n := p.idleNow(); !n.ok || n.end != st.end {
+			st.ended = true
+		}
 	}
 }
 
 // idleNow is the pipeline's state now (under mu): idle with the last end's line and fact seq when nothing is in
 // flight, no needs-you is in force and no reviewer or deep dive holds a brief. A task merged but still on its
 // after-merge steps is in flight; a rejected one is no cause of idle (its needs-you ends it).
-func (p *proj) idleNow() (last string, end int64, idle bool) {
+func (p *proj) idleNow() idle {
+	var last string
+	var end int64
 	for _, task := range p.loopTasks() {
 		mt := p.folded.loop[task]
 		switch mt.state {
 		case stMerged:
 			if mt.after < len(afterSteps) && mt.needs.Seq == 0 {
-				return "", 0, false
+				return idle{}
 			}
 			if mt.mergedSeq > end {
 				end, last = mt.mergedSeq, idleMerged(mt)
@@ -96,20 +117,30 @@ func (p *proj) idleNow() (last string, end int64, idle bool) {
 			}
 		case stRejected:
 			// ended without a merge: the owner's (its needs-you or its drop), never an idle cause
-			return "", 0, false
+			return idle{}
 		default:
-			return "", 0, false
+			return idle{}
 		}
 	}
 	if end == 0 || len(p.needsYou()) > 0 {
-		return "", 0, false
+		return idle{}
 	}
 	for _, h := range p.holdAgentsNow() {
 		if p.out.briefs[h.agent] != nil {
-			return "", 0, false
+			return idle{}
 		}
 	}
-	return last, end, true
+	return idle{last: last, end: end, ok: true}
+}
+
+// idleEpoch is the idle epoch in force now (under mu), idleNow's n given: the recorded state while the pipeline is
+// still empty after the same end; nil when it has work again, a later end began, or the fold saw the epoch end.
+func (p *proj) idleEpoch(n idle) *idleState {
+	st := p.folded.idle
+	if st == nil || st.ended || !n.ok || n.end != st.end {
+		return nil
+	}
+	return st
 }
 
 // idleLines announces the idle state once and pings an unacknowledged one after idlePingAfter: the lead's line (and
@@ -123,18 +154,18 @@ func (a *App) idleLines(ctx context.Context) {
 		return
 	}
 	now := a.opt.Now()
-	last, end, idle := p.idleNow()
-	st := p.folded.idle
+	cur := p.idleNow()
+	st := p.idleEpoch(cur)
 	newState, first, ping := false, false, false
 	switch {
-	case !idle:
-	case st == nil || end > st.end:
+	case !cur.ok:
+	case st == nil: // no epoch recorded, or the last one ended: a new epoch begins, with its own line
 		newState, first = true, true
-	case end == st.end:
+	default:
 		first = !st.lined
 		ping = !st.ack && st.lined && !st.pinged && now.Sub(st.at) >= idlePingAfter
 	}
-	if idle {
+	if cur.ok {
 		for _, w := range p.folded.watches { // a watch's line is being recorded: it goes first, the idle line next pass
 			if w.lining {
 				a.mu.Unlock()
@@ -146,7 +177,7 @@ func (a *App) idleLines(ctx context.Context) {
 
 	if newState {
 		if !a.record(p, event.Record{Task: event.IdleTask, Step: event.StepIdle, Kind: event.KindFact},
-			idleData{Last: last, End: end}) {
+			idleData{Last: cur.last, End: cur.end}) {
 			return
 		}
 	}
@@ -181,13 +212,12 @@ func (a *App) idleLines(ctx context.Context) {
 		}
 		a.wake()
 	}
-	// The ping's notification reaches the owner once per idle state, also after a restart: its intent is folded by
+	// The ping's notification reaches the owner once per idle epoch, also after a restart: its intent is folded by
 	// the replay, and an attempt that failed is made again on the next pass.
 	a.mu.Lock()
-	st = p.folded.idle
-	notify := idle && st != nil && st.pinged && !st.ack
+	st = p.idleEpoch(p.idleNow())
 	a.mu.Unlock()
-	if notify && a.idleShown(ctx, p, st) {
+	if st != nil && st.pinged && !st.ack && a.idleShown(ctx, p, st) {
 		a.wake()
 	}
 }
@@ -263,7 +293,7 @@ func (a *App) idleCall(c wire.Call) (string, error) {
 	}
 	why := oneLine(c.Note)
 	a.mu.Lock()
-	st := p.folded.idle
+	st := p.idleEpoch(p.idleNow())
 	shown := idleText(st)
 	seq := int64(0)
 	if st != nil {
@@ -280,7 +310,7 @@ func (a *App) idleCall(c wire.Call) (string, error) {
 	if by == "" {
 		by = "owner"
 	}
-	d := idleData{Why: why, By: by, Call: c.CallID, Reply: "ACKED idle: " + why}
+	d := idleData{Epoch: seq, Why: why, By: by, Call: c.CallID, Reply: "ACKED idle: " + why}
 	if !a.record(p, event.Record{Task: event.IdleTask, Step: event.StepIdleAck, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("idle: the event log of %s refused it", p.name)
 	}
