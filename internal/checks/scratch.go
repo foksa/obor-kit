@@ -175,12 +175,12 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	r.releaseSlot()
 
 	if in.Kind != port.InputResolved {
-		msg := "Merge " + in.Task + ": " + in.Summary + specBody(in)
+		moved := ""
 		if in.Kind == port.InputMoved {
 			// T-360: a moved target keeps the task's subject rule; where the merge went is in the body.
-			msg += "\n\nMerged onto the moved " + branch + " at " + target
+			moved = "Merged onto the moved " + branch + " at " + target
 		}
-		msg += s.trailer()
+		msg := mergeMessage(in, moved, "") + s.trailer()
 		if c.SHA, err = s.commit(dir, msg, target, in.Input); err != nil {
 			return port.GateOutcome{}, err
 		}
@@ -213,24 +213,47 @@ func specBody(in port.GateInput) string {
 	return fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, strings.TrimRight(in.Spec, "\n"))
 }
 
-// specResolved puts in.Spec into the message of the resolved merge checked out in dir (specBody, after its subject):
-// the merge is amended with it (same parents, tree and author; the committer date the merge's, so a repeat makes the
-// same commit). No spec stored: the merge as committed. The candidate's sha.
-func (s Scratch) specResolved(dir string, in port.GateInput) (string, error) {
-	body := specBody(in)
-	if body == "" {
-		return in.Input, nil
+// mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike (T-802). Subject:
+// "Merge T-xx: <in.Title>" (the spec's title, T-790), else the worker's summary's first line. Body, each part after a
+// blank line: the spec (specBody), moved (a moved target's "Merged onto ..." line), resolver (the integrator's own
+// message body without git's "#" comment lines) and "Summary: <in.Summary>" (not repeated when it is the subject).
+func mergeMessage(in port.GateInput, moved, resolver string) string {
+	summary, _, _ := strings.Cut(strings.TrimSpace(in.Summary), "\n")
+	subject := strings.TrimSpace(in.Title)
+	if subject == "" {
+		subject = summary
 	}
+	msg := strings.TrimSpace("Merge " + in.Task + ": " + subject)
+	msg += specBody(in)
+	if moved != "" {
+		msg += "\n\n" + moved
+	}
+	var kept []string
+	for _, l := range strings.Split(resolver, "\n") {
+		if !strings.HasPrefix(l, "#") {
+			kept = append(kept, strings.TrimRight(l, " \t"))
+		}
+	}
+	if r := strings.TrimSpace(strings.Join(kept, "\n")); r != "" {
+		msg += "\n\n" + r
+	}
+	if summary != "" && summary != subject {
+		msg += "\n\nSummary: " + summary
+	}
+	return msg
+}
+
+// specResolved gives the resolved merge checked out in dir the gate's message (mergeMessage: the subject
+// "Merge T-xx: <title>" in place of git's own, the spec, the resolver's body): the merge is amended (same parents,
+// tree and author; the committer date the merge's, so a repeat makes the same commit). The candidate's sha.
+func (s Scratch) specResolved(dir string, in port.GateInput) (string, error) {
 	out, err := s.call(dir, "show", "-s", "--format=%ct%n%B", in.Input)
 	if err != nil {
 		return "", err
 	}
 	ct, msg, _ := strings.Cut(out, "\n")
-	subject, rest, _ := strings.Cut(strings.TrimSpace(msg), "\n")
-	msg = subject + body
-	if rest = strings.TrimSpace(rest); rest != "" {
-		msg += "\n\n" + rest
-	}
+	_, rest, _ := strings.Cut(strings.TrimSpace(msg), "\n")
+	msg = mergeMessage(in, "", rest)
 	env := []string{"GIT_COMMITTER_DATE=@" + ct + " +0000"}
 	if _, errOut, err := s.gitLocked(env, dir, "commit", "-q", "--amend", "--no-verify", "-m", msg); err != nil {
 		return "", gitError(dir, []string{"commit", "--amend"}, errOut, err)

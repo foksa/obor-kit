@@ -280,9 +280,7 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		g.Spec, g.SpecRev = row.Text, row.Rev
-		if g.Kind != port.InputResolved { // a resolved gate writes no new subject
-			g.Summary = subjectOf(spec.Title(row.Text), mt.report)
-		}
+		g.Title, g.Summary = spec.Title(row.Text), summaryOf(mt.report) // the merge's subject and body (T-802)
 		o, err := fx.Scratch.Gate(ctx, g)
 		if err != nil {
 			return nil, err

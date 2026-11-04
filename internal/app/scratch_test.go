@@ -189,7 +189,10 @@ func (s *gitScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 			return port.GateOutcome{}, err
 		}
 	} else {
-		msg := "Merge " + in.Task + ": " + in.Summary
+		msg := "Merge " + in.Task + ": " + in.Title
+		if in.Title == "" {
+			msg = "Merge " + in.Task + ": " + in.Summary
+		}
 		if in.Spec != "" { // as checks.Scratch does: the stored spec into the merge's message (T-521)
 			msg += fmt.Sprintf("\n\nSpec rev %d:\n\n%s", in.SpecRev, in.Spec)
 		}

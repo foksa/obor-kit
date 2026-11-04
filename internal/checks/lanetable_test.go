@@ -326,3 +326,18 @@ func stateOf(p *LaneTable, lane string) LaneStatus {
 	}
 	return LaneStatus{}
 }
+
+// T-802: a resolved merge, as the gate amends it (title subject, spec and summary in the body), is merge evidence.
+func TestMergeEvidenceResolvedMerge(t *testing.T) {
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": ""})
+	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
+		"Merge commit 'abc' into HEAD\n\n# Conflicts:\n#\tshared.txt")
+	if NewLaneTable(p.Cfg).MergeEvidence("T-07") {
+		t.Fatal("precondition: git's default merge subject counts as T-07's evidence")
+	}
+	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
+		"Merge T-07: Resolved title\n\nSpec rev 1:\n\n# T-07 — Resolved title\n\nSummary: did it")
+	if !NewLaneTable(p.Cfg).MergeEvidence("T-07") {
+		t.Error("the resolved merge's subject is not evidence")
+	}
+}

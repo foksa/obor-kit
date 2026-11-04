@@ -1,6 +1,8 @@
 package checks
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"obor/internal/app/port"
@@ -27,7 +29,7 @@ func TestGateSpecInMessage(t *testing.T) {
 				y.Write(y.lane+"/docs/tasks/T-05.md", "# T-05 — Rewritten by the worker\n")
 			}
 			in := lane(y.submit())
-			in.Spec, in.SpecRev = c.spec, 3
+			in.Spec, in.SpecRev, in.Title = c.spec, 3, "Stored"
 			o := y.gate(in)
 			if o.Kind != port.OutcomeGreen {
 				t.Fatalf("gate: %s %q; want green\n%s", o.Kind, o.Line, y.out.String())
@@ -44,10 +46,11 @@ func TestGateSpecInMessage(t *testing.T) {
 			} else {
 				y.lacks(names, "docs/tasks/T-05.md", "the patch (the gate writes no spec file)")
 			}
-			want := "Merge T-05: feature"
+			want := "Merge T-05: Stored"
 			if c.spec != "" {
 				want += "\n\nSpec rev 3:\n\n# T-05 — Stored\n\nfeature.txt"
 			}
+			want += "\n\nSummary: feature"
 			want += "\n\nCo-Authored-By: Test <test@example.invalid>" // the trailer stays last
 			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", cand.SHA), want, "the merge's message")
 			if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
@@ -58,23 +61,23 @@ func TestGateSpecInMessage(t *testing.T) {
 	}
 }
 
-// T-521: a resolved gate amends the integrator's merge message the same way (its subject, the spec, then the rest of
-// its message): same parents and tree, the same commit on a repeat; no stored spec: gated as committed.
+// T-521, T-802: a resolved gate amends the integrator's merge message: the subject "Merge T-xx: <title>" in place of
+// the integrator's own, the spec, the rest of its message, the worker's summary; same parents and tree, the same
+// commit on a repeat. No title stored: the summary is the subject.
 func TestGateResolvedSpecInMessage(t *testing.T) {
 	t.Parallel()
 	const spec = "# T-05 — Stored\n\nfeature.txt, shared.txt\n"
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	input := y.conflicted()
-	y.resolveServe()
+	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
+	y.Git(y.serve, "add", "shared.txt")
+	y.Git(y.serve, "commit", "-qm", "Merge T-05: resolved\n\nkept both sides")
 	res, err := y.s.Resolved(ctx, "T-05", input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject := y.Git(y.Root, "log", "-1", "--format=%s", res)
-	if body := y.Git(y.Root, "log", "-1", "--format=%b", res); body != "" {
-		t.Fatalf("precondition: the resolution's message has a body %q", body)
-	}
-	in := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res, Spec: spec, SpecRev: 2}
+	in := port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res, Spec: spec, SpecRev: 2,
+		Title: "Stored", Summary: "feature"}
 	c := y.green(in)
 	if c.SHA == res {
 		t.Fatalf("candidate %s is the resolution: its message was not amended", c.SHA)
@@ -83,13 +86,44 @@ func TestGateResolvedSpecInMessage(t *testing.T) {
 	y.eq(parents(c.SHA), parents(res), "the amended merge's parents and tree")
 	y.eq(c.Target, y.Git(y.Root, "rev-parse", res+"^1"), "the candidate's target")
 	y.eq(y.Git(y.Root, "log", "-1", "--format=%B", c.SHA),
-		subject+"\n\nSpec rev 2:\n\n# T-05 — Stored\n\nfeature.txt, shared.txt", "the amended merge's message")
+		"Merge T-05: Stored\n\nSpec rev 2:\n\n# T-05 — Stored\n\nfeature.txt, shared.txt\n\nkept both sides\n\nSummary: feature",
+		"the amended merge's message")
 	if gitOK(y.Root, "cat-file", "-e", c.SHA+":docs/tasks/T-05.md") {
 		t.Error("the resolved candidate has a spec file")
 	}
 	y.eq(y.Git(y.Root, "show", c.SHA+":shared.txt"), "both", "the resolution kept")
 	y.eq(y.green(in).SHA, c.SHA, "a repeated resolved gate makes the same commit")
 
-	in.Spec = "" // none stored: the resolution as committed
-	y.eq(y.green(in).SHA, res, "a resolution without a stored spec is not amended")
+	in.Spec, in.Title = "", "" // nothing stored: the summary is the subject
+	y.eq(y.Git(y.Root, "log", "-1", "--format=%B", y.green(in).SHA), "Merge T-05: feature\n\nkept both sides",
+		"the message without a stored spec or title")
+}
+
+// T-802: a resolved merge that keeps git's own message ("Merge commit '<sha>' into HEAD", "# Conflicts:" lines) comes
+// out with the gate's subject and neither of them, and the readers of "Merge T-xx:" subjects find it.
+func TestGateResolvedGitDefaultMessage(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	input := y.conflicted()
+	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
+	y.Git(y.serve, "add", "shared.txt")
+	y.Git(y.serve, "commit", "-q", "--no-edit")
+	res, err := y.s.Resolved(ctx, "T-05", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := y.Git(y.Root, "log", "-1", "--format=%B", res)
+	if !strings.HasPrefix(orig, "Merge ") || strings.HasPrefix(orig, "Merge T-05:") || !strings.Contains(orig, "# Conflicts:") {
+		t.Fatalf("precondition: the resolution's message is not git's default with conflict lines:\n%s", orig)
+	}
+	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res,
+		Spec: "# T-05 — Stored\n\nx\n", SpecRev: 1, Title: "Stored", Summary: "feature"})
+	got := y.Git(y.Root, "log", "-1", "--format=%B", c.SHA)
+	y.eq(got, "Merge T-05: Stored\n\nSpec rev 1:\n\n# T-05 — Stored\n\nx\n\nSummary: feature", "the amended message")
+	if strings.Contains(got, "Merge commit") || strings.Contains(got, "Conflicts") || strings.Contains(got, "\n#\t") {
+		t.Errorf("message keeps git's default text:\n%s", got)
+	}
+	y.eq(y.Git(y.Root, "log", "-1", "--format=%s", c.SHA), "Merge T-05: Stored", "the subject")
+	y.eq(y.Git(y.Root, "log", "--format=%h", "--grep=^Merge T-", "--max-count=1", c.SHA), y.Git(y.Root, "rev-parse", "--short", c.SHA),
+		"git log --grep='^Merge T-' finds it")
 }
