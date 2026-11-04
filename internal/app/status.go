@@ -48,16 +48,21 @@ func (a *App) Status() wire.Status {
 		for _, fs := range p.folded.active {
 			ps.Facts = append(ps.Facts, fs...)
 		}
+		intents := p.log.OpenIntents()
+		steps := p.stepPhases(intents)
 		for _, mt := range p.folded.loop {
 			if mt.needs.Seq != 0 {
 				ps.Facts = append(ps.Facts, mt.needs)
 			}
 			if mt.state != stMerged {
-				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state, Effort: mt.disp.Effort}
+				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state,
+					Phase: a.phaseOf(p, mt, steps), Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}
-				ts.Hold = a.heldBy(p, mt)
+				if role := a.holdRole(p, mt); role != "" {
+					ts.Hold = wire.MergeHold(role)
+				}
 				if mt.state == stWaiting {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types
@@ -109,9 +114,8 @@ func (a *App) Status() wire.Status {
 				ps.Answers[f.Seq] = ans
 			}
 		}
-		open := p.log.OpenIntents()
-		ps.Running = p.runningSteps(open)
-		ps.Pending = p.pendingSteps(open)
+		ps.Running = p.runningSteps(intents)
+		ps.Pending = p.pendingSteps(intents)
 		ps.Scratch, ps.ScratchQueue = p.scratchQueue()
 		if ps.ScratchQueue == nil {
 			ps.ScratchQueue = []wire.ScratchWait{}

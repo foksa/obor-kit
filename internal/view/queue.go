@@ -28,23 +28,15 @@ type Queue struct {
 	Nightly *Nightly            `json:"nightly"`
 }
 
-// The merge loop's stages, in the order a task goes through them (MergeItem.Stage); held is a task the owner decides.
-const (
-	StageSubmitted = "submitted" // submitted, waits for the scratch
-	StageGating    = "gating"    // its gate runs, waits, or failed red
-	StageReview    = "review"    // gate green: the integrator's review or resolve job
-	StagePublish   = "publish"   // accepted: published onto the target
-	StageHeld      = "held"      // needs-you or failed: the owner decides
-)
-
-// MergeItem is one task in the merge loop, in the merge loop's order: its spec's title, serve's state, its stage, its
-// open integrator job, and, when its next step needs the scratch, what it waits for and why (T-669: copied from serve's
-// scheduler, which names no task as next, T-673).
+// MergeItem is one task in the merge loop, in the merge loop's order: its spec's title, serve's state and phase (T-788),
+// the phase's stage (wire.PhaseStage: the pipeline's column), its open integrator job, and, when its next step needs
+// the scratch, what it waits for and why (T-669: copied from serve's scheduler, which names no task as next, T-673).
 type MergeItem struct {
 	Task    string `json:"task"`
 	Title   string `json:"title,omitempty"`
 	Lane    string `json:"lane,omitempty"`
 	State   string `json:"state"`
+	Phase   string `json:"phase"`
 	Stage   string `json:"stage"`
 	WaitsOn string `json:"waits_on,omitempty"`
 	Why     string `json:"why,omitempty"`
@@ -132,11 +124,11 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Waiting = append(q.Waiting, w)
 			continue
 		}
-		if stage := stageOf(t, v); stage != "" {
+		if stage := wire.PhaseStage(t.Phase); stage != "" {
 			w := waits[t.Task]
 			m := MergeItem{Task: t.Task, Title: spec.Title(specs[t.Task].Text), Lane: t.Lane, State: t.State,
-				Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why}
-			if stage == StageReview && t.Job != "" {
+				Phase: t.Phase, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why}
+			if stage == wire.StageReview && t.Job != "" {
 				m.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}
 			q.Merge = append(q.Merge, m)
@@ -170,34 +162,6 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			Worked: b.Worked})
 	}
 	return q
-}
-
-// stageOf is t's merge-loop stage ("": t is not in the merge loop: dispatched, working, merged or ended). A submitted
-// task whose gate runs or waits is gating.
-func stageOf(t wire.TaskStatus, v *Project) string {
-	switch t.State {
-	case "submitted":
-		for _, r := range v.Running {
-			if r.Task == t.Task && r.Step == event.StepGate {
-				return StageGating
-			}
-		}
-		for _, p := range v.Pending {
-			if p.Task == t.Task && p.Step == event.StepGate {
-				return StageGating
-			}
-		}
-		return StageSubmitted
-	case "resolved", "moved", "red":
-		return StageGating
-	case "green", "awaiting-accept", "conflict", "resolving":
-		return StageReview
-	case "accepted", "published":
-		return StagePublish
-	case "needs-you", "fail":
-		return StageHeld
-	}
-	return ""
 }
 
 // sortTasks sorts items by their task id (idOf), numerically: T-9 before T-10.

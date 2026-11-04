@@ -318,7 +318,7 @@ func TestAdmitPublishWaitsForTheBrief(t *testing.T) {
 				t.Fatalf("publishes begun inside the admission: %d (-1: the head was never read)", began)
 			}
 			h.pass(ctx)
-			if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge held: reviewer working" || len(r.s.began) != 0 {
+			if got := h.state("T-1"); got != stAccepted || h.taskHold("T-1") != "merge hold: reviewer" || len(r.s.began) != 0 {
 				t.Errorf("after the brief: T-1 %s, hold %q, %d publishes; want accepted, held by the reviewer", got,
 					h.taskHold("T-1"), len(r.s.began))
 			}
@@ -459,7 +459,7 @@ func TestHoldDecidedAtPublishStart(t *testing.T) {
 				t.Fatalf("publish T-1 started despite the %s's open brief: %d publishes, %d records, T-1 %s", c.holder, n,
 					countStep(t, h, nth(event.StepPublish, 1)), h.state("T-1"))
 			}
-			if got, want := h.taskHold("T-1"), "merge held: "+c.holder+" working"; got != want {
+			if got, want := h.taskHold("T-1"), "merge hold: "+c.holder; got != want {
 				t.Errorf("status hold = %q, want %q", got, want)
 			}
 		})

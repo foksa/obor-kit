@@ -72,7 +72,7 @@
     for (const n of v?.notes || []) w.push({ text: n, state: "pending" });
     return w;
   });
-  const laneStage = (l: Lane) => stageOf(l.task_state || l.state);
+  const laneStage = (l: Lane) => stageOf(l.column);
   const waitWhy = (w: WaitItem) => {
     if (w.waits_on === "after") return "after " + (w.after || []).join(", ") + (w.why ? " · " + w.why : "");
     if (w.waits_on === "never dispatched") return "spec r" + (w.rev || 0) + " stored, never dispatched";
@@ -190,7 +190,7 @@
               {#if l.job}<span>job <a class="mono" href={href.job(project, l.job.id)}>{jobStep(l.job.id)}</a>{#if !l.job.delivered} <Pill state="not fetched" />{/if}</span>{/if}
               {#if l.branch}<span class="muted">branch <span class="mono">{l.branch}</span>{#if l.dirty}<span class="dirty"> · dirty</span>{/if}</span>{/if}
               {#if l.op}<span class="muted">{l.op}</span>{/if}
-              {#if l.hold}<Pill state="merge held" text={l.hold} />{/if}
+              {#if l.hold}<Pill state="merge hold" text={l.hold} />{/if}
               {#if l.warning}<Pill state="fail" text={l.warning} />{/if}
             </div>
             <Background list={l.background} />
@@ -265,7 +265,7 @@
                   <div class="qbody">
                     {#if o.kind === "line"}
                       <span>→ <AgentLink {project} agent={o.to} />: <Linked {project} text={o.line} /></span>
-                      {#if o.from || o.held}<span class="muted small">{o.from ? "from " + o.from : ""}{o.held ? " · held: " + o.held : ""}</span>{/if}
+                      {#if o.from || o.held}<span class="muted small">{o.from ? "from " + o.from : ""}{o.held ? " · undelivered: " + o.held : ""}</span>{/if}
                     {:else}
                       <span>brief to <AgentLink {project} agent={o.to} /> <span class="muted">{o.worked ? "being worked" : o.delivered ? "delivered" : "not delivered"}</span></span>
                     {/if}

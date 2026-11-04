@@ -106,7 +106,7 @@ export const inUse = (s: Setup, used: Record<string, string[]>) => s.models.filt
 export const busyDropped = (s: Setup, n: number) => s.lanes.slice(Math.max(0, n)).filter((l) => LOCKED.has(l.state)).map((l) => l.lane);
 
 // LOCKED are a lane's states that hold a task.
-export const LOCKED = new Set(["working", "done", "missing"]);
+export const LOCKED = new Set(["working", "missing"]);
 
 // pauseBody is POST /api/pause's body for model's pause (reason, a duration or "until cleared") or its clear.
 export function pauseBody(model: string, clear: boolean, reason = "", dur = "") {

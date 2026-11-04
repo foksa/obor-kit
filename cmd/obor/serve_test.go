@@ -201,7 +201,7 @@ func TestLaneTable(t *testing.T) {
 		prep        func()
 	}{
 		{"dispatched", "working", func() { p.Dispatched("L-01") }},
-		{"task_done in", "done", func() { p.Submit("L-01") }},
+		{"task_done in", "working", func() { p.Submit("L-01") }}, // T-788: no done (the task's phase is serve's)
 		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
 	} {
 		c.prep()

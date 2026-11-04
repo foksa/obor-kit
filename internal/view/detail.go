@@ -29,6 +29,7 @@ type TaskDetail struct {
 	Lane         string       `json:"lane,omitempty"`
 	Agent        string       `json:"agent,omitempty"`
 	State        string       `json:"state,omitempty"` // serve's state of the task
+	Phase        string       `json:"phase,omitempty"` // serve's phase of it (wire.Phase*, T-788)
 	Attempt      int          `json:"attempt,omitempty"`
 	DispatchedAt int64        `json:"dispatched_at,omitempty"` // the lane row's dispatch (epoch seconds)
 	SpecRev      int          `json:"spec_rev,omitempty"`      // the store's current rev
@@ -117,7 +118,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 	found := false
 	for _, s := range d.Project.Tasks {
 		if s.Task == task {
-			t.State, t.Attempt, found = s.State, s.Attempt, true
+			t.State, t.Phase, t.Attempt, found = s.State, s.Phase, s.Attempt, true
 		}
 	}
 	for _, l := range d.Project.Lanes {

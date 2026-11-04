@@ -238,7 +238,7 @@ func TestRV90RefusedReason(t *testing.T) {
 			reasons = append(reasons, f.Fact().Reason)
 		}
 	}
-	if len(in.calls) != 2 || len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(held: "+why+")") {
+	if len(in.calls) != 2 || len(reasons) != 1 || !strings.HasSuffix(reasons[0], "(undelivered: "+why+")") {
 		t.Errorf("posts %q, needs-you %q; want a second refused post and the needs-you naming its refusal", in.calls,
 			reasons)
 	}

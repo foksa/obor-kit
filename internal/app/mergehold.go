@@ -14,7 +14,7 @@ import (
 // be delivered, or one it works on: messages.go) or its pane is not idle (roleIdle) — and the code stays put under
 // them for their turn. Only the publish waits: gates, jobs and dispatch go on. A task held holdCap goes ahead anyway
 // and the lead gets one line ("[obor] merge of T-x went ahead: <role> still working after 30m"). obor status shows
-// "merge held: <role> working" on the waiting task. The hold is live state: nothing is recorded, a replay folds the
+// "merge hold: <role>" on the waiting task (its phase, T-788). The hold is live state: nothing is recorded, a replay folds the
 // task accepted as before and the next pass decides the hold afresh (its clock starts again).
 
 // holdCap is how long a task's publish waits for a working reviewer or deep dive before it goes ahead.
@@ -164,15 +164,12 @@ func (a *App) holdLine(p *proj, task, role string) bool {
 	return a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 }
 
-// heldBy is obor status' hold of mt ("merge held: <role> working"; "": none): an accepted task, not publishing, whose
-// publish waits now (under mu).
-func (a *App) heldBy(p *proj, mt *mtask) string {
+// holdRole is the role holding mt's merge ("": none): an accepted task, not publishing, whose publish waits now (under
+// mu; obor status shows wire.MergeHold of it).
+func (a *App) holdRole(p *proj, mt *mtask) string {
 	h, ok := p.holds[mt.task]
 	if !ok || h.told || mt.state != stAccepted || p.running.Task == mt.task {
 		return ""
 	}
-	if role := a.holder(p); role != "" {
-		return "merge held: " + role + " working"
-	}
-	return ""
+	return a.holder(p)
 }

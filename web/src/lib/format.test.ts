@@ -20,7 +20,7 @@ describe("wording", () => {
     expect(parts("fix T-1 then T-22.")).toEqual([{ text: "fix " }, { text: "T-1", task: "T-1" }, { text: " then " }, { text: "T-22", task: "T-22" }, { text: "." }]);
   });
   it("colors states", () => {
-    expect(["working", "waiting", "needs-you", "merged", "gating", "free", "merge held: reviewer working", "driving", "done"].map(tone))
+    expect(["working", "waiting", "needs-you", "merged", "gating", "free", "merge hold: reviewer", "driving", "done"].map(tone))
       .toEqual(["ok", "wait", "bad", "done", "info", "idle", "wait", "accent", "wait"]);
   });
   it("sorts events by kind", () => {

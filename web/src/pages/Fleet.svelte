@@ -38,7 +38,7 @@
   const events = $derived(ps.flatMap((p) => (p.events || []).map((e) => ({ ...e, project: p.name })))
     .sort((a, b) => unixOf(b.ts) - unixOf(a.ts)).slice(0, 30));
   let filter = $state("All");
-  const laneStage = (l: LaneDot) => stageOf(l.task_state || l.column);
+  const laneStage = (l: LaneDot) => stageOf(l.column);
 </script>
 
 <div class="page">
