@@ -54,30 +54,39 @@ func (r *loopRig) factData(task, step string) map[string]any {
 }
 
 // T-538, T-689, T-765: the level's first model on the first free lane; a spec's Model: line puts its own models
-// first (T-689), with the effort it names.
+// first (T-689), with the effort it names; --model overrides the level (the dispatch fact then names no level).
 func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, spec, want, typ string
-		effort                any
+		effort, level         any
+		model                 string // --model ("" none)
 	}{
 		{"the level's first model", "# T-1 — Leveled\n\nDifficulty: medium\n", "DISPATCHED T-1 → L-01 (queued) as sonnet",
-			"sonnet", nil},
+			"sonnet", nil, "medium", ""},
 		{"the spec's Model: line first", "# T-1 — Leveled\n\nDifficulty: medium\nModel: haiku:low, sonnet\n",
-			"DISPATCHED T-1 → L-01 (queued) as haiku effort low", "haiku:low", "low"},
+			"DISPATCHED T-1 → L-01 (queued) as haiku effort low", "haiku:low", "low", "medium", ""},
+		{"--model overrides the level", "# T-1 — Leveled\n\nDifficulty: hard\n",
+			"DISPATCHED T-1 → L-01 (queued) as terra effort high", "terra:high", "high", nil, "terra:high"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			r := newLevelRig(t)
 			r.start()
 			r.setSpec("s-"+c.name, c.spec)
-			reply, err := r.dispatchLevel("d1")
+			var reply string
+			var err error
+			if c.model != "" {
+				reply, err = r.dispatchLevel("d1", c.model)
+			} else {
+				reply, err = r.dispatchLevel("d1")
+			}
 			if err != nil || !strings.HasPrefix(reply, c.want) {
 				t.Fatalf("dispatch: %q, %v; want %q", reply, err, c.want)
 			}
-			if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "L-01" || d["type"] != c.typ ||
+			if d := r.factData("T-1", event.StepDispatched); d["level"] != c.level || d["lane"] != "L-01" || d["type"] != c.typ ||
 				d["effort"] != c.effort {
-				t.Errorf("dispatch fact %v, want level medium, %s on L-01 with effort %v", d, c.typ, c.effort)
+				t.Errorf("dispatch fact %v, want level %v, %s on L-01 with effort %v", d, c.level, c.typ, c.effort)
 			}
 		})
 	}
@@ -220,6 +229,10 @@ func TestDifficultyRedispatchOfAWaitingTaskReplacesIt(t *testing.T) {
 	}
 	if st := r.taskStatus("T-1"); st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet,haiku" {
 		t.Errorf("status %+v, want the replacement's level and models", st)
+	}
+	r.later(2 * time.Hour)
+	if st := r.taskStatus("T-1"); st.State != "waiting" {
+		t.Errorf("status %+v after two hours, want still waiting (a busy lane is not a needs-you)", st)
 	}
 	r.lanes.mu.Lock()
 	r.lanes.lanes[0].State, r.lanes.lanes[0].Task = "free", ""

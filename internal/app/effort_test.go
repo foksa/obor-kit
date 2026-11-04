@@ -62,11 +62,11 @@ func TestEffortFromTheSpecAndTheFlag(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, spec, typ, want, effort string
-		flag                          bool
+		flag, exact                   bool
 	}{
-		{"the spec's Model: line", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n", "", "DISPATCHED T-1 → L-01 (queued) as opus effort max", "max", false},
-		{"--model with an effort", "", "opus:low", "DISPATCHED T-1 → L-01 (queued) as opus effort low", "low", true},
-		{"a plain type", "", "opus", "DISPATCHED T-1 → L-01 (queued) as opus", "", true},
+		{"the spec's Model: line", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n", "", "DISPATCHED T-1 → L-01 (queued) as opus effort max", "max", false, false},
+		{"--model with an effort", "", "opus:low", "DISPATCHED T-1 → L-01 (queued) as opus effort low", "low", true, false},
+		{"a plain type", "", "opus", "DISPATCHED T-1 → L-01 (queued) as opus", "", true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -84,7 +84,7 @@ func TestEffortFromTheSpecAndTheFlag(t *testing.T) {
 			} else {
 				reply, err = r.dispatchLevel("d1")
 			}
-			if err != nil || !strings.HasPrefix(reply, c.want) {
+			if err != nil || (c.exact && reply != c.want) || (!c.exact && !strings.HasPrefix(reply, c.want)) {
 				t.Fatalf("dispatch: %q, %v; want %q", reply, err, c.want)
 			}
 			d := r.factData("T-1", event.StepDispatched)
