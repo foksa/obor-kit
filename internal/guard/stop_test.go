@@ -153,19 +153,45 @@ func TestStopAboveHandoffLimitNoBlock(t *testing.T) {
 	}
 }
 
-// bash stop case_worker_handoff_unaffected
-func TestStopWorkerHandoffUnaffected(t *testing.T) {
+// bash stop case_worker_handoff_unaffected, case_worker_background_task; T-437: a worker's stop before its task_done.
+// One block per stop loop (stop_hook_active true allows, its look-alikes are a new loop); a running background task
+// allows, a finished one does not; at 900k context the block is still the task_done one (a worker gets no handoff
+// block); its task_done allows the stop, and a new dispatch blocks again.
+func TestStopWorkerBlockRows(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
 	o1 := f.Lane("L-01", "task/T-01")
 	f.Config()
 	f.state(ago(100))
 	f.Dispatched("L-01")
+	for _, c := range []struct {
+		name  string
+		extra string
+		block bool
+	}{
+		{"a new loop", `{"stop_hook_active": false}`, true},
+		{"the same loop: the worker asked", `{"stop_hook_active": true}`, false},
+		{"stop_hook_active null is a new loop", `{"stop_hook_active": null}`, true},
+		{`stop_hook_active "true" is not active`, `{"stop_hook_active": "true"}`, true},
+		{"a finished background task", `{"background_tasks":[{"id":"b1","type":"shell","status":"completed","command":"x"}]}`, true},
+		{"a running background task", `{"background_tasks":[{"id":"b2","type":"shell","status":"running","command":"make check"}]}`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := f.stop(t, "-", o1, c.extra)
+			if c.block {
+				r.block(c.name)
+				return
+			}
+			r.allow(c.name)
+		})
+	}
 	tr := transcript(f, f.Base+"/projects/p/w1.jsonl", 900000)
-	f.stop(t, "-", o1, session("w1", tr)).block("precondition: the worker without its task_done").
+	f.stop(t, "-", o1, session("w1", tr)).block("a worker at 900k without its task_done").
 		hasNot("the worker's own block", "context is")
 	f.Submit("L-01")
 	f.stop(t, "-", o1, session("w1", tr)).allow("a worker at 900k with its task_done")
+	f.Dispatched("L-01")
+	f.stop(t, "-", o1, "").block("a new attempt awaits its task_done")
 }
 
 // T-437: a worker whose task awaits its task_done (dispatched in the event log, no submission) is blocked with the
@@ -188,21 +214,6 @@ func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	if after, _ := f.Row("L-01"); after != before {
 		t.Errorf("the lane row changed: %+v, was %+v", after, before)
 	}
-}
-
-// T-437: once the task_done is recorded the worker may stop; dispatched anew (a new attempt awaits) it is blocked again.
-func TestStopWorkerAfterTaskDoneAllows(t *testing.T) {
-	t.Parallel()
-	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
-	f.Config()
-	f.state(ago(100))
-	f.Dispatched("L-01")
-	f.stop(t, "-", o1, "").block("precondition: no task_done yet")
-	f.Submit("L-01")
-	f.stop(t, "-", o1, "").allow("task_done recorded")
-	f.Dispatched("L-01")
-	f.stop(t, "-", o1, "").block("a new attempt awaits its task_done")
 }
 
 // T-558: a Blocked: task_done records an asks needs-you fact, not a submitted lane timestamp; resuming keeps the
@@ -264,35 +275,10 @@ func blockedReport(t *testing.T) (hfx, string) {
 	return f, o1
 }
 
-// T-560 (RV-58 #1): a Blocked: report lives one attempt. Dropped and dispatched anew (the lane prepared), the unfinished
-// task's worker must report again: the drop, the dispatch and the lane.prepare result each end the old question.
-func TestStopWorkerBlockedReportDropRedispatchedBlocks(t *testing.T) {
-	t.Parallel()
-	f, o1 := blockedReport(t)
-	f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
-	f.appendFact(t, "T-01", "dropped", map[string]string{"reason": "gone"})
-	f.Dispatched("L-01")
-	f.appendEvent(t, "T-01", "lane.prepare", "result", map[string]string{"base": "main"})
-	f.stop(t, "-", o1, "").block("the re-dispatched attempt has no report of its own").
-		has("reason", "no task_done for T-01 yet")
-}
-
-// T-560 (RV-58 #1): submitted and sent back, the next attempt must report too: the submission and the sendback end the
-// report the submitted attempt had made.
-func TestStopWorkerBlockedReportSubmitSendbackBlocks(t *testing.T) {
-	t.Parallel()
-	f, o1 := blockedReport(t)
-	f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
-	f.Submit("L-01")
-	f.appendFact(t, "T-01", "sendback", map[string]string{"note": "fix it"})
-	f.state(ago(100)) // the sendback's attempt: the lane awaits its task_done again
-	f.stop(t, "-", o1, "").block("the sent-back attempt has no report of its own").
-		has("reason", "no task_done for T-01 yet")
-}
-
-// T-560 (RV-58 #1): the report a boundary ends does not exempt the next attempt, but a fresh Blocked: report it makes
-// allows the stop again.
-func TestStopWorkerFreshBlockedReportAfterBoundaryAllows(t *testing.T) {
+// T-560 (RV-58 #1): a Blocked: report lives one attempt. A drop and re-dispatch, or a submission and sendback, each
+// end the report the previous attempt made (the drop, the dispatch, the lane.prepare result, the submission and the
+// sendback), so the next attempt blocks until it reports again; a fresh report it makes allows the stop.
+func TestStopWorkerBlockedReportRows(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name     string
@@ -301,36 +287,25 @@ func TestStopWorkerFreshBlockedReportAfterBoundaryAllows(t *testing.T) {
 		{"drop and re-dispatch", func(t *testing.T, f hfx) {
 			f.appendFact(t, "T-01", "dropped", map[string]string{"reason": "gone"})
 			f.Dispatched("L-01")
+			f.appendEvent(t, "T-01", "lane.prepare", "result", map[string]string{"base": "main"})
 		}},
 		{"submission and sendback", func(t *testing.T, f hfx) {
 			f.Submit("L-01")
 			f.appendFact(t, "T-01", "sendback", map[string]string{"note": "fix it"})
-			f.state(ago(100))
+			f.state(ago(100)) // the sendback's attempt: the lane awaits its task_done again
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			f, o1 := blockedReport(t)
+			f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
 			c.boundary(t, f)
+			f.stop(t, "-", o1, "").block("the "+c.name+" attempt has no report of its own").
+				has("reason", "no task_done for T-01 yet")
 			f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: may I edit internal/x.go?"})
 			f.stop(t, "-", o1, "").allow("the new attempt's own Blocked: report")
 		})
 	}
-}
-
-// T-437: the block is once per stop loop: a stop within an active loop (stop_hook_active true) is allowed, so a worker
-// that asks instead of finishing can stop; look-alikes of true are a new loop.
-func TestStopWorkerOncePerLoop(t *testing.T) {
-	t.Parallel()
-	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
-	f.Config()
-	f.state(ago(100))
-	f.Dispatched("L-01")
-	f.stop(t, "-", o1, `{"stop_hook_active": false}`).block("a new loop")
-	f.stop(t, "-", o1, `{"stop_hook_active": true}`).allow("the same loop: the worker asked")
-	f.stop(t, "-", o1, `{"stop_hook_active": null}`).block("stop_hook_active null is a new loop")
-	f.stop(t, "-", o1, `{"stop_hook_active": "true"}`).block(`stop_hook_active "true" is not active`)
 }
 
 // T-437, T-439: no task to finish → allow: no lane row (not a lane serve dispatched), or a row whose task_done is in
@@ -350,18 +325,6 @@ func TestStopWorkerNoServeTaskAllows(t *testing.T) {
 	f.stop(t, "-", o1, "").block("precondition: a row awaiting task_done blocks")
 	f.Write(".obor/state/obor.db", "not a database\n")
 	f.stop(t, "-", o1, "").allow("the lanes table unreadable: allow (the hook says so on stderr)")
-}
-
-// bash stop case_worker_background_task
-func TestStopWorkerRunningBackgroundTaskAllows(t *testing.T) {
-	t.Parallel()
-	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
-	f.Config()
-	f.state(ago(100))
-	f.Dispatched("L-01")
-	f.stop(t, "-", o1, `{"background_tasks":[{"id":"b1","type":"shell","status":"completed","command":"x"}]}`).block("a finished background task")
-	f.stop(t, "-", o1, `{"background_tasks":[{"id":"b2","type":"shell","status":"running","command":"make check"}]}`).allow("a running background task")
 }
 
 // bash stop case_worker_background_task_stale (T-167); T-437: once per stop loop, no ledger.
@@ -400,8 +363,8 @@ func TestStopWorkerStaleBackgroundTasks(t *testing.T) {
 	f.stop(t, "-", o1, bg).allow("a fresh lane change")
 }
 
-// bash stop case_no_config
-func TestStopNoConfigAllows(t *testing.T) {
+// bash stop case_no_config, case_other_roles
+func TestStopNoConfigOrOtherRolesAllow(t *testing.T) {
 	t.Parallel()
 	f := newHfx(t)
 	o1 := f.Lane("L-01", "task/T-01")
@@ -410,18 +373,11 @@ func TestStopNoConfigAllows(t *testing.T) {
 		t.Errorf("stderr: %q", r.err)
 	}
 	f.Config()
+	f.stop(t, "reviewer", f.Root, "").allow("reviewer")
+	f.stop(t, "-", f.Root, "").allow("no role")
 	f.state(ago(100))
 	f.Dispatched("L-01")
 	f.stop(t, "-", o1, "").block("the same lane with a config")
-}
-
-// bash stop case_other_roles
-func TestStopOtherRolesAllow(t *testing.T) {
-	t.Parallel()
-	f := newHfx(t)
-	f.Config()
-	f.stop(t, "reviewer", f.Root, "").allow("reviewer")
-	f.stop(t, "-", f.Root, "").allow("no role")
 }
 
 // bash stop case_internal_error_fails_open
