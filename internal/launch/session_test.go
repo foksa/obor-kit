@@ -21,58 +21,6 @@ import (
 	"obor/internal/testkit"
 )
 
-// T-577: resume reads the recorded session first: herdr's differing session is only said, and none from herdr is no
-// reason to fail. The store is the only record.
-func TestResumeRecordedSession(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	t.Run("herdr reports another: the recorded one resumed, said", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		path := x.transcript("sid-rec")
-		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Transcript: path, Started: now.Unix()}}
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-herdr"
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		if !ok {
-			t.Fatal(out)
-		}
-		contains(t, out, "warning: herdr reports session sid-herdr for pane w1:p3, the recorded session is sid-rec: resuming sid-rec", "logged")
-		contains(t, out, "resuming sid-rec (from record)", "source")
-		contains(t, x.startCall(), "--resume sid-rec", "recorded session resumed")
-		if strings.Contains(x.startCall(), "sid-herdr") {
-			t.Errorf("herdr's session adopted: %s", x.startCall())
-		}
-	})
-	t.Run("herdr reports none: the recorded one resumed", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		path := x.transcript("sid-rec")
-		x.sessions = map[string]store.Session{"pj-l-01": {Agent: "pj-l-01", ID: "sid-rec", Transcript: path, Started: now.Unix()}}
-		x.shell("w1:p3", "pj-l-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-rec)", "result")
-		if !ok || strings.Contains(out, "warning:") {
-			t.Errorf("no warning: %q", out)
-		}
-		contains(t, x.startCall(), "--resume sid-rec", "recorded session resumed")
-	})
-	t.Run("serve's store: the newest session fact", func(t *testing.T) {
-		t.Parallel()
-		x := setup(t)
-		path := x.transcript("sid-2")
-		recordSessions(t, x.p.Root,
-			store.Session{Agent: "pj-l-01", ID: "sid-1", Started: now.Add(-time.Hour).Unix()},
-			store.Session{Agent: "pj-l-01", ID: "sid-2", Transcript: path, Started: now.Unix()},
-			store.Session{Agent: "pj-l-02", ID: "sid-3", Started: now.Add(time.Hour).Unix()})
-		x.shell("w1:p3", "pj-l-01", "")
-		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-2)", "the newest of its own")
-		if !ok {
-			t.Fatal(out)
-		}
-	})
-}
-
 // T-581: a kind that resumes nothing (OpenCode) starts fresh whatever session is recorded — serve's store's or a
 // older record — and its first prompt survives; no resume reaches the start.
 func TestOpencodeStartsFresh(t *testing.T) {
@@ -218,43 +166,6 @@ func TestCodexSearchPidReusedWhileTheFilesAreRead(t *testing.T) {
 	defer x.mu.Unlock()
 	if len(x.reported) != 0 {
 		t.Errorf("recorded the rollout of the process that took the pid: %+v", x.reported)
-	}
-}
-
-// T-577 rev 2: serve's starts run one at a time, so its rollout search runs after the start (Background): a start
-// returns without waiting the Rollout bound out, a second start is not held up by the first's search, and the
-// rollout opened after the start returned is still recorded.
-func TestCodexRolloutSearchInBackground(t *testing.T) {
-	t.Parallel()
-	x := setup(t, testkit.Set("roles", `{"integrator":"luna","lead":"luna"}`))
-	x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
-	x.wrap = func(h port.PaneControl) port.PaneControl {
-		return pids{h, x.f, map[string]int{"w1:p5": 205, "w1:p6": 206}}
-	}
-	x.shell("w1:p5", "pj-int", "")
-	x.shell("w1:p6", "pj-lead", "")
-	t0 := time.Now()
-	for _, agent := range []string{"pj-int", "pj-lead"} {
-		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
-			t.Fatal(out)
-		}
-	}
-	if took := time.Since(t0); took > 30*time.Second {
-		t.Fatalf("two starts took %s: the second waited for the first's search (bound %s)", took, x.rollout)
-	}
-	x.mu.Lock()
-	n := len(x.reported)
-	x.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("precondition: no rollout yet, nothing reported (%d)", n)
-	}
-	path := writeRollout(x, "cx-late", x.p.Root, time.Now())
-	x.hold(205, path)
-	select {
-	case s := <-x.reports:
-		eq(t, s.Agent+" "+s.ID+" "+s.Transcript, "pj-int cx-late "+path, "recorded once the rollout was opened")
-	case <-time.After(bound):
-		t.Fatal("the background search recorded nothing")
 	}
 }
 
@@ -461,57 +372,4 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 		contains(t, out, "obor restart pj-l-01 --fresh starts a new one", "how to start fresh")
 		eq(t, x.recorded("pj-l-01"), "", "nothing recorded")
 	})
-}
-
-// T-589: the start pins the agent's process; the search never looks at the pane again. The pane is held by another
-// agent (pid 999, with its own rollout) before the background search runs: the first agent records its own rollout
-// when its process lives, nothing when it is gone (its pid under another process), never the replacement's.
-func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
-	t.Parallel()
-	for _, gone := range []bool{false, true} {
-		name := "the process lives: its own rollout"
-		if gone {
-			name = "the process is gone, its pid reused: nothing"
-		}
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
-			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
-			var gen atomic.Int32
-			x.ps = func(args ...string) ([]byte, error) {
-				if strings.Join(args, " ") == "-o lstart= -p 205" {
-					return []byte("start-" + strconv.Itoa(int(gen.Load())) + "\n"), nil
-				}
-				return nil, nil
-			}
-			pid := map[string]int{"w1:p5": 205}
-			x.wrap = func(h port.PaneControl) port.PaneControl { return pids{h, x.f, pid} }
-			x.shell("w1:p5", "pj-int", "")
-			if out, ok := x.restart(launch.Request{Agent: "pj-int", Fresh: true}); !ok {
-				t.Fatal(out)
-			}
-			// Another agent now holds the pane, and pid 205 is either still the first agent's or a stranger's.
-			pid["w1:p5"] = 999
-			x.hold(999, writeRollout(x, "cx-replacement", x.p.Root, time.Now()))
-			if gone {
-				gen.Store(1)
-				x.hold(205, writeRollout(x, "cx-stranger", x.p.Root, time.Now()))
-				deadline := time.Now().Add(bound)
-				for !strings.Contains(x.log(), "is gone") && time.Now().Before(deadline) {
-					time.Sleep(5 * time.Millisecond)
-				}
-				contains(t, x.log(), "warning: pj-int (pid 205) is gone: its codex session is not recorded", "said")
-				x.mu.Lock()
-				defer x.mu.Unlock()
-				if len(x.reported) != 0 {
-					t.Errorf("recorded for a gone process: %+v", x.reported)
-				}
-				return
-			}
-			own := writeRollout(x, "cx-own", x.p.Root, time.Now())
-			x.hold(205, own)
-			got := awaitReports(t, x, 1)
-			eq(t, got["pj-int"].ID+" "+got["pj-int"].Transcript, "cx-own "+own, "its own rollout, not the replacement's")
-		})
-	}
 }

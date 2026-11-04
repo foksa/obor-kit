@@ -12,33 +12,36 @@ import (
 // T-444: a fresh start's first prompt of many lines reaches herdr as one line (each run of newlines and \r one space),
 // for every kind, the text otherwise unchanged: herdr refuses an agent.start argument with a newline
 // ("agent arguments cannot be encoded safely for the target shell"; the fake refuses it too), so a typed job's
-// multi-line text would leave the pane at a shell.
+// multi-line text would leave the pane at a shell. A prompt with no line break is passed as it is.
 func TestStartPromptIsOneLine(t *testing.T) {
 	t.Parallel()
 	const prompt = "You are a worker.\n\nRead AGENTS.md.\r\n\r\nGo.\nMore."
 	const one = "You are a worker. Read AGENTS.md. Go. More."
+	const plain = "  a b\tc  `d` \"e\" $f & g;  " // no line break: unchanged
 	const models = `{"oc":{"kind":"opencode","model":""}}`
 	settings := " --settings " + config.Compact(map[string]any{"remoteControlAtStartup": false, "autoMemoryEnabled": false})
 	for _, c := range []struct {
 		name, typ, kind string
 		head            string // the start args before the prompt
+		prompt, want    string // the first prompt given, and what reaches the start
 	}{
-		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> "},
-		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " "},
-		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt "},
+		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", prompt, one},
+		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " ", prompt, one},
+		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt ", prompt, one},
+		{"no line break: unchanged", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", plain, plain},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t, testkit.Set("models", models), testkit.Set("roles", `{"reviewer":"`+c.typ+`"}`))
 			x.shell("w1:p7", "pj-rev", "")
-			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: prompt})
+			out, ok := x.restart(launch.Request{Agent: "pj-rev", Fresh: true, Prompt: c.prompt})
 			if !ok {
-				t.Fatalf("a multi-line first prompt failed the start: %s", out)
+				t.Fatalf("the first prompt failed the start: %s", out)
 			}
 			eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
 			args := strings.TrimPrefix(c.head, "-- ")
-			eq(t, x.named(x.startCall()), "agent.start args=["+args+one+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt one line")
-			contains(t, x.startCall(), one, "the prompt's text, its line breaks one space each")
+			eq(t, x.named(x.startCall()), "agent.start args=["+args+c.want+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt")
+			contains(t, x.startCall(), c.want, "the prompt's text")
 			eq(t, x.f.Pane("w1:p7").Name, "pj-rev", "herdr ran the agent")
 		})
 	}
@@ -58,18 +61,4 @@ func TestStartWithoutBridgeRefused(t *testing.T) {
 	contains(t, out, "pane w1:p7 (from label)", "precondition: the restart found the pane")
 	eq(t, failLine(out), "FAIL pj-rev: kind cursor has no bridge (obor config validate)", "result")
 	eq(t, x.startCall(), "", "no herdr agent start")
-}
-
-// T-444: a prompt with no line break is passed as it is (the change is only to line breaks).
-func TestStartPromptWithoutLineBreaksUnchanged(t *testing.T) {
-	t.Parallel()
-	x := setup(t)
-	x.shell("w1:p3", "pj-l-01", "")
-	const prompt = "  a b\tc  `d` \"e\" $f & g;  "
-	if out, ok := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: prompt}); !ok {
-		t.Fatalf("start failed: %s", out)
-	}
-	if got := x.startCall(); !strings.Contains(got, " "+prompt+"]") {
-		t.Errorf("agent start %q does not end with the prompt as it is %q", got, prompt)
-	}
 }
