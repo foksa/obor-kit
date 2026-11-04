@@ -145,18 +145,85 @@ func TestNightlyRunsAfterARedCheck(t *testing.T) {
 	}
 }
 
-// T-781: off (merge.nightly_at unset: no Nightly) never runs, whatever the day or the time.
+// T-781, T-782: off (merge.nightly_at unset: a Nightly at "") never runs, whatever the day or the time, a pending
+// intent of an interrupted run too (it waits for on).
 func TestNightlyOffNeverRuns(t *testing.T) {
 	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
-	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
+	f := &nightlyFake{outs: []app.NightlyOut{green}}
+	r := nightlyRig(t, f, "")
+	if r.night == nil {
+		t.Fatal("precondition: the loop has its nightly (T-782: off is At \"\")")
+	}
+	if err := app.WriteLog(r.p.Root, r.clock.Now(), event.Record{Task: event.NightlyTask, Step: "nightly.2026-11-10",
+		Kind: event.KindIntent, Class: event.ClassGit}); err != nil {
+		t.Fatal(err)
+	}
 	r.start()
 	for day := 0; day < 3; day++ {
 		r.later(8 * time.Hour)
 		r.later(16 * time.Hour)
 	}
-	if n := r.countPrefix("0 intent nightly."); n != 0 {
-		t.Errorf("nightly intents while off = %d, want 0: %q", n, r.steps())
+	if n, runs := r.countPrefix("0 intent nightly."), f.count(); n != 1 || runs != 0 {
+		t.Errorf("while off: intents %d (the pending one), runs %d; want 1, 0: %q", n, runs, r.steps())
+	}
+	if n := r.count("0 result nightly."); n != 0 {
+		t.Errorf("results while off = %d, want 0: %q", n, r.steps())
+	}
+}
+
+// T-782: a switched-off nightly still settles: a RED needs-you in force ends (resumed) at the next pass once the last
+// full check, a hand run's too, is GREEN.
+func TestNightlyOffSettlesAGreenByHand(t *testing.T) {
+	t.Parallel()
+	f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
+	r := nightlyRig(t, f, "")
+	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
+		event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	r.passes()
+	r.passes()
+	if fs := nightlyFacts(r); len(fs) != 1 || r.has("0 fact resumed") {
+		t.Fatalf("precondition: last-full-check RED: facts %+v, want the RED needs-you in force: %q", fs, r.steps())
+	}
+	r.stop()
+	f.mu.Lock()
+	f.last = "GREEN" // obor nightly by hand, GREEN
+	f.mu.Unlock()
+	r.start()
+	r.waitFor("the needs-you to end", func() bool { return len(nightlyFacts(r)) == 0 })
+	if n := r.count("0 fact resumed"); n != 1 || f.count() != 0 {
+		t.Errorf("resumed %d, runs %d; want 1, 0 (settled while off, no run): %q", n, f.count(), r.steps())
+	}
+}
+
+// T-782: a switched-off nightly still settles a result whose needs-you was never recorded (a crash after the result):
+// the RED fact is at the next pass, and no run follows.
+func TestNightlyOffSettlesAResult(t *testing.T) {
+	t.Parallel()
+	f := &nightlyFake{outs: []app.NightlyOut{green}}
+	r := nightlyRig(t, f, "")
+	const step = "nightly.2026-11-10"
+	if err := app.WriteLog(r.p.Root, r.clock.Now(),
+		event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindIntent, Class: event.ClassGit},
+		event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindResult,
+			Data: []byte(`{"sha":"abc1234def","verdict":"RED","line":"NIGHTLY RED abc1234"}`)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.count("0 fact needs-you{full-check RED abc1234}"); n != 0 {
+		t.Fatalf("precondition: the result came without its needs-you: %d facts", n)
+	}
+	r.start()
+	const fact = "0 fact needs-you{full-check RED abc1234}"
+	r.waitStep(fact)
+	if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != "" {
+		t.Errorf("nightly facts: %+v", fs)
+	}
+	r.passes()
+	if n, runs := r.count(fact), f.count(); n != 1 || runs != 0 {
+		t.Errorf("needs-you %d, runs %d; want 1, 0 (settled while off): %q", n, runs, r.steps())
 	}
 }
 
@@ -194,9 +261,9 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
 	w := &configWriter{path: filepath.Join(r.p.Root, ".obor", "config.json")}
 	r.config = w
-	r.nightOf = func() *app.Nightly { // serve's nightly(): merge.nightly_at as the config has it now
+	r.nightOf = func() *app.Nightly { // serve's nightly(): merge.nightly_at as the config has it now ("" is off, T-782)
 		cfg, err := config.LoadDaemon(r.p.Root)
-		if err != nil || cfg.Data.Merge.NightlyAt == "" {
+		if err != nil {
 			return nil
 		}
 		return f.nightly(cfg.Data.Merge.NightlyAt)

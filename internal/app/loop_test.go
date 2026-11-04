@@ -52,7 +52,7 @@ type loopRig struct {
 
 	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
 	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 20 ms); set before start
-	night *app.Nightly   // the loop's Nightly (nil: none); set before start
+	night *app.Nightly   // the loop's Nightly (nil: none; off is At "", T-782); set before start
 	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is, T-781); set
 	// before start
 	nightOf func() *app.Nightly

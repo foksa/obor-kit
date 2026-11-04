@@ -41,7 +41,8 @@ type Loop struct {
 	// Checkout is nil while the main checkout is on the target branch, else why the project's pass pauses: a loop
 	// needs-you, nothing gated, published or dispatched until it is back (T-425; nil: never paused).
 	Checkout func(ctx context.Context) error
-	// Nightly is the project's nightly full check (merge.nightly_at; nil: none, T-464).
+	// Nightly is the project's nightly full check (merge.nightly_at; off is At "", T-464, T-782; nil: a Loop without
+	// one, tests).
 	Nightly *Nightly
 	// Disk is the project volume's free space (nil: not watched, T-564).
 	Disk *Disk

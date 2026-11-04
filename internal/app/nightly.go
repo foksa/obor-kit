@@ -11,9 +11,10 @@ import (
 	"obor/internal/config"
 )
 
-// The nightly full check (T-464, T-781; docs/state-model.md row 45): merge.nightly_at is its switch, the lead's (obor
-// nightly on HH:MM | off, through config_set): set, the merge loop runs what obor nightly runs every night at or after
-// that time, in its own worktree (not the scratch), while no gate or publish runs; unset, never. Nothing else decides
+// The nightly full check (T-464, T-781, T-782; docs/state-model.md row 45): merge.nightly_at is its switch, the lead's
+// (obor nightly on HH:MM | off, through config_set): set, the merge loop runs what obor nightly runs every night at or
+// after that time, in its own worktree (not the scratch), while no gate or publish runs. Off stops new runs, not
+// settling: every pass settles a result's missing needs-you and a hand GREEN, on or off. Nothing else decides
 // whether it runs (the nightly runs more than the merge gate: check_milestone, the baseline, the forced gate, e2e, the
 // store backup). The Loop is built each pass from the config as it is, so a switch counts from the next pass; a run in
 // progress is not stopped by off. Its intent/result is the day's key nightly.<YYYY-MM-DD> (G): a restart runs a
@@ -29,9 +30,10 @@ const nightlyRetry = 10 * time.Minute
 // redPrefix starts the reason of a RED nightly's needs-you.
 const redPrefix = "full-check RED "
 
-// Nightly is a project's nightly full check (merge.nightly_at). Nil in Loop: off.
+// Nightly is a project's nightly full check (merge.nightly_at); a merge loop's project always has one. Off is At "":
+// no new run, but the pass still settles one (T-782).
 type Nightly struct {
-	At  string                                        // "HH:MM", local time: it runs every night at or after it
+	At  string                                        // "HH:MM", local time: it runs every night at or after it; "": off
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
 	// Last is the last full check's sha and verdict (last-full-check: GREEN | RED, "" none), a hand run's too (nil:
 	// not read).
@@ -86,13 +88,9 @@ func (p *proj) foldNightly(r event.Record) {
 	}
 }
 
-// nightly starts p's nightly full check in its own goroutine once its time has come today (or its pending intent
-// again), after settling the outcome of the last one (its needs-you).
+// nightly settles the outcome of p's last nightly (its needs-you) on every pass, then starts the next run in its own
+// goroutine once its time has come today (or its pending intent again). Off (At ""): the settling, no run.
 func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
-	n := fx.Nightly
-	if n == nil {
-		return
-	}
 	a.mu.Lock()
 	st, busy := p.night, p.night.running || p.running.Task != ""
 	spent := st.fails[st.step] >= tries
@@ -103,8 +101,12 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 	if st.unsettled != nil { // a crash between the result and its needs-you
 		a.nightlyVerdict(p, *st.unsettled)
 	}
+	n := fx.Nightly
+	if n == nil { // a Loop without one (tests)
+		return
+	}
 	a.handGreen(p, n)
-	if busy {
+	if busy || n.At == "" {
 		return
 	}
 	now := a.opt.Now().Local()
