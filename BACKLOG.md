@@ -24,6 +24,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   their own read-only worktree: if nothing breaks, the main-checkout deny rows (T-841, T-848) go. **E3** move, drop and
   take-over answer at once, the stop is a later line: then the deadline code (T-825, T-829, RV-108 #1) goes. **E4** a
   feature freeze for v0.27: each task names what it removes, no new config keys.
+  **Owner 11-04: flow simplifications are worth more than code ones.** Rank by what leaves the lead's/owner's loop:
+  E1 (one review step fewer per merge) and E3 (no false failures) first; also count today's flow friction: a fresh
+  review per fix round (6 rounds), watches set by hand per wave, review notes written per batch, a needs-you recovery
+  by hand (detached HEAD), idle lines to answer. Measure lead actions per merged task before and after.
 - 2026-11-04 ~22:30: pruning wave merged except T-844/T-845 (restores); T-841 gating, T-846 (P12 v0.26 removals) on
   L-04; review queued after T-841, T-844, T-845, T-846 (covers T-838). **Then v0.26**: UPGRADE-v0.26 + release notes
   must say: store older than v0.22 upgrades through v0.24 first (T-840); remove a global opencode `mcp.servers.obor` by
