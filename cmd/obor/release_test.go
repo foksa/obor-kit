@@ -350,6 +350,9 @@ func TestMakeReleaseRefusals(t *testing.T) {
 					continue
 				}
 				if tc.name == "foreign scratch" {
+					if !strings.Contains(out, f.scratch(tc.version)) {
+						t.Errorf("the refusal does not name the foreign directory %s:\n%s", f.scratch(tc.version), out)
+					}
 					if got := readFile(t, filepath.Join(f.scratch(tc.version), "someone-elses.txt")); got != "keep me\n" {
 						t.Errorf("the foreign directory's file is %q, want it untouched", got)
 					}
@@ -454,30 +457,6 @@ func TestMakeReleaseFullRun(t *testing.T) {
 	}
 	if log := readFile(t, f.log); !strings.Contains(log, "build ") || !strings.Contains(log, "test ") {
 		t.Errorf("the release did not run the full make check (go got: %s)", log)
-	}
-}
-
-// T-648: the scratch worktree lives in this repo's own git dir, so a directory some other checkout left at that path
-// is not this release's: it is left untouched and the refusal names it.
-func TestMakeReleaseKeepsForeignScratch(t *testing.T) {
-	t.Parallel()
-	f := newReleaseFixture(t)
-	dir := f.scratch("1.2.4")
-	file := filepath.Join(dir, "someone-elses.txt")
-	writeFile(t, file, "keep me\n")
-
-	out, failed := f.release(t, "V=1.2.4")
-	if !failed || !strings.Contains(out, dir) || !strings.Contains(out, "is not this repo's worktree") {
-		t.Fatalf("a foreign directory at the scratch path must be refused by name (failed %v):\n%s", failed, out)
-	}
-	if got := readFile(t, file); got != "keep me\n" {
-		t.Errorf("the foreign directory's file is %q, want it untouched", got)
-	}
-	if f.hasTag("v1.2.4") {
-		t.Error("the refused release made the tag")
-	}
-	if got := f.Git(f.Root, "worktree", "list", "--porcelain"); strings.Count(got, "worktree ") != 1 {
-		t.Errorf("the refused release registered a worktree:\n%s", got)
 	}
 }
 
@@ -770,6 +749,9 @@ func TestMakeShip(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(f.Base, "notify-broken"), "")
 	out, failed = f.make(t, "ship")
+	if !failed {
+		t.Errorf("a send that fails must fail the ship (T-715, T-719):\n%s", out)
+	}
 	// The ship did its work and then failed at the notify: its four lines are all there, then the repair.
 	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4",
 		"installed the kit", "serves and web follow the new binary within a minute", "FAIL axis-alies: send: serve down",
