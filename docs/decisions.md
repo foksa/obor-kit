@@ -4,6 +4,13 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-04 (owner): **Agent-driver plan** (docs/research/agent-driver-deep-dive.md): after v0.25, wave 4a (herdr
+  protocol >= 22 with a schema check, Codex efforts, the resume wake through `agent.prompt`), then the conformance
+  suite (static tier nightly, live tier per kind on a version change), then the probed proposals by their results.
+  Approved once their probes pass: opencode MCP + plugin registered per launch (setup removes the global entry and
+  link; P1) and Codex `--no-daemon` (P3).
+- 2026-11-04 (owner): **No push rule in the kit's lead skill.** axis-alies' "push at every wave end and handoff when
+  allow_push names you" stays that project's own practice (its docs/agents/lead.md), not the kit's default.
 - 2026-11-03 (owner): **Consolidation, not features.** obor's features are enough; next work simplifies the workflow
   and makes upgrades safe (deep dive DD-consolidation). herdr and the agent CLIs are core; npm stays for Svelte.
   Answers on the survey: drop `obor monitor` (obor web and `obor status` remain); remove the `agents.<name>` config
