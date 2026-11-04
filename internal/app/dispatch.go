@@ -829,9 +829,10 @@ func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 // nextStart is agent.start's step (row 4, under mu): the snapshot's pane in the lane (an agent's, else one at its
 // shell) and the agent in it are its intent's data. A pending start keeps its recorded pane while herdr still has it; a
 // pane it names that is gone (its tab closed, a new labelled one made by obor setup pane) is chosen again, as a first
-// start's is, and never the recorded id (T-783). No pane in the lane for Gone: herdr's panes are read again (a cd in one
-// gives no event, T-745) and the agent starts if that finds one; still none: needs-you{no pane in lane}. A failed read
-// is no answer: nothing is recorded and the next pass reads again.
+// start's is, and never the recorded id (T-783; one that runs an agent is cannot tell, startWorker). No pane in the
+// lane for Gone: herdr's panes are read again (a cd or a rename in one gives no event, T-745, RV-101 #2) and the agent
+// starts if that finds one; still none: needs-you{no pane in lane}. A failed read is no answer: nothing is recorded and
+// the next pass reads again.
 func (a *App) nextStart(p *proj, mt mtask) step {
 	key := event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepStartWork, mt.starts+1)}
 	d := startData{Lane: mt.lane, Agent: mt.agent}
@@ -858,7 +859,8 @@ func (a *App) nextStart(p *proj, mt mtask) step {
 
 // waitPane is nextStart's wait for a pane of the lane (under mu): nothing until opt.Gone has passed since the first pass
 // without one, then herdr's panes are read again before the owner is told; the agent starts in a pane the read finds
-// (the next pass), and none is needs-you{no pane in lane}.
+// (the next pass: the wait ends only once the snapshot, with the read's cwd and label, places it there), and none is
+// needs-you{no pane in lane}.
 func (a *App) waitPane(p *proj, mt mtask) step {
 	now := a.opt.Now()
 	since, ok := p.nopane[mt.task]
@@ -879,21 +881,27 @@ func (a *App) waitPane(p *proj, mt mtask) step {
 		}
 		// The list answers which pane is in the lane now, and nothing else: a pane the stream closed since the read
 		// is not raised again, and every other field and pane stays the stream's (RV-89 #2). One the stream still
-		// has: its cwd is what changed, and the next pass starts the agent in it.
+		// has: its cwd is what changed, and its label where the snapshot's holds it back (labelled for another
+		// agent: a rename gives no event either, RV-101 #2); the next pass starts the agent in it.
 		a.mu.Lock()
 		o := a.paneIn(p, panes, mt.disp.Dir, mt.agent)
-		closed := o != nil && a.obs[o.ID] == nil // the stream closed it since the read: that wins
-		if o != nil && !closed {
-			a.obs[o.ID].pane.Cwd = o.Cwd
+		usable := false
+		if o != nil && a.obs[o.ID] != nil { // not closed by the stream since the read: that wins
+			s := &a.obs[o.ID].pane
+			s.Cwd = o.Cwd
+			if otherAgent(p.root, s.Label, []string{mt.agent}) {
+				s.Label = o.Label
+			}
+			usable = a.placement(p, mt.disp.Dir, mt.agent) != nil
 		}
-		if !closed { // the read settled the wait: a pane to start in, or none to wait for
+		if o == nil || usable { // the read settled the wait: a pane the next pass starts in, or none to wait for
 			delete(p.nopane, mt.task)
 		}
 		a.mu.Unlock()
 		if o == nil {
 			return a.needsYou(p, &mt, causeNoPane, "no pane in lane "+mt.lane+" ("+mt.disp.Dir+"): open one there")
 		}
-		return !closed
+		return usable
 	}
 }
 
@@ -962,19 +970,30 @@ func otherAgent(root, label string, names []string) bool {
 // start; not started → it starts again (Restart stops what is there); cannot tell → refused: needs-you{start: cannot
 // tell …}, never a second start. A replay whose intent names another pane than d has its recorded pane gone, and its
 // start chose one again (nextStart): nothing of the intent's pane is left to compare with, so it starts as a first
-// start does there (T-783). A launch refusal (background tasks without force, the name held by another pane) is final:
-// needs-you{start: why}. It runs under work job's intent and carries its wake (startJob).
+// start does there (T-783) when that pane is at its shell; one that runs an agent is cannot tell (moved): the intent
+// stays the gone pane's (its key is pending), so a start there that ran and left no result cannot be told from any
+// other agent, and a second start would stop a worker already at its job (RV-101 #1). A launch refusal (background
+// tasks without force, the name held by another pane) is final: needs-you{start: why}. It runs under work job's intent
+// and carries its wake (startJob).
 func (a *App) startWorker(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Key, d startData, work event.Key) bool {
-	replay := p.log.Open(key)
-	if replay {
-		var rec startData
+	pending := p.log.Open(key)
+	var rec startData
+	if pending {
 		if r, ok := p.log.Intent(key); ok {
 			_ = json.Unmarshal(r.Data, &rec)
 		}
-		replay = rec.Pane == d.Pane
 	}
+	replay := pending && rec.Pane == d.Pane
+	moved := pending && rec.Pane != d.Pane // the recorded pane is gone: d.Pane was chosen again
 	in := event.Intent{Key: key, Class: event.ClassStart, Data: d}
 	return a.startJob(ctx, p, mt, in, work, promptData{Agent: mt.agent}, func(ctx context.Context, first string) (any, error) {
+		if moved {
+			if runs := a.runsIn(d.Pane); runs != "" {
+				return startOut{Refused: "cannot tell whether the agent in " + d.Pane + " is the one started: the start " +
+					"was recorded in " + rec.Pane + ", gone now, and " + d.Pane + " runs " + runs + ": look at the pane, " +
+					"then obor resume " + mt.task}, nil
+			}
+		}
 		if replay {
 			switch a.startSeen(p, d) {
 			case seenStarted: // the start that ran carried the same first prompt
@@ -1023,6 +1042,28 @@ func (a *App) startSeen(p *proj, d startData) int {
 		return seenStarted
 	}
 	return seenNotStarted
+}
+
+// runsIn is what runs in pane now, as the snapshot has it: "" for a pane at its shell (or gone), else its agent kind,
+// its label and herdr's session id where known ("claude (label pj-l-01, session s1)").
+func (a *App) runsIn(pane string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	o := a.obs[pane]
+	if o == nil || o.pane.Agent == "" {
+		return ""
+	}
+	var of []string
+	if o.pane.Label != "" {
+		of = append(of, "label "+o.pane.Label)
+	}
+	if o.pane.Session != "" {
+		of = append(of, "session "+o.pane.Session)
+	}
+	if len(of) == 0 {
+		return o.pane.Agent
+	}
+	return o.pane.Agent + " (" + strings.Join(of, ", ") + ")"
 }
 
 // startRefused: the launch refused for good: the agent has background tasks (no force), or its name is held by
