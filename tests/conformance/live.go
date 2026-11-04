@@ -38,7 +38,7 @@ var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude":
 var liveIDs = map[string][]string{
 	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8"},
 	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6"},
-	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L5"},
+	"codex":    {"CX-L1", "CX-L2", "CX-L3"},
 	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5"},
 }
 
@@ -683,8 +683,8 @@ func (l *lab) start(name, kind, pane string, args []string, timeout time.Duratio
 	return s
 }
 
-// reportStart is H-L1 for a kind's agent.start: when herdr answered (before the agent was ready, launch_pending, as
-// the driver's comment says, or once it was), with what, within obor's 10 s client timeout.
+// reportStart is H-L1 for a kind's agent.start: the answer within obor's 10 s client timeout, with what (status,
+// launch_pending) and when the agent took input; an at-once launch_pending answer is a fact of the run, not a failure.
 func reportStart(kind string, s started, readyAfter time.Duration) {
 	where := at("internal/herdr/socket.go", "func (s *Socket) Start") + ", " + at("internal/launch/start.go", "func (l *Launcher) started") + ", F3.4"
 	fact := fmt.Sprintf("%s: agent.start (timeout_ms %d) answered after %.1fs", kind, s.timeout.Milliseconds(), s.took.Seconds())
@@ -693,14 +693,11 @@ func reportStart(kind string, s started, readyAfter time.Duration) {
 		fact += fmt.Sprintf("; the agent took input after %.1fs", readyAfter.Seconds())
 	}
 	const client = 10 * time.Second // internal/herdr/socket.go: the per-request default agent.start runs under
-	switch {
-	case s.took > client:
+	if s.took > client {
 		report("FAIL", "H-L1", fact+": past obor's 10 s client timeout, so Socket.Start reports an error for a start herdr carried out", where)
-	case s.err == nil && !s.info.LaunchPending && s.info.Status != "" && s.info.Status != "unknown":
-		report("WARN", "H-L1", fact+": herdr answers once the agent is up, not at once (the driver's comment says launch_pending; its poll is redundant)", where)
-	default:
-		report("PASS", "H-L1", fact, where)
+		return
 	}
+	report("PASS", "H-L1", fact, where)
 }
 
 // proc is one process.

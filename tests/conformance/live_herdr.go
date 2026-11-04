@@ -122,7 +122,8 @@ func orOK(err error) string {
 	return err.Error()
 }
 
-// hL3: whether pane.rename emits an event on a stream subscribed to pane.updated and the pane's status.
+// hL3: pane.rename emits no event on a stream subscribed to pane.updated and the pane's status: the stream's reread
+// stays the way a relabel is seen (T-839: the settled fact, asserted).
 func hL3(l *lab, pane string) {
 	where := at(socketGo, "pane.rename emits no event") + ", F3.2"
 	s, err := l.subscribe(map[string]any{"type": "pane.updated"}, map[string]any{"type": "pane.agent_status_changed", "pane_id": pane})
@@ -146,11 +147,11 @@ func hL3(l *lab, pane string) {
 			seen = append(seen, name)
 		}
 	}
-	if len(seen) == 0 {
-		report("PASS", "H-L3", "pane.rename emits no event in 3s on a stream subscribed to pane.updated and the pane's status: the stream's reread stays the way a relabel is seen", where)
+	if len(seen) > 0 {
+		report("FAIL", "H-L3", "pane.rename emits "+strings.Join(seen, ", ")+": a relabel arrives as an event, so the stream's reread is not the only way it is seen", where)
 		return
 	}
-	report("WARN", "H-L3", "pane.rename emits "+strings.Join(seen, ", ")+": socket.go's comment is outdated, a relabel arrives as an event", where)
+	report("PASS", "H-L3", "pane.rename emits no event in 3s on a stream subscribed to pane.updated and the pane's status: the stream's reread stays the way a relabel is seen", where)
 }
 
 // hL5: the lifecycle events' spelling on the wire (pane_created or pane.created) for a split, a close and a shell that
