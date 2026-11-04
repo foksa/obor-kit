@@ -141,37 +141,56 @@ func TestFollowBinaryWaitsForIdle(t *testing.T) {
 	}
 }
 
-// Never idle: after 10 minutes the restart goes anyway (the gate is cut, as at any restart).
+// Never idle: after 10 minutes the restart goes anyway (the gate is cut, as at any restart), whether herdr is up or
+// down (T-737).
 func TestFollowBinaryAfterTenMinutes(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, nil)
-	release := make(chan struct{})
-	defer close(release)
-	r.scratch.arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return ctx.Err()
-	})
-	r.start()
-	r.submit()
-	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
-	r.isNew.Store(1)
-	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
-	if r.calls.Load() != 0 {
-		t.Fatal("serve restarted with the gate running, want it to wait")
-	}
-	r.clock.Add(9 * time.Minute)
-	r.ticks(3)
-	if r.calls.Load() != 0 {
-		t.Fatalf("restarted after 9 minutes with the gate running, want not yet")
-	}
-	r.clock.Add(time.Minute)
-	r.waitFor("the restart to end serve", r.ended)
-	r.cancel = nil
-	if r.calls.Load() != 1 || r.has("1 result gate") {
-		t.Errorf("restarts %d, gate result %v; want 1 with the gate cut", r.calls.Load(), r.has("1 result gate"))
+	for _, c := range []struct {
+		name string
+		down bool
+	}{
+		{"herdr up", false},
+		{"herdr down", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newFollowRig(t, nil)
+			release := make(chan struct{})
+			defer close(release)
+			r.scratch.arm("Gate", func(ctx context.Context) error {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+				return ctx.Err()
+			})
+			r.start()
+			r.submit()
+			r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+			r.isNew.Store(1)
+			r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+			if r.calls.Load() != 0 {
+				t.Fatal("serve restarted with the gate running, want it to wait")
+			}
+			if c.down {
+				r.down()
+			}
+			r.clock.Add(9 * time.Minute)
+			r.ticks(3)
+			if r.calls.Load() != 0 {
+				t.Fatalf("restarted after 9 minutes with the gate running, want not yet")
+			}
+			if c.down && !r.restartingShown() {
+				t.Fatalf("herdr down, gate running, before the deadline: the restart is not shown")
+			}
+			r.clock.Add(time.Minute)
+			r.waitFor("the restart to end serve", r.ended)
+			r.cancel = nil
+			if r.calls.Load() != 1 || r.has("1 result gate") || (c.down && !r.neverBack()) {
+				t.Errorf("%s: restarts %d, gate result %v, herdr never back %v; want 1 with the gate cut, herdr down throughout if it was:\n%s",
+					c.name, r.calls.Load(), r.has("1 result gate"), r.neverBack(), r.out)
+			}
+		})
 	}
 }
 
@@ -229,42 +248,6 @@ func TestFollowBinaryStreamLost(t *testing.T) {
 	r.cancel = nil
 	if r.calls.Load() != 1 || !r.neverBack() {
 		t.Errorf("restarts %d, herdr never back %v; want 1 with herdr down:\n%s", r.calls.Load(), r.neverBack(), r.out)
-	}
-}
-
-// T-737: a busy restart pending while herdr is down still goes at its 10-minute deadline (the gate is cut).
-func TestFollowBinaryDeadlineWhileDown(t *testing.T) {
-	t.Parallel()
-	r := newFollowRig(t, nil)
-	release := make(chan struct{})
-	defer close(release)
-	r.scratch.arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return ctx.Err()
-	})
-	r.start()
-	r.submit()
-	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
-	r.isNew.Store(1)
-	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
-	if r.calls.Load() != 0 {
-		t.Fatal("serve restarted with the gate running, want it to wait")
-	}
-	r.down()
-	r.ticks(3)
-	if r.calls.Load() != 0 || !r.restartingShown() {
-		t.Fatalf("herdr down, gate running, before the deadline: restarts %d, restarting shown %v; want 0, true",
-			r.calls.Load(), r.restartingShown())
-	}
-	r.clock.Add(followWait)
-	r.waitFor("the restart to end serve", r.ended)
-	r.cancel = nil
-	if r.calls.Load() != 1 || r.has("1 result gate") || !r.neverBack() {
-		t.Errorf("restarts %d, gate result %v, herdr never back %v; want 1, the gate cut, herdr down:\n%s",
-			r.calls.Load(), r.has("1 result gate"), r.neverBack(), r.out)
 	}
 }
 

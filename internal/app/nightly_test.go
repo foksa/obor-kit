@@ -171,33 +171,6 @@ func TestNightlyOffNeverRuns(t *testing.T) {
 	}
 }
 
-// T-782: a switched-off nightly still settles: a RED needs-you in force ends (resumed) at the next pass once the last
-// full check, a hand run's too, is GREEN.
-func TestNightlyOffSettlesAGreenByHand(t *testing.T) {
-	t.Parallel()
-	f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
-	r := nightlyRig(t, f, "")
-	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
-		event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
-		t.Fatal(err)
-	}
-	r.start()
-	r.passes()
-	r.passes()
-	if fs := nightlyFacts(r); len(fs) != 1 || r.has("0 fact resumed") {
-		t.Fatalf("precondition: last-full-check RED: facts %+v, want the RED needs-you in force: %q", fs, r.steps())
-	}
-	r.stop()
-	f.mu.Lock()
-	f.last = "GREEN" // obor nightly by hand, GREEN
-	f.mu.Unlock()
-	r.start()
-	r.waitFor("the needs-you to end", func() bool { return len(nightlyFacts(r)) == 0 })
-	if n := r.count("0 fact resumed"); n != 1 || f.count() != 0 {
-		t.Errorf("resumed %d, runs %d; want 1, 0 (settled while off, no run): %q", n, f.count(), r.steps())
-	}
-}
-
 // T-782: a switched-off nightly still settles a result whose needs-you was never recorded (a crash after the result):
 // the RED fact is at the next pass, and no run follows.
 func TestNightlyOffSettlesAResult(t *testing.T) {
@@ -224,6 +197,48 @@ func TestNightlyOffSettlesAResult(t *testing.T) {
 	r.passes()
 	if n, runs := r.count(fact), f.count(); n != 1 || runs != 0 {
 		t.Errorf("needs-you %d, runs %d; want 1, 0 (settled while off): %q", n, runs, r.steps())
+	}
+}
+
+// DD-v0.12 A4, T-782: a RED nightly's needs-you in the store ends (resumed) once the last full check is GREEN, a hand
+// run's (obor nightly) too — whether the nightly is switched off or scheduled for later; a restart does not bring it
+// back.
+func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, at string }{
+		{"off", ""},
+		{"scheduled before its time", "13:00"}, // the rig's clock is 12:00: serve's own run has not come
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
+			r := nightlyRig(t, f, c.at)
+			if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
+				event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
+				t.Fatal(err)
+			}
+			r.start()
+			r.passes()
+			r.passes()
+			if fs := nightlyFacts(r); len(fs) != 1 || r.has("0 fact resumed") {
+				t.Fatalf("precondition: last-full-check RED: facts %+v, want the RED needs-you in force: %q", fs, r.steps())
+			}
+			r.stop()
+			f.mu.Lock()
+			f.last = "GREEN" // obor nightly by hand, GREEN
+			f.mu.Unlock()
+			r.start()
+			r.waitFor("the needs-you to end", func() bool { return len(nightlyFacts(r)) == 0 })
+			if n := r.count("0 fact resumed"); n != 1 || f.count() != 0 {
+				t.Errorf("resumed %d, runs %d; want 1, 0 (the hand run's GREEN ends it): %q", n, f.count(), r.steps())
+			}
+			r.stop()
+			r.start()
+			r.passes()
+			if fs, n := nightlyFacts(r), r.count("0 fact resumed"); len(fs) != 0 || n != 1 {
+				t.Errorf("after a restart: facts %+v, resumed %d; want none, 1", fs, n)
+			}
+		})
 	}
 }
 
@@ -415,40 +430,6 @@ func nightlyFact(t *testing.T, step string, d event.FactData) event.Record {
 		t.Fatal(err)
 	}
 	return event.Record{Task: event.NightlyTask, Step: step, Kind: event.KindFact, Data: b}
-}
-
-// DD-v0.12 A4: a RED nightly's needs-you in the store ends (resumed) once the last full check is GREEN, a hand run's
-// (obor nightly) too, before serve's own nightly's time; a restart does not bring it back.
-func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
-	t.Parallel()
-	f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
-	r := nightlyRig(t, f, "13:00") // the rig's clock is 12:00: serve's own run has not come
-
-	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
-		event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
-		t.Fatal(err)
-	}
-	r.start()
-	r.passes()
-	r.passes()
-	if fs := nightlyFacts(r); len(fs) != 1 || r.has("0 fact resumed") {
-		t.Fatalf("last-full-check RED: facts %+v, want the RED needs-you in force: %q", fs, r.steps())
-	}
-	r.stop()
-	f.mu.Lock()
-	f.last = "GREEN" // obor nightly by hand, GREEN
-	f.mu.Unlock()
-	r.start()
-	r.waitFor("the needs-you to end", func() bool { return len(nightlyFacts(r)) == 0 })
-	if n := r.count("0 fact resumed"); n != 1 || f.count() != 0 {
-		t.Errorf("resumed %d, runs %d; want 1, 0 (the hand run's GREEN ends it): %q", n, f.count(), r.steps())
-	}
-	r.stop()
-	r.start()
-	r.passes()
-	if fs, n := nightlyFacts(r), r.count("0 fact resumed"); len(fs) != 0 || n != 1 {
-		t.Errorf("after a restart: facts %+v, resumed %d; want none, 1", fs, n)
-	}
 }
 
 // DD-v0.12 A5, against the store: a failed try in the log (serve restarted 5 min after it) is tried again 10 min after

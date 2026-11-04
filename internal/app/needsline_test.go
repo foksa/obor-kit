@@ -235,7 +235,7 @@ func TestNeedsYouLineQueuedOnceUnderConcurrentPasses(t *testing.T) {
 }
 
 // T-621: a needs-you line still unanswered is posted to the lead again 30 min after it, then every 60, the same line
-// with " (again, <its age>)".
+// with " (again, <its age>)"; what ends the needs-you (a resume at 105) ends its repeats: nothing follows.
 func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 	t.Parallel()
 	r, line := refusedRig(t)
@@ -262,27 +262,14 @@ func TestNeedsYouLineRepeatsWhileItStays(t *testing.T) {
 	if got := r.againLines(seq)[1]; got != line+" (again, 1h)" {
 		t.Errorf("at 90 min: second line %q, want (again, 1h)", got)
 	}
-}
-
-// T-621: what ends a needs-you ends its repeats: resumed at 45 after one repeat, nothing follows.
-func TestNeedsYouLineRepeatsEndWithTheNeedsYou(t *testing.T) {
-	t.Parallel()
-	r, line := refusedRig(t)
-	seq := r.needsYou().Seq
-	// The repeat counts from the first line's delivery: the clock moves only once that is recorded (else, under load,
-	// the delivery is stamped at 30 and the repeat is not due until 60).
-	r.waitFor("the line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.waitLinesDelivered(1)
-	r.advance(30 * time.Minute)
-	r.waitFor("the first repeat", func() bool { return len(r.againLines(seq)) == 1 })
-	r.waitLinesDelivered(2)
-	r.advance(15 * time.Minute) // 45
+	r.waitLinesDelivered(3)
+	r.advance(15 * time.Minute) // 105
 	r.disp.set(func(d *dispatchFakes) { delete(d.fail, "prepare") })
 	r.mustResume("r1", "", "RESUMED T-1: retry (lane)")
 	r.waitFor("the needs-you ended", func() bool { return r.taskState() != "needs-you" })
-	r.advance(60 * time.Minute) // 105: the repeat that was due at 90 never comes
-	if got := r.againLines(seq); len(got) != 1 {
-		t.Errorf("after the resume: again lines %q, want only the one before it", got)
+	r.advance(60 * time.Minute) // 165: the repeat that was due at 150 never comes
+	if got := r.againLines(seq); len(got) != 2 {
+		t.Errorf("after the resume: again lines %q, want only the two before it", got)
 	}
 }
 
