@@ -11,14 +11,16 @@ import (
 	"obor/internal/config"
 )
 
-// The nightly full check (T-464; docs/state-model.md row 45): once a day, at or after merge.nightly_at, when a
-// partial merge happened since the last full check (or the last one is RED) and no gate or publish runs, the merge
-// loop runs what obor nightly runs, in its own worktree (not the scratch). Its intent/result is the day's key
-// nightly.<YYYY-MM-DD> (G): a restart runs a pending one again, a day with a result runs none. A RED one is the
-// project's needs-you{full-check RED <sha7>} until a GREEN one ends it; a run that ends neither GREEN nor RED is a
-// counted failure (fact failed), tried again nightlyRetry after the last one, the tries-th the day's needs-you{nightly
-// failed: …}. A day not due is asked once (remembered in memory); a GREEN full check run by hand (obor nightly:
-// last-full-check) ends a RED one's needs-you too.
+// The nightly full check (T-464, T-781; docs/state-model.md row 45): merge.nightly_at is its switch, the lead's (obor
+// nightly on HH:MM | off, through config_set): set, the merge loop runs what obor nightly runs every night at or after
+// that time, in its own worktree (not the scratch), while no gate or publish runs; unset, never. Nothing else decides
+// whether it runs (the nightly runs more than the merge gate: check_milestone, the baseline, the forced gate, e2e, the
+// store backup). The Loop is built each pass from the config as it is, so a switch counts from the next pass; a run in
+// progress is not stopped by off. Its intent/result is the day's key nightly.<YYYY-MM-DD> (G): a restart runs a
+// pending one again, a day with a result runs none. A RED one is the project's needs-you{full-check RED <sha7>} until a
+// GREEN one ends it; a run that ends neither GREEN nor RED is a counted failure (fact failed), tried again nightlyRetry
+// after the last one, the tries-th the day's needs-you{nightly failed: …}. A GREEN full check run by hand (obor
+// nightly: last-full-check) ends a RED one's needs-you too.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
 // another process holds, merge.window_wait).
@@ -29,10 +31,7 @@ const redPrefix = "full-check RED "
 
 // Nightly is a project's nightly full check (merge.nightly_at). Nil in Loop: off.
 type Nightly struct {
-	At string // "HH:MM", local time
-	// Due: a partial merge of merges (the log's, in seq order) since the last full check, or the last one RED. fresh:
-	// the log has neither a merge nor a nightly run (a merges.log before the store is not read: due once, T-525).
-	Due func(merges []event.Merge, fresh bool) (bool, error)
+	At  string                                        // "HH:MM", local time: it runs every night at or after it
 	Run func(ctx context.Context) (NightlyOut, error) // obor nightly's run; an error: it ended neither GREEN nor RED
 	// Last is the last full check's sha and verdict (last-full-check: GREEN | RED, "" none), a hand run's too (nil:
 	// not read).
@@ -48,26 +47,20 @@ type NightlyOut struct {
 
 // nightlyState is the nightly full check's fold: its last intent's step and whether it has a result, the counted
 // failures per step and the time and reason of the last one, the last outcome while no needs-you or resumed fact has
-// followed it, whether a run is going, the day's step Due last answered false for, and the project's merges (Due's
-// input).
+// followed it, and whether a run is going.
 type nightlyState struct {
-	merges    []event.Merge
 	step      string
 	done      bool
 	fails     map[string]int
 	failedAt  time.Time
 	failedWhy string // the last failed fact's reason: "nightly.<date>: <err>" (obor status' pending line, T-662)
 	unsettled *NightlyOut
-	running   bool   // runNightly runs (under mu; only the merge loop's pass starts one)
-	notDue    string // in memory only: a restart asks again
+	running   bool // runNightly runs (under mu; only the merge loop's pass starts one)
 }
 
-// foldNightly folds r, a record of the nightly full check or a merged fact (its merges). Only nightly.<date> steps
-// are its runs: a notification of its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
+// foldNightly folds r, a record of the nightly full check. Only nightly.<date> steps are its runs: a notification of
+// its needs-you (notify.<seq>, the same task key) never moves the run cursor (T-468).
 func (p *proj) foldNightly(r event.Record) {
-	if m, ok := event.MergeOf(r); ok {
-		p.night.merges = append(p.night.merges, m)
-	}
 	if r.Task != event.NightlyTask {
 		return
 	}
@@ -93,8 +86,8 @@ func (p *proj) foldNightly(r event.Record) {
 	}
 }
 
-// nightly starts p's nightly full check in its own goroutine when it is due, after settling the outcome of the last
-// one (its needs-you).
+// nightly starts p's nightly full check in its own goroutine once its time has come today (or its pending intent
+// again), after settling the outcome of the last one (its needs-you).
 func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 	n := fx.Nightly
 	if n == nil {
@@ -122,19 +115,8 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 			return
 		}
 		step = event.StepNightly + "." + now.Format("2006-01-02")
-		if step == st.step || step == st.notDue {
-			return // today's has run, or failed tries times, or is not due
-		}
-		due, err := n.Due(st.merges, len(st.merges) == 0 && st.step == "")
-		if err != nil {
-			a.logf("nightly of %s: %v", p.name, err)
-			return
-		}
-		if !due {
-			a.mu.Lock()
-			p.night.notDue = step
-			a.mu.Unlock()
-			return
+		if step == st.step {
+			return // today's has run, or failed tries times
 		}
 	} else if st.fails[step] > 0 && now.Sub(st.failedAt) < nightlyRetry {
 		return // a failed try: the next one after nightlyRetry
@@ -157,7 +139,7 @@ func (a *App) nightly(ctx context.Context, p *proj, fx *Loop) {
 }
 
 // handGreen ends a RED nightly's needs-you in force when the last full check, a hand run's too, is GREEN (resumed):
-// without a partial merge since, serve's own nightly would not run to end it.
+// serve's own nightly would end it only at its next time, or never while it is off.
 func (a *App) handGreen(p *proj, n *Nightly) {
 	if n.Last == nil {
 		return

@@ -13,13 +13,15 @@ import (
 	"obor/internal/roles"
 )
 
-// The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page, and serve, the one
-// writer, writes .obor/config.json and commits it. Exactly these keys are editable:
+// The setup edit (T-753, T-765): the owner changes one setup value from obor web's Setup page (the lead with obor
+// nightly on|off, T-781), and serve, the one writer, writes .obor/config.json and commits it. Exactly these keys are
+// editable:
 //
 //	difficulty.<level>   the level's ordered list of model refs (<model>[:<effort>])
 //	roles.<role>         a configured role's model ref
 //	lanes                how many lanes (L-01 … L-NN)
 //	kinds.<kind>.args    the args appended to every start of a kind
+//	merge.nightly_at     the nightly's switch: a local time "HH:MM" (on, every night then) or null (off)
 //
 // Any other key stays obor setup's or a hand edit's.
 //
@@ -44,7 +46,7 @@ func Rev(doc []byte) string {
 }
 
 // EditKeys are the editable keys as patterns, for errors.
-const EditKeys = "difficulty.<level>, roles.<role>, lanes, kinds.<kind>.args"
+const EditKeys = "difficulty.<level>, roles.<role>, lanes, kinds.<kind>.args, merge.nightly_at"
 
 // Edit is the change of the setup value at key to val (JSON) in doc, the bytes of c's config.json, and c's local.json
 // as it is, an error names why the key is not editable, val not a value it takes (an unknown level, role or kind, a
@@ -63,6 +65,8 @@ func (c *Config) Edit(doc []byte, key string, val json.RawMessage) (Change, erro
 		return c.editLanes(doc, val)
 	case len(parts) == 3 && parts[0] == "kinds" && parts[2] == "args":
 		return c.editKindArgs(doc, parts[1], val)
+	case key == "merge.nightly_at":
+		return c.editNightlyAt(doc, val)
 	}
 	return Change{}, fmt.Errorf("%s is not an editable key (%s)", Compact(key), EditKeys)
 }
@@ -96,6 +100,25 @@ func (c *Config) editLanes(doc []byte, val json.RawMessage) (Change, error) {
 		ch.Dropped = append(ch.Dropped, LaneName(i))
 	}
 	return ch, err
+}
+
+// editNightlyAt switches the nightly (T-781): a local time "HH:MM" sets merge.nightly_at (on, every night at it), null
+// deletes it (off); anything else is refused.
+func (c *Config) editNightlyAt(doc []byte, val json.RawMessage) (Change, error) {
+	var at *string
+	ok := json.Unmarshal(val, &at) == nil
+	if ok && at != nil {
+		_, _, ok = ParseClock(*at)
+	}
+	if !ok {
+		return Change{}, fmt.Errorf("merge.nightly_at takes a local time HH:MM (00:00 to 23:59), or null (off)")
+	}
+	var v any
+	newLine := ""
+	if at != nil {
+		v, newLine = *at, Compact(*at)
+	}
+	return c.change("merge.nightly_at", doc, []string{"merge", "nightly_at"}, v, unsetOr(c.Data.Merge.NightlyAt), newLine)
 }
 
 // editKindArgs sets kinds.<kind>.args: a list of args with no bare -- (obor adds the first prompt itself); an empty

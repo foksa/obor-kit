@@ -452,8 +452,12 @@ proves the skipped code can't depend on the changed code (e.g. an import-directi
 - `obor nightly`: full check + baseline + gate (forced) + `commands.e2e` if set, in its own nightly worktree
   (`<merge.scratch_dir>-nightly`, not the merge scratch) at the current branch head, under the merge window; it then
   backs the store up; writes `state/last-full-check` (`<sha> <epoch> GREEN|RED <summary>`); prints `NIGHTLY GREEN …`
-  / `NIGHTLY RED …` last. Serve runs it at `merge.nightly_at` (unset = off) when due and records the outcome
-  (`docs/state-model.md` row 45); `obor status` prints the last full check and its age.
+  / `NIGHTLY RED …` last. `merge.nightly_at` is its switch (T-781): set (`"HH:MM"`), serve runs it every night at
+  that time, whatever merged since (it runs more than the merge gate); unset, never. The lead or the owner switches it
+  with `obor nightly on HH:MM` / `obor nightly off` (serve's `config_set`: one commit on main; counts from serve's next
+  pass, no restart; a run in progress is not stopped). Serve records the outcome (`docs/state-model.md` row 45);
+  `obor status` prints the next run (`nightly check at HH:MM (in …)`, or `nightly: off (obor nightly on HH:MM)`) and
+  the last full check and its age.
 
 ## Check tiers (v2.6, 2026-10-08 — user decision via axis-alies)
 Slow tests and long property gates run only at milestone end (+ an optional non-blocking nightly), never in per-task

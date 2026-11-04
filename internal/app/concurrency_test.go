@@ -763,7 +763,7 @@ func TestNightlyNotificationsKeepRunCursor(t *testing.T) {
 					q.night.fails[day], day, c.done, c.fails)
 			}
 			runs := 0
-			n := &Nightly{At: "02:00", Due: func([]event.Merge, bool) (bool, error) { return true, nil }, Run: func(context.Context) (NightlyOut, error) {
+			n := &Nightly{At: "02:00", Run: func(context.Context) (NightlyOut, error) {
 				runs++
 				return NightlyOut{SHA: "abc1234", Verdict: "GREEN"}, nil
 			}}

@@ -48,6 +48,12 @@ func caller(env project.Env, cwd string, cfg *config.Config) wire.Call {
 // (fill: its error is the FAIL line, nothing sent), sent to the serve holding the call's project (obor send's is
 // another project's). Serve's reply printed (exit 0), or FAIL: no config, serve down or its refusal (exit 1).
 func request(ctx context.Context, env project.Env, method string, fill func(*config.Config, *wire.Call) error) int {
+	return requestReply(ctx, env, method, fill, func(reply string) string { return reply })
+}
+
+// requestReply is request with serve's reply printed as line makes it.
+func requestReply(ctx context.Context, env project.Env, method string, fill func(*config.Config, *wire.Call) error,
+	line func(reply string) string) int {
 	_, cfg, rc := load()
 	if rc != 0 {
 		fmt.Fprintln(out, noConfig)
@@ -64,7 +70,7 @@ func request(ctx context.Context, env project.Env, method string, fill func(*con
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(out, reply)
+	fmt.Fprintln(out, line(reply))
 	return 0
 }
 

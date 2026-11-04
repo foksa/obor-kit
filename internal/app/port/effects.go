@@ -235,7 +235,7 @@ type Candidate struct {
 	Checks     string // the checks summary ("" when none ran)
 	Stat       string // git diff --stat Target SHA
 	Diff       string // git diff Target SHA when at most InlineDiff bytes, else "" (the review job carries it, T-602)
-	Full       bool   // a full check ran (fact merged's full: obor serve's nightly reads it)
+	Full       bool   // a full check ran, not a class's partial one
 }
 
 // InlineDiff is the largest candidate diff the review job carries whole (T-602): larger, the job says to read it.

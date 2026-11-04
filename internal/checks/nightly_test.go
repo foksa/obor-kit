@@ -8,7 +8,6 @@ import (
 	"obor/internal/testkit"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,118 +163,5 @@ func TestNightlyBackup(t *testing.T) {
 	x.is(x.nightly(), OK, `^NIGHTLY GREEN [0-9a-f]{7} on main \(check rc=0, backup obor-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db, [0-9]+s\)$`)
 	if got, _ := filepath.Glob(filepath.Join(wire.BackupDir(x.Root), "obor-*.db")); len(got) != 1 {
 		t.Errorf("backups = %v, want one", got)
-	}
-}
-
-// T-464: serve's nightly run is due when the last full check is RED or has a partial merge it did not check; T-468:
-// checked is git ancestry (A, then B on top of it), not the epoch. T-525: the merges are the store's facts merged
-// ("<epoch> <task> <sha> full|partial" per line here); none known is due once, while the store is fresh.
-func TestNightlyDue(t *testing.T) {
-	t.Parallel()
-	const gone = "0123456789abcdef0123456789abcdef01234567" // no such commit
-	for _, c := range []struct {
-		name, last, merges string
-		fresh, want        bool
-	}{
-		{"empty store: due once", "", "", true, true},
-		{"empty store, a GREEN check before it: due once", "A 200 GREEN ok\n", "", true, true},
-		{"no merge since the store's first nightly", "A 200 GREEN ok\n", "", false, false},
-		{"nothing yet, a nightly ran", "", "", false, false},
-		{"full merge since the check", "A 200 GREEN ok\n", "100 T-1 A partial\n300 T-2 B full\n", false, false},
-		{"partial merge after the checked sha", "A 200 GREEN ok\n", "100 T-1 A full\n300 T-2 B partial\n", false, true},
-		{"no full check, a partial merge", "", "100 T-1 A partial\n", false, true},
-		{"no full check, only full merges", "", "100 T-1 A full\n", false, false},
-		{"GREEN on the partial merge", "A 200 GREEN ok\n", "100 T-1 A partial\n", false, false},
-		{"GREEN on a descendant of the partial merge, older epoch", "B 50 GREEN ok\n", "100 T-1 A partial\n", false, false},
-		{"GREEN, a partial merge it did not check", "A 200 GREEN ok\n", "100 T-1 A partial\n300 T-2 B partial\n", false, true},
-		{"GREEN, a partial merge it did not check, older epoch", "A 200 GREEN ok\n", "100 T-2 B partial\n", false, true},
-		{"GREEN, a full merge it did not check", "A 200 GREEN ok\n", "300 T-2 B full\n", false, false},
-		{"RED, nothing merged since", "A 200 RED failed: check\n", "100 T-1 A partial\n", false, true},
-		// DD-v0.12 A6: a sha git does not have (history rewritten, a copied store) is skipped, not an error
-		{"GREEN, an unknown sha logged after it", "A 200 GREEN ok\n", "100 T-1 A partial\n300 T-9 " + gone + " partial\n", false, false},
-		{"GREEN, an unknown sha and a partial merge after it", "A 200 GREEN ok\n",
-			"100 T-1 A partial\n300 T-9 " + gone + " partial\n400 T-2 B partial\n", false, true},
-		{"GREEN on a merge logged after an unknown sha", "B 200 GREEN ok\n", "50 T-9 " + gone + " partial\n100 T-2 B partial\n", false, false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t)
-			a := x.head(x.Root)
-			x.Git(x.Root, "commit", "-q", "--allow-empty", "-m", "B")
-			shas := strings.NewReplacer("A", a, "B", x.head(x.Root))
-			if c.last != "" {
-				x.Write(".obor/state/last-full-check", shas.Replace(c.last))
-			}
-			var merges []event.Merge
-			for _, l := range lines(shas.Replace(c.merges)) {
-				f := strings.Fields(l)
-				at, _ := strconv.ParseInt(f[0], 10, 64)
-				merges = append(merges, event.Merge{Task: f[1], SHA: f[2], At: time.Unix(at, 0), Full: f[3] == "full"})
-			}
-			if got, err := NightlyDue(x.Root, merges, c.fresh); err != nil || got != c.want {
-				t.Errorf("NightlyDue = %v, %v; want %v", got, err, c.want)
-			}
-		})
-	}
-}
-
-// RV-49 #2 (T-468): a partial merge published while a full check runs is not in the sha it checked: it stays due,
-// whatever second it was published in.
-func TestNightlyKeepsConcurrentMergeDue(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name       string
-		sameSecond bool // the merge is published in the second the check completes
-	}{
-		{"merge during the check, completion a later second", false},
-		{"merge in the completion second", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t)
-			entered, release := filepath.Join(x.Base, "entered"), filepath.Join(x.Base, "release")
-			x.Config(cmd("check", `touch "$RV49_ENTERED"; while [ ! -e "$RV49_RELEASE" ]; do sleep 0.01; done; echo 1 pass`))
-			x.environ = append(x.environ, "RV49_ENTERED="+entered, "RV49_RELEASE="+release)
-			old := x.head(x.Root)
-			done := make(chan Result, 1)
-			go func() { done <- x.nightly() }()
-			ready := false
-			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-				if _, err := os.Stat(entered); err == nil {
-					ready = true
-					break
-				}
-			}
-			if !ready {
-				t.Fatal("precondition: the check did not start")
-			}
-			if c.sameSecond { // publish early in a fresh second, so the check completes in it
-				time.Sleep(time.Until(time.Unix(time.Now().Unix()+1, 0)))
-			}
-			x.Git(x.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-99: during the full check")
-			head := x.head(x.Root)
-			merges := []event.Merge{{Task: "T-99", SHA: head, At: time.Now()}} // serve's fact merged, partial
-			mergeAt := time.Now().Unix()
-			if !c.sameSecond {
-				time.Sleep(time.Until(time.Unix(mergeAt+1, 0)))
-			}
-			if err := os.WriteFile(release, []byte("go"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			r := <-done
-			sha, at, verdict, err := LastFullCheck(x.Root)
-			if r.Code != OK || err != nil || verdict != "GREEN" || sha != old || sha == head {
-				t.Fatalf("precondition: a GREEN check of the old head: %d %q; last-full-check %s %d %s %v", r.Code, r.Line, sha, at, verdict, err)
-			}
-			if c.sameSecond && at != mergeAt {
-				t.Skipf("the check completed at %d, not in the merge's second %d", at, mergeAt)
-			}
-			if !c.sameSecond && at <= mergeAt {
-				t.Fatalf("precondition: the check completed at %d, after the merge at %d", at, mergeAt)
-			}
-			if due, err := NightlyDue(x.Root, merges, false); err != nil || !due {
-				t.Errorf("NightlyDue = %v, %v; want true: the merge during the check was not checked", due, err)
-			}
-		})
 	}
 }

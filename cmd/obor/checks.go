@@ -1,22 +1,53 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"obor/internal/app/wire"
 	"obor/internal/checks"
+	"obor/internal/config"
 	"obor/internal/project"
 )
 
-// nightlyCmd is `obor nightly` (NIGHTLY).
+const nightlyUsage = "FAIL usage: obor nightly [on HH:MM | off]"
+
+// nightlyCmd is `obor nightly` (NIGHTLY: one run now), or `obor nightly on HH:MM | off` (nightlySwitch).
 func nightlyCmd(args []string) int {
-	if len(args) != 0 {
-		fmt.Fprintln(out, "FAIL usage: obor nightly")
-		return 1
+	switch {
+	case len(args) == 0:
+		return checksRun(func(o checks.Options) checks.Result { return checks.Nightly(o) })
+	case len(args) == 2 && args[0] == "on", len(args) == 1 && args[0] == "off":
+		return nightlySwitch(args)
 	}
-	return checksRun(func(o checks.Options) checks.Result { return checks.Nightly(o) })
+	fmt.Fprintln(out, nightlyUsage)
+	return 1
+}
+
+// nightlySwitch is `obor nightly on HH:MM | off` (T-781), the lead's or the owner's switch of serve's nightly: a
+// config_set of merge.nightly_at to the time (on: every night at it) or null (off), one commit on main; serve checks
+// the time (config.Edit) and the caller. NIGHTLY ON at HH:MM | NIGHTLY OFF, "… already" when it was so (no commit),
+// or FAIL: serve down or its refusal (exit 1).
+func nightlySwitch(args []string) int {
+	val, line := json.RawMessage("null"), "NIGHTLY OFF"
+	if args[0] == "on" {
+		b, _ := json.Marshal(args[1]) // a string: cannot fail
+		val, line = b, "NIGHTLY ON at "+args[1]
+	}
+	return requestReply(context.Background(), project.OSEnv, wire.MethodConfig, func(_ *config.Config, c *wire.Call) error {
+		c.Changes = []wire.ConfigChange{{Key: "merge.nightly_at", Value: val}}
+		return nil
+	}, func(reply string) string {
+		if strings.HasPrefix(reply, "UNCHANGED ") {
+			return line + " already"
+		}
+		return line
+	})
 }
 
 // checksRun loads the project and runs body with the process's environment; INT/TERM/HUP become its exit code.

@@ -233,7 +233,7 @@ var commands = map[string][]string{
 	"review":    {"verify", "close"},
 	"affected":  {"go"},
 	"flakes":    nil,
-	"nightly":   nil,
+	"nightly":   {"on", "off"},
 	"plugin":    {"restore"},
 	"serve":     {"install", "uninstall", "restart"},
 	"mcp":       nil,

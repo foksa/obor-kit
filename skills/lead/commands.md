@@ -58,6 +58,19 @@ the owner reviews it against yours.
 It counts from the next dispatch (a role's type at its next start); nothing to do unless it changes your plan. The
 commit is on main: pull before you edit the config by hand. A pause set or cleared there is the same as `obor pause`.
 
+## obor nightly on|off (T-781)
+`merge.nightly_at` is the nightly's switch, and you or the owner throw it; nothing else decides whether it runs. While
+on, serve runs `obor nightly` (check, check_milestone, baseline, the forced gate, e2e, the store backup) every night at
+that time, whatever merged since; off, never.
+- `obor nightly on HH:MM` — `NIGHTLY ON at HH:MM` (`… already` when it was; nothing committed). A time that is not
+  `00:00`–`23:59` is refused, the config unchanged.
+- `obor nightly off` — `NIGHTLY OFF` (`NIGHTLY OFF already`). A run in progress is not stopped.
+- `obor nightly` — one run now, as before.
+
+Serve writes it as a setup edit (one commit on main, your `[obor] config: merge.nightly_at …` line) and reads it from
+the next pass: no serve restart. `obor status` shows `nightly check at HH:MM (in …)`, or `nightly: off (obor nightly
+on HH:MM)`.
+
 ## obor send and obor projects (T-646)
 Every obor project on this machine is known by its config name: `obor serve` (at its start) and `obor init` write the
 list, and `obor projects` prints it, one project per line: `<name> <root> serve <up|down>` (a project whose directory

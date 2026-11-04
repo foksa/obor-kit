@@ -83,6 +83,8 @@ func TestEditSetsEachField(t *testing.T) {
 			rc, _ := n.Role("deep_dive")
 			return rc.Type == "kimi" && rc.Effort == "high"
 		}},
+		{"merge.nightly_at", `"03:00"`, "", `"03:00"`, func(n *Config) bool { return n.Data.Merge.NightlyAt == "03:00" }},
+		{"merge.nightly_at", `null`, "", "", func(n *Config) bool { return n.Data.Merge.NightlyAt == "" }},
 	} {
 		cfg := editProject(t)
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
@@ -115,6 +117,32 @@ func TestEditSetsEachField(t *testing.T) {
 	ch, err := editProject(t).Edit([]byte(editDoc), "lanes", json.RawMessage(`0`))
 	if err != nil || !slices.Equal(ch.Dropped, []string{"L-01", "L-02"}) {
 		t.Errorf("lanes = 0: dropped %q, %v; want L-01, L-02 (serve refuses while one has a task)", ch.Dropped, err)
+	}
+}
+
+// T-781: merge.nightly_at is the nightly's switch: a time sets it (on), null deletes it (off), the change naming the
+// value before; off when off is no change of the file.
+func TestEditNightlyAtOnOff(t *testing.T) {
+	cfg := editProject(t)
+	on, err := cfg.Edit([]byte(editDoc), "merge.nightly_at", json.RawMessage(`"02:30"`))
+	if err != nil || !strings.Contains(string(on.Doc), "\"nightly_at\": \"02:30\"") {
+		t.Fatalf("on: %v\n%s", err, on.Doc)
+	}
+	onCfg, err := LoadWith(cfg.Root, on.Doc)
+	if err != nil || onCfg.Data.Merge.NightlyAt != "02:30" {
+		t.Fatalf("precondition: on loads with 02:30: %v", err)
+	}
+	off, err := onCfg.Edit(on.Doc, "merge.nightly_at", json.RawMessage(`null`))
+	if err != nil || off.Old != `"02:30"` || off.New != "" || strings.Contains(string(off.Doc), "nightly_at") {
+		t.Fatalf("off: old %q new %q, %v; want \"02:30\" → unset, the key gone:\n%s", off.Old, off.New, err, off.Doc)
+	}
+	offCfg, err := LoadWith(cfg.Root, off.Doc)
+	if err != nil || offCfg.Data.Merge.NightlyAt != "" {
+		t.Fatalf("off does not load unset: %v\n%s", err, off.Doc)
+	}
+	again, err := offCfg.Edit(off.Doc, "merge.nightly_at", json.RawMessage(`null`))
+	if err != nil || string(again.Doc) != string(off.Doc) {
+		t.Errorf("off when off: %v; want the file unchanged:\n%s", err, again.Doc)
 	}
 }
 
@@ -169,6 +197,12 @@ func TestEditRefuses(t *testing.T) {
 		{"roles.lead.agent", `"x"`, "is not an editable key"},
 		{"roles.lead", `"gpt:high"`, `"gpt" is not a model`},
 		{"merge.scratch_dir", `"x"`, "is not an editable key"},
+		{"merge.nightly_at", `"25:00"`, "merge.nightly_at takes a local time HH:MM (00:00 to 23:59), or null (off)"},
+		{"merge.nightly_at", `"3:00"`, "merge.nightly_at takes a local time HH:MM"},
+		{"merge.nightly_at", `"2am"`, "merge.nightly_at takes a local time HH:MM"},
+		{"merge.nightly_at", `""`, "merge.nightly_at takes a local time HH:MM"},
+		{"merge.nightly_at", `300`, "merge.nightly_at takes a local time HH:MM"},
+		{"merge.nightly_at", ``, "merge.nightly_at takes a local time HH:MM"},
 	} {
 		ch, err := cfg.Edit([]byte(editDoc), c.key, json.RawMessage(c.val))
 		if err == nil || !strings.Contains(err.Error(), c.want) {

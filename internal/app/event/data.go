@@ -65,7 +65,6 @@ type Message struct {
 type MergedData struct {
 	Head    string `json:"head,omitempty"`
 	Outside bool   `json:"outside,omitempty"` // a merge outside the app landed it (by hand in git)
-	Full    bool   `json:"full,omitempty"`    // the gate's candidate ran the full check (Candidate.Full)
 }
 
 // RecordTime is r's time stamp (zero when unreadable).
@@ -74,12 +73,11 @@ func RecordTime(r Record) time.Time {
 	return t
 }
 
-// Merge is one merged fact of the merge loop's (a merge outside the app has no sha and is none): its task, sha, time
-// and whether its gate ran the full check (false in a log before T-525: partial).
+// Merge is one merged fact of the merge loop's (a merge outside the app has no sha and is none): its task, sha and
+// time (a log's "full", before T-781, is not read).
 type Merge struct {
 	Task, SHA string
 	At        time.Time
-	Full      bool
 }
 
 // MergeOf is r as a Merge (false: no merged fact, or a merge outside the app).
@@ -91,7 +89,7 @@ func MergeOf(r Record) (Merge, bool) {
 	if json.Unmarshal(r.Data, &d) != nil || d.Head == "" {
 		return Merge{}, false
 	}
-	return Merge{Task: r.Task, SHA: d.Head, At: RecordTime(r), Full: d.Full}, true
+	return Merge{Task: r.Task, SHA: d.Head, At: RecordTime(r)}, true
 }
 
 // ReadMerges is root's merges, read-only in seq order (obor flakes); none when serve never made its store.

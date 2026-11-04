@@ -221,6 +221,13 @@ func TestConfigSetRefused(t *testing.T) {
 		{name: "worker", key: "lanes", val: `3`, role: "worker", want: "the owner or the lead changes the setup"},
 		{name: "commit", key: "lanes", val: `3`, failCommit: errors.New("git commit: hook said no"), want: "hook said no"},
 		{name: "not editable", key: "commands.check", val: `"x"`, want: "is not an editable key"},
+		// T-781: obor nightly on|off's change
+		{name: "nightly 25:00", key: "merge.nightly_at", val: `"25:00"`, want: "merge.nightly_at takes a local time HH:MM"},
+		{name: "nightly no time", key: "merge.nightly_at", val: `""`, want: "merge.nightly_at takes a local time HH:MM"},
+		{name: "nightly by a worker", key: "merge.nightly_at", val: `"03:00"`, role: "worker",
+			want: "the owner or the lead changes the setup"},
+		{name: "nightly by the integrator", key: "merge.nightly_at", val: `null`, role: "integrator",
+			want: "the owner or the lead changes the setup"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -241,6 +248,23 @@ func TestConfigSetRefused(t *testing.T) {
 				t.Errorf("a refused change committed %q, recorded %+v, told the lead %q", f.messages(), configFacts(t, h), leadLines(t, h))
 			}
 		})
+	}
+}
+
+// T-781: the nightly switched off while it is off is no change: reply UNCHANGED, no commit, no fact, no line.
+func TestConfigSetNightlyOffWhenOff(t *testing.T) {
+	t.Parallel()
+	h, f := configRig(t)
+	reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "n1", Agent: "pj-lead", Role: "lead",
+		Changes: changes("merge.nightly_at", `null`)})
+	if err != nil || reply != "UNCHANGED merge.nightly_at" {
+		t.Fatalf("off when off: %q, %v; want UNCHANGED merge.nightly_at", reply, err)
+	}
+	if b, _ := os.ReadFile(f.path); string(b) != configJSON {
+		t.Errorf("the file changed:\n%s", b)
+	}
+	if len(f.messages()) != 0 || len(configFacts(t, h)) != 0 || len(leadLines(t, h)) != 0 {
+		t.Errorf("off when off committed %q, recorded %+v, told the lead %q", f.messages(), configFacts(t, h), leadLines(t, h))
 	}
 }
 

@@ -220,7 +220,6 @@ func nightly(o checks.Options) *app.Nightly {
 	}
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.Data.Merge.NightlyAt,
-		Due: func(merges []event.Merge, fresh bool) (bool, error) { return checks.NightlyDue(root, merges, fresh) },
 		Last: func() (string, string, error) {
 			sha, _, verdict, err := checks.LastFullCheck(root)
 			return sha, verdict, err

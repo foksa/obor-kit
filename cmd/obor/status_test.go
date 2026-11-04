@@ -189,6 +189,7 @@ func TestStatusServeDown(t *testing.T) {
 		`^L-01 +- +task/T-01 +done +12m +\(T-01\)  agent: pj-l-01$`,
 		`^L-02 +- +task/T-02 +done +[0-9]+s +\(T-02\)  agent: pj-l-02$`,
 		`^L-03 +oc +task/T-03 +working +- +\(T-03\)  warning: no-plugin$`,
+		`^nightly: off \(obor nightly on HH:MM\)$`, // merge.nightly_at unset (T-781)
 		`^full check: none yet$`}
 	if len(lines) != len(want) {
 		t.Fatalf("%d lines, want %d:\n%s", len(lines), len(want), text)
