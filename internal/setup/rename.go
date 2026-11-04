@@ -9,7 +9,7 @@ package setup
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
 //	1 config   .obor/config.json and .obor/local.json: name and prefix (agent names are derived from them, T-765;
-//	           guards.allow_push lists roles, T-786: nothing to rewrite)
+//	           a derived name in guards.allow_push becomes its role, T-795)
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
 //	3 files    each lane worktree's opencode.json with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
@@ -180,6 +180,9 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 		out, err = config.EditJSON(out, path, v)
 		return err
 	}
+	if err := r.pushRoles(&out, set); err != nil {
+		return nil, err
+	}
 	for _, kv := range [][2]string{{"name", r.name}, {"prefix", r.prefix}} {
 		cur, ok := stringAt(out, kv[0])
 		if (ok || forceNames) && cur != kv[1] {
@@ -196,6 +199,36 @@ func (r *renamer) renameDoc(doc []byte, forceNames bool) ([]byte, error) {
 		return nil, err
 	}
 	return append(ind.Bytes(), '\n'), nil
+}
+
+// pushRoles rewrites each guards.allow_push entry that is a role's derived name under the old prefix ("ob-lead", as a
+// config before T-786 wrote it) to the role ("lead"): the derived name would resolve against the new prefix and name
+// no role. Role entries and unrelated entries stay. It runs before the prefix changes.
+func (r *renamer) pushRoles(out *[]byte, set func([]string, any) error) error {
+	raw, err := config.MemberAt(*out, []string{"guards", "allow_push"})
+	if err != nil || raw == nil {
+		return nil
+	}
+	var entries []string
+	if json.Unmarshal(raw, &entries) != nil {
+		return nil
+	}
+	changed := false
+	for i, e := range entries {
+		if _, isRole := roles.Lookup(e); isRole {
+			continue
+		}
+		for _, role := range roles.All() {
+			if !roles.LaneBound(role.Name) && r.cfg.AgentName(role.Name, "") == e {
+				entries[i], changed = role.Name, true
+				break
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return set([]string{"guards", "allow_push"}, entries)
 }
 
 // stringAt is the string member of doc at path; ok false when there is none or it is no string.
