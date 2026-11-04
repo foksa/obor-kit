@@ -311,18 +311,24 @@ grep -q '[^[:space:]]' "$notes" || fail "$notes is empty: it is the GitHub relea
 dirty=$(git status --porcelain)
 [ -z "$dirty" ] || fail "the working tree is dirty: commit or stash first (a release starts from a clean tree)"
 
-# --- review guard (T-642). Code merged since the last review: the first-parent merges on main after the newest
-# first-parent commit whose subject is "RV-<n> closed", whose files are not all docs, as the task ids their subjects
-# name. Only a subject on main's own line counts: never a body line (a merge message carries a whole spec, which may
-# quote a close line), never a commit a side branch brought in. The range starts at the close commit itself, so fixes
-# verified before the close count as reviewed. No close commit: nothing has been reviewed, so every merge counts.
+# --- review guard (T-642, T-822). Code merged since the last review that no cycle covered: the first-parent merges on
+# main in the next review's scope, whose files are not all docs, as the task ids their subjects name. Only a subject on
+# main's own line counts: never a body line (a merge message carries a whole spec, which may quote a close line), never
+# a commit a side branch brought in. A close commit since T-822 carries its cycle's Covered tasks and the sha its
+# review started at in the body: the range starts at that sha and the tasks it covered are left out, so a task merged
+# while the review's verify ran stays unreviewed until a cycle covers it. An older close commit has no Covered line: the
+# range is the close commit itself, as before. No close commit: nothing has been reviewed, so every merge counts.
 close=$(git log --first-parent --format='%H %s' HEAD | grep -E -m1 '^[0-9a-f]+ RV-[0-9]+ closed' | cut -d' ' -f1)
 since="the first commit (no RV closed yet)"
 range=HEAD
+covered=
 if [ -n "$close" ]; then
-  range="$close..HEAD"
   since=$(git log -1 --format=%s "$close" | sed -n 's/^\(RV-[0-9][0-9]*\) closed.*/\1/p')
   [ -n "$since" ] || since=$(git rev-parse --short "$close")
+  body=$(git log -1 --format=%b "$close")
+  covered=$(printf '%s\n' "$body" | sed -n 's/^Covered:[[:space:]]*//p' | tr ',' ' ')
+  start=$(printf '%s\n' "$body" | sed -n 's/^Start:[[:space:]]*//p')
+  range="${start:-$close}..HEAD"
 fi
 unreviewed=
 for sha in $(git log --first-parent --merges --reverse --format=%H "$range"); do
@@ -336,6 +342,11 @@ for sha in $(git log --first-parent --merges --reverse --format=%H "$range"); do
   [ -n "$code" ] || continue
   id=$(git log -1 --format=%s "$sha" | sed -n 's/^Merge \(T-[0-9][0-9]*[a-z]*\):.*/\1/p')
   [ -n "$id" ] || id=$(git rev-parse --short "$sha")
+  if [ -n "$covered" ]; then
+    case " $covered " in
+      *" $id "*) continue ;;
+    esac
+  fi
   unreviewed="${unreviewed:+$unreviewed, }$id"
 done
 if [ -n "$unreviewed" ]; then

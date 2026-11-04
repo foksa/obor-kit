@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/store"
 	"obor/internal/testkit"
 )
 
@@ -190,5 +194,80 @@ func TestReviewCloseDirtyBacklog(t *testing.T) {
 				t.Errorf("the main checkout is dirty after the close: %q", st)
 			}
 		})
+	}
+}
+
+// T-822: obor review close commits the cycle's Covered set (the review's in-scope tasks plus each verify's) and the sha
+// its review started at in the commit body; the subject keeps its form, so an old reader is unaffected.
+func TestReviewCloseCovered(t *testing.T) {
+	t.Parallel()
+	p, head := reviewFixture(t)
+	p.Write(".gitignore", ".obor/state/\n") // the log's database is not the close's to commit
+	p.Git(p.Root, "add", ".gitignore")
+	p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
+	p.Git(p.Root, "update-ref", app.ReviewedRef, head)
+	start := app.ReviewData{ID: "RV-4", Head: head, Tasks: []string{"T-2", "T-3"}}
+	verify := app.ReviewData{Tasks: []string{"T-2", "T-4"}} // T-2 again: the set is a set
+	db, err := store.OpenRW(event.DBFile(p.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _, err := event.OpenLog(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []struct {
+		step string
+		d    app.ReviewData
+	}{{event.StepReviewStarted, start}, {event.StepReviewVerify, verify}} {
+		b, err := json.Marshal(r.d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Append(event.Record{Task: event.ReviewTask, Step: r.step, Kind: event.KindFact, Data: b}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	f := p.Herdr()
+	f.Shell("w1:p3", "pj-rev", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
+		"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
+		"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+	rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)")
+	if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · ") {
+		t.Fatalf("close: exit %d, %q", rc, stdout)
+	}
+	if got, want := p.Git(p.Root, "log", "-1", "--format=%s"), "RV-4 closed · "+head[:7]+" · approved · T-5 (fix)"; got != want {
+		t.Errorf("the subject %q, want %q", got, want)
+	}
+	if got, want := p.Git(p.Root, "log", "-1", "--format=%b"), "Covered: T-2, T-3, T-4\nStart: "+head; got != want {
+		t.Errorf("the body %q, want %q", got, want)
+	}
+}
+
+// T-822: no review.started fact in the log (a review started by an older obor): the close keeps the old format, and the
+// next review's scope is the sha range.
+func TestReviewCloseNoStartFact(t *testing.T) {
+	t.Parallel()
+	p, head := reviewFixture(t)
+	p.Git(p.Root, "update-ref", app.ReviewedRef, head)
+	f := p.Herdr()
+	f.Shell("w1:p3", "pj-rev", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
+		"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
+		"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+	if rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)"); rc != 0 {
+		t.Fatalf("close: exit %d, %q", rc, stdout)
+	}
+	if got := p.Git(p.Root, "log", "-1", "--format=%b"); got != "" {
+		t.Errorf("the body %q, want none (the old format)", got)
+	}
+	if _, _, ok := app.ReviewCovered(p.Root); ok {
+		t.Error("ReviewCovered found a start in a log without one")
 	}
 }

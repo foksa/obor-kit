@@ -31,8 +31,8 @@ type headGit struct {
 	onHead func()
 }
 
-func (g *headGit) Last(context.Context, string) (string, error) {
-	return "RV-4 closed · 1111111 · approved · T-9", nil
+func (g *headGit) Last(context.Context, string) (ReviewClose, error) {
+	return ReviewClose{Subject: "RV-4 closed · 1111111 · approved · T-9"}, nil
 }
 func (g *headGit) Head(context.Context, string) (string, error) {
 	g.mu.Lock()

@@ -10,6 +10,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,10 +62,17 @@ type ReviewData struct {
 	Reply   string   `json:"reply,omitempty"`
 }
 
+// ReviewClose is the newest close commit on the integration branch: its subject ("RV-<n> closed · <sha> · approved ·
+// <summary>") and its body ("": a close commit from before T-822, which records neither the tasks its cycle covered
+// nor the sha its review started at).
+type ReviewClose struct {
+	Subject, Body string
+}
+
 // ReviewGit is the git a review's start reads and does on the project (cmd/obor implements it on the main checkout).
 type ReviewGit interface {
-	// Last is the subject of the newest commit on branch whose subject starts "RV-<n> closed" ("": none).
-	Last(ctx context.Context, branch string) (string, error)
+	// Last is the newest commit on branch whose subject starts "RV-<n> closed" ({}, subject "", when none).
+	Last(ctx context.Context, branch string) (ReviewClose, error)
 	// Head is branch's sha.
 	Head(ctx context.Context, branch string) (string, error)
 	// Merges is the first-parent merges of from..to as "<sha> <subject>" lines, oldest first (from "": all of to).
@@ -179,7 +187,8 @@ type ReviewSetup struct {
 }
 
 // ReviewedRef is the git ref of the open review's reviewed head (T-718: it was the review worktree's HEAD): set at the
-// review's start and at each obor review verify, read by obor review close.
+// review's start and at each obor review verify, read by obor review close. The cycle's covered tasks are not here
+// (T-822): the close commit's body lists them, and serve's log has them (ReviewCovered).
 const ReviewedRef = "refs/obor/reviewed"
 
 // reviewConfig is ReviewConfig of the project at root.
@@ -326,10 +335,11 @@ func (p *proj) reviewStatus(now time.Time) string {
 	return p.due.line
 }
 
-// reviewDueTick counts, in git, the merges on the integration branch since the previous review: the newest "RV-n
-// closed" commit's reviewed sha (the previous review the brief names), or the head of a review started since that is
-// not closed yet. More than reviewDue: obor status' line "review due: N merges since <RV-prev>". It counts again once
-// a merge or a start folded, or reviewDueEvery passed; a git error keeps the last line and is tried on the next pass.
+// reviewDueTick counts, in git, the merges in the next review's scope (reviewScope): since the previous review's review
+// start sha, without the tasks its cycle covered. The previous review is the newest "RV-n closed" commit (or, one
+// started and not closed yet, its head). More than reviewDue: obor status' line "review due: N merges since <RV-prev>".
+// It counts again once a merge or a start folded, or reviewDueEvery passed; a git error keeps the last line and is tried
+// on the next pass.
 func (a *App) reviewDueTick(ctx context.Context, p *proj, fx *Loop) {
 	if fx.Review == nil {
 		return
@@ -359,7 +369,8 @@ func (a *App) reviewDueTick(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Unlock()
 }
 
-// reviewDueCount is the "review due" line from git ("": not due, or no reviewer configured).
+// reviewDueCount is the "review due" line from git ("": not due, or no reviewer configured): the merges in the next
+// review's scope (reviewScope: since the previous close's review start sha, the cycle's covered tasks left out).
 func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started lastReview) (string, error) {
 	s, err := reviewConfig(p.root)
 	if err != nil {
@@ -369,17 +380,21 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	if err != nil {
 		return "", err
 	}
-	k, prev, from := PreviousReview(last)
+	k, prev, _ := PreviousReview(last.Subject)
+	from, covered := reviewScope(last)
 	if n, _ := strconv.Atoi(strings.TrimPrefix(started.id, "RV-")); n >= k && started.head != "" {
-		prev, from = started.id, started.head // started, not closed yet: its findings are being fixed
+		prev, from, covered = started.id, started.head, nil // started, not closed yet: its findings are being fixed
 	}
 	head, err := g.Head(ctx, s.Branch)
 	if err != nil {
 		return "", err
 	}
 	merges, err := g.Merges(ctx, from, head)
-	if err != nil || len(merges) <= reviewDue {
+	if err != nil {
 		return "", err
+	}
+	if merges = uncovered(merges, covered); len(merges) <= reviewDue {
+		return "", nil
 	}
 	return fmt.Sprintf("review due: %d merges since %s", len(merges), cmp.Or(prev, "the first commit (no RV closed yet)")), nil
 }
@@ -395,7 +410,7 @@ func reviewOpen(ctx context.Context, g ReviewGit, branch string, started lastRev
 	if err != nil {
 		return "", err
 	}
-	if next, _, _ := PreviousReview(last); n >= next {
+	if next, _, _ := PreviousReview(last.Subject); n >= next {
 		return started.id, nil
 	}
 	return "", nil
@@ -551,16 +566,96 @@ func PreviousReview(last string) (next int, prev, sha string) {
 // mergeRE is an obor merge's subject: "Merge T-xx: …".
 var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
 
-// prepareReview collects a review's facts in order (the next id, the head, the merges and files since the previous
-// review's sha) and marks the head reviewed (ReviewGit.Mark): the id, the brief, the tasks and the head; an error from
-// the first step that fails (id "" when the id is not known yet).
+// closeCovered reads a close commit's body (T-822): the tasks its cycle covered and the sha its review started at. Both
+// are empty on an old close commit (no "Covered:" line): its scope is the sha range, as before.
+func closeCovered(body string) (covered []string, start string) {
+	for _, l := range strings.Split(body, "\n") {
+		k, v, _ := strings.Cut(strings.TrimSpace(l), ":")
+		switch k {
+		case "Covered":
+			for _, t := range strings.Split(v, ",") {
+				if t = strings.TrimSpace(t); t != "" {
+					covered = append(covered, t)
+				}
+			}
+		case "Start":
+			start = strings.TrimSpace(v)
+		}
+	}
+	return covered, start
+}
+
+// ReviewCovered is the open review's covered tasks and the sha its review started at, from the project's event log:
+// the last review.started fact's tasks and head, plus the tasks of each verify since it (T-822). ok is false when the
+// log has no started fact (a review started by an older obor: its close commit keeps the old format).
+func ReviewCovered(root string) (covered []string, start string, ok bool) {
+	recs, err := event.ReadLog(root)
+	if err != nil {
+		return nil, "", false
+	}
+	for _, r := range recs {
+		if r.Task != event.ReviewTask || r.Kind != event.KindFact {
+			continue
+		}
+		var d ReviewData
+		if json.Unmarshal(r.Data, &d) != nil {
+			continue
+		}
+		switch {
+		case r.Step == event.StepReviewStarted:
+			covered, start, ok = d.Tasks, d.Head, true
+		case r.Step == event.StepReviewVerify && ok:
+			covered = append(covered, d.Tasks...)
+		}
+	}
+	seen := map[string]bool{}
+	uniq := covered[:0]
+	for _, t := range covered {
+		if !seen[t] {
+			seen[t] = true
+			uniq = append(uniq, t)
+		}
+	}
+	return uniq, start, ok
+}
+
+// reviewScope is where the next review's range starts, and the tasks a closed cycle already covered: the previous
+// close's review start sha and Covered list (T-822), else its reviewed sha and no task (an old close commit: the sha
+// range).
+func reviewScope(last ReviewClose) (from string, covered []string) {
+	_, _, sha := PreviousReview(last.Subject)
+	covered, start := closeCovered(last.Body)
+	return cmp.Or(start, sha), covered
+}
+
+// uncovered is merges' "<sha> <subject>" lines whose task no covered id names (one whose subject names none: kept).
+func uncovered(merges, covered []string) []string {
+	if len(covered) == 0 {
+		return merges
+	}
+	var out []string
+	for _, m := range merges {
+		_, subject, _ := strings.Cut(m, " ")
+		if t := mergeRE.FindStringSubmatch(subject); t != nil && slices.Contains(covered, t[1]) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// prepareReview collects a review's facts in order (the next id, the head, the merges since the previous review's
+// review start sha that no closed cycle covered and the files of that range) and marks the head reviewed
+// (ReviewGit.Mark): the id, the brief, the in-scope tasks and the head; an error from the first step that fails (id ""
+// when the id is not known yet).
 func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
 	last, err := g.Last(ctx, s.Branch)
 	if err != nil {
 		return "", "", nil, "", err
 	}
-	n, _, prevSHA := PreviousReview(last)
+	n, _, _ := PreviousReview(last.Subject)
+	from, covered := reviewScope(last)
 	id = "RV-" + strconv.Itoa(n)
 	if cfgErr != nil {
 		return id, "", nil, "", cfgErr
@@ -568,11 +663,12 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	if head, err = g.Head(ctx, s.Branch); err != nil {
 		return id, "", nil, "", err
 	}
-	merges, err := g.Merges(ctx, prevSHA, head)
+	merges, err := g.Merges(ctx, from, head)
 	if err != nil {
 		return id, "", nil, "", err
 	}
-	files, err := g.Files(ctx, prevSHA, head)
+	merges = uncovered(merges, covered)
+	files, err := g.Files(ctx, from, head)
 	if err != nil {
 		return id, "", nil, "", err
 	}
@@ -591,14 +687,15 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 			scope = append(scope, subject+" ("+sha+")")
 		}
 	}
-	return id, reviewBrief(id, s, short, last, scope, files, q.note), tasks, head, nil
+	return id, reviewBrief(id, s, short, from, last.Subject, scope, files, q.note), tasks, head, nil
 }
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in and
 // the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
-// none): its file is deleted at close (RV-69 #4), so the brief names what is kept, the close commit and BACKLOG.
-func reviewBrief(id string, s ReviewSetup, short, last string, scope, files []string, note string) string {
-	_, prev, prevSHA := PreviousReview(last)
+// none): its file is deleted at close (RV-69 #4), so the brief names what is kept, the close commit and BACKLOG. from
+// is where the brief's range starts ("": the first commit).
+func reviewBrief(id string, s ReviewSetup, short, from, last string, scope, files []string, note string) string {
+	_, prev, _ := PreviousReview(last)
 	inScope := strings.Join(scope, ", ")
 	if inScope == "" {
 		inScope = "no merges"
@@ -607,7 +704,6 @@ func reviewBrief(id string, s ReviewSetup, short, last string, scope, files []st
 	more := ""
 	if len(files) > maxBriefFiles {
 		listed = files[:maxBriefFiles]
-		from := prevSHA
 		if from == "" {
 			more = fmt.Sprintf(" and %d more (git ls-tree -r --name-only %s)", len(files)-maxBriefFiles, short)
 		} else {

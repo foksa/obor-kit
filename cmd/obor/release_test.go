@@ -169,9 +169,20 @@ func (f *releaseFixture) untouched(t *testing.T, v, head string) {
 // point T-642 reads is the close commit itself, never the sha it names.
 func (f *releaseFixture) closeReview(t *testing.T, n int, named string) string {
 	t.Helper()
+	return f.closeReviewCovered(t, n, named, "")
+}
+
+// closeReviewCovered is closeReview with the body T-822 writes: the cycle's covered tasks and where its review started
+// (start "": an old close commit, no body); covered nil: none covered.
+func (f *releaseFixture) closeReviewCovered(t *testing.T, n int, named, start string, covered ...string) string {
+	t.Helper()
 	writeFile(t, filepath.Join(f.Root, "docs", "reviews", fmt.Sprintf("RV-%d.md", n)), "# RV\n")
 	f.Git(f.Root, "add", "-A")
-	f.Git(f.Root, "commit", "-q", "-m", fmt.Sprintf("RV-%d closed · %s · approved", n, named))
+	args := []string{"commit", "-q", "-m", fmt.Sprintf("RV-%d closed · %s · approved", n, named)}
+	if start != "" {
+		args = append(args, "-m", "Covered: "+strings.Join(covered, ", ")+"\nStart: "+start)
+	}
+	f.Git(f.Root, args...)
 	return f.Git(f.Root, "rev-parse", "HEAD")
 }
 
@@ -837,5 +848,33 @@ func TestMakeShipNotifiesTheLeads(t *testing.T) {
 	}
 	if strings.Contains(out, "restarted the serves") {
 		t.Errorf("ship claims to restart serves:\n%s", out)
+	}
+}
+
+// T-822: a close commit's body records its cycle's Covered set and the sha its review started at. The check runs from
+// that sha: a task merged while the review ran that no cycle covered is unreviewed, a task a verify covered is not, and
+// the cycle that covers it clears it.
+func TestMakeReleaseCountsCoveredTasks(t *testing.T) {
+	t.Parallel()
+	f := newReleaseFixture(t)
+	f.merge(t, "topic/a", "Merge T-1: one", map[string]string{"internal/a.go": "package internal\n"})
+	f.merge(t, "topic/b", "Merge T-2: two", map[string]string{"internal/b.go": "package internal\n"})
+	start := f.Git(f.Root, "rev-parse", "--short", "HEAD") // RV-1 starts: T-1 and T-2 are in its scope
+	// T-3 merges while RV-1 runs (no cycle covers it); T-4 is the fix its verify covers.
+	f.merge(t, "topic/c", "Merge T-3: during the review", map[string]string{"internal/c.go": "package internal\n"})
+	f.merge(t, "topic/d", "Merge T-4: the fix", map[string]string{"internal/d.go": "package internal\n"})
+	f.closeReviewCovered(t, 1, f.headShort(t), start, "T-1", "T-2", "T-4")
+	out, failed := f.release(t, "V=1.2.4", "DRY=1")
+	if !failed || !strings.Contains(out, "FAIL unreviewed since RV-1: T-3 (") {
+		t.Fatalf("a task no cycle covered: failed %v:\n%s", failed, out)
+	}
+	if strings.Contains(out, "T-4") {
+		t.Errorf("the verify's covered task is counted unreviewed:\n%s", out)
+	}
+	// RV-2's scope has T-3 (the merges since RV-1's start it did not cover): covering it clears the check.
+	start2 := f.Git(f.Root, "rev-parse", "--short", "HEAD")
+	f.closeReviewCovered(t, 2, start2, start2, "T-3")
+	if out, failed := f.release(t, "V=1.2.4", "DRY=1"); failed {
+		t.Fatalf("after a cycle covered T-3:\n%s", out)
 	}
 }

@@ -58,9 +58,13 @@ type reviewGit struct{ root string }
 
 var _ app.ReviewGit = reviewGit{}
 
-func (g reviewGit) Last(ctx context.Context, branch string) (string, error) {
-	out, err := g.git(ctx, "log", "-1", "-E", "--grep=^RV-[0-9]+ closed", "--format=%s", "--end-of-options", branch)
-	return strings.TrimSpace(out), err
+func (g reviewGit) Last(ctx context.Context, branch string) (app.ReviewClose, error) {
+	out, err := g.git(ctx, "log", "-1", "-E", "--grep=^RV-[0-9]+ closed", "--format=%B", "--end-of-options", branch)
+	if err != nil {
+		return app.ReviewClose{}, err
+	}
+	subject, body, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	return app.ReviewClose{Subject: subject, Body: strings.TrimSpace(body)}, nil
 }
 
 func (g reviewGit) Head(ctx context.Context, branch string) (string, error) {
