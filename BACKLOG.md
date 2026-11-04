@@ -131,6 +131,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (DD-consolidation I6, lead 11-04) one relabel implementation: not a task; migrate's relabel goes with `setup
+  migrate` in v0.25 (C8), leaving rename's alone. Wave 3 = T-785 (C3+C4), T-786 (I3), T-787 (I4+I7, after T-786),
+  T-788 (S5+S6+C7), T-789 (C8, after T-786; codex projects migrated 11-04).
 - (RV-101, accepted) (RV-101 #2 rest, low) a no-pane reread can overwrite a newer stream label of the same pane (concurrent relabel); the launcher refuses the wrong pane, so at worst a needs-you. Fix if seen: observation generation per pane (internal/app/dispatch.go waitPane)
 - (RV-101, accepted) (RV-101 #3, low) `no-plugin` can show right after a manual `obor restart` of an opencode worker whose marker predates the dispatch: the 2-min grace counts only serve's `agent.start` events. It clears once the new session's first event writes the marker. Fix if it confuses: record manual starts too (internal/view/view.go lastStarts).
 - (RV-100, accepted) (RV-100 #2, low) obor status shows the next nightly as tomorrow while today's waits on a gate/publish or was just switched on

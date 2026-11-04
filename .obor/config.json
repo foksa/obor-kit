@@ -118,7 +118,13 @@
   "handoff_tokens": 500000,
   "kinds": {
     "opencode": {
-      "prompt_extra": "You run in opencode (DeepSeek V4.1 Flash), not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
+      "prompt_extra": "You run in opencode, not sandboxed: obor's opencode plugin, not hooks, enforces the role text's denials. Quote summary lines and failures only."
+    }
+  },
+  "models": {
+    "crouton": {
+      "kind": "opencode",
+      "model": "opencode/crouton-alpha-free"
     }
   }
 }
