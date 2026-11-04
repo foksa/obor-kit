@@ -48,6 +48,10 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   `dirty-free` lane. `FAIL obor serve is not running`: start it (`obor serve` in its own pane, in the project).
 - "When Y, do X" is never only chat: an `--after` dispatch; when Y is a merge, a watch with `--note "<what to do>"`
   (the line you get says both); else a line in `BACKLOG.md`.
+- **Never end a turn unwired:** dispatch the next task, or answer serve's idle line — `obor idle "<why nothing>"`
+  (`[obor] idle: nothing in flight (last: …) — dispatch next, or obor idle "<why nothing>"`, `commands.md`). A watch
+  stays for "when T-xx merges, do X"; the idle line is for "nothing is left" (30 minutes unanswered: a second line and
+  the owner is notified).
 
 ## Watch
 A merge you must act on (restart serve after it, a step by hand): `obor watch T-xx --note "<what to do>"`, instead of a

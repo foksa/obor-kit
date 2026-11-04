@@ -187,7 +187,7 @@ func TestUnwatchedMergePostsNothing(t *testing.T) {
 	r.inbox.mu.Lock()
 	defer r.inbox.mu.Unlock()
 	for _, p := range r.inbox.posts {
-		if strings.Contains(p, "T-1 merged") {
+		if strings.Contains(p, "T-1 merged") && !strings.HasPrefix(p, "pj-lead: [obor] idle:") {
 			t.Errorf("posted %q", p)
 		}
 	}

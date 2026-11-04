@@ -62,6 +62,10 @@ type Message struct {
 	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
 	// running agent stopped first
 	Fresh bool `json:"fresh,omitempty"`
+	// Idle is the seq of the idle fact this line announces (T-803, messages.go): the first line, or — with IdlePing —
+	// the 30-minute ping's.
+	Idle     int64 `json:"idle,omitempty"`
+	IdlePing bool  `json:"idle_ping,omitempty"`
 }
 
 // MergedData is a merged fact's data.

@@ -960,6 +960,7 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 		if st := r.taskState(); st != "" && st != "merged" {
 			t.Fatalf("precondition: state %q", st)
 		}
+		r.waitFor("the idle state of the merged task", func() bool { return r.app.Status().Project.Idle != nil })
 		before := len(r.records())
 		if r.count("1 fact merged") != 1 {
 			t.Fatalf("precondition: no merged fact in %q", r.steps())
@@ -978,8 +979,11 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 			}
 		}
 		r.passes()
-		if n := len(r.records()); n != before {
-			t.Errorf("refusals recorded %q", r.steps())
+		for _, s := range r.steps()[before:] { // the idle announce and its line are the idle state's own (T-803)
+			if strings.Contains(s, "idle") || strings.HasSuffix(s, " fact message") || strings.Contains(s, "deliver.") {
+				continue
+			}
+			t.Errorf("a refusal recorded %q", s)
 		}
 		if n := r.disp.called("prepare"); n != 0 {
 			t.Errorf("prepared %d times after a refusal", n)

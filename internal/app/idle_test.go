@@ -1,0 +1,375 @@
+package app_test
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"obor/internal/app"
+	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
+	"obor/internal/testkit"
+)
+
+// T-803: serve tells the lead once when the pipeline empties, the lead acknowledges with obor idle, and an
+// unacknowledged idle state pings the lead and the owner once after 30 minutes.
+
+// idleLine is the idle line after task's merge (idleLineFor) or a drop.
+func idleLineFor(r *loopRig, task string) string {
+	r.t.Helper()
+	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	return idleLineText(task + " merged " + sha)
+}
+
+func idleLineText(last string) string {
+	return `[obor] idle: nothing in flight (last: ` + last + `) — dispatch next, or obor idle "<why nothing>"`
+}
+
+// idlePosts is the idle lines the lead's inbox got, in order.
+func (r *loopRig) idlePosts() []string {
+	var out []string
+	for _, p := range r.inbox.posted() {
+		if strings.HasPrefix(p, "pj-lead: [obor] idle:") {
+			out = append(out, strings.TrimPrefix(p, "pj-lead: "))
+		}
+	}
+	return out
+}
+
+// logRecords appends recs to the project's event log before the app starts.
+func (r *loopRig) logRecords(recs ...event.Record) {
+	r.t.Helper()
+	if err := app.WriteLog(r.p.Root, time.Now(), recs...); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// record is one fact or intent of task at attempt, its data as JSON.
+func record(t *testing.T, task string, attempt int, step, kind, class string, data any) event.Record {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Record{Task: task, Attempt: attempt, Step: step, Kind: kind, Class: class, Data: raw}
+}
+
+// working2 writes T-2 dispatched and its work job fetched: in flight, on no lane of the rig.
+func (r *loopRig) working2() {
+	r.t.Helper()
+	r.logRecords(
+		record(r.t, "T-2", 1, event.StepDispatched, event.KindFact, "", map[string]any{"lane": "L-02", "dir": r.p.LaneDir("L-02"),
+			"agent": "pj-l-02", "branch": "task/T-2", "target": "main"}),
+		record(r.t, "T-2", 1, event.StepWork, event.KindIntent, event.ClassPrompt, map[string]any{"agent": "pj-l-02",
+			"job": "T-2/1/work"}),
+		record(r.t, "T-2", 1, event.StepDelivered, event.KindFact, "", event.FactData{Job: "T-2/1/work"}),
+	)
+}
+
+// dropT drops task as the lead with why.
+func (r *loopRig) dropT(callID, task, why string) {
+	r.t.Helper()
+	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
+		Agent: "pj-lead", CallID: callID, Task: task, Note: why}); err != nil {
+		r.t.Fatalf("drop %s: %v", task, err)
+	}
+}
+
+// mergedTask runs T-1 from its task_done to its merge (as mergedT1, for a rig that has no dispatch to make).
+func (r *loopRig) mergedTask() {
+	r.t.Helper()
+	r.work("feature.txt", "feature\n")
+	r.mergedT1()
+}
+
+// T-803: the last task's merge posts one idle line, with the merge it followed; no second one on later passes.
+func TestIdleAfterTheLastMergePostsOneLine(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
+		t.Errorf("idle lines %q, want one %q", got, line)
+	}
+	st := r.app.Status().Project.Idle
+	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	if st == nil || st.Acked || st.Why != "" || st.Last != "T-1 merged "+sha {
+		t.Errorf("status idle %+v, want the unacknowledged state of T-1's merge", st)
+	}
+}
+
+// T-803: a drop of the last task posts one idle line naming the drop.
+func TestIdleAfterADropPostsOneLine(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.dropT("x1", "T-1", "superseded by T-2")
+	line := idleLineText("T-1 dropped: superseded by T-2")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
+		t.Errorf("idle lines %q, want one %q", got, line)
+	}
+}
+
+// T-803: a merge while another task is in flight is no idle transition; its drop later is.
+func TestIdleNotWhileAnotherTaskRuns(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.p.Dispatched("L-01")
+	r.working2()
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.passes()
+	r.passes()
+	if st := r.app.Status().Project.Idle; st != nil {
+		t.Fatalf("idle state %+v while T-2 works", st)
+	}
+	if n := r.inbox.count("pj-lead", line); n != 0 {
+		t.Fatalf("an idle line %q while T-2 works", line)
+	}
+	r.dropT("x1", "T-2", "not needed")
+	dropped := idleLineText("T-2 dropped: not needed")
+	r.waitFor("the idle line after the drop", func() bool { return r.inbox.count("pj-lead", dropped) == 1 })
+}
+
+// T-803: a waiting dispatch, a needs-you and a hold agent's open brief each keep the pipeline from being idle.
+func TestIdleBlockers(t *testing.T) {
+	t.Parallel()
+	t.Run("a waiting dispatch", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass")
+		r.p.Dispatched("L-01")
+		r.logRecords(record(t, "T-2", 1, event.StepWaiting, event.KindFact, "",
+			map[string]any{"lane": "L-02", "after": []string{"T-1"}}))
+		r.start()
+		r.mergedTask()
+		r.passes()
+		r.passes()
+		if st := r.app.Status().Project.Idle; st != nil {
+			t.Errorf("idle state %+v while T-2 waits", st)
+		}
+		if n := len(r.idlePosts()); n != 0 {
+			t.Errorf("%d idle lines while T-2 waits", n)
+		}
+	})
+	t.Run("a needs-you", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass")
+		r.p.Dispatched("L-01")
+		r.logRecords(
+			record(t, "T-2", 1, event.StepDispatched, event.KindFact, "", map[string]any{"lane": "L-02", "agent": "pj-l-02",
+				"branch": "task/T-2", "target": "main"}),
+			record(t, "T-2", 1, event.StepNeedsYou, event.KindFact, "", event.FactData{Lane: "L-02", Merge: true,
+				Cause: "stalled", Reason: "stalled: no work seen"}))
+		r.start()
+		r.mergedTask()
+		r.passes()
+		r.passes()
+		if st := r.app.Status().Project.Idle; st != nil {
+			t.Errorf("idle state %+v while T-2 needs the owner", st)
+		}
+		if n := len(r.idlePosts()); n != 0 {
+			t.Errorf("%d idle lines while T-2 needs the owner", n)
+		}
+	})
+	t.Run("a reviewer with a brief", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+		rev := r.f.Agent("w1:p6", "pj-rev", "idle", r.p.Root)
+		rev.Workspace, rev.Label = "w1", "pj-rev"
+		r.start()
+		if reply, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "review the wave"}); err != nil ||
+			!strings.HasPrefix(reply, "BRIEFED pj-rev") {
+			t.Fatalf("brief: %q, %v", reply, err)
+		}
+		r.work("feature.txt", "feature\n")
+		r.submit()
+		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
+		// The brief holds the merge (T-718) until its cap: past it the publish goes ahead, and the reviewer still holds
+		// its brief, so the pipeline is not idle.
+		r.passes() // the hold's clock starts: the first check that sees the reviewer working
+		r.later(31 * time.Minute)
+		r.merged(1)
+		r.passes()
+		r.passes()
+		if st := r.app.Status().Project.Idle; st != nil {
+			t.Errorf("idle state %+v while the reviewer is briefed", st)
+		}
+		if n := len(r.idlePosts()); n != 0 {
+			t.Errorf("%d idle lines while the reviewer is briefed", n)
+		}
+	})
+}
+
+// T-803: obor idle "<why>" acknowledges; no ping follows, and obor status shows the why.
+func TestIdleAckStopsThePing(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
+		reply != "ACKED idle: nothing to dispatch" {
+		t.Fatalf("idle ack: %q, %v", reply, err)
+	}
+	st := r.app.Status().Project.Idle
+	if st == nil || !st.Acked || st.Why != "nothing to dispatch" {
+		t.Fatalf("status idle %+v, want the acknowledgement's why", st)
+	}
+	r.later(31 * time.Minute)
+	r.passes()
+	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
+		t.Errorf("idle lines %q after the ack and 31m, want the one line", got)
+	}
+	if n := countReq(r.srv, "notification.show"); n != 0 {
+		t.Errorf("%d notifications after the ack, want none", n)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+		t.Errorf("obor idle (the state): %q, %v", reply, err)
+	}
+}
+
+// T-803: without an acknowledgement the lead gets one more line and the owner a notification after 30 minutes, and
+// never a third.
+func TestIdlePingsOnceAfter30Minutes(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.later(29 * time.Minute)
+	if got := len(r.idlePosts()); got != 1 {
+		t.Fatalf("%d idle lines after 29m, want one", got)
+	}
+	if n := countReq(r.srv, "notification.show"); n != 0 {
+		t.Fatalf("%d notifications after 29m, want none", n)
+	}
+	r.later(2 * time.Minute)
+	r.waitFor("the ping line", func() bool { return len(r.idlePosts()) == 2 })
+	r.waitFor("the owner's notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
+	if got := r.idlePosts(); !strings.HasPrefix(got[1], line) || !strings.Contains(got[1], "(again, ") {
+		t.Errorf("the ping line %q, want the idle line again", got[1])
+	}
+	r.later(2 * time.Hour)
+	r.passes()
+	if got := len(r.idlePosts()); got != 2 {
+		t.Errorf("%d idle lines after two hours, want two", got)
+	}
+	if n := countReq(r.srv, "notification.show"); n != 1 {
+		t.Errorf("%d notifications, want one", n)
+	}
+}
+
+// T-803: a restart derives the idle state from the store: an unacknowledged one pings once, an acknowledged one is
+// silent.
+func TestIdleRestartDerivesTheState(t *testing.T) {
+	t.Parallel()
+	t.Run("unacknowledged pings once", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass")
+		r.start()
+		r.mergedTask()
+		line := idleLineFor(r, "T-1")
+		r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+		r.stop()
+		r.start()
+		r.passes()
+		if got := len(r.idlePosts()); got != 1 {
+			t.Fatalf("%d idle lines after a restart before 30m, want one", got)
+		}
+		r.later(31 * time.Minute)
+		r.waitFor("the ping line", func() bool { return len(r.idlePosts()) == 2 })
+		r.stop()
+		r.start()
+		r.later(time.Hour)
+		r.passes()
+		if got := len(r.idlePosts()); got != 2 {
+			t.Errorf("%d idle lines after a second restart, want two", got)
+		}
+		if n := countReq(r.srv, "notification.show"); n != 1 {
+			t.Errorf("%d notifications after two restarts, want one", n)
+		}
+	})
+	t.Run("acknowledged is silent", func(t *testing.T) {
+		t.Parallel()
+		r := newLoopRig(t, "echo 1 pass")
+		r.start()
+		r.mergedTask()
+		line := idleLineFor(r, "T-1")
+		r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+		if _, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil {
+			t.Fatal(err)
+		}
+		r.stop()
+		r.start()
+		r.later(time.Hour)
+		r.passes()
+		if got := r.idlePosts(); len(got) != 1 || got[0] != line {
+			t.Errorf("idle lines %q after the restart, want the one line", got)
+		}
+		if n := countReq(r.srv, "notification.show"); n != 0 {
+			t.Errorf("%d notifications, want none", n)
+		}
+		if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+			t.Errorf("the state after the restart: %q, %v", reply, err)
+		}
+	})
+}
+
+// T-803: a watch on the last task comes first, then the idle line of the same merge.
+func TestIdleLineAfterTheWatchLine(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	if reply, err := r.watch("w1", "T-1", false); err != nil || reply != "WATCHING T-1" {
+		t.Fatalf("watch: %q, %v", reply, err)
+	}
+	r.mergedTask()
+	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
+	watch, idle := "[obor] T-1 merged "+sha, idleLineText("T-1 merged "+sha)
+	r.waitFor("both lines posted", func() bool {
+		return r.inbox.count("pj-lead", watch) == 1 && r.inbox.count("pj-lead", idle) == 1
+	})
+	wi, ii := -1, -1
+	for i, p := range r.inbox.posted() {
+		switch p {
+		case "pj-lead: " + watch:
+			wi = i
+		case "pj-lead: " + idle:
+			ii = i
+		}
+	}
+	if wi < 0 || ii < 0 || wi > ii {
+		t.Errorf("watch line at %d, idle line at %d; want the watch line first: %q", wi, ii, r.inbox.posted())
+	}
+}
+
+// T-803: a dispatch ends the idle state (obor status shows none), as a review request does.
+func TestDispatchEndsIdle(t *testing.T) {
+	t.Parallel()
+	r := newDispatchRig(t)
+	r.start()
+	r.mustDispatch("d1")
+	r.waitStep("1 result work")
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.addLanes(port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
+	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d2", Task: "T-2",
+		Lane: "L-02", Types: []string{"sonnet"}}); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-2") {
+		t.Fatalf("dispatch T-2: %q, %v", reply, err)
+	}
+	if st := r.app.Status().Project.Idle; st != nil {
+		t.Errorf("idle state %+v after a dispatch, want none", st)
+	}
+}

@@ -129,6 +129,9 @@ func (a *App) Status() wire.Status {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
+		if st := p.folded.idle; st != nil {
+			ps.Idle = &wire.IdleStatus{Since: st.at.Unix(), Last: st.last, Acked: st.ack, Why: st.why}
+		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
 		st.Project = &ps
@@ -319,7 +322,7 @@ func (a *App) Listen(ln net.Listener) {
 				ans.Status = &st
 			case req.Method == wire.MethodSpecSet || req.Method == wire.MethodPause || req.Method == wire.MethodSend || req.Method == wire.MethodBrief ||
 				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodVerify || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession ||
-				req.Method == wire.MethodExit || req.Method == wire.MethodConfig || req.Method == wire.MethodTellLead:
+				req.Method == wire.MethodExit || req.Method == wire.MethodConfig || req.Method == wire.MethodTellLead || req.Method == wire.MethodIdle:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
@@ -327,7 +330,8 @@ func (a *App) Listen(ln net.Listener) {
 				do := map[string]func(wire.Call) (string, error){wire.MethodSpecSet: a.specSet, wire.MethodPause: a.pauseCall,
 					wire.MethodSend: a.sendCall, wire.MethodBrief: a.briefCall, wire.MethodWatch: a.watchCall, wire.MethodReview: a.reviewCall, wire.MethodVerify: a.verifyCall,
 					wire.MethodStopped: a.stoppedCall, wire.MethodTurn: a.turnCall, wire.MethodSession: a.sessionCall,
-					wire.MethodExit: a.exitCall, wire.MethodConfig: a.configCall, wire.MethodTellLead: a.tellLeadCall}[req.Method]
+					wire.MethodExit: a.exitCall, wire.MethodConfig: a.configCall, wire.MethodTellLead: a.tellLeadCall,
+					wire.MethodIdle: a.idleCall}[req.Method]
 				var err error
 				if ans.Reply, err = do(*req.Call); err != nil {
 					ans.Error = err.Error()

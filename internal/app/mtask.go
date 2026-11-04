@@ -29,7 +29,7 @@ func (p *proj) foldLoop(r event.Record) {
 	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it.
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
 		if mt != nil {
-			mt.state, mt.needs, mt.dropped = stDropped, event.Record{}, r.Fact().Reason
+			mt.state, mt.needs, mt.dropped, mt.droppedSeq = stDropped, event.Record{}, r.Fact().Reason, r.Seq
 		}
 		return
 	}
