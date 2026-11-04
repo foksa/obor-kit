@@ -143,7 +143,7 @@ func TestWatchEndedOrUnknownTask(t *testing.T) {
 		t.Errorf("%d watch facts recorded, want none", n)
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s1", Task: "T-9", Spec: "# T-9\n\nDifficulty: medium\n"}); err != nil {
+		CallID: "s1", Task: "T-9", Spec: "# T-9 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {

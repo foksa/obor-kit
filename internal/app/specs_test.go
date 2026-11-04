@@ -51,6 +51,27 @@ func TestSpecSet(t *testing.T) {
 	}
 }
 
+// T-790: a spec with no title is refused beside the Difficulty refusal, and nothing is stored.
+func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	for _, c := range []struct{ call, text string }{
+		{"u1", "# T-1\n\nDifficulty: medium\n"},
+		{"u2", "# T-1:\n\nDifficulty: medium\n"},
+		{"u3", "Difficulty: medium\n"},
+	} {
+		_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
+			CallID: c.call, Task: "T-1", Spec: c.text})
+		if err == nil || !strings.Contains(err.Error(), "the spec needs a title: `# T-1 — <title>`") {
+			t.Errorf("spec set of %q: %v; want a refusal naming the title", c.text, err)
+		}
+	}
+	if _, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || ok {
+		t.Errorf("a refused spec was stored: %v, %v", ok, err)
+	}
+}
+
 // T-440: a dispatch reads the stored spec for Specs.Check (which refuses "": no stored spec, cmd/obor TestSpecs):
 // before the set the request is refused with nothing recorded, after it the same request dispatches.
 func TestDispatchNeedsStoredSpec(t *testing.T) {

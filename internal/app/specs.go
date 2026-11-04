@@ -39,6 +39,9 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		return "", fmt.Errorf("spec set: only the lead or the owner sets a spec, not %s (role %s)", Dash(c.Agent),
 			c.Role)
 	}
+	if spec.Title(c.Spec) == "" {
+		return "", fmt.Errorf("spec set %s: the spec needs a title: `# %s — <title>`", c.Task, c.Task)
+	}
 	if _, ok := spec.Difficulty(c.Spec); !ok {
 		return "", fmt.Errorf("spec set %s: the spec needs a \"Difficulty: <level>\" line right under its title (%s)", c.Task,
 			strings.Join(spec.Levels, ", "))

@@ -519,7 +519,7 @@ func TestLoadedAfterReplay(t *testing.T) {
 	defer ln.Close()
 	go a.Listen(ln)
 	start := time.Now()
-	c := ln.send(t, wire.MethodSpecSet, wire.Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1\n\nDifficulty: medium\n"})
+	c := ln.send(t, wire.MethodSpecSet, wire.Call{Root: root, CallID: "c1", Task: "T-1", Spec: "# T-1 — Other\n\nDifficulty: medium\n"})
 	defer c.Close()
 	if ans := read(t, c); !strings.Contains(ans.Error, "no served project") {
 		t.Errorf("a request before the load: %+v; want the refusal", ans)

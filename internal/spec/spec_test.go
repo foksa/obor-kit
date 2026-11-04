@@ -87,14 +87,20 @@ func TestOverlap(t *testing.T) {
 	}
 }
 
-// T-440 (T-360's heading rule, moved from checks): a spec's title is the text after the dash of its first "# " heading;
-// no dash or no heading is "".
+// T-440 (T-360's heading rule, moved from checks; T-790 a ":" or "-" separates too): a spec's title is the text after
+// the task id of its first "# " heading; no separator or no heading is "".
 func TestTitle(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
+		{"# T-1 — a", "a"},
+		{"# T-1: a", "a"},
+		{"# T-1 - a", "a"},
+		{"# T-1 – a", "a"},
+		{"# T-1", ""},
+		{"# T-1:", ""},
+		{"no heading\n## T-1 — a section\n", ""},
 		{"# T-05 — Committed title\n\n## Files you may touch\n", "Committed title"},
 		{"intro\n# T-06 — Second line heading\n# T-06 — later\n", "Second line heading"},
 		{"# T-07 no dash\n# T-07 — later\n", ""},
-		{"no heading\n## T-08 — a section\n", ""},
 		{"# T-09 —   \n", ""},
 	} {
 		if got := Title(c.text); got != c.want {

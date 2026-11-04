@@ -844,7 +844,7 @@ func TestDispatchReplacedWaitStartsAfresh(t *testing.T) {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	if _, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "s3", Task: "T-3", Spec: "# T-3\n\nDifficulty: medium\n"}); err != nil {
+		CallID: "s3", Task: "T-3", Spec: "# T-3 — Other\n\nDifficulty: medium\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.waitAfter("d2", "T-3"); err != nil || reply != "WAITING T-1 after T-3 (queued)" {
