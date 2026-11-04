@@ -122,10 +122,13 @@ func TestOpenQuestionsGoWithTheReviewJob(t *testing.T) {
 		{"real text", full + "\nOpen questions: should the gate run the full check?", "should the gate run the full check?"},
 		{"bullets verbatim", full + "\nOpen questions:\n- which DB?\n- none", "- which DB?\n- none"},
 		{"a colon in the text", full + "\nOpen questions:\nWhich DB: sqlite or pg?", "Which DB: sqlite or pg?"},
-		{"ended by the next section", full + "\nOpen questions: may I edit the hook?\nConcerns: none",
+		{"ended by the next section", full + "\nOpen questions: may I edit the hook?\nBlocked: may I edit internal/x.go?",
 			"may I edit the hook?"},
-		{"ended by a markdown heading", full + "\nOpen questions: may I edit the hook?\n## Notes\nnothing else",
+		{"ended by a markdown heading", full + "\nOpen questions: may I edit the hook?\n## Self-check\nok",
 			"may I edit the hook?"},
+		{"an inner label stays", full + "\nOpen questions: may I edit the hook?\nTests: none.", "may I edit the hook?\nTests: none."},
+		{"an inner markdown heading stays", full + "\nOpen questions: may I edit the hook?\n## Notes\nnothing else",
+			"may I edit the hook?\n## Notes\nnothing else"},
 		{"long text cut like the diff", full + "\nOpen questions: " + long, long[:port.InlineDiff] +
 			"\n(cut at 15360 bytes: the whole section is in the report above)"},
 	} {

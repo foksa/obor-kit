@@ -460,14 +460,32 @@ func MissingSections(text string, sections []string) []string {
 // headingRe is the heading of a report's labelled section name: a Name: label, a ## Name or **Name** heading at the
 // start of a line, any case.
 func headingRe(name string) *regexp.Regexp {
-	q := regexp.QuoteMeta(name)
-	return regexp.MustCompile(`(?i)^\s*(#{1,6}\s+` + q + `|\*\*` + q + `:?\*\*|` + q + `\s*:)`)
+	return regexp.MustCompile(`(?i)` + headingPattern(regexp.QuoteMeta(name)))
 }
 
+// headingPattern is headingRe's pattern for name already quoted, or for several names as an alternation.
+func headingPattern(q string) string {
+	return `^\s*(?:#{1,6}\s+` + q + `|\*\*` + q + `:?\*\*|` + q + `\s*:)`
+}
+
+// reportSections are the headings a report's section ends at: the report's own sections (the worker template's list,
+// one place: config's default done-file sections) and Blocked, the report that asks instead of submitting (T-808).
+var reportSections = append(config.Defaults().DoneFileSections, "Blocked")
+
+// reportHeadingRe is the heading of any of reportSections, in headingRe's forms: a Name: label, a ## Name or **Name**
+// heading at the start of a line, any case.
+var reportHeadingRe = func() *regexp.Regexp {
+	q := make([]string, len(reportSections))
+	for i, n := range reportSections {
+		q[i] = regexp.QuoteMeta(n)
+	}
+	return regexp.MustCompile(`(?i)` + headingPattern("(?:"+strings.Join(q, "|")+")"))
+}()
+
 // reportSection is the body of text's labelled section name: the rest of its heading line, then the lines up to the
-// next heading (a labelled section, markdown or bold), trimmed. A heading alone on its line takes the next non-empty
-// line whatever it looks like: a section's text may start with a word and a colon ("Which DB: sqlite?"). "" when text
-// has no heading for name.
+// next heading that names one of the report's own sections (reportSections), trimmed. Labels and nested headings inside
+// the section stay in it: a Summary's own "Tests:" or "## Notes" is no section (T-808). "" when text has no heading for
+// name.
 func reportSection(text, name string) string {
 	lines := strings.Split(text, "\n")
 	re := headingRe(name)
@@ -477,22 +495,14 @@ func reportSection(text, name string) string {
 	}
 	loc := re.FindStringIndex(lines[start])
 	body := []string{strings.TrimSpace(strings.TrimLeft(lines[start][loc[1]:], ":*# "))}
-	started := body[0] != ""
 	for _, l := range lines[start+1:] {
-		if started && headingLineRe.MatchString(l) {
+		if reportHeadingRe.MatchString(l) {
 			break
 		}
 		body = append(body, l)
-		if strings.TrimSpace(l) != "" {
-			started = true
-		}
 	}
 	return strings.TrimSpace(strings.Join(body, "\n"))
 }
-
-// headingLineRe is a report's next labelled section: a short Name: label, a markdown # heading or a **Name** one. A line
-// of prose that happens to carry a colon is no heading (its label holds a sentence's punctuation).
-var headingLineRe = regexp.MustCompile(`(?i)^\s*(?:#{1,6}\s+\S|\*\*[^*\n]{1,40}\*\*|[A-Za-z][A-Za-z0-9 ()/&'-]{0,30}:)`)
 
 // noOpenQuestionRe is an Open questions section that leaves nothing open: its first word is none or n/a (whatever
 // follows: "none new.", "none (the lead decided X).", "None — answered"), a lone - (a "- item" is a bullet list), or
