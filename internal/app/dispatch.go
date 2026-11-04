@@ -896,21 +896,29 @@ func (a *App) placement(p *proj, dir string, names ...string) *seen {
 	return nil
 }
 
-// paneIn is the pane of panes (the snapshot's, or a fresh read's) to start the lane at dir's agent in: the one the table
-// identifies as one of names (whoIs, DD-v0.13 A5: the lane's agent, not a second session someone opened there), else the
-// lowest-id one there running an agent, else the lowest-id one there (at its shell); nil: none (under mu). A place to
-// launch into (Launch stops what runs there), never an identity: who runs in a pane is whoIs's.
+// paneIn is the pane of panes (the snapshot's, or a fresh read's) to start the lane at dir's agent in, ranked: the one
+// the table identifies as one of names (whoIs, DD-v0.13 A5: the lane's agent, not a second session someone opened
+// there) > the one labelled one of names (the label is the pane's identity, R-28 §2: `obor setup pane` labels a pane
+// before any agent ran there, T-783) > the one running an agent > the one at its shell; ties by lowest id. A pane
+// labelled for another agent of the project is never chosen (its label is that agent's, and the launch would refuse
+// it); a label the config does not know (an old alias, T-777) names nobody and does not hold the pane back. nil: none
+// (under mu). A place to launch into (Launch stops what runs there), never an identity: who runs in a pane is
+// whoIs's.
 func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *port.Pane {
 	var best *port.Pane
 	bestRank := 0
 	for i := range panes {
-		if !inDir(panes[i].Cwd, dir) || a.projectOf(panes[i]) != p {
+		if !inDir(panes[i].Cwd, dir) || a.projectOf(panes[i]) != p || otherAgent(p.root, panes[i].Label, names) {
 			continue
 		}
 		r := 1
-		if agent, ok := p.reg.whoIs(panes[i]); ok && agent != "" && slices.Contains(names, agent) {
+		agent, identified := p.reg.whoIs(panes[i])
+		switch {
+		case identified && agent != "" && slices.Contains(names, agent):
+			r = 4
+		case slices.Contains(names, panes[i].Label):
 			r = 3
-		} else if panes[i].Agent != "" {
+		case panes[i].Agent != "":
 			r = 2
 		}
 		if best == nil || r > bestRank || r == bestRank && panes[i].ID < best.ID {
@@ -918,6 +926,21 @@ func (a *App) paneIn(p *proj, panes []port.Pane, dir string, names ...string) *p
 		}
 	}
 	return best
+}
+
+// otherAgent is whether label names an agent of root's project other than names (under mu): a lane's, a role's or an
+// agents entry's name, as launch resolves who a label is (config.AgentLookup). A label the config does not know — an
+// alias T-777 dropped — names nobody.
+func otherAgent(root, label string, names []string) bool {
+	if label == "" || slices.Contains(names, label) {
+		return false
+	}
+	cfg, err := config.LoadDaemon(root)
+	if err != nil {
+		return false
+	}
+	_, ok := cfg.AgentLookup(label, "", nil)
+	return ok
 }
 
 // startWorker runs agent.start (S): a fresh session of the lane's agent in its pane (Agents.Launch, force as the
