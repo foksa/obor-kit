@@ -149,7 +149,7 @@ func TestValidate(t *testing.T) {
 		// T-695: a level's list and a role's type take `<type>[:<effort>]`, the effort one its kind takes.
 		{name: "difficulty mixes models and model:effort", edits: []edit{
 			set("difficulty", map[string]any{"hard": []any{"opus:high", "luna:xhigh", "opus"}}),
-			set("roles.lead", "opus:max"), set("roles.reviewer", "luna:minimal")}},
+			set("roles.lead", "opus:max"), set("roles.reviewer", "luna:max")}},
 		{name: "difficulty with an effort its kind lacks", edits: []edit{set("difficulty", map[string]any{"hard": []any{"opus", "opus:minimal"}})},
 			want: []string{`FAIL .difficulty.hard[1]: opus:minimal: effort "minimal" is not one of claude's (low, medium, high, xhigh, max)`}},
 		// T-697: an OpenCode effort rides on the model's id (obor never guesses OpenCode's model).
@@ -487,7 +487,7 @@ func TestModelRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	for ref, refusal := range map[string]string{"opus": "", "opus:high": "", "opus:bad": `effort "bad" is not one of claude's`,
-		"luna:xhigh": "", "luna:max": `effort "max" is not one of codex's`, "haiku:low": "",
+		"luna:xhigh": "", "luna:max": "", "terra:ultra": "", "luna:minimal": `effort "minimal" is not one of codex's (low, medium, high, xhigh, max, ultra)`, "haiku:low": "",
 		"ghost": `"ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`, "opus:": "names no effort"} {
 		err := cfg.CheckModelRef(ref)
 		if refusal == "" && err != nil || refusal != "" && (err == nil || !strings.Contains(err.Error(), refusal)) {
