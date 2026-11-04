@@ -83,6 +83,10 @@ func (p *proj) foldJob(r event.Record) {
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepDelivered:
 		p.folded.delivered[r.Fact().Job] = r.Seq
+	case r.Kind == event.KindFact && r.Step == event.StepSpecSeen: // a task_done refused for an older rev (T-821)
+		if d := r.Fact(); d.Call != "" {
+			p.folded.refusals[verdictStep(wire.MethodTaskDone, d.Call)] = d.Reason
+		}
 	case r.Kind == event.KindFact && r.Step == event.StepDropped:
 		if d := r.Fact(); d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = dropReply(r.Task)
