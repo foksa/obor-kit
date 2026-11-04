@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/project"
 )
 
 // T-382: git lock contention at serve's git boundary (docs/state-model.md "Crash classes").
@@ -125,5 +128,25 @@ func TestGitAliveSeesGitInWorktree(t *testing.T) {
 	}
 	if !gitAlive(x.Root) {
 		t.Errorf("gitAlive(%s) false with git cat-file running in lane %s", x.Root, filepath.Base(x.lane))
+	}
+}
+
+// processCwd reads a running process's working directory: this test's own pid, physical (the survey tree covered its
+// lsof path only when gitAlive reached a readable git; T-842 pins it on its own), and a pid that is not a number.
+func TestProcessCwdReadsARunningProcess(t *testing.T) {
+	t.Parallel()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := processCwd(strconv.Itoa(os.Getpid()))
+	if !ok {
+		t.Fatal("precondition: processCwd cannot read this test's own working directory")
+	}
+	if want := project.Physical(wd); got != want {
+		t.Errorf("processCwd(%d) = %q, want %q", os.Getpid(), got, want)
+	}
+	if got, ok := processCwd("not-a-pid"); ok || got != "" {
+		t.Errorf(`processCwd("not-a-pid") = %q, %v; want "", false`, got, ok)
 	}
 }
