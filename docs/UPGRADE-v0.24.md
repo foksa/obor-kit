@@ -28,3 +28,9 @@ What changes:
 - **No role worktree is reserved under `lanes_dir`** (the reviewer and the deep dive run in the main checkout since
   v0.20): any `L-NN` worktree there is a lane. Remove a leftover `review` / `deep-dive` worktree with
   `git worktree remove` if one is still there.
+
+## v0.24.1 (nightly on/off switch)
+Re-run the installer, then `obor serve restart` in each project. Nothing else is required.
+
+- A project with `merge.nightly_at` set now runs its nightly every night at that time, merges or not. Switch it with
+  `obor nightly on HH:MM` / `obor nightly off` (one commit on main, no serve restart).
