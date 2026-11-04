@@ -89,15 +89,15 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 	if got := cfg.AgentName("integrator", ""); got != "ob-int" {
 		t.Errorf("integrator agent = %q, want ob-int", got)
 	}
-	// T-786: allow_push lists roles; the rename rewrites none of it (a pre-T-786 derived name stays as written).
-	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "reviewer,pj-lead" {
-		t.Errorf("allow_push (local.json's) = %s, want reviewer,pj-lead (kept)", got)
+	// T-795: a derived name in allow_push becomes its role; the rest stays.
+	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "reviewer,lead" {
+		t.Errorf("allow_push (local.json's) = %s, want reviewer,lead (pj-lead rewritten)", got)
 	}
 	if !strings.Contains(x.Read(".obor/config.json"), `"lead"`) || !strings.Contains(x.Read(".obor/config.json"), `"integrator"`) {
 		t.Errorf("config.json's allow_push changed:\n%s", x.Read(".obor/config.json"))
 	}
-	if got := x.Read(".obor/local.json"); got != `{"guards": {"allow_push": ["reviewer", "pj-lead"]}}`+"\n" {
-		t.Errorf("local.json = %s, want it untouched", got)
+	if got := x.Read(".obor/local.json"); strings.Contains(got, "pj-lead") || !strings.Contains(got, `"reviewer"`) {
+		t.Errorf("local.json = %s, want pj-lead rewritten to lead, reviewer kept", got)
 	}
 
 	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" || row.Task != "T-1" {
@@ -129,6 +129,43 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// T-795: PushAllowed("lead") holds before and after, whichever file holds the entry; a literal role entry and an unknown
+// entry are kept as written.
+func TestRenameKeepsAllowPushWorking(t *testing.T) {
+	for _, file := range []string{"config.json", "local.json"} {
+		t.Run(file, func(t *testing.T) {
+			x := renameProject(t)
+			x.stubHerdr(t, "proj")
+			entries := `["pj-lead", "integrator", "bob", "pj-nobody"]`
+			if file == "config.json" {
+				x.Config(testkit.Set("guards", `{"allow_push": `+entries+`}`))
+				x.Write(".obor/local.json", "{}\n")
+			} else {
+				x.Write(".obor/local.json", `{"guards": {"allow_push": `+entries+`}}`+"\n")
+			}
+			before, err := config.Load(x.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !before.PushAllowed("lead") || before.PushAllowed("reviewer") {
+				t.Fatalf("precondition: lead allowed, reviewer not: %v", before.Data.Guards.AllowPush)
+			}
+			x.rename(t)
+			after, err := config.Load(x.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !after.PushAllowed("lead") || !after.PushAllowed("integrator") {
+				t.Errorf("after rename lead/integrator allowed = %v/%v, entries %v", after.PushAllowed("lead"),
+					after.PushAllowed("integrator"), after.Data.Guards.AllowPush)
+			}
+			if got := strings.Join(after.Data.Guards.AllowPush, ","); got != "lead,integrator,bob,pj-nobody" {
+				t.Errorf("allow_push = %s, want lead,integrator,bob,pj-nobody (only pj-lead rewritten)", got)
+			}
+		})
 	}
 }
 
