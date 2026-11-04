@@ -524,7 +524,7 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 		ReviewData{Request: q.seq, ID: id, Head: head, Tasks: tasks}) {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused fact "+event.StepReviewStarted))
 	}
-	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief); !ok && lost == nil {
+	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief, false); !ok && lost == nil {
 		lost = cmp.Or(p.log.Err(), errors.New("the event log refused the brief"))
 	}
 	if lost != nil {

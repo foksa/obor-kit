@@ -115,6 +115,9 @@ type Call struct {
 	// prompt (a review's start, the one brief without a line): recorded as the start's text (T-665, T-785).
 	From   string `json:"from,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
+	// brief's (obor brief --fresh, T-794): serve stops the running agent and starts it fresh on the brief, once the
+	// brief is recorded.
+	Fresh bool `json:"fresh,omitempty"`
 	// stopped's (stopped.go): the API error that ended the agent's turn and its details (T-532).
 	Error   string `json:"error,omitempty"`
 	Details string `json:"details,omitempty"`

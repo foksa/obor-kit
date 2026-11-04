@@ -59,6 +59,9 @@ type Message struct {
 	Reply  string `json:"reply,omitempty"`
 	// Supersedes: briefed's, the seqs of the agent's undelivered brief lines this brief ends (T-580)
 	Supersedes []int64 `json:"supersedes,omitempty"`
+	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
+	// running agent stopped first
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 // MergedData is a merged fact's data.

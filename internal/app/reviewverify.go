@@ -91,7 +91,7 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 		return "", err
 	}
 	from := cmp.Or(c.Agent, "owner")
-	reply, ok := a.recordBrief(p, s.Agent, from, text, c.CallID, "")
+	reply, ok := a.recordBrief(p, s.Agent, from, text, c.CallID, "", false)
 	if !ok {
 		return "", fmt.Errorf("review verify: the event log of %s refused it", p.name)
 	}
