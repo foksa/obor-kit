@@ -291,6 +291,17 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	case fx.Lane == nil || fx.Specs == nil:
 		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
 	}
+	// A merged task takes no new attempt, whatever flags the request has (T-792); a rejected or dropped one may.
+	if mt, _ := a.held(p, c.Task); mt.state == stMerged {
+		sha := mt.head
+		if len(sha) > 7 {
+			sha = sha[:7]
+		}
+		if sha == "" {
+			sha = "outside obor"
+		}
+		return "", fmt.Errorf("%s merged %s: a new attempt needs a new task id", c.Task, sha)
+	}
 	row, _, err := specOf(p, c.Task)
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
