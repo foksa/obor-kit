@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-04 (owner): **Custom roles per project**: one `roles.<name>` row in config plus `docs/agents/<name>.md`, so
+  the owner can ask the lead to create one (T-801). Main checkout, git read-only, write list from the row, briefed like
+  advisor/researcher; no lanes or jobs. Revises the 11-03 removal of `agents.<name>` (one lookup, not a second key).
 - 2026-11-04 (owner): **Agent-driver plan** (docs/research/agent-driver-deep-dive.md): after v0.25, wave 4a (herdr
   protocol >= 22 with a schema check, Codex efforts, the resume wake through `agent.prompt`), then the conformance
   suite (static tier nightly, live tier per kind on a version change), then the probed proposals by their results.
