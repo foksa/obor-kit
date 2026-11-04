@@ -390,6 +390,11 @@ func TestHoldAndResume(t *testing.T) {
 				t.Fatalf("resume %s: %q, %v", id, reply, err)
 			}
 		}
+		// The reprompt sends review.2: wait for that step to finish before a resume reads the task, else it is busy
+		// under load, not awaiting (T-796, T-804, T-808's gates saw "T-1 has review.2 running"; BACKLOG 11-04).
+		r.waitFor("review.2 out and settled", func() bool {
+			return r.has("1 result review.2") && app.Settled(r.app, r.p.Root, "T-1")
+		})
 		if _, err := r.resume("r2", ""); err == nil || !strings.Contains(err.Error(), "sends it back to its worker") { // awaiting again: a sendback, its why required
 			t.Errorf("resume with no needs-you: %v", err)
 		}
