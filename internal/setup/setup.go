@@ -13,7 +13,7 @@
 //	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
 //	        herdr's active one, T-632), and another project's pane is never split; cwd the lane, env
-//	        OBOR_ROLE / OBOR_AGENT / OBOR_LANE; then the pane label (= the agent, R-28 §2: refused when another pane
+//	        OBOR_ROLE / OBOR_LANE (no OBOR_AGENT: a name is derived, T-786); then the pane label (= the agent, R-28 §2: refused when another pane
 //	        holds it or --pane is labelled otherwise) and herdr agent start with the model's kind and args (+ Claude
 //	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
 //	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).
@@ -21,7 +21,7 @@
 //	        (limits.max_panes_per_tab, default 4). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
-//	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none) and OBOR_AGENT, cwd the root (the reviewer
+//	        roles.<role>, env OBOR_ROLE (the role's env value; triage: none), cwd the root (the reviewer
 //	        and the deep dive too, T-718: no worktree of their own). triage also copies
 //	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
 //	        docs/reviews) to the main checkout's .gitignore, once (T-731).

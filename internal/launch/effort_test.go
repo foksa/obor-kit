@@ -56,7 +56,7 @@ func TestStartEffort(t *testing.T) {
 				}
 			}
 			line := strings.Join(x.calls("pane.send_input"), "\n")
-			if !strings.Contains(line, "export OBOR_AGENT=pj-rev") {
+			if !strings.Contains(line, "export OBOR_ROLE=reviewer") {
 				t.Fatalf("no env line typed: %q", line)
 			}
 			if c.env != "" && !strings.Contains(line, c.env) {
@@ -116,7 +116,8 @@ func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 		if out, ok := x.restart(launch.Request{Agent: agent, Fresh: true}); !ok {
 			t.Fatal(out)
 		}
-		runs := x.calls("pane.send_input OBOR_AGENT=" + agent)
+		role := map[string]string{"pj-rev": "reviewer", "pj-advisor": "advisor", "pj-int": "integrator", "pj-deep-dive": "deep_dive"}[agent]
+		runs := x.calls("pane.send_input OBOR_ROLE=" + role + " ")
 		if len(runs) != 1 {
 			t.Fatalf("%s: one env line typed, got %q", agent, runs)
 		}

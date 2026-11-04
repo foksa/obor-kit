@@ -17,11 +17,11 @@ import (
 
 func renameProject(t *testing.T) *fx {
 	t.Helper()
-	x := newFx(t, testkit.Set("guards", `{"allow_push": ["pj-lead", "pj-int", "bob"]}`))
+	x := newFx(t, testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
 	x.Lane("L-01", "task/T-1")
 	x.Lane("L-02", "task/T-2")
-	x.Config(testkit.Set("guards", `{"allow_push": ["pj-lead", "pj-int", "bob"]}`))
-	x.Write(".obor/local.json", `{"guards": {"allow_push": ["pj-rev", "bob"]}}`+"\n")
+	x.Config(testkit.Set("guards", `{"allow_push": ["lead", "integrator"]}`))
+	x.Write(".obor/local.json", `{"guards": {"allow_push": ["reviewer", "pj-lead"]}}`+"\n")
 	x.Dispatched("L-01")
 	x.Dispatched("L-02")
 	agents := filepath.Join(x.Env().Get("OBOR_STATE_HOME"), "agents")
@@ -88,14 +88,15 @@ func TestRenameMapsConfigStoreFilesAndWorkspace(t *testing.T) {
 	if got := cfg.AgentName("integrator", ""); got != "ob-int" {
 		t.Errorf("integrator agent = %q, want ob-int", got)
 	}
-	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "ob-rev,bob" {
-		t.Errorf("allow_push (local.json's) = %s, want ob-rev,bob", got)
+	// T-786: allow_push lists roles; the rename rewrites none of it (a pre-T-786 derived name stays as written).
+	if got := strings.Join(cfg.Data.Guards.AllowPush, ","); got != "reviewer,pj-lead" {
+		t.Errorf("allow_push (local.json's) = %s, want reviewer,pj-lead (kept)", got)
 	}
-	if !strings.Contains(x.Read(".obor/config.json"), `"ob-lead"`) || !strings.Contains(x.Read(".obor/config.json"), `"ob-int"`) {
-		t.Errorf("config.json's allow_push not mapped:\n%s", x.Read(".obor/config.json"))
+	if !strings.Contains(x.Read(".obor/config.json"), `"lead"`) || !strings.Contains(x.Read(".obor/config.json"), `"integrator"`) {
+		t.Errorf("config.json's allow_push changed:\n%s", x.Read(".obor/config.json"))
 	}
-	if !strings.Contains(x.Read(".obor/local.json"), `"ob-rev"`) || strings.Contains(x.Read(".obor/local.json"), "pj-") {
-		t.Errorf("local.json = %s", x.Read(".obor/local.json"))
+	if got := x.Read(".obor/local.json"); got != `{"guards": {"allow_push": ["reviewer", "pj-lead"]}}`+"\n" {
+		t.Errorf("local.json = %s, want it untouched", got)
 	}
 
 	if row, _ := x.Row("L-01"); row.Agent != "pj-l-01" || row.Task != "T-1" {

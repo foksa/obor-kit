@@ -45,6 +45,7 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatal(err)
 		}
 	}
+	f.write(f.root+"/.obor/config.json", `{"prefix": "pj", "lanes": 1}`) // the callers' names derive from it (T-786)
 	return f
 }
 
@@ -65,9 +66,9 @@ func (f *fixture) env(kv ...string) project.Env {
 	return testkit.MapEnv(m)
 }
 
-// worker is the environment of the lane's worker agent.
+// worker is the environment of the lane's worker agent, a stale OBOR_AGENT included (T-786: never read).
 func (f *fixture) worker() project.Env {
-	return f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01", "HERDR_PANE_ID=w1:p1")
+	return f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-old-name", "OBOR_LANE=L-01", "HERDR_PANE_ID=w1:p1")
 }
 
 // fakeServe is obor serve's app socket in a test: it records each request line and answers reply/refusal, like the
@@ -398,7 +399,7 @@ func TestToolsListPerRole(t *testing.T) {
 }
 
 // TestWorkerTools: job_next renders the JobReply readably and task_done sends the lane's task and its report; each call carries the
-// agent's identity (root, agent, role, lane, pane) and its own call id.
+// agent's identity (root, its derived agent name whatever a stale OBOR_AGENT says, role, lane, pane) and its own call id.
 func TestWorkerTools(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -491,7 +492,7 @@ func TestIntegratorVerdicts(t *testing.T) {
 		return strings.ToUpper(method) + " T-05", ""
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
-	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-int", "HERDR_PANE_ID=w1:p2"), f.root)
+	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-old-int", "HERDR_PANE_ID=w1:p2"), f.root)
 	if got := c.tool(1, "job_next", nil); got.IsError || !strings.Contains(got.Content[0].Text, "T-05/1/review") {
 		t.Fatalf("job_next: %+v; want the review job", got)
 	}
@@ -608,7 +609,7 @@ func TestToolPreconditions(t *testing.T) {
 	if got := c.tool(1, "job_next", nil); !got.IsError || !strings.Contains(got.Content[0].Text, "not in an obor project") {
 		t.Errorf("outside a project: %+v; want a tool error naming it", got)
 	}
-	n := start(t, f.env("OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01"), f.lane)
+	n := start(t, f.env("OBOR_ROLE=worker"), f.lane)
 	if got := n.tool(1, "task_done", map[string]any{"report": "x"}); !got.IsError || !strings.Contains(got.Content[0].Text, "OBOR_LANE is not set") {
 		t.Errorf("task_done without a lane: %+v; want a tool error naming OBOR_LANE", got)
 	}

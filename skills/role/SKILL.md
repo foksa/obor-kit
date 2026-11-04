@@ -23,10 +23,10 @@ in one line which role you took and what you will and won't do. A placeholder li
 If `HERDR_PANE_ID` is set and the pane is unnamed, run `herdr pane rename "$HERDR_PANE_ID" <prefix>-<name>`
 (`<prefix>` = `obor config get .prefix`): the pane label is the name obor serve reads, so `obor status` shows it and
 `obor status` lists you. Print the name. A pane already named something else: keep that name and
-say so. No `HERDR_PANE_ID` (not in a herdr pane): skip, say so. A pane taken over this way has no `OBOR_AGENT`, so its
-session records no inbox: a brief reaches it only once it runs under `obor setup role <role>` or `obor restart
-<prefix>-<name>`.
+say so. No `HERDR_PANE_ID` (not in a herdr pane): skip, say so. A pane taken over this way has no `OBOR_ROLE`, so obor
+derives no name for it (T-786) and its session records no inbox: a brief reaches it only once it runs under `obor
+setup role <role>` or `obor restart <prefix>-<name>`.
 
 ## 4. Known limit
-Say it: `OBOR_ROLE` / `OBOR_AGENT` can't change in a running session, so the obor hooks keep the pane's original
+Say it: `OBOR_ROLE` can't change in a running session, so the obor hooks keep the pane's original
 identity and its permissions. For a full obor role (worker, lead, integrator) use `obor setup` / `obor restart`.

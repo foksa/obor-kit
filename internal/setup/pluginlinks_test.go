@@ -107,7 +107,7 @@ func TestPaneWithoutStartStartsNoAgent(t *testing.T) {
 	x.reset()
 	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
 	calls := strings.Join(x.reqs(), "\n")
-	if !strings.Contains(calls, "pane.split") || !strings.Contains(calls, "env={OBOR_AGENT=pj-l-01,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker}") ||
+	if !strings.Contains(calls, "pane.split") || !strings.Contains(calls, "env={OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker}") ||
 		!strings.Contains(calls, "pane.rename label=pj-l-01 pane_id=w1:n1") {
 		t.Errorf("the pane is split with the env and labelled:\n%s", calls)
 	}

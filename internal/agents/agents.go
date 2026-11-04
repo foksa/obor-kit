@@ -198,7 +198,7 @@ const Pin = "OBOR_NO_SELF_HOST"
 
 // EnvVars are the variables `obor mcp` reads from the agent's session (internal/mcp); a CLI that starts MCP servers
 // with a stripped environment forwards them.
-var EnvVars = []string{"OBOR_ROLE", "OBOR_AGENT", "OBOR_LANE", "HERDR_PANE_ID", "OBOR_STATE_HOME"}
+var EnvVars = []string{"OBOR_ROLE", "OBOR_LANE", "HERDR_PANE_ID", "OBOR_STATE_HOME"}
 
 var kinds = map[string]Kind{}
 

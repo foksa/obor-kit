@@ -153,7 +153,7 @@ func TestLeadNoPaneSetsUp(t *testing.T) {
 	}
 	c := x.calls()
 	if !strings.Contains(c, `workspace.create {"cwd":"`+x.p.Root+`","focus":false,"label":"proj"}`) ||
-		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_AGENT":"pj-lead","OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead"},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
+		!strings.Contains(c, `tab.create {"cwd":"`+x.p.Root+`","env":{"OBOR_OPENCODE_MODEL":"","OBOR_ROLE":"lead"},"focus":false,"label":"lead","workspace_id":"wn1"}`) ||
 		!strings.Contains(c, startCall("pj-lead", "wn1:n2", "--permission-mode", "auto", "--model", "opus", "/obor:lead")) || strings.Contains(c, "--resume") {
 		t.Errorf("obor setup role lead --new-tab lead, fresh:\n%s", c)
 	}

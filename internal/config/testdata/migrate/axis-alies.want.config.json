@@ -53,7 +53,7 @@
   },
   "guards": {
     "allow_push": [
-      "aa-lead"
+      "lead-mp"
     ]
   },
   "difficulty": {

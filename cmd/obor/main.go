@@ -279,7 +279,7 @@ func hook(args []string) int {
 		case "stop":
 			guard.Stop(input, project.OSEnv, out, os.Stderr)
 		case "session-start":
-			if b, ok := guard.SessionStart(input, project.OSEnv, out, paneLabel); ok {
+			if b, ok := guard.SessionStart(input, project.OSEnv, out); ok {
 				sessionBegan(b, os.Stderr)
 			}
 		default:
@@ -337,18 +337,6 @@ func sessionBegan(b guard.Began, log io.Writer) {
 		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)\n",
 			b.ID, b.Agent, err, b.Agent, b.Agent)
 	}
-}
-
-// paneLabel is the label of a herdr pane: one `herdr pane get` bounded by 3 s; "" on any error (the SessionStart
-// hook's lost-identity warning).
-func paneLabel(pane string) string {
-	c := herdrSocket(project.OSEnv)
-	c.Timeout = 3 * time.Second
-	p, err := c.Pane(context.Background(), pane)
-	if err != nil {
-		return ""
-	}
-	return p.Label
 }
 
 // preToolUse is the PreToolUse hook (bin/obor execs it): the hook JSON on stdin; allow = exit 0, no output; deny = exit 2, one line

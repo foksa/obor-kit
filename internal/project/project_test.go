@@ -356,6 +356,59 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	}
 }
 
+// T-786: Self is the one "who am I": role + lane (cwd wins) + the current config → the derived name, for a lane
+// worker (env or none: OpenCode's shared hook process), the drive agent, each role; a stale OBOR_AGENT is never read;
+// a prefix change applies at once (nothing stored).
+func TestSelfDerivesTheName(t *testing.T) {
+	root, wt := fixture(t, `{"prefix":"pj","roles":{"reviewer":"opus","deep_dive":"opus","advisor":"opus"}}`)
+	lane := filepath.Join(wt, "L-01")
+	self := func(dir string, env map[string]string) string {
+		t.Helper()
+		r, err := Find(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(r.Root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return Self(r, cfg, func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+	}
+	stale := "pj-old-name"
+	for _, c := range []struct {
+		what, dir string
+		env       map[string]string
+		want      string
+	}{
+		{"lane worker, no env (opencode's hook process)", lane, nil, "pj-l-01"},
+		{"lane worker, its env and a stale OBOR_AGENT", lane, map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01", "OBOR_AGENT": stale}, "pj-l-01"},
+		{"lane cwd wins over a role env", lane, map[string]string{"OBOR_ROLE": "lead", "OBOR_AGENT": stale}, "pj-l-01"},
+		{"drive agent in its lane", lane, map[string]string{"OBOR_ROLE": "driver", "OBOR_LANE": "L-01", "OBOR_AGENT": stale}, "pj-l-01-drive"},
+		{"lead", root, map[string]string{"OBOR_ROLE": "lead", "OBOR_AGENT": stale}, "pj-lead"},
+		{"integrator", root, map[string]string{"OBOR_ROLE": "integrator"}, "pj-int"},
+		{"reviewer", root, map[string]string{"OBOR_ROLE": "reviewer"}, "pj-rev"},
+		{"deep dive", root, map[string]string{"OBOR_ROLE": "deep_dive"}, "pj-deep-dive"},
+		{"advisor", root, map[string]string{"OBOR_ROLE": "advisor"}, "pj-advisor"},
+		{"researcher", root, map[string]string{"OBOR_ROLE": "researcher"}, "pj-researcher"},
+		{"worker by env outside its lane", root, map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01"}, "pj-l-01"},
+		{"no role (the owner), a stale OBOR_AGENT only", root, map[string]string{"OBOR_AGENT": stale}, ""},
+		{"a role outside the table", root, map[string]string{"OBOR_ROLE": "boss", "OBOR_AGENT": stale}, ""},
+		{"a driver with no lane", root, map[string]string{"OBOR_ROLE": "driver"}, ""},
+	} {
+		if got := self(c.dir, c.env); got != c.want {
+			t.Errorf("%s: Self = %q, want %q", c.what, got, c.want)
+		}
+	}
+	// A rename is the config's: the next call derives the new name (no stored copy to go stale).
+	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"nx"}`), 0o644)
+	if got := self(root, map[string]string{"OBOR_ROLE": "lead", "OBOR_AGENT": "pj-lead"}); got != "nx-lead" {
+		t.Errorf("after a prefix change: Self = %q, want nx-lead", got)
+	}
+	if got := self(lane, nil); got != "nx-l-01" {
+		t.Errorf("lane after a prefix change: Self = %q, want nx-l-01", got)
+	}
+}
+
 func TestContextTokensLastMainChainLine(t *testing.T) {
 	t.Parallel()
 	file := filepath.Join(t.TempDir(), "t.jsonl")

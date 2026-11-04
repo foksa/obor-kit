@@ -34,9 +34,9 @@ type stopFailureEvent struct {
 }
 
 // StopFailure reads the StopFailure event in input, appends its log line and returns what serve is told; ok false
-// outside an obor project or on an unreadable event (nothing to send). The agent is OBOR_AGENT, else the lane's when
-// the event comes from a lane (T-308, T-581: OpenCode's hooks run in a shared process without it). A log line that
-// cannot be written is err (the hook says so and still sends).
+// outside an obor project or on an unreadable event (nothing to send). The agent is the session's derived name
+// (project.SelfAgent, T-786: a lane's from its cwd, so OpenCode's shared hook process without env names it too, T-308).
+// A log line that cannot be written is err (the hook says so and still sends).
 func StopFailure(input []byte, env project.Env, now time.Time) (s Stopped, ok bool, err error) {
 	var ev stopFailureEvent
 	if json.Unmarshal(input, &ev) != nil {
@@ -51,7 +51,7 @@ func StopFailure(input []byte, env project.Env, now time.Time) (s Stopped, ok bo
 		return Stopped{}, false, nil
 	}
 	role := project.DetectRole(repo, cfg, env)
-	s = Stopped{Root: cfg.Root, Agent: sessionAgent(cfg, role, env), Role: role.Role, Lane: role.Lane,
+	s = Stopped{Root: cfg.Root, Agent: project.SelfAgent(cfg, role), Role: role.Role, Lane: role.Lane,
 		Error: rawText(ev.Error), Details: rawText(ev.ErrorDetails)}
 	line, _ := json.Marshal(struct {
 		At           string          `json:"at"`
@@ -65,8 +65,8 @@ func StopFailure(input []byte, env project.Env, now time.Time) (s Stopped, ok bo
 
 // Turn is what a worker's or role agent's UserPromptSubmit or Stop hook tells serve besides its own job (T-540,
 // T-569): the agent's next turn began or ended, which ends a stop in force; ok false outside an obor project, on an
-// unreadable event, for the lead or a session of no role, or with no agent name. The agent is OBOR_AGENT, else the
-// lane's when the event comes from a lane (T-308, T-581); a cwd that is no lane has no agent to name.
+// unreadable event, for the lead or a session of no role, or with no agent name. The agent is the session's derived
+// name (project.SelfAgent, T-786).
 func Turn(input []byte, env project.Env) (s Stopped, ok bool) {
 	var ev struct {
 		Cwd string `json:"cwd"`
@@ -82,7 +82,7 @@ func Turn(input []byte, env project.Env) (s Stopped, ok bool) {
 		return Stopped{}, false
 	}
 	role := project.DetectRole(repo, cfg, env)
-	s = Stopped{Root: cfg.Root, Agent: sessionAgent(cfg, role, env), Role: role.Role, Lane: role.Lane}
+	s = Stopped{Root: cfg.Root, Agent: project.SelfAgent(cfg, role), Role: role.Role, Lane: role.Lane}
 	return s, role.Role != "lead" && role.Role != "none" && role.Role != "" && s.Agent != ""
 }
 

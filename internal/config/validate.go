@@ -150,7 +150,7 @@ func (v *validator) optional() {
 	v.nonNegative(".handoff_tokens", v.d.HandoffTokens)
 	v.nonNegative(".integrator_handoff_tokens", v.d.IntegratorHandoffTokens)
 	if g := v.d.Guards; g != nil {
-		v.agentNames(".guards.allow_push", g.AllowPush, false)
+		v.allowPush(g.AllowPush)
 	}
 	if v.d.Merge.ReceiptMaxAge < 0 {
 		v.fail(".merge.receipt_max_age", fmt.Sprintf("must be a non-negative integer (seconds), got %d", v.d.Merge.ReceiptMaxAge))
@@ -175,14 +175,19 @@ func (v *validator) nonNegative(path string, n *int64) {
 	}
 }
 
-// agentNames: a list (when required) of non-empty names.
-func (v *validator) agentNames(path string, names []string, required bool) {
-	bad := required && names == nil
-	for _, name := range names {
-		bad = bad || name == ""
+// allowPush: guards.allow_push is a list of roles ("lead"), a role's derived name ("ob-lead") read as its slot
+// (T-786); an empty entry fails, one that names no role allows nothing: WARN.
+func (v *validator) allowPush(entries []string) {
+	for _, e := range entries {
+		if e == "" {
+			v.fail(".guards.allow_push", `must be a list of roles (e.g. ["lead"])`)
+			return
+		}
 	}
-	if bad {
-		v.fail(path, "must be a list of herdr agent names")
+	for _, e := range entries {
+		if v.c.pushSlot(e) == "" {
+			v.warns = append(v.warns, "WARN .guards.allow_push: "+Compact(e)+" is no role (nor a role's agent name): it allows no push")
+		}
 	}
 }
 

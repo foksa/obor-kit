@@ -2,14 +2,12 @@ package guard
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -44,20 +42,8 @@ func (f hfx) session(t *testing.T, cwd, sid string, env ...string) string {
 	b, _ := json.Marshal(ev)
 	var out bytes.Buffer
 	e := f.Env(env...)
-	SessionStart(b, e, &out, herdrLabel(e))
+	SessionStart(b, e, &out)
 	return out.String()
-}
-
-// herdrLabel is cmd/obor's pane label lookup in env: one bounded herdr pane get over its socket.
-func herdrLabel(env project.Env) func(string) string {
-	return func(pane string) string {
-		c := &herdr.Socket{Path: herdr.SocketPath(env), Timeout: 3 * time.Second}
-		p, err := c.Pane(context.Background(), pane)
-		if err != nil {
-			return ""
-		}
-		return p.Label
-	}
 }
 
 // serve puts the project's fake herdr behind a socket and its path as env for a session run; its requests say what
@@ -189,7 +175,7 @@ func TestSessionNoConfigOrBadInputSilent(t *testing.T) {
 	}
 	for _, in := range []string{"not json", "", `{"cwd": "` + f.Base + `/nowhere"}`} {
 		var out bytes.Buffer
-		SessionStart([]byte(in), f.Env(), &out, herdrLabel(f.Env()))
+		SessionStart([]byte(in), f.Env(), &out)
 		if out.Len() != 0 {
 			t.Errorf("input %q: %q", in, out.String())
 		}
@@ -223,7 +209,7 @@ func TestSessionOpencodeBegan(t *testing.T) {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-o",
 			"transcript_path": "/data/opencode/opencode.db", "source": "startup"})
 		var out bytes.Buffer
-		return SessionStart(b, f.Env(append([]string{"OBOR_STATE_HOME=" + state}, env...)...), &out, herdrLabel(f.Env()))
+		return SessionStart(b, f.Env(append([]string{"OBOR_STATE_HOME=" + state}, env...)...), &out)
 	}
 
 	began, ok := start(o1)
@@ -232,16 +218,26 @@ func TestSessionOpencodeBegan(t *testing.T) {
 		t.Errorf("no OBOR_AGENT: began %+v, %v; want the lane's agent and its session", began, ok)
 	}
 
-	began, ok = start(o1, "OBOR_AGENT=pj-l-01")
+	began, ok = start(o1, "OBOR_AGENT=pj-old-name")
 	if !ok || began.Agent != "pj-l-01" || began.Kind != "opencode" || began.ID != "sid-o" {
-		t.Errorf("OBOR_AGENT: began %+v, %v", began, ok)
+		t.Errorf("a stale OBOR_AGENT: began %+v, %v; want the derived pj-l-01", began, ok)
+	}
+	// T-786: every role's session begins as its derived name, a stale OBOR_AGENT ignored.
+	for role, want := range map[string]string{"lead": "pj-lead", "integrator": "pj-int", "reviewer": "pj-rev"} {
+		began, ok := start(f.Root, "OBOR_ROLE="+role, "OBOR_AGENT=pj-old-name")
+		if !ok || began.Agent != want {
+			t.Errorf("%s with a stale OBOR_AGENT: began %+v, %v; want %s", role, began, ok, want)
+		}
+	}
+	if began, ok := start(f.Root, "OBOR_AGENT=pj-lead"); ok || began.Agent != "" {
+		t.Errorf("no role in the main checkout, OBOR_AGENT only: began %+v, %v; want no agent", began, ok)
 	}
 
 	g, g1 := sessionFx(t, true)
 	gState := g.Base + "/state"
 	b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": g1, "session_id": "sid-c"})
 	var out bytes.Buffer
-	if began, ok := SessionStart(b, g.Env("OBOR_AGENT=pj-l-01", "OBOR_STATE_HOME="+gState), &out, herdrLabel(g.Env())); !ok ||
+	if began, ok := SessionStart(b, g.Env("OBOR_AGENT=pj-l-01", "OBOR_STATE_HOME="+gState), &out); !ok ||
 		began.Kind != "claude" {
 		t.Fatalf("control (claude): began %+v, %v", began, ok)
 	}
@@ -256,10 +252,9 @@ func TestSessionNoIdentityFromRecords(t *testing.T) {
 	f.label("w9:p1", "pj-lead")
 	envFile := f.Base + "/claude-env"
 	out := f.session(t, f.Root, "sid-lead", "HERDR_PANE_ID=w9:p1", sock, "CLAUDE_ENV_FILE="+envFile)
-	contains(t, out, "a recorded sid gives no identity", "obor: role none",
-		"obor: WARNING: this pane is labelled obor agent pj-lead but OBOR_AGENT is unset (herdr restore?) — run obor restart pj-lead from another pane")
-	if n := strings.Count(out, "pj-lead"); n != 2 { // the label line names it twice
-		t.Errorf("the label line is the only mention: %d in\n%s", n, out)
+	contains(t, out, "a recorded sid gives no identity", "obor: role none")
+	if n := strings.Count(out, "pj-lead"); n != 0 { // T-786: no lost-identity line either
+		t.Errorf("the pane's label is named: %d in\n%s", n, out)
 	}
 	if f.Exists(envFile) || f.Exists(home+"/sessions") {
 		t.Error("something exported or recorded")
@@ -336,7 +331,7 @@ func TestSessionKindIsTheDispatchs(t *testing.T) {
 		t.Helper()
 		b, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "cwd": cwd, "session_id": "sid-1"})
 		var out bytes.Buffer
-		began, ok := SessionStart(b, f.Env("OBOR_STATE_HOME="+f.Base+"/state"), &out, herdrLabel(f.Env()))
+		began, ok := SessionStart(b, f.Env("OBOR_STATE_HOME="+f.Base+"/state"), &out)
 		if !ok {
 			t.Fatalf("no session began:\n%s", out.String())
 		}
@@ -393,40 +388,21 @@ func TestSessionWithOborAgentIgnoresOtherRecords(t *testing.T) {
 	}
 }
 
-// bash plugin case_session_label_check (R-28 §2)
-func TestSessionPaneLabelledOborAgentWithoutOborAgent(t *testing.T) {
+// T-786 (was R-28 §2's lost-identity warning): a name is derived, so a labelled pane without OBOR_AGENT is no lost
+// identity: no warning, and the hook asks herdr nothing.
+func TestSessionLabelledPaneNoLostIdentity(t *testing.T) {
 	f, o1 := sessionFx(t, true)
 	srv, sock := f.serve(t)
-	warn := "obor: WARNING: this pane is labelled obor agent pj-l-01 but OBOR_AGENT is unset (herdr restore?) — run obor restart pj-l-01 from another pane"
-	f.label("w9:p1", "pj-l-01")
-	out := f.session(t, o1, "sid-zzz", "HERDR_PANE_ID=w9:p1", sock)
-	contains(t, out, "label of a lane agent", "obor: role worker", warn)
-	if got := panes(srv, "w9:p1"); got != 1 {
-		t.Errorf("exactly one pane get: %d", got)
+	for _, c := range []struct{ label, cwd, role string }{{"pj-l-01", o1, ""}, {"pj-lead", f.Root, "OBOR_ROLE=lead"}} {
+		f.label("w9:p1", c.label)
+		before := len(srv.Requests())
+		out := f.session(t, c.cwd, "sid-zzz", "HERDR_PANE_ID=w9:p1", c.role, sock)
+		contains(t, out, "precondition: the hook ran", "obor: role ")
+		lacks(t, out, c.label+": no lost-identity line", "WARNING", "OBOR_AGENT")
+		if n := len(srv.Requests()) - before; n != 0 {
+			t.Errorf("%s: %d herdr requests, want none", c.label, n)
+		}
 	}
-	f.label("w9:p1", "pj-lead")
-	contains(t, f.session(t, f.Root, "", "HERDR_PANE_ID=w9:p1", sock), "label of a lead", "labelled obor agent pj-lead but OBOR_AGENT is unset")
-	f.label("w9:p1", "someone-else")
-	out = f.session(t, f.Root, "", "HERDR_PANE_ID=w9:p1", sock)
-	contains(t, out, "precondition: the main checkout", "obor: role none")
-	lacks(t, out, "label of no obor agent", "WARNING")
-	f.label("w9:p1", "")
-	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", sock), "no label (lane cwd only)", "WARNING")
-	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p2", sock), "herdr pane get failing", "WARNING")
-	before := len(srv.Requests())
-	lacks(t, f.session(t, o1, "", sock), "no herdr pane", "WARNING")
-	if n := len(srv.Requests()) - before; n != 0 {
-		t.Errorf("no pane id → %d herdr requests", n)
-	}
-	f.label("w9:p1", "pj-l-01")
-	plain := f.session(t, o1, "", "OBOR_AGENT=pj-l-01", sock)
-	before = len(srv.Requests())
-	if out := f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", "OBOR_AGENT=pj-l-01", sock); out != plain || len(srv.Requests()) != before {
-		t.Errorf("OBOR_AGENT set → as without a pane, no herdr request: %d", len(srv.Requests())-before)
-	}
-	lacks(t, f.session(t, o1, "", "HERDR_PANE_ID=w9:p1", sock, "HERDR_SOCKET_PATH="+f.Base+"/no-such.sock"),
-		"herdr missing", "WARNING")
-	contains(t, plain, "precondition: the hook ran with herdr", "obor: role worker")
 }
 
 // RV-48 #3: a database read error is said, and the other bookkeeping (the session id) still runs.
@@ -436,41 +412,44 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 		t.Fatalf("precondition: a readable database shows the spec's unlocks:\n%s", out)
 	}
 	f.Write(".obor/state/obor.db", "not a database\n")
-	out := f.session(t, o1, "sid-bad", "OBOR_AGENT=wk", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
+	out := f.session(t, o1, "sid-bad", "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	contains(t, out, "unreadable database", "could not read this lane or its spec", "obor: role worker, lane L-01")
 	lacks(t, out, "unreadable database", "No lane row", "Protected files this task may edit:")
-	if in, err := project.ReadInbox("wk", f.Env()); err != nil || in.Session != "sid-bad" {
+	if in, err := project.ReadInbox("pj-l-01", f.Env()); err != nil || in.Session != "sid-bad" {
 		t.Errorf("inbox = %+v, %v; want session sid-bad (the bookkeeping still runs)", in, err)
 	}
 }
 
-// T-485: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox, mode 0600, with the
-// socket, the token and the session id, whatever the role; a later session without one removes it; no OBOR_AGENT
-// writes none.
+// T-485, T-786: a session with CLAUDE_CODE_MESSAGING_SOCKET records <agent>.inbox under its derived name, mode 0600,
+// with the socket, the token and the session id; a stale OBOR_AGENT (a reused shell) is ignored; a later session
+// without one removes it; a session that derives no name (the owner in the main checkout) writes none.
 func TestSessionRecordsTheInbox(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
 	state := f.Base + "/state"
 	env := testkit.MapEnv(map[string]string{"OBOR_STATE_HOME": state})
-	inbox := project.InboxFile("pj-l1", env)
-	if inbox != state+"/agents/pj-l1.inbox" {
+	inbox := project.InboxFile("pj-l-01", env)
+	if inbox != state+"/agents/pj-l-01.inbox" {
 		t.Fatalf("inbox record at %s, want in the agents dir", inbox)
 	}
-	f.session(t, o1, "sid-1", "OBOR_STATE_HOME="+state, "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
+	f.session(t, f.Root, "sid-1", "OBOR_AGENT=pj-l-01", "OBOR_STATE_HOME="+state, "CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock")
 	if f.Exists(state + "/agents") {
-		t.Error("no OBOR_AGENT → something written")
+		t.Error("no role in the main checkout (a stale OBOR_AGENT only) → something written")
 	}
 	for _, role := range []string{"", "lead"} {
-		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-l1", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state,
+		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state,
 			"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/cc-socks/1.sock", "CLAUDE_CODE_MESSAGING_TOKEN=tok-1")
-		got, err := project.ReadInbox("pj-l1", env)
+		got, err := project.ReadInbox("pj-l-01", env)
 		if err != nil || got != (project.Inbox{Socket: "/tmp/cc-socks/1.sock", Token: "tok-1", Session: "sid-1"}) {
 			t.Fatalf("role %q: inbox %+v, %v", role, got, err)
 		}
 		if fi, err := os.Stat(inbox); err != nil || fi.Mode().Perm() != 0o600 {
 			t.Errorf("role %q: inbox mode %v, %v; want 0600", role, fi.Mode(), err)
 		}
-		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-l1", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state)
+		if f.Exists(project.InboxFile("pj-old", env)) {
+			t.Errorf("role %q: an inbox under the stale OBOR_AGENT", role)
+		}
+		f.session(t, o1, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+role, "OBOR_STATE_HOME="+state)
 		if f.Exists(inbox) {
 			t.Errorf("role %q: a session without a messaging socket kept the inbox record", role)
 		}

@@ -105,7 +105,7 @@
   "task_id_pattern": "(T|R)-[0-9]+[a-z]?",
   "guards": {
     "allow_push": [
-      "ob-lead"
+      "lead"
     ]
   },
   "slots": {

@@ -229,10 +229,12 @@ func TestValidate(t *testing.T) {
 		{name: "integrator handoff_tokens negative", edits: []edit{set("integrator_handoff_tokens", -5)},
 			want: []string{"FAIL .integrator_handoff_tokens: must be a non-negative integer, got -5"}},
 		// bash config.test.sh case_validate_allow_push
-		{name: "allow_push names", edits: []edit{set("guards", `{"allow_push": ["pj-lead", "lead-mp"]}`)}},
+		{name: "allow_push a role and a derived name", edits: []edit{set("guards", `{"allow_push": ["lead", "pj-lead"]}`)}},
+		{name: "allow_push no role", edits: []edit{set("guards", `{"allow_push": ["lead-mp"]}`)},
+			want: []string{`WARN .guards.allow_push: "lead-mp" is no role (nor a role's agent name): it allows no push`}},
 		{name: "allow_push empty", edits: []edit{set("guards", `{"allow_push": []}`)}},
 		{name: "allow_push an empty name", edits: []edit{set("guards", `{"allow_push": [""]}`)},
-			want: []string{"FAIL .guards.allow_push: must be a list of herdr agent names"}},
+			want: []string{`FAIL .guards.allow_push: must be a list of roles (e.g. ["lead"])`}},
 		// bash config.test.sh case_validate_neutral_overlap
 		{name: "default neutral disjoint", edits: []edit{set("merge", neutralBase)}},
 		{name: "*.md crosses /", edits: []edit{set("merge", neutralBase), set("merge.neutral", []any{"docs/**", "*.md"})},

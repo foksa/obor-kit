@@ -121,11 +121,14 @@ not retried. Claude starts run in `auto` (its base args); a `bypassPermissions` 
 risk.
 Dispatch launches a fresh process per task (R-28, T-157).
 
-**Identity (R-28, T-154/T-159):** the env inside the process (`OBOR_ROLE`/`OBOR_AGENT`/`OBOR_LANE`) and the herdr
-**pane label** (the launch mark: the agent's name on the pane), both set by the one launch path (`obor setup` /
-`obor restart`, which serve's start calls). The CLI finds an agent's pane by label (`launch.Launcher.PaneOf`); serve
-finds it by proofs ("Finding the pane" below); hooks read identity from the env (`obor hook` under opencode: from the
-cwd, see "opencode lanes").
+**Identity (R-28, T-154/T-159, T-786):** the role (`OBOR_ROLE`, a lane's `OBOR_LANE`; a lane worktree cwd wins) and
+the herdr **pane label** (the launch mark: the agent's name on the pane), both set by the one launch path (`obor
+setup` / `obor restart`, which serve's start calls). An agent's **name is derived, never stored in env**: one function
+(`project.Self` → `config.Self`: role + lane + the current config → the slot's name) answers "who am I" for the hooks,
+the MCP server and every CLI call to serve; no `OBOR_AGENT` is exported, and one a shell still has is ignored (a stored
+copy went stale on every rename). The CLI finds an agent's pane by label (`launch.Launcher.PaneOf`); serve finds it by
+proofs ("Finding the pane" below); `obor hook` under opencode has no env and derives the name from the cwd alone (see
+"opencode lanes").
 After a herdr restart, obor's `[[startup]]` hook (`obor plugin restore`) runs `obor restart` for each labelled
 obor pane (herdr `resume_agents_on_restore = false`). The store's `session` facts record each agent's sessions
 (`docs/state-model.md` row 51), for resuming after a kill.
@@ -229,8 +232,9 @@ allows silently.
 2. **PreToolUse guards** (matcher `Bash|Edit|Write|MultiEdit|NotebookEdit`; deny = exit 2 + reason on stderr, or the
    `permissionDecision: deny` JSON):
    - universal (Bash): `git push` and pushing `gh` commands (`gh pr create`, `gh repo create … --push`, `gh repo sync
-     <repo>`) — except for an agent listed in `guards.allow_push` that is not a worker (T-105, user 2026-10-10: a lead
-     that cannot push cannot advance a milestone; name matching only, an accident guard, not a security boundary);
+     <repo>`) — except for a role listed in `guards.allow_push` that is not a worker (T-105, user 2026-10-10: a lead
+     that cannot push cannot advance a milestone; T-786: entries are roles, `["lead"]`, a derived name `ob-lead` read as
+     its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
      is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run` — for every
      role, the lead included (T-470, owner 2026-10-27: agents run in herdr panes); a load run of tests — `go test`
@@ -255,9 +259,9 @@ allows silently.
    Stop hook).
 4. **SessionStart** (`guard.SessionStart`): prints the `obor: role …, lane …, task …` line, the protected files the
    stored spec unlocks (or that the lane has no row), the hooks this role runs under and the role-text line (T-204). It
-   tells serve the agent's session (the store records it; serve down: nothing, T-599) and, for an opencode lane, the plugin marker. When the pane carries a
-   obor agent's label but `OBOR_AGENT` is unset, it prints a warning (herdr restore?) and renames nothing; the renames
-   herdr needs are serve's (T-416).
+   tells serve the agent's session (the store records it; serve down: nothing, T-599) and, for an opencode lane, the
+   plugin marker. The agent is the derived name (T-786), so a restored pane has no "lost identity"; the renames herdr
+   needs are serve's (T-416).
 5. **StopFailure** (`obor hook stop-failure`, T-532; Claude Code fires it instead of Stop when a turn ends on an API
    error: `error` `rate_limit`, `overloaded`, `billing_error`, … `unknown`, and `error_details`): appends the raw
    `error`/`error_details` with a timestamp to `.obor/state/stop-failure.log` and sends serve one `stopped` request
@@ -604,8 +608,8 @@ stops loading). It holds no obor rules: each hook maps opencode's event to the C
 `pre-tool-use` (a deny throws, which aborts the tool with obor's line; an unreadable patch is denied); session context
 → `session-start` (with `session_id: ""`: obor never resumes an opencode session, so no session record). There is no
 `task_done` re-prompt on 2.x (it delivered no idle event).
-`obor hook` runs without `OBOR_AGENT`, `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd and
-the lane state, because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
+`obor hook` runs without `OBOR_ROLE`, `OBOR_LANE`, `HERDR_PANE_ID`: identity comes from the cwd (the same derivation,
+T-786), because a shared `opencode serve --service` carries whichever pane's env started it. opencode lanes
 run `opencode --auto --standalone` (own server with the pane's env). Installed user-global by `obor setup
 agents` (a link in `~/.config/opencode/plugins/`, beside herdr's own plugin); a no-op outside an obor project.
 The `obor` it runs is the linked kit's, except inside an obor checkout (T-478, `bin/obor`'s self-hosting rule): there the

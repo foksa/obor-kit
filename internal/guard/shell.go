@@ -1353,18 +1353,13 @@ func (g *guard) isMain(dir, gitDir, workTree string) bool {
 	return err == nil && r.Top == g.root
 }
 
-// checkPush: a push is allowed only for a non-worker whose agent name (obor_self_agent) is in guards.allow_push.
+// checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed, T-786:
+// an entry is a role, or a derived name read as its slot).
 func (g *guard) checkPush(what string) {
-	if !roles.LaneBound(g.role) && len(g.allowPush) > 0 { // never a worker's or a driver's (T-751)
-		if me := project.SelfAgent(g.cfg, g.detected, g.env); me != "" {
-			for _, a := range g.allowPush {
-				if a == me {
-					return
-				}
-			}
-		}
+	if !roles.LaneBound(g.role) && g.cfg.PushAllowed(g.role) { // never a worker's or a driver's (T-751)
+		return
 	}
-	deny(what + " is blocked — only a non-worker agent listed in guards.allow_push may push; otherwise the user pushes")
+	deny(what + " is blocked — only a non-worker role listed in guards.allow_push may push; otherwise the user pushes")
 }
 
 // gh <args>: pushes are `repo create … --push`, `pr create` and `repo sync <repo>`.

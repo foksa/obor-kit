@@ -65,7 +65,7 @@ type Drive struct {
 
 // StartDrive starts the owner's drive agent d (role driver) in a new pane split in the caller's tab (the project's
 // busiest tab when the caller's is none of the project's), labelled d.Agent like a lane pane, with OBOR_ROLE=driver,
-// OBOR_AGENT and OBOR_LANE. Refused: another agent still runs in the lane's worktree.
+// OBOR_LANE. Refused: another agent still runs in the lane's worktree.
 func (s *Setup) StartDrive(ctx context.Context, d Drive) error {
 	if err := s.load(); err != nil {
 		return err
@@ -237,7 +237,6 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if a.role.EnvValue != "" {
 		env = append(env, "OBOR_ROLE="+a.role.EnvValue)
 	}
-	env = append(env, "OBOR_AGENT="+a.name)
 	if a.lane != "" {
 		env = append(env, "OBOR_LANE="+a.lane)
 	}

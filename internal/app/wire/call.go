@@ -71,7 +71,7 @@ type JobReply struct {
 	Current string `json:"current,omitempty"`
 }
 
-// Call is one verdict request: who calls (OBOR_AGENT, OBOR_ROLE), from which project, its call id, and the task and
+// Call is one verdict request: who calls (its derived agent name, project.Self, T-786, and its role), from which project, its call id, and the task and
 // job it answers. Job "" answers the task's current job. Patch is accept's; Note is accept's note and the why of a
 // sendback, reject or hold, and resume's text; To is resume's flag: regate or sendback ("": the action the task's state
 // takes).
