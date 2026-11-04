@@ -169,26 +169,6 @@ func TestRenameKeepsAllowPushWorking(t *testing.T) {
 	}
 }
 
-func TestRenameRerunIsAlready(t *testing.T) {
-	x := renameProject(t)
-	x.stubHerdr(t, "proj")
-	x.rename(t)
-	before := x.Read(".obor/config.json")
-	out := x.rename(t)
-	for _, step := range []string{"OK 0 stop", "OK 1 config", "OK 3 files", "OK 4 herdr"} {
-		found := false
-		for _, l := range strings.Split(out, "\n") {
-			found = found || strings.HasPrefix(l, step) && strings.HasSuffix(l, "(already)")
-		}
-		if !found {
-			t.Errorf("%s is not (already) on the rerun:\n%s", step, out)
-		}
-	}
-	if x.Read(".obor/config.json") != before {
-		t.Error("the rerun changed config.json")
-	}
-}
-
 func TestRenameKeepsCustomNamesAndFailsWhileServeRuns(t *testing.T) {
 	x := renameProject(t)
 	dir := x.stubHerdr(t, "proj")

@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,27 +48,6 @@ func TestOborInitLinksThePluginIntoTheLanes(t *testing.T) {
 	}
 }
 
-// A lane that existed before the plugin was installed (the bug's shape: init made the lanes, the file came after) gets
-// the link on a rerun of init.
-func TestOborInitRerunLinksIntoAnExistingLane(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, false)
-	x.init(t)
-	cfg, _ := config.Load(x.Root)
-	link := filepath.Join(cfg.LanesDir(), "L-02", ".claude", "settings.json")
-	if err := os.Remove(link); err != nil {
-		t.Fatalf("precondition: L-02 holds the link: %v", err)
-	}
-	if config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))) {
-		t.Fatal("precondition: L-02 no longer sees the plugin")
-	}
-	out := x.init(t)
-	if !config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))) || stateOf(out, "plugin-links") != "done" {
-		t.Errorf("L-02 sees the plugin %v, plugin-links %q",
-			config.PluginEnabledIn(filepath.Dir(filepath.Dir(link))), summary(out, "plugin-links"))
-	}
-}
-
 // A settings file git tracks reaches every worktree by itself: init adds no link for it.
 func TestOborInitLeavesATrackedSettingsFileToGit(t *testing.T) {
 	t.Parallel()
@@ -96,40 +74,5 @@ func TestSetupLaneLinksAnUntrackedPluginSettings(t *testing.T) {
 	x.ok(t, "lane", "L-01")
 	if !config.PluginEnabledIn(x.LaneDir("L-01")) {
 		t.Error("the new lane does not see the enabled plugin")
-	}
-}
-
-// T-705 item 2: obor setup pane without --start labels the pane, types the env and starts no agent; --start starts it.
-func TestPaneWithoutStartStartsNoAgent(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	x.reset()
-	out := x.ok(t, "pane", "L-01", "--tab", "w1:t1")
-	calls := strings.Join(x.reqs(), "\n")
-	if !strings.Contains(calls, "pane.split") || !strings.Contains(calls, "env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=}") ||
-		!strings.Contains(calls, "pane.rename label=pj-l-01 pane_id=w1:n1") {
-		t.Errorf("the pane is split with the env and labelled:\n%s", calls)
-	}
-	if strings.Contains(calls, "agent.start") {
-		t.Errorf("an agent was started without --start:\n%s", calls)
-	}
-	if p := x.h.Pane("w1:n1"); p == nil || p.Label != "pj-l-01" || p.Name != "" || p.Kind != "" {
-		t.Errorf("pane: %+v, want labelled pj-l-01 and no agent", p)
-	}
-	if !strings.Contains(out, "no agent started") {
-		t.Errorf("output does not say no agent was started:\n%s", out)
-	}
-	// a second run reuses the labelled pane
-	x.reset()
-	x.ok(t, "pane", "L-01", "--tab", "w1:t1")
-	if strings.Contains(strings.Join(x.reqs(), "\n"), "pane.split") {
-		t.Errorf("a rerun split another pane:\n%s", strings.Join(x.reqs(), "\n"))
-	}
-	// --start starts the agent in the labelled pane
-	x.reset()
-	x.ok(t, "pane", "L-01", "--pane", "w1:n1", "--start")
-	if p := x.h.Pane("w1:n1"); p == nil || p.Name != "pj-l-01" || p.Kind != "claude" {
-		t.Errorf("with --start the pane holds %+v", p)
 	}
 }

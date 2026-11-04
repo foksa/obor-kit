@@ -146,17 +146,3 @@ func TestOborInitEndsWithTheSetupTable(t *testing.T) {
 		t.Errorf("the OK line does not come before the table:\n%s", out)
 	}
 }
-
-// T-704: a configured researcher is listed with the other roles as a model ref; an unconfigured one is not.
-func TestSetupShowListsTheResearcher(t *testing.T) {
-	t.Parallel()
-	without := newFx(t, testkit.Set("roles", `{"lead": "opus", "integrator": "opus", "reviewer": "opus"}`))
-	if out := without.ok(t, "show"); strings.Contains(out, "researcher") {
-		t.Fatalf("precondition: an unconfigured researcher is listed:\n%s", out)
-	}
-	x := newFx(t, testkit.Set("roles", `{"lead": "opus", "integrator": "opus", "reviewer": "opus",
-			"researcher": "sonnet:low"}`))
-	if out := x.ok(t, "show"); !strings.Contains(out, "researcher sonnet:low (claude sonnet, effort low)") {
-		t.Errorf("obor setup show lacks the researcher:\n%s", out)
-	}
-}

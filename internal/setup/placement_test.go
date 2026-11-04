@@ -42,37 +42,9 @@ func TestPlacementFollowsTheProjectsWorkspace(t *testing.T) {
 	hasNot(t, calls, "workspace_id=w5", "never the caller's workspace")
 }
 
-// Several workspaces hold project panes: the one with most of them is the project's.
-func TestPlacementPicksTheProjectsBusiestWorkspace(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	lane := x.LaneDir("L-01")
-	x.h.Panes = nil
-	x.h.Tab("wA:t1", 200, 50, "wA:p1")
-	x.h.Tab("wB:t2", 200, 50, "wB:p1", "wB:p2")
-	x.h.Tab("w5:t9", 200, 50, "w5:p9")
-	for id, v := range map[string][2]string{
-		"wA:p1": {"wA", lane}, "wB:p1": {"wB", lane}, "wB:p2": {"wB", x.Root}, "w5:p9": {"w5", "/elsewhere"},
-	} {
-		p := x.h.Pane(id)
-		p.Workspace, p.Cwd = v[0], v[1]
-	}
-	if n := len(x.h.Panes); n != 4 {
-		t.Fatalf("precondition: %d panes, want the 4 scripted", n)
-	}
-	x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
-
-	x.ok(t, "pane", "--start", "L-01")
-	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "target_pane_id=wB:p2", "the largest pane of wB's tab (two of its panes, wA one) — the last of equals")
-	hasNot(t, calls, "target_pane_id=wA:p1", "not the workspace with one pane")
-	hasNot(t, calls, "target_pane_id=w5:p9", "not the caller's")
-}
-
 // Placement table (T-632): with no pane of the project anywhere, a workspace of its own is made (never the caller's,
 // maybe another project's); only a tab whose every pane works in the project is picked; an unknown cwd may be another
-// project's.
+// project's; several workspaces: the one with most project panes; a user's own --tab into a mixed tab is honoured (T-634).
 func TestPlacementTable(t *testing.T) {
 	t.Parallel()
 	t.Run("no project pane, caller in another project's workspace: a new workspace, both lanes there", func(t *testing.T) {
@@ -208,38 +180,62 @@ func TestPlacementTable(t *testing.T) {
 		has(t, calls, "target_pane_id=wA:p1", "the project's tab")
 		hasNot(t, calls, "target_pane_id=wA:q1", "not the caller's tab")
 	})
-}
-
-// T-634: a user's own --tab into a mixed tab (a project pane and one with an unknown cwd) is honoured: a split there.
-func TestPlacementHonoursAnExplicitTabIntoAMixedTab(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	x.h.Panes = nil
-	x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2")
-	x.h.Tab("wA:t2", 200, 50, "wA:p3")
-	for _, id := range []string{"wA:p1", "wA:p2", "wA:p3"} {
-		x.h.Pane(id).Workspace = "wA"
-	}
-	x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p3").Cwd = x.Root, x.Root
-	if x.h.Pane("wA:p2").Cwd != "" {
-		t.Fatal("precondition: wA:p2 has an unknown cwd")
-	}
-
-	x.ok(t, "pane", "--start", "L-01", "--tab", "wA:t1")
-	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "pane.split", "a split of the named tab")
-	hasNot(t, calls, "target_pane_id=wA:p3", "not the other tab")
-	hasNot(t, calls, "tab.create", "no new tab")
-	var in string
-	for _, p := range x.h.Panes {
-		if p.Name == "pj-l-01" {
-			in = p.Tab
+	t.Run("several workspaces hold project panes: the one with most is the project's", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.ok(t, "lane", "L-01")
+		lane := x.LaneDir("L-01")
+		x.h.Panes = nil
+		x.h.Tab("wA:t1", 200, 50, "wA:p1")
+		x.h.Tab("wB:t2", 200, 50, "wB:p1", "wB:p2")
+		x.h.Tab("w5:t9", 200, 50, "w5:p9")
+		for id, v := range map[string][2]string{
+			"wA:p1": {"wA", lane}, "wB:p1": {"wB", lane}, "wB:p2": {"wB", x.Root}, "w5:p9": {"w5", "/elsewhere"},
+		} {
+			p := x.h.Pane(id)
+			p.Workspace, p.Cwd = v[0], v[1]
 		}
-	}
-	if in != "wA:t1" {
-		t.Errorf("L-01 in tab %q, want the named wA:t1", in)
-	}
+		if n := len(x.h.Panes); n != 4 {
+			t.Fatalf("precondition: %d panes, want the 4 scripted", n)
+		}
+		x.env = []string{"HERDR_PANE_ID=w5:p9", "HERDR_WORKSPACE_ID=w5"}
+
+		x.ok(t, "pane", "--start", "L-01")
+		calls := strings.Join(x.reqs(), "\n")
+		has(t, calls, "target_pane_id=wB:p2", "the largest pane of wB's tab (two of its panes, wA one) — the last of equals")
+		hasNot(t, calls, "target_pane_id=wA:p1", "not the workspace with one pane")
+		hasNot(t, calls, "target_pane_id=w5:p9", "not the caller's")
+	})
+	t.Run("an explicit --tab into a mixed tab (a project pane, one with an unknown cwd): a split there", func(t *testing.T) {
+		t.Parallel()
+		x := newFx(t)
+		x.ok(t, "lane", "L-01")
+		x.h.Panes = nil
+		x.h.Tab("wA:t1", 200, 50, "wA:p1", "wA:p2")
+		x.h.Tab("wA:t2", 200, 50, "wA:p3")
+		for _, id := range []string{"wA:p1", "wA:p2", "wA:p3"} {
+			x.h.Pane(id).Workspace = "wA"
+		}
+		x.h.Pane("wA:p1").Cwd, x.h.Pane("wA:p3").Cwd = x.Root, x.Root
+		if x.h.Pane("wA:p2").Cwd != "" {
+			t.Fatal("precondition: wA:p2 has an unknown cwd")
+		}
+
+		x.ok(t, "pane", "--start", "L-01", "--tab", "wA:t1")
+		calls := strings.Join(x.reqs(), "\n")
+		has(t, calls, "pane.split", "a split of the named tab")
+		hasNot(t, calls, "target_pane_id=wA:p3", "not the other tab")
+		hasNot(t, calls, "tab.create", "no new tab")
+		var in string
+		for _, p := range x.h.Panes {
+			if p.Name == "pj-l-01" {
+				in = p.Tab
+			}
+		}
+		if in != "wA:t1" {
+			t.Errorf("L-01 in tab %q, want the named wA:t1", in)
+		}
+	})
 }
 
 // The caller's tab holds another project's lead, in the workspace of this project's pane: that pane is never split

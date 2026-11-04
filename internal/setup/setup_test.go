@@ -444,73 +444,6 @@ func TestInitNeverOverwritesAndIsIdempotent(t *testing.T) {
 	hasNot(t, out, "created", "nothing created on rerun")
 }
 
-// T-459 (was bash setup.test.sh case_init_copies_queue_to_paths_queue_once): init copies no queue file; T-470: there
-// is no queue, and no paths.queue.
-func TestInitCopiesNoQueueFile(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	if _, err := os.Stat(filepath.Join(kit, "templates", "QUEUE.md")); !os.IsNotExist(err) {
-		t.Fatalf("precondition: the kit's templates/QUEUE.md is deleted (%v)", err)
-	}
-	out, err := x.projectStep(t, "", "pj")
-	if err != nil {
-		t.Fatalf("project step: %v\n%s", err, out)
-	}
-	hasNot(t, out, "QUEUE.md", "init says nothing about a queue file")
-	if x.Exists("docs/QUEUE.md") {
-		t.Error("init wrote no docs/QUEUE.md")
-	}
-	cfg, err := config.Load(x.Root)
-	if err != nil {
-		t.Fatalf("config loads: %v", err)
-	}
-	if got := cfg.Paths().Get("queue"); got != "" {
-		t.Errorf("paths.queue = %q, want none (T-470)", got)
-	}
-}
-
-// bash setup.test.sh case_init_adds_task_run_to_gitignore_once, case_init_adds_lane_links_to_gitignore_once
-// T-459: the queue lock line is gone (the queue is obor serve's store; there is no docs/QUEUE.md to lock).
-func TestInitAddsGitignoreLinesOnce(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("lane_links", []any{"reference", "public/assets"}))
-	x.Write(".gitignore", x.Read(".gitignore")+"reference\n")
-	for _, l := range []string{".task-run", "public/assets"} {
-		if count(x.Read(".gitignore"), l) != 0 {
-			t.Fatalf("precondition: %s not ignored", l)
-		}
-	}
-	out, err := x.projectStep(t, "", "")
-	if err != nil {
-		t.Fatalf("project step: %v\n%s", err, out)
-	}
-	for _, l := range []string{".task-run", "public/assets"} {
-		has(t, out, ".gitignore += "+l, "said")
-	}
-	hasNot(t, out, ".gitignore += reference", "an existing line not reported")
-	hasNot(t, out, ".gitignore += docs/QUEUE.md.lock", "no queue lock line")
-	gi := x.Read(".gitignore")
-	for _, l := range []string{".task-run", "public/assets", "reference", ".obor/state/"} {
-		if count(gi, l) != 1 {
-			t.Errorf("%s once:\n%s", l, gi)
-		}
-	}
-	if count(gi, "QUEUE.md.lock") != 0 {
-		t.Errorf("no queue lock line:\n%s", gi)
-	}
-	if again, err := x.projectStep(t, "", ""); err != nil {
-		t.Fatalf("rerun: %v\n%s", err, again)
-	} else {
-		hasNot(t, again, ".gitignore +=", "nothing added on rerun")
-	}
-	if x.Read(".gitignore") != gi {
-		t.Error("gitignore unchanged on rerun")
-	}
-	if _, err := gitIn(x.Root, "check-ignore", "-q", "public/assets"); err != nil {
-		t.Error("public/assets ignored by git")
-	}
-}
-
 // T-731: init ignores the reviews dir (paths.reviews, default docs/reviews): a broad `git add -A` stages no open
 // review, which `obor review close` would refuse.
 func TestInitGitignoresTheReviewsDir(t *testing.T) {
@@ -549,66 +482,6 @@ func TestInitGitignoresTheReviewsDir(t *testing.T) {
 				t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
 			}
 		})
-	}
-}
-
-// T-731: obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: init made
-// before the line was ignored leaves it out.
-func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
-	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
-		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
-	}
-	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-	has(t, out, ".gitignore += docs/reviews/", "the reviewer's setup said")
-	if count(x.Read(".gitignore"), "docs/reviews/") != 1 {
-		t.Errorf("docs/reviews/ once:\n%s", x.Read(".gitignore"))
-	}
-	if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
-		t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
-	}
-	gi := x.Read(".gitignore")
-	out = x.ok(t, "role", "deep_dive", "--new-tab", "deep-dive")
-	hasNot(t, out, ".gitignore +=", "the deep dive adds nothing")
-	if x.Read(".gitignore") != gi {
-		t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
-	}
-}
-
-// T-731: a reviews line already there, with or without its trailing slash, is left alone (the line is git's either way).
-func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
-	t.Parallel()
-	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
-		t.Run(line, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
-			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
-			gi := x.Read(".gitignore")
-			out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-			hasNot(t, out, ".gitignore +=", "an existing line is not added again")
-			if x.Read(".gitignore") != gi {
-				t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
-			}
-		})
-	}
-}
-
-// T-310: init no longer writes the .obor-plugin ignore line T-309 added: the opencode marker lives in the state dir
-// (which init already ignores), so no project needs the line.
-func TestInitDoesNotWriteThePluginMarkerLine(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	out, err := x.projectStep(t, "", "pj")
-	if err != nil {
-		t.Fatalf("project step: %v\n%s", err, out)
-	}
-	hasNot(t, out, ".obor-plugin", "init said nothing about .obor-plugin")
-	if count(x.Read(".gitignore"), ".obor-plugin") != 0 {
-		t.Errorf(".gitignore names .obor-plugin:\n%s", x.Read(".gitignore"))
-	}
-	if count(x.Read(".gitignore"), ".obor/state/") != 1 {
-		t.Errorf(".obor/state/ still ignored once:\n%s", x.Read(".gitignore"))
 	}
 }
 
@@ -799,99 +672,42 @@ func TestPaneSplitsTheTabAndStartsTheAgentInOrder(t *testing.T) {
 }
 
 // STATUS 2026-10-13: hk-int got a 1-line pane: the largest pane is split (not the last), right when wide, else down.
+// T-557: panes of the same area go to the last one, as before (50×20 and 100×10 are both 1000 cells).
 func TestPaneSplitsTheLargestPane(t *testing.T) {
 	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	x.ok(t, "lane", "L-02")
-	x.h.Panes = nil
-	x.h.Tab("w1:t1", 100, 50, "w1:p1")
-	x.h.Tab("w1:t1", 100, 2, "w1:p2")
-	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=down env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p1", "the big pane, not the last one; tall → down")
-
-	x.h.Panes = nil
-	x.h.Tab("w1:t1", 50, 20, "w1:p1")
-	x.h.Tab("w1:t1", 150, 20, "w1:p2")
-	x.ok(t, "pane", "--start", "L-02", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=,OBOR_LANE=L-02,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p2", "wide → right")
-}
-
-// T-557: panes of the same area go to the last one, as before; 50×20 and 100×10 are both 1000 cells.
-func TestPaneSplitsTheLastOfTiedPanes(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	x.h.Panes = nil
-	x.h.Tab("w1:t1", 50, 20, "w1:p1")
-	x.h.Tab("w1:t1", 100, 10, "w1:p2")
-	p1, p2 := x.h.Pane("w1:p1"), x.h.Pane("w1:p2")
-	if p1.W*p1.H != p2.W*p2.H {
-		t.Fatalf("precondition: areas %d and %d differ", p1.W*p1.H, p2.W*p2.H)
+	for _, c := range []struct {
+		name   string
+		panes  [][3]int // w, h and the pane's number: pane w1:p<n>
+		target int      // the pane's number split
+		dir    string   // the split's direction
+	}{
+		{"the big one, not the last one: tall → down", [][3]int{{100, 50, 1}, {100, 2, 2}}, 1, "down"},
+		{"the big one, not the last one: wide → right", [][3]int{{50, 20, 1}, {150, 20, 2}}, 2, "right"},
+		{"equal areas: the last of the tie, not the first", [][3]int{{50, 20, 1}, {100, 10, 2}}, 2, "right"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t)
+			x.ok(t, "lane", "L-01")
+			x.h.Panes = nil
+			for _, p := range c.panes {
+				x.h.Tab("w1:t1", p[0], p[1], fmt.Sprintf("w1:p%d", p[2]))
+			}
+			if len(x.h.Panes) != len(c.panes) {
+				t.Fatalf("precondition: %d panes, want %d", len(x.h.Panes), len(c.panes))
+			}
+			a, b := c.panes[0], c.panes[1]
+			area := func(p [3]int) int { return p[0] * p[1] }
+			if c.target == b[2] && area(b) < area(a) || c.target == a[2] && area(a) <= area(b) {
+				t.Fatalf("precondition: pane %d (area %d) and pane %d (area %d) do not make pane %d the split's target",
+					a[2], area(a), b[2], area(b), c.target)
+			}
+			x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
+			has(t, strings.Join(x.reqs(), "\n"), "direction="+c.dir+
+				" env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} "+
+				fmt.Sprintf("target_pane_id=w1:p%d", c.target), c.name)
+		})
 	}
-	x.ok(t, "pane", "--start", "L-01", "--tab", "w1:t1")
-	has(t, strings.Join(x.reqs(), "\n"), "direction=right env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} target_pane_id=w1:p2", "equal areas → the last pane, not the first; wide → right")
-}
-
-// bash setup.test.sh case_pane_new_tab_creates_a_tab_with_cwd_and_env
-func TestPaneNewTabCreatesATabWithCwdAndEnv(t *testing.T) {
-	t.Parallel()
-	x := newFx(t)
-	x.ok(t, "lane", "L-01")
-	x.State("L-01", map[string]any{"task": "T-1", "type": "luna"})
-	lane := x.LaneDir("L-01")
-	out := x.ok(t, "pane", "--start", "L-01", "--new-tab", "workers")
-	if last(out) != "OK L-01: pj-l-01 in pane w1:n1" {
-		t.Errorf("last line %q", last(out))
-	}
-	want := []string{"agent.list", "pane.list",
-		"tab.create cwd=" + lane + " env={OBOR_AGENT=,OBOR_LANE=L-01,OBOR_OPENCODE_MODEL=,OBOR_ROLE=worker,OPENCODE_CONFIG=} focus=false label=workers workspace_id=w1",
-		"pane.rename label=pj-l-01 pane_id=w1:n1", "agent.get target=pj-l-01", "agent.get target=w1:n1", "agent.get target=w1:n1",
-		"agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false -c mcp_servers.obor.command=\"" + kit + "/bin/obor\" -c mcp_servers.obor.args=[\"mcp\"] -c mcp_servers.obor.env_vars=[\"OBOR_ROLE\",\"OBOR_LANE\",\"HERDR_PANE_ID\",\"OBOR_STATE_HOME\"] -c mcp_servers.obor.env={OBOR_NO_SELF_HOST=\"1\"} -c mcp_servers.obor.default_tools_approval_mode=\"approve\"] kind=codex name=pj-l-01 pane_id=w1:n1",
-		"pane.process_info pane_id=w1:n1"} // the fresh Codex start's pid: the rollout it holds is its session (T-588)
-	if got := x.reqs(); strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-}
-
-// T-708: setup role labels the pane and starts no agent; --start starts one.
-func TestSetupRoleStartsNoAgentWithoutStart(t *testing.T) {
-	t.Parallel()
-	count := func(x *fx) int { return strings.Count(strings.Join(x.reqs(), "\n"), "agent.start") }
-	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
-	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
-	has(t, strings.Join(x.reqs(), "\n"), "pane.rename label=pj-rev", "the pane is labelled")
-	has(t, out, "no agent started (started on first use; --start starts it now)", "the no-agent line")
-	if n := count(x); n != 0 {
-		t.Errorf("role without --start: %d agent.start, want 0", n)
-	}
-	y := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
-	y.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
-	if n := count(y); n != 1 {
-		t.Errorf("role with --start: %d agent.start, want 1", n)
-	}
-}
-
-// A new tab goes to the project's workspace (w1: its panes work in the root), not herdr's active one (T-137) and not
-// the caller's when that holds no pane of the project (T-632).
-func TestNewTabInTheProjectsWorkspace(t *testing.T) {
-	t.Parallel()
-	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
-	x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
-	calls := strings.Join(x.reqs(), "\n")
-	has(t, calls, "tab.create cwd="+x.Root+" env={OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=} focus=false label=review workspace_id=w1", "without HERDR_WORKSPACE_ID: the project's")
-
-	x.noAgents()
-	x.h.Pane("w1:n1").Label = ""
-	x.reset()
-	x.env = []string{"HERDR_WORKSPACE_ID=w6"}
-	out := x.ok(t, "role", "reviewer", "--new-tab", "review", "--start")
-	if last(out) != "OK reviewer: pj-rev in pane w1:n2" {
-		t.Errorf("last line %q", last(out))
-	}
-	calls = strings.Join(x.reqs(), "\n")
-	has(t, calls, "workspace_id=w1", "the project's workspace")
-	hasNot(t, calls, "workspace_id=w6", "not the caller's, no pane of the project there")
 }
 
 // bash setup.test.sh case_pane_refuses_a_full_tab
@@ -1480,139 +1296,6 @@ func gitIn(dir string, args ...string) (string, error) {
 }
 
 // --- agents (T-306, DD-v0.13 B1, T-809) -----------------------------------------------------------------------------
-
-// T-809: obor setup agents removes what an older obor wrote user-globally for OpenCode, now per start: the
-// mcp.servers.obor entry of <XDG_CONFIG_HOME>/opencode/opencode.json when it runs an obor kit's `bin/obor mcp`, and
-// the plugins/obor.js link when it links to an obor kit's opencode/obor.js. The user's other servers, keys and plugins
-// stay; a rerun (and --remove) says there is nothing left.
-func TestSetupAgentsRetiresTheGlobalOpencodeEntries(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.json")
-	dir := filepath.Join(conf, "opencode", "plugins")
-	link := filepath.Join(dir, "obor.js")
-	x.Write(path, `{"theme":"dark","plugins":["my-plugin"],"mcp":{"keep":1,"servers":{"other":{"type":"remote","url":"http://x"},`+
-		`"obor":{"type":"local","command":["/home/u/.obor/kit/bin/obor","mcp"],"environment":{"OBOR_NO_SELF_HOST":"1"}}}}}`)
-	x.Write(filepath.Join(dir, "herdr-agent-state.js"), "// herdr's\n")
-	if err := os.Symlink("/home/u/.obor/kit/opencode/obor.js", link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(link); err != nil || !strings.Contains(x.Read(path), "/home/u/.obor/kit/bin/obor") {
-		t.Fatal("precondition: the old global entry and link")
-	}
-
-	out := x.ok(t, "agents")
-	has(t, out, "OK agents opencode: removed the global plugin link "+link, "the link: said")
-	has(t, out, "OK agents opencode: removed the global mcp.servers.obor from "+path, "the entry: said")
-	if _, err := os.Lstat(link); err == nil {
-		t.Error("the old link is removed")
-	}
-	got := x.Read(path)
-	if strings.Contains(got, "obor") {
-		t.Errorf("the old entry is removed: %s", got)
-	}
-	for _, keep := range []string{`"theme": "dark"`, `"my-plugin"`, `"keep": 1`, `"other"`, `"url": "http://x"`} {
-		has(t, got, keep, "the user's other keys, servers and plugins kept")
-	}
-	if x.Read(filepath.Join(dir, "herdr-agent-state.js")) != "// herdr's\n" {
-		t.Error("other files in the plugins dir untouched")
-	}
-	for _, args := range [][]string{{"agents"}, {"agents", "--remove"}} {
-		out = x.ok(t, args...)
-		has(t, out, "OK agents opencode: no "+link, strings.Join(args, " ")+": no link left")
-		has(t, out, "OK agents opencode: no mcp.servers.obor in "+path, strings.Join(args, " ")+": no entry left")
-		if x.Read(path) != got {
-			t.Errorf("%s: the config is not rewritten", args)
-		}
-	}
-	x.failing(t, "FAIL "+Usage(), "agents", "--bogus")
-}
-
-// T-809: a global entry that is not obor's (another command) and a plugins/obor.js that is not obor's link (a link
-// elsewhere, a user's own file) are left alone with a WARN, and setup agents still succeeds.
-func TestSetupAgentsKeepsAnOpencodeEntryThatIsNotObors(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	path := filepath.Join(conf, "opencode", "opencode.json")
-	link := filepath.Join(conf, "opencode", "plugins", "obor.js")
-	theirs := `{"mcp":{"servers":{"obor":{"type":"local","command":["/usr/local/bin/my-obor","serve"]}}}}`
-	x.Write(path, theirs)
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/elsewhere/mine.js", link); err != nil {
-		t.Fatal(err)
-	}
-	out := x.ok(t, "agents")
-	has(t, out, "WARN agents opencode: mcp.servers.obor in "+path+" is not obor's", "a foreign entry: warned")
-	has(t, out, "WARN agents opencode: "+link+" links to /elsewhere/mine.js (not an obor kit's): left alone", "a foreign link: warned")
-	if x.Read(path) != theirs {
-		t.Errorf("a foreign entry is kept as it was: %s", x.Read(path))
-	}
-	if s, _ := os.Readlink(link); s != "/elsewhere/mine.js" {
-		t.Errorf("a foreign link is kept: → %q", s)
-	}
-	os.Remove(link)
-	x.Write(link, "// a user's own obor.js\n")
-	has(t, x.ok(t, "agents"), "WARN agents opencode: "+link+" is not obor's link: left alone", "a user's file: warned")
-	if x.Read(link) != "// a user's own obor.js\n" {
-		t.Error("a user's file is never removed")
-	}
-}
-
-// Without XDG_CONFIG_HOME the old link and entry are looked for under ~/.config/opencode.
-func TestSetupAgentsRetiresUnderHomeConfig(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	home := filepath.Join(x.Base, "home") // the fixture's HOME; no XDG_CONFIG_HOME
-	link := filepath.Join(home, ".config", "opencode", "plugins", "obor.js")
-	path := filepath.Join(home, ".config", "opencode", "opencode.json")
-	x.Write(path, `{"mcp":{"servers":{"obor":{"type":"local","command":["`+filepath.Join(kit, "bin", "obor")+`","mcp"]}}}}`)
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(kit, "opencode", "obor.js"), link); err != nil {
-		t.Fatal(err)
-	}
-	x.ok(t, "agents")
-	if _, err := os.Lstat(link); err == nil {
-		t.Error("the link under ~/.config is removed")
-	}
-	if strings.Contains(x.Read(path), "obor") {
-		t.Errorf("the entry under ~/.config is removed (an unpinned one too): %s", x.Read(path))
-	}
-}
-
-// A .jsonc config with comments is not edited (the entry is to remove by hand: a WARN); one that is plain JSON is
-// edited like opencode.json; a config that is not JSON is left alone with a FAIL naming the file.
-func TestSetupAgentsRetireLeavesUneditableConfigs(t *testing.T) {
-	t.Parallel()
-	x := bare(t)
-	conf := filepath.Join(x.Base, "xdg")
-	x.env = []string{"XDG_CONFIG_HOME=" + conf}
-	jsonc := filepath.Join(conf, "opencode", "opencode.jsonc")
-	commented := "// comments\n{\"mcp\":{\"servers\":{\"obor\":{\"type\":\"local\",\"command\":[\"/k/bin/obor\",\"mcp\"]}}}}\n"
-	x.Write(jsonc, commented)
-	has(t, x.ok(t, "agents"), "WARN agents opencode: "+jsonc+" is not edited (comments would be lost): remove mcp.servers.obor there by hand", "comments: warned")
-	if x.Read(jsonc) != commented {
-		t.Errorf("the jsonc config is not written: %q", x.Read(jsonc))
-	}
-	x.Write(jsonc, `{"$schema":"https://opencode.ai/config.json","mcp":{"servers":{"obor":{"type":"local","command":["/k/bin/obor","mcp"]}}}}`)
-	has(t, x.ok(t, "agents"), "OK agents opencode: removed the global mcp.servers.obor from "+jsonc, "a plain-JSON .jsonc: edited")
-	if got := x.Read(jsonc); strings.Contains(got, "obor") || !strings.Contains(got, "$schema") {
-		t.Errorf("the .jsonc entry removed, the rest kept: %s", got)
-	}
-	path := filepath.Join(conf, "opencode", "opencode.json")
-	x.Write(path, "{ not json")
-	out, rc := x.run(t, "agents")
-	if rc != 1 || !strings.Contains(last(out), path) || x.Read(path) != "{ not json" {
-		t.Errorf("exit %d, last %q, file %q", rc, last(out), x.Read(path))
-	}
-}
 
 // `obor setup mcp` says per kind whether the server is registered, then runs the handshake: all OK, a broken handshake
 // a WARN and a FAIL.

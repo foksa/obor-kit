@@ -40,7 +40,8 @@ Rerunning `obor setup pane` for a lane whose agent runs is a no-op (`OK … alre
 installs what each agent kind needs outside the project. Today no kind needs anything: opencode lanes (`kind:
 opencode`, no Claude Code hooks) get obor's MCP server and its plugin (file guard and session context; there is no
 Stop hook, so nothing nudges a missing `task_done`) from each start's generated config (`OPENCODE_CONFIG`, under
-`.obor/state/`), Claude and Codex from the plugin manifest and launch args. It removes what an older obor wrote: the
-`mcp.servers.obor` entry of `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there
-(`$XDG_CONFIG_HOME` respected), when they are obor's; restart opencode agents after it.
+`.obor/state/`), Claude and Codex from the plugin manifest and launch args. If an obor before v0.25 put a global
+opencode registration on the machine, remove it by hand: the `mcp.servers.obor` entry of
+`~/.config/opencode/opencode.json` and the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected); restart
+opencode agents after it.
 Optional: offer a bug-triage agent (`roles.triage` = a model ref, e.g. `opus:high`, then `obor setup role triage --new-tab triage`): the person reports bugs to it, it keeps `docs/BUGS.md` and hands fixes to the project's lead (`agents/triage.md`).
