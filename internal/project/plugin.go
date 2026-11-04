@@ -5,13 +5,59 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"obor/internal/config"
+	"obor/internal/roles"
 )
 
-// InboxFile is where the SessionStart hook records an agent's Claude session inbox (T-485):
-// ${OBOR_STATE_HOME:-$HOME/.obor}/agents/<agent>.inbox, mode 0600 (it holds the session's messaging token). obor serve posts the lead's lines there.
-func InboxFile(agent string, env Env) string {
-	return filepath.Join(StateHome(env), "agents", agent+".inbox")
+// InboxFile is where the SessionStart hook records the Claude session inbox of the session holding slot in the
+// project at root (T-485, DD-consolidation I4): <root>/.obor/state/inbox/<slot>, its "/" a "." (L-03/drive →
+// L-03.drive), mode 0600 (it holds the session's messaging token). Keyed by the project and the slot, never by an agent
+// name: two projects with one prefix keep apart, and a rename leaves it where it is. obor serve posts there.
+func InboxFile(root, slot string) string {
+	return filepath.Join(StateDir(root), "inbox", strings.ReplaceAll(slot, "/", "."))
+}
+
+// InboxSlot is the slot a session of role holds, its inbox record's key: the role (lead, reviewer …), a worker's lane
+// (L-03), the owner's drive agent's lane/drive (L-03/drive); "" for none (no role, a role outside the table, a
+// lane-bound role without its lane).
+func InboxSlot(role Role) string {
+	switch {
+	case role.Role == roles.Driver:
+		if role.Lane == "" {
+			return ""
+		}
+		return role.Lane + "/drive"
+	case roles.LaneBound(role.Role):
+		return role.Lane
+	}
+	if _, ok := roles.Lookup(role.Role); !ok {
+		return ""
+	}
+	return role.Role
+}
+
+// AgentSlot is the slot whose derived agent name (config.Self) under cfg is agent: InboxSlot of that role and lane;
+// "" when no slot's is.
+func AgentSlot(cfg *config.Config, agent string) string {
+	if cfg == nil || agent == "" {
+		return ""
+	}
+	for _, l := range cfg.Lanes() {
+		for _, role := range []string{"worker", roles.Driver} {
+			if cfg.Self(role, l.Name) == agent {
+				return InboxSlot(Role{Role: role, Lane: l.Name})
+			}
+		}
+	}
+	for _, r := range roles.All() {
+		if !roles.LaneBound(r.Name) && cfg.Self(r.Name, "") == agent {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 // Inbox is a Claude session's inbox record: its socket (CLAUDE_CODE_MESSAGING_SOCKET), token
@@ -22,10 +68,11 @@ type Inbox struct {
 	Session string `json:"session,omitempty"`
 }
 
-// ReadInbox is agent's inbox record; an error when there is none or it names no socket.
-func ReadInbox(agent string, env Env) (Inbox, error) {
+// ReadInbox is the inbox record of slot in root's project; an error when there is none or it names no socket.
+func ReadInbox(root, slot string) (Inbox, error) {
 	var in Inbox
-	b, err := os.ReadFile(InboxFile(agent, env))
+	f := InboxFile(root, slot)
+	b, err := os.ReadFile(f)
 	if err != nil {
 		return in, err
 	}
@@ -33,22 +80,23 @@ func ReadInbox(agent string, env Env) (Inbox, error) {
 		return in, err
 	}
 	if in.Socket == "" {
-		return in, errors.New(InboxFile(agent, env) + ": no socket")
+		return in, errors.New(f + ": no socket")
 	}
 	return in, nil
 }
 
-// WriteInbox records in as agent's inbox, mode 0600, replacing any record at once (a reader never sees half of it).
-func WriteInbox(agent string, in Inbox, env Env) error {
+// WriteInbox records in as slot's inbox in root's project, mode 0600, replacing any record at once (a reader never
+// sees half of it).
+func WriteInbox(root, slot string, in Inbox) error {
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	f := InboxFile(agent, env)
+	f := InboxFile(root, slot)
 	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(f), "."+agent+".inbox.*")
+	tmp, err := os.CreateTemp(filepath.Dir(f), "."+filepath.Base(f)+".*")
 	if err != nil {
 		return err
 	}

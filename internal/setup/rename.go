@@ -1,8 +1,10 @@
 package setup
 
-// `obor setup rename --name N --prefix P`: rename a project and its agents (T-587). Steps 0, 1, 3, 4, 5 in order, each one
-// `OK <n> <name>: …` (`(already)` when there was nothing to do) or the one `FAIL <n> <name>: …` that stops the run; a
-// rerun after the fix is the repair path. The project's history is never rewritten.
+// `obor setup rename --name N --prefix P`: rename a project and its agents (T-587). Refused before any step while the
+// project's serve LaunchAgent is installed under the old name (DD-consolidation I7: its label would outlive the
+// rename). Steps 0, 1, 3, 4, 5 in order, each one `OK <n> <name>: …` (`(already)` when there was nothing to do) or the
+// one `FAIL <n> <name>: …` that stops the run; a rerun after the fix is the repair path. The project's history is
+// never rewritten. The inbox records are keyed by slot in the project (DD-consolidation I4): nothing to move.
 //
 //	0 stop     no serve holds .obor/state/serve.flock (a flock held, or a pid in the file that still lives) and no
 //	           herdr agent runs in the root or the lanes dir (panes may stay)
@@ -10,8 +12,7 @@ package setup
 //	           guards.allow_push lists roles, T-786: nothing to rewrite)
 //	           (no store step: serve rebuilds the lane rows from the log, whose old agent names serve ignores once they
 //	           are no name of the lane under the config: internal/app rowAgent)
-//	3 files    ~/.obor/agents/<old>.inbox copied to <new>.… (no overwrite); each lane worktree's opencode.json
-//	           with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
+//	3 files    each lane worktree's opencode.json with a path to another kit's bin/obor (an MCP server) pointing at this kit's bin/obor
 //	4 herdr    the workspace labelled with the old name is renamed (`herdr workspace rename`), and every pane of it
 //	           whose label follows the old prefix (mapAgent) is relabelled (`herdr pane rename`)
 //	5 finish   the old → new agent table, the lanes dir moves when its path has the old name, what to do next
@@ -73,6 +74,11 @@ func (s *Setup) renameCmd(ctx context.Context, args []string) error {
 	}
 	if err := s.load(); err != nil {
 		return err
+	}
+	if s.Installed != nil {
+		if plist, ok := s.Installed(s.cfg); ok {
+			return project.Failf("the serve LaunchAgent %s is installed under the old name: run `obor serve uninstall` first, then obor setup rename again", plist)
+		}
 	}
 	r := &renamer{Setup: s, name: name, prefix: prefix, oldName: s.cfg.Data.Name, oldPrefix: s.cfg.Data.Prefix}
 	r.oldLead = s.cfg.AgentName("lead", "")
@@ -239,45 +245,14 @@ func (r *renamer) agentPairs(rows map[string]store.LaneRow) []agentPair {
 // 3 ---------------------------------------------------------------------------------------------------------------
 
 func (r *renamer) files(context.Context) error {
-	var did []string
-	for _, p := range r.pairs {
-		if p.old == p.new {
-			continue
-		}
-		src, dst := project.InboxFile(p.old, r.Env), project.InboxFile(p.new, r.Env)
-		b, err := os.ReadFile(src)
-		if err != nil {
-			continue
-		}
-		if _, err := os.Lstat(dst); err == nil {
-			continue // never overwritten
-		}
-		info, err := os.Stat(src)
-		if err != nil {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return project.Failf("%v", err)
-		}
-		if err := os.WriteFile(dst, b, info.Mode().Perm()); err != nil {
-			return project.Failf("%v", err)
-		}
-		did = append(did, filepath.Base(src)+" → "+filepath.Base(dst))
-	}
 	moved, err := r.kitPaths()
 	if err != nil {
 		return err
 	}
-	if len(did) > 0 {
-		did = []string{"copied " + strings.Join(did, ", ") + " (the old ones stay)"}
-	}
-	if len(moved) > 0 {
-		did = append(did, "kit path in "+strings.Join(moved, ", "))
-	}
-	if len(did) == 0 {
-		r.ok("3 files", true, "no agent file left to copy, no kit path to correct")
+	if len(moved) == 0 {
+		r.ok("3 files", true, "no kit path to correct")
 	} else {
-		r.ok("3 files", false, "%s", strings.Join(did, "; "))
+		r.ok("3 files", false, "kit path in %s", strings.Join(moved, ", "))
 	}
 	return nil
 }

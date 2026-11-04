@@ -22,13 +22,23 @@ func setupCmd(args []string) int {
 	kit := project.KitRoot(project.OSEnv)
 	h := &herdr.Socket{Path: herdr.SocketPath(project.OSEnv)}
 	s := &setup.Setup{Kit: kit, Dir: cwd, Env: project.OSEnv, H: h, Out: out, McpCheck: mcp.Check,
-		Starter: launcherFor(project.OSEnv, kit, h, out, nil), Serve: serveInstaller(project.OSEnv)}
+		Starter: launcherFor(project.OSEnv, kit, h, out, nil), Serve: serveInstaller(project.OSEnv),
+		Installed: serveInstalled(project.OSEnv)}
 	return s.Run(context.Background(), args)
 }
 
 // initCmd is `obor init [--name N] [--prefix P]` (P7-2): the project set up with no questions
 // (internal/setup/oborinit.go), its summary, OK or FAIL.
 func initCmd(args []string) int { return setupCmd(append([]string{"obor-init"}, args...)) }
+
+// serveInstalled is setup's Installed: the plist of cfg's serve LaunchAgent (service) when it is there.
+func serveInstalled(env project.Env) func(*config.Config) (string, bool) {
+	return func(cfg *config.Config) (string, bool) {
+		plist := serviceOf(cfg, env).PlistPath()
+		_, err := os.Stat(plist)
+		return plist, err == nil
+	}
+}
 
 // serveInstaller is obor init's last step: `obor serve install` for the project (service), already when its
 // current plist is loaded, skipped off darwin.

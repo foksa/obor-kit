@@ -123,9 +123,9 @@ func roleAgent(cfg *config.Config, agent string) bool {
 }
 
 // poster posts serve's lines and job wakes into an agent's session whose kind has an inbox (app.Poster, T-485, T-499):
-// the session's inbox socket as its SessionStart hook recorded it (<agent>.inbox), the kind's lines
-// (agents.Kind.Deliver). Nothing is typed into a pane.
-type poster struct{ env project.Env }
+// the session's inbox socket as its SessionStart hook recorded it in the project at root (the record of the agent's
+// slot, DD-consolidation I4), the kind's lines (agents.Kind.Deliver). Nothing is typed into a pane.
+type poster struct{ root string }
 
 // postWait bounds one post: the dial, the write, and the wait for the session to close its end after reading.
 const postWait = 3 * time.Second
@@ -138,13 +138,18 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	if !ok || !k.Caps().Inbox {
 		return false, fmt.Errorf("%s: kind %s posts through no inbox", agent, kind)
 	}
-	rec, err := os.ReadFile(project.InboxFile(agent, p.env))
+	slot, err := slotOf(p.root, agent)
+	if err != nil {
+		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
+	}
+	f := project.InboxFile(p.root, slot)
+	rec, err := os.ReadFile(f)
 	if err != nil {
 		return false, fmt.Errorf("no session recorded for %s: %w", agent, err)
 	}
 	d, ok := k.Deliver(line, rec)
 	if !ok || d.Typed {
-		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, project.InboxFile(agent, p.env))
+		return false, fmt.Errorf("no session recorded for %s: %s names no socket", agent, f)
 	}
 	ctx, cancel := context.WithTimeout(ctx, postWait)
 	defer cancel()
@@ -168,11 +173,29 @@ func (p poster) Post(ctx context.Context, kind, agent, line string) (began bool,
 	return true, nil
 }
 
-// inboxed is app.Options.Inboxed: agent's inbox record names a socket that is there (a session that ended removed it;
-// a crashed one's is refused at the dial and retried), and the session that wrote it.
-func inboxed(env project.Env) func(agent string) (string, bool) {
+// slotOf is the slot agent holds in the project at root, its inbox record's key (project.AgentSlot under the config as
+// it is now: a rename moves no record); an error when agent holds none there.
+func slotOf(root, agent string) (string, error) {
+	cfg, err := config.LoadDaemon(root)
+	if err != nil {
+		return "", err
+	}
+	slot := project.AgentSlot(cfg, agent)
+	if slot == "" {
+		return "", fmt.Errorf("%s holds no slot of the project at %s", agent, root)
+	}
+	return slot, nil
+}
+
+// inboxed is app.Options.Inboxed for the project at root: agent's inbox record names a socket that is there (a session
+// that ended removed it; a crashed one's is refused at the dial and retried), and the session that wrote it.
+func inboxed(root string) func(agent string) (string, bool) {
 	return func(agent string) (string, bool) {
-		in, err := project.ReadInbox(agent, env)
+		slot, err := slotOf(root, agent)
+		if err != nil {
+			return "", false
+		}
+		in, err := project.ReadInbox(root, slot)
 		if err != nil {
 			return "", false
 		}

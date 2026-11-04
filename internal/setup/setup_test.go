@@ -53,6 +53,8 @@ type fx struct {
 	open func(pids []int) []string
 	// serve is Setup.Serve (obor init's serve install; nil: none)
 	serve func(context.Context, *config.Config) (string, string, error)
+	// installed is Setup.Installed (the serve LaunchAgent's plist when installed; nil: none is)
+	installed func(*config.Config) (string, bool)
 	// shellWait is Setup.ShellWait (0: 10 s), for tests that count on the bound
 	shellWait time.Duration
 }
@@ -132,7 +134,7 @@ func (x *fx) newSetup(t *testing.T) (*Setup, *bytes.Buffer) {
 	return &Setup{Kit: k, Env: env, H: h, Out: &out, McpCheck: check, ShellWait: x.shellWait,
 		Starter: func(cfg *config.Config) port.Starter {
 			return &launch.Launcher{Cfg: cfg, Env: env, Kit: k, H: h, Out: &out, Rollout: rollout, Open: open}
-		}, Serve: x.serve}, &out
+		}, Serve: x.serve, Installed: x.installed}, &out
 }
 
 // reqs is the requests the fake herdr socket got since reset, each as req's one line, e.g. "pane.split cwd=/w
