@@ -21,11 +21,14 @@ import (
 //	          kinds.<kind>.args; the others are dropped (listed). prompt_extra: the most common one of the kind's named
 //	          types (the others listed as dropped).
 //	dropped   max (no caps), settings, roles.<role>.agent and .worktree, a lane's type and agent, the agents key (T-777:
-//	          an entry of advisor, researcher or triage moves its type to that role; the rest are dropped): each listed.
+//	          an entry of advisor, researcher or triage — by key, by role field, or by a name that spells exactly one of
+//	          them, `fable-advisor` (T-779) — moves its model to that role; the rest are dropped): each listed.
 //	moved     roles.lead.handoff_tokens → handoff_tokens, roles.integrator.handoff_tokens → integrator_handoff_tokens.
 //	lanes     the count of lanes; Lanes is their old names in config order (the caller renames them to L-01 … L-NN).
 //	agents    a role's or lane's agent that is not the new default (<prefix>-<role>, <prefix>-l-NN) is renamed to it,
-//	          in guards.allow_push too; Agents lists each old → new (the caller relabels their panes).
+//	          in guards.allow_push too, and so is an agents entry that becomes a role (T-779; not when its derived name
+//	          is a pane label already: a note says so instead). Agents lists each old → new (the caller relabels their
+//	          panes).
 
 // Migration is Migrate's result: the new config.json and local.json (nil: there was none), the old lane names in
 // config order, the agents renamed, and the notes (what was dropped or changed, one line each).
@@ -109,7 +112,7 @@ func Migrate(config, local []byte) (Migration, error) {
 	}
 	kinds := m.kindsOf(named, table)
 	m.Lanes = mergedLanes(config, local)
-	m.Agents = agentRenames(merged, m.Lanes)
+	m.Agents = m.agentRenames(merged, m.Lanes)
 	for i, doc := range [][]byte{config, local} {
 		if doc == nil {
 			continue
@@ -322,6 +325,16 @@ func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated,
 		}
 		return ModelRef(mt.model, effort)
 	}
+	// model is the model an agents entry's type names, without the lane type's baked effort (T-779 #2): an entry
+	// only guessed a role from its name keeps the model it names (`fable`, not the fable type's `fable:high`).
+	model := func(old string) string {
+		name, effort := ParseModelRef(old)
+		mt, ok := table[name]
+		if !ok {
+			return old
+		}
+		return ModelRef(mt.model, effort)
+	}
 	if raw, _ := MemberAt(out, []string{"difficulty"}); raw != nil {
 		var levels Ordered[[]string]
 		if err := json.Unmarshal(raw, &levels); err != nil {
@@ -341,7 +354,7 @@ func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated,
 		}
 	}
 	if raw, _ := MemberAt(out, []string{"agents"}); raw != nil {
-		if out, err = m.rewriteAgents(file, out, ref, configured); err != nil {
+		if out, err = m.rewriteAgents(file, out, ref, model, configured); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -373,13 +386,16 @@ func (m *Migration) rewrite(file string, doc []byte, table map[string]*migrated,
 }
 
 // agentRoles are the roles an old agents entry belongs to (T-777): advisor, researcher and triage, the agent kinds the
-// owner made roles. An entry keyed by the role, or whose role field names it, moves to that role; every other entry is
-// dropped.
+// owner made roles. An entry keyed by the role, whose role field names it, or whose name spells it out (T-779:
+// `fable-advisor` is the advisor) moves to that role; every other entry is dropped.
 var agentRoles = []string{"advisor", "researcher", "triage"}
 
-// rewriteAgents is doc without the agents key (T-777): an entry of a role above moves its type to roles.<role> (when
-// the role is not configured already, in either config file), every other entry is dropped with a note.
-func (m *Migration) rewriteAgents(file string, doc []byte, ref func(string) string, configured map[string]bool) ([]byte, error) {
+// rewriteAgents is doc without the agents key (T-777): an entry of a role above moves its model to roles.<role> (when
+// the role is not configured already, in either config file), every other entry is dropped with a note. A role matched
+// by the entry's name takes the model the entry names (model, T-779); one matched by its key or role field takes its
+// type's ref (ref).
+func (m *Migration) rewriteAgents(file string, doc []byte, ref, model func(string) string,
+	configured map[string]bool) ([]byte, error) {
 	raw, _ := MemberAt(doc, []string{"agents"})
 	ms, _ := object(raw)
 	out, err := EditJSON(doc, []string{"agents"}, nil)
@@ -387,17 +403,24 @@ func (m *Migration) rewriteAgents(file string, doc []byte, ref func(string) stri
 		return nil, err
 	}
 	for _, e := range ms {
-		role := agentRole(e)
-		typ, _ := stringMember(e.Val, "type")
+		role, named, val := agentRole(e, ref, model)
 		switch {
-		case role == "":
+		case role == "" && len(named) == 0:
 			m.note("%s agents.%s: dropped (advisor, researcher and triage are roles: roles.advisor, "+
 				"roles.researcher, roles.triage)", file, e.Key)
+		case role == "":
+			var lines []string
+			for _, r := range named {
+				lines = append(lines, fmt.Sprintf("roles.%s: %q", r, val))
+			}
+			m.note("%s agents.%s: dropped (its name names %s): add the one you mean by hand: %s", file, e.Key,
+				strings.Join(named, " and "), strings.Join(lines, " or "))
 		case configured[role]:
-			m.note("%s agents.%s: dropped (roles.%s is configured)", file, e.Key, role)
+			m.note("%s agents.%s: dropped (roles.%s is configured): add its model by hand: roles.%s: %q",
+				file, e.Key, role, role, val)
 		default:
 			configured[role] = true
-			if out, err = EditJSON(out, []string{"roles", role}, ref(typ)); err != nil {
+			if out, err = EditJSON(out, []string{"roles", role}, val); err != nil {
 				return nil, err
 			}
 			m.note("%s agents.%s: moved to roles.%s", file, e.Key, role)
@@ -420,9 +443,23 @@ func configuredRoles(doc []byte) map[string]bool {
 	return out
 }
 
-// agentRole is the role an old agents entry e belongs to ("" none): its key when that names a role, else its role
-// field when that does.
-func agentRole(e member) string {
+// agentRole classifies an old agents entry e: the role it belongs to ("" none), the roles its name spells when that
+// is no single match, and the model ref that role takes. Its role field or exact key wins and takes the type's ref;
+// a name spelling exactly one role (`fable-advisor` → advisor, T-779) takes the model the name names.
+func agentRole(e member, ref, model func(string) string) (role string, named []string, val string) {
+	typ, _ := stringMember(e.Val, "type")
+	if r := agentRoleGiven(e); r != "" {
+		return r, nil, ref(typ)
+	}
+	named = agentRolesNamed(e.Key)
+	if len(named) == 1 {
+		return named[0], nil, model(typ)
+	}
+	return "", named, model(typ)
+}
+
+// agentRoleGiven is the role e's role field or exact key names ("" none).
+func agentRoleGiven(e member) string {
 	if r, ok := stringMember(e.Val, "role"); ok && slices.Contains(agentRoles, r) {
 		return r
 	}
@@ -430,6 +467,17 @@ func agentRole(e member) string {
 		return e.Key
 	}
 	return ""
+}
+
+// agentRolesNamed are the roles key spells out as <role>-<x> or <x>-<role>, in agentRoles order.
+func agentRolesNamed(key string) []string {
+	var out []string
+	for _, r := range agentRoles {
+		if strings.HasPrefix(key, r+"-") || strings.HasSuffix(key, "-"+r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // rewriteRoles is doc with each roles.<role> object as its model ref (ref of its type; none: ""), its agent and
@@ -464,8 +512,9 @@ func (m *Migration) rewriteRoles(file string, doc []byte, ref func(string) strin
 
 // agentRenames are the agents of merged's roles and lanes (lanes: their names in order) whose name is not the new
 // default: a role's configured agent → <prefix>-<role>, a lane's agent (configured, else <prefix>-<lane lower>) →
-// <prefix>-l-NN.
-func agentRenames(merged []byte, lanes []string) []AgentRename {
+// <prefix>-l-NN, and an agents entry that becomes a role (T-779) → <prefix>-<role>. An agents entry whose derived name
+// is a pane label already is not renamed: one note names both panes and the command to run instead.
+func (m *Migration) agentRenames(merged []byte, lanes []string) []AgentRename {
 	prefix, _ := stringMember(merged, "prefix")
 	var out []AgentRename
 	add := func(old, new string) {
@@ -481,6 +530,28 @@ func agentRenames(merged []byte, lanes []string) []AgentRename {
 			add(agent, role.AgentName(prefix, ""))
 		}
 	}
+	labels := agentLabels(merged, prefix, lanes)
+	configured := configuredRoles(merged)
+	raw, _ = MemberAt(merged, []string{"agents"})
+	ms, _ = object(raw)
+	for _, e := range ms {
+		role := agentRoleGiven(e)
+		if named := agentRolesNamed(e.Key); role == "" && len(named) == 1 {
+			role = named[0]
+		}
+		if role == "" || configured[role] {
+			continue
+		}
+		configured[role] = true
+		r, _ := roles.Lookup(role)
+		name := r.AgentName(prefix, "")
+		if name != e.Key && labels[name] {
+			m.note("agents.%s: not relabelled: %s is a pane label already (panes %s and %s): herdr pane rename "+
+				"<pane-id> --clear", e.Key, name, e.Key, name)
+			continue
+		}
+		add(e.Key, name)
+	}
 	worker, _ := roles.Lookup("worker")
 	for i, lane := range lanes {
 		old, _ := stringMember(json.RawMessage(mustMember(merged, "lanes", lane)), "agent")
@@ -488,6 +559,35 @@ func agentRenames(merged []byte, lanes []string) []AgentRename {
 			old = worker.AgentName(prefix, lane)
 		}
 		add(old, worker.AgentName(prefix, LaneName(i+1)))
+	}
+	return out
+}
+
+// agentLabels are the agent names merged sets, each of them a pane label: a role's agent, a lane's agent (else its
+// derived default) and every agents entry's key.
+func agentLabels(merged []byte, prefix string, lanes []string) map[string]bool {
+	out := map[string]bool{}
+	raw, _ := MemberAt(merged, []string{"roles"})
+	ms, _ := object(raw)
+	for _, e := range ms {
+		if a, ok := stringMember(e.Val, "agent"); ok && a != "" {
+			out[a] = true
+		}
+	}
+	worker, _ := roles.Lookup("worker")
+	for _, lane := range lanes {
+		a, _ := stringMember(json.RawMessage(mustMember(merged, "lanes", lane)), "agent")
+		if a == "" {
+			a = worker.AgentName(prefix, lane)
+		}
+		if a != "" {
+			out[a] = true
+		}
+	}
+	raw, _ = MemberAt(merged, []string{"agents"})
+	ams, _ := object(raw)
+	for _, e := range ams {
+		out[e.Key] = true
 	}
 	return out
 }

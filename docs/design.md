@@ -98,7 +98,7 @@ warns on the keys that no longer do anything.
 overrides, and any key above (an object merges key by key; a list or scalar replaces).
 
 **Models (T-765):** the config names models with their effort directly: a model ref is `<model>[:<effort>]`
-(`opus:high`), in `difficulty` levels, `roles.<role>`, `agents.<name>.type` and a spec's `Model:` line. The built-in
+(`opus:high`), in `difficulty` levels, `roles.<role>` and a spec's `Model:` line. The built-in
 models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
 opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol → `gpt-6.1-sol`, luna → `gpt-6-luna`.
 `models.<name>` adds one or overrides a built-in (`kind`, `model`; `""`: the kind's own choice). A start is its kind's
