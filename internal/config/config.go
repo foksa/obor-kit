@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -321,6 +322,22 @@ var Warn io.Writer = os.Stderr
 
 var warned sync.Map // "<file>: <key path>" already warned of in this process
 
+// retiredKeys are top-level keys the config shape before v0.23 had (a lane_types table, an agents table). They are
+// retired, not an unknown key of a newer binary: every reader refuses one, as a pre-v0.23 config runs on no defaults
+// (T-847).
+var retiredKeys = []string{"agents", "lane_types"}
+
+// retiredKey is the first top-level member of b retiredKeys names ("" when none).
+func retiredKey(b json.RawMessage) string {
+	ms, _ := object(b)
+	for _, m := range ms {
+		if slices.Contains(retiredKeys, m.Key) {
+			return m.Key
+		}
+	}
+	return ""
+}
+
 // unknownKey is Load's error for an unknown key (a dotted path), named as encoding/json names an unknown field.
 type unknownKey struct{ file, key string }
 
@@ -345,8 +362,9 @@ func LoadWith(root string, doc []byte) (*Config, error) {
 
 // readWith is read with doc as config.json's bytes (nil: the file's).
 func readWith(root string, doc []byte) (*Config, []string, error) {
+	names := []string{"config.json", "local.json"}
 	var files [2][]byte
-	for i, name := range []string{"config.json", "local.json"} {
+	for i, name := range names {
 		path := filepath.Join(root, ".obor", name)
 		b, err := os.ReadFile(path)
 		if i == 0 && doc != nil {
@@ -366,6 +384,10 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 			return nil, nil, fmt.Errorf("obor: %s is not a JSON object", path)
 		}
 		files[i] = b
+		// A retired shape key is refused before the merge can hide it and before a lenient reader drops it (T-847).
+		if key := retiredKey(b); key != "" {
+			return nil, nil, unknownKey{path, key}
+		}
 	}
 	merged := files[0]
 	if files[1] != nil {
