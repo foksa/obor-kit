@@ -5,8 +5,10 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,5 +200,87 @@ func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	}
 	if got := known(h, "w1:p3"); got.Status != "idle" {
 		t.Errorf("another pane's status after the re-read is %q, want the stream's idle", got.Status)
+	}
+}
+
+// relabelRig is T-1's start with the lane's only pane labelled pj-l-02 (lane L-02's worker; lanes: the config's
+// count), past its first pass (the no-pane clock started) and Gone later: the next pass reads herdr's panes again.
+func relabelRig(t *testing.T, lanes int) (*harness, *Loop, *startAgents) {
+	t.Helper()
+	h, fx, _, ag := promptRig(t, false, func(h *harness) {
+		h.write(filepath.Join(h.root, ".obor", "config.json"), fmt.Sprintf(`{"name":"pj","prefix":"pj","lanes":%d,`+
+			`"roles":{"integrator":""}}`, lanes))
+		h.pane("w1:p1").Label = "pj-l-02"
+	})
+	if h.step(t, fx) {
+		t.Fatal("precondition: the pass that finds only a pane of another agent waits")
+	}
+	if since(h).IsZero() {
+		t.Fatal("precondition: the no-pane clock started")
+	}
+	h.now = h.now.Add(2 * minute)
+	return h, fx, ag
+}
+
+// RV-101 #2: the lane's only pane, labelled for another agent, is relabelled to the lane's agent (a rename gives no
+// event: only the fresh read has it). The re-read brings the label into the snapshot, the wait ends, and the next
+// pass launches there once — not the clock started again with no launch and no needs-you.
+func TestRereadSeesAPaneRelabelledToTheLanesAgent(t *testing.T) {
+	t.Parallel()
+	h, fx, ag := relabelRig(t, 2)
+	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("L-01"), nil)) // labelled pj-l-01 now
+	if got := known(h, "w1:p1").Label; got != "pj-l-02" {
+		t.Fatalf("precondition: the snapshot's label is %q, want the old pj-l-02", got)
+	}
+	if !h.step(t, fx) {
+		t.Fatalf("the re-read did not settle the wait (%d reads)", h.panes.snaps)
+	}
+	if got := known(h, "w1:p1").Label; got != "pj-l-01" {
+		t.Errorf("the pane's label after the re-read is %q, want the read's pj-l-01", got)
+	}
+	if got := since(h); !got.IsZero() {
+		t.Errorf("the no-pane clock after a usable re-read is %s, want cleared", got)
+	}
+	h.step(t, fx) // the start the re-read found the pane for
+	if ag.restarts != 1 || ag.pane != "w1:p1" {
+		t.Errorf("launched %d time(s) in %q, want once in w1:p1", ag.restarts, ag.pane)
+	}
+	if got := since(h); !got.IsZero() {
+		t.Errorf("the no-pane clock started again: %s", got)
+	}
+	if n := noPaneFacts(h); n != 0 {
+		t.Errorf("needs-you{no pane in lane}: %d, want 0", n)
+	}
+}
+
+// RV-101 #2: relabelled to yet another agent of the project (pj-l-03), the pane is still not the lane's: the re-read
+// finds none and the owner is told — needs-you{no pane in lane}, no launch, and the loop takes no further step (no
+// wait started again).
+func TestRereadOfAPaneRelabelledToAnotherAgentIsNeedsYou(t *testing.T) {
+	t.Parallel()
+	h, fx, ag := relabelRig(t, 3)
+	h.panes.snap = snapshot(freshPane(h, "w1:p1", h.lane("L-01"), func(p *port.Pane) { p.Label = "pj-l-03" }))
+	reads := h.panes.snaps
+	h.step(t, fx)
+	if h.panes.snaps != reads+1 {
+		t.Fatalf("precondition: the pass read herdr's panes %d time(s), want once", h.panes.snaps-reads)
+	}
+	if n := noPaneFacts(h); n != 1 {
+		t.Errorf("needs-you{no pane in lane} after the re-read: %d, want 1", n)
+	}
+	if got := since(h); !got.IsZero() {
+		t.Errorf("the no-pane clock after the needs-you is %s, want cleared (not a new wait)", got)
+	}
+	p := h.proj()
+	h.a.mu.Lock()
+	m := p.folded.loop["T-1"]
+	st, next := m.state, h.a.pick(p, m)
+	h.a.mu.Unlock()
+	if st != stNeedsYou || next != nil {
+		t.Errorf("T-1 after the needs-you: state %q, a next step %v; want needs-you and no step (no new wait, no read)",
+			st, next != nil)
+	}
+	if ag.restarts != 0 {
+		t.Errorf("launches into a pane of another agent: %d", ag.restarts)
 	}
 }
