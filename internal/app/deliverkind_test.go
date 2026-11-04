@@ -155,14 +155,30 @@ func TestWakePostPartialNotRepeated(t *testing.T) {
 }
 
 // A brief to a Claude role agent is posted to its session (none typed); to Codex and OpenCode it is typed (none
-// posted); its work and idle end it as before.
+// posted); a Claude session with no inbox record gets it typed (T-746: as its job wakes are; before, it waited
+// untried), nothing posted, nothing left waiting; its work and idle end it as before.
 func TestBriefByKind(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"claude", "codex", "opencode"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, c := range []struct {
+		kind     string
+		recorded bool
+	}{
+		{"claude", true},
+		{"claude", false},
+		{"codex", true},
+		{"opencode", true},
+	} {
+		name := c.kind
+		if !c.recorded {
+			name += " without a record"
+		}
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			r := lineRig(t, "idle", "idle")
-			r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = kind })
+			if !c.recorded {
+				r.inbox.unrecord("pj-rev")
+			}
+			r.f.Set("w1:p6", func(p *herdrtest.Pane) { p.Kind = c.kind })
 			r.start()
 			const line = "[obor pj-lead] verify"
 			if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
@@ -173,8 +189,14 @@ func TestBriefByKind(t *testing.T) {
 			})
 			r.passes()
 			posted, typed := r.inbox.tries("pj-rev", line), r.typedTo("pj-rev", line)
-			if kind == "claude" && (posted != 1 || typed != 0) || kind != "claude" && (posted != 0 || typed != 1) {
-				t.Errorf("%s: posted %d, typed %d", kind, posted, typed)
+			post := c.kind == "claude" && c.recorded
+			if post && (posted != 1 || typed != 0) || !post && (posted != 0 || typed != 1) {
+				t.Errorf("%s: posted %d, typed %d", name, posted, typed)
+			}
+			if c.kind == "claude" && !c.recorded {
+				if w := r.waiting(); len(w) != 0 {
+					t.Errorf("waiting %+v, want none: the fallback typed it", w)
+				}
 			}
 			r.agentIs("w1:p6", "pj-rev", "working")
 			r.agentIs("w1:p6", "pj-rev", "idle")
