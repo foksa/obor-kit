@@ -33,6 +33,12 @@ var out = newRun(os.Stdout)
 // report prints one check line.
 func report(status, id, fact, where string) { out.report(status, id, fact, where) }
 
+// cliReport is report for the static herdr rows: they read the installed herdr CLI's bundled schema, not a running server
+// (RV-103; H-L8 pings a running one).
+func cliReport(status, id, fact, where string) {
+	report(status, id, "installed herdr CLI: "+fact, where)
+}
+
 // at is "file:line" of the first line in file (relative to the repo root) containing needle; the bare file when none.
 func at(file, needle string) string {
 	b, err := os.ReadFile(file)
@@ -163,12 +169,12 @@ func herdrStatic() {
 	cmd := exec.Command(path, "api", "schema", "--json")
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		report("FAIL", "H-S1", "herdr api schema --json failed: "+strings.TrimSpace(firstLine(stderr.String()+err.Error())), sock+", CAP §5.1")
+		cliReport("FAIL", "H-S1", "herdr api schema --json failed: "+strings.TrimSpace(firstLine(stderr.String()+err.Error())), sock+", CAP §5.1")
 		return
 	}
 	var s schema
 	if err := json.Unmarshal(stdout.Bytes(), &s); err != nil || len(s.Schemas.Request.OneOf) == 0 {
-		report("FAIL", "H-S1", "herdr api schema --json is not the schema obor reads (no request methods)", sock+", CAP §5.1")
+		cliReport("FAIL", "H-S1", "herdr api schema --json is not the schema obor reads (no request methods)", sock+", CAP §5.1")
 		return
 	}
 	methodParams(s, sock)
@@ -208,7 +214,7 @@ func methodParams(s schema, sock string) {
 		where := at("internal/herdr/contract.go", `"`+method+`":`) + ", CAP §5.1"
 		ref, ok := params[method]
 		if !ok {
-			report("FAIL", "H-S1", "method "+method+" is not in herdr's schema", where)
+			cliReport("FAIL", "H-S1", "method "+method+" is not in herdr's schema", where)
 			continue
 		}
 		d := s.Schemas.Request.Defs[ref]
@@ -219,10 +225,10 @@ func methodParams(s schema, sock string) {
 			}
 		}
 		if len(missing) > 0 {
-			report("FAIL", "H-S1", fmt.Sprintf("method %s has no param %s in %s", method, strings.Join(missing, ", "), ref), where)
+			cliReport("FAIL", "H-S1", fmt.Sprintf("method %s has no param %s in %s", method, strings.Join(missing, ", "), ref), where)
 			continue
 		}
-		report("PASS", "H-S1", fmt.Sprintf("method %s takes %s", method, paramList(herdr.Sent[method])), where)
+		cliReport("PASS", "H-S1", fmt.Sprintf("method %s takes %s", method, paramList(herdr.Sent[method])), where)
 	}
 }
 
@@ -250,7 +256,7 @@ func subscriptions(s schema, sock string) {
 		where := at("internal/herdr/contract.go", `"`+typ+`":`) + ", CAP §5.1"
 		v, ok := variants[typ]
 		if !ok {
-			report("FAIL", "H-S1", "subscription type "+typ+" is not in herdr's schema", where)
+			cliReport("FAIL", "H-S1", "subscription type "+typ+" is not in herdr's schema", where)
 			continue
 		}
 		var missing []string
@@ -260,14 +266,14 @@ func subscriptions(s schema, sock string) {
 			}
 		}
 		if len(missing) > 0 {
-			report("FAIL", "H-S1", fmt.Sprintf("subscription %s has no param %s", typ, strings.Join(missing, ", ")), where)
+			cliReport("FAIL", "H-S1", fmt.Sprintf("subscription %s has no param %s", typ, strings.Join(missing, ", ")), where)
 			continue
 		}
 		if typ == "pane.agent_status_changed" && !v.requires("pane_id") {
-			report("FAIL", "H-S1", "subscription pane.agent_status_changed no longer requires pane_id: the per-pane subscribe is outdated", where)
+			cliReport("FAIL", "H-S1", "subscription pane.agent_status_changed no longer requires pane_id: the per-pane subscribe is outdated", where)
 			continue
 		}
-		report("PASS", "H-S1", fmt.Sprintf("subscription %s takes %s", typ, paramList(herdr.SentSubscriptions[typ])), where)
+		cliReport("PASS", "H-S1", fmt.Sprintf("subscription %s takes %s", typ, paramList(herdr.SentSubscriptions[typ])), where)
 	}
 }
 
@@ -279,13 +285,13 @@ func protocol(s schema, version string) {
 	if c, ok := s.Schemas.Success.Defs["ServerCapabilities"]; ok {
 		caps = names(c.Properties)
 	}
-	fact := fmt.Sprintf("herdr %s speaks protocol %d (obor needs >= %d); capabilities: %s", version, s.Protocol, herdr.Protocol, paramList(caps))
+	fact := fmt.Sprintf("herdr %s bundles the schema of protocol %d (obor needs >= %d); capabilities in it: %s", version, s.Protocol, herdr.Protocol, paramList(caps))
 	switch {
 	case s.Protocol < herdr.Protocol:
-		report("FAIL", "H-S2", fact, where)
+		cliReport("FAIL", "H-S2", fact, where)
 	case s.Protocol > herdr.Protocol:
-		report("WARN", "H-S2", fact+"; newer than obor's, accepted: H-S1 guards what obor sends, read herdr's release notes for the rest", where)
+		cliReport("WARN", "H-S2", fact+"; newer than obor's, accepted: H-S1 guards what obor sends, read herdr's release notes for the rest", where)
 	default:
-		report("PASS", "H-S2", fact, where)
+		cliReport("PASS", "H-S2", fact, where)
 	}
 }

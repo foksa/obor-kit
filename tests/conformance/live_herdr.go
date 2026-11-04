@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"obor/internal/herdr"
 )
 
 const (
@@ -18,9 +20,10 @@ const (
 	launchGo = "internal/launch/launch.go"
 )
 
-// herdrLive: H-L7, H-L4, H-L3, H-L5, H-L1 (timeout), H-L6 last (it restarts the session). H-L2 needs a known dialog:
+// herdrLive: H-L8, H-L7, H-L4, H-L3, H-L5, H-L1 (timeout), H-L6 last (it restarts the session). H-L2 needs a known dialog:
 // it runs in the claude session (Claude's trust dialog); H-L1's answer timing is measured on each agent kind's start.
 func herdrLive(l *lab, _ bool) {
+	hL8(l)
 	pane, err := l.workspace("conf", l.lane)
 	if err != nil {
 		report("FAIL", "H-L7", "no workspace in the throwaway session: "+err.Error(), "deep dive §6")
@@ -401,4 +404,41 @@ func (l *lab) pluginLog() string {
 		parts = append(parts, plugin+":"+ev)
 	}
 	return fmt.Sprintf("%d entries: %s", len(entries), strings.Join(parts, ", "))
+}
+
+// hL8: ping to the throwaway session's running server: its version, protocol and capabilities, its protocol against
+// obor's as H-S2 judges the installed CLI's (RV-103: H-S1/H-S2 read the CLI's bundled schema, not a server).
+func hL8(l *lab) {
+	where := at(socketGo, "func checkProtocol") + ", CAP §5.1"
+	r, err := l.call("ping", nil, 10*time.Second)
+	if err != nil {
+		report("FAIL", "H-L8", "ping to the running server: "+err.Error(), where)
+		return
+	}
+	var p struct {
+		Version      string                     `json:"version"`
+		Protocol     int                        `json:"protocol"`
+		Capabilities map[string]json.RawMessage `json:"capabilities"`
+	}
+	if json.Unmarshal(r, &p) != nil || p.Protocol == 0 {
+		report("FAIL", "H-L8", "ping answered no protocol: "+firstLine(string(r)), where)
+		return
+	}
+	var caps []string
+	for _, k := range names(p.Capabilities) {
+		caps = append(caps, k+"="+string(p.Capabilities[k]))
+	}
+	fact := fmt.Sprintf("running server (session %s): herdr %s, protocol %d (obor needs >= %d); capabilities: %s",
+		l.session, p.Version, p.Protocol, herdr.Protocol, orNone(strings.Join(caps, ", ")))
+	if cli := herdrVersion(l.herdr); cli != p.Version {
+		fact += "; the installed CLI is " + cli
+	}
+	switch {
+	case p.Protocol < herdr.Protocol:
+		report("FAIL", "H-L8", fact, where)
+	case p.Protocol > herdr.Protocol:
+		report("WARN", "H-L8", fact+"; newer than obor's, accepted (H-S1 guards what obor sends)", where)
+	default:
+		report("PASS", "H-L8", fact, where)
+	}
 }
