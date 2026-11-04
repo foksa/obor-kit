@@ -34,11 +34,14 @@ build:
 test:
 	$(GO) test ./...
 
-# The conformance suite (T-798, deep dive §6): tests/conformance, behind the conformance build tag so go test ./... and
-# make check never run it. KIND=herdr (default: all kinds that exist), TIER=static (default). Prints PASS/FAIL/SKIP/WARN
-# lines; exit 1 on a FAIL. Nightly runs TIER=static as a non-gating line (commands.conformance).
+# The conformance suite (T-798, T-804, deep dive §6): tests/conformance, behind the conformance build tag so
+# go test ./... and make check never run its checks (its stub MCP server and output writer are unit-tested there).
+# KIND=herdr|claude|codex|opencode (default: all), TIER=static (default; no session, no model) or live (one throwaway
+# herdr session per kind, agents started interactively; KEEP=1 keeps the scratch dir), TURN=1 (live: one model call
+# per kind). Prints PASS/FAIL/SKIP/WARN lines and records the versions checked in .obor/state/conformance.json; exit 1
+# on a FAIL. Nightly runs TIER=static as a non-gating line (commands.conformance).
 conformance:
-	@KIND="$(KIND)" TIER="$(TIER)" $(GO) run -tags conformance ./tests/conformance
+	@KIND="$(KIND)" TIER="$(TIER)" TURN="$(TURN)" $(GO) run -tags conformance ./tests/conformance
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
@@ -70,9 +73,10 @@ check check-affected:
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
-# (obor web reads with a store handle it opens itself, view.Load's).
+# (obor web reads with a store handle it opens itself, view.Load's). -tags conformance: tests/conformance's main is
+# behind that tag, and its untagged writer (report.go) is reached only from it.
 deadcode:
-	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 ./...) || exit $$?; \
+	@out=$$(GOPROXY="file://$$($(GO) env GOMODCACHE)/cache/download,$$($(GO) env GOPROXY)" $(GO) run golang.org/x/tools/cmd/deadcode@v0.52.0 -tags conformance ./...) || exit $$?; \
 	out=$$(printf '%s\n' "$$out" | grep -v -e '/herdrtest/' -e '/testkit/' \
 	  -e '^internal/store/prompts\.go:[0-9:]*: unreachable func: ReadPromptsAt$$'); \
 	if [ -n "$$out" ]; then printf '%s\n' "$$out"; exit 1; fi

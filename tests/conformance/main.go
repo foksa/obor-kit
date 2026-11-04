@@ -1,11 +1,15 @@
 //go:build conformance
 
 // Command conformance checks the facts obor's drivers depend on in the tools they drive (deep dive §6). It is a
-// program behind the conformance build tag, outside `go test ./...`: run it with `make conformance [KIND=herdr]
-// [TIER=static]`. Each check prints one line, `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the
-// last line sums them. The exit status is 1 when any check FAILs. A tool that is not installed SKIPs its checks.
+// program behind the conformance build tag, outside `go test ./...`: run it with
+// `make conformance [KIND=herdr|claude|codex|opencode] [TIER=static|live] [TURN=1]`. Each check prints one line,
+// `PASS|FAIL|SKIP|WARN <id> <fact> (<driver file:line>, CAP §x)`, and the last line sums them. The exit status is 1
+// when any check FAILs. A tool that is not installed, or a check that cannot run (no auth, no TURN), SKIPs with why.
+// Every run records the versions it checked in .obor/state/conformance.json (report.go).
 //
-// Today: kind herdr, tier static (H-S1, H-S2). The live tier and the other kinds come in later tasks.
+// Tiers: static (static.go and herdrStatic here: schema, help text, binary strings, files; no session, no model) and
+// live (live.go: one throwaway herdr session per kind, the agents started interactively in its panes; model calls only
+// with TURN=1, one "Reply with exactly OK" per kind).
 package main
 
 import (
@@ -18,17 +22,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"obor/internal/herdr"
 )
 
-var counts = map[string]int{}
+// out is this run's output.
+var out = newRun(os.Stdout)
 
 // report prints one check line.
-func report(status, id, fact, where string) {
-	counts[status]++
-	fmt.Printf("%s %s %s (%s)\n", status, id, fact, where)
-}
+func report(status, id, fact, where string) { out.report(status, id, fact, where) }
 
 // at is "file:line" of the first line in file (relative to the repo root) containing needle; the bare file when none.
 func at(file, needle string) string {
@@ -44,8 +47,11 @@ func at(file, needle string) string {
 	return file
 }
 
+// kinds are the kinds the suite checks, in the order a run without KIND takes them.
+var kinds = []string{"herdr", "claude", "codex", "opencode"}
+
 func main() {
-	kind, tier := os.Getenv("KIND"), os.Getenv("TIER")
+	kind, tier, turn := os.Getenv("KIND"), os.Getenv("TIER"), os.Getenv("TURN") == "1"
 	if tier == "" {
 		tier = "static"
 	}
@@ -53,19 +59,39 @@ func main() {
 		fmt.Fprintln(os.Stderr, "FAIL conformance:", err)
 		os.Exit(2)
 	}
-	switch {
-	case tier != "static":
-		report("SKIP", "tier", "only the static tier exists yet, not "+tier, "tests/conformance, CAP §5.1")
-	case kind == "" || kind == "herdr":
-		herdrStatic()
-	default:
-		report("SKIP", "kind", "no checks for kind "+kind+" yet", "tests/conformance, CAP §5.1")
+	run := kinds
+	if kind != "" {
+		run = nil
+		for _, k := range kinds {
+			if k == kind {
+				run = []string{k}
+			}
+		}
+		if run == nil {
+			report("SKIP", "kind", "no checks for kind "+kind+" (kinds: "+strings.Join(kinds, " ")+")", "tests/conformance")
+		}
 	}
-	fmt.Printf("conformance: %d pass, %d fail, %d skip, %d warn\n", counts["PASS"], counts["FAIL"], counts["SKIP"], counts["WARN"])
-	if counts["FAIL"] > 0 {
+	switch tier {
+	case "static":
+		for _, k := range run {
+			static[k]()
+		}
+	case "live":
+		live(run, turn)
+	default:
+		report("SKIP", "tier", "no tier "+tier+" (tiers: static, live)", "tests/conformance")
+	}
+	fmt.Println(out.summary())
+	if err := out.save(versionsFile, tier, time.Now()); err != nil {
+		fmt.Fprintln(os.Stderr, "conformance: versions file not written:", err)
+	}
+	if out.failed() {
 		os.Exit(1)
 	}
 }
+
+// static is each kind's static tier.
+var static = map[string]func(){"herdr": herdrStatic, "claude": claudeStatic, "codex": codexStatic, "opencode": opencodeStatic}
 
 // toRepoRoot moves to the directory holding go.mod, so the driver files named in the lines resolve.
 func toRepoRoot() error {
@@ -126,23 +152,25 @@ func herdrStatic() {
 	const sock = "internal/herdr/socket.go"
 	path, err := exec.LookPath("herdr")
 	if err != nil {
+		out.begin("herdr", "")
 		report("SKIP", "H-S1", "herdr is not installed", sock+", CAP §5.1")
 		report("SKIP", "H-S2", "herdr is not installed", at(sock, "func checkProtocol")+", CAP §5.1")
 		return
 	}
-	var out, stderr bytes.Buffer
+	version := herdrVersion(path)
+	out.begin("herdr", version)
+	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(path, "api", "schema", "--json")
-	cmd.Stdout, cmd.Stderr = &out, &stderr
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		report("FAIL", "H-S1", "herdr api schema --json failed: "+strings.TrimSpace(firstLine(stderr.String()+err.Error())), sock+", CAP §5.1")
 		return
 	}
 	var s schema
-	if err := json.Unmarshal(out.Bytes(), &s); err != nil || len(s.Schemas.Request.OneOf) == 0 {
+	if err := json.Unmarshal(stdout.Bytes(), &s); err != nil || len(s.Schemas.Request.OneOf) == 0 {
 		report("FAIL", "H-S1", "herdr api schema --json is not the schema obor reads (no request methods)", sock+", CAP §5.1")
 		return
 	}
-	version := herdrVersion(path)
 	methodParams(s, sock)
 	subscriptions(s, sock)
 	protocol(s, version)
