@@ -242,9 +242,9 @@ func Build(in Input) Project {
 		}
 		v.ModelPauses[m] = pauseOf(mp)
 	}
-	specs := readSpecs(in.DB)
+	specs, starts := readSpecs(in.DB), lastStarts(in.DB)
 	for _, s := range p.States() {
-		l := lane(p, s, &v, ps, specs)
+		l := lane(p, s, &v, ps, specs, starts)
 		if l.Agent != "" {
 			l.Background = in.Background[l.Agent]
 		}
@@ -257,12 +257,13 @@ func Build(in Input) Project {
 }
 
 // lane is s's row of the view: the lane table's facts, serve's task and agent in it, its state column and since when,
-// its task's spec rev and open job.
-func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, specs map[string]store.SpecRow) Lane {
+// its task's spec rev and open job. starts is when serve last tried to start a task's lane agent (lastStarts).
+func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, specs map[string]store.SpecRow,
+	starts map[string]int64) Lane {
 	row := p.Rows()[s.Lane]
 	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
 		DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning), Op: restartOp(p.Root, s.Lane), Agent: row.Agent}
-	if l.Warning == nil && s.State == "working" && pluginMissing(p, s) {
+	if l.Warning == nil && s.State == "working" && pluginMissing(p, s, starts) {
 		w := "no-plugin"
 		l.Warning = &w
 	}
@@ -474,12 +475,44 @@ func readFullCheck(root string) *FullCheck {
 	return fc
 }
 
+// lastStarts is each task's last agent.start record time (epoch seconds, by task): when serve last tried to start the
+// lane's agent — a resume runs the failed step again under its next key, so the newest record is the current attempt's
+// (pluginMissing). Empty without a database or on a read error.
+func lastStarts(db *sql.DB) map[string]int64 {
+	out := map[string]int64{}
+	if db == nil {
+		return out
+	}
+	rows, err := db.Query(`SELECT task, ts FROM events WHERE step LIKE ? ORDER BY seq DESC`, event.StepStartWork+"%")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var task, ts string
+		if rows.Scan(&task, &ts) != nil || out[task] != 0 {
+			continue
+		}
+		if at, err := time.Parse(time.RFC3339, ts); err == nil {
+			out[task] = at.Unix()
+		}
+	}
+	return out
+}
+
+// pluginSettle is how long after serve's last attempt to start a lane's agent (the dispatch, or a resume's retry) the
+// agent's plugin may still check in: it runs the session-start hook on its session's first event, which comes after the
+// agent started — and obor restart starts an agent outside any dispatch (T-783: a lane restarted by hand and resumed
+// was flagged while its plugin was fine and checked in a minute later).
+const pluginSettle = 2 * time.Minute
+
 // A Claude lane is missing it when its worktree has no .claude/settings.json enabling obor's plugin (T-705).
 // pluginMissing (T-307): a lane whose kind runs obor's hooks through obor's plugin (agents.HooksPlugin: opencode) has
 // no plugin marker newer than the dispatch that started its work (obor status warns: the lane runs with no obor
 // guard). None at all, or one older than the lane row's dispatched_at (a leftover from before this dispatch): missing.
-// No row: a marker at all is fresh, nothing to compare it against.
-func pluginMissing(p *checks.LaneTable, s checks.LaneStatus) bool {
+// No row: a marker at all is fresh, nothing to compare it against. A start the lane's agent has not had the time to
+// check in from yet (pluginSettle after the dispatch and after its last agent.start, starts) is no answer either.
+func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]int64) bool {
 	kind := agents.Default // a lane whose dispatch names no model runs the default kind, as its start does
 	if m, ok := p.Cfg.Model(s.Type); ok {
 		kind = m.Kind
@@ -490,12 +523,23 @@ func pluginMissing(p *checks.LaneTable, s checks.LaneStatus) bool {
 	if k, known := agents.Lookup(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
 		return false
 	}
+	row, rowOK := p.Rows()[s.Lane]
+	task := s.Task
+	if task == "" {
+		task = row.Task
+	}
+	started := row.DispatchedAt
+	if st := starts[task]; st > started {
+		started = st
+	}
+	if started > 0 && p.Now-started < int64(pluginSettle/time.Second) {
+		return false
+	}
 	m, ok := project.PluginMarkerAt(p.Root, s.Lane)
 	if !ok {
 		return true
 	}
-	row, ok := p.Rows()[s.Lane]
-	return ok && m.At < row.DispatchedAt
+	return rowOK && m.At < row.DispatchedAt
 }
 
 // restartOp is "restart" while a restart of lane holds its restart lock (T-192, T-500), else "".

@@ -55,21 +55,25 @@ func jobOf(text string) string {
 	return job
 }
 
-// startAgents is an Agents whose Restart puts a fresh session (sid, "": none known) into pane w1:p1 (lag: the
-// snapshot does not show it yet).
+// startAgents is an Agents whose Launch puts a fresh session (sid, "": none known) into the pane it starts in (its
+// input's; lag: the snapshot does not show it yet).
 type startAgents struct {
 	h        *harness
 	restarts int
 	sid      string
 	lag      bool
+	pane     string // the pane of its last launch
 }
 
-func (f *startAgents) Launch(context.Context, port.Launch) (port.Started, error) {
-	f.restarts++
+func (f *startAgents) Launch(_ context.Context, in port.Launch) (port.Started, error) {
+	f.restarts, f.pane = f.restarts+1, in.Pane
 	if f.lag {
 		return port.Started{Line: "STARTED pj-l-01"}, nil
 	}
-	o := f.h.a.obs["w1:p1"]
+	o := f.h.a.obs[in.Pane]
+	if o == nil {
+		f.h.t.Fatalf("launch in pane %s, which the snapshot does not have", in.Pane)
+	}
 	o.pane.Agent, o.pane.Session, o.pane.Transcript = "claude", f.sid, ""
 	return port.Started{Line: "STARTED pj-l-01"}, nil
 }
