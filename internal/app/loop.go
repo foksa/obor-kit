@@ -148,6 +148,7 @@ type mtask struct {
 	head              string       // stMerged: the merge's sha (mergedData.Head; "": a merge outside the app)
 	mergedSeq         int64        // stMerged: the merged fact's seq (a watched set's last merge, mergewatch.go)
 	dropped           string       // stDropped: obor drop's why
+	droppedSeq        int64        // stDropped: the dropped fact's seq (the idle line's last end, T-803)
 	needs             event.Record // the needs-you fact in force (Seq 0: none)
 	left              string       // the state the last needs-you left: obor resume's retry goes back to it
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and

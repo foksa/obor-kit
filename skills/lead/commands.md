@@ -10,6 +10,7 @@ T-655 (make build, 12s)` (else `running: nothing`); a lane's state column is its
 `merge` line and web show (T-788): `dispatching`, `working`, `submitted`, `gating`, `gate pending`, `review`, `reviewing`,
 `publish`, `merging`, `publish pending`, `merge hold: <role>`, `needs-you`, or `held` (the integrator's hold alone);
 an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
+An empty pipeline shows `idle: <why>` once you acknowledged it, else `idle, not acknowledged since <time>` (T-803).
 
 ## obor web (T-667)
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen
@@ -47,6 +48,22 @@ to you):
 - a watch with a note adds ` — <note>` to its line, merged or dropped
 
 A task's needs-you reaches you as before (`[obor] needs-you …`), watched or not.
+
+## obor idle (T-803)
+Serve tells you when the pipeline empties: no task dispatching, working, gating, under review or merging, no needs-you,
+no waiting dispatch, no reviewer or deep dive holding a brief. On that transition it posts one line to you:
+
+    [obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor idle "<why nothing>"
+
+(also `last: T-xx dropped: <why>`). A watch on the same merge comes first, then this line.
+
+- `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why and stops the ping;
+  `obor status` then shows `idle: <why>`. A dispatch or a review request ends the idle state as well.
+- `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE`.
+- Unacknowledged after 30 minutes: one more line to you and a herdr notification to the owner; after that only `obor
+  status` and obor web show `idle, not acknowledged since <time>` (never a third line).
+- A serve restart derives the state from the store: an unacknowledged idle pings once more, an acknowledged one is
+  silent.
 
 ## Setup edits from obor web (T-753)
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's

@@ -117,6 +117,8 @@ func main() {
 		exit(pauseCmd(args))
 	case "watch":
 		exit(watchCmd(args))
+	case "idle":
+		exit(idleCmd(args))
 	case "review":
 		exit(reviewCmd(args))
 	case "run":
@@ -230,6 +232,7 @@ var commands = map[string][]string{
 	"run":       nil,
 	"pause":     nil,
 	"watch":     nil,
+	"idle":      nil,
 	"review":    {"verify", "close"},
 	"affected":  {"go"},
 	"flakes":    nil,

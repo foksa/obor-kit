@@ -159,8 +159,15 @@ func TestDropSettlesOpenIntents(t *testing.T) {
 	if err != nil || reply != "DROPPED T-1" {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
-	if got := r.resultOf(1, event.StepWork); got != `"not run: T-1 dropped"` || len(r.open()) != 0 {
-		t.Errorf("after the drop: work's result %s, open %q; want not run, none open", got, r.open())
+	// The idle announce's line is the idle state's own intent (T-803): the drop's intents are what this test decides.
+	var rest []string
+	for _, o := range r.open() {
+		if !strings.HasPrefix(o, event.MsgTask+" 0 deliver.") {
+			rest = append(rest, o)
+		}
+	}
+	if got := r.resultOf(1, event.StepWork); got != `"not run: T-1 dropped"` || len(rest) != 0 {
+		t.Errorf("after the drop: work's result %s, open %q; want not run, none open", got, rest)
 	}
 	r.passes()
 	if len(r.prompts()) != 0 {

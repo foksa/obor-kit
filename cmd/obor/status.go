@@ -243,6 +243,13 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
+	if i := st.Idle; i != nil { // the pipeline is empty (T-803): acknowledged, or still waiting for the lead's word
+		if i.Acked {
+			out = append(out, "idle: "+i.Why)
+		} else {
+			out = append(out, "idle, not acknowledged since "+time.Unix(i.Since, 0).Local().Format("Jan 2 15:04"))
+		}
+	}
 	if s := q.Scratch; s != nil && s.Why != wire.ScratchGating && s.Why != wire.ScratchPublishing {
 		out = append(out, "scratch "+s.Task+": "+s.Why)
 	}

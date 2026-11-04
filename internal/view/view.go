@@ -46,9 +46,12 @@ type Project struct {
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
 	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
 	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status, T-658)
-	Queue       Queue                `json:"queue"`
-	Events      []Event              `json:"events"` // the newest worded records, newest first
-	Facts       []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
+	// Idle is the project's idle state (T-803): the pipeline is empty, what ended it and the lead's acknowledgement.
+	// obor status and obor web show it; a dispatch or a review request ends it.
+	Idle   *Idle          `json:"idle,omitempty"`
+	Queue  Queue          `json:"queue"`
+	Events []Event        `json:"events"` // the newest worded records, newest first
+	Facts  []event.Record `json:"-"`      // serve's facts in force (obor status --facts)
 	// Notes are the project's own lines above serve's (T-709): a config key this binary does not know, a stopped
 	// project (Notes builds them).
 	Notes []string `json:"notes,omitempty"`
@@ -162,6 +165,15 @@ type Pause struct {
 	By     string `json:"by,omitempty"`
 }
 
+// Idle is the project's idle state (T-803, wire.IdleStatus): since when the pipeline is empty, what ended it, and the
+// lead's acknowledgement.
+type Idle struct {
+	Since int64  `json:"since"`
+	Last  string `json:"last,omitempty"`
+	Acked bool   `json:"acked,omitempty"`
+	Why   string `json:"why,omitempty"`
+}
+
 // Input is what Build joins: serve's answer (Err: it gave none), the lane table, the store (nil: none yet), the
 // clock and how many worded events to keep.
 type Input struct {
@@ -219,6 +231,9 @@ func Build(in Input) Project {
 		v.Tasks, v.Agents = append(v.Tasks, ps.Tasks...), append(v.Agents, ps.Agents...)
 		v.Messages = append(v.Messages, ps.Messages...)
 		v.Review, v.Watches = ps.Review, ps.Watches
+		if id := ps.Idle; id != nil {
+			v.Idle = &Idle{Since: id.Since, Last: id.Last, Acked: id.Acked, Why: id.Why}
+		}
 		v.Facts = ps.Facts
 		for _, f := range ps.Facts {
 			if f.Step == event.StepNeedsYou {

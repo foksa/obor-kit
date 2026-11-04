@@ -49,6 +49,9 @@ const (
 	// MethodTellLead (the drive agent's; obor tell-lead, T-761): Call.Lane the drive's lane, Call.Note the text. Serve posts
 	// "[obor <task> drive] <text> (reply: obor resume <task> "…")" to the lead as a lead line. The reply is TOLD ….
 	MethodTellLead = "tell_lead"
+	// MethodIdle (the lead's or the owner's; obor idle, T-803): Call.Note the why nothing is in flight acknowledges the
+	// idle state ("" shows it). The reply is ACKED idle: <why>, or the state (NOT IDLE, IDLE …).
+	MethodIdle = "idle"
 )
 
 // The MCP job tools' socket methods: `obor mcp` sends each tool call as one request with a Call (Agent, Role, Root from

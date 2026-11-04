@@ -7,6 +7,7 @@
   import { api } from "../lib/api";
   import { href } from "../lib/route";
   import { FREE, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
+  import { idleText } from "../lib/idle";
   import { stageOf } from "../lib/stages";
   import type { Lane, MergeItem, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
@@ -108,6 +109,16 @@
         {#if v.paused.reason}<span>{v.paused.reason}</span>{/if}
         {#if v.paused.by}<span class="muted small">by {v.paused.by}</span>{/if}
         <a class="btn sm" href={href.setup(project)} style="margin-left: auto">Resume in Setup</a>
+      </div>
+    {/if}
+
+    {#if v.idle}
+      <div class="banner" class:wait={!v.idle.acked} class:ok={v.idle.acked}>
+        <strong>{idleText(v.idle)}</strong>
+        {#if v.idle.last}<span class="muted small">last: {v.idle.last}</span>{/if}
+        {#if !v.idle.acked}
+          <span class="muted small" style="margin-left: auto">dispatch next, or acknowledge with <code>obor idle "&lt;why&gt;"</code></span>
+        {/if}
       </div>
     {/if}
 

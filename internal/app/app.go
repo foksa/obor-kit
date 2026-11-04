@@ -212,6 +212,8 @@ type folded struct {
 	sessions []store.Session
 	// roles: serve's stops of role agents (rolestop.go, T-672).
 	roles roleStops
+	// idle: the project's last idle announce and the lead's acknowledgement (idle.go, T-803; nil: none in force).
+	idle *idleState
 }
 
 // newFolded is the folded state before the log's first record.

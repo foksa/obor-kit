@@ -30,6 +30,8 @@ type ProjectStatus struct {
 	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor status lists them (T-658).
 	Watches []WatchStatus `json:"watches,omitempty"`
+	// Idle is the project's idle state (T-803): the pipeline is empty and the lead was told; nil when it has work.
+	Idle *IdleStatus `json:"idle,omitempty"`
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
@@ -110,6 +112,15 @@ type WatchStatus struct {
 	By    string `json:"by,omitempty"`
 	Note  string `json:"note,omitempty"`
 	Since int64  `json:"since"`
+}
+
+// IdleStatus is the project's idle state (T-803): since when the pipeline is empty (Unix seconds, its idle fact's
+// time), what ended it ("T-xx merged <sha7>", "T-xx dropped: <why>"), and the lead's acknowledgement: Acked and its Why.
+type IdleStatus struct {
+	Since int64  `json:"since"`
+	Last  string `json:"last,omitempty"`
+	Acked bool   `json:"acked,omitempty"`
+	Why   string `json:"why,omitempty"`
 }
 
 // TaskDriving is a TaskStatus' State while the owner's drive agent works on the task (obor drive, T-751): serve sends

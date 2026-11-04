@@ -31,6 +31,8 @@ const (
 	RoleTask = "roles"
 	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
 	ConfigTask = "config"
+	// IdleTask is the task key of the project's idle facts (T-803): the announce and the lead's acknowledgement.
+	IdleTask = "idle"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
@@ -101,6 +103,12 @@ const (
 	StepBriefed    = "briefed"    // fact: a role agent was briefed (data: Message; Line "" when its start carried it)
 	StepWorked     = "worked"     // fact: a briefed agent's pane worked since its brief (data: workedData)
 	StepSuperseded = "superseded" // fact (older logs; now briefed's supersedes): a brief ends a line (data: supersededData)
+)
+
+// The project's idle state (T-803): no task in flight, no needs-you and no hold agent's brief.
+const (
+	StepIdle    = "idle"     // fact: the pipeline emptied (data: idleData, Last and End)
+	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleData, Why)
 )
 
 // Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same
