@@ -153,6 +153,13 @@ func main() {
 	exit(2)
 }
 
+// monitorCmd is `obor monitor` after its removal (T-776, owner 2026-11-03: obor status and obor web remain): one line
+// naming what replaced it, and exit 1. Kept one minor release, then deleted with the next consolidation.
+func monitorCmd(args []string) int {
+	errf("obor monitor: removed, use `obor web` or `obor status`")
+	return 1
+}
+
 // load finds the project of the cwd and loads its effective config: exit 3 without .obor/config.json, 1 when broken.
 func load() (*project.Repo, *config.Config, int) {
 	cwd, _ := os.Getwd()
@@ -174,7 +181,7 @@ func load() (*project.Repo, *config.Config, int) {
 	return repo, cfg, 0
 }
 
-// loadReader is load for the readers (obor status, obor monitor; T-709): a config key this binary does not know is
+// loadReader is load for the readers (obor status, obor stop/start; T-709): a config key this binary does not know is
 // warn (config.LoadReader), not a failure.
 func loadReader() (cfg *config.Config, warn string, rc int) {
 	cwd, _ := os.Getwd()
@@ -232,7 +239,7 @@ var commands = map[string][]string{
 	"mcp":       nil,
 	"stop":      nil,
 	"start":     nil,
-	"setup":     {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "monitor", "migrate"},
+	"setup":     {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "migrate"},
 }
 
 // has is `obor has <subcommand> [<sub-subcommand>]`: exit 0 when implemented, 1 when not; no output.

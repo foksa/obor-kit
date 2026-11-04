@@ -85,7 +85,7 @@ const (
 	StepFailed     = "failed"       // fact: a step's effect failed, counted (data: FactData, Step the step's key)
 )
 
-// CauseHeld is the integrator's hold, the one cause of a merge-loop needs-you obor monitor lists as an event of its
+// CauseHeld is the integrator's hold, the one cause of a merge-loop needs-you obor status lists as an event of its
 // own (T-658: "held T-xx: why"; every cause is in obor status' needs-you line).
 const CauseHeld = "held"
 

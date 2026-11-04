@@ -60,36 +60,3 @@ func TestStatusShowsBackground(t *testing.T) {
 		}
 	}
 }
-
-// T-714, T-727: the monitor shows the long processes under the agent's row in LANES and ROLES (bg or running), and
-// gives the lead its own row in ROLES when it has some.
-func TestMonitorShowsBackground(t *testing.T) {
-	t.Parallel()
-	v, lead, integ := backgroundView(t)
-	lines := fitFrame(v, renderOpts{name: "pj", now: time.Now(), loc: time.UTC}, 60, 120)
-	at := func(s string) int {
-		for i, l := range lines {
-			if strings.Contains(l, s) {
-				return i
-			}
-		}
-		return -1
-	}
-	for _, pair := range [][2]string{{"L-01", "bg: convert maps · 15m"}, {integ + " ", "running make -s check · 1m"},
-		{lead + " ", "bg: sleep 600 · 45s"}} {
-		row, bg := at(pair[0]), at(pair[1])
-		if row < 0 || bg != row+1 {
-			t.Errorf("%q at %d, %q at %d: want the bg row right under it in\n%s", pair[0], row, pair[1], bg,
-				strings.Join(lines, "\n"))
-		}
-	}
-	if at("ROLES") < 0 || at("ROLES") > at(lead+" ") {
-		t.Errorf("the lead's row is not in ROLES:\n%s", strings.Join(lines, "\n"))
-	}
-	// No background: no lead row.
-	v.Lead.Background = nil
-	lines = fitFrame(v, renderOpts{name: "pj", now: time.Now(), loc: time.UTC}, 60, 120)
-	if at(lead+" ") >= 0 {
-		t.Errorf("the lead has a row with no background process:\n%s", strings.Join(lines, "\n"))
-	}
-}

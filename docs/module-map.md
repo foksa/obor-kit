@@ -23,15 +23,15 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   (`background.go`, T-714),
   the machine's list of obor projects by name (`projects.go`, T-646: `Register`, `Projects`, `RootOf`); a stopped
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
-- `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, monitor, web: an unknown
-  key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
+- `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, obor stop/start, web: an
+  unknown key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
   `TaskFromBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
   in their own layout, and `LoadWith` (what it would load as).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
 - `version`: build version line.
 - `selfexec`: a long-running obor process follows a new obor binary (T-719): `Candidate` (the binary the kit's shim
-  would run now), `Watch.Changed`, `Exec` (the shim, in place). Callers: serve, monitor, web.
+  would run now), `Watch.Changed`, `Exec` (the shim, in place). Callers: serve, web.
 - `store`: the project's SQLite database (`.obor/state/obor.db`) and the rules of one writer: `store.OpenRW` for
   serve (WAL, `synchronous=FULL`, one connection, schema version in `meta`), `store.OpenRO` for hooks and CLIs
   (read-only, short `busy_timeout`), `store.Backup`/`BackupDaily` (`VACUUM INTO`). Tables: `events` (T-435),
@@ -113,8 +113,8 @@ Adding a kind = one package + a config entry.
   integrator's jobs and verdicts. The lead gets no tools: its chat work goes through the CLI, one request path.
 - `guard`: the Claude Code hooks: PreToolUse (Bash parse, edit checks, the headless ban), Stop, StopFailure,
   SessionStart, UserPromptSubmit, whoami.
-- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report, the
-  monitor pane `monitor.go`, T-658; it starts agents through an `app.Starter` that `cmd/obor` injects); `obor init`
+- `setup`: make a project obor-ready (config, lanes, panes, roles, githooks, herdr/opencode plugin, MCP report; it
+  starts agents through an `app.Starter` that `cmd/obor` injects); `obor init`
   (`oborinit.go`, P7-2: the steps chained with no questions; serve install through `Setup.Serve`, which `cmd/obor` wires
   to `service`).
 - `affected`: affected Go packages for a Go project's per-merge check (`obor affected go`).
@@ -137,13 +137,13 @@ running > 30 s through its shells, helpers left out), labelled from the PreToolU
 needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
 jobs; a job's text (a `prompts` row). `EventsSince` pages the log by seq for the page's long poll. It may import base,
 core and the adapters; only entry packages import it. **Every reader of project state goes through `view.Build`**:
-`obor status` (`--json` prints `view.Project` as is), `obor monitor` and `obor web` render the same struct, so a field
-added for one appears in all of them; no second builder.
+`obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
+appears in both; no second builder.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).
 
-**entry** — `cmd/obor`: flags and wiring only; `obor status` and `obor monitor` (`monitor.go`: the loop and the alternate-screen drawing; `monitor_render.go`: the look; T-658, T-668) rendering of
+**entry** — `cmd/obor`: flags and wiring only; `obor status`' rendering of
 `view.Project` (rendering only: no state is joined there); the
 thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.ConfigFile` on the main checkout's git, T-753). The lead's chat commands are the same CLI (`status`, `dispatch`,
 `resume`, `drop`, `drive`, `land`, `spec`, `watch`, `pause`, `send`, `projects`, `brief`), beside `serve`, `mcp`,

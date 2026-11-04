@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,11 +15,10 @@ import (
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/project"
-	"obor/internal/testkit"
 )
 
-// T-719: serve, monitor and web follow a new obor binary. These tests replace the package's binaryWatch and selfExec
-// (and shorten serve's tick and web's watch), so none of them runs in parallel.
+// T-719: serve and web follow a new obor binary. These tests replace the package's binaryWatch and selfExec (and
+// shorten serve's tick and web's watch), so none of them runs in parallel.
 
 // execRec is a fake selfExec: it records each call and runs at (nil: nothing) at the moment of the exec.
 type execRec struct {
@@ -148,64 +145,6 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 		}
 	}
 }
-
-// The monitor asks for a new binary at most every 2 s; on one its run ends, and follow leaves the alternate screen
-// and closes the store before it execs the kit's shim as `obor monitor`.
-func TestMonitorFollowsNewBinary(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	p := testkit.New(t)
-	p.Config()
-	m := monitorOf(t, p, now, 24)
-	asks := 0
-	isNew := false
-	m.binary = func() bool { asks++; return isNew }
-	var buf bytes.Buffer
-	s := &screen{w: nopFlush{&buf}, tty: true}
-	s.enter()
-	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
-	defer cancel()
-	if m.run(ctx, s, nil) {
-		t.Fatal("run ended for a new binary while there is none")
-	}
-	if asks != 1 {
-		t.Errorf("asked %d times with the clock still, want 1 (at most every %s)", asks, monitorEvery)
-	}
-	isNew = true
-	now = now.Add(monitorEvery)
-	m.now = func() time.Time { return now }
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if !m.run(ctx, s, nil) {
-		t.Fatal("run did not end for the new binary")
-	}
-	var order []string
-	rec := &execRec{at: func() {
-		order = append(order, "exec")
-		if !strings.HasSuffix(buf.String(), altOff) {
-			t.Errorf("at the exec the alternate screen is not left: %q", buf.String())
-		}
-	}}
-	follows(t, nil, rec)
-	if rc := m.follow(s, "/kit"); rc != 0 {
-		t.Errorf("follow returned %d, want 0 (the fake exec returns)", rc)
-	}
-	if got, want := rec.got(), [][]string{{"/kit", "monitor"}}; !reflect.DeepEqual(got, want) || len(order) != 1 {
-		t.Errorf("exec calls %q, want %q", got, want)
-	}
-	if m.db != nil {
-		t.Error("the store is still open after follow")
-	}
-	n := strings.Count(buf.String(), altOff)
-	s.leave() // monitorCmd's deferred leave: nothing more
-	if strings.Count(buf.String(), altOff) != n || n != 1 {
-		t.Errorf("left the alternate screen %d times, then %d; want once", n, strings.Count(buf.String(), altOff))
-	}
-}
-
-// nopFlush is a frameWriter over a buffer.
-type nopFlush struct{ *bytes.Buffer }
-
-func (nopFlush) Flush() error { return nil }
 
 // obor web on a new binary execs the kit's shim as `obor web --listen <the address it bound>`: an unset port pinned
 // to the one it got, a set one kept, so the owner's URL stays; the listener is closed by then (the new one binds it).

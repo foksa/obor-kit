@@ -17,6 +17,7 @@ import (
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/store"
 	"obor/internal/testkit"
 	"obor/internal/view"
 )
@@ -43,6 +44,22 @@ func matchLine(t *testing.T, text, re, what string) {
 	t.Helper()
 	if !regexp.MustCompile("(?m)" + re).MatchString(text) {
 		t.Errorf("%s: no line matching %s in\n%s", what, re, text)
+	}
+}
+
+// addEvent appends one record to the project's store at at (attempt 1).
+func addEvent(t *testing.T, root string, at time.Time, kind, task, step string, data any) {
+	t.Helper()
+	db, err := store.OpenRW(store.File(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	b, _ := json.Marshal(data)
+	if _, err := db.Exec(`INSERT INTO events (seq, ts, task, attempt, step, kind, class, data)
+		VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM events), ?, ?, 1, ?, ?, '', ?)`,
+		at.UTC().Format(time.RFC3339), task, step, kind, string(b)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -762,8 +779,8 @@ func TestStatusStoppedRole(t *testing.T) {
 }
 
 // T-677: a role agent the lead stopped (obor restart <agent> --stop), its pane at a shell, is `stopped` for every
-// output that reads the field: the view's role row, obor status' text and --json, and obor monitor's ROLES.
-func TestStatusStoppedRoleTextJSONMonitor(t *testing.T) {
+// output that reads the field: the view's role row, obor status' text and --json.
+func TestStatusStoppedRoleTextJSON(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config(testkit.Set("roles.advisor", ""))
@@ -800,8 +817,6 @@ func TestStatusStoppedRoleTextJSONMonitor(t *testing.T) {
 	if stopped != 1 {
 		t.Errorf("--json carries %d stopped rows of pj-advisor, want 1: %s", stopped, b)
 	}
-	rows := strings.Join(roleRows(st, renderOpts{now: now}, palette{}), "\n")
-	matchLine(t, rows, `^  ● pj-advisor +stopped *$`, "obor monitor's ROLES")
 }
 
 // roleRowOf is st's role row of agent (nil: none).

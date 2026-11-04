@@ -1,7 +1,7 @@
 // Package view is the project's read model (T-664): one function, Build, joins obor serve's status answer (none when
 // serve is down), the git lane table and the store (read-only) into one Project. Every reader of project state goes
-// through it: `obor status` prints it as JSON or renders it as text, `obor monitor` renders it, and the web UI serves
-// it. app never imports view; only entry packages do (internal/checks/boundary_test.go).
+// through it: `obor status` prints it as JSON or renders it as text, and the web UI serves it. app never imports view;
+// only entry packages do (internal/checks/boundary_test.go).
 package view
 
 import (
@@ -45,7 +45,7 @@ type Project struct {
 	ModelPauses map[string]*Pause    `json:"-"`
 	Messages    []wire.MessageStatus `json:"messages"`          // the lines not typed yet
 	Review      string               `json:"review,omitempty"`  // the open review request, or "review due: …" (T-638)
-	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor monitor, T-658)
+	Watches     []wire.WatchStatus   `json:"watches,omitempty"` // the lead's open watches (obor status, T-658)
 	Queue       Queue                `json:"queue"`
 	Events      []Event              `json:"events"` // the newest worded records, newest first
 	Facts       []event.Record       `json:"-"`      // serve's facts in force (obor status --facts)
@@ -100,12 +100,12 @@ type Lane struct {
 	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
-	// Column is the state column of obor status and obor monitor (T-657): held, gating, merging, gate pending,
+	// Column is the state column of obor status (T-657): held, gating, merging, gate pending,
 	// publish pending, the merge hold ("merge held: <role> working", T-718), reviewing, else State.
 	Column string `json:"column"`
 	// Since is when the state column began, as far as the view can tell (epoch seconds; nil: unknown, or a lane with
 	// no task): the held needs-you's fact, the gate or publish running on the task, the task_done's record (done), the
-	// lane row's dispatch (a task working). obor monitor counts its elapsed time from it (T-658).
+	// lane row's dispatch (a task working). obor web's fleet page shows it (T-658).
 	Since *int64 `json:"since,omitempty"`
 	// SpecRev is the store's current rev of the task's spec (0: none stored), Title its title.
 	SpecRev int    `json:"spec_rev,omitempty"`

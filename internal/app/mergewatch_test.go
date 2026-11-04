@@ -68,7 +68,7 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 	if reply, err := r.watch("w2", "", false); err != nil || reply != "WATCH T-1 since 0s" {
 		t.Fatalf("the list: %q, %v", reply, err)
 	}
-	// T-658: serve's status carries the open watches (obor monitor lists them, not a fold of its own).
+	// T-658: serve's status carries the open watches (obor status lists them, not a fold of its own).
 	if ws := r.app.Status().Project.Watches; len(ws) != 1 || ws[0].Task != "T-1" || ws[0].By != "pj-lead" {
 		t.Errorf("status watches %+v, want T-1 watched by pj-lead", ws)
 	}

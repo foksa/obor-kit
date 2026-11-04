@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -119,8 +120,7 @@ func writeStatus(w io.Writer, st view.Project, now time.Time) {
 }
 
 // statusSections is writeStatus' text as sections, in its order: serve's line and the running line, the lanes (with
-// serve's tasks on no lane and the agents on no lane), needs-you, the queue, then the full check. obor monitor draws
-// serveSection, needsYouSection and queueSection the same way (T-658: one source for those lines).
+// serve's tasks on no lane and the agents on no lane), needs-you, the queue, then the full check.
 func statusSections(st view.Project, now time.Time) [][]string {
 	return [][]string{serveSection(st, now), laneSection(st, now), needsYouSection(st), queueSection(st, now),
 		fullCheckSection(st, now)}
@@ -349,6 +349,16 @@ func pauseLine(p *view.Pause) string {
 		until = time.Unix(*p.Until, 0).Format("15:04")
 	}
 	return fmt.Sprintf("paused: %s, until %s (obor pause --clear ends it; no dispatch meanwhile)\n", p.Reason, until)
+}
+
+// oneLine is s on one line: control characters (newlines, tabs, escapes) become spaces.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(s))
 }
 
 // textLines is text split into its lines (a trailing newline ends the last, it does not add one).

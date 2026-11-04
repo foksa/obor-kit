@@ -148,7 +148,7 @@ told=1
 obor projects --notify "$notes" && told=0
 [ "$told" = 0 ] && say "told the leads of this machine's projects"
 
-# Nothing to restart (T-719): each serve, monitor and web watches the kit's binary and execs the new one itself.
-echo "serves, monitors and web follow the new binary within a minute"
+# Nothing to restart (T-719): serve and web watch the kit's binary and exec the new one themselves.
+echo "serves and web follow the new binary within a minute"
 [ "$told" = 0 ] ||
   fail "a lead was not told (above): obor projects --notify <the notes: git show $tag:docs/releases/$tag.md>"

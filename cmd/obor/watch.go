@@ -15,7 +15,7 @@ const watchUsage = `FAIL usage: obor watch [<T-xx>[,<T-yy>…] …] [--note "<te
 // watchCmd is `obor watch [<set> …] [--note "<text>"] | --rm <set>`, the lead's or the owner's (T-523, T-528,
 // T-666): a set is a task or a comma list of them (as dispatch's --after), one watch; one request to obor serve per
 // set argument (wire.MethodWatch). --note gives those watches the lead's note: what it meant to do when a set ends, on
-// the line and in `obor watch`, `obor status` and the monitor. Serve's reply per set: WATCHING <set> (the lead gets
+// the line and in `obor watch` and `obor status`. Serve's reply per set: WATCHING <set> (the lead gets
 // "[obor] T-xx merged <short sha>", "[obor] T-a,T-b merged (<last short sha>)" or "[obor] T-b dropped: <why>" once it
 // ends, a note after it), its outcome at once when it ended already, UNWATCHED / NOT WATCHING for --rm; with no
 // argument the open watches (WATCH <set> since <age>[, waiting <tasks>][ — <note>]).

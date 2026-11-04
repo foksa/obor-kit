@@ -5,7 +5,7 @@ import (
 	"obor/internal/selfexec"
 )
 
-// The long-running commands (serve, monitor, web) follow a new obor binary (T-719): each asks binaryWatch's Changed on
+// The long-running commands (serve, web) follow a new obor binary (T-719): each asks binaryWatch's Changed on
 // its own cadence and then execs the kit's shim (selfExec) with its own arguments.
 
 // binaryWatch is the watch of env's kit binary for this process: nil when it is off (the running binary is not the

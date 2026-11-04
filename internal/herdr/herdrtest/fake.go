@@ -370,7 +370,8 @@ func (f *Fake) newWorkspace(label, cwd string) *Pane {
 }
 
 // tabList is herdr's tab.list: each tab of the panes, in their order, its label ("" when none), number and pane
-// count.
+// count. obor no longer asks for it (T-776: the monitor's "system" tab is gone), but the upgrade check drives older
+// obor binaries through this fake and they do.
 func (f *Fake) tabList() []any {
 	var tabs []any
 	seen := map[string]bool{}

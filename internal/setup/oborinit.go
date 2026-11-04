@@ -34,8 +34,6 @@ package setup
 //	panes      L-01 in a new tab "workers", L-02 and the integrator beside it (the integrator in the caller's tab when
 //	           that is the project's, T-628), the reviewer in a new tab "review". A pane held by a trust dialog is
 //	           listed, not fatal: Enter there, then obor init again.
-//	monitor    obor setup monitor: `obor monitor` in a "system" tab of the project's workspace, the pane labelled
-//	           <prefix>-monitor (T-658).
 //	serve      obor serve install (Setup.Serve; off darwin it says to run obor serve yourself).
 //
 // The output ends with the setup table (T-647, setup show): per difficulty level each of its model refs with what runs
@@ -247,13 +245,6 @@ func (s *Setup) oborInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// monitor (T-658): the project's live view, in a tab of its own ("system").
-	mstate, mwhat, err := s.monitorSetup(ctx)
-	if err != nil {
-		return err
-	}
-	add("monitor", mstate, "%s", mwhat)
 
 	// serve
 	if s.Serve == nil {
