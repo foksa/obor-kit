@@ -861,7 +861,7 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 		}
 		return got, asked
 	}
-	typed := func(x *fx) []string { return x.calls("pane.send_input pane_id=w1:p3 text=" + wake) }
+	typed := func(x *fx) []string { return x.calls("agent.prompt target=w1:p3 text=" + wake) }
 	t.Run("fresh: the wake is the first prompt", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
@@ -886,6 +886,22 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 			t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
 		}
 		contains(t, out, "job T-1/1/work: its wake typed", "said")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+		eqInt(t, len(x.calls("pane.send_input text=[obor job")), 0, "wakes sent through send_input")
+	})
+	t.Run("resumed, agent blocked: warning, nothing typed (T-800)", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		x.f.Set("w1:p3", func(p *herdrtest.Pane) { p.OnPrompt = "refused" })
+		out, _ := restart(x, "T-1/1/work", launch.Request{Agent: "pj-l-01"})
+		contains(t, x.startCall(), "--resume sid-1", "precondition: resumed")
+		eqInt(t, len(x.calls("agent.prompt")), 1, "precondition: the wake offered to herdr's agent.prompt")
+		contains(t, out, "warning: job T-1/1/work's wake not typed into pane w1:p3", "said")
+		contains(t, out, "(type it there: "+wake+")", "the line to type by hand")
+		lacks(t, out, "its wake typed", "no success line")
+		eqInt(t, len(x.calls("pane.send_input text=[obor job")), 0, "wakes sent through send_input")
 		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
 	})
 	t.Run("no job: no wake", func(t *testing.T) {

@@ -530,7 +530,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	}
 	switch {
 	case job != "" && sid != "":
-		if err := l.H.Type(ctx, t.pane, wire.WakeLine(job)); err != nil {
+		if err := l.H.Wake(ctx, t.pane, wire.WakeLine(job)); err != nil {
 			l.say("warning: job %s's wake not typed into pane %s: %v (type it there: %s)", job, t.pane, err, wire.WakeLine(job))
 		} else {
 			l.say("job %s: its wake typed", job)

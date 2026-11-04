@@ -381,6 +381,12 @@ func (s *Socket) Prompt(ctx context.Context, target, text string) (Agent, error)
 	return s.agentResult(ctx, 0, "agent.prompt", map[string]any{"target": target, "text": text})
 }
 
+// Wake is Prompt for a caller that wants no answer: the text typed into the agent in pane, refused when it is blocked.
+func (s *Socket) Wake(ctx context.Context, pane, text string) error {
+	_, err := s.Prompt(ctx, pane, text)
+	return err
+}
+
 // AgentKeys is agent.send_keys: logical keys (enter, esc, ctrl+u, …) to the agent; herdr checks every key before it
 // writes any.
 func (s *Socket) AgentKeys(ctx context.Context, target string, keys ...string) error {
