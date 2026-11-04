@@ -63,7 +63,7 @@ type Launcher struct {
 	Out  io.Writer     // progress lines
 	Wait time.Duration // for an agent to exit after /exit, the shell to run the env line (default OBOR_RESTART_WAIT, else 20 s)
 	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
-	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default 30 s)
+	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default port.StopBound)
 	Poll time.Duration // how often it looks (default 1 s)
 	// Alive says whether process pid runs (an agent's exit is its leader gone); nil: project.PIDAlive.
 	Alive func(pid int) bool

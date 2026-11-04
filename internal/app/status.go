@@ -307,7 +307,7 @@ func (a *App) Listen(ln net.Listener) {
 		go func() {
 			defer a.reqs.Done()
 			defer c.Close()
-			_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+			_ = c.SetReadDeadline(time.Now().Add(10 * time.Second)) // the request line
 			b, err := bufio.NewReader(c).ReadBytes('\n')
 			if err != nil {
 				return
@@ -388,6 +388,9 @@ func (a *App) Listen(ln net.Listener) {
 				ans.Error = "unknown method " + req.Method
 			}
 			out, _ := json.Marshal(ans)
+			// The answer is written once its effect is done, which may wait for a stop (T-825): its own bound, not the
+			// request line's.
+			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			_, _ = c.Write(append(out, '\n'))
 		}()
 	}

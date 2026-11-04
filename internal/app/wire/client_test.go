@@ -1,12 +1,17 @@
 package wire
 
 import (
+	"context"
 	"io"
 	"net"
 	"os"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"obor/internal/app/port"
 )
 
 // T-685: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset or no number,
@@ -19,14 +24,93 @@ func TestCallDeadlineEnv(t *testing.T) {
 		{"", MethodAccept, verdictDeadline},
 		{"", MethodTurn, turnDeadline},
 		{"", MethodStopped, stopFailureDeadline},
+		{"", MethodDispatch, stopCallDeadline},
 		{"0.2", MethodAccept, 200 * time.Millisecond},
 		{"0.2", MethodTurn, 200 * time.Millisecond},
 		{"0.2", MethodStopped, 200 * time.Millisecond},
+		{"0.2", MethodDrive, 200 * time.Millisecond},
 		{"bogus", MethodAccept, verdictDeadline},
 	} {
 		t.Setenv("OBOR_CALL_DEADLINE", c.env)
 		if got := callDeadline(c.method); got != c.want {
 			t.Errorf("OBOR_CALL_DEADLINE=%q: callDeadline(%s) = %v, want %v", c.env, c.method, got, c.want)
+		}
+	}
+}
+
+// T-825: a call whose serve side may stop an agent (a dispatch — a move is one — drop, a drive's take-over) covers the
+// stop: its bound (port.StopBound) plus the verdict margin. The other methods keep theirs.
+func TestCallDeadlineStopBound(t *testing.T) {
+	t.Setenv("OBOR_CALL_DEADLINE", "")
+	for _, method := range []string{MethodDispatch, MethodDrop, MethodDrive} {
+		if got, want := callDeadline(method), port.StopBound+verdictDeadline; got < want {
+			t.Errorf("callDeadline(%s) = %v, want at least %v (the stop's bound %v plus the verdict margin)",
+				method, got, want, port.StopBound)
+		}
+	}
+	for _, c := range []struct {
+		method string
+		want   time.Duration
+	}{
+		{MethodAccept, verdictDeadline},
+		{MethodSendback, verdictDeadline},
+		{MethodTurn, turnDeadline},
+		{MethodSession, turnDeadline},
+		{MethodStopped, stopFailureDeadline},
+	} {
+		if got := callDeadline(c.method); got != c.want {
+			t.Errorf("callDeadline(%s) = %v, want %v", c.method, got, c.want)
+		}
+	}
+}
+
+// T-825: a verdict its deadline ends says serve may still be working on it, naming the method and the deadline: a stop
+// inside the call can outlast the answer, and its transport failure ("use of closed network connection") is not a
+// thing a caller can act on.
+func TestVerdictDeadlineLine(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wire") // a short dir: a unix socket path is limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := dir + "/serve.sock"
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept() // accepted, never answered
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	})
+	t.Setenv("OBOR_CALL_DEADLINE", "0.2")
+	for _, method := range []string{MethodDispatch, MethodDrop, MethodDrive} {
+		_, err := Verdict(context.Background(), sock, method, Call{})
+		if err == nil {
+			t.Fatalf("Verdict(%s) answered from a socket that never does", method)
+		}
+		want := "obor serve did not answer " + method + " in 200ms: it may still be working on it (obor status shows whether it landed)"
+		if err.Error() != want {
+			t.Errorf("Verdict(%s) error = %q, want %q", method, err, want)
+		}
+		if strings.Contains(err.Error(), "closed network connection") {
+			t.Errorf("Verdict(%s) error carries the transport's text: %q", method, err)
 		}
 	}
 }
