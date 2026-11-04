@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~19:40 (lead, fresh session). Steps 1-2 done (AGENTS.md rules, 5560ff43). Step 3 was misread: the
+  11-04 15:02 `use of closed network connection` was a move outlasting the CLI's 15 s deadline (serve stops the
+  worker inside the call), not a restart → T-825. In flight: T-825 (L-01), T-827 S2 (L-02, opus:high), T-828
+  test-pruning survey (L-03); T-826 P4 waits on T-825 (same file). Owner: S2 for wave 4, survey first, keep 4 lanes.
+  Next: review T-825..T-827 once merged; pruning tasks from T-828's ranked plan.
 - 2026-11-04 ~19:00 (lead → fresh session). **v0.25.0 and v0.25.1 shipped** today; all upgrade steps done on this
   machine (`obor setup agents` removed the global opencode obor entry + link; backup was in the old session's
   scratchpad; `~/.obor/agents` and `~/.obor/inbox` removed). axis-alies on 0.25.1 (lanes restarted, its lead restarts

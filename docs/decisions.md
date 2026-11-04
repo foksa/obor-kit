@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-04 (owner): **Wave 4 is S2, not S1** (S1 landed in T-775: `verbs` column, `mtask.may`, `p.busy`): a needs-you
+  becomes a block on the phase (T-827, opus:high, case → test table, golden replay first). **Test pruning starts with a
+  measured survey** (T-828, `docs/research/test-pruning.md`), then pruning tasks split by package. **Lanes stay 4**:
+  flakes are fixed as they show up.
 - 2026-11-04 (owner): **Spec changes reach a worker only at task_done**: the early spec-change line (T-819/T-821) is
   deleted (7 review findings in two rounds); `obor spec set --note` and the task_done refusal against an older spec
   rev stay (T-824). v0.25.1 waits for it.
