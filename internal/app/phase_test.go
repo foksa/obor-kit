@@ -165,6 +165,10 @@ func TestStageIgnoresTheWatchdogsNeedsYou(t *testing.T) {
 			nil, wire.PhaseHeld, wire.StageHeld},
 		{"merge loop red past K", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stRed, needs: needsOf(causeRed)},
 			nil, wire.PhaseNeedsYou, wire.StageHeld},
+		{"needs-you left by a dispatch", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stDispatched,
+			needs: needsOf(causeStalled)}, nil, wire.PhaseNeedsYou, ""},
+		{"needs-you left by an undelivered fix job", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stWorking,
+			needs: needsOf(causeStalled), attemptVars: attemptVars{work: "fix"}}, nil, wire.PhaseNeedsYou, ""},
 		{"gating, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stSubmitted},
 			map[string]string{"T-1": wire.PhaseGating}, wire.PhaseNeedsYou, wire.StageGating},
 	} {
