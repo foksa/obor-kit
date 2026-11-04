@@ -40,3 +40,42 @@ What changes:
 - `setup rename --name` refuses while the old `obor.serve.<name>` service is installed (`obor serve uninstall` first).
 - opencode lanes: the user-global opencode MCP registration runs `~/.obor/kit`; installing v0.25 brings it to the
   same version as the project's serve.
+
+## v0.25.1 (custom roles, idle ping, per-launch opencode registration, nightly commands)
+Re-run the installer, then `obor serve restart` in **every** project on the machine. Only once all of them run
+v0.25.1, once per machine:
+
+```sh
+obor setup agents
+```
+
+It removes obor's old user-global opencode registration (`mcp.servers.obor` in `~/.config/opencode/opencode.json` and
+the `plugins/obor.js` link); a v0.25.0 serve's opencode lanes still need it, so run it last. Then restart running
+opencode lanes and role agents (`obor restart <agent>`), and the lead (`obor lead --resume`) to load the new skill.
+
+What changes:
+- **Custom roles:** a `roles.<name>` row (`"<model>"`, or `{"model": …, "write": ["dir/", "file"]}`) plus
+  `docs/agents/<name>.md` adds a role: main checkout, git read-only, its write list only, briefed with `obor brief`,
+  placed with `obor setup role <name>`. advisor, researcher and triage are such rows now (same names and config lines);
+  **the advisor may write `docs/research/` and `docs/plan/`**. A role whose row is removed while it runs may write
+  nothing.
+- **Idle ping:** when nothing is in flight serve tells the lead once (`[obor] idle: …`); `obor idle "<why>"`
+  acknowledges, a dispatch, review request or a reviewer/deep-dive brief ends it; unanswered after 30 min one more line
+  and a herdr notification to the owner.
+- **Spec changes reach a working worker:** `obor spec set T-xx <file> --note "<what changed>"` tells its worker (reply
+  `(worker told)` or `(queued: …)`), and `task_done` against an older spec rev is refused once with the note.
+- **opencode:** obor's MCP server and plugin are given per launch (`OPENCODE_CONFIG`, from the launching kit), so the
+  kit and the project's build no longer skew; obor no longer appears in your own opencode windows after `obor setup
+  agents`. A role agent on opencode now runs its guard as its role.
+- **Agent env:** every start unsets every obor variable it does not set (one list), so a reused pane never keeps an
+  old agent's env. Claude starts with a session id obor chooses, and restarts use the transcript path Claude recorded.
+- **Codex:** starts with `--no-daemon`; efforts are `low medium high xhigh max ultra` (`minimal` is refused: change
+  a `terra:minimal` in config or specs).
+- **herdr:** any protocol from 22 up is accepted; `obor status` shows a newer herdr. `make conformance` (kit) checks
+  the installed CLIs.
+- **Nightly commands:** `merge.nightly_commands: ["<command>", …]` runs those `commands.<name>` after the nightly's
+  checks, each non-gating (one line, a failure is a warning). obor-kit uses it for `conformance` and a Go cache trim.
+- **Merge subjects** are `Merge T-xx: <spec title>`, conflict-resolved merges included; the body keeps the worker's
+  whole summary.
+- The git pre-push hook allows a push by a role in `guards.allow_push` (v0.25.0 notes).
+- Review cycles record the tasks they covered, so a merge during a verify is never counted as reviewed.
