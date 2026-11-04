@@ -52,93 +52,81 @@ func shell(root, id, agent string) port.Pane {
 	return port.Pane{ID: id, Workspace: "w", Cwd: root, Label: agent}
 }
 
-// The advisor and the deep dive, which serve never stops, are stopped in status when the lead's stop left their pane at
-// a shell: no role.stop result is in the log at all.
-func TestStoppedRolesLeadStopped(t *testing.T) {
+// T-677: status calls a role agent stopped only when herdr shows exactly one labelled pane of it at its shell — whoever
+// stopped it (serve after its work, or the lead's obor restart <agent> --stop), for every role and with no role.stop
+// result in the log. Two labelled panes (which runs it is unknown), herdr down and no pane are not stopped.
+func TestStoppedRoles(t *testing.T) {
 	t.Parallel()
-	root := stoppedRoot(t)
-	a, p := stoppedApp(t, root, shell(root, "w:adv", "pj-advisor"), shell(root, "w:dd", "pj-deep-dive"))
-	for _, rec := range readLog(t, p.root) {
-		if rec.Task == event.RoleTask {
-			t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
-		}
+	cases := []struct {
+		name  string
+		panes func(root string) []port.Pane
+		want  []string
+		check func(t *testing.T, a *App, p *proj)
+	}{
+		{"the lead stopped the advisor and the deep dive", func(root string) []port.Pane {
+			return []port.Pane{shell(root, "w:adv", "pj-advisor"), shell(root, "w:dd", "pj-deep-dive")}
+		}, []string{"pj-advisor", "pj-deep-dive"}, nil},
+		{"reviewer and integrator at a shell", func(root string) []port.Pane {
+			return []port.Pane{shell(root, "w:int", "pj-int"), shell(root, "w:rev", "pj-rev")}
+		}, []string{"pj-int", "pj-rev"}, func(t *testing.T, a *App, p *proj) {
+			if !p.roleAgent("pj-int") || p.roleAgentOf("pj-int") {
+				t.Errorf("pj-int: role agent %v, brief starts it %v; want true, false",
+					p.roleAgent("pj-int"), p.roleAgentOf("pj-int"))
+			}
+			if !p.roleAgentOf("pj-rev") {
+				t.Error("pj-rev: a brief does not start the stopped reviewer")
+			}
+		}},
+		{"two panes of one agent", func(root string) []port.Pane {
+			return []port.Pane{shell(root, "w:adv1", "pj-advisor"), shell(root, "w:adv2", "pj-advisor")}
+		}, nil, func(t *testing.T, a *App, p *proj) {
+			if w := a.whereIs(p, "pj-advisor"); w.State != Unavailable || w.Why == notConnected {
+				t.Errorf("pj-advisor %+v, want no identified pane while herdr is connected", w)
+			}
+		}},
+		{"herdr down", func(root string) []port.Pane {
+			return []port.Pane{shell(root, "w:adv", "pj-advisor")}
+		}, []string{"pj-advisor"}, func(t *testing.T, a *App, p *proj) {
+			a.mu.Lock()
+			a.connected = false
+			a.mu.Unlock()
+			st := a.Status()
+			if st.Connected {
+				t.Fatal("status still says herdr is connected")
+			}
+			if got := st.Project.Stopped; len(got) != 0 {
+				t.Errorf("status stopped %q with herdr down, want unknown (not stopped)", got)
+			}
+		}},
+		{"no pane", nil, nil, func(t *testing.T, a *App, p *proj) {
+			if !p.roleAgent("pj-advisor") {
+				t.Fatal("pj-advisor is not a configured role agent")
+			}
+			if w := a.whereIs(p, "pj-advisor"); w.State != Unavailable || w.Why == notConnected {
+				t.Errorf("pj-advisor %+v, want unavailable while herdr is connected", w)
+			}
+		}},
 	}
-	got := a.Status().Project.Stopped
-	if want := []string{"pj-advisor", "pj-deep-dive"}; !slices.Equal(got, want) {
-		t.Errorf("status stopped %q, want %q", got, want)
-	}
-}
-
-// The reviewer and the integrator at a shell show stopped with no role.stop result either (an integration branch's
-// review never closed, a verdict never recorded): it is the pane that says so. The integrator stays no brief's to
-// start, though.
-func TestStoppedRolesAtShellWithoutServeStop(t *testing.T) {
-	t.Parallel()
-	root := stoppedRoot(t)
-	a, p := stoppedApp(t, root, shell(root, "w:int", "pj-int"), shell(root, "w:rev", "pj-rev"))
-	for _, rec := range readLog(t, p.root) {
-		if rec.Task == event.RoleTask {
-			t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
-		}
-	}
-	if got, want := a.Status().Project.Stopped, []string{"pj-int", "pj-rev"}; !slices.Equal(got, want) {
-		t.Errorf("status stopped %q, want %q", got, want)
-	}
-	if !p.roleAgent("pj-int") || p.roleAgentOf("pj-int") {
-		t.Errorf("pj-int: role agent %v, brief starts it %v; want true, false",
-			p.roleAgent("pj-int"), p.roleAgentOf("pj-int"))
-	}
-	if !p.roleAgentOf("pj-rev") {
-		t.Error("pj-rev: a brief does not start the stopped reviewer")
-	}
-}
-
-// Two panes labelled with one agent: which runs it is unknown, so it is not called stopped.
-func TestStoppedRolesTwoLabelledPanesUnknown(t *testing.T) {
-	t.Parallel()
-	root := stoppedRoot(t)
-	a, p := stoppedApp(t, root, shell(root, "w:adv1", "pj-advisor"), shell(root, "w:adv2", "pj-advisor"))
-	w := a.whereIs(p, "pj-advisor")
-	if w.State != Unavailable || w.Why == notConnected {
-		t.Fatalf("precondition: pj-advisor %+v, want no identified pane while herdr is connected", w)
-	}
-	if got := a.Status().Project.Stopped; len(got) != 0 {
-		t.Errorf("status stopped %q with two panes labelled pj-advisor, want unknown (not stopped)", got)
-	}
-}
-
-// Herdr down: serve knows no pane, so a stop it cannot see is not called stopped either.
-func TestStoppedRolesHerdrDownUnknown(t *testing.T) {
-	t.Parallel()
-	root := stoppedRoot(t)
-	a, _ := stoppedApp(t, root, shell(root, "w:adv", "pj-advisor"))
-	if got := a.Status().Project.Stopped; !slices.Equal(got, []string{"pj-advisor"}) {
-		t.Fatalf("precondition: connected, status stopped %q, want [pj-advisor]", got)
-	}
-	a.mu.Lock()
-	a.connected = false
-	a.mu.Unlock()
-	st := a.Status()
-	if st.Connected {
-		t.Fatal("precondition: status still says herdr is connected")
-	}
-	if got := st.Project.Stopped; len(got) != 0 {
-		t.Errorf("status stopped %q with herdr down, want unknown (not stopped)", got)
-	}
-}
-
-// A configured role agent with no labelled pane is "no pane", not stopped: nothing was stopped, no pane is there.
-func TestStoppedRolesNoPane(t *testing.T) {
-	t.Parallel()
-	root := stoppedRoot(t)
-	a, p := stoppedApp(t, root)
-	if !p.roleAgent("pj-advisor") {
-		t.Fatal("precondition: pj-advisor is not a configured role agent")
-	}
-	if w := a.whereIs(p, "pj-advisor"); w.State != Unavailable || w.Why == notConnected {
-		t.Fatalf("precondition: pj-advisor %+v, want unavailable while herdr is connected", w)
-	}
-	if got := a.Status().Project.Stopped; len(got) != 0 {
-		t.Errorf("status stopped %q with no pane of pj-advisor, want none (no pane)", got)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := stoppedRoot(t)
+			var panes []port.Pane
+			if c.panes != nil {
+				panes = c.panes(root)
+			}
+			a, p := stoppedApp(t, root, panes...)
+			for _, rec := range readLog(t, p.root) {
+				if rec.Task == event.RoleTask {
+					t.Fatalf("precondition: a role stop is recorded: %s %s", rec.Task, rec.Step)
+				}
+			}
+			if got := a.Status().Project.Stopped; !slices.Equal(got, c.want) {
+				t.Errorf("status stopped %q, want %q", got, c.want)
+			}
+			if c.check != nil {
+				c.check(t, a, p)
+			}
+		})
 	}
 }

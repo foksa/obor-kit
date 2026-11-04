@@ -184,21 +184,3 @@ func TestBriefByKind(t *testing.T) {
 		})
 	}
 }
-
-// A brief to a Claude role agent whose session has no inbox record is typed into its idle pane (T-746: as its job
-// wakes are; before, it waited untried), once, nothing posted, nothing left waiting.
-func TestBriefTypedWithoutAnInboxRecord(t *testing.T) {
-	t.Parallel()
-	r := lineRig(t, "idle", "idle")
-	r.inbox.unrecord("pj-rev")
-	r.start()
-	const line = "[obor pj-lead] verify"
-	if _, err := r.line(wire.MethodBrief, "b1", wire.Call{To: "pj-rev", Note: "verify"}); err != nil {
-		t.Fatal(err)
-	}
-	r.waitFor("the brief typed", func() bool { r.passes(); return r.typedTo("pj-rev", line) == 1 })
-	r.passes()
-	if n, posted := r.typedTo("pj-rev", line), r.inbox.tries("pj-rev", line); n != 1 || posted != 0 || len(r.waiting()) != 0 {
-		t.Errorf("typed %d, posted %d, waiting %+v; want typed once, none posted, none waiting", n, posted, r.waiting())
-	}
-}

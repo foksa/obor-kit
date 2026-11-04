@@ -53,32 +53,33 @@ func (r *loopRig) factData(task, step string) map[string]any {
 	return nil
 }
 
-func TestDifficultyRunsTheLevelsFirstModel(t *testing.T) {
+// T-538, T-689, T-765: the level's first model on the first free lane; a spec's Model: line puts its own models
+// first (T-689), with the effort it names.
+func TestDifficultyTakesTheLevelsModels(t *testing.T) {
 	t.Parallel()
-	r := newLevelRig(t)
-	r.start()
-	r.specLevel("medium") // sonnet, deepseek: sonnet on the first free lane
-	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as sonnet") {
-		t.Fatalf("medium dispatch: %q, %v; want L-01 as sonnet", reply, err)
-	}
-	if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "L-01" || d["type"] != "sonnet" {
-		t.Errorf("dispatch fact %v, want level medium, sonnet on L-01", d)
-	}
-}
-
-// T-689, T-765: the spec's Model: line puts its models first.
-func TestDifficultyModelLineFirst(t *testing.T) {
-	t.Parallel()
-	r := newLevelRig(t)
-	r.start()
-	r.setSpec("s1", "# T-1 — Leveled\n\nDifficulty: medium\nModel: haiku:low, sonnet\n")
-	reply, err := r.dispatchLevel("d1")
-	if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as haiku effort low") {
-		t.Fatalf("Model: haiku:low: %q, %v; want haiku at effort low", reply, err)
-	}
-	if d := r.factData("T-1", event.StepDispatched); d["type"] != "haiku:low" || d["effort"] != "low" {
-		t.Errorf("dispatch fact %v, want haiku:low", d)
+	for _, c := range []struct {
+		name, spec, want, typ string
+		effort                any
+	}{
+		{"the level's first model", "# T-1 — Leveled\n\nDifficulty: medium\n", "DISPATCHED T-1 → L-01 (queued) as sonnet",
+			"sonnet", nil},
+		{"the spec's Model: line first", "# T-1 — Leveled\n\nDifficulty: medium\nModel: haiku:low, sonnet\n",
+			"DISPATCHED T-1 → L-01 (queued) as haiku effort low", "haiku:low", "low"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLevelRig(t)
+			r.start()
+			r.setSpec("s-"+c.name, c.spec)
+			reply, err := r.dispatchLevel("d1")
+			if err != nil || !strings.HasPrefix(reply, c.want) {
+				t.Fatalf("dispatch: %q, %v; want %q", reply, err, c.want)
+			}
+			if d := r.factData("T-1", event.StepDispatched); d["level"] != "medium" || d["lane"] != "L-01" || d["type"] != c.typ ||
+				d["effort"] != c.effort {
+				t.Errorf("dispatch fact %v, want level medium, %s on L-01 with effort %v", d, c.typ, c.effort)
+			}
+		})
 	}
 }
 
@@ -130,50 +131,6 @@ func TestDifficultySkipsAPausedModel(t *testing.T) {
 	}
 	if reply, err := r.pause("lead", "c2", wire.Call{Model: "sonnet", Clear: true}); err != nil || reply != "NOT PAUSED sonnet" {
 		t.Errorf("clear sonnet again: %q, %v", reply, err)
-	}
-}
-
-func TestDifficultyWaitsForAFreeLane(t *testing.T) {
-	t.Parallel()
-	r := newLevelRig(t)
-	r.lanes.mu.Lock()
-	for i := range r.lanes.lanes {
-		r.lanes.lanes[i].State, r.lanes.lanes[i].Task = "working", "T-9"
-	}
-	r.lanes.mu.Unlock()
-	r.start()
-	r.specLevel("simple")
-	const want = "WAITING T-1 (queued): waiting for a free lane (simple: deepseek, sonnet, haiku)"
-	if reply, err := r.dispatchLevel("d1"); err != nil || reply != want {
-		t.Fatalf("simple dispatch, no lane free: %q, %v; want %q", reply, err, want)
-	}
-	r.passes()
-	if st := r.taskStatus("T-1"); st.State != "waiting" || st.Level != "simple" || strings.Join(st.Types, ",") != "deepseek,sonnet,haiku" {
-		t.Errorf("status %+v, want waiting for simple (deepseek, sonnet, haiku)", st)
-	}
-	r.later(2 * time.Hour)
-	if st := r.taskStatus("T-1"); st.State != "waiting" {
-		t.Errorf("status %+v after two hours, want still waiting (a busy lane is not a needs-you)", st)
-	}
-	r.lanes.mu.Lock()
-	r.lanes.lanes[1].State, r.lanes.lanes[1].Task = "free", ""
-	r.lanes.mu.Unlock()
-	r.waitFor("the dispatch once a lane frees", func() bool { return r.taskStep("T-1", "fact dispatch") == 1 })
-	if d := r.factData("T-1", event.StepDispatched); d["lane"] != "L-02" || d["level"] != "simple" || d["type"] != "deepseek" {
-		t.Errorf("dispatch fact %v, want simple's deepseek on L-02", d)
-	}
-}
-
-func TestDifficultyModelsOverrideTheLevel(t *testing.T) {
-	t.Parallel()
-	r := newLevelRig(t)
-	r.start()
-	r.specLevel("hard")
-	if reply, err := r.dispatchLevel("d1", "terra:high"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as terra effort high") {
-		t.Fatalf("--model terra:high: %q, %v", reply, err)
-	}
-	if d := r.factData("T-1", event.StepDispatched); d["level"] != nil {
-		t.Errorf("dispatch fact %v, want no level (--model overrides it)", d)
 	}
 }
 

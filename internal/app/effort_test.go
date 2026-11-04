@@ -57,39 +57,49 @@ func TestEffortHardLevelStartsAnOpusLaneAtHigh(t *testing.T) {
 	}
 }
 
-func TestEffortSpecTypeAndTypesNameIt(t *testing.T) {
-	r := effortRig(t)
-	r.start()
-	r.setSpec("s1", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n")
-	if reply, err := r.dispatchLevel("d1"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort max") {
-		t.Fatalf("Model: opus:max dispatch: %q, %v", reply, err)
-	}
-	if d := r.factData("T-1", event.StepDispatched); d["effort"] != "max" {
-		t.Errorf("dispatch fact %v, want effort max", d)
-	}
-
-	r2 := effortRig(t)
-	r2.start()
-	r2.specLevel("medium")
-	if reply, err := r2.dispatchLevel("d1", "opus:low"); err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01 (queued) as opus effort low") {
-		t.Fatalf("--model opus:low: %q, %v", reply, err)
-	}
-}
-
-func TestEffortPlainTypeNamesNone(t *testing.T) {
-	r := effortRig(t)
-	r.start()
-	r.specLevel("medium")
-	reply, err := r.dispatchLevel("d1", "opus")
-	if err != nil || reply != "DISPATCHED T-1 → L-01 (queued) as opus" {
-		t.Fatalf("--model opus: %q, %v; want no effort in the reply", reply, err)
-	}
-	if d := r.factData("T-1", event.StepDispatched); d["effort"] != nil || d["type"] != "opus" {
-		t.Errorf("dispatch fact %v, want no effort (the kind's default) and type opus (T-721)", d)
-	}
-	r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-l-01"); return ok })
-	if l, _ := r.launchOf("pj-l-01"); l.Effort != "" || l.Type != "opus" {
-		t.Errorf("worker start %+v, want the dispatch's type opus (T-722) and no effort", l)
+// T-695: a spec's Model: line or --model names the effort; a plain type runs the kind's default (no effort).
+func TestEffortFromTheSpecAndTheFlag(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, spec, typ, want, effort string
+		flag                          bool
+	}{
+		{"the spec's Model: line", "# T-1 — Typed\n\nDifficulty: medium\nModel: opus:max\n", "", "DISPATCHED T-1 → L-01 (queued) as opus effort max", "max", false},
+		{"--model with an effort", "", "opus:low", "DISPATCHED T-1 → L-01 (queued) as opus effort low", "low", true},
+		{"a plain type", "", "opus", "DISPATCHED T-1 → L-01 (queued) as opus", "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := effortRig(t)
+			r.start()
+			if c.spec != "" {
+				r.setSpec("s1", c.spec)
+			} else {
+				r.specLevel("medium")
+			}
+			var reply string
+			var err error
+			if c.flag {
+				reply, err = r.dispatchLevel("d1", c.typ)
+			} else {
+				reply, err = r.dispatchLevel("d1")
+			}
+			if err != nil || !strings.HasPrefix(reply, c.want) {
+				t.Fatalf("dispatch: %q, %v; want %q", reply, err, c.want)
+			}
+			d := r.factData("T-1", event.StepDispatched)
+			wantType := "opus"
+			if c.effort != "" {
+				wantType += ":" + c.effort
+			}
+			if d["type"] != wantType || (c.effort == "" && d["effort"] != nil) || (c.effort != "" && d["effort"] != c.effort) {
+				t.Errorf("dispatch fact %v, want type %s with effort %q", d, wantType, c.effort)
+			}
+			r.waitFor("the worker's start", func() bool { _, ok := r.launchOf("pj-l-01"); return ok })
+			if l, _ := r.launchOf("pj-l-01"); l.Effort != c.effort || l.Type != "opus" {
+				t.Errorf("worker start %+v, want type opus and effort %q", l, c.effort)
+			}
+		})
 	}
 }
 

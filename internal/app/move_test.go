@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"obor/internal/app/event"
@@ -91,40 +90,6 @@ func TestMoveToTheSameModelRefused(t *testing.T) {
 	}
 	if len(r.records()) != n || len(r.workerStops()) != 0 {
 		t.Errorf("a refused move recorded %q or stopped %q", r.steps()[n:], r.workerStops())
-	}
-}
-
-// A task gating, under review or merging is not moved: refused by its state as obor drive refuses, nothing recorded or
-// stopped.
-func TestMoveWhileGatingRefused(t *testing.T) {
-	t.Parallel()
-	r := newDispatchRig(t)
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-	r.mustDispatch("d1")
-	r.waitJob("pj-l-01", "T-1/1/work")
-	release := make(chan struct{})
-	r.scratch.arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return nil
-	})
-	defer close(release)
-	r.submit()
-	r.waitStep("1 intent gate")
-	n := len(r.records())
-	_, err := r.moveTo("m1", "opus")
-	if err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
-		t.Fatalf("move while gating: %v, want refused", err)
-	}
-	if len(r.records()) != n || r.count("2 fact dispatch") != 0 {
-		t.Errorf("a refused move recorded: %q", r.steps()[n:])
-	}
-	if stops := r.workerStops(); len(stops) != 0 {
-		t.Errorf("a refused move stopped %q", stops)
 	}
 }
 

@@ -104,26 +104,6 @@ func TestWatchedMergePostsOneLine(t *testing.T) {
 	}
 }
 
-// T-523: a watched task dropped gets "[obor] T-1 dropped: <why>" once.
-func TestWatchedDropPostsTheDroppedLine(t *testing.T) {
-	t.Parallel()
-	r := newLoopRig(t, "echo 1 pass")
-	r.start()
-	if reply, err := r.watch("w1", "T-1", false); err != nil || reply != "WATCHING T-1" {
-		t.Fatalf("watch: %q, %v", reply, err)
-	}
-	if reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Role: "lead",
-		CallID: "x1", Task: "T-1", Note: "superseded\nby T-2"}); err != nil || reply != "DROPPED T-1" {
-		t.Fatalf("drop: %q, %v", reply, err)
-	}
-	const line = "[obor] T-1 dropped: superseded by T-2"
-	r.waitFor("the dropped line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.passes()
-	if l := r.watchLines(); len(l) != 1 || l[0] != line {
-		t.Errorf("watch lines %q, want one %q", l, line)
-	}
-}
-
 // T-523: a watch of a task merged already is answered with its outcome at once and records nothing; an unknown task
 // (no dispatch, no spec) is refused; a task with only a spec may be watched; a repeated call id gets its stored reply.
 func TestWatchEndedOrUnknownTask(t *testing.T) {

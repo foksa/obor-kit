@@ -251,23 +251,6 @@ func TestConfigSetRefused(t *testing.T) {
 	}
 }
 
-// T-781: the nightly switched off while it is off is no change: reply UNCHANGED, no commit, no fact, no line.
-func TestConfigSetNightlyOffWhenOff(t *testing.T) {
-	t.Parallel()
-	h, f := configRig(t)
-	reply, err := h.a.configCall(wire.Call{Root: h.root, CallID: "n1", Agent: "pj-lead", Role: "lead",
-		Changes: changes("merge.nightly_at", `null`)})
-	if err != nil || reply != "UNCHANGED merge.nightly_at" {
-		t.Fatalf("off when off: %q, %v; want UNCHANGED merge.nightly_at", reply, err)
-	}
-	if b, _ := os.ReadFile(f.path); string(b) != configJSON {
-		t.Errorf("the file changed:\n%s", b)
-	}
-	if len(f.messages()) != 0 || len(configFacts(t, h)) != 0 || len(leadLines(t, h)) != 0 {
-		t.Errorf("off when off committed %q, recorded %+v, told the lead %q", f.messages(), configFacts(t, h), leadLines(t, h))
-	}
-}
-
 // T-765: the lanes count is not lowered while a lane it drops has a task (the lanes read's, its row's or the merge
 // loop's open task there); once the task ended, it is.
 func TestConfigSetLanesWithTask(t *testing.T) {

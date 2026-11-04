@@ -261,36 +261,51 @@ func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	}
 }
 
-// A task gating, under review or merging is not taken over: refused by its state, nothing recorded.
-func TestDriveTakeOverWhileGatingRefused(t *testing.T) {
+// A task gating, under review or merging is not taken over by a drive nor moved: refused by its state, nothing
+// recorded or stopped (T-751, T-773: the same rig, a different verb).
+func TestTakeOverWhileGatingRefused(t *testing.T) {
 	t.Parallel()
-	r := newDispatchRig(t)
-	r.work("feature.txt", "feature\n")
-	r.start()
-	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-	r.mustDispatch("d1")
-	r.waitJob("pj-l-01", "T-1/1/work")
-	release := make(chan struct{})
-	r.scratch.arm("Gate", func(ctx context.Context) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return nil
-	})
-	defer close(release)
-	r.submit()
-	r.waitStep("1 intent gate")
-	n := len(r.records())
-	_, err := r.drive("v1", "T-1")
-	if err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
-		t.Fatalf("take-over while gating: %v, want refused", err)
-	}
-	if len(r.records()) != n || r.has("1 fact drive") {
-		t.Errorf("a refused take-over recorded: %q", r.steps())
-	}
-	if stops := r.workerStops(); len(stops) != 0 {
-		t.Errorf("a refused take-over stopped %q", stops)
+	for _, c := range []struct {
+		name     string
+		verb     func(*loopRig, string) (string, error)
+		recorded func(*loopRig) int
+		arg      string
+	}{
+		{"drive", func(r *loopRig, _ string) (string, error) { return r.drive("v1", "T-1") },
+			func(r *loopRig) int { return r.count("1 fact drive") }, "T-1"},
+		{"move", func(r *loopRig, arg string) (string, error) { return r.moveTo("m1", arg) },
+			func(r *loopRig) int { return r.count("2 fact dispatch") }, "opus"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newDispatchRig(t)
+			r.work("feature.txt", "feature\n")
+			r.start()
+			r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+			r.mustDispatch("d1")
+			r.waitJob("pj-l-01", "T-1/1/work")
+			release := make(chan struct{})
+			t.Cleanup(func() { close(release) })
+			r.scratch.arm("Gate", func(ctx context.Context) error {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+				return nil
+			})
+			r.submit()
+			r.waitStep("1 intent gate")
+			n := len(r.records())
+			if _, err := c.verb(r, c.arg); err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
+				t.Fatalf("%s while gating: %v, want refused", c.name, err)
+			}
+			if len(r.records()) != n || c.recorded(r) != 0 {
+				t.Errorf("a refused %s recorded: %q", c.name, r.steps())
+			}
+			if stops := r.workerStops(); len(stops) != 0 {
+				t.Errorf("a refused %s stopped %q", c.name, stops)
+			}
+		})
 	}
 }
 
