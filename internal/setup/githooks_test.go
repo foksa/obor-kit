@@ -119,6 +119,22 @@ func (x *hx) gitEnv(kv ...string) []string {
 		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"), kv...)
 }
 
+// envWith is env with kv set, replacing a key it already has: a duplicate reaches the hook and getenv reads the first,
+// so the last value would otherwise not win.
+func envWith(env []string, kv ...string) []string {
+	for _, e := range kv {
+		k, _, _ := strings.Cut(e, "=")
+		var out []string
+		for _, old := range env {
+			if !strings.HasPrefix(old, k+"=") {
+				out = append(out, old)
+			}
+		}
+		env = append(out, e)
+	}
+	return env
+}
+
 // chainHook runs the chain set's hook name directly with dir as git's cwd (the file git runs when core.hooksPath points
 // at the chain set, for a hook whose result no git command here can exercise): its exit code.
 func (x *hx) chainHook(env []string, dir, name string) int {
@@ -189,7 +205,8 @@ func (x *hx) cold(t *testing.T) (env []string, curlLog string) {
 	os.Chmod(filepath.Join(stubs, "curl"), 0o755)
 	home := filepath.Join(x.Base, "cold-home")
 	os.MkdirAll(home, 0o755)
-	return append(os.Environ(), "HOME="+home, "PATH="+stubs+string(os.PathListSeparator)+os.Getenv("PATH")), curlLog
+	return envWith(append(os.Environ(), "HOME="+home, "PATH="+stubs+string(os.PathListSeparator)+os.Getenv("PATH")),
+		"OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=30"), curlLog
 }
 
 // binary makes script the kit's dist/obor.
@@ -276,7 +293,7 @@ func TestGithooks(t *testing.T) {
 			refused(env, "stale binary (no --can-push)")
 			x.binary("#!/bin/bash\nexec sleep 30\n")
 			start := time.Now()
-			refused(append(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1"), "hanging binary")
+			refused(envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1"), "hanging binary")
 			if d := time.Since(start); d > hangBound {
 				t.Errorf("hanging binary: push returned after %v, want within the watchdog bound", d)
 			}
@@ -349,7 +366,7 @@ func TestGithooks(t *testing.T) {
 			x.binary("#!/bin/bash\nexec sleep 30\n")
 			before := x.head(x.lane)
 			start := time.Now()
-			rc, errOut := x.commit(x.lane, append(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1")...)
+			rc, errOut := x.commit(x.lane, envWith(env, "OBOR_PRE_COMMIT_WHOAMI_TIMEOUT=1")...)
 			if rc != 1 || !strings.Contains(errOut, unknown) {
 				t.Errorf("hanging binary (refused by watchdog): exit %d\n%s", rc, errOut)
 			}
