@@ -613,7 +613,7 @@ main checkout's `bin/obor` (with `OBOR_NO_SELF_HOST=1`, never a lane's own build
 guard, not an older global kit's. The guard fails closed on a store it cannot read: a store that exists but cannot be
 opened or read (a newer schema, any open error) denies a non-lead role's writes inside the repo, naming the store and
 "run this kit's binary"; no store yet, or no lane row, stays as before.
-The session-start hook writes `.obor/state/lanes/<LANE>.plugin` in the main checkout (T-310: never in the lane worktree), a marker holding the time the hook ran (T-307). `obor status` shows `no-plugin` for a working opencode lane whose marker is missing or older than the lane row's dispatch (`cmd/obor/status.go` `pluginMissing`), so a lane whose plugin never loaded for the current dispatch is flagged.
+The session-start hook writes `.obor/state/lanes/<LANE>.plugin` in the main checkout (T-310: never in the lane worktree), a marker holding the time the hook ran (T-307). `obor status` shows `no-plugin` for a working opencode lane whose marker is missing or older than the lane row's dispatch, once 2 min (`view.pluginSettle`) have passed since the lane's last `agent.start` (the plugin checks in on the session's first event, so a restart's or a resume's start comes after the dispatch; T-783; `internal/view` `pluginMissing`), so a lane whose plugin never loaded for the current dispatch is flagged.
 The model and effort of an opencode start (T-703): the type's `--model provider/model[#variant]`, the effort as its
 variant, reach the plugin as `OBOR_OPENCODE_MODEL` on the env line (unset for a type without `--model`: opencode's own
 choice stands; an effort then is an error, T-697). The plugin's session `prompt` hook switches each new root session of
