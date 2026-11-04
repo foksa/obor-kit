@@ -703,7 +703,7 @@ func (a *App) pickAccepted(p *proj, mt mtask) step {
 func (a *App) pickPublished(p *proj, mt mtask) step {
 	return func(context.Context, *Loop) bool {
 		return a.record(p, event.Record{Task: mt.task, Attempt: mt.attempt, Step: event.StepMerged, Kind: event.KindFact},
-			event.MergedData{Head: mt.cand.SHA, Full: mt.cand.Full})
+			event.MergedData{Head: mt.cand.SHA})
 	}
 }
 

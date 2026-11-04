@@ -247,7 +247,6 @@ func TestRV59LowDiskPendingNightly(t *testing.T) {
 			fx := r.concLoop("pj")
 			fx.Disk = f.disk()
 			fx.Nightly = &Nightly{At: "13:00",
-				Due: func([]event.Merge, bool) (bool, error) { return true, nil },
 				Run: func(context.Context) (NightlyOut, error) {
 					runs.Add(1)
 					return NightlyOut{SHA: "abc1234def", Verdict: "GREEN", Line: "NIGHTLY GREEN abc1234"}, nil

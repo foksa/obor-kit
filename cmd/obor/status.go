@@ -234,7 +234,8 @@ func fullCheckSection(st view.Project, now time.Time) []string {
 // (T-669: a gate or publish there is on the running line), the merge loop's tasks in its order with their stage and
 // what each waits for, where serve's scheduler knows of one (T-673: it names no task as next), the dispatches waiting
 // and on what (--after tasks, a lane of their level, a spec never dispatched), the review request (or "review due"),
-// the lead's watches, the lines not typed yet and the briefs in progress, the pause and the next nightly check.
+// the lead's watches, the lines not typed yet and the briefs in progress, the pause and the next nightly check (or
+// that it is off).
 func queueSection(st view.Project, now time.Time) []string {
 	var out []string
 	q := st.Queue
@@ -285,6 +286,8 @@ func queueSection(st view.Project, now time.Time) []string {
 	}
 	if n := q.Nightly; n != nil {
 		out = append(out, fmt.Sprintf("nightly check at %s (in %s)", n.At, app.Age(time.Unix(n.Next, 0).Sub(now))))
+	} else {
+		out = append(out, "nightly: off (obor nightly on HH:MM)") // merge.nightly_at unset (T-781)
 	}
 	return out
 }

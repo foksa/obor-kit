@@ -53,7 +53,11 @@ type loopRig struct {
 	disp  *dispatchFakes // the dispatch's adapters (nil: none, the loop has no dispatch)
 	tick  time.Duration  // the watchdogs' tick, each a merge-loop pass (0: 20 ms); set before start
 	night *app.Nightly   // the loop's Nightly (nil: none); set before start
-	disk  *app.Disk      // the loop's Disk (nil: none); set before start
+	// nightOf, when set, is the loop's Nightly built on each pass (serve's: from the config as it is, T-781); set
+	// before start
+	nightOf func() *app.Nightly
+	config  app.ConfigFile // the loop's config_set writer (nil: none); set before start
+	disk    *app.Disk      // the loop's Disk (nil: none); set before start
 	// restart is the loop's Restart, serve's self-restart (nil: none, T-652); set before start
 	restart func(ctx context.Context) error
 	// binary is Options.Binary, a new obor binary there (nil: not watched, T-719); set before start
@@ -240,8 +244,12 @@ func (r *loopRig) launch() {
 			if err != nil {
 				return nil, err
 			}
-			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Nightly: r.night, Disk: r.disk,
-				Inbox: r.inbox, Restart: r.restart,
+			night := r.night
+			if r.nightOf != nil {
+				night = r.nightOf()
+			}
+			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Nightly: night, Disk: r.disk,
+				Inbox: r.inbox, Restart: r.restart, Config: r.config,
 				Checkout: func(context.Context) error {
 					r.mu.Lock()
 					defer r.mu.Unlock()

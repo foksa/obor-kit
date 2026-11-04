@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/project"
 )
@@ -20,7 +19,7 @@ import (
 // check_milestone, baseline (if its dir exists), gate (forced: OBOR_GATE=1, its paths and "at" ignored) and e2e, each
 // skipped when unset. Non-blocking: every command runs even after a failure (a failed lane_setup stops the rest).
 // It then backs up the project's database (wire.Backup). Writes .obor/state/last-full-check
-// "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for NightlyDue and serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
+// "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
 // merge.window_wait s).
 func Nightly(o Options) Result {
 	s, r := open(context.Background(), o, "nightly")
@@ -148,38 +147,4 @@ func LastFullCheck(root string) (sha string, epoch int64, verdict string, err er
 	}
 	epoch, _ = strconv.ParseInt(f[1], 10, 64)
 	return f[0], epoch, f[2], nil
-}
-
-// NightlyDue: root's full check is due for obor serve's nightly run (merge.nightly_at, T-464): the last full check is
-// RED, or merges (the log's fact merged, in seq order, T-525) has a partial merge it did not check; none known while
-// fresh (no merge and no nightly run in the store: an older merges.log is not read) is due once. Checked is git's
-// answer, not the time (T-468): a merge published while the check ran is not in the sha it checked, though it is older
-// than its epoch. Only the partial merges after the checked sha's own merge are asked (the earlier ones are its
-// ancestors; none: all), and a sha git no longer has is skipped (--ignore-missing).
-func NightlyDue(root string, merges []event.Merge, fresh bool) (bool, error) {
-	checked, _, verdict, err := LastFullCheck(root)
-	if err != nil || verdict == "RED" {
-		return verdict == "RED", err
-	}
-	if len(merges) == 0 {
-		return fresh, nil
-	}
-	var partial []string
-	for _, m := range merges {
-		switch {
-		case checked != "" && m.SHA == checked:
-			partial = partial[:0] // merged before the checked merge: in the sha it checked
-		case !m.Full:
-			partial = append(partial, m.SHA)
-		}
-	}
-	if len(partial) == 0 || checked == "" {
-		return len(partial) > 0, nil
-	}
-	// One git call: a commit reachable from a partial merge but not from the checked sha.
-	out, err := project.Git(root, append(append([]string{"rev-list", "--ignore-missing", "--max-count=1"}, partial...), "^"+checked, "--")...)
-	if err != nil {
-		return false, fmt.Errorf("merges against last-full-check %s: %v", checked[:min(7, len(checked))], err)
-	}
-	return strings.TrimSpace(out) != "", nil
 }

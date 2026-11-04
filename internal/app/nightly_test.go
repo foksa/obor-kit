@@ -4,38 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"obor/internal/app"
+	"obor/internal/config"
 )
 
-// nightlyFake is a Loop's Nightly: due, the last full check's verdict and each run's outcome scripted, the runs and
-// the questions whether it is due counted.
+// nightlyFake is a Loop's Nightly: the last full check's verdict and each run's outcome scripted, the runs counted.
 type nightlyFake struct {
 	mu   sync.Mutex
-	due  bool
 	last string           // Last's verdict ("": none)
 	outs []app.NightlyOut // each run's outcome in turn (the last one again); Verdict "": the run fails
 	runs int
-	asks int
-	// The last question's input: the merges and fresh Due was asked with.
-	merges []event.Merge
-	fresh  bool
 }
 
 func (f *nightlyFake) nightly(at string) *app.Nightly {
 	return &app.Nightly{At: at,
-		Due: func(merges []event.Merge, fresh bool) (bool, error) {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			f.asks++
-			f.merges, f.fresh = merges, fresh
-			return f.due, nil
-		},
 		Last: func() (string, string, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -81,13 +73,10 @@ func (f *nightlyFake) count() int {
 	return f.runs
 }
 
-func (f *nightlyFake) set(due bool, outs ...app.NightlyOut) {
+func (f *nightlyFake) set(outs ...app.NightlyOut) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.due = due
-	if len(outs) > 0 {
-		f.outs, f.runs = outs, 0
-	}
+	f.outs, f.runs = outs, 0
 }
 
 var (
@@ -103,11 +92,11 @@ func nightlyRig(t *testing.T, f *nightlyFake, at string) *loopRig {
 	return r
 }
 
-// T-464: serve's nightly runs once a day at or after merge.nightly_at, only while due; GREEN records no needs-you.
-// DD-v0.12 A5: a day not due is asked once (a merge later that day waits for the next day).
-func TestNightlyOncePerDayAtItsTime(t *testing.T) {
+// T-464, T-781: while on, serve's nightly runs every night at or after merge.nightly_at, once a day, whatever merged
+// (here: nothing since the last GREEN); GREEN records no needs-you.
+func TestNightlyEveryNightWhileOn(t *testing.T) {
 	t.Parallel()
-	f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
+	f := &nightlyFake{last: "GREEN", outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "13:00")
 	r.start()
 	r.passes()
@@ -119,94 +108,143 @@ func TestNightlyOncePerDayAtItsTime(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r.passes()
 	}
-	if n := f.count(); n != 1 {
-		t.Errorf("runs on 2026-11-10 = %d, want 1", n)
+	if n, i := f.count(), r.count("0 intent nightly.2026-11-10"); n != 1 || i != 1 {
+		t.Errorf("runs on 2026-11-10 = %d, intents %d; want 1, 1 (a second run the same day: none)", n, i)
 	}
 	if fs := nightlyFacts(r); len(fs) != 0 {
 		t.Errorf("a GREEN nightly left facts: %+v", fs)
 	}
-
-	f.set(false)
-	r.later(24 * time.Hour)
-	r.passes()
-	if n := f.count(); n != 1 {
-		t.Errorf("not due on 2026-11-11: runs = %d, want still 1", n)
+	for _, s := range r.steps() {
+		if strings.Contains(s, " fact merged") {
+			t.Fatalf("precondition: nothing merged: %q", r.steps())
+		}
 	}
-	f.mu.Lock()
-	asks := f.asks
-	f.mu.Unlock()
-	f.set(true)
-	r.passes()
-	r.passes()
-	f.mu.Lock()
-	again := f.asks - asks
-	f.mu.Unlock()
-	if n := f.count(); n != 1 || again != 0 {
-		t.Errorf("due later on 2026-11-11: runs = %d, asked again %d times; want 1, 0 (not due is the day's answer)", n, again)
+	for day := 11; day <= 12; day++ {
+		r.later(24 * time.Hour)
+		r.waitStep(fmt.Sprintf("0 result nightly.2026-11-%d", day))
 	}
-	r.later(24 * time.Hour)
-	r.waitStep("0 result nightly.2026-11-12")
-	if n := f.count(); n != 2 {
-		t.Errorf("due on 2026-11-12: runs = %d, want 2", n)
+	if n := f.count(); n != 3 {
+		t.Errorf("runs by 2026-11-12 with nothing merged = %d, want 3 (one a night)", n)
 	}
 }
 
-// T-525: Due is asked with the log's merges, folded from fact merged (its sha, task and the gate's Full), and fresh
-// only while the log has neither a merge nor a nightly run (a merges.log before the store is not read: due once).
-func TestNightlyDueFromMergedFacts(t *testing.T) {
+// T-781: a RED last full check does not hold the nightly back either: it runs at its time.
+func TestNightlyRunsAfterARedCheck(t *testing.T) {
 	t.Parallel()
-	asked := func(f *nightlyFake) ([]event.Merge, bool) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		return f.merges, f.fresh
+	f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
+	r := nightlyRig(t, f, "13:00")
+	r.start()
+	r.passes()
+	if n := f.count(); n != 0 {
+		t.Fatalf("precondition: no run before 13:00: %d", n)
 	}
-	t.Run("fresh store", func(t *testing.T) {
-		t.Parallel()
-		f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
-		r := nightlyRig(t, f, "13:00")
-		r.start()
-		r.later(time.Hour)
-		r.waitStep("0 result nightly.2026-11-10")
-		if ms, fresh := asked(f); len(ms) != 0 || !fresh {
-			t.Errorf("first ask: merges %+v, fresh %v; want none, fresh", ms, fresh)
+	r.later(time.Hour)
+	r.waitStep("0 result nightly.2026-11-10")
+	if n := f.count(); n != 1 {
+		t.Errorf("runs = %d, want 1", n)
+	}
+}
+
+// T-781: off (merge.nightly_at unset: no Nightly) never runs, whatever the day or the time.
+func TestNightlyOffNeverRuns(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
+	r.start()
+	for day := 0; day < 3; day++ {
+		r.later(8 * time.Hour)
+		r.later(16 * time.Hour)
+	}
+	if n := r.countPrefix("0 intent nightly."); n != 0 {
+		t.Errorf("nightly intents while off = %d, want 0: %q", n, r.steps())
+	}
+}
+
+// configWriter is a ConfigFile on the rig's config.json: Commit writes the file and counts the commits.
+type configWriter struct {
+	mu      sync.Mutex
+	path    string
+	commits []string
+}
+
+func (c *configWriter) Read(context.Context) ([]byte, string, error) {
+	b, err := os.ReadFile(c.path)
+	return b, "", err
+}
+
+func (c *configWriter) Commit(_ context.Context, doc []byte, msg string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.commits = append(c.commits, msg)
+	return "c0ffee1234567", os.WriteFile(c.path, doc, 0o644)
+}
+
+func (c *configWriter) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.commits)
+}
+
+// T-781: obor nightly on|off is a config_set of merge.nightly_at; the Loop is built on each pass from the config as it
+// is (serve's nightly()), so on runs that night and off runs no more, with no restart. Off when off commits nothing.
+func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
+	t.Parallel()
+	f := &nightlyFake{outs: []app.NightlyOut{green}}
+	r := newLoopRig(t, "echo 1 pass")
+	r.clock.t = time.Date(2026, 11, 10, 12, 0, 0, 0, time.Local)
+	w := &configWriter{path: filepath.Join(r.p.Root, ".obor", "config.json")}
+	r.config = w
+	r.nightOf = func() *app.Nightly { // serve's nightly(): merge.nightly_at as the config has it now
+		cfg, err := config.LoadDaemon(r.p.Root)
+		if err != nil || cfg.Data.Merge.NightlyAt == "" {
+			return nil
 		}
-		r.later(24 * time.Hour)
-		r.waitStep("0 result nightly.2026-11-11")
-		if ms, fresh := asked(f); len(ms) != 0 || fresh {
-			t.Errorf("after a nightly: merges %+v, fresh %v; want none, not fresh", ms, fresh)
+		return f.nightly(cfg.Data.Merge.NightlyAt)
+	}
+	set := func(id, val string) string {
+		t.Helper()
+		reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodConfig, wire.Call{Root: r.p.Root,
+			Agent: "pj-lead", Role: "lead", CallID: id,
+			Changes: []wire.ConfigChange{{Key: "merge.nightly_at", Value: json.RawMessage(val)}}})
+		if err != nil {
+			t.Fatalf("config_set %s: %v", val, err)
 		}
-	})
-	t.Run("a merge", func(t *testing.T) {
-		t.Parallel()
-		f := &nightlyFake{due: false, outs: []app.NightlyOut{green}}
-		r := nightlyRig(t, f, "13:00")
-		r.scratch.full.Store(true)
-		r.work("feature.txt", "feature\n")
-		r.start()
-		r.submit()
-		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
-		r.merged(1)
-		head := r.p.Git(r.p.Root, "rev-parse", "main")
-		f.mu.Lock()
-		asks := f.asks
-		f.mu.Unlock()
-		if f.count() != 0 || asks != 0 {
-			t.Fatalf("precondition: no nightly asked before 13:00: %q", r.steps())
-		}
-		r.later(time.Hour)
-		r.waitFor("the nightly's question", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.asks == 1 })
-		ms, fresh := asked(f)
-		if len(ms) != 1 || ms[0].Task != "T-1" || ms[0].SHA != head || !ms[0].Full || ms[0].At.IsZero() || fresh {
-			t.Errorf("merges %+v, fresh %v; want T-1's full merge at %s, not fresh", ms, fresh, head)
-		}
-	})
+		return reply
+	}
+	r.start()
+	r.passes()
+	if n := f.count(); n != 0 {
+		t.Fatalf("precondition: off, no run: %d", n)
+	}
+	if reply := set("on", `"11:00"`); reply != `SET merge.nightly_at unset → "11:00"` {
+		t.Errorf("on: %q", reply)
+	}
+	r.waitStep("0 result nightly.2026-11-10")
+	if n, c := f.count(), w.count(); n != 1 || c != 1 {
+		t.Errorf("after on: runs %d, commits %d; want 1, 1", n, c)
+	}
+	if reply := set("off", `null`); reply != `SET merge.nightly_at "11:00" → unset` {
+		t.Errorf("off: %q", reply)
+	}
+	r.later(24 * time.Hour)
+	r.passes()
+	if n := f.count(); n != 1 || r.has("0 intent nightly.2026-11-11") {
+		t.Errorf("off on 2026-11-11: runs %d, want still 1: %q", n, r.steps())
+	}
+	if reply := set("off-again", `null`); reply != "UNCHANGED merge.nightly_at" || w.count() != 2 {
+		t.Errorf("off when off: %q, commits %d; want UNCHANGED, still 2", reply, w.count())
+	}
+	if reply := set("on-again", `"11:00"`); !strings.HasPrefix(reply, "SET ") {
+		t.Fatalf("on again: %q", reply)
+	}
+	r.waitStep("0 result nightly.2026-11-11")
 }
 
 // T-464: a RED nightly is the project's needs-you{full-check RED <sha7>} with a notification, once while it stays RED
 // on the same sha; the next GREEN one ends it.
 func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
 	t.Parallel()
-	f := &nightlyFake{due: true, outs: []app.NightlyOut{red}}
+	f := &nightlyFake{outs: []app.NightlyOut{red}}
 	r := nightlyRig(t, f, "02:00")
 	r.start()
 	const fact = "0 fact needs-you{full-check RED abc1234}"
@@ -223,7 +261,7 @@ func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
 		t.Errorf("RED twice on one sha: %d needs-you, %d notifications; want 1, 1: %q", n, m, r.steps())
 	}
 
-	f.set(true, green)
+	f.set(green)
 	r.later(24 * time.Hour)
 	r.waitFor("the fact to end", func() bool { return len(nightlyFacts(r)) == 0 })
 	if !r.has("0 fact resumed") || f.count() != 1 {
@@ -236,7 +274,7 @@ func TestNightlyRedNeedsYouUntilGreen(t *testing.T) {
 // day tries again.
 func TestNightlyFailuresThenNeedsYou(t *testing.T) {
 	t.Parallel()
-	f := &nightlyFake{due: true, outs: []app.NightlyOut{{Line: "FAIL"}}}
+	f := &nightlyFake{outs: []app.NightlyOut{{Line: "FAIL"}}}
 	r := nightlyRig(t, f, "02:00")
 	r.start()
 	const failed = "0 fact failed{nightly.2026-11-10: cannot take the lock}"
@@ -256,7 +294,7 @@ func TestNightlyFailuresThenNeedsYou(t *testing.T) {
 	if n, fails := f.count(), r.count("0 fact failed{nightly.2026-11-10: cannot take the lock}"); n != 3 || fails != 3 {
 		t.Errorf("runs %d, failed facts %d; want 3, 3: %q", n, fails, r.steps())
 	}
-	f.set(true, green)
+	f.set(green)
 	r.later(24 * time.Hour)
 	r.waitFor("the fact to end", func() bool { return len(nightlyFacts(r)) == 0 })
 	if !r.has("0 result nightly.2026-11-11") || f.count() != 1 {
@@ -282,7 +320,7 @@ func TestNightlyReplay(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
+			f := &nightlyFake{outs: []app.NightlyOut{green}}
 			r := nightlyRig(t, f, "02:00")
 			r.p.Dispatched("L-01")
 			if err := app.WriteLog(r.p.Root, r.clock.Now(), c.recs...); err != nil {
@@ -313,11 +351,12 @@ func nightlyFact(t *testing.T, step string, d event.FactData) event.Record {
 }
 
 // DD-v0.12 A4: a RED nightly's needs-you in the store ends (resumed) once the last full check is GREEN, a hand run's
-// (obor nightly) too, though no partial merge makes serve's own nightly due; a restart does not bring it back.
+// (obor nightly) too, before serve's own nightly's time; a restart does not bring it back.
 func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
 	t.Parallel()
-	f := &nightlyFake{due: false, last: "RED", outs: []app.NightlyOut{green}}
-	r := nightlyRig(t, f, "02:00")
+	f := &nightlyFake{last: "RED", outs: []app.NightlyOut{green}}
+	r := nightlyRig(t, f, "13:00") // the rig's clock is 12:00: serve's own run has not come
+
 	if err := app.WriteLog(r.p.Root, r.clock.Now(), nightlyFact(t, event.StepNeedsYou,
 		event.FactData{Machine: app.Machine, Reason: "full-check RED abc1234"})); err != nil {
 		t.Fatal(err)
@@ -349,7 +388,7 @@ func TestNightlyRedEndedByAGreenByHand(t *testing.T) {
 // that failure, not at the first pass.
 func TestNightlyRetryAfterARestart(t *testing.T) {
 	t.Parallel()
-	f := &nightlyFake{due: true, outs: []app.NightlyOut{green}}
+	f := &nightlyFake{outs: []app.NightlyOut{green}}
 	r := nightlyRig(t, f, "02:00")
 	const step = "nightly.2026-11-10"
 	if err := app.WriteLog(r.p.Root, r.clock.Now().Add(-5*time.Minute),
