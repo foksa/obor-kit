@@ -216,9 +216,14 @@ func specBody(in port.GateInput) string {
 // mergeMessage is every merge's message, the gate's own and the integrator's resolved one alike (T-802). Subject:
 // "Merge T-xx: <in.Title>" (the spec's title, T-790), else the worker's summary's first line. Body, each part after a
 // blank line: the spec (specBody), moved (a moved target's "Merged onto ..." line), resolver (the integrator's own
-// message body without git's "#" comment lines) and "Summary: <in.Summary>" (not repeated when it is the subject).
+// message body without git's "#" comment lines) and "Summary: <in.Body>" (the report's whole Summary section, T-807;
+// no Body: the first line, in.Summary; not repeated when it is the subject).
 func mergeMessage(in port.GateInput, moved, resolver string) string {
 	summary, _, _ := strings.Cut(strings.TrimSpace(in.Summary), "\n")
+	body := strings.TrimSpace(in.Body)
+	if body == "" {
+		body = summary
+	}
 	subject := strings.TrimSpace(in.Title)
 	if subject == "" {
 		subject = summary
@@ -237,8 +242,8 @@ func mergeMessage(in port.GateInput, moved, resolver string) string {
 	if r := strings.TrimSpace(strings.Join(kept, "\n")); r != "" {
 		msg += "\n\n" + r
 	}
-	if summary != "" && summary != subject {
-		msg += "\n\nSummary: " + summary
+	if body != "" && body != subject {
+		msg += "\n\nSummary: " + body
 	}
 	return msg
 }
