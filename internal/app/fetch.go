@@ -469,8 +469,10 @@ func headingPattern(q string) string {
 }
 
 // reportSections are the headings a report's section ends at: the report's own sections (the worker template's list,
-// one place: config's default done-file sections) and Blocked, the report that asks instead of submitting (T-808).
-var reportSections = append(config.Defaults().DoneFileSections, "Blocked")
+// one place: config's default done-file sections), and Blocked and Concerns, which a worker writes but a submitted
+// report's section list does not name (T-808). Concerns is optional, so the template spells it "Concerns (optional):"
+// too.
+var reportSections = append(config.Defaults().DoneFileSections, "Blocked", "Concerns", "Concerns (optional)")
 
 // reportHeadingRe is the heading of any of reportSections, in headingRe's forms: a Name: label, a ## Name or **Name**
 // heading at the start of a line, any case.

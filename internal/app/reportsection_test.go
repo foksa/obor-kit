@@ -51,6 +51,9 @@ func TestReportSectionEndsOnlyAtAReportSection(t *testing.T) {
 		{"Skipped", "Summary: kept.\nSkipped: none.", "kept."},
 		{"Open questions", "Summary: kept.\nOpen questions: none.", "kept."},
 		{"Blocked", "Summary: kept.\nBlocked: may I edit x.go?", "kept."},
+		{"Concerns", "Summary: kept.\nConcerns: none", "kept."},
+		{"the template's Concerns heading", "Summary: kept.\nConcerns (optional): none beyond the open questions.",
+			"kept."},
 		{"the report's end", "Summary: kept.\n- one", "kept.\n- one"},
 		{"an inner label", "Summary: kept.\nTests: two.\nMore.", "kept.\nTests: two.\nMore."},
 		{"an inner markdown heading", "Summary: kept.\n## Notes\nMore.", "kept.\n## Notes\nMore."},
@@ -79,6 +82,9 @@ func TestReportSectionMissingSummaryAndInnerLabels(t *testing.T) {
 	if got, want := openQuestions("Summary: s.\nOpen questions: may I edit the hook?\nTests: none.\n- and Y?"),
 		"may I edit the hook?\nTests: none.\n- and Y?"; got != want {
 		t.Errorf("an Open questions section with inner labels: %q, want all of it %q", got, want)
+	}
+	if got, want := openQuestions("Summary: s.\nOpen questions: may I edit the hook?\nConcerns: none"), "may I edit the hook?"; got != want {
+		t.Errorf("Concerns after the open questions: %q, want just the question %q", got, want)
 	}
 	if got := openQuestions("Summary: s.\nOpen questions: none\nConcerns: none"); got != "" {
 		t.Errorf("none with a Concerns line below: %q, want nothing open", got)
