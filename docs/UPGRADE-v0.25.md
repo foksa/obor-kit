@@ -62,8 +62,8 @@ What changes:
 - **Idle ping:** when nothing is in flight serve tells the lead once (`[obor] idle: …`); `obor idle "<why>"`
   acknowledges, a dispatch, review request or a reviewer/deep-dive brief ends it; unanswered after 30 min one more line
   and a herdr notification to the owner.
-- **Spec changes reach a working worker:** `obor spec set T-xx <file> --note "<what changed>"` tells its worker (reply
-  `(worker told)` or `(queued: …)`), and `task_done` against an older spec rev is refused once with the note.
+- **Spec changes reach a worker at task_done:** `obor spec set T-xx <file> --note "<what changed>"` records the note
+  with the new rev; a worker's `task_done` against an older rev is refused once with the rev and the note.
 - **opencode:** obor's MCP server and plugin are given per launch (`OPENCODE_CONFIG`, from the launching kit), so the
   kit and the project's build no longer skew; obor no longer appears in your own opencode windows after `obor setup
   agents`. A role agent on opencode now runs its guard as its role.

@@ -34,11 +34,10 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
   finding → files → task; findings whose files do not overlap are separate tasks, one per free lane. A dispatch
   reply's `idle: …` names lanes still free: use them or say why not.
 - `obor spec set T-xx .obor/drafts/T-xx.md [--note "<what changed>"]` stores it in serve (a new rev reaches a running
-  task's next job; its protected unlocks apply at the guard's next call). A working (or dispatching) worker gets one
-  line now (`[obor] T-xx spec is now rev N: <note> — read obor spec show T-xx and adjust; …`), and its `task_done` at
-  the older rev is refused once, so it reads the change before submitting (T-819).
-- A minor change to a working task is `obor spec set T-xx <file> --note "<what changed>"`; a change of direction is a
-  move (`obor dispatch T-xx --model <ref>`, a fresh attempt).
+  task's next job; its protected unlocks apply at the guard's next call). A working worker's `task_done` at the older
+  rev is refused once, with the rev and the note, so it reads the change before submitting (T-819, T-824).
+- `--note` is for a small change the worker can fold in after its work, at the `task_done` refusal; anything that
+  changes what it is building is a move (`obor dispatch T-xx --model <ref>`, a fresh attempt).
 - Every spec carries `Difficulty: hard|medium|simple` under its title (hard: state machines, crash/replay,
   concurrency, cross-package redesign; medium: a specified feature or fix in one or two packages; simple: mechanical
   with a full oracle); `obor spec set` refuses one without. An optional `Model: <model>[, …]` line right under it (e.g.

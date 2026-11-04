@@ -1,14 +1,10 @@
 package app
 
 import (
-	"cmp"
-	"context"
 	"errors"
 	"fmt"
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"strings"
-	"time"
 
 	"obor/internal/config"
 	"obor/internal/spec"
@@ -19,15 +15,11 @@ import (
 // the lead role's only (a worker cannot unlock files by editing its own spec, T-238); show and list read the table
 // read-only. A dispatch needs a stored spec, the work job's text carries it (a fix job's too when its rev changed
 // since the worker's last job), and the gate writes the current rev into every candidate. A set while the task has a
-// working (or dispatching) worker sends it one line and its next task_done at the older rev is refused once (T-819).
-// The line is in one of three states (T-821): queued (its fact spec.line recorded), delivered (it reached the worker's
-// session) and seen (task_done's refusal showed the rev, or the worker fetched a job at it: the line retires). The
-// task_done check is the guarantee; the line is the courtesy that saves the worker a wasted report.
+// working (or dispatching) worker changes no message: its next task_done at the older rev is refused once (T-819,
+// T-824).
 
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
-// merge loop (a waiting task of it may dispatch now) and, with a working (or dispatching) worker, queues that worker
-// one line (specLine) and delivers it at once where it can (tellNow; T-819, T-821): the reply ends "(worker told)" when it was
-// delivered, "(queued: <why>)" when it waits for a later delivery pass (its worker busy: "busy").
+// merge loop (a waiting task of it may dispatch now); the reply is SET <task> rev <n>.
 func (a *App) specSet(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
@@ -87,20 +79,10 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		return "", err
 	}
 	reply = fmt.Sprintf("SET %s rev %d", c.Task, rev)
-	var line int64
 	if !changed {
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
-	} else {
-		line = a.specLine(p, c, rev)
 	}
 	a.submitMu.Unlock()
-	if line != 0 { // delivered outside submitMu: task_done's rev check needs only the stored rev
-		if why := a.tellNow(p, line); why != "" {
-			reply += " (queued: " + why + ")"
-		} else {
-			reply += " (worker told)"
-		}
-	}
 	a.mu.Lock()
 	p.replies[key] = reply
 	a.mu.Unlock()
@@ -110,80 +92,13 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	return reply, nil
 }
 
-// specLine queues task's working (or dispatching) worker one line through the worker-line delivery (T-819, as obor
-// resume's answer) that its spec is rev now: its fact's seq (0: no worker to tell, or the log refused it).
-func (a *App) specLine(p *proj, c wire.Call, rev int) int64 {
-	a.mu.Lock()
-	var mt mtask
-	if m := p.folded.loop[c.Task]; m != nil {
-		mt = *m
-	}
-	to := mt.agent
-	if to == "" && mt.lane != "" { // a dispatching attempt before its agent's name is in the lane row
-		to = p.laneAgent(mt.lane)
-	}
-	a.mu.Unlock()
-	if to == "" || mt.state != stWorking && mt.state != stDispatched {
-		return 0
-	}
-	m := event.Message{To: to, From: cmp.Or(c.Agent, "owner"), Line: "[obor] " + specRevLine(c.Task, rev, c.Note),
-		Task: c.Task}
-	seq, _ := a.recordSeq(p, event.Record{Task: event.MsgTask, Step: event.StepSpecLine, Kind: event.KindFact}, m)
-	return seq
-}
-
-// tellWait bounds obor spec set's own delivery of its line (tellNow): a post or a typing is quick; one that hangs is
-// left to the delivery pass.
-const tellWait = 5 * time.Second
-
-// tellNow delivers the queued line of fact seq now, as a delivery pass would (route, deliverLine; T-821): "" when it
-// was delivered, else why it waits for a later pass ("busy": its worker's pane works and its kind's inbox cannot
-// reach a working session, or has no record of it).
-func (a *App) tellNow(p *proj, seq int64) string {
-	fx, err := a.loopOf(p)
-	if err != nil {
-		return err.Error()
-	}
-	if fx.Typer == nil && fx.Inbox == nil {
-		return "serve delivers no lines"
-	}
-	a.mu.Lock()
-	m := p.out.msgs[seq]
-	if m == nil {
-		a.mu.Unlock()
-		return "its line retired" // the worker saw the rev already (a fetch or a refusal since the record)
-	}
-	q := *m
-	post, target, ok := a.route(p, fx, q)
-	why := m.held
-	if w := a.whereIs(p, q.msg.To); !ok && w.State == Identified && !Ready(w.Pane.Status) {
-		why = "busy"
-	}
-	a.mu.Unlock()
-	if !ok {
-		return why
-	}
-	ctx, cancel := context.WithTimeout(a.life, tellWait)
-	defer cancel()
-	if a.deliverLine(ctx, p, fx, q, post, target) {
-		return ""
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if m := p.out.msgs[seq]; m != nil && m.why() != "" {
-		return m.why()
-	}
-	return "its delivery did not complete: the next delivery pass tries again"
-}
-
-// specRevLine is what a new spec rev says to a working worker, and task_done's refusal of a job carried at an older
-// rev names (T-819).
+// specRevLine is the task_done refusal of a job carried at an older rev, naming the rev and the set's note (T-819).
 func specRevLine(task string, rev int, note string) string {
-	line := fmt.Sprintf("%s spec is now rev %d", task, rev)
+	line := fmt.Sprintf("spec is now rev %d", rev)
 	if note = strings.TrimSpace(note); note != "" {
 		line += ": " + note
 	}
-	return line + " — read obor spec show " + task + " and adjust; say in your report what you redid."
+	return line + " — read obor spec show " + task + ", adjust, then submit again"
 }
 
 // specOf is task's stored spec in p (ok false: none).
