@@ -93,9 +93,9 @@ func (p *proj) foldRecord(r event.Record) {
 	p.foldConfig(r)
 	p.foldSession(r)
 	p.foldMsg(r)
-	p.foldIdle(r)
 	p.foldWatch(r)
-	p.foldReview(r)
+	p.foldReview(r) // before idle: a review request in flight ends the idle epoch (T-818)
+	p.foldIdle(r)
 	p.foldWake(r)
 	p.foldRoles(r)
 	if p.folded.lr.live {
