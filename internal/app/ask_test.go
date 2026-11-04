@@ -281,6 +281,7 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	if _, err := os.Stat(sock); err != nil {
 		t.Fatalf("precondition: no socket file to refuse the dial: %v", err)
 	}
+	refused(t, sock)
 	start = time.Now()
 	_, err = wire.Ask(context.Background(), sock)
 	if err == nil || !strings.Contains(err.Error(), "connection refused") {
@@ -288,6 +289,24 @@ func TestAskStatusDoesNotWaitForServe(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("status returned after %v; want the refusal at once, not the retry bound", d)
+	}
+}
+
+// refused waits until a dial to sock is refused: a closed listener releases its socket a moment later, and a dial
+// right then is taken and closed (EOF) instead of refused (seen under load on macOS: T-813's gate).
+func refused(t *testing.T, sock string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		c, err := net.Dial("unix", sock)
+		if err != nil {
+			return
+		}
+		c.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("precondition: the closed listener still takes dials to %s", sock)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
