@@ -63,6 +63,9 @@ type PaneControl interface {
 	RenameAgent(ctx context.Context, target, name string) error // name "" clears it
 	// Type is text plus Enter, submitted at once.
 	Type(ctx context.Context, pane, text string) error
+	// Wake types a job's wake into the agent in pane (agent.prompt): a blocked agent is refused before any input
+	// (a resume or update dialog would take it as an answer), unlike Type.
+	Wake(ctx context.Context, pane, text string) error
 	SendKeys(ctx context.Context, pane string, keys ...string) error
 	// Start starts agent CLI kind in pane under name, returning once the agent runs there and is named: the agent as
 	// the multiplexer answered, or as it shows it in the pane when the answer came later (its Pane "" when neither
