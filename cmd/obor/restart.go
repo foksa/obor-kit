@@ -127,8 +127,9 @@ func resolveLaneJob(root, lane string, ask func() (wire.Status, error)) (string,
 	if !ok || row.Task == "" {
 		return "", nil // no task on the lane: the plain restart
 	}
-	return "", fmt.Errorf("%s holds %s and obor serve cannot tell its job (%v): start obor serve (obor serve status), "+
-		"then retry, or pass --prompt to restart without its job", lane, row.Task, err)
+	return "", fmt.Errorf("%s holds %s and obor serve cannot tell its job (%v): start obor serve (obor serve restart "+
+		"for the installed service, obor serve in a pane; obor status --facts checks it), then retry, or pass "+
+		"--prompt to restart without its job", lane, row.Task, err)
 }
 
 // laneJob is the open worker job (a work or fix job, never the integrator's review or resolve job) of the task st's

@@ -64,10 +64,18 @@ func answerReply(task, agent string) string {
 	return fmt.Sprintf("ANSWERED %s: obor serve sends %s the answer", task, agent)
 }
 
-// resume answers obor resume (under a.verdicts): resumeDecide's refusal or stored reply, else its action's one fact.
+// resume answers obor resume (under a.verdicts, then a.submitMu: task_done's and land's lock, in their order):
+// resumeDecide's refusal or stored reply, else its action's one fact. Every action records a fact, so the decision is
+// taken under both locks (RV-99 #4): a task that moved meanwhile (a task_done decided before it: submitted) is refused
+// by its state as it is now, nothing recorded, and a task_done waiting on the lock decides on the state the resume
+// left (a --regate's submitted takes no submission), so a late submission never brings a gated task back.
 func (a *App) resume(c wire.Call) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
+	a.hook(hookResumeWaits)
+	a.submitMu.Lock()
+	defer a.submitMu.Unlock()
+	a.hook(hookResumeLocked)
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("resume: a call id and a task are required")
 	}

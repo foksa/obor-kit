@@ -11,7 +11,7 @@ import (
 // obor resume <T-xx> ["<text>"] [--regate|--sendback] (T-775): one request to obor serve carrying the task, the text
 // and the flag as the caller (caller: the lead from the main checkout, the owner with no role, a worker from its lane's
 // cwd whatever OBOR_ROLE says), serve's reply printed; a usage error or a bad task id sends nothing; serve's refusal is
-// FAIL, exit 1. obor answer and obor sendback are gone.
+// FAIL, exit 1. obor answer and obor sendback are gone. --reprompt is a text (RV-99 #5): with another, two texts.
 func TestResumeRequest(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -22,7 +22,7 @@ func TestResumeRequest(t *testing.T) {
 		return []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=" + role, "OBOR_AGENT=pj-lead", "OBOR_LANE="}
 	}
 	for _, args := range [][]string{{"resume"}, {"resume", "T-01", ""}, {"resume", "T-01", "a", "b"},
-		{"resume", "T-01", "--regate", "--sendback"}, {"resume", "T-01", "--reprompt"}, {"resume", "--regate", "T-01"}} {
+		{"resume", "T-01", "--regate", "--sendback"}, {"resume", "T-01", "--reprompt", "yes"}, {"resume", "--regate", "T-01"}} {
 		if rc, stdout, _ := run(t, p.Root, env("lead"), args...); rc != 1 || !strings.Contains(stdout, "FAIL "+wire.ResumeUsage) {
 			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
 		}

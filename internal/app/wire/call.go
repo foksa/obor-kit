@@ -140,21 +140,29 @@ const (
 )
 
 // ResumeUsage is obor resume's usage.
-const ResumeUsage = `usage: obor resume <T-xx> ["<text>"] [--regate|--sendback]`
+const ResumeUsage = `usage: obor resume <T-xx> ["<text>"] [--regate|--sendback] (only those two are flags: any other argument, one starting with - too, is the text; -- ends the flags)`
 
 // ResumeArgs is obor resume's arguments, <T-xx> ["<text>"] [--regate|--sendback], as a call's Task, Note and To: the
-// flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes", RV-54 #4). False:
+// flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes", RV-54 #4). An
+// argument is a flag only if it is exactly --regate or --sendback (RV-99 #5): anything else is the text, one starting
+// with - or -- too ("- use A", "--force is safe"), and after -- every argument is (obor resume T-xx -- --regate). False:
 // not that form.
 func ResumeArgs(args []string) (Call, bool) {
 	if len(args) == 0 || args[0] == "" || strings.HasPrefix(args[0], "-") {
 		return Call{}, false
 	}
 	c := Call{Task: args[0]}
+	flags := true
 	for _, a := range args[1:] {
 		switch {
-		case (a == "--"+ResumeRegate || a == "--"+ResumeSendback) && c.To == "":
+		case flags && a == "--":
+			flags = false
+		case flags && (a == "--"+ResumeRegate || a == "--"+ResumeSendback):
+			if c.To != "" {
+				return Call{}, false
+			}
 			c.To = strings.TrimPrefix(a, "--")
-		case strings.HasPrefix(a, "-") || c.Note != "" || strings.TrimSpace(a) == "":
+		case c.Note != "" || strings.TrimSpace(a) == "":
 			return Call{}, false
 		default:
 			c.Note = a
