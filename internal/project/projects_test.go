@@ -91,15 +91,16 @@ func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	dir := t.TempDir()
 	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
 		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
-	// The shape before T-765: this binary refuses it, and its name still counts.
-	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	// The shape before T-765: this binary refuses it (lanes is a count here, an object of typed lanes there), and its
+	// name still counts.
+	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lanes":{"L-01":{"type":"opus"}}}`+"\n")
 	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")
 	configAt(t, renamed, "renamed")
 	configAt(t, gone, "gone")
 	configAt(t, kit, "kit")
 	if _, err := config.LoadDaemon(old); err == nil {
-		t.Fatal("precondition: the old-shape config loads")
+		t.Fatal("precondition: the pre-T-765 config loads")
 	}
 	if _, err := config.LoadDaemon(broken); err == nil {
 		t.Fatal("precondition: the unparsable config loads")

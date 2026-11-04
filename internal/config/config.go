@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,16 +26,6 @@ var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // ErrNoConfig: the project has no .obor/config.json (exit 3; hooks no-op).
 var ErrNoConfig = errors.New("no config")
-
-// OldShapeHint is what the refusal of an old-shape key says (T-789): the one-time migration code is gone, so a config
-// written before v0.23 needs the release that has it. The keys are named beside it (oldShapeKey).
-const OldShapeHint = "this config predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade"
-
-// oldShapeKey is key when only the config shape before v0.23 carried it: lane_types, or the agents key (T-777). An old
-// shape is invalid now, not migrated here (T-789), but it is told apart from a key this binary is merely too old for.
-func oldShapeKey(key string) bool {
-	return key == "lane_types" || key == "agents"
-}
 
 // Data is the config file's shape, and its field comments are the reference for each key. A key it does not name
 // fails the load.
@@ -384,18 +373,6 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 	}
 	c := &Config{Root: root, Data: Defaults(), local: files[1]}
 	merged, unknown := dropUnknown(merged, reflect.TypeOf(c.Data), "")
-	// An old-shape key is no unknown key of a newer binary: its one-time migration is gone (T-789), so it is refused
-	// with the release that has it, whichever reader asks.
-	for _, key := range unknown {
-		if !oldShapeKey(key) {
-			continue
-		}
-		path := filepath.Join(root, ".obor", "local.json")
-		if _, in := dropUnknown(files[0], reflect.TypeOf(c.Data), ""); slices.Contains(in, key) {
-			path = filepath.Join(root, ".obor", "config.json")
-		}
-		return nil, nil, fmt.Errorf("obor: %s: unknown field %q: %s", path, key, OldShapeHint)
-	}
 	if err := strict(merged, &c.Data); err != nil {
 		// Name the file at fault: config.json when it fails alone, else local.json.
 		name := "local.json"

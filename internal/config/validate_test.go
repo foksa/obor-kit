@@ -264,10 +264,9 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("handoff_tokens", 1.5), "handoff_tokens"},
 		{set("guards", `{"allow_push": "pj-lead"}`), "allow_push"},
 		{set("merge.clases", []any{}), `unknown field "clases"`},
-		// T-789: the old shape is no key of this binary: the load names it and the release that migrates it.
-		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents": ` + config.OldShapeHint},
-		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}),
-			`unknown field "lane_types": ` + config.OldShapeHint},
+		// T-846: the shape before v0.23 is no special case past its two-minor window: its keys are unknown keys.
+		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents"`},
+		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}), `unknown field "lane_types"`},
 		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
 		{set("mcp.jobs", false), "jobs"},
 		{set("cache.warn_tokens", 50000), "warn_tokens"},

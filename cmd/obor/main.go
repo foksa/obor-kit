@@ -79,8 +79,6 @@ func main() {
 		exit(whoami(args))
 	case "status":
 		exit(status(args))
-	case "monitor":
-		exit(monitorCmd(args))
 	case "web":
 		exit(webCmd(args))
 	case "config":
@@ -155,13 +153,6 @@ func main() {
 	exit(2)
 }
 
-// monitorCmd is `obor monitor` after its removal (T-776, owner 2026-11-03: obor status and obor web remain): one line
-// naming what replaced it, and exit 1. Kept one minor release, then deleted with the next consolidation.
-func monitorCmd(args []string) int {
-	errf("obor monitor: removed, use `obor web` or `obor status`")
-	return 1
-}
-
 // load finds the project of the cwd and loads its effective config: exit 3 without .obor/config.json, 1 when broken.
 func load() (*project.Repo, *config.Config, int) {
 	cwd, _ := os.Getwd()
@@ -211,7 +202,6 @@ var commands = map[string][]string{
 	"whoami":    nil,
 	"init":      nil,
 	"status":    nil,
-	"monitor":   nil,
 	"web":       nil,
 	"config":    {"get", "validate"},
 	"hook":      {"noop", "pre-tool-use", "stop", "stop-failure", "session-start", "user-prompt-submit"},

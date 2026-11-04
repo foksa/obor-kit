@@ -94,20 +94,19 @@ func TestConfigValidateBinary(t *testing.T) {
 	}
 }
 
-// T-789: a config of the shape before v0.23 (lane types, the agents key) is just invalid: `obor config validate` names
-// the unknown key and the release whose `obor setup migrate` rewrites it (the one-time code lived one release).
-func TestConfigValidateOldShape(t *testing.T) {
+// T-846: a config of the shape before v0.23 is an ordinary unknown-key failure now (its message named the migration
+// release for its two-minor window): `obor config validate` names the key and says nothing of a migration.
+func TestConfigValidateOldShapeIsUnknownKey(t *testing.T) {
 	t.Parallel()
-	for _, config := range []string{
-		`{"version":1,"name":"proj","prefix":"pj","lane_types":{"opus":{"kind":"claude"}}}`,
-		`{"version":1,"name":"proj","prefix":"pj","lanes":2,"agents":{"triage":{"type":"opus"}}}`,
+	for _, c := range []struct{ config, key string }{
+		{`{"version":1,"name":"proj","prefix":"pj","lane_types":{"opus":{"kind":"claude"}}}`, "lane_types"},
+		{`{"version":1,"name":"proj","prefix":"pj","lanes":2,"agents":{"triage":{"type":"opus"}}}`, "agents"},
 	} {
 		p := testkit.New(t)
-		p.Write(".obor/config.json", config+"\n")
+		p.Write(".obor/config.json", c.config+"\n")
 		rc, _, stderr := run(t, p.Root, nil, "config", "validate")
-		if rc != 1 ||
-			!strings.Contains(stderr, "this config predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade") {
-			t.Errorf("%s: exit %d, %q; want the old-shape refusal", config, rc, stderr)
+		if rc != 1 || !strings.Contains(stderr, `unknown field "`+c.key+`"`) || strings.Contains(stderr, "predates v0.23") {
+			t.Errorf("%s: exit %d, %q; want exit 1 and the unknown field %q", c.config, rc, stderr, c.key)
 		}
 	}
 }

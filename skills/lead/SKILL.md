@@ -19,8 +19,8 @@ To (re)start the lead (none running, or after a Claude Code update): `obor lead`
    the project's first session: show that table to the owner and ask about it — the models per difficulty level, the
    effort, how many lanes, the lead's, integrator's and reviewer's models. Write the answers into `.obor/config.json`
    (`difficulty`, `lanes`, `roles`, model refs `<model>[:<effort>]`; `kinds`, `models` when asked), then set
-   `setup.confirmed: true` and commit. A config of the shape before T-765 (lane types) is refused, naming the key:
-   "this config predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade".
+   `setup.confirmed: true` and commit. A config of the shape before T-765 (lane types) is refused, naming the unknown
+   key: an old-shape key is just a key this obor does not know, not one it can migrate.
    Never change a model setting without the owner's answer; `obor init` wrote what it found, not what they chose.
 4. Read `BACKLOG.md` (Handoff, Owner decisions pending, Concerns), the top of `docs/decisions.md`, the day's plan
    (`docs/plan/<date>.md`) if there is one, and `AGENTS.md`. Continue from the Handoff's next steps.
