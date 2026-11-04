@@ -92,27 +92,38 @@ func lacks(t *testing.T, out, what string, needles ...string) {
 	}
 }
 
-// bash plugin case_session_worker_armed
-func TestSessionWorkerArmed(t *testing.T) {
+// bash plugin case_session_worker_armed, case_session_worker_unarmed
+func TestSessionWorkerRows(t *testing.T) {
 	t.Parallel()
-	f, o1 := sessionFx(t, true)
-	out := f.session(t, o1, "")
-	contains(t, out, "armed worker", "obor: role worker, lane L-01, task T-05 (cwd)",
-		"Protected files this task may edit: docs/design.md (from T-05's spec, rev 1 in obor serve's store).",
-		"edits outside your lane (other lanes, the main checkout, other obor projects) are denied", "task_done", "[obor",
-		"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied")
-	lacks(t, out, "armed worker", "No lane row", "you may edit only", "allowed files")
-	f.State("L-01", `{"lane":"L-01","task":"T-09","branch":"task/T-09","base":"main"}`)
-	out = f.session(t, o1, "")
-	contains(t, out, "no stored spec", "obor: role worker, lane L-01, task T-09 (cwd)", "edits outside your lane")
-	lacks(t, out, "no stored spec", "Protected files this task may edit:", "every edit in the lane is denied")
-}
-
-// bash plugin case_session_worker_unarmed
-func TestSessionWorkerUnarmed(t *testing.T) {
-	t.Parallel()
-	f, o1 := sessionFx(t, false)
-	contains(t, f.session(t, o1, ""), "no lane row", "role worker, lane L-01", "No lane row (not dispatched).")
+	for _, c := range []struct {
+		name            string
+		armed           bool
+		state           string   // a lane row other than the fixture's
+		contains, lacks []string // in the session line
+	}{
+		{"an armed worker names the spec's protected files", true, "",
+			[]string{"obor: role worker, lane L-01, task T-05 (cwd)",
+				"Protected files this task may edit: docs/design.md (from T-05's spec, rev 1 in obor serve's store).",
+				"edits outside your lane (other lanes, the main checkout, other obor projects) are denied", "task_done", "[obor",
+				"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied"},
+			[]string{"No lane row", "you may edit only", "allowed files"}},
+		{"a lane whose task has no stored spec", true, `{"lane":"L-01","task":"T-09","branch":"task/T-09","base":"main"}`,
+			[]string{"obor: role worker, lane L-01, task T-09 (cwd)", "edits outside your lane"},
+			[]string{"Protected files this task may edit:", "every edit in the lane is denied"}},
+		{"no lane row (not dispatched)", false, "",
+			[]string{"role worker, lane L-01", "No lane row (not dispatched)."}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f, o1 := sessionFx(t, c.armed)
+			if c.state != "" {
+				f.State("L-01", c.state)
+			}
+			out := f.session(t, o1, "")
+			contains(t, out, c.name, c.contains...)
+			lacks(t, out, c.name, c.lacks...)
+		})
+	}
 }
 
 // bash plugin case_session_lead_and_integrator; T-465: no Stop hook line (they stop freely), no heartbeat.
@@ -127,66 +138,81 @@ func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
 	}
 }
 
-// T-204: worker, integrator and reviewer get the line naming the kit's role text (absolute path) and, when the
-// worktree has one, the project's doc under paths.agents; the lead gets /obor:lead; a role without a kit text none.
-func TestSessionRoleTextLine(t *testing.T) {
+// T-204, T-801: the role-text line names the kit's text (absolute path) and, when the worktree has one, the project's
+// doc under paths.agents; the lead gets /obor:lead; a role without a text gets none; a custom role's doc is its own.
+func TestSessionRoleTextRows(t *testing.T) {
 	t.Parallel()
 	f, o1 := sessionFx(t, true)
 	kit := f.Base + "/kit"
-	for _, r := range []string{"worker", "integrator", "reviewer"} {
+	for _, r := range []string{"worker", "integrator", "reviewer", "researcher"} {
 		f.Write(kit+"/templates/agents/"+r+".md", "# Role: "+r+"\n")
 	}
-	env := func(kv ...string) []string { return append([]string{"OBOR_PLUGIN_ROOT=" + kit}, kv...) }
-	want := func(role string) string { return "obor: role text: " + kit + "/templates/agents/" + role + ".md" }
-
-	out := f.session(t, o1, "", env()...)
-	contains(t, out, "worker, no project doc", "obor: role worker", want("worker")+" — read it before acting")
-	lacks(t, out, "worker, no project doc", ", project:")
-	if err := os.MkdirAll(o1+"/docs/agents", 0o755); err != nil {
-		t.Fatal(err)
+	// custom is the T-801 fixture: a custom role's doc and a kit default row's model.
+	custom := func() {
+		f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+		f.Config(testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("roles.researcher", "sonnet"))
 	}
-	os.WriteFile(o1+"/docs/agents/worker.md", []byte("# worker here\n"), 0o644)
-	contains(t, f.session(t, o1, "", env()...), "worker with a project doc",
-		want("worker")+", project: docs/agents/worker.md — read it before acting")
-
-	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=integrator")...), "integrator", "obor: role integrator",
-		want("integrator")+" — read it before acting")
-	f.Write("doc/roles/reviewer.md", "# reviewer here\n")
-	f.Config(testkit.Set("paths.agents", "doc/roles"))
-	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=reviewer")...), "reviewer, paths.agents", "obor: role reviewer",
-		want("reviewer")+", project: doc/roles/reviewer.md — read it before acting")
-
-	out = f.session(t, f.Root, "", env("OBOR_ROLE=lead")...)
-	contains(t, out, "lead", "obor: role lead", "obor: role text: run /obor:lead — read it before acting")
-	lacks(t, out, "lead", "templates/agents/lead.md")
-	lacks(t, f.session(t, f.Root, "", env("OBOR_ROLE=deep_dive")...), "a role without a kit text", "obor: role text")
-}
-
-// T-801: a custom role's role text is its doc <paths.agents>/<name>.md (no kit text); a kit default row (researcher)
-// names the kit's text and the project's doc when it has one; a role the config does not know (its row removed) gets
-// none.
-func TestSessionCustomRoleText(t *testing.T) {
-	t.Parallel()
-	f, _ := sessionFx(t, true)
-	kit := f.Base + "/kit"
-	f.Write(kit+"/templates/agents/researcher.md", "# Role: researcher\n")
-	f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
-	f.Config(testkit.Set("roles.ux_buddy", `{"model": "opus", "write": ["docs/ux/"]}`), testkit.Set("roles.researcher", "sonnet"))
-	env := func(kv ...string) []string { return append([]string{"OBOR_PLUGIN_ROOT=" + kit}, kv...) }
-
-	out := f.session(t, f.Root, "", env("OBOR_ROLE=ux_buddy")...)
-	contains(t, out, "custom role", "obor: role ux_buddy", "obor: role text: docs/agents/ux_buddy.md — read it before acting")
-	lacks(t, out, "custom role", "templates/agents/ux_buddy.md")
-	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=researcher")...), "default row, kit text",
-		"obor: role text: "+kit+"/templates/agents/researcher.md — read it before acting")
-	f.Write("docs/agents/researcher.md", "# Role: researcher — here\n")
-	contains(t, f.session(t, f.Root, "", env("OBOR_ROLE=researcher")...), "default row, project doc",
-		"obor: role text: "+kit+"/templates/agents/researcher.md, project: docs/agents/researcher.md — read it before acting")
-
-	f.Config(testkit.Set("roles.researcher", "sonnet")) // the ux_buddy row removed: its doc stays, no role text
-	out = f.session(t, f.Root, "", env("OBOR_ROLE=ux_buddy")...)
-	contains(t, out, "row removed", "obor: role ux_buddy")
-	lacks(t, out, "row removed", "obor: role text")
+	for _, c := range []struct {
+		name            string
+		before          func()
+		role            string   // OBOR_ROLE
+		cwd             string   // "root" or "" (the lane)
+		contains, lacks []string // in the session line
+	}{
+		{"a worker without a project doc", nil, "", "",
+			[]string{"obor: role worker", kit + "/templates/agents/worker.md — read it before acting"},
+			[]string{", project:"}},
+		{"a worker with a project doc", func() {
+			if err := os.MkdirAll(o1+"/docs/agents", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(o1+"/docs/agents/worker.md", []byte("# worker here\n"), 0o644)
+		}, "", "",
+			[]string{kit + "/templates/agents/worker.md, project: docs/agents/worker.md — read it before acting"}, nil},
+		{"an integrator", nil, "integrator", "root",
+			[]string{"obor: role integrator", kit + "/templates/agents/integrator.md — read it before acting"}, nil},
+		{"a reviewer with paths.agents", func() {
+			f.Write("doc/roles/reviewer.md", "# reviewer here\n")
+			f.Config(testkit.Set("paths.agents", "doc/roles"))
+		}, "reviewer", "root",
+			[]string{"obor: role reviewer", kit + "/templates/agents/reviewer.md, project: doc/roles/reviewer.md — read it before acting"}, nil},
+		{"the lead", nil, "lead", "root",
+			[]string{"obor: role lead", "obor: role text: run /obor:lead — read it before acting"},
+			[]string{"templates/agents/lead.md"}},
+		{"a role without a kit text", nil, "deep_dive", "root", nil, []string{"obor: role text"}},
+		{"a custom role's own doc", custom, "ux_buddy", "root",
+			[]string{"obor: role ux_buddy", "obor: role text: docs/agents/ux_buddy.md — read it before acting"},
+			[]string{"templates/agents/ux_buddy.md"}},
+		{"a kit default row's kit text", custom, "researcher", "root",
+			[]string{"obor: role text: " + kit + "/templates/agents/researcher.md — read it before acting"}, nil},
+		{"a kit default row's project doc", func() {
+			custom()
+			f.Write("docs/agents/researcher.md", "# Role: researcher — here\n")
+		}, "researcher", "root",
+			[]string{"obor: role text: " + kit + "/templates/agents/researcher.md, project: docs/agents/researcher.md — read it before acting"}, nil},
+		{"a role the config does not know", func() {
+			f.Write("docs/agents/ux_buddy.md", "# Role: ux_buddy\n")
+			f.Config(testkit.Set("roles.researcher", "sonnet")) // the ux_buddy row removed: its doc stays, no role text
+		}, "ux_buddy", "root",
+			[]string{"obor: role ux_buddy"}, []string{"obor: role text"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.before != nil {
+				c.before()
+			}
+			cwd := o1
+			if c.cwd == "root" {
+				cwd = f.Root
+			}
+			env := []string{"OBOR_PLUGIN_ROOT=" + kit}
+			if c.role != "" {
+				env = append(env, "OBOR_ROLE="+c.role)
+			}
+			out := f.session(t, cwd, "", env...)
+			contains(t, out, c.name, c.contains...)
+			lacks(t, out, c.name, c.lacks...)
+		})
+	}
 }
 
 // bash plugin case_session_no_config, case_session_bad_stdin
