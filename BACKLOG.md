@@ -130,6 +130,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-99, accepted) (RV-99 #2 rest, low) setup migrate straight from a pre-v0.23 config: an agents entry mapped to a role by its name (fable-advisor) gets the bare model, dropping its old lane type's --effort. No live project needs it (axis-alies is v0.23-shaped with fable:high). Fix if seen: use ref(typ) for name-inferred roles (internal/config/migrate.go:454).
 - (RV-98, accepted) (RV-98 #3 rest, low) obor restart with serve down AND an unreadable state db reads as 'no task' and restarts the lane agent idle. Fix if seen: propagate ReadLaneAt's error in resolveLaneJob (cmd/obor/restart.go).
 - (RV-98, accepted) (RV-98 #2 rest, low; RV-93 class) a worker with no identity proof (hand-started, no session, pane relabelled) reads as gone, so drop/move/takeover free its lane without stopping it. Fix if seen: whereIs 'no proof' with a live pane in the lane → refuse, not gone (internal/app/steps.go stopAgent).
 - (RV-95, accepted) (RV-95 #2, low) project list: a renamed project (name ≠ dir) whose config does not parse is dropped if another project registers meanwhile; NameAt falls back to the dir name. Fix if it happens: keep the stored name when the name cannot be read.
