@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
@@ -50,9 +49,10 @@ func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (O
 // (recordBrief: its fact is a brief's, so a repeated call id gets the brief's stored reply) with review-brief.md §4's
 // text for the fix tasks (Call.After), the findings (Call.Findings; none: every finding) and the lead's note. Once
 // admitted, serve reads the head and each task's merge in the next review's scope and marks the head reviewed
-// (ReviewedRef); the tasks are recorded as covered by the cycle (T-822). Refused, nothing marked or recorded: no
-// reviewer setup, no open review, a task with no merge since the previous review, git failing, a publish still running
-// after admitWait.
+// (ReviewedRef); the tasks are the brief's coverage (T-823: its one fact, counted by ReviewCovered once the brief is
+// delivered). Refused, nothing marked or recorded: no reviewer setup, no open review, a task with no merge since the
+// previous review, git failing, a publish still running after admitWait, or an earlier verify whose brief the reviewer
+// has not been given yet.
 func (a *App) verifyCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodVerify + ": a call id is required")
@@ -73,6 +73,9 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	s, err := reviewConfig(p.root)
 	if err != nil {
 		return "", err
+	}
+	if a.verifyPending(p, s.Agent) {
+		return "", errors.New("review verify: a verify is pending: wait for it or close the review")
 	}
 	fx, err := a.opt.Loop(p.root)
 	if err == nil && fx.Review == nil {
@@ -95,14 +98,21 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 		return "", err
 	}
 	from := cmp.Or(c.Agent, "owner")
-	reply, ok := a.recordBrief(p, s.Agent, from, text, c.CallID, "", false)
+	reply, ok := a.recordBrief(p, s.Agent, from, text, c.CallID, "", false, c.After)
 	if !ok {
 		return "", fmt.Errorf("review verify: the event log of %s refused it", p.name)
 	}
-	// T-822: the verified tasks join the cycle's covered set (obor review close lists it in the close commit's body).
-	a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerify, Kind: event.KindFact}, ReviewData{Tasks: c.After})
 	a.wake()
 	return reply, nil
+}
+
+// verifyPending: the reviewer's open brief is a verify's whose line it has not been given yet (T-823): a second verify
+// would supersede the first's brief, so it is refused (under mu).
+func (a *App) verifyPending(p *proj, agent string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	b := p.out.brief(agent)
+	return b != nil && len(b.verify) > 0 && p.out.msgs[b.seq] != nil
 }
 
 // verifyText finds the open review and each task's merge in the next review's scope (T-822: a task merged after the

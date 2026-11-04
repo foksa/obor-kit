@@ -233,6 +233,7 @@ type brief struct {
 	term     string    // the terminal (termOf) its agent was last identified in ("": not seen since replay; T-732)
 	paneID   string    // that pane's id then
 	lost     time.Time // since when its agent is not identified while connected (zero: identified, or not connected)
+	verify   []string  // a verify brief's fix tasks (T-823): its coverage counts once its line is delivered
 }
 
 // roleStop is a briefed role agent's stop on a usage limit (stopwake.go): its fact's seq and time, the lead's line, the
@@ -330,7 +331,7 @@ func (p *proj) foldMsg(r event.Record) {
 				brief: r.Step == event.StepBriefed}
 		}
 		if r.Step == event.StepBriefed {
-			p.out.briefs[m.To] = &brief{seq: r.Seq, at: event.RecordTime(r)}
+			p.out.briefs[m.To] = &brief{seq: r.Seq, at: event.RecordTime(r), verify: m.Verify}
 		}
 		for _, seq := range m.Supersedes { // delivered no more (its 24 h needs-you ends with it)
 			delete(p.out.msgs, seq)
@@ -1201,7 +1202,7 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		}
 		defer release() // after the brief is recorded: its open brief holds the merge from then on
 	}
-	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt, c.Fresh)
+	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt, c.Fresh, nil)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
 	}
@@ -1214,8 +1215,9 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 // false when the log refused it. The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes,
 // T-580). Without a note, a pane already identified as the agent's may be working on it: that work is noted at once.
 // The text sent is a row of the project's prompts table (T-665): the line for a brief, the start's prompt for a start.
-// fresh: its line starts the agent fresh, the running agent stopped first (T-794).
-func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool) (string, bool) {
+// fresh: its line starts the agent fresh, the running agent stopped first (T-794). verify: the fix tasks a verify's
+// brief covers, in the brief's one fact (T-823).
+func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool, verify []string) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
@@ -1229,7 +1231,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		}
 	}
 	a.mu.Unlock()
-	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "",
+	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "", Verify: verify,
 		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
 	if note != "" {
 		m.Line = "[obor " + from + "] " + note
