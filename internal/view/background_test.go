@@ -105,18 +105,27 @@ func TestBackgroundOf(t *testing.T) {
 			return port.ProcessInfo{ShellPID: 50, FgPGID: 100}, nil
 		case "p2":
 			return port.ProcessInfo{ShellPID: 60, FgPGID: 60}, nil // at its shell
+		case "p4":
+			return port.ProcessInfo{ShellPID: 70, FgPGID: 300}, nil
 		}
 		return port.ProcessInfo{}, errors.New("no pane")
 	}
-	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"}}
+	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"},
+		{Name: "w4", Pane: "p4"}}
+	// w4 has a long command of its own, so two agents reach the process index.
+	s := time.Second
+	table := append(fakeTable(),
+		Proc{300, 1, 3600 * s, "claude"},
+		Proc{301, 300, 100 * s, "/bin/zsh -c eval 'go test ./...'"},
+		Proc{302, 301, 99 * s, "go test ./..."})
 	before := indexBuilds.Load()
-	got := BackgroundOf(context.Background(), root, agents, fakeTable(), info)
+	got := BackgroundOf(context.Background(), root, agents, table, info)
 	// T-727: one scan builds one process index, whatever the number of agents.
-	if n := indexBuilds.Load() - before; n != 1 {
-		t.Errorf("%d indexes built for three agents, want one", n)
+	if len(got) != 2 || len(got["w1"]) != 1 || len(got["w4"]) == 0 {
+		t.Fatalf("background %+v, want a process of w1 and of w4 (two agents with one)", got)
 	}
-	if len(got) != 1 || len(got["w1"]) != 1 {
-		t.Fatalf("background %+v, want one process of w1", got)
+	if n := indexBuilds.Load() - before; n != 1 {
+		t.Errorf("%d indexes built for two agents with a process, want one", n)
 	}
 	want := Background{PID: 104, Command: "python3 convert.py --name a b", Background: true, Label: "convert maps", Age: 899}
 	if got["w1"][0] != want {
