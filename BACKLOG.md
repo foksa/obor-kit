@@ -146,6 +146,10 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-104, accepted) #2 remainder: obor idle's ack call reads the epoch under a.mu and records after releasing it, so an ack racing a brief/dispatch replies ACKED for an epoch that just ended (folding ignores it); low (two actions within ms), fix 20-50 lines.
+- (RV-104, accepted) #3 remainder: Ctrl-C/SIGTERM during a live conformance run: cancellation is checked only before the kinds start, so setup or H-L6 can race the cleanup; occasional, recovery is a rerun (setup stops a pre-existing obor-conf-<kind> session), fix 40-100 lines.
+- (RV-104, accepted) #4 remainder: obor status does not read .obor/state/conformance.json (passed/partial/failed); the run output and the file carry it; a status line is a 40-100 line feature, not asked for.
+- (lead 11-04) **v0.25.1 opencode step order**: do not run `obor setup agents` (removes the global opencode MCP entry + plugin link, T-809) until every project on this machine runs v0.25.1: a 0.25.0 serve's opencode lanes still need the global entry. Until then the global plugin copy wins over the per-launch one (OC-L4) in obor-kit too, as before. UPGRADE-v0.25 note must say: install, restart serves everywhere, then `obor setup agents` once.
 - (RV-103, accepted) conformance live runner uses fixed session names (obor-conf-<kind>) and stops a pre-existing one: two runs at once collide; unlikely (lead/owner run it by hand), fix: a per-run suffix if it ever bites.
 - (lead 11-04) **Flake**: `TestHoldAndResume/resume_reprompts` (internal/app/jobs_test.go:394) failed under full-check load in T-804's gate ("resume T-1: T-1 has review.2 running; retry when it settles", 5.1 s), passes alone; T-804 touches no internal/app. Fix if it recurs: wait for the review step to settle instead of a fixed deadline.
 - (lead 11-04) **crouton trial ended** (owner: not worth it; T-806 at xhigh stalled twice, needed a manual continue; moved to sonnet). crouton paused; `models.crouton` removed from config (owner).
