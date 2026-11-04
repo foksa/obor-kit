@@ -1,8 +1,10 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"strings"
 
@@ -14,10 +16,12 @@ import (
 // Specs live in the project's store (T-440); serve is their one writer. obor spec set is a request on the app socket,
 // the lead role's only (a worker cannot unlock files by editing its own spec, T-238); show and list read the table
 // read-only. A dispatch needs a stored spec, the work job's text carries it (a fix job's too when its rev changed
-// since the worker's last job), and the gate writes the current rev into every candidate.
+// since the worker's last job), and the gate writes the current rev into every candidate. A set while the task has a
+// working (or dispatching) worker sends it one line and its next task_done at the older rev is refused once (T-819).
 
 // specSet answers a spec request: a call id is required and a repeated one gets the stored reply. A new rev wakes the
-// merge loop (a waiting task of it may dispatch now).
+// merge loop (a waiting task of it may dispatch now) and, with a working (or dispatching) worker, sends that worker
+// one line (specTold, T-819; the reply then ends "(worker told)").
 func (a *App) specSet(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New(wire.MethodSpecSet + ": a call id and a task are required")
@@ -68,14 +72,22 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	default:
 		by = "lead"
 	}
-	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, by, a.opt.Now())
+	// task_done's submission decides under a.submitMu: one order of "the spec changed" and "the work against it was
+	// submitted" (T-819).
+	a.submitMu.Lock()
+	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Note, by, a.opt.Now())
 	if err != nil {
+		a.submitMu.Unlock()
 		return "", err
 	}
 	reply = fmt.Sprintf("SET %s rev %d", c.Task, rev)
-	if !changed {
+	switch {
+	case !changed:
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
+	case a.specTold(p, c, rev):
+		reply += " (worker told)"
 	}
+	a.submitMu.Unlock()
 	a.mu.Lock()
 	p.replies[key] = reply
 	a.mu.Unlock()
@@ -83,6 +95,37 @@ func (a *App) specSet(c wire.Call) (string, error) {
 		a.wake()
 	}
 	return reply, nil
+}
+
+// specTold sends task's working (or dispatching) worker one line through the worker-line delivery (T-819, as obor
+// resume's answer) that its spec is rev now: whether it did.
+func (a *App) specTold(p *proj, c wire.Call, rev int) bool {
+	a.mu.Lock()
+	var mt mtask
+	if m := p.folded.loop[c.Task]; m != nil {
+		mt = *m
+	}
+	to := mt.agent
+	if to == "" && mt.lane != "" { // a dispatching attempt before its agent's name is in the lane row
+		to = p.laneAgent(mt.lane)
+	}
+	a.mu.Unlock()
+	if to == "" || mt.state != stWorking && mt.state != stDispatched {
+		return false
+	}
+	m := event.Message{To: to, From: cmp.Or(c.Agent, "owner"), Line: "[obor] " + specRevLine(c.Task, rev, c.Note),
+		Task: c.Task}
+	return a.record(p, event.Record{Task: event.MsgTask, Step: event.StepSpecLine, Kind: event.KindFact}, m)
+}
+
+// specRevLine is what a new spec rev says to a working worker, and task_done's refusal of a job carried at an older
+// rev names (T-819).
+func specRevLine(task string, rev int, note string) string {
+	line := fmt.Sprintf("%s spec is now rev %d", task, rev)
+	if note = strings.TrimSpace(note); note != "" {
+		line += ": " + note
+	}
+	return line + " — read obor spec show " + task + " and adjust; say in your report what you redid."
 }
 
 // specOf is task's stored spec in p (ok false: none).

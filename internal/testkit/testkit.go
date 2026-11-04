@@ -418,7 +418,7 @@ func (p *Project) Spec(task, text string) {
 		p.t.Fatal(err)
 	}
 	defer db.Close()
-	if _, _, err := store.SetSpec(db, task, text, "lead", time.Now()); err != nil {
+	if _, _, err := store.SetSpec(db, task, text, "", "lead", time.Now()); err != nil {
 		p.t.Fatal(err)
 	}
 }

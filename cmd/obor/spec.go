@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -12,7 +13,7 @@ import (
 	"obor/internal/store"
 )
 
-const specUsage = "FAIL usage: obor spec set <T-xx> <path> | obor spec show <T-xx> | obor spec list"
+const specUsage = "FAIL usage: obor spec set <T-xx> <path> [--note \"<what changed>\"] | obor spec show <T-xx> | obor spec list"
 
 // specCmd is `obor spec set|show|list` (T-440): the tasks' specs live in obor serve's store. set is a request to
 // serve (the lead role only); show and list read the store read-only, serve up or down.
@@ -22,8 +23,10 @@ func specCmd(args []string) int {
 		return 1
 	}
 	switch {
-	case args[0] == "set" && len(args) == 3:
-		return specSet(args[1], args[2])
+	case args[0] == "set":
+		if task, path, note, ok := specSetArgs(args[1:]); ok {
+			return specSet(task, path, note)
+		}
 	case args[0] == "show" && len(args) == 2:
 		return specShow(args[1])
 	case args[0] == "list" && len(args) == 1:
@@ -33,12 +36,25 @@ func specCmd(args []string) int {
 	return 1
 }
 
-// specSet is `obor spec set <T-xx> <path>`: path (any file, read once) stored as the task's spec, a request to obor
-// serve, the store's one writer. A later set with another text is the next rev (a running task's guard reads its
-// protected unlocks at its next call). SET <task> rev <n> | UNCHANGED <task> rev <n>, or FAIL … exit 1 (serve down too).
-// The caller is the session's (caller: a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain
-// terminal, is sent as no role), and serve refuses every role but the lead and the owner.
-func specSet(task, path string) int {
+// specSetArgs is obor spec set's arguments, <T-xx> <path> [--note "<what changed>"] (T-819: the note is what the
+// working worker is told and task_done's refusal names). False: not that form.
+func specSetArgs(args []string) (task, path, note string, ok bool) {
+	switch {
+	case len(args) == 2:
+		return args[0], args[1], "", true
+	case len(args) == 4 && args[2] == "--note" && strings.TrimSpace(args[3]) != "":
+		return args[0], args[1], strings.TrimSpace(args[3]), true
+	}
+	return "", "", "", false
+}
+
+// specSet is `obor spec set <T-xx> <path> [--note "<what changed>"]`: path (any file, read once) stored as the task's
+// spec, a request to obor serve, the store's one writer. A later set with another text is the next rev (a running
+// task's guard reads its protected unlocks at its next call; a working worker gets one line, T-819). SET <task> rev <n>
+// [(worker told)] | UNCHANGED <task> rev <n>, or FAIL … exit 1 (serve down too). The caller is the session's (caller:
+// a lane's cwd is a worker's whatever OBOR_ROLE says; none, the owner in a plain terminal, is sent as no role), and
+// serve refuses every role but the lead and the owner.
+func specSet(task, path, note string) int {
 	return request(context.Background(), project.OSEnv, wire.MethodSpecSet, func(cfg *config.Config, c *wire.Call) error {
 		if err := taskIDs(cfg, task); err != nil {
 			return err
@@ -47,7 +63,7 @@ func specSet(task, path string) int {
 		if err != nil {
 			return fmt.Errorf("cannot read %s: %v", path, err)
 		}
-		c.Task, c.Spec = task, string(b)
+		c.Task, c.Spec, c.Note = task, string(b), note
 		return nil
 	})
 }

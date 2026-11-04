@@ -48,6 +48,15 @@ func TestSpecSetRequest(t *testing.T) {
 		t.Errorf("the owner: call %+v; want no role", calls[len(calls)-1])
 	}
 
+	// T-819: --note is what changed: sent with the set (serve tells a working worker, and task_done's refusal names it).
+	if rc, stdout, _ := run(t, p.Root, env, "spec", "set", "T-07", draft, "--note", "widen the guard"); rc != 0 ||
+		stdout != "SET T-07 rev 1\n" {
+		t.Errorf("--note: exit %d, %q; want the reply", rc, stdout)
+	}
+	if calls, _ := serve.requests(); calls[len(calls)-1].Note != "widen the guard" {
+		t.Errorf("--note: call %+v; want the note", calls[len(calls)-1])
+	}
+
 	_, n := serve.requests()
 	for _, c := range []struct {
 		name string
@@ -57,6 +66,8 @@ func TestSpecSetRequest(t *testing.T) {
 		{"bad task id", []string{"spec", "set", "X-1", draft}, "FAIL X-1 is no task id"},
 		{"no such file", []string{"spec", "set", "T-07", filepath.Join(p.Root, "nope.md")}, "FAIL cannot read "},
 		{"no path", []string{"spec", "set", "T-07"}, "FAIL usage: obor spec set"},
+		{"note without text", []string{"spec", "set", "T-07", draft, "--note"}, "FAIL usage: obor spec set"},
+		{"empty note", []string{"spec", "set", "T-07", draft, "--note", " "}, "FAIL usage: obor spec set"},
 		{"no subcommand", []string{"spec"}, "FAIL usage: obor spec set"},
 		{"unknown subcommand", []string{"spec", "edit", "T-07"}, "FAIL usage: obor spec set"},
 	} {

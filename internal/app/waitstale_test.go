@@ -38,7 +38,7 @@ func newStaleRig(t *testing.T) (*harness, *Loop) {
 	h.connect()
 	h.a.p.dispatching = true
 	for _, task := range []string{"T-1", "T-2", "T-3"} {
-		if _, _, err := store.SetSpec(h.a.p.log.DB(), task, "# "+task+" — Test\n\nDifficulty: medium\n", "lead", h.now); err != nil {
+		if _, _, err := store.SetSpec(h.a.p.log.DB(), task, "# "+task+" — Test\n\nDifficulty: medium\n", "", "lead", h.now); err != nil {
 			t.Fatal(err)
 		}
 	}

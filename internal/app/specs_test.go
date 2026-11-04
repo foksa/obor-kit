@@ -12,7 +12,8 @@ import (
 
 // T-440: obor spec set is serve's request: the lead stores a spec (rev 1), the same text again changes nothing, another
 // text is the next rev; a repeated call id gets its stored reply; the owner (no role) sets one too (DD-v0.11 A3); every
-// other role is refused and stores nothing.
+// other role is refused and stores nothing. The rig's T-1 is dispatched to its idle worker, so a new rev sends it the
+// line and the reply says so (T-819).
 func TestSpecSet(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -21,10 +22,10 @@ func TestSpecSet(t *testing.T) {
 		t.Fatalf("precondition: a spec before any set: %v, %v", ok, err)
 	}
 	for _, c := range []struct{ call, text, want string }{
-		{"s1", "# T-1 — A\n\nDifficulty: medium\n", "SET T-1 rev 1"},
+		{"s1", "# T-1 — A\n\nDifficulty: medium\n", "SET T-1 rev 1 (worker told)"},
 		{"s2", "# T-1 — A\n\nDifficulty: medium\n", "UNCHANGED T-1 rev 1"},
-		{"s3", "# T-1 — B\n\nDifficulty: medium\n", "SET T-1 rev 2"},
-		{"s1", "# T-1 — C\n\nDifficulty: medium\n", "SET T-1 rev 1"}, // s1's stored reply: nothing stored
+		{"s3", "# T-1 — B\n\nDifficulty: medium\n", "SET T-1 rev 2 (worker told)"},
+		{"s1", "# T-1 — C\n\nDifficulty: medium\n", "SET T-1 rev 1 (worker told)"}, // s1's stored reply: nothing stored
 	} {
 		if got := r.setSpec(c.call, c.text); got != c.want {
 			t.Errorf("spec set %s: %q, want %q", c.call, got, c.want)
@@ -43,8 +44,8 @@ func TestSpecSet(t *testing.T) {
 	}
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root,
 		CallID: "o1", Task: "T-1", Spec: "# T-1 — by the owner\n\nDifficulty: medium\n"})
-	if err != nil || reply != "SET T-1 rev 3" {
-		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3", reply, err)
+	if err != nil || reply != "SET T-1 rev 3 (worker told)" {
+		t.Fatalf("spec set by the owner: %q, %v; want SET T-1 rev 3 (worker told)", reply, err)
 	}
 	if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 3 || row.SetBy != "owner" {
 		t.Errorf("stored spec %+v, %v, %v; want rev 3 set by owner", row, ok, err)
@@ -98,17 +99,17 @@ func TestDispatchNeedsStoredSpec(t *testing.T) {
 	}
 }
 
-// T-440: a fix job carries the stored spec only when its rev is not the one the worker's last job carried (a widening
-// since); every gate gets the current rev to write into the candidate.
+// T-440: a fix job carries the stored spec when its rev is not the one the worker last had (T-819: a change made
+// while the task was not working; a change while it works reaches it as the refusal, and the next fix job does not
+// repeat it); every gate gets the current rev to write into the candidate.
 func TestFixJobCarriesChangedSpec(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name    string
-		widen   bool
-		wantFix string // in the second fix job: the spec's rev line, "" none
+		name  string
+		widen bool
 	}{
-		{"unchanged", false, ""},
-		{"widened", true, "The spec of T-1 (rev 2"},
+		{"unchanged", false},
+		{"widened while working: the refusal carried it", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -124,13 +125,16 @@ func TestFixJobCarriesChangedSpec(t *testing.T) {
 			r.waitStep("1 fact sendback")
 			if c.widen {
 				r.setSpec("s2", "# T-1 — Red\n\nDifficulty: medium\n\n## Files you may touch\n`red.txt`, `more.txt`\n")
+				// The worker fetched its fix job at the old rev: its task_done is refused once, then submits (T-819).
+				if reply, err := r.taskDone(report); err == nil || !strings.Contains(err.Error(), "T-1 spec is now rev 2") {
+					t.Fatalf("task_done at the old rev: %q, %v; want the refusal naming rev 2", reply, err)
+				}
 			}
 			r.submit()
 			r.waitStep("2 fact submitted")
 			job = r.waitJob("pj-l-01", "T-1/3/fix")
-			if got := strings.Contains(job, "The spec of T-1"); got != (c.wantFix != "") ||
-				c.wantFix != "" && !strings.Contains(job, c.wantFix) {
-				t.Errorf("second fix job: spec %v, want %q:\n%s", got, c.wantFix, job)
+			if strings.Contains(job, "The spec of T-1") {
+				t.Errorf("second fix job repeats a spec the worker has:\n%s", job)
 			}
 			r.scratch.mu.Lock()
 			specs := slices.Clone(r.scratch.specs)

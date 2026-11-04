@@ -95,6 +95,10 @@ func (p *proj) foldLoop(r event.Record) {
 					mt.state = stNeedsYou
 				}
 			}
+		case event.StepSpecSeen:
+			if rev := r.Fact().Rev; rev > mt.specRev { // the newer rev task_done's refusal showed the worker (T-819)
+				mt.specRev = rev
+			}
 		case event.StepDelivered:
 			if rev := r.Fact().Rev; rev > 0 {
 				mt.specRev = rev

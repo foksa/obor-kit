@@ -161,7 +161,7 @@ type mtask struct {
 	prepares, starts, works int
 	started                 bool
 	startAt                 time.Time // when the last start that started its agent was written
-	specRev                 int       // the spec rev the worker's last fetched job carried (0: none)
+	specRev                 int       // the spec rev the worker's last fetched job carried, or the newer one a task_done refusal showed it (0: none)
 	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch or its take-over on; a red
 	// gate, a sendback or a hold go back to driving, never to a worker.
 	drive bool

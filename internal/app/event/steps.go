@@ -38,6 +38,10 @@ const (
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
 const StepAnswered = "answered"
 
+// StepSpecLine is the fact of the line a working worker gets when its task's spec is a new rev (task MsgTask; data:
+// Message, Task the task whose spec changed; T-819).
+const StepSpecLine = "spec.line"
+
 // The dispatch's steps.
 const (
 	StepDispatched = "dispatch"     // fact: the request passed its refusals (data: dispatchData)
@@ -85,6 +89,9 @@ const (
 	StepLost       = "job.lost"     // fact: the integrator exited with the job open: it is started, the job sent anew
 	StepUnblocked  = "unblocked"    // fact: obor resume ended the needs-you (data: FactData, Reason regate|reprompt|retry)
 	StepFailed     = "failed"       // fact: a step's effect failed, counted (data: FactData, Step the step's key)
+	// StepSpecSeen is task_done's refusal of a job carried at an older spec rev: the worker was told the newer rev
+	// (data: FactData, Rev: the rev now seen; T-819), so its next task_done on that rev submits.
+	StepSpecSeen = "spec.seen"
 )
 
 // CauseHeld is the integrator's hold, the one cause of a merge-loop needs-you obor status lists as an event of its

@@ -14,16 +14,38 @@ import (
 // list, the flakes rule. A later set with another text is the next rev; the gate puts the current rev into every
 // merge message of the task (T-521).
 
-// SpecRow is one task's spec: its text and rev (1 for the first set), who set it and when (RFC 3339).
+// SpecRow is one task's spec: its text and rev (1 for the first set), who set it and when (RFC 3339), and the note
+// the set that made this rev carried (T-819: what changed; "" none, and for a rev set before it).
 type SpecRow struct {
 	Task, Text   string
 	Rev          int
 	SetBy, SetAt string
+	Note         string
+}
+
+// specCols is the select list of a spec row in db: a specs table from before schema 10 (a serve not restarted since
+// T-819, read by a newer CLI) has no note column, its rows read none.
+func specCols(db *sql.DB) (string, error) {
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('specs') WHERE name = 'note'").Scan(&n); err != nil {
+		return "", fmt.Errorf("specs: %w", err)
+	}
+	note := "note"
+	if n == 0 {
+		note = "''"
+	}
+	return "task, text, rev, set_by, set_at, " + note, nil
+}
+
+// scanSpec reads one row of specCols' select list into r.
+func scanSpec(scan func(...any) error, r *SpecRow) error {
+	return scan(&r.Task, &r.Text, &r.Rev, &r.SetBy, &r.SetAt, &r.Note)
 }
 
 // SetSpec stores text as task's spec: rev 1 for a new task, the next rev when the text differs from the stored one,
-// the stored rev unchanged when it does not (a repeated set). Its rev and whether it changed anything.
-func SetSpec(db *sql.DB, task, text, by string, now time.Time) (int, bool, error) {
+// the stored rev unchanged when it does not (a repeated set; its note stays the rev's). note is what changed (T-819,
+// the line a working worker gets and task_done's refusal name). Its rev and whether it changed anything.
+func SetSpec(db *sql.DB, task, text, note, by string, now time.Time) (int, bool, error) {
 	switch {
 	case task == "":
 		return 0, false, errors.New("specs: no task")
@@ -46,9 +68,10 @@ func SetSpec(db *sql.DB, task, text, by string, now time.Time) (int, bool, error
 		return rev, false, nil
 	}
 	rev++
-	if _, err := tx.Exec(`INSERT INTO specs (task, text, rev, set_by, set_at) VALUES (?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO specs (task, text, rev, set_by, set_at, note) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task) DO UPDATE SET text = excluded.text, rev = excluded.rev, set_by = excluded.set_by,
-		set_at = excluded.set_at`, task, text, rev, by, now.UTC().Format(time.RFC3339)); err != nil {
+		set_at = excluded.set_at, note = excluded.note`, task, text, rev, by, now.UTC().Format(time.RFC3339),
+		strings.TrimSpace(note)); err != nil {
 		return 0, false, fmt.Errorf("specs: %s: %w", task, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -59,9 +82,13 @@ func SetSpec(db *sql.DB, task, text, by string, now time.Time) (int, bool, error
 
 // ReadSpec is task's spec in db: ok false when it has none.
 func ReadSpec(db *sql.DB, task string) (SpecRow, bool, error) {
+	cols, err := specCols(db)
+	if err != nil {
+		return SpecRow{}, false, err
+	}
 	var r SpecRow
-	err := db.QueryRow("SELECT task, text, rev, set_by, set_at FROM specs WHERE task = ?", task).
-		Scan(&r.Task, &r.Text, &r.Rev, &r.SetBy, &r.SetAt)
+	err = db.QueryRow("SELECT "+cols+" FROM specs WHERE task = ?", task).Scan(&r.Task, &r.Text, &r.Rev, &r.SetBy,
+		&r.SetAt, &r.Note)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return SpecRow{}, false, nil
@@ -73,7 +100,11 @@ func ReadSpec(db *sql.DB, task string) (SpecRow, bool, error) {
 
 // ReadSpecs is db's specs, by task.
 func ReadSpecs(db *sql.DB) ([]SpecRow, error) {
-	rows, err := db.Query("SELECT task, text, rev, set_by, set_at FROM specs ORDER BY task")
+	cols, err := specCols(db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query("SELECT " + cols + " FROM specs ORDER BY task")
 	if err != nil {
 		return nil, fmt.Errorf("specs: %w", err)
 	}
@@ -81,7 +112,7 @@ func ReadSpecs(db *sql.DB) ([]SpecRow, error) {
 	var out []SpecRow
 	for rows.Next() {
 		var r SpecRow
-		if err := rows.Scan(&r.Task, &r.Text, &r.Rev, &r.SetBy, &r.SetAt); err != nil {
+		if err := scanSpec(rows.Scan, &r); err != nil {
 			return nil, fmt.Errorf("specs: %w", err)
 		}
 		out = append(out, r)

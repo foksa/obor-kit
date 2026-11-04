@@ -65,7 +65,8 @@ type FactData struct {
 	Step  string `json:"step,omitempty"`
 	// Via is how a job was delivered: "mcp" when the agent's job_next fetched it ("": its herdr status, T-339).
 	Via string `json:"via,omitempty"`
-	// Rev is the spec rev a worker's fetched job carried (0: none, or a delivery before T-440).
+	// Rev is the spec rev a worker's fetched job carried, or a newer one task_done's refusal showed it (spec.seen,
+	// T-819; 0: none, or a delivery before T-440).
 	Rev int `json:"rev,omitempty"`
 	// Note is an unblocked's decision: the text of obor resume T-xx [regate|reprompt] "<decision>" (T-511).
 	Note string `json:"note,omitempty"`
