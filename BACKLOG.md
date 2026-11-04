@@ -6,6 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~21:45: RV-109 closed (6 lost scenarios in T-833/T-834/T-836 → restores T-844, T-845; RV-108's → T-842,
+  T-843). **Concern:** statement-coverage pruning keeps losing scenarios (entry point, timing) on deepseek; owner moved
+  T-838 to sonnet:medium (attempt 2, same lane). Judge the wave's net when it ends (lines out vs restore rounds).
 - 2026-11-04 ~20:55: ob-int detached the main checkout (`git checkout --detach <candidate>` while reviewing T-830);
   loop needs-you cleared by `git checkout main`. Guard fix T-841 queued after T-837 (guard tests). Until it lands the
   same can recur during the pruning reviews: the fix is `git checkout -q main` in the main checkout (clean tree).
