@@ -1,10 +1,10 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -70,10 +70,6 @@ func TestValidate(t *testing.T) {
 	}{
 		// bash config.test.sh case_validate_ok_template_and_fixture
 		{name: "fixture default", want: nil},
-		// T-437: every agent fetches its jobs; the old switches still load and warn once (mcp.jobs: only off).
-		{name: "mcp.jobs true is how obor runs", edits: []edit{set("mcp.jobs", true)}},
-		{name: "mcp.jobs false is obsolete", edits: []edit{set("mcp.jobs", false)},
-			want: []string{"WARN mcp.jobs false is obsolete: every agent fetches its jobs (T-437), remove it"}},
 		// RV-52 #1: a model's kind must be one with a bridge; a leftover cursor or a typo is a FAIL naming the kinds.
 		{name: "cursor is no supported kind", edits: []edit{set("models.cur", map[string]any{"kind": "cursor", "model": "c"})},
 			want: []string{`FAIL .models.cur.kind: "cursor" is not a supported kind: use one of claude, codex, opencode`}},
@@ -93,34 +89,14 @@ func TestValidate(t *testing.T) {
 		{name: "a new model needs its kind", edits: []edit{set("models.cur", map[string]any{"model": "x"})},
 			want: []string{"FAIL .models.cur.kind: required (claude, codex, opencode)"}},
 		{name: "a built-in's override may keep its kind", edits: []edit{set("models.opus", map[string]any{"model": "claude-opus-5-5"})}},
-		{name: "stop_hook.worker_max_blocks is obsolete", edits: []edit{set("stop_hook.worker_max_blocks", 3)},
-			want: []string{"WARN stop_hook: no longer used, remove it"}},
-		// T-465: the heartbeat's keys, the Stop hook's nudge keys, obor notify's backends and merge.full_every went with
-		// the heartbeat: WARN, never FAIL; the config still loads.
-		{name: "heartbeat, stop_hook, notify, merge.full_every removed", edits: []edit{
-			set("heartbeat", map[string]any{"interval": 900, "stale_done": 1200, "fallback": 7200}),
-			set("stop_hook", map[string]any{"max_nudges": 2, "cooldown": 600, "ack_ttl": 3600}),
-			set("notify", map[string]any{"backends": []any{"herdr"}}), set("merge.full_every", 86400)},
-			want: []string{"WARN heartbeat: no longer used, remove it", "WARN stop_hook: no longer used, remove it",
-				"WARN notify: no longer used, remove it", "WARN merge.full_every: no longer used, remove it"}},
-		// T-466: obor tell, the inbox and the obor mod went: inbox (max_age, stale_s, only) WARNs, never FAILs.
-		{name: "inbox removed", edits: []edit{set("inbox", map[string]any{"only": []any{"pj-lead"}, "max_age": 3600, "stale_s": -1})},
-			want: []string{"WARN inbox: no longer used, remove it"}},
-		// T-496: the per-file guard went: spec.files_heading and spec.enforce_files WARN, never FAIL.
-		{name: "spec keys removed", edits: []edit{set("spec", map[string]any{"files_heading": "Files", "enforce_files": false})},
-			want: []string{"WARN spec.files_heading: no longer used, remove it",
-				"WARN spec.enforce_files: no longer used, remove it"}},
-		// T-597: one kit per machine; a leftover version pin WARNs, never fails.
-		{name: "the version pin is removed", edits: []edit{set("obor", map[string]any{"version": "0.7.0"})},
-			want: []string{"WARN obor: no longer used, remove it"}},
-		// bash config.test.sh case_validate_removed_keys_warn; the keys removed by v0.10.0 are unknown (see
-		// TestRemovedByV010KeysAreUnknown), the rest warn (TestRemovedKeysWithinTwoVersions).
-		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md"),
-			set("paths.tasks", "docs/tasks"),
-			set("cache.warn_tokens", 50000)},
-			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it",
-				"WARN cache.warn_tokens: no longer used, remove it",
-				"WARN paths.tasks: no longer written; keep a custom path while its unfinished tasks have specs there (docs/tasks needs no key), then remove it"}},
+		// bash config.test.sh case_validate_removed_keys_warn; a key past its two-minor window is an unknown key
+		// (TestShapeErrorsFailTheLoad), the rest warn (TestRemovedKeysWithinTwoVersions).
+		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
+			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
+		// T-830: paths.status, paths.queue and paths.tasks are map entries, not keys with a field: past their window they
+		// load with no WARN (paths is free-form; nothing reads them).
+		{name: "removed paths keys load silently", edits: []edit{set("paths.status", "STATUS.md"),
+			set("paths.queue", "docs/QUEUE.md"), set("paths.tasks", "docs/tasks")}},
 		// T-428: owner decision 2026-10-24 — an integrator for every task; serve dispatches and merges for no project
 		// without one, so the config is invalid without the entry and unchanged with it.
 		{name: "no roles.integrator", edits: []edit{del("roles.integrator")},
@@ -281,6 +257,7 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		// T-801: roles.mystery is a custom role (validate checks it); a key its row does not know fails the load.
 		{set("roles.mystery", map[string]any{"model": "opus", "writes": []string{}}), `unknown field "writes"`},
 		{set("roles.integrator", 5), "integrator"},
+		{set("roles", 5), "roles: must be an object"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
 		{set("stop_idle_workers", "no"), "stop_idle_workers"},
 		{set("handoff_tokens", 1.5), "handoff_tokens"},
@@ -290,6 +267,19 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents": ` + config.OldShapeHint},
 		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}),
 			`unknown field "lane_types": ` + config.OldShapeHint},
+		// T-830: a removed key past its two-minor window is an unknown key, as any key this binary does not know.
+		{set("mcp.jobs", false), "jobs"},
+		{set("cache.warn_tokens", 50000), "warn_tokens"},
+		{set("heartbeat", map[string]any{"interval": 900}), "heartbeat"},
+		{set("stop_hook", map[string]any{"max_nudges": 2}), "stop_hook"},
+		{set("notify", map[string]any{"backends": []any{"herdr"}}), "notify"},
+		{set("inbox", map[string]any{"only": []any{"pj-lead"}}), "inbox"},
+		{set("merge.full_every", 86400), "full_every"},
+		{set("done_file", ".task-done.md"), "done_file"},
+		{set("leads", map[string]any{"cross_ttl": 3600}), "leads"},
+		{set("spec", map[string]any{"files_heading": "Files"}), "spec"},
+		{set("roles", `{"leads": [{"name": "mp"}]}`), "leads"},
+		{set("obor", map[string]any{"version": "0.7.0"}), "obor"},
 		{set("merge.receipt_max_age", "1d"), "receipt_max_age"},
 		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},
@@ -324,101 +314,49 @@ func TestValidateTrunkRef(t *testing.T) {
 	}
 }
 
-// T-467: one lead per project. axis-alies's shape (one roles.leads entry plus roles.lead) validates with the WARN,
-// never a FAIL; roles.lead is the lead.
-func TestValidateRemovedLeadsWarn(t *testing.T) {
-	p := newProject(t)
-	got := validate(t, p,
-		set("roles.lead", "opus"),
-		set("roles.leads", `[{"name": "mp", "agent": "lead-mp", "ids": ["T-383..T-499"],
-			"paths": ["src/net/**"], "lanes": ["L-01"]}]`))
-	if want := []string{"WARN roles.leads: no longer used, remove it"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("validate = %q, want %q", got, want)
+// releaseMinor is the minor version this tree ships in, read from VERSION (0.25.1 → 25). A removed key WARNs in the
+// two minor versions after the release that removed it, then is an unknown key. Once releaseMinor is past a row's
+// keepUntil, the key goes: its field, its WARN in config.warnings and its row in TestRemovedKeysWithinTwoVersions.
+func releaseMinor(t *testing.T) int {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
 	}
+	var minor int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(b)), "0.%d", &minor); err != nil {
+		t.Fatalf("VERSION %q: %v", strings.TrimSpace(string(b)), err)
+	}
+	return minor
 }
 
-// T-470: done_file, paths.status, paths.queue and leads.cross_ttl still load, each with its WARN.
-func TestValidateRemovedT470Keys(t *testing.T) {
-	p := newProject(t)
-	got := validate(t, p, set("done_file", `".task-done.md"`), set("paths.status", `"STATUS.md"`),
-		set("paths.queue", `"docs/QUEUE.md"`), set("leads", `{"cross_ttl": 3600}`))
-	want := []string{"WARN done_file: no longer used, remove it", "WARN paths.status: no longer used, remove it",
-		"WARN paths.queue: no longer used, remove it", "WARN leads.cross_ttl: no longer used, remove it"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("validate = %q, want %q", got, want)
-	}
-}
-
-// releaseMinor is the minor version this tree ships in (v0.13). A removed key WARNs in the two minor versions after the
-// release that removed it, then is an unknown key. Once releaseMinor is past a row's keepUntil, the key goes: its
-// field, its WARN in config.warnings and its row in TestRemovedKeysWithinTwoVersions.
-const releaseMinor = 13
-
-// TestRemovedKeysWithinTwoVersions: each versioned removed key still WARNs, and the test fails once the release is past
-// the key's two versions. paths.research and paths.questions have no recorded removal version, so they have no row.
+// TestRemovedKeysWithinTwoVersions: each versioned removed key still WARNs, and the test fails once VERSION is past the
+// key's two versions. paths.research and paths.questions have no recorded removal version, so they have no window.
 func TestRemovedKeysWithinTwoVersions(t *testing.T) {
+	minor := releaseMinor(t)
 	for _, r := range []struct {
 		key       string // the WARN's path
 		e         edit
-		removed   int // v0.<removed>.0 removed it
+		removed   int // v0.<removed>.0 removed it; 0: no recorded version
 		keepUntil int // the last minor that still WARNs: removed + 2
 	}{
-		{"mcp.jobs", set("mcp.jobs", false), 11, 13},
-		{"cache.warn_tokens", set("cache.warn_tokens", 50000), 12, 14},
-		{"heartbeat", set("heartbeat", `{"interval": 900}`), 12, 14},
-		{"stop_hook", set("stop_hook", `{"max_nudges": 2}`), 12, 14},
-		{"notify", set("notify", `{"backends": ["herdr"]}`), 12, 14},
-		{"inbox", set("inbox", `{"only": ["pj-lead"]}`), 12, 14},
-		{"merge.full_every", set("merge.full_every", 86400), 12, 14},
-		{"roles.leads", set("roles.leads", `[{"name": "mp"}]`), 12, 14},
-		{"done_file", set("done_file", `".task-done.md"`), 12, 14},
-		{"leads.cross_ttl", set("leads", `{"cross_ttl": 3600}`), 12, 14},
-		{"paths.status", set("paths.status", `"STATUS.md"`), 12, 14},
-		{"paths.queue", set("paths.queue", `"docs/QUEUE.md"`), 12, 14},
-		{"spec.files_heading", set("spec.files_heading", `"Files"`), 13, 15},
-		{"spec.enforce_files", set("spec.enforce_files", false), 13, 15},
-		{"paths.tasks", set("paths.tasks", `"docs/tasks"`), 14, 16},
-		{"obor", set("obor", `{"version": "0.7.0"}`), 17, 19},
+		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
+		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
 	} {
-		if r.keepUntil != r.removed+2 {
-			t.Errorf("%s: keepUntil v0.%d is not two minors after v0.%d", r.key, r.keepUntil, r.removed)
-		}
-		if releaseMinor > r.keepUntil {
-			t.Errorf("%s: removed in v0.%d and WARNs only through v0.%d: it is past its two versions, drop the key, "+
-				"its WARN and this row", r.key, r.removed, r.keepUntil)
-			continue
+		if r.removed > 0 {
+			if r.keepUntil != r.removed+2 {
+				t.Errorf("%s: keepUntil v0.%d is not two minors after v0.%d", r.key, r.keepUntil, r.removed)
+			}
+			if minor > r.keepUntil {
+				t.Errorf("%s: removed in v0.%d and WARNs only through v0.%d: it is past its two versions, drop the key, "+
+					"its WARN and this row", r.key, r.removed, r.keepUntil)
+				continue
+			}
 		}
 		p := newProject(t)
 		if got := validate(t, p, r.e); !warnsKey(got, r.key) {
 			t.Errorf("%s: no WARN for it in %q", r.key, got)
 		}
-	}
-}
-
-// TestRemovedByV010KeysAreUnknown: the keys removed by v0.10.0 are gone (no WARN, nothing read): an unknown key fails
-// the load, as any unknown key does. The removal list is the v0.12 upgrade guide's.
-func TestRemovedByV010KeysAreUnknown(t *testing.T) {
-	for _, c := range []struct {
-		name  string
-		edits []edit
-		field string // the key the load names as unknown
-	}{
-		{"milestone", []edit{set("milestone", `{"tag": "m{n}"}`)}, "milestone"},
-		{"branches.milestone", []edit{set("branches.milestone", `"ms/{name}"`)}, "milestone"},
-		{"cache.refuse_cold", []edit{set("cache.refuse_cold", false)}, "refuse_cold"},
-		{"keep_warm", []edit{set("keep_warm", `{"agents": ["a"]}`)}, "keep_warm"},
-		{"githooks.notify", []edit{set("githooks.notify", `["post-merge"]`)}, "githooks"},
-		{"dispatch.serve", []edit{set("dispatch.serve", true)}, "dispatch"},
-		{"merge.serve", []edit{set("merge.serve", true)}, "serve"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			p := newProject(t)
-			p.Config(c.edits...)
-			_, err := config.Load(p.Root)
-			if want := `unknown field "` + c.field + `"`; err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("Load: %v, want %s", err, want)
-			}
-		})
 	}
 }
 
@@ -532,17 +470,5 @@ func TestDifficultyList(t *testing.T) {
 	}
 	if got := cfg.DifficultyList("easy"); got != nil {
 		t.Errorf("DifficultyList(easy) = %v, want none", got)
-	}
-}
-
-// T-704: roles.researcher is a known role: a model validates, a name that is no model fails.
-func TestValidateAcceptsTheResearcherRole(t *testing.T) {
-	p := newProject(t)
-	if got := validate(t, p, set("roles.researcher", "sonnet")); len(got) != 0 {
-		t.Errorf("validate = %q, want none", got)
-	}
-	got := validate(t, p, set("roles.researcher", "nosuchmodel"))
-	if want := `FAIL .roles.researcher: "nosuchmodel" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`; !slices.Contains(got, want) {
-		t.Errorf("validate = %q, want it to contain %q", got, want)
 	}
 }

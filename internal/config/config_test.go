@@ -59,11 +59,6 @@ func TestDefaultsAndDerivedKeys(t *testing.T) {
 	if _, ok := c.Get(".roles.leads"); ok {
 		t.Error(".roles.leads: no longer derived (T-467)")
 	}
-	for _, p := range []string{".paths.status", ".paths.queue", ".done_file", ".leads", ".spec"} { // removed (T-470, T-496)
-		if got, ok := c.Get(p); ok {
-			t.Errorf("%s = %s: removed, no default any more", p, got)
-		}
-	}
 	if _, ok := c.Get(".models.cx.settings"); ok {
 		t.Errorf("the Remote Control default is applied at launch, not in the config (T-280)")
 	}
@@ -122,15 +117,6 @@ func TestUnknownKeyFails(t *testing.T) {
 	if _, err := Load(writeProject(t, `{"prefix":"pj","stop_idle_workers":"no"}`, "")); err == nil ||
 		!strings.Contains(err.Error(), "stop_idle_workers") {
 		t.Errorf("wrong type: %v", err)
-	}
-}
-
-// TestSpecRemoved (T-496): spec.enforce_files and spec.files_heading still load, whatever their type (removed keys:
-// validate warns).
-func TestSpecRemoved(t *testing.T) {
-	c := load(t, `{"prefix":"pj","spec":{"enforce_files":"no","files_heading":"Files"}}`, "")
-	if c.Data.Spec.EnforceFiles != "no" || c.Data.Spec.FilesHeading != "Files" {
-		t.Errorf("spec = %+v, want both kept as read", c.Data.Spec)
 	}
 }
 
@@ -195,22 +181,6 @@ func TestGet(t *testing.T) {
 	}
 	if all, ok := c.Raw("."); !ok || !strings.HasPrefix(all, "{\n  \"version\"") && !strings.HasPrefix(all, "{\n  \"prefix\"") {
 		t.Errorf("get . = %.40q", all)
-	}
-}
-
-// TestLeadRemoved (T-467): roles.leads still loads (a removed key: validate warns) but no longer names or types a
-// lead; roles.lead is the one lead, its agent <prefix>-lead.
-func TestLeadRemoved(t *testing.T) {
-	c := load(t, `{"prefix":"pj","roles":{"lead":"opus:high",
-		"leads":[{"name":"mp","agent":"lead-mp"},{"name":"ui","agent":"lead-ui"}]}}`, "")
-	if c.AgentName("lead", "") != "pj-lead" {
-		t.Errorf("roles.lead is the only lead: %q", c.AgentName("lead", ""))
-	}
-	if a, ok := c.AgentLookup("pj-lead", "", nil); !ok || a.Role != "lead" || a.Type != "opus" || a.Effort != "high" {
-		t.Errorf("the lead's agent resolves to the lead and its model ref: %+v %v", a, ok)
-	}
-	if _, ok := c.AgentLookup("lead-ui", "", nil); ok {
-		t.Error("a roles.leads agent is no lead any more")
 	}
 }
 
@@ -363,7 +333,8 @@ func TestLookupCollectionDefaults(t *testing.T) {
 		path, want string
 		known      bool
 	}{
-		{".mcp.jobs", "null", true},
+		{".merge.trailer", `""`, true},
+		{".mcp.jobs", "", false}, // removed (T-830): no field, so no such key
 		{".commands.check.heavy", "false", true},
 		{`.commands["check"].heavy`, "false", true},
 		{".commands.check.cmd", `"true"`, true},

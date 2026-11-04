@@ -22,8 +22,8 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 		{
 			// RV-41 probe: the same new name in two objects
 			name: "the same name in two nested objects",
-			cfg:  `{"merge":{"future":1},"spec":{"future":2}}`,
-			warn: []string{"merge.future", "spec.future"},
+			cfg:  `{"merge":{"future":1},"slots":{"future":2}}`,
+			warn: []string{"merge.future", "slots.future"},
 		},
 		{
 			name: "the same name in two class-list entries",
@@ -63,8 +63,8 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 		{
 			name:  "the same name in config.json and local.json",
 			cfg:   `{"merge":{"future":1}}`,
-			local: `{"spec":{"future":2},"merge":{"guard":"g"}}`,
-			warn:  []string{"merge.future", "spec.future"},
+			local: `{"slots":{"future":2},"merge":{"guard":"g"}}`,
+			warn:  []string{"merge.future", "slots.future"},
 			check: func(t *testing.T, c *Config) {
 				if c.Data.Merge.Guard != "g" {
 					t.Errorf("merge.guard = %q, want the overlay kept", c.Data.Merge.Guard)
@@ -72,8 +72,8 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 			},
 		},
 		{
-			name: "inside a map and an any stay untouched",
-			cfg:  `{"notify":{"a":{"future":1}},"merge":{"future":1}}`,
+			name: "inside a map stays untouched",
+			cfg:  `{"paths":{"future":"x"},"merge":{"future":1}}`,
 			warn: []string{"merge.future"},
 		},
 	} {
@@ -109,7 +109,7 @@ func TestLoadDaemonUnknownPaths(t *testing.T) {
 
 // TestLoadDaemonTypeErrors: a wrong type is still an error next to an unknown member.
 func TestLoadDaemonTypeErrors(t *testing.T) {
-	root := writeProject(t, `{"merge":{"future":1,"receipt_max_age":"soon"},"spec":{"future":2}}`, "")
+	root := writeProject(t, `{"merge":{"future":1,"receipt_max_age":"soon"},"slots":{"future":2}}`, "")
 	var out bytes.Buffer
 	defer func(w interface{ Write([]byte) (int, error) }) { Warn = w }(Warn)
 	Warn = &out

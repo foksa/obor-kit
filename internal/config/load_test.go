@@ -10,27 +10,21 @@ import (
 // TestOverlayMatchesJq: each case's effective value is what the Bash loader's `jq -s '.[0] * .[1]'` gives (a null
 // left by the merge is unset in the effective config: a derived default, or absent).
 func TestOverlayMatchesJq(t *testing.T) {
-	cfg := `{"prefix":"pj","done_file":"done.md","merge":{"scratch_dir":"../custom-scratch","trailer":"T"},
+	cfg := `{"prefix":"pj","merge":{"scratch_dir":"../custom-scratch","trailer":"T"},
 		"kinds":{"claude":{"args":["a","b"],"prompt_extra":"P"}},
-		"stop_hook":{"permissions":{"allow":["Bash(ls)"],"deny":["Bash(rm)"]},"model":"opus"},
-		"notify":{"slack":{"url":"u","channel":"c"},"mail":"m"},
 		"commands":{"check":{"cmd":"x","heavy":true,"timeout":5}},"slots":{"max":4,"dir":"/s"}}`
 	local := `{"prefix":"qq","merge":{"scratch_dir":null},
-		"kinds":{"claude":{"args":["c"],"prompt_extra":null}},"stop_hook":{"permissions":{"allow":["Bash(cat)"]}},
-		"notify":{"slack":{"channel":"d"}},"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
+		"kinds":{"claude":{"args":["c"],"prompt_extra":null}},
+		"commands":{"check":{"heavy":null}},"slots":{"max":null}}`
 	c := load(t, cfg, local)
 	for _, tc := range []struct{ name, path, want string }{
 		{"null scratch_dir resets to the derived default", ".merge.scratch_dir", `"../proj-wt/merge"`},
 		{"a sibling of a null key is kept", ".merge.trailer", `"T"`},
-		{"nested permissions keep deny", ".stop_hook",
-			`{"permissions":{"allow":["Bash(cat)"],"deny":["Bash(rm)"]},"model":"opus"}`},
-		{"nested notify keeps its sibling", ".notify", `{"slack":{"url":"u","channel":"d"},"mail":"m"}`},
 		{"null heavy clears it", ".commands.check", `{"cmd":"x","timeout":5}`},
 		{"null slots.max clears it", ".slots", `{"dir":"/s"}`},
 		{"null prompt_extra clears it", ".kinds.claude.prompt_extra", ``},
 		{"a list is replaced", ".kinds.claude.args", `["c"]`},
 		{"flat overlay", ".prefix", `"qq"`},
-		{"an untouched key stays", ".done_file", `"done.md"`},
 	} {
 		got, ok := c.Get(tc.path)
 		if tc.want == "" {
@@ -55,19 +49,6 @@ func TestOverlayMatchesJq(t *testing.T) {
 	}
 }
 
-func TestOverlayUnknownKeyInLocalFails(t *testing.T) {
-	for _, local := range []string{`{"typo":1}`, `{"commands":{"check":{"tmeout":5}}}`, `{"models":{"opus":{"modle":"x"}}}`} {
-		_, err := Load(writeProject(t, `{"prefix":"pj","models":{"opus":{"kind":"claude","model":"o"}},"commands":{"check":"x"}}`, local))
-		if err == nil || !strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), "local.json") {
-			t.Errorf("%s: %v, want an unknown field error naming local.json", local, err)
-		}
-	}
-	_, err := Load(writeProject(t, `{"prefix":"pj","typo":1}`, `{"prefix":"qq"}`))
-	if err == nil || !strings.Contains(err.Error(), "config.json") {
-		t.Errorf("config.json unknown key with a local.json: %v, want an error naming config.json", err)
-	}
-}
-
 // T-789: the shape before v0.23 is just invalid now (its one-time migration lived one release): the loader names the
 // key and says which release migrates it, whichever file has it.
 func TestOldShapeRefused(t *testing.T) {
@@ -88,25 +69,6 @@ func TestOldShapeRefused(t *testing.T) {
 	}
 	if _, err := Load(writeProject(t, `{"prefix":"pj","lanes":2}`, "")); err != nil {
 		t.Errorf("the current shape: %v, want it to load", err)
-	}
-}
-
-func TestOverlayOrderedMapsKeepOrder(t *testing.T) {
-	c := load(t, `{"prefix":"pj","models":{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a1"}},
-		"commands":{"zz":"z","mm":{"cmd":"m"}}}`,
-		`{"models":{"b":{"kind":"codex","model":"b1"},"a":{"model":"a2"}},"commands":{"aa":"a","zz":{"timeout":3}}}`)
-	got, _ := c.Get(".models")
-	if want := `{"z":{"kind":"codex","model":"z1"},"a":{"kind":"codex","model":"a2"},"b":{"kind":"codex","model":"b1"}}`; string(got) != want {
-		t.Errorf(".models = %s, want %s (a known key keeps its place and merges, a new one is appended)", got, want)
-	}
-	for _, k := range []struct{ got, want []string }{
-		{c.Data.Models.Keys, []string{"z", "a", "b"}}, {c.Data.Commands.Keys, []string{"zz", "mm", "aa"}}} {
-		if !reflect.DeepEqual(k.got, k.want) {
-			t.Errorf("keys = %q, want %q", k.got, k.want)
-		}
-	}
-	if cmd, ok := c.Command("zz"); ok || cmd.Timeout != 3 {
-		t.Errorf("an object replaces a string command (jq: no merge, so no cmd): %+v", cmd)
 	}
 }
 

@@ -46,9 +46,9 @@ func TestConfigPrintAndGet(t *testing.T) {
 	}{
 		{p.Root, []string{"config", "get", ".prefix"}, 0, "pj\n"},
 		{lane, []string{"config", "get", ".merge.receipt_max_age"}, 0, "60\n"},
-		{p.Root, []string{"config", "get", ".notify"}, 0, ""}, // a known field, unset: null prints nothing (obsolete, T-465)
+		{p.Root, []string{"config", "get", ".notify"}, 1, ""}, // removed (T-830): an unknown key now
 		{p.Root, []string{"config", "get", ".nosuch"}, 1, ""},
-		{p.Root, []string{"config", "get", ".mcp.jobs"}, 0, ""}, // a known field, unset: null prints nothing (obsolete, T-437)
+		{p.Root, []string{"config", "get", ".mcp.jobs"}, 1, ""}, // removed (T-830): an unknown key now
 		{p.Root, []string{"config", "get", ".mcp.nope"}, 1, ""},
 		{p.Root, []string{"config", "get", ".lanes"}, 0, "1\n"},
 		{p.Root, []string{"config", "get"}, 2, ""},
@@ -68,7 +68,7 @@ func TestConfigPrintAndGet(t *testing.T) {
 }
 
 // bash config.test.sh case_validate_* through the binary: OK exit 0; WARN lines then OK; FAIL lines exit 1; a removed key
-// still in its two versions loads and only warns (T-463: cache.warn_tokens, v0.12.0).
+// past its two versions is an unknown key, so the load refuses it (T-830: cache.warn_tokens).
 func TestConfigValidateBinary(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -79,8 +79,7 @@ func TestConfigValidateBinary(t *testing.T) {
 		out   string
 	}{
 		{nil, 0, "OK\n"},
-		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 0,
-			"WARN cache.warn_tokens: no longer used, remove it\nOK\n"},
+		{[]func(map[string]any){testkit.Set("cache.warn_tokens", 50000)}, 1, ""},
 		{[]func(map[string]any){testkit.Set("version", 2), testkit.Set("paths.research", "r")}, 1,
 			"WARN paths.research: no longer used, remove it\nFAIL .version: must be 1, got 2\n"},
 		// T-428: serve dispatches and merges nothing without roles.integrator, so validate FAILs.
