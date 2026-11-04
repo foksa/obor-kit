@@ -14,7 +14,6 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/launch"
 	"obor/internal/project"
 )
 
@@ -85,10 +84,11 @@ const briefUsage = `usage: obor brief <role-agent> [--fresh] "<text>"`
 // briefCmd is `obor brief <role-agent> [--fresh] "<text>"`, the lead's or the owner's: the one way to brief a role
 // agent (T-785). A request to obor serve (wire.MethodBrief) that its pane or session reads "[obor <caller>] <text>"
 // once the agent is idle; once that agent has worked on it and is idle again, serve posts
-// "[obor] <agent> finished (briefed <age> ago)" to the lead's session. --fresh stops a running agent first (as
-// obor restart <agent> --stop does): its pane at a shell, the brief starts it clean, the text its first prompt, after
-// serve's admission (as any brief; the reviewer's and the deep dive's merges are held). Serve's reply (BRIEFED …), or
-// FAIL: not a role agent, a failed stop, serve down or its refusal (exit 1).
+// "[obor] <agent> finished (briefed <age> ago)" to the lead's session. --fresh is the same request with fresh set
+// (T-794): serve admits and records the brief (as any brief; the reviewer's and the deep dive's merges are held), and
+// only then stops a running agent and starts it clean, the text its first prompt. The CLI stops nothing: a refused
+// brief leaves the agent running. Serve's reply (BRIEFED …), or FAIL: not a role agent, serve down or its refusal
+// (exit 1).
 func briefCmd(args []string) int {
 	fresh, rest := false, make([]string, 0, len(args))
 	for _, a := range args {
@@ -113,16 +113,7 @@ func briefCmd(args []string) int {
 		fmt.Fprintf(out, "FAIL %s is no role agent of this project (reviewer, deep_dive, advisor …; not the lead, the integrator or a worker)\n", agent)
 		return 1
 	}
-	if fresh {
-		// Stop before the brief (never a typed line into a running session): the pane keeps its label, at its shell.
-		l := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: out}
-		line, err := l.Stop(ctx, agent, "", false)
-		if err != nil {
-			return launchResult(out, line, err)
-		}
-		fmt.Fprintln(out, line)
-	}
-	reply, err := brief(ctx, cfg, agent, text, env)
+	reply, err := brief(ctx, cfg, agent, text, fresh, env)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
@@ -131,12 +122,13 @@ func briefCmd(args []string) int {
 	return 0
 }
 
-// brief is the brief request for agent (text the line its pane or session reads); agent must be a role's agent other
-// than the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor, an agents entry …).
-func brief(ctx context.Context, cfg *config.Config, agent, text string, env project.Env) (string, error) {
+// brief is the brief request for agent (text the line its pane or session reads; fresh: serve starts it fresh on it);
+// agent must be a role's agent other than the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor,
+// an agents entry …).
+func brief(ctx context.Context, cfg *config.Config, agent, text string, fresh bool, env project.Env) (string, error) {
 	cwd, _ := os.Getwd()
 	c := caller(env, cwd, cfg)
-	c.To, c.Note = agent, text
+	c.To, c.Note, c.Fresh = agent, text, fresh
 	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodBrief, c)
 }
 

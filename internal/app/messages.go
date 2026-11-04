@@ -647,6 +647,8 @@ func (a *App) routeOf(p *proj, fx *Loop, q queued) (post, target, held string) {
 		return p.out.leadKind, to, ""
 	case lead: // its record is its own latest SessionStart, fresher than herdr's view: no pane check (DD-v0.13 R1)
 		return w.Pane.Agent, to, ""
+	case q.brief && q.msg.Fresh && w.State == Identified:
+		return a.freshRoute(p, fx, q, w)
 	case q.brief && to != p.integrator && fx.Agents != nil && w.State == Unavailable:
 		if pane, ok := a.shellPane(p, to); ok { // a stopped role agent: started fresh on the brief (T-672)
 			return startRoute, pane.ID, ""
@@ -671,6 +673,26 @@ func (a *App) routeOf(p *proj, fx *Loop, q queued) (post, target, held string) {
 	}
 	return "", "", "serve types no lines"
 }
+
+// freshRoute is routeOf's choice for q, a fresh brief's line to its running agent w (under mu; T-794): stopped, then
+// started fresh on the line in its pane (deliverLine), busy or idle. Held while its last stop failed less than
+// roleStopRetry ago (a newer fresh brief is a line never refused: not held), or with no agent starts.
+func (a *App) freshRoute(p *proj, fx *Loop, q queued, w Where) (post, target, held string) {
+	to := q.msg.To
+	switch {
+	case fx.Agents == nil:
+		return "", "", "serve starts no agents: " + to + "'s fresh brief waits"
+	case !p.roleAgentOf(to):
+		return "", "", to + " is no role agent serve starts fresh"
+	case q.refused != "" && a.opt.Now().Sub(p.roleFail[to]) < roleStopRetry:
+		return "", "", fmt.Sprintf("its stop failed: tried again %s after the failure", Age(roleStopRetry))
+	}
+	return freshStart, w.Pane.ID, ""
+}
+
+// freshStart is route's post for a fresh brief whose role agent runs (freshRoute): stopped (stopRoleNow), then started
+// as a stopped one is (startRoute).
+const freshStart = "fresh"
 
 // needsLineWaits: a line announcing needs-you fact seq is queued, not delivered yet (under mu).
 func (p *proj) needsLineWaits(seq int64) bool {
@@ -751,6 +773,12 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	if m == nil {
 		return
 	}
+	if post == freshStart && !closing { // T-794: the running agent stopped first (serve's role stop), then started
+		if err := a.freshStop(ctx, p, fx, q, target, key); err != nil {
+			return
+		}
+		post = startRoute
+	}
 	began := false
 	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassPrompt, Data: lineData{To: q.msg.To}},
 		func(ctx context.Context) (any, error) {
@@ -780,6 +808,25 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
 			event.FactData{Machine: Machine, Reason: key.Step + ": " + err.Error(), Step: key.Step, Via: via})
 	}
+}
+
+// freshStop stops q's agent in pane before its fresh brief's start (deliverLine, T-794; q claimed): serve's role stop
+// (stopRoleNow), the agent interrupted if it works. A failed stop: fact failed for the line (key: its delivery), so the
+// brief stays queued, its needs-you raised (msgNeedsYou) and the stop tried again (freshRoute); nothing is started.
+func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q queued, pane string, key event.Key) error {
+	w := Where{State: Identified, Pane: port.Pane{ID: pane}} // the pane route identified as the agent's
+	err := a.stopRoleNow(ctx, p, fx, q.msg.To, "brief", 0, w)
+	switch {
+	case err == nil:
+		return nil
+	case cutByServe(ctx, err):
+		a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
+	default:
+		a.record(p, event.Record{Task: event.MsgTask, Step: event.StepFailed, Kind: event.KindFact},
+			event.FactData{Machine: Machine, Reason: key.Step + ": " + q.msg.To + " not stopped for its fresh brief: " +
+				err.Error(), Step: key.Step})
+	}
+	return err
 }
 
 // deliverLead posts qs, the lines queued for one lead target (oldest first), as one message, one line per row, in
@@ -883,6 +930,11 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 	a.mu.Lock()
 	reason := ""
 	for _, q := range p.queuedLines() {
+		if q.msg.Fresh && q.refused != "" { // a fresh brief's stop or start failed (T-794): at once, naming the agent
+			reason = fmt.Sprintf("fresh brief to %s from %s not started: %s (the next delivery tries again; obor brief %s "+
+				"--fresh briefs it anew)", q.msg.To, q.msg.From, q.refused, q.msg.To)
+			break
+		}
 		if now.Sub(q.at) >= msgWait {
 			reason = fmt.Sprintf("line to %s from %s waiting over %s for its delivery: %s", q.msg.To, q.msg.From,
 				Age(msgWait), q.msg.Line)
@@ -1039,6 +1091,8 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
 // reply. The lead hears once the agent has finished. A brief to a hold agent (the reviewer, the deep dive) waits while
 // a publish runs and is recorded admitted (mergehold.go, T-730); a publish still running after admitWait: refused.
+// Call.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the first
+// prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
 func (a *App) briefCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodBrief + ": a call id is required")
@@ -1057,14 +1111,19 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		return "", errors.New("brief: the role agent is required")
 	case c.To == p.out.leadAgent:
 		return "", fmt.Errorf("brief: %s is the lead: obor send reaches another project's lead", c.To)
+	case c.Fresh && strings.TrimSpace(c.Note) == "":
+		return "", errors.New("brief: --fresh takes a text: the fresh session's first prompt")
 	}
 	from := c.Agent
 	if from == "" {
 		from = "owner"
 	}
 	a.mu.Lock()
-	hold := p.holdAgent(c.To)
+	hold, restartable := p.holdAgent(c.To), !c.Fresh || p.roleAgentOf(c.To)
 	a.mu.Unlock()
+	if !restartable {
+		return "", fmt.Errorf("brief: %s is no role agent serve starts fresh (not the integrator or a worker)", c.To)
+	}
 	if hold { // a reviewer or deep dive reads the main checkout: admitted first (mergehold.go, T-730)
 		wait, cancel := context.WithTimeout(context.Background(), admitWait)
 		release, err := a.admit(wait, p)
@@ -1074,11 +1133,11 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		}
 		defer release() // after the brief is recorded: its open brief holds the merge from then on
 	}
-	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt)
+	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt, c.Fresh)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)
 	}
-	a.wake()
+	a.wake() // a fresh brief's stop and start are the delivery's (deliverLine), in the merge loop's pass
 	return reply, nil
 }
 
@@ -1087,7 +1146,8 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 // false when the log refused it. The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes,
 // T-580). Without a note, a pane already identified as the agent's may be working on it: that work is noted at once.
 // The text sent is a row of the project's prompts table (T-665): the line for a brief, the start's prompt for a start.
-func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string, bool) {
+// fresh: its line starts the agent fresh, the running agent stopped first (T-794).
+func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
@@ -1101,11 +1161,15 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string) (string,
 		}
 	}
 	a.mu.Unlock()
-	m := event.Message{To: to, From: from, Call: call, Supersedes: old,
+	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "",
 		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
 	if note != "" {
 		m.Line = "[obor " + from + "] " + note
-		m.Reply = "BRIEFED " + to + " (" + a.unnamed(p, to, "delivered when its pane is idle; the lead hears when it finishes") + ")"
+		how := "delivered when its pane is idle; the lead hears when it finishes"
+		if m.Fresh {
+			how = "serve stops it and starts it fresh with this brief; the lead hears when it finishes"
+		}
+		m.Reply = "BRIEFED " + to + " (" + a.unnamed(p, to, how) + ")"
 	}
 	if len(old) > 0 {
 		briefs := "briefs"

@@ -28,7 +28,9 @@ import (
 // stopped it (stoppedRoles: serve, or the lead's obor restart <agent> --stop). A stop runs only on an idle agent
 // (its turn after the verdict ends first); one that fails is tried again on a pass at least roleStopRetry later.
 // The advisor and the deep dive are the lead's to stop (skills/lead/SKILL.md); a brief to any stopped role agent but
-// the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine).
+// the integrator starts it fresh with the brief's line as its first prompt (messages.go, deliverLine). A fresh brief
+// (obor brief --fresh, T-794) to a running one stops it through the same stop (stopRoleNow, working or not) right before
+// that start, once the brief is recorded.
 
 // stepRoleStop is the step prefix of a role agent's stop: stop.<agent>[.N].
 const stepRoleStop = "stop."
@@ -183,13 +185,11 @@ type rvRead struct {
 	at  time.Time
 }
 
-// stopRole stops agent (role; the reviewer: for review) once it is idle, under the intent stop.<agent>[.N]: no pane
-// runs it, the stop is recorded as done ("stopped: no agent"); two panes claim it, or it works, nothing now. A stop
-// that fails stays pending, tried again roleStopRetry later.
+// stopRole stops agent (role; the reviewer: for review) once it is idle (stopRoleNow): two panes claim it, or it works,
+// nothing now. A stop that fails stays pending, tried again roleStopRetry later.
 func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role string, review int64) {
 	a.mu.Lock()
 	w := a.whereIs(p, agent)
-	key := event.Key{Task: event.RoleTask, Step: nth(stepRoleStop+agent, p.folded.roles.n[agent]+1)}
 	late := a.opt.Now().Sub(p.roleFail[agent]) < roleStopRetry
 	a.mu.Unlock()
 	switch {
@@ -198,6 +198,17 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 	case w.State == Identified && !Ready(w.Pane.Status):
 		return // its turn ends first
 	}
+	_ = a.stopRoleNow(ctx, p, fx, agent, role, review, w)
+}
+
+// stopRoleNow is serve's one stop of a role agent, at w (as resolved by its caller), under the intent stop.<agent>[.N]:
+// stopRole's once its work is done, and a fresh brief's before the start (deliverLine, T-794; role "brief"). No pane
+// runs it: the stop is recorded as done ("stopped: no agent"). A working agent is interrupted first (launch.Stop's
+// Escape). A stop that fails: its error, its intent pending, the agent's retry clock (roleFail) started.
+func (a *App) stopRoleNow(ctx context.Context, p *proj, fx *Loop, agent, role string, review int64, w Where) error {
+	a.mu.Lock()
+	key := event.Key{Task: event.RoleTask, Step: nth(stepRoleStop+agent, p.folded.roles.n[agent]+1)}
+	a.mu.Unlock()
 	out := roleStopOut{Agent: agent, Role: role, Review: review}
 	_, err := a.do(ctx, p, event.Intent{Key: key, Class: event.ClassStart, Data: stopData{Agent: agent}},
 		func(ctx context.Context) (any, error) {
@@ -225,6 +236,7 @@ func (a *App) stopRole(ctx context.Context, p *proj, fx *Loop, agent, role strin
 		p.roleFail[agent] = a.opt.Now()
 		a.mu.Unlock()
 	}
+	return err
 }
 
 // shellPane is the pane labelled agent, a role agent a brief may start (roleAgentOf: never a worker, the lead or the

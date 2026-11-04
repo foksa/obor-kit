@@ -195,51 +195,68 @@ func TestBriefRequest(t *testing.T) {
 	}
 }
 
-// T-785: obor brief <role-agent> --fresh stops a running role agent first (as obor restart <agent> --stop does) and
-// then briefs it: its pane at a shell, the brief's line is the first prompt of its fresh start (serve's start of a
-// stopped role agent, T-672), the text with it. A stopped role agent is not stopped again: the same brief as without
-// --fresh. The reviewer's --fresh is one brief request too (serve admits it, T-730/T-734), never a start of its own.
+// T-785, T-794: obor brief <role-agent> --fresh is one brief request with fresh set and the text; the CLI stops
+// nothing and starts nothing (serve stops and starts the agent once it has recorded the brief), so a running agent
+// still runs after the request, and a refused request leaves it running too. Without --fresh, fresh is not set.
 func TestBriefFresh(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.advisor", "opus"))
 	f := p.Herdr()
-	f.Shell("w1:p3", "pj-rev", p.Root)
-	f.Agent("w1:p5", "pj-advisor", "idle", p.Root).Label = "pj-advisor"
+	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
 	srv := herdrtest.Serve(t, f)
 	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED (test)", "")
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
 		"OBOR_STATE_HOME=" + home, "OBOR_RESTART_WAIT=1", "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	if pane := f.Pane("w1:p5"); pane.Kind == "" {
+		t.Fatalf("precondition: pj-advisor runs in w1:p5: %+v", pane)
+	}
 
-	// A running agent: stopped, then briefed; the brief's reply is the result line, the stop a line before it.
 	rc, stdout, _ := run(t, p.Root, env, "brief", "pj-advisor", "--fresh", "review the module map")
-	if rc != 0 || lastLine(stdout) != "BRIEFED (test)" {
+	if rc != 0 || strings.TrimSpace(stdout) != "BRIEFED (test)" {
 		t.Fatalf("brief --fresh: exit %d\n%s", rc, stdout)
-	}
-	if !strings.Contains(stdout, "STOPPED pj-advisor (pane w1:p5)") || strings.Index(stdout, "STOPPED pj-advisor") > strings.Index(stdout, "BRIEFED") {
-		t.Errorf("the stop's line before the brief's: %q", stdout)
-	}
-	if pane := f.Pane("w1:p5"); pane.Name != "" || pane.Kind != "" {
-		t.Errorf("pj-advisor still runs in w1:p5: %+v", pane)
 	}
 	got, _ := serve.requests()
 	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "review the module map" ||
-		got[0].Role != "lead" {
-		t.Errorf("requests %v %+v, want one brief of pj-advisor with the text", serve.methods, got)
+		got[0].Role != "lead" || !got[0].Fresh {
+		t.Errorf("requests %v %+v, want one fresh brief of pj-advisor with the text", serve.methods, got)
 	}
-
-	// A stopped agent: nothing to stop, the same brief (serve starts it clean in its labelled pane).
-	rc, stdout, _ = run(t, p.Root, env, "brief", "pj-rev", "--fresh", "verify finding 3")
-	if rc != 0 || lastLine(stdout) != "BRIEFED (test)" || !strings.Contains(stdout, "STOPPED pj-rev (pane w1:p3, already at a shell)") {
-		t.Errorf("brief --fresh of a stopped agent: exit %d\n%s", rc, stdout)
+	if pane := f.Pane("w1:p5"); pane.Kind == "" {
+		t.Errorf("the CLI stopped pj-advisor in w1:p5: %+v", pane)
 	}
-	if got, _ := serve.requests(); len(got) != 2 || got[1].To != "pj-rev" || got[1].Note != "verify finding 3" {
-		t.Errorf("requests %v %+v, want a second brief of pj-rev with the text", serve.methods, got)
+	if rc, _, _ := run(t, p.Root, env, "brief", "pj-rev", "verify finding 3"); rc != 0 {
+		t.Fatalf("brief: exit %d", rc)
+	}
+	if got, _ := serve.requests(); len(got) != 2 || got[1].To != "pj-rev" || got[1].Fresh {
+		t.Errorf("requests %+v, want a second brief of pj-rev without fresh", got)
 	}
 	for _, r := range srv.Requests() {
-		if r.Method == "agent.start" {
-			t.Errorf("the CLI started the agent itself: %+v", r)
+		if !strings.HasSuffix(r.Method, ".get") && !strings.HasSuffix(r.Method, ".list") {
+			t.Errorf("the CLI drove herdr (only reads expected): %+v", r)
 		}
+	}
+}
+
+// T-794: a brief --fresh that serve refuses is FAIL with serve's reason, and the running agent is not stopped.
+func TestBriefFreshRefused(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config(testkit.Set("roles.advisor", "opus"))
+	f := p.Herdr()
+	f.Agent("w1:p5", "pj-advisor", "working", p.Root).Label = "pj-advisor"
+	srv := herdrtest.Serve(t, f)
+	home, _ := startFakeServe(t, p.Root, wire.Status{}, "", "brief: the lead or the owner briefs, not pj-l-01 (role worker)")
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
+		"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	if pane := f.Pane("w1:p5"); pane.Kind == "" {
+		t.Fatalf("precondition: pj-advisor runs in w1:p5: %+v", pane)
+	}
+	rc, stdout, _ := run(t, p.Root, env, "brief", "pj-advisor", "--fresh", "x")
+	if rc != 1 || !strings.Contains(stdout, "FAIL") || !strings.Contains(stdout, "the lead or the owner briefs") {
+		t.Errorf("refused brief --fresh: exit %d, %q", rc, stdout)
+	}
+	if pane := f.Pane("w1:p5"); pane.Kind == "" {
+		t.Errorf("a refused brief --fresh stopped pj-advisor: %+v", pane)
 	}
 }
 

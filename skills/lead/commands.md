@@ -88,9 +88,11 @@ moved or whose name changed is left out).
 `obor brief <role-agent> [--fresh] "<text>"` — the one way to brief a role agent (reviewer, deep dive, advisor,
 researcher). Serve holds the line until the agent is idle, records the brief and tells you when that agent has
 finished; a brief to a stopped role agent starts it fresh, its first prompt the text.
-- `--fresh` stops a running agent first (as `obor restart <agent> --stop` does) and starts it clean on the text: one
-  command instead of stop and brief. Reviewer and deep dive go through serve's admission either way (a publish in
-  flight finishes first; merges are held while they work).
+- `--fresh` starts the agent clean on the text, stopping a running one first (working or idle): one command instead
+  of stop and brief. Serve does both, only after it has accepted and recorded the brief (T-794): a refused brief
+  leaves the agent running; a stop or start that fails keeps the brief queued with a needs-you naming the agent (the
+  next pass tries again, or brief it again). Reviewer and deep dive go through serve's admission either way (a
+  publish in flight finishes first; merges are held while they work).
 - `restart --prompt`, `--type`, `--effort` and `--sid` are gone: a first prompt is `obor brief --fresh`, a model is
   `obor dispatch <T-xx> --model <model>` for a task or `roles.<role>` in the config (the Setup page) for a role.
 
