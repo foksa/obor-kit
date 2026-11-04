@@ -179,6 +179,7 @@ type TaskStatus struct {
 	Attempt int      `json:"attempt"`
 	State   string   `json:"state"`
 	Phase   string   `json:"phase"`             // what serve does for it now (Phase*, T-788)
+	Stage   string   `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
 	Running string   `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
 	Hold    string   `json:"hold,omitempty"`    // accepted: "merge hold: <role>" while its publish waits (T-718)
 	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for

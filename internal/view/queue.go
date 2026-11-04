@@ -124,7 +124,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 			q.Waiting = append(q.Waiting, w)
 			continue
 		}
-		if stage := wire.PhaseStage(t.Phase); stage != "" {
+		if stage := t.Stage; stage != "" {
 			w := waits[t.Task]
 			m := MergeItem{Task: t.Task, Title: spec.Title(specs[t.Task].Text), Lane: t.Lane, State: t.State,
 				Phase: t.Phase, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why}
