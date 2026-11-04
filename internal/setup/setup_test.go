@@ -1083,6 +1083,55 @@ func TestRoleCustomPlaced(t *testing.T) {
 	}
 }
 
+// T-731, T-843: obor setup role reviewer and deep_dive add paths.reviews to an existing project's .gitignore, once: an
+// init made before the line was ignored leaves it out (init's own case is TestInitGitignoresTheReviewsDir).
+func TestRoleSetupGitignoresTheReviewsDir(t *testing.T) {
+	t.Parallel()
+	x := newFx(t, testkit.Set("roles", `{"reviewer": "opus", "deep_dive": "opus"}`))
+	if count(x.Read(".gitignore"), "docs/reviews") != 0 {
+		t.Fatalf("precondition: the reviews dir not ignored:\n%s", x.Read(".gitignore"))
+	}
+	out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+	has(t, out, ".gitignore += docs/reviews/", "the reviewer's setup said")
+	if count(x.Read(".gitignore"), "docs/reviews/") != 1 {
+		t.Errorf("docs/reviews/ once:\n%s", x.Read(".gitignore"))
+	}
+	if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
+		t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
+	}
+	gi := x.Read(".gitignore")
+	out = x.ok(t, "role", "deep_dive", "--new-tab", "deep-dive")
+	hasNot(t, out, ".gitignore +=", "the deep dive adds nothing")
+	if x.Read(".gitignore") != gi {
+		t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
+	}
+}
+
+// T-731, T-843: a reviews line already there, with or without its trailing slash, is left alone (the line is git's
+// either way): setup role reviewer adds no second line.
+func TestRoleSetupLeavesAnExistingReviewsLineAlone(t *testing.T) {
+	t.Parallel()
+	for _, line := range []string{"docs/reviews/", "docs/reviews"} {
+		t.Run(line, func(t *testing.T) {
+			t.Parallel()
+			x := newFx(t, testkit.Set("roles", `{"reviewer": "opus"}`))
+			x.Write(".gitignore", x.Read(".gitignore")+line+"\n")
+			gi := x.Read(".gitignore")
+			if count(gi, line) != 1 {
+				t.Fatalf("precondition: %s there once:\n%s", line, gi)
+			}
+			out := x.ok(t, "role", "reviewer", "--new-tab", "review")
+			hasNot(t, out, ".gitignore +=", "an existing line is not added again")
+			if x.Read(".gitignore") != gi {
+				t.Errorf("gitignore unchanged:\n%s", x.Read(".gitignore"))
+			}
+			if _, err := gitIn(x.Root, "check-ignore", "-q", "docs/reviews/RV-1.md"); err != nil {
+				t.Errorf("a review file is ignored (%v):\n%s", err, x.Read(".gitignore"))
+			}
+		})
+	}
+}
+
 // --- githooks ---------------------------------------------------------------------------------------------------------
 
 // tests/githooks.test.sh case_setup_githooks_sets_chains_removes (T-620)
