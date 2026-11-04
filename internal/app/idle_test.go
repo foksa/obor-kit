@@ -194,8 +194,9 @@ func TestIdleBlockers(t *testing.T) {
 		r.submit()
 		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
 		// The brief holds the merge (T-718) until its cap: past it the publish goes ahead, and the reviewer still holds
-		// its brief, so the pipeline is not idle.
-		r.passes() // the hold's clock starts: the first check that sees the reviewer working
+		// its brief, so the pipeline is not idle. Wait for the hold itself (not just a pass) before the clock jump, so
+		// its cap is measured from the pass that held the publish, not from a pass after the jump.
+		r.waitHold("T-1")
 		r.later(31 * time.Minute)
 		r.merged(1)
 		r.passes()
@@ -289,6 +290,9 @@ func TestIdleRestartDerivesTheState(t *testing.T) {
 		}
 		r.later(31 * time.Minute)
 		r.waitFor("the ping line", func() bool { return len(r.idlePosts()) == 2 })
+		// The ping's notification is its own intent and result after the line: let it finish before the restart, or the
+		// replay reconciles the open intent and notifies a second time (at-least-once, not what this test measures).
+		r.waitFor("the owner's notification", func() bool { return countReq(r.srv, "notification.show") == 1 })
 		r.stop()
 		r.start()
 		r.later(time.Hour)

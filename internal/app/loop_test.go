@@ -213,8 +213,14 @@ func (r *loopRig) workerStops() []string {
 func (r *loopRig) start() {
 	r.t.Helper()
 	r.launch()
-	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
+	r.firstCheck()
 	r.sock = (&rig{t: r.t, app: r.app}).listen()
+}
+
+// firstCheck waits for the app's first full check (every project and open task sampled once).
+func (r *loopRig) firstCheck() {
+	r.t.Helper()
+	r.waitFor("the first check", func() bool { checks, _ := app.Counts(r.app); return checks >= 1 })
 }
 
 // launch runs the app as start does, without waiting for a check and without its socket (herdr may be down).
@@ -499,6 +505,24 @@ func (r *loopRig) mainMerges() int {
 func (r *loopRig) merged(attempt int) {
 	r.t.Helper()
 	r.waitStep(string(rune('0'+attempt)) + " result agent.stop")
+}
+
+// waitHold waits until task's publish waits on the merge hold (T-718): the hold's cap clock has started by then, so a
+// clock jump after this is measured from the pass that first held the publish.
+func (r *loopRig) waitHold(task string) {
+	r.t.Helper()
+	r.waitFor("the merge hold of "+task, func() bool {
+		st := r.app.Status()
+		if st.Project == nil {
+			return false
+		}
+		for _, t := range st.Project.Tasks {
+			if t.Task == task {
+				return t.Hold != ""
+			}
+		}
+		return false
+	})
 }
 
 // noLead: the lead's chat got nothing: every prompt went to the integrator or the worker.
