@@ -14,17 +14,23 @@ import (
 	"obor/internal/app/port"
 )
 
-// T-685: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset or no number,
-// the table's own.
-func TestCallDeadlineEnv(t *testing.T) {
+// T-685, T-825, T-829: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset
+// or no number, the table's own. A call whose serve side may stop an agent (a dispatch — a move is one — drop, a
+// drive's take-over) covers the stop's one total bound (port.StopBound: the idle wait, the quit wait and the terminate)
+// plus the verdict margin. The other methods keep theirs.
+func TestCallDeadline(t *testing.T) {
 	for _, c := range []struct {
 		env, method string
 		want        time.Duration
 	}{
 		{"", MethodAccept, verdictDeadline},
+		{"", MethodSendback, verdictDeadline},
 		{"", MethodTurn, turnDeadline},
+		{"", MethodSession, turnDeadline},
 		{"", MethodStopped, stopFailureDeadline},
-		{"", MethodDispatch, stopCallDeadline},
+		{"", MethodDispatch, port.StopBound + verdictDeadline},
+		{"", MethodDrop, port.StopBound + verdictDeadline},
+		{"", MethodDrive, port.StopBound + verdictDeadline},
 		{"0.2", MethodAccept, 200 * time.Millisecond},
 		{"0.2", MethodTurn, 200 * time.Millisecond},
 		{"0.2", MethodStopped, 200 * time.Millisecond},
@@ -34,33 +40,6 @@ func TestCallDeadlineEnv(t *testing.T) {
 		t.Setenv("OBOR_CALL_DEADLINE", c.env)
 		if got := callDeadline(c.method); got != c.want {
 			t.Errorf("OBOR_CALL_DEADLINE=%q: callDeadline(%s) = %v, want %v", c.env, c.method, got, c.want)
-		}
-	}
-}
-
-// T-825, T-829: a call whose serve side may stop an agent (a dispatch — a move is one — drop, a drive's take-over)
-// covers the stop's one total bound (port.StopBound: the idle wait, the quit wait and the terminate) plus the verdict
-// margin. The other methods keep theirs.
-func TestCallDeadlineStopBound(t *testing.T) {
-	t.Setenv("OBOR_CALL_DEADLINE", "")
-	for _, method := range []string{MethodDispatch, MethodDrop, MethodDrive} {
-		if got, want := callDeadline(method), port.StopBound+verdictDeadline; got != want {
-			t.Errorf("callDeadline(%s) = %v, want %v (the stop's bound %v plus the verdict margin)",
-				method, got, want, port.StopBound)
-		}
-	}
-	for _, c := range []struct {
-		method string
-		want   time.Duration
-	}{
-		{MethodAccept, verdictDeadline},
-		{MethodSendback, verdictDeadline},
-		{MethodTurn, turnDeadline},
-		{MethodSession, turnDeadline},
-		{MethodStopped, stopFailureDeadline},
-	} {
-		if got := callDeadline(c.method); got != c.want {
-			t.Errorf("callDeadline(%s) = %v, want %v", c.method, got, c.want)
 		}
 	}
 }

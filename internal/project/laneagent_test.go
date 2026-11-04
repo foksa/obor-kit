@@ -28,32 +28,9 @@ func writeRows(t *testing.T, root string, agents map[string]string) {
 	}
 }
 
-// The lane row's agent is its first alias and known to AgentLookup; a row written later is seen at once.
-func TestLaneAgentReadsTheRow(t *testing.T) {
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
-	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(`{"prefix":"pj","lanes_dir":"../wt","lanes":1}`), 0o644)
-	cfg, err := config.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"pj-l-01"}) {
-		t.Errorf("no database: %q", got)
-	}
-	if _, ok := AgentLookup(cfg, "bob", ""); ok {
-		t.Error("bob known before the row names it")
-	}
-	writeRows(t, root, map[string]string{"L-01": "bob"})
-	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"bob", "pj-l-01"}) {
-		t.Errorf("row: %q", got)
-	}
-	if got, ok := AgentLookup(cfg, "bob", ""); !ok || got.Role != "worker" || got.Lane != "L-01" {
-		t.Errorf("AgentLookup(bob) = %+v, %v", got, ok)
-	}
-}
-
 // T-302: a lane's agent is found by its real names only, never by the bare lowercase lane name (another project's
-// agent may be named so); a row naming the bare name makes it a real name.
+// agent may be named so); a row naming the bare name makes it a real name. The lane row's agent is its first alias and
+// known to AgentLookup; a row written later is seen at once.
 func TestAgentLookupTakesNoBareLaneName(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".obor"), 0o755)
@@ -62,7 +39,17 @@ func TestAgentLookupTakesNoBareLaneName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// No database yet: the derived name alone; the row's agent is not known until the row names it.
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"pj-l-01"}) {
+		t.Errorf("no database: %q", got)
+	}
+	if _, ok := AgentLookup(cfg, "l-01", ""); ok {
+		t.Error("l-01 known before the row names it")
+	}
 	writeRows(t, root, map[string]string{"L-01": "l-01", "L-02": "pj-l-02"})
+	if got := cfg.LaneAgentAliases("L-01", LaneAgent(root, "L-01")); !reflect.DeepEqual(got, []string{"l-01", "pj-l-01"}) {
+		t.Errorf("row: %q, want its agent then the derived name", got)
+	}
 	if got, ok := AgentLookup(cfg, "pj-l-02", ""); !ok || got.Lane != "L-02" {
 		t.Errorf("AgentLookup(pj-l-02) = %+v, %v; want lane L-02", got, ok)
 	}

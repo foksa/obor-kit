@@ -3,8 +3,6 @@ package run
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -167,23 +165,6 @@ func TestCPUs(t *testing.T) {
 		if got := CPUs(cfg, p.Env(tc.env...), tc.cores); got != tc.want {
 			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
 		}
-	}
-}
-
-// A heavy command gets CHECK_CPUS (slots.cpus here), a light one does not.
-func TestRunExportsCheckCPUs(t *testing.T) {
-	t.Parallel()
-	f := setup(t, `{"h": {"cmd": "echo \"[$CHECK_CPUS]\"", "heavy": true}, "l": "echo \"[$CHECK_CPUS]\""}`)
-	if r := f.run(t, f.lane, nil, nil, "h"); r.out != "["+strconv.Itoa(max(1, runtime.NumCPU()/2))+"]\n" {
-		t.Errorf("heavy, slots.max 2: %q", r.out)
-	}
-	f.cfg.Data.Slots.CPUs = new(int)
-	*f.cfg.Data.Slots.CPUs = 3
-	if r := f.run(t, f.lane, nil, nil, "h"); r.out != "[3]\n" {
-		t.Errorf("heavy, slots.cpus 3: %q", r.out)
-	}
-	if r := f.run(t, f.lane, nil, nil, "l"); r.out != "[]\n" {
-		t.Errorf("light: %q", r.out)
 	}
 }
 

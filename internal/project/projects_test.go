@@ -82,36 +82,55 @@ func TestProjectsByName(t *testing.T) {
 	}
 }
 
-// T-646, T-774: an entry whose root no longer holds a config of that name (the project moved, or another project took
-// its place) is skipped by Projects and RootOf, and a register of another project leaves it in the file.
-func TestProjectsSkipsStaleEntries(t *testing.T) {
+// T-646, T-767, T-774: the list keeps a project whose config this binary cannot load (an older or a newer shape, an
+// unparsable file): a read leaves its entry out only when its root has no .obor/config.json, or its config names
+// another project. Those stale entries stay in the file; a register of another project never drops one.
+func TestProjectsKeepsWhatItsEntriesName(t *testing.T) {
 	t.Parallel()
 	env := stateEnv(t)
 	dir := t.TempDir()
-	moved, renamed, kit := filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "kit")
+	old, broken, moved, renamed, gone, kit := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
+		filepath.Join(dir, "moved"), filepath.Join(dir, "renamed"), filepath.Join(dir, "gone"), filepath.Join(dir, "kit")
+	// The shape before T-765: this binary refuses it, and its name still counts.
+	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
+	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
 	configAt(t, moved, "moved")
 	configAt(t, renamed, "renamed")
+	configAt(t, gone, "gone")
+	configAt(t, kit, "kit")
+	if _, err := config.LoadDaemon(old); err == nil {
+		t.Fatal("precondition: the old-shape config loads")
+	}
+	if _, err := config.LoadDaemon(broken); err == nil {
+		t.Fatal("precondition: the unparsable config loads")
+	}
+	for _, root := range []string{old, broken, moved, renamed, gone} {
+		if _, err := Register(root, env); err != nil {
+			t.Fatalf("register %s: %v", root, err)
+		}
+	}
 	movedRoot := Physical(moved) // before the rename: Physical of a gone path does not resolve its symlinks
-	if _, err := Register(moved, env); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Register(renamed, env); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Rename(moved, moved+"-elsewhere"); err != nil {
 		t.Fatal(err)
 	}
 	configAt(t, renamed, "another-name") // the directory is there, its project is not the one the list names
+	if err := os.Remove(filepath.Join(gone, ".obor", "config.json")); err != nil {
+		t.Fatal(err)
+	}
 
-	for name, root := range map[string]string{"moved": moved, "renamed": renamed} {
+	if root, ok := RootOf("axis-alies", env); !ok || root != Physical(old) {
+		t.Errorf("RootOf(axis-alies) = %q, %v; want %q (the old-shape config keeps the entry)", root, ok, Physical(old))
+	}
+	want := []Project{{"axis-alies", Physical(old)}, {"obor-kit", Physical(broken)}}
+	if got := Projects(env); !slices.Equal(got, want) {
+		t.Errorf("Projects = %+v; want the two unloadable configs under their own names", got)
+	}
+	for _, name := range []string{"moved", "renamed", "gone"} {
 		if _, ok := RootOf(name, env); ok {
-			t.Errorf("%s at %s: known; want the stale entry skipped", name, root)
+			t.Errorf("%s: known; want the stale entry skipped", name)
 		}
 	}
-	if got := Projects(env); len(got) != 0 {
-		t.Errorf("Projects = %+v; want the stale entries left out", got)
-	}
-	configAt(t, kit, "kit")
+
 	if _, err := Register(kit, env); err != nil {
 		t.Fatal(err)
 	}
@@ -120,73 +139,10 @@ func TestProjectsSkipsStaleEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	var list map[string]string
-	kept := map[string]string{"moved": movedRoot, "renamed": Physical(renamed), "kit": Physical(kit)}
+	kept := map[string]string{"axis-alies": Physical(old), "obor-kit": Physical(broken), "kit": Physical(kit),
+		"moved": movedRoot, "renamed": Physical(renamed), "gone": Physical(gone)}
 	if err := json.Unmarshal(b, &list); err != nil || !maps.Equal(list, kept) {
-		t.Errorf("the file after a write %q: %v; want %v (the stale entries kept, T-774)", b, err, kept)
-	}
-}
-
-// T-767: the list keeps a project whose config this binary cannot load (an older shape a release wrote, a newer shape a
-// release wrote, an unparsable file): a read leaves its entry out only when its root has no .obor/config.json, or its
-// config names another project; the entry itself stays in the file (T-774). A project on another obor version stays
-// named, so obor send and obor projects reach it.
-func TestProjectsKeepsConfigsItCannotLoad(t *testing.T) {
-	t.Parallel()
-	env := stateEnv(t)
-	dir := t.TempDir()
-	old, broken, renamed, gone := filepath.Join(dir, "axis-alies"), filepath.Join(dir, "obor-kit"),
-		filepath.Join(dir, "renamed"), filepath.Join(dir, "gone")
-	// The shape before T-765: this binary refuses it, and its name still counts.
-	configBytesAt(t, old, `{"name":"axis-alies","prefix":"ax","lane_types":{"opus":{"kind":"claude"}}}`+"\n")
-	configBytesAt(t, broken, `{"name": "obor-kit",`+"\n")
-	configAt(t, renamed, "renamed")
-	configAt(t, gone, "gone")
-	if _, err := config.LoadDaemon(old); err == nil {
-		t.Fatal("precondition: the old-shape config loads")
-	}
-	if _, err := config.LoadDaemon(broken); err == nil {
-		t.Fatal("precondition: the unparsable config loads")
-	}
-	for _, root := range []string{old, broken, renamed, gone} {
-		if _, err := Register(root, env); err != nil {
-			t.Fatalf("register %s: %v", root, err)
-		}
-	}
-	if root, ok := RootOf("axis-alies", env); !ok || root != Physical(old) {
-		t.Errorf("RootOf(axis-alies) = %q, %v; want %q (the old-shape config keeps the entry)", root, ok, Physical(old))
-	}
-	want := []Project{{"axis-alies", Physical(old)}, {"gone", Physical(gone)}, {"obor-kit", Physical(broken)},
-		{"renamed", Physical(renamed)}}
-	if got := Projects(env); !slices.Equal(got, want) {
-		t.Errorf("Projects = %+v; want all four, the two unloadable configs under their own names", got)
-	}
-
-	if err := os.Remove(filepath.Join(gone, ".obor", "config.json")); err != nil { // its project is gone
-		t.Fatal(err)
-	}
-	configAt(t, renamed, "another-name") // the directory is there, its project is not the one the list names
-	want = []Project{{"axis-alies", Physical(old)}, {"obor-kit", Physical(broken)}}
-	if got := Projects(env); !slices.Equal(got, want) {
-		t.Errorf("Projects = %+v; want only the two with a config of their name", got)
-	}
-	fifth := filepath.Join(dir, "fifth")
-	configAt(t, fifth, "fifth")
-	if _, err := Register(fifth, env); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(ProjectsFile(env))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var list map[string]string
-	if err := json.Unmarshal(b, &list); err != nil {
-		t.Fatal(err)
-	}
-	// T-774: the gone and renamed entries stay in the file; only a read leaves them out.
-	kept := map[string]string{"axis-alies": Physical(old), "obor-kit": Physical(broken), "fifth": Physical(fifth),
-		"gone": Physical(gone), "renamed": Physical(renamed)}
-	if !maps.Equal(list, kept) {
-		t.Errorf("the file after a write = %v; want %v (every entry kept, stale or not)", list, kept)
+		t.Errorf("the file after a write %q: %v; want %v (every entry kept, stale or not)", b, err, kept)
 	}
 }
 

@@ -26,41 +26,9 @@ func pragma(t *testing.T, db *sql.DB, name string) string {
 	return v
 }
 
-// TestOpenRWIsTheWriter: WAL, synchronous=FULL, one connection, a busy_timeout, and the schema version recorded.
-func TestOpenRWIsTheWriter(t *testing.T) {
-	t.Parallel()
-	path := newPath(t)
-	db, err := OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW: %v", err)
-	}
-	defer db.Close()
-	for _, c := range []struct{ name, want string }{
-		{"journal_mode", "wal"},
-		{"synchronous", "2"}, // FULL
-		{"busy_timeout", "5000"},
-	} {
-		if got := pragma(t, db, c.name); got != c.want {
-			t.Errorf("PRAGMA %s = %q, want %q", c.name, got, c.want)
-		}
-	}
-	if got := db.Stats().MaxOpenConnections; got != 1 {
-		t.Errorf("MaxOpenConnections = %d, want 1", got)
-	}
-	var version string
-	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil {
-		t.Fatalf("schema_version: %v", err)
-	}
-	if want := strconv.Itoa(SchemaVersion); version != want {
-		t.Errorf("schema_version = %q, want %q", version, want)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("OpenRW did not create the file: %v", err)
-	}
-}
-
-// TestOpenROReadsWithoutWriting: read-only, short busy_timeout, and a write is refused.
-func TestOpenROReadsWithoutWriting(t *testing.T) {
+// TestOpenRWAndRO: the writer is WAL, synchronous=FULL, one connection, a busy_timeout, and the schema version
+// recorded; the reader is read-only with a short busy_timeout, and a write is refused.
+func TestOpenRWAndRO(t *testing.T) {
 	t.Parallel()
 	path := newPath(t)
 	rw, err := OpenRW(path)
@@ -68,6 +36,25 @@ func TestOpenROReadsWithoutWriting(t *testing.T) {
 		t.Fatalf("OpenRW: %v", err)
 	}
 	defer rw.Close()
+	for _, c := range []struct{ name, want string }{
+		{"journal_mode", "wal"},
+		{"synchronous", "2"}, // FULL
+		{"busy_timeout", "5000"},
+	} {
+		if got := pragma(t, rw, c.name); got != c.want {
+			t.Errorf("writer PRAGMA %s = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := rw.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1", got)
+	}
+	var version string
+	if err := rw.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil {
+		t.Fatalf("schema_version: %v", err)
+	}
+	if want := strconv.Itoa(SchemaVersion); version != want {
+		t.Errorf("schema_version = %q, want %q", version, want)
+	}
 
 	ro, err := OpenRO(path)
 	if err != nil {
@@ -139,48 +126,6 @@ func TestOpenROOnMissingFile(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("OpenRO created %s (%v), want no file", path, err)
-	}
-}
-
-// TestBackupMakesAReadableCopy: VACUUM INTO leaves the source alone and the copy readable through OpenRO.
-func TestBackupMakesAReadableCopy(t *testing.T) {
-	t.Parallel()
-	path := newPath(t)
-	rw, err := OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW: %v", err)
-	}
-	defer rw.Close()
-	if _, err := rw.Exec("CREATE TABLE probe (x INTEGER)"); err != nil {
-		t.Fatalf("create probe: %v", err)
-	}
-	for i := 1; i <= 3; i++ {
-		if _, err := rw.Exec("INSERT INTO probe VALUES (?)", i); err != nil {
-			t.Fatalf("insert %d: %v", i, err)
-		}
-	}
-
-	copyPath := filepath.Join(t.TempDir(), "backup.db")
-	if err := Backup(rw, copyPath); err != nil {
-		t.Fatalf("Backup: %v", err)
-	}
-	ro, err := OpenRO(copyPath)
-	if err != nil {
-		t.Fatalf("OpenRO(%s): %v", copyPath, err)
-	}
-	defer ro.Close()
-	var got int
-	if err := ro.QueryRow("SELECT count(*) FROM probe").Scan(&got); err != nil {
-		t.Fatalf("select on the copy: %v", err)
-	}
-	if got != 3 {
-		t.Errorf("copy has %d rows, want 3", got)
-	}
-	if err := ro.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(new(string)); err != nil {
-		t.Errorf("copy has no schema version: %v", err)
-	}
-	if err := rw.QueryRow("SELECT count(*) FROM probe").Scan(&got); err != nil || got != 3 {
-		t.Errorf("source after backup: %d rows, %v; want 3", got, err)
 	}
 }
 
@@ -259,47 +204,39 @@ func TestTwoReadersWhileWriterWrites(t *testing.T) {
 	}
 }
 
-// TestOpenRWInAPathWithSpaces: the DSN is built from the path verbatim (a project directory may have a space).
-func TestOpenRWInAPathWithSpaces(t *testing.T) {
+// TestOpenPaths: the DSN is built from the path verbatim — a project directory may have a space, and a '#', '?' or
+// '%' is part of the file name, not the URI's fragment or query.
+func TestOpenPaths(t *testing.T) {
 	t.Parallel()
-	dir := filepath.Join(t.TempDir(), "My Project", "obor state")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	path := filepath.Join(dir, "obor.db")
-	db, err := OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW(%q): %v", path, err)
-	}
-	defer db.Close()
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("OpenRW did not create %q: %v", path, err)
+	for _, c := range []struct{ name, dir string }{
+		{"a space", filepath.Join("My Project", "obor state")},
+		{"URI punctuation", "a#b?c%41d"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), c.dir, "obor.db")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			db, err := OpenRW(path)
+			if err != nil {
+				t.Fatalf("OpenRW(%q): %v", path, err)
+			}
+			db.Close()
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("the database is not at %s: %v", path, err)
+			}
+			ro, err := OpenRO(path)
+			if err != nil {
+				t.Fatalf("OpenRO: %v", err)
+			}
+			ro.Close()
+		})
 	}
 }
 
-// TestOpenOddPath: a '#', '?' or '%' in the path is part of the file name, not the URI's fragment or query.
-func TestOpenOddPath(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "a#b?c%41d", "obor.db")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	db, err := OpenRW(path)
-	if err != nil {
-		t.Fatalf("OpenRW: %v", err)
-	}
-	db.Close()
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("the database is not at %s: %v", path, err)
-	}
-	ro, err := OpenRO(path)
-	if err != nil {
-		t.Fatalf("OpenRO: %v", err)
-	}
-	ro.Close()
-}
-
-// TestBackupDailyKeepsSeven: one backup per day, a second the same day replaces it, and only the newest keep stay.
+// TestBackupDailyKeepsSeven: one backup per day, a second the same day replaces it, and only the newest keep stay. A
+// backup is a readable copy: `VACUUM INTO` leaves the source alone and the copy opens read-only with its rows.
 func TestBackupDailyKeepsSeven(t *testing.T) {
 	t.Parallel()
 	db, err := OpenRW(newPath(t))
@@ -307,6 +244,14 @@ func TestBackupDailyKeepsSeven(t *testing.T) {
 		t.Fatalf("OpenRW: %v", err)
 	}
 	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE probe (x INTEGER)"); err != nil {
+		t.Fatalf("create probe: %v", err)
+	}
+	for i := 1; i <= 3; i++ {
+		if _, err := db.Exec("INSERT INTO probe VALUES (?)", i); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
 	dir := filepath.Join(t.TempDir(), "backup")
 	day := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
 	for i := range 9 {
@@ -333,6 +278,24 @@ func TestBackupDailyKeepsSeven(t *testing.T) {
 		"obor-2026-10-07.db", "obor-2026-10-08.db", "obor-2026-10-09.db"}
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("backups = %v, want the newest 7 %v", names, want)
+	}
+	ro, err := OpenRO(filepath.Join(dir, "obor-2026-10-09.db"))
+	if err != nil {
+		t.Fatalf("OpenRO(the copy): %v", err)
+	}
+	defer ro.Close()
+	var rows int
+	if err := ro.QueryRow("SELECT count(*) FROM probe").Scan(&rows); err != nil {
+		t.Fatalf("select on the copy: %v", err)
+	}
+	if rows != 3 {
+		t.Errorf("copy has %d rows, want 3", rows)
+	}
+	if err := ro.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(new(string)); err != nil {
+		t.Errorf("copy has no schema version: %v", err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM probe").Scan(&rows); err != nil || rows != 3 {
+		t.Errorf("source after backup: %d rows, %v; want 3", rows, err)
 	}
 }
 

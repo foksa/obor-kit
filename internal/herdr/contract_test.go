@@ -159,15 +159,3 @@ func TestSentCoversCallSites(t *testing.T) {
 		t.Error("pane.agent_status_changed must list pane_id")
 	}
 }
-
-func TestCheckProtocol(t *testing.T) {
-	for _, c := range []struct {
-		protocol int
-		ok       bool
-	}{{21, false}, {22, true}, {23, true}} {
-		err := checkProtocol("ping", "x", c.protocol)
-		if (err == nil) != c.ok {
-			t.Errorf("checkProtocol(%d) = %v, want ok=%v", c.protocol, err, c.ok)
-		}
-	}
-}

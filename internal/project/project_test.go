@@ -74,17 +74,14 @@ func TestFindFromALaneGivesTheMainCheckout(t *testing.T) {
 	if _, err := Find(t.TempDir()); err == nil {
 		t.Error("not a repo: no error")
 	}
-}
-
-func TestFindReadsGitFilesWithoutForkingGit(t *testing.T) {
-	_, wt := fixture(t, `{"prefix":"pj"}`)
+	// Find reads git's files itself: with no git on PATH it still finds a lane, from a nested dir.
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
-	if err := os.Mkdir(filepath.Join(wt, "L-01", "subdir"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(wt, "L-01", "subdir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Find(filepath.Join(wt, "L-01", "subdir"))
-	if err != nil || r.Root != filepath.Join(filepath.Dir(wt), "proj") || r.Top != filepath.Join(wt, "L-01") {
+	r, err = Find(filepath.Join(wt, "L-01", "subdir"))
+	if err != nil || r.Root != root || r.Top != filepath.Join(wt, "L-01") {
 		t.Fatalf("Find from nested lane = %+v, %v", r, err)
 	}
 }

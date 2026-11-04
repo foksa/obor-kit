@@ -105,13 +105,27 @@ func TestBackgroundOf(t *testing.T) {
 			return port.ProcessInfo{ShellPID: 50, FgPGID: 100}, nil
 		case "p2":
 			return port.ProcessInfo{ShellPID: 60, FgPGID: 60}, nil // at its shell
+		case "p4":
+			return port.ProcessInfo{ShellPID: 70, FgPGID: 300}, nil
 		}
 		return port.ProcessInfo{}, errors.New("no pane")
 	}
-	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"}}
-	got := BackgroundOf(context.Background(), root, agents, fakeTable(), info)
-	if len(got) != 1 || len(got["w1"]) != 1 {
-		t.Fatalf("background %+v, want one process of w1", got)
+	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1", Session: "s1"}, {Name: "w2", Pane: "p2"}, {Name: "w3", Pane: "p3"},
+		{Name: "w4", Pane: "p4"}}
+	// w4 has a long command of its own, so two agents reach the process index.
+	s := time.Second
+	table := append(fakeTable(),
+		Proc{300, 1, 3600 * s, "claude"},
+		Proc{301, 300, 100 * s, "/bin/zsh -c eval 'go test ./...'"},
+		Proc{302, 301, 99 * s, "go test ./..."})
+	before := indexBuilds.Load()
+	got := BackgroundOf(context.Background(), root, agents, table, info)
+	// T-727: one scan builds one process index, whatever the number of agents.
+	if len(got) != 2 || len(got["w1"]) != 1 || len(got["w4"]) == 0 {
+		t.Fatalf("background %+v, want a process of w1 and of w4 (two agents with one)", got)
+	}
+	if n := indexBuilds.Load() - before; n != 1 {
+		t.Errorf("%d indexes built for two agents with a process, want one", n)
 	}
 	want := Background{PID: 104, Command: "python3 convert.py --name a b", Background: true, Label: "convert maps", Age: 899}
 	if got["w1"][0] != want {
@@ -127,6 +141,14 @@ func TestBackgroundOf(t *testing.T) {
 	if b := got["w1"]; len(b) != 1 || b[0].Background || b[0].Label != "" ||
 		b[0].Line("15m") != "running python3 convert.py --name a b · 15m" {
 		t.Errorf("unrecorded: %+v, want running with the command, no bg", b)
+	}
+	// An agent at its shell builds none.
+	before = indexBuilds.Load()
+	if got := BackgroundOf(context.Background(), other, agents[1:2], fakeTable(), info); len(got) != 0 {
+		t.Errorf("an agent at its shell: %+v, want none", got)
+	}
+	if n := indexBuilds.Load() - before; n != 0 {
+		t.Errorf("%d indexes built with no agent process, want none", n)
 	}
 }
 
@@ -171,41 +193,6 @@ func TestBackgroundOfMatchesTheStartingCall(t *testing.T) {
 	}
 	if b := run(project.BackgroundCall{At: start - 3, Session: "s1", Description: "d"}); b.Background || b.Label != "" {
 		t.Errorf("a previous session's record: %+v, want running", b)
-	}
-}
-
-// T-727: one scan builds one process index, whatever the number of agents: two agents with a long process each, one
-// NewProcIndex; an agent with no pane or at its shell builds none.
-func TestBackgroundOfOneIndexPerScan(t *testing.T) {
-	s := time.Second
-	procs := append(fakeTable(),
-		Proc{300, 1, 3600 * s, "claude"},
-		Proc{301, 300, 100 * s, "/bin/zsh -c eval 'go test ./...'"},
-		Proc{302, 301, 99 * s, "go test ./..."})
-	info := func(_ context.Context, pane string) (port.ProcessInfo, error) {
-		switch pane {
-		case "p1":
-			return port.ProcessInfo{ShellPID: 50, FgPGID: 100}, nil
-		case "p2":
-			return port.ProcessInfo{ShellPID: 70, FgPGID: 300}, nil
-		}
-		return port.ProcessInfo{ShellPID: 60, FgPGID: 60}, nil
-	}
-	agents := []wire.AgentStatus{{Name: "w1", Pane: "p1"}, {Name: "w2", Pane: "p2"}}
-	before := indexBuilds.Load()
-	got := BackgroundOf(context.Background(), t.TempDir(), agents, procs, info)
-	if len(got["w1"]) != 1 || len(got["w2"]) != 1 || got["w2"][0].PID != 302 {
-		t.Fatalf("precondition: a process for each agent: %+v", got)
-	}
-	if n := indexBuilds.Load() - before; n != 1 {
-		t.Errorf("%d indexes built for two agents, want one", n)
-	}
-	before = indexBuilds.Load()
-	if got := BackgroundOf(context.Background(), t.TempDir(), []wire.AgentStatus{{Name: "w3", Pane: "p3"}}, procs, info); len(got) != 0 {
-		t.Errorf("an agent at its shell: %+v, want none", got)
-	}
-	if n := indexBuilds.Load() - before; n != 0 {
-		t.Errorf("%d indexes built with no agent process, want none", n)
 	}
 }
 
