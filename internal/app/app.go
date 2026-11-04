@@ -28,12 +28,11 @@ func Ready(status string) bool { return status == "idle" || status == "done" }
 
 // Options are the app's bounds and clock; zero fields take the defaults.
 type Options struct {
-	HerdrNote string        // "herdr 0.9.4, protocol 23" when herdr speaks a newer protocol than obor (serve sets it; status shows it)
-	Root      string        // the project this serve serves (its main checkout); obor serve holds its serve.flock
-	Idle      time.Duration // the watchdogs' bound (10 min)
-	Gone      time.Duration // how long a lane's panes may run no agent before its task needs the owner (1 min: a restart)
-	Tick      time.Duration // how often the watchdogs look (30 s)
-	Retry     time.Duration // the first wait before subscribing again after a subscribe error (2 s)
+	Root  string        // the project this serve serves (its main checkout); obor serve holds its serve.flock
+	Idle  time.Duration // the watchdogs' bound (10 min)
+	Gone  time.Duration // how long a lane's panes may run no agent before its task needs the owner (1 min: a restart)
+	Tick  time.Duration // how often the watchdogs look (30 s)
+	Retry time.Duration // the first wait before subscribing again after a subscribe error (2 s)
 	// RetryMax caps the wait while herdr stays down: it doubles from Retry up to this (5 s; T-596)
 	RetryMax time.Duration
 	Now      func() time.Time
@@ -84,6 +83,9 @@ type App struct {
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
 	connected bool
+	herdrVer  string // the server serve is connected to (or was last): its snapshot's version and protocol
+	herdrProt int
+	herdrOwn  int               // obor's own protocol, as that snapshot said
 	p         *proj             // Options.Root's project once loaded (loadProject); nil before
 	spaces    map[string]string // workspace id → label, from the last snapshot
 	obs       map[string]*seen  // by pane id: every pane of the last snapshot and the events since
