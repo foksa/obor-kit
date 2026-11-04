@@ -239,7 +239,7 @@ var commands = map[string][]string{
 	"mcp":       nil,
 	"stop":      nil,
 	"start":     nil,
-	"setup":     {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents", "migrate"},
+	"setup":     {"init", "lane", "pane", "role", "githooks", "herdr-plugin", "agents"},
 }
 
 // has is `obor has <subcommand> [<sub-subcommand>]`: exit 0 when implemented, 1 when not; no output.

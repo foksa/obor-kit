@@ -95,6 +95,24 @@ func TestConfigValidateBinary(t *testing.T) {
 	}
 }
 
+// T-789: a config of the shape before v0.23 (lane types, the agents key) is just invalid: `obor config validate` names
+// the unknown key and the release whose `obor setup migrate` rewrites it (the one-time code lived one release).
+func TestConfigValidateOldShape(t *testing.T) {
+	t.Parallel()
+	for _, config := range []string{
+		`{"version":1,"name":"proj","prefix":"pj","lane_types":{"opus":{"kind":"claude"}}}`,
+		`{"version":1,"name":"proj","prefix":"pj","lanes":2,"agents":{"triage":{"type":"opus"}}}`,
+	} {
+		p := testkit.New(t)
+		p.Write(".obor/config.json", config+"\n")
+		rc, _, stderr := run(t, p.Root, nil, "config", "validate")
+		if rc != 1 ||
+			!strings.Contains(stderr, "this config predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade") {
+			t.Errorf("%s: exit %d, %q; want the old-shape refusal", config, rc, stderr)
+		}
+	}
+}
+
 // whoami is `obor whoami [--json]` in dir with env: exit code, text and the decoded JSON.
 func whoamiIn(t *testing.T, dir string, env ...string) (string, map[string]any) {
 	t.Helper()

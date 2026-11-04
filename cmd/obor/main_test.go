@@ -139,7 +139,8 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
 		{[]string{"has", "monitor"}, 0}, {[]string{"has", "setup", "monitor"}, 1}, // T-776: the command stays, the setup step is gone
-		{[]string{"has", "merge"}, 1}, // T-409: obor serve merges
+		{[]string{"has", "setup", "migrate"}, 1}, // T-789: the one-time migration code lived one release
+		{[]string{"has", "merge"}, 1},            // T-409: obor serve merges
 		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},
 		{[]string{"has"}, 2}, {[]string{"has", "hook", "noop", "x"}, 2},
 	} {

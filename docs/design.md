@@ -105,10 +105,9 @@ opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol
 base args (claude `--permission-mode auto`; codex `-s workspace-write -a never`; opencode `--auto --standalone`), the
 model, then `kinds.<kind>.args`; the effort is the kind's own flag (T-695), refused when the kind does not take it.
 `lanes` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks). There are no caps. The
-shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, `roles.<role>` objects) is refused by the loader
-with "run obor setup migrate", which rewrites it once (types to refs, args every type of a kind shares to `kinds`,
-the most common prompt_extra, unknown types to `models`, lanes to L-01 … in config order, `git worktree move` while
-every lane is free) and commits it.
+shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, `roles.<role>` objects, the `agents` key) is
+just invalid: `obor config validate` names the unknown key and says "this config predates v0.23: migrate it with obor
+v0.24 (`obor setup migrate`), then upgrade" — the one-time migration code lived one release and is gone (T-789).
 
 Per-kind defaults live in the plugin: Claude `--settings '{"autoMemoryEnabled":false,"remoteControlAtStartup":false}'`
 for every agent except leads (only the lead keeps Remote Control and auto memory, T-280/T-471). A lane's agent (a

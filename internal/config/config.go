@@ -4,7 +4,6 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,30 +27,14 @@ var AgentNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // ErrNoConfig: the project has no .obor/config.json (exit 3; hooks no-op).
 var ErrNoConfig = errors.New("no config")
 
-// ErrOldShape: a config file has the shape before T-765 (lane_types, lanes as an object, roles.<role> objects): the
-// loader refuses it, obor setup migrate rewrites it.
-var ErrOldShape = errors.New("old config shape")
+// OldShapeHint is what the refusal of an old-shape key says (T-789): the one-time migration code is gone, so a config
+// written before v0.23 needs the release that has it. The keys are named beside it (oldShapeKey).
+const OldShapeHint = "this config predates v0.23: migrate it with obor v0.24 (`obor setup migrate`), then upgrade"
 
-// OldShape is the first key of the config file doc that has the shape before T-765 ("": none): lane_types, lanes as
-// an object, a roles.<role> object.
-func OldShape(doc []byte) string {
-	top, _ := object(doc)
-	for _, m := range top {
-		switch v := bytes.TrimSpace(m.Val); {
-		case m.Key == "lane_types":
-			return "lane_types"
-		case m.Key == "lanes" && len(v) > 0 && v[0] == '{':
-			return "lanes"
-		case m.Key == "roles":
-			roles, _ := object(v)
-			for _, r := range roles {
-				if rv := bytes.TrimSpace(r.Val); len(rv) > 0 && rv[0] == '{' {
-					return "roles." + r.Key
-				}
-			}
-		}
-	}
-	return ""
+// oldShapeKey is key when only the config shape before v0.23 carried it: lane_types, or the agents key (T-777). An old
+// shape is invalid now, not migrated here (T-789), but it is told apart from a key this binary is merely too old for.
+func oldShapeKey(key string) bool {
+	return key == "lane_types" || key == "agents"
 }
 
 // Data is the config file's shape, and its field comments are the reference for each key. A key it does not name
@@ -80,18 +64,15 @@ type Data struct {
 	// HandoffTokens is the lead's automatic handoff threshold (T-175); absent: the guard's default.
 	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
 	// IntegratorHandoffTokens is the integrator's (T-215): default 150000; 0 = off.
-	IntegratorHandoffTokens *int64 `json:"integrator_handoff_tokens,omitempty"`
-	StopIdleWorkers         *bool  `json:"stop_idle_workers,omitempty"`
-	// Agents is a removed key (T-777): advisor, researcher and triage are roles (roles.advisor, roles.researcher,
-	// roles.triage); validate refuses it.
-	Agents any     `json:"agents,omitempty"`
-	Roles  Roles   `json:"roles"`
-	Setup  Setup   `json:"setup,omitzero"`
-	Leads  any     `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
-	Merge  Merge   `json:"merge"`
-	MCP    MCP     `json:"mcp"`
-	Slots  *Slots  `json:"slots,omitempty"`
-	Checks *Checks `json:"checks,omitempty"`
+	IntegratorHandoffTokens *int64  `json:"integrator_handoff_tokens,omitempty"`
+	StopIdleWorkers         *bool   `json:"stop_idle_workers,omitempty"`
+	Roles                   Roles   `json:"roles"`
+	Setup                   Setup   `json:"setup,omitzero"`
+	Leads                   any     `json:"leads,omitempty"` // removed in v0.12.0 (T-470: leads.cross_ttl had no reader): validate warns
+	Merge                   Merge   `json:"merge"`
+	MCP                     MCP     `json:"mcp"`
+	Slots                   *Slots  `json:"slots,omitempty"`
+	Checks                  *Checks `json:"checks,omitempty"`
 	// StopHook is a removed key (T-465): validate warns.
 	StopHook  any     `json:"stop_hook,omitempty"`
 	Limits    *Limits `json:"limits,omitempty"`
@@ -358,10 +339,6 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 		if _, ok := object(b); !ok {
 			return nil, nil, fmt.Errorf("obor: %s is not a JSON object", path)
 		}
-		if key := OldShape(b); key != "" {
-			return nil, nil, fmt.Errorf("obor: %s: %s is the old config shape (lane types, typed lanes, role objects; "+
-				"T-765): run obor setup migrate: %w", path, key, ErrOldShape)
-		}
 		files[i] = b
 	}
 	merged := files[0]
@@ -370,6 +347,18 @@ func readWith(root string, doc []byte) (*Config, []string, error) {
 	}
 	c := &Config{Root: root, Data: Defaults(), local: files[1]}
 	merged, unknown := dropUnknown(merged, reflect.TypeOf(c.Data), "")
+	// An old-shape key is no unknown key of a newer binary: its one-time migration is gone (T-789), so it is refused
+	// with the release that has it, whichever reader asks.
+	for _, key := range unknown {
+		if !oldShapeKey(key) {
+			continue
+		}
+		path := filepath.Join(root, ".obor", "local.json")
+		if _, in := dropUnknown(files[0], reflect.TypeOf(c.Data), ""); slices.Contains(in, key) {
+			path = filepath.Join(root, ".obor", "config.json")
+		}
+		return nil, nil, fmt.Errorf("obor: %s: unknown field %q: %s", path, key, OldShapeHint)
+	}
 	if err := strict(merged, &c.Data); err != nil {
 		// Name the file at fault: config.json when it fails alone, else local.json.
 		name := "local.json"
