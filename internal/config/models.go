@@ -31,9 +31,11 @@ var BuiltinModels = []BuiltinModel{
 }
 
 // KindBaseArgs are the args every start of a kind begins with (kinds.<kind>.args are appended after the model).
+// Codex's --no-daemon: its shared background server would give the MCP server and hooks the daemon's env and cwd, not
+// the lane's (T-810).
 var KindBaseArgs = map[string][]string{
 	"claude":   {"--permission-mode", "auto"},
-	"codex":    {"-s", "workspace-write", "-a", "never"},
+	"codex":    {"-s", "workspace-write", "-a", "never", "--no-daemon"},
 	"opencode": {"--auto", "--standalone"},
 }
 

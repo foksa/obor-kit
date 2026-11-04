@@ -24,9 +24,9 @@ func TestBuiltinModelsResolve(t *testing.T) {
 		"haiku":    {"claude", "haiku", []string{"--permission-mode", "auto", "--model", "haiku"}},
 		"fable":    {"claude", "fable", []string{"--permission-mode", "auto", "--model", "fable"}},
 		"deepseek": {"opencode", "opencode-go/deepseek-v4.1-flash", []string{"--auto", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash"}},
-		"terra":    {"codex", "gpt-6.1-terra", []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6.1-terra"}},
-		"sol":      {"codex", "gpt-6.1-sol", []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6.1-sol"}},
-		"luna":     {"codex", "gpt-6-luna", []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6-luna"}},
+		"terra":    {"codex", "gpt-6.1-terra", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-terra"}},
+		"sol":      {"codex", "gpt-6.1-sol", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-sol"}},
+		"luna":     {"codex", "gpt-6-luna", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6-luna"}},
 	}
 	if len(BuiltinModels) != len(want) {
 		t.Fatalf("BuiltinModels has %d models, the test names %d", len(BuiltinModels), len(want))
@@ -95,7 +95,7 @@ func TestKindsArgsAppended(t *testing.T) {
 		t.Errorf("opus prompt_extra = %q", opus.PromptExtra)
 	}
 	sol, _ := c.Model("sol")
-	if want := []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-6.1-sol", "-c", "sandbox_workspace_write.network_access=true"}; !slices.Equal(sol.Args, want) {
+	if want := []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-6.1-sol", "-c", "sandbox_workspace_write.network_access=true"}; !slices.Equal(sol.Args, want) {
 		t.Errorf("sol args = %q, want %q", sol.Args, want)
 	}
 	if sol.PromptExtra != "" {
@@ -103,6 +103,36 @@ func TestKindsArgsAppended(t *testing.T) {
 	}
 	if ds, _ := c.Model("deepseek"); slices.Contains(ds.Args, "--strict-mcp-config") {
 		t.Errorf("deepseek args = %q: another kind's args", ds.Args)
+	}
+}
+
+// T-810: Codex starts with --no-daemon, once, from the base args (its shared background server would give the MCP
+// server and hooks the daemon's env and cwd). Workers and the reviewer get it the same way, and
+// kinds.codex.args still follow it.
+func TestCodexStartsWithNoDaemon(t *testing.T) {
+	c := load(t, `{"prefix":"pj","kinds":{"codex":{"args":["-c","sandbox_workspace_write.network_access=true"]}}}`, "")
+	for _, name := range []string{"terra", "sol", "luna"} {
+		m, ok := c.Model(name)
+		if !ok {
+			t.Fatalf("Model(%s) is not known", name)
+		}
+		for _, role := range []string{"worker", "reviewer"} {
+			args := m.LaunchArgs(role, "")
+			if n := strings.Count(" "+strings.Join(args, " ")+" ", " --no-daemon "); n != 1 {
+				t.Errorf("%s for %s: args %q carry --no-daemon %d times, want once", name, role, args, n)
+				continue
+			}
+			noDaemon, kindsArgs := slices.Index(args, "--no-daemon"), slices.Index(args, "sandbox_workspace_write.network_access=true")
+			if kindsArgs < 0 || noDaemon > kindsArgs {
+				t.Errorf("%s for %s: args %q, want kinds.codex.args after --no-daemon", name, role, args)
+			}
+		}
+	}
+	for _, name := range []string{"opus", "deepseek"} {
+		m, _ := c.Model(name)
+		if slices.Contains(m.LaunchArgs("reviewer", ""), "--no-daemon") {
+			t.Errorf("%s: args %q carry Codex's --no-daemon", name, m.Args)
+		}
 	}
 }
 
@@ -118,7 +148,7 @@ func TestModelsOverride(t *testing.T) {
 		{"opus", "claude", "claude-opus-5-5", []string{"--permission-mode", "auto", "--model", "claude-opus-5-5"}},
 		{"muse", "opencode", "", []string{"--auto", "--standalone"}},
 		{"deepseek", "opencode", "opencode-go/kimi", []string{"--auto", "--standalone", "--model", "opencode-go/kimi"}},
-		{"gem", "codex", "gpt-x", []string{"-s", "workspace-write", "-a", "never", "-m", "gpt-x"}},
+		{"gem", "codex", "gpt-x", []string{"-s", "workspace-write", "-a", "never", "--no-daemon", "-m", "gpt-x"}},
 	} {
 		m, ok := c.Model(tc.name)
 		if !ok || m.Kind != tc.kind || m.ID != tc.id || !slices.Equal(m.Args, tc.args) {

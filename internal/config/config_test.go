@@ -339,9 +339,9 @@ func TestLaunchArgs(t *testing.T) {
 		{"lead: no --settings, no strict", opus, "lead", "--permission-mode auto --model opus"},
 		{"integrator: no strict", opus, "integrator",
 			`--permission-mode auto --model opus --settings {"autoMemoryEnabled":false,"remoteControlAtStartup":false}`},
-		{"codex: no --settings", luna, "integrator", "-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
+		{"codex: no --settings", luna, "integrator", "-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
 		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
-			"-s workspace-write -a never -m gpt-6-luna -c check_for_update_on_startup=false"},
+			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
 		if got := strings.Join(tc.m.LaunchArgs(tc.role, ""), " "); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)

@@ -811,11 +811,11 @@ func TestStartFirstPrompt(t *testing.T) {
 		{"claude, resume carries no wake", "reviewer", "opus", "claude", launch.Request{Prompt: wake}, true,
 			"-- --permission-mode auto --model opus" + settings + " --resume sid-1"},
 		{"codex, wake", "reviewer", "luna", "codex", launch.Request{Fresh: true, Prompt: wake}, false,
-			"-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP + " " + wake},
+			"-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " " + wake},
 		{"codex, no wake: still registered", "reviewer", "luna", "codex", launch.Request{Fresh: true}, false,
-			"-- -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP},
+			"-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP},
 		{"codex, resume carries no wake", "reviewer", "luna", "codex", launch.Request{Prompt: wake}, true,
-			"-- resume sid-1 -s workspace-write -a never -m gpt-6-luna " + codexUpdate + " " + codexMCP},
+			"-- resume sid-1 -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP},
 		{"opencode, wake after --prompt", "reviewer", "oc", "opencode", launch.Request{Fresh: true, Prompt: wake}, false,
 			"-- --auto --standalone --prompt " + wake},
 		{"opencode, no wake", "reviewer", "oc", "opencode", launch.Request{Fresh: true}, false, "-- --auto --standalone"},
@@ -1431,7 +1431,7 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
-		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never -m gpt-6-luna "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
+		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
 		contains(t, out, "resuming cx-9 (from herdr)", "source")
 		_ = ok
 	})
