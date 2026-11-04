@@ -37,11 +37,13 @@ func TestMcpCheck(t *testing.T) {
 
 // obor mcp through the binary: one JSON-RPC message per line on stdin and stdout (the protocol, never the out buffer),
 // the handshake and the role's tools, and a job_next with obor serve down as a tool error. The notification is answered
-// with nothing, and EOF ends the server with exit 0.
+// with nothing, and EOF ends the server with exit 0. It runs as a lane worker's does: in the lane, no OBOR_AGENT.
 func TestMcpBinaryServes(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	env := []string{"OBOR_ROLE=worker", "OBOR_AGENT=pj-l-01", "OBOR_LANE=L-01", "OBOR_STATE_HOME=" + p.Base + "/no-serve", callDown}
+	lane := p.Lane("L-01", "")
+	p.Config() // the caller's name derives from it (T-786, T-791)
+	env := []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "OBOR_STATE_HOME=" + p.Base + "/no-serve", callDown}
 	in := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
@@ -49,7 +51,7 @@ func TestMcpBinaryServes(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"job_next","arguments":{}}}`,
 		"",
 	}, "\n")
-	rc, stdout, stderr := runIn(t, p.Root, env, in, "mcp")
+	rc, stdout, stderr := runIn(t, lane, env, in, "mcp")
 	if rc != 0 || stderr != "" {
 		t.Fatalf("obor mcp: exit %d, stderr %q", rc, stderr)
 	}

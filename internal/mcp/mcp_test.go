@@ -653,3 +653,88 @@ func TestNoRoleWarns(t *testing.T) {
 		t.Errorf("tools/list: %s; want tools: []", out.String())
 	}
 }
+
+// worktree makes dir a linked worktree of the fixture's main checkout (the .git file and its gitdir's commondir are
+// all project.Find reads), as `git worktree add` leaves a lane.
+func (f *fixture) worktree(dir string) {
+	f.t.Helper()
+	gitDir := filepath.Join(f.root, ".git", "worktrees", filepath.Base(dir))
+	for _, d := range []string{dir, gitDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	f.write(filepath.Join(dir, ".git"), "gitdir: "+gitDir+"\n")
+	f.write(filepath.Join(gitDir, "commondir"), "../..\n")
+}
+
+// TestJobNextPerKind (T-791): the MCP server started as each kind starts it — its cwd and environment as the live
+// processes have them (ps eww / lsof of the running `obor mcp`s, 2026-11-04) — names the lane's worker, so job_next
+// returns the lane's job. No shape carries OBOR_AGENT (T-786 stopped exporting it).
+func TestJobNextPerKind(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	lane := filepath.Join(filepath.Dir(f.root), "proj-wt", "L-01") // the default lanes_dir, ../<name>-wt
+	f.worktree(lane)
+	a := &fakeServe{answer: func(_ string, c wire.Call) (string, string) {
+		if c.Agent != "pj-l-01" {
+			return "", "job_next: not your job: T-01/1/work is pj-l-01's in lane L-01, not " + c.Agent
+		}
+		return `{"state":"job","job":"T-01/1/work","task":"T-01","attempt":1,"step":"work"}`, ""
+	}}
+	serveFake(t, wire.SocketPath(f.root), a)
+	pane := []string{"OBOR_ROLE=worker", "OBOR_LANE=L-01", "HERDR_PANE_ID=w1:p2"}
+	for _, tc := range []struct {
+		kind string
+		env  project.Env
+	}{
+		// opencode: `opencode serve --stdio` (the TUI's child, in the lane) starts the server with the pane's whole
+		// environment plus the registration's own (OBOR_NO_SELF_HOST=1).
+		{"opencode", f.env(append(pane, "OBOR_NO_SELF_HOST=1", "OBOR_OPENCODE_MODEL=opencode-go/m", "PWD="+lane)...)},
+		// claude: --mcp-config's server, in the lane, with the pane's environment.
+		{"claude", f.env(append(pane, "OBOR_NO_SELF_HOST=1", "PWD="+lane)...)},
+		// codex: a stripped environment, only the variables mcp_servers.obor.env_vars forwards (agents.EnvVars).
+		{"codex", testkit.MapEnv(map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01",
+			"HERDR_PANE_ID": "w1:p2", "OBOR_STATE_HOME": f.home})},
+	} {
+		if _, ok := tc.env("OBOR_AGENT"); ok {
+			t.Fatalf("%s: the shape exports OBOR_AGENT", tc.kind)
+		}
+		before := len(a.requests())
+		got := start(t, tc.env, lane).tool(1, "job_next", nil)
+		if got.IsError || got.Content[0].Text != "JOB T-01/1/work (task T-01, attempt 1, step work)" {
+			t.Errorf("%s: job_next %+v; want the lane's job", tc.kind, got)
+		}
+		reqs := a.requests()
+		if len(reqs) != before+1 {
+			t.Fatalf("%s: the app got %d requests; want 1", tc.kind, len(reqs)-before)
+		}
+		if c := reqs[before].Call; c.Agent != "pj-l-01" || c.Role != "worker" || c.Lane != "L-01" || c.Root != f.root {
+			t.Errorf("%s: call %+v; want pj-l-01, worker, L-01, root %s", tc.kind, c, f.root)
+		}
+	}
+}
+
+// TestNoCallerIdentity (T-791): a worker's server with no lane (no OBOR_LANE, its cwd the main checkout) refuses the
+// call itself, naming what was missing, and never asks serve with an empty name.
+func TestNoCallerIdentity(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	a := &fakeServe{answer: func(string, wire.Call) (string, string) { return "", "unexpected request" }}
+	serveFake(t, wire.SocketPath(f.root), a)
+	got := start(t, f.env("OBOR_ROLE=worker", "HERDR_PANE_ID=w1:p2"), f.root).tool(1, "job_next", nil)
+	want := "job_next: no caller identity: role worker without a lane: OBOR_LANE is not set and the cwd " + f.root +
+		" is no lane worktree"
+	if !got.IsError || got.Content[0].Text != want {
+		t.Errorf("job_next: %+v; want the error %q", got, want)
+	}
+	if n := len(a.requests()); n != 0 {
+		t.Errorf("the app got %d requests; want none", n)
+	}
+	// A config that does not load is the missing input too.
+	f.write(f.root+"/.obor/config.json", `{`)
+	got = start(t, f.worker(), f.lane).tool(1, "job_next", nil)
+	if !got.IsError || !strings.HasPrefix(got.Content[0].Text, "job_next: no caller identity: the config does not load: ") {
+		t.Errorf("job_next with a broken config: %+v; want the refusal naming the config", got)
+	}
+}

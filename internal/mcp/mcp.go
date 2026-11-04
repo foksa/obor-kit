@@ -18,6 +18,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
+	"obor/internal/roles"
 	"obor/internal/version"
 )
 
@@ -201,14 +202,22 @@ type serverInfo struct {
 func (s *server) role() string { return s.env.Get("OBOR_ROLE") }
 
 // self is the caller's agent name: project.Self of the server's cwd in repo r under the current config, read at each
-// call (T-786: derived, never OBOR_AGENT, so a rename applies at once). A config that does not load names no one ("":
-// serve refuses the call).
-func (s *server) self(r *project.Repo) string {
+// call (T-786: derived, never OBOR_AGENT, so a rename applies at once). No name: missing says which input lacked it
+// (T-791: the refusal names it, not serve's "not -").
+func (s *server) self(r *project.Repo) (name, missing string) {
 	cfg, _, err := config.LoadHook(r.Root)
 	if err != nil {
-		return ""
+		return "", "the config does not load: " + err.Error()
 	}
-	return project.Self(r, cfg, s.env)
+	role := project.DetectRole(r, cfg, s.env)
+	if name := project.SelfAgent(cfg, role); name != "" {
+		return name, ""
+	}
+	if roles.LaneBound(role.Role) && role.Lane == "" {
+		return "", fmt.Sprintf("role %s without a lane: OBOR_LANE is not set and the cwd %s is no lane worktree",
+			role.Role, s.cwd)
+	}
+	return "", fmt.Sprintf("role %s (lane %q) names no agent in the config", role.Role, role.Lane)
 }
 
 // call answers one tools/call: the tool must be in the role's table (else invalid params, the JSON-RPC answer to an
@@ -244,7 +253,11 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rp
 	if err != nil {
 		return errorResult(t.name + ": not in an obor project (no .obor/config.json)"), nil
 	}
-	c := wire.Call{Agent: s.self(root), Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
+	agent, missing := s.self(root)
+	if agent == "" {
+		return errorResult(t.name + ": no caller identity: " + missing), nil
+	}
+	c := wire.Call{Agent: agent, Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
 		Pane: s.env.Get("HERDR_PANE_ID"), CallID: wire.NewCallID(), Root: root.Root}
 	switch t.method {
 	case wire.MethodJobNext:
