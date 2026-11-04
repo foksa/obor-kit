@@ -66,9 +66,12 @@ type fx struct {
 	sessions map[string]store.Session
 	reported []store.Session
 	// rollout: the launcher's rollout bound (0: 20 ms); background: its rollout search runs in a goroutine, each
-	// report also sent on reports (nil: not sent).
+	// report also sent on reports (nil: not sent); capture keeps that search in searches for the test to run with
+	// runSearches (T-849: after the pane changed).
 	rollout    time.Duration
 	background bool
+	capture    bool
+	searches   []func()
 	reports    chan store.Session
 	reportErr  error           // what the launcher's Report returns (nil: recorded)
 	logged     strings.Builder // what a background search said (the launcher's Log)
@@ -78,7 +81,7 @@ type fx struct {
 	// files replaces the launcher's Open when set: a test's own view of the files (it may act while the search reads
 	// them, T-646).
 	files func(pids []int) []string
-	mu    sync.Mutex // guards reported, logged, open
+	mu    sync.Mutex // guards reported, logged, open, searches
 }
 
 // hold makes pid hold path open (a Codex writing its rollout).
@@ -103,6 +106,19 @@ func (x *fx) log() string {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	return x.logged.String()
+}
+
+// runSearches runs the background searches x captured (capture), here in the test's goroutine, and returns how many
+// ran (T-849: a test that changes the pane between the start and the search).
+func (x *fx) runSearches() int {
+	x.mu.Lock()
+	searches := x.searches
+	x.searches = nil
+	x.mu.Unlock()
+	for _, search := range searches {
+		search()
+	}
+	return len(searches)
 }
 
 // bound is the launcher's wait where the test is about the outcome, not the timing: far above anything a loaded
@@ -160,7 +176,14 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		rollout = 20 * time.Millisecond
 	}
 	var background func(func())
-	if x.background {
+	switch {
+	case x.capture:
+		background = func(search func()) {
+			x.mu.Lock()
+			defer x.mu.Unlock()
+			x.searches = append(x.searches, search)
+		}
+	case x.background:
 		background = func(search func()) { go search() }
 	}
 	return &launch.Launcher{Cfg: cfg, Env: x.env(), Kit: "/kit", H: h, Out: out,

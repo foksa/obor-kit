@@ -375,8 +375,9 @@ func TestCodexUnreportedSessionRecordsNothing(t *testing.T) {
 }
 
 // T-589: the start pins the agent's process; the search never looks at the pane again. The pane is held by another
-// agent (pid 999, with its own rollout) before the background search runs: the first agent records its own rollout
-// when its process lives, nothing when it is gone (its pid under another process), never the replacement's.
+// agent (pid 999, with its own rollout) after the restart returned but before the start's search runs (T-849: captured
+// and run then, not in a goroutine that may run first): the first agent records its own rollout when its process lives,
+// nothing when it is gone (its pid under another process), never the replacement's.
 func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 	t.Parallel()
 	for _, gone := range []bool{false, true} {
@@ -387,7 +388,7 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			x := setup(t, testkit.Set("roles", `{"integrator":"luna"}`))
-			x.background, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
+			x.capture, x.rollout, x.reports = true, time.Minute, make(chan store.Session, 2)
 			var gen atomic.Int32
 			x.ps = func(args ...string) ([]byte, error) {
 				if strings.Join(args, " ") == "-o lstart= -p 205" {
@@ -404,13 +405,18 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 			// Another agent now holds the pane, and pid 205 is either still the first agent's or a stranger's.
 			pid["w1:p5"] = 999
 			x.hold(999, writeRollout(x, "cx-replacement", x.p.Root, time.Now()))
+			var own string
 			if gone {
 				gen.Store(1)
 				x.hold(205, writeRollout(x, "cx-stranger", x.p.Root, time.Now()))
-				deadline := time.Now().Add(bound)
-				for !strings.Contains(x.log(), "is gone") && time.Now().Before(deadline) {
-					time.Sleep(5 * time.Millisecond)
-				}
+			} else {
+				own = writeRollout(x, "cx-own", x.p.Root, time.Now())
+				x.hold(205, own)
+			}
+			if n := x.runSearches(); n != 1 {
+				t.Fatalf("precondition: one search, run after the pane changed: %d", n)
+			}
+			if gone {
 				contains(t, x.log(), "warning: pj-int (pid 205) is gone: its codex session is not recorded", "said")
 				x.mu.Lock()
 				defer x.mu.Unlock()
@@ -419,8 +425,6 @@ func TestCodexSearchPinnedToStartedProcess(t *testing.T) {
 				}
 				return
 			}
-			own := writeRollout(x, "cx-own", x.p.Root, time.Now())
-			x.hold(205, own)
 			got := awaitReports(t, x, 1)
 			eq(t, got["pj-int"].ID+" "+got["pj-int"].Transcript, "cx-own "+own, "its own rollout, not the replacement's")
 		})
