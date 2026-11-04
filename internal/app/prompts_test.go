@@ -69,7 +69,7 @@ func TestPromptsOfAFetchedJob(t *testing.T) {
 	}
 }
 
-// A brief is a row of its briefed fact (the line it types); a --prompt start is one too (its first prompt, kind start).
+// A brief is a row of its briefed fact (the line it types); a start's first prompt is one too (kind start).
 func TestPromptsOfABriefAndAStart(t *testing.T) {
 	t.Parallel()
 	r := lineRig(t, "idle", "idle")

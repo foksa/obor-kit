@@ -474,6 +474,6 @@ func (a *App) startIntegrator(ctx context.Context, agents port.Agents, root stri
 		return port.Started{}, fmt.Errorf("integrator %s: its kind %s has no bridge (obor config validate)", p.integrator,
 			unbridged(cfg, rc.Type))
 	}
-	l.Agent, l.Pane, l.Sid = p.integrator, "", ""
+	l.Agent, l.Pane = p.integrator, ""
 	return agents.Launch(ctx, l)
 }

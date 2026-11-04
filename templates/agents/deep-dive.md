@@ -18,8 +18,8 @@ section. The lead turns findings into tasks.
 - Runs in its own role pane in the main checkout (`obor setup role deep_dive`, `OBOR_ROLE=deep_dive`), never a worker
   lane: obor never stops it as idle and `obor dispatch` refuses it. Serve holds merges while it works (30 min at most),
   so the code does not move under it. The lead briefs it with `obor brief <agent> "…"`: a brief to the stopped agent
-  starts it fresh; a running one is first `obor restart <agent> --stop`, then `obor brief`. Follow-ups go to the same
-  session the same way.
+  starts it fresh; `obor brief <agent> --fresh "…"` stops a running one first and starts it clean on the brief.
+  Follow-ups go to the same session the same way.
 
 ## This project
 <!-- fill in: model/kind, areas that deserve emphasis, where the reviews live. -->

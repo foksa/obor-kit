@@ -26,8 +26,8 @@ import (
 //   - obor send <project> "<text>" (a lead or the owner of another project; the project by a known name or a path,
 //     T-646): fact message{to: the lead, line "[obor <sender project>] <text> (reply: obor send <sender> "…")"} in the
 //     target project's log, recorded by the serve holding it.
-//   - obor brief <role-agent> "<text>": fact briefed{to: the role agent, line "[obor <caller>] <text>"}; obor restart
-//     <role-agent> --fresh --prompt "<brief>" records the same fact without a line (the start carried the brief).
+//   - obor brief <role-agent> "<text>": fact briefed{to: the role agent, line "[obor <caller>] <text>"}; a review's
+//     fresh start records the same fact without a line (its first prompt carried the brief).
 //     A new brief of that agent also ends its undelivered brief lines (T-575: a newer brief makes an older
 //     undelivered one obsolete; lead lines and needs-you lines are never superseded, and a line whose delivery is in
 //     flight may have landed and stays): its fact names their seqs (supersedes) and its fold retires them, live and on

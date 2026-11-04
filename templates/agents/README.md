@@ -22,7 +22,7 @@ Who runs now, and in which lane: `obor status` (or obor web); there is no hand-k
 user ──► lead ──spec──► worker (lane) ──task_done──►   obor serve ──review job──► integrator ──accept──► main
           ▲                                              gate/publish               │ open questions / deviations
           └─────────────────────────────────────────────────────────────────────────┘
-          │  ──brief (obor brief; restart --stop first for a fresh start)──► reviewer / deep dive ──RV-xx.md / DD-xx.md──► lead ──fix tasks──► workers
+          │  ──brief (obor brief; --fresh stops the running one first)──► reviewer / deep dive ──RV-xx.md / DD-xx.md──► lead ──fix tasks──► workers
           └─ ──question─► advisor ──answer (saved under the research dir)
 ```
 - Only obor serve merges: it publishes what the integrator accepted (`docs/state-model.md`). The lead commits its own

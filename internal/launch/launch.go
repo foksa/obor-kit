@@ -12,7 +12,7 @@
 //	Where    --pane, else the pane labelled <agent> (in this project: RV-19 #3). Never a pane labelled for another
 //	         agent, never a second pane labelled <agent>, never a known agent's pane whose cwd is outside this project
 //	         (T-301). Another pane holding the agent's herdr name (moving between panes) → FAIL with a hint: no moves.
-//	Session  the recorded sid, else the one herdr reports for the pane; --sid <id>; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
+//	Session  the recorded sid, else the one herdr reports for the pane; --fresh: a new one. None → FAIL (pass --fresh), checked before anything is stopped. A
 //	         recorded Claude sid must have its transcript under the start cwd; none anywhere (never prompted, T-627):
 //	         starts fresh, said. A session of another kind than the dispatch's type (T-722): starts fresh, said.
 //	Stop     see Stop. A child the pane's shell stopped (Ctrl+Z: herdr then sees an idle shell) → FAIL with a hint, before
@@ -91,9 +91,9 @@ type Launcher struct {
 	// nil: /proc/<pid>/fd on linux, lsof elsewhere.
 	Open func(pids []int) []string
 	// Job is the open worker job (<task>/<attempt>/<step>) of the task lane holds in obor serve ("": none): obor
-	// restart of a lane's worker with no --prompt sends its wake (T-773), never an idle agent with no job. An error (the
-	// lane holds a task and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none
-	// asked (obor serve's own starts carry their job's wake).
+	// restart of a lane's worker sends its wake (T-773), never an idle agent with no job. An error (the lane holds a
+	// task and serve cannot answer, T-778) refuses the restart before the old agent is stopped. nil: none asked (obor
+	// serve's own starts carry their job's wake).
 	Job func(ctx context.Context, lane string) (string, error)
 }
 
@@ -103,37 +103,26 @@ type Request = port.Launch
 var _ port.Agents = (*Launcher)(nil)
 
 // Args writes r into argv (after the "restart" subcommand): schedule puts it into the detached run's argv and
-// ParseRequest reads that back. The pair owns the whole mapping, so a new Request field cannot be carried on one
-// side only (T-303: a handoff flag once was, and the scheduled run lost it).
+// ParseRequest reads that back, so a flag cannot be carried on one side only (T-303: a handoff flag once was, and the
+// scheduled run lost it). The Prompt, Effort and Type are not restart's (T-785: a brief's or a dispatch's start): a
+// scheduled run is the CLI's restart, which carries none of them.
 func Args(r Request) []string {
 	args := []string{r.Agent}
 	if r.Pane != "" {
 		args = append(args, "--pane", r.Pane)
 	}
-	switch {
-	case r.Fresh:
+	if r.Fresh {
 		args = append(args, "--fresh")
-	case r.Sid != "":
-		args = append(args, "--sid", r.Sid)
 	}
 	if r.Force {
 		args = append(args, "--force")
-	}
-	if r.Prompt != "" {
-		args = append(args, "--prompt", r.Prompt)
-	}
-	if r.Effort != "" {
-		args = append(args, "--effort", r.Effort)
-	}
-	if r.Type != "" {
-		args = append(args, "--type", r.Type)
 	}
 	return args
 }
 
 // ParseRequest reads an `obor restart` argument list (after the subcommand) back into the Request Args wrote; the
 // other half of that pair. Flags restart owns but a Request does not carry (--stop) are not its business and
-// are an error.
+// are an error, as is every flag restart gave up (T-785: --prompt, --type, --effort, --sid).
 func ParseRequest(args []string) (Request, error) {
 	var r Request
 	for i := 0; i < len(args); i++ {
@@ -152,34 +141,10 @@ func ParseRequest(args []string) (Request, error) {
 				return Request{}, fmt.Errorf("--pane needs a value")
 			}
 			r.Pane = v
-		case "--sid":
-			v, ok := value()
-			if !ok {
-				return Request{}, fmt.Errorf("--sid needs a value")
-			}
-			r.Sid = v
 		case "--fresh":
 			r.Fresh = true
 		case "--force":
 			r.Force = true
-		case "--prompt":
-			v, ok := value()
-			if !ok {
-				return Request{}, fmt.Errorf("--prompt needs a value")
-			}
-			r.Prompt = v
-		case "--effort":
-			v, ok := value()
-			if !ok {
-				return Request{}, fmt.Errorf("--effort needs a value")
-			}
-			r.Effort = v
-		case "--type":
-			v, ok := value()
-			if !ok {
-				return Request{}, fmt.Errorf("--type needs a value")
-			}
-			r.Type = v
 		default:
 			if strings.HasPrefix(a, "-") || r.Agent != "" {
 				return Request{}, fmt.Errorf("unexpected argument %q", a)
@@ -248,7 +213,8 @@ type target struct {
 	env        map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 }
 
-// resolve is who and where (shared by Restart and Stop) with typ the launch's type ("": none); nothing is typed.
+// resolve is who and where (shared by Restart and Stop) with typ the launch's model type ("": none; port.Launch.Type, a
+// dispatch's since T-785); nothing is typed.
 func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*target, error) {
 	t := &target{agent: agent}
 	if l.Cfg != nil {
@@ -334,9 +300,9 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 }
 
 // dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
-// kind): typ, the launch's (its effort is the launch's own), else the type a lane agent's row's dispatch runs with its
-// effort (store.LaneTypeRef: a row from before T-721 records none, the lane's configured type); neither: the
-// configured type and effort stay.
+// kind): typ, the launch's (port.Launch.Type and Effort, its effort the launch's own; no CLI flag since T-785), else
+// the type a lane agent's row's dispatch runs with its effort (store.LaneTypeRef: a row from before T-721 records
+// none, the lane's configured type); neither: the configured type and effort stay.
 func (l *Launcher) dispatchType(t *target, typ string) {
 	effort := ""
 	if typ == "" && t.info.Lane != "" && l.Cfg != nil {
@@ -435,9 +401,6 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if !config.AgentNameRE.MatchString(req.Agent) {
 		return port.Started{}, project.Failf("bad agent name %q", req.Agent)
 	}
-	if req.Sid != "" && req.Fresh {
-		return port.Started{}, project.Failf("pass --sid or --fresh, not both")
-	}
 	waited, err := l.waitScheduled(ctx, req.Agent, req.Pane)
 	if err != nil {
 		return port.Started{}, err
@@ -470,7 +433,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	sid, src := t.sid, "record"
 	if !agents.Resumes(t.kind) {
 		sid, src = "", ""
-		if t.sid != "" || req.Sid != "" {
+		if t.sid != "" {
 			l.say("warning: no resume for kind %s: new session", t.kind)
 		}
 	} else {
@@ -478,13 +441,10 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 			switch {
 			case sid == "":
 				sid, src = live, "herdr"
-			case req.Sid == "" && !req.Fresh:
+			case !req.Fresh:
 				l.say("warning: herdr reports session %s for pane %s, the recorded session is %s: resuming %s", live, t.pane,
 					sid, sid)
 			}
-		}
-		if req.Sid != "" {
-			sid, src = req.Sid, "--sid"
 		}
 		if req.Fresh {
 			sid = ""
@@ -526,9 +486,9 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if err != nil {
 		return port.Started{}, err
 	}
-	// A lane's worker restarted with no --prompt while its lane's task has a job open (T-773): that job's wake, the first
-	// prompt of a fresh session, typed into a resumed one once it is up. Resolved before the stop (T-778): a lane with a
-	// task whose job serve cannot tell refuses the restart, the old agent untouched.
+	// A lane's worker restarted with no first prompt of its own while its lane's task has a job open (T-773): that job's
+	// wake, the first prompt of a fresh session, typed into a resumed one once it is up. Resolved before the stop
+	// (T-778): a lane with a task whose job serve cannot tell refuses the restart, the old agent untouched.
 	job := ""
 	if req.Prompt == "" && l.Job != nil && t.info.Role == "worker" && t.info.Lane != "" {
 		if job, err = l.Job(ctx, t.info.Lane); err != nil {
@@ -551,7 +511,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	case job != "":
 		prompt = wire.WakeLine(job)
 	case prompt == "":
-		// A fresh start without --prompt gets its role's first prompt (T-729), e.g. the lead's /obor:lead.
+		// A fresh start without a first prompt gets its role's (T-729), e.g. the lead's /obor:lead.
 		if r, ok := roles.Lookup(t.info.Role); ok {
 			prompt = r.StartPrompt(t.kind)
 		}
@@ -606,15 +566,15 @@ func (l *Launcher) checkTranscript(t *target, sid string) (fresh bool, err error
 			return false, nil
 		}
 		if !os.IsNotExist(err) { // a search that failed is no proof of "never prompted" (RV-67 #4)
-			return false, project.Failf("recorded session %s: cannot check its transcript under %s: %v (pass --fresh, or --sid <id>)", sid, cwd, err)
+			return false, project.Failf("recorded session %s: cannot check its transcript under %s: %v (pass --fresh)", sid, cwd, err)
 		}
 		// Under any cwd ("" asks for the kind's whole transcript dir): another project's, refuse as before.
 		found, err := transcriptElsewhere(k.Transcript(l.Env.Get, "", sid))
 		if err != nil {
-			return false, project.Failf("recorded session %s: cannot search its transcript: %v (pass --fresh, or --sid <id>)", sid, err)
+			return false, project.Failf("recorded session %s: cannot search its transcript: %v (pass --fresh)", sid, err)
 		}
 		if found {
-			return false, project.Failf("recorded session %s is not from %s (pass --fresh, or --sid <id>)", sid, cwd)
+			return false, project.Failf("recorded session %s is not from %s (pass --fresh)", sid, cwd)
 		}
 		l.say("recorded session %s has no transcript (never prompted): starting fresh", sid)
 		return true, nil

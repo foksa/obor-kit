@@ -504,8 +504,10 @@ func TestRestartWho(t *testing.T) {
 	}
 }
 
-// T-303: Request.Args and ParseRequest are one pair; every field goes through both and comes back the same, so a
-// field carried on one side only (a handoff flag once was, and the scheduled run lost it) fails here.
+// T-303: Request.Args and ParseRequest are one pair; the CLI's fields (agent, pane, fresh, force) go through both and
+// come back the same, so a field carried on one side only (a handoff flag once was, and the scheduled run lost it)
+// fails here. T-785: a Prompt, Effort or Type is a start's (serve's), never a scheduled CLI restart's: no flag carries
+// it, and ParseRequest refuses the flags restart gave up.
 func TestRequestArgsRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -514,16 +516,11 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 		args string
 	}{
 		{"agent and pane", launch.Request{Agent: "pj-l-01", Pane: "w1:p3"}, "pj-l-01 --pane w1:p3"},
-		{"sid", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Sid: "sid-9"}, "pj-l-01 --pane w1:p3 --sid sid-9"},
 		{"fresh", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true}, "pj-l-01 --pane w1:p3 --fresh"},
 		{"force", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Force: true}, "pj-l-01 --pane w1:p3 --force"},
-		{"every combinable field", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Force: true, Prompt: "go"},
-			"pj-l-01 --pane w1:p3 --fresh --force --prompt go"},
-		{"type and effort (T-722)", launch.Request{Agent: "pj-l-01", Fresh: true, Effort: "high", Type: "luna"},
-			"pj-l-01 --fresh --effort high --type luna"},
+		{"fresh and force", launch.Request{Agent: "pj-l-01", Pane: "w1:p3", Fresh: true, Force: true},
+			"pj-l-01 --pane w1:p3 --fresh --force"},
 		{"no pane", launch.Request{Agent: "pj-lead"}, "pj-lead"},
-		{"fresh with a first prompt", launch.Request{Agent: "pj-w", Fresh: true, Prompt: "[obor job T-1/1/work] call the obor job_next tool"},
-			"pj-w --fresh --prompt [obor job T-1/1/work] call the obor job_next tool"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -541,7 +538,7 @@ func TestRequestArgsRoundTrip(t *testing.T) {
 }
 
 // T-303: ParseRequest refuses what Args never writes: a stray flag (--keep-inbox went with the inbox, T-466), a second
-// positional, a flag without its value.
+// positional, a flag without its value; T-785: the flags restart gave up, with their values.
 func TestParseRequestRefusals(t *testing.T) {
 	t.Parallel()
 	for _, c := range [][]string{
@@ -549,6 +546,10 @@ func TestParseRequestRefusals(t *testing.T) {
 		{"pj-l-01", "--bogus"},
 		{"pj-l-01", "pj-int"},
 		{"pj-l-01", "--pane"},
+		{"pj-l-01", "--prompt", "go"},
+		{"pj-l-01", "--type", "luna"},
+		{"pj-l-01", "--effort", "high"},
+		{"pj-l-01", "--sid", "sid-9"},
 	} {
 		if req, err := launch.ParseRequest(c); err == nil {
 			t.Errorf("ParseRequest(%q) = %+v, want an error", c, req)
@@ -630,11 +631,6 @@ func TestRestartWhereRefusals(t *testing.T) {
 		},
 		req:  launch.Request{Agent: "pj-l-01"},
 		line: "FAIL w1:p4 runs another program (vim)",
-	}, {
-		name: "--sid and --fresh",
-		prep: func(x *fx) {},
-		req:  launch.Request{Agent: "pj-l-01", Sid: "s", Fresh: true},
-		line: "FAIL pass --sid or --fresh, not both",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1704,7 +1700,7 @@ func TestRestartSuspended(t *testing.T) {
 	eqInt(t, asked, 0, "ps asked only at a shell")
 }
 
-// bash restart.test.sh case_stale_recorded_sid_fails_sid_option_resumes, case_recorded_sid_checked_against_pane_cwd_codex_skipped
+// bash restart.test.sh case_stale_recorded_sid_fails, case_recorded_sid_checked_against_pane_cwd_codex_skipped
 func TestRestartRecordedSession(t *testing.T) {
 	t.Parallel()
 	x := setup(t)
@@ -1712,7 +1708,7 @@ func TestRestartRecordedSession(t *testing.T) {
 	x.transcript("/Users/someone/other-project", "sid-x")
 	x.shell("w1:p3", "pj-l-01", "")
 	out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-	eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "another project's sid")
+	eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "another project's sid")
 	if ok || len(x.calls("pane.send_input")) > 0 || x.startCall() != "" {
 		t.Error("nothing typed or started")
 	}
@@ -1721,20 +1717,13 @@ func TestRestartRecordedSession(t *testing.T) {
 	contains(t, out, "resuming sid-x (from record)", "source printed")
 	eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-x)", "transcript under the lane → resumes")
 
-	x.reset()
-	x.shell("w1:p3", "pj-l-01", "")
-	x.record("pj-l-01", "sid-stale")
-	out, _ = x.restart(launch.Request{Agent: "pj-l-01", Sid: "sid-y"})
-	contains(t, out, "resuming sid-y (from --sid)", "source printed")
-	contains(t, x.calls("agent.start")[1], "--resume sid-y", "--sid wins over the stale record")
-
 	// No lane or role: the pane's cwd is checked; herdr's session is not checked; Codex records are not checked.
 	x.reset()
 	x.record("triage", "sid-t")
 	x.transcript("/Users/someone/elsewhere", "sid-t")
 	x.shell("w1:p8", "triage", "/work/maps/").Session = "sid-t"
 	out, _ = x.restart(launch.Request{Agent: "triage"})
-	eq(t, last(out), "FAIL recorded session sid-t is not from /work/maps (pass --fresh, or --sid <id>)", "the pane cwd")
+	eq(t, last(out), "FAIL recorded session sid-t is not from /work/maps (pass --fresh)", "the pane cwd")
 	x.transcript("/work/maps", "sid-t")
 	out, _ = x.restart(launch.Request{Agent: "triage"})
 	eq(t, last(out), "RESTARTED triage (pane w1:p8, session sid-t)", "transcript under the pane cwd")
@@ -1782,7 +1771,7 @@ func TestSessionResumeRule(t *testing.T) {
 		if ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "refused")
+		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "refused")
 		lacks(t, out, "starting fresh", "never fresh")
 		if x.startCall() != "" || len(x.calls("pane.send_input")) > 0 {
 			t.Errorf("nothing typed or started")
@@ -1802,7 +1791,7 @@ func TestSessionResumeRule(t *testing.T) {
 		if ok {
 			t.Fatal(out)
 		}
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "refused")
+		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "refused")
 		lacks(t, out, "starting fresh", "never fresh")
 		if x.startCall() != "" {
 			t.Errorf("nothing started")
@@ -2757,7 +2746,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x.transcript("/Users/someone/other-project", "sid-old")
 		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "FAIL recorded session sid-old is not from "+x.lane+" (pass --fresh, or --sid <id>)", "checked")
+		eq(t, last(out), "FAIL recorded session sid-old is not from "+x.lane+" (pass --fresh)", "checked")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
 		}
@@ -2770,7 +2759,7 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		x.transcript("/Users/someone/other-project", "sid-x")
 		x.shell("w1:p3", "pj-l-01", "")
 		out, ok := x.restart(launch.Request{Agent: "pj-l-01"})
-		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh, or --sid <id>)", "checked")
+		eq(t, last(out), "FAIL recorded session sid-x is not from "+x.lane+" (pass --fresh)", "checked")
 		if ok || x.startCall() != "" {
 			t.Error("nothing started")
 		}
@@ -2794,21 +2783,17 @@ func TestRestartRecordOverLiveSession(t *testing.T) {
 		}
 		contains(t, out, "resuming sid-h (from herdr)", "source")
 	})
-	t.Run("--sid and --fresh unchanged: no warning, record kept", func(t *testing.T) {
+	t.Run("--fresh: no warning, record kept", func(t *testing.T) {
 		t.Parallel()
 		x := setup(t)
 		x.sid("pj-l-01", "sid-old")
 		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
-		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Sid: "sid-y"})
-		contains(t, out, "resuming sid-y (from --sid)", "--sid wins")
-		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-y)", "--sid result")
-		x.reset()
-		x.shell("w1:p3", "pj-l-01", "").Session = "sid-live"
-		out2, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
-		eq(t, last(out2), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
-		if strings.Contains(out+out2, "warning: recorded session") {
-			t.Errorf("no warning: %q", out+out2)
+		out, _ := x.restart(launch.Request{Agent: "pj-l-01", Fresh: true})
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "--fresh result")
+		if strings.Contains(out, "warning: recorded session") {
+			t.Errorf("no warning: %q", out)
 		}
+		lacks(t, x.startCall(), "--resume", "a new session")
 		eq(t, record(x), "sid-old\n", "record kept")
 	})
 }

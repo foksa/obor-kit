@@ -91,12 +91,17 @@ func TestStartEffortRefused(t *testing.T) {
 	}
 }
 
-// T-695: the scheduled restart's argv carries the effort (Args and ParseRequest are one mapping).
+// T-785: the effort is a dispatch's (port.Launch.Effort), not a scheduled CLI restart's: the argv carries neither it
+// nor a first prompt, and ParseRequest reads back exactly what Args writes for the CLI's own fields.
 func TestRequestArgsCarryTheEffort(t *testing.T) {
 	r := launch.Request{Agent: "pj-l-01", Fresh: true, Prompt: "go", Effort: "high"}
-	back, err := launch.ParseRequest(launch.Args(r))
-	if err != nil || back != r {
-		t.Errorf("ParseRequest(Args(%+v)) = %+v, %v", r, back, err)
+	args := launch.Args(r)
+	if got := strings.Join(args, " "); got != "pj-l-01 --fresh" {
+		t.Errorf("Args(%+v) = %q", r, got)
+	}
+	back, err := launch.ParseRequest(args)
+	if err != nil || back != (launch.Request{Agent: "pj-l-01", Fresh: true}) {
+		t.Errorf("ParseRequest(%q) = %+v, %v", args, back, err)
 	}
 }
 

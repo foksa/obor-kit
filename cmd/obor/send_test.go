@@ -155,7 +155,7 @@ func writeProjects(t *testing.T, env project.Env, list map[string]string) {
 	}
 }
 
-// T-466: obor brief <role-agent> "<text>" is one brief request with the text; not a role agent (the lead, the
+// T-785: obor brief <role-agent> "<text>" is one brief request with the text; not a role agent (the lead, the
 // integrator, a worker, nobody) or no text sends nothing.
 func TestBriefRequest(t *testing.T) {
 	t.Parallel()
@@ -168,12 +168,14 @@ func TestBriefRequest(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"brief", "pj-rev"}, `FAIL usage: obor brief <role-agent> "<text>"`},
-		{[]string{"brief", "pj-rev", ""}, `FAIL usage: obor brief <role-agent> "<text>"`},
+		{[]string{"brief", "pj-rev"}, `FAIL usage: obor brief <role-agent> [--fresh] "<text>"`},
+		{[]string{"brief", "pj-rev", ""}, `FAIL usage: obor brief <role-agent> [--fresh] "<text>"`},
 		{[]string{"brief", "pj-lead", "x"}, "FAIL pj-lead is no role agent"},
 		{[]string{"brief", "pj-int", "x"}, "FAIL pj-int is no role agent"},
 		{[]string{"brief", "pj-l-01", "x"}, "FAIL pj-l-01 is no role agent"},
 		{[]string{"brief", "nobody", "x"}, "FAIL nobody is no role agent"},
+		// A role agent is checked before anything is stopped: --fresh stops nothing for an invalid target.
+		{[]string{"brief", "pj-lead", "--fresh", "x"}, "FAIL pj-lead is no role agent"},
 	} {
 		if rc, stdout, _ := run(t, p.Root, env, c.args...); rc != 1 || !strings.HasPrefix(stdout, c.want) {
 			t.Errorf("obor %q: exit %d, %q; want 1, %q", c.args, rc, stdout, c.want)
@@ -192,55 +194,51 @@ func TestBriefRequest(t *testing.T) {
 	}
 }
 
-// T-466: obor restart <role-agent> --fresh --prompt "<brief>" records the brief (a brief request without a text)
-// once the restart succeeded; a worker's fresh start with a prompt records none; serve down is a note, not a failure.
-func TestRestartFreshPromptRecordsTheBrief(t *testing.T) {
+// T-785: obor brief <role-agent> --fresh stops a running role agent first (as obor restart <agent> --stop does) and
+// then briefs it: its pane at a shell, the brief's line is the first prompt of its fresh start (serve's start of a
+// stopped role agent, T-672), the text with it. A stopped role agent is not stopped again: the same brief as without
+// --fresh. The reviewer's --fresh is one brief request too (serve admits it, T-730/T-734), never a start of its own.
+func TestBriefFresh(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	o1 := p.Lane("L-01", "")
-	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.deep_dive", "opus"), testkit.Set("roles.advisor", "opus"))
+	p.Config(testkit.Set("roles.reviewer", "opus"), testkit.Set("roles.advisor", "opus"))
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)
-	f.Shell("w1:p4", "pj-deep-dive", p.Root)
-	f.Shell("w1:p5", "pj-advisor", p.Root)
-	f.Shell("w1:p1", "pj-l-01", o1)
+	f.Agent("w1:p5", "pj-advisor", "idle", p.Root).Label = "pj-advisor"
 	srv := herdrtest.Serve(t, f)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEF RECORDED for pj-rev (the lead hears when it finishes)", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED (test)", "")
 	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home",
 		"OBOR_STATE_HOME=" + home, "OBOR_RESTART_WAIT=1", "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 
-	rc, stdout, _ := run(t, p.Root, env, "restart", "pj-advisor", "--fresh", "--prompt", "review the module map")
-	if lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n"); rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-advisor") {
-		t.Fatalf("restart: exit %d\n%s", rc, stdout)
+	// A running agent: stopped, then briefed; the brief's reply is the result line, the stop a line before it.
+	rc, stdout, _ := run(t, p.Root, env, "brief", "pj-advisor", "--fresh", "review the module map")
+	if rc != 0 || lastLine(stdout) != "BRIEFED (test)" {
+		t.Fatalf("brief --fresh: exit %d\n%s", rc, stdout)
+	}
+	if !strings.Contains(stdout, "STOPPED pj-advisor (pane w1:p5)") || strings.Index(stdout, "STOPPED pj-advisor") > strings.Index(stdout, "BRIEFED") {
+		t.Errorf("the stop's line before the brief's: %q", stdout)
+	}
+	if pane := f.Pane("w1:p5"); pane.Name != "" || pane.Kind != "" {
+		t.Errorf("pj-advisor still runs in w1:p5: %+v", pane)
 	}
 	got, _ := serve.requests()
-	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "" ||
-		got[0].Prompt != "review the module map" || got[0].Role != "lead" {
-		t.Errorf("requests %v %+v, want one brief of pj-advisor without a text, its start's prompt with it", serve.methods, got)
+	if len(got) != 1 || serve.methods[0] != wire.MethodBrief || got[0].To != "pj-advisor" || got[0].Note != "review the module map" ||
+		got[0].Role != "lead" {
+		t.Errorf("requests %v %+v, want one brief of pj-advisor with the text", serve.methods, got)
 	}
-	for _, a := range []string{"pj-rev", "pj-deep-dive"} {
-		rc, stdout, _ := run(t, p.Root, env, "restart", a, "--fresh", "--prompt", "x")
-		if want := "FAIL " + a + " takes its first prompt through obor brief " + a; rc != 1 || !strings.Contains(stdout, want) ||
-			strings.Contains(stdout, "RESTARTED") {
-			t.Errorf("%s restart --prompt: exit %d\n%s", a, rc, stdout)
+
+	// A stopped agent: nothing to stop, the same brief (serve starts it clean in its labelled pane).
+	rc, stdout, _ = run(t, p.Root, env, "brief", "pj-rev", "--fresh", "verify finding 3")
+	if rc != 0 || lastLine(stdout) != "BRIEFED (test)" || !strings.Contains(stdout, "STOPPED pj-rev (pane w1:p3, already at a shell)") {
+		t.Errorf("brief --fresh of a stopped agent: exit %d\n%s", rc, stdout)
+	}
+	if got, _ := serve.requests(); len(got) != 2 || got[1].To != "pj-rev" || got[1].Note != "verify finding 3" {
+		t.Errorf("requests %v %+v, want a second brief of pj-rev with the text", serve.methods, got)
+	}
+	for _, r := range srv.Requests() {
+		if r.Method == "agent.start" {
+			t.Errorf("the CLI started the agent itself: %+v", r)
 		}
-	}
-	if got, _ := serve.requests(); len(got) != 1 {
-		t.Errorf("a refused restart recorded a brief: %+v", got)
-	}
-	if rc, stdout, _ := run(t, p.Root, env, "restart", "pj-l-01", "--fresh", "--prompt", "work"); rc != 0 {
-		t.Fatalf("worker restart: exit %d\n%s", rc, stdout)
-	}
-	if got, _ := serve.requests(); len(got) != 1 {
-		t.Errorf("a worker's fresh start recorded a brief: %+v", got)
-	}
-	serve.stop()
-	down := append(env[:len(env):len(env)], "OBOR_STATE_HOME="+p.Base+"/none", callDown)
-	rc, stdout, _ = run(t, p.Root, down, "restart", "pj-advisor", "--fresh", "--prompt", "again")
-	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if rc != 0 || !strings.HasPrefix(lines[len(lines)-1], "RESTARTED pj-advisor") ||
-		!strings.Contains(stdout, "note: brief not recorded (the lead hears nothing when pj-advisor finishes): obor serve is not running") {
-		t.Errorf("serve down: exit %d\n%s", rc, stdout)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/launch"
 	"obor/internal/project"
 )
 
@@ -78,22 +79,50 @@ func unknownProject(name string, env project.Env) error {
 	return fmt.Errorf("no obor project named %s (known: %s)", name, strings.Join(known, ", "))
 }
 
-// briefCmd is `obor brief <role-agent> "<text>"`, the lead's or the owner's: a request to obor serve (wire.MethodBrief)
-// that types "[obor <caller>] <text>" into the role agent's pane once it is idle (a verify into the running session);
-// once that agent has worked on it and is idle again, serve posts "[obor] <agent> finished (briefed <age> ago)" to
-// the lead's session. A fresh brief goes by obor restart <role-agent> --fresh --prompt "<brief>", which records the same
-// brief. Serve's reply (BRIEFED …), or FAIL: not a role agent, serve down or its refusal (exit 1).
+// briefUsage is obor brief's usage line.
+const briefUsage = `usage: obor brief <role-agent> [--fresh] "<text>"`
+
+// briefCmd is `obor brief <role-agent> [--fresh] "<text>"`, the lead's or the owner's: the one way to brief a role
+// agent (T-785). A request to obor serve (wire.MethodBrief) that its pane or session reads "[obor <caller>] <text>"
+// once the agent is idle; once that agent has worked on it and is idle again, serve posts
+// "[obor] <agent> finished (briefed <age> ago)" to the lead's session. --fresh stops a running agent first (as
+// obor restart <agent> --stop does): its pane at a shell, the brief starts it clean, the text its first prompt, after
+// serve's admission (as any brief; the reviewer's and the deep dive's merges are held). Serve's reply (BRIEFED …), or
+// FAIL: not a role agent, a failed stop, serve down or its refusal (exit 1).
 func briefCmd(args []string) int {
-	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
-		fmt.Fprintln(out, `FAIL usage: obor brief <role-agent> "<text>"`)
+	fresh, rest := false, make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--fresh" {
+			fresh = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if len(rest) != 2 || rest[0] == "" || strings.TrimSpace(rest[1]) == "" {
+		fmt.Fprintln(out, "FAIL "+briefUsage)
 		return 1
 	}
+	agent, text := rest[0], rest[1]
+	ctx, env := context.Background(), project.OSEnv
 	_, cfg, rc := load()
 	if rc != 0 {
 		fmt.Fprintln(out, noConfig)
 		return 1
 	}
-	reply, err := brief(context.Background(), cfg, args[0], args[1], "", project.OSEnv)
+	if !roleAgent(cfg, agent) {
+		fmt.Fprintf(out, "FAIL %s is no role agent of this project (reviewer, deep_dive, advisor …; not the lead, the integrator or a worker)\n", agent)
+		return 1
+	}
+	if fresh {
+		// Stop before the brief (never a typed line into a running session): the pane keeps its label, at its shell.
+		l := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: out}
+		line, err := l.Stop(ctx, agent, "", false)
+		if err != nil {
+			return launchResult(out, line, err)
+		}
+		fmt.Fprintln(out, line)
+	}
+	reply, err := brief(ctx, cfg, agent, text, env)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
@@ -102,16 +131,12 @@ func briefCmd(args []string) int {
 	return 0
 }
 
-// brief is the brief request for agent (text "": a fresh start carried it; prompt: that start's first prompt, its text
-// in the project's prompts table); agent must be a role's agent other than the lead's, the integrator's and a
-// worker's (reviewer, deep_dive, advisor, an agents entry …).
-func brief(ctx context.Context, cfg *config.Config, agent, text, prompt string, env project.Env) (string, error) {
-	if !roleAgent(cfg, agent) {
-		return "", fmt.Errorf("%s is no role agent of this project (reviewer, deep_dive, advisor …; not the lead, the integrator or a worker)", agent)
-	}
+// brief is the brief request for agent (text the line its pane or session reads); agent must be a role's agent other
+// than the lead's, the integrator's and a worker's (reviewer, deep_dive, advisor, an agents entry …).
+func brief(ctx context.Context, cfg *config.Config, agent, text string, env project.Env) (string, error) {
 	cwd, _ := os.Getwd()
 	c := caller(env, cwd, cfg)
-	c.To, c.Note, c.Prompt = agent, text, prompt
+	c.To, c.Note = agent, text
 	return wire.Verdict(ctx, wire.SocketPath(cfg.Root), wire.MethodBrief, c)
 }
 
