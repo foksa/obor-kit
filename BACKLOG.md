@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~20:30: RV-107 closed (#1 → T-829 stop bound, L-01). T-828 survey merged
+  (docs/research/test-pruning.md); pruning P1-P10 = T-830..T-839 dispatched (T-830..T-832 running, the rest queue for
+  lanes; T-836, T-838 after T-829). Held: **P11** store migrations below schema 9 (owner: raise `upgradeFrom` to 9?);
+  **P12** v0.26 removals (`obor monitor` case, pre-v0.23 shape message) after T-830/T-831, at the v0.26 release;
+  `TestSetupAgentsRetires…` + `agents.Retired` once the owner says no machine has the global opencode entry.
 - 2026-11-04 ~19:40 (lead, fresh session). Steps 1-2 done (AGENTS.md rules, 5560ff43). Step 3 was misread: the
   11-04 15:02 `use of closed network connection` was a move outlasting the CLI's 15 s deadline (serve stops the
   worker inside the call), not a restart → T-825. In flight: T-825 (L-01), T-827 S2 (L-02, opus:high), T-828
