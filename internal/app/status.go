@@ -130,7 +130,7 @@ func (a *App) Status() wire.Status {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
-		if st := p.folded.idle; st != nil {
+		if st := p.idleEpoch(p.idleNow()); st != nil {
 			ps.Idle = &wire.IdleStatus{Since: st.at.Unix(), Last: st.last, Acked: st.ack, Why: st.why}
 		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
