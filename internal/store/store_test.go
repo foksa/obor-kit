@@ -392,9 +392,9 @@ func TestOpenRWRefusalChangesNothing(t *testing.T) {
 	}
 }
 
-// TestOpenRWRefusesPreV012 (T-519): a store from before v0.12 (schema 5 with its queue table, and an older one) is
-// refused with one line naming its schema and v0.12.0, and the file is left byte for byte as it was.
-func TestOpenRWRefusesPreV012(t *testing.T) {
+// TestOpenRWRefusesPreV022 (T-840): a store from before v0.22 (schema 5 with its queue table, and an older one) is
+// refused with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
+func TestOpenRWRefusesPreV022(t *testing.T) {
 	t.Parallel()
 	for _, version := range []string{"5", "2"} {
 		t.Run("schema "+version, func(t *testing.T) {
@@ -428,7 +428,7 @@ func TestOpenRWRefusesPreV012(t *testing.T) {
 				t.Fatalf("OpenRW accepted schema version %s", version)
 			}
 			want := "schema version " + version + " is older than this obor (" + strconv.Itoa(SchemaVersion) +
-				"): upgrade through v0.12.0 first"
+				"): upgrade through v0.24.0 first"
 			if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "\n") {
 				t.Errorf("error = %q, want one line with %q", err, want)
 			}
@@ -442,5 +442,70 @@ func TestOpenRWRefusesPreV012(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestOpenRWRefusesSchema8 (T-840): a schema-8 store (its lanes table has no type, its specs table no note) is refused
+// with one line naming its schema and v0.24.0, and the file is left byte for byte as it was.
+func TestOpenRWRefusesSchema8(t *testing.T) {
+	t.Parallel()
+	path := newPath(t)
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+		"INSERT INTO meta (key, value) VALUES ('schema_version', '8')",
+		`CREATE TABLE events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
+			attempt INTEGER NOT NULL, step TEXT NOT NULL, kind TEXT NOT NULL, class TEXT NOT NULL, data TEXT)`,
+		"INSERT INTO events VALUES (1, '2026-10-24T11:00:00Z', 'T-1', 1, 'stalled', 'fact', '', NULL)",
+		`CREATE TABLE lanes (lane TEXT PRIMARY KEY, task TEXT NOT NULL, branch TEXT NOT NULL, agent TEXT NOT NULL,
+			base TEXT NOT NULL, head TEXT NOT NULL, dispatched_at INTEGER NOT NULL, finished INTEGER NOT NULL)`,
+		"INSERT INTO lanes VALUES ('L-01', 'T-1', 'task/T-1', 'pj-l-01', 'b', 'h', 5, 0)",
+		`CREATE TABLE specs (task TEXT PRIMARY KEY, text TEXT NOT NULL, rev INTEGER NOT NULL,
+			set_by TEXT NOT NULL, set_at TEXT NOT NULL)`,
+		"INSERT INTO specs VALUES ('T-1', '# T-1\n', 1, 'lead', '2026-10-27T09:00:00Z')",
+	} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	raw.Close()
+	before, err := os.ReadFile(path)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("precondition: the schema-8 file (%d bytes, %v)", len(before), err)
+	}
+
+	db, err := OpenRW(path)
+	if err == nil {
+		db.Close()
+		t.Fatal("OpenRW accepted schema version 8")
+	}
+	want := "schema version 8 is older than this obor (" + strconv.Itoa(SchemaVersion) +
+		"): upgrade through v0.24.0 first"
+	if !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "\n") {
+		t.Errorf("error = %q, want one line with %q", err, want)
+	}
+	after, rerr := os.ReadFile(path)
+	if rerr != nil || string(after) != string(before) {
+		t.Errorf("the refused file changed (read error %v)", rerr)
+	}
+	for _, side := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + side); !os.IsNotExist(err) {
+			t.Errorf("the refusal left %s%s (%v)", filepath.Base(path), side, err)
+		}
+	}
+	// A reader still reads the old store (a newer CLI, serve not yet restarted): its lanes table has no type.
+	ro, err := OpenRO(path)
+	if err != nil {
+		t.Fatalf("OpenRO on schema 8: %v", err)
+	}
+	defer ro.Close()
+	rows, err := ReadLanes(ro)
+	wantRow := LaneRow{Lane: "L-01", Task: "T-1", Branch: "task/T-1", Agent: "pj-l-01", Base: "b", Head: "h",
+		DispatchedAt: 5}
+	if err != nil || len(rows) != 1 || rows[0] != wantRow {
+		t.Errorf("ReadLanes on schema 8 = %+v, %v; want %+v", rows, err, wantRow)
 	}
 }
