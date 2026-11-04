@@ -31,10 +31,15 @@ it runs in (a lane worktree's is its main checkout's); `obor send` dials the tar
   `obor spec set T-xx <path> [--note "<what changed>"]` (any file, read once) is a `spec_set` socket request, accepted
   from the lead or the owner (no role; `set_by` "owner") and refused for every other role (a worker cannot unlock
   files, T-238); a set with another text is the next rev, the same text changes nothing. A set while the task has a
-  working (or dispatching) worker sends it one line through the line delivery (`spec.line`; it is retired when the
-  task settles, as an answer's line is), and the worker's `task_done` on a job it fetched at an older rev
-  (`delivered`'s `rev`) is refused once, naming the rev and the note (`spec.seen` marks it seen for the attempt), then
-  accepted; a Blocked: report is not refused. Readers: dispatch (a stored spec is required, row 2), the work job's text
+  working (or dispatching) worker queues it one line (`spec.line`, T-821: queued, delivered, seen), delivered at once
+  where it can: a kind whose inbox reaches a working session (Claude's) gets it busy or idle, any other kind once its
+  pane is idle; the reply says `(worker told)` only when it was delivered, else `(queued: <why>)`. The line is kept
+  across an ask, an answer, an unblock and a submission, and retired once the worker saw the rev (`spec.seen`, or a
+  job fetched at it: `delivered` with a `rev`), the task merged, dropped or was rejected, or a newer rev's line
+  replaces it. The worker's `task_done` on a job it fetched at an older rev (`delivered`'s `rev`) is refused once,
+  naming the rev and the note (`spec.seen` marks it seen for the attempt and keeps the call id and the refusal: the
+  same call id, retried or replayed, is refused the same), then a new call is accepted; a Blocked: report is not
+  refused. Readers: dispatch (a stored spec is required, row 2), the work job's text
   (it carries the current rev; a fix job carries it when the rev changed since the worker's last fetch: the
   `delivered` fact records the rev a job carried), the guard's protected unlocks, whoami and SessionStart (read-only: a
   change applies at the next hook call), the commit subject (`titleOf`), the flakes rule, `obor spec

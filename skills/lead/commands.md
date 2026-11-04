@@ -137,7 +137,9 @@ The raw payloads are in `.obor/state/stop-failure.log`.
 ## obor spec set (T-440, T-819)
 `obor spec set <T-xx> <file> [--note "<what changed>"]` stores the file's text as the task's spec; another text is the
 next rev. Replies `SET T-xx rev N (worker told)` (a working or dispatching worker got one line naming the rev and the
-note), `SET T-xx rev N` (no worker to tell: none, waiting, merged), or `UNCHANGED T-xx rev N` (the same text). A
+note), `SET T-xx rev N (queued: <why>)` (the line waits: `busy` is a Codex or opencode worker mid-turn, typed once
+it is idle; a Claude worker gets it mid-turn), `SET T-xx rev N` (no worker to tell: none, waiting, merged), or
+`UNCHANGED T-xx rev N` (the same text). A
 worker's `task_done` on a job it fetched at an older rev is refused once with that line and submits nothing; after it
 reads the new rev, the next `task_done` submits. A Blocked: report is never refused. So: a minor change to a working
 task is `obor spec set --note` (it adjusts); a change of direction is a move (`obor dispatch T-xx --model <ref>`, a

@@ -196,8 +196,11 @@ type folded struct {
 	active map[string][]event.Record // task → its watchdog facts since the last resumed
 	woke   map[string]time.Time      // task → its stopped worker's first wake since the last resumed (stopwake.go)
 	calls  map[string]string         // answered verdict calls: the stored reply by <method>.<call id>
-	loop   map[string]*mtask         // the merge loop's tasks, by task
-	pause  *event.Pause              // the project's last pause fact (pause.go; nil: none or cleared)
+	// refusals: refused calls whose refusal is recorded, by <method>.<call id>: a task_done of an older spec rev
+	// (spec.seen, T-821), refused again on a retry.
+	refusals map[string]string
+	loop     map[string]*mtask // the merge loop's tasks, by task
+	pause    *event.Pause      // the project's last pause fact (pause.go; nil: none or cleared)
 	// models: each model's last pause fact (obor pause --model, T-765; a cleared one is gone).
 	models map[string]*event.Pause
 	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names and the fact's seq (0: not delivered).
@@ -219,7 +222,7 @@ type folded struct {
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
-		loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{},
+		refusals: map[string]string{}, loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{},
 		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 

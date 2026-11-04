@@ -28,7 +28,7 @@ const (
 	MethodReview   = "review"        // Call.After the tasks it waits for, Call.Note the lead's note, Call.Clear ends the open request
 	MethodVerify   = "review_verify" // obor review verify: Call.After the fix tasks, Call.Findings the findings to re-run, Call.Note the lead's note
 	MethodSession  = "session"       // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
-	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (" (worker told)" when a working worker got the line), or "UNCHANGED <task> rev <n>"
+	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (" (worker told)" when a working worker's line was delivered, " (queued: <why>)" when it waits, T-821), or "UNCHANGED <task> rev <n>"
 	MethodConfig   = "config_set"    // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main
 	MethodBackup   = "backup"        // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
 	MethodSend     = "send"          // Call.Root the target project, Call.From the sender project, Call.Note the text

@@ -282,7 +282,8 @@ func (p *proj) laneDir(mt mtask) string {
 // for it, the report empty or a section missing, or the job fetched at an older spec rev than the store's (T-819: the
 // refusal records spec.seen and names the rev and the set's note, so the next task_done submits). A Blocked: report
 // submits nothing: it records the watchdog fact needs-you{asks: <what it needs>} (row 16a; the task stays working, the
-// owner is notified) and is never refused for the rev. A repeated call id gets the stored reply.
+// owner is notified) and is never refused for the rev. A repeated call id gets the stored reply, or the stored
+// refusal of an older rev (T-821).
 func (a *App) taskDone(c wire.Call) (string, error) {
 	a.hook(hookTaskDoneWaits)
 	a.submitMu.Lock() // one submission decision at a time
@@ -292,10 +293,11 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	var reply string
-	var stored bool
+	var reply, refusal string
+	var stored, refused bool
 	if p != nil {
 		reply, stored = p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
+		refusal, refused = p.folded.refusals[verdictStep(wire.MethodTaskDone, c.CallID)]
 		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
 			c.Task = p.laneTask(c.Lane)
 		}
@@ -304,6 +306,8 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("task_done: no served project at %s", c.Root)
+	case refused: // a stale rev's refusal (T-821): a retry of its lost reply, or a replay, gets it again
+		return "", errors.New(refusal)
 	case stored:
 		return reply, nil
 	case c.Task == "":
@@ -366,17 +370,19 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	// A job carried at an older spec rev than the store's: the lead changed the spec under the worker (T-819). The
 	// refusal shows the newer rev (and what the set changed), nothing is submitted, and the fact marks it seen for
-	// this attempt, so the worker's next task_done submits.
+	// this attempt, so the worker's next task_done submits. The fact keeps the call id and the refusal (T-821): the
+	// same call id, retried after a lost reply or replayed, is refused the same; only a new call submits.
 	row, hasSpec, err := specOf(p, c.Task)
 	if err != nil {
 		return "", fmt.Errorf("task_done: %v", err)
 	}
 	if hasSpec && mt.specRev > 0 && row.Rev > mt.specRev {
+		refusal := "task_done: " + specRevLine(c.Task, row.Rev, row.Note)
 		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSpecSeen, Kind: event.KindFact},
-			event.FactData{Rev: row.Rev}) {
+			event.FactData{Rev: row.Rev, Call: c.CallID, Reason: refusal}) {
 			return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 		}
-		return "", fmt.Errorf("task_done: %s", specRevLine(c.Task, row.Rev, row.Note))
+		return "", errors.New(refusal)
 	}
 	a.hook(hookTaskDoneCheck)
 	attempt := mt.attempt
