@@ -55,6 +55,13 @@ type fx struct {
 	wait   time.Duration                        // the launcher's exit wait and idle wait (0: bound, the load-proof default)
 	up     time.Duration                        // the launcher's wait for a started agent to come up (0: wait)
 	poll   time.Duration                        // the launcher's pane poll interval (0: 1 ms)
+	// A stop test may ask for less: waitEnv is OBOR_RESTART_WAIT for the launcher's env ("" none), idle overrides the
+	// exit wait for the idle wait alone, waitZero leaves the launcher's Wait unset (the env's or the default's wait),
+	// bound is the launcher's stop bound (0: port.StopBound).
+	waitEnv  string
+	idle     time.Duration
+	waitZero bool
+	bound    time.Duration
 	// sessions: the recorded sessions the launcher reads (nil: serve's store); reported: the sessions it reported.
 	sessions map[string]store.Session
 	reported []store.Session
@@ -133,8 +140,12 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		h = x.wrap(h)
 	}
 	wait := x.wait
-	if wait == 0 {
+	if wait == 0 && !x.waitZero {
 		wait = bound
+	}
+	idle := x.idle
+	if idle == 0 {
+		idle = wait
 	}
 	up := x.up
 	if up == 0 {
@@ -153,7 +164,7 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		background = func(search func()) { go search() }
 	}
 	return &launch.Launcher{Cfg: cfg, Env: x.env(), Kit: "/kit", H: h, Out: out,
-		Wait: wait, Idle: wait, Up: up, Poll: poll, Rollout: rollout, Background: background, Log: x,
+		Wait: wait, Idle: idle, Up: up, Poll: poll, Rollout: rollout, Bound: x.bound, Background: background, Log: x,
 		Kill: func(pgid int, sig syscall.Signal) error {
 			x.kills = append(x.kills, fmt.Sprintf("%d %s", pgid, sig))
 			if x.onKill != nil {
@@ -192,7 +203,13 @@ func (x *fx) launcher(out io.Writer) *launch.Launcher {
 		}}
 }
 
-func (x *fx) env() project.Env { return x.p.Env("CLAUDE_CONFIG_DIR=" + x.claude) }
+func (x *fx) env() project.Env {
+	kv := []string{"CLAUDE_CONFIG_DIR=" + x.claude}
+	if x.waitEnv != "" {
+		kv = append(kv, "OBOR_RESTART_WAIT="+x.waitEnv)
+	}
+	return x.p.Env(kv...)
+}
 
 // restart runs obor restart: its output with the result line (RESTARTED … or FAIL …) last, and whether it succeeded.
 func (x *fx) restart(req launch.Request) (string, bool) {
@@ -2038,6 +2055,43 @@ func TestStop(t *testing.T) {
 			t.Error("failed")
 		}
 	})
+}
+
+// T-829: a stop whose agent never goes idle and never quits is terminated within the stop's one bound (the idle wait,
+// the quit wait and the terminate together): at the default quit wait, and with OBOR_RESTART_WAIT set larger (the
+// override is capped, so the bound holds).
+func TestStopBound(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, env string
+	}{
+		{"the default quit wait", ""},
+		{"an OBOR_RESTART_WAIT larger than the bound", "3600"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			x := setup(t)
+			x.bound, x.idle, x.waitZero, x.waitEnv = time.Second, shortWait, true, c.env
+			p := x.agent("w1:p3", "pj-l-01", "claude", "working")
+			p.OnEsc, p.OnQuit = "ignore", "stay"
+			x.onKill = func(_ int, sig syscall.Signal) {
+				if sig == syscall.SIGTERM { // the signal ends it at once
+					p.Kind, p.Name, p.Status, p.Foreground, p.Procs = "", "", "", 1, nil
+					x.gone["2"] = true
+				}
+			}
+			start := time.Now()
+			out, ok := x.stop("pj-l-01", "", true)
+			elapsed := time.Since(start)
+			if !ok {
+				t.Fatalf("the stop of an agent that never quits did not end: %s", out)
+			}
+			contains(t, out, "terminated pj-l-01 (claude pid 2, SIGTERM)", "the stop terminated it")
+			if elapsed > x.bound {
+				t.Errorf("the stop took %s, past its bound %s: %s", elapsed, x.bound, out)
+			}
+		})
+	}
 }
 
 // T-249: an agent that ignores /exit. Without --force: FAIL with the hint. With --force, while it provably still leads

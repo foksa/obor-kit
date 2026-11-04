@@ -38,13 +38,14 @@ func TestCallDeadlineEnv(t *testing.T) {
 	}
 }
 
-// T-825: a call whose serve side may stop an agent (a dispatch — a move is one — drop, a drive's take-over) covers the
-// stop: its bound (port.StopBound) plus the verdict margin. The other methods keep theirs.
+// T-825, T-829: a call whose serve side may stop an agent (a dispatch — a move is one — drop, a drive's take-over)
+// covers the stop's one total bound (port.StopBound: the idle wait, the quit wait and the terminate) plus the verdict
+// margin. The other methods keep theirs.
 func TestCallDeadlineStopBound(t *testing.T) {
 	t.Setenv("OBOR_CALL_DEADLINE", "")
 	for _, method := range []string{MethodDispatch, MethodDrop, MethodDrive} {
-		if got, want := callDeadline(method), port.StopBound+verdictDeadline; got < want {
-			t.Errorf("callDeadline(%s) = %v, want at least %v (the stop's bound %v plus the verdict margin)",
+		if got, want := callDeadline(method), port.StopBound+verdictDeadline; got != want {
+			t.Errorf("callDeadline(%s) = %v, want %v (the stop's bound %v plus the verdict margin)",
 				method, got, want, port.StopBound)
 		}
 	}

@@ -63,8 +63,11 @@ type Launcher struct {
 	Out  io.Writer     // progress lines
 	Wait time.Duration // for an agent to exit after /exit, the shell to run the env line (default OBOR_RESTART_WAIT, else 20 s)
 	Up   time.Duration // for a started agent to come up in its pane (default 30 s: herdr's own startup bound)
-	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default port.StopBound)
+	Idle time.Duration // Stop with force: for a working agent to go idle after Escape (default port.StopIdle)
 	Poll time.Duration // how often it looks (default 1 s)
+	// Bound is the most a stop may take: its idle wait, its quit wait and the terminate together (default StopBound,
+	// port.StopBound). The quit wait is capped to it, whatever OBOR_RESTART_WAIT says (T-829).
+	Bound time.Duration
 	// Alive says whether process pid runs (an agent's exit is its leader gone); nil: project.PIDAlive.
 	Alive func(pid int) bool
 	// Kill sends sig to process group pgid (an exited agent's leftover MCP servers, or with force an agent that ignored
@@ -167,7 +170,23 @@ func (l *Launcher) wait() time.Duration {
 	if _, err := fmt.Sscan(l.Env.Get("OBOR_RESTART_WAIT"), &s); err == nil && s > 0 {
 		return time.Duration(s) * time.Second
 	}
-	return 20 * time.Second
+	return port.StopQuit
+}
+
+// idle is how long a stop waits for a working agent to go idle after Escape (default port.StopIdle).
+func (l *Launcher) idle() time.Duration {
+	if l.Idle > 0 {
+		return l.Idle
+	}
+	return port.StopIdle
+}
+
+// bound is the most a stop may take (default StopBound).
+func (l *Launcher) bound() time.Duration {
+	if l.Bound > 0 {
+		return l.Bound
+	}
+	return StopBound
 }
 
 func (l *Launcher) upWait() time.Duration {
