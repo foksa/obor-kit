@@ -46,30 +46,38 @@ func TestGoFixture(t *testing.T) {
 	t.Parallel()
 	root := fixture(t)
 	leafAndImporters := "fx/leaf fx/mid fx/tester fx/top"
-	for _, c := range []struct{ files, want, full string }{
-		{"leaf/leaf.go", leafAndImporters, ""},           // a leaf: it plus its importers, direct, indirect and test-only
-		{"leaf/leaf_test.go", leafAndImporters, ""},      // a test file only: its package plus importers
-		{"leaf/testdata/in.txt", leafAndImporters, ""},   // testdata/: its package
-		{"top/top.go", "fx/top", ""},                     // nothing imports top
-		{"tester/tester_test.go", "fx/tester", ""},       // a test-only importer is not imported back
-		{"other/tmpl/x.txt", "fx/other", ""},             // a non-Go file in a package dir (embedded) selects it
-		{"top/top.go docs/a.md README.md", "fx/top", ""}, // files under no package select nothing
-		{"README.md docs/a.md", "", ""},                  // no Go files: empty
-		{"leaf/leaf.go go.mod", "", "changed go.mod"},
-		{"go.sum", "", "changed go.sum"},
-		{"Makefile", "", "changed Makefile"},
-		{"top/top.go internal/testkit/tk.go", "", "changed internal/testkit/tk.go"},
-		{"internal/herdrtest/h.go", "", "changed internal/herdrtest/h.go"},
-		{"internal/herdr/herdrtest/fake.go", "", "changed internal/herdr/herdrtest/fake.go"},
-		{"internal/other/x.go", "", "no package for internal/other/x.go"},
-		{"gone/gone.go", "", "no package for gone/gone.go"}, // a removed package
+	for _, c := range []struct {
+		files, want, full string
+		globs             []string
+	}{
+		{"leaf/leaf.go", leafAndImporters, "", fullGlobs},           // a leaf: it plus its importers, direct, indirect and test-only
+		{"leaf/leaf_test.go", leafAndImporters, "", fullGlobs},      // a test file only: its package plus importers
+		{"leaf/testdata/in.txt", leafAndImporters, "", fullGlobs},   // testdata/: its package
+		{"top/top.go", "fx/top", "", fullGlobs},                     // nothing imports top
+		{"tester/tester_test.go", "fx/tester", "", fullGlobs},       // a test-only importer is not imported back
+		{"other/tmpl/x.txt", "fx/other", "", fullGlobs},             // a non-Go file in a package dir (embedded) selects it
+		{"top/top.go docs/a.md README.md", "fx/top", "", fullGlobs}, // files under no package select nothing
+		{"README.md docs/a.md", "", "", fullGlobs},                  // no Go files: empty
+		{"leaf/leaf.go go.mod", "", "changed go.mod", fullGlobs},
+		{"go.sum", "", "changed go.sum", fullGlobs},
+		{"Makefile", "", "changed Makefile", fullGlobs},
+		{"top/top.go internal/testkit/tk.go", "", "changed internal/testkit/tk.go", fullGlobs},
+		{"internal/herdrtest/h.go", "", "changed internal/herdrtest/h.go", fullGlobs},
+		{"internal/herdr/herdrtest/fake.go", "", "changed internal/herdr/herdrtest/fake.go", fullGlobs},
+		{"internal/other/x.go", "", "no package for internal/other/x.go", fullGlobs},
+		{"gone/gone.go", "", "no package for gone/gone.go", fullGlobs}, // a removed package
+		// T-351: merge.affected_full is the project's list; with none configured a testkit change selects its own
+		// package, while go.mod stays full.
+		{"internal/testkit/tk.go", "fx/internal/testkit", "", nil},
+		{"leaf/leaf.go", "", "changed leaf/leaf.go", []string{"leaf/*.go"}},
+		{"go.mod", "", "changed go.mod", nil},
 	} {
-		res, err := Go(root, strings.Fields(c.files), fullGlobs)
+		res, err := Go(root, strings.Fields(c.files), c.globs)
 		if err != nil {
 			t.Fatalf("%s: %v", c.files, err)
 		}
 		if got := strings.Join(res.Pkgs, " "); got != c.want || res.Full != c.full {
-			t.Errorf("%s: pkgs %q full %q, want %q full %q", c.files, got, res.Full, c.want, c.full)
+			t.Errorf("%s (globs %v): pkgs %q full %q, want %q full %q", c.files, c.globs, got, res.Full, c.want, c.full)
 		}
 	}
 }
@@ -119,23 +127,5 @@ func TestGoOborKit(t *testing.T) {
 			}
 		}
 		t.Logf("%s: %s", c.file, strings.Join(pkgs, " "))
-	}
-}
-
-// T-351: merge.affected_full is the project's list; with none configured a Makefile or testkit change selects packages
-// as any other file, while go.mod stays full.
-func TestGoFullGlobsAreConfig(t *testing.T) {
-	t.Parallel()
-	root := fixture(t)
-	res, err := Go(root, []string{"internal/testkit/tk.go"}, nil)
-	if err != nil || res.Full != "" || strings.Join(res.Pkgs, " ") != "fx/internal/testkit" {
-		t.Errorf("no globs: testkit change got %+v err %v, want just its own package, fx/internal/testkit", res, err)
-	}
-	res, err = Go(root, []string{"leaf/leaf.go"}, []string{"leaf/*.go"})
-	if err != nil || res.Full != "changed leaf/leaf.go" {
-		t.Errorf("a configured glob: got %+v err %v, want full", res, err)
-	}
-	if res, _ := Go(root, []string{"go.mod"}, nil); res.Full != "changed go.mod" {
-		t.Errorf("go.mod without globs: got %+v, want full", res)
 	}
 }

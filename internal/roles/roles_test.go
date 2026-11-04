@@ -36,34 +36,23 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		write        WriteProfile
 		stoppable    bool
 		dispatchable bool
+		optional     bool
 	}{
-		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false},
-		{"integrator", "integrator", "pj-int", CwdProject, WriteNone, false, false},
-		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true},
-		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false},
-		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false},
-		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false},
+		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false, false},
+		{"integrator", "integrator", "pj-int", CwdProject, WriteNone, false, false, false},
+		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true, false},
+		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false, false},
+		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false, true},
+		// Optional table roles count only when configured (T-751): the driver is never configured, obor drive starts it.
+		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false, true},
 	}
 	for _, check := range checks {
 		r, _ := Lookup(check.name)
 		if r.EnvValue != check.env || r.AgentName("pj", "L-01") != check.agent ||
-			r.Cwd != check.cwd || r.Write != check.write || r.Stoppable != check.stoppable || r.Dispatchable != check.dispatchable {
+			r.Cwd != check.cwd || r.Write != check.write || r.Stoppable != check.stoppable ||
+			r.Dispatchable != check.dispatchable || r.Optional != check.optional {
 			t.Errorf("%s = %+v", check.name, r)
 		}
-	}
-}
-
-// Optional table roles count only when configured: deep_dive; the driver is never configured (obor drive starts it,
-// T-751). Custom roles are optional too (TestCustomRoles).
-func TestOptionalRoles(t *testing.T) {
-	var optional []string
-	for _, role := range All() {
-		if role.Optional {
-			optional = append(optional, role.Name)
-		}
-	}
-	if want := []string{"deep_dive", "driver"}; !reflect.DeepEqual(optional, want) {
-		t.Errorf("optional roles = %q, want %q", optional, want)
 	}
 }
 

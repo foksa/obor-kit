@@ -73,6 +73,8 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	if !want.Serve.Up || len(want.NeedsYou) != 1 || len(want.Lanes) != 1 {
 		t.Fatalf("precondition: serve up, one needs-you, one lane: %+v", want)
 	}
+	// T-803: the idle state is part of the view the page draws.
+	want.Idle = &view.Idle{Since: now.Unix(), Last: "T-1 merged abc1234", Acked: true, Why: "nothing to dispatch"}
 	s := &Server{
 		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
 		Build:    func(context.Context, string) (view.Project, error) { return want, nil },
@@ -186,6 +188,11 @@ func TestViewAPIIsTheViewsJSON(t *testing.T) {
 	if !reflect.DeepEqual(got, expect) {
 		t.Errorf("/api/view is not the view:\n got %s\nwant %s", r.Body.String(), b)
 	}
+	var idle view.Project
+	decode(t, r, &idle)
+	if idle.Idle == nil || !idle.Idle.Acked || idle.Idle.Why != "nothing to dispatch" || idle.Idle.Last != "T-1 merged abc1234" {
+		t.Errorf("/api/view idle %+v, want the acknowledged state", idle.Idle)
+	}
 
 	r = get(t, h, "/api/projects")
 	var entries []ProjectsEntry
@@ -285,22 +292,9 @@ func TestTaskPage(t *testing.T) {
 	}
 }
 
-// TestJobTextIsThePromptsRow: /api/job answers with the prompts row (agent, task, time and the whole text).
-func TestJobTextIsThePromptsRow(t *testing.T) {
-	_, _, s := fixture(t)
-	r := get(t, s.Handler(), "/api/job?project=pj&job=T-01/1/work")
-	if r.Code != http.StatusOK {
-		t.Fatalf("job: %d %s", r.Code, r.Body.String())
-	}
-	var p view.Prompt
-	decode(t, r, &p)
-	if p.Text != "the whole job prompt" || p.Agent != "pj-l1" || p.Task != "T-01" || p.Kind != store.PromptJob {
-		t.Errorf("job %+v, want the prompts row's text, agent, task and kind", p)
-	}
-}
-
-// TestJobTextNeedsNoView (T-687): /api/job answers from the project's store alone: a view that cannot be built is no
-// error (the job's page needs neither the lane table, git nor serve's ask).
+// TestJobTextNeedsNoView (T-687): /api/job answers with the prompts row (agent, task, time and the whole text) from the
+// project's store alone: a view that cannot be built is no error (the job's page needs neither the lane table, git nor
+// serve's ask).
 func TestJobTextNeedsNoView(t *testing.T) {
 	_, _, s := fixture(t)
 	built := false
@@ -314,42 +308,11 @@ func TestJobTextNeedsNoView(t *testing.T) {
 	}
 	var p view.Prompt
 	decode(t, r, &p)
-	if p.Text != "the whole job prompt" {
-		t.Errorf("job %+v, want the prompts row's text", p)
+	if p.Text != "the whole job prompt" || p.Agent != "pj-l1" || p.Task != "T-01" || p.Kind != store.PromptJob {
+		t.Errorf("job %+v, want the prompts row's text, agent, task and kind", p)
 	}
 	if built {
 		t.Errorf("/api/job built the project's view")
-	}
-}
-
-// TestAgentPage: an agent's page lists its sessions with the transcript path and when it was last written (never the
-// contents), its briefs, the lines it was sent and its jobs with their text.
-func TestAgentPage(t *testing.T) {
-	_, _, s := fixture(t)
-	r := get(t, s.Handler(), "/api/agent?project=pj&agent=pj-l1")
-	if r.Code != http.StatusOK {
-		t.Fatalf("agent: %d %s", r.Code, r.Body.String())
-	}
-	var a view.AgentDetail
-	decode(t, r, &a)
-	if len(a.Sessions) != 1 {
-		t.Fatalf("sessions %+v, want one", a.Sessions)
-	}
-	sess := a.Sessions[0]
-	if sess.ID != "sid-1" || sess.Transcript == "" || sess.LastWrite == 0 || sess.Task != "T-01" {
-		t.Errorf("session %+v, want sid-1 with its transcript and its last write", sess)
-	}
-	if strings.Contains(sess.Transcript, "\n") {
-		t.Errorf("transcript %q holds contents, want only the path", sess.Transcript)
-	}
-	if len(a.Briefs) != 1 || a.Briefs[0].Text != "the brief's line" {
-		t.Errorf("briefs %+v, want the brief's line", a.Briefs)
-	}
-	if len(a.Lines) != 1 || a.Lines[0].Line != "[obor pj-lead] work on T-01" || a.Lines[0].From != "pj-lead" {
-		t.Errorf("lines %+v, want the line posted to the agent", a.Lines)
-	}
-	if len(a.Jobs) != 1 || a.Jobs[0].Text != "the whole job prompt" {
-		t.Errorf("jobs %+v, want the job's prompt text", a.Jobs)
 	}
 }
 
@@ -408,10 +371,28 @@ func TestAgentPageOfRoles(t *testing.T) {
 			t.Errorf("%s: %d lines, want %d (its history)", c.agent, len(a.Lines), c.lines)
 		}
 	}
+	// The active agent's page keeps its own lane, task and status, and lists its sessions with the transcript path and
+	// when it was last written (never the contents), its briefs, the lines it was sent and its jobs with their text.
 	var a view.AgentDetail
 	decode(t, get(t, h, "/api/agent?project=pj&agent=pj-l1"), &a)
 	if a.Status != "working" || a.Lane != "L-01" || a.Task != "T-01" {
 		t.Errorf("active agent: %+v, want working on L-01/T-01", a)
+	}
+	if len(a.Sessions) != 1 {
+		t.Fatalf("sessions %+v, want one", a.Sessions)
+	}
+	if sess := a.Sessions[0]; sess.ID != "sid-1" || sess.Transcript == "" || sess.LastWrite == 0 || sess.Task != "T-01" ||
+		strings.Contains(sess.Transcript, "\n") {
+		t.Errorf("session %+v, want sid-1 with its transcript path and its last write", sess)
+	}
+	if len(a.Briefs) != 1 || a.Briefs[0].Text != "the brief's line" {
+		t.Errorf("briefs %+v, want the brief's line", a.Briefs)
+	}
+	if len(a.Lines) != 1 || a.Lines[0].Line != "[obor pj-lead] work on T-01" || a.Lines[0].From != "pj-lead" {
+		t.Errorf("lines %+v, want the line posted to the agent", a.Lines)
+	}
+	if len(a.Jobs) != 1 || a.Jobs[0].Text != "the whole job prompt" {
+		t.Errorf("jobs %+v, want the job's prompt text", a.Jobs)
 	}
 }
 
@@ -449,6 +430,37 @@ func TestEventsSince(t *testing.T) {
 	}
 	if last := page.Events[len(page.Events)-1]; !strings.Contains(last.Line, "line to pj-l1") {
 		t.Errorf("last event %+v, want the newest line (oldest first)", last)
+	}
+
+	// A poll held at the newest seq answers as soon as a record lands (no reload).
+	s.Wait, s.Poll = 5*time.Second, 10*time.Millisecond
+	since := newestSeq(t, p.Root)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	done := make(chan view.EventsPage, 1)
+	go func() {
+		resp, err := http.Get(srv.URL + "/api/events?project=pj&since=" + strconv.FormatInt(since, 10))
+		if err != nil {
+			done <- view.EventsPage{}
+			return
+		}
+		defer resp.Body.Close()
+		var page view.EventsPage
+		_ = json.NewDecoder(resp.Body).Decode(&page)
+		done <- page
+	}()
+	time.Sleep(100 * time.Millisecond) // the poll is held: the record below is what ends it
+	addEvent(t, p.Root, "T-01", event.StepSendback, event.KindFact, event.ClassFact, map[string]any{"note": "fix x"})
+	select {
+	case page := <-done:
+		if page.Seq <= since || len(page.Events) == 0 || page.Events[len(page.Events)-1].Seq != since+1 {
+			t.Errorf("poll: %+v, want the new record %d", page, since+1)
+		}
+		if !strings.Contains(page.Events[len(page.Events)-1].Line, "sendback T-01") {
+			t.Errorf("poll line %q, want the worded sendback", page.Events[len(page.Events)-1].Line)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the poll did not answer a new record")
 	}
 }
 
@@ -497,39 +509,11 @@ func TestReadOnlyAndThePage(t *testing.T) {
 	if ct := r.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("page content type %q, want text/html", ct)
 	}
-}
-
-// TestLongPollAnswersWithANewRecord: a poll held at the newest seq answers as soon as a record lands (no reload).
-func TestLongPollAnswersWithANewRecord(t *testing.T) {
-	p, _, s := fixture(t)
-	s.Wait, s.Poll = 5*time.Second, 10*time.Millisecond
-	since := newestSeq(t, p.Root)
-	srv := httptest.NewServer(s.Handler())
-	defer srv.Close()
-	done := make(chan view.EventsPage, 1)
-	go func() {
-		resp, err := http.Get(srv.URL + "/api/events?project=pj&since=" + strconv.FormatInt(since, 10))
-		if err != nil {
-			done <- view.EventsPage{}
-			return
+	// T-803: the page renders the idle state (idle, not acknowledged since <time>; idle: <why> once acknowledged).
+	for _, want := range []string{"not acknowledged since", "obor idle", "last: "} {
+		if !strings.Contains(bundle(t), want) {
+			t.Errorf("the page's bundle has no %q: the idle state is not rendered", want)
 		}
-		defer resp.Body.Close()
-		var page view.EventsPage
-		_ = json.NewDecoder(resp.Body).Decode(&page)
-		done <- page
-	}()
-	time.Sleep(100 * time.Millisecond) // the poll is held: the record below is what ends it
-	addEvent(t, p.Root, "T-01", event.StepSendback, event.KindFact, event.ClassFact, map[string]any{"note": "fix x"})
-	select {
-	case page := <-done:
-		if page.Seq <= since || len(page.Events) == 0 || page.Events[len(page.Events)-1].Seq != since+1 {
-			t.Errorf("poll: %+v, want the new record %d", page, since+1)
-		}
-		if !strings.Contains(page.Events[len(page.Events)-1].Line, "sendback T-01") {
-			t.Errorf("poll line %q, want the worded sendback", page.Events[len(page.Events)-1].Line)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("the poll did not answer a new record")
 	}
 }
 

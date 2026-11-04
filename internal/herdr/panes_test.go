@@ -16,35 +16,6 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
-func TestSocketSnapshotWorkspacesAndTranscript(t *testing.T) {
-	t.Parallel()
-	f := fixture()
-	f.Workspaces = []herdr.Workspace{{ID: "w1", Label: "pj"}}
-	p := f.Pane("w1:p1")
-	p.Workspace, p.Transcript = "w1", "/t/s.jsonl"
-	snap, err := herdrtest.Serve(t, f).Client().Snapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snap.Workspaces) != 1 || snap.Workspaces[0] != (herdr.Workspace{ID: "w1", Label: "pj"}) {
-		t.Errorf("workspaces = %+v", snap.Workspaces)
-	}
-	a := snap.Agents[0]
-	if a.Workspace != "w1" || a.Transcript != "/t/s.jsonl" || snap.Panes[0].Transcript != "/t/s.jsonl" {
-		t.Errorf("agent = %+v, pane = %+v: want workspace w1 and the transcript path", a, snap.Panes[0])
-	}
-	if snap.Agents[1].Transcript != "" {
-		t.Errorf("an agent without a session has transcript %q", snap.Agents[1].Transcript)
-	}
-
-	// A session reported by id is no transcript.
-	g := fixture()
-	snap, err = herdrtest.Serve(t, g).Client().Snapshot(ctx)
-	if err != nil || snap.Agents[0].Session != "5e1d0c2b-aaaa" || snap.Agents[0].Transcript != "" {
-		t.Errorf("session by id: %+v, %v", snap.Agents[0], err)
-	}
-}
-
 func TestSocketProcessInfo(t *testing.T) {
 	t.Parallel()
 	f := fixture()

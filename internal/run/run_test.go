@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,21 +152,29 @@ func TestRunWarnsMarkerNotIgnored(t *testing.T) {
 
 // bash run.test.sh case_heavy_holds_slot, case_not_heavy_no_slot_held, case_heavy_nested_reuses_slot: a heavy command
 // holds slot-0 while it runs (and gets CHECK_SLOT_HELD = it), released after; not heavy: no slot, no CHECK_SLOT_HELD.
+// A heavy command gets CHECK_CPUS (slots.cpus here, else cores / slots.max), a light one does not.
 func TestRunHeavyHoldsSlot(t *testing.T) {
 	t.Parallel()
-	f := setup(t, `{"heavy": {"cmd": "ls \"$SLOTS\" > seen.txt; echo \"held=$CHECK_SLOT_HELD\" >> seen.txt", "heavy": true},
-		"light": "echo \"held=$CHECK_SLOT_HELD\" > seen.txt"}`)
+	f := setup(t, `{"heavy": {"cmd": "ls \"$SLOTS\" > seen.txt; echo \"held=$CHECK_SLOT_HELD cpus=$CHECK_CPUS\" >> seen.txt", "heavy": true},
+		"light": "echo \"held=$CHECK_SLOT_HELD cpus=$CHECK_CPUS\" > seen.txt"}`)
 	env := []string{"SLOTS=" + f.slots}
+	cpus := strconv.Itoa(max(1, runtime.NumCPU()/2))
 	if r := f.run(t, f.lane, env, nil, "heavy"); r.rc != 0 {
 		t.Fatalf("heavy: %+v", r)
 	}
-	if got := f.p.Read(filepath.Join(f.lane, "seen.txt")); got != "slot-0\nheld="+f.slots+"/slot-0\n" {
-		t.Errorf("during the command: %q", got)
+	if got, want := f.p.Read(filepath.Join(f.lane, "seen.txt")), "slot-0\nheld="+f.slots+"/slot-0 cpus="+cpus+"\n"; got != want {
+		t.Errorf("during the command: %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(f.slots, "slot-0")); err == nil {
 		t.Error("slot not released")
 	}
-	if r := f.run(t, f.lane, env, nil, "light"); r.rc != 0 || f.p.Read(filepath.Join(f.lane, "seen.txt")) != "held=\n" {
+	f.cfg.Data.Slots.CPUs = new(int)
+	*f.cfg.Data.Slots.CPUs = 3
+	if r := f.run(t, f.lane, env, nil, "heavy"); r.rc != 0 ||
+		!strings.Contains(f.p.Read(filepath.Join(f.lane, "seen.txt")), "cpus=3\n") {
+		t.Errorf("heavy, slots.cpus 3: %+v %q", r, f.p.Read(filepath.Join(f.lane, "seen.txt")))
+	}
+	if r := f.run(t, f.lane, env, nil, "light"); r.rc != 0 || f.p.Read(filepath.Join(f.lane, "seen.txt")) != "held= cpus=\n" {
 		t.Errorf("not heavy: %+v %q", r, f.p.Read(filepath.Join(f.lane, "seen.txt")))
 	}
 }
