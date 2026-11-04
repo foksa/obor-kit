@@ -48,7 +48,9 @@ func laneInput(lane, target string) port.PrepareInput {
 		Agent: "pj-l-01", At: laneAt}
 }
 
-// TestLanePrepare: a fresh prepare puts the branch at the target; base and head are the target (serve's lane row).
+// TestLanePrepare: a fresh prepare puts the branch at the target; base and head are the target (serve's lane row), and
+// it writes no lane state file (serve's row replaces it, T-439). A redo keeps the lane's commits (no checkout) and
+// returns the fork point as its head.
 func TestLanePrepare(t *testing.T) {
 	t.Parallel()
 	p, lane, target := laneFx(t)
@@ -69,16 +71,7 @@ func TestLanePrepare(t *testing.T) {
 	if p.Exists(".obor/state/lanes/L-01.json") {
 		t.Error("prepare wrote a lane state file (serve's row replaces it, T-439)")
 	}
-}
 
-// TestLanePrepareRedo: a redo keeps the lane's commits (no checkout) and returns the fork point as its head.
-func TestLanePrepareRedo(t *testing.T) {
-	t.Parallel()
-	p, lane, target := laneFx(t)
-	l := laneAdapter(t, p, "")
-	if _, err := l.Prepare(context.Background(), laneInput(lane, target)); err != nil {
-		t.Fatalf("fresh prepare: %v", err)
-	}
 	p.Commit(lane)
 	work := p.Git(lane, "rev-parse", "HEAD")
 	if work == target {
@@ -86,7 +79,7 @@ func TestLanePrepareRedo(t *testing.T) {
 	}
 	in := laneInput(lane, target)
 	in.Redo = true
-	got, err := l.Prepare(context.Background(), in)
+	got, err = l.Prepare(context.Background(), in)
 	if err != nil {
 		t.Fatalf("redo prepare: %v", err)
 	}

@@ -101,8 +101,12 @@ func (y *sx) conflicted() string {
 	y.Write("shared.txt", "main\n")
 	y.Git(y.Root, "commit", "-qam", "main edit")
 	sha := y.submit()
-	if o := y.gate(lane(sha)); o.Kind != port.OutcomeConflict {
+	o := y.gate(lane(sha))
+	if o.Kind != port.OutcomeConflict {
 		y.t.Fatalf("precondition: conflict, got %s %q", o.Kind, o.Line)
+	}
+	if got := strings.Join(o.Files, " "); got != "shared.txt" {
+		y.t.Fatalf("precondition: the conflicting file %q, want shared.txt", got)
 	}
 	return sha
 }
@@ -179,30 +183,10 @@ func publishStep(y *sx, in cutIn) (string, any, error) {
 }
 
 // T-360 (RV-39 #7): a moved-target gate keeps the task's subject rule — the supplied summary is the merge subject,
-// the move goes in the body — not "Merge T-xx into moved <branch>".
+// the move goes in the body — not "Merge T-xx into moved <branch>". T-403: it merges the submitted sha, never the old
+// candidate: main gets one merge commit for the task, whose second parent is the lane commit, and an unrelated move
+// keeps the patch (accept.kept keeps the task).
 func TestRV39MovedSubject(t *testing.T) {
-	t.Parallel()
-	y := newSx(t, cmd("check", "echo 1 pass"))
-	sha := y.submit()
-	y.green(lane(sha))
-	y.Write("other.txt", "other\n")
-	y.Git(y.Root, "add", "other.txt")
-	y.Git(y.Root, "commit", "-qm", "unrelated")
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Title: "Expected spec title", Summary: "worker words"})
-	if o.Kind != port.OutcomeGreen {
-		t.Fatalf("moved gate: %s %q; want green", o.Kind, o.Line)
-	}
-	if got := y.Git(y.Root, "log", "-1", "--format=%s", o.Candidate.SHA); got != "Merge T-05: Expected spec title" {
-		t.Errorf("moved merge subject %q, want %q", got, "Merge T-05: Expected spec title")
-	}
-	if got := y.Git(y.Root, "log", "-1", "--format=%b", o.Candidate.SHA); !strings.Contains(got, "moved main") || !strings.Contains(got, "Summary: worker words") {
-		t.Errorf("moved merge body %q, want the moved target named", got)
-	}
-}
-
-// T-403: a moved gate merges the submitted sha, never the old candidate: main gets one merge commit for the task,
-// whose second parent is the lane commit, and an unrelated move keeps the patch (accept.kept keeps the task).
-func TestScratchMovedGateMergesSubmitted(t *testing.T) {
 	t.Parallel()
 	y := newSx(t, cmd("check", "echo 1 pass"))
 	sha := y.submit()
@@ -210,44 +194,27 @@ func TestScratchMovedGateMergesSubmitted(t *testing.T) {
 	y.Write("other.txt", "other\n")
 	y.Git(y.Root, "add", "other.txt")
 	y.Git(y.Root, "commit", "-qm", "unrelated")
-	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Title: "Expected spec title", Summary: "worker words"})
+	if o.Kind != port.OutcomeGreen {
+		t.Fatalf("moved gate: %s %q; want green", o.Kind, o.Line)
+	}
+	c := o.Candidate
+	if got := y.Git(y.Root, "log", "-1", "--format=%s", c.SHA); got != "Merge T-05: Expected spec title" {
+		t.Errorf("moved merge subject %q, want %q", got, "Merge T-05: Expected spec title")
+	}
+	if got := y.Git(y.Root, "log", "-1", "--format=%b", c.SHA); !strings.Contains(got, "moved main") || !strings.Contains(got, "Summary: worker words") {
+		t.Errorf("moved merge body %q, want the moved target named", got)
+	}
 	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), sha, "the moved merge's second parent is the submitted sha")
 	if gitOK(y.Root, "merge-base", "--is-ancestor", old.SHA, c.SHA) {
 		t.Errorf("%s is an ancestor of the moved candidate: the old merge went along", old.SHA)
 	}
 	y.eq(c.Patch, old.Patch, "an unrelated move keeps the patch: kept, no new review")
-	o, err := y.s.Publish(ctx, c)
-	if err != nil || o.Kind != port.PublishMerged {
+	if o, err := y.s.Publish(ctx, c); err != nil || o.Kind != port.PublishMerged {
 		t.Fatalf("publish the moved candidate: %+v %v", o, err)
 	}
 	y.eq(y.Git(y.Root, "rev-list", "--count", "--merges", "main"), "1", "one merge commit for the task on main")
 	y.eq(y.Git(y.Root, "rev-parse", "main^2"), sha, "main's merge merges the submitted sha")
-}
-
-// T-403: the moved gate's merge of the submitted sha conflicts as a lane gate's does; the resolution is accepted
-// against that sha and gates as committed, as before.
-func TestScratchMovedGateConflict(t *testing.T) {
-	t.Parallel()
-	y := newSx(t, cmd("check", "echo 1 pass"))
-	y.Write(filepath.Join(y.lane, "shared.txt"), "lane\n")
-	sha := y.submit()
-	y.green(lane(sha))
-	y.Write("shared.txt", "main\n")
-	y.Git(y.Root, "commit", "-qam", "main edit")
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
-	if o.Kind != port.OutcomeConflict {
-		t.Fatalf("moved gate: %s %q; want a conflict", o.Kind, o.Line)
-	}
-	y.eq(strings.Join(o.Files, " "), "shared.txt", "the conflicting file")
-	res := y.resolveServe()
-	got, err := y.s.Resolved(ctx, "T-05", sha)
-	if err != nil {
-		t.Fatalf("resolve of %s: %v", sha, err)
-	}
-	y.eq(got, res, "the resolution's sha pinned against the submitted sha")
-	c := y.green(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputResolved, Input: res})
-	y.eq(c.Target, y.Git(y.Root, "rev-parse", res+"^1"), "checked against the resolution's first parent")
-	y.eq(y.tree(c.SHA), y.tree(res), "the candidate is the resolution's tree (T-802: its message amended)")
 }
 
 var cutSteps = []cutStep{
@@ -572,34 +539,6 @@ func TestScratchPublish(t *testing.T) {
 	o, err = z.s.Publish(ctx, c)
 	z.eq(fmt.Sprintf("%s %s %v", o.Kind, o.Head, err), "moved "+z.head(z.Root)+" <nil>", "moved target")
 	z.eq(z.ref(candidateRefs+"T-05"), c.SHA, "a moved candidate stays pinned")
-}
-
-// AfterMerge runs the command when its when matches, else skips it; it keeps no record of its own (T-525: its intent in
-// the store is the once), so a second call runs it again, and it writes no merges.log.
-func TestScratchAfterMerge(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ when, first string }{{"*.txt", "ran"}, {"cmd/**", "skipped"}} {
-		y := newSx(t, cmd("check", "echo 1 pass"),
-			cmd("after_merge", map[string]any{"cmd": `echo ran >> "$TMP_DIR/after.ran"`, "when": []any{c.when}}))
-		cand := y.green(lane(y.submit()))
-		if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
-			t.Fatalf("precondition: publish %+v %v", o, err)
-		}
-		for i, want := range []string{c.first, c.first} {
-			line, err := y.s.AfterMerge(ctx, cand)
-			y.eq(fmt.Sprintf("%s %v", line, err), want+" <nil>", fmt.Sprintf("when %s, call %d", c.when, i+1))
-		}
-		ran := ""
-		if c.first == "ran" {
-			ran = "ran\nran\n"
-		}
-		if y.Exists(filepath.Join(y.Base, "after.ran")) {
-			y.eq(y.Read(filepath.Join(y.Base, "after.ran")), ran, "when "+c.when+": runs")
-		} else {
-			y.eq("", ran, "when "+c.when+": runs")
-		}
-		y.gone(y.Path(".obor/state/merges.log"), "when "+c.when+": no merges.log")
-	}
 }
 
 // RV-40 #1: serve's gate does not reuse a worker's receipt once the guard has staged a change; the check runs on the

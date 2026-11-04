@@ -2,6 +2,7 @@ package checks
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -10,54 +11,59 @@ import (
 
 // T-521: the gate puts the stored spec (GateInput.Spec, SpecRev) into every lane candidate's merge message, after
 // its subject, and writes no spec file into the tree; a lane's own copy stays the task's change. No stored spec: the
-// subject alone.
+// subject alone. One scratch repo carries the rows (the lane's own copy, which leaves the file in the lane, last).
 func TestGateSpecInMessage(t *testing.T) {
 	t.Parallel()
 	const stored = "# T-05 — Stored\n\nfeature.txt\n"
-	for _, c := range []struct {
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	rows := []struct {
 		name, spec string
 		laneCopy   bool // the lane edits docs/tasks/T-05.md itself
 	}{
-		{"stored spec", stored, false},
-		{"the lane's own copy is its change", stored, true},
+		{"a stored spec", stored, false},
 		{"no stored spec", "", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			y := newSx(t, cmd("check", "echo 1 pass"))
-			if c.laneCopy {
-				y.Write(y.lane+"/docs/tasks/T-05.md", "# T-05 — Rewritten by the worker\n")
-			}
-			in := lane(y.submit())
-			in.Spec, in.SpecRev, in.Title = c.spec, 3, "Stored"
-			o := y.gate(in)
-			if o.Kind != port.OutcomeGreen {
-				t.Fatalf("gate: %s %q; want green\n%s", o.Kind, o.Line, y.out.String())
-			}
-			cand := o.Candidate
-			names := y.Git(y.Root, "diff", "--name-only", cand.Target, cand.SHA)
-			changed := y.Read(".obor/state/serve-changed-files")
-			y.contains(names, "feature.txt", "the candidate's patch")
-			if c.laneCopy {
-				y.contains(names, "docs/tasks/T-05.md", "the patch (the lane's own copy)")
-				y.contains(changed, "docs/tasks/T-05.md", "OBOR_CHANGED_FILES (the lane's own copy)")
-				y.eq(y.Git(y.Root, "show", cand.SHA+":docs/tasks/T-05.md"), "# T-05 — Rewritten by the worker",
-					"the lane's copy, not the stored spec")
-			} else {
-				y.lacks(names, "docs/tasks/T-05.md", "the patch (the gate writes no spec file)")
-			}
-			want := "Merge T-05: Stored"
-			if c.spec != "" {
-				want += "\n\nSpec rev 3:\n\n# T-05 — Stored\n\nfeature.txt"
-			}
-			want += "\n\nSummary: feature"
-			want += "\n\nCo-Authored-By: Test <test@example.invalid>" // the trailer stays last
-			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", cand.SHA), want, "the merge's message")
+		{"the lane's own copy is its change", stored, true},
+	}
+	want := func(spec string) string {
+		msg := "Merge T-05: Stored"
+		if spec != "" {
+			msg += "\n\nSpec rev 3:\n\n# T-05 — Stored\n\nfeature.txt"
+		}
+		return msg + "\n\nSummary: feature\n\nCo-Authored-By: Test <test@example.invalid>" // the trailer stays last
+	}
+	for i, c := range rows {
+		if c.laneCopy {
+			y.Write(y.lane+"/docs/tasks/T-05.md", "# T-05 — Rewritten by the worker\n")
+		}
+		sha, err := y.s.Submit(ctx, "T-05", strconv.Itoa(i+1), "L-01", "feature", "pj-l1")
+		if err != nil {
+			t.Fatalf("%s: submit: %v", c.name, err)
+		}
+		in := lane(sha)
+		in.Spec, in.SpecRev, in.Title = c.spec, 3, "Stored"
+		o := y.gate(in)
+		if o.Kind != port.OutcomeGreen {
+			t.Fatalf("%s: gate: %s %q; want green\n%s", c.name, o.Kind, o.Line, y.out.String())
+		}
+		cand := o.Candidate
+		names := y.Git(y.Root, "diff", "--name-only", cand.Target, cand.SHA)
+		changed := y.Read(".obor/state/serve-changed-files")
+		y.contains(names, "feature.txt", c.name+": the candidate's patch")
+		if c.laneCopy {
+			y.contains(names, "docs/tasks/T-05.md", c.name+": the patch (the lane's own copy)")
+			y.contains(changed, "docs/tasks/T-05.md", c.name+": OBOR_CHANGED_FILES (the lane's own copy)")
+			y.eq(y.Git(y.Root, "show", cand.SHA+":docs/tasks/T-05.md"), "# T-05 — Rewritten by the worker",
+				c.name+": the lane's copy, not the stored spec")
+		} else {
+			y.lacks(names, "docs/tasks/T-05.md", c.name+": the patch (the gate writes no spec file)")
+		}
+		y.eq(y.Git(y.Root, "log", "-1", "--format=%B", cand.SHA), want(c.spec), c.name+": the merge's message")
+		if i == len(rows)-1 {
 			if o, err := y.s.Publish(ctx, cand); err != nil || o.Kind != port.PublishMerged {
 				t.Fatalf("publish: %+v %v", o, err)
 			}
-			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", "main"), want, "main's merge message")
-		})
+			y.eq(y.Git(y.Root, "log", "-1", "--format=%B", "main"), want(c.spec), "main's merge message")
+		}
 	}
 }
 

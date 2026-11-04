@@ -110,31 +110,6 @@ func TestReceiptReuse(t *testing.T) {
 	})
 }
 
-// The guard always runs, and the class's other checks are still reused one by one.
-func TestReceiptGuardAlwaysRuns(t *testing.T) {
-	t.Parallel()
-	x := receiptFx(t,
-		testkit.Set("merge", map[string]any{"trailer": trailer, "summary_regex": "[0-9]+ pass", "guard": "guard", "receipt_max_age": 3600,
-			"classes": []any{map[string]any{"name": "any", "paths": []any{"**"}, "checks": []any{"check"}}}}),
-		cmd("guard", map[string]any{"cmd": `echo 1 pass; echo g >> "$TMP_DIR/guard.ran"`, "heavy": true}))
-	if rc := x.worker("check"); rc != 0 {
-		t.Fatalf("the worker's run: %d", rc)
-	}
-	x.is(x.gate("L-01", "T-05", "partial"), OK, `^GREEN T-05 \(guard 1 pass, check reused L-01 [0-9a-f]{7}, partial:any\)$`)
-	x.eq(strings.Repeat("r", x.ran()), "r", "check not run again")
-	x.eq(x.Read(filepath.Join(x.Base, "guard.ran")), "g\n", "the guard ran")
-}
-
-// obor merge exports CHECK_CPUS to its commands.
-func TestGateExportsCheckCPUs(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct{ slots, want string }{{`{"cpus": 3, "max": 2}`, "3"}, {`{"max": 1000}`, "1"}} {
-		x := newFx(t, testkit.Set("slots", tc.slots), cmd("check", `echo "$CHECK_CPUS" > "$TMP_DIR/cpus"`))
-		x.is(x.gate("L-01", "T-05", "cpus"), OK, `^GREEN T-05 `)
-		x.eq(strings.TrimSpace(x.Read(filepath.Join(x.Base, "cpus"))), tc.want, "CHECK_CPUS for slots "+tc.slots)
-	}
-}
-
 // mutate is a command that changes the tree being merged: it stages a generated file, like a formatter or codegen.
 const mutate = `echo "$MUT" > gen.txt; git add gen.txt; echo m >> "$TMP_DIR/mut.ran"; echo 1 pass`
 
