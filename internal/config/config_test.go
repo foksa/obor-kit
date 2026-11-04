@@ -270,8 +270,7 @@ func TestRolesAndAgentNames(t *testing.T) {
 
 func TestAgentLookupPrecedence(t *testing.T) {
 	root := writeProject(t, `{"prefix":"pj","lanes_dir":"../proj-wt","lanes":2,
-		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"},
-		"agents":{"adv":{"type":"opus"}}}`, "")
+		"roles":{"lead":"opus:high","integrator":"sonnet","triage":"","deep_dive":"opus"}}`, "")
 	// The agent L-01's state file names (project.LaneAgent; config reads no state files).
 	state := func(lane string) string {
 		if lane == "L-01" {

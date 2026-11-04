@@ -167,10 +167,6 @@ func TestValidate(t *testing.T) {
 		{name: "kinds args with a bare --", edits: []edit{set("kinds.claude.args", []any{"--strict-mcp-config", "--"})},
 			want: []string{"FAIL .kinds.claude.args: `--` is not allowed: obor adds the first prompt itself"}},
 		{name: "kinds args with -- inside a value", edits: []edit{set("kinds.claude.args", []any{"--x=--"})}},
-		// T-777: the agents key is gone: advisor, researcher and triage are roles; validate refuses it with the hint.
-		{name: "the agents key is refused", edits: []edit{set("agents", `{"hk-fable": {"type": "fable"}}`)},
-			want: []string{"FAIL .agents: no longer a config key: advisor, researcher and triage are roles " +
-				"(roles.advisor, roles.researcher, roles.triage); obor setup migrate moves a matching entry and drops the rest"}},
 		{name: "roles.lead unknown", edits: []edit{set("roles.lead", "ghost")},
 			want: []string{`FAIL .roles.lead: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
 		{name: "several problems: one line each", edits: []edit{set("version", 3), set("prefix", "X"), set("models.extra", map[string]any{})},
@@ -276,6 +272,10 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("handoff_tokens", 1.5), "handoff_tokens"},
 		{set("guards", `{"allow_push": "pj-lead"}`), "allow_push"},
 		{set("merge.clases", []any{}), `unknown field "clases"`},
+		// T-789: the old shape is no key of this binary: the load names it and the release that migrates it.
+		{set("agents", map[string]any{"triage": map[string]any{"type": "opus"}}), `unknown field "agents": ` + config.OldShapeHint},
+		{set("lane_types", map[string]any{"opus": map[string]any{"kind": "claude"}}),
+			`unknown field "lane_types": ` + config.OldShapeHint},
 		{set("merge.receipt_max_age", "1d"), "receipt_max_age"},
 		{set("merge.receipt_max_age", 1.5), "receipt_max_age"},
 		{set("slots.cpus", "4"), "cpus"},

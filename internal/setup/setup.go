@@ -44,9 +44,6 @@
 //	rename --name N --prefix P  rename the project and its agents (config, lane opencode.json kit paths, the herdr
 //	        workspace); refused while its serve LaunchAgent is installed: see rename.go.
 //
-//	migrate  rewrite a config of the shape before T-765 (lane_types, typed lanes, role objects) or one that still sets
-//	        the removed agents key to models and a lanes count, once: see migrate.go.
-//
 //	show  the setup table, read-only (T-647): per difficulty level each model ref, in order, with its kind, model id
 //	        and effort; the lanes; the roles' models; whether the owner confirmed it.
 //
@@ -129,7 +126,7 @@ func Usage() string {
 	}
 	where := "[--tab <id> | --new-tab <label> | --pane <id>]"
 	return "usage: obor setup lane <L-NN> | pane <LANE> " + where + " [--start]" +
-		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--model <name>] | show | migrate | rename --name N --prefix P"
+		" | role <" + strings.Join(names, "|") + "> " + where + " | githooks [--remove] | herdr-plugin | agents [--remove] | mcp [--model <name>] | show | rename --name N --prefix P"
 }
 
 var errUsage = errors.New("usage")
@@ -160,8 +157,6 @@ func (s *Setup) Run(ctx context.Context, args []string) int {
 		err = s.renameCmd(ctx, args)
 	case "show":
 		err = s.show(args)
-	case "migrate":
-		err = s.migrate(ctx, args)
 	case "obor-init": // `obor init` (oborinit.go); not in Usage either
 		err = s.oborInit(ctx, args)
 		if errors.Is(err, errUsage) {

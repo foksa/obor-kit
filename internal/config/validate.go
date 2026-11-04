@@ -25,7 +25,6 @@ var (
 func (c *Config) Validate(o ValidateOptions) (warns, fails []string) {
 	v := &validator{c: c, d: &c.Data, stateAgent: o.StateAgent}
 	v.top()
-	v.removed()
 	v.models()
 	v.lanes()
 	v.difficulty()
@@ -79,16 +78,6 @@ func (v *validator) top() {
 func (v *validator) lanes() {
 	if v.d.Lanes < 0 {
 		v.fail(".lanes", fmt.Sprintf("must be a non-negative integer (how many lanes), got %d", v.d.Lanes))
-	}
-}
-
-// removed refuses a key that was removed with a replacement the reader must use: agents.<name> (T-777: advisor,
-// researcher and triage are roles, migrated by obor setup migrate), never a WARN because there is no working shape to
-// keep. The WARN-only removals are in warnings.
-func (v *validator) removed() {
-	if v.d.Agents != nil {
-		v.fail(".agents", "no longer a config key: advisor, researcher and triage are roles "+
-			"(roles.advisor, roles.researcher, roles.triage); obor setup migrate moves a matching entry and drops the rest")
 	}
 }
 

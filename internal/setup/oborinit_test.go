@@ -119,12 +119,12 @@ func TestOborInitSetsUpTheProject(t *testing.T) {
 	if cfg.Data.Lanes != 2 {
 		t.Errorf("lanes = %d, want 2 (T-765)", cfg.Data.Lanes)
 	}
-	// T-765: init writes the new shape: no lane types, a lanes count, roles as model refs.
+	// T-765: init writes the new shape: no lane types, no agents key, a lanes count, roles as model refs.
 	doc := x.Read(".obor/config.json")
-	if key := config.OldShape([]byte(doc)); key != "" || strings.Contains(doc, "lane_types") ||
+	if strings.Contains(doc, "lane_types") || strings.Contains(doc, `"agents"`) ||
 		!regexp.MustCompile(`(?m)^  "lanes": 2,?$`).MatchString(doc) ||
 		!regexp.MustCompile(`"integrator": "opus"`).MatchString(doc) || !strings.Contains(doc, `"lead": "opus:high"`) {
-		t.Errorf("config.json is not the new shape (old key %q):\n%s", key, doc)
+		t.Errorf("config.json is not the new shape:\n%s", doc)
 	}
 	for _, lane := range []string{"L-01", "L-02"} {
 		if _, err := os.Stat(filepath.Join(cfg.LanesDir(), lane, ".git")); err != nil {
