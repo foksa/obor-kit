@@ -212,12 +212,9 @@ func diskOf(root string, cache *cacheDir) *app.Disk {
 		}}
 }
 
-// nightly is the merge loop's nightly full check of o's project (merge.nightly_at; nil: unset): what obor nightly
-// runs, cut off when ctx ends (as by a signal).
+// nightly is the merge loop's nightly full check of o's project: what obor nightly runs, cut off when ctx ends (as by
+// a signal). At "" (merge.nightly_at unset) is off: the pass starts no run, but still settles one (T-782).
 func nightly(o checks.Options) *app.Nightly {
-	if o.Cfg.Data.Merge.NightlyAt == "" {
-		return nil
-	}
 	root := o.Cfg.Root
 	return &app.Nightly{At: o.Cfg.Data.Merge.NightlyAt,
 		Last: func() (string, string, error) {

@@ -102,10 +102,13 @@ func TestMergeLoopNightlyFollowsTheConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 		if l.Nightly == nil {
-			return "off"
+			t.Fatalf("the merge loop has no nightly: off is At \"\" (T-782)")
 		}
 		if l.Nightly.Run == nil || l.Nightly.Last == nil {
 			t.Errorf("nightly at %s without Run or Last", l.Nightly.At)
+		}
+		if l.Nightly.At == "" {
+			return "off"
 		}
 		return l.Nightly.At
 	}
