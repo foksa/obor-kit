@@ -6,6 +6,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~23:45 (end of day). **v0.26.0 tagged** (f1084988 on main; notes docs/releases/v0.26.0.md, guide
+  docs/UPGRADE-v0.26.md). **Owner: `make ship`** (then each project: `obor config validate`, delete the keys it names,
+  `obor serve restart`). Today: T-825..T-849 (CLI deadlines, P4 version on calls, S2 needs-you block, test pruning
+  P1-P12 + restores, main-checkout guard, retired shape keys); RV-107..RV-112 closed. Nothing in flight, no watches.
+  **Next (consolidation, each deletes a mechanism):** (1) review → fix → verify in one reviewer session, hardened in
+  obor (Later); (2) integrator out of the main checkout (its own read-only worktree) instead of more guard deny rows;
+  (3) move/drop/take-over answer at once and report the stop as a later line (ends the deadline patches, RV-108 #1);
+  (4) judge the pruning wave's net (lines out vs 4 review rounds and 4 restore tasks) before any more pruning.
 - 2026-11-04 ~22:30: pruning wave merged except T-844/T-845 (restores); T-841 gating, T-846 (P12 v0.26 removals) on
   L-04; review queued after T-841, T-844, T-845, T-846 (covers T-838). **Then v0.26**: UPGRADE-v0.26 + release notes
   must say: store older than v0.22 upgrades through v0.24 first (T-840); remove a global opencode `mcp.servers.obor` by
@@ -166,6 +174,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 ## Owner decisions pending
 
 ## Later candidates
+- **Harden review → fix → verify in obor** (owner 11-04, after the lead closed RV-107..RV-111 right after dispatching
+  fixes, so each fix round was a fresh review without the findings' context). Options: `obor review close` refuses
+  while a fix task it names is open or merged but unverified; or `obor review fix T-a,T-b` links fix tasks to the open
+  review and serve briefs the same reviewer session to verify once they merge, closing only on the verify. Also the
+  skill/review-brief §3 wording: close after the verify, not after the dispatch.
 - (RV-63 #4, accepted by rule) `scripts/publish` checks the local tag only, not that it is the remote one: a moved
   pushed tag could upload bytes fresh installs reject. Rule instead of code: a pushed tag never moves (RELEASING.md).
 - **herdr-core (`hc`)** (`docs/research/herdr-core.md`, 10-30): a separate headless terminal core (own `herdr-core`/`hc`
