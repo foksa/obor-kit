@@ -6,6 +6,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-04 ~20:55: ob-int detached the main checkout (`git checkout --detach <candidate>` while reviewing T-830);
+  loop needs-you cleared by `git checkout main`. Guard fix T-841 queued after T-837 (guard tests). Until it lands the
+  same can recur during the pruning reviews: the fix is `git checkout -q main` in the main checkout (clean tree).
 - 2026-11-04 ~20:30: RV-107 closed (#1 → T-829 stop bound, L-01). T-828 survey merged
   (docs/research/test-pruning.md); pruning P1-P10 = T-830..T-839 dispatched (T-830..T-832 running, the rest queue for
   lanes; T-836, T-838 after T-829). P11 = T-840 (owner: raise to 9); retire step deletion folded into T-835 (owner); v0.26 notes must say both (store < v0.22: upgrade through v0.24; remove a global opencode `mcp.servers.obor` by hand). Held:
