@@ -146,6 +146,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-04) **crouton trial ended** (owner: not worth it; T-806 at xhigh stalled twice, needed a manual continue; moved to sonnet). crouton paused; `models.crouton` removed from config (owner).
 - (RV-102, accepted) #2 remainder: setup rename interrupted between config.json and local.json, then rerun, leaves a legacy derived allow_push entry (e.g. ob-lead) unconverted; unlikely (an interrupted rename with the entry in local.json only), fix ~20-40 lines (normalize both files before any prefix write); fix by hand: write the role name (lead).
 - (RV-102, accepted) T-793: a lead's git -C <lane> push passes the shell guard but the pre-push hook (run in the lane) classifies the caller as the lane's worker and refuses; unlikely (leads push main from the main checkout), fails closed, fix 20-50 lines (one identity contract for guard and hook).
 - (lead 11-04) **Agent-driver deep dive, planned (owner):** ob-researcher writes
