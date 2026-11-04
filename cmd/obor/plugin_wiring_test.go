@@ -66,7 +66,13 @@ type hooksFile struct {
 // newline cut, like $(…)), and how long it took.
 func shimRun(t *testing.T, dir, stdin string, env []string, name string, args ...string) (int, string, string, time.Duration) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	return shimRunWithin(t, 20*time.Second, dir, stdin, env, name, args...)
+}
+
+// shimRunWithin is shimRun bounded by limit.
+func shimRunWithin(t *testing.T, limit time.Duration, dir, stdin string, env []string, name string, args ...string) (int, string, string, time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)

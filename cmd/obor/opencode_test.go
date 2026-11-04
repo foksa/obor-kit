@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The opencode plugin (T-306): opencode/obor.js ships as a package dir, each start's generated config names it (the
@@ -42,7 +43,9 @@ func TestOpencodePlugin(t *testing.T) {
 	if err != nil {
 		t.Skip("no node on PATH")
 	}
-	rc, stdout, stderr, _ := shimRun(t, root, "", nil, node, "--test", filepath.Join(root, "opencode", "obor.test.js"))
+	// The suite takes ~5 s idle (one case waits out obor.js's 5 s hook timeout) and its fixtures run git: shimRun's 20 s
+	// timed out under the merge gate's load (obor flakes: TestOpencodePlugin ×6), so it gets 2 min.
+	rc, stdout, stderr, _ := shimRunWithin(t, 2*time.Minute, root, "", nil, node, "--test", filepath.Join(root, "opencode", "obor.test.js"))
 	if rc != 0 {
 		t.Errorf("node --test opencode/obor.test.js: exit %d\n%s\n%s", rc, stdout, stderr)
 	}
