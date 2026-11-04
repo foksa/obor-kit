@@ -10,12 +10,12 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   and serve could not reach it). **Wave 3 of DD-consolidation merged** on main (unreleased): T-785 brief --fresh, restart
   flags gone; T-786 derived identity, no OBOR_AGENT, allow_push roles; T-787 project inbox by slot, rename refuses old
   plist; T-788 one task phase, held = verdict; T-789 setup migrate deleted (codex projects migrated by owner 11-04);
-  T-790 spec titles from `T-xx: title` (+ spec set refuses untitled). **In flight**: T-791 (L-01, accepted by lead:
-  no-identity refusal + per-kind tests; the opencode failure was kit skew: global opencode MCP runs ~/.obor/kit 0.24.2),
-  T-792 (L-02, dispatch refuses a merged task). **Paused**: deepseek, crouton in obor-kit until v0.25 is installed
-  (watch T-791 says so). Config has `models.crouton` (owner trial at xhigh, after v0.25). **Researcher** (tab research)
+  T-790 spec titles from `T-xx: title` (+ spec set refuses untitled). **Also merged**: T-791 (no-identity refusal + per-kind
+  tests; the opencode failure was kit skew: global opencode MCP runs ~/.obor/kit 0.24.2), T-792 (dispatch refuses a
+  merged task). Nothing in flight; the watches fired while this lead had no inbox. **Paused**: deepseek, crouton in obor-kit until v0.25 is installed
+  (clear both after the install). Config has `models.crouton` (owner trial at xhigh, after v0.25). **Researcher** (tab research)
   writes docs/research/agent-cli-and-herdr-capabilities.md; then the agent-driver deep dive (Open, first line).
-  **Next**: when T-790..T-792 merged (watch): obor review T-785..T-792, close; v0.25 notes (restart flags gone,
+  **Next**: obor review T-785..T-792, close; v0.25 notes (restart flags gone,
   OBOR_AGENT gone, inbox per project: `rm -r ~/.obor/agents ~/.obor/inbox` + restart every role agent and lead,
   setup migrate gone, titles); `make release`; owner `make ship`; tell axis leads. Until v0.25 is everywhere, a 0.24.2
   `obor send obor-kit` may not reach this lead (it reads the global inbox). Owner feedback to act on after the review:
