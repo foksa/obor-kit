@@ -17,10 +17,10 @@ import (
 // The state is the store's (docs/state-model.md "Lines to the lead"): fact idle{Last, End} on the task key idle marks
 // the pipeline empty since then (End is the merged or dropped fact it follows), and fact idle.ack{Epoch, Why} is the
 // lead's acknowledgement of that epoch. Idle is an epoch: it ends when anything makes idleNow false — a dispatch, a
-// waiting dispatch, a needs-you, a hold agent's open brief (the reviewer's or the deep dive's, T-815) — and a new one
-// begins, one line and unacknowledged, when the pipeline is empty again, whatever ended the last one. An
-// acknowledgement of an ended epoch is refused. A replay derives it all; a restart with an unacknowledged idle state
-// pings again at most once.
+// waiting dispatch, a needs-you, a review request (T-818), a hold agent's open brief (the reviewer's or the deep
+// dive's, T-815) — and a new one begins, one line and unacknowledged, when the pipeline is empty again, whatever ended
+// the last one. An acknowledgement of an ended epoch is refused. A replay derives it all; a restart with an
+// unacknowledged idle state pings again at most once.
 //
 // On the transition serve posts one line to the lead ("[obor] idle: nothing in flight (last: T-xx merged <sha7>) —
 // dispatch next, or obor idle \"<why nothing>\""), after a watch line firing for the same merge (notify records the
@@ -60,8 +60,8 @@ type idleState struct {
 }
 
 // idle is idleNow's answer: what ended the pipeline last ("T-xx merged <sha7>", "T-xx dropped: <why>"), that fact's
-// seq, and whether nothing is in flight — the pipeline is empty, no needs-you is in force and no hold agent holds a
-// brief.
+// seq, and whether nothing is in flight — the pipeline is empty, no needs-you is in force, no review request is
+// pending and no hold agent holds a brief.
 type idle struct {
 	last string
 	end  int64
@@ -96,8 +96,8 @@ func (p *proj) foldIdle(r event.Record) {
 }
 
 // idleNow is the pipeline's state now (under mu): idle with the last end's line and fact seq when nothing is in
-// flight, no needs-you is in force and no reviewer or deep dive holds a brief. A task merged but still on its
-// after-merge steps is in flight; a rejected one is no cause of idle (its needs-you ends it).
+// flight, no needs-you is in force, no review request is pending and no reviewer or deep dive holds a brief. A task
+// merged but still on its after-merge steps is in flight; a rejected one is no cause of idle (its needs-you ends it).
 func (p *proj) idleNow() idle {
 	var last string
 	var end int64
@@ -121,6 +121,11 @@ func (p *proj) idleNow() idle {
 		default:
 			return idle{}
 		}
+	}
+	// A review request is work until it ends (skills/lead/commands.md: a review request ends idle, T-818), and a pass
+	// starting one is in flight from its claim to the reviewer's brief (its fire fact ends the request first).
+	if p.folded.review != nil || p.rv.what != "" {
+		return idle{}
 	}
 	if end == 0 || len(p.needsYou()) > 0 {
 		return idle{}

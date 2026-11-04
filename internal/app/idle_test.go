@@ -506,3 +506,69 @@ func TestReviewerBriefEndsIdleAcrossARestart(t *testing.T) {
 	r.finishesBrief("w1:p6", "pj-rev", "[obor] pj-rev finished (briefed 5m ago)")
 	r.newIdleEpoch(line)
 }
+
+// T-818 (RV-104 #2): a review request is work (skills/lead/commands.md: a review request ends idle). It ends the
+// acknowledged idle epoch — obor status shows no idle state and obor idle "…" is refused — and its end starts a new
+// one: one line, unacknowledged.
+
+// reviewEndsIdle asserts the request in flight ended the acknowledged epoch: no idle state in obor status, and an
+// acknowledgement refused as NOT IDLE.
+func (r *loopRig) reviewEndsIdle() {
+	r.t.Helper()
+	if st := r.app.Status().Project.Idle; st != nil {
+		r.t.Fatalf("idle state %+v while a review request is in flight, want none", st)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{Note: "still nothing"}); err != nil || reply != "NOT IDLE" {
+		r.t.Fatalf("the ack of an ended epoch: %q, %v; want NOT IDLE", reply, err)
+	}
+}
+
+// requestReview records a request from the lead and checks its reply.
+func (r *loopRig) requestReview(callID string, after []string, want string) {
+	r.t.Helper()
+	if reply, err := r.line(wire.MethodReview, callID, wire.Call{After: after}); err != nil || reply != want {
+		r.t.Fatalf("review: %q, %v; want %q", reply, err, want)
+	}
+}
+
+// endReview ends the open request (--rm); the next pass starts a new idle epoch when nothing else is in flight.
+func (r *loopRig) endReview(callID, line string) {
+	r.t.Helper()
+	if reply, err := r.line(wire.MethodReview, callID, wire.Call{Clear: true}); err != nil || reply != "REVIEW REQUEST ENDED" {
+		r.t.Fatalf("review --rm: %q, %v", reply, err)
+	}
+	r.newIdleEpoch(line)
+}
+
+// T-818: a request for now ends the acknowledged epoch, and its end starts a new one.
+func TestReviewRequestEndsIdleAndANewEpochStarts(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	line := r.idleAcked()
+	r.requestReview("r1", nil, "REVIEW REQUESTED (now)")
+	r.reviewEndsIdle()
+	r.endReview("r2", line)
+}
+
+// T-818: a queued request (--after) holds the pipeline the same until it ends.
+func TestQueuedReviewRequestEndsIdleAndANewEpochStarts(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	line := r.idleAcked()
+	r.requestReview("r1", []string{"T-1"}, "REVIEW REQUESTED (after T-1)")
+	r.reviewEndsIdle()
+	r.endReview("r2", line)
+}
+
+// T-818: a restart with the request pending replays it: not idle, the acknowledgement refused, and its end starts the
+// new epoch as without the restart.
+func TestReviewRequestEndsIdleAcrossARestart(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	line := r.idleAcked()
+	r.requestReview("r1", nil, "REVIEW REQUESTED (now)")
+	r.stop()
+	r.start()
+	r.reviewEndsIdle()
+	r.endReview("r2", line)
+}

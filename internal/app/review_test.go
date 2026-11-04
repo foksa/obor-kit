@@ -535,3 +535,28 @@ func TestMergeSubjectResolved(t *testing.T) {
 		t.Errorf("mergeRE on a resolved merge's subject: %q, want T-1470", m)
 	}
 }
+
+// T-818: a pass's claim of the request is in flight too: its fire fact ends the request before the reviewer's brief
+// opens, so from the claim to the brief nothing may call the pipeline idle.
+func TestReviewClaimIsInFlight(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.submitted("T-a")
+	r.merged("T-a")
+	for _, step := range afterSteps {
+		r.a.record(r.p, event.Record{Task: "T-a", Attempt: 1, Step: step, Kind: event.KindResult}, nil)
+	}
+	r.a.mu.Lock()
+	n := r.p.idleNow()
+	r.a.mu.Unlock()
+	if !n.ok {
+		t.Fatalf("precondition: T-a merged with its after-merge steps done is not idle: %+v", n)
+	}
+	r.a.mu.Lock()
+	r.p.rv.what = "starting"
+	n = r.p.idleNow()
+	r.a.mu.Unlock()
+	if n.ok {
+		t.Error("idle while a pass starts the review request")
+	}
+}
