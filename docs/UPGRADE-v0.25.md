@@ -1,8 +1,9 @@
 # Upgrading an obor project from v0.24 to v0.25
 
 ## v0.25.1 (opencode: obor's MCP server and plugin per start)
-Run `obor setup agents` once per machine: it removes the global opencode entries (`mcp.servers.obor` in
-`~/.config/opencode/opencode.json` and the `plugins/obor.js` link) when they are obor's, then restart opencode agents.
+Run `obor setup agents` once per machine, then restart opencode agents. If an obor before v0.25 put a global opencode
+registration on the machine, remove it by hand: the `mcp.servers.obor` entry of `~/.config/opencode/opencode.json` and
+the `plugins/obor.js` link there (`$XDG_CONFIG_HOME` respected).
 Each opencode start now names its own config (`OPENCODE_CONFIG`, `.obor/state/opencode.json`) with the launching kit's
 `obor mcp` and plugin; while the global link is there opencode loads that copy instead and the per-start plugin never runs.
 
@@ -49,8 +50,8 @@ v0.25.1, once per machine:
 obor setup agents
 ```
 
-It removes obor's old user-global opencode registration (`mcp.servers.obor` in `~/.config/opencode/opencode.json` and
-the `plugins/obor.js` link); a v0.25.0 serve's opencode lanes still need it, so run it last. Then restart running
+It installs nothing user-global today (T-835: the old global opencode entry and link are the user's to remove by hand:
+`mcp.servers.obor` in `~/.config/opencode/opencode.json` and the `plugins/obor.js` link there). Then restart running
 opencode lanes and role agents (`obor restart <agent>`), and the lead (`obor lead --resume`) to load the new skill.
 
 What changes:

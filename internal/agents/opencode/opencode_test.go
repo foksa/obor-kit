@@ -13,8 +13,7 @@ import (
 )
 
 // T-495: OpenCode's start argv (--prompt, no resume, no registration on the command line), /exit with the popup's
-// second Enter and the clear keys, `opencode run`, registered per start (the old user config entry and plugin link
-// retired, T-809), no transcript, typed
+// second Enter and the clear keys, `opencode run`, registered per start (nothing user-global, T-809), no transcript, typed
 // delivery, the plugin hook transport.
 func TestKind(t *testing.T) {
 	k, ok := agents.Lookup("opencode")
@@ -49,7 +48,7 @@ func TestKind(t *testing.T) {
 		t.Errorf("Headless = %+v", h)
 	}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	// T-809: nothing user-global; the old global entry and link retired.
+	// T-809, T-835: nothing user-global; an old global entry and link are the user's to remove by hand.
 	in := k.Install("/kit", env(map[string]string{"HOME": "/h"}))
 	if m := in.MCP; m.Where != agents.PerStart || m.Path != "" || m.Entry != nil || in.Plugin != nil {
 		t.Errorf("Install = %+v: want per start, nothing user-global", in)
@@ -57,35 +56,6 @@ func TestKind(t *testing.T) {
 	if how, reg, static := in.MCP.Lane([]string{"-m", "x"}, nil); !reg || static || !strings.Contains(how, "OPENCODE_CONFIG") ||
 		!strings.Contains(how, "/kit/bin/obor mcp") || !strings.Contains(how, "plugin /kit/opencode") {
 		t.Errorf("Lane = %q, %v, %v: want registered per start by the generated config", how, reg, static)
-	}
-	r := in.Retired
-	if r == nil || r.MCP.Where != agents.Config || r.MCP.Path != "/h/.config/opencode/opencode.json" ||
-		r.MCP.AltPath != "/h/.config/opencode/opencode.jsonc" || !slices.Equal(r.MCP.Key, []string{"mcp", "servers", "obor"}) ||
-		r.Link == nil || *r.Link != (agents.Link{From: "/kit/opencode/obor.js", To: "/h/.config/opencode/plugins/obor.js"}) {
-		t.Fatalf("Retired = %+v", r)
-	}
-	if l := k.Install("/kit", env(map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"})).Retired.Link; l.To != "/x/opencode/plugins/obor.js" {
-		t.Errorf("Retired link under XDG_CONFIG_HOME = %+v", l)
-	}
-	for _, c := range []struct {
-		entry string
-		ours  bool
-	}{
-		{`{"type":"local","command":["/h/.obor/kit/bin/obor","mcp"],"environment":{"OBOR_NO_SELF_HOST":"1"}}`, true},
-		{`{"type":"local","command":["/other/kit/bin/obor","mcp"]}`, true},
-		{`{"type":"local","command":["/usr/bin/my-obor","mcp"]}`, false},
-		{`{"type":"local","command":["/k/bin/obor","serve"]}`, false},
-		{`{"type":"local","command":["/k/bin/obor","mcp","x"]}`, false},
-		{`{"type":"remote","url":"http://x"}`, false},
-		{`"obor"`, false},
-	} {
-		var v any
-		if err := json.Unmarshal([]byte(c.entry), &v); err != nil {
-			t.Fatal(err)
-		}
-		if got := r.Ours(v); got != c.ours {
-			t.Errorf("Ours(%s) = %v, want %v", c.entry, got, c.ours)
-		}
 	}
 	if got := k.Transcript(env(map[string]string{"HOME": "/h"}), "s1"); got != "" {
 		t.Errorf("Transcript = %q, want none", got)

@@ -17,9 +17,9 @@ import (
 	"obor/internal/agents/opencode"
 )
 
-// opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global and
-// removes the old entry and link), one --standalone start in the lane with the env the driver's StartEnv gives it
-// (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
+// opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global; an
+// old entry and link are removed by hand, T-835), one --standalone start in the lane with the env the driver's StartEnv
+// gives it (OPENCODE_CONFIG naming its generated config, under the scratch dir): OC-L1, H-L1, OC-L3 (the start's own
 // mcp.servers.obor runs), OC-L4 (no global link; obor.js set up once, from the config's package dir), OC-L5's quit.
 // With TURN=1 a role agent in the main checkout takes one turn (OC-L2, OC-L5).
 func opencodeLive(l *lab, turn bool) {
@@ -78,7 +78,7 @@ func opencodeLive(l *lab, turn bool) {
 		mcp := l.waitRecords("mcp", "", 30*time.Second)
 		ocL1(l, pane, mcp)
 		ocL3(l.serverLabels(), where3)
-		ocL4(l, inst.Retired, where4)
+		ocL4(l, filepath.Join(xdg["XDG_CONFIG_HOME"], "opencode", "plugins", "obor.js"), where4)
 		if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
 			report("FAIL", "OC-L5", fmt.Sprintf("%s + a second Enter: exit status %d (%v)", st.Quit, code, orOK(err)), where5)
 			l.stopAgent(pane)
@@ -108,14 +108,12 @@ func ocL3(labels []string, where string) {
 	}
 }
 
-// ocL4: no global obor.js link (what setup used to write) and obor.js set up exactly once, from the config's package
-// dir (<kit>/opencode, its main obor.js).
-func ocL4(l *lab, retired *agents.Retired, where string) {
-	if retired != nil && retired.Link != nil {
-		if _, err := os.Lstat(retired.Link.To); err == nil {
-			report("FAIL", "OC-L4", "a global "+retired.Link.To+" is there: opencode would set up that copy, not the start's", where)
-			return
-		}
+// ocL4: no global obor.js link (what an obor before v0.25 wrote; setup no longer removes it, T-835) and obor.js set up
+// exactly once, from the config's package dir (<kit>/opencode, its main obor.js).
+func ocL4(l *lab, link, where string) {
+	if _, err := os.Lstat(link); err == nil {
+		report("FAIL", "OC-L4", "a global "+link+" is there: opencode would set up that copy, not the start's", where)
+		return
 	}
 	js := filepath.Join(l.kit, "opencode", "obor.js")
 	loads := l.markerLoads()

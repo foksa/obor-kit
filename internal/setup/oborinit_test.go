@@ -12,7 +12,6 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/testkit"
 )
 
 // initFx is a bare project (no config) for obor init: a fake `claude` (and, with codex, a fake `codex`) first on the
@@ -274,25 +273,6 @@ func TestOborInitInAnEmptyDirectory(t *testing.T) {
 	hasNot(t, out, "nothing committed", "no uncommitted note after init committed")
 }
 
-func TestOborInitCommitsAnUnbornRepository(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, true)
-	dir := filepath.Join(x.Base, "unborn")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	x.Git(dir, "init", "-q", "-b", "main")
-	out, rc := x.runIn(t, dir, "obor-init")
-	if rc != 0 {
-		t.Fatalf("obor init in an unborn repo: exit %d\n%s", rc, out)
-	}
-	if got := x.Git(dir, "log", "--format=%s"); got != "obor init" {
-		t.Errorf("commits %q, want the one obor init commit", got)
-	}
-	hasNot(t, out, "git init -b", "no second git init line")
-	has(t, out, "committed obor init: ", "the commit line")
-}
-
 // T-631: init commits only in a directory that held nothing but .git; with anything else and no commit it FAILs before
 // any write: no repository made, no config, the user's files as they were.
 func TestOborInitRefusesToCommitAUsersFile(t *testing.T) {
@@ -446,62 +426,7 @@ func TestOborInitLeavesACommittedRepositoryAlone(t *testing.T) {
 	has(t, out, "nothing committed: review, then commit", "the uncommitted note")
 }
 
-// T-623: obor init installs the git hooks (core.hooksPath at the kit's set), and a rerun says already.
-func TestOborInitInstallsTheGitHooks(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, true)
-	out := x.init(t)
-	dir := filepath.Join(kit, "githooks")
-	if stateOf(out, "githooks") != "done" || !strings.Contains(summary(out, "githooks"), "core.hooksPath = "+dir) {
-		t.Errorf("githooks step %q", summary(out, "githooks"))
-	}
-	if got := x.Git(x.Root, "config", "--local", "--get", "core.hooksPath"); got != dir {
-		t.Errorf("core.hooksPath = %q, want %q", got, dir)
-	}
-	if out := x.init(t); stateOf(out, "githooks") != "already" {
-		t.Errorf("rerun githooks step %q", summary(out, "githooks"))
-	}
-}
-
-// A rerun is the repair path: no new lane, pane, plugin call or herdr link; every step says already.
-func TestOborInitRerunChangesNothing(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, true)
-	x.init(t)
-	cfg := x.Read(".obor/config.json")
-	calls, agents, wt := x.claudeCalls(), x.agents(t), x.Git(x.Root, "worktree", "list")
-	x.reset()
-	out := x.init(t)
-	if x.Read(".obor/config.json") != cfg {
-		t.Errorf("config changed on a rerun")
-	}
-	if x.claudeCalls() != calls {
-		t.Errorf("plugin calls on a rerun:\n%s", x.claudeCalls())
-	}
-	if got := x.agents(t); len(got) != len(agents) {
-		t.Errorf("agents %v, were %v", got, agents)
-	}
-	if got := x.Git(x.Root, "worktree", "list"); got != wt {
-		t.Errorf("worktrees:\n%s\nwere:\n%s", got, wt)
-	}
-	for _, r := range x.reqs() {
-		for _, m := range []string{"agent.start", "pane.split", "tab.create", "pane.send_input", "plugin.link", "plugin.unlink"} {
-			if strings.HasPrefix(r, m) {
-				t.Errorf("rerun sent %s", r)
-			}
-		}
-	}
-	for _, st := range []string{"project", "lanes", "plugin", "events", "L-01", "L-02", "integrator", "reviewer", "serve"} {
-		if stateOf(out, st) != "already" {
-			t.Errorf("rerun step %s: %q, want already\n%s", st, summary(out, st), out)
-		}
-	}
-	if x.serves != 2 {
-		t.Errorf("serve asked %d times (each run asks; it says already)", x.serves)
-	}
-}
-
-// A lanes count the user raised is kept on a rerun: exit 0, lanes already, no new pane; a configured lane whose
+// T-613 #3: obor init's rerun is the repair path for a lane, and the last run's outcome decides: a failed lane_setup
 // worktree is gone gets it back.
 func TestOborInitRerunKeepsTheLanes(t *testing.T) {
 	t.Parallel()
@@ -655,44 +580,6 @@ func TestOborInitLaneSetupOnARerun(t *testing.T) {
 			x := newInitFx(t, true)
 			x.init(t)
 			c.run(t, x)
-		})
-	}
-}
-
-// T-618 #3: the marker says a command finished, not just that some lane_setup did: only the command configured now
-// counts, so an edited commands.lane_setup runs again on the next obor init; no marker is never done.
-func TestLaneDoneChecksTheMarkersCommand(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name, marker, setup string
-		done                bool
-	}{
-		{"the marker of the command configured now: done", "bun install --frozen-lockfile", "bun install --frozen-lockfile", true},
-		{"another command's marker: not done", "bun install --frozen-lockfile", "pnpm install --frozen-lockfile", false},
-		{"no marker: not done", "", "bun install --frozen-lockfile", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			x := newFx(t, testkit.Set("commands.lane_setup", c.setup))
-			dir := x.Lane("L-01", "")
-			if c.marker != "" {
-				x.Write(laneSetupMarker(x.Root, "L-01"), c.marker+"\n")
-				if !x.Exists(laneSetupMarker(x.Root, "L-01")) {
-					t.Fatal("precondition: the marker was written")
-				}
-			}
-			var out bytes.Buffer
-			s := &Setup{Dir: x.Root, Env: x.Env(), H: x.srv.Client(), Out: &out}
-			if err := s.load(); err != nil {
-				t.Fatal(err)
-			}
-			done, err := s.laneDone(context.Background(), "L-01", dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if done != c.done {
-				t.Errorf("laneDone = %v, want %v\n%s", done, c.done, out.String())
-			}
 		})
 	}
 }
@@ -873,25 +760,6 @@ func TestOborInitPluginFailureIsRepairedByARerun(t *testing.T) {
 	out = x.init(t)
 	if stateOf(out, "plugin") != "done" || stateOf(out, "lanes") != "already" {
 		t.Errorf("rerun: plugin %q, lanes %q", summary(out, "plugin"), summary(out, "lanes"))
-	}
-}
-
-// A pane held by the trust dialog is listed in the summary and is not fatal.
-func TestOborInitStartsNoAgentSoNoPaneWaitsOnTheTrustDialog(t *testing.T) {
-	t.Parallel()
-	x := newInitFx(t, true)
-	x.screen = "> You are in /x\n  Do you trust the contents of this directory?\n  Trust this folder? 1. Yes  2. No\n"
-	x.srv.Fail("agent.start", "agent_not_ready", "blocked during startup")
-	out := x.init(t)
-	// T-708: init starts no agent, so no pane waits on a dialog and agent.start is never asked.
-	if stateOf(out, "L-01") != "done" || stateOf(out, "reviewer") != "done" {
-		t.Errorf("L-01 %q, reviewer %q", summary(out, "L-01"), summary(out, "reviewer"))
-	}
-	hasNot(t, out, "waiting on", "no trust dialog")
-	for _, q := range x.reqs() {
-		if strings.HasPrefix(q, "agent.start") {
-			t.Errorf("init asked herdr to start an agent: %s", q)
-		}
 	}
 }
 

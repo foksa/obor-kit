@@ -125,17 +125,8 @@ type Headless struct {
 
 // Install is what setup registers for a kind.
 type Install struct {
-	MCP     MCPRegistration
-	Plugin  *Link    // a user-global plugin file to link; nil: none
-	Retired *Retired // what an earlier obor installed user-globally that setup now removes; nil: none
-}
-
-// Retired is a user-global registration an earlier obor made and obor setup agents removes while it is still obor's
-// (T-809: OpenCode's mcp.servers.obor entry and plugins/obor.js link, now per start): anything else there is left.
-type Retired struct {
-	MCP  MCPRegistration      // Config: the entry at Key in Path (AltPath); Entry unused
-	Ours func(entry any) bool // the entry (decoded JSON) is obor's: removed; else kept with a warning
-	Link *Link                // the link at To, removed when it links to an obor kit's copy of From; nil: none
+	MCP    MCPRegistration
+	Plugin *Link // a user-global plugin file to link; nil: none
 }
 
 // Where obor's MCP server reaches a CLI.

@@ -126,41 +126,16 @@ func (kind) Headless() agents.Headless {
 }
 
 // Install: nothing user-global (T-809): obor's MCP server and plugin reach each start through its generated config
-// (StartEnv, ConfigVar). Retired are what obor setup agents wrote before: mcp.servers.obor in the user config
-// (<XDG_CONFIG_HOME|~/.config>/opencode/opencode.json, or opencode.jsonc when that is the only one) and the link
-// plugins/obor.js there. With that link present opencode sets up its global copy and never the start's (T-804 OC-L4),
-// so setup removes both.
+// (StartEnv, ConfigVar). An obor before v0.25 wrote a global registration instead (mcp.servers.obor and a
+// plugins/obor.js link in the user config, <XDG_CONFIG_HOME|~/.config>/opencode): setup no longer touches it, and the
+// upgrade notes say to remove it by hand (T-835).
 func (kind) Install(kit string, env func(string) string) agents.Install {
-	conf := env("XDG_CONFIG_HOME")
-	if conf == "" {
-		conf = filepath.Join(env("HOME"), ".config")
-	}
-	conf = filepath.Join(conf, name)
 	how := ConfigVar + " (the start's generated config: " + filepath.Join(kit, "bin", "obor") + " mcp, plugin " +
 		filepath.Join(kit, name) + ")"
 	return agents.Install{
 		MCP: agents.MCPRegistration{Where: agents.PerStart,
 			Lane: func([]string, agents.ReadFile) (string, bool, bool) { return how, true, false }},
-		Retired: &agents.Retired{
-			MCP: agents.MCPRegistration{Where: agents.Config,
-				Path: filepath.Join(conf, "opencode.json"), AltPath: filepath.Join(conf, "opencode.jsonc"),
-				Key: []string{"mcp", "servers", "obor"}},
-			Ours: oborEntry,
-			Link: &agents.Link{From: filepath.Join(kit, name, "obor.js"), To: filepath.Join(conf, "plugins", "obor.js")},
-		},
 	}
-}
-
-// oborEntry: a decoded mcp.servers.obor entry runs some obor kit's `bin/obor mcp` (any kit's: the one setup wrote
-// was ~/.obor/kit's).
-func oborEntry(entry any) bool {
-	m, _ := entry.(map[string]any)
-	cmd, _ := m["command"].([]any)
-	if len(cmd) != 2 || cmd[1] != "mcp" {
-		return false
-	}
-	bin, _ := cmd[0].(string)
-	return filepath.Base(bin) == "obor" && filepath.Base(filepath.Dir(bin)) == "bin"
 }
 
 // ConfigVar is the variable that names a start's generated config (T-809): a path, so the typed env line stays short
