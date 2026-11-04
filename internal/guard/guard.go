@@ -8,9 +8,10 @@
 // T-801; a role whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a
 // final symlink at its destination too), and an editor tool of a worker against its lane's boundary: no other
 // worktree of this repo (the main checkout included), no other obor project, no final symlink out of the lane. A
-// GitReadOnly role (reviewer, deep_dive, every custom role) runs git reads only (gitRead).
-// Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run
-// headless (codex exec, claude -p, opencode run) is denied for every role: agents run in herdr panes.
+// GitReadOnly role (reviewer, deep_dive, every custom role) runs git reads only (gitRead). Every role but the lead runs
+// no git verb that moves HEAD or changes the tree or index wholesale in the main checkout (T-841: serve publishes to
+// main from there). Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An
+// agent CLI run headless (codex exec, claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
 // It is an accident guard: it does not try to stop a crafted bypass (an interpreter, a script file, an alias, a
 // variable set by an earlier call). The git pre-push hook is the backstop for pushes. Writes by an interpreter or a

@@ -461,7 +461,63 @@ func TestWorkerGitWritesDeniedReadsAllowed(t *testing.T) {
 		bash("worker", P, "git commit -m x", "leave changes uncommitted"),
 		bash("integrator", L, "git commit -m x", "workers don't run git commit"),
 		bash("integrator", P, "git commit -m x", ""),
-		bash("integrator", P, "git merge --no-ff task/T-01", ""),
+		bash("integrator", P, "git merge --no-ff task/T-01", "serve publishes to main from this checkout"),
+	)
+	check(t, f.Project, cases)
+}
+
+// bash case_main_checkout_head (T-841): only the lead moves HEAD or changes the tree or index in the main checkout;
+// serve publishes to main from there, so every other role reads a candidate with git show / git diff. Lanes, the merge
+// scratch and git reads are unchanged; a checkout of paths keeps the checkWrite rule.
+func TestMainCheckoutHeadWritesDeniedForEveryNonLead(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P := f.P
+	scratch := f.LaneDir("merge")
+	f.Git(P, "worktree", "add", "-q", "--detach", scratch, "main")
+	const why = "serve publishes to main from this checkout"
+	verbs := []string{"checkout main", "switch main", "reset --hard", "rebase main", "merge main", "stash",
+		"cherry-pick abc", "revert HEAD", "am x.patch", "apply x.patch", "clean -fd"}
+	var cases []tc
+	for _, who := range []string{"integrator", "reviewer", "advisor"} {
+		for _, v := range verbs {
+			cases = append(cases,
+				bash(who, P, "git "+v, why),
+				bash(who, P, "git -C "+P+" "+v, why))
+		}
+		// Reads stay allowed everywhere, the main checkout and the merge scratch included.
+		for _, dir := range []string{P, scratch} {
+			cases = append(cases,
+				bash(who, dir, "git show HEAD:.gitignore", ""),
+				bash(who, dir, "git diff main", ""),
+				bash(who, dir, "git log --oneline -3", ""))
+		}
+	}
+	// The integrator may still move HEAD in the merge scratch (a resolve job's merge --abort and commit).
+	for _, v := range verbs {
+		cases = append(cases, bash("integrator", scratch, "git "+v, ""))
+	}
+	for _, v := range verbs {
+		cases = append(cases, bash("lead", P, "git "+v, ""))
+	}
+	cases = append(cases,
+		// --git-dir / --work-tree / GIT_DIR name the main checkout from elsewhere.
+		bash("integrator", scratch, "git --git-dir="+P+"/.git reset --hard", why),
+		bash("integrator", scratch, "git --work-tree="+P+" switch main", why),
+		bash("integrator", scratch, "GIT_DIR="+P+"/.git git clean -fd", why),
+		bash("integrator", scratch, "git -C "+P+" checkout main", why),
+		// A checkout that creates and switches to a branch moves HEAD too.
+		bash("integrator", P, "git checkout -b wip", why),
+		bash("integrator", P, "git checkout --orphan=wip", why),
+		bash("integrator", P, "git switch -c wip", why),
+		// A path checkout keeps today's checkWrite outcome.
+		bash("integrator", P, "git checkout -- src/a/x.ts", ""),
+		bash("integrator", P, "git checkout -- src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("integrator", P, "git checkout main -- src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("integrator", P, "git checkout main -- src/a/x.ts", ""),
+		bash("integrator", P, "git restore --source main src/core/types.ts", "src/core/types.ts is a protected file"),
+		// The owner (no role) in the main checkout keeps its rules, as the lead.
+		bash("-", P, "git checkout main", ""),
 	)
 	check(t, f.Project, cases)
 }
@@ -1290,7 +1346,7 @@ func TestOldBashBypassesDenied(t *testing.T) {
 		bash("-", P, `X='git push'; echo "$X"`, ""),
 		bash("-", P, `find . -name '*.go' -exec grep push {} \;`, ""),
 		bash("-", P, "echo a | xargs echo git push", ""),
-		bash("integrator", P, "git checkout main", ""),
+		bash("integrator", P, "git checkout main", "serve publishes to main from this checkout"),
 		bash("integrator", P, "git --git-dir="+L+"/.git commit -am x", ""),
 		bash("-", L, "bash tests/a.test.sh", ""),
 	}, "OBOR_TEST_GIT_SUB=push")
@@ -1525,7 +1581,7 @@ func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
 			bash(rl, P, "git config --local x y", "doesn't run git config"),
 			bash(rl, P, "git config --unset x", "doesn't run git config"),
 			bash(rl, P, "git -C "+P+" tag v1", "doesn't run git tag"),
-			bash(rl, P, "git stash", "doesn't run git stash"),
+			bash(rl, P, "git stash", "serve publishes to main from this checkout"),
 			bash(rl, P, "git fetch", "doesn't run git fetch"),
 			bash(rl, P, "git diff --output=internal/a.go", "doesn't run git diff"),
 		)
@@ -1612,7 +1668,7 @@ func TestTriageRoleGuard(t *testing.T) {
 	check(t, f.Project, []tc{
 		bash("triage", P, "git commit -m x", "a triage doesn't run git commit"),
 		bash("triage", P, "git add docs/BUGS.md", "a triage doesn't run git add"),
-		bash("triage", P, "git stash", "a triage doesn't run git stash"),
+		bash("triage", P, "git stash", "serve publishes to main from this checkout"),
 		bash("triage", P, "git log --oneline -30", ""),
 		bash("triage", P, "git status --short", ""),
 		edit("triage", P, "Write", P+"/src/core/types.ts", "src/core/types.ts is a protected file"),
