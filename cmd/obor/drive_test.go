@@ -177,8 +177,9 @@ func TestTellLeadRequest(t *testing.T) {
 	}
 }
 
-// The drive agent's first prompt names how it reaches the lead and how the lead's answers arrive (T-761); one line.
-func TestDrivePromptNamesTheLead(t *testing.T) {
+// The drive agent's first prompt names how it reaches the lead and how the lead's answers arrive (T-761), and says to
+// commit on the branch as it goes, which obor land refuses (T-762); one line.
+func TestDrivePrompt(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
 	p.Config()
@@ -187,31 +188,13 @@ func TestDrivePromptNamesTheLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := drivePrompt(cfg, drive{task: "T-01", lane: "L-01"})
-	for _, want := range []string{`obor tell-lead "<text>"`, "[obor answer] lines", "obor land T-01"} {
+	for _, want := range []string{`obor tell-lead "<text>"`, "[obor answer] lines", "obor land T-01",
+		"commit on that branch as you go", "commits nothing and refuses uncommitted changes"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("drive prompt %q, want %q in it", got, want)
 		}
 	}
 	if strings.ContainsAny(got, "\n`") {
 		t.Errorf("drive prompt %q: want one line, no backticks", got)
-	}
-}
-
-// The drive agent's first prompt says to commit on the branch as it goes, and that obor land commits nothing and refuses
-// uncommitted changes (T-762).
-func TestDrivePromptSaysCommitAsYouGo(t *testing.T) {
-	t.Parallel()
-	p := testkit.New(t)
-	p.Config()
-	cfg, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := drivePrompt(cfg, drive{task: "T-01", lane: "L-01"})
-	for _, want := range []string{"commit on that branch as you go", "obor land T-01",
-		"commits nothing and refuses uncommitted changes"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("drive prompt %q, want %q in it", got, want)
-		}
 	}
 }
