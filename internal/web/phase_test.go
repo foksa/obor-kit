@@ -27,7 +27,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ state, phase string }{
+	for _, c := range []struct{ state, phase string }{ // a worker's needs-you (working) has no merge stage (T-797)
 		{"waiting", wire.PhaseWaiting}, {"dispatched", wire.PhaseDispatching}, {"working", wire.PhaseWorking},
 		{"driving", wire.PhaseDriving}, {"submitted", wire.PhaseSubmitted}, {"submitted", wire.PhaseGating},
 		{"submitted", wire.PhaseGatePending}, {"green", wire.PhaseReview}, {"awaiting-accept", wire.PhaseReviewing},
@@ -35,8 +35,12 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 		{"accepted", wire.MergeHold("reviewer")}, {"working", wire.PhaseNeedsYou}, {"needs-you", wire.PhaseHeld},
 		{"rejected", wire.PhaseRejected},
 	} {
+		stage := wire.PhaseStage(c.phase)
+		if c.state == "working" {
+			stage = ""
+		}
 		ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: c.state, Phase: c.phase}}}}
+			Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: c.state, Phase: c.phase, Stage: stage}}}}
 		v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Events: 20})
 		if len(v.Lanes) != 1 || v.Lanes[0].State != "working" || v.Lanes[0].DoneAge == nil {
 			t.Fatalf("precondition: L-01 submitted (working, its task_done's age): %+v", v.Lanes)
@@ -51,7 +55,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 				merge = append(merge, m)
 			}
 		}
-		if stage := wire.PhaseStage(c.phase); stage == "" {
+		if stage == "" {
 			if len(merge) != 0 {
 				t.Errorf("%s: in the pipeline %+v, want not (no merge-loop stage)", c.phase, merge)
 			}

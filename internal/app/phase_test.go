@@ -142,3 +142,41 @@ func TestStatusShipsTheGreenTasksPhase(t *testing.T) {
 		t.Errorf("finishedIn: %v with T-1's row, %v with none; want true, false", finished, other)
 	}
 }
+
+// T-797 (RV-102 #4): the merge stage is the task's own, not the display phase's: a watchdog's needs-you (a stalled
+// worker, a question) turns a working or dispatching task's phase to needs-you but leaves it out of the merge loop;
+// the merge loop's needs-you (held, red past K) keeps its stage; a gate or publish step gives its stage.
+func TestStageIgnoresTheWatchdogsNeedsYou(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	stalled := event.Record{Task: "T-1", Step: event.StepNeedsYou, Kind: event.KindFact,
+		Data: []byte(`{"lane":"L-01","reason":"stalled"}`)}
+	p := &proj{folded: folded{active: map[string][]event.Record{"T-1": {stalled}}}}
+	for _, c := range []struct {
+		name  string
+		mt    *mtask
+		steps map[string]string
+		phase string
+		stage string
+	}{
+		{"working, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stWorking}, nil, wire.PhaseNeedsYou, ""},
+		{"dispatching, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stDispatched}, nil, wire.PhaseNeedsYou, ""},
+		{"merge loop held", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stAwaiting, needs: needsOf(event.CauseHeld)},
+			nil, wire.PhaseHeld, wire.StageHeld},
+		{"merge loop red past K", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stRed, needs: needsOf(causeRed)},
+			nil, wire.PhaseNeedsYou, wire.StageHeld},
+		{"needs-you left by a dispatch", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stDispatched,
+			needs: needsOf(causeStalled)}, nil, wire.PhaseNeedsYou, ""},
+		{"needs-you left by an undelivered fix job", &mtask{task: "T-1", lane: "L-01", state: stNeedsYou, left: stWorking,
+			needs: needsOf(causeStalled), attemptVars: attemptVars{work: "fix"}}, nil, wire.PhaseNeedsYou, ""},
+		{"gating, watchdog needs-you", &mtask{task: "T-1", lane: "L-01", state: stSubmitted},
+			map[string]string{"T-1": wire.PhaseGating}, wire.PhaseNeedsYou, wire.StageGating},
+	} {
+		if got := a.phaseOf(p, c.mt, c.steps); got != c.phase {
+			t.Errorf("%s: precondition phase %q, want %q", c.name, got, c.phase)
+		}
+		if got := a.stageOf(p, c.mt, c.steps); got != c.stage {
+			t.Errorf("%s: stage %q, want %q", c.name, got, c.stage)
+		}
+	}
+}

@@ -162,6 +162,15 @@ func (a *App) phaseOf(p *proj, mt *mtask, steps map[string]string) string {
 	return phase(mt, overlays{blocked: p.blocked(mt), step: steps[mt.task], hold: a.holdRole(p, mt)})
 }
 
+// stageOf is mt's merge-loop stage ("": not in the merge loop), from its state, its steps and the merge hold, and the
+// merge loop's needs-you (one left from a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's (T-797).
+func (a *App) stageOf(p *proj, mt *mtask, steps map[string]string) string {
+	if mt.state == stNeedsYou && (mt.left == stWaiting || mt.left == stDispatched || mt.left == stWorking) {
+		return "" // a needs-you its dispatch or worker left (redoable): the worker's, never the merge loop's
+	}
+	return wire.PhaseStage(phase(mt, overlays{step: steps[mt.task], hold: a.holdRole(p, mt)}))
+}
+
 // overlays are the live facts on a task its state does not say: a watchdog's needs-you in force (blocked), the phase
 // its gate or publish running or pending gives it (step: gating, merging, gate pending, publish pending; "": none),
 // the role holding its merge (hold, T-718; "": none).

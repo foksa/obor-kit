@@ -56,7 +56,7 @@ func (a *App) Status() wire.Status {
 			}
 			if mt.state != stMerged {
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.state,
-					Phase: a.phaseOf(p, mt, steps), Effort: mt.disp.Effort}
+					Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps), Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}
