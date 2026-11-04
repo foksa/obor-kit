@@ -42,6 +42,10 @@
     "check_milestone": {
       "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...",
       "timeout": 600
+    },
+    "conformance": {
+      "cmd": "make -s conformance TIER=static",
+      "timeout": 300
     }
   },
   "difficulty": {

@@ -283,3 +283,33 @@ func TestServeDump(t *testing.T) {
 		}
 	}
 }
+
+// A herdr on a newer protocol than obor's is served, not refused: serve's log names its version and protocol once,
+// and obor status carries the same note.
+func TestServeAcceptsNewerHerdrProtocol(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	p.Config()
+	f := herdrtest.New()
+	srv := herdrtest.Serve(t, f)
+	srv.Protocol(herdr.Protocol + 1)
+	env := []string{"OBOR_STATE_HOME=" + t.TempDir(), "HERDR_SOCKET_PATH=" + srv.Path}
+	cmd, out := startServe(t, p.Root, env)
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	want := "herdr fake, protocol " + strconv.Itoa(herdr.Protocol+1) + " (newer than obor's " + strconv.Itoa(herdr.Protocol) + ")"
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		rc, stdout, _ := run(t, p.Root, env, "status")
+		if rc == 0 && strings.Contains(stdout, want) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("obor status never carried %q: exit %d %q; serve output:\n%s", want, rc, stdout, out.String())
+		}
+	}
+	if n := strings.Count(out.String(), want); n != 1 {
+		t.Errorf("serve's log names the newer herdr %d times, want once:\n%s", n, out.String())
+	}
+	if strings.Contains(out.String(), "update obor or herdr") {
+		t.Errorf("serve refused a newer protocol:\n%s", out.String())
+	}
+}

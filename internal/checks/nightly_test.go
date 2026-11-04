@@ -72,6 +72,15 @@ func TestNightly(t *testing.T) {
 			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ RED failed: check, e2e; check 1 pass, 2 fail, gate rc=0, e2e rc=5, [0-9]+s\n$`, "state file")
 			x.gone(x.window(), "lock released")
 		}},
+		// T-798: the conformance suite's static tier is a line in the report, never RED
+		{"a failing conformance command is a non-gating line: GREEN, its details printed", func(t *testing.T) {
+			x := newFx(t, cmd("check", logged("check", "echo 7 pass; echo 0 fail")),
+				cmd("conformance", logged("conformance", "echo FAIL H-S1 a method is gone; echo 3 pass, 1 fail; exit 1")))
+			head := x.head(x.Root)
+			x.is(x.nightly(), OK, `^NIGHTLY GREEN `+head[:7]+` on main \(check 7 pass, 0 fail, conformance \(non-gating\) 3 pass, 1 fail, [0-9]+s\)$`)
+			x.contains(x.out.String(), "--- conformance (rc 1, non-gating)\n", "conformance details")
+			x.match(x.Read(".obor/state/last-full-check"), `^`+head+` [0-9]+ GREEN check 7 pass, 0 fail, conformance \(non-gating\) 3 pass, 1 fail, [0-9]+s\n$`, "state file")
+		}},
 		// bash case_lane_setup_failure_and_timeout
 		{"lane_setup failure → RED, nothing else runs; a timeout → RED timed out", func(t *testing.T) {
 			x := newFx(t, cmd("lane_setup", "echo boom; exit 2"), cmd("check", logged("check", "true")))

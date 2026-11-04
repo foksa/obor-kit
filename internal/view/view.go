@@ -65,14 +65,15 @@ type Running struct {
 
 // Serve: serve answered (Up, since when) or not (Error); the project's state in it.
 type Serve struct {
-	Up       bool   `json:"up"`
-	Since    string `json:"since,omitempty"`
-	Error    string `json:"error,omitempty"`     // why it is down
-	Herdr    bool   `json:"herdr"`               // serve's herdr subscription is live
-	Project  bool   `json:"project"`             // serve has this project loaded
-	Merging  bool   `json:"merging"`             // its merge loop runs for it
-	LogError string `json:"log_error,omitempty"` // its event log's last append error
-	PID      int    `json:"pid,omitempty"`       // the serve that answered (its serve.flock's pid)
+	Up        bool   `json:"up"`
+	Since     string `json:"since,omitempty"`
+	Error     string `json:"error,omitempty"`      // why it is down
+	Herdr     bool   `json:"herdr"`                // serve's herdr subscription is live
+	HerdrNote string `json:"herdr_note,omitempty"` // herdr's version and protocol when newer than obor's
+	Project   bool   `json:"project"`              // serve has this project loaded
+	Merging   bool   `json:"merging"`              // its merge loop runs for it
+	LogError  string `json:"log_error,omitempty"`  // its event log's last append error
+	PID       int    `json:"pid,omitempty"`        // the serve that answered (its serve.flock's pid)
 	// Launchd is the project's launchd agent (T-596; darwin): "none" (not installed), "loaded" (installed, its
 	// process not the serve that answered), "running" (the serve that answered is launchd's); "": not asked. The
 	// caller fills PID and Launchd (cmd/obor asks the service adapter).
@@ -207,7 +208,7 @@ func Build(in Input) Project {
 		v.Serve.Error = in.Err.Error()
 	} else {
 		ss := in.Status
-		v.Serve.Up, v.Serve.Since, v.Serve.Herdr = true, ss.Since, ss.Connected
+		v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote = true, ss.Since, ss.Connected, ss.HerdrNote
 		v.Serve.SinceTime, _ = time.Parse(time.RFC3339, ss.Since)
 		if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
 			ps, v.Serve.Project = *x, true

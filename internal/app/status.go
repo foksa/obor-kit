@@ -19,7 +19,7 @@ func (a *App) Status() wire.Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.opt.Now()
-	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected}
+	st := wire.Status{Since: a.since.UTC().Format(time.RFC3339), Connected: a.connected, HerdrNote: a.opt.HerdrNote}
 	if p := a.p; p != nil {
 		ps := wire.ProjectStatus{Name: p.name, Root: p.root, Merging: p.merging, Agents: []wire.AgentStatus{}, Tasks: []wire.TaskStatus{},
 			Facts: []event.Record{}}

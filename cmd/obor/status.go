@@ -420,6 +420,8 @@ func writeServe(w io.Writer, s view.Serve, now time.Time) {
 		}
 		if !s.Herdr {
 			line += "; herdr: not connected"
+		} else if s.HerdrNote != "" {
+			line += "; " + s.HerdrNote
 		}
 		fmt.Fprintln(w, line)
 		if s.LogError != "" {

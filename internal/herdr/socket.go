@@ -109,7 +109,9 @@ func (a *answerError) toError(op string) *Error {
 	return &Error{Kind: kind, Op: op, Code: a.Code, Msg: a.Message}
 }
 
-// Protocol is the herdr API protocol this client speaks; Dial refuses a server with another one.
+// Protocol is the oldest herdr API protocol this client speaks; Dial refuses an older server and accepts a newer one
+// (herdr's contract: clients ignore unknown fields, an unsupported method is an error). The conformance suite
+// (tests/conformance, H-S1) guards the methods and params obor sends against a newer herdr's schema.
 const Protocol = 22
 
 // MaxSocketPath is the longest unix socket path macOS accepts (sun_path); Linux allows 108.
@@ -141,7 +143,7 @@ type Socket struct {
 	Timeout time.Duration // per request (default 10 s); slow requests take their own bound
 }
 
-// Dial is the socket client for path once herdr answers ping with this client's Protocol.
+// Dial is the socket client for path once herdr answers ping with this client's Protocol or a newer one.
 func Dial(ctx context.Context, path string) (*Socket, error) {
 	if err := CheckSocketPath(path); err != nil {
 		return nil, &Error{Kind: Unavailable, Op: "ping", Msg: err.Error()}
@@ -161,7 +163,7 @@ func Dial(ctx context.Context, path string) (*Socket, error) {
 }
 
 func checkProtocol(op, version string, protocol int) error {
-	if protocol == Protocol {
+	if protocol >= Protocol {
 		return nil
 	}
 	return &Error{Kind: BadAnswer, Op: op, Code: "protocol",
@@ -291,7 +293,7 @@ func (s *Socket) VersionProtocol(ctx context.Context) (string, int, error) {
 // Workspace is one herdr workspace: its id and the label it shows.
 type Workspace struct{ ID, Label string }
 
-// Snapshot is session.snapshot; a server on another protocol is an error.
+// Snapshot is session.snapshot; a server on an older protocol is an error.
 func (s *Socket) Snapshot(ctx context.Context) (Snapshot, error) {
 	var r struct {
 		Snapshot *struct {

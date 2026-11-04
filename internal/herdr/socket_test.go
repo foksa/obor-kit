@@ -61,15 +61,23 @@ func TestSocketDialChecksProtocol(t *testing.T) {
 	if lastParams(t, srv, "ping") != "{}" {
 		t.Errorf("ping params = %s, want {}", lastParams(t, srv, "ping"))
 	}
-	srv.Protocol(herdr.Protocol + 1)
+	srv.Protocol(herdr.Protocol - 1)
 	_, err := herdr.Dial(ctx, srv.Path)
 	e := herdrErr(t, err)
-	if e.Code != "protocol" || !strings.Contains(e.Msg, "protocol 23, obor speaks 22") {
-		t.Errorf("Dial on protocol 23: %v, want a protocol error naming both", err)
+	if e.Code != "protocol" || !strings.Contains(e.Msg, "protocol 21, obor speaks 22") {
+		t.Errorf("Dial on protocol 21: %v, want a protocol error naming both", err)
 	}
 	_, err = srv.Client().Snapshot(ctx)
 	if e := herdrErr(t, err); e.Code != "protocol" {
-		t.Errorf("Snapshot on protocol 23: %v, want a protocol error", err)
+		t.Errorf("Snapshot on protocol 21: %v, want a protocol error", err)
+	}
+	// A newer protocol is accepted: herdr ignores unknown fields, the conformance suite guards the methods.
+	srv.Protocol(herdr.Protocol + 1)
+	if _, err := herdr.Dial(ctx, srv.Path); err != nil {
+		t.Errorf("Dial on protocol 23: %v, want it accepted", err)
+	}
+	if snap, err := srv.Client().Snapshot(ctx); err != nil || snap.Protocol != herdr.Protocol+1 {
+		t.Errorf("Snapshot on protocol 23 = protocol %d, %v, want 23 and no error", snap.Protocol, err)
 	}
 }
 
