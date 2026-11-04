@@ -13,7 +13,8 @@
 //	        workspace (the one with most panes in the project), or an existing shell pane; without a pane of the
 //	        project anywhere a new herdr workspace named after the project, cwd the root (never the caller's or
 //	        herdr's active one, T-632), and another project's pane is never split; cwd the lane, env
-//	        OBOR_ROLE / OBOR_LANE (no OBOR_AGENT: a name is derived, T-786); then the pane label (= the agent, R-28 §2: refused when another pane
+//	        OBOR_ROLE / OBOR_LANE and the kind's vars, every other var of the registry empty (agents.StartVars, T-812; no
+//	        OBOR_AGENT: a name is derived, T-786); then the pane label (= the agent, R-28 §2: refused when another pane
 //	        holds it or --pane is labelled otherwise) and herdr agent start with the model's kind and args (+ Claude
 //	        --settings), both through launch.Start (the one start, shared with obor restart). A pane a new tab or a split
 //	        made is used once herdr reports it an available shell (T-628: bounded at 10 s, agent_pane_busy retried).

@@ -24,16 +24,16 @@ func TestStartEffort(t *testing.T) {
 		env, noEnv               string   // in, not in the env line
 	}{
 		{"a request's effort replaces the kinds args' own, once", "opus", "claude", "high",
-			[]string{"--effort high"}, []string{"medium"}, "unset OBOR_OPENCODE_MODEL", "export OBOR_OPENCODE_MODEL"},
+			[]string{"--effort high"}, []string{"medium"}, "unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", "export OBOR_OPENCODE_MODEL"},
 		{"the role's effort", "opus:max", "claude", "", []string{"--effort max"}, []string{"medium"}, "", ""},
 		{"the request's effort before the role's", "opus:max", "claude", "low", []string{"--effort low"}, []string{"max", "medium"}, "", ""},
 		{"no effort: the kinds args' own", "opus", "claude", "", []string{"--effort medium"}, nil, "", ""},
 		{"codex: the role's effort", "luna:xhigh", "codex", "", []string{"-c model_reasoning_effort=xhigh"},
-			[]string{"model_reasoning_effort=high"}, "unset OBOR_OPENCODE_MODEL", ""},
+			[]string{"model_reasoning_effort=high"}, "unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", ""},
 		{"opencode: the model and effort reach the plugin as model#variant", "oc:high", "opencode", "",
-			[]string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
+			[]string{"--auto"}, []string{"--model", "go/ds", "high"}, "export OBOR_ROLE=reviewer OBOR_OPENCODE_MODEL='go/ds#high'", "OPENCODE_CONFIG_CONTENT"},
 		{"opencode, no model or effort: the variable unset", "bare", "opencode", "", []string{"--auto"}, nil,
-			"unset OBOR_OPENCODE_MODEL", "export OBOR_OPENCODE_MODEL"},
+			"unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL ", "export OBOR_OPENCODE_MODEL"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -134,8 +134,8 @@ func TestOpencodeModelIsTheOpencodeStartsAlone(t *testing.T) {
 		if m == nil {
 			t.Fatalf("%s: no marks at the end of %q", agent, text)
 		}
-		_, line, _ := strings.Cut(text[:m[0]], " && export ") // not the cd: the fixture's worktree is no directory
-		return "export " + line
+		_, line, _ := strings.Cut(text[:m[0]], " && unset ") // not the cd: the fixture's worktree is no directory
+		return "unset " + line
 	}
 	oc, bare, cl, cx := lineOf("pj-rev"), lineOf("pj-advisor"), lineOf("pj-int"), lineOf("pj-deep-dive")
 	for _, l := range []string{oc, bare, cl, cx} {
@@ -202,8 +202,8 @@ func TestOpencodeStartNamesItsGeneratedConfig(t *testing.T) {
 			t.Errorf("%s: the env line %q lacks %s", req.Agent, line, want)
 		}
 	}
-	if line := lineOf(launch.Request{Agent: "pj-int", Fresh: true}); strings.Contains(line, "OPENCODE_CONFIG") {
-		t.Errorf("a claude start names OPENCODE_CONFIG: %q", line)
+	if line := lineOf(launch.Request{Agent: "pj-int", Fresh: true}); strings.Contains(line, "OPENCODE_CONFIG=") {
+		t.Errorf("a claude start sets OPENCODE_CONFIG: %q", line)
 	}
 	b, err := os.ReadFile(file)
 	if err != nil {

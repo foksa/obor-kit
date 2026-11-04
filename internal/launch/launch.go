@@ -5,7 +5,8 @@
 //	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
 //	         OBOR_ROLE (the role's env value, triage too since T-796; an agents entry without a role: unset), OBOR_LANE (no lane:
-//	         unset) and the cwd as obor setup gives them, OBOR_AGENT unset (T-786: a name is derived, never exported);
+//	         unset), the kind's vars and the cwd as obor setup gives them, every other var of the registry unset (agents.StartVars,
+//	         T-812: a stale OBOR_AGENT, T-786, or another kind's OBOR_OPENCODE_MODEL);
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
 //	         launch's, else a lane agent's lane row model, T-722), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for
 //	         claude); no model: the kind herdr reports for the pane, else claude, no args.
@@ -35,7 +36,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -43,7 +43,6 @@ import (
 	"time"
 
 	"obor/internal/agents"
-	"obor/internal/agents/opencode"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -665,43 +664,30 @@ func (l *Launcher) envOrOS() project.Env {
 	return l.Env
 }
 
-// envLine is the shell line that sets the agent's env (and cwd) as obor setup does: OBOR_ROLE and OBOR_LANE, never
-// the agent's name (T-786: derived from them, project.Self); a stale OBOR_AGENT of a reused shell is unset.
+// envLine is the shell line that sets the agent's env (and cwd) as obor setup does, built by the one builder
+// (agents.StartVars, T-812): OBOR_ROLE, OBOR_LANE and the kind's vars exported, every other var of the registry
+// unset (a stale OBOR_AGENT, T-786; another kind's OBOR_OPENCODE_MODEL, T-707), so nothing of an earlier start in the
+// pane's shell survives. An agent the config does not know keeps the shell's OBOR_ROLE (obor cannot tell its role).
 func envLine(t *target) string {
 	role := t.info.Role
 	if r, ok := roles.Lookup(role); ok {
 		role = r.EnvValue
 	}
-	unset, set := []string{"OBOR_AGENT"}, []string{}
-	if role != "" {
-		set = append(set, "OBOR_ROLE="+shellQuote(role))
+	var keep []string
+	if !t.known && role == "" {
+		keep = []string{agents.RoleVar}
 	}
-	if t.info.Lane != "" {
-		set = append(set, "OBOR_LANE="+shellQuote(t.info.Lane))
-	} else {
-		unset = append(unset, "OBOR_LANE")
-	}
-	if t.known && role == "" {
-		unset = append(unset, "OBOR_ROLE")
-	}
+	set, unset := agents.StartVars(role, t.info.Lane, t.env, keep...)
 	line := "unset " + strings.Join(unset, " ")
 	if len(set) > 0 {
-		line += " && export " + strings.Join(set, " ")
+		words := make([]string, len(set))
+		for i, v := range set {
+			words[i] = v.Name + "=" + shellQuote(v.Value)
+		}
+		line += " && export " + strings.Join(words, " ")
 	}
 	if t.info.Cwd != "" {
 		line = "cd " + shellQuote(t.info.Cwd) + " && " + line
-	}
-	keys := make([]string, 0, len(t.env))
-	for k := range t.env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if v := t.env[k]; v != "" {
-			line += " && export " + k + "=" + shellQuote(v)
-		} else {
-			line += " && unset " + k
-		}
 	}
 	return line
 }
@@ -761,16 +747,12 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 	switch {
 	case t.info.Type != "":
 		lt, _ = l.Cfg.Model(t.info.Type)
-	case t.info.Role == "" && t.kind == opencode.Name: // no type, no args: its generated config still (T-809)
+	case t.info.Role == "": // no type, no args; still the kind's env (OpenCode: its generated config, T-809)
 		vars, err := lt.StartEnv(in)
 		if err != nil {
 			return nil, project.Failf("%s: %v", t.agent, err)
 		}
-		delete(vars, opencode.ModelVar)
 		t.env = vars
-		return nil, nil
-	case t.info.Role == "": // no type, no args; still not an earlier OpenCode start's model (T-707)
-		t.env = map[string]string{opencode.ModelVar: ""}
 		return nil, nil
 	}
 	if err := agents.CheckEffortArgs(lt.Kind, lt.Args, effort); err != nil {

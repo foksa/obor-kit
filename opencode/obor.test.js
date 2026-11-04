@@ -194,18 +194,19 @@ test("guard: allow runs pre-tool-use with the Claude event; read is not sent", a
   assert.deepEqual(event(c[0]), { hook_event_name: "PreToolUse", session_id: "s1", cwd: dir, tool_name: "Edit", tool_input: { file_path: dir + "/a.go" } });
 });
 
-test("guard and session-start: obor hook sees none of the plugin process's pane-identity vars", async (t) => {
+test("guard and session-start: obor hook sees the plugin process's identity vars (the pane's agent's, T-812)", async (t) => {
   const saved = { OBOR_AGENT: process.env.OBOR_AGENT, OBOR_ROLE: process.env.OBOR_ROLE, OBOR_LANE: process.env.OBOR_LANE, HERDR_PANE_ID: process.env.HERDR_PANE_ID };
   t.after(() => {
     for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
   });
-  Object.assign(process.env, { OBOR_AGENT: "x", OBOR_ROLE: "lead", OBOR_LANE: "L-09", HERDR_PANE_ID: "w1:p1" });
+  delete process.env.OBOR_AGENT;
+  Object.assign(process.env, { OBOR_ROLE: "lead", OBOR_LANE: "L-09", HERDR_PANE_ID: "w1:p1" });
   const { hooked, calls } = await stubPlugin(t);
   await hooked["tool:execute.before"]({ tool: "shell", sessionID: "s1", input: { command: "ls" } });
   await hooked["session:context"]({ sessionID: "s1", system: [] });
   const c = calls();
   assert.equal(c.length, 2, c.join("\n"));
-  for (const line of c) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=\/\/\/ /, line);
+  for (const line of c) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=\/lead\/L-09\/w1:p1 /, line);
 });
 
 test("guard: a deny throws obor's line", async (t) => {
@@ -278,7 +279,7 @@ test("session events: session start, turn start and turn end run session-start, 
   assert.deepEqual(start, { hook_event_name: "SessionStart", session_id: "s1", transcript_path: store, cwd: dir, source: "startup" });
   assert.deepEqual(prompt, { hook_event_name: "UserPromptSubmit", session_id: "s1", transcript_path: store, cwd: dir, prompt: wake });
   assert.deepEqual(stop, { hook_event_name: "Stop", session_id: "s1", transcript_path: store, cwd: dir, stop_hook_active: false });
-  for (const line of calls()) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=\/\/\/ /, line);
+  for (const line of calls()) assert.match(line, /^\S+ OBOR_NO_SELF_HOST=1 id=/, line); // the identity: the identity vars test
 });
 
 test("session events: a later turn runs no second session-start; its prompt is that turn's inbox; context reuses the start", async (t) => {

@@ -69,6 +69,9 @@ func (kind) Efforts() []string { return efforts }
 // StartEnv: none; the effort is a -c option.
 func (kind) StartEnv(agents.Start) (map[string]string, error) { return nil, nil }
 
+// Vars: none (StartEnv sets none).
+func (kind) Vars() []string { return nil }
+
 // WithModel: -m <model> in place of the args' own (-m or --model, T-753).
 func (kind) WithModel(args []string, model string) []string {
 	return agents.SetFlag(args, []string{"-m", "--model"}, model)

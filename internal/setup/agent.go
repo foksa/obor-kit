@@ -230,17 +230,16 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	if err != nil {
 		return project.Failf("%s: %v", a.name, err)
 	}
+	// The one builder of a start's env (agents.StartVars, T-812), as the env line of a reused pane: herdr's pane env
+	// cannot unset, so every registry var the start does not set goes to herdr empty, none to obor (the pane may inherit
+	// setup's own env: an OpenCode agent running setup, T-703; a stale OBOR_AGENT, T-786).
+	set, unset := agents.StartVars(a.role.EnvValue, a.lane, vars)
 	var env []string
-	// An empty value goes to herdr too: the pane may inherit setup's own env (an OpenCode agent running setup), and an
-	// empty OBOR_OPENCODE_MODEL is none to obor's plugin (T-703).
-	for _, k := range slices.Sorted(maps.Keys(vars)) {
-		env = append(env, k+"="+vars[k])
+	for _, v := range set {
+		env = append(env, v.Name+"="+v.Value)
 	}
-	if a.role.EnvValue != "" {
-		env = append(env, "OBOR_ROLE="+a.role.EnvValue)
-	}
-	if a.lane != "" {
-		env = append(env, "OBOR_LANE="+a.lane)
+	for _, v := range unset {
+		env = append(env, v+"=")
 	}
 	pane := w.pane
 	fresh := false

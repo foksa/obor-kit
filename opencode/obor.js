@@ -45,8 +45,9 @@
 //     {attempt, at, error}, up to 10 times, each wait min(retryAfterMs, 15 min)), then session.execution.failed.
 //     Only that failure ends the turn, so only it is a stop-failure: a retry sends nothing (T-578 lead decision).
 //
-// The plugin may run in a process shared by several panes (opencode serve --service), so its env is not the pane's:
-// runHook drops the pane-identity vars and obor takes identity from the cwd and lane state (T-308).
+// The plugin's process is the pane's agent (--standalone, obor's opencode base args: its own server in the pane's
+// process), so its env is the agent's start env: obor hook gets it whole, the identity vars (OBOR_ROLE, OBOR_LANE,
+// HERDR_PANE_ID) included, as Claude's and Codex's hooks do (T-812, OC-L2).
 //
 // The kit is this plugin's, in every directory (T-809): each start's generated config (OPENCODE_CONFIG) names the
 // launching kit's plugin package dir (<kit>/opencode, this file its main), so the kit that started the agent runs its
@@ -66,8 +67,6 @@ import { fileURLToPath } from "node:url";
 const TIMEOUT_MS = 5000;
 // The tools hooks/hooks.json's PreToolUse matcher sends to the guard (Read, Glob, … map but are not run).
 const GUARDED = new Set(["Bash", "Edit", "Write"]);
-// The vars that name a pane: the plugin's process env may be another pane's (see the top), so obor hook never sees them.
-const PANE_IDENTITY = ["OBOR_AGENT", "OBOR_ROLE", "OBOR_LANE", "HERDR_PANE_ID"];
 
 // The kit: this file's real path, two levels up.
 function kitRoot() {
@@ -271,11 +270,10 @@ export function modelSwitch(ctx, value, isChild = () => false, warn = (line) => 
   };
 }
 
-// hookEnv is the plugin's env without the pane-identity vars, plus OBOR_NO_SELF_HOST (the kit's own build runs).
-function hookEnv() {
-  const env = { ...process.env, OBOR_NO_SELF_HOST: "1" };
-  for (const k of PANE_IDENTITY) delete env[k];
-  return env;
+// hookEnv is the plugin's env (the agent's, identity included: see the top), plus OBOR_NO_SELF_HOST (the kit's own
+// build runs).
+function hookEnv(env = process.env) {
+  return { ...env, OBOR_NO_SELF_HOST: "1" };
 }
 
 // runHook runs `bin/obor hook <name>` with the event on stdin: {code, stdout, stderr}, or {failed: why}.
