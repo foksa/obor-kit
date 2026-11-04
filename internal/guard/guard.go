@@ -491,7 +491,7 @@ func otherProject(p string) string {
 func (g *guard) bash() { g.script(g.cmd, g.cwd, 0) }
 
 // recordBackground records an allowed Bash call run in the background (T-714): its description and command with the
-// agent, pane and session, so obor status, monitor and web show the live process under its description
+// agent, pane and session, so obor status and web show the live process under its description
 // (project.AppendBackground: one append, no wait).
 func (g *guard) recordBackground() {
 	if !g.background || strings.TrimSpace(g.cmd) == "" {

@@ -19,7 +19,7 @@ import (
 // "[obor] T-b dropped: <why>" with " (watch T-a,T-b ended)" for a set; fact message{task: the list, watch: the
 // watch's seq}, delivered as every lead line, messages.go); its fold ends the watch, so a replay finds the line
 // recorded and queues none again. A watch may carry the lead's note (T-666): what it meant to do when the set ends,
-// which the line, `obor watch`, `obor status` and the monitor add after the outcome. `obor watch --rm <list>` ends one
+// which the line, `obor watch` and `obor status` add after the outcome. `obor watch --rm <list>` ends one
 // (fact unwatch); `obor watch` lists the open ones.
 
 // WatchData is a watch fact's data: the task or comma list watched, who watches it, the lead's note (T-666: what it

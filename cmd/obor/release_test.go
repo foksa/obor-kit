@@ -759,7 +759,7 @@ func TestMakeShip(t *testing.T) {
 		t.Fatalf("make ship failed:\n%s", out)
 	}
 	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4", "installed the kit",
-		"serves, monitors and web follow the new binary within a minute"} {
+		"serves and web follow the new binary within a minute"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ship does not say %q:\n%s", want, out)
 		}
@@ -786,7 +786,7 @@ func TestMakeShip(t *testing.T) {
 		t.Fatalf("the second ship failed:\n%s", out)
 	}
 	for _, want := range []string{"push skipped", "publish skipped", "install skipped",
-		"serves, monitors and web follow the new binary within a minute"} {
+		"serves and web follow the new binary within a minute"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the second ship does not say %q:\n%s", want, out)
 		}
@@ -818,7 +818,7 @@ func TestMakeShipNotifiesTheLeads(t *testing.T) {
 	out, failed := f.make(t, "ship")
 	if !failed || !strings.Contains(out, "FAIL axis-alies: send: serve down") ||
 		!strings.Contains(out, "obor projects --notify <the notes") ||
-		!strings.Contains(out, "serves, monitors and web follow the new binary within a minute") {
+		!strings.Contains(out, "serves and web follow the new binary within a minute") {
 		t.Errorf("a failing notify must fail the ship naming the repair, after the reminder (failed %v):\n%s", failed, out)
 	}
 	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {

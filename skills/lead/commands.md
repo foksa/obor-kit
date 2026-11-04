@@ -9,21 +9,6 @@ Read the line under serve's to see what runs without an agent: `running: gate T-
 T-655 (make build, 12s)` (else `running: nothing`); a lane's state column reads `gating`, `merging`, `reviewing` or
 `held` while serve works on it. `obor status --short` is just that line, serve's and needs-you (a status bar).
 
-## obor monitor (T-658)
-The project's live view, in the `system` tab of its herdr workspace (a pane labelled `<prefix>-monitor`; `obor init`
-makes it, `obor setup monitor` adds it to a project set up before). It is `obor status` redrawn in place, plus the
-store's recent events:
-
-- serve's line and the `running:` line; needs-you, in full, with the commands that answer them;
-- one line per lane: its state column, task, how long it has been in that state, and its agent idle or working;
-- the open review request (or `review due`), the watches and the dispatches queued on `--after` tasks;
-- the recent events, newest first, with their local time: dispatched, submitted, gate pass/fail with its line,
-  accepted, sendback, held, merged with its sha, a review requested or started, a line posted, serve restarted.
-
-It redraws on every new record and at least every 2 s (elapsed times), says `serve: restarting…` while serve is between
-restarts and reconnects by itself, and ends on Ctrl-C. Read-only, any role: the lane's states are serve's and git's,
-never the monitor's own. `obor setup monitor` (idempotent: an existing pane is reused) is how a project gets one later.
-
 ## obor web (T-667)
 `obor web` serves a page for every obor project on the machine at `http://127.0.0.1:8787/` (`--listen
 127.0.0.1:<port>` for another loopback port; a host that is not loopback is refused). Its own process, never inside
@@ -42,8 +27,8 @@ with `--note "<what to do>"`: the line that tells you Y happened also tells you 
 
 - `obor watch <T-xx> [<T-yy> …] [--note "<text>"]` — one request per argument. An argument is a task or a comma list
   (`T-a,T-b,T-c`, as dispatch's `--after`): one watch on the set, a single task being a set of one. `--note` gives
-  those watches your note (one line; what you meant to do when the set ends), shown by `obor watch`, `obor status` and
-  the monitor and carried by the line. Replies: `WATCHING T-xx` / `WATCHING T-a,T-b,T-c`; its line at once when it has
+  those watches your note (one line; what you meant to do when the set ends), shown by `obor watch` and `obor status`
+  and carried by the line. Replies: `WATCHING T-xx` / `WATCHING T-a,T-b,T-c`; its line at once when it has
   ended already (nothing is watched; tasks of a set merged already count); `FAIL watch: unknown task …` for a task with
   no dispatch and no spec.
 - `obor watch` — the open watches, `WATCH T-xx since <age>` each, a set adding its open tasks
@@ -167,7 +152,7 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
   stopped and the lane freed.
 - Back to the drive, never to a worker: a red gate, the integrator's sendback or hold (any count) make the task
   `driving` again, with one line to you: `[obor] T-xx back to its owner's drive: <why>`.
-- `obor status`, the monitor and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.
+- `obor status` and `obor web` show the task as `driving`; `obor drop` works on a drive as on any task.
 - A drive and you message each other (T-761). The drive agent runs `obor tell-lead "<text>"` (`obor lead` starts you,
   so its way to you has this name; a worker, reviewer, the owner or you are refused): you get the line
   `[obor T-xx drive] <text> (reply: obor resume T-xx "…")`, posted like your other lines. That reply must reach the drive,

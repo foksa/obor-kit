@@ -138,6 +138,7 @@ func TestHas(t *testing.T) {
 		{[]string{"has", "status"}, 0}, {[]string{"has", "restart"}, 0}, {[]string{"has", "version"}, 0}, {[]string{"has", "config", "get"}, 0},
 		{[]string{"has", "send"}, 0}, {[]string{"has", "brief"}, 0}, {[]string{"has", "tell"}, 1}, {[]string{"has", "inbox"}, 1},
 		{[]string{"has", "flakes"}, 0},
+		{[]string{"has", "monitor"}, 0}, {[]string{"has", "setup", "monitor"}, 1}, // T-776: the command stays, the setup step is gone
 		{[]string{"has", "merge"}, 1}, // T-409: obor serve merges
 		{[]string{"has", "hook", "no-such"}, 1}, {[]string{"has", "no-such"}, 1}, {[]string{"has", "status", "x"}, 1},
 		{[]string{"has"}, 2}, {[]string{"has", "hook", "noop", "x"}, 2},
@@ -177,6 +178,20 @@ func TestMergeIsUnknown(t *testing.T) {
 	}
 	if st := p.Git(lane, "status", "--porcelain"); st != "?? feature.txt" {
 		t.Errorf("lane status %q, want the uncommitted feature only", st)
+	}
+}
+
+// T-776: obor monitor is removed (obor status and obor web remain): one line naming them, exit 1, and nothing else
+// (it reads no project, so it answers outside one too).
+func TestMonitorIsRemoved(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"monitor"}, {"monitor", "--json"}} {
+		rc, stdout, stderr := run(t, t.TempDir(), nil, args...)
+		if rc != 1 || stdout != "" || strings.Count(stderr, "\n") != 1 ||
+			!strings.Contains(stderr, "removed, use `obor web` or `obor status`") {
+			t.Errorf("obor %q: exit %d, stdout %q, stderr %q; want exit 1 and one line naming obor web or obor status",
+				args, rc, stdout, stderr)
+		}
 	}
 }
 

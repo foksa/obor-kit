@@ -306,8 +306,8 @@ full check and the pause.
   loop's publish (the step that moves the integration branch) waits while either one works: its agent has a brief open
   (waiting for its delivery, or delivered and not finished) or its pane is not idle. Gates, jobs and dispatch go on;
   only the publish waits. Capped: a task held 30 min is published anyway and the lead gets one line (`[obor] merge of
-  T-x went ahead: <role> still working after 30m`). `obor status`, the monitor and web show `merge held: <role>
-  working` on the waiting task. The hold is live state, never recorded: a replay folds the task accepted as before and
+  T-x went ahead: <role> still working after 30m`). `obor status` and web show `merge held: <role> working` on the
+  waiting task. The hold is live state, never recorded: a replay folds the task accepted as before and
   the next pass decides the hold afresh (its 30 min start again). The lead's doc commits during a review are accepted
   (they touch no code). The reviewed sha a review's close commit names is the git ref `refs/obor/reviewed`, set at
   the review's start and at each `obor review verify`.
@@ -384,7 +384,7 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   the next serve start ends it. Two windows lose only the restart, never a result (accepted): serve dies
   between the step's result and the restart, or the result was written late (an effect whose log write failed): serve
   keeps the old binary until `obor serve restart` by hand.
-- Following a new obor binary (T-719; `internal/selfexec`): serve, `obor monitor` and `obor web` each watch the binary
+- Following a new obor binary (T-719; `internal/selfexec`): serve and `obor web` each watch the binary
   the kit's shim would run now (`<kit>/dist/obor` when executable, else `~/.obor/bin/obor-<VERSION>-<os>-<arch>`; kit
   root `project.KitRoot`). It counts as new when it is another file (dev/inode) than the running one, executable, at
   least 5 s old, and its `version` exits 0 within 2 s; a process not started on the kit's candidate (a test binary, a
@@ -393,13 +393,12 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   names a missing file: no trigger until it is there. Serve asks on its own 30 s timer, herdr connected or not (T-737:
   the watchdogs' tick counts only while it is), and takes the self-restart above: at
   once when idle (no effect running, no nightly, no verdict call admitted), else once it is, at the latest after
-  10 minutes; `obor status` and the monitor show `restarting serve` meanwhile, and a failed restart is a needs-you
+  10 minutes; `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
   `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
   does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
   the flock goes with the exec, and the new serve takes it and removes a leftover socket (this also makes
-  `restart_serve` work off launchd). The monitor asks every 2 s, leaves the alternate screen and execs `obor monitor`
-  (one flicker); web asks every 30 s and execs `obor web --listen <the address it bound>`, so its URL stays and the
-  page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
+  `restart_serve` work off launchd). Web asks every 30 s and execs `obor web --listen <the address it bound>`, so its
+  URL stays and the page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
   candidate speaking another herdr protocol restarts into today's warning.
 
 ## Machine-wide check slots (v2.4, 2026-10-08 — axis-alies lead + user; protocol from axis-alies T-373)

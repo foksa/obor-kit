@@ -140,30 +140,23 @@ func TestRestoreOutsideOborSilent(t *testing.T) {
 	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p4 --fresh") // precondition: the obor pane restarts once herdr answers
 }
 
-// T-658: the monitor pane is a command, not an agent: the restore types `obor monitor` at its shell again, runs no
-// restart and records or resumes no session. A command that runs there already, and an agent in the pane, are left
-// alone with a log line.
-func TestRestoreMonitorPane(t *testing.T) {
+// T-776: obor monitor is gone; a pane still labelled <prefix>-monitor (a project not yet upgraded) is no agent: the
+// restore types nothing in it, restarts nothing there and logs nothing of it (the lead's own pane still restarts).
+func TestRestoreIgnoresMonitorPane(t *testing.T) {
 	f := newRfx(t)
 	f.p.Config()
-	f.shell("w1:p1", f.p.Root, "pj-monitor") // back at its shell: the monitor ended
+	f.shell("w1:p1", f.p.Root, "pj-lead")
 	f.shell("w1:p2", f.p.Root, "pj-monitor")
-	f.h.Set("w1:p2", func(p *herdrtest.Pane) { p.Foreground = 2 }) // a command runs there
 	f.h.Agent("w1:p3", "x", "idle", f.p.Root).Label = "pj-monitor"
 	f.pl.Restore(context.Background())
-	f.wantCalls() // no restart for the monitor: it is no agent
-	log := f.restoreLog()
-	has(t, log, " restore pj-monitor (pane w1:p1) in "+f.p.Root+": obor monitor", "the monitor's command is logged")
-	has(t, log, " skip pj-monitor (pane w1:p2): a command runs there", "a busy monitor pane is skipped")
-	has(t, log, " skip pj-monitor (pane w1:p3): runs claude", "a pane that runs an agent is skipped")
-	var typed []string
+	f.wantCalls(f.p.Root + " restart pj-lead --pane w1:p1 --fresh") // the lead restarts; the monitor panes do not
+	if log := f.restoreLog(); strings.Contains(log, "monitor") {
+		t.Errorf("the restore logged a monitor pane:\n%s", log)
+	}
 	for _, r := range f.srv.Requests() {
 		if s := r.String(); strings.HasPrefix(s, "pane.send_input") {
-			typed = append(typed, s)
+			t.Errorf("the restore typed into a pane: %s", s)
 		}
-	}
-	if len(typed) != 1 || !strings.Contains(typed[0], "pane_id=w1:p1") || !strings.Contains(typed[0], "text=obor monitor") {
-		t.Errorf("pane.send_input calls %q, want obor monitor in w1:p1 only", typed)
 	}
 }
 

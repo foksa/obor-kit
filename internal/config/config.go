@@ -300,7 +300,7 @@ func LoadDaemon(root string) (*Config, error) {
 // other error is Load's: the hooks then fail closed (Fallback).
 func LoadHook(root string) (*Config, []string, error) { return read(root) }
 
-// LoadReader is Load for the readers (obor status, obor monitor, obor web; T-709): a key this binary does not know (a
+// LoadReader is Load for the readers (obor status, obor stop/start, obor web; T-709): a key this binary does not know (a
 // long-running obor web older than the config) is ignored, and warn names it, instead of failing the page. Every other
 // error is Load's; obor config validate (Load) keeps refusing such a config. The readers and serve (LoadDaemon, T-377)
 // are lenient, validate strict: that is the contract (T-710).
@@ -664,10 +664,6 @@ func (c *Config) AgentName(role, lane string) string {
 	}
 	return rc.Role.AgentName(c.Data.Prefix, lane, rc.Agent)
 }
-
-// MonitorLabel is the label of the project's monitor pane, <prefix>-monitor: obor setup monitor creates it and the
-// restore hook starts `obor monitor` in it again (T-658). It is no agent name: nothing dispatches to it.
-func (c *Config) MonitorLabel() string { return c.Data.Prefix + "-monitor" }
 
 // roleAgents is every table role but the worker, an optional one only when configured.
 func (c *Config) roleAgents() []RoleConfig {

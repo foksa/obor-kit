@@ -85,7 +85,7 @@ func (p *proj) foldRoles(r event.Record) {
 
 // stoppedRoles is the role agents whose only labelled pane is at its shell (the one launch.Stop leaves), whoever
 // stopped them — serve once their work was done (T-672) or the lead with obor restart <agent> --stop (T-677) — sorted
-// (under mu): obor status, its --json, obor monitor and the view show them all as stopped. An agent two panes are
+// (under mu): obor status, its --json and the view show them all as stopped. An agent two panes are
 // labelled with, or one serve cannot see while herdr is not connected, is unknown, not stopped; no labelled pane at all
 // leaves it "no pane".
 func (a *App) stoppedRoles(p *proj) []string {

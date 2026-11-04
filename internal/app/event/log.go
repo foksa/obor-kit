@@ -178,7 +178,7 @@ func Dump(w io.Writer, root string) error {
 	return nil
 }
 
-// RecentEvents is db's newest limit records, newest first: obor monitor's event list (T-658). The caller opens the
+// RecentEvents is db's newest limit records, newest first: the view's event list (T-658). The caller opens the
 // store read-only (store.OpenRO) and keeps it while it polls; limit ≤ 0: none. Events must exist for it to have any.
 func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
 	if limit <= 0 {

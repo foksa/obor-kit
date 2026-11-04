@@ -18,7 +18,7 @@ import (
 // obor start moves the marker to <root>/.obor/state/starting first (serve may start then) and removes that once obor
 // stop's pause is ended (T-711): an obor start that failed before that finds it on its rerun.
 
-// StoppedLine is the line obor whoami, obor status, obor monitor and obor web show for a stopped project.
+// StoppedLine is the line obor whoami, obor status and obor web show for a stopped project.
 const StoppedLine = "project stopped: obor start"
 
 // StoppedFile is root's marker.
