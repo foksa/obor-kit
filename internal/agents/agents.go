@@ -29,6 +29,8 @@ type Kind interface {
 	// StartEnv is the environment a start needs beyond the pane's (variable → value; "" unsets it): OpenCode's model
 	// and effort reach obor's plugin this way (T-703). An error: the start cannot carry in.Effort (it says why).
 	StartEnv(in Start) (map[string]string, error)
+	// Vars are every variable StartEnv may set: the kind's part of the registry (agents.Vars, T-812).
+	Vars() []string
 
 	// Stop is the quit recipe; launch runs it (the group proofs and the terminate ladder stay in launch).
 	Stop() Stop
@@ -211,6 +213,60 @@ const Pin = "OBOR_NO_SELF_HOST"
 // EnvVars are the variables `obor mcp` reads from the agent's session (internal/mcp); a CLI that starts MCP servers
 // with a stripped environment forwards them.
 var EnvVars = []string{"OBOR_ROLE", "OBOR_LANE", "HERDR_PANE_ID", "OBOR_STATE_HOME"}
+
+// RoleVar and LaneVar are an agent's identity in its env (the role's env value, its lane); RetiredVars are variables an
+// older obor exported that no start sets any more (T-786: OBOR_AGENT, a name is derived, project.Self): every start
+// unsets them.
+const (
+	RoleVar = "OBOR_ROLE"
+	LaneVar = "OBOR_LANE"
+)
+
+var RetiredVars = []string{"OBOR_AGENT"}
+
+// Vars is the registry of every variable a start of any agent sets (T-812): the identity vars, the retired ones and
+// each kind's own (Kind.Vars), sorted. A start unsets every one it does not set, so no value of an earlier start in the
+// pane's shell survives into it, whatever the kinds.
+func Vars() []string {
+	out := append([]string{RoleVar, LaneVar}, RetiredVars...)
+	for _, n := range Names() {
+		out = append(out, kinds[n].Vars()...)
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// EnvVar is one variable a start sets.
+type EnvVar struct{ Name, Value string }
+
+// StartVars is the one builder of a start's env (T-812): set, the role's env value ("": none), the lane ("": none) and
+// the kind's StartEnv vars (a "" value: none), in that order (a kind's sorted); unset, every registry var (Vars) the
+// start does not set and keep does not name, sorted. keep is a var the caller leaves as the pane has it (an unknown
+// agent's OBOR_ROLE: obor cannot tell it).
+func StartVars(role, lane string, kind map[string]string, keep ...string) (set []EnvVar, unset []string) {
+	if role != "" {
+		set = append(set, EnvVar{RoleVar, role})
+	}
+	if lane != "" {
+		set = append(set, EnvVar{LaneVar, lane})
+	}
+	keys := make([]string, 0, len(kind))
+	for k := range kind {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if v := kind[k]; v != "" && k != RoleVar && k != LaneVar {
+			set = append(set, EnvVar{k, v})
+		}
+	}
+	for _, v := range Vars() {
+		if !slices.Contains(keep, v) && !slices.ContainsFunc(set, func(e EnvVar) bool { return e.Name == v }) {
+			unset = append(unset, v)
+		}
+	}
+	return set, unset
+}
 
 var kinds = map[string]Kind{}
 

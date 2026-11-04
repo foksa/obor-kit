@@ -55,6 +55,9 @@ func (kind) CheckEffort(args []string, effort string) error {
 	return nil
 }
 
+// Vars: the start's model (ModelVar) and its generated config (ConfigVar).
+func (kind) Vars() []string { return []string{ModelVar, ConfigVar} }
+
 // StartEnv: ConfigVar, the path of the start's generated config (Config of in.Kit, written by in.WriteState; neither
 // set: none), and ModelVar <provider>/<model>[#<effort>] when the type's args name a model (the effort replaces a #variant
 // the model names), else ModelVar unset (the pane's shell may hold an earlier start's). OpenCode's interactive TUI has
