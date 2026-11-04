@@ -41,7 +41,7 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true},
 		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false},
 		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false},
-		{"triage", "", "pj-triage", CwdProject, WriteNone, false, false},
+		{"triage", "triage", "pj-triage", CwdProject, WriteNone, false, false},
 		{"advisor", "advisor", "pj-advisor", CwdProject, WriteNone, false, false},
 		{"researcher", "researcher", "pj-researcher", CwdProject, WriteResearchOnly, false, false},
 		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false},

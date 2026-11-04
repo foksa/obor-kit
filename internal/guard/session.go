@@ -132,7 +132,7 @@ func sessionKind(cfg *config.Config, agent, cwd string) string {
 
 // roleText is the line naming this role's text (T-204): the kit's templates/agents/<role>.md, read in place, plus the
 // project's <paths.agents>/<role>.md when the worktree has one. The lead's text is the obor:lead skill. "" when the
-// kit has no text for the role (none, triage …).
+// kit has no text for the role (none …).
 func roleText(role, kit, top, agents string) string {
 	file := strings.ReplaceAll(role, "_", "-") + ".md"
 	project := ""

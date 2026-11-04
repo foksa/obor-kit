@@ -4,7 +4,7 @@
 //	Who      a lane agent, a role agent (lead, integrator, reviewer, triage, deep_dive, advisor), an agents.<name>
 //	         entry (project.AgentLookup: the roles table, no second copy of the name rules), an agent whose pane has a
 //	         lane worktree as cwd (that lane's agent), or any agent with a session recorded in serve's store. Env
-//	         OBOR_ROLE (the role's env value; triage and an agents entry without a role: unset), OBOR_LANE (no lane:
+//	         OBOR_ROLE (the role's env value, triage too since T-796; an agents entry without a role: unset), OBOR_LANE (no lane:
 //	         unset) and the cwd as obor setup gives them, OBOR_AGENT unset (T-786: a name is derived, never exported);
 //	         an unknown agent keeps its OBOR_ROLE, in the pane's cwd. Kind and args from the dispatch's model (the
 //	         launch's, else a lane agent's lane row model, T-722), else the role / lead / agents entry's model (config.Model: base args, model id, kinds args, then --settings for

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"obor/internal/project"
+	"obor/internal/roles"
 	"obor/internal/store"
 	"obor/internal/testkit"
 )
@@ -1511,5 +1512,30 @@ func TestDriverLaneBoundCommitsNoPush(t *testing.T) {
 		bash("driver pj-l-01-drive", L, "git add src/a/page.ts", ""),
 		bash("driver pj-l-01-drive", L, "git push origin task/T-01", "git push"),
 		bash("worker pj-l-01", L, "git commit -m page", "workers don't run git commit"),
+	})
+}
+
+// T-796: triage has a role (OBOR_ROLE=triage) and the guard holds it to the role table's: git reads only, protected
+// files locked, its docs/BUGS.md writable; the owner (no role) in the main checkout keeps its rules.
+func TestTriageRoleGuard(t *testing.T) {
+	t.Parallel()
+	f := fixture(t)
+	P := f.P
+	f.Config(testkit.Set("protected_files", `["src/core/types.ts"]`))
+	if r, ok := roles.Lookup("triage"); !ok || !r.GitReadOnly || r.Write != roles.WriteNone || r.EnvValue != "triage" {
+		t.Fatalf("precondition: triage in the roles table, git read-only, write none, env triage: %+v", r)
+	}
+	check(t, f.Project, []tc{
+		bash("triage", P, "git commit -m x", "a triage doesn't run git commit"),
+		bash("triage", P, "git add docs/BUGS.md", "a triage doesn't run git add"),
+		bash("triage", P, "git stash", "a triage doesn't run git stash"),
+		bash("triage", P, "git log --oneline -30", ""),
+		bash("triage", P, "git status --short", ""),
+		edit("triage", P, "Write", P+"/src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("triage", P, "printf x > src/core/types.ts", "src/core/types.ts is a protected file"),
+		edit("triage", P, "Write", P+"/docs/BUGS.md", ""),
+		// The owner (no role) in the main checkout: unchanged.
+		bash("-", P, "git commit -m x", ""),
+		edit("-", P, "Write", P+"/src/core/types.ts", ""),
 	})
 }

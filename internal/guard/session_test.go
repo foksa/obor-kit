@@ -422,7 +422,7 @@ func TestSessionUnreadableDatabase(t *testing.T) {
 
 // T-485, T-786, DD-consolidation I4: a session with CLAUDE_CODE_MESSAGING_SOCKET records the inbox of its slot in the
 // project's main checkout (<root>/.obor/state/inbox/<slot>), mode 0600, with the socket, the token and the session id:
-// a worker under its lane, the lead under lead, the drive agent under its lane's .drive; nothing in the global state
+// a worker under its lane, the lead under lead, the drive agent under its lane's .drive, triage under triage; nothing in the global state
 // home; a stale OBOR_AGENT (a reused shell) is ignored; a later session without one removes it; a session that holds no
 // slot (the owner in the main checkout) writes none.
 func TestSessionRecordsTheInbox(t *testing.T) {
@@ -442,6 +442,7 @@ func TestSessionRecordsTheInbox(t *testing.T) {
 		{"a worker with OBOR_ROLE=lead in its lane", o1, "lead", "L-01"},
 		{"the lead", f.Root, "lead", "lead"},
 		{"the drive agent", o1, "driver", "L-01/drive"},
+		{"the triage agent (T-796)", f.Root, "triage", "triage"},
 	} {
 		inbox := project.InboxFile(f.Root, c.slot)
 		f.session(t, c.cwd, "sid-1", "OBOR_AGENT=pj-old", "OBOR_ROLE="+c.role, "OBOR_STATE_HOME="+state,

@@ -351,6 +351,7 @@ func TestToolsListPerRole(t *testing.T) {
 		{[]string{"OBOR_ROLE=integrator"}, `["job_next","accept","sendback","reject","resolved","hold"]`},
 		{[]string{"OBOR_ROLE=lead"}, `[]`},
 		{[]string{"OBOR_ROLE=deep_dive"}, `[]`},
+		{[]string{"OBOR_ROLE=triage"}, `[]`}, // T-796: a role of its own, still no tools
 		{nil, `[]`},
 	} {
 		c := start(t, f.env(tc.env...), f.root)

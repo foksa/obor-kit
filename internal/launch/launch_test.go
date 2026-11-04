@@ -435,13 +435,13 @@ func TestRestartWho(t *testing.T) {
 		line:  "RESTARTED triage (pane w1:p8, session sid-t)",
 		out:   "warning: pane w1:p8 has no known cwd: recorded session sid-t not checked",
 	}, {
-		// bash restart.test.sh case_triage_gets_obor_agent_only
-		name: "triage role: its type, cwd root, no OBOR_ROLE (nor OBOR_AGENT)",
+		// bash restart.test.sh case_triage_gets_obor_agent_only; T-796: OBOR_ROLE=triage like every other role
+		name: "triage role: its type, cwd root, OBOR_ROLE=triage (no OBOR_AGENT)",
 		edit: []func(map[string]any){testkit.Set("roles", `{"lead":"opus","triage":"opus"}`)},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-triage", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_ROLE && unset OBOR_OPENCODE_MODEL"
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE && export OBOR_ROLE=triage && unset OBOR_OPENCODE_MODEL"
 		},
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + "] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
