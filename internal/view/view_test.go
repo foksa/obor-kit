@@ -34,13 +34,13 @@ func TestRestartOpIsTheHeldRestartLock(t *testing.T) {
 // predicted: a task nothing waits behind says nothing more). A task its worker works on is no merge item.
 func TestQueueMerge(t *testing.T) {
 	now := time.Now()
-	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted", Phase: wire.PhaseGating, Stage: wire.StageGating},
-		{Task: "T-3", State: "working", Phase: wire.PhaseWorking},
-		{Task: "T-4", State: "working", Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
-		{Task: "T-5", State: "dispatched", Phase: wire.PhaseNeedsYou},
-		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
-		{Task: "T-8", State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
-		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
+	tasks := []wire.TaskStatus{{Task: "T-10", State: "submitted", Open: true, Phase: wire.PhaseGating, Stage: wire.StageGating},
+		{Task: "T-3", State: "working", Open: true, Phase: wire.PhaseWorking},
+		{Task: "T-4", State: "working", Open: true, Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
+		{Task: "T-5", State: "dispatched", Open: true, Phase: wire.PhaseNeedsYou},
+		{Task: "T-7", State: "needs-you", Open: true, Phase: wire.PhaseHeld, Stage: wire.StageHeld},
+		{Task: "T-8", State: "accepted", Open: true, Phase: wire.PhasePublish, Stage: wire.StagePublish},
+		{Task: "T-9", State: "submitted", Open: true, Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
 	ps := wire.ProjectStatus{Tasks: tasks, Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
 			{Task: "T-9", WaitsOn: "T-7", Why: wire.ScratchHeld}}}

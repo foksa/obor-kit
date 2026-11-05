@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"strings"
 
 	"obor/internal/config"
 )
@@ -229,7 +228,7 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 			return nil, err
 		}
 		fin := in.Data.(port.FreeInput)
-		fin.Branch, fin.Target = strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", mt.task), target
+		fin.Branch, fin.Target = cfg.TaskBranch(mt.task), target
 		for _, l := range cfg.Lanes() {
 			if l.Name == d.Lane {
 				fin.Dir = l.Dir

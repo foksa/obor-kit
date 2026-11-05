@@ -106,6 +106,13 @@ func (a *App) timerOf(p *proj, key event.Key) *jobTimer {
 	return t
 }
 
+// jobSent starts task's job timer for job, prompted at (under mu): the job's delivery timers run from at.
+func (a *App) jobSent(p *proj, task, job string, at time.Time) {
+	a.mu.Lock()
+	p.timers[task] = &jobTimer{job: job, sent: at}
+	a.mu.Unlock()
+}
+
 // undelivered is the delivery timer of mt's job key to agent (rows 7–8, under mu), the work, fix and integrator jobs'
 // alike: nothing for deliveryWait after the prompt, then resend under retry.<step> once (the same job id: the agent's
 // wake again; at once when a crash or a refusal left it pending), deliveryWait after that the owner: needs-you{job not

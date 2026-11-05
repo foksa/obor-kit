@@ -30,6 +30,9 @@ type ProjectStatus struct {
 	Paused *event.Pause `json:"paused,omitempty"` // the pause in force (pause.go)
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page).
 	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
+	// Locked is the configured lanes that hold a task now, by configset's own rule (laneHolds): obor web's setup page
+	// warns before a lanes-count edit drops one, and serve refuses it while it does (T-896).
+	Locked []string `json:"locked,omitempty"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor status lists them (T-658).
 	Watches []WatchStatus `json:"watches,omitempty"`
 	// Idle is the project's idle state (T-803): the pipeline is empty and the lead was told; nil when it has work.
@@ -220,6 +223,9 @@ type TaskStatus struct {
 	Lane    string `json:"lane"`
 	Attempt int    `json:"attempt"`
 	State   string `json:"state"`
+	// Open is whether serve still has the task in its merge loop: its state is not one the state table ends (not
+	// rejected or dropped; a merged one is no TaskStatus at all). Readers that asked the state strings ask this (T-896).
+	Open    bool   `json:"open,omitempty"`
 	Phase   string `json:"phase"`             // what serve does for it now (Phase*, T-788)
 	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
 	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)

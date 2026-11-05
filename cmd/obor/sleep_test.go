@@ -158,7 +158,7 @@ func launchdServe(t *testing.T, s *sleeper, state string, pid string) service.Se
 func TestStopRefusedFromAWorker(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working", Open: true}}
 	s.Force = true
 	for _, c := range []struct {
 		name, cwd, role, want string
@@ -200,7 +200,7 @@ func TestStopRefusedWhileServeIsDown(t *testing.T) {
 func TestStopRefusesATaskInProgress(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
-	f.tasks = []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "merged"}, {Task: "T-03", State: "waiting"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "merged"}, {Task: "T-03", State: "waiting", Open: true}}
 	if rc := s.stop(context.Background()); rc != 1 ||
 		!strings.Contains(out.String(), "FAIL tasks in progress: T-03 (no lane, waiting)") ||
 		!strings.Contains(out.String(), "obor stop --force (stops the agents; the tasks stay open and continue at obor start)") ||
@@ -230,7 +230,7 @@ func TestStopReplacesATimedPause(t *testing.T) {
 		_, s, out, _, f := sleepFx(t)
 		until := now.Add(time.Hour).Unix()
 		f.paused = &event.Pause{Why: "owner's break", Until: until}
-		f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}}
+		f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting", Open: true}}
 		s.Now = func() time.Time { return c.at }
 		if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), `pause: "owner's break" in force (until `) {
 			t.Errorf("%s: exit %d\n%s", c.name, rc, out)
@@ -258,7 +258,7 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	fk.Agent("w1:p1", "pj-l-01", "working", p.Root).Label = "pj-l-01"
 	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p1")
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "L-01", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting", Open: true}, {Task: "T-02", Lane: "L-01", State: "working", Open: true}}
 	if r := caller(s.Env, s.Cwd, s.Cfg); r.Role != "" {
 		t.Fatalf("precondition: the caller resolves to role %q, want the owner's", r.Role)
 	}
@@ -429,8 +429,8 @@ func TestStopForceKeepsTasksOpen(t *testing.T) {
 	paneServe(t, s, f, true)
 	s.Env = p.Env("PATH=" + os.Getenv("PATH"))
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working"},
-		{Task: "T-03", Lane: "L-02", State: "working"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working", Open: true},
+		{Task: "T-03", Lane: "L-02", State: "working", Open: true}}
 
 	if rc := s.stop(context.Background()); rc != 0 {
 		t.Fatalf("stop --force: exit %d\n%s", rc, out)
@@ -477,8 +477,8 @@ func TestStopStepsAndStart(t *testing.T) {
 	fk.Agent("w1:p6", "pj-advisor2", "idle", t.TempDir()).Label = "pj-deep-dive" // another project's pane
 	s.Env = p.Env("PATH="+os.Getenv("PATH"), "HERDR_PANE_ID=w1:p9", "OBOR_AGENT=pj-lead", "OBOR_ROLE=lead")
 	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "gating"}, {Task: "T-01", Lane: "L-01", State: "merged"},
-		{Task: "T-03", State: "waiting"}}
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "gating", Open: true}, {Task: "T-01", Lane: "L-01", State: "merged"},
+		{Task: "T-03", State: "waiting", Open: true}}
 	svc := launchdServe(t, s, state, "4242")
 
 	if rc := s.stop(context.Background()); rc != 0 {

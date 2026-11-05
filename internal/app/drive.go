@@ -157,7 +157,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
-	branch := strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", task)
+	branch := cfg.TaskBranch(task)
 	if ahead {
 		return "", fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
 	}
@@ -225,7 +225,7 @@ func (p *proj) foldOldDrive(r event.Record) {
 		p.folded.lr.rows[d.Lane] = row
 	}
 	mt := p.folded.loop[r.Task]
-	if mt == nil || mt.state == stDropped || states[mt.state].ended {
+	if mt == nil || states[mt.state].ended {
 		return
 	}
 	mt.unblock()

@@ -25,7 +25,7 @@ gate runs it. Adapters never import each other: one that needs another goes thro
   project (`stopped.go`, T-709, T-711: `Stopped`, `WriteStopMarker` (the pause stop replaced), `BeginStart`/`EndStart`, `Unregister`: obor stop / obor start).
 - `config`: effective config. `config.Load(root) (*Config, error)`; `LoadReader` (obor status, obor stop/start, web: an
   unknown key is a warning, T-709); `Validate` (removed keys WARN), `TaskIDOK` /
-  `TaskFromBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
+  `TaskFromBranch` / `TaskBranch`; `edit.go` (T-753): `Edit`, the one setup change obor web may make, applied to config.json's bytes
   in their own layout, and `LoadWith` (what it would load as).
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.

@@ -63,6 +63,7 @@
       "lane": "L-01",
       "agent": "pj-l-01",
       "task_state": "dispatched",
+      "open": true,
       "phase": "working",
       "step": 1,
       "attempt": 1,
@@ -79,6 +80,7 @@
       "lane": "L-02",
       "agent": "pj-l-02",
       "task_state": "accepted",
+      "open": true,
       "phase": "publish",
       "step": 5,
       "attempt": 2,
@@ -92,6 +94,7 @@
       "title": "the T-03 title",
       "spec_rev": 1,
       "task_state": "waiting",
+      "open": true,
       "phase": "waiting",
       "step": 0
     },
@@ -100,6 +103,7 @@
       "title": "the T-04 title",
       "spec_rev": 1,
       "task_state": "waiting",
+      "open": true,
       "phase": "waiting",
       "step": 0
     },
@@ -109,6 +113,7 @@
       "spec_rev": 1,
       "lane": "L-09",
       "task_state": "needs-you",
+      "open": true,
       "phase": "needs-you",
       "attempt": 1
     },

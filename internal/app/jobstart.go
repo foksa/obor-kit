@@ -83,9 +83,7 @@ func (a *App) job(ctx context.Context, p *proj, fx *Loop, mt mtask, jobStep stri
 		fmt.Sprintf("job %s not sent to %s", JobID(key), p.integrator)) {
 		return false
 	}
-	a.mu.Lock()
-	p.timers[mt.task] = &jobTimer{job: JobID(key), sent: at}
-	a.mu.Unlock()
+	a.jobSent(p, mt.task, JobID(key), at)
 	return true
 }
 
@@ -172,9 +170,7 @@ func (a *App) startJob(ctx context.Context, p *proj, mt mtask, in event.Intent, 
 	case startErr != nil:
 		return a.failed(ctx, p, mt, in.Step, startErr)
 	case err == nil:
-		a.mu.Lock()
-		p.timers[mt.task] = &jobTimer{job: data.Job, sent: at}
-		a.mu.Unlock()
+		a.jobSent(p, mt.task, data.Job, at)
 	}
 	return err == nil || errors.Is(err, errNoCarry)
 }

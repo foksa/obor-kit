@@ -31,6 +31,11 @@ func (a *App) Status() wire.Status {
 			ps.LogError = "lane rows: " + p.folded.lr.err.Error()
 		}
 		ps.Lanes = a.lanesNote(p, now)
+		for _, l := range p.lanes {
+			if p.laneHolds(l.Name) != "" {
+				ps.Locked = append(ps.Locked, l.Name)
+			}
+		}
 		for _, o := range a.obs {
 			if o.pane.Agent == "" || a.projectOf(o.pane) != p {
 				continue
@@ -61,7 +66,8 @@ func (a *App) Status() wire.Status {
 		for _, mt := range p.folded.loop {
 			if mt.state != stMerged {
 				ts := wire.TaskStatus{Task: mt.task, Lane: mt.lane, Attempt: mt.attempt, State: mt.shown(),
-					Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps), Effort: mt.disp.Effort}
+					Open: !states[mt.state].ended, Phase: a.phaseOf(p, mt, steps), Stage: a.stageOf(p, mt, steps),
+					Effort: mt.disp.Effort}
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}

@@ -102,11 +102,9 @@ export function usedBy(staged: Staged, s: Setup, roleName: (r: string) => string
 // in the config's order.
 export const inUse = (s: Setup, used: Record<string, string[]>) => s.models.filter((m) => used[m.name] || m.paused);
 
-// busyDropped is the lanes a lanes count of n drops that hold a task (serve refuses the change while one does).
-export const busyDropped = (s: Setup, n: number) => s.lanes.slice(Math.max(0, n)).filter((l) => LOCKED.has(l.state)).map((l) => l.lane);
-
-// LOCKED are a lane's states that hold a task.
-export const LOCKED = new Set(["working", "missing"]);
+// busyDropped is the lanes a lanes count of n drops that hold a task (serve refuses the change while one does: its
+// setup answer's locked flag).
+export const busyDropped = (s: Setup, n: number) => s.lanes.slice(Math.max(0, n)).filter((l) => l.locked).map((l) => l.lane);
 
 // pauseBody is POST /api/pause's body for model's pause (reason, a duration or "until cleared") or its clear.
 export function pauseBody(model: string, clear: boolean, reason = "", dur = "") {

@@ -154,8 +154,8 @@ func laneSection(st view.Project, now time.Time) []string {
 	}
 	for _, id := range st.TaskIDs() {
 		t := st.Tasks[id]
-		// serve's tasks alone; dropped stays in serve's list for good (--json has it); a waiting one is the queue's
-		if !shown[id] && t.TaskState != "" && t.TaskState != "dropped" && t.TaskState != "waiting" {
+		// serve's open tasks alone; a waiting one is the queue's
+		if !shown[id] && t.Open && t.TaskState != "waiting" {
 			state := "" // serve's state when it says more than the phase (T-788)
 			if t.TaskState != t.Phase {
 				state = t.TaskState + ", "

@@ -61,6 +61,7 @@ func TestSetup(t *testing.T) {
 		Project: &wire.ProjectStatus{Name: "proj", Root: p.Root,
 			Agents:      []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-rev", Agent: "claude", Status: "working", Age: 600}},
 			Paused:      &event.Pause{Why: "lunch", Until: until, Caller: "owner"},
+			Locked:      []string{"L-01"},
 			ModelPauses: map[string]*event.Pause{"sonnet": {Why: "quota", Caller: "pj-lead"}}}}
 	cfg, err := config.Load(p.Root)
 	if err != nil {
@@ -121,8 +122,9 @@ func TestSetup(t *testing.T) {
 	if !reflect.DeepEqual(s.Kinds, wantKinds) {
 		t.Errorf("kinds %+v, want %+v", s.Kinds, wantKinds)
 	}
-	// lanes: L-01 … L-NN, their agents and states now (no record names what runs: no model)
-	wantLanes := []SetupLane{{Lane: "L-01", Agent: "pj-l-01", State: "working"}, {Lane: "L-02", Agent: "pj-l-02", State: "free"}}
+	// lanes: L-01 … L-NN, their agents and states now (no record names what runs: no model), and serve's locked flag
+	wantLanes := []SetupLane{{Lane: "L-01", Agent: "pj-l-01", State: "working", Locked: true},
+		{Lane: "L-02", Agent: "pj-l-02", State: "free"}}
 	if !reflect.DeepEqual(s.Lanes, wantLanes) {
 		t.Errorf("lanes %+v, want %+v", s.Lanes, wantLanes)
 	}

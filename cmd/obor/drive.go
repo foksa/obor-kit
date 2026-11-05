@@ -111,7 +111,7 @@ func parseDrive(reply string) (drive, bool) {
 
 // branchOf is task's branch (branches.task).
 func branchOf(cfg *config.Config, task string) string {
-	return strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", task)
+	return cfg.TaskBranch(task)
 }
 
 // startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; waited for up to
