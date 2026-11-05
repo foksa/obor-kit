@@ -125,7 +125,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 }
 
 // taskType is the model lane l runs in state s (T-721, T-765): a working lane's is the model its row's
-// dispatch runs (the row holds its task; a row from before T-721 names none), any other lane's none.
+// dispatch runs (the row holds its task; a configured lane's row always names one, T-865), any other lane's none.
 func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 	if s.State != "working" {
 		return ""

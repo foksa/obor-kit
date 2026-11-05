@@ -5,6 +5,7 @@ import (
 	"obor/internal/app/event"
 	"slices"
 
+	"obor/internal/config"
 	"obor/internal/store"
 )
 
@@ -12,7 +13,8 @@ import (
 // lane.prepare puts its task on the lane (and off any other lane), as does a submission from a lane whose row does not
 // hold its task (a task dispatched before serve dispatched: no branch or base known), a dropped fact takes it off; finished is when the
 // attempt's task_done was recorded. serve is the only writer: it writes the table after the load's replay and after
-// every record that changes a row (syncLanes), so hooks and CLIs read one row instead of folding the log.
+// every record that changes a row (syncLanes), so hooks and CLIs read one row instead of folding the log. The table
+// holds configured lanes only (T-865): a row comes from a dispatch, and the loop dispatches to a configured lane.
 
 // laneRows are p's projected rows (under mu).
 type laneRows struct {
@@ -76,6 +78,20 @@ func (p *proj) foldLanes(r event.Record) {
 		}
 		p.folded.lr.rows[mt.disp.Lane] = store.LaneRow{Lane: mt.disp.Lane, Task: r.Task, Branch: mt.disp.Branch,
 			Agent: mt.disp.Agent, Base: d.Base, Head: d.Head, DispatchedAt: mt.at.Unix(), Type: mt.disp.Type}
+	}
+}
+
+// dropLaneRows deletes the rows of lanes the config does not name (T-865): the load's replay rebuilds them from old
+// dispatch records (a lane T-765 removed from the config), and they would be the table's only rows without a type.
+func (p *proj) dropLaneRows(cfg *config.Config) {
+	lanes := make(map[string]bool, len(cfg.Lanes()))
+	for _, l := range cfg.Lanes() {
+		lanes[l.Name] = true
+	}
+	for lane := range p.folded.lr.rows {
+		if !lanes[lane] {
+			delete(p.folded.lr.rows, lane)
+		}
 	}
 }
 
