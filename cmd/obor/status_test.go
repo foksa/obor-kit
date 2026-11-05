@@ -279,8 +279,13 @@ func heldGateStatus() wire.Status {
 func taskLines(t *testing.T, st wire.Status) map[string]string {
 	t.Helper()
 	var buf bytes.Buffer
+	tasks := map[string]view.Task{}
+	for _, ts := range st.Project.Tasks { // what view.Build takes of serve's tasks for these lines
+		tasks[ts.Task] = view.Task{Task: ts.Task, Lane: ts.Lane, Attempt: ts.Attempt, TaskState: ts.State, Phase: ts.Phase,
+			Running: ts.Running}
+	}
 	writeStatus(&buf, view.Project{Serve: view.Serve{Up: true, Herdr: true, Project: true, Merging: true},
-		Tasks: st.Project.Tasks}, time.Now())
+		Tasks: tasks}, time.Now())
 	lines := map[string]string{}
 	for _, l := range strings.Split(buf.String(), "\n") {
 		if f := strings.Fields(l); len(f) > 1 && f[0] == "task" {
@@ -336,10 +341,10 @@ func TestStatusShowsWaiting(t *testing.T) {
 		{view.WaitItem{Task: "T-6", WaitsOn: view.WaitsLane, Level: "hard", Types: []string{"opus:high"},
 			Why: "opus at its max 4"}, "waiting (hard: opus:high): opus at its max 4"},
 		{view.WaitItem{Task: "T-7", WaitsOn: view.WaitsLane}, "waiting for a lane"},
-		{view.WaitItem{Task: "T-8", WaitsOn: view.WaitsNever, Rev: 2, Since: now.Add(-3 * time.Hour).Unix(),
-			Title: "a title"}, "spec r2 stored 3h ago, never dispatched: a title"},
+		{view.WaitItem{Task: "T-8", WaitsOn: view.WaitsNever, Since: now.Add(-3 * time.Hour).Unix()},
+			"spec r2 stored 3h ago, never dispatched: a title"},
 	} {
-		if got := waitLine(c.w, now); got != c.want {
+		if got := waitLine(c.w, view.Task{Task: c.w.Task, SpecRev: 2, Title: "a title"}, now); got != c.want {
 			t.Errorf("%s: %q, want %q", c.w.Task, got, c.want)
 		}
 	}
@@ -581,13 +586,18 @@ func TestStatusQueue(t *testing.T) {
 	}
 	var js struct {
 		Lanes []struct {
+			Lane string  `json:"lane"`
+			Task *string `json:"task"`
+		} `json:"lanes"`
+		Tasks map[string]struct { // T-883: the sections name a task by id, its fields are here
+			Title   string `json:"title"`
 			Lane    string `json:"lane"`
 			SpecRev int    `json:"spec_rev"`
 			Job     *struct {
 				ID        string `json:"id"`
 				Delivered bool   `json:"delivered"`
 			} `json:"job"`
-		} `json:"lanes"`
+		} `json:"tasks"`
 		Roles []struct {
 			Role, Agent, Status, Session string
 			Brief                        *struct {
@@ -611,18 +621,12 @@ func TestStatusQueue(t *testing.T) {
 				Task, Stage string
 				WaitsOn     string `json:"waits_on"`
 				Why         string
-				Job         *struct {
-					ID        string `json:"id"`
-					Delivered bool   `json:"delivered"`
-				}
 			} `json:"merge"`
 			Waiting []struct {
 				Task    string   `json:"task"`
 				WaitsOn string   `json:"waits_on"`
 				After   []string `json:"after"`
 				Level   string   `json:"level"`
-				Rev     int      `json:"rev"`
-				Title   string   `json:"title"`
 			} `json:"waiting"`
 			Review []struct {
 				After []string `json:"after"`
@@ -672,13 +676,13 @@ func TestStatusQueue(t *testing.T) {
 	if s := q.Scratch; s == nil || s.Task != "T-1000" || s.Why != "conflict" {
 		t.Errorf("queue.scratch %+v; want T-1000 conflict", s)
 	}
-	if j := q.Merge[3].Job; j == nil || j.ID != "T-9/1/review" || j.Delivered {
+	if j := js.Tasks[q.Merge[3].Task].Job; j == nil || j.ID != "T-9/1/review" || j.Delivered {
 		t.Errorf("queue.merge T-9 job %+v; want T-9/1/review, not delivered", j)
 	}
 	if len(q.Waiting) != 3 || q.Waiting[0].Task != "T-12" || q.Waiting[0].WaitsOn != "after" ||
 		strings.Join(q.Waiting[0].After, ",") != "T-11" || q.Waiting[1].Task != "T-14" || q.Waiting[1].WaitsOn != "lane" ||
 		q.Waiting[1].Level != "medium" || q.Waiting[2].Task != "T-20" || q.Waiting[2].WaitsOn != "never dispatched" ||
-		q.Waiting[2].Rev != 1 || q.Waiting[2].Title != "never sent" {
+		js.Tasks["T-20"].SpecRev != 1 || js.Tasks["T-20"].Title != "never sent" {
 		t.Errorf("queue.waiting %+v; want T-12 after T-11, T-14 a medium lane, T-20 never dispatched (r1, its title)",
 			q.Waiting)
 	}
@@ -700,9 +704,10 @@ func TestStatusQueue(t *testing.T) {
 		js.Watches[0].Note != "release v0.17.4" || js.Watches[0].Since != now.Add(-3*time.Minute).Unix() {
 		t.Errorf("watches %+v; want T-11,T-20 watched by pj-lead with its note and time", js.Watches)
 	}
-	if len(js.Lanes) != 1 || js.Lanes[0].SpecRev != 1 || js.Lanes[0].Job == nil || js.Lanes[0].Job.ID != "T-10/1/work" ||
-		!js.Lanes[0].Job.Delivered {
-		t.Errorf("lanes %+v; want L-01 with spec_rev 1 and job T-10/1/work delivered", js.Lanes)
+	if tk := js.Tasks["T-10"]; len(js.Lanes) != 1 || js.Lanes[0].Task == nil || *js.Lanes[0].Task != "T-10" ||
+		tk.Lane != "L-01" || tk.SpecRev != 1 || tk.Job == nil || tk.Job.ID != "T-10/1/work" || !tk.Job.Delivered {
+		t.Errorf("lanes %+v, task T-10 %+v; want L-01 on T-10, with spec_rev 1 and job T-10/1/work delivered",
+			js.Lanes, tk)
 	}
 	if len(js.Roles) != 2 || js.Roles[0].Agent != "pj-int" || js.Roles[0].Status != "idle" || js.Roles[0].Session != "s1" ||
 		js.Roles[1].Agent != "pj-rev" || js.Roles[1].Status != "" || js.Roles[1].Brief == nil || !js.Roles[1].Brief.Delivered {
@@ -909,8 +914,8 @@ func TestStatusShowsEffortAndType(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(b), `"type":"sonnet"`) || !strings.Contains(string(b), `"effort":"high"`) ||
-		st.Lanes[0].Type != "sonnet" || st.Lanes[0].Effort != "high" || st.Lanes[1].Type != "" ||
-		st.Lanes[1].Effort != "" || st.Lanes[2].Type != "" {
+		st.Lanes[0].Type != "sonnet" || st.TaskOn(st.Lanes[0]).Effort != "high" || st.Lanes[1].Type != "" ||
+		st.TaskOn(st.Lanes[1]).Effort != "" || st.Lanes[2].Type != "" {
 		t.Errorf("--json lanes %+v: want L-01's model sonnet and effort high, L-02's and L-03's none", st.Lanes)
 	}
 }
@@ -978,7 +983,7 @@ func TestStatusAndStopCustomRole(t *testing.T) {
 // T-871: obor status shows an unknown lane's reason on its line, beside the unknown state.
 func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	why := "git status: exit status 1: fatal: index file smaller than expected"
-	line := laneLine(view.Lane{Lane: "L-01", State: "unknown", Column: "unknown", Dirty: false, Reason: &why})
+	line := laneLine(view.Lane{Lane: "L-01", State: "unknown", Column: "unknown", Dirty: false, Reason: &why}, view.Task{})
 	if !strings.Contains(line, "unknown") || !strings.Contains(line, "reason: "+why) {
 		t.Errorf("lane line %q; want its unknown state and its reason", line)
 	}

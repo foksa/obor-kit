@@ -183,18 +183,17 @@ type ProjectsEntry struct {
 	Error     string          `json:"error,omitempty"`
 }
 
-// LaneDot is one lane as the fleet page shows it: its name, its state column, its task and its configured type; a busy
-// lane adds what the fleet's running list shows: the task's title and serve's state of it, the agent and since when
-// the column holds (epoch seconds).
+// LaneDot is one lane as the fleet page shows it: its name, its state column, its configured type, whether it is free
+// and its task (view.Task, T-883: a free lane's is its last branch's id alone); a busy lane's task is the view's, with
+// what the fleet's running list shows (its title, serve's state and step of it, the agent), and since when the column
+// holds (epoch seconds). The task's lane is the dot's own.
 type LaneDot struct {
-	Lane      string `json:"lane"`
-	Column    string `json:"column"`
-	Task      string `json:"task,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Title     string `json:"title,omitempty"`
-	TaskState string `json:"task_state,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Since     *int64 `json:"since,omitempty"`
+	Lane   string `json:"lane"`
+	Column string `json:"column"`
+	Type   string `json:"type,omitempty"`
+	Free   bool   `json:"free"`
+	Since  *int64 `json:"since,omitempty"`
+	view.Task
 }
 
 // fleetEvents is how many of each project's newest events /api/projects carries.
@@ -223,14 +222,17 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			for _, l := range v.Lanes {
-				d := LaneDot{Lane: l.Lane, Column: l.Column, Type: l.Type}
+				d := LaneDot{Lane: l.Lane, Column: l.Column, Type: l.Type, Free: l.Free}
 				if l.Task != nil {
-					d.Task = *l.Task
+					d.Task.Task = *l.Task
 				}
-				if l.Free() { // a free lane keeps its last branch's task
+				if l.Free { // a free lane keeps its last branch's task
 					e.Free++
 				} else {
-					d.Title, d.TaskState, d.Agent, d.Since = l.Title, l.TaskState, l.Agent, l.Since
+					if l.Task != nil {
+						d.Task = v.Tasks[*l.Task]
+					}
+					d.Agent, d.Since = l.Agent, l.Since
 					e.Busy++
 				}
 				e.Lanes = append(e.Lanes, d)

@@ -263,7 +263,7 @@ func TestTaskPage(t *testing.T) {
 	}
 	var d view.TaskDetail
 	decode(t, r, &d)
-	if d.State != "working" || d.Attempt != 1 || d.Lane != "L-01" || d.Agent != "pj-l1" {
+	if d.TaskState != "working" || d.Attempt != 1 || d.Lane != "L-01" || d.Agent != "pj-l1" {
 		t.Errorf("task %+v: want working, attempt 1, lane L-01, agent pj-l1", d)
 	}
 	if d.SpecRev != 1 || d.Title != "a task title" {
@@ -647,7 +647,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 		t.Errorf("/api/projects: %+v, want 2 background processes", entries)
 	}
 	// T-760: the fleet page's lanes: L-01 busy with T-01 and its agent
-	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "L-01" || l[0].Task != "T-01" || l[0].Agent != "pj-l1" {
+	if l := entries[0].Lanes; len(l) != 1 || l[0].Lane != "L-01" || l[0].Task.Task != "T-01" || l[0].Agent != "pj-l1" {
 		t.Errorf("/api/projects lanes %+v, want L-01 on T-01 with pj-l1", l)
 	}
 	var a view.AgentDetail

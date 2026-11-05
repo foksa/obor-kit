@@ -33,6 +33,22 @@ export interface Job {
   delivered: boolean;
 }
 
+// Task is one task the view knows (T-883): the sections name it by id, project.tasks[id] (taskOf) has its fields.
+export interface Task {
+  task: string;
+  title?: string;
+  spec_rev?: number;
+  lane?: string;
+  agent?: string;
+  task_state?: string;
+  phase?: string;
+  step?: number;
+  attempt?: number;
+  running?: string;
+  effort?: string;
+  job?: Job;
+}
+
 export interface Lane {
   lane: string;
   type: string;
@@ -45,18 +61,11 @@ export interface Lane {
   dirty: boolean;
   warning: string | null;
   op?: string;
-  task_state?: string;
-  phase?: string;
-  attempt?: number;
-  running?: string;
-  effort?: string;
   agent?: string;
   agent_status?: string;
+  free: boolean;
   column: string;
   since?: number;
-  spec_rev?: number;
-  title?: string;
-  job?: Job;
   background?: Background[];
 }
 
@@ -79,7 +88,6 @@ export interface Role {
 
 export interface NeedsYou {
   task: string;
-  lane?: string;
   reason: string;
   answer?: string;
   since?: number;
@@ -165,14 +173,9 @@ export interface Idle {
 
 export interface MergeItem {
   task: string;
-  title?: string;
-  lane?: string;
-  state: string;
-  phase: string;
   stage: string;
   waits_on?: string;
   why?: string;
-  job?: Job;
 }
 
 export interface WaitItem {
@@ -182,9 +185,7 @@ export interface WaitItem {
   why?: string;
   level?: string;
   types?: string[];
-  rev?: number;
   since?: number;
-  title?: string;
 }
 
 export interface ReviewItem {
@@ -236,7 +237,7 @@ export interface ProjectView {
   running: Running[];
   pending: PendingStep[];
   lanes: Lane[];
-  tasks: TaskStatus[];
+  tasks: Record<string, Task>;
   agents: AgentStatus[];
   roles: Role[];
   lead?: Role;
@@ -252,16 +253,25 @@ export interface ProjectView {
   notes?: string[];
 }
 
-// LaneDot is one lane of /api/projects: enough for the fleet page's lane strip.
+// LaneDot is one lane of /api/projects: enough for the fleet page's lane strip; its task's fields are Task's (a free
+// lane's: its last task's id alone).
 export interface LaneDot {
   lane: string;
   column: string;
-  task?: string;
   type?: string;
-  title?: string;
-  task_state?: string;
-  agent?: string;
+  free: boolean;
   since?: number;
+  task: string;
+  title?: string;
+  spec_rev?: number;
+  agent?: string;
+  task_state?: string;
+  phase?: string;
+  step?: number;
+  attempt?: number;
+  running?: string;
+  effort?: string;
+  job?: Job;
 }
 
 export interface ProjectsEntry {
@@ -300,16 +310,21 @@ export interface Prompt {
   text: string;
 }
 
+// TaskDetail is a task's page: its Task, then what the page adds.
 export interface TaskDetail {
   task: string;
   title?: string;
+  spec_rev?: number;
   lane?: string;
   agent?: string;
-  state?: string;
+  task_state?: string;
   phase?: string;
+  step?: number;
   attempt?: number;
+  running?: string;
+  effort?: string;
+  job?: Job;
   dispatched_at?: number;
-  spec_rev?: number;
   spec?: string;
   gated_rev?: number;
   report?: string;

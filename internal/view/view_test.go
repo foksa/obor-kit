@@ -41,18 +41,15 @@ func TestQueueMerge(t *testing.T) {
 		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
 		{Task: "T-8", State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
 		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
-	ps := wire.ProjectStatus{Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
+	ps := wire.ProjectStatus{Tasks: tasks, Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
 			{Task: "T-9", WaitsOn: "T-7", Why: wire.ScratchHeld}}}
-	q := queue(&Project{Tasks: tasks}, ps, "", nil, nil, now)
+	q := queue(&Project{}, ps, "", nil, nil, now)
 	want := []MergeItem{
-		{Task: "T-10", State: "submitted", Phase: wire.PhaseGating, Stage: wire.StageGating, WaitsOn: "T-7",
-			Why: wire.ScratchHeld},
-		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
-		{Task: "T-8", State: "accepted", Phase: "publish", Stage: wire.StagePublish},
-
-		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted, WaitsOn: "T-7",
-			Why: wire.ScratchHeld}}
+		{Task: "T-10", Stage: wire.StageGating, WaitsOn: "T-7", Why: wire.ScratchHeld},
+		{Task: "T-7", Stage: wire.StageHeld},
+		{Task: "T-8", Stage: wire.StagePublish},
+		{Task: "T-9", Stage: wire.StageSubmitted, WaitsOn: "T-7", Why: wire.ScratchHeld}}
 	if !slices.Equal(q.Merge, want) {
 		t.Errorf("merge %+v\nwant %+v", q.Merge, want)
 	}

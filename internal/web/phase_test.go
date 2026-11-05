@@ -45,9 +45,9 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 		if len(v.Lanes) != 1 || v.Lanes[0].State != "working" || v.Lanes[0].DoneAge == nil {
 			t.Fatalf("precondition: L-01 submitted (working, its task_done's age): %+v", v.Lanes)
 		}
-		if l := v.Lanes[0]; l.Column != c.phase || l.Phase != c.phase || l.TaskState != c.state {
-			t.Errorf("%s: lanes row column %q phase %q state %q, want %q, %q", c.phase, l.Column, l.Phase, l.TaskState,
-				c.phase, c.state)
+		if l, tk := v.Lanes[0], v.Tasks["T-01"]; l.Column != c.phase || tk.Phase != c.phase || tk.TaskState != c.state {
+			t.Errorf("%s: lanes row column %q, its task's phase %q state %q, want %q, %q", c.phase, l.Column, tk.Phase,
+				tk.TaskState, c.phase, c.state)
 		}
 		var merge []view.MergeItem
 		for _, m := range v.Queue.Merge {
@@ -59,15 +59,16 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 			if len(merge) != 0 {
 				t.Errorf("%s: in the pipeline %+v, want not (no merge-loop stage)", c.phase, merge)
 			}
-		} else if len(merge) != 1 || merge[0].Phase != c.phase || merge[0].Stage != stage {
+		} else if len(merge) != 1 || merge[0].Stage != stage {
 			t.Errorf("%s: pipeline %+v, want T-01 %s at stage %s", c.phase, merge, c.phase, stage)
 		}
 		s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
 			Build: func(context.Context, string) (view.Project, error) { return v, nil }}
 		var entries []ProjectsEntry
 		decode(t, get(t, s.Handler(), "/api/projects"), &entries)
-		if len(entries) != 1 || len(entries[0].Lanes) != 1 || entries[0].Lanes[0].Column != c.phase || entries[0].Busy != 1 {
-			t.Errorf("%s: /api/projects %+v, want L-01 busy with column %q", c.phase, entries, c.phase)
+		if len(entries) != 1 || len(entries[0].Lanes) != 1 || entries[0].Lanes[0].Column != c.phase ||
+			entries[0].Lanes[0].Phase != c.phase || entries[0].Busy != 1 {
+			t.Errorf("%s: /api/projects %+v, want L-01 busy with column and phase %q", c.phase, entries, c.phase)
 		}
 	}
 }

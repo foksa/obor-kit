@@ -1,17 +1,16 @@
-// A task's place in dispatched → working → submitted → gate → review → merging → merged, from serve's phase of it
-// (T-788: serve computes it once, wire.Phase*; a lane with no task shows its lane state) or, once serve no longer has
-// it, from its records; and a record as one line of its timeline.
+// A task's place in dispatched → working → submitted → gate → review → merging → merged, from the step the view places
+// it on (T-883: Task.step, wire.PhaseStep of serve's phase) or, when its phase places it on none (needs-you, held,
+// ended, no phase), from its records; a task's fields from the view by id; and a record as one line of its timeline.
 import { tone, type Tone } from "./format";
-import type { TaskRecord } from "./types";
+import type { Task, TaskRecord } from "./types";
 
 export const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merging", "merged"] as const;
 
-// PHASE_STEP is serve's phase of a task as the index of the step it is on. Publish is merging, never merged: merged is
-// the merged fact alone, every step done. needs-you, held and an ended task: their records say.
-export const PHASE_STEP: Record<string, number> = {
-  waiting: 0, dispatching: 0, working: 1, driving: 1, submitted: 2, gating: 3, "gate pending": 3, review: 4,
-  reviewing: 4, publish: 5, merging: 5, "publish pending": 5,
-};
+// taskOf is the view's task id (project.tasks, T-883): the one place a page reads a task's title, phase, lane and step
+// from, so they read the same on every section; a task the view does not know is its id alone.
+export function taskOf(view: { tasks?: Record<string, Task> } | null | undefined, id: string | null | undefined): Task {
+  return (id && view?.tasks?.[id]) || { task: id || "" };
+}
 
 // recordStep is the step a record shows the task reached (-1: none).
 function recordStep(r: TaskRecord): number {
@@ -30,13 +29,14 @@ export interface Stage {
   state: string;
 }
 
-export function stageOf(phase: string | undefined, records: TaskRecord[] = []): Stage {
+// stageOf is t's stage: merged on the merged fact alone (every step done; publish is merging, never merged), else the
+// step the view placed it on, else the furthest step its records reached, held there.
+export function stageOf(t: { phase?: string; step?: number } | undefined, records: TaskRecord[] = []): Stage {
   if (records.some((r) => r.kind === "fact" && r.step === "merged")) {
     return { i: TASK_STEPS.length, tone: "done", state: "merged" };
   }
-  const st = phase || "";
-  const at = PHASE_STEP[st];
-  if (at !== undefined) return { i: at, tone: tone(st), state: st };
+  const st = t?.phase || "";
+  if (t?.step !== undefined) return { i: t.step, tone: tone(st), state: st };
   // needs-you, held or ended: the furthest step its records reached, held there.
   const i = records.reduce((m, r) => Math.max(m, recordStep(r)), 0);
   return { i, tone: st ? tone(st) : "idle", state: st || (records.length ? "ended" : "") };
