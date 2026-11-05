@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner, DD-encapsulation): **Serve ships its predicates; readers while it is down read a projection.**
+  Reviews (reviewer and integrator) also ask "does a client decide something from a state string that serve knows?
+  then serve ships the predicate"; docs/design.md "Change rules" 7: a hook reading serve's state while serve may be
+  down reads a column serve projects, never a query re-folding `events`. Tasks T-892..T-896 and amendments to T-883,
+  T-885, T-888, T-891 from docs/reviews/DD-encapsulation.md.
 - 2026-11-05 (owner): **Reviews ask about copied data.** The reviewer's briefs and the integrator's review ask "does
   it add a field or type that copies data another type already holds? name the owner type" (docs/design.md "Change
   rules" 6; integrator: sendback unless a real boundary or the spec says why). Cause: one task had five shapes in

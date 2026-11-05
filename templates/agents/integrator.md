@@ -36,7 +36,8 @@ the app tells the owner what needs them.
      reported numbers are the test evidence.
      A new field or type that copies data another type already holds (a task's title, state or lane in a second
      shape): `sendback` naming the owner type, unless it is a real boundary (wire contract, store row, adapter, test
-     fake) or the spec says why (owner 11-05).
+     fake) or the spec says why (owner 11-05). A client (CLI, web, a hook's SQL) that decides something from a state
+     string serve knows: `sendback`, serve ships the predicate.
 
 
 
