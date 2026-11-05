@@ -51,7 +51,8 @@ A task's needs-you reaches you as before (`[obor] needs-you …`), watched or no
 
 ## obor idle (T-803)
 Serve tells you when the pipeline empties: no task dispatching, working, gating, under review or merging, no needs-you,
-no waiting dispatch, no reviewer or deep dive holding a brief. On that transition it posts one line to you:
+no waiting dispatch, no reviewer or deep dive holding a brief. Once it has stayed empty for a minute (a verify or a
+review request that follows the last merge is work, not idle), it posts one line to you:
 
     [obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor idle "<why nothing>"
 
@@ -63,7 +64,7 @@ no waiting dispatch, no reviewer or deep dive holding a brief. On that transitio
 - Unacknowledged after 30 minutes: one more line to you and a herdr notification to the owner; after that only `obor
   status` and obor web show `idle, not acknowledged since <time>` (never a third line).
 - A serve restart derives the state from the store: an unacknowledged idle pings once more, an acknowledged one is
-  silent.
+  silent. A restart during the minute starts it again.
 
 ## Setup edits from obor web (T-753)
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's

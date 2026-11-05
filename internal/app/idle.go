@@ -24,11 +24,17 @@ import (
 //
 // On the transition serve posts one line to the lead ("[obor] idle: nothing in flight (last: T-xx merged <sha7>) —
 // dispatch next, or obor idle \"<why nothing>\""), after a watch line firing for the same merge (notify records the
-// watch lines first). Unacknowledged after idlePingAfter, one more line and a herdr notification reach the owner;
-// after that only obor status and obor web show the state.
+// watch lines first). The line waits until the pipeline has stayed idle for idleSettle (T-859): a verify the merge
+// loop requests seconds after the last merge, or a review request made just then, is work, not an empty pipeline.
+// Unacknowledged after idlePingAfter, one more line and a herdr notification reach the owner; after that only obor
+// status and obor web show the state.
 
 // idlePingAfter is how long an idle state may wait unacknowledged before the ping.
 const idlePingAfter = 30 * time.Minute
+
+// idleSettle is how long the pipeline must stay empty before the idle line goes out (T-859): the first idle check
+// starts it, any non-idle check resets it, and a restart starts it again.
+const idleSettle = time.Minute
 
 // idleNotify is the prefix of the notification's intent key, "<idleNotify><the idle fact's seq>".
 const idleNotify = "notify."
@@ -156,7 +162,8 @@ func (p *proj) idleEpoch(n idle) *idleState {
 
 // idleLines announces the idle state once and pings an unacknowledged one after idlePingAfter: the lead's line (and
 // later the ping's, with the owner's notification). A pass records the watch lines before this one, so a watch line
-// firing for the same merge comes first. Nothing is recorded when the log refuses it: the next pass tries again.
+// firing for the same merge comes first. The line waits out idleSettle from the first idle check (T-859); the ping
+// counts from the idle fact as before. Nothing is recorded when the log refuses it: the next pass tries again.
 func (a *App) idleLines(ctx context.Context) {
 	a.mu.Lock()
 	p := a.p
@@ -169,11 +176,14 @@ func (a *App) idleLines(ctx context.Context) {
 	st := p.idleEpoch(cur)
 	newState, first, ping := false, false, false
 	switch {
-	case !cur.ok:
+	case !cur.ok: // the pipeline has work: a later idle check starts the window over
+		p.idleSince = time.Time{}
 	case st == nil: // no epoch recorded, or the last one ended: a new epoch begins, with its own line
-		newState, first = true, true
+		newState, p.idleSince = true, now
+	case p.idleSince.IsZero(): // a restart starts the window again (T-859: the state is live)
+		p.idleSince = now
 	default:
-		first = !st.lined
+		first = !st.lined && now.Sub(p.idleSince) >= idleSettle
 		ping = !st.ack && st.lined && !st.pinged && now.Sub(st.at) >= idlePingAfter
 	}
 	if cur.ok {

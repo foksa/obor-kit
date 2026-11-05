@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app/event"
 )
@@ -22,6 +23,15 @@ func (r *reviewRig) afterStepsDone(task string) {
 
 // idlePass is the merge loop's idle check after its advance.
 func (r *reviewRig) idlePass() { r.a.idleLines(context.Background()) }
+
+// idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
+// idleSettle, and the next check posts the line.
+func (r *reviewRig) idleSettled() {
+	r.t.Helper()
+	r.idlePass()
+	r.now = r.now.Add(idleSettle)
+	r.idlePass()
+}
 
 // idleOK is idleNow's answer.
 func (r *reviewRig) idleOK() bool {
@@ -61,6 +71,13 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	if v := r.lastVerify(); v.state != verifyRequested {
 		t.Fatalf("precondition: the verify %s, want requested", v.state)
 	}
+	// T-859 keeps this input: a requested verify can outlast the settle window (the reviewer working), so no idle line
+	// may go out before its brief. The first pass starts the window; the one past it would post the line without it.
+	r.idlePass()
+	if lines := r.idlePosts(); len(lines) != 0 {
+		t.Fatalf("idle lines %q on the first idle check, want none", lines)
+	}
+	r.now = r.now.Add(2 * idleSettle)
 	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
 		t.Errorf("idle lines %q while the verify is requested, want none", lines)
@@ -72,6 +89,8 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 		t.Fatalf("precondition: the verify %s (idle %t), want briefed and in flight", v.state, r.idleOK())
 	}
 	r.idlePass()
+	r.now = r.now.Add(2 * idleSettle)
+	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
 		t.Errorf("idle lines %q while the verify is briefed, want none", lines)
 	}
@@ -80,7 +99,7 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	if v := r.lastVerify(); v.state != verifyDone || !r.idleOK() {
 		t.Fatalf("precondition: the verify %s (idle %t), want done with nothing in flight", v.state, r.idleOK())
 	}
-	r.idlePass()
+	r.idleSettled()
 	lines := r.idlePosts()
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "[obor] idle: nothing in flight") {
 		t.Errorf("idle lines %q after the verify is done, want one", lines)
@@ -88,6 +107,40 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	r.idlePass()
 	if n := len(r.idlePosts()); n != 1 {
 		t.Errorf("%d idle lines after another pass, want the one", n)
+	}
+}
+
+// T-859: the last linked fix merges and a connection check's idle pass runs before the merge loop's fix pass: the
+// check only starts the window, the fix pass requests and briefs the verify within it, and no idle line goes out.
+func TestIdleSettleCoversTheVerifyRace(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	startedReview(t, r)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.afterStepsDone("T-a")
+	r.afterStepsDone("T-b")
+	if !r.idleOK() {
+		t.Fatal("precondition: the merged fixes with no verify yet are idle")
+	}
+	r.idlePass() // the connection check: the pipeline looks empty, the window starts
+	if lines := r.idlePosts(); len(lines) != 0 {
+		t.Fatalf("idle lines %q on the first idle check, want none", lines)
+	}
+	r.now = r.now.Add(5 * time.Second) // the merge loop's fix pass, seconds later
+	r.fixPass()
+	if v := r.lastVerify(); v.state != verifyBriefed {
+		t.Fatalf("precondition: the verify %s, want briefed within the window", v.state)
+	}
+	r.now = r.now.Add(2 * idleSettle) // past the window: the verify is still work
+	r.idlePass()
+	if lines := r.idlePosts(); len(lines) != 0 {
+		t.Errorf("idle lines %q while the verify is briefed, want none", lines)
+	}
+	r.finish()
+	r.idleSettled()
+	if lines := r.idlePosts(); len(lines) != 1 {
+		t.Errorf("idle lines %q after the verify is done, want one", lines)
 	}
 }
 
@@ -106,6 +159,8 @@ func TestIdleFailedVerifyWaitingForItsRetry(t *testing.T) {
 	if r.idleOK() {
 		t.Fatal("the failed verify its fix round requests again is idle, want in flight")
 	}
+	r.idlePass()                      // the first idle check starts the window (and finds the round in flight)
+	r.now = r.now.Add(2 * idleSettle) // past it: the round still owes its verify
 	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
 		t.Errorf("idle lines %q while the round waits to request its verify again, want none", lines)
@@ -115,6 +170,8 @@ func TestIdleFailedVerifyWaitingForItsRetry(t *testing.T) {
 	if v := r.lastVerify(); v.state != verifyRequested || r.idleOK() {
 		t.Fatalf("precondition: the retried verify %s (idle %t), want requested and in flight", v.state, r.idleOK())
 	}
+	r.idlePass()
+	r.now = r.now.Add(2 * idleSettle)
 	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
 		t.Errorf("idle lines %q while the retried verify is requested, want none", lines)
@@ -129,7 +186,7 @@ func TestIdleFailedVerifyWaitingForItsRetry(t *testing.T) {
 	if v := r.lastVerify(); v.state != verifyDone || !r.idleOK() {
 		t.Fatalf("precondition: the retried verify %s (idle %t), want done with nothing in flight", v.state, r.idleOK())
 	}
-	r.idlePass()
+	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 || !strings.HasPrefix(lines[0], "[obor] idle: nothing in flight") {
 		t.Errorf("idle lines %q after the retried verify is done, want one", lines)
 	}
@@ -171,7 +228,7 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	if n := r.dropRecords(); n != 1 {
 		t.Fatalf("%d drop records for the closed round, want one", n)
 	}
-	r.idlePass()
+	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 {
 		t.Fatalf("idle lines %q after the closed round, want one", lines)
 	}
@@ -201,7 +258,7 @@ func TestIdleFailedVerifyByHandIsNotInFlight(t *testing.T) {
 	if !r.idleOK() {
 		t.Fatal("a failed verify no round retries keeps the pipeline from idle")
 	}
-	r.idlePass()
+	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 {
 		t.Errorf("idle lines %q after the failed verify, want one", lines)
 	}

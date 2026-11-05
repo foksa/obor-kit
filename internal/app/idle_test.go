@@ -28,6 +28,17 @@ func idleLineText(last string) string {
 	return `[obor] idle: nothing in flight (last: ` + last + `) — dispatch next, or obor idle "<why nothing>"`
 }
 
+// idleSettle is T-859's window: the idle line waits until the pipeline has stayed idle this long.
+const idleSettle = time.Minute
+
+// settleIdle lets the idle window pass: two passes start its clock, then the clock moves past idleSettle, so the next
+// idle check posts the line.
+func (r *loopRig) settleIdle() {
+	r.t.Helper()
+	r.passes()          // the idle check that starts the window
+	r.later(idleSettle) // the first check past it: the line goes out
+}
+
 // idlePosts is the idle lines the lead's inbox got, in order.
 func (r *loopRig) idlePosts() []string {
 	var out []string
@@ -92,6 +103,11 @@ func TestIdleAfterTheLastMergePostsOneLine(t *testing.T) {
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
+	r.passes()
+	if n := len(r.idlePosts()); n != 0 {
+		t.Fatalf("%d idle lines in the settle window, want none", n)
+	}
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
@@ -111,6 +127,7 @@ func TestIdleAfterADropPostsOneLine(t *testing.T) {
 	r.start()
 	r.dropT("x1", "T-1", "superseded by T-2")
 	line := idleLineText("T-1 dropped: superseded by T-2")
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.passes()
 	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
@@ -137,6 +154,7 @@ func TestIdleNotWhileAnotherTaskRuns(t *testing.T) {
 	}
 	r.dropT("x1", "T-2", "not needed")
 	dropped := idleLineText("T-2 dropped: not needed")
+	r.settleIdle()
 	r.waitFor("the idle line after the drop", func() bool { return r.inbox.count("pj-lead", dropped) == 1 })
 }
 
@@ -153,6 +171,7 @@ func TestIdleBlockers(t *testing.T) {
 		r.mergedTask()
 		r.passes()
 		r.passes()
+		r.later(2 * idleSettle) // past the window: a line would have gone out if the pipeline were idle
 		if st := r.app.Status().Project.Idle; st != nil {
 			t.Errorf("idle state %+v while T-2 waits", st)
 		}
@@ -173,6 +192,7 @@ func TestIdleBlockers(t *testing.T) {
 		r.mergedTask()
 		r.passes()
 		r.passes()
+		r.later(2 * idleSettle) // past the window: a line would have gone out if the pipeline were idle
 		if st := r.app.Status().Project.Idle; st != nil {
 			t.Errorf("idle state %+v while T-2 needs the owner", st)
 		}
@@ -197,6 +217,7 @@ func TestIdleBlockers(t *testing.T) {
 		r.merged(1)
 		r.passes()
 		r.passes()
+		r.later(2 * idleSettle) // past the window: a line would have gone out if the pipeline were idle
 		if st := r.app.Status().Project.Idle; st != nil {
 			t.Errorf("idle state %+v while the reviewer is briefed", st)
 		}
@@ -213,6 +234,7 @@ func TestIdleAckStopsThePing(t *testing.T) {
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
 		reply != "ACKED idle: nothing to dispatch" {
@@ -243,13 +265,14 @@ func TestIdlePingsOnceAfter30Minutes(t *testing.T) {
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
-	r.later(29 * time.Minute)
+	r.later(28 * time.Minute) // 29 min from the idle fact, the line having waited out its window
 	if got := len(r.idlePosts()); got != 1 {
-		t.Fatalf("%d idle lines after 29m, want one", got)
+		t.Fatalf("%d idle lines after 28m, want one", got)
 	}
 	if n := countReq(r.srv, "notification.show"); n != 0 {
-		t.Fatalf("%d notifications after 29m, want none", n)
+		t.Fatalf("%d notifications after 28m, want none", n)
 	}
 	r.later(2 * time.Minute)
 	r.waitFor("the ping line", func() bool { return len(r.idlePosts()) == 2 })
@@ -277,6 +300,7 @@ func TestIdleRestartDerivesTheState(t *testing.T) {
 		r.start()
 		r.mergedTask()
 		line := idleLineFor(r, "T-1")
+		r.settleIdle()
 		r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 		r.stop()
 		r.start()
@@ -306,6 +330,7 @@ func TestIdleRestartDerivesTheState(t *testing.T) {
 		r.start()
 		r.mergedTask()
 		line := idleLineFor(r, "T-1")
+		r.settleIdle()
 		r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 		if _, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil {
 			t.Fatal(err)
@@ -337,6 +362,7 @@ func TestIdleLineAfterTheWatchLine(t *testing.T) {
 	r.mergedTask()
 	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
 	watch, idle := "[obor] T-1 merged "+sha, idleLineText("T-1 merged "+sha)
+	r.settleIdle()
 	r.waitFor("both lines posted", func() bool {
 		return r.inbox.count("pj-lead", watch) == 1 && r.inbox.count("pj-lead", idle) == 1
 	})
@@ -363,6 +389,7 @@ func TestDispatchEndsIdle(t *testing.T) {
 	r.waitStep("1 result work")
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	r.addLanes(port.Lane{Name: "L-02", Dir: r.p.LaneDir("L-02"), State: "free"})
 	if reply, err := r.dispatchCall(wire.Call{Root: r.p.Root, Agent: "pj-lead", Role: "lead", CallID: "d2", Task: "T-2",
@@ -384,6 +411,7 @@ func (r *loopRig) idleAcked() string {
 	r.start()
 	r.mergedTask()
 	line := idleLineFor(r, "T-1")
+	r.settleIdle()
 	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
 	if reply, err := r.line(wire.MethodIdle, "i1", wire.Call{Note: "nothing to dispatch"}); err != nil ||
 		reply != "ACKED idle: nothing to dispatch" {
@@ -426,10 +454,13 @@ func (r *loopRig) finishesBrief(pane, agent, done string) {
 // new, unacknowledged epoch and that later passes add none.
 func (r *loopRig) newIdleEpoch(line string) {
 	r.t.Helper()
+	r.passes() // the idle check that starts the new epoch's window
+	since := r.clock.Now().Unix()
+	r.later(idleSettle) // the first check past it posts the line
 	r.waitFor("the new idle line", func() bool { return r.inbox.count("pj-lead", line) == 2 })
 	st := r.app.Status().Project.Idle
 	sha := r.p.Git(r.p.Root, "rev-parse", "--short=7", "main")
-	if st == nil || st.Acked || st.Why != "" || st.Last != "T-1 merged "+sha || st.Since != r.clock.Now().Unix() {
+	if st == nil || st.Acked || st.Why != "" || st.Last != "T-1 merged "+sha || st.Since != since {
 		r.t.Fatalf("status idle %+v, want a new, unacknowledged state since now with T-1's merge", st)
 	}
 	r.passes()
@@ -575,4 +606,83 @@ func TestReviewRequestEndsIdleAcrossARestart(t *testing.T) {
 	r.start()
 	r.reviewEndsIdle()
 	r.endReview("r2", line)
+}
+
+// T-859: the idle line waits out its window. A review request ten seconds after the pipeline empties resets it: no
+// line, and only the request's end starts a window that posts the line.
+func TestIdleSettleReviewRequestTenSecondsLater(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.passes() // the idle check that starts the window
+	r.later(10 * time.Second)
+	if n := len(r.idlePosts()); n != 0 {
+		t.Fatalf("%d idle lines ten seconds in, want none", n)
+	}
+	r.requestReview("r1", nil, "REVIEW REQUESTED (now)")
+	r.later(2 * idleSettle) // past the window: the request is work, and no line may go out
+	if n := len(r.idlePosts()); n != 0 {
+		t.Fatalf("%d idle lines while the review request is in flight, want none", n)
+	}
+	if reply, err := r.line(wire.MethodReview, "r2", wire.Call{Clear: true}); err != nil || reply != "REVIEW REQUEST ENDED" {
+		t.Fatalf("review --rm: %q, %v", reply, err)
+	}
+	r.settleIdle()
+	r.waitFor("the idle line after the request ended", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	if n := len(r.idlePosts()); n != 1 {
+		t.Errorf("%d idle lines, want the one", n)
+	}
+}
+
+// T-859: the line goes out on the first idle check past the window, never before; the state's reminder follows 30
+// minutes after the pipeline emptied, as before.
+func TestIdleSettleWaitsTheWindow(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.passes() // the idle check that starts the window
+	r.later(idleSettle - time.Second)
+	if n := len(r.idlePosts()); n != 0 {
+		t.Fatalf("%d idle lines one second before the window ended, want none", n)
+	}
+	r.later(time.Second) // the first check past it
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if n := len(r.idlePosts()); n != 1 {
+		t.Errorf("%d idle lines after another pass, want the one", n)
+	}
+	r.later(28 * time.Minute) // 29 minutes after the pipeline emptied
+	if n := len(r.idlePosts()); n != 1 {
+		t.Errorf("%d idle lines before the reminder, want the one", n)
+	}
+	r.later(2 * time.Minute)
+	r.waitFor("the reminder", func() bool { return len(r.idlePosts()) == 2 })
+}
+
+// T-859: a restart while the pipeline is idle starts the window again: no line on the old clock, one after the new
+// window.
+func TestIdleRestartStartsTheWindowAgain(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.passes() // the first app's window starts, the line stays unsent
+	r.later(30 * time.Second)
+	r.stop()
+	r.start()
+	r.passes() // the restarted app's window starts
+	r.later(idleSettle - time.Second)
+	if n := len(r.idlePosts()); n != 0 {
+		t.Fatalf("%d idle lines before the restarted window ended, want none", n)
+	}
+	r.later(time.Second)
+	r.waitFor("the idle line posted", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	if n := len(r.idlePosts()); n != 1 {
+		t.Errorf("%d idle lines, want the one", n)
+	}
 }
