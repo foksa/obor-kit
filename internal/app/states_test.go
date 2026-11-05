@@ -72,9 +72,8 @@ func checkRow(t *testing.T, w rowWant) {
 
 // allVerbs are the task verbs, verbName their names for a failure.
 var (
-	allVerbs = []verb{vResume, vDrop, vDrive, vLand, vMove, vSubmit}
-	verbName = map[verb]string{vResume: "resume", vDrop: "drop", vDrive: "drive", vLand: "land", vMove: "move",
-		vSubmit: "submit"}
+	allVerbs = []verb{vResume, vDrop, vLand, vMove, vSubmit}
+	verbName = map[verb]string{vResume: "resume", vDrop: "drop", vLand: "land", vMove: "move", vSubmit: "submit"}
 )
 
 // needsOf is a needs-you fact of cause.
@@ -221,7 +220,7 @@ func TestStateDroppingRowT852(t *testing.T) {
 		checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stDropping, needs: heldOf(cause)}, waits: true,
 			name: "a step (needs-you)", landed: true, cause: cause, resume: retry})
 	}
-	// a take-over's refused stop: driving, held, obor resume retries it
+	// an old log's take-over's refused stop (foldOldDrive): driving, held, obor resume retries it
 	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stDriving, drive: true, needs: heldOf(causeStop)},
 		waits: true, name: "a step (needs-you)", landed: true, cause: causeStop, resume: resumeRule{retry: true}})
 }
@@ -301,8 +300,8 @@ func TestStateWorkingRow24(t *testing.T) {
 		landed: true, cause: causeUndelivered})
 }
 
-// TestBlockHeldRow40: a held block keeps its phase: the owner decides (resume, drop, a task_done; a take-over when the
-// phase takes one), nothing runs, and what the phase holds stays held.
+// TestBlockHeldRow40: a held block keeps its phase: the owner decides (resume, drop, a task_done), nothing runs, and
+// what the phase holds stays held.
 func TestBlockHeldRow40(t *testing.T) {
 	t.Parallel()
 	// a resolve job held stays open, in the scratch
@@ -313,7 +312,7 @@ func TestBlockHeldRow40(t *testing.T) {
 	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stResolving, attemptVars: attemptVars{job: "resolve"},
 		needs: closedOf(causeResolveRejected), lane: "L-01", agent: "l-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: causeResolveRejected})
-	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit | vDrive, mt: mtask{state: stDispatched, needs: heldOf("lane"), lane: "L-01",
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stDispatched, needs: heldOf("lane"), lane: "L-01",
 		agent: "l-01"}, waits: true, name: "a step (needs-you)", landed: true,
 		cause: "lane", resume: resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}})
 	// a needs-you whose task has no lane (a waiting one): resume (retry) or drop it

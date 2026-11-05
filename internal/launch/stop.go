@@ -14,7 +14,7 @@ import (
 )
 
 // StopBound is the most a Stop may take: its idle wait, its quit wait and the terminate together (T-829). It is
-// port.StopBound: the one number launch and obor drive (whose wait for a take-over's stop covers it, T-852) both read.
+// port.StopBound: the one number of the stop's waits (T-829).
 const StopBound = port.StopBound
 
 // Stop quits agent in its pane (pane "": the pane labelled agent) and leaves the pane labelled, at its shell:

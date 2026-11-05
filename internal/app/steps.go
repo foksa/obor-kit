@@ -159,7 +159,7 @@ func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (stri
 }
 
 // stopAgent is the one decision "is the worker gone, else stop it" (RV-93 #1): the post-merge stop (stopWorker), and
-// worker.stop (stopStep: a move's, a take-over's and a drop's, T-852). agent's pane is resolved now (whereIs; never an address recorded
+// worker.stop (stopStep: a move's and a drop's, T-852). agent's pane is resolved now (whereIs; never an address recorded
 // earlier, RV-53 #1, and never a label lookup of the stop's own, RV-93 #1):
 //   - Identified: stopped at that pane by ID (force as given); line is the stop's, else "stopped <agent>".
 //   - Ambiguous: an error naming the panes, nothing stopped.

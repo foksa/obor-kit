@@ -42,27 +42,25 @@ type verb uint8
 const (
 	vResume verb = 1 << iota // obor resume: the lead's word to the task (resumeAct says which action)
 	vDrop                    // obor drop
-	vDrive                   // obor drive <T-xx>: a take-over (a drive already is driveAgain's)
 	vLand                    // obor land
 	vMove                    // obor dispatch <T-xx> --model (move.go)
 	vSubmit                  // task_done
 )
 
-// workVerbs are the verbs of a task its worker works on (dispatched, working); drive, move and submit also need a
-// dispatch's lane prepared (mt.base).
-const workVerbs = vResume | vDrop | vDrive | vMove | vSubmit
+// workVerbs are the verbs of a task its worker works on (dispatched, working); move and submit also need a dispatch's
+// lane prepared (mt.base).
+const workVerbs = vResume | vDrop | vMove | vSubmit
 
 // may: mt's state takes v. A block decides first (one rule for every verb): a due one takes only a drop (its
-// needs-you is recorded on the next pass); a held one takes obor resume, a drop and a task_done (the next attempt), and
-// a take-over when its phase takes one (a worker's needs-you: obor drive fixes it by hand). A merged or rejected
-// task's needs-you leaves its row's verbs as they are.
+// needs-you is recorded on the next pass); a held one takes obor resume, a drop and a task_done (the next attempt). A
+// merged or rejected task's needs-you leaves its row's verbs as they are.
 func (mt mtask) may(v verb) bool {
 	vs := states[mt.state].verbs
 	switch {
 	case mt.needs.due():
 		vs = vDrop
 	case mt.paused() && mt.state != stDropping: // a dropping task takes no task_done, blocked or not (T-852)
-		vs = vResume | vDrop | vSubmit | vs&vDrive
+		vs = vResume | vDrop | vSubmit
 	}
 	return vs&v != 0
 }
@@ -240,7 +238,7 @@ func (p *proj) stepPhases(open []event.Record) map[string]string {
 // busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
 // being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step runs (p.running), or its
 // attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
-// a move's, take-over's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
+// a move's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
 // needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
 func (p *proj) busy(task string) string {
 	if why := p.claim(task); why != "" {

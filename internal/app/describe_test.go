@@ -34,7 +34,7 @@ func TestDescribeWordsEveryKind(t *testing.T) {
 			`{"lane":"L-01","agent":"pj-l-01","level":"hard","types":["opus","sonnet"],"type":"opus:high"}`,
 			Described{Line: "dispatched T-1 (L-01)", Lane: "L-01", Agent: "pj-l-01", Level: "hard",
 				Types: []string{"opus", "sonnet"}, Type: "opus:high"}},
-		// T-751: the owner's drive, new and taken over
+		// T-751: the owner's drive, new and (an old log's, T-912) taken over
 		{"a drive", event.KindFact, event.StepDispatched, `{"lane":"L-01","drive":true}`,
 			Described{Line: "drive T-1 (L-01)", Lane: "L-01"}},
 		{"a take-over", event.KindFact, event.StepDrive, `{"lane":"L-01","agent":"pj-l-01","drive":true}`,

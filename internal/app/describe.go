@@ -71,7 +71,7 @@ var worded = map[string]worder{
 		}
 		return nil
 	},
-	"fact " + event.StepDrive: func(r event.Record, d *Described) error {
+	"fact " + event.StepDrive: func(r event.Record, d *Described) error { // old logs only (T-912)
 		var dd dispatchData
 		if err := decode(r, &dd); err != nil {
 			return err

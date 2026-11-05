@@ -20,10 +20,6 @@ func (p *proj) foldLoop(r event.Record) {
 		p.foldWaiting(r)
 		return
 	}
-	if r.Kind == event.KindFact && r.Step == event.StepDrive {
-		p.foldDrive(r)
-		return
-	}
 	// A dropped fact is terminal for the task whatever attempt it names (RV-42-verify-2 #1: a submission decided
 	// before the drop may record the next attempt first): live fold and replay end the task, and every later record of
 	// it (submitted, a step result, a verdict) is ignored; only a new dispatch reopens it.

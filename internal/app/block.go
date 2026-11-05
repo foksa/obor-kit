@@ -9,7 +9,7 @@ import (
 // block is the merge loop's needs-you on a task (mtask.needs): none, due (its phase's own work failed: the cause and
 // why of the needs-you its next pass records, pickDue) or held (the needs-you fact in force: the owner decides). The
 // task's state stays its phase throughout. mtask.block sets one, mtask.unblock clears it: obor resume (resumed), a
-// verdict on the held job, a sendback of the lead's, a take-over, a merge, a drop.
+// verdict on the held job, a sendback of the lead's, a merge, a drop.
 type block struct {
 	cause, why string       // due: the needs-you to record; held after it: kept, the block is closed
 	fact       event.Record // held: the needs-you fact in force (Seq 0: not recorded)

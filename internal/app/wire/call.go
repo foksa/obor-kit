@@ -46,8 +46,9 @@ const (
 	// serve down by its serve.flock and socket.
 	MethodExit = "exit"
 	// MethodDrive (the owner's or the lead's; obor drive, T-751): Call.Note the drive's name for a new drive (a new task
-	// on the first free untyped lane, Call.Types its one type reference), else Call.Task the task in progress taken
-	// over. The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive agent.
+	// on the first free untyped lane, Call.Types its one type reference), else Call.Task a drive's own task (its retry;
+	// any other task refused, T-912). The reply is DRIVE <task> → <lane> (<agent>, <type>): the CLI starts the drive
+	// agent.
 	MethodDrive = "drive"
 	// MethodLand (the owner's, the lead's or the drive agent's; obor land): Call.Task the driving task, Call.Report the
 	// summary its submission carries. The reply is LANDED <task>: submitted.
