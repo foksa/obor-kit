@@ -240,7 +240,7 @@ func decisionText(mt mtask) string {
 
 // resolveText is the resolve job (row 25): the conflict and where it is open. The steps are the role text's.
 func resolveText(mt mtask) string {
-	if m := mt.mismatch; m != nil && mt.state == stConflict {
+	if m := mt.mismatch; m != nil {
 		c, f := m.Checked[:min(7, len(m.Checked))], strings.Join(m.Files, " ")
 		return fmt.Sprintf("Resolve %s's merge for obor serve (attempt %d, lane %s): the replayed resolution lost edits of "+
 			"the checked one %s in %s (no conflict markers; the merge is open in %s): compare with `git diff %s -- %s` and "+
