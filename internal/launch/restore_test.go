@@ -271,8 +271,8 @@ func TestRestorePoolLaneKindIsTheDispatchs(t *testing.T) {
 	}
 }
 
-// bash restore.test.sh case_role_panes_restored_not_skipped; T-169: stop_idle_workers false keeps the free lane's
-// worker too (obor dispatch would start it, so the restore skips it by default).
+// bash restore.test.sh case_role_panes_restored_not_skipped; T-169: the free lane's worker is skipped (obor dispatch
+// would start it, so the restore skips it by default).
 func TestRestoreRolePanesNotSkipped(t *testing.T) {
 	f := newRfx(t)
 	o1 := f.p.Lane("L-01", "task/T-01")
@@ -292,15 +292,5 @@ func TestRestoreRolePanesNotSkipped(t *testing.T) {
 		"and so does the other role (§T-627)")
 	if strings.Contains(log, "skip pj-rev") || strings.Contains(log, "skip pj-deep-dive") {
 		t.Errorf("a role pane skipped:\n%s", log)
-	}
-
-	f.p.Config(roles, testkit.Set("stop_idle_workers", false))
-	before := len(f.restoreLog())
-	f.calls = nil
-	f.pl.Restore(context.Background())
-	f.wantCalls(f.p.Root+" restart pj-l-01 --pane w1:p1 --fresh", f.p.Root+" restart pj-rev --pane w1:p7 --fresh",
-		f.p.Root+" restart pj-deep-dive --pane w1:p8 --fresh")
-	if rest := f.restoreLog()[before:]; strings.Contains(rest, "skip pj-l-01") {
-		t.Errorf("stop_idle_workers false: the free lane's worker skipped:\n%s", rest)
 	}
 }

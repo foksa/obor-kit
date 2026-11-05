@@ -33,14 +33,13 @@ type fx struct {
 	lane, lane2, scratch string
 	slots                string
 	out                  syncBuffer
-	env                  []string // project.Env (OBOR_GATE, OBOR_FULL)
-	environ              []string // more command environment
-	load                 []float64
+	env                  []string       // project.Env (OBOR_GATE, OBOR_FULL)
+	environ              []string       // more command environment
 	slotLoad             float64        // > 0: the slots see this machine load above their limit, their load wait cut short (T-720)
+	windowWait           time.Duration  // > 0: the nightly lock's wait (T-864: no merge.window_wait key)
 	cand                 port.Candidate // the last green gate's (gate)
 	spec                 string         // the task's stored spec gate passes (GateInput.Spec; "": none)
 	sig                  chan int
-	mu                   sync.Mutex
 }
 
 func newFx(t *testing.T, edits ...func(map[string]any)) *fx {
@@ -99,20 +98,10 @@ func (x *fx) opts() Options {
 	}
 	return Options{
 		Cfg: cfg, Env: x.Env(x.env...), Environ: append(environ, x.environ...), Out: &x.out, PID: os.Getpid(),
-		Interrupted: x.sig, LoadPoll: 10 * time.Millisecond, callCtx: callCtx,
+		Interrupted: x.sig, callCtx: callCtx, WindowWait: x.windowWait,
 		Slots: slots,
-		Load: func() (float64, bool) {
-			x.mu.Lock()
-			defer x.mu.Unlock()
-			if len(x.load) == 0 {
-				return 0, false
-			}
-			v := x.load[0]
-			if len(x.load) > 1 {
-				x.load = x.load[1:]
-			}
-			return v, true
-		},
+		// The load a flake line records: unreadable, so no test reads the machine's.
+		Load: func() (float64, bool) { return 0, false },
 	}
 }
 
@@ -289,18 +278,6 @@ func (b *syncBuffer) Reset()         { b.mu.Lock(); defer b.mu.Unlock(); b.b.Res
 
 // q quotes a path for a regexp.
 func q(s string) string { return regexp.QuoteMeta(s) }
-
-// waitOut polls until the output holds text (max 10 s).
-func (x *fx) waitOut(text string) {
-	x.t.Helper()
-	for range 500 {
-		if strings.Contains(x.out.String(), text) {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	x.t.Fatalf("no %q in the output after 10 s:\n%s", text, x.out.String())
-}
 
 // ref is the sha ref points at, "" when none.
 func (x *fx) ref(ref string) string {

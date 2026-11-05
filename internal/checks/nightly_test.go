@@ -144,8 +144,9 @@ func TestNightly(t *testing.T) {
 			x.eq(x.Read(filepath.Join(x.Base, "ran")), "check "+head+" merge 0\n", "ran at the head, junk cleaned")
 		}},
 		// bash case_live_lock_waits_then_fails
-		{"a live nightly lock → waits (line), FAIL after merge.window_wait, nothing run", func(t *testing.T) {
-			x := newFx(t, testkit.Set("merge.window_wait", 1), cmd("check", logged("check", "true")))
+		{"a live nightly lock → waits (line), FAIL after its wait, nothing run", func(t *testing.T) {
+			x := newFx(t, cmd("check", logged("check", "true")))
+			x.windowWait = time.Second
 			x.holdWindow()
 			x.is(x.nightly(), Fail, `^FAIL `+q(x.window())+` still held after [0-9]+s \(pid `+fmt.Sprint(os.Getpid())+`\)$`)
 			x.contains(x.out.String(), fmt.Sprintf("obor nightly: waiting for %s (pid %d)", x.window(), os.Getpid()), "wait line")
@@ -155,7 +156,8 @@ func TestNightly(t *testing.T) {
 		}},
 		// bash case_live_lock_released_then_runs, case_stale_lock_replaced
 		{"a live lock that goes away → waits, then GREEN; a dead holder's lock file is not waited for", func(t *testing.T) {
-			x := newFx(t, testkit.Set("merge.window_wait", 20), cmd("check", logged("check", "true")))
+			x := newFx(t, cmd("check", logged("check", "true")))
+			x.windowWait = 20 * time.Second
 			stop := x.holdWindow()
 			time.AfterFunc(1500*time.Millisecond, stop)
 			x.is(x.nightly(), OK, `^NIGHTLY GREEN `)

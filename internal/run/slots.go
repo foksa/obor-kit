@@ -54,10 +54,13 @@ type Slots struct {
 // DefaultLoadCap is how long a check waits for the machine load to drop before it runs anyway.
 const DefaultLoadCap = 15 * time.Minute
 
-// SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_MERGE_BLOCK_MAX / CHECK_PROJECT /
-// CHECK_LOAD_LIMIT, else slots.dir / slots.max / slots.merge_block_max / name / checks.load_limit, else
-// /tmp/obor-check-slots, 2, 900 s, "default", LoadFactor × NumCPU (a project name with / or white space is "default"
-// too; a load limit that is not a non-negative number is the default).
+// DefaultBlockMax is how long a live merge marker blocks a check (slots.merge_block_max's old default, T-864).
+const DefaultBlockMax = 900 * time.Second
+
+// SlotsFor reads the slot settings: env CHECK_SLOT_DIR / CHECK_SLOTS / CHECK_PROJECT / CHECK_LOAD_LIMIT, else
+// slots.dir / slots.max / name / checks.load_limit, else /tmp/obor-check-slots, 2, "default", LoadFactor × NumCPU (a
+// project name with / or white space is "default" too; a load limit that is not a non-negative number is the
+// default). The merge marker's cap is 900 s (T-864: slots.merge_block_max is gone).
 func SlotsFor(cfg *config.Config, env project.Env) Slots {
 	var cs config.Slots
 	if cfg.Data.Slots != nil {
@@ -82,8 +85,7 @@ func SlotsFor(cfg *config.Config, env project.Env) Slots {
 		return def
 	}
 	s := Slots{Dir: setting("CHECK_SLOT_DIR", cs.Dir), Max: count(setting("CHECK_SLOTS", num(cs.Max)), 2),
-		BlockMax: time.Duration(count(setting("CHECK_MERGE_BLOCK_MAX", num(cs.MergeBlockMax)), 900)) * time.Second,
-		Held:     env.Get("CHECK_SLOT_HELD")}
+		BlockMax: DefaultBlockMax, Held: env.Get("CHECK_SLOT_HELD")}
 	if s.Dir == "" {
 		s.Dir = "/tmp/obor-check-slots"
 	}

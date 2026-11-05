@@ -20,27 +20,12 @@ import (
 const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh] [--force] | " +
 	"obor restart <agent> --stop [--pane <id>] [--force]"
 
-// restartGone is each flag restart no longer takes, with the one-line replacement (T-785).
-var restartGone = map[string]string{
-	"--prompt": `--prompt is gone: obor brief <agent> --fresh "<text>"`,
-	"--type":   "--type is gone: obor dispatch T-xx --model <model> for a task, roles.<role> in the config (obor setup) for a role",
-	"--effort": "--effort is gone: obor dispatch T-xx --model <model>:<effort> for a task, roles.<role> in the config (obor setup) for a role",
-	"--sid":    "--sid is gone: a restart resumes the recorded session (--fresh starts a new one)",
-}
-
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
-// A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here (T-785).
+// A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here (T-785); the flags restart
+// gave up are unknown, so they get the usage (T-864: their one-minor notice is gone).
 func restart(args []string) int {
 	usage := func() int { fmt.Fprintln(out, "FAIL "+restartUsage); return 1 }
-	// A flag restart gave up (T-785): refused by name, with where its choice went.
-	for _, a := range args {
-		flag, _, _ := strings.Cut(a, "=")
-		if gone, ok := restartGone[flag]; ok {
-			fmt.Fprintln(out, "FAIL "+gone)
-			return 1
-		}
-	}
 	// --stop is restart's own flag, not a Request field: take it out, then let launch.ParseRequest own every flag
 	// that maps to one (T-303: its write side is Request.Args, so the two cannot drift).
 	stopIt, rest := false, make([]string, 0, len(args))

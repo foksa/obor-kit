@@ -140,19 +140,16 @@ func (a *App) lanePassed(p *proj, mt mtask) string {
 	return "skipped: lane " + Dash(mt.lane) + " holds " + Dash(task)
 }
 
-// stopWorker stops the merged lane's worker with force (its work is in, T-262) unless stop_idle_workers is false, only
-// while the lane holds the task, through serve's identity (stopAgent; a stop that says not found while the agent is
-// still identified: the snapshot lags, a success). No agent: "stopped: no agent (<why>)"; an error leaves the step
-// pending (no lane reuse).
+// stopWorker stops the merged lane's worker with force (its work is in, T-262), only while the lane holds the task,
+// through serve's identity (stopAgent; a stop that says not found while the agent is still identified: the snapshot
+// lags, a success). No agent: "stopped: no agent (<why>)"; an error leaves the step pending (no lane reuse). The stop
+// is unconditional since T-864: stop_idle_workers is gone.
 func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (string, error) {
 	if why := a.lanePassed(p, mt); why != "" {
 		return why, nil
 	}
 	if mt.agent == "" {
 		return "skipped: the lane names no worker agent", nil
-	}
-	if cfg, err := config.LoadDaemon(p.root); err == nil && cfg.Data.StopIdleWorkers != nil && !*cfg.Data.StopIdleWorkers {
-		return "kept: stop_idle_workers is false", nil
 	}
 	line, gone, err := a.stopAgent(ctx, p, fx, mt.agent, true, true)
 	if gone {

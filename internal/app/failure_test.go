@@ -319,8 +319,6 @@ func TestLoopFinalOutcomes(t *testing.T) {
 		{name: "agent.stop: not found (the snapshot lags)", step: "agent.stop", want: `"stopped: no agent (`, arm: func(r *loopRig) {
 			r.onStop = func() error { return notFound{} }
 		}},
-		{name: "agent.stop: stop disabled", step: "agent.stop", want: `"kept: stop_idle_workers is false"`,
-			edits: []func(map[string]any){testkit.Set("stop_idle_workers", false)}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()

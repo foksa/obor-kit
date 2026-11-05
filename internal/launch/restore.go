@@ -9,7 +9,7 @@ package launch
 // After herdr restores a session (with [session] resume_agents_on_restore = false obor panes come back as shells):
 // each labelled obor pane that runs no agent is restarted with obor restart, one at a time, each bounded by
 // OBOR_RESTORE_TIMEOUT (s, default 120). Skipped, with a log line: a pane that runs an agent, and the worker of a free
-// (or dirty-free) lane unless stop_idle_workers is false (T-169: obor dispatch starts it). A pane with no recorded
+// (or dirty-free) lane (obor dispatch starts it, T-169). A pane with no recorded
 // session (serve's store, T-583) or a kind that resumes nothing starts --fresh (RV-18 #3, T-627: a role pane started
 // fresh with no prompt wrote no transcript either, so no restart could resume it). Log: ~/.obor/restore.log
 // (last 200).
@@ -151,10 +151,11 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 	fmt.Fprintln(w, line)
 }
 
-// freeLane is the lane of a worker whose lane is free or dirty-free (no task in flight), "" otherwise or with
-// stop_idle_workers false. Role panes (reviewer, deep-dive) are no lanes, so never skipped (T-179).
+// freeLane is the lane of a worker whose lane is free or dirty-free (no task in flight), "" otherwise. Role panes
+// (reviewer, deep-dive) are no lanes, so never skipped (T-179). T-864: stop_idle_workers is gone, so a free worker lane
+// is always skipped (obor dispatch starts its worker).
 func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
-	if s := cfg.Data.StopIdleWorkers; info.Role != "worker" || s != nil && !*s {
+	if info.Role != "worker" {
 		return ""
 	}
 	for _, l := range cfg.Lanes() {

@@ -114,8 +114,9 @@ func TestUnknownKeyFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `unknown field "maxx"`) || !strings.Contains(err.Error(), "local.json") {
 		t.Errorf("local.json unknown key: %v", err)
 	}
-	if _, err := Load(writeProject(t, `{"prefix":"pj","stop_idle_workers":"no"}`, "")); err == nil ||
-		!strings.Contains(err.Error(), "stop_idle_workers") {
+	// A key the shape still types: a wrong type fails, as a removed key (an `any`) no longer does (T-864).
+	if _, err := Load(writeProject(t, `{"prefix":"pj","handoff_tokens":"no"}`, "")); err == nil ||
+		!strings.Contains(err.Error(), "handoff_tokens") {
 		t.Errorf("wrong type: %v", err)
 	}
 }
@@ -201,19 +202,6 @@ func TestDefaults(t *testing.T) {
 		}
 		if got := tc.get(load(t, `{"prefix":"pj",`+tc.set+`}`, "")); got != tc.val {
 			t.Errorf("%s set = %v, want %v", tc.name, got, tc.val)
-		}
-	}
-}
-
-func TestIntegratorHandoffTokens(t *testing.T) {
-	for cfg, want := range map[string]int64{
-		`{"prefix":"pj"}`: 150000,
-		`{"prefix":"pj","roles":{"integrator":"opus"}}`:      150000,
-		`{"prefix":"pj","integrator_handoff_tokens":200000}`: 200000,
-		`{"prefix":"pj","integrator_handoff_tokens":0}`:      0,
-	} {
-		if got := load(t, cfg, "").IntegratorHandoffTokens(); got != want {
-			t.Errorf("%s: IntegratorHandoffTokens = %d, want %d", cfg, got, want)
 		}
 	}
 }

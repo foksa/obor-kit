@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -43,8 +42,8 @@ func (x *fx) flakes() []Flake {
 	return out
 }
 
-// T-350: the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), one per test
-// when the load retry saved it, and never on a green run; a log it cannot write is a warning, never a red.
+// T-350: the check runner appends one line per failing test to .obor/state/flakes.jsonl (a red run), and never on a
+// green run; a log it cannot write is a warning, never a red.
 func TestFlakeLog(t *testing.T) {
 	t.Parallel()
 	// Two test failures and the package summary line: the two test names, not the package.
@@ -82,29 +81,6 @@ func TestFlakeLog(t *testing.T) {
 		x.gone(".obor/state/flakes.jsonl", "no flake log")
 	})
 
-	t.Run("load retry that passes: passed_on_retry lines at the load it retried at", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t,
-			testkit.Set("merge", map[string]any{"fail_grep": "timed out", "timeout_grep": "timed out",
-				"max_load": 10, "load_wait": 5}),
-			cmd("check", `if [ -f "$TMP_DIR/flaked" ]; then echo 3 pass; else touch "$TMP_DIR/flaked"; `+
-				`echo "--- FAIL: TestSlow timed out"; exit 1; fi`))
-		x.load = []float64{30, 1}
-		x.is(x.gate("L-01", "T-05", "flaky"), OK, `^GREEN T-05 `)
-		got := x.flakes()
-		if len(got) != 1 {
-			t.Fatalf("flake lines %d, want 1: %+v", len(got), got)
-		}
-		f := got[0]
-		x.eq(f.Test, "TestSlow", "test")
-		x.eqBool(f.Retried, true, "retried")
-		x.eqBool(f.PassedOnRetry, true, "passed_on_retry")
-		x.eq(f.Task, "T-05", "task")
-		if f.Load == nil || *f.Load != 30 {
-			t.Errorf("load = %v, want 30 (the load it retried at)", f.Load)
-		}
-	})
-
 	t.Run("unwritable flake log: a warning line, the check result unchanged", func(t *testing.T) {
 		t.Parallel()
 		x := newFx(t, cmd("check", twoFails), testkit.Set("merge.fail_grep", failGrep))
@@ -135,49 +111,6 @@ func (x *fx) eqList(got, want []string, what string) {
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		x.t.Errorf("%s: got %q, want %q", what, got, want)
 	}
-}
-
-// T-359 (RV-39 #2): a red load retry logs the original run's failing tests and the retry's (each test once, all
-// retried); a retry cut by a signal logs the original.
-func TestFlakeLogRetryRed(t *testing.T) {
-	t.Parallel()
-	const second = `if [ -f "$TMP_DIR/ran" ]; then echo "--- FAIL: %s assertion failed"; else touch "$TMP_DIR/ran"; ` +
-		`echo "--- FAIL: TestFirst timed out"; fi; exit 1`
-	merge := testkit.Set("merge", map[string]any{"fail_grep": "--- FAIL", "timeout_grep": "timed out",
-		"max_load": 10, "load_wait": 5})
-
-	t.Run("retry red with other tests: both runs' tests, retried", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, merge, cmd("check", fmt.Sprintf(second, "TestSecond")))
-		x.load = []float64{30, 1}
-		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		x.contains(x.out.String(), "re-running", "precondition: the retry ran")
-		x.eqList(x.logged(), []string{"TestFirst/check/true/false", "TestSecond/check/true/false"}, "log")
-	})
-
-	t.Run("retry red with the same test: that test once", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, merge, cmd("check", fmt.Sprintf(second, "TestFirst")))
-		x.load = []float64{30, 1}
-		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
-		x.contains(x.out.String(), "re-running", "precondition: the retry ran")
-		x.eqList(x.logged(), []string{"TestFirst/check/true/false"}, "log")
-	})
-
-	t.Run("signal while waiting for the load: the original's tests", func(t *testing.T) {
-		t.Parallel()
-		x := newFx(t, merge, cmd("check", fmt.Sprintf(second, "TestSecond")))
-		x.load = []float64{30}
-		done := make(chan Result)
-		cut, cancel := context.WithCancel(context.Background())
-		go func() { done <- x.gateCtx(cut, "L-01", "T-05", "cut") }()
-		x.waitOut("waiting for it to drop")
-		cancel() // obor serve stops
-		if r := <-done; r.Code != Fail || !strings.Contains(r.Line, "interrupted") {
-			t.Fatalf("result %d %q, want the interrupted error", r.Code, r.Line)
-		}
-		x.eqList(x.logged(), []string{"TestFirst/check/false/false"}, "log")
-	})
 }
 
 // T-359 (RV-39 #3): every command of the full tier logs a red run, and the result is unchanged.
@@ -243,21 +176,13 @@ func TestFailingNames(t *testing.T) {
 		})
 	}
 
-	t.Run("a merge's mixed output, red and on a retry that passed", func(t *testing.T) {
+	t.Run("a merge's mixed output: test names, a build failure", func(t *testing.T) {
 		t.Parallel()
 		const mixed = `echo "--- FAIL: TestUnit timed out (0.01s)"; echo "FAIL example.com/unit 0.02s"; ` +
 			`echo "FAIL example.com/build [build failed]"; exit 1`
-		x := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`, "timeout_grep": "timed out|^FAIL",
-			"max_load": 10, "load_wait": 5}), cmd("check", mixed))
+		x := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`}), cmd("check", mixed))
 		x.is(x.gate("L-01", "T-05", "red"), Red, `^RED check `)
 		x.eqList(x.logged(), []string{"TestUnit/check/false/false", "example.com/build/check/false/false"}, "red")
-
-		y := newFx(t, testkit.Set("merge", map[string]any{"fail_grep": `^--- FAIL|^FAIL\s`, "timeout_grep": "timed out|^FAIL",
-			"max_load": 10, "load_wait": 5}),
-			cmd("check", `if [ -f "$TMP_DIR/flaked" ]; then echo 3 pass; else touch "$TMP_DIR/flaked"; `+mixed+`; fi`))
-		y.load = []float64{30, 1}
-		y.is(y.gate("L-01", "T-05", "saved"), OK, `^GREEN T-05 `)
-		y.eqList(y.logged(), []string{"TestUnit/check/true/true", "example.com/build/check/true/true"}, "saved")
 	})
 }
 

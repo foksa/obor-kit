@@ -23,15 +23,13 @@ import (
 
 // status is `obor status [--facts] [--json] [--short]`. Serve down is a line, never a non-zero exit: the lanes are read
 // from the store alone. --facts adds the facts in force; --short prints only the serve line, the running line and
-// needs-you (T-657). --all is accepted and changes nothing for one release (T-522: a serve holds one project, this one);
-// drop it once adopters run v0.14.
+// needs-you (T-657). --all went with T-864 (T-522: a serve holds one project, this one).
 func status(args []string) int {
 	asJSON, facts, short := false, false, false
 	for _, a := range args {
 		switch a {
 		case "--json":
 			asJSON = true
-		case "--all":
 		case "--facts":
 			facts = true
 		case "--short":

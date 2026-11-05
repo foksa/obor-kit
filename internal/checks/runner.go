@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,8 +30,6 @@ type runner struct {
 	changedFile string     // the OBOR_CHANGED_FILES file under state
 	slot        string
 	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE)
-	retried     string   // " after load <x>" once the load retry ran
-	redLoad     *float64 // the load a red check was retried at, for the flake log
 	loaded      string   // " (run under load <x>)" once a slot was claimed after the load wait ran out (T-720)
 	pre         string   // the target side of the merge
 	class       Class
@@ -103,15 +100,14 @@ func (opt *Options) command(name string) (config.Command, bool) { return run.Com
 func (r *runner) run(name string, dir ...string) (output, bool, *halt) {
 	o, ok, h := r.exec(name, dir...)
 	if h == nil && ok && o.rc != 0 && len(dir) == 0 {
-		r.logFlakes(name, false, false, o)
+		r.logFlakes(name, o)
 	}
 	return o, ok, h
 }
 
 // exec runs commands.<name> in dir (the runner's unless given) under its timeout: every command but lane_setup holds
 // the check slot. ok false when not configured; a halt when the slot cannot be taken or a signal came. It keeps the
-// run's full output in writeLog's log, in any dir (after_merge's included); it records no flakes: must logs a retried
-// run's tests itself.
+// run's full output in writeLog's log, in any dir (after_merge's included); must logs a red run's tests.
 func (r *runner) exec(name string, dir ...string) (output, bool, *halt) {
 	c, ok := r.command(name)
 	if !ok {
@@ -323,63 +319,6 @@ func (opt *Options) printLines(ls []string) {
 	}
 }
 
-// retryOnLoad: after a failed run whose failing lines (fail_grep matches; at least one) all match
-// merge.timeout_grep, while the load is above merge.max_load (default: CPU count), wait until it drops below (max
-// merge.load_wait s, default 600) and re-run the command once per run. ok true when the re-run passed; else the
-// last run.
-func (r *runner) retryOnLoad(o output) (output, bool, *halt) {
-	r.redLoad = nil
-	m := r.Cfg.Data.Merge
-	if r.retried != "" || m.TimeoutGrep == "" {
-		return o, false, nil
-	}
-	tg, err := regexp.Compile(m.TimeoutGrep)
-	failing := r.failing(o)
-	if err != nil || len(failing) == 0 {
-		return o, false, nil
-	}
-	for _, l := range failing {
-		if !tg.MatchString(l) {
-			return o, false, nil
-		}
-	}
-	maxLoad := float64(runtime.NumCPU())
-	if m.MaxLoad != nil {
-		maxLoad = *m.MaxLoad
-	}
-	maxWait := 600
-	if m.LoadWait != nil {
-		maxWait = *m.LoadWait
-	}
-	first, ok := r.load()
-	if ok {
-		r.redLoad = &first
-	}
-	if !ok || first <= maxLoad {
-		return o, false, nil
-	}
-	r.printLines(failing[:min(len(failing), 15)])
-	fmt.Fprintf(r.Out, "%s: only timeouts failed at load %s > %s; waiting for it to drop (max %ds), then re-running\n",
-		o.name, fmtLoad(first), fmtLoad(maxLoad), maxWait)
-	poll := r.LoadPoll
-	if poll <= 0 {
-		poll = 10 * time.Second
-	}
-	t0 := time.Now()
-	for l, ok := r.load(); ok && l >= maxLoad && time.Since(t0) < time.Duration(maxWait)*time.Second; l, ok = r.load() {
-		select {
-		case <-r.ctx.Done():
-			return o, false, interrupt(r.interrupted())
-		case <-time.After(poll):
-		}
-	}
-	r.retried = " after load " + fmtLoad(first)
-	again, _, h := r.exec(o.name)
-	return again, h == nil && again.rc == 0, h
-}
-
-func fmtLoad(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
-
 func (opt *Options) load() (float64, bool) {
 	if opt.Load != nil {
 		return opt.Load()
@@ -542,10 +481,8 @@ func (r *runner) atMerge(name string) bool {
 	return ok && c.At == "merge"
 }
 
-// must runs commands.<name>; a failure gets the load retry, then is red. ok false: not configured. Every red run's
-// failing tests go to the flake log (T-350, T-359): an unretried red run as run logs it; a retried one is logged
-// here as one record, the original's tests and the retry's (each test once), all retried; a retry that passed
-// marks the original's tests passed_on_retry.
+// must runs commands.<name>; a failure is red. ok false: not configured. Every red run's failing tests go to the flake
+// log (T-350). The load retry that used to save a red with only timeouts failing under load is gone (T-864).
 func (r *runner) must(name string) (output, bool, *halt) {
 	o, ok, h := r.exec(name)
 	if h != nil || !ok {
@@ -554,26 +491,7 @@ func (r *runner) must(name string) (output, bool, *halt) {
 	if o.rc == 0 {
 		return o, ok, nil
 	}
-	first, before := o, r.retried
-	o, passed, h := r.retryOnLoad(o)
-	retried := r.retried != before
-	switch {
-	case passed:
-		r.logFlakes(name, retried, true, first)
-	case h != nil:
-		// A cut retry has no usable second output: the original is the evidence.
-		r.logFlakes(name, retried, false, first)
-	case !retried:
-		r.logFlakes(name, false, false, first)
-	default:
-		r.logFlakes(name, true, false, first, o)
-	}
-	if h != nil {
-		return o, true, h
-	}
-	if passed {
-		return o, true, nil
-	}
+	r.logFlakes(name, o)
 	return o, true, &halt{red: &o}
 }
 
