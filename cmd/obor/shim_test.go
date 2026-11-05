@@ -172,7 +172,7 @@ func TestShimDispatchAndUsage(t *testing.T) {
 		{[]string{"no-such-sub"}, 2, []string{"unknown subcommand: no-such-sub", "usage: obor"}, nil},
 		{nil, 2, []string{"usage: obor"}, nil},
 		{[]string{"../lib/obor"}, 2, []string{"usage: obor"}, nil},
-		{[]string{"help"}, 0, nil, []string{"  config", "  whoami"}},
+		{[]string{"help"}, 0, nil, []string{"plugin root: " + f.stable + "\n", "ran: stable"}},
 	} {
 		rc, stdout, stderr := f.shim(t, f.Base, nil, obor, c.args...)
 		ok := rc == c.rc && (c.out != nil || stdout == "")
@@ -199,7 +199,7 @@ func TestShimDispatchAndUsage(t *testing.T) {
 	}
 	cmd := exec.Command("sh", "-c", "obor help")
 	cmd.Dir, cmd.Env = x, append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if out, err := cmd.Output(); err != nil || !strings.Contains(string(out), "  whoami") ||
+	if out, err := cmd.Output(); err != nil || !strings.Contains(string(out), "ran: stable") ||
 		!strings.Contains(string(out), "plugin root: "+f.stable) {
 		t.Errorf("obor help via a symlink on PATH: %v\n%s", err, out)
 	}
@@ -281,7 +281,8 @@ func TestShimSelfHost(t *testing.T) {
 	}
 }
 
-// bash tests/bin.test.sh case_help_prints_plugin_root
+// bash tests/bin.test.sh case_help_prints_plugin_root; T-854: the command list is the binary's (`obor help`), so
+// the shim prints the plugin root and runs the binary with help (-h and --help too), never bin/go-commands' names.
 func TestShimHelpPrintsPluginRoot(t *testing.T) {
 	t.Parallel()
 	f := newShimFixture(t)
@@ -290,14 +291,22 @@ func TestShimHelpPrintsPluginRoot(t *testing.T) {
 		dir  string
 		want []string
 	}{
-		{f.other, []string{"plugin root: " + f.stable + "\n", "  version\n", "  hook\n"}},
-		{f.lane, []string{"plugin root: " + f.Root + "\n"}},
+		{f.other, []string{"plugin root: " + f.stable + "\n", "ran: stable"}},
+		{f.lane, []string{"plugin root: " + f.Root + "\n", "ran: main"}},
 	} {
 		rc, stdout, _ := f.shim(t, c.dir, nil, stable, "help")
 		for _, s := range c.want {
 			if rc != 0 || !strings.Contains(stdout, s) {
 				t.Errorf("obor help in %s: exit %d, no %q:\n%s", c.dir, rc, s, stdout)
 			}
+		}
+	}
+	fakeGo(t, filepath.Join(f.stable, "dist", "obor"))
+	for _, arg := range []string{"help", "-h", "--help"} {
+		rc, stdout, _ := f.shim(t, f.other, nil, stable, arg)
+		if want := "plugin root: " + f.stable + "\nargv: <help> "; rc != 0 || !strings.HasPrefix(stdout, want) ||
+			strings.Contains(stdout, "  whoami") {
+			t.Errorf("obor %s: exit %d, %q; want 0 and %q (the binary's help, not the shim's list)", arg, rc, stdout, want)
 		}
 	}
 }

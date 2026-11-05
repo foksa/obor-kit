@@ -38,6 +38,7 @@ const (
 var layerOf = map[string]string{
 	"internal/project": base, "internal/config": base, "internal/roles": base, "internal/spec": base,
 	"internal/run": base, "internal/version": base, "internal/store": base, "internal/selfexec": base,
+	"internal/help": base,
 
 	"internal/agents": bridge,
 

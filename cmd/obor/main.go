@@ -1,6 +1,5 @@
-// obor (Go): every command in `commands` (whoami, config, status, pause, run, restart, lead, dispatch, drop,
-// resume, send, projects, brief, spec, flakes, nightly,
-// plugin (the herdr plugin's restore hook), setup, has, serve, mcp, stop, start, version) and the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
+// obor (Go): every command main dispatches, listed with its usage and group in help.Commands (`obor help`, T-854), and
+// the hooks noop, pre-tool-use, stop, stop-failure, session-start and user-prompt-submit. bin/obor (the kit's one bash
 // file) execs this binary for the commands in bin/go-commands.
 package main
 
@@ -12,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +22,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/guard"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/version"
 )
@@ -46,18 +45,8 @@ func exit(code int) {
 
 func errf(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
 
-func usage() {
-	fmt.Fprintln(out, "usage: obor <subcommand> [args…]")
-	fmt.Fprintln(out, "subcommands (Go):")
-	names := make([]string, 0, len(commands))
-	for name := range commands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Fprintln(out, "  "+name)
-	}
-}
+// usage is `obor help`: every command by group, its usage line and what it does (help.Commands, T-854).
+func usage() { help.Write(out) }
 
 func main() {
 	// Handling SIGPIPE turns a write to a closed stdout into EPIPE (exit quietly) instead of a signal death.

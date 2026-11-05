@@ -13,6 +13,7 @@
   import Agent from "./pages/Agent.svelte";
   import Job from "./pages/Job.svelte";
   import Setup from "./pages/Setup.svelte";
+  import Help from "./pages/Help.svelte";
   import Dot from "./ui/Dot.svelte";
 
   const route = $derived(router.route);
@@ -29,6 +30,7 @@
   const crumbs = $derived.by(() => {
     const r = route;
     const c: { text: string; href?: string; mono?: boolean }[] = [];
+    if (r.kind === "h") c.push({ text: "Help" });
     if (!r.project) return c;
     c.push({ text: r.project, href: r.kind === "p" ? undefined : href.project(r.project) });
     if (r.kind === "s") c.push({ text: "Setup" });
@@ -92,6 +94,10 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"></rect><rect x="9" y="2" width="5" height="5" rx="1"></rect><rect x="2" y="9" width="5" height="5" rx="1"></rect><rect x="9" y="9" width="5" height="5" rx="1"></rect></svg>
         Fleet
       </a>
+      <a class="item" class:on={route.kind === "h"} href={href.help()}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.75c-.5.2-.8.6-.8 1.1v.4"></path><circle cx="8" cy="11.6" r="0.4" fill="currentColor"></circle></svg>
+        Help
+      </a>
     </div>
     <div class="items">
       <h2 class="lbl group">Projects</h2>
@@ -145,6 +151,7 @@
         {:else if route.kind === "t"}<Task project={route.project} id={route.id} />
         {:else if route.kind === "a"}<Agent project={route.project} id={route.id} />
         {:else if route.kind === "j"}<Job project={route.project} id={route.id} />
+        {:else if route.kind === "h"}<Help />
         {/if}
       {/key}
     </main>
