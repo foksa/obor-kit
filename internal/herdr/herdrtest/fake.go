@@ -12,18 +12,15 @@ import (
 	"obor/internal/herdr"
 )
 
-// Pane is a scripted pane. Kind != "" means an agent runs in it (Name may still be "": herdr lost the name).
+// Pane is a scripted pane: herdr's own Wire fields (embedded, so the fake cannot drift from the protocol, T-890) and
+// what the fake does with them. Kind != "" means an agent runs in it (Name may still be "": herdr lost the name).
 type Pane struct {
-	ID, Label, Cwd     string
-	Tab                string // pane list's tab_id; pane layout lists the panes of a tab
-	Terminal           string // pane list's terminal_id ("": none), kept by a pane move
-	W, H               int    // the size pane.layout gives; a split halves it
-	Shell              int    // the pane's shell pid (pane.process_info; 0: 1)
-	Kind, Name, Status string // the agent: kind (claude, codex…), herdr name, status
-	Session            string
-	Workspace          string // the workspace id (session.snapshot's workspace_id), "" for none
-	Transcript         string // agent_session as a path (kind path) instead of the Session id
-	Seq                int64
+	herdr.Wire
+	// Session is the agent_session herdr reports for the agent as an id; Transcript is it as a path (Kind "path")
+	// instead. Neither: herdr reports no session.
+	Session, Transcript string
+	W, H                int // the size pane.layout gives; a split halves it
+	Shell               int // the pane's shell pid (pane.process_info; 0: 1)
 	// Ready is when the pane's shell becomes an available shell (zero: at once). Until then pane.process_info
 	// reports no shell in the foreground and agent.start answers agent_pane_busy, as herdr does for a pane a new tab or
 	// a split just made (T-628).
@@ -98,7 +95,7 @@ func New() *Fake {
 
 // Agent adds a pane with an agent and returns it.
 func (f *Fake) Agent(pane, name, status, cwd string) *Pane {
-	p := &Pane{ID: pane, Kind: "claude", Name: name, Status: status, Cwd: cwd, Seq: 1}
+	p := &Pane{Wire: herdr.Wire{ID: pane, Kind: "claude", Name: name, Status: status, Cwd: cwd, Seq: 1}}
 	f.mu.Lock()
 	f.Panes = append(f.Panes, p)
 	f.mu.Unlock()
@@ -107,7 +104,7 @@ func (f *Fake) Agent(pane, name, status, cwd string) *Pane {
 
 // Shell adds a pane with no agent and returns it.
 func (f *Fake) Shell(pane, label, cwd string) *Pane {
-	p := &Pane{ID: pane, Label: label, Cwd: cwd}
+	p := &Pane{Wire: herdr.Wire{ID: pane, Label: label, Cwd: cwd}}
 	f.mu.Lock()
 	f.Panes = append(f.Panes, p)
 	f.mu.Unlock()
@@ -118,7 +115,7 @@ func (f *Fake) Shell(pane, label, cwd string) *Pane {
 func (f *Fake) Tab(tab string, w, h int, ids ...string) {
 	f.mu.Lock()
 	for _, id := range ids {
-		f.Panes = append(f.Panes, &Pane{ID: id, Tab: tab, W: w, H: h})
+		f.Panes = append(f.Panes, &Pane{Wire: herdr.Wire{ID: id, Tab: tab}, W: w, H: h})
 	}
 	f.mu.Unlock()
 }
@@ -130,51 +127,26 @@ func (f *Fake) Pane(id string) *Pane {
 	return f.pane(id)
 }
 
-// orNull is s, nil for "" (herdr's null for a cleared name, label or session).
-func orNull(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func (p *Pane) agentJSON() map[string]any {
-	m := map[string]any{"name": orNull(p.Name), "pane_id": p.ID, "agent": p.Kind, "agent_status": p.Status,
-		"cwd": p.Cwd, "state_change_seq": p.Seq}
-	p.common(m)
-	return m
-}
-
-func (p *Pane) paneJSON() map[string]any {
-	m := map[string]any{"pane_id": p.ID, "label": orNull(p.Label), "cwd": p.Cwd}
-	if p.Tab != "" {
-		m["tab_id"] = p.Tab
-	}
-	if p.Terminal != "" {
-		m["terminal_id"] = p.Terminal
-	}
-	if p.Kind != "" {
-		m["agent"] = p.Kind
-	}
-	if p.Kind != "" || p.Status != "" { // a status without an agent: herdr's view of a pane it lost the agent of
-		m["agent_status"] = p.Status
-	}
-	p.common(m)
-	return m
-}
-
-// common adds what agent and pane JSON share: agent_session (an id, or the transcript path) and workspace_id.
-func (p *Pane) common(m map[string]any) {
+// wire is the pane in herdr's own Wire struct: the protocol's fields plus the agent_session its two fields script.
+func (p *Pane) wire() herdr.Wire {
+	w := p.Wire
 	switch {
 	case p.Transcript != "":
-		m["agent_session"] = map[string]any{"agent": p.Kind, "kind": "path", "value": p.Transcript}
+		w.AgentSession = &herdr.AgentSession{Agent: p.Kind, Kind: "path", Value: p.Transcript}
 	case p.Session != "":
-		m["agent_session"] = map[string]any{"agent": p.Kind, "kind": "id", "value": p.Session}
+		w.AgentSession = &herdr.AgentSession{Agent: p.Kind, Kind: "id", Value: p.Session}
 	}
-	if p.Workspace != "" {
-		m["workspace_id"] = p.Workspace
-	}
+	return w
 }
+
+// agentJSON is herdr's agent object: the agent's own fields; the label, tab and terminal are the pane's, not its.
+func (p *Pane) agentJSON() herdr.Wire {
+	w := p.wire()
+	w.Label, w.Tab, w.Terminal = "", "", ""
+	return w
+}
+
+func (p *Pane) paneJSON() herdr.Wire { return p.wire() }
 
 // processInfo is herdr's process_info of the pane (the shell is pid 1).
 func (p *Pane) processInfo() map[string]any {
@@ -324,7 +296,8 @@ func (f *Fake) layout(at *Pane) map[string]any {
 func (f *Fake) split(t *Pane, dir, cwd string) *Pane {
 	f.made++
 	ws, _, _ := strings.Cut(t.ID, ":")
-	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: t.Tab, Workspace: t.Workspace, Cwd: cwd, W: t.W, H: t.H}
+	n := &Pane{Wire: herdr.Wire{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: t.Tab, Workspace: t.Workspace, Cwd: cwd},
+		W: t.W, H: t.H}
 	if f.NewPaneBusy > 0 {
 		n.Ready = time.Now().Add(f.NewPaneBusy)
 	}
@@ -343,8 +316,8 @@ func (f *Fake) newTab(ws, label, cwd string) *Pane {
 	if ws == "" {
 		ws = "w1"
 	}
-	n := &Pane{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made), Workspace: ws, Cwd: cwd,
-		W: 200, H: 50}
+	n := &Pane{Wire: herdr.Wire{ID: fmt.Sprintf("%s:n%d", ws, f.made), Tab: fmt.Sprintf("%s:t%d", ws, f.made),
+		Workspace: ws, Cwd: cwd}, W: 200, H: 50}
 	if label != "" {
 		if f.TabLabels == nil {
 			f.TabLabels = map[string]string{}
@@ -364,7 +337,7 @@ func (f *Fake) newWorkspace(label, cwd string) *Pane {
 	f.made++
 	ws := fmt.Sprintf("wn%d", f.made)
 	f.Workspaces = append(f.Workspaces, herdr.Workspace{ID: ws, Label: label})
-	n := &Pane{ID: ws + ":p1", Tab: ws + ":t1", Workspace: ws, Cwd: cwd, W: 200, H: 50}
+	n := &Pane{Wire: herdr.Wire{ID: ws + ":p1", Tab: ws + ":t1", Workspace: ws, Cwd: cwd}, W: 200, H: 50}
 	f.Panes = append(f.Panes, n)
 	return n
 }

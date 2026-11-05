@@ -1,15 +1,21 @@
-package herdr
+package herdr_test
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"obor/internal/app/port"
+	"obor/internal/herdr"
+	"obor/internal/herdr/herdrtest"
 )
 
 // requestEnvelope are the keys of the request line itself (request), not params.
@@ -120,13 +126,13 @@ func TestSentCoversCallSites(t *testing.T) {
 			len(s.methods), len(s.keys), len(s.subs))
 	}
 	listed, listedKeys, listedSubs := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for m, ps := range Sent {
+	for m, ps := range herdr.Sent {
 		listed[m] = true
 		for _, p := range ps {
 			listedKeys[p] = true
 		}
 	}
-	for ty, ps := range SentSubscriptions {
+	for ty, ps := range herdr.SentSubscriptions {
 		listedSubs[ty] = true
 		for _, p := range ps {
 			listedKeys[p] = true
@@ -155,7 +161,66 @@ func TestSentCoversCallSites(t *testing.T) {
 	if d := diff(listedSubs, s.subs); len(d) > 0 {
 		t.Errorf("herdr.SentSubscriptions lists types no call site subscribes to: %v", d)
 	}
-	if !slices.Contains(SentSubscriptions["pane.agent_status_changed"], "pane_id") {
+	if !slices.Contains(herdr.SentSubscriptions["pane.agent_status_changed"], "pane_id") {
 		t.Error("pane.agent_status_changed must list pane_id")
+	}
+}
+
+// TestWireIsOne is T-890: herdr's Wire is the one struct of herdr's pane and agent JSON, filled by herdrtest's fake and
+// decoded by the client, so neither side can carry a field the other lacks.
+func TestWireIsOne(t *testing.T) {
+	if f, ok := reflect.TypeOf(herdrtest.Pane{}).FieldByName("Wire"); !ok || f.Type != reflect.TypeOf(herdr.Wire{}) {
+		t.Fatalf("herdrtest.Pane does not embed herdr.Wire: the fake restates the protocol's fields")
+	}
+	want := herdr.Wire{
+		Name: "pj-l-01", ID: "w1:p1", Tab: "w1:t1", Terminal: "t1", Workspace: "w1", Label: "pj-l-01",
+		Status: "idle", Cwd: "/proj-wt/L-01", Kind: "claude", Seq: 7,
+		AgentSession: &herdr.AgentSession{Agent: "claude", Kind: "id", Value: "5e1d0c2b-aaaa"},
+	}
+	// Precondition: the literal fills every field, so a field added to Wire cannot go untested here.
+	rv := reflect.ValueOf(want)
+	for i := 0; i < rv.NumField(); i++ {
+		if rv.Field(i).IsZero() {
+			t.Fatalf("Wire.%s is zero in this test: fill every field of the one struct", rv.Type().Field(i).Name)
+		}
+	}
+	b, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != rv.NumField() { // two fields sharing a tag, or one tagged "-", hides one
+		t.Errorf("herdr.Wire marshals %d JSON keys for its %d fields: %s", len(keys), rv.NumField(), b)
+	}
+	var got herdr.Wire
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("herdr.Wire does not survive JSON, so a tag is wrong in one direction: got %+v, want %+v", got, want)
+	}
+
+	// The fake fills that struct, and the client reads every field of it.
+	f := herdrtest.New()
+	p := f.Agent("w1:p1", "pj-l-01", "idle", "/proj-wt/L-01")
+	p.Tab, p.Terminal, p.Workspace, p.Label, p.Seq = "w1:t1", "t1", "w1", "pj-l-01", 7
+	p.Session = "5e1d0c2b-aaaa"
+	snap, err := herdrtest.Serve(t, f).Client().Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Panes) != 1 {
+		t.Fatalf("the fake's snapshot has %d panes, want 1", len(snap.Panes))
+	}
+	wantPane := port.Pane{ID: "w1:p1", Tab: "w1:t1", Terminal: "t1", Workspace: "w1", Label: "pj-l-01",
+		Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle", Session: "5e1d0c2b-aaaa", Seq: 7}
+	if got := snap.Panes[0]; got != wantPane {
+		t.Errorf("the fake's pane = %+v, want the scripted %+v", got, wantPane)
+	}
+	if len(snap.Agents) != 1 || snap.Agents[0].Name != "pj-l-01" || snap.Agents[0].Session != "5e1d0c2b-aaaa" {
+		t.Errorf("the fake's agent = %+v, want the same struct filled", snap.Agents)
 	}
 }
