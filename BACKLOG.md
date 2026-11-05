@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~15:10 (lead): **At RV-120's close** (after T-897's verify): `obor review` of T-873 + T-876 (focus T-876:
+  what each migrated test still proves; tiny test-only diff); T-877 (MCP SDK) gets the review after, alone (its watch).
+  **Lanes 6→4** (owner, load 35-45, flaky reds): dispatch paused until T-876/T-878 free L-05/L-06 (watch), then config
+  lanes 4, commit, `obor pause --clear`. **Web lanes gap:** raising `lanes` on obor web leaves the new lanes `missing`
+  until `obor setup lane`/`setup pane` by hand: web should run them or say so.
 - 2026-11-05 ~late (lead → fresh session, context 502k). **Shipped today:** v0.27.0, v0.27.1. **Adopted:** DD-architecture +
   Fable's combined plan + architecture-proposal-2026-11-05 + library-adoption-proposal (docs/decisions.md 11-05
   entries; docs/design.md "Change rules": every spec carries Guarantee/Replaces/Adds; rule tier on

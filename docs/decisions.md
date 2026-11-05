@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (lead, from T-876's numbers; owner left it to them): **synctest stays at the pilot.** One test moved
+  (`TestTurnFailsAtItsDeadline` 8.8 s → 0.25 s); the other target was already gone (T-872). The remaining slow waits
+  (4.0 + 3.0 + 1.5 s) and the 11-05 load flakes (cmd/obor process and socket tests) need a live unix socket, where the
+  bubble's clock stalls; a dialer seam in `wire` would be a production change for ~8.5 s of test time. Revisit only if
+  a seam comes for another reason.
 - 2026-11-05 (owner, DD-encapsulation): **Serve ships its predicates; readers while it is down read a projection.**
   Reviews (reviewer and integrator) also ask "does a client decide something from a state string that serve knows?
   then serve ships the predicate"; docs/design.md "Change rules" 7: a hook reading serve's state while serve may be
