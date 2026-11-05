@@ -211,6 +211,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
+  TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
+  recurs on another task: a flake task (what the test waits on under load).
 - (11-05) `obor drop T-851 --discard` failed halfway: `FAIL drop: git branch -D task/T-851: signal: terminated` left
   the lane freed but the task `working`; the same drop again finished it. A drop that fails after freeing the lane
   should say "retry the same obor drop" (or record the drop before the branch delete). Likely under load; fix small.
