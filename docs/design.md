@@ -102,7 +102,7 @@ overrides, and any key above (an object merges key by key; a list or scalar repl
 models (one table, `internal/config/models.go`): opus, sonnet, haiku, fable → claude `--model <name>`; deepseek →
 opencode `opencode-go/deepseek-v4.1-flash`; terra → codex `gpt-6.1-terra`, sol → `gpt-6.1-sol`, luna → `gpt-6-luna`.
 `models.<name>` adds one or overrides a built-in (`kind`, `model`; `""`: the kind's own choice). A start is its kind's
-base args (claude `--permission-mode auto`; codex `-s workspace-write -a never`; opencode `--auto --standalone`), the
+base args (claude `--permission-mode auto`; codex `-s workspace-write -a never --no-daemon`; opencode `--auto --standalone`), the
 model, then `kinds.<kind>.args`; the effort is the kind's own flag (T-695), refused when the kind does not take it.
 `lanes` is a count: L-01 … L-NN, every lane pooled (it runs the model its dispatch picks). There are no caps. The
 shape before T-765 (`lane_types`, `lanes` as an object of typed lanes, `roles.<role>` objects, the `agents` key) is
@@ -166,7 +166,7 @@ matches `[a-z][a-z0-9_]{0,23}`, is no table role's name or agent suffix (nor `no
 outside the project or into `.obor/`, a missing doc (naming the file to write) and a `guards.allow_push` that lists a
 custom role; it warns of a role doc (`# Role:` first line) of a custom name whose row is missing (not a kit default
 row's: `obor init` stubs those). A custom role works like the advisor:
-main checkout, git reads only, never lane-bound or dispatchable, no merge hold, no push, no MCP tools; the lead places
+main checkout, git reads only, never lane-bound or dispatchable, no push, no MCP tools; the lead places
 it with `obor setup role <name>`, briefs it with `obor brief`, stops it with `obor restart --stop`. Its writes are
 exactly its `write` list (the guard). `config.Role` is the one lookup of table and custom roles (identity, guard,
 SessionStart role text, `obor status`, obor web's role list and Setup page); removing a row leaves a running agent of
@@ -195,11 +195,10 @@ marketplace add <kit>` + `install obor@<kit marketplace> --scope project`), obor
 summary (panes waiting on a trust dialog, the file to change, next: `obor lead`). Every step is idempotent: a rerun is
 the repair path. Placement (T-628, T-632, T-634): a workspace or tab is the project's when every pane in it with a
 known cwd is in the project; none: init creates a workspace. Run init from a shell in the project's own workspace:
-a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`; each idempotent, ending in `OK …` / `FAIL …` (the
-contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (the reviewer and the deep
-dive have no worktree of their own since T-718: their old `roles.<role>.worktree`, or the old default `review` /
-`deep-dive`, stays a reserved name under `lanes_dir`, and `obor setup role` prints its `git worktree remove` line,
-never removing it). `pane --tab`
+a workspace whose only pane is a shell `cd`'d into the project counts as the project's (RV-67-verify-2, accepted). `obor setup` keeps the single steps for changes later: `lane`, `pane`, `role`, `githooks`, `herdr-plugin`, `agents`, `mcp`, `show`, `rename`; each idempotent, ending in `OK …` / `FAIL …` (the
+contract is the package doc). Role names, env values and cwd rules come from `internal/roles` (T-853: the reviewer, the deep
+dive and the integrator run in a role worktree serve owns, `<lanes_dir>/<role>`; `obor setup role`, serve's starts and
+`obor restart` add it when it is missing). `pane --tab`
 splits the tab's largest pane (right when it is wider than tall on screen, else down), not the last one. `githooks`
 points `core.hooksPath` at `<kit>/githooks`. `herdr-plugin` links obor.events in herdr from `<kit>/herdr-plugin`
 directly, re-linking it when herdr runs another kit's copy: herdr stores the path resolved at link time (a symlink in
@@ -263,6 +262,8 @@ allows silently.
      the gate and nightly run the rest).
    - worker (Bash): git writes (`commit`, `merge`, `rebase`, `reset --hard`, `checkout`/`switch` to another branch,
      `stash`, `push`); redirections / `sed -i` / `mv` / `cp` / `tee` whose target is a protected file.
+   - reviewer, deep dive (Bash, T-853): `checkout`/`switch` to a commit only in their own role worktree; no branch, no
+     path checkout, no other git write, nothing in another worktree.
    - worker (Edit/Write/MultiEdit/NotebookEdit): target resolved relative to the lane toplevel. Inside the lane ->
      allow, any file (T-496, owner 2026-10-28: no "Files you may touch"; placement is checked at accept, only contracts
      are locked), unless a final symlink resolves out of it. Inside another worktree of this repo (main checkout, other
@@ -325,16 +326,16 @@ full check and the pause.
   the line `[obor answer] <text>` delivered as an answer to a worker is (when its pane is idle). Each such answer is its
   own line (a newer one ends no older); a land or a drop closes an undelivered one unsent. The drive agent's first
   prompt names both.
-- **merge hold** (T-718, owner 2026-11-02: fewer worktrees): the reviewer and the deep dive run in the main checkout,
-  like the advisor and the researcher, with no worktree of their own. So the code does not move under them, the merge
-  loop's publish (the step that moves the integration branch) waits while either one works: its agent has a brief open
-  (waiting for its delivery, or delivered and not finished) or its pane is not idle. Gates, jobs and dispatch go on;
-  only the publish waits. Capped: a task held 30 min is published anyway and the lead gets one line (`[obor] merge of
-  T-x went ahead: <role> still working after 30m`). `obor status` and web show `merge held: <role> working` on the
-  waiting task. The hold is live state, never recorded: a replay folds the task accepted as before and
-  the next pass decides the hold afresh (its 30 min start again). The lead's doc commits during a review are accepted
-  (they touch no code). The reviewed sha a review's close commit names is the git ref `refs/obor/reviewed`, set at
-  the review's start and at each `obor review verify`.
+- **Role worktrees** (T-853, owner 2026-11-05; replaces T-718's merge hold): the reviewer and the deep dive run in their
+  own worktree `<lanes_dir>/<role>`, detached at the head serve marks reviewed (`refs/obor/reviewed`); serve moves it
+  there at a review's start, at each verify and at a brief to an idle deep dive, so it is never stale, and merges go on
+  while they work. They may check out any commit there; their review files are written to the main checkout's
+  `docs/reviews/`. The integrator has its own worktree `<lanes_dir>/integrator` for its review jobs; its resolve jobs
+  work in the scratch (`merge.scratch_dir`). Only the lead works in the main checkout among the merge-loop roles.
+  A review's close commit names its reviewed sha, its covered tasks (`Covered:`) and its start sha (`Start:`, T-822);
+  the scope, `review due` and the release check read those. `obor review fix <T-a,T-b>` (T-850) links fix tasks to the
+  open review: once all merged, serve runs the verify in the same reviewer session; `obor review close` is refused
+  until then (`--force`: the owner's word).
 
 ## Machine load (v2.1, 2026-10-08 — requests from the axis-alies lead)
 Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies share it) turn timing-based tests RED.
@@ -565,9 +566,8 @@ writes in, and nothing else goes to a chat agent but a job's wake. State in `doc
 - **Briefs:** `obor brief <role-agent> "<text>"` records fact `briefed` with a line `[obor <caller>] <text>`
   delivered to the role agent once its pane is idle (a verify into the running session); a stopped one (its labelled
   pane at a shell, T-672) is started fresh in that pane with the line as its first prompt. A brief to the reviewer or
-  the deep dive (the hold roles) is admitted first and holds publishes while it is open (at most 30 minutes, see the merge hold), so their fresh start waits
-  until serve holds merges (T-730, T-734); a brief to any other role agent (advisor, researcher …) holds no publish
-  and is not admitted first (T-737). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
+  the deep dive is admitted first (T-730, T-734): serve moves its role worktree to the head it hands it (T-853) before
+  the brief is recorded; a brief to any other role agent (advisor, researcher …) is not admitted first (T-737). The reviewer and the deep dive take their first prompt this way only: `obor restart … --fresh --prompt` is
   refused for them, and a running one starts fresh as `obor restart <role-agent> --stop`, then `obor brief`. Any other
   role agent may also take its first prompt as a start's, `obor restart <role-agent>
   --fresh --prompt "<brief>"` (the start carries the brief), recording the same fact once the restart succeeded
