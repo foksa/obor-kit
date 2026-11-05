@@ -27,6 +27,7 @@ const (
 	MethodPause    = "pause"         // Call.Note the why, Call.Until its end (0: until cleared); Call.Clear ends the pause in force
 	MethodReview   = "review"        // Call.After the tasks it waits for, Call.Note the lead's note, Call.Clear ends the open request
 	MethodVerify   = "review_verify" // obor review verify: Call.After the fix tasks, Call.Findings the findings to re-run, Call.Note the lead's note
+	MethodFix      = "review_fix"    // obor review fix (T-850): Call.After the fix tasks linked to the open review, Call.Note what to check
 	MethodSession  = "session"       // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
 	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (T-824), or "UNCHANGED <task> rev <n>"
 	MethodConfig   = "config_set"    // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main

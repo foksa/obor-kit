@@ -212,6 +212,8 @@ type folded struct {
 	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview
+	// fix: the open review's fix round (reviewfix.go, T-850; nil: none linked yet).
+	fix *fixRound
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 	// roles: serve's stops of role agents (rolestop.go, T-672).

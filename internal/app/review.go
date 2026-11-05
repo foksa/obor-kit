@@ -142,6 +142,11 @@ func (p *proj) foldReview(r event.Record) {
 		p.reviewEnded(d.Request)
 	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
+	case event.StepReviewFix: // its round is foldFix's (reviewfix.go): only its call here
+		if d.Call != "" {
+			p.folded.calls[verdictStep(wire.MethodFix, d.Call)] = d.Reply
+		}
+		return
 	default:
 		return
 	}

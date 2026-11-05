@@ -303,6 +303,7 @@ func (a *App) advance(ctx context.Context) {
 	}
 	a.nightly(ctx, p, fx)
 	a.reviewPass(ctx, p, fx)
+	a.fixPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
 	a.stopRoles(ctx, p, fx)
 }

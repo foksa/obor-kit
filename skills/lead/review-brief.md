@@ -61,11 +61,20 @@ Read `<reviews>/<RV-xx>.md` in the main checkout; do not copy or commit it. Tria
 one test each, and carries what it needs from the finding: the file is not on the branch). Unlikely and the fix adds
 complexity → no fix: accept it in `BACKLOG.md` with one line why, or remove the case instead (refuse the config) when
 that makes the code smaller. A probe that proves a constructed case is not by itself a reason to add code.
+Dispatch the fix tasks, then link them to the open review at once: `obor review fix <T-x,…> [--note "<what to
+check>"]` (T-850; a second call adds tasks). Refused: no open review, a task not dispatched. Do not close the review
+now: its verify (§4) needs the reviewer's session and the findings' context.
 At most two review rounds per feature (owner 2026-11-02): after the second verify, what is still open is accepted
 in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is likely and its fix is small.
 
 ## 4. Verification (same session — never `/new` the reviewer)
-After the fix tasks merge: `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]`. It asks serve, which waits
+Once every task linked by `obor review fix` merged, serve runs the verify itself (T-850): what `obor review verify
+<the linked tasks> --note "<your fix notes>"` runs, below; you get the reviewer's finished line as for any brief. A
+linked task dropped or rejected: one line `[obor] <RV-xx> fix <T-x> ended unmerged: the verify waits for <the rest>`.
+A verify serve cannot run (git refusing, a task with no merge in the review's scope): one line `[obor] <RV-xx> fix
+verify of … failed: <error>`; run it by hand.
+By hand (a verify of tasks you did not link, or after that failure): `obor review verify <T-x,…> [--findings 1,3]
+[--note "<text>"]`. It asks serve, which waits
 for a publish in flight (T-730: no merge moves the head between its read and the brief), then marks the integration
 branch's head reviewed (`refs/obor/reviewed`; nothing to detach: the reviewer reads the main checkout, held still
 while it works) and briefs the open review's reviewer in its same, still-running session (`obor brief`: serve delivers
@@ -82,7 +91,8 @@ Read the verify file there. Incomplete or regressed → a new fix task; second f
 invariant → the two-strike rule in the lead skill.
 
 ## 5. Close the cycle
-When a verify approves (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…`. It
+When a verify approves (or the review found nothing): `obor review close "<summary>" [--accept "<line>"]…
+[--force]`. It
 deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `--accept` line to `BACKLOG.md`'s Open
 section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
 integration branch in the main checkout (with `BACKLOG.md`; the reviewed sha is `refs/obor/reviewed`: the last
@@ -100,5 +110,6 @@ unreviewed until a cycle covers it; `obor status`' `review due` and `make releas
 older obor has no such body: the next review falls back to the sha range. Refused before any change: no open review,
 no `refs/obor/reviewed` (a review started before T-718: `git
 update-ref refs/obor/reviewed <sha>` by hand), the main checkout not on the integration branch or dirty outside
-`BACKLOG.md` and the review's files. Nothing else of the review
+`BACKLOG.md` and the review's files, or a task linked by `obor review fix` neither verified nor dropped (named;
+`--force`, the owner's word, closes anyway). Nothing else of the review
 is kept; the reviewer's evidence lives only in its session.
