@@ -141,6 +141,9 @@ type proj struct {
 	// idleWait: since when the integrator's pane has been identified and not Ready, the interval its jobs' fresh
 	// starts wait out (not recorded: a replay starts it afresh; T-602, T-606).
 	idleWait idleWait
+	// idleSince: since when idleNow has held at every idle check (zero: it has not, or not since a restart): the idle
+	// line waits out idleSettle from it (T-859). Not recorded: a restart starts it again; under mu.
+	idleSince time.Time
 	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Lane, Loop.Specs); nopane: since when a
 	// dispatched task's lane has no pane, by task; waitLine: a waiting task's last refused dispatch (logged on change)
 	// and since when that refusal holds.
