@@ -6,6 +6,12 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- Tests of unreachable scenarios (owner asked 11-05). **At v0.28's release:** the compat census (docs/design.md change
+  rule 5, never run yet): per old-shape fold branch, count matching records in every registered store (obor-kit,
+  axis-alies, axis-maps); none → delete the branch and its tests (37 tests named Old/Legacy/Compat/Upgrade, 25 files
+  with old-record setups). **Next milestone:** (2) states a test injects that no production code produces (e.g. lane
+  `"blocked"`, `Lane.hold`): grep + constants (T-891); (3) redundant tests by scenario, not coverage (11-04's
+  coverage pruning lost scenarios: 4 restore rounds): opus deep dive per package, `internal/app` first.
 - Next milestone candidates (owner asked 11-05 about splitting `internal/app`): docs/research/app-split-deep-dive.md steps 6 (outbox state+fold, `messages.go` 1,293 lines, own package) and 7 (identity `registry` rules, own package, table tests without the harness); the merge-loop core stays one package (deep dive §6). Measure `go test ./internal/app` time and harness-test count before/after; net-negative prod lines.
 - 2026-11-05 (after v0.28): `obor web` does not follow a new binary the way serve does (selfexec): after T-883 changed the view's JSON, the 17:48 web process served the old API to the new page (no titles) until restarted by hand. Either web re-execs on a binary change, or the v0.28 notes say to restart `obor web` after the upgrade (add that line to the notes now).
 - 2026-11-05 ~18:30 **Milestone cut (owner).** v0.28 = merged work + T-879, T-907, T-906 (RV-121 fix), T-898 (live
