@@ -400,7 +400,8 @@ only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). 
 - **A `job_next` reply** after the first fetch: in memory only, so a repeated call id after a restart is answered
   afresh.
 - **In-memory waits and claims**: the integrator's idle wait before a fresh start (`idleWait`, T-602/T-606), the
-  idle line's settle window (`idleSince`, T-859: a restart starts it again), a
+  rule pass's live state (`rules`, T-866: each rule's key, since when it holds — the idle line's settle window — and
+  its failures in a row; a restart starts it again), a
   waiting task's last refusal (`waitLine`), a lane without a pane (`nopane`), the outbox's `lining` claim, a role stop's last failure (`roleFail`) and the
   reviewer stop's last git read of an open review (`rvRead`, T-672), and the admissions in force (`admits`, T-730;
   `roleworktree.go`: a replay starts with none).

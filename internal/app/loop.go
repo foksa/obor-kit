@@ -148,6 +148,8 @@ type mtask struct {
 	dropped           string // stDropped: obor drop's why
 	droppedSeq        int64  // stDropped: the dropped fact's seq (the idle line's last end, T-803)
 	needs             block  // the needs-you on its phase (block.go; none: it goes on)
+	// endedAt: stMerged, stDropped: its merged or dropped fact's time (the idle state's since, T-866).
+	endedAt time.Time
 	// A dispatched attempt (dispatch.go): the fact's data, time and seq (a waiting task: its waiting fact's data and
 	// seq, which orders the waits; a submission keeps the seq: the lane's current task is its newest dispatch's, T-615); lane.prepare's
 	// base (""), its refusal or agent.start's (refused; its cause: refusedCause); the step counters (the last N used); agent.start done.
@@ -272,6 +274,7 @@ func (a *App) mergeLoop(ctx context.Context) {
 		a.mu.Unlock()
 		a.advance(ctx)
 		a.notify(ctx)
+		a.rulePass(ctx, rules)
 		a.mu.Lock()
 		a.passes++
 		if up && a.connected && a.streams == stream {

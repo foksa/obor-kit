@@ -36,7 +36,7 @@ func (a *App) load(root string) (*proj, error) {
 		retry: map[event.Key]retry{}, integrator: cfg.AgentName("integrator", ""),
 		out:     newOutbox(cfg.AgentName("lead", ""), roleKind(cfg, "lead")),
 		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
-		nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
+		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
 		reg: newRegistry(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
@@ -243,10 +243,10 @@ func (p *proj) setLanes(ls []port.Lane) {
 }
 
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the
-// review requests', a failed self-restart's), not a task's.
+// review requests', a failed self-restart's, a failing rule's), not a task's.
 func projectKey(task string) bool {
 	return task == event.LoopTask || task == event.NightlyTask || task == event.MsgTask || task == event.DiskTask || task == event.ReviewTask ||
-		task == event.ServeTask
+		task == event.ServeTask || task == event.RuleTask
 }
 
 // roleKind is role's kind as configured: its type's kind, else agents.Default (as launch starts it).

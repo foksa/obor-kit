@@ -31,8 +31,10 @@ const (
 	RoleTask = "roles"
 	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
 	ConfigTask = "config"
-	// IdleTask is the task key of the project's idle facts (T-803): the announce and the lead's acknowledgement.
+	// IdleTask is the task key of the lead's acknowledgement of the project's idle state (T-803, T-866).
 	IdleTask = "idle"
+	// RuleTask is the task key of the needs-you of a rule whose action failed ruleFails passes in a row (T-866).
+	RuleTask = "rule"
 )
 
 // StepAnswered is the fact of an answer (task MsgTask; data: Message, Task the task whose question it ends).
@@ -128,10 +130,11 @@ const (
 	StepSuperseded = "superseded" // fact (older logs; now briefed's supersedes): a brief ends a line (data: supersededData)
 )
 
-// The project's idle state (T-803): no task in flight, no needs-you and no brief open to the reviewer or the deep dive.
+// The project's idle state (T-803, T-866): no task in flight, no needs-you and no brief open to the reviewer or the
+// deep dive.
 const (
-	StepIdle    = "idle"     // fact: the pipeline emptied (data: idleData, Last and End)
-	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleData, Why)
+	StepIdle    = "idle"     // compat until v0.28: an idle epoch fact (before T-866), folded to nothing
+	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleAck, Key and Why)
 )
 
 // Job steps: the integrator's jobs, prompted by the merge loop as intents with these steps (a later job of the same

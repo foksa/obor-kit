@@ -286,14 +286,8 @@ func (p *proj) foldMsg(r event.Record) {
 	case r.Kind == event.KindFact && (r.Step == event.StepMessage || r.Step == event.StepBriefed):
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
-		if m.Idle != 0 { // an idle announce or ping: the state's line recorded (T-803)
-			if st := p.folded.idle; st != nil && st.seq == m.Idle {
-				if m.IdlePing {
-					st.pinged = true
-				} else {
-					st.lined = true
-				}
-			}
+		if m.Of.Kind != "" { // a rule's line: its did key (rules.go, T-866)
+			p.folded.did[m.Of] = event.RecordTime(r)
 		}
 		if m.Call != "" {
 			method := wire.MethodSend

@@ -21,8 +21,8 @@ func (r *reviewRig) afterStepsDone(task string) {
 	}
 }
 
-// idlePass is the merge loop's idle check after its advance.
-func (r *reviewRig) idlePass() { r.a.idleLines(context.Background()) }
+// idlePass is the merge loop's rule pass after its advance.
+func (r *reviewRig) idlePass() { r.a.rulePass(context.Background(), rules) }
 
 // idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
 // idleSettle, and the next check posts the line.
@@ -46,7 +46,7 @@ func (r *reviewRig) idlePosts() []string {
 	var out []string
 	for _, rec := range readLog(r.t, r.p.root) {
 		var m event.Message
-		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Idle != 0 {
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Of.Kind == ruleIdle {
 			out = append(out, m.Line)
 		}
 	}

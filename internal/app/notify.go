@@ -25,7 +25,6 @@ func (a *App) notify(ctx context.Context) {
 		return
 	}
 	defer a.notifying.Unlock()
-	a.idleLines(ctx)              // one pass, after the watch lines: a watch on the last merge comes first (T-803)
 	tried := map[event.Key]bool{} // the notifications tried in this pass
 	for {
 		a.mu.Lock()

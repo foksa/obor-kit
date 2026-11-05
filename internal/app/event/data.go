@@ -79,10 +79,15 @@ type Message struct {
 	// once; FixFail: the seq of the fix round whose verify failed, the lead told once.
 	FixDrop []string `json:"fix_drop,omitempty"`
 	FixFail int64    `json:"fix_fail,omitempty"`
-	// Idle is the seq of the idle fact this line announces (T-803, messages.go): the first line, or — with IdlePing —
-	// the 30-minute ping's.
-	Idle     int64 `json:"idle,omitempty"`
-	IdlePing bool  `json:"idle_ping,omitempty"`
+	// Of is a lead line's back-reference (T-866, DD M1): what the line reports. A rule's line carries its did key
+	// (rules.go): Kind the rule's name, Seq the record it is keyed by.
+	Of Of `json:"of,omitzero"`
+}
+
+// Of names the record a lead line reports: a kind and its seq (T-866).
+type Of struct {
+	Kind string `json:"kind"`
+	Seq  int64  `json:"seq"`
 }
 
 // MergedData is a merged fact's data.
