@@ -17,11 +17,12 @@ import (
 // does when nothing overlaps): green on target base2, Kept that base, partial.
 type keptScratch struct {
 	*schedScratch
-	greens []string
+	greens    []string
+	resolveds []string // each GateInput.Resolved (T-915)
 }
 
 func (k *keptScratch) Gate(_ context.Context, in port.GateInput) (port.GateOutcome, error) {
-	k.greens = append(k.greens, in.Green)
+	k.greens, k.resolveds = append(k.greens, in.Green), append(k.resolveds, in.Resolved)
 	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "candidate2", Target: "base2", Patch: "same-diff", Checks: "1 pass", Full: true}
 	o := port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c}
 	if in.Kind == port.InputMoved && in.Green != "" {
@@ -129,5 +130,26 @@ func TestMovedGateAfterNonGreenGetsNoBase(t *testing.T) {
 	}
 	if mt.green != "base2" {
 		t.Errorf("green %q; want base2, the base this gate ran on", mt.green)
+	}
+}
+
+// T-915: a moved gate is given the attempt's last checked resolution (mt.resolved).
+func TestMovedGateGetsCheckedResolution(t *testing.T) {
+	t.Parallel()
+	h, f := seedSched(t, true)
+	k := &keptScratch{schedScratch: f}
+	acceptAt(t, h, f, nth(event.StepGate, 2), port.InputLane, 0, "candidate1")
+	addRecord(t, h, "T-1", event.StepPublish, event.KindResult, gateOut{Outcome: outMoved})
+	p := h.a.p
+	mt := *p.folded.loop["T-1"]
+	if mt.state != stMoved || mt.resolved != "" {
+		t.Fatalf("precondition: T-1 %s, resolved %q; want moved, no resolution", mt.state, mt.resolved)
+	}
+	mt.resolved = "r1" // as a resolved verdict folds it (states.go)
+	if !h.a.gate(context.Background(), p, &Loop{Scratch: k, Agents: k, Typer: k}, mt) {
+		t.Fatal("gate: the step failed")
+	}
+	if !slices.Equal(k.resolveds, []string{"r1"}) {
+		t.Errorf("the moved gate's Resolved: %q; want [r1]", k.resolveds)
 	}
 }

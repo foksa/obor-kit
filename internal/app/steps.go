@@ -255,7 +255,8 @@ func (a *App) gate(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	case stMoved:
 		// T-403: the submitted sha, never the old candidate (one merge commit per task); the subject rule stays (T-360).
 		g.Kind, g.Input = port.InputMoved, mt.input
-		g.Green = mt.green // T-900: kept when the new commits overlap nothing of it
+		g.Green = mt.green       // T-900: kept when the new commits overlap nothing of it
+		g.Resolved = mt.resolved // T-915: a replayed resolution must equal the checked one
 	}
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepGate, mt.gates+1)}, Class: event.ClassGit,
 		Data: gateIn{Kind: g.Kind, Lane: mt.lane, Input: g.Input}}

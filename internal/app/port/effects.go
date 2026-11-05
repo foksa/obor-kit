@@ -272,6 +272,10 @@ type GateInput struct {
 	// the merge onto the new target is clean, Green is its ancestor and the commits since Green overlap none of the
 	// candidate's files and affected packages, neither side full (T-900; design "Test tiers and receipts").
 	Green string
+	// Resolved, on an InputMoved gate, is the attempt's last checked resolution (the resolved gate's input, T-915; "":
+	// none). A merge that needed a rerere replay is clean only when its patch equals that resolution's: else, or with
+	// none, a conflict naming the files whose patch differs (rerere replays hunks, not the resolution's other edits).
+	Resolved string
 	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, the guard,
 	// the class's checks, or check), for obor status' running line (T-669).
 	Command func(name string)

@@ -280,7 +280,7 @@ func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 		t.Fatalf("precondition: the conflicting gate recorded no preimage in %s", here)
 	}
 
-	y.resolveServe() // the integrator's own commit: no obor flag, git turns rerere on once rr-cache exists
+	res := y.resolveServe() // the integrator's own commit: no obor flag, git turns rerere on once rr-cache exists
 	if post, _ := filepath.Glob(filepath.Join(here, "*", "postimage")); len(post) == 0 {
 		t.Fatalf("precondition: the resolve commit recorded no resolution in %s", here)
 	}
@@ -289,7 +289,7 @@ func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 	y.Git(y.Root, "add", "other.txt")
 	y.Git(y.Root, "commit", "-qm", "unrelated move")
 	moved := y.head(y.Root)
-	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature", Resolved: res})
 	if o.Kind != port.OutcomeGreen {
 		t.Fatalf("the moved gate: %s %q; want green (the recorded resolution replayed)\noutput:\n%s", o.Kind, o.Line, y.out.String())
 	}
@@ -306,14 +306,17 @@ func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
 
 	z := newSx(t, cmd("check", "echo 1 pass"))
 	sha = z.conflicted()
-	z.resolveServe()
+	res = z.resolveServe()
 	z.Write("shared.txt", "other main\n")
 	z.Git(z.Root, "commit", "-qam", "a different main edit")
-	o = z.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	o = z.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature", Resolved: res})
 	if o.Kind != port.OutcomeConflict {
 		t.Fatalf("a move touching the same hunk differently: %s %q; want a conflict", o.Kind, o.Line)
 	}
 	z.eq(strings.Join(o.Files, " "), "shared.txt", "the path still unmerged")
+	if strings.Contains(o.Line, "differs") {
+		t.Errorf("unresolved paths after the replay: a conflict as before T-915, not a differing replay: %q", o.Line)
+	}
 }
 
 var cutSteps = []cutStep{
