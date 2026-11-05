@@ -139,3 +139,6 @@ func WatchedPane(a *App, root, task string) string {
 	}
 	return p.tasks[task].agent.ID
 }
+
+// WorkerStartSettle is how long the worker start rule waits on a worker's pane at its shell (T-874).
+const WorkerStartSettle = workerStartSettle

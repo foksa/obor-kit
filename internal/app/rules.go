@@ -15,8 +15,8 @@ import (
 
 // rule is a name and its condition: when, at now, is the record the rule is keyed by and its action (ok false: the
 // condition does not hold). when runs not under mu: it takes the lock for what it reads. The action runs once the
-// condition has held with the same key for settle (counted from the first pass that saw it; a restart counts again),
-// and never for a key whose line is recorded.
+// condition has held with the same key for settle (counted from the first pass that saw it, and again from an action
+// that succeeded; a restart counts again), and never for a key whose line is recorded.
 type rule struct {
 	name   string
 	settle time.Duration
@@ -47,6 +47,7 @@ var rules = []rule{
 	{name: ruleIdlePing, when: idlePingRule}, // its line went after the idle line's settle
 	{name: ruleIntegratorStop, when: integratorStopRule},
 	{name: ruleReviewerStop, when: reviewerStopRule},
+	{name: ruleWorkerStart, settle: workerStartSettle, when: workerStartRule},
 }
 
 // rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines, on the pass's
@@ -78,6 +79,8 @@ func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 			if err := a.act(ctx, p, lead, of, act); err != nil {
 				fails = live.fails + 1
 				a.logf("%s rule %s (key %d): %v", p.name, r.name, key, err)
+			} else {
+				live.since = now // its settle again before the next: the snapshot may not show the effect yet (T-874)
 			}
 		}
 		live.fails = fails

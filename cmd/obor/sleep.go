@@ -31,7 +31,7 @@ const (
 	stopUsage  = `usage: obor stop ["<why>"] [--force]`
 	startUsage = "usage: obor start"
 	// stopPause is the why of the pause obor stop sets: obor start ends a pause in force with this why only.
-	stopPause = "stopping (obor stop)"
+	stopPause = wire.StopPause
 )
 
 // busyTask is a task in progress: a working, gating or merging lane, or a waiting dispatch (no lane).

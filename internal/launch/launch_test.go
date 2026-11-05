@@ -965,6 +965,52 @@ func TestRestartLaneWorkerWithItsJob(t *testing.T) {
 	})
 }
 
+// T-874: serve's start of a lane's worker again (no --fresh, its outstanding job's wake as the Prompt): a recorded
+// session is resumed and the wake typed once it is up; no session to resume starts fresh with the wake as its first
+// prompt instead of the FAIL a CLI restart gets.
+func TestLaunchCarriesItsPromptOnAResume(t *testing.T) {
+	t.Parallel()
+	const wake = "[obor job T-1/1/fix] call the obor job_next tool"
+	launchIt := func(x *fx) string {
+		x.t.Helper()
+		var out bytes.Buffer
+		s, err := x.launcher(&out).Launch(context.Background(), launch.Request{Agent: "pj-l-01", Prompt: wake})
+		got, ok := result(x.t, &out, s.Line, err)
+		if !ok {
+			x.t.Fatal(got)
+		}
+		return got
+	}
+	typed := func(x *fx) []string { return x.calls("agent.prompt target=w1:p3 text=" + wake) }
+	t.Run("a session to resume: resumed, the prompt typed after the start", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.sid("pj-l-01", "sid-1")
+		x.shell("w1:p3", "pj-l-01", "")
+		out := launchIt(x)
+		contains(t, x.startCall(), "--resume sid-1", "resumed")
+		lacks(t, x.startCall(), wake, "a resume carries no first prompt")
+		if start, wakes := x.index("agent.start"), typed(x); len(wakes) != 1 || x.index(wakes[0]) < start {
+			t.Errorf("the wake typed once after the start: %q", x.srv.Calls())
+		}
+		contains(t, out, "the first prompt: its wake typed", "said")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session sid-1)", "result")
+	})
+	t.Run("no session to resume: fresh, the prompt its first", func(t *testing.T) {
+		t.Parallel()
+		x := setup(t)
+		x.shell("w1:p3", "pj-l-01", "")
+		if x.recorded("pj-l-01") != "" {
+			t.Fatal("precondition: no recorded sid")
+		}
+		out := launchIt(x)
+		lacks(t, x.startCall(), "--resume", "a new session")
+		contains(t, x.startCall(), " "+wake+"]", "the wake as the start's first prompt")
+		eqInt(t, len(typed(x)), 0, "wakes typed besides the start")
+		eq(t, last(out), "RESTARTED pj-l-01 (pane w1:p3, session new)", "result")
+	})
+}
+
 // T-778: a lane's job that cannot be told (Launcher.Job's error: the lane holds a task, serve does not answer) refuses
 // the restart before the stop: FAIL naming why, the running agent untouched (no keys, no input, no start).
 func TestRestartLaneWorkerJobUnknownRefuses(t *testing.T) {

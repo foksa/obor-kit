@@ -20,6 +20,10 @@ const (
 	MethodResume   = "resume"   // the lead's or the owner's word to a task (Call.Note; Call.To: "", regate, sendback): serve picks the action
 )
 
+// StopPause is the why of the pause obor stop sets (T-709): obor start ends a pause in force with this why only, and
+// serve starts no lane worker again while it holds (T-874: the stop stops them).
+const StopPause = "stopping (obor stop)"
+
 // The other methods of the app socket; the server's handler for each is in internal/app.
 const (
 	MethodDispatch = "dispatch"   // Call.Task onto Call.Lane, or the first free lane of Call.Types

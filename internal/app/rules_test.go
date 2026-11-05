@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 )
 
@@ -198,6 +199,85 @@ func TestIdleRules(t *testing.T) {
 			}
 			if n := len(h.panes.notes); n != c.notes {
 				t.Errorf("%d notifications (%q), want %d", n, h.panes.notes, c.notes)
+			}
+		})
+	}
+}
+
+// T-874: the worker start rule's condition, one table (condition → action). T-1 on L-01, its worker pj-l-01's pane
+// w1:p1 labelled, at its shell unless the case's worker runs: a worker job outstanding, no block, no claim and no
+// obor stop pause start pj-l-01 there without --fresh, with that job's wake, keyed by the dispatch fact.
+func TestWorkerStartRuleCondition(t *testing.T) {
+	t.Parallel()
+	working := func(mt *mtask) { mt.state, mt.work, mt.started = stWorking, "work", true }
+	cases := []struct {
+		name string
+		runs bool // pj-l-01 runs in w1:p1
+		edit func(p *proj, mt *mtask)
+		wake string // the start's job ("": no start)
+	}{
+		{name: "working, its work job out: started with its wake", edit: func(_ *proj, mt *mtask) { working(mt) },
+			wake: "T-1/1/work"},
+		{name: "dispatched, its worker started: started with its work job's wake",
+			edit: func(_ *proj, mt *mtask) { mt.state, mt.work, mt.started = stDispatched, "work", true }, wake: "T-1/1/work"},
+		{name: "dispatched, its worker not started yet: none (the dispatch's start)",
+			edit: func(_ *proj, mt *mtask) { mt.state, mt.work = stDispatched, "work" }},
+		{name: "its fix job out: started with its wake",
+			edit: func(_ *proj, mt *mtask) { mt.state, mt.fixed, mt.fixes = stWorking, true, 2 }, wake: "T-1/1/fix.2"},
+		{name: "a sendback's fix job not sent yet: started with the next fix job's wake",
+			edit: func(_ *proj, mt *mtask) { mt.state, mt.fixes = stWorking, 1 }, wake: "T-1/1/fix.2"},
+		{name: "its worker runs: none", runs: true, edit: func(_ *proj, mt *mtask) { working(mt) }},
+		{name: "a stop of its worker pending (busy): none",
+			edit: func(_ *proj, mt *mtask) { working(mt); mt.halt = halt{agent: "pj-l-01"} }},
+		{name: "a drop being recorded (busy): none",
+			edit: func(p *proj, mt *mtask) { working(mt); p.ended["T-1"] = true }},
+		{name: "a needs-you holds it: none",
+			edit: func(_ *proj, mt *mtask) { working(mt); mt.needs = block{fact: event.Record{Seq: 9}} }},
+		{name: "submitted: none", edit: func(_ *proj, mt *mtask) { working(mt); mt.state = stSubmitted }},
+		{name: "obor stop's pause: none", edit: func(p *proj, mt *mtask) {
+			working(mt)
+			p.folded.pause = &event.Pause{Why: wire.StopPause}
+		}},
+		{name: "another pause: started", edit: func(p *proj, mt *mtask) {
+			working(mt)
+			p.folded.pause = &event.Pause{Why: "quota"}
+		}, wake: "T-1/1/work"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := newIdentHarness(t)
+			h.withLead()
+			if !c.runs {
+				h.pane("w1:p1").Agent = ""
+			}
+			h.connect()
+			t.Cleanup(func() { h.proj().log.Close(); h.a.closeLog() })
+			p := h.proj()
+			mt := &mtask{task: "T-1", lane: "L-01", agent: "pj-l-01", attempt: 1, dispSeq: 5}
+			h.a.mu.Lock()
+			p.dispatching = true
+			c.edit(p, mt)
+			p.folded.loop["T-1"] = mt
+			_, shell := h.a.labelledShell(p, "pj-l-01")
+			h.a.mu.Unlock()
+			if shell == c.runs {
+				t.Fatalf("precondition: pj-l-01's pane at its shell %v, want %v", shell, !c.runs)
+			}
+			spy := &agentsSpy{}
+			key, act, ok := workerStartRule(context.Background(), h.a, p, &Loop{Agents: spy}, h.now)
+			if ok != (c.wake != "") {
+				t.Fatalf("condition %v, want %v", ok, c.wake != "")
+			}
+			if !ok {
+				return
+			}
+			if err := act.call(context.Background()); err != nil || act.line != "" {
+				t.Fatalf("action: %v, line %q", err, act.line)
+			}
+			want := port.Launch{Agent: "pj-l-01", Pane: "w1:p1", Prompt: wakeLine(c.wake)}
+			if key != 5 || len(spy.launches) != 1 || spy.launches[0] != want {
+				t.Errorf("key %d, starts %+v; want key 5, one start %+v", key, spy.launches, want)
 			}
 		})
 	}

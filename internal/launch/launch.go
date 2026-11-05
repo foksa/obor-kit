@@ -456,6 +456,10 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	// cross-check, said when it differs. A kind whose sessions obor names itself (agents.Caps.NamedSession: Claude,
 	// T-813) never adopts herdr's: obor chose the recorded id, and a session with no record is a new one.
 	sid, src := t.sid, "record"
+	// A first prompt on a request that may resume (serve's: a lane worker started again with its outstanding job's
+	// wake, T-874, or the integrator with its job's): no session to resume starts fresh with it, a resumed session
+	// gets it typed once up, as a job's wake (T-773).
+	carry := !req.Fresh && req.Prompt != ""
 	if !agents.Resumes(t.kind) {
 		sid, src = "", ""
 		if t.sid != "" {
@@ -491,7 +495,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 				sid = ""
 			}
 		}
-		if sid == "" && !req.Fresh && !fresh {
+		if sid == "" && !req.Fresh && !fresh && !carry {
 			return port.Started{}, project.Failf("no session to resume for %s (pass --fresh to start a new one)", t.agent)
 		}
 	}
@@ -529,12 +533,19 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	if sid != "" {
 		l.say("resuming %s (from %s)", sid, src)
 	}
+	wake, what := "", "the first prompt"
+	switch {
+	case job != "":
+		wake, what = wire.WakeLine(job), "job "+job
+	case carry:
+		wake = req.Prompt
+	}
 	prompt := req.Prompt
 	switch {
 	case sid != "":
-		prompt = "" // a resume carries no first prompt
+		prompt = "" // a resume carries no first prompt: the wake is typed once it is up
 	case job != "":
-		prompt = wire.WakeLine(job)
+		prompt = wake
 	case prompt == "":
 		// A fresh start without a first prompt gets its role's (T-729), e.g. the lead's /obor:lead.
 		if rc, ok := l.Cfg.Role(t.info.Role); ok {
@@ -554,14 +565,14 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		return port.Started{}, err
 	}
 	switch {
-	case job != "" && sid != "":
-		if err := l.H.Wake(ctx, t.pane, wire.WakeLine(job)); err != nil {
-			l.say("warning: job %s's wake not typed into pane %s: %v (type it there: %s)", job, t.pane, err, wire.WakeLine(job))
+	case wake != "" && sid != "":
+		if err := l.H.Wake(ctx, t.pane, wake); err != nil {
+			l.say("warning: %s's wake not typed into pane %s: %v (type it there: %s)", what, t.pane, err, wake)
 		} else {
-			l.say("job %s: its wake typed", job)
+			l.say("%s: its wake typed", what)
 		}
 	case job != "":
-		l.say("job %s: its wake is the first prompt", job)
+		l.say("%s: its wake is the first prompt", what)
 	}
 	if sid == "" {
 		sid = "new"
