@@ -93,12 +93,18 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	defer release() // after the brief is recorded: its open brief holds the merge from then on
 	ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
 	defer cancel()
-	text, err := verifyText(ctx, fx.Review, p.root, s, c.After, c.Findings, c.Note)
+	return a.briefVerify(ctx, p, fx.Review, s, c.After, c.Findings, c.Note, cmp.Or(c.Agent, "owner"), c.CallID)
+}
+
+// briefVerify is a verify once admitted (obor review verify's call, a fix round's pass: reviewfix.go): verifyText's
+// brief recorded for the reviewer from from with call id call ("": none), its tasks the brief's coverage.
+func (a *App) briefVerify(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, tasks, findings []string, note,
+	from, call string) (string, error) {
+	text, err := verifyText(ctx, g, p.root, s, tasks, findings, note)
 	if err != nil {
 		return "", err
 	}
-	from := cmp.Or(c.Agent, "owner")
-	reply, ok := a.recordBrief(p, s.Agent, from, text, c.CallID, "", false, c.After)
+	reply, ok := a.recordBrief(p, s.Agent, from, text, call, "", false, tasks)
 	if !ok {
 		return "", fmt.Errorf("review verify: the event log of %s refused it", p.name)
 	}
@@ -111,6 +117,11 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 func (a *App) verifyPending(p *proj, agent string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.verifyPendingLocked(p, agent)
+}
+
+// verifyPendingLocked is verifyPending under mu.
+func (a *App) verifyPendingLocked(p *proj, agent string) bool {
 	b := p.out.brief(agent)
 	return b != nil && len(b.verify) > 0 && p.out.msgs[b.seq] != nil
 }

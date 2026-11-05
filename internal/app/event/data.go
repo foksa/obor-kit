@@ -65,6 +65,10 @@ type Message struct {
 	// Verify: a verify brief's (obor review verify, T-823): the fix tasks its coverage names, counted by ReviewCovered
 	// once its brief was delivered (one append with the brief, so a refused or superseded one covers nothing)
 	Verify []string `json:"verify,omitempty"`
+	// FixDrop: a lead line's (T-850, reviewfix.go): the review's linked fix tasks that ended unmerged, the lead told
+	// once; FixFail: the seq of the fix round whose verify failed, the lead told once.
+	FixDrop []string `json:"fix_drop,omitempty"`
+	FixFail int64    `json:"fix_fail,omitempty"`
 	// Idle is the seq of the idle fact this line announces (T-803, messages.go): the first line, or — with IdlePing —
 	// the 30-minute ping's.
 	Idle     int64 `json:"idle,omitempty"`

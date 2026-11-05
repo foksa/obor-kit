@@ -99,6 +99,7 @@ const (
 	StepReviewRm      = "review.rm"      // fact: obor review --rm ended it (data: ReviewData)
 	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
 	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
+	StepReviewFix     = "review.fix"     // fact: fix tasks linked to the open review (data: ReviewData, ID, Tasks, Note; T-850)
 	// StepReviewVerify is a verify of tasks the open review now covers, from a store before T-823: its fix tasks (data:
 	// ReviewData, Tasks; T-822: obor review close lists the cycle's Covered set from here, so a task merged during the
 	// review counts as reviewed). A new verify carries its tasks in its brief's fact (Message.Verify): read, never written.

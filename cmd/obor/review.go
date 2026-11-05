@@ -13,7 +13,7 @@ import (
 )
 
 const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
-	` | obor review verify … | obor review close …`
+	` | obor review fix … | obor review verify … | obor review close …`
 
 // reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
 // to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
@@ -26,6 +26,9 @@ func reviewCmd(args []string) int {
 	}
 	if len(args) > 0 && args[0] == "close" {
 		return reviewCloseCmd(args[1:])
+	}
+	if len(args) > 0 && args[0] == "fix" {
+		return reviewFixCmd(args[1:])
 	}
 	var c wire.Call
 	for i := 0; i < len(args); i++ {

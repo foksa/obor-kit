@@ -24,7 +24,8 @@ import (
 
 const (
 	reviewVerifyUsage = `FAIL usage: obor review verify <T-a>[,<T-b>…] [--findings <n>[,<m>…]] [--note "<text>"]`
-	reviewCloseUsage  = `FAIL usage: obor review close "<summary>" [--accept "<line>"]…`
+	reviewCloseUsage  = `FAIL usage: obor review close "<summary>" [--accept "<line>"]… [--force]`
+	reviewFixUsage    = `FAIL usage: obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`
 )
 
 // reviewGitWait bounds a review command's git.
@@ -96,18 +97,54 @@ func reviewVerifyCmd(args []string) int {
 	})
 }
 
-// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]…`: the open review's files deleted from the
+// reviewFixCmd is `obor review fix <T-a,…> [--note "<what to check>"]` (T-850): one request to obor serve
+// (wire.MethodFix) linking the fix tasks to the open review; a second call adds tasks. Once every linked task merged,
+// serve runs what obor review verify runs and the lead hears the reviewer's finished line. FAIL (exit 1): a usage
+// error, serve down, or serve's refusal (no open review, a task not dispatched).
+func reviewFixCmd(args []string) int {
+	var tasks []string
+	var note string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--note" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "":
+			i++
+			note = args[i]
+		case tasks == nil && a != "" && !strings.HasPrefix(a, "-"):
+			tasks = strings.Split(a, ",")
+		default:
+			fmt.Fprintln(out, reviewFixUsage)
+			return 1
+		}
+	}
+	if tasks == nil {
+		fmt.Fprintln(out, reviewFixUsage)
+		return 1
+	}
+	return request(context.Background(), project.OSEnv, wire.MethodFix, func(cfg *config.Config, call *wire.Call) error {
+		if err := taskIDs(cfg, tasks...); err != nil {
+			return err
+		}
+		call.After, call.Note = tasks, note
+		return nil
+	})
+}
+
+// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: the open review's files deleted from the
 // main checkout, each accepted finding a line in BACKLOG.md's Open section naming the review, the commit "RV-<n> closed
 // · <reviewed sha> · approved · <summary>" on the integration branch in the main checkout (BACKLOG.md with it), then
 // the reviewer stopped (obor restart --stop). The reviewed sha is app.ReviewedRef: the last verify's head, else the
 // review's. The body lists the cycle's covered tasks and its review start sha (app.ReviewCovered; T-822), so the next
 // review's scope takes the merges it did not cover. Refused before any change: no open review, no reviewed sha, the
-// main checkout not on the integration branch or dirty outside BACKLOG.md and the review's files.
+// main checkout not on the integration branch or dirty outside BACKLOG.md and the review's files, or a fix task linked
+// by obor review fix neither verified nor dropped (T-850; --force, the owner's word, closes anyway).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string
+	force := false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
+		case a == "--force" && !force:
+			force = true
 		case a == "--accept" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "":
 			i++
 			accepts = append(accepts, strings.Join(strings.Fields(args[i]), " "))
@@ -129,7 +166,7 @@ func reviewCloseCmd(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reviewGitWait)
 	defer cancel()
-	c, line, err := closeReview(ctx, cfg, summary, accepts)
+	c, line, err := closeReview(ctx, cfg, summary, accepts, force)
 	if err != nil {
 		fmt.Fprintf(out, "FAIL %v\n", err)
 		return 1
@@ -142,10 +179,14 @@ func reviewCloseCmd(args []string) int {
 
 // closeReview checks, then deletes the open review's files, appends the accepted lines and commits the close: the
 // review and the line CLOSED <subject>.
-func closeReview(ctx context.Context, cfg *config.Config, summary string, accepts []string) (openCycle, string, error) {
+func closeReview(ctx context.Context, cfg *config.Config, summary string, accepts []string, force bool) (openCycle, string, error) {
 	c, err := openReview(ctx, cfg)
 	if err != nil {
 		return c, "", err
+	}
+	if pending := app.ReviewFixPending(cfg.Root, c.id); len(pending) > 0 && !force {
+		return c, "", fmt.Errorf("%s's fixes are not verified: %s (open, or merged and the verify not run yet; --force"+
+			" closes anyway): nothing changed", c.id, strings.Join(pending, ", "))
 	}
 	root := cfg.Root
 	if on, err := gitIn(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.s.Branch {

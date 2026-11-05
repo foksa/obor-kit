@@ -271,3 +271,100 @@ func TestReviewCloseNoStartFact(t *testing.T) {
 		t.Error("ReviewCovered found a start in a log without one")
 	}
 }
+
+// T-850: obor review fix only asks serve (wire.MethodFix: the fix tasks and the note); a usage error sends nothing.
+func TestReviewFix(t *testing.T) {
+	t.Parallel()
+	p, _ := reviewFixture(t)
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "FIX LINKED to RV-4: T-5,T-6", "")
+	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
+	for _, args := range [][]string{{"review", "fix"}, {"review", "fix", "T-5", "--note"}, {"review", "fix", "--note", "x"}, {"review", "fix", "T-5", "T-6"}} {
+		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review fix") {
+			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
+		}
+	}
+	if _, n := serve.requests(); n != 0 {
+		t.Fatalf("a usage error sent %d requests", n)
+	}
+	rc, stdout, _ := run(t, p.Root, env, "review", "fix", "T-5,T-6", "--note", "check #2")
+	if rc != 0 || stdout != "FIX LINKED to RV-4: T-5,T-6\n" {
+		t.Fatalf("fix: exit %d, %q", rc, stdout)
+	}
+	calls, _ := serve.requests()
+	if len(calls) != 1 || serve.methods[0] != wire.MethodFix || strings.Join(calls[0].After, ",") != "T-5,T-6" ||
+		calls[0].Note != "check #2" || calls[0].CallID == "" {
+		t.Fatalf("the request: %q %+v", serve.methods, calls)
+	}
+}
+
+// appendFacts appends facts to the project's event log (no serve runs: the test is its one writer).
+func appendFacts(t *testing.T, root string, recs ...event.Record) {
+	t.Helper()
+	db, err := store.OpenRW(event.DBFile(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	log, _, err := event.OpenLog(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recs {
+		if _, err := log.Append(r, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// logFact is a fact record of task and step with data d.
+func logFact(t *testing.T, task, step string, d any) event.Record {
+	t.Helper()
+	b, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Record{Task: task, Step: step, Kind: event.KindFact, Data: b}
+}
+
+// T-850: obor review close is refused while a fix task linked by obor review fix is neither verified nor dropped,
+// naming them, nothing changed; a verify brief naming T-5 and the lead's drop line for T-6 let it close. --force closes
+// with a fix pending.
+func TestReviewCloseFixPending(t *testing.T) {
+	t.Parallel()
+	for _, force := range []bool{false, true} {
+		p, head := reviewFixture(t)
+		p.Write(".gitignore", ".obor/state/\n")
+		p.Git(p.Root, "add", ".gitignore")
+		p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
+		p.Git(p.Root, "update-ref", app.ReviewedRef, head)
+		appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewFix, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5", "T-6"}}))
+		f := p.Herdr()
+		f.Shell("w1:p3", "pj-rev", p.Root)
+		srv := herdrtest.Serve(t, f)
+		env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
+			"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
+			"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+		p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+		before := p.Git(p.Root, "rev-parse", "HEAD")
+		if force {
+			rc, stdout, _ := run(t, p.Root, env, "review", "close", "forced", "--force")
+			if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · ") {
+				t.Errorf("--force with T-5, T-6 pending: exit %d, %q; want CLOSED", rc, stdout)
+			}
+			continue
+		}
+		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
+		if rc != 1 || !strings.HasPrefix(stdout, "FAIL RV-4's fixes are not verified: T-5, T-6 ") {
+			t.Fatalf("a pending fix: exit %d, %q; want the refusal naming T-5, T-6", rc, stdout)
+		}
+		if !p.Exists(p.Path("docs/reviews/RV-4.md")) || p.Git(p.Root, "rev-parse", "HEAD") != before {
+			t.Fatal("a refused close changed something")
+		}
+		appendFacts(t, p.Root,
+			logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", Verify: []string{"T-5"}}),
+			logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] RV-4 fix T-6 ended unmerged", FixDrop: []string{"T-6"}}))
+		if rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed"); rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · ") {
+			t.Errorf("T-5 verified, T-6 dropped: exit %d, %q; want CLOSED", rc, stdout)
+		}
+	}
+}
