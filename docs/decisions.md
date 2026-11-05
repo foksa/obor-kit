@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner, docs/research/kit-specific-logic.md): **obor-kit's own development leaves the product.** The
+  kit's release/Makefile/install tests move to `tests/release/` (T-902), `obor projects --notify` becomes a loop in
+  `scripts/ship` (T-903), shipped text names no kit things and the config example is neutral (T-904), kit-config
+  tests leave product packages (in T-901). **`obor flakes` stays and says it reads Go test output.** **The guard's
+  Go load-run rule becomes a config deny list** (`guards.deny_commands`, T-905; obor-kit's config carries the Go rule).
+  Go cache probe in serve's low-disk line: later (BACKLOG).
 - 2026-11-05 (owner): **Gates: re-gate a moved candidate only on overlap** (T-900; ~38 gates for ~10 merges today,
   most of the load behind the flaky reds); non-Go files run only the checks that read them instead of the full suite:
   **in obor-kit's config + Makefile, not in obor's Go code** (owner: `internal/affected` stays as is; T-901 replaces T-899). **Go's test cache stays off** in gates for now (its inputs miss herdr, CLIs and sockets); revisit with

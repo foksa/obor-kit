@@ -6,6 +6,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 (kit-specific survey #7, low): serve's low-disk needs-you probes `go env GOCACHE` in every project (`cmd/obor/serve.go:178-191`, `internal/app/disk.go:57`): make it a config hint or drop it; fold into the next disk task.
 - 2026-11-05 ~15:10 (lead): **At RV-120's close** (after T-897's verify): `obor review` of T-873 + T-876 (focus T-876:
   what each migrated test still proves; tiny test-only diff); T-877 (MCP SDK) gets the review after, alone (its watch).
   **Lanes 6→4** (owner, load 35-45, flaky reds): dispatch paused until T-876/T-878 free L-05/L-06 (watch), then config
