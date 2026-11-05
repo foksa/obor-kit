@@ -311,6 +311,9 @@ func TestNightlySwitchCountsFromTheNextPass(t *testing.T) {
 	if reply := set("off", `null`); reply != `SET merge.nightly_at "11:00" → unset` {
 		t.Errorf("off: %q", reply)
 	}
+	// The switch counts from the next pass (T-781). Let a pass built after the commit finish before the fake clock jumps
+	// a day: a pass still in flight from before it holds the old Loop (on) but reads the jumped clock, and would run.
+	r.passes()
 	r.later(24 * time.Hour)
 	r.passes()
 	if n := f.count(); n != 1 || r.has("0 intent nightly.2026-11-11") {
