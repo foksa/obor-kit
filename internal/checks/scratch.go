@@ -177,7 +177,16 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 				return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
 					Line: fmt.Sprintf("CONFLICT in %s: %s", dir, strings.Join(files, " "))}, nil
 			}
-			reused = true // every hunk came from the recorded resolution (no unmerged path left): the merge is clean
+			// Every hunk came from a recorded resolution (no unmerged path left): clean only when the merge's patch is
+			// the attempt's checked resolution's (T-915).
+			if files, err := s.replayDiffers(dir, target, in.Resolved); err != nil {
+				return port.GateOutcome{}, err
+			} else if len(files) > 0 {
+				return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
+					Line: fmt.Sprintf("CONFLICT in %s: %s (the replayed resolution differs from the checked one)", dir,
+						strings.Join(files, " "))}, nil
+			}
+			reused = true
 		}
 	}
 	keep := keepFull
@@ -239,6 +248,60 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	}
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
 		Line: fmt.Sprintf("GREEN %s (%s, %s)%s", in.Task, c.Checks, r.mode, r.loaded)}, nil
+}
+
+// replayDiffers is the files whose patch differs between the merge open in dir (its index against target) and the
+// checked resolution (resolved^1..resolved; "": none, every file differs), each file's diff compared without its
+// index line and hunk line numbers, as git patch-id does (T-915). Conservative: a moved context line differs too.
+func (s Scratch) replayDiffers(dir, target, resolved string) ([]string, error) {
+	out, err := s.call(dir, "diff", "--cached", "--binary", "--no-renames", target)
+	if err != nil {
+		return nil, err
+	}
+	got, want := filePatches(out), map[string]string{}
+	if resolved != "" {
+		if out, err = s.call(dir, "diff", "--binary", "--no-renames", resolved+"^1", resolved); err != nil {
+			return nil, err
+		}
+		want = filePatches(out)
+	}
+	var files []string
+	for f, p := range got {
+		if want[f] != p {
+			files = append(files, f)
+		}
+	}
+	for f := range want {
+		if _, ok := got[f]; !ok {
+			files = append(files, f)
+		}
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+// filePatches is a diff split per file ("diff --git a/<f> b/<f>": f), each without its index line and the line numbers
+// of its hunk headers.
+func filePatches(diff string) map[string]string {
+	m, file := map[string]string{}, ""
+	for _, l := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(l, "diff --git "):
+			file = strings.TrimPrefix(l, "diff --git ")
+			if i := strings.Index(file, " b/"); strings.HasPrefix(file, "a/") && i > 0 {
+				file = file[2:i]
+			}
+			continue
+		case strings.HasPrefix(l, "index "):
+			continue
+		case strings.HasPrefix(l, "@@ "):
+			if _, rest, ok := strings.Cut(l[3:], " @@"); ok {
+				l = "@@" + rest
+			}
+		}
+		m[file] += l + "\n"
+	}
+	return m
 }
 
 // keep is a moved gate's decision on its green result (T-900, T-914): keepFull, keepAll or keepMoved.
