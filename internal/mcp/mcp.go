@@ -1,12 +1,11 @@
-// Package mcp is obor's stdio MCP server: the job tools, JSON-RPC 2.0 over stdin and
-// stdout, one message per line, hand-rolled (no SDK, go.mod unchanged). The tools are filtered by OBOR_ROLE, and each
-// tool call is one request on obor serve's app socket (an wire.Verdict Call; T-470: the only path of the integrator's
-// verdicts): the app decides, the server only renders its reply. `obor mcp` runs it; `obor mcp --check` checks it.
+// Package mcp is obor's stdio MCP server: the job tools on the official Go SDK (github.com/modelcontextprotocol/go-sdk,
+// T-877), which speaks the protocol and checks the arguments against each tool's schema. The tools are filtered by
+// OBOR_ROLE, and each tool call is one request on obor serve's app socket (a wire.Verdict Call; T-470: the only path
+// of the integrator's verdicts): the app decides, the server only renders its reply. `obor mcp` runs it; `obor mcp
+// --check` checks it.
 package mcp
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
@@ -22,30 +24,9 @@ import (
 	"obor/internal/version"
 )
 
-// protocolVersion is the MCP revision the server answers when the client's initialize names none. A client that names
-// one gets its own back: the messages and the tools are the same in every revision this server knows.
-const protocolVersion = "2024-11-05"
-
-// The tools, by their MCP names; each is one app socket method of the same name (jobs_contract.go, verdict.go).
-const (
-	toolJobNext  = "job_next"
-	toolTaskDone = "task_done"
-	toolAccept   = "accept"
-	toolSendback = "sendback"
-	toolReject   = "reject"
-	toolResolved = "resolved"
-	toolHold     = "hold"
-)
-
-// The JSON-RPC error codes the server answers.
-const (
-	codeParse          = -32700
-	codeMethodNotFound = -32601
-	codeInvalidParams  = -32602
-)
-
-// Options is one server run: the environment the agent's session exports (launch.EnvVars: a client with a stripped environment must forward them), the cwd the server was started in
-// (each call's Root is that cwd's project), and the streams. Err gets the one startup warning (nil: os.Stderr).
+// Options is one server run: the environment the agent's session exports (launch.EnvVars: a client with a stripped
+// environment must forward them), the cwd the server was started in (each call's Root is that cwd's project), and the
+// streams. Err gets the one startup warning (nil: os.Stderr).
 type Options struct {
 	Env project.Env
 	Cwd string
@@ -54,10 +35,9 @@ type Options struct {
 	Err io.Writer
 }
 
-// Serve runs the server on o.In/o.Out until the input ends: a response for every request, nothing for a notification.
-// A line that is not JSON answers a parse error and the server goes on.
+// Serve runs the server on o.In/o.Out, one JSON-RPC message per line, until the input ends.
 func Serve(ctx context.Context, o Options) error {
-	s := &server{env: o.Env, cwd: o.Cwd, out: bufio.NewWriter(o.Out)}
+	s := &server{ctx: ctx, env: o.Env, cwd: o.Cwd}
 	if s.role() == "" {
 		w := o.Err
 		if w == nil {
@@ -65,141 +45,48 @@ func Serve(ctx context.Context, o Options) error {
 		}
 		fmt.Fprintln(w, "obor mcp: OBOR_ROLE is not set: no tools (the client did not pass the agent's environment)")
 	}
-	in := bufio.NewReader(o.In)
-	for {
-		line, err := in.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
-			s.handle(ctx, line)
-			if ferr := s.out.Flush(); ferr != nil {
-				return ferr
-			}
-		}
-		switch {
-		case err == nil:
-		case errors.Is(err, io.EOF):
-			return nil
-		default:
-			return err
-		}
+	err := s.sdkServer().Run(ctx, &sdk.IOTransport{Reader: io.NopCloser(o.In), Writer: nopWriteCloser{o.Out}})
+	if errors.Is(err, io.EOF) {
+		return nil // the client closed stdin: the session's normal end
 	}
+	return err
 }
 
-// server is one run: the environment, the cwd, the output, and the last job_next reply. The integrator's verdict tools
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
+
+// server is one run: the context of its tool calls (the SDK detaches a handler's context from the run's, and a call's
+// deadline is the run's, T-685), the environment, the cwd, and the last job_next reply. The integrator's verdict tools
 // key their call on that job's task and job id (the app's verdicts name a task; the role text says to call job_next
-// first, and job_next's reply is the only place the server learns them).
+// first, and job_next's reply is the only place the server learns them). The SDK runs calls concurrently: mu guards
+// task and job.
 type server struct {
+	ctx  context.Context
 	env  project.Env
 	cwd  string
-	out  *bufio.Writer
+	mu   sync.Mutex
 	task string
 	job  string
 }
 
-// request is one JSON-RPC message: a request (with an ID) or a notification (without).
-type request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-}
-
-// response is the answer to a request; Result is left out of an error's.
-type response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-// handle answers one line.
-func (s *server) handle(ctx context.Context, line []byte) {
-	var req request
-	if err := json.Unmarshal(line, &req); err != nil {
-		s.write(response{JSONRPC: "2.0", Error: &rpcError{codeParse, "parse error: " + err.Error()}})
-		return
-	}
-	// A notification (no id, or a null one) is never answered: notifications/initialized, cancelled, and anything the
-	// server does not know.
-	notification := len(req.ID) == 0 || string(req.ID) == "null"
-	switch req.Method {
-	case "initialize":
-		if notification {
-			return
-		}
-		s.write(response{JSONRPC: "2.0", ID: req.ID, Result: initialize(req.Params)})
-	case "ping":
-		if notification {
-			return
-		}
-		s.write(response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
-	case "tools/list":
-		if notification {
-			return
-		}
-		s.write(response{JSONRPC: "2.0", ID: req.ID, Result: listResult{Tools: infos(toolsFor(s.role()))}})
-	case "tools/call":
-		if notification {
-			return
-		}
-		res, rerr := s.call(ctx, req.Params)
-		if rerr != nil {
-			s.write(response{JSONRPC: "2.0", ID: req.ID, Error: rerr})
-			return
-		}
-		s.write(response{JSONRPC: "2.0", ID: req.ID, Result: res})
-	default:
-		if notification {
-			return
-		}
-		s.write(response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{codeMethodNotFound, "method not found: " + req.Method}})
-	}
-}
-
-func (s *server) write(v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return // a response of strings and structs only: it cannot fail
-	}
-	_, _ = s.out.Write(append(b, '\n'))
-}
-
-// initialize is the handshake's result: the client's protocol version back (or the default), the tools capability and
-// the server's identity.
-func initialize(params json.RawMessage) initResult {
-	var p struct {
-		ProtocolVersion string `json:"protocolVersion"`
-	}
-	_ = json.Unmarshal(params, &p)
-	v := p.ProtocolVersion
-	if v == "" {
-		v = protocolVersion
-	}
-	return initResult{ProtocolVersion: v, Capabilities: capabilities{Tools: map[string]any{"listChanged": false}},
-		ServerInfo: serverInfo{Name: "obor", Version: version.Version}}
-}
-
-type initResult struct {
-	ProtocolVersion string       `json:"protocolVersion"`
-	Capabilities    capabilities `json:"capabilities"`
-	ServerInfo      serverInfo   `json:"serverInfo"`
-}
-
-type capabilities struct {
-	Tools map[string]any `json:"tools"`
-}
-
-type serverInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+// sdkServer is the SDK server with the role's tools; the tools capability is announced even when the role has none.
+func (s *server) sdkServer() *sdk.Server {
+	srv := sdk.NewServer(&sdk.Implementation{Name: "obor", Version: version.Version},
+		&sdk.ServerOptions{Capabilities: &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{}}})
+	s.register(srv)
+	return srv
 }
 
 // role is the session's role: OBOR_ROLE.
 func (s *server) role() string { return s.env.Get("OBOR_ROLE") }
+
+// fetched is the task and job id of the last job_next reply.
+func (s *server) fetched() (task, job string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.task, s.job
+}
 
 // self is the caller's agent name: project.Self of the server's cwd in repo r under the current config, read at each
 // call (T-786: derived, never OBOR_AGENT, so a rename applies at once). No name: missing says which input lacked it
@@ -220,70 +107,39 @@ func (s *server) self(r *project.Repo) (name, missing string) {
 	return "", fmt.Sprintf("role %s (lane %q) names no agent in the config", role.Role, role.Lane)
 }
 
-// call answers one tools/call: the tool must be in the role's table (else invalid params, the JSON-RPC answer to an
-// unknown tool), its required arguments must be there, and the app's refusal — like serve being down — is a tool
-// error result, never a broken server.
-func (s *server) call(ctx context.Context, raw json.RawMessage) (callResult, *rpcError) {
-	var p struct {
-		Name      string                     `json:"name"`
-		Arguments map[string]json.RawMessage `json:"arguments"`
-	}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return callResult{}, &rpcError{codeInvalidParams, "invalid params: " + err.Error()}
-		}
-	}
-	t, ok := lookup(s.role(), p.Name)
-	if !ok {
-		// Not in this role's table: the JSON-RPC answer to an unknown tool (a refusal of the app's is a tool error).
-		name, role := p.Name, s.role()
-		if name == "" {
-			name = "-"
-		}
-		if role == "" {
-			role = "-"
-		}
-		return callResult{}, &rpcError{codeInvalidParams, fmt.Sprintf("unknown tool %s for role %s", name, role)}
-	}
-	args, err := t.arguments(p.Arguments)
-	if err != nil {
-		return errorResult(t.name + ": " + err.Error()), nil
+// call is one tool call, the tool's name its app socket method: fill copies the arguments into the call, then the
+// caller's identity is derived and the app asked. Every refusal — a bad argument, no project, no identity, the app's
+// own, serve being down — is the error, the tool's error text; never a broken server.
+func (s *server) call(method string, fill func(*wire.Call) error) (string, error) {
+	c := wire.Call{Role: s.role(), Lane: s.env.Get("OBOR_LANE"), Pane: s.env.Get("HERDR_PANE_ID"),
+		CallID: wire.NewCallID()}
+	if err := fill(&c); err != nil {
+		return "", fmt.Errorf("%s: %w", method, err)
 	}
 	root, err := project.Find(s.cwd)
 	if err != nil {
-		return errorResult(t.name + ": not in an obor project (no .obor/config.json)"), nil
+		return "", errors.New(method + ": not in an obor project (no .obor/config.json)")
 	}
 	agent, missing := s.self(root)
 	if agent == "" {
-		return errorResult(t.name + ": no caller identity: " + missing), nil
+		return "", errors.New(method + ": no caller identity: " + missing)
 	}
-	c := wire.Call{Agent: agent, Role: s.role(), Lane: s.env.Get("OBOR_LANE"),
-		Pane: s.env.Get("HERDR_PANE_ID"), CallID: wire.NewCallID(), Root: root.Root}
-	switch t.method {
-	case wire.MethodJobNext:
-		c.Job = args["job"] // the wake's job id (T-602): that job when it is open, else superseded{current}
-	case wire.MethodTaskDone:
-		if c.Lane == "" {
-			return errorResult(t.name + ": OBOR_LANE is not set: task_done is the worker's tool"), nil
-		}
-		c.Report = args["report"] // serve resolves the lane to its task (T-439)
-	case wire.MethodAccept:
-		c.Task, c.Job, c.Patch, c.Note = s.task, s.job, args["patch"], args["note"]
-	case wire.MethodResolved:
-		c.Task, c.Job = s.task, s.job
-	default: // sendback, reject, hold: the why is the call's note
-		c.Task, c.Job, c.Note = s.task, s.job, args["why"]
+	if method == wire.MethodTaskDone && c.Lane == "" {
+		return "", errors.New(method + ": OBOR_LANE is not set: task_done is the worker's tool")
 	}
-	reply, err := wire.Verdict(ctx, wire.SocketPath(root.Root), t.method, c)
+	c.Agent, c.Root = agent, root.Root
+	reply, err := wire.Verdict(s.ctx, wire.SocketPath(root.Root), method, c)
 	if err != nil {
-		return errorResult(err.Error()), nil
+		return "", err
 	}
-	if t.method == wire.MethodJobNext {
-		text, task, job := renderJob(reply)
-		s.task, s.job = task, job
-		return textResult(text), nil
+	if method != wire.MethodJobNext {
+		return reply, nil
 	}
-	return textResult(reply), nil
+	text, task, job := renderJob(reply)
+	s.mu.Lock()
+	s.task, s.job = task, job
+	s.mu.Unlock()
+	return text, nil
 }
 
 // renderJob is job_next's readable text and, for a job, its task and id — the verdict tools' call names them. The two
@@ -305,23 +161,4 @@ func renderJob(reply string) (text, task, job string) {
 	default: // "none", and a state a later app may add: its own line
 		return "NO JOB (" + r.State + ")", "", ""
 	}
-}
-
-// callResult is tools/call's result: one text content, and isError for a refusal.
-type callResult struct {
-	Content []content `json:"content"`
-	IsError bool      `json:"isError,omitempty"`
-}
-
-type content struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-func textResult(text string) callResult {
-	return callResult{Content: []content{{Type: "text", Text: text}}}
-}
-
-func errorResult(text string) callResult {
-	return callResult{Content: []content{{Type: "text", Text: text}}, IsError: true}
 }
