@@ -482,23 +482,35 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launches %+v", r.agents.launches)
 			}
 		}},
-		{"a failing mark is a needs-you, no restart", func(t *testing.T, r *reviewRig) {
-			r.git.markErr = errors.New("git update-ref: cannot lock ref")
+		{"a failing move is a needs-you, no restart, the ref not moved", func(t *testing.T, r *reviewRig) {
+			r.git.detachErr = errors.New("git checkout: local changes")
 			r.mustCall("r1", nil, "", false)
 			r.pass()
-			if len(r.agents.launches) != 0 {
-				t.Errorf("launched %+v", r.agents.launches)
+			if len(r.agents.launches) != 0 || len(r.git.marked) != 0 {
+				t.Errorf("launched %+v, marked %q; want neither (T-856: the ref only once briefed)", r.agents.launches, r.git.marked)
 			}
-			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git update-ref: cannot lock ref" {
+			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git checkout: local changes" {
 				t.Errorf("needs-you %q", n)
 			}
 			if r.p.folded.review != nil || r.facts(event.StepReviewStarted) != 0 {
 				t.Errorf("request %v, started %d; want ended, none", r.p.folded.review, r.facts(event.StepReviewStarted))
 			}
-			r.git.markErr = nil
+			r.git.detachErr = nil
 			r.mustCall("r2", nil, "", false)
 			if n := r.needs(); len(n) != 0 {
 				t.Errorf("needs-you %q after a new request, want ended", n)
+			}
+		}},
+		{"a failing mark after the brief is logged: the start stands, close reads the log's head", func(t *testing.T, r *reviewRig) {
+			r.git.markErr = errors.New("git update-ref: cannot lock ref")
+			r.mustCall("r1", nil, "", false)
+			r.pass()
+			if len(r.agents.launches) != 1 || r.facts(event.StepReviewStarted) != 1 || len(r.needs()) != 0 {
+				t.Fatalf("launches %d, started %d, needs-you %q; want one start, no needs-you", len(r.agents.launches),
+					r.facts(event.StepReviewStarted), r.needs())
+			}
+			if c := ReadReviewCycle(r.p.root, "RV-5"); c.Reviewed != "abcdef0123456789abcdef0123456789abcdef01" {
+				t.Errorf("close's sha %q, want the started head from the log", c.Reviewed)
 			}
 		}},
 		{"status says review due at 4 unreviewed merges, not at 3", func(t *testing.T, r *reviewRig) {
@@ -651,16 +663,16 @@ func TestReviewDueCountsUncovered(t *testing.T) {
 func TestReviewCoveredAddsVerifyTasks(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
-	if _, _, ok := ReviewCovered(r.p.root); ok {
+	if ReadReviewCycle(r.p.root, "RV-5").Started {
 		t.Fatal("precondition: a start is recorded before any review ran")
 	}
 	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
 		ReviewData{ID: "RV-5", Head: "abcdef0123456789", Tasks: []string{"T-a", "T-b"}})
 	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerify, Kind: event.KindFact},
 		ReviewData{Tasks: []string{"T-d"}})
-	covered, start, ok := ReviewCovered(r.p.root)
-	if !ok || start != "abcdef0123456789" || strings.Join(covered, ",") != "T-a,T-b,T-d" {
-		t.Errorf("covered %q, start %q, ok %t; want T-a,T-b,T-d at the start's head", covered, start, ok)
+	c := ReadReviewCycle(r.p.root, "RV-5")
+	if !c.Started || c.Start != "abcdef0123456789" || strings.Join(c.Covered, ",") != "T-a,T-b,T-d" {
+		t.Errorf("covered %q, start %q, started %t; want T-a,T-b,T-d at the start's head", c.Covered, c.Start, c.Started)
 	}
 }
 
@@ -682,7 +694,7 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.p.root, s.Reviews, "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, err := verifyText(context.Background(), r.git, r.p.root, s, []string{"T-c"}, nil, "")
+	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, nil, "")
 	if err != nil {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}

@@ -131,6 +131,7 @@ type proj struct {
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
+	vf         sync.Mutex           // a verify's request and admission, and a role brief's record (reviewverify.go, T-856)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
@@ -210,8 +211,8 @@ type folded struct {
 	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview
-	// fix: the open review's fix round (reviewfix.go, T-850; nil: none linked yet).
-	fix *fixRound
+	// rv: the review cycle's verify records and fix round, one fold (reviewverify.go, T-856).
+	rv reviewLog
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
 	// roles: serve's stops of role agents (rolestop.go, T-672).

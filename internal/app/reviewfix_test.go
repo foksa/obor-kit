@@ -6,19 +6,28 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 )
 
-// T-850: obor review fix links fix tasks to the open review; serve verifies once every linked task merged.
+// T-850: obor review fix links fix tasks to the open review; serve verifies once every linked task merged (T-856:
+// requested, admitted once the reviewer is idle, the tasks verified once the reviewer finished the verify).
 
 // fix is an obor review fix call from the lead.
 func (r *reviewRig) fix(id, note string, tasks ...string) (string, error) {
 	return r.a.fixCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", After: tasks, Note: note})
 }
 
-// fixPass is one fix-round pass.
+// fixPass is one fix-round pass and the verify admission after it, in the merge loop's order.
 func (r *reviewRig) fixPass() {
-	r.a.fixPass(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+	fx := &Loop{Review: r.git, Agents: r.agents}
+	r.a.fixPass(context.Background(), r.p, fx)
+	r.a.verifyPass(context.Background(), r.p, fx)
+}
+
+// pending is close's pending set for RV-5, read from the log as obor review close reads it.
+func (r *reviewRig) pending() string {
+	return strings.Join(ReadReviewCycle(r.p.root, "RV-5").Pending, ",")
 }
 
 // fixRig is a rig with the open review RV-5 (its file written, RV-4 closed) and T-a, T-b dispatched and linked.
@@ -39,11 +48,12 @@ func fixRig(t *testing.T) *reviewRig {
 }
 
 // Linked tasks merge one by one, with a restart between the merges and between the last merge and the pass that
-// briefs, and again after the brief: one verify, after the last merge, naming both tasks; close's pending set empties.
+// briefs, and again after the brief: one verify, after the last merge, naming both tasks; close's pending set empties
+// only once the reviewer finished it.
 func TestReviewFixVerifiesOnceAfterLastMerge(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
-	if got := strings.Join(ReviewFixPending(r.p.root, "RV-5"), ","); got != "T-a,T-b" {
+	if got := r.pending(); got != "T-a,T-b" {
 		t.Fatalf("precondition: pending %q, want T-a,T-b", got)
 	}
 	r.fixPass()
@@ -61,20 +71,29 @@ func TestReviewFixVerifiesOnceAfterLastMerge(t *testing.T) {
 	r.reload() // a restart between the last merge and the brief
 	r.fixPass()
 	r.fixPass()
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}}) // delivered: no pending verify holds a second
+	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}}) // delivered: still not done
 	r.reload()                                                        // and after the brief
 	r.fixPass()
 	briefs := verifyBriefs(t, r.p.root)
-	if len(briefs) != 1 || len(r.git.marked) != 1 {
-		t.Fatalf("%d verify briefs, %d marks; want one of each", len(briefs), len(r.git.marked))
+	if len(briefs) != 1 || len(r.git.marked) != 1 || r.facts(event.StepReviewVerifyRequest) != 1 {
+		t.Fatalf("%d verify briefs, %d marks, %d requests; want one of each", len(briefs), len(r.git.marked),
+			r.facts(event.StepReviewVerifyRequest))
 	}
 	b := briefs[0]
 	if strings.Join(b.Verify, ",") != "T-a,T-b" || !strings.Contains(b.Line, "fixed in T-a (aaaaaaa), T-b (bbbbbbb)") ||
 		!strings.Contains(b.Line, "Lead's note: check #2 too") || !strings.HasPrefix(b.Line, "[obor obor] ") {
 		t.Errorf("the verify brief: %+v", b)
 	}
-	if got := ReviewFixPending(r.p.root, "RV-5"); len(got) != 0 {
-		t.Errorf("after the verify: pending %q, want none", got)
+	if got := r.pending(); got != "T-a,T-b" {
+		t.Errorf("briefed, delivered, the reviewer not finished: pending %q, want T-a,T-b", got)
+	}
+	r.finish()
+	if got := r.pending(); got != "" {
+		t.Errorf("after the reviewer finished the verify: pending %q, want none", got)
+	}
+	r.fixPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+		t.Errorf("after the verify is done: %d verify briefs, want still one", n)
 	}
 }
 
@@ -123,7 +142,7 @@ func TestReviewFixTaskDropped(t *testing.T) {
 	if n := len(verifyBriefs(t, r.p.root)); n != 0 {
 		t.Fatalf("T-a not merged yet: %d verify briefs, want none", n)
 	}
-	if got := strings.Join(ReviewFixPending(r.p.root, "RV-5"), ","); got != "T-a" {
+	if got := r.pending(); got != "T-a" {
 		t.Errorf("pending %q, want T-a (T-b dropped)", got)
 	}
 	r.merged("T-a")
@@ -141,19 +160,23 @@ func TestReviewFixClosedReview(t *testing.T) {
 	r.merged("T-a")
 	r.merged("T-b")
 	r.fixPass()
-	if n := len(verifyBriefs(t, r.p.root)); n != 0 || len(r.git.marked) != 0 {
-		t.Errorf("a closed review's round: %d verify briefs, %d marks; want none", n, len(r.git.marked))
+	if n := len(verifyBriefs(t, r.p.root)); n != 0 || len(r.git.marked) != 0 || r.facts(event.StepReviewVerifyRequest) != 0 {
+		t.Errorf("a closed review's round: %d verify briefs, %d marks, %d requests; want none", n, len(r.git.marked),
+			r.facts(event.StepReviewVerifyRequest))
 	}
 }
 
-// A verify that fails (git refusing the mark): the lead gets one line, the round waits for a verify by hand.
+// A verify that fails (the reviewer's worktree not moved: local changes): the lead gets one line, the ref is not
+// moved, the round waits for a verify by hand (no second request on later passes or after a restart).
 func TestReviewFixVerifyFails(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
-	r.git.markErr = errors.New("disk full")
+	r.git.detachErr = errors.New("checkout: your local changes would be overwritten")
 	r.merged("T-a")
 	r.merged("T-b")
 	r.fixPass()
+	r.fixPass()
+	r.reload()
 	r.fixPass()
 	var lines []string
 	for _, l := range r.leadLines() {
@@ -161,10 +184,14 @@ func TestReviewFixVerifyFails(t *testing.T) {
 			lines = append(lines, l)
 		}
 	}
-	if len(lines) != 1 || !strings.Contains(lines[0], "RV-5 fix verify of T-a,T-b failed: disk full") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "RV-5 fix verify of T-a,T-b failed: checkout: your local changes") {
 		t.Fatalf("the lead's failure lines %q, want one", lines)
 	}
-	if got := strings.Join(ReviewFixPending(r.p.root, "RV-5"), ","); got != "T-a,T-b" {
+	if n := r.facts(event.StepReviewVerifyRequest); n != 1 || len(r.git.marked) != 0 || len(verifyBriefs(t, r.p.root)) != 0 {
+		t.Errorf("%d requests, %d marks, %d briefs; want one request, nothing marked or briefed", n, len(r.git.marked),
+			len(verifyBriefs(t, r.p.root)))
+	}
+	if got := r.pending(); got != "T-a,T-b" {
 		t.Errorf("pending %q, want T-a,T-b (not verified)", got)
 	}
 }
@@ -189,8 +216,8 @@ func TestReviewFixRefused(t *testing.T) {
 	if _, err := r.fix("f4", ""); err == nil {
 		t.Error("no task: accepted")
 	}
-	if n := r.facts("review.fix"); n != 0 || r.p.folded.fix != nil {
-		t.Errorf("refused fixes recorded %d facts (round %+v)", n, r.p.folded.fix)
+	if n := r.facts("review.fix"); n != 0 || r.p.folded.rv.fix != nil {
+		t.Errorf("refused fixes recorded %d facts (round %+v)", n, r.p.folded.rv.fix)
 	}
 	reply, err := r.fix("f5", "", "T-a")
 	if err != nil {

@@ -3,7 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"obor/internal/app/event"
@@ -16,18 +15,18 @@ import (
 // A review's fix round (T-850; skills/lead/review-brief.md §3–4): `obor review fix <T-a,T-b> [--note "<text>"]` (the
 // lead or the owner) links fix tasks to the open review, fact review.fix{id, tasks, note, by} on the task key review; a
 // second call adds tasks (a fix fact of another review starts a new round). Once every linked task not verified yet
-// merged, a merge-loop pass runs what obor review verify runs (verifyText: the head marked, the same reviewer briefed
-// with review-brief.md §4's text): the brief's fact names the tasks it verifies (Message.Verify), and its fold marks
-// them verified, so a replay never verifies them twice. A linked task dropped or rejected before its merge: the lead
-// gets one line (its fact's Message.FixDrop marks it told) and the verify waits for the rest. A verify that fails for
-// another reason than a publish running or a verify pending gets the lead one line (Message.FixFail: the round's
-// seq) and the round waits for a verify by hand or another obor review fix. A round whose review is closed is not run.
-// obor review close refuses while a linked task is neither verified nor dropped (ReviewFixPending), --force closes
-// anyway.
+// merged, a merge-loop pass requests a verify of them (fact review.verify.request{round: the round's seq}; T-856:
+// reviewverify.go admits it once the reviewer is idle and briefs it with review-brief.md §4's text), unless a verify of
+// the review is requested or briefed already: one at a time. The tasks are verified once the reviewer finished that
+// verify's brief; one superseded or failed leaves them pending, and the next pass requests again (a failed one: the
+// round waits for a verify by hand or another obor review fix, the lead told once). A linked task dropped or rejected
+// before its merge: the lead gets one line (its fact's Message.FixDrop marks it told) and the verify waits for the
+// rest. A round whose review is closed is not run. obor review close refuses while a linked task is neither verified
+// nor dropped (ReviewCycle.Pending), --force closes anyway.
 
 // fixRound is the open review's fix round: the review it fixes, its last fix fact's seq, the linked tasks in order,
-// the lead's notes, the tasks a verify brief named and those whose drop the lead was told, and the seq of the round
-// whose auto verify failed (0: none).
+// the lead's notes, the tasks a done verify verified and those whose drop the lead was told, and the seq of the round
+// whose verify failed (0: none). reviewLog folds it.
 type fixRound struct {
 	id       string
 	seq      int64
@@ -49,67 +48,22 @@ func (f *fixRound) pending() []string {
 	return out
 }
 
-// foldFix folds r into the fix round *f: a fix fact links its tasks (another review's starts a new round), a verify
-// brief marks its tasks verified, a drop line marks its tasks told, a failure line the round failed. Serve's fold and
-// obor review close's log read (ReviewFixPending) both use it.
-func foldFix(f **fixRound, r event.Record) {
-	if r.Kind != event.KindFact {
-		return
+// link folds fix fact seq of d into the round f: its tasks linked, its note kept; a fact of another review (or none
+// before) starts a new round.
+func (f *fixRound) link(seq int64, d ReviewData) *fixRound {
+	if f == nil || f.id != d.ID {
+		f = &fixRound{id: d.ID, verified: map[string]bool{}, dropped: map[string]bool{}}
 	}
-	switch {
-	case r.Task == event.ReviewTask && r.Step == event.StepReviewFix:
-		var d ReviewData
-		if json.Unmarshal(r.Data, &d) != nil {
-			return
-		}
-		if *f == nil || (*f).id != d.ID {
-			*f = &fixRound{id: d.ID, verified: map[string]bool{}, dropped: map[string]bool{}}
-		}
-		x := *f
-		x.seq = r.Seq
-		for _, t := range d.Tasks {
-			if !slices.Contains(x.tasks, t) {
-				x.tasks = append(x.tasks, t)
-			}
-		}
-		if n := strings.TrimSpace(d.Note); n != "" {
-			x.notes = append(x.notes, n)
-		}
-	case r.Task == event.MsgTask && (r.Step == event.StepBriefed || r.Step == event.StepMessage) && *f != nil:
-		var m event.Message
-		if json.Unmarshal(r.Data, &m) != nil {
-			return
-		}
-		x := *f
-		if r.Step == event.StepBriefed {
-			for _, t := range m.Verify {
-				x.verified[t] = true
-			}
-		}
-		for _, t := range m.FixDrop {
-			x.dropped[t] = true
-		}
-		if m.FixFail != 0 && m.FixFail == x.seq {
-			x.failed = m.FixFail
+	f.seq = seq
+	for _, t := range d.Tasks {
+		if !slices.Contains(f.tasks, t) {
+			f.tasks = append(f.tasks, t)
 		}
 	}
-}
-
-// ReviewFixPending is the open review id's linked fix tasks neither verified nor dropped (obor review close's refusal),
-// read from the project's event log; none when the log is unreadable or has no fix round of id.
-func ReviewFixPending(root, id string) []string {
-	recs, err := event.ReadLog(root)
-	if err != nil {
-		return nil
+	if n := strings.TrimSpace(d.Note); n != "" {
+		f.notes = append(f.notes, n)
 	}
-	var f *fixRound
-	for _, r := range recs {
-		foldFix(&f, r)
-	}
-	if f == nil || f.id != id {
-		return nil
-	}
-	return f.pending()
+	return f
 }
 
 // fixCall answers the socket's review_fix request (the lead or the owner): Call.After the fix tasks linked to the
@@ -167,7 +121,7 @@ func (a *App) fixCall(c wire.Call) (string, error) {
 	}
 	a.mu.Lock()
 	var linked []string
-	if f := p.folded.fix; f != nil && f.id == open.ID {
+	if f := p.folded.rv.fix; f != nil && f.id == open.ID {
 		linked = slices.Clone(f.tasks)
 	}
 	a.mu.Unlock()
@@ -185,12 +139,12 @@ func (a *App) fixCall(c wire.Call) (string, error) {
 	return d.Reply, nil
 }
 
-// fixPass runs p's fix round: a linked task ended unmerged gets the lead's line once; every pending task merged, the
-// verify runs (verifyText, briefed as obor review verify briefs) unless the round's review is closed, a publish runs
-// or a verify is pending (the next pass tries again). A failed verify gets the lead's line once.
+// fixPass runs p's fix round: a linked task ended unmerged gets the lead's line once; every pending task merged, it
+// requests their verify (reviewverify.go admits it) unless the round's review is closed, its verify failed, or a
+// verify of the review is requested or briefed (the next pass looks again).
 func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
-	f := p.folded.fix
+	f := p.folded.rv.fix
 	run := f != nil && f.failed != f.seq && p.merging && p.out.lead() != "" && fx.Review != nil
 	var pending, ended, waiting []string
 	var seq int64
@@ -238,25 +192,9 @@ func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 	if len(pending) == 0 || len(waiting) > 0 {
 		return
 	}
-	a.mu.Lock()
-	busy := p.publishing() || a.verifyPendingLocked(p, s.Agent)
-	if !busy {
-		p.admits++ // admitted (roleworktree.go): no publish starts until the brief is recorded
+	// One verify at a time (errVerifyPending): the round's tasks wait for it to be done, superseded or failed.
+	d := ReviewData{ID: id, Tasks: pending, Note: note, By: "obor", Round: seq}
+	if _, err := a.requestVerify(p, d, true); err != nil && !errors.Is(err, errVerifyPending) {
+		a.logf("review fix of %s: %v", p.name, err)
 	}
-	a.mu.Unlock()
-	if busy {
-		return
-	}
-	defer a.unadmit(p)
-	vctx, cancel := context.WithTimeout(ctx, verifyGitWait)
-	defer cancel()
-	_, err = a.briefVerify(vctx, p, fx.Review, s, pending, nil, note, "obor", "")
-	if err == nil || cutByServe(ctx, err) {
-		return
-	}
-	a.logf("review fix of %s: %v", p.name, err)
-	m := event.Message{To: p.out.lead(), From: "obor", FixFail: seq,
-		Line: "[obor] " + id + " fix verify of " + strings.Join(pending, ",") + " failed: " + err.Error() +
-			" (obor review verify by hand)"}
-	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m)
 }

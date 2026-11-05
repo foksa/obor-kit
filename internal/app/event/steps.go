@@ -115,6 +115,10 @@ const (
 	// ReviewData, Tasks; T-822: obor review close lists the cycle's Covered set from here, so a task merged during the
 	// review counts as reviewed). A new verify carries its tasks in its brief's fact (Message.Verify): read, never written.
 	StepReviewVerify = "review.verify"
+	// StepReviewVerifyRequest is a verify requested (T-856: obor review verify, or a fix round once its tasks merged;
+	// data: ReviewData, ID the review, Tasks, Findings, Note, By, Round the fix round's seq, 0 by hand): its seq keys the
+	// verify record, which a merge-loop pass admits once the reviewer is idle (reviewverify.go).
+	StepReviewVerifyRequest = "review.verify.request"
 )
 
 const (
