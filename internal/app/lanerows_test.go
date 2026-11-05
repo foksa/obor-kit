@@ -100,6 +100,60 @@ func TestLaneRowsProjectTheLog(t *testing.T) {
 	table("dropped: the row clears")
 }
 
+// T-894: the row's blocked is serve's own answer whether the task's worker has a question in force: the fold the Stop
+// hook reads instead of folding the log itself. A needs-you{asks} sets it; ordinary worker activity (resume, a stall)
+// keeps it; an answer ends it, but a drive's answer does not (T-761), and neither a dispatch nor a sendback does; an
+// unblocked does (T-775).
+func TestLaneRowsBlockedFollowsTheFold(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
+	h.connect()
+	a, p := h.a, h.proj()
+	add := func(task, step, kind string, d any) {
+		t.Helper()
+		h.now = h.now.Add(time.Minute)
+		raw, _ := json.Marshal(d)
+		r, err := p.log.Append(event.Record{Task: task, Attempt: 1, Step: step, Kind: kind, Data: raw}, h.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.mu.Lock()
+		p.foldRecord(r)
+		a.mu.Unlock()
+	}
+	blocked := func(when string, want bool) {
+		t.Helper()
+		row, ok, err := store.ReadLaneAt(h.root, "L-01")
+		if err != nil || !ok || row.Blocked != want {
+			t.Errorf("%s: row %+v, %v, %v; want blocked %v", when, row, ok, err, want)
+		}
+	}
+	add("T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+		Agent: "pj-l-01", Branch: "task/T-1", Target: "b1"})
+	add("T-1", event.StepPrepare, event.KindResult, prepareOut{Base: "b1", Head: "h1"})
+	blocked("no question", false)
+	add("T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: reasonAsks + "may I?"})
+	blocked("a question in force", true)
+	add("T-1", event.StepResumed, event.KindFact, event.FactData{})
+	add("T-1", event.StepStalled, event.KindFact, event.FactData{})
+	blocked("ordinary activity", true)
+	add(event.MsgTask, event.StepAnswered, event.KindFact, event.Message{Task: "T-02"})
+	blocked("an answer for another task", true)
+	add(event.MsgTask, event.StepAnswered, event.KindFact, event.Message{Task: "T-1", Driver: true})
+	blocked("a drive's answer", true)
+	add("T-1", event.StepSendback, event.KindFact, noteData{Note: "fix it"})
+	add("T-1", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+		Agent: "pj-l-01", Branch: "task/T-1", Target: "b1"})
+	blocked("a sendback and a dispatch", true)
+	add(event.MsgTask, event.StepAnswered, event.KindFact, event.Message{Task: "T-1"})
+	blocked("the owner's answer", false)
+	add("T-1", event.StepNeedsYou, event.KindFact, event.FactData{Lane: "L-01", Reason: reasonAsks + "and now?"})
+	blocked("a fresh question", true)
+	add("T-1", event.StepUnblocked, event.KindFact, event.FactData{})
+	blocked("an unblocked", false)
+}
+
 // T-439: obor mcp's task_done names only the caller's lane: serve resolves it to its row's task; a lane with no row
 // is refused, nothing recorded.
 func TestTaskDoneByLane(t *testing.T) {

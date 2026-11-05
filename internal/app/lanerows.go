@@ -96,7 +96,9 @@ func (p *proj) dropLaneRows(cfg *config.Config) {
 }
 
 // laneTable is p's rows by lane, finished set: 0 while the task awaits its task_done, else when its last submission
-// was recorded (the dispatch's time when it ended without one: a merge outside, a reject).
+// was recorded (the dispatch's time when it ended without one: a merge outside, a reject). Blocked is the fold's
+// question in force (asks): the worker's Blocked: report, ended by the facts this package's fold ends it on (T-894: the
+// Stop hook reads it instead of folding the log itself).
 func (p *proj) laneTable() []store.LaneRow {
 	out := make([]store.LaneRow, 0, len(p.folded.lr.rows))
 	for _, row := range p.folded.lr.rows {
@@ -106,6 +108,7 @@ func (p *proj) laneTable() []store.LaneRow {
 				row.Finished = max(row.DispatchedAt, 1)
 			}
 		}
+		row.Blocked = p.asks(row.Task)
 		out = append(out, row)
 	}
 	slices.SortFunc(out, func(a, b store.LaneRow) int {

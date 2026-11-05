@@ -216,24 +216,53 @@ func TestStopWorkerNoTaskDoneBlocks(t *testing.T) {
 	}
 }
 
-// T-558: a Blocked: task_done records an asks needs-you fact, not a submitted lane timestamp; resuming keeps the
-// question open, while an answer for this task ends it.
-func TestStopWorkerAfterBlockedReportAllows(t *testing.T) {
+// T-894 (replaces T-558's and T-560's own fold of the log): the Stop hook reads the lane row's blocked, serve's
+// fold's answer (lanerows_test.go), so with serve down the row still says whether a question is in force. A question
+// in force allows the stop; the fold's ended question blocks again; a drive's answer, a dispatch and a sendback leave
+// the question in force (the SQL this replaces ended it on each), and an unblocked ends it.
+func TestStopWorkerBlockedRowRows(t *testing.T) {
 	t.Parallel()
-	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
-	f.Config()
-	f.state(ago(100))
-	f.Dispatched("L-01")
-	f.stop(t, "-", o1, "").block("precondition: no report yet")
-	f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: need help"})
-	f.stop(t, "-", o1, "").allow("Blocked: report recorded")
-	f.appendFact(t, "T-01", "resumed", map[string]string{})
-	f.stop(t, "-", o1, "").allow("resume keeps the question open")
-	f.appendFact(t, "msg", "answered", map[string]string{"task": "T-99"})
-	f.stop(t, "-", o1, "").allow("answer for another task leaves the question open")
-	f.appendFact(t, "msg", "answered", map[string]string{"task": "T-01"})
-	f.stop(t, "-", o1, "").block("an answered question leaves the task awaiting task_done")
+	type fact struct {
+		task, step, kind string
+		data             any
+	}
+	for _, c := range []struct {
+		name    string
+		blocked bool // the row's blocked: serve's fold's answer
+		events  []fact
+		block   bool
+	}{
+		{"a question in force", true, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}}}, false},
+		{"the question answered", false, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}},
+			{"msg", "answered", "fact", map[string]any{"task": "T-01"}}}, true},
+		{"a drive's answer answers no question", true, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}},
+			{"msg", "answered", "fact", map[string]any{"task": "T-01", "driver": true}}}, false},
+		{"a dispatch leaves it in force", true, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}},
+			{"T-01", "dispatch", "fact", nil}}, false},
+		{"a sendback leaves it in force", true, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}},
+			{"T-01", "sendback", "fact", nil}}, false},
+		{"an unblocked ends it", false, []fact{{"T-01", "needs-you", "fact", map[string]string{"reason": "asks: need help"}},
+			{"T-01", "unblocked", "fact", nil}}, true},
+		{"serve down: the row set", true, nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f := newHfx(t)
+			o1 := f.Lane("L-01", "task/T-01")
+			f.Config()
+			row := map[string]any{"task": "T-01", "branch": "task/T-01", "agent": "pj-l1", "base": "main",
+				"dispatched_at": ago(100), "blocked": c.blocked}
+			f.State("L-01", row)
+			for _, e := range c.events {
+				f.appendEvent(t, e.task, e.step, e.kind, e.data)
+			}
+			if got := f.stop(t, "-", o1, ""); c.block {
+				got.block(c.name).has("reason", "no task_done for T-01 yet")
+			} else {
+				got.allow(c.name)
+			}
+		})
+	}
 }
 
 // appendEvent writes one event of task (attempt 1) with data to the project's event log, as serve records it: the
@@ -260,52 +289,6 @@ func (f hfx) appendEvent(t *testing.T, task, step, kind string, data any) {
 func (f hfx) appendFact(t *testing.T, task, step string, data any) {
 	t.Helper()
 	f.appendEvent(t, task, step, "fact", data)
-}
-
-// blockedReport is the fixture a later attempt inherits: lane L-01's task dispatched, its Blocked: report recorded (the
-// needs-you{asks} fact serve's task_done records).
-func blockedReport(t *testing.T) (hfx, string) {
-	t.Helper()
-	f := newHfx(t)
-	o1 := f.Lane("L-01", "task/T-01")
-	f.Config()
-	f.state(ago(100))
-	f.Dispatched("L-01")
-	f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: need help"})
-	return f, o1
-}
-
-// T-560 (RV-58 #1): a Blocked: report lives one attempt. A drop and re-dispatch, or a submission and sendback, each
-// end the report the previous attempt made (the drop, the dispatch, the lane.prepare result, the submission and the
-// sendback), so the next attempt blocks until it reports again; a fresh report it makes allows the stop.
-func TestStopWorkerBlockedReportRows(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name     string
-		boundary func(t *testing.T, f hfx)
-	}{
-		{"drop and re-dispatch", func(t *testing.T, f hfx) {
-			f.appendFact(t, "T-01", "dropped", map[string]string{"reason": "gone"})
-			f.Dispatched("L-01")
-			f.appendEvent(t, "T-01", "lane.prepare", "result", map[string]string{"base": "main"})
-		}},
-		{"submission and sendback", func(t *testing.T, f hfx) {
-			f.Submit("L-01")
-			f.appendFact(t, "T-01", "sendback", map[string]string{"note": "fix it"})
-			f.state(ago(100)) // the sendback's attempt: the lane awaits its task_done again
-		}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			f, o1 := blockedReport(t)
-			f.stop(t, "-", o1, "").allow("precondition: the attempt's own Blocked: report")
-			c.boundary(t, f)
-			f.stop(t, "-", o1, "").block("the "+c.name+" attempt has no report of its own").
-				has("reason", "no task_done for T-01 yet")
-			f.appendFact(t, "T-01", "needs-you", map[string]string{"reason": "asks: may I edit internal/x.go?"})
-			f.stop(t, "-", o1, "").allow("the new attempt's own Blocked: report")
-		})
-	}
 }
 
 // T-437, T-439: no task to finish → allow: no lane row (not a lane serve dispatched), or a row whose task_done is in
