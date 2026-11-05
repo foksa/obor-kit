@@ -286,10 +286,10 @@ allows silently.
      its slot; an accident guard, not a security boundary);
      `pkill`/`killall` by pattern (`pkill -f`, `pkill <name>`, `killall`); `git commit` with `-a`/`--all`/`-am` when cwd
      is the main checkout; an agent CLI run headless — `codex exec`, `claude -p`/`--print`, `opencode run` — for every
-     role, the lead included (T-470, owner 2026-10-27: agents run in herdr panes); a load run of tests — `go test`
-     with `-count` > 1 or `-race`, a `*.test` binary with `-test.count` > 1 or `-test.race`, two or more test commands
-     at once (`&`, `xargs -P`, `parallel`) — for every role (T-543, owner 2026-10-29: one plain `go test <pkgs>` run;
-     the gate and nightly run the rest).
+     role, the lead included (T-470, owner 2026-10-27: agents run in herdr panes); a command the project's
+     `guards.deny_commands` matches (regex on the resolved command; `alone`: also two matching at once via `&`,
+     `xargs -P`, `parallel`, background units) — for every role (T-905, owner 2026-11-05; obor-kit's config carries
+     T-543's Go load-run rule: `go test -count>1`/`-race`, `*.test -test.count>1`/`-test.race`, two test commands at once).
    - worker (Bash): git writes (`commit`, `merge`, `rebase`, `reset --hard`, `checkout`/`switch` to another branch,
      `stash`, `push`); redirections / `sed -i` / `mv` / `cp` / `tee` whose target is a protected file.
    - reviewer, deep dive (Bash, T-853): `checkout`/`switch` to a commit only in their own role worktree; no branch, no
