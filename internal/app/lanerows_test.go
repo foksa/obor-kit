@@ -16,11 +16,11 @@ import (
 // T-439: serve's lanes table is the projection of its fold: after a dispatch (its lane.prepare), a submission, a
 // merge, a re-dispatch of the lane and a drop the table equals the fold's rows and what the log says, and a replay
 // writes the same table. T-721: the row carries its dispatch's type reference; a dispatch recorded before T-721 has
-// none (its row's type is empty, a reader takes the config's lane type), the next dispatch's row has its own.
+// none, the next dispatch's row has its own.
 func TestLaneRowsProjectTheLog(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","roles":{"integrator":""}}`)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj","lanes":2,"roles":{"integrator":""}}`)
 	h.connect()
 	a, p := h.a, h.proj()
 	add := func(task string, attempt int, step, kind string, d any) event.Record {

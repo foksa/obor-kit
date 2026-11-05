@@ -325,8 +325,8 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 
 // dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
 // kind): typ, the launch's (port.Launch.Type and Effort, its effort the launch's own; no CLI flag since T-785), else
-// the type a lane agent's row's dispatch runs with its effort (store.LaneTypeRef: a row from before T-721 records
-// none, the lane's configured type); neither: the configured type and effort stay.
+// the type a lane agent's row's dispatch runs with its effort (T-865: a configured lane's row always names its
+// dispatch's type, so there is no fallback to a lane type); neither: the configured type and effort stay.
 func (l *Launcher) dispatchType(t *target, typ string) {
 	effort := ""
 	if typ == "" && t.info.Lane != "" && l.Cfg != nil {

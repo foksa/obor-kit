@@ -43,6 +43,7 @@ func (a *App) load(root string) (*proj, error) {
 	for _, r := range recs {
 		p.foldRecord(r)
 	}
+	p.dropLaneRows(cfg) // the rows of lanes the config no longer names (T-865)
 	p.folded.lr.live = true
 	if err := p.syncLanes(); err != nil {
 		a.logf("project %s: lanes table: %v", name, err)

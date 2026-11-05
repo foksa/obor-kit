@@ -12,7 +12,6 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/event"
 	"obor/internal/config"
-	"obor/internal/store"
 )
 
 // Setup is the project's setup as the web page shows it (T-750, T-765): what steers the work — each difficulty
@@ -91,8 +90,7 @@ type SetupRole struct {
 // DispatchCount is the dispatches that placed a task on a lane, by the difficulty level they chose by and the type
 // reference they placed: Recent are those of the last 7 days, All those of every record. Level is OverrideLevel for a
 // dispatch with --model and no level ("" is neither), Type "" a dispatch the store names no model for: a record from
-// before T-721 on a lane the config has, or one on a lane gone from it that the store's own records leave unnamed
-// (T-752; the page labels it "unknown").
+// before T-721 (the page labels it "unknown"; T-752, T-865).
 type DispatchCount struct {
 	Level  string `json:"level"`
 	Type   string `json:"type"`
@@ -167,7 +165,7 @@ func (d Detail) Setup() (Setup, error) {
 	s.Paused = d.Project.Paused
 	db, close := d.open()
 	defer close()
-	s.Distribution = distribution(db, cfg, time.Now())
+	s.Distribution = distribution(db, time.Now())
 	return s, nil
 }
 
@@ -211,17 +209,11 @@ func setupType(cfg *config.Config, ref string) (SetupType, bool) {
 // distribution is db's dispatch records counted by level and chosen model, for the last 7 days and for every record.
 // Only a dispatch that placed a task on a lane counts: a waiting dispatch places nothing, and the dispatch that
 // places it later counts once; a redo is a dispatch of its own. A record with no type (a dispatch from before T-721)
-// on a lane the config no longer names takes the type the store's own records of that lane name (laneTypes); on a
-// configured lane (every lane is pooled, T-765), or with none named, the type is unknown (T-752).
-func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount {
+// is unknown (T-752, T-865: a lane row or a later record of a lane gone from the config names nothing for it).
+func distribution(db *sql.DB, now time.Time) []DispatchCount {
 	if db == nil {
 		return []DispatchCount{}
 	}
-	lanes := map[string]string{}
-	for _, l := range cfg.Lanes() {
-		lanes[l.Name] = ""
-	}
-	gone := laneTypes(db, lanes)
 	rows, err := db.Query(`SELECT ts, data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
 	if err != nil {
 		return []DispatchCount{}
@@ -249,11 +241,6 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 		if level == "" && len(d.Types) > 0 {
 			level = OverrideLevel
 		}
-		if typ == "" {
-			if _, ok := lanes[d.Lane]; !ok { // its lane is gone from the config: the type its own records name, else unknown ("")
-				typ = gone[d.Lane]
-			}
-		}
 		c := cell{level, typ}
 		all[c]++
 		if at, err := time.Parse(time.RFC3339, ts); err == nil && !at.Before(cutoff) {
@@ -270,43 +257,6 @@ func distribution(db *sql.DB, cfg *config.Config, now time.Time) []DispatchCount
 		}
 		return strings.Compare(a.Type, b.Type)
 	})
-	return out
-}
-
-// laneTypes is the type each lane the config no longer names ran, from the store's own records of that lane (T-752):
-// its lane row, which the lane's setup wrote (a row from before T-721 records none), and its dispatch records that
-// named one (after T-721). A lane none of them names a type for is missing from the map: its dispatches are unknown,
-// never guessed from the lane's name.
-func laneTypes(db *sql.DB, configured map[string]string) map[string]string {
-	out := map[string]string{}
-	if rows, err := store.ReadLanes(db); err == nil { // a store without a lanes table: the dispatch records answer
-		for _, r := range rows {
-			if _, ok := configured[r.Lane]; !ok && r.Type != "" {
-				out[r.Lane] = r.Type
-			}
-		}
-	}
-	rows, err := db.Query(`SELECT data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
-	if err != nil {
-		return out
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var data []byte
-		if rows.Scan(&data) != nil {
-			continue
-		}
-		var d struct {
-			Lane string `json:"lane"`
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(data, &d) != nil || d.Type == "" {
-			continue
-		}
-		if _, ok := configured[d.Lane]; !ok {
-			out[d.Lane] = d.Type // the lane's newest record answers, as its row does
-		}
-	}
 	return out
 }
 

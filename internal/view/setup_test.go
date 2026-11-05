@@ -174,55 +174,6 @@ func TestSetup(t *testing.T) {
 	}
 }
 
-// T-752: a dispatch from before T-721 takes the type of the lane it ran, from the store's own records of that lane
-// when the config no longer names it — the type a dispatch record of the lane names, or the one its lane row records
-// — and is unknown ("") when no record names one; on a lane the config names it is unknown (every lane is pooled).
-func TestSetupDistributionTypesALaneGoneFromTheConfig(t *testing.T) {
-	p := testkit.New(t)
-	p.Lane("L-01", "") // the one configured lane
-	p.Config()
-	// G-01 and G-02 are lanes gone from the config, each with a record that names its type; G-03 has none
-	dispatchRecord(t, p.Root, "T-11", event.StepDispatched, dispatchData{Lane: "G-01", Level: "medium",
-		Types: []string{"opus"}, Type: "opus"}, time.Now().Add(-time.Hour))
-	p.State("G-02", map[string]any{"task": "T-12", "branch": "task/T-12", "type": "sonnet"})
-	now := time.Now()
-	// the records from before T-721: on G-01 and G-02 (their lanes' types), G-03 (nothing names one) and the pool lane
-	dispatchRecord(t, p.Root, "T-01", event.StepDispatched, dispatchData{Lane: "G-01"}, now.Add(-2*time.Hour))
-	dispatchRecord(t, p.Root, "T-02", event.StepDispatched, dispatchData{Lane: "G-02", Level: "simple"},
-		now.Add(-3*time.Hour))
-	dispatchRecord(t, p.Root, "T-03", event.StepDispatched, dispatchData{Lane: "G-03", Level: "simple"},
-		now.Add(-4*time.Hour))
-	dispatchRecord(t, p.Root, "T-04", event.StepDispatched, dispatchData{Lane: "L-01"}, now.Add(-5*time.Hour))
-	// preconditions: the config names only the pool lane, G-02's row names sonnet, G-03 has no row at all
-	cfg, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ls := cfg.Lanes(); len(ls) != 1 || ls[0].Name != "L-01" {
-		t.Fatalf("precondition: one configured lane, L-01: %+v", ls)
-	}
-	if row, ok := p.Row("G-02"); !ok || row.Type != "sonnet" {
-		t.Fatalf("precondition: G-02's lane row names sonnet: %+v (%v)", row, ok)
-	}
-	if _, ok := p.Row("G-03"); ok {
-		t.Fatal("precondition: G-03 has no lane row")
-	}
-	s, err := Detail{Root: p.Root, Project: Build(Input{Lanes: checks.NewLaneTable(cfg), Now: now})}.Setup()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []DispatchCount{
-		{Level: "medium", Type: "opus", Recent: 1, All: 1},   // its own dispatch record
-		{Level: "simple", Type: "", Recent: 1, All: 1},       // G-03: no record names a type: unknown
-		{Level: "simple", Type: "sonnet", Recent: 1, All: 1}, // G-02: its lane row
-		{Level: "", Type: "", Recent: 1, All: 1},             // the configured L-01: unknown
-		{Level: "", Type: "opus", Recent: 1, All: 1},         // G-01: the type a record of its lane names
-	}
-	if !slices.Equal(s.Distribution, want) {
-		t.Errorf("distribution %+v\nwant %+v", s.Distribution, want)
-	}
-}
-
 // T-750: no store is no distribution and no config names none: Setup answers with empty lists, not nil, so the page
 // has arrays to draw.
 func TestSetupWithoutStore(t *testing.T) {

@@ -86,8 +86,8 @@ func ltCommit(t *testing.T, dir string) {
 }
 
 // TestLaneStates (T-470): the lane table's states and each lane's type (T-721, T-765: a working lane's type is the
-// model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a row with none, recorded before T-721, has
-// none, nor has a free lane whatever its row says: a lane's model is its task's only while it holds it).
+// model its row's dispatch chose — a ref's model: sonnet:low is sonnet; a lane with no row has none, nor has a free
+// lane whatever its row says: a lane's model is its task's only while it holds it).
 func TestLaneStates(t *testing.T) {
 	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01", "L-02": "T-02", "L-03": "T-03",
 		"L-04": "T-04", "L-05": "T-05", "L-06": "T-06"})
@@ -111,7 +111,7 @@ func TestLaneStates(t *testing.T) {
 	}
 	want := map[string]laneRow{
 		"L-01": {"free", "T-01", "", ""},
-		"L-02": {"working", "T-02", "", ""}, // a row from before T-721: no type
+		"L-02": {"working", "T-02", "", ""}, // no row: no type
 		"L-03": {"free", "T-03", "", ""},
 		"L-04": {"working", "T-04", "sonnet", ""},
 		"L-05": {"working", "T-05", "sonnet", ""},
