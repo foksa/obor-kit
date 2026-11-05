@@ -285,8 +285,8 @@ func (s *Socket) Snapshot(ctx context.Context) (Snapshot, error) {
 				ID    string  `json:"workspace_id"`
 				Label *string `json:"label"`
 			} `json:"workspaces"`
-			Panes  []wire `json:"panes"`
-			Agents []wire `json:"agents"`
+			Panes  []Wire `json:"panes"`
+			Agents []Wire `json:"agents"`
 		} `json:"snapshot"`
 	}
 	if err := s.call(ctx, 0, &r, "session.snapshot", nil); err != nil {
@@ -314,7 +314,7 @@ func (s *Socket) Snapshot(ctx context.Context) (Snapshot, error) {
 // Agents is agent.list.
 func (s *Socket) Agents(ctx context.Context) ([]port.Pane, error) {
 	var r struct {
-		Agents []wire `json:"agents"`
+		Agents []Wire `json:"agents"`
 	}
 	if err := s.call(ctx, 0, &r, "agent.list", nil); err != nil {
 		return nil, err
@@ -329,7 +329,7 @@ func (s *Socket) Agents(ctx context.Context) ([]port.Pane, error) {
 // agentResult is the answer of agent.get, agent.prompt and agent.start: the agent as herdr sees it after the call.
 func (s *Socket) agentResult(ctx context.Context, timeout time.Duration, method string, params any) (port.Pane, error) {
 	var r struct {
-		Agent *wire `json:"agent"`
+		Agent *Wire `json:"agent"`
 	}
 	if err := s.call(ctx, timeout, &r, method, params); err != nil {
 		return port.Pane{}, err
@@ -348,7 +348,7 @@ func (s *Socket) Agent(ctx context.Context, target string) (port.Pane, error) {
 // Pane is pane.get.
 func (s *Socket) Pane(ctx context.Context, id string) (port.Pane, error) {
 	var r struct {
-		Pane *wire `json:"pane"`
+		Pane *Wire `json:"pane"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.get", map[string]any{"pane_id": id}); err != nil {
 		return port.Pane{}, err
@@ -437,7 +437,7 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...str
 // Panes is pane.list.
 func (s *Socket) Panes(ctx context.Context) ([]port.Pane, error) {
 	var r struct {
-		Panes []wire `json:"panes"`
+		Panes []Wire `json:"panes"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.list", nil); err != nil {
 		return nil, err
@@ -879,7 +879,7 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 		Read   struct {
 			Text string `json:"text"`
 		} `json:"read"`
-		New *wire `json:"pane"`
+		New *Wire `json:"pane"`
 	}
 	if sl.l.Event == "" || json.Unmarshal(sl.l.Data, &d) != nil {
 		return Event{}, nil, false
@@ -895,11 +895,11 @@ func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 			ev.Watch = *sl.watch
 		}
 	case EventCreated, eventUpdated:
-		if d.New == nil || d.New.Pane == "" {
+		if d.New == nil || d.New.ID == "" {
 			return Event{}, nil, false
 		}
 		// No hint for an update: a pane has no agent name, so an equal pane cannot prove the agent unchanged.
-		ev.New, ev.Pane = d.New.pane(), d.New.Pane
+		ev.New, ev.Pane = d.New.pane(), d.New.ID
 	case EventClosed, EventExited, eventDetected, eventMoved, eventSpace, eventRenamed:
 	default:
 		return Event{}, nil, false
@@ -1048,22 +1048,29 @@ type (
 	ProcessInfo = port.ProcessInfo
 )
 
-// wire is herdr's JSON for an agent or a pane (both carry the same agent fields).
-type wire struct {
-	Name    *string `json:"name"`
-	Pane    string  `json:"pane_id"`
-	Tab     string  `json:"tab_id"`
-	Term    string  `json:"terminal_id"`
-	Space   string  `json:"workspace_id"`
-	Label   *string `json:"label"`
-	Status  *string `json:"agent_status"`
-	Cwd     *string `json:"cwd"`
-	Kind    *string `json:"agent"`
-	Session *struct {
-		Kind  string `json:"kind"`
-		Value any    `json:"value"`
-	} `json:"agent_session"`
-	Seq int64 `json:"state_change_seq"`
+// Wire is herdr's JSON for an agent or a pane (both carry the same agent fields): the one struct of that part of the
+// protocol, so herdr's client decodes and herdrtest's fake fills the same fields, and a tag herdr changes changes both
+// (T-890). A null herdr sends for a cleared name, label, cwd, status or agent reads as "".
+type Wire struct {
+	Name         string        `json:"name"` // the agent's herdr name ("" when herdr keeps none)
+	ID           string        `json:"pane_id"`
+	Tab          string        `json:"tab_id"`      // pane layout lists the panes of a tab
+	Terminal     string        `json:"terminal_id"` // "" when the pane has none, kept by a pane move
+	Workspace    string        `json:"workspace_id"`
+	Label        string        `json:"label"`
+	Status       string        `json:"agent_status"`
+	Cwd          string        `json:"cwd"`
+	Kind         string        `json:"agent"`         // the agent kind (claude, codex…); "" for a pane with no agent
+	AgentSession *AgentSession `json:"agent_session"` // nil: herdr reports no session for the agent
+	Seq          int64         `json:"state_change_seq"`
+}
+
+// AgentSession is herdr's agent_session: the agent's session, Kind "id" with the id as Value or "path" with the
+// transcript path; Agent is the kind herdr reports it for.
+type AgentSession struct {
+	Agent string `json:"agent"`
+	Kind  string `json:"kind"`
+	Value any    `json:"value"`
 }
 
 func str(s *string) string {
@@ -1073,11 +1080,11 @@ func str(s *string) string {
 	return *s
 }
 
-func (w wire) session() string {
-	if w.Session == nil {
+func (w Wire) session() string {
+	if w.AgentSession == nil {
 		return ""
 	}
-	switch v := w.Session.Value.(type) {
+	switch v := w.AgentSession.Value.(type) {
 	case string:
 		return v
 	case float64:
@@ -1086,17 +1093,17 @@ func (w wire) session() string {
 	return ""
 }
 
-func (w wire) transcript() string {
-	if w.Session == nil || w.Session.Kind != "path" {
+func (w Wire) transcript() string {
+	if w.AgentSession == nil || w.AgentSession.Kind != "path" {
 		return ""
 	}
 	return w.session()
 }
 
-// pane is a herdr pane as the core's Pane: herdr's pane and agent answers share this wire.
-func (w wire) pane() port.Pane {
-	return port.Pane{ID: w.Pane, Tab: w.Tab, Terminal: w.Term, Workspace: w.Space, Cwd: trimSlash(str(w.Cwd)),
-		Label: str(w.Label), Agent: str(w.Kind), Name: str(w.Name), Status: str(w.Status), Transcript: w.transcript(),
+// pane is a herdr pane as the core's Pane: herdr's pane and agent answers share this Wire.
+func (w Wire) pane() port.Pane {
+	return port.Pane{ID: w.ID, Tab: w.Tab, Terminal: w.Terminal, Workspace: w.Workspace, Cwd: trimSlash(w.Cwd),
+		Label: w.Label, Agent: w.Kind, Name: w.Name, Status: w.Status, Transcript: w.transcript(),
 		Session: w.session(), Seq: w.Seq}
 }
 
