@@ -54,11 +54,13 @@ func openReview(ctx context.Context, cfg *config.Config) (openCycle, error) {
 }
 
 // reviewVerifyCmd is `obor review verify <T-a,…> [--findings 1,3] [--note "…"]`: one request to obor serve
-// (wire.MethodVerify, T-730). Serve, once no publish runs and none can start, reads the integration branch's head,
-// finds each fix task's merge since the previous review, marks the head reviewed (app.ReviewedRef) and briefs the open
-// review's reviewer with review-brief.md §4's text: the fix tasks with their merge shas, the findings to re-run
-// (default: every finding), the verify file. FAIL (exit 1): a usage error, serve down, or serve's refusal (no open
-// review, a task with no merge since the previous review, git refusing, a publish still running).
+// (wire.MethodVerify, T-730), which records the verify's request (T-856). Serve, once the reviewer is idle and no
+// publish runs, reads the integration branch's head, finds each fix task's merge since the previous review, moves the
+// reviewer's worktree there and briefs it with review-brief.md §4's text: the fix tasks with their merge shas, the
+// findings to re-run (default: every finding), the verify file; then marks the head reviewed (app.ReviewedRef). The
+// reviewer working: VERIFY WAITS, and serve briefs it once it is idle. FAIL (exit 1): a usage error, serve down, or
+// serve's refusal (no open review, a verify of it pending, a task with no merge since the previous review, git or
+// the worktree's move failing).
 func reviewVerifyCmd(args []string) int {
 	var tasks, findings []string
 	var note string
@@ -132,11 +134,13 @@ func reviewFixCmd(args []string) int {
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: the open review's files deleted from the
 // main checkout, each accepted finding a line in BACKLOG.md's Open section naming the review, the commit "RV-<n> closed
 // · <reviewed sha> · approved · <summary>" on the integration branch in the main checkout (BACKLOG.md with it), then
-// the reviewer stopped (obor restart --stop). The reviewed sha is app.ReviewedRef: the last verify's head, else the
-// review's. The body lists the cycle's covered tasks and its review start sha (app.ReviewCovered; T-822), so the next
-// review's scope takes the merges it did not cover. Refused before any change: no open review, no reviewed sha, the
-// main checkout not on the integration branch or dirty outside BACKLOG.md and the review's files, or a fix task linked
-// by obor review fix neither verified nor dropped (T-850; --force, the owner's word, closes anyway).
+// the reviewer stopped (obor restart --stop). The reviewed sha, the body and the refusal read serve's log
+// (app.ReadReviewCycle, T-856): the sha is the head the last brief handed the reviewer (its last verify's, else the
+// review start's; app.ReviewedRef for a review an older obor started); the body lists the cycle's covered tasks and
+// its review start sha (T-822), so the next review's scope takes the merges it did not cover. Refused before any
+// change: no open review, no reviewed sha, the main checkout not on the integration branch or dirty outside BACKLOG.md
+// and the review's files, a fix task linked by obor review fix neither verified nor dropped, or a verify requested or
+// briefed and not done (T-850; --force, the owner's word, closes anyway).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string
@@ -184,9 +188,10 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 	if err != nil {
 		return c, "", err
 	}
-	if pending := app.ReviewFixPending(cfg.Root, c.id); len(pending) > 0 && !force {
-		return c, "", fmt.Errorf("%s's fixes are not verified: %s (open, or merged and the verify not run yet; --force"+
-			" closes anyway): nothing changed", c.id, strings.Join(pending, ", "))
+	cycle := app.ReadReviewCycle(cfg.Root, c.id) // T-856: the verify records serve folds, read from its log
+	if len(cycle.Pending) > 0 && !force {
+		return c, "", fmt.Errorf("%s's fixes are not verified: %s (open, merged and the verify not done yet, or a verify"+
+			" requested or briefed; --force closes anyway): nothing changed", c.id, strings.Join(cycle.Pending, ", "))
 	}
 	root := cfg.Root
 	if on, err := gitIn(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.s.Branch {
@@ -225,7 +230,11 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 			return c, "", err
 		}
 	}
-	sha, err := gitIn(ctx, root, "rev-parse", "--short=7", "--verify", "-q", app.ReviewedRef)
+	reviewed := app.ReviewedRef // a review an older obor started: the ref (T-718)
+	if cycle.Reviewed != "" {
+		reviewed = cycle.Reviewed // the head the last brief handed the reviewer (its start's or a verify's)
+	}
+	sha, err := gitIn(ctx, root, "rev-parse", "--short=7", "--verify", "-q", reviewed+"^{commit}")
 	if err != nil {
 		return c, "", fmt.Errorf("no reviewed sha (%s, set by the review's start and obor review verify; by hand: git"+
 			" update-ref %s <sha>): nothing changed", app.ReviewedRef, app.ReviewedRef)
@@ -250,8 +259,8 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 	args := []string{"commit", "-q", "--allow-empty", "-m", subject}
 	// T-822: the body lists the cycle's covered tasks and where its review started, so the next review's scope takes
 	// the merges this cycle did not cover. No start recorded (a review started by an older obor): the old format.
-	if covered, start, ok := app.ReviewCovered(root); ok {
-		args = append(args, "-m", "Covered: "+strings.Join(covered, ", ")+"\nStart: "+start)
+	if cycle.Started {
+		args = append(args, "-m", "Covered: "+strings.Join(cycle.Covered, ", ")+"\nStart: "+cycle.Start)
 	}
 	if _, err := gitIn(ctx, root, args...); err != nil {
 		return c, "", err

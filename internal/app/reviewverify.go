@@ -3,23 +3,283 @@ package app
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// obor review verify (T-716; skills/lead/review-brief.md §4) is a request to serve (T-730): serve reads the
-// integration branch's head, marks it reviewed and moves the reviewer's role worktree to it (T-853) at its admission
-// point (roleworktree.go), so a publish in flight never changes the head under the verify and none starts before its
-// brief is recorded. The CLI only asks.
+// A verify (T-716, T-850; skills/lead/review-brief.md §4) is one record (T-856), keyed by the seq of its request,
+// fact review.verify.request{id, tasks, findings, note, by, round} on the task key review: recorded by obor review
+// verify (the lead or the owner) or by a fix round once its linked tasks merged (reviewfix.go; round: its fix fact's
+// seq). Its lifecycle, folded by reviewLog (serve's fold and obor review close's log read alike: nothing else keeps
+// a verify's state):
+//
+//	requested → admitted → briefed → done | superseded
+//	requested → failed
+//
+//   - admitted: the request's own call, or a merge-loop pass (verifyPass), finds the reviewer idle (roleIdle: no open
+//     brief, its pane idle or not running) and no publish running; admitted (roleworktree.go), no publish starts until
+//     the brief is recorded. Serve reads the integration branch's head and each task's merge in the next review's
+//     scope and moves the reviewer's role worktree to that head (T-853). The idle check, the move and the brief's
+//     record hold proj.vf, which a brief to the reviewer holds too, so no brief comes between them. Admission is live,
+//     no fact: a restart finds the request requested and admits it again (the move is idempotent).
+//   - briefed: fact briefed{verify: the tasks, verify_of: the request's seq, reviewed: the head}, then the head marked
+//     reviewed (ReviewedRef, a mirror of the records: obor review close reads the briefed head from the log, so a
+//     failed mark or a crash before it changes nothing). A brief the log refuses leaves the request requested.
+//   - done: the reviewer finished that brief (the line that ends it: finished, or a stop that is not a usage limit;
+//     Message.Ends). Only now its tasks are verified (the fix round's) and covered (the close commit's Covered list).
+//   - superseded: another brief to the reviewer recorded while the verify's brief is open (its line delivered or
+//     not): its tasks are pending again; a fix round's next pass requests a new verify.
+//   - failed: the admitted verify's git failing (no open review of its id, a task with no merge in the review's
+//     scope, the worktree's move): fact message{verify_fail: the request's seq}, the lead's line on it unless the call
+//     that asked got the error itself. The ref is unchanged and the tasks pending; a fix round's waits for a verify by
+//     hand or another obor review fix.
+//
+// While a verify of the open review is requested or briefed, no second one is requested: obor review verify is
+// refused, a fix round waits (proj.vf orders the check and the request's record). obor review close refuses while one
+// is (ReviewCycle.Pending), --force closes anyway.
 
 // verifyGitWait bounds a verify's git once admitted.
 const verifyGitWait = 30 * time.Second
+
+// verifyState is where a verify record is in its lifecycle (admitted is live: a request being admitted).
+type verifyState int
+
+const (
+	verifyRequested verifyState = iota
+	verifyBriefed
+	verifyDone
+	verifySuperseded
+	verifyFailed
+)
+
+// String is the state as a refusal names it.
+func (s verifyState) String() string {
+	return [...]string{"requested", "briefed", "done", "superseded", "failed"}[s]
+}
+
+// verifyRec is one verify: its request's seq, the review it verifies ("": a verify brief from before T-856, which had
+// no request), its tasks, findings, note and asker, the fix round that requested it (0: by hand), its state and, once
+// briefed, the head its brief handed the reviewer.
+type verifyRec struct {
+	seq      int64
+	id       string
+	tasks    []string
+	findings []string
+	note     string
+	by       string
+	round    int64
+	state    verifyState
+	head     string
+}
+
+// live: requested or briefed, so no second verify of its review is requested.
+func (v *verifyRec) live() bool { return v.state == verifyRequested || v.state == verifyBriefed }
+
+// of: v verifies review id (a verify from before T-856 names none: it counts for any).
+func (v *verifyRec) of(id string) bool { return v.id == "" || v.id == id }
+
+// reviewLog is the review cycle's records folded (T-856, one fold): the last review started (its fact's seq, id and head),
+// the tasks the cycle covered so far (its in-scope tasks, then each done verify's), the head the reviewer was last
+// handed (the start's, then each verify brief's), the fix round (reviewfix.go), the verifies by seq, and per agent the
+// verify whose brief is that agent's open brief.
+type reviewLog struct {
+	start     int64
+	startID   string
+	startHead string
+	covered   []string
+	reviewed  string
+	fix       *fixRound
+	verifies  map[int64]*verifyRec
+	open      map[string]int64
+}
+
+// fold folds r: a review start, an older store's review.verify fact (T-822: its coverage), a fix fact, a verify's
+// request; a brief (a verify's briefed step; any brief supersedes the verify whose brief its agent had open); a line
+// that ends a brief (done), a fix round's drop or failure line, a verify's failure.
+func (l *reviewLog) fold(r event.Record) {
+	if r.Kind != event.KindFact || r.Task != event.ReviewTask && r.Task != event.MsgTask {
+		return
+	}
+	if l.verifies == nil {
+		l.verifies, l.open = map[int64]*verifyRec{}, map[string]int64{}
+	}
+	if r.Task == event.ReviewTask {
+		var d ReviewData
+		if json.Unmarshal(r.Data, &d) != nil {
+			return
+		}
+		switch r.Step {
+		case event.StepReviewStarted:
+			l.start, l.startID, l.startHead, l.reviewed = r.Seq, d.ID, d.Head, d.Head
+			l.covered = slices.Clone(d.Tasks)
+		case event.StepReviewVerify: // an older store's (T-822): its fact is the coverage
+			if l.start != 0 {
+				l.covered = append(l.covered, d.Tasks...)
+			}
+		case event.StepReviewFix:
+			l.fix = l.fix.link(r.Seq, d)
+		case event.StepReviewVerifyRequest:
+			l.verifies[r.Seq] = &verifyRec{seq: r.Seq, id: d.ID, tasks: d.Tasks, findings: d.Findings, note: d.Note,
+				by: d.By, round: d.Round}
+		}
+		return
+	}
+	switch r.Step {
+	case event.StepBriefed:
+		var m event.Message
+		if json.Unmarshal(r.Data, &m) != nil {
+			return
+		}
+		if v := l.verifies[l.open[m.To]]; v != nil && v.state == verifyBriefed { // a newer brief replaced its brief
+			v.state = verifySuperseded
+		}
+		delete(l.open, m.To)
+		v := l.verifies[m.VerifyOf]
+		if m.VerifyOf == 0 && len(m.Verify) > 0 { // a verify brief from before T-856: its own record
+			v = &verifyRec{seq: r.Seq, tasks: m.Verify}
+			l.verifies[r.Seq] = v
+		}
+		if v != nil && v.state == verifyRequested {
+			v.state, v.head = verifyBriefed, m.Reviewed
+			l.open[m.To] = v.seq
+			l.reviewed = cmp.Or(m.Reviewed, l.reviewed)
+		}
+	case event.StepMessage:
+		var m event.Message
+		if json.Unmarshal(r.Data, &m) != nil {
+			return
+		}
+		if m.Ends != "" {
+			l.ended(m.Ends)
+		}
+		if f := l.fix; f != nil {
+			for _, t := range m.FixDrop {
+				f.dropped[t] = true
+			}
+			if m.FixFail != 0 && m.FixFail == f.seq { // an older store's failure line (T-850)
+				f.failed = m.FixFail
+			}
+		}
+		if v := l.verifies[m.VerifyFail]; v != nil && v.state == verifyRequested {
+			v.state = verifyFailed
+			if f := l.fix; f != nil && v.round != 0 && v.round == f.seq {
+				f.failed = v.round
+			}
+		}
+	case event.StepStopped:
+		var d stoppedData
+		if json.Unmarshal(r.Data, &d) == nil && d.Ends != "" {
+			l.ended(d.Ends)
+		}
+	}
+}
+
+// ended folds the end of agent's open brief: the verify it briefed is done, its tasks verified and covered.
+func (l *reviewLog) ended(agent string) {
+	v := l.verifies[l.open[agent]]
+	delete(l.open, agent)
+	if v == nil || v.state != verifyBriefed {
+		return
+	}
+	v.state = verifyDone
+	if l.start != 0 && v.seq > l.start {
+		l.covered = append(l.covered, v.tasks...)
+	}
+	if f := l.fix; f != nil && v.of(f.id) {
+		for _, t := range v.tasks {
+			f.verified[t] = true
+		}
+	}
+}
+
+// sorted is the verifies in log order.
+func (l *reviewLog) sorted() []*verifyRec {
+	return slices.SortedFunc(maps.Values(l.verifies), func(a, b *verifyRec) int { return cmp.Compare(a.seq, b.seq) })
+}
+
+// inFlight is review id's verify requested or briefed (nil: none).
+func (l *reviewLog) inFlight(id string) *verifyRec {
+	for _, v := range l.sorted() {
+		if v.live() && v.of(id) {
+			return v
+		}
+	}
+	return nil
+}
+
+// requested is the oldest verify still requested (nil: none): the next to admit.
+func (l *reviewLog) requested() *verifyRec {
+	for _, v := range l.sorted() {
+		if v.state == verifyRequested {
+			return v
+		}
+	}
+	return nil
+}
+
+// pending is review id's linked fix tasks neither verified nor dropped, then the tasks of its verify in flight, once
+// each.
+func (l *reviewLog) pending(id string) []string {
+	var out []string
+	if f := l.fix; f != nil && f.id == id {
+		out = f.pending()
+	}
+	if v := l.inFlight(id); v != nil {
+		for _, t := range v.tasks {
+			if !slices.Contains(out, t) {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
+// ReviewCycle is review id's state from the project's event log (T-856: reviewLog, the fold serve keeps). Started: the
+// log has a review start (none: a review started by an older obor, whose close keeps the old format and names the
+// ref's sha). Covered: the last start's in-scope tasks plus each done verify's since (an older store's review.verify
+// facts likewise, T-822), once each. Start: the head that review started at. Reviewed: the head the reviewer was last
+// handed when the last start is id's (its start's, else its last verify brief's; "": not known). Pending: id's linked
+// fix tasks neither verified nor dropped and the tasks of its verify requested or briefed (obor review close's
+// refusal). An unreadable log is the zero state.
+type ReviewCycle struct {
+	Started  bool
+	Covered  []string
+	Start    string
+	Reviewed string
+	Pending  []string
+}
+
+// ReadReviewCycle is review id's ReviewCycle from the log of the project at root.
+func ReadReviewCycle(root, id string) ReviewCycle {
+	recs, err := event.ReadLog(root)
+	if err != nil {
+		return ReviewCycle{}
+	}
+	var l reviewLog
+	for _, r := range recs {
+		l.fold(r)
+	}
+	c := ReviewCycle{Started: l.start != 0, Start: l.startHead, Pending: l.pending(id)}
+	for _, t := range l.covered {
+		if !slices.Contains(c.Covered, t) {
+			c.Covered = append(c.Covered, t)
+		}
+	}
+	if l.start != 0 && l.startID == id {
+		c.Reviewed = l.reviewed
+	}
+	return c
+}
 
 // OpenCycle is the open review by git: its id (the newest "RV-<n> closed" commit + 1), the previous review's id,
 // reviewed sha and coverage start ("" when it has neither: no close commit yet), and its review file in the main
@@ -46,19 +306,18 @@ func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (O
 	return c, nil
 }
 
-// verifyCall answers the socket's review_verify request (the lead or the owner): the open review's reviewer briefed
-// (recordBrief: its fact is a brief's, so a repeated call id gets the brief's stored reply) with review-brief.md §4's
-// text for the fix tasks (Call.After), the findings (Call.Findings; none: every finding) and the lead's note. Once
-// admitted, serve reads the head and each task's merge in the next review's scope and marks the head reviewed
-// (ReviewedRef); the tasks are the brief's coverage (T-823: its one fact, counted by ReviewCovered once the brief is
-// delivered). Refused, nothing marked or recorded: no reviewer setup, no open review, a task with no merge since the
-// previous review, git failing, a publish still running after admitWait, or an earlier verify whose brief the reviewer
-// has not been given yet.
+// verifyCall answers the socket's review_verify request (the lead or the owner): a verify of the fix tasks
+// (Call.After), the findings to re-run (Call.Findings; none: every finding) and the lead's note, recorded as its
+// request (a repeated call id gets the stored reply), then admitted at once when it can be: the brief's reply. The
+// reviewer not idle, or a publish still running after admitWait: VERIFY WAITS, saying why; a merge-loop pass briefs it
+// once it can. Refused, nothing recorded: no reviewer setup, no open review, a verify of it requested or briefed. A
+// verify admitted that fails (a task with no merge since the previous review, git, the worktree's move): the error,
+// the verify failed.
 func (a *App) verifyCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodVerify + ": a call id is required")
 	}
-	p, reply, stored := a.callProj(wire.MethodBrief, c)
+	p, reply, stored := a.callProj(wire.MethodVerify, c)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodVerify, c.Root)
@@ -75,9 +334,6 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if a.verifyPending(p, s.Agent) {
-		return "", errors.New("review verify: a verify is pending: wait for it or close the review")
-	}
 	fx, err := a.opt.Loop(p.root)
 	if err == nil && fx.Review == nil {
 		err = errors.New("the merge loop has no review git")
@@ -85,63 +341,199 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("review verify: %v", err)
 	}
-	wait, cancel := context.WithTimeout(context.Background(), admitWait)
-	release, err := a.admit(wait, p)
-	cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
+	defer cancel()
+	open, err := OpenReview(ctx, fx.Review, p.root, s)
 	if err != nil {
 		return "", fmt.Errorf("review verify: %v", err)
 	}
-	defer release() // after the brief is recorded
-	ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
-	defer cancel()
-	return a.briefVerify(ctx, p, fx.Review, s, c.After, c.Findings, c.Note, cmp.Or(c.Agent, "owner"), c.CallID)
-}
-
-// briefVerify is a verify once admitted (obor review verify's call, a fix round's pass: reviewfix.go): verifyText's
-// brief recorded for the reviewer from from with call id call ("": none), its tasks the brief's coverage.
-func (a *App) briefVerify(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, tasks, findings []string, note,
-	from, call string) (string, error) {
-	text, err := verifyText(ctx, g, p.root, s, tasks, findings, note)
+	what := open.ID + ": " + strings.Join(c.After, ",")
+	d := ReviewData{ID: open.ID, Tasks: c.After, Findings: c.Findings, Note: c.Note, By: cmp.Or(c.Agent, "owner"),
+		Call: c.CallID, Reply: "VERIFY REQUESTED (" + what + "; serve briefs " + s.Agent + " once it is idle)"}
+	seq, err := a.requestVerify(p, d, false)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("review verify: %v", err)
 	}
-	reply, ok := a.recordBrief(p, s.Agent, from, text, call, "", false, tasks)
-	if !ok {
-		return "", fmt.Errorf("review verify: the event log of %s refused it", p.name)
+	reply, held, err := a.admitVerify(ctx, p, fx.Review, s, seq, admitWait, false)
+	switch {
+	case err != nil:
+		return "", fmt.Errorf("review verify: %v", err)
+	case held != "":
+		return "VERIFY WAITS (" + what + "): " + held, nil
+	case reply == "": // a pass admitted it first
+		return d.Reply, nil
 	}
-	a.wake()
 	return reply, nil
 }
 
-// verifyPending: the reviewer's open brief is a verify's whose line it has not been given yet (T-823): a second verify
-// would supersede the first's brief, so it is refused (under mu).
-func (a *App) verifyPending(p *proj, agent string) bool {
+// errVerifyPending refuses a second verify while one of the review is requested or briefed.
+var errVerifyPending = errors.New("a verify is pending")
+
+// lockVerify takes p.vf: a call waits for it; the merge loop's pass (loop) never does (false: a call holds it for its
+// git, or the pass runs inside one; the next pass looks again).
+func lockVerify(p *proj, loop bool) bool {
+	if loop {
+		return p.vf.TryLock()
+	}
+	p.vf.Lock()
+	return true
+}
+
+// requestVerify records d, a verify's request (loop: the merge loop's, lockVerify): its seq. Refused, nothing recorded:
+// a verify of d.ID requested or briefed already, or the log refusing it.
+func (a *App) requestVerify(p *proj, d ReviewData, loop bool) (int64, error) {
+	if !lockVerify(p, loop) {
+		return 0, fmt.Errorf("%w (one is being admitted now)", errVerifyPending)
+	}
+	defer p.vf.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.verifyPendingLocked(p, agent)
+	v := p.folded.rv.inFlight(d.ID)
+	a.mu.Unlock()
+	if v != nil {
+		return 0, fmt.Errorf("%w (%s, %s): wait for it or close the review", errVerifyPending, strings.Join(v.tasks, ","), v.state)
+	}
+	seq, ok := a.recordSeq(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerifyRequest, Kind: event.KindFact}, d)
+	if !ok {
+		return 0, fmt.Errorf("the event log of %s refused it", p.name)
+	}
+	a.wake()
+	return seq, nil
 }
 
-// verifyPendingLocked is verifyPending under mu.
-func (a *App) verifyPendingLocked(p *proj, agent string) bool {
-	b := p.out.brief(agent)
-	return b != nil && len(b.verify) > 0 && p.out.msgs[b.seq] != nil
+// admitVerify admits the verify requested at seq and briefs it: its brief's reply. Not admitted: held says why (the
+// reviewer not idle; a publish running, waited for at most wait, 0: not at all; another admission holding p.vf, for
+// the loop), or both are "" when it is no longer requested. loop: the merge loop's pass (lockVerify; a failure gets
+// the lead's line). Admitted, a failure (verifyText, the move) records the verify failed and is the error; a brief the
+// log refuses is the error too, the verify still requested.
+func (a *App) admitVerify(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, seq int64, wait time.Duration,
+	loop bool) (reply, held string, err error) {
+	// p.vf is held from the idle check through the brief's record, and by a call through its wait for a publish too
+	// (the merge loop's pass, which only tries it, does not take the call's verify from under it).
+	if !lockVerify(p, loop) {
+		return "", "a verify is being admitted now", nil
+	}
+	defer p.vf.Unlock()
+	var timeout <-chan time.Time
+	if wait > 0 {
+		t := time.NewTimer(wait)
+		defer t.Stop()
+		timeout = t.C
+	}
+	var v verifyRec
+	for v.seq == 0 {
+		a.mu.Lock()
+		cur := p.folded.rv.verifies[seq]
+		gone, busy, task, done := cur == nil || cur.state != verifyRequested, "", p.running.Task, p.published
+		switch {
+		case gone:
+		case p.out.brief(s.Agent) != nil:
+			busy = s.Agent + " has an open brief: serve briefs it once that brief is over"
+		case !a.roleIdle(p, s.Agent):
+			busy = s.Agent + " is working: serve briefs it once it is idle (its worktree stays where it is)"
+		case !p.publishing():
+			v = *cur
+			p.admits++ // admitted (roleworktree.go): no publish starts until the brief is recorded
+		}
+		a.mu.Unlock()
+		if v.seq != 0 {
+			break
+		}
+		switch {
+		case gone:
+			return "", "", nil
+		case busy != "":
+			return "", busy, nil
+		}
+		why := "the publish of " + task + " runs: serve briefs " + s.Agent + " once it ended"
+		if timeout == nil {
+			return "", why, nil
+		}
+		select {
+		case <-done:
+		case <-timeout:
+			return "", why, nil
+		}
+	}
+	defer a.unadmit(p)
+	text, head, err := verifyText(ctx, g, p.root, s, v.id, v.tasks, v.findings, v.note)
+	if err == nil {
+		err = g.Detach(ctx, s.Worktree, head) // T-853: the reviewer's worktree at the head it verifies
+	}
+	if err != nil {
+		if !cutByServe(ctx, err) {
+			a.verifyFailed(p, &v, err, loop)
+		}
+		return "", "", err
+	}
+	reply, ok := a.recordBrief(p, s.Agent, cmp.Or(v.by, "obor"), text, "", "", false,
+		&verifyOf{seq: v.seq, tasks: v.tasks, head: head})
+	if !ok {
+		return "", "", fmt.Errorf("the event log of %s refused it (the verify stays requested: serve tries again)", p.name)
+	}
+	if err := g.Mark(ctx, head); err != nil { // a mirror: obor review close reads the briefed head from the log
+		a.logf("review verify of %s: %s not moved to %s: %v", p.name, ReviewedRef, head, err)
+	}
+	a.wake()
+	return reply, "", nil
 }
 
-// verifyText finds the open review and each task's merge in the next review's scope (T-822: a task merged after the
-// review started, which it does not cover, is allowed) and marks the integration branch's head reviewed: the verify
-// brief.
-func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, tasks, findings []string, note string) (string, error) {
+// verifyFailed records the verify v failed with err, the lead's line on it when tell.
+func (a *App) verifyFailed(p *proj, v *verifyRec, err error, tell bool) {
+	a.logf("review verify of %s: %v", p.name, err)
+	m := event.Message{To: p.out.lead(), From: "obor", VerifyFail: v.seq}
+	if tell {
+		what := "verify"
+		if v.round != 0 {
+			what = "fix verify"
+		}
+		m.Line = "[obor] " + v.id + " " + what + " of " + strings.Join(v.tasks, ",") + " failed: " + err.Error() +
+			" (obor review verify by hand)"
+	}
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
+		a.logf("review verify of %s: the event log refused its failure (the verify stays requested)", p.name)
+	}
+}
+
+// verifyPass admits p's oldest requested verify (admitVerify, not waiting for a publish: the publish's end wakes the
+// next pass); a failure tells the lead.
+func (a *App) verifyPass(ctx context.Context, p *proj, fx *Loop) {
+	a.mu.Lock()
+	v := p.folded.rv.requested()
+	run := v != nil && p.merging && fx.Review != nil
+	a.mu.Unlock()
+	if !run {
+		return
+	}
+	s, err := reviewConfig(p.root)
+	if err != nil {
+		a.logf("review verify of %s: %v", p.name, err)
+		return
+	}
+	vctx, cancel := context.WithTimeout(ctx, verifyGitWait)
+	defer cancel()
+	if _, _, err := a.admitVerify(vctx, p, fx.Review, s, v.seq, 0, true); err != nil && !cutByServe(ctx, err) {
+		a.logf("review verify of %s: %v", p.name, err)
+	}
+}
+
+// verifyText finds the open review (it must be id, when named) and each task's merge in the next review's scope
+// (T-822: a task merged after the review started, which it does not cover, is allowed) on the integration branch's
+// head: the verify brief and that head.
+func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, id string, tasks, findings []string,
+	note string) (text, head string, err error) {
 	c, err := OpenReview(ctx, g, root, s)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	head, err := g.Head(ctx, s.Branch)
-	if err != nil {
-		return "", err
+	if id != "" && c.ID != id {
+		return "", "", fmt.Errorf("%s is closed (the open review is %s)", id, c.ID)
+	}
+	if head, err = g.Head(ctx, s.Branch); err != nil {
+		return "", "", err
 	}
 	merges, err := g.Merges(ctx, c.From, head)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	fixed := make([]string, 0, len(tasks))
 	for _, task := range tasks {
@@ -152,18 +544,11 @@ func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, ta
 			}
 		}
 		if sha == "" {
-			return "", fmt.Errorf("%s has no merge on %s since %s", task, s.Branch, cmp.Or(c.Prev, "the first commit"))
+			return "", "", fmt.Errorf("%s has no merge on %s since %s", task, s.Branch, cmp.Or(c.Prev, "the first commit"))
 		}
 		fixed = append(fixed, task+" ("+sha+")")
 	}
-	if err := g.Mark(ctx, head); err != nil {
-		return "", err
-	}
-	if err := g.Detach(ctx, s.Worktree, head); err != nil { // T-853: the reviewer's worktree at the verified head
-		return "", err
-	}
-	return verifyBrief(c.ID, s, head[:min(len(head), 7)], fixed, findings, note), nil
-
+	return verifyBrief(c.ID, s, head[:min(len(head), 7)], fixed, findings, note), head, nil
 }
 
 // verifyBrief is review-brief.md §4's text: the fixes, the head, the findings to re-run (none: every finding), the

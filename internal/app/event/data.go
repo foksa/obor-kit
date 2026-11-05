@@ -64,9 +64,16 @@ type Message struct {
 	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
 	// running agent stopped first
 	Fresh bool `json:"fresh,omitempty"`
-	// Verify: a verify brief's (obor review verify, T-823): the fix tasks its coverage names, counted by ReviewCovered
-	// once its brief was delivered (one append with the brief, so a refused or superseded one covers nothing)
-	Verify []string `json:"verify,omitempty"`
+	// Verify: a verify brief's (T-823): the fix tasks it verifies; VerifyOf, the seq of its verify's request (T-856:
+	// the brief is the verify record's briefed step, none in a log from before T-856), and Reviewed, the head it handed
+	// the reviewer (its worktree moved there first; obor review close's sha). The tasks count as verified and covered
+	// once the reviewer finished this brief (its Ends line), never when another brief replaced it first (reviewverify.go).
+	Verify   []string `json:"verify,omitempty"`
+	VerifyOf int64    `json:"verify_of,omitempty"`
+	Reviewed string   `json:"reviewed,omitempty"`
+	// VerifyFail: the seq of the verify request that failed before its brief (its git, its worktree's move), the lead
+	// told (a line) unless the call that asked got the error itself (no line).
+	VerifyFail int64 `json:"verify_fail,omitempty"`
 	// FixDrop: a lead line's (T-850, reviewfix.go): the review's linked fix tasks that ended unmerged, the lead told
 	// once; FixFail: the seq of the fix round whose verify failed, the lead told once.
 	FixDrop []string `json:"fix_drop,omitempty"`

@@ -267,8 +267,8 @@ func TestReviewCloseNoStartFact(t *testing.T) {
 	if got := p.Git(p.Root, "log", "-1", "--format=%b"); got != "" {
 		t.Errorf("the body %q, want none (the old format)", got)
 	}
-	if _, _, ok := app.ReviewCovered(p.Root); ok {
-		t.Error("ReviewCovered found a start in a log without one")
+	if app.ReadReviewCycle(p.Root, "RV-4").Started {
+		t.Error("ReadReviewCycle found a start in a log without one")
 	}
 }
 
@@ -297,8 +297,8 @@ func TestReviewFix(t *testing.T) {
 	}
 }
 
-// appendFacts appends facts to the project's event log (no serve runs: the test is its one writer).
-func appendFacts(t *testing.T, root string, recs ...event.Record) {
+// appendFacts appends facts to the project's event log (no serve runs: the test is its one writer): their seqs.
+func appendFacts(t *testing.T, root string, recs ...event.Record) []int64 {
 	t.Helper()
 	db, err := store.OpenRW(event.DBFile(root))
 	if err != nil {
@@ -309,11 +309,15 @@ func appendFacts(t *testing.T, root string, recs ...event.Record) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var seqs []int64
 	for _, r := range recs {
-		if _, err := log.Append(r, time.Now()); err != nil {
+		rec, err := log.Append(r, time.Now())
+		if err != nil {
 			t.Fatal(err)
 		}
+		seqs = append(seqs, rec.Seq)
 	}
+	return seqs
 }
 
 // logFact is a fact record of task and step with data d.
@@ -326,9 +330,11 @@ func logFact(t *testing.T, task, step string, d any) event.Record {
 	return event.Record{Task: task, Step: step, Kind: event.KindFact, Data: b}
 }
 
-// T-850: obor review close is refused while a fix task linked by obor review fix is neither verified nor dropped,
-// naming them, nothing changed; a verify brief naming T-5 and the lead's drop line for T-6 let it close. --force closes
-// with a fix pending.
+// T-850, T-856: obor review close is refused while a fix task linked by obor review fix is neither verified nor
+// dropped, or a verify is requested or briefed and not done, naming them, nothing changed: a verify of T-5 briefed and
+// not finished still refuses; once the reviewer finished it (the line that ends its brief) and the lead was told T-6
+// dropped, it closes, naming the head that verify's brief handed the reviewer (the log's, not a stale ref). --force
+// closes with a fix pending.
 func TestReviewCloseFixPending(t *testing.T) {
 	t.Parallel()
 	for _, force := range []bool{false, true} {
@@ -336,8 +342,11 @@ func TestReviewCloseFixPending(t *testing.T) {
 		p.Write(".gitignore", ".obor/state/\n")
 		p.Git(p.Root, "add", ".gitignore")
 		p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
-		p.Git(p.Root, "update-ref", app.ReviewedRef, head)
-		appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewFix, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5", "T-6"}}))
+		older := p.Git(p.Root, "rev-parse", head+"~1")
+		p.Git(p.Root, "update-ref", app.ReviewedRef, older) // the review start's mark; the verify's mark failed
+		appendFacts(t, p.Root,
+			logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older}),
+			logFact(t, event.ReviewTask, event.StepReviewFix, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5", "T-6"}}))
 		f := p.Herdr()
 		f.Shell("w1:p3", "pj-rev", p.Root)
 		srv := herdrtest.Serve(t, f)
@@ -353,18 +362,29 @@ func TestReviewCloseFixPending(t *testing.T) {
 			}
 			continue
 		}
-		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
-		if rc != 1 || !strings.HasPrefix(stdout, "FAIL RV-4's fixes are not verified: T-5, T-6 ") {
-			t.Fatalf("a pending fix: exit %d, %q; want the refusal naming T-5, T-6", rc, stdout)
+		refused := func(what, pending string) {
+			t.Helper()
+			rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
+			if rc != 1 || !strings.HasPrefix(stdout, "FAIL RV-4's fixes are not verified: "+pending+" ") {
+				t.Fatalf("%s: exit %d, %q; want the refusal naming %s", what, rc, stdout, pending)
+			}
+			if !p.Exists(p.Path("docs/reviews/RV-4.md")) || p.Git(p.Root, "rev-parse", "HEAD") != before {
+				t.Fatalf("%s: a refused close changed something", what)
+			}
 		}
-		if !p.Exists(p.Path("docs/reviews/RV-4.md")) || p.Git(p.Root, "rev-parse", "HEAD") != before {
-			t.Fatal("a refused close changed something")
-		}
+		refused("nothing verified", "T-5, T-6")
+		seqs := appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewVerifyRequest,
+			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
 		appendFacts(t, p.Root,
-			logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", Verify: []string{"T-5"}}),
+			logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify",
+				Verify: []string{"T-5"}, VerifyOf: seqs[0], Reviewed: head}),
 			logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] RV-4 fix T-6 ended unmerged", FixDrop: []string{"T-6"}}))
-		if rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed"); rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · ") {
-			t.Errorf("T-5 verified, T-6 dropped: exit %d, %q; want CLOSED", rc, stdout)
+		refused("T-5's verify briefed, its line not delivered", "T-5")
+		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepMessage,
+			event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished (briefed 2m ago)"}))
+		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
+		if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · "+head[:7]+" · ") {
+			t.Errorf("T-5 verified, T-6 dropped: exit %d, %q; want CLOSED at the verify's head %s", rc, stdout, head[:7])
 		}
 	}
 }
