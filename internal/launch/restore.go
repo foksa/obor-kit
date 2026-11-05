@@ -131,7 +131,7 @@ func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port
 		role = "agent"
 	}
 	s, _ := store.CurrentAt(cfg.Root, agent)
-	switch kind := agentKind(cfg, info); {
+	switch kind := project.RunningKind(cfg, info); {
 	case !agents.Resumes(kind):
 		req.Fresh, note = true, " ("+role+", kind "+kind+" resumes nothing: --fresh)"
 	case s.ID == "":
@@ -168,15 +168,6 @@ func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 		}
 	}
 	return ""
-}
-
-// agentKind is agent's kind as its restart starts it: the kind of the type it runs now (project.RunningType: a lane
-// agent's, its open dispatch's, T-739), else agents.Default (a restore pane runs no agent, so herdr names no kind).
-func agentKind(cfg *config.Config, info config.AgentInfo) string {
-	if lt, ok := cfg.Model(project.RunningType(cfg, info)); ok && lt.Kind != "" {
-		return lt.Kind
-	}
-	return agents.Default
 }
 
 // appendLog runs write against the log file (created with its directory), then cuts the log to its last keep lines.

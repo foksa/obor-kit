@@ -15,7 +15,6 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
-	"obor/internal/store"
 )
 
 // where is the placement of a new agent: at most one of --tab, --new-tab, --pane.
@@ -166,11 +165,11 @@ func (s *Setup) copyFile(src, rel string) error {
 
 // start places a's pane, labels it and starts the agent (see the package doc); a running agent → OK, nothing done.
 func (s *Setup) start(ctx context.Context, a agent, w where) error {
-	// A lane's model comes with its dispatch (T-765: every lane is pooled): --start runs the model the lane row's open
-	// dispatch names, else the default kind with no model, as obor restart does (launch.dispatchType).
+	// A lane's model comes with its dispatch (T-765: every lane is pooled): --start runs the ref project.LaneModel
+	// answers, else the default kind with no model, as obor restart does (launch.dispatchType).
 	if a.lane != "" && a.typ == "" {
-		if row, _, _ := store.ReadLaneAt(s.root, a.lane); row.Task != "" {
-			a.typ, a.effort = config.ParseModelRef(row.Type)
+		if ref, ok := project.LaneModel(s.cfg, a.lane); ok {
+			a.typ, a.effort = config.ParseModelRef(ref)
 		}
 	}
 	lt, ok := s.cfg.Model(a.typ)
