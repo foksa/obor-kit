@@ -135,6 +135,52 @@ func TestIdleFailedVerifyWaitingForItsRetry(t *testing.T) {
 	}
 }
 
+// dropRecords are the log's message facts that drop fix tasks (FixDrop).
+func (r *reviewRig) dropRecords() int {
+	r.t.Helper()
+	n := 0
+	for _, rec := range readLog(r.t, r.p.root) {
+		var m event.Message
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && len(m.FixDrop) > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// T-858: the round's review force-closed under a failed verify: the next pass records its pending tasks dropped (once),
+// the round stops counting and the one idle line comes out; later passes add none.
+func TestIdleClosedRoundStopsCounting(t *testing.T) {
+	t.Parallel()
+	r, _ := briefedVerify(t)
+	r.afterStepsDone("T-a")
+	r.afterStepsDone("T-b")
+	r.stop("s1", "overloaded", "API overloaded")
+	if r.idleOK() {
+		t.Fatal("precondition: the failed verify's round is in flight before the close")
+	}
+	r.git.last = "RV-5 closed · 2222222 · approved · forced"
+	r.fixPass()
+	if got := r.pending(); got != "" {
+		t.Fatalf("after the closed pass: pending %q, want nothing", got)
+	}
+	if !r.idleOK() {
+		t.Fatal("the closed round still keeps the pipeline from idle")
+	}
+	r.fixPass() // pending is empty: the drop is not recorded again
+	if n := r.dropRecords(); n != 1 {
+		t.Fatalf("%d drop records for the closed round, want one", n)
+	}
+	r.idlePass()
+	if lines := r.idlePosts(); len(lines) != 1 {
+		t.Fatalf("idle lines %q after the closed round, want one", lines)
+	}
+	r.idlePass()
+	if n := len(r.idlePosts()); n != 1 {
+		t.Errorf("%d idle lines after another pass, want the one", n)
+	}
+}
+
 // T-858: a failed verify no fix round retries is not in flight by itself: with nothing else running the pipeline is
 // idle and posts its one line.
 func TestIdleFailedVerifyByHandIsNotInFlight(t *testing.T) {

@@ -141,8 +141,8 @@ func (a *App) fixCall(c wire.Call) (string, error) {
 }
 
 // fixPass runs p's fix round: a linked task ended unmerged gets the lead's line once; every pending task merged, it
-// requests their verify (reviewverify.go admits it) unless the round's review is closed, its verify failed, or a
-// verify of the review is requested or briefed (the next pass looks again).
+// requests their verify (reviewverify.go admits it) unless the round's review is closed (its pending tasks recorded
+// dropped, once), its verify failed, or a verify of the review is requested or briefed (the next pass looks again).
 func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	f := p.folded.rv.fix
@@ -174,7 +174,14 @@ func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 		return
 	}
 	if n, _, _ := PreviousReview(last.Subject); "RV-"+strconv.Itoa(n) != id {
-		return // the round's review is closed: nothing to verify
+		// The round's review closed under it (a forced close): nothing left to verify. Record the pending tasks
+		// dropped so the fold stops counting the round, once: pending() empties and later passes return early
+		// (T-858: a failed verify no longer keeps idle off after the close).
+		if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+			event.Message{To: p.out.lead(), From: "obor", FixDrop: pending}) {
+			a.logf("review fix of %s: the event log refused the closed round's record", p.name)
+		}
+		return
 	}
 	if len(ended) > 0 {
 		rest := slices.DeleteFunc(slices.Clone(pending), func(t string) bool { return slices.Contains(ended, t) })
