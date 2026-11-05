@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **Milestone cut for v0.28**: the gate/flake fixes, RV-121's fix, the live MCP check and the
+  pause gap close it; the data-model, encapsulation and kit-specific tasks move to the next milestone, where each task
+  must be net-negative in production lines or say why; no new surveys until v0.28 ships. Cause: prod lines flat and
+  tests +2k since v0.27.1 while the queue grew from ~7 to ~25 tasks in one afternoon of surveys.
 - 2026-11-05 (owner, docs/research/kit-specific-logic.md): **obor-kit's own development leaves the product.** The
   kit's release/Makefile/install tests move to `tests/release/` (T-902), `obor projects --notify` becomes a loop in
   `scripts/ship` (T-903), shipped text names no kit things and the config example is neutral (T-904), kit-config

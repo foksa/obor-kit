@@ -6,6 +6,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~18:30 **Milestone cut (owner).** v0.28 = merged work + T-879, T-907, T-906 (RV-121 fix), T-898 (live
+  MCP check, must pass), T-908 (pause holds the worker-start rule); release once they merge and RV-121 closes (notes:
+  BACKLOG items "Next release notes (v0.28)" and 11-05 afternoon). T-889, T-890 were already running: they finish.
+  **Held for after v0.28** (specs stored; re-dispatch with): T-880 `--after T-883`; T-891 `--after T-888,T-883,T-879,T-892`;
+  T-893 `--after T-883,T-880,T-889,T-885`; T-894; T-896 `--after T-891,T-889,T-893`; T-902; T-903; T-904 `--after T-903`;
+  T-905 `--after T-902`. Next milestone rule: each task reports net production lines and is net-negative or says why.
+  **No new surveys until v0.28 ships.** Size baseline: prod 46,969 / test 77,199 (HEAD 11-05 ~18:00; v0.27.1
+  46,875 / 75,240).
 - 2026-11-05 ~17:55: **`obor pause` does not hold serve's worker-start rule** (T-874): it holds off only for `obor
   stop`'s pause, so a force-stopped worker of a working task restarts within seconds under a plain pause (L-02 T-892,
   twice). Spec: the rule honours any project pause (a pause = start nothing). Project stopped again (owner: herdr
