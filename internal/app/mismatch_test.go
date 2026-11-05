@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"obor/internal/app/event"
 	"obor/internal/app/port"
 )
 
@@ -38,5 +39,53 @@ func TestResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
 	text := resolveText(mt)
 	if !strings.Contains(text, "CONFLICT in /scratch: a/a.go") || strings.Contains(text, "lost edits") {
 		t.Errorf("resolve job: %s", text)
+	}
+}
+
+// resolveFetched folds a conflict gate result (out) and its resolve intent, then fetches the open job as job_next does.
+func resolveFetched(t *testing.T, out gateOut) (string, string) {
+	t.Helper()
+	l := dispatched().submitted(1).
+		result(1, event.StepGate, gateIn{Kind: port.InputLane, Lane: "L-01"}, out).
+		add(1, event.StepResolve, event.KindIntent, JobData{Patch: "patch"})
+	a, p := blockProj(t, l.recs)
+	mt := p.folded.loop[blockTask]
+	if mt == nil || mt.state != stResolving || !mt.openJob() {
+		t.Fatalf("folded task %+v; want an open resolve job", mt)
+	}
+	first, _, err := a.fetchText(p, *mt, mt.jobKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _, err := a.fetchText(p, *mt, mt.jobKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return first, again
+}
+
+// T-918 (RV-123 V1 rest): the job job_next fetches after the resolve intent folded (stResolving) names the mismatch too.
+func TestFetchedResolveJobNamesReplayMismatch(t *testing.T) {
+	m := &port.Mismatch{Checked: "0123456789abcdef", Tree: "t", Files: []string{"b/b.go"}, Dir: "/scratch"}
+	first, again := resolveFetched(t, gateOut{Outcome: outConflict, Mismatch: m,
+		Line: "CONFLICT in /scratch: b/b.go (the replayed resolution differs from the checked one)"})
+	for _, want := range []string{"lost edits of the checked one 0123456", "b/b.go", "git diff 0123456 -- b/b.go"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("fetched resolve job lacks %q:\n%s", want, first)
+		}
+	}
+	if again != first {
+		t.Errorf("refetch differs:\n%s\n--\n%s", again, first)
+	}
+}
+
+// A real unmerged conflict through the same path keeps today's wording.
+func TestFetchedResolveJobForUnmergedPathsHasNoMismatchWording(t *testing.T) {
+	first, again := resolveFetched(t, gateOut{Outcome: outConflict, Line: "CONFLICT in /scratch: a/a.go"})
+	if !strings.Contains(first, "CONFLICT in /scratch: a/a.go") || strings.Contains(first, "lost edits") {
+		t.Errorf("fetched resolve job: %s", first)
+	}
+	if again != first {
+		t.Errorf("refetch differs:\n%s\n--\n%s", again, first)
 	}
 }
