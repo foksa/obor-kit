@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **The merge hold stays deleted** (T-853 removed it; replaces the 11-02 T-718 decision "merges
+  wait while the reviewer or deep dive works"): the reviewer reads its own pinned worktree, so merges go on during a
+  review and fall into the next review's scope. The lead had folded the deletion into E2's spec without asking; asked
+  and confirmed afterwards.
 - 2026-11-05 (owner): **Flow simplifications first, all four at once**: T-850 serve runs a review's fix round
   (`obor review fix`, close refused until verified); T-851 (E1, no integrator review) **dropped the same morning**: the
   integrator's reviews sent back ~39 of ~487 merges since 10-25 with real findings and it resolves every conflict; T-852 move/drop/take-over answer first, the stop is a loop
