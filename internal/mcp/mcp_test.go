@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"obor/internal/app/wire"
 	"obor/internal/project"
@@ -134,20 +138,18 @@ func (a *fakeServe) requests() []wireRequest {
 	return append([]wireRequest(nil), a.reqs...)
 }
 
-// client is a scripted MCP client over the server's pipes.
+// client is an SDK client of a server run on pipes, as an agent's CLI starts it.
 type client struct {
 	t    *testing.T
-	in   io.WriteCloser
-	enc  *json.Encoder
-	dec  *bufio.Reader
+	cs   *sdk.ClientSession
 	done chan error
 }
 
-// answerWait bounds one line through the pipes: a server that answers nothing fails the test there, not at go test's
-// timeout. It outlasts a tool's wait for a serve that is not there (10 s, T-656).
+// answerWait bounds one answer through the pipes: a server that answers nothing fails the test there, not at go
+// test's timeout. It outlasts a tool's wait for a serve that is not there (10 s, T-656).
 const answerWait = 20 * time.Second
 
-// start runs a server on pipes with env and cwd; the client writes requests and reads the one line of each answer.
+// start runs a server on pipes with env and cwd and connects a client (the initialize handshake).
 func start(t *testing.T, env project.Env, cwd string) *client {
 	return startCtx(t, context.Background(), env, cwd)
 }
@@ -156,146 +158,74 @@ func start(t *testing.T, env project.Env, cwd string) *client {
 // once, not at the deadline table's 15 s (T-685).
 func startCtx(t *testing.T, ctx context.Context, env project.Env, cwd string) *client {
 	t.Helper()
+	return serveOn(t, ctx, Options{Env: env, Cwd: cwd, Err: io.Discard})
+}
+
+// serveOn runs Serve with o on pipes (its In and Out) and connects a client.
+func serveOn(t *testing.T, ctx context.Context, o Options) *client {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
+	o.In, o.Out = inR, outW
 	done := make(chan error, 1)
 	go func() {
-		err := Serve(ctx, Options{Env: env, Cwd: cwd, In: inR, Out: outW})
+		err := Serve(ctx, o)
 		outW.Close()
 		done <- err
 	}()
-	t.Cleanup(func() { outR.Close() })
-	t.Cleanup(func() { inW.Close() })
-	return &client{t: t, in: inW, enc: json.NewEncoder(inW), dec: bufio.NewReader(outR), done: done}
-}
-
-// answer is one answer line of the server.
-type answer struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  json.RawMessage `json:"result"`
-	Error   *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-// send writes one raw line to the server: a server that does not read fails the test in a moment, not at go test's
-// timeout.
-func (c *client) send(line string) {
-	c.t.Helper()
-	done := make(chan error, 1)
-	go func() {
-		_, err := io.WriteString(c.in, line)
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			c.t.Fatal(err)
-		}
-	case <-time.After(answerWait):
-		c.t.Fatalf("the server read nothing within %s", answerWait)
-	}
-}
-
-// read is the next answer line.
-func (c *client) read() answer {
-	c.t.Helper()
-	type line struct {
-		b   []byte
-		err error
-	}
-	done := make(chan line, 1)
-	go func() {
-		b, err := c.dec.ReadBytes('\n')
-		done <- line{b, err}
-	}()
-	var l line
-	select {
-	case l = <-done:
-	case <-time.After(answerWait):
-		c.t.Fatalf("no answer within %s", answerWait)
-	}
-	if l.err != nil {
-		c.t.Fatalf("no answer: %v", l.err)
-	}
-	var r answer
-	if err := json.Unmarshal(l.b, &r); err != nil {
-		c.t.Fatalf("answer %q: %v", l.b, err)
-	}
-	if r.JSONRPC != "2.0" {
-		c.t.Fatalf("answer %q: jsonrpc is not 2.0", l.b)
-	}
-	return r
-}
-
-// request sends one request (params nil: none) and reads its answer.
-func (c *client) request(id int, method string, params any) answer {
-	c.t.Helper()
-	msg := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
-	if params != nil {
-		msg["params"] = params
-	}
-	b, err := json.Marshal(msg)
+	wait, cancel := context.WithTimeout(context.Background(), answerWait)
+	defer cancel()
+	cs, err := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "1"}, nil).
+		Connect(wait, &sdk.IOTransport{Reader: outR, Writer: inW}, nil)
 	if err != nil {
-		c.t.Fatal(err)
+		t.Fatalf("initialize: %v", err)
 	}
-	c.send(string(b) + "\n")
-	return c.read()
+	t.Cleanup(func() { cs.Close() })
+	return &client{t: t, cs: cs, done: done}
 }
 
-// notify sends one notification: the server answers nothing.
-func (c *client) notify(method string) {
-	c.t.Helper()
-	b, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method})
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	c.send(string(b) + "\n")
-}
-
-// result is a request's result decoded into out, failing on an error answer.
-func (c *client) result(id int, method string, params, out any) {
-	c.t.Helper()
-	r := c.request(id, method, params)
-	if r.Error != nil {
-		c.t.Fatalf("%s: error %d: %s", method, r.Error.Code, r.Error.Message)
-	}
-	if err := json.Unmarshal(r.Result, out); err != nil {
-		c.t.Fatalf("%s: result %q: %v", method, r.Result, err)
-	}
-}
-
-// toolResult is tools/call's result.
+// toolResult is a tool's answer: its one text, and whether it is an error.
 type toolResult struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	IsError bool `json:"isError"`
+	Text    string
+	IsError bool
 }
 
-// tool calls the tool and fails on a JSON-RPC error (an unknown tool), so a test reads only the tool's own answer.
-func (c *client) tool(id int, name string, args map[string]any) toolResult {
+// call calls the tool: its answer, or the JSON-RPC error (an unknown tool).
+func (c *client) call(name string, args map[string]any) (toolResult, error) {
 	c.t.Helper()
-	r := c.request(id, "tools/call", map[string]any{"name": name, "arguments": args})
-	if r.Error != nil {
-		c.t.Fatalf("tools/call %s: error %d: %s", name, r.Error.Code, r.Error.Message)
+	ctx, cancel := context.WithTimeout(context.Background(), answerWait)
+	defer cancel()
+	p := &sdk.CallToolParams{Name: name}
+	if args != nil {
+		p.Arguments = args
 	}
-	var res toolResult
-	if err := json.Unmarshal(r.Result, &res); err != nil {
-		c.t.Fatalf("tools/call %s: result %q: %v", name, r.Result, err)
+	res, err := c.cs.CallTool(ctx, p)
+	if err != nil {
+		return toolResult{}, err
 	}
-	if len(res.Content) != 1 || res.Content[0].Type != "text" {
+	if len(res.Content) != 1 {
 		c.t.Fatalf("tools/call %s: content %+v; want one text", name, res.Content)
+	}
+	text, ok := res.Content[0].(*sdk.TextContent)
+	if !ok {
+		c.t.Fatalf("tools/call %s: content %T; want text", name, res.Content[0])
+	}
+	return toolResult{Text: text.Text, IsError: res.IsError}, nil
+}
+
+// tool calls the tool and fails on a JSON-RPC error, so a test reads only the tool's own answer.
+func (c *client) tool(name string, args map[string]any) toolResult {
+	c.t.Helper()
+	res, err := c.call(name, args)
+	if err != nil {
+		c.t.Fatalf("tools/call %s: %v", name, err)
 	}
 	return res
 }
 
-// stop ends the server (its stdin closes) and returns its error.
+// stop ends the session (the server's stdin closes) and returns the server's error.
 func (c *client) stop() error {
-	c.in.Close()
+	c.cs.Close()
 	select {
 	case err := <-c.done:
 		return err
@@ -305,41 +235,9 @@ func (c *client) stop() error {
 	}
 }
 
-// TestHandshake: initialize names the server and its tools capability (the client's protocol version back), ping is an
-// empty result, and notifications/initialized is answered with nothing at all — the next answer is the ping's.
-func TestHandshake(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	c := start(t, f.worker(), f.root)
-	var init struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		Capabilities    struct {
-			Tools *struct {
-				ListChanged bool `json:"listChanged"`
-			} `json:"tools"`
-		} `json:"capabilities"`
-		ServerInfo struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
-	c.result(1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
-		"clientInfo": map[string]any{"name": "test", "version": "1"}}, &init)
-	if init.ProtocolVersion != "2025-06-18" || init.ServerInfo.Name != "obor" || init.Capabilities.Tools == nil {
-		t.Errorf("initialize: %+v; want the client's version, obor, the tools capability", init)
-	}
-	c.notify("notifications/initialized")
-	r := c.request(2, "ping", nil)
-	if string(r.ID) != "2" || string(r.Result) != "{}" {
-		t.Errorf("ping: id %s, result %s; want id 2 and {} (and no answer to the notification)", r.ID, r.Result)
-	}
-	if err := c.stop(); err != nil {
-		t.Errorf("the server at EOF: %v; want no error", err)
-	}
-}
-
-// TestToolsListPerRole: tools/list is the role's table — the worker's two, the integrator's six, nothing at all for the
-// lead, an unknown role or no role (an empty list, not null).
+// TestToolsListPerRole: tools/list is the role's table — the worker's two, the integrator's six (by name, the SDK's
+// order), nothing at all for the lead, an unknown role or no role — each with its description and argument schema
+// (open, as before the SDK: no additionalProperties, and properties even when there are none).
 func TestToolsListPerRole(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -348,53 +246,53 @@ func TestToolsListPerRole(t *testing.T) {
 		names string
 	}{
 		{[]string{"OBOR_ROLE=worker"}, `["job_next","task_done"]`},
-		{[]string{"OBOR_ROLE=integrator"}, `["job_next","accept","sendback","reject","resolved","hold"]`},
+		{[]string{"OBOR_ROLE=integrator"}, `["accept","hold","job_next","reject","resolved","sendback"]`},
 		{[]string{"OBOR_ROLE=lead"}, `[]`},
 		{[]string{"OBOR_ROLE=deep_dive"}, `[]`},
 		{[]string{"OBOR_ROLE=triage"}, `[]`}, // T-796: a role of its own, still no tools
 		{nil, `[]`},
 	} {
 		c := start(t, f.env(tc.env...), f.root)
-		r := c.request(1, "tools/list", nil)
-		var got struct {
-			Tools []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				InputSchema struct {
-					Type       string                    `json:"type"`
-					Properties map[string]map[string]any `json:"properties"`
-					Required   []string                  `json:"required"`
-				} `json:"inputSchema"`
-			} `json:"tools"`
+		ctx, cancel := context.WithTimeout(context.Background(), answerWait)
+		list, err := c.cs.ListTools(ctx, nil)
+		cancel()
+		if err != nil {
+			t.Fatalf("%v: tools/list: %v", tc.env, err)
 		}
-		if r.Error != nil {
-			t.Fatalf("%v: tools/list: %s", tc.env, r.Error.Message)
-		}
-		if err := json.Unmarshal(r.Result, &got); err != nil {
-			t.Fatalf("%v: %v", tc.env, err)
-		}
-		names := make([]string, 0, len(got.Tools))
-		for _, tool := range got.Tools {
+		names := make([]string, 0, len(list.Tools))
+		for _, tool := range list.Tools {
 			names = append(names, tool.Name)
-			if tool.Description == "" || tool.InputSchema.Type != "object" || tool.InputSchema.Properties == nil {
-				t.Errorf("%v: tool %+v; want a description and an object schema", tc.env, tool)
+			var sc struct {
+				Type       string                    `json:"type"`
+				Properties map[string]map[string]any `json:"properties"`
+				Required   []string                  `json:"required"`
+				Additional any                       `json:"additionalProperties"`
 			}
-			if props := tool.InputSchema.Properties; tool.Name == "task_done" && (props["report"] == nil || len(props) != 1 ||
-				len(tool.InputSchema.Required) != 1 || tool.InputSchema.Required[0] != "report") {
-				t.Errorf("task_done's schema: %+v; want report (required)", tool.InputSchema)
+			b, _ := json.Marshal(tool.InputSchema)
+			if err := json.Unmarshal(b, &sc); err != nil || tool.Description == "" || sc.Type != "object" ||
+				sc.Properties == nil || sc.Additional != nil {
+				t.Errorf("%v: tool %s, schema %s; want a description and an open object schema with properties",
+					tc.env, tool.Name, b)
 			}
-			if tool.Name == "accept" {
-				if props := tool.InputSchema.Properties; props["patch"] == nil || props["note"] == nil ||
-					len(props) != 2 || len(tool.InputSchema.Required) != 1 || tool.InputSchema.Required[0] != "patch" {
-					t.Errorf("accept's schema: %+v; want patch (required) and note", tool.InputSchema)
+			want := map[string]string{"job_next": `{"job":""}`, "task_done": `{"report":"report"}`,
+				"accept": `{"note":"","patch":"patch"}`, "sendback": `{"why":"why"}`, "reject": `{"why":"why"}`,
+				"hold": `{"why":"why"}`, "resolved": `{}`}[tool.Name]
+			got := map[string]string{} // each property: required ones by name, optional ones ""
+			for name, p := range sc.Properties {
+				if p["type"] != "string" || p["description"] == "" {
+					t.Errorf("%s: property %s %v; want a described string", tool.Name, name, p)
 				}
+				got[name] = ""
+			}
+			for _, name := range sc.Required {
+				got[name] = name
+			}
+			if g, _ := json.Marshal(got); string(g) != want {
+				t.Errorf("%s: properties %s; want %s (required ones by name)", tool.Name, g, want)
 			}
 		}
 		if b, _ := json.Marshal(names); string(b) != tc.names {
 			t.Errorf("%v: tools %s; want %s", tc.env, b, tc.names)
-		}
-		if tc.names == `[]` && !strings.Contains(string(r.Result), `"tools":[]`) {
-			t.Errorf("%v: an empty table is tools: [], not null: %s", tc.env, r.Result)
 		}
 	}
 }
@@ -415,16 +313,21 @@ func TestWorkerTools(t *testing.T) {
 	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.worker(), f.lane)
 
-	got := c.tool(1, "job_next", nil)
-	if got.IsError || got.Content[0].Text != "JOB T-01/1/work (task T-01, attempt 1, step work)\n\ndo the work" {
+	got := c.tool("job_next", nil)
+	if got.IsError || got.Text != "JOB T-01/1/work (task T-01, attempt 1, step work)\n\ndo the work" {
 		t.Errorf("job_next: %+v; want the job line and its text", got)
 	}
-	if got := c.tool(9, "task_done", nil); !got.IsError || !strings.Contains(got.Content[0].Text, `"report" argument is required`) {
+	// No report is the SDK's schema refusal, an empty one obor's own; neither reaches the app.
+	if got := c.tool("task_done", nil); !got.IsError || !strings.Contains(got.Text, "report") {
 		t.Errorf("task_done without a report: %+v; want a tool error naming it", got)
 	}
-	got = c.tool(2, "task_done", map[string]any{"report": "Summary: x"})
-	if got.IsError || got.Content[0].Text != "submitted" {
-		t.Errorf("task_done: %+v; want submitted", got)
+	if got := c.tool("task_done", map[string]any{"report": ""}); !got.IsError ||
+		got.Text != `task_done: the "report" argument is required` {
+		t.Errorf("task_done with an empty report: %+v; want the tool error naming it", got)
+	}
+	got = c.tool("task_done", map[string]any{"report": "Summary: x", "from": "a newer client"})
+	if got.IsError || got.Text != "submitted" {
+		t.Errorf("task_done (an argument it does not know ignored): %+v; want submitted", got)
 	}
 	reqs := a.requests()
 	if len(reqs) != 2 {
@@ -448,6 +351,9 @@ func TestWorkerTools(t *testing.T) {
 	if reqs[1].Call.Task != "" || reqs[1].Call.Report != "Summary: x" {
 		t.Errorf("task_done's task %q, report %q; want no task (serve resolves the lane, T-439) and the report",
 			reqs[1].Call.Task, reqs[1].Call.Report)
+	}
+	if err := c.stop(); err != nil {
+		t.Errorf("the server at EOF: %v; want no error", err)
 	}
 }
 
@@ -474,8 +380,8 @@ func TestJobNextStates(t *testing.T) {
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.worker(), f.lane)
-	for i, tc := range cases {
-		if got := c.tool(i+1, "job_next", nil); got.IsError || got.Content[0].Text != tc.want {
+	for _, tc := range cases {
+		if got := c.tool("job_next", nil); got.IsError || got.Text != tc.want {
 			t.Errorf("job_next %s: %+v; want %q", tc.reply, got, tc.want)
 		}
 	}
@@ -494,10 +400,10 @@ func TestIntegratorVerdicts(t *testing.T) {
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
 	c := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-old-int", "HERDR_PANE_ID=w1:p2"), f.root)
-	if got := c.tool(1, "job_next", nil); got.IsError || !strings.Contains(got.Content[0].Text, "T-05/1/review") {
+	if got := c.tool("job_next", nil); got.IsError || !strings.Contains(got.Text, "T-05/1/review") {
 		t.Fatalf("job_next: %+v; want the review job", got)
 	}
-	for i, tc := range []struct {
+	for _, tc := range []struct {
 		tool  string
 		args  map[string]any
 		patch string
@@ -509,8 +415,8 @@ func TestIntegratorVerdicts(t *testing.T) {
 		{"resolved", nil, "", ""},
 		{"hold", map[string]any{"why": "which branch?"}, "", "which branch?"},
 	} {
-		got := c.tool(i+2, tc.tool, tc.args)
-		if got.IsError || got.Content[0].Text != strings.ToUpper(tc.tool)+" T-05" {
+		got := c.tool(tc.tool, tc.args)
+		if got.IsError || got.Text != strings.ToUpper(tc.tool)+" T-05" {
 			t.Errorf("%s: %+v; want the app's reply", tc.tool, got)
 		}
 	}
@@ -538,44 +444,25 @@ func TestIntegratorVerdicts(t *testing.T) {
 	}
 }
 
-// TestMalformedLineAndUnknownMethod: a line that is not JSON is a parse error with a null id and the server goes on; an
-// unknown method is method-not-found.
-func TestMalformedLineAndUnknownMethod(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	c := start(t, f.worker(), f.root)
-	c.send("not json\n")
-	r := c.read()
-	if r.Error == nil || r.Error.Code != codeParse || string(r.ID) != "null" {
-		t.Errorf("malformed line: %+v (id %s); want parse error %d and a null id", r, r.ID, codeParse)
-	}
-	if r := c.request(2, "ping", nil); r.Error != nil || string(r.Result) != "{}" {
-		t.Errorf("after a malformed line: %+v; want the server answering", r)
-	}
-	r = c.request(3, "resources/list", nil)
-	if r.Error == nil || r.Error.Code != codeMethodNotFound || !strings.Contains(r.Error.Message, "resources/list") {
-		t.Errorf("unknown method: %+v; want method not found %d", r, codeMethodNotFound)
-	}
-}
-
 // TestToolErrorsAreResults: serve being down, the app's refusal and a bad argument are tool error results (the
 // server keeps serving), and a tool of another role is the JSON-RPC invalid-params error.
 func TestToolErrorsAreResults(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running soon, not at
-	// the deadline table's 15 s (T-685). The answers after it need no serve. It counts from here, before the server
-	// starts, and the call retries until it less askMargin (200 ms): 2 s leaves the call time to begin under a loaded
-	// suite (at 200 ms it began past the deadline once and answered "did not answer in 0s", T-872).
+	// the deadline table's 15 s (T-685). It counts from here, before the server starts, and the call retries until it
+	// less askMargin (200 ms): 2 s leaves the call time to begin under a loaded suite (at 200 ms it began past the
+	// deadline once and answered "did not answer in 0s", T-872). The run ends with it: the other answers get their own.
 	down, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c := startCtx(t, down, f.worker(), f.lane)
-	if got := c.tool(1, "job_next", nil); !got.IsError || !strings.Contains(got.Content[0].Text, "obor serve is not running") {
+	if got := startCtx(t, down, f.worker(), f.lane).tool("job_next", nil); !got.IsError ||
+		!strings.Contains(got.Text, "obor serve is not running") {
 		t.Errorf("serve down: %+v; want a tool error naming it", got)
 	}
-	r := c.request(2, "tools/call", map[string]any{"name": "accept", "arguments": map[string]any{"patch": "abc"}})
-	if r.Error == nil || r.Error.Code != codeInvalidParams || !strings.Contains(r.Error.Message, "unknown tool accept") {
-		t.Errorf("the worker's accept: %+v; want invalid params %d", r, codeInvalidParams)
+	_, err := start(t, f.worker(), f.lane).call("accept", map[string]any{"patch": "abc"})
+	var rpcErr *jsonrpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != jsonrpc.CodeInvalidParams || !strings.Contains(rpcErr.Message, `unknown tool "accept"`) {
+		t.Errorf("the worker's accept: %v; want invalid params %d naming the tool", err, jsonrpc.CodeInvalidParams)
 	}
 
 	// The app's refusal reaches the agent as the tool's error text, unchanged.
@@ -588,15 +475,21 @@ func TestToolErrorsAreResults(t *testing.T) {
 	}}
 	serveFake(t, wire.SocketPath(f.root), a)
 	i := start(t, f.env("OBOR_ROLE=integrator", "OBOR_AGENT=pj-x"), f.root)
-	i.tool(1, "job_next", nil)
-	if got := i.tool(2, "accept", map[string]any{"patch": "abc"}); !got.IsError ||
-		got.Content[0].Text != "accept: only the integrator (pj-int) gives verdicts, not pj-x (role integrator)" {
+	i.tool("job_next", nil)
+	if got := i.tool("accept", map[string]any{"patch": "abc"}); !got.IsError ||
+		got.Text != "accept: only the integrator (pj-int) gives verdicts, not pj-x (role integrator)" {
 		t.Errorf("the app's refusal: %+v; want it as the tool's error text", got)
 	}
 	// A requirement the tool itself checks: no patch, no request.
 	before := len(a.requests())
-	if got := i.tool(3, "accept", nil); !got.IsError || !strings.Contains(got.Content[0].Text, `"patch" argument is required`) {
+	if got := i.tool("accept", nil); !got.IsError || !strings.Contains(got.Text, "patch") {
 		t.Errorf("accept without a patch: %+v; want the argument named", got)
+	}
+	if got := i.tool("accept", map[string]any{"patch": ""}); !got.IsError || got.Text != `accept: the "patch" argument is required` {
+		t.Errorf("accept with an empty patch: %+v; want the argument named", got)
+	}
+	if got := i.tool("sendback", map[string]any{"why": 7}); !got.IsError || !strings.Contains(got.Text, "why") {
+		t.Errorf("sendback with a number: %+v; want the argument named", got)
 	}
 	if after := len(a.requests()); after != before {
 		t.Errorf("accept without a patch reached the app (%d requests after %d)", after, before)
@@ -609,11 +502,11 @@ func TestToolPreconditions(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	c := start(t, f.worker(), testkit.Dir(t))
-	if got := c.tool(1, "job_next", nil); !got.IsError || !strings.Contains(got.Content[0].Text, "not in an obor project") {
+	if got := c.tool("job_next", nil); !got.IsError || !strings.Contains(got.Text, "not in an obor project") {
 		t.Errorf("outside a project: %+v; want a tool error naming it", got)
 	}
 	n := start(t, f.env("OBOR_ROLE=worker"), f.lane)
-	if got := n.tool(1, "task_done", map[string]any{"report": "x"}); !got.IsError || !strings.Contains(got.Content[0].Text, "OBOR_LANE is not set") {
+	if got := n.tool("task_done", map[string]any{"report": "x"}); !got.IsError || !strings.Contains(got.Text, "OBOR_LANE is not set") {
 		t.Errorf("task_done without a lane: %+v; want a tool error naming OBOR_LANE", got)
 	}
 }
@@ -627,7 +520,7 @@ func TestCheck(t *testing.T) {
 		want string
 	}{
 		{f.worker(), "MCP OK (worker: job_next, task_done)"},
-		{f.env("OBOR_ROLE=integrator"), "MCP OK (integrator: job_next, accept, sendback, reject, resolved, hold)"},
+		{f.env("OBOR_ROLE=integrator"), "MCP OK (integrator: accept, hold, job_next, reject, resolved, sendback)"},
 		{f.env("OBOR_ROLE=lead"), "MCP OK (lead: no tools)"},
 		{f.env(), "MCP OK (-: no tools)"},
 	} {
@@ -643,17 +536,19 @@ func TestCheck(t *testing.T) {
 func TestNoRoleWarns(t *testing.T) {
 	t.Parallel()
 	var errOut bytes.Buffer
-	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n")
-	var out bytes.Buffer
-	if err := Serve(context.Background(), Options{Env: func(string) (string, bool) { return "", false }, In: in, Out: &out, Err: &errOut}); err != nil {
-		t.Fatal(err)
+	c := serveOn(t, context.Background(), Options{Env: func(string) (string, bool) { return "", false }, Err: &errOut})
+	ctx, cancel := context.WithTimeout(context.Background(), answerWait)
+	defer cancel()
+	list, err := c.cs.ListTools(ctx, nil)
+	if err != nil || list.Tools == nil || len(list.Tools) != 0 {
+		t.Errorf("tools/list: %+v, %v; want an empty table", list, err)
+	}
+	if err := c.stop(); err != nil {
+		t.Errorf("the server at EOF: %v; want no error", err)
 	}
 	const want = "obor mcp: OBOR_ROLE is not set: no tools (the client did not pass the agent's environment)\n"
 	if errOut.String() != want {
 		t.Errorf("stderr %q; want %q", errOut.String(), want)
-	}
-	if !strings.Contains(out.String(), `"tools":[]`) {
-		t.Errorf("tools/list: %s; want tools: []", out.String())
 	}
 }
 
@@ -704,8 +599,8 @@ func TestJobNextPerKind(t *testing.T) {
 			t.Fatalf("%s: the shape exports OBOR_AGENT", tc.kind)
 		}
 		before := len(a.requests())
-		got := start(t, tc.env, lane).tool(1, "job_next", nil)
-		if got.IsError || got.Content[0].Text != "JOB T-01/1/work (task T-01, attempt 1, step work)" {
+		got := start(t, tc.env, lane).tool("job_next", nil)
+		if got.IsError || got.Text != "JOB T-01/1/work (task T-01, attempt 1, step work)" {
 			t.Errorf("%s: job_next %+v; want the lane's job", tc.kind, got)
 		}
 		reqs := a.requests()
@@ -725,10 +620,10 @@ func TestNoCallerIdentity(t *testing.T) {
 	f := newFixture(t)
 	a := &fakeServe{answer: func(string, wire.Call) (string, string) { return "", "unexpected request" }}
 	serveFake(t, wire.SocketPath(f.root), a)
-	got := start(t, f.env("OBOR_ROLE=worker", "HERDR_PANE_ID=w1:p2"), f.root).tool(1, "job_next", nil)
+	got := start(t, f.env("OBOR_ROLE=worker", "HERDR_PANE_ID=w1:p2"), f.root).tool("job_next", nil)
 	want := "job_next: no caller identity: role worker without a lane: OBOR_LANE is not set and the cwd " + f.root +
 		" is no lane worktree"
-	if !got.IsError || got.Content[0].Text != want {
+	if !got.IsError || got.Text != want {
 		t.Errorf("job_next: %+v; want the error %q", got, want)
 	}
 	if n := len(a.requests()); n != 0 {
@@ -736,8 +631,8 @@ func TestNoCallerIdentity(t *testing.T) {
 	}
 	// A config that does not load is the missing input too.
 	f.write(f.root+"/.obor/config.json", `{`)
-	got = start(t, f.worker(), f.lane).tool(1, "job_next", nil)
-	if !got.IsError || !strings.HasPrefix(got.Content[0].Text, "job_next: no caller identity: the config does not load: ") {
+	got = start(t, f.worker(), f.lane).tool("job_next", nil)
+	if !got.IsError || !strings.HasPrefix(got.Text, "job_next: no caller identity: the config does not load: ") {
 		t.Errorf("job_next with a broken config: %+v; want the refusal naming the config", got)
 	}
 }
