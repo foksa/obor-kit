@@ -78,13 +78,7 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 		t.Errorf("status: lane models %+v, want L-01's row model opus and the free L-02's none", states)
 	}
 	// the setup view: the same row
-	ro, err := store.OpenRO(store.File(r.p.Root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ro.Close()
-	setup, err := view.Detail{Root: r.p.Root, Project: view.Build(view.Input{Lanes: checks.NewLaneTable(context.Background(), cfg), DB: ro,
-		Now: time.Now(), Events: 20})}.Setup()
+	setup, err := view.LoadSetup(context.Background(), r.p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

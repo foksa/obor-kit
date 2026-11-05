@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/event"
+	"obor/internal/checks"
 	"obor/internal/config"
 )
 
@@ -109,27 +111,47 @@ const distributionWindow = 7 * 24 * time.Hour
 // dispatch with neither (a level unknown to this binary sorts after them, so it still shows).
 var distributionLevels = []string{"hard", "medium", "simple", OverrideLevel, ""}
 
-// Setup is the project's setup read model: its config's difficulty levels and their models, lanes and roles, the
-// view's lane states, role statuses and pause, and the store's dispatch records (the config is read as obor web reads
-// it: LoadReader, an unknown key warns, it does not fail).
-func (d Detail) Setup() (Setup, error) {
+// LoadSetup is the setup page's read, narrow (T-880): one config read, serve's answer, the lane table (git: a lane's
+// state) and the store's dispatch records. It runs no ps and builds none of the overview's other facts (the queue, the
+// events, the full check, each task). An error is the config's, as Load's.
+func LoadSetup(ctx context.Context, root string) (Setup, error) {
+	return reading{}.setup(ctx, root)
+}
+
+func (r reading) setup(ctx context.Context, root string) (Setup, error) {
 	// the revision first: a write between the two reads leaves it older than what is shown, so an edit is refused
 	// rather than made on a page that hides a change
-	rev := ""
-	if doc, err := os.ReadFile(filepath.Join(d.Root, ".obor", "config.json")); err == nil {
-		rev = config.Rev(doc)
+	rev := configRev(root)
+	in := r.open(ctx, root)
+	defer in.close()
+	if in.err != nil {
+		return Setup{}, in.err
 	}
-	cfg, _, err := config.LoadReader(d.Root)
+	v := Project{}
+	serveOf(&v, in.ss, in.serr, in.p, nil)
+	return setup(in.cfg, in.p.States(), v, in.db, rev, time.Now()), nil
+}
+
+// configRev is .obor/config.json's revision under root (config.Rev; "": no file): the page's edits name it, and serve
+// refuses them once the file is another one (T-760).
+func configRev(root string) string {
+	doc, err := os.ReadFile(filepath.Join(root, ".obor", "config.json"))
 	if err != nil {
-		return Setup{}, err
+		return ""
 	}
+	return config.Rev(doc)
+}
+
+// setup is Setup for one config snapshot (cfg), the lane table's rows (lanes), the view's role rows and pauses (v), the
+// store (db) and the config.json revision the page read (rev).
+func setup(cfg *config.Config, lanes []checks.LaneStatus, v Project, db *sql.DB, rev string, now time.Time) Setup {
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.Difficulty = append(s.Difficulty, SetupLevel{Level: level, Types: append([]string{}, cfg.DifficultyList(level)...)})
 	}
-	states := map[string]Lane{}
-	for _, l := range d.Project.Lanes {
+	states := map[string]checks.LaneStatus{}
+	for _, l := range lanes {
 		states[l.Lane] = l
 	}
 	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
@@ -137,11 +159,11 @@ func (d Detail) Setup() (Setup, error) {
 			State: states[l.Name].State})
 	}
 	status := map[string]string{}
-	for _, r := range d.Project.Roles {
+	for _, r := range v.Roles {
 		status[r.Role] = r.Status
 	}
-	if d.Project.Lead != nil {
-		status["lead"] = d.Project.Lead.Status
+	if v.Lead != nil {
+		status["lead"] = v.Lead.Status
 	}
 	for _, rc := range cfg.RoleAgents() { // the worker's rows are the lanes; a custom role is listed like any other
 		s.Roles = append(s.Roles, SetupRole{Role: rc.Role.Name, Agent: rc.Agent,
@@ -156,17 +178,15 @@ func (d Detail) Setup() (Setup, error) {
 		}
 		_, builtin := config.BuiltinModelNamed(name)
 		s.Models = append(s.Models, SetupModel{Name: name, Kind: m.Kind, Model: m.ID, Builtin: builtin, Efforts: efforts,
-			Paused: d.Project.ModelPauses[name]})
+			Paused: v.ModelPauses[name]})
 	}
 	for _, kind := range agents.Names() {
 		k := cfg.Data.Kinds.M[kind]
 		s.Kinds = append(s.Kinds, SetupKind{Name: kind, Args: append([]string{}, k.Args...), PromptExtra: k.PromptExtra != ""})
 	}
-	s.Paused = d.Project.Paused
-	db, close := d.open()
-	defer close()
-	s.Distribution = distribution(db, time.Now())
-	return s, nil
+	s.Paused = v.Paused
+	s.Distribution = distribution(db, now)
+	return s
 }
 
 // setupTypes is the setup's model list: one entry per model ref the levels name, in level order (a ref two levels

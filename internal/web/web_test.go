@@ -78,7 +78,13 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 	s := &Server{
 		Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
 		Build:    func(context.Context, string) (view.Project, error) { return want, nil },
-		Events:   20,
+		Task: func(context.Context, string) (view.Detail, error) {
+			return view.Detail{Root: p.Root, Project: want}, nil
+		},
+		Agent: func(context.Context, string) (view.Detail, error) {
+			return view.Detail{Root: p.Root, Project: want}, nil
+		},
+		Events: 20,
 	}
 	return p, want, s
 }
@@ -352,7 +358,7 @@ func TestAgentPageOfRoles(t *testing.T) {
 	if r, ok := roles["pj-advisor"]; !ok || r.Status != view.RoleStopped {
 		t.Fatalf("precondition: the advisor's role row says stopped: %+v, %v", r, ok)
 	}
-	s.Build = func(context.Context, string) (view.Project, error) { return v, nil }
+	s.Agent = func(context.Context, string) (view.Detail, error) { return view.Detail{Root: p.Root, Project: v}, nil }
 	h := s.Handler()
 	for _, c := range []struct {
 		agent string
@@ -461,6 +467,30 @@ func TestEventsSince(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the poll did not answer a new record")
+	}
+}
+
+// T-880: the task, agent and setup pages never build the overview: their narrow reads answer, and a Build that counts
+// is not asked. /api/view still builds it.
+func TestDetailPagesDoNotBuildTheView(t *testing.T) {
+	_, _, s := fixture(t)
+	built := 0
+	s.Build = func(context.Context, string) (view.Project, error) {
+		built++
+		return view.Project{}, nil
+	}
+	h := s.Handler()
+	for _, url := range []string{"/api/task?project=pj&task=T-01", "/api/agent?project=pj&agent=pj-l1",
+		"/api/setup?project=pj"} {
+		if r := get(t, h, url); r.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", url, r.Code, r.Body.String())
+		}
+	}
+	if built != 0 {
+		t.Errorf("the detail and setup pages built the overview %d times; want none", built)
+	}
+	if r := get(t, h, "/api/view?project=pj"); r.Code != http.StatusOK || built != 1 {
+		t.Errorf("/api/view: %d, %d overview builds; want 200 and one", r.Code, built)
 	}
 }
 
@@ -621,7 +651,8 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 }
 
 // T-714, T-727: /api/projects counts the agents' recorded background processes for the overview card (a long
-// foreground command is not counted), /api/agent lists an agent's own, and the page reads both.
+// foreground command is not counted), and an agent page shows the processes its read supplies (T-880: the narrow agent
+// read scans none; the overview is where they are read); the page reads both.
 func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -640,7 +671,8 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 		Background: map[string][]view.Background{"pj-l1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
 			{PID: 8, Command: "go test ./...", Age: 300}}}})
 	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },
-		Build: func(context.Context, string) (view.Project, error) { return v, nil }}
+		Build: func(context.Context, string) (view.Project, error) { return v, nil },
+		Agent: func(context.Context, string) (view.Detail, error) { return view.Detail{Root: p.Root, Project: v}, nil }}
 	var entries []ProjectsEntry
 	decode(t, get(t, s.Handler(), "/api/projects"), &entries)
 	if len(entries) != 1 || entries[0].Background != 2 {
