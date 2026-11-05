@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -518,17 +519,22 @@ func TestTurnFailsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 	sock := filepath.Join(sockDir(t), "serve.sock")
 	c := wire.Call{Root: "/r", Agent: "pj-l-01", Role: "worker", Lane: "L-01", CallID: "t1"}
-	start := time.Now()
-	_, err := wire.Verdict(context.Background(), sock, wire.MethodTurn, c)
-	d := time.Since(start)
-	if err == nil {
-		t.Fatal("a turn with no serve answered")
-	}
-	if d < 7*time.Second || d > 8500*time.Millisecond {
-		t.Errorf("failed after %v; want at the turn's 8 s deadline", d)
-	}
+	// The call's wait is in a synctest bubble: with no socket every dial fails at once and the retries' waits and the
+	// deadline run on fake time (8.8 s before). A live listener cannot be in the bubble: a goroutine in Accept is not
+	// durably blocked, so the fake clock would stall.
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		_, err := wire.Verdict(context.Background(), sock, wire.MethodTurn, c)
+		d := time.Since(start)
+		if err == nil {
+			t.Fatal("a turn with no serve answered")
+		}
+		if d < 7*time.Second || d > 8500*time.Millisecond {
+			t.Errorf("failed after %v; want at the turn's 8 s deadline", d)
+		}
+	})
 	s := serveStoring(t, sock, 0, false) // the serve is back after the caller gave up
-	time.Sleep(time.Second)
+	time.Sleep(250 * time.Millisecond)   // real: a late listener needs no second, the caller is gone
 	if conns, applied, _ := s.counts(); conns != 0 || len(applied) != 0 {
 		t.Errorf("after the deadline the serve saw %d connections, applied %v; want nothing", conns, applied)
 	}
