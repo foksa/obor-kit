@@ -193,6 +193,14 @@ overrides both.
   the job's wake as its first prompt, a resumed one has it typed (`job T-xx/n/work: its wake …`). It never leaves an
   idle worker with no job; with no task on the lane it is unchanged.
 
+## obor stop and obor start (T-709, T-867)
+`obor stop ["<why>"] [--force]` puts the project to sleep: serve paused first, every agent but yours stopped, serve
+ended, the project out of `obor projects`, its hooks standing down (`STOPPED <name>`; files and config stay). A task in
+progress refuses it; `--force` goes on and keeps those tasks open in the log — `obor start` wakes the project and they
+continue there. It refuses from a worker lane, with serve down (start it first), and when herdr does not answer; a serve
+that is not launchd's (in a pane, or run by hand) is asked to exit over its socket. `obor start` installs serve again,
+registers the project and ends the stop's pause (`STARTED <name>`; agents start on first use).
+
 ## obor drive and obor land (T-751)
 The owner iterates by hand (the web page's design after a worker's first pass, say) in a plain interactive agent on its
 own branch, then sends the result through the same gate, integrator and merge as any task. A drive is a task on a
