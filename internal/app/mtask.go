@@ -30,7 +30,7 @@ func (p *proj) foldLoop(r event.Record) {
 	if r.Kind == event.KindFact && r.Step == event.StepDropped {
 		if mt != nil {
 			mt.unblock()
-			mt.state, mt.dropped, mt.droppedSeq = stDropped, r.Fact().Reason, r.Seq
+			mt.state, mt.dropped, mt.droppedSeq, mt.endedAt = stDropped, r.Fact().Reason, r.Seq, event.RecordTime(r)
 		}
 		return
 	}
@@ -83,7 +83,7 @@ func (p *proj) foldLoop(r event.Record) {
 			_ = json.Unmarshal(r.Data, &d)
 			mt.unblock()
 			mt.state = stMerged
-			mt.head, mt.mergedSeq = d.Head, r.Seq
+			mt.head, mt.mergedSeq, mt.endedAt = d.Head, r.Seq, event.RecordTime(r)
 			if d.Outside {
 				mt.after = len(afterSteps)
 			}

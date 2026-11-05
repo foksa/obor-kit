@@ -1,0 +1,118 @@
+// rules.go: the rule pass (T-866; docs/design.md "Change rules" 1, the rule tier). Serve recomputes each rule's
+// condition from the current state on every merge-loop pass and acts: a line, or one idempotent call. A rule is done
+// when its action's effect shows in state; only a line records did{key} (its message fact's Of). A rule has no intent,
+// crash class, replay case, claim or fold of its own; its written failure mode: after a crash an action may run twice,
+// or one pass late.
+package app
+
+import (
+	"context"
+	"errors"
+	"obor/internal/app/event"
+	"strconv"
+	"time"
+)
+
+// rule is a name and its condition: when, under mu on p's state at now, is the record the rule is keyed by and its
+// action (ok false: the condition does not hold). The action runs once the condition has held with the same key for
+// settle (counted from the first pass that saw it; a restart counts again), and never for a key whose line is recorded.
+type rule struct {
+	name   string
+	settle time.Duration
+	when   func(a *App, p *proj, now time.Time) (key int64, act action, ok bool)
+}
+
+// action is a rule's effect: call (nil: none), then the lead's line, recorded with Of{the rule's name, its key} ("":
+// none). A failed call records no line, so the next pass runs both again.
+type action struct {
+	call func(ctx context.Context) error
+	line string
+}
+
+// ruleLive is a rule's state in this process: the key its condition holds with and since when, and its failed
+// actions in a row.
+type ruleLive struct {
+	key   int64
+	since time.Time
+	fails int
+}
+
+// ruleFails is how many failed actions in a row make a rule's needs-you.
+const ruleFails = 3
+
+// rules are serve's rules, in the order a pass runs them.
+var rules = []rule{
+	{name: ruleIdle, settle: idleSettle, when: idleRule},
+	{name: ruleIdlePing, when: idlePingRule}, // its line went after the idle line's settle
+}
+
+// rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines): a rule whose
+// condition has held for its settle acts; a failed action counts, and ruleFails in a row put one needs-you naming the
+// first such rule in force (task key rule), ended once no rule fails that often.
+func (a *App) rulePass(ctx context.Context, rs []rule) {
+	a.mu.Lock()
+	p := a.p
+	run := p != nil && p.merging
+	a.mu.Unlock()
+	if !run {
+		return
+	}
+	failing, now := "", a.opt.Now()
+	for _, r := range rs {
+		a.mu.Lock()
+		key, act, ok := r.when(a, p, now)
+		live, seen := p.rules[r.name]
+		if !seen || live.key != key {
+			live = ruleLive{key: key, since: now}
+		}
+		of := event.Of{Kind: r.name, Seq: key}
+		_, did := p.folded.did[of]
+		due := ok && !did && now.Sub(live.since) >= r.settle
+		lead := p.out.lead()
+		a.mu.Unlock()
+		fails := 0
+		if due {
+			if err := a.act(ctx, p, lead, of, act); err != nil {
+				fails = live.fails + 1
+				a.logf("%s rule %s (key %d): %v", p.name, r.name, key, err)
+			}
+		}
+		live.fails = fails
+		a.mu.Lock()
+		if ok {
+			p.rules[r.name] = live
+		} else {
+			delete(p.rules, r.name)
+		}
+		a.mu.Unlock()
+		if fails >= ruleFails && failing == "" {
+			failing = r.name
+		}
+	}
+	reason := ""
+	if failing != "" {
+		reason = "rule " + failing + " failed " + strconv.Itoa(ruleFails) + " passes in a row (serve's log names the errors)"
+	}
+	a.settleNeeds(p, event.RuleTask, reason)
+}
+
+// act runs a rule's action: its call, then its line to lead with the back-reference of (the rule's did key).
+func (a *App) act(ctx context.Context, p *proj, lead string, of event.Of, act action) error {
+	if act.call != nil {
+		if err := act.call(ctx); err != nil {
+			return err
+		}
+	}
+	if act.line == "" {
+		return nil
+	}
+	if lead == "" {
+		return errors.New("no lead to line")
+	}
+	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
+		event.Message{To: lead, From: "obor", Line: act.line, Of: of}) {
+		return errors.New("the event log refused the line")
+	}
+	a.wake() // the next pass delivers it
+	return nil
+}

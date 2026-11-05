@@ -58,13 +58,15 @@ review request that follows the last merge is work, not idle), it posts one line
 
 (also `last: T-xx dropped: <why>`). A watch on the same merge comes first, then this line.
 
-- `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why and stops the ping;
-  `obor status` then shows `idle: <why>`. A dispatch or a review request ends the idle state as well.
+- The state belongs to the merge or drop that emptied the pipeline: one line per such record. A dispatch or a review
+  request ends it; work that ends without a new merge or drop (a review, a verify) returns to the same state, with no
+  new line.
+- `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that merge or drop
+  and stops the ping; `obor status` then shows `idle: <why>`. Made inside the minute, no line goes at all.
 - `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE`.
-- Unacknowledged after 30 minutes: one more line to you and a herdr notification to the owner; after that only `obor
-  status` and obor web show `idle, not acknowledged since <time>` (never a third line).
-- A serve restart derives the state from the store: an unacknowledged idle pings once more, an acknowledged one is
-  silent. A restart during the minute starts it again.
+- Unacknowledged 30 minutes after the line: one more line to you and a herdr notification to the owner; after that
+  only `obor status` and obor web show `idle, not acknowledged since <time>` (never a third line). After a serve
+  crash a line may come twice; a restart during the minute starts it again.
 
 ## Setup edits from obor web (T-753)
 The owner may change the setup on obor web's Setup page instead of editing `.obor/config.json`: a difficulty level's

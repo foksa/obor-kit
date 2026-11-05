@@ -143,9 +143,9 @@ type proj struct {
 	// idleWait: since when the integrator's pane has been identified and not Ready, the interval its jobs' fresh
 	// starts wait out (not recorded: a replay starts it afresh; T-602, T-606).
 	idleWait idleWait
-	// idleSince: since when idleNow has held at every idle check (zero: it has not, or not since a restart): the idle
-	// line waits out idleSettle from it (T-859). Not recorded: a restart starts it again; under mu.
-	idleSince time.Time
+	// rules: each rule's live state in the rule pass (rules.go, T-866): the key its condition holds with, since when,
+	// and its failed actions in a row. Not recorded: a restart starts it again; under mu.
+	rules map[string]ruleLive
 	// dispatching: the merge loop's last pass had the dispatch adapters (Loop.Lane, Loop.Specs); nopane: since when a
 	// dispatched task's lane has no pane, by task; waitLine: a waiting task's last refused dispatch (logged on change)
 	// and since when that refusal holds.
@@ -222,14 +222,16 @@ type folded struct {
 	sessions []store.Session
 	// roles: serve's stops of role agents (rolestop.go, T-672).
 	roles roleStops
-	// idle: the project's last idle announce and the lead's acknowledgement (idle.go, T-803; nil: none in force).
-	idle *idleState
+	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.
+	did map[event.Of]time.Time
+	// idleAck: the lead's last acknowledgement of an idle state (idle.go, T-803, T-866; zero: none).
+	idleAck idleAck
 }
 
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
-		refusals: map[string]string{}, loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{},
+		refusals: map[string]string{}, loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
 		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 

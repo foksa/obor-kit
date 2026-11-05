@@ -133,8 +133,11 @@ func (a *App) Status() wire.Status {
 			w := p.folded.watches[set]
 			ps.Watches = append(ps.Watches, wire.WatchStatus{Task: set, By: w.by, Note: w.note, Since: w.at.Unix()})
 		}
-		if st := p.idleEpoch(p.idleNow()); st != nil {
-			ps.Idle = &wire.IdleStatus{Since: st.at.Unix(), Last: st.last, Acked: st.ack, Why: st.why}
+		if n := p.idleNow(); n.ok {
+			ps.Idle = &wire.IdleStatus{Since: n.at.Unix(), Last: n.last}
+			if ack := p.folded.idleAck; ack.Key == n.end {
+				ps.Idle.Acked, ps.Idle.Why = true, ack.Why
+			}
 		}
 		sort.Slice(ps.Tasks, func(i, j int) bool { return ps.Tasks[i].Task < ps.Tasks[j].Task })
 		sort.Slice(ps.Facts, func(i, j int) bool { return ps.Facts[i].Seq < ps.Facts[j].Seq })
