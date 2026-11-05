@@ -34,6 +34,9 @@ the app tells the owner what needs them.
      (`git checkout -q --detach <sha>`), or read it with `git show <sha>:<path>` / the `git diff` the job gives. Never
      check out in the merge scratch (`merge.scratch_dir`): serve's gates run there. The gate's run and the worker's
      reported numbers are the test evidence.
+     A new field or type that copies data another type already holds (a task's title, state or lane in a second
+     shape): `sendback` naming the owner type, unless it is a real boundary (wire contract, store row, adapter, test
+     fake) or the spec says why (owner 11-05).
 
 
 

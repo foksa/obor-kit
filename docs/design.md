@@ -45,7 +45,8 @@ read in place from the kit (T-204; projects keep only short `docs/agents/<role>.
 4. **No by-hand twin of an automated path**, unless a store shows it used within one release.
 5. **A compat fold branch names its release**; at each release a census of every registered store deletes the
    branches with no records. A command that changes state is a serve call; a CLI does no multi-step work.
-6. **Reviews** ask "what did this make redundant? name it or confirm it is gone". On rule-tier steps a crash or
+6. **Reviews** ask "what did this make redundant? name it or confirm it is gone" and "does it add a field or type
+   that copies data another type already holds? name the owner type" (owner 11-05: a task had five shapes). On rule-tier steps a crash or
    interleaving finding counts only when a kernel guarantee breaks, and its fix goes to the integrator, not a reviewer
    round. No coverage-ratchet findings; a rule's test is one table (condition → action); deleting a mechanism is how
    tests are pruned.

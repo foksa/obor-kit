@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **Reviews ask about copied data.** The reviewer's briefs and the integrator's review ask "does
+  it add a field or type that copies data another type already holds? name the owner type" (docs/design.md "Change
+  rules" 6; integrator: sendback unless a real boundary or the spec says why). Cause: one task had five shapes in
+  `internal/view` (a queued task lost its title); Fable's advice named it (items 6-7) but the combined plan had no task
+  for it. T-883 gives the view one `Task`; the researcher surveys the rest (docs/research/data-model.md); T-884 puts
+  the question into serve's brief text.
 - 2026-11-05 (owner, library-adoption-proposal-2026-11-05.md): **try `testing/synctest`** (test-only pilot, T-876)
   and **the official MCP Go SDK** (trial, T-877: new dependency approved for it; adopted only if `internal/mcp` shrinks
   and all three kinds' live conformance passes). Not now: go-workflows (two recovery systems during a migration;
