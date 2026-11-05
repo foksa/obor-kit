@@ -1,7 +1,7 @@
-// stopstep.go: the stop of a task's worker as a step of the merge loop (T-852). A move (obor dispatch --model), a
-// take-over (obor drive <T-xx>) and a drop (obor drop) record their decision and answer at once; the worker's stop is
-// then the intent worker.stop of the task's next pass, before the step that needs its lane (the redo's lane.prepare
-// and agent.start, the drive agent's start by the CLI, the drop's lane.free). Its outcome is one line to the lead: the
+// stopstep.go: the stop of a task's worker as a step of the merge loop (T-852). A move (obor dispatch --model) and a
+// drop (obor drop) record their decision and answer at once; the worker's stop is then the intent worker.stop of the
+// task's next pass, before the step that needs its lane (the redo's lane.prepare and agent.start, the drop's
+// lane.free). Its outcome is one line to the lead: the
 // stop's (stopped, not running), or for a stop that fails its needs-you's line, which obor resume retries (a drop's that
 // needs --force: obor drop --force). A restart replays it: a pending intent runs again, a result is never run twice.
 // A drop is recorded before its lane steps (fact dropping): a step that fails after it is retried by the loop, or is
@@ -23,8 +23,8 @@ import (
 // causeStop is the needs-you of a worker.stop that failed: obor resume retries it.
 const causeStop = "stop"
 
-// halt is the stop of a task's worker its move, take-over or drop asked for (mtask.halt): agent "" none; force: a
-// working agent is stopped too (a move's and a take-over's always, a drop's with --force); n the last worker.stop.N
+// halt is the stop of a task's worker its move or drop asked for (mtask.halt; an old log's take-over too:
+// foldOldDrive): agent "" none; force: a working agent is stopped too (a move's always, a drop's with --force); n the last worker.stop.N
 // with a result (the next is n+1, a pending intent's key); done once a result says stopped or gone; refused a result's
 // refusal (the needs-you's why; obor resume clears it); line a done result's lead line, told once its message folded.
 type halt struct {

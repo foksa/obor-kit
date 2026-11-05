@@ -62,7 +62,7 @@ func verdictMethod(step string) (method, callID string) {
 // needs-you) and a resume (its unblocked) store theirs. Which job is open is the merge loop's (mtask.openJob).
 func (p *proj) foldJob(r event.Record) {
 	switch {
-	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting || r.Step == event.StepDrive):
+	case r.Kind == event.KindFact && (r.Step == event.StepDispatched || r.Step == event.StepWaiting):
 		var d dispatchData
 		_ = json.Unmarshal(r.Data, &d)
 		method := wire.MethodDispatch
@@ -277,8 +277,8 @@ func dropReply(task string) string { return "DROPPED " + task }
 // same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
 // holds it (serve knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one
 // fact, dropping{lane, worker, why, force, discard}, answered DROPPING at once; the merge loop then stops its worker,
-// frees its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's or a
-// take-over's old worker, with its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and
+// frees its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's old
+// worker, with its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and
 // its lane row, its needs-you and timers end. The mark ends with the record (a failed write: the drop is refused).
 func (a *App) drop(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {

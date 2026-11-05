@@ -69,7 +69,7 @@ type (
 		Fix    string `json:"fix,omitempty"`
 		Answer bool   `json:"answer,omitempty"`
 		// Stop: the worker the merge loop stops (with force) before the step that needs the lane (T-852): a move's (the
-		// redo's, before lane.prepare), a take-over's (fact drive, before the drive agent starts). "": none.
+		// redo's, before lane.prepare; an old log's fact drive had one too: foldOldDrive). "": none.
 		Stop   string `json:"stop,omitempty"`
 		Caller string `json:"caller,omitempty"`
 		Call   string `json:"call,omitempty"`

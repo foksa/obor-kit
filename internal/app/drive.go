@@ -4,11 +4,10 @@
 //
 // A drive is a task on a lane, so the dispatch's machinery does the work. A new drive (obor drive <name>) is a new
 // task id with the spec "Owner drive: <name>", recorded as fact dispatch{drive} on the first free untyped lane: the
-// merge loop prepares the lane (lane.prepare), and the task is driving. A take-over (obor drive <T-xx>) of a task its
-// worker works on is fact drive{lane, agent, stop}: the task is driving in its lane, branch and spec, and the merge loop
-// stops the worker (worker.stop, T-852). In both the CLI then starts the drive agent in the owner's tab, once the lane
-// is prepared and the worker stopped: serve sends no job. While
-// driving, serve sends the task no jobs, its watchdog does not watch it, and a merge watch has no line for it.
+// merge loop prepares the lane (lane.prepare), and the task is driving; the CLI then starts the drive agent in the
+// owner's tab, once the lane is prepared: serve sends no job. A drive is new work only (owner 11-05, T-912): obor drive
+// <T-xx> on a task that is not a drive is refused, never a take-over of a worker's task. While driving, serve sends
+// the task no jobs, its watchdog does not watch it, and a merge watch has no line for it.
 // obor land submits it (fact submitted{land}, the owner's summary as its report); from there it is an ordinary
 // submitted task. A red gate, the integrator's sendback or hold go back to driving with one line to the lead
 // (pickDriving), never to a worker; after the merge, agent.stop stops the drive agent and the lane is free.
@@ -36,9 +35,8 @@ import (
 // driveTitle is a drive's spec title: "Owner drive: <name>".
 const driveTitle = "Owner drive: "
 
-// The points a test hooks (App.hook) to interleave a take-over or a resume and a task_done deterministically.
+// The points a test hooks (App.hook) to interleave a resume and a task_done deterministically.
 const (
-	hookDriveLocked   = "drive.locked"    // a take-over holds a.submitMu, before its decision
 	hookTaskDoneWaits = "task_done.waits" // task_done, before it takes a.submitMu
 	hookTaskDoneCheck = "task_done.check" // task_done holds a.submitMu, its checks passed, before its record
 	hookResumeWaits   = "resume.waits"    // obor resume holds a.verdicts, before it takes a.submitMu
@@ -53,25 +51,14 @@ func (a *App) hook(point string) {
 }
 
 // driveCall answers the socket's drive request (the owner or the lead): a call id is required and a repeated one gets
-// the stored reply. Call.Task: a take-over of that task (takeOver); else a new drive named Call.Note (newDrive). A task
-// already driving (or the open drive of that name) whose drive agent is not running is started again (driveAgain:
-// nothing recorded). The reply is DRIVE <task> → <lane> (<drive agent>, <type ref>), a take-over's DRIVING <task> →
-// <lane> (<drive agent>, <type ref>) taking over (stopping <worker>): the CLI starts the drive agent; DRIVING …: <agent>
-// runs already: it runs.
-//
-// A take-over records fact drive at once (T-852), under a.submitMu too, task_done's and land's lock (RV-92 #3): a task
-// submitted meanwhile is refused, a task driving refuses task_done. The worker's stop is the merge loop's worker.stop
-// (stopstep.go: with force, through serve's identity of it, RV-93 #1), and the CLI starts the drive agent only once it
-// is done (obor status' Stopping); a stop that fails is the owner's needs-you, which obor resume retries.
-// It decides and records under a.verdicts, a take-over under a.submitMu too (lock order a.verdicts, then a.submitMu).
+// the stored reply. Call.Task: that task, a drive already (driveAgain; any other task refused: a drive is new work
+// only, T-912); else a new drive named Call.Note (newDrive). A task already driving (or the open drive of that name)
+// whose drive agent is not running is started again (driveAgain: nothing recorded). The reply is DRIVE <task> → <lane>
+// (<drive agent>, <type ref>): the CLI starts the drive agent; DRIVING …: <agent> runs already: it runs.
+// It decides and records under a.verdicts.
 func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
 	a.verdicts.Lock()
 	defer a.verdicts.Unlock()
-	if c.Task != "" {
-		a.submitMu.Lock()
-		defer a.submitMu.Unlock()
-		a.hook(hookDriveLocked)
-	}
 	if c.CallID == "" || c.Task == "" && strings.TrimSpace(c.Note) == "" {
 		return "", errors.New("drive: a call id and a name or a task are required")
 	}
@@ -107,7 +94,7 @@ func (a *App) driveCall(ctx context.Context, c wire.Call) (string, error) {
 		return "", fmt.Errorf("drive off for %s (no lane adapter)", p.name)
 	}
 	if c.Task != "" {
-		return a.takeOver(p, c)
+		return a.driveAgain(p, c.Task)
 	}
 	return a.newDrive(ctx, p, fx, c)
 }
@@ -129,7 +116,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 		return "", err
 	}
 	if t := a.driveNamed(p, name); t != "" {
-		return a.driveAgain(p, cfg, t)
+		return a.driveAgain(p, t)
 	}
 	ref := ""
 	if len(c.Types) > 0 {
@@ -193,64 +180,12 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	return d.Reply, nil
 }
 
-// takeOver decides and records the owner's take-over of c.Task (under a.verdicts and a.submitMu): fact drive{lane,
-// agent: the drive agent, stop: its worker} on a task its worker works on (working, or dispatched with its lane
-// prepared, or a needs-you either left), its lane, branch, spec and type kept; the merge loop stops the worker next
-// (worker.stop). A drive already (driving, or a new drive's dispatch) is started again (driveAgain). Refused, nothing
-// recorded: not open, gating, merging, under review or any other state of the merge loop (submitted meanwhile
-// included); a step of it running.
-func (a *App) takeOver(p *proj, c wire.Call) (string, error) {
-	cfg, err := config.LoadDaemon(p.root)
-	if err != nil {
-		return "", err
-	}
-	a.mu.Lock()
-	var mt mtask
-	if m := p.folded.loop[c.Task]; m != nil {
-		mt = *m
-	}
-	busy := p.busy(c.Task)
-	dir := p.laneDir(mt)
-	a.mu.Unlock()
-	st := mt.state // a blocked task's phase: a take-over fixes a worker's needs-you by hand
-	switch {
-	case mt.task == "":
-		return "", fmt.Errorf("drive %s: %s is not open in obor serve", c.Task, c.Task)
-	case mt.drive && (st == stDriving || st == stDispatched):
-		return a.driveAgain(p, cfg, c.Task)
-	case !mt.may(vDrive) || st == stDispatched && mt.base == "":
-		return "", fmt.Errorf("drive %s: %s is %s: obor drive takes over a task its worker works on, not one gating, "+
-			"merging or under review", c.Task, c.Task, mt.shown())
-	case busy != "":
-		return "", busyErr("drive", c.Task, busy)
-	}
-	worker := mt.agent
-	if worker == "" {
-		worker = cfg.AgentName("worker", mt.lane)
-	}
-	agent := roles.DriveAgent(worker)
-	ref := mt.disp.Type
-	d := dispatchData{Lane: mt.lane, Dir: dir, Agent: agent, Branch: mt.disp.Branch, Target: mt.disp.Target,
-		Effort: mt.disp.Effort, Type: ref, Drive: true, Stop: worker, Caller: callerOf(c), Call: c.CallID,
-		Reply: takeOverReply(c.Task, mt.lane, agent, ref, worker)}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDrive, Kind: event.KindFact}, d) {
-		return "", fmt.Errorf("drive: the event log of %s refused it", p.name)
-	}
-	a.wake()
-	return d.Reply, nil
-}
-
-// takeOverReply is a take-over's reply: DRIVING <task> → <lane> (<agent>, <type ref>) taking over (stopping <worker>).
-func takeOverReply(task, lane, agent, ref, worker string) string {
-	return "DRIVING" + strings.TrimPrefix(driveReply(task, lane, agent, ref), "DRIVE") + " taking over (stopping " +
-		worker + ")"
-}
-
 // driveAgain answers obor drive on task, a drive already (driving, or a new drive's dispatch; under a.verdicts):
 // nothing recorded. Its drive agent running: DRIVING <task> → <lane>: <agent> runs already (the CLI starts nothing);
 // else DRIVE <task> → <lane> (<agent>, <type ref>) on its recorded lane and type, and the CLI starts the agent again
-// (RV-92 #2: a start that failed is retried by the same command).
-func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, error) {
+// (RV-92 #2: a start that failed is retried by the same command). Refused, nothing recorded: a task that is not a drive
+// (a worker's, whatever its state, or none open: T-912), a drive no longer driving (landed).
+func (a *App) driveAgain(p *proj, task string) (string, error) {
 	a.mu.Lock()
 	var mt mtask
 	if m := p.folded.loop[task]; m != nil {
@@ -258,7 +193,10 @@ func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, erro
 	}
 	w := a.whereIs(p, mt.agent)
 	a.mu.Unlock()
-	if st := mt.state; !mt.drive || st != stDriving && st != stDispatched {
+	if !mt.drive {
+		return "", fmt.Errorf("%s is not a drive; obor drive <name> starts one", task)
+	}
+	if st := mt.state; st != stDriving && st != stDispatched {
 		return "", fmt.Errorf("drive %s: %s is %s, not driving", task, task, Dash(mt.shown()))
 	}
 	if w.State == Identified {
@@ -268,19 +206,32 @@ func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, erro
 	return driveReply(task, mt.lane, mt.agent, ref) + " again: its agent is not running", nil
 }
 
-// foldDrive folds fact drive (a take-over): the task is driving, the drive agent's, its needs-you ended; its lane,
-// branch, spec and attempt stay; its worker's stop is asked for (halt).
-func (p *proj) foldDrive(r event.Record) {
-	mt := p.folded.loop[r.Task]
-	if mt == nil || mt.state == stDropped || states[mt.state].ended {
+// foldOldDrive folds fact drive, a past take-over of a worker's task (T-751, T-852): old logs only; goes with the log
+// snapshot (owner 11-05; T-912: no record writes it now). It is the one reader of the record, called by foldRecord
+// after foldLanes, and folds it as the take-over did: its call's stored reply; the task driving, the drive agent's, its
+// needs-you ended, its lane, branch, spec and attempt kept, its worker's stop asked for (halt); the lane row's agent
+// the drive agent.
+func (p *proj) foldOldDrive(r event.Record) {
+	if r.Kind != event.KindFact || r.Step != event.StepDrive {
 		return
 	}
 	var d dispatchData
 	_ = json.Unmarshal(r.Data, &d)
+	if d.Call != "" {
+		p.folded.calls[verdictStep(wire.MethodDrive, d.Call)] = d.Reply
+	}
+	if row, ok := p.folded.lr.rows[d.Lane]; ok && row.Task == r.Task {
+		row.Agent = d.Agent
+		p.folded.lr.rows[d.Lane] = row
+	}
+	mt := p.folded.loop[r.Task]
+	if mt == nil || mt.state == stDropped || states[mt.state].ended {
+		return
+	}
 	mt.unblock()
 	mt.drive, mt.agent, mt.state = true, d.Agent, stDriving
 	mt.attemptVars, mt.refused = attemptVars{}, ""
-	if d.Stop != "" { // the worker stopped first (T-852): the CLI starts the drive agent once it is
+	if d.Stop != "" {
 		mt.halt.ask(d.Stop, true)
 	}
 	mt.disp.Drive = true
@@ -289,13 +240,9 @@ func (p *proj) foldDrive(r event.Record) {
 	}
 }
 
-// pickDriving is a driving task's step (under mu): a take-over's stop of the worker (pickStop), the lead's line once a
-// red gate, a sendback or a hold sent it back (its why in line; message{drive: the attempt} marks it told), else
-// nothing: the owner drives.
+// pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back
+// (its why in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
 func (a *App) pickDriving(p *proj, mt mtask) step {
-	if s := a.pickStop(p, mt); s != nil || mt.halt.pending() { // a take-over's: the worker stopped first (T-852)
-		return s
-	}
 	lead := p.out.lead()
 	if mt.line == "" || mt.lined || lead == "" {
 		return nil

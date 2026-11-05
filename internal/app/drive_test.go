@@ -17,8 +17,8 @@ import (
 	"obor/internal/testkit"
 )
 
-// The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free lane, or a
-// take-over of a working task), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
+// The owner's drive (T-751) on the dispatch rig: obor drive's request (a new drive on the first free lane; a worker's
+// task refused, T-912), the driving state, obor land's request, and the merge loop after it. Lane L-01 is made
 // free for a new drive; the CLI's start of the drive agent is the rig's pane w1:p5 (driveAgentUp).
 
 // newDriveRig is the dispatch rig with L-01 free, and the app started.
@@ -29,8 +29,8 @@ func newDriveRig(t *testing.T, edits ...func(map[string]any)) *loopRig {
 	return r
 }
 
-// drive is obor drive's request by the owner (no role): a new drive named name (types: its --type), or a take-over
-// when name is a task id.
+// drive is obor drive's request by the owner (no role): a new drive named name (types: its --type), or a task's when
+// name is a task id.
 func (r *loopRig) drive(callID, name string, types ...string) (string, error) {
 	c := wire.Call{Root: r.p.Root, CallID: callID, Note: name, Types: types}
 	if strings.HasPrefix(name, "T-") {
@@ -223,70 +223,29 @@ func TestDriveModelHonoured(t *testing.T) {
 	}
 }
 
-// obor drive <T-xx> takes over a task its worker works on: fact drive, the merge loop stops the worker (worker.stop,
-// with force, T-852), the lane, branch and prepare stay (no second lane.prepare), the lane row names the drive agent,
-// and the task is driving.
-func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
-	t.Parallel()
-	r := newDispatchRig(t)
-	r.start()
-	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-	r.mustDispatch("d1")
-	r.waitJob("pj-l-01", "T-1/1/work")
-	r.waitFor("working", func() bool { return r.stateOf("T-1") == "working" })
-	before, _, _ := store.ReadLaneAt(r.p.Root, "L-01")
-	r.connectedAgain()
-	reply, err := r.drive("v1", "T-1")
-	if want := "DRIVING T-1 → L-01 (pj-l-01-drive, sonnet) taking over (stopping pj-l-01)"; err != nil || reply != want {
-		t.Fatalf("take-over: %q, %v; want %q", reply, err, want)
-	}
-	r.waitFor("the worker stopped", func() bool { return r.task("T-1").Stopping == "" })
-	if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") { // by its pane, as serve identifies it (T-758)
-		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
-	}
-	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
-	r.passes()
-	if n := r.count("1 intent lane.prepare"); n != 1 {
-		t.Errorf("lane.prepare ran %d times, want once (the take-over keeps the branch)", n)
-	}
-	if !r.has("1 fact drive") {
-		t.Errorf("no drive fact: %q", r.steps())
-	}
-	after, _, _ := store.ReadLaneAt(r.p.Root, "L-01")
-	if after.Branch != before.Branch || after.Base != before.Base || after.Agent != "pj-l-01-drive" || after.Task != "T-1" {
-		t.Errorf("lane row %+v after the take-over, before %+v: want the branch and base kept, the drive agent", after, before)
-	}
-	if reply, err := r.drive("v2", "T-1"); err != nil || !strings.HasSuffix(reply, " again: its agent is not running") ||
-		r.count("1 fact drive") != 1 {
-		t.Errorf("a second take-over: %q, %v; want its agent's start again (T-755), no second drive fact", reply, err)
-	}
-}
-
-// A task gating, under review or merging is not taken over by a drive nor moved: refused by its state, nothing
-// recorded or stopped (T-751, T-773: the same rig, a different verb).
-func TestTakeOverWhileGatingRefused(t *testing.T) {
+// T-912: a drive is new work only. obor drive <T-xx> on a worker's task, working, blocked (a needs-you) or finished
+// (its gate running), is refused, "T-1 is not a drive; obor drive <name> starts one": nothing recorded, no stop, no
+// launch, the task's state and its worker as they were. A repeated call id is refused again (nothing was stored).
+func TestDriveOfAWorkersTaskRefused(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name     string
-		verb     func(*loopRig, string) (string, error)
-		recorded func(*loopRig) int
-		arg      string
+		name  string
+		state string                // T-1's state before the call
+		arm   func(r *loopRig) bool // T-1 into the case's state; false: not a needs-you
 	}{
-		{"drive", func(r *loopRig, _ string) (string, error) { return r.drive("v1", "T-1") },
-			func(r *loopRig) int { return r.count("1 fact drive") }, "T-1"},
-		{"move", func(r *loopRig, arg string) (string, error) { return r.moveTo("m1", arg) },
-			func(r *loopRig) int { return r.count("2 fact dispatch") }, "opus"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			r := newDispatchRig(t)
-			r.work("feature.txt", "feature\n")
-			r.start()
-			r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
-			r.mustDispatch("d1")
-			r.waitJob("pj-l-01", "T-1/1/work")
+		{"working", "working", func(r *loopRig) bool { return false }},
+		{"blocked", "needs-you", func(r *loopRig) bool {
+			r.failStops(true)
+			if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
+				r.t.Fatalf("move: %q, %v", reply, err)
+			}
+			r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
+			r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
+			return true
+		}},
+		{"finished", "submitted", func(r *loopRig) bool {
 			release := make(chan struct{})
-			t.Cleanup(func() { close(release) })
+			r.t.Cleanup(func() { close(release) })
 			r.scratch.arm("Gate", func(ctx context.Context) error {
 				select {
 				case <-release:
@@ -294,19 +253,74 @@ func TestTakeOverWhileGatingRefused(t *testing.T) {
 				}
 				return nil
 			})
+			r.work("feature.txt", "feature\n")
 			r.submit()
 			r.waitStep("1 intent gate")
-			n := len(r.records())
-			if _, err := c.verb(r, c.arg); err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
-				t.Fatalf("%s while gating: %v, want refused", c.name, err)
+			return false
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newWorkerRig(t)
+			needs := c.arm(r)
+			before := r.task("T-1")
+			if before.State != c.state || (before.Phase == wire.PhaseNeedsYou) != needs {
+				t.Fatalf("precondition: T-1 %+v; want state %s, needs-you %v", before, c.state, needs)
 			}
-			if len(r.records()) != n || c.recorded(r) != 0 {
-				t.Errorf("a refused %s recorded: %q", c.name, r.steps())
+			n, stops, launches := len(r.records()), len(r.workerStops()), len(r.workerLaunches())
+			for _, call := range []string{"v1", "v1"} {
+				reply, err := r.drive(call, "T-1")
+				if want := "T-1 is not a drive; obor drive <name> starts one"; err == nil || err.Error() != want {
+					t.Errorf("obor drive T-1 (%s): %q, %v; want refused %q", call, reply, err, want)
+				}
 			}
-			if stops := r.workerStops(); len(stops) != 0 {
-				t.Errorf("a refused %s stopped %q", c.name, stops)
+			r.passes()
+			if got := r.steps()[n:]; r.count("1 fact drive")+r.count("2 fact drive") != 0 || slices.Contains(got, "1 fact dispatch") {
+				t.Errorf("the refusal recorded a drive: %q", got)
+			}
+			if len(r.workerStops()) != stops || len(r.workerLaunches()) != launches || r.launchesOf("pj-l-01-drive") != 0 {
+				t.Errorf("the refusal stopped %q or launched %d (drive agent %d)", r.workerStops()[stops:],
+					len(r.workerLaunches())-launches, r.launchesOf("pj-l-01-drive"))
+			}
+			if after := r.task("T-1"); after.State != before.State || after.Phase != before.Phase || after.Attempt != before.Attempt {
+				t.Errorf("T-1 after the refusal %+v, before %+v: want it as it was", after, before)
+			}
+			if c.name == "working" && !app.IsIdentified(r.app, r.p.Root, "pj-l-01") {
+				t.Errorf("the worker pj-l-01 is not running after the refusal")
 			}
 		})
+	}
+}
+
+// A task gating, under review or merging is not moved: refused by its state, nothing recorded or stopped (T-773).
+func TestMoveWhileGatingRefused(t *testing.T) {
+	t.Parallel()
+	r := newDispatchRig(t)
+	r.work("feature.txt", "feature\n")
+	r.start()
+	r.setSpec("s1", "# T-1 — Work\n\nDifficulty: medium\n")
+	r.mustDispatch("d1")
+	r.waitJob("pj-l-01", "T-1/1/work")
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	r.scratch.arm("Gate", func(ctx context.Context) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil
+	})
+	r.submit()
+	r.waitStep("1 intent gate")
+	n := len(r.records())
+	if _, err := r.moveTo("m1", "opus"); err == nil || !strings.Contains(err.Error(), "not one gating, merging or under review") {
+		t.Fatalf("move while gating: %v, want refused", err)
+	}
+	if len(r.records()) != n || r.count("2 fact dispatch") != 0 {
+		t.Errorf("a refused move recorded: %q", r.steps())
+	}
+	if stops := r.workerStops(); len(stops) != 0 {
+		t.Errorf("a refused move stopped %q", stops)
 	}
 }
 

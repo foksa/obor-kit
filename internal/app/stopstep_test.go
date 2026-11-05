@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"encoding/json"
-	"errors"
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
@@ -14,9 +13,9 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
-// T-852: a move and a take-over answer at once; the worker's stop is a step of the merge loop (worker.stop), done
+// T-852: a move answers at once; the worker's stop is a step of the merge loop (worker.stop), done
 // before the step that needs the lane, its outcome one line to the lead; a stop that fails is a needs-you obor resume
-// retries. The rig: newTakeOverRig (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
+// retries. The rig: newWorkerRig (T-1 working on L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // stopLines is the lead's lines that tell a worker.stop's outcome.
 func (r *loopRig) stopLines() []string {
@@ -93,7 +92,7 @@ func (herdrDown) Unavailable() bool { return true }
 // lane.prepare and agent.start run, the new agent gets its work job, and the lead gets one line.
 func TestMoveAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	entered, release := r.holdStops()
 	if len(r.workerStops()) != 0 || len(r.workerLaunches()) != 1 {
 		t.Fatalf("precondition: no stop, one start: %q, %d", r.workerStops(), len(r.workerLaunches()))
@@ -134,7 +133,7 @@ func TestMoveAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 // stop once, then the new model's start.
 func TestMoveRestartBeforeTheStop(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	var d map[string]any
 	for _, rec := range r.records() {
 		if rec.Attempt == 1 && rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
@@ -168,7 +167,7 @@ func TestMoveRestartBeforeTheStop(t *testing.T) {
 // the lead's line says so, and the new model's start runs.
 func TestMoveWorkerAlreadyGone(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	r.f.Set("w1:p1", func(p *herdrtest.Pane) { p.Kind, p.Name, p.Status = "", "", "" })
 	r.waitFor("pj-l-01 gone", func() bool {
 		if !app.IsIdentified(r.app, r.p.Root, "pj-l-01") {
@@ -198,7 +197,7 @@ func TestMoveWorkerAlreadyGone(t *testing.T) {
 // retries the stop (worker.stop.2), then the start runs and the lead gets its stopped line.
 func TestMoveStopHerdrDown(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	r.mu.Lock()
 	r.onStop = func() error { return herdrDown{} }
 	r.mu.Unlock()
@@ -232,63 +231,5 @@ func TestMoveStopHerdrDown(t *testing.T) {
 	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
 	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
 		t.Errorf("the lead's lines %q; want the retry's stopped line", got)
-	}
-}
-
-// A take-over answers DRIVING at once (the stop held here): obor status shows the stop (Stopping, which obor drive
-// waits for before it starts the drive agent), the task is driving; once the loop's stop ends, Stopping clears and the
-// lead gets one line.
-func TestTakeOverAnswersAtOnceThenStopsTheWorker(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	entered, release := r.holdStops()
-	reply, err := r.drive("v1", "T-1")
-	if want := "DRIVING T-1 → L-01 (pj-l-01-drive, sonnet) taking over (stopping pj-l-01)"; err != nil || reply != want {
-		t.Fatalf("take-over: %q, %v; want %q", reply, err, want)
-	}
-	awaitStop(t, entered)
-	if ts := r.task("T-1"); ts.State != wire.TaskDriving || ts.Stopping != "pj-l-01" {
-		t.Errorf("T-1 while its worker's stop runs: %+v; want driving, stopping pj-l-01", ts)
-	}
-	release()
-	r.waitFor("the stop done", func() bool { return r.task("T-1").Stopping == "" })
-	if !slices.Equal(r.workerStops(), []string{"pj-l-01 w1:p1"}) || !r.before("1 fact drive", "1 result worker.stop") {
-		t.Errorf("stops %q, steps %q; want pj-l-01 stopped after the drive fact", r.workerStops(), r.steps())
-	}
-	r.waitFor("the stop's line", func() bool { return len(r.stopLines()) > 0 })
-	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
-		t.Errorf("the lead's lines %q; want one: stopped pj-l-01", got)
-	}
-	if again, err := r.drive("v1", "T-1"); err != nil || again != reply || r.count("1 fact drive") != 1 {
-		t.Errorf("the same call id again: %q, %v (%d drive facts); want the stored reply, nothing recorded", again, err,
-			r.count("1 fact drive"))
-	}
-}
-
-// A take-over whose stop fails: recorded (driving), its stop a needs-you{stop} (Stopping kept: obor drive starts no
-// drive agent); obor resume retries the stop, which clears it.
-func TestTakeOverStopRefusedNeedsYou(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	r.mu.Lock()
-	r.onStop = func() error { return errors.New("herdr: pane busy") }
-	r.mu.Unlock()
-	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → L-01") {
-		t.Fatalf("take-over: %q, %v", reply, err)
-	}
-	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
-	if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || !r.has("1 fact drive") {
-		t.Errorf("T-1 %+v, steps %q; want the drive recorded, stopping pj-l-01", ts, r.steps())
-	}
-	if why := r.needsYou().Fact().Reason; why != "pj-l-01 not stopped: herdr: pane busy; obor resume T-1 retries" {
-		t.Errorf("needs-you %q; want the refusal and the retry", why)
-	}
-	r.mu.Lock()
-	r.onStop = nil
-	r.mu.Unlock()
-	r.mustResume("r1", "", "RESUMED T-1: retry (stop)")
-	r.waitFor("the retried stop done", func() bool { return r.task("T-1").Stopping == "" })
-	if ts := r.task("T-1"); ts.State != wire.TaskDriving || len(r.workerStops()) != 2 {
-		t.Errorf("T-1 %+v, stops %q; want driving, the stop tried twice", ts, r.workerStops())
 	}
 }

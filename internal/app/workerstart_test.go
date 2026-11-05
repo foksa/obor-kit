@@ -15,10 +15,10 @@ import (
 
 // T-874: the worker start rule. The rig: T-1 dispatched on L-01, its work job delivered to pj-l-01 (w1:p1, labelled).
 
-// workingRig is newTakeOverRig's T-1: working, its work job fetched by pj-l-01.
+// workingRig is newWorkerRig's T-1: working, its work job fetched by pj-l-01.
 func workingRig(t *testing.T) *loopRig {
 	t.Helper()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	if !slices.Contains(r.deliveries(), "T-1/1/work mcp") {
 		t.Fatalf("precondition: the work job delivered: %q", r.deliveries())
 	}

@@ -13,8 +13,8 @@ import (
 )
 
 // T-685, T-852: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset or no
-// number, the table's own. A dispatch (a move is one), a drop and a drive (a take-over) have the verdict deadline: serve
-// answers them at once and stops the worker in its merge loop (T-825's and T-829's stop bound is gone from the table).
+// number, the table's own. A dispatch (a move is one), a drop and a drive have the verdict deadline: serve answers them
+// at once and stops the worker in its merge loop (T-825's and T-829's stop bound is gone from the table).
 func TestCallDeadline(t *testing.T) {
 	for _, c := range []struct {
 		env, method string

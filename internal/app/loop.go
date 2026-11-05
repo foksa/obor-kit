@@ -165,10 +165,10 @@ type mtask struct {
 	started                 bool
 	startAt                 time.Time // when the last start that started its agent was written
 	specRev                 int       // the spec rev the worker's last fetched job carried, or the newer one a task_done refusal showed it (0: none)
-	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch or its take-over on; a red
+	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch on; a red
 	// gate, a sendback or a hold go back to driving, never to a worker.
 	drive bool
-	halt  halt // the stop of its worker a move, a take-over or a drop asked for (T-852, stopstep.go)
+	halt  halt // the stop of its worker a move or a drop asked for (T-852, stopstep.go)
 	// A dropping task (T-852): obor drop's decision (dropData), lane.free's last N, its result in (freed) and its line.
 	drop     dropData
 	frees    int

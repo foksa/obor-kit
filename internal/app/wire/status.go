@@ -233,7 +233,7 @@ type TaskStatus struct {
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`
 	Delivered bool   `json:"delivered,omitempty"`
-	// Stopping is the worker the merge loop stops before the task's next step (a move, a take-over, a drop; T-852): ""
+	// Stopping is the worker the merge loop stops before the task's next step (a move, a drop; T-852): ""
 	// once it is stopped or gone. Still set with Phase needs-you: the stop was refused (obor resume retries it).
 	Stopping string `json:"stopping,omitempty"`
 	// Started is when serve last tried to start the task's lane agent (Unix seconds; 0: no try recorded): its newest

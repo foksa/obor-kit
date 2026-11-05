@@ -12,10 +12,9 @@ import (
 	"testing"
 )
 
-// T-855 (RV-113 #1): a task whose move's or take-over's stop of its worker is pending (recorded, not settled) is busy
-// for every other verb: a drop or a land is refused, "retry when it settles". A stop that failed (its needs-you) is
-// settled, and a drop then stops the halt's recorded agent (the old worker), never the lane row's drive agent, before
-// it frees the lane. The rig: newTakeOverRig (T-1 working on L-01, its worker pj-l-01 in w1:p1).
+// T-855 (RV-113 #1): a task whose move's stop of its worker is pending (recorded, not settled) is busy for every other
+// verb: a drop is refused, "retry when it settles". A stop that failed (its needs-you) is settled, and a drop then
+// stops the halt's recorded agent (the old worker) before it frees the lane. The rig: newWorkerRig (T-1 working on L-01, its worker pj-l-01 in w1:p1).
 
 // dropCall is obor drop of T-1 by the lead (its reply or refusal).
 func (r *loopRig) dropCall(callID, why string) (string, error) {
@@ -86,17 +85,6 @@ func (r *loopRig) failStops(on bool) {
 	}
 }
 
-// takeOverPending is a take-over whose worker's stop is pending (tried, cut: not settled); settle lets it act.
-func (r *loopRig) takeOverPending() (settle func()) {
-	r.t.Helper()
-	tried, settle := r.cutStops()
-	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → L-01") {
-		r.t.Fatalf("take-over: %q, %v", reply, err)
-	}
-	awaitStop(r.t, tried)
-	return settle
-}
-
 // dropFrees: the drop answers DROPPING naming stopping, then T-1 is dropped with its lane freed once.
 func (r *loopRig) dropFrees(callID, stopping string) {
 	r.t.Helper()
@@ -107,58 +95,6 @@ func (r *loopRig) dropFrees(callID, stopping string) {
 	r.waitFor("T-1 dropped", func() bool { return r.stateOf("T-1") == "dropped" })
 	if n := r.disp.called("free"); n != 1 {
 		r.t.Errorf("lane freed %d times, want once", n)
-	}
-}
-
-// Take-over, drop before the stop settles: refused busy, as a land is; after the stop settles, a drop stops nothing new
-// (the drive agent never started: gone) and frees the lane.
-func TestTakeOverDropWhileStopPending(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	settle := r.takeOverPending()
-	if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || ts.State != wire.TaskDriving || r.has("1 result worker.stop") {
-		t.Fatalf("precondition: T-1 %+v, steps %q; want driving, stopping pj-l-01, no stop result", ts, r.steps())
-	}
-	r.refusedWhileStopPending("drop", func() (string, error) { return r.dropCall("x1", "not needed") })
-	r.refusedWhileStopPending("land", func() (string, error) { return r.landDrive("l1", "T-1", "done by hand") })
-	if r.stateOf("T-1") != wire.TaskDriving {
-		t.Errorf("a refused verb changed T-1: %s, %q", r.stateOf("T-1"), r.steps())
-	}
-	settle()
-	r.waitFor("the stop settled", func() bool { return r.task("T-1").Stopping == "" })
-	settled := r.workerStops()
-	r.dropFrees("x2", "pj-l-01-drive")
-	r.stopsNothingNew(settled)
-}
-
-// Take-over whose stop fails (needs-you), then drop: the drop's stop is of the old worker (the halt's agent, its force
-// kept), done before the lane is freed; the drive agent is never stopped.
-func TestTakeOverStopFailedThenDrop(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	r.failStops(true)
-	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → L-01") {
-		t.Fatalf("take-over: %q, %v", reply, err)
-	}
-	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
-	// the refused stop records its needs-you inside its step, which holds T-1 ("the drive") until it returns: a drop
-	// in that instant is refused busy (T-907's sendback)
-	r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
-	r.failStops(false)
-	r.dropFrees("x1", "pj-l-01")
-	r.oldWorkerStoppedFirst(1)
-}
-
-// stopsNothingNew: the stops are the take-over's tries of pj-l-01 (settled: those once its stop settled, the last one
-// acting), none after them (the drive agent never started: its stop finds it gone).
-func (r *loopRig) stopsNothingNew(settled []string) {
-	r.t.Helper()
-	got := r.workerStops()
-	if len(settled) == 0 || !slices.Equal(got, settled) || slices.ContainsFunc(got, func(s string) bool { return s != "pj-l-01 w1:p1" }) {
-		r.t.Errorf("stops %q (%q when the stop settled); want only the take-over's of pj-l-01, none since", got, settled)
-	}
-	if d := r.factData("T-1", event.StepDropping); d["worker"] != "pj-l-01-drive" {
-		r.t.Errorf("the dropping fact %v; want the lane's drive agent (the halt done)", d)
 	}
 }
 
@@ -181,61 +117,10 @@ func (r *loopRig) oldWorkerStoppedFirst(attempt int) {
 	}
 }
 
-// The take-over recorded before a restart, its stop not run: the replay's pending stop makes a drop refused; once it
-// settles and serve restarts again, a drop stops nothing new and frees the lane.
-func TestTakeOverDropWhileStopPendingReplayed(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	d := r.factData("T-1", event.StepDispatched)
-	r.stop()
-	d["drive"], d["agent"], d["stop"], d["call"] = true, "pj-l-01-drive", "pj-l-01", "v1"
-	d["reply"] = "DRIVING T-1 → L-01 (pj-l-01-drive, sonnet) taking over (stopping pj-l-01)"
-	r.writeLog([]logRec{{1, event.StepDrive, event.KindFact, "", d}})
-	tried, settle := r.cutStops()
-	r.start()
-	r.connectedAgain()
-	awaitStop(t, tried)
-	if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || ts.State != wire.TaskDriving || r.has("1 result worker.stop") {
-		t.Fatalf("precondition: T-1 after the replay %+v, steps %q; want driving, stopping pj-l-01, no stop result", ts,
-			r.steps())
-	}
-	r.refusedWhileStopPending("drop", func() (string, error) { return r.dropCall("x1", "not needed") })
-	r.refusedWhileStopPending("land", func() (string, error) { return r.landDrive("l1", "T-1", "done by hand") })
-	settle()
-	r.waitFor("the stop settled", func() bool { return r.task("T-1").Stopping == "" })
-	settled := r.workerStops()
-	r.stop()
-	r.start()
-	r.connectedAgain()
-	r.dropFrees("x2", "pj-l-01-drive")
-	r.stopsNothingNew(settled)
-}
-
-// A take-over whose stop failed, then a restart: the replayed needs-you is settled; a drop stops the old worker,
-// then frees the lane.
-func TestTakeOverStopFailedThenDropReplayed(t *testing.T) {
-	t.Parallel()
-	r := newTakeOverRig(t)
-	r.failStops(true)
-	if reply, err := r.drive("v1", "T-1"); err != nil || !strings.HasPrefix(reply, "DRIVING T-1 → L-01") {
-		t.Fatalf("take-over: %q, %v", reply, err)
-	}
-	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
-	r.stop()
-	r.failStops(false)
-	r.start()
-	r.connectedAgain()
-	if ts := r.task("T-1"); ts.Phase != wire.PhaseNeedsYou || ts.Stopping != "pj-l-01" {
-		t.Fatalf("precondition: T-1 after the replay %+v; want the stop's needs-you, stopping pj-l-01", ts)
-	}
-	r.dropFrees("x1", "pj-l-01")
-	r.oldWorkerStoppedFirst(1)
-}
-
 // Move, drop while its stop is pending: refused; the move goes on.
 func TestMoveDropWhileStopPending(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	tried, settle := r.cutStops()
 	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
 		t.Fatalf("move: %q, %v", reply, err)
@@ -256,7 +141,7 @@ func TestMoveDropWhileStopPending(t *testing.T) {
 // freed; the move's start never runs.
 func TestMoveStopFailedThenDrop(t *testing.T) {
 	t.Parallel()
-	r := newTakeOverRig(t)
+	r := newWorkerRig(t)
 	r.failStops(true)
 	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01") {
 		t.Fatalf("move: %q, %v", reply, err)

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
@@ -23,22 +22,17 @@ import (
 // driveTitle is a drive's spec title before its name (internal/app's "Owner drive: ").
 const driveTitle = "Owner drive: "
 
-// driveWait bounds how long obor drive waits for serve to prepare a new drive's lane before it starts the agent;
-// stopWait how long it waits for a take-over's stop of the worker (the merge loop's worker.stop, T-852): the stop's
-// own bound and a margin for the loop's pass to reach it.
-var (
-	driveWait = 60 * time.Second
-	stopWait  = port.StopBound + 30*time.Second
-)
+// driveWait bounds how long obor drive waits for serve to prepare a new drive's lane before it starts the agent.
+var driveWait = 60 * time.Second
 
 // driveCmd is `obor drive <name> [--model <ref>]` and `obor drive <T-xx>` (T-751): the owner iterates by hand on a
-// branch in a plain interactive agent (role driver). Serve records the drive (a new task on the first free lane, or a
-// take-over of a task its worker works on) and answers DRIVE <task> → <lane> (<agent>, <model>), a take-over DRIVING
-// <task> → <lane> (<agent>, <model>) taking over (stopping <worker>); this command then waits for the new drive's lane
-// to be prepared and a taken-over task's worker stopped (the merge loop's stop, T-852: refused, it says so) and starts the drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line
-// saying what it is. On a drive already (by task id or name; T-755) serve records nothing: its agent not running, this
-// command starts it again on its recorded lane and model (a failed start's retry); running, serve's DRIVING reply and OK,
-// nothing started. Its lines, then OK or FAIL (exit 1).
+// branch in a plain interactive agent (role driver). Serve records a new drive (a new task on the first free lane) and
+// answers DRIVE <task> → <lane> (<agent>, <model>); this command then waits for the lane to be prepared and starts the
+// drive agent in a pane split in the caller's tab, labelled like a lane pane, its first prompt one line saying what it
+// is. On a drive already (by task id or name; T-755) serve records nothing: its agent not running, this command starts
+// it again on its recorded lane and model (a failed start's retry; --model ignored); running, serve's DRIVING reply
+// and OK, nothing started. A task id that is not a drive is serve's refusal (a drive is new work only, T-912). Its
+// lines, then OK or FAIL (exit 1).
 func driveCmd(args []string) int {
 	var name, ref string
 	for i := 0; i < len(args); i++ {
@@ -65,16 +59,12 @@ func driveCmd(args []string) int {
 	cwd, _ := os.Getwd()
 	c := caller(project.OSEnv, cwd, cfg)
 	if cfg.TaskIDOK(name) {
-		if ref != "" {
-			fmt.Fprintln(out, "FAIL --model is a new drive's: a take-over keeps the task's model")
-			return 1
-		}
 		c.Task = name
 	} else {
 		c.Note = name
-		if ref != "" {
-			c.Types = []string{ref}
-		}
+	}
+	if ref != "" {
+		c.Types = []string{ref}
 	}
 	ctx := context.Background()
 	reply, err := wire.Verdict(ctx, wire.SocketPath(c.Root), wire.MethodDrive, c)
@@ -102,17 +92,15 @@ func driveCmd(args []string) int {
 	return 0
 }
 
-// drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …),
-// and a take-over's (DRIVING <task> → <lane> (<agent>, <model>) …: parseDrive reads it).
+// drivingPrefix starts serve's reply to obor drive on a drive whose agent runs already (DRIVING <task> → <lane>: …).
 const drivingPrefix = "DRIVING "
 
 // drive is serve's DRIVE reply: the task, its lane, the drive agent and its type reference.
 type drive struct{ task, lane, agent, ref string }
 
-var driveReplyRE = regexp.MustCompile(`^DRIV(?:E|ING) (\S+) → (\S+) \((\S+), (\S+)\)`)
+var driveReplyRE = regexp.MustCompile(`^DRIVE (\S+) → (\S+) \((\S+), (\S+)\)`)
 
-// parseDrive reads serve's reply to a drive request, a new drive's (DRIVE …) or a take-over's (DRIVING …, its tail
-// not read).
+// parseDrive reads serve's DRIVE reply to a drive request (its tail, a retry's " again: …", not read).
 func parseDrive(reply string) (drive, bool) {
 	m := driveReplyRE.FindStringSubmatch(strings.TrimSpace(reply))
 	if m == nil {
@@ -126,9 +114,8 @@ func branchOf(cfg *config.Config, task string) string {
 	return strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", task)
 }
 
-// startDrive starts d's agent: the lane prepared (a new drive: serve's lane.prepare puts it on the branch; waited for
-// up to driveWait) and a take-over's worker stopped (waitStopped), then the drive agent started in the caller's tab. A drive
-// agent already running there is left as it is.
+// startDrive starts d's agent: the lane prepared (serve's lane.prepare puts it on the branch; waited for up to
+// driveWait), then the drive agent started in the caller's tab. A drive agent already running there is left as it is.
 func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.Env) error {
 	var dir string
 	for _, l := range cfg.Lanes() {
@@ -140,9 +127,6 @@ func startDrive(ctx context.Context, cfg *config.Config, d drive, env project.En
 		return fmt.Errorf("unknown lane %s (not in the config's lanes)", d.lane)
 	}
 	if err := waitPrepared(ctx, cfg, d); err != nil {
-		return err
-	}
-	if err := waitStopped(ctx, cfg, d); err != nil {
 		return err
 	}
 	kit := project.KitRoot(env)
@@ -183,41 +167,6 @@ func waitPrepared(ctx context.Context, cfg *config.Config, d drive) error {
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("lane %s is not prepared for %s after %s (obor status says why)", d.lane, d.task, driveWait)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
-}
-
-// waitStopped waits until serve's status shows no stop of d.task's worker pending (TaskStatus.Stopping: a take-over's
-// worker.stop, T-852), up to stopWait. A stop serve refused (its needs-you) is an error naming the retry: obor resume
-// runs the stop again, then obor drive starts the drive agent. A task serve's status does not list has nothing to stop.
-func waitStopped(ctx context.Context, cfg *config.Config, d drive) error {
-	deadline := time.Now().Add(stopWait)
-	for {
-		ss, err := wire.Ask(ctx, wire.SocketPath(cfg.Root))
-		if err != nil {
-			return fmt.Errorf("the stop of %s's worker: %v", d.task, err)
-		}
-		var ts wire.TaskStatus
-		if p := ss.Project; p != nil {
-			for _, t := range p.Tasks {
-				if t.Task == d.task {
-					ts = t
-				}
-			}
-		}
-		switch {
-		case ts.Stopping == "":
-			return nil
-		case ts.Phase == wire.PhaseNeedsYou:
-			return fmt.Errorf("%s not stopped (obor status says why): obor resume %s retries the stop, then obor drive %s "+
-				"starts the drive agent", ts.Stopping, d.task, d.task)
-		case time.Now().After(deadline):
-			return fmt.Errorf("%s is not stopped after %s (obor status says why)", ts.Stopping, stopWait)
 		}
 		select {
 		case <-ctx.Done():

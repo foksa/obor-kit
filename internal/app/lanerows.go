@@ -53,13 +53,6 @@ func (p *proj) foldLanes(r event.Record) {
 			}
 		}
 		p.folded.lr.rows[d.Lane] = store.LaneRow{Lane: d.Lane, Task: r.Task, Agent: d.Agent}
-	case r.Kind == event.KindFact && r.Step == event.StepDrive: // a take-over (T-751): the drive agent is the lane's now
-		var d dispatchData
-		_ = json.Unmarshal(r.Data, &d)
-		if row, ok := p.folded.lr.rows[d.Lane]; ok && row.Task == r.Task {
-			row.Agent = d.Agent
-			p.folded.lr.rows[d.Lane] = row
-		}
 	case r.Kind == event.KindResult:
 		step, _ := event.StepN(r.Step)
 		mt := p.folded.loop[r.Task]

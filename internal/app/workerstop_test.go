@@ -12,11 +12,10 @@ import (
 	"obor/internal/herdr/herdrtest"
 )
 
-// T-758 (RV-93 #1), T-852: obor drive <T-xx> (a take-over) and obor drop answer at once; the merge loop's worker.stop
-// stops the task's worker through serve's identity of it (stopAgent, as the post-merge stop), never by a label lookup
-// of the stop's own. One case table, each case run for the take-over and for drop (one stop step, one outcome): the
-// worker's pane as serve resolves it before the call, what the stop does, and its outcome. A stop that fails is a
-// needs-you for both (RV-98 #2: drop too, else a live agent stays in the lane): nothing goes on until obor resume.
+// T-758 (RV-93 #1), T-852: obor drop answers at once; the merge loop's worker.stop stops the task's worker through
+// serve's identity of it (stopAgent, as the post-merge stop), never by a label lookup of the stop's own. One case
+// table: the worker's pane as serve resolves it before the call, what the stop does, and its outcome. A stop that fails
+// is a needs-you (RV-98 #2: else a live agent stays in the lane): nothing goes on until obor resume.
 func TestWorkerStopByIdentity(t *testing.T) {
 	t.Parallel()
 	type outcome = stopOutcome
@@ -77,75 +76,62 @@ func TestWorkerStopByIdentity(t *testing.T) {
 		want: outcome{why: "pj-l-01 not stopped: agent_not_found: pj-l-01; obor resume T-1 retries",
 			stops: []string{"pj-l-01 w1:p1"}},
 	}} {
-		for _, caller := range []string{"take-over", "drop"} {
-			t.Run(caller+"/"+c.name, func(t *testing.T) {
-				t.Parallel()
-				r := newTakeOverRig(t)
-				r.waitFor("pj-l-01 identified at w1:p1 (labelled)", func() bool {
-					return strings.HasPrefix(app.WhereOf(r.app, r.p.Root, "pj-l-01"), "identified w1:p1")
-				})
-				r.mu.Lock()
-				c.arm(r)
-				r.mu.Unlock()
-				if !strings.HasSuffix(c.where, "not connected") {
-					// Wait for serve's stream after the arm's change, so the stop decides on it and never lands in a
-					// resubscribe's gap (T-759). The case whose stream cannot come back (herdr down) has no such wait.
-					r.connectedAgain()
-				}
-				var where string
-				// No push here: a push is a refresh, and one landing after the barrier would cut serve off mid-call.
-				r.waitFor("whereIs: "+c.where, func() bool { // connected (the barrier above), unless herdr is cut off
-					where = app.WhereOf(r.app, r.p.Root, "pj-l-01")
-					return strings.HasPrefix(where, c.where) &&
-						(r.app.Status().Connected || strings.HasSuffix(c.where, "not connected"))
-				})
-				if c.where == "identified w1:p1 session" { // the label is not what holds it
-					var label string
-					r.f.Set("w1:p1", func(p *herdrtest.Pane) { label = p.Label })
-					if label != "" {
-						t.Fatalf("precondition: w1:p1 still labelled %q", label)
-					}
-				}
-				checkStop(t, r, caller, c.want, len(r.workerStops()))
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newWorkerRig(t)
+			r.waitFor("pj-l-01 identified at w1:p1 (labelled)", func() bool {
+				return strings.HasPrefix(app.WhereOf(r.app, r.p.Root, "pj-l-01"), "identified w1:p1")
 			})
-		}
+			r.mu.Lock()
+			c.arm(r)
+			r.mu.Unlock()
+			if !strings.HasSuffix(c.where, "not connected") {
+				// Wait for serve's stream after the arm's change, so the stop decides on it and never lands in a
+				// resubscribe's gap (T-759). The case whose stream cannot come back (herdr down) has no such wait.
+				r.connectedAgain()
+			}
+			var where string
+			// No push here: a push is a refresh, and one landing after the barrier would cut serve off mid-call.
+			r.waitFor("whereIs: "+c.where, func() bool { // connected (the barrier above), unless herdr is cut off
+				where = app.WhereOf(r.app, r.p.Root, "pj-l-01")
+				return strings.HasPrefix(where, c.where) &&
+					(r.app.Status().Connected || strings.HasSuffix(c.where, "not connected"))
+			})
+			if c.where == "identified w1:p1 session" { // the label is not what holds it
+				var label string
+				r.f.Set("w1:p1", func(p *herdrtest.Pane) { label = p.Label })
+				if label != "" {
+					t.Fatalf("precondition: w1:p1 still labelled %q", label)
+				}
+			}
+			checkStop(t, r, c.want, len(r.workerStops()))
+		})
 	}
 }
 
 // stopOutcome is the worker.stop's outcome in TestWorkerStopByIdentity.
 type stopOutcome struct {
-	ok    bool     // the stop done (stopped, or no agent): the take-over's Stopping clears, the drop goes on to dropped
+	ok    bool     // the stop done (stopped, or no agent): the drop goes on to dropped
 	waits bool     // serve is cut off from herdr: no pass, so the stop waits (nothing stopped, no needs-you)
 	line  string   // a done stop's one lead line (its prefix): stopped, not running
 	why   string   // a refused stop's needs-you reason (its prefix): its line is the lead's one (no stop line)
 	stops []string // the worker's Agents.Stop calls since the call: "<agent> <pane>"
 }
 
-// checkStop runs obor drive T-1 or obor drop T-1 (T-775: serve frees its lane L-01), answered at once, and checks the
-// merge loop's worker.stop: done (the take-over driving with no stop pending, the drop dropped), waiting, or refused
-// (a needs-you, the task still driving or dropping, its stop pending).
-func checkStop(t *testing.T, r *loopRig, caller string, want stopOutcome, before int) {
+// checkStop runs obor drop T-1 (T-775: serve frees its lane L-01), answered at once, and checks the merge loop's
+// worker.stop: done (the drop dropped), waiting, or refused (a needs-you, the task still dropping, its stop pending).
+func checkStop(t *testing.T, r *loopRig, want stopOutcome, before int) {
 	t.Helper()
-	var reply, wantReply string
-	var err error
-	if caller == "take-over" {
-		reply, err = r.drive("v1", "T-1")
-		wantReply = "DRIVING T-1 → L-01 (pj-l-01-drive, sonnet) taking over (stopping pj-l-01)"
-	} else {
-		reply, err = wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
-			Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
-		wantReply = "DROPPING T-1 from L-01 (not needed; stopping pj-l-01)"
-	}
-	if err != nil || reply != wantReply {
-		t.Fatalf("%s: %q, %v; want %q", caller, reply, err, wantReply)
+	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
+		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
+	if want := "DROPPING T-1 from L-01 (not needed; stopping pj-l-01)"; err != nil || reply != want {
+		t.Fatalf("drop: %q, %v; want %q", reply, err, want)
 	}
 	switch {
 	case want.waits:
 		if ts := r.task("T-1"); ts.Stopping != "pj-l-01" || ts.Phase == wire.PhaseNeedsYou {
 			t.Errorf("T-1 %+v with serve cut off; want its stop pending, no needs-you", ts)
 		}
-	case want.ok && caller == "take-over":
-		r.waitFor("the stop done", func() bool { return r.task("T-1").Stopping == "" })
 	case want.ok:
 		r.waitFor("T-1 dropped", func() bool { return r.stateOf("T-1") == "dropped" })
 	default:

@@ -30,7 +30,7 @@
     status: state working, phase working, stage "", attempt 4, job ""
     facts: 
     needs-you: 
-    verbs: resume drop drive move submit
+    verbs: resume drop move submit
     next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
@@ -66,7 +66,7 @@
     status: state working, phase working, stage "", attempt 4, job ""
     facts: 
     needs-you: 
-    verbs: resume drop drive move submit
+    verbs: resume drop move submit
     next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 2
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
@@ -102,7 +102,7 @@
     status: state working, phase working, stage "", attempt 2, job ""
     facts: 
     needs-you: 
-    verbs: resume drop drive move submit
+    verbs: resume drop move submit
     next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
     resume cmds: obor drop T-1
     input "", decision "", work "", fixed false, fails 0
@@ -230,7 +230,7 @@
   status: state working, phase needs-you, stage "", attempt 1, job "T-1/1/work"
   facts: needs-you{asks:  which way}
   needs-you: asks:  which way
-  verbs: resume drop drive move submit
+  verbs: resume drop move submit
   next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
   resume cmds: obor resume T-1 "<answer>" | obor resume T-1 --regate | obor drop T-1
   resume --: answer (text needed true)
@@ -248,7 +248,7 @@
   status: state dispatched, phase dispatching, stage "", attempt 1, job ""
   facts: 
   needs-you: 
-  verbs: resume drop drive move submit
+  verbs: resume drop move submit
   next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
   resume cmds: obor drop T-1
   resume --: refused: resume: T-1 is dispatched with nothing to resume (no question, no needs-you)
@@ -258,7 +258,7 @@
   status: state needs-you, phase needs-you, stage "", attempt 1, job ""
   facts: needs-you{lane: dirty lane}
   needs-you: lane: dirty lane
-  verbs: resume drop drive submit
+  verbs: resume drop submit
   next: waits; job open false; scratch "" ""; dispatchable true; awaits task_done true; in loop false; sendbacks 0
   resume cmds: obor resume T-1 | obor drop T-1
   resume --: retry (text needed false)
@@ -268,7 +268,7 @@
     status: state dispatched, phase dispatching, stage "", attempt 1, job ""
     facts: 
     needs-you: 
-    verbs: resume drop drive move submit
+    verbs: resume drop move submit
     next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
     resume cmds: obor drop T-1
     input "", decision "Lead's decision (obor resume, lane): decided", work "", fixed false, fails 0
@@ -294,7 +294,7 @@
   status: state needs-you, phase needs-you, stage "", attempt 2, job "T-1/2/fix"
   facts: needs-you{job not delivered: T-1/2/fix prompted twice}
   needs-you: job not delivered: T-1/2/fix prompted twice
-  verbs: resume drop drive submit
+  verbs: resume drop submit
   next: waits; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
   resume cmds: obor resume T-1 | obor drop T-1
   resume --: retry (text needed false)
@@ -304,7 +304,7 @@
     status: state working, phase working, stage "", attempt 2, job ""
     facts: 
     needs-you: 
-    verbs: resume drop drive move submit
+    verbs: resume drop move submit
     next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 1
     resume cmds: obor drop T-1
     input "", decision "Lead's decision (obor resume, job not delivered): decided", work "", fixed false, fails 0
@@ -366,7 +366,7 @@
   status: state working, phase working, stage "", attempt 2, job ""
   facts: 
   needs-you: 
-  verbs: resume drop drive move submit
+  verbs: resume drop move submit
   next: the fix; job open false; scratch "" ""; dispatchable false; awaits task_done true; in loop false; sendbacks 0
   resume cmds: obor drop T-1
   resume --: refused: resume: T-1 is working with nothing to resume (no question, no needs-you)

@@ -35,7 +35,7 @@ var Commands = []Command{
 	{"drop", `obor drop <T-xx> "<why>" [--discard] [--force]`,
 		"stop a task's worker and free its lane (--discard: its unmerged work too)", "tasks"},
 	{"drive", "obor drive <name> [--model <model[:effort]>] | obor drive <T-xx>",
-		"work on a branch by hand in an interactive agent: a new drive on a free lane, or take over a task", "tasks"},
+		"work on a branch by hand in an interactive agent: a new drive on a free lane (<T-xx>: a drive's agent started again)", "tasks"},
 	{"land", `obor land <T-xx|name> ["<summary>"]`,
 		"submit a drive's branch: the gate, the integrator and the merge as for any task", "tasks"},
 	{"idle", `obor idle ["<why nothing is in flight>"]`,

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,8 +71,9 @@ func TestLandRequest(t *testing.T) {
 	}
 }
 
-// obor drive's request: a name is a new drive (Note, --model as its one model), a task id a take-over (--model refused);
-// serve's refusal is the caller's FAIL and nothing is started.
+// obor drive's request: a name is a new drive (Note, --model as its one model), a task id a drive's own task (Task;
+// --model passed on, serve's retry ignores it); serve's refusal is the caller's FAIL and nothing is started: a worker's
+// task's (T-912) word for word.
 func TestDriveRequest(t *testing.T) {
 	t.Parallel()
 	p := servedProject(t)
@@ -92,30 +92,35 @@ func TestDriveRequest(t *testing.T) {
 		t.Errorf("a new drive's call %+v", c)
 	}
 	if c := calls[1]; c.Task != "T-07" || c.Note != "" || len(c.Types) != 0 {
-		t.Errorf("a take-over's call %+v", c)
+		t.Errorf("a task's call %+v", c)
 	}
 	for _, args := range [][]string{{"drive"}, {"drive", "a", "b"}, {"drive", "--model"}, {"drive", "-x"}} {
 		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.Contains(stdout, "FAIL usage: obor drive") {
 			t.Errorf("%q: rc %d, %q; want usage", args, rc, stdout)
 		}
 	}
-	if rc, stdout, _ := run(t, p.Root, env, "drive", "T-07", "--model", "opus"); rc != 1 || !strings.Contains(stdout, "--model is a new drive's") {
-		t.Errorf("a take-over with --model: rc %d, %q", rc, stdout)
-	}
 	if calls, _ := serve.requests(); len(calls) != 2 {
 		t.Errorf("usage errors sent requests: %d calls", len(calls))
 	}
+	run(t, p.Root, env, "drive", "T-07", "--model", "opus")
+	if calls, _ := serve.requests(); len(calls) != 3 || calls[2].Task != "T-07" || len(calls[2].Types) != 1 ||
+		calls[2].Types[0] != "opus" {
+		t.Errorf("a task's call with --model: %+v; want T-07's, its model passed on", calls)
+	}
+	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "T-07 is not a drive; obor drive <name> starts one")
+	if rc, stdout, _ := run(t, p.Root, []string{"OBOR_STATE_HOME=" + home2}, "drive", "T-07"); rc != 1 ||
+		stdout != "FAIL T-07 is not a drive; obor drive <name> starts one\n" {
+		t.Errorf("a worker's task: rc %d, %q; want serve's refusal as FAIL, nothing else", rc, stdout)
+	}
 }
 
-// parseDrive reads serve's DRIVE reply and a take-over's DRIVING one (T-852), its tail ignored; the DRIVING reply of
-// a drive whose agent runs already is none.
+// parseDrive reads serve's DRIVE reply, its tail ignored; a DRIVING reply (a drive whose agent runs already, or an old
+// serve's take-over, T-912) is none.
 func TestParseDrive(t *testing.T) {
 	t.Parallel()
 	for reply, want := range map[string]drive{
 		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                 {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
 		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high) again: its agent is not running": {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
-		"DRIVING T-1 → L-02 (pj-l-02-drive, -) taking over (stopping pj-l-02)":        {"T-1", "L-02", "pj-l-02-drive", "-"},
-		"DRIVING T-1 → L-02 (pj-l-02-drive, sonnet) taking over (stopping pj-l-02)":   {"T-1", "L-02", "pj-l-02-drive", "sonnet"},
 	} {
 		if got, ok := parseDrive(reply); !ok || got != want {
 			t.Errorf("parseDrive(%q) = %+v, %v; want %+v", reply, got, ok, want)
@@ -124,8 +129,11 @@ func TestParseDrive(t *testing.T) {
 	if _, ok := parseDrive("DISPATCHED T-1 → L-01 (queued)"); ok {
 		t.Error("parseDrive read a dispatch's reply")
 	}
-	if _, ok := parseDrive("DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)"); ok {
-		t.Error("parseDrive read a running drive's reply")
+	for _, reply := range []string{"DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)",
+		"DRIVING T-1 → L-02 (pj-l-02-drive, sonnet) taking over (stopping pj-l-02)"} {
+		if _, ok := parseDrive(reply); ok {
+			t.Errorf("parseDrive read %q", reply)
+		}
 	}
 }
 
@@ -142,36 +150,6 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → L-01: pj-l1-drive runs already") ||
 		!strings.Contains(stdout, "OK T-07 → L-01: pj-l1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
 		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
-	}
-}
-
-// T-852: obor drive starts a take-over's drive agent only once serve's status shows its worker's stop done: no stop
-// pending (Stopping ""), or the task not listed, goes on; a stop serve refused (Stopping set, the task needs-you) is an
-// error naming obor resume, so nothing is started.
-func TestDriveWaitsForTheStop(t *testing.T) {
-	t.Parallel()
-	p := servedProject(t)
-	cfg, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := drive{task: "T-07", lane: "L-01", agent: "pj-l1-drive", ref: "sonnet"}
-	status := func(ts ...wire.TaskStatus) {
-		startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{Connected: true,
-			Project: &wire.ProjectStatus{Root: p.Root, Merging: true, Tasks: ts}}, "", "")
-	}
-	status(wire.TaskStatus{Task: "T-07", Lane: "L-01", State: wire.TaskDriving, Phase: wire.PhaseNeedsYou, Stopping: "pj-l1"})
-	err = waitStopped(context.Background(), cfg, d)
-	if err == nil || !strings.Contains(err.Error(), "pj-l1 not stopped") || !strings.Contains(err.Error(), "obor resume T-07 retries") {
-		t.Errorf("a refused stop: %v; want an error naming the stop and obor resume", err)
-	}
-	status(wire.TaskStatus{Task: "T-07", Lane: "L-01", State: wire.TaskDriving, Phase: wire.PhaseDriving})
-	if err := waitStopped(context.Background(), cfg, d); err != nil {
-		t.Errorf("the stop done: %v; want nil", err)
-	}
-	status()
-	if err := waitStopped(context.Background(), cfg, d); err != nil {
-		t.Errorf("the task not listed: %v; want nil", err)
 	}
 }
 

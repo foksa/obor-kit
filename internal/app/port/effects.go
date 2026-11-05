@@ -84,7 +84,7 @@ func NotFound(err error) bool {
 const CodeNeedsForce = "needs_force"
 
 // The stop's waits and the one bound they fit in (T-829): launch's Stop keeps to the bound whatever
-// OBOR_RESTART_WAIT says, and obor drive's wait for a take-over's stop (the merge loop's worker.stop, T-852) covers it.
+// OBOR_RESTART_WAIT says.
 
 // StopIdle is how long a stop waits for a working agent to go idle after Escape before it refuses without force, or
 // exits anyway with it: launch's Idle default.

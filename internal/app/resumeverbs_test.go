@@ -10,7 +10,7 @@ import (
 
 // T-775: a busy claim on a task refuses every task verb whose state takes it, with busy's why: a drop being recorded
 // (p.ended), a step holding it (p.held), its scratch step running (p.running), its next gate intent open. Each verb on
-// a working T-1 (resume of its stalled worker, drop, drive, move, submit) and land on a driving one; submit only by a
+// a working T-1 (resume of its stalled worker, drop, move, submit) and land on a driving one; submit only by a
 // drop, since the step holding a working task is the one that sent the worker its job.
 func TestBusyRefusesEveryVerb(t *testing.T) {
 	t.Parallel()
@@ -37,10 +37,6 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 		},
 		"drop": func(h *harness) error {
 			_, err := h.a.drop(wire.Call{Root: h.root, Role: "lead", CallID: "d1", Task: "T-1", Note: "why"})
-			return err
-		},
-		"drive": func(h *harness) error {
-			_, err := h.a.driveCall(context.Background(), wire.Call{Root: h.root, Role: "lead", CallID: "v1", Task: "T-1"})
 			return err
 		},
 		"move": func(h *harness) error {
@@ -72,7 +68,7 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 					mt.state, mt.drive = stDriving, true
 				}
 				if st := mt.state; st != stWorking && st != stDispatched && st != stDriving || !mt.may(map[string]verb{
-					"resume": vResume, "drop": vDrop, "drive": vDrive, "move": vMove, "submit": vSubmit, "land": vLand}[name]) {
+					"resume": vResume, "drop": vDrop, "move": vMove, "submit": vSubmit, "land": vLand}[name]) {
 					h.a.mu.Unlock()
 					t.Fatalf("precondition: T-1 is %s, which does not take %s", st, name)
 				}
