@@ -22,7 +22,9 @@ const ruleReviewOnMerge = "review.on.merge"
 // a review cycle is open waits for its close in reviewPass (review.go); the call path's "RV-n is open: close it first"
 // is the lead's refusal, which this rule does not go through. After a crash the request may be recorded twice: the
 // second replaces the first, harmless. A request that ended after the merge (the lead's --rm, or a fire, reviewEnd)
-// also holds it: the lead can cancel the rule's request, and a failed start is not retried every pass.
+// also holds it: the lead can cancel the rule's request, and a failed start is not retried every pass. A request that
+// ended because a task of its --after was dropped or rejected does not hold it (T-906): the merges it waited on still
+// need their review.
 func reviewOnMergeRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
 	last, open, ended := p.folded.reviewed.seq, p.folded.review != nil, p.folded.reviewEnd.seq

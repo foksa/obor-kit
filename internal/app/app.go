@@ -234,7 +234,7 @@ type folded struct {
 	// ends: the records that ended work idleNow waits on besides a task's merge or drop (T-868), so the idle key and
 	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
 	// stop that ended it); verifyEnd, the last verify that failed before its brief; reviewEnd, the last review
-	// request's end.
+	// request's end that suppresses the on-merge rule (a --rm or a firing, not a failed --after end, T-906).
 	briefEnds map[string]idleEnd
 	verifyEnd idleEnd
 	reviewEnd idleEnd

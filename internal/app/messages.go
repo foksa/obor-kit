@@ -305,8 +305,9 @@ func (p *proj) foldMsg(r event.Record) {
 			p.foldStopLine(m)
 		}
 		if m.Review != 0 {
+			// T-906: a request ended by a failed --after still ends here, but only --rm and a firing count as review
+			// ends that suppress the on-merge rule (review.on.merge) and idle.
 			p.reviewEnded(m.Review)
-			p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
 		}
 		if m.VerifyFail != 0 {
 			p.folded.verifyEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: a verify's end before its brief
