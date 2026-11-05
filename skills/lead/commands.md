@@ -131,7 +131,8 @@ reviews.
   there is no verify by hand). Close only after that verify.
 - When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, adds each
   accepted line to `BACKLOG.md`'s Open section naming the RV and commits `RV-xx closed · <sha> · approved · <summary>`
-  (`CLOSED <subject>`); serve stops the reviewer once it sees the close commit (T-869: the command stops nothing).
+  (`CLOSED <subject>`; `accepted <n>` in place of `approved` when it carries `--accept` lines); serve stops the reviewer
+  once it sees the close commit (T-869: the command stops nothing).
   Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
   `BACKLOG.md`, a linked fix task neither verified nor dropped (named; `--force`, the owner's word, closes anyway).
   Steps and texts: review-brief.md §3–5.

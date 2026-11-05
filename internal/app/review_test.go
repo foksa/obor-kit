@@ -585,11 +585,12 @@ func TestMergeSubjectResolved(t *testing.T) {
 	}
 }
 
-// T-895: the close commit's writer and parser agree, for its current subject and body and for an old close commit,
-// whose body has neither a Covered nor a Start line.
+// T-895, T-909: the close commit's writer and parser agree, for its current subject and body, for the "accepted <n>"
+// verdict a close with --accept lines writes, and for an old close commit, whose body has neither a Covered nor a Start
+// line and whose verdict is "approved".
 func TestCloseCommitRoundTrip(t *testing.T) {
 	t.Parallel()
-	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567")
+	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567", 0)
 	if want := "RV-7 closed · abcdef0 · approved · T-1, T-2 (fix)"; subject != want {
 		t.Errorf("subject %q, want %q", subject, want)
 	}
@@ -609,6 +610,16 @@ func TestCloseCommitRoundTrip(t *testing.T) {
 	id, sha, summary, covered, start = parseCloseCommit("RV-6 closed · 1111111 · approved · T-9", "")
 	if id != "RV-6" || sha != "1111111" || summary != "T-9" || len(covered) != 0 || start != "" {
 		t.Errorf("old close commit: %q %q %q %v %q", id, sha, summary, covered, start)
+	}
+
+	// T-909: a close with two accepted findings says so, and the parser reads it as it reads an approved subject
+	subject, _ = CloseCommit("RV-8", "abcdef0", "T-9 (fix)", nil, "1234567", 2)
+	if want := "RV-8 closed · abcdef0 · accepted 2 · T-9 (fix)"; subject != want {
+		t.Fatalf("subject %q, want %q", subject, want)
+	}
+	id, sha, summary, _, _ = parseCloseCommit(subject, "")
+	if id != "RV-8" || sha != "abcdef0" || summary != "T-9 (fix)" {
+		t.Errorf("parseCloseCommit(%q) = %q %q %q, want RV-8 abcdef0 and its summary", subject, id, sha, summary)
 	}
 }
 

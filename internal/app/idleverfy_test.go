@@ -259,6 +259,81 @@ func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
 	}
 }
 
+// T-909: a review request ended by a failed --after task is an idle end of its own: T-906 kept that end from setting
+// the on-merge marker (reviewEnd), but idle reads its own (reviewIdleEnd), so the key and age count from the request's
+// end (12:10), not from the task's drop (12:00). A --rm and a firing are ends of both markers.
+func TestIdleKeyIsTheRequestEnd(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.submitted("T-b")
+	r.mustCall("r1", []string{"T-b"}, "", false)
+	if q := r.p.folded.review; q == nil || len(q.after) != 1 {
+		t.Fatalf("precondition: no request waiting on T-b: %+v", q)
+	}
+	dropped := r.now
+	r.dropped("T-b")
+	r.now = r.now.Add(10 * time.Minute)
+	r.pass()
+	if r.p.folded.review != nil {
+		t.Fatal("precondition: the request is still open")
+	}
+	end, at := lastFact(t, r.p.root, event.MsgTask, event.StepMessage)
+	if !at.Equal(r.now) {
+		t.Fatalf("precondition: the request ended at %v, want %v", at, r.now)
+	}
+	r.a.mu.Lock()
+	n := r.p.idleNow()
+	marker := r.p.folded.reviewEnd.seq
+	r.a.mu.Unlock()
+	if !n.ok || n.end != end || !n.at.Equal(at) || n.last != "T-b dropped: superseded" {
+		t.Errorf("idle %+v, want key %d at %v (the request's end, not the drop at %v), last T-b dropped: superseded",
+			n, end, at, dropped)
+	}
+	if marker != 0 {
+		t.Errorf("the failed end set the on-merge marker (seq %d), want it unset (T-906)", marker)
+	}
+
+	// a --rm ends the request too, and is the marker's end as before
+	r.mustCall("r2", nil, "", false)
+	r.now = r.now.Add(time.Minute)
+	r.mustCall("rm2", nil, "", true)
+	rm, _ := lastFact(t, r.p.root, event.ReviewTask, event.StepReviewRm)
+	r.a.mu.Lock()
+	idleSeq, marker := r.p.folded.reviewIdleEnd.seq, r.p.folded.reviewEnd.seq
+	r.a.mu.Unlock()
+	if idleSeq != rm || marker != rm {
+		t.Errorf("after the --rm: idle end %d, on-merge marker %d; want both %d", idleSeq, marker, rm)
+	}
+
+	// a firing ends it for both as well
+	r.mustCall("r3", nil, "", false)
+	r.now = r.now.Add(time.Minute)
+	r.pass()
+	fire, _ := lastFact(t, r.p.root, event.ReviewTask, event.StepReviewFire)
+	r.a.mu.Lock()
+	idleSeq, marker = r.p.folded.reviewIdleEnd.seq, r.p.folded.reviewEnd.seq
+	r.a.mu.Unlock()
+	if idleSeq != fire || marker != fire {
+		t.Errorf("after the firing: idle end %d, on-merge marker %d; want both %d", idleSeq, marker, fire)
+	}
+}
+
+// lastFact is the seq and time of the newest record of task at step (a test fails when there is none).
+func lastFact(t *testing.T, root, task, step string) (int64, time.Time) {
+	t.Helper()
+	var seq int64
+	var at time.Time
+	for _, rec := range readLog(t, root) {
+		if rec.Task == task && rec.Step == step {
+			seq, at = rec.Seq, event.RecordTime(rec)
+		}
+	}
+	if seq == 0 {
+		t.Fatalf("no %s %s record in the log", task, step)
+	}
+	return seq, at
+}
+
 // T-868: with no work after it, the state is keyed as before: the merge (or the drop), and a merge's last after-merge
 // step once that is newer. `last` names the last merge or drop.
 func TestIdleKeyIsTheNewestEnd(t *testing.T) {
