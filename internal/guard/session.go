@@ -13,6 +13,7 @@ import (
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/roles"
+	"obor/internal/store"
 )
 
 // SessionStart is the SessionStart hook: this session's obor context on out (role, lane, task, the protected files
@@ -103,20 +104,20 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		project.WritePluginMarker(repo.Root, w.Role.Lane, k.Name(), version)
 	}
 	record(repo.Root, agent, project.InboxSlot(cfg, w.Role), ev.SessionID, env)
-	began := Began{Root: cfg.Root, Agent: agent, Kind: kind, ID: ev.SessionID,
-		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane}
+	began := Began{Root: cfg.Root, Session: store.Session{Agent: agent, Kind: kind, ID: ev.SessionID,
+		Transcript: ev.TranscriptPath, Pane: env.Get("HERDR_PANE_ID"), Lane: w.Role.Lane, Source: "SessionStart hook"}}
 	if w.State != nil {
 		began.Task = w.State.Task
 	}
 	return began, began.ID != "" && recordable(began.Agent)
 }
 
-// Began is an agent session the SessionStart hook saw begin (T-577): the project, the agent (project.Self: derived,
-// T-786), its kind, the session id and its transcript file ("": the event names none), and the pane, lane and
-// task it began in.
+// Began is an agent session the SessionStart hook saw begin (T-577) in the project at Root: the agent (project.Self:
+// derived, T-786), its kind, the session id and its transcript file ("": the event names none), the pane, lane and
+// task it began in, and its source. Started is the report's (cmd/obor stamps it).
 type Began struct {
-	Root, Agent, Kind, ID, Transcript string
-	Pane, Lane, Task                  string
+	Root string
+	store.Session
 }
 
 // sessionKind is the kind agent runs as: its type's (project.RunningType: a lane agent's, its lane's open dispatch's,

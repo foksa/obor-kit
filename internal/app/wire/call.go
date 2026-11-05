@@ -3,6 +3,8 @@ package wire
 import (
 	"encoding/json"
 	"strings"
+
+	"obor/internal/store"
 )
 
 // The app socket's protocol, client side: what a caller can ask serve (the methods), the Call it sends and the
@@ -31,7 +33,7 @@ const (
 	MethodPause    = "pause"      // Call.Note the why, Call.Until its end (0: until cleared); Call.Clear ends the pause in force
 	MethodReview   = "review"     // Call.After the tasks it waits for, Call.Note the lead's note, Call.Clear ends the open request
 	MethodFix      = "review_fix" // obor review fix (T-850): Call.After the fix tasks linked to the open review, Call.Note what to check
-	MethodSession  = "session"    // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
+	MethodSession  = "session"    // Call.Session began (SessionCall: Call.Agent is its agent)
 	MethodSpecSet  = "spec_set"   // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (T-824), or "UNCHANGED <task> rev <n>"
 	MethodConfig   = "config_set" // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main
 	MethodBackup   = "backup"     // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
@@ -114,6 +116,7 @@ type Call struct {
 	// revision (config.Rev) the changes were made on ("": not checked); Source is where the owner made them ("web").
 	Changes []ConfigChange `json:"changes,omitempty"`
 	Base    string         `json:"base,omitempty"`
+	Source  string         `json:"source,omitempty"`
 	// pause's (pause.go): its end (epoch seconds, 0: until cleared), or clear the pause in force; Note is its why.
 	Until int64 `json:"until,omitempty"`
 	// Model is the model a pause holds (obor pause --model, T-765): "": the project's pause.
@@ -131,13 +134,15 @@ type Call struct {
 	Details string `json:"details,omitempty"`
 	// turn's (stopped.go): the hook is the turn's end (Stop); false: its start (UserPromptSubmit; T-571).
 	Ended bool `json:"ended,omitempty"`
-	// session's (sessions.go): the session id, its transcript file, the agent's kind, when it started (Unix seconds)
-	// and who reports it; Pane, Lane and Task are where it started.
-	Session    string `json:"session,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Started    int64  `json:"started,omitempty"`
-	Source     string `json:"source,omitempty"`
+	// session's (sessions.go, T-887): the session as serve records it, the one session shape (SessionCall builds the
+	// call). Its key is not the flat "session" id of the obor before it: a serve of either side reads the other's call
+	// and refuses it with both versions named (no session), never as an unreadable request.
+	Session *store.Session `json:"session_fact,omitempty"`
+}
+
+// SessionCall is the session request reporting s, began in the project at root: its caller is s's agent.
+func SessionCall(root string, s store.Session) Call {
+	return Call{Root: root, Agent: s.Agent, Session: &s}
 }
 
 // What obor resume does with a merge-loop needs-you (docs/state-model.md row 40), the reason of its unblocked fact:

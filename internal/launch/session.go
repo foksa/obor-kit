@@ -61,14 +61,18 @@ func (l *Launcher) nameSession(ctx context.Context, s Start) string {
 // chosenSession is the session fact of a start obor named: the agent, its kind and the id, where it starts and its
 // lane's task. Its transcript is the one the session itself reports (the SessionStart hook fills it in, T-813).
 func (l *Launcher) chosenSession(s Start, id string) store.Session {
-	r := store.Session{Agent: s.Agent, Kind: s.Kind, ID: id, Pane: s.Pane, Lane: s.Lane, Started: time.Now().Unix(),
-		Source: "launch"}
+	return l.withTask(store.Session{Agent: s.Agent, Kind: s.Kind, ID: id, Pane: s.Pane, Lane: s.Lane,
+		Started: time.Now().Unix(), Source: "launch"})
+}
+
+// withTask is s with its lane's task filled in (the lane's row in the store; none: s as it is).
+func (l *Launcher) withTask(s store.Session) store.Session {
 	if l.Cfg != nil && s.Lane != "" {
 		if row, ok, _ := store.ReadLaneAt(l.Cfg.Root, s.Lane); ok {
-			r.Task = row.Task
+			s.Task = row.Task
 		}
 	}
-	return r
+	return s
 }
 
 // proc is a process as it was when pinned: its pid and its start time ("" when ps gave none), so a pid the system
@@ -158,13 +162,8 @@ func (l *Launcher) reportRollout(ctx context.Context, agent, pane, kind, lane st
 			pid, kind, strings.Join(found, ", "))
 		return
 	}
-	rec := store.Session{Agent: agent, Kind: kind, ID: s.ID, Transcript: path, Pane: pane, Lane: lane,
-		Started: s.Started.Unix(), Source: kind + " transcript"}
-	if l.Cfg != nil && rec.Lane != "" {
-		if row, ok, _ := store.ReadLaneAt(l.Cfg.Root, rec.Lane); ok {
-			rec.Task = row.Task
-		}
-	}
+	rec := l.withTask(store.Session{Agent: agent, Kind: kind, ID: s.ID, Transcript: path, Pane: pane, Lane: lane,
+		Started: s.Started.Unix(), Source: kind + " transcript"})
 	say("session %s (%s, open in pid %d)", rec.ID, path, pid)
 	if err := l.report(ctx, rec); err != nil {
 		say("warning: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)",
@@ -285,9 +284,7 @@ func (l *Launcher) report(ctx context.Context, s store.Session) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, reportWait)
 	defer cancel()
-	_, err := wire.Verdict(ctx, wire.SocketPath(l.Cfg.Root), wire.MethodSession, wire.Call{Root: l.Cfg.Root,
-		Agent: s.Agent, Kind: s.Kind, Session: s.ID, Transcript: s.Transcript, Pane: s.Pane, Lane: s.Lane, Task: s.Task,
-		Started: s.Started, Source: s.Source})
+	_, err := wire.Verdict(ctx, wire.SocketPath(l.Cfg.Root), wire.MethodSession, wire.SessionCall(l.Cfg.Root, s))
 	return err
 }
 

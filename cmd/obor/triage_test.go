@@ -92,7 +92,7 @@ func TestTriageSessionStartRecordsItsInbox(t *testing.T) {
 	}
 	calls, _ := serve.requests()
 	if len(calls) != 1 || serve.methods[0] != wire.MethodSession || calls[0].Agent != "pj-triage" ||
-		calls[0].Session != "sid-t1" || calls[0].Root != p.Root {
+		calls[0].Session == nil || calls[0].Session.ID != "sid-t1" || calls[0].Root != p.Root {
 		t.Fatalf("serve got %v %+v; want pj-triage's session sid-t1", serve.methods, calls)
 	}
 	if s, ok := inboxed(p.Root)("pj-triage"); !ok || s != "sid-t1" {
