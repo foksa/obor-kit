@@ -115,9 +115,10 @@ func codexLive(l *lab, turn bool) {
 	cxL4(l, pane, codexHome, turn)
 }
 
-// cxL4 (T-898): codex starts with the repository's own `obor mcp` (not the stub) and one job_next call's rendered
-// reply reaches the session's rollout. A client that cannot list the server's tools, or cannot call one, leaves no
-// such result.
+// cxL4 (T-898): codex starts as a worker of the lab's project with the repository's own `obor mcp` (not the stub) and
+// one job_next call's rendered reply reaches the session's rollout. The start is the shipped launch's (launchOf), so a
+// tool its own discovery cannot reach is a FAIL, not a pass the case's own config bought (RV-122 #1, T-910). A client
+// that cannot list the server's tools, or cannot call one, leaves no such result.
 func cxL4(l *lab, pane, codexHome string, turn bool) {
 	where := at("internal/mcp/mcp.go", "func Serve") + ", F1.1, CAP §3.2, T-898"
 	if !turn {
@@ -134,12 +135,17 @@ func cxL4(l *lab, pane, codexHome string, turn bool) {
 		return
 	}
 	k := kindOf("codex")
-	// obor's base args (-s workspace-write -a never --no-daemon) and a direct tool surface: codex 0.166 defers every
-	// MCP tool behind tool_search when the model supports search (all of this account's models, code_mode_only), and
-	// code mode only exposes deferred tools that way (openai/codex#32101). omit_tools_from=deferred is codex's own
-	// supported way to keep this server's tools in the model's tool list.
-	argv := k.Start(agents.Start{Kit: real, Args: []string{"--strict-config", "-s", "workspace-write", "-a", "never",
-		"--no-daemon", "-c", `mcp_servers.obor.omit_tools_from=["deferred"]`}})
+	model, ok := liveModel("codex")
+	if !ok {
+		report("FAIL", "CX-L4", "the config's built-in model table has no codex model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
+		return
+	}
+	start, err := l.launchOf("codex", model, real, nil)
+	if err != nil {
+		report("FAIL", "CX-L4", "the launch of "+model+" cannot be built: "+err.Error(), at("internal/config/models.go", "func (m Model) LaunchArgs")+", T-910")
+		return
+	}
+	argv := k.Start(agents.Start{Kit: real, Args: start.args})
 	l.fresh()
 	t0 := time.Now()
 	s := l.start("conf-codex-mcp", "codex", pane, argv, 30*time.Second)
