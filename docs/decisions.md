@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner, library-adoption-proposal-2026-11-05.md): **try `testing/synctest`** (test-only pilot, T-876)
+  and **the official MCP Go SDK** (trial, T-877: new dependency approved for it; adopted only if `internal/mcp` shrinks
+  and all three kinds' live conformance passes). Not now: go-workflows (two recovery systems during a migration;
+  workflow versioning repeats the old-record-shape problem), Cobra (T-873 removes the usage duplication; needs a
+  policy exception).
 - 2026-11-05 (owner, after DD-architecture + Fable's combined plan): **Change rules adopted** (docs/design.md "Change
   rules"): three guarantees (kernel / rule / refusal; judgments are standing obligations) with the rule tier's
   written failure mode (an action may run twice or a pass late after a crash); every spec carries `Guarantee:`,
