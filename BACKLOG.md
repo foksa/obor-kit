@@ -217,6 +217,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-118, accepted) (RV-118, accepted) idle's key/time ignore the record that clears a non-rule needs-you (e.g. the disk watcher's below-5-GiB needs-you, internal/app/disk.go:38-67; its resumed fact is not an idle end candidate, idle.go:138-145): after such a needs-you clears, the old key, age and acknowledgement stay and no new idle line comes. Rare (disk < 5 GiB); fix 25-50 lines (count the clearing record when it empties the pipeline)
 - (RV-114, accepted) (RV-114, accepted) the idle settle window (60 s, T-859) is time-based: a fix pass that cannot record its verify request for more than a minute still yields one false idle ping; derive the owed verify from round state if long delays become routine
 - (RV-113, accepted) (RV-113, accepted) 4b: an open review started by an obor older than the review.started fact closes at an unfinished manual verify's head (refs/obor/reviewed moves at brief time, reviewverify.go:519; reviewcycle.go:233 falls back to it); needs such an old open review + an unlinked manual verify that fails or is superseded; none exists; fix 25-55 lines (move the fallback ref only on a finished verify)
 - (11-05) The idle line fired at T-856's merge although `obor review fix` was about to brief the verify (ob-rev working
