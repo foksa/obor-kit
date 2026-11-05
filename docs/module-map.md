@@ -30,6 +30,8 @@ gate runs it. Adapters never import each other: one that needs another goes thro
 - `roles`: role names and defaults. `spec`: a spec text's title, sections and globs (the text is the store's).
 - `run`: commands under a timeout as a process group; machine-wide check slots; receipts. `run.Group`, `run.Slots`.
 - `version`: build version line.
+- `help` (T-854): the one list of obor commands (`help.Commands`: name, usage, description, group), printed by
+  `obor help` and shown by obor web's Help page, and README's "Install" and "Set up a project" sections (`Sections`).
 - `selfexec`: a long-running obor process follows a new obor binary (T-719): `Candidate` (the binary the kit's shim
   would run now), `Watch.Changed`, `Exec` (the shim, in place). Callers: serve, web.
 - `store`: the project's SQLite database (`.obor/state/obor.db`) and the rules of one writer: `store.OpenRW` for
@@ -152,7 +154,8 @@ thin `app.Specs`, `Lanes`, `Poster` adapters live here (and `configFile`, `app.C
 `setup`, `config` and the rest (`run`, `nightly`, `affected`, `flakes`, `restart`, `lead`, `plugin`,
 `hook`, `whoami`).
 - `web` (`internal/web`, T-667): `obor web`'s HTTP server over the read model — the API (`/api/projects`,
-  `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq)
+  `/api/view`, `/api/setup`, `/api/task`, `/api/agent`, `/api/job`, `/api/events` with a long poll on the store's seq,
+  `/api/help`: `help.Commands` and the kit's README sections, read at the request)
   and the page (T-760): a Svelte app whose source is `web/` at the repo's root, built by `make web` into
   `internal/web/dist` (committed, `embed`; the Go build needs no Node, `TestDistFresh` fails on a stale build).
   Localhost only; its own process, never inside serve. Its two verbs (T-753), `POST /api/config` (a list of changes and

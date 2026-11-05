@@ -70,17 +70,7 @@ obor lead       # starts the lead in its own tab; run /obor:lead in it
 
 ## Everyday commands
 
-| Command | What it does |
-|---|---|
-| `obor status` | serve, lanes, agents, what needs you, the last full check |
-| `obor web` | a page for every project on this machine: lanes, queue, needs-you, events, task reports and agent prompts, and the Setup page's edits, which serve commits (localhost, `--listen 127.0.0.1:<port>`) |
-| `obor spec set T-xx <file> [--note "<what changed>"]` | store a task spec (it needs a `Difficulty:` line); a working worker's `task_done` at the older rev is refused once |
-| `obor dispatch T-xx [--after T-yy]` | run it on the first free lane of its tier, now or after T-yy merges |
-| `obor watch T-xx[,T-yy]` | one line to the lead when they merge (or one is dropped) |
-| `obor resume` · `drop` | act on a needs-you (by task id) |
-| `obor restart <agent> [--fresh]` | restart an agent in its pane |
-| `obor pause [--for 3h] "<why>"` | stop dispatching (quota, waiting on you) |
-| `obor stop ["<why>"] [--force]` · `obor start` | put the project to sleep (its agents, serve and its entry in `obor projects` go; files and config stay; hooks stand down) and wake it. Stop pauses serve first and says STOPPED only once serve is confirmed down; it refuses (clearing its pause) from a worker lane, with serve down (start it first), with a task in progress (`--force` drops each through serve; a failed drop refuses), when herdr does not answer, or when serve is not launchd's (stop that one in its pane). Start also clears the stop's pause |
+`obor help` (or obor web's Help page) lists every command, its usage and what it does.
 
 The lead's full playbook is `skills/lead/SKILL.md`; the role texts are in `templates/agents/`.
 

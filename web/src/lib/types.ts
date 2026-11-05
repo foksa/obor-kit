@@ -412,3 +412,22 @@ export interface Setup {
   distribution: DispatchCount[];
   config_rev: string;
 }
+
+// /api/help (internal/help): a command's row, a README section, and the page's whole answer.
+export interface HelpCommand {
+  name: string;
+  usage: string;
+  desc: string;
+  group: string;
+}
+
+export interface HelpSection {
+  title: string;
+  body: string;
+}
+
+export interface Help {
+  groups: string[];
+  commands: HelpCommand[];
+  sections: HelpSection[];
+}

@@ -42,12 +42,12 @@ self_host() {
   OBOR_SELF_HOSTED=1 exec "$BASH" "$root/bin/obor" "$@"
 }
 
+# usage: the shim's own lines; the commands are the binary's list (`obor help`, T-854: bin/go-commands is only what the
+# shim passes on).
 usage() {
-  local command
   echo "usage: obor <subcommand> [args…]"
   echo "plugin root: $OBOR_PLUGIN_ROOT"
-  echo "subcommands:"
-  while IFS= read -r command; do [ -z "$command" ] || echo "  $command"; done < "$OBOR_PLUGIN_ROOT/bin/go-commands"
+  echo "every command: obor help"
 }
 
 is_command() {
@@ -180,8 +180,9 @@ self_host "$@"
 sub=${1:-}
 case "$sub" in
   help|-h|--help)
-    usage
-    exit 0
+    # where the kit is, then the binary's command list
+    echo "plugin root: $OBOR_PLUGIN_ROOT"
+    sub=help
     ;;
   ''|*[!a-z0-9-]*|-*)
     usage >&2
@@ -189,7 +190,7 @@ case "$sub" in
     ;;
 esac
 shift
-if ! is_command "$sub"; then
+if [ "$sub" != help ] && ! is_command "$sub"; then
   echo "obor: unknown subcommand: $sub" >&2
   usage >&2
   exit 2

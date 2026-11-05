@@ -25,12 +25,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"obor/internal/app/wire"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/view"
@@ -62,6 +64,8 @@ type Server struct {
 	// Call is a request to the serve of the project at root (default: wire.Verdict on its socket; no socket:
 	// errServeDown).
 	Call func(ctx context.Context, root, method string, c wire.Call) (string, error)
+	// Kit is the kit's root, whose README.md /api/help reads ("": project.KitRoot).
+	Kit string
 }
 
 // errServeDown is a request the project's serve cannot take: it is not running (503).
@@ -70,8 +74,8 @@ var errServeDown = errors.New("obor serve is not running")
 // callWait bounds a POST's request to serve: inside the socket's own 10 s per connection.
 const callWait = 12 * time.Second
 
-// Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/agent, /api/job and
-// /api/events, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
+// Handler is the page and the API: /api/projects, /api/view, /api/setup, /api/task, /api/agent, /api/job,
+// /api/events and /api/help, the two POST routes /api/config and /api/pause, and the page for every other path ("/" plus the hash
 // routes the page itself reads).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -82,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent", s.agentAPI)
 	mux.HandleFunc("/api/job", s.jobAPI)
 	mux.HandleFunc("/api/events", s.eventsAPI)
+	mux.HandleFunc("/api/help", s.helpAPI)
 	mux.HandleFunc("/api/config", s.configAPI)
 	mux.HandleFunc("/api/pause", s.pauseAPI)
 	mux.HandleFunc("/", s.page)
@@ -320,6 +325,38 @@ func (s *Server) jobAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, prompt)
+}
+
+// Help is /api/help (T-854): every obor command (help.Commands) by group, and README's "Install" and "Set up a project"
+// sections.
+type Help struct {
+	Groups   []string       `json:"groups"`
+	Commands []help.Command `json:"commands"`
+	Sections []help.Section `json:"sections"`
+}
+
+// helpAPI is /api/help: the command table and the kit's README sections, read at each request (no copy in the binary).
+// An unreadable README or one without those sections is 500, naming why.
+func (s *Server) helpAPI(w http.ResponseWriter, r *http.Request) {
+	kit := s.Kit
+	if kit == "" {
+		kit = project.KitRoot(project.OSEnv)
+	}
+	if kit == "" {
+		fail(w, http.StatusInternalServerError, "no kit root: obor web cannot find README.md")
+		return
+	}
+	readme, err := os.ReadFile(filepath.Join(kit, "README.md"))
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sections, err := help.Sections(string(readme))
+	if err != nil {
+		fail(w, http.StatusInternalServerError, filepath.Join(kit, "README.md")+": "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, Help{Groups: help.Groups, Commands: help.Commands, Sections: sections})
 }
 
 // configBody is POST /api/config's body (T-760): the changes, each a key path (config.EditKeys) and its new value, and
