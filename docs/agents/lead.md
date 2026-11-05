@@ -3,6 +3,9 @@
 Role text: the `obor:lead` skill (`/obor:lead`). This file holds only what differs in obor-kit.
 
 ## Project
+- Session start (after the skill's step 4): read `docs/observations.md`, the lead's curated patterns (where we went in
+  circles, the load tax, premises that were wrong, local traps). At each handoff rewrite it: merge, update, delete
+  items whose cause is fixed; keep it under ~40 lines (owner 2026-11-05: new sessions lack the old one's experience).
 - obor-kit is a Claude Code plugin; contracts in `docs/design.md` (lead-owned: read it at the start; change it before
   dispatching dependent tasks); config keys: `config.Data`'s field comments (`internal/config/config.go`). Specs from
   the kit's `templates/task-spec.md`. Changes to how a role works need the user's approval.

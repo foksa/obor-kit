@@ -1,0 +1,42 @@
+# Observations (lead; read at session start, rewrite at each handoff)
+
+Patterns about obor and how we work on it that a fresh session would otherwise rediscover. Curated, not a log: at
+each handoff merge, update or delete items (an item goes when its cause is fixed). Keep it under ~40 lines. Decisions
+live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working rules in its memory.
+
+## Where we go in circles
+- **A question becomes a survey becomes 5-10 tasks.** 11-05: data model, encapsulation, kit-specific, gates: the
+  queue went ~7 → ~25 in one afternoon and the milestone lost its exit (owner cut it). Before a survey, name the
+  milestone it serves and what it may add; default is "next milestone".
+- **Fix chains on rule code.** RV-119 → RV-120 → RV-121: each verify found a regression in the last fix, always a
+  consumer of a new state the spec did not list (unknown lane → watchdog timers; reviewEnd → idle). The spec template
+  now asks for every consumer of a new state; check it before dispatch.
+- **Size does not fall by itself.** v0.27.1 → v0.28.0: prod lines flat (+~100), tests +~2k. Coverage-based pruning
+  lost scenarios (11-04: 4 restore rounds). What works: deleting a mechanism with its tests (T-866, T-870, T-877 −220).
+  Ask every task for net prod lines; next milestone requires net-negative.
+- **Old record shapes never go.** Replay starts at record 1 and every store still holds old shapes (census 11-05), so
+  change rule 5 cannot delete a compat branch or its tests without a log snapshot (owner decision pending).
+
+## Load is the hidden tax
+- Flaky reds track machine load (30-58 on 10 cores), not the tests: ~12 different tests one or two times each on
+  11-05. Fixing them one by one does not keep up. Sources found: every merge re-gated every waiting candidate (T-900),
+  non-Go files ran the full suite (T-901), workers ran the class check beside the gates (worker doc 11-05), herdr
+  0.9.5 burns ~75% of a core idle in its own loop (not obor's calls; sample 11-05).
+- More lanes made it worse: 6 lanes → 5 of 6 sat finished, waiting for one serial gate. Gates are the throughput
+  limit; measure gate time and gates per merge before raising lanes.
+
+## Premises to check before proposing
+- The lead's premise was wrong twice on 11-05: E1 (integrator review "adds nothing": it sent back ~8% of merges) and
+  "the next workers test main's MCP server" (agents run the installed kit's `obor mcp`, `~/.obor/kit/bin/obor`).
+  Check processes/logs/code first; `ps` shows what actually runs.
+- Review closes said "approved" while verifies requested changes (hard-coded until T-909). Read the verify, not the
+  close line.
+
+## Local traps
+- `obor pause` did not hold serve's worker-start rule (fixed T-908); `obor lead` before `obor start` leaves an
+  unregistered lead (T-911); `obor web` does not follow a new binary (restart it after a merge that changes the view or
+  an upgrade); raising `lanes` on obor web leaves the lanes `missing` until `obor setup lane`/`pane`.
+- No priority verb: re-dispatching a waiting task sends it to the back (the only way to reorder; repeat `--after`).
+  Check `obor status` before dropping: a "queued" task may already be on a lane (T-899 lost 20 min).
+- `cmd | tail` hides a failed exit (a worker's timed-out check read as exit 0). The live conformance tier needs real
+  sockets: reviewers' sandboxes cannot run it; the lead runs it in a pane.

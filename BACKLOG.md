@@ -6,268 +6,34 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
-- 2026-11-05 ~20:00 **v0.28.0 tagged** (31269c68 checksums on main; notes docs/releases/v0.28.0.md, guide
-  docs/UPGRADE-v0.28.md). **Owner: `make ship`.** axis-alies is stopped (serve down), so its lead could not get the
-  config line: when it runs again, `obor send axis-alies` "delete merge.timeout_grep (v0.28 WARNs); after the install
-  obor serve restart, restart agents (stop --force + start), restart obor web". axis-maps needs no config change.
-  Codex smoke before the tag replaced by the lead's live conformance x3 (CX-L4 real server, normal discovery).
-  **Next milestone:** re-dispatch the held tasks (list above), the log-snapshot decision (census), app split steps
-  6-7, unreachable-test passes 2-3; each task net-negative in prod lines.
-- 2026-11-05 compat census (change rule 5, first run): **nothing deletable**. Every store still holds old shapes:
-  obor-kit idle facts 19 / role stop.* 558 / untyped dispatches 379; axis-alies 1 / 150 / 63 + 14 answer.<call>;
-  axis-maps 0 / 60 / 18 (some written today). Replay starts at record 1, so rule 5 never fires as written. **Owner
-  decision for the next milestone:** a log snapshot at upgrade (Fable advice item 6: fold to current state, new log,
-  old archived), after which branches older than the snapshot and their tests go.
-- Tests of unreachable scenarios (owner asked 11-05). **At v0.28's release:** the compat census (docs/design.md change
-  rule 5, never run yet): per old-shape fold branch, count matching records in every registered store (obor-kit,
-  axis-alies, axis-maps); none → delete the branch and its tests (37 tests named Old/Legacy/Compat/Upgrade, 25 files
-  with old-record setups). **Next milestone:** (2) states a test injects that no production code produces (e.g. lane
-  `"blocked"`, `Lane.hold`): grep + constants (T-891); (3) redundant tests by scenario, not coverage (11-04's
-  coverage pruning lost scenarios: 4 restore rounds): opus deep dive per package, `internal/app` first.
-- Next milestone candidates (owner asked 11-05 about splitting `internal/app`): docs/research/app-split-deep-dive.md steps 6 (outbox state+fold, `messages.go` 1,293 lines, own package) and 7 (identity `registry` rules, own package, table tests without the harness); the merge-loop core stays one package (deep dive §6). Measure `go test ./internal/app` time and harness-test count before/after; net-negative prod lines.
-- 2026-11-05 (after v0.28): `obor web` does not follow a new binary the way serve does (selfexec): after T-883 changed the view's JSON, the 17:48 web process served the old API to the new page (no titles) until restarted by hand. Either web re-execs on a binary change, or the v0.28 notes say to restart `obor web` after the upgrade (add that line to the notes now).
-- 2026-11-05 ~18:30 **Milestone cut (owner).** v0.28 = merged work + T-879, T-907, T-906 (RV-121 fix), T-898 (live
-  MCP check, must pass), T-908 (pause holds the worker-start rule); release once they merge and RV-121 closes (notes:
-  BACKLOG items "Next release notes (v0.28)" and 11-05 afternoon). T-889, T-890 were already running: they finish.
-  **Held for after v0.28** (specs stored; re-dispatch with): T-880 `--after T-883`; T-891 `--after T-888,T-883,T-879,T-892`;
-  T-893 `--after T-883,T-880,T-889,T-885`; T-894; T-896 `--after T-891,T-889,T-893`; T-902; T-903; T-904 `--after T-903`;
-  T-905 `--after T-902`. Next milestone rule: each task reports net production lines and is net-negative or says why.
-  **No new surveys until v0.28 ships.** Size baseline: prod 46,969 / test 77,199 (HEAD 11-05 ~18:00; v0.27.1
-  46,875 / 75,240).
-- 2026-11-05 ~17:55: **`obor pause` does not hold serve's worker-start rule** (T-874): it holds off only for `obor
-  stop`'s pause, so a force-stopped worker of a working task restarts within seconds under a plain pause (L-02 T-892,
-  twice). Spec: the rule honours any project pause (a pause = start nothing). Project stopped again (owner: herdr
-  integrations to repair: opencode needs repair v13, claude v10<v11, codex v8<v10 per `herdr integration status`).
-  After `obor start`: `obor resume T-883 --regate` (red on the T-907 flake), `obor pause --clear` once the owner says.
-- 2026-11-05 ~17:45 (lead, before the owner's herdr restart + update; `obor stop --force`). In flight at the stop: T-892
-  working (L-02, comes back at `obor start` via the worker-start rule), T-900 gating (attempt 3), T-883 submitted
-  (accepted shape (a): new `--json`), T-901 accepted/publish. **Open review RV-121**: fix T-906 linked (verify after it
-  merges), then close. Queue front: T-879 (lane cache + RV-120 V1), T-906, T-907 (flaky TestWorkerStartRule, opus),
-  then T-890/T-894/T-898/T-903. **T-898 must pass before v0.28** (agents run the installed kit's MCP server, not
-  main's). Concern: herdr server ~95% CPU (50 h CPU in 4d20h), load 50-58 at 4 lanes: watch it after the restart; if
-  it climbs back, count obor's herdr calls per minute (researcher). Lanes 4 (6 after T-879/T-880 measured). After
-  restart: `obor start`, `obor lead --resume` (or fresh), check `obor status`.
-- Next release notes (v0.28): `obor status --json` changed shape (T-883): `tasks` is a map of `view.Task` keyed by id; `lanes[]`, `needs_you[]`, `queue.merge[]`, `queue.waiting[]` reference it by id (task fields gone from them, `lanes[].free` added). Restart a running `obor web` after upgrading.
-- 2026-11-05 RV-121 design concern: serve replay still calls `store.Admits` per session fact (`internal/app/sessions.go:86`; rebuilds indexes each call, 921 facts in obor-kit's store) beside T-881's one-pass `Owned`: measure replay, then one incremental fold in serve and drop the app-side replacement scan.
-- 2026-11-05 (kit-specific survey #7, low): serve's low-disk needs-you probes `go env GOCACHE` in every project (`cmd/obor/serve.go:178-191`, `internal/app/disk.go:57`): make it a config hint or drop it; fold into the next disk task.
-- 2026-11-05 ~15:10 (lead): **At RV-120's close** (after T-897's verify): `obor review` of T-873 + T-876 (focus T-876:
-  what each migrated test still proves; tiny test-only diff); T-877 (MCP SDK) gets the review after, alone (its watch).
-  **Lanes 6→4** (owner, load 35-45, flaky reds): dispatch paused until T-876/T-878 free L-05/L-06 (watch), then config
-  lanes 4, commit, `obor pause --clear`. **Web lanes gap:** raising `lanes` on obor web leaves the new lanes `missing`
-  until `obor setup lane`/`setup pane` by hand: web should run them or say so.
-- 2026-11-05 ~late (lead → fresh session, context 502k). **Shipped today:** v0.27.0, v0.27.1. **Adopted:** DD-architecture +
-  Fable's combined plan + architecture-proposal-2026-11-05 + library-adoption-proposal (docs/decisions.md 11-05
-  entries; docs/design.md "Change rules": every spec carries Guarantee/Replaces/Adds; rule tier on
-  internal/app/rules.go). Merged since v0.27.1 (unreleased): T-861 flake causes, T-863, T-864, T-865, T-866 (pilot,
-  passed: net −10), T-867, T-868, T-869 (−247), T-870 (−45). Net since the plan: about −440 prod / −275 test.
-  **Open review RV-119** (T-864/865/867/869/870): fixes T-874 (working task's worker comes back after stop --force +
-  start, or a crash; rule) and T-875 (reviewer-stop failure count; foldRoles gone) are linked with `obor review fix`
-  — serve verifies them in ob-rev's session; close RV-119 after that verify.
-  **In flight / queued:** T-871 (lane read never free on a failed git/store read), T-872 (admission only for
-  main-checkout writers), T-873 after T-871 (one usage source, git runner with ctx), T-876 (synctest pilot, sonnet),
-  T-877 (MCP SDK trial, owner-approved dependency; adopt only if internal/mcp shrinks and live conformance x3 passes).
-  Watches: T-871..T-873 → review; T-876 and T-877 each → a review of that task ALONE right away (owner 11-05: risky
-  judgement/identity tasks get an immediate single-task review; the integrator missed the pruning losses).
-  **Next:** (1) a task for a spec line `Review: on merge` read by serve at dispatch → its own review request (Replaces:
-  the lead's hand-run `obor review --after`; must cope with serve's one-open-review-cycle rule: queue behind the open
-  cycle); (2) wave P (BACKLOG below: lane-scan coalescing, narrow web reads, session queries) after T-873; (3) waves
-  G (verify as a rule + `Fixes:` spec line), H (needs-you repeat, merge watch as rules), I (close via serve), J (one
-  decide-and-append lock); (4) release v0.28 when the wave settles (notes: BACKLOG ~afternoon items). **Owner
-  decisions open:** S1(a) serve owns drive's continuation after a take-over (drive stays for good).
-- 2026-11-05 ~evening: third input docs/research/architecture-proposal-2026-11-05.md merged into the plan: its lane-read
-  bug → T-871; context propagation → T-873 (F); ordered commit path = J; rule conversions/Of field = D/G/H; review
-  close via serve = I; drive continuation = S1(a), still the owner's call. **Wave P after T-873** (fix error
-  semantics before caching): P1 coalesce lane Git scans off the pane-event path (bounded refresh; reuse preflight
-  stays authoritative; measure git calls per burst); P2 narrow view loaders for task/agent/setup reads (no git/ps
-  for a task page; one config snapshot per pass); P3 measure then fix session ownership fold (O(A×S²)) and add only
-  useful indexes (events(task,seq), prompts). P1/P2 should cut the machine load behind the 11-05 flakes.
-- 2026-11-05 afternoon: DD-architecture + Fable's combined plan adopted (decisions, design "Change rules"). Running:
-  T-864 (config keys, flags, + M3 load re-run), T-865 (lane rows), T-866 pilot A (rule pass + idle), T-867 (stop
-  --force drops nothing). Next release notes must say: `merge.timeout_grep`, `integrator_handoff_tokens`,
-  `stop_idle_workers`, `merge.max_load`/`load_wait`/`window_wait`, `slots.merge_block_max` removed (WARN two minors);
-  `obor status --all` gone; `obor review verify` by hand gone (when C lands); `obor stop --force` keeps tasks open.
-  After T-864 merges: docs/design.md "Machine load" drops the load-aware retry paragraph (lead's file).
-- 2026-11-04 ~23:45 (end of day). **v0.26.0 tagged** (f1084988 on main; notes docs/releases/v0.26.0.md, guide
-  docs/UPGRADE-v0.26.md). **Owner: `make ship`** (then each project: `obor config validate`, delete the keys it names,
-  `obor serve restart`). Today: T-825..T-849 (CLI deadlines, P4 version on calls, S2 needs-you block, test pruning
-  P1-P12 + restores, main-checkout guard, retired shape keys); RV-107..RV-112 closed. Nothing in flight, no watches.
-  **Next (consolidation, each deletes a mechanism):** (1) review → fix → verify in one reviewer session, hardened in
-  obor (Later); (2) integrator out of the main checkout (its own read-only worktree) instead of more guard deny rows;
-  (3) move/drop/take-over answer at once and report the stop as a later line (ends the deadline patches, RV-108 #1);
-  (4) judge the pruning wave's net (lines out vs 4 review rounds and 4 restore tasks) before any more pruning.
-  **Owner to choose tomorrow — is simplification moving?** By size, no: prod Go 41.9k (v0.20.1) → 44.9k (v0.23.0,
-  consolidation declared) → 43.8k (v0.25.0, low) → 45.5k (v0.26.0); tests 66.0k → 74.5k; pruning netted ~1k, not the
-  survey's 6-8k (restores + new safety tables). The model got simpler (one resume verb, derived names, one phase,
-  needs-you block), but each fix closes its gap by adding a mechanism. Experiments the lead proposed (one wave each,
-  measured): **E1** no integrator review: merge on a green gate, batched terra review only; compare findings with
-  today's waves (the integrator accepted every pruning task terra later found holes in) — if no worse, the role, its
-  job type, held verdicts and part of the merge loop go (lead's pick to try first). **11-05: dropped** — the lead's
-  premise was wrong: the integrator sent back T-831/T-834/T-838 itself and ~8% of merges since 10-25. **E2** reviewer and integrator in
-  their own read-only worktree: if nothing breaks, the main-checkout deny rows (T-841, T-848) go. **E3** move, drop and
-  take-over answer at once, the stop is a later line: then the deadline code (T-825, T-829, RV-108 #1) goes. **E4** a
-  feature freeze for v0.27: each task names what it removes, no new config keys.
-  **Owner 11-04: flow simplifications are worth more than code ones.** Rank by what leaves the lead's/owner's loop:
-  E1 (one review step fewer per merge) and E3 (no false failures) first; also count today's flow friction: a fresh
-  review per fix round (6 rounds), watches set by hand per wave, review notes written per batch, a needs-you recovery
-  by hand (detached HEAD), idle lines to answer. Measure lead actions per merged task before and after.
-- 2026-11-04 ~22:30: pruning wave merged except T-844/T-845 (restores); T-841 gating, T-846 (P12 v0.26 removals) on
-  L-04; review queued after T-841, T-844, T-845, T-846 (covers T-838). **Then v0.26**: UPGRADE-v0.26 + release notes
-  must say: store older than v0.22 upgrades through v0.24 first (T-840); remove a global opencode `mcp.servers.obor` by
-  hand if an obor before v0.25 put it there (T-835); `obor monitor` and the pre-v0.23 config message are gone (T-846);
-  removed config keys past their window are now unknown keys (T-830); every wire call carries the caller's version
-  (T-826); only the lead moves HEAD in the main checkout (T-841); S2 needs-you as a block (T-827, internal).
-- 2026-11-04 ~21:45: RV-109 closed (6 lost scenarios in T-833/T-834/T-836 → restores T-844, T-845; RV-108's → T-842,
-  T-843). **Concern:** statement-coverage pruning keeps losing scenarios (entry point, timing) on deepseek; owner moved
-  T-838 to sonnet:medium (attempt 2, same lane). Judge the wave's net when it ends (lines out vs restore rounds).
-- 2026-11-04 ~20:55: ob-int detached the main checkout (`git checkout --detach <candidate>` while reviewing T-830);
-  loop needs-you cleared by `git checkout main`. Guard fix T-841 queued after T-837 (guard tests). Until it lands the
-  same can recur during the pruning reviews: the fix is `git checkout -q main` in the main checkout (clean tree).
-- 2026-11-04 ~20:30: RV-107 closed (#1 → T-829 stop bound, L-01). T-828 survey merged
-  (docs/research/test-pruning.md); pruning P1-P10 = T-830..T-839 dispatched (T-830..T-832 running, the rest queue for
-  lanes; T-836, T-838 after T-829). P11 = T-840 (owner: raise to 9); retire step deletion folded into T-835 (owner); v0.26 notes must say both (store < v0.22: upgrade through v0.24; remove a global opencode `mcp.servers.obor` by hand). Held:
-  **P12** v0.26 removals (`obor monitor` case, pre-v0.23 shape message) after T-830/T-831, at the v0.26 release;
-  `TestSetupAgentsRetires…` + `agents.Retired` once the owner says no machine has the global opencode entry.
-- 2026-11-04 ~19:40 (lead, fresh session). Steps 1-2 done (AGENTS.md rules, 5560ff43). Step 3 was misread: the
-  11-04 15:02 `use of closed network connection` was a move outlasting the CLI's 15 s deadline (serve stops the
-  worker inside the call), not a restart → T-825. In flight: T-825 (L-01), T-827 S2 (L-02, opus:high), T-828
-  test-pruning survey (L-03); T-826 P4 waits on T-825 (same file). Owner: S2 for wave 4, survey first, keep 4 lanes.
-  Next: review T-825..T-827 once merged; pruning tasks from T-828's ranked plan.
-- 2026-11-04 ~19:00 (lead → fresh session). **v0.25.0 and v0.25.1 shipped** today; all upgrade steps done on this
-  machine (`obor setup agents` removed the global opencode obor entry + link; backup was in the old session's
-  scratchpad; `~/.obor/agents` and `~/.obor/inbox` removed). axis-alies on 0.25.1 (lanes restarted, its lead restarts
-  for the skill); axis-maps stopped by the owner (`obor start` there brings 0.25.1). Reviews RV-102..RV-106 closed.
-  Nothing in flight, no watches, no owner decisions pending. crouton removed from config (its stale pause is invisible).
-  Conformance: `make conformance TIER=live TURN=1` (CONF_OPENCODE_MODEL=opencode-go/deepseek-v4.1-flash) in tab
-  `conformance` (w5:t15): 34 pass, CC-L2 fail fixed by T-820.
-  **Next, in order (owner OK'd 11-04):** (1) AGENTS.md rule "an empty derived value is an error" (T-791, T-814 class);
-  (2) spec rule + template line: a task touching identity/MCP/launch runs `make conformance TIER=live` per kind before
-  merge; (3) CLI retry on serve's closed socket during its restart; (4) wave 4: DD-consolidation S1 (one "may the lead
-  act" check, hard, case → test table) + test pruning (tests 71.6k vs prod 43.9k); (5) P4 version on every wire call.
-  Later: P9 herdr restore plugin; trim the conformance suite (~3.8k lines: settled probes become assertions).
-  **Concern:** machine load (load avg up to 37) turned gates red several times today (flakes in internal/app,
-  cmd/obor, internal/setup); owner to choose 3 lanes or keep fixing flakes. Owner-side optional: herdr 0.9.5 +
-  `herdr integration install opencode`; restart the owner's own opencode service (pid 2883, old obor mcp children).
-- 2026-11-04 ~11:15 (lead restart: T-787 moved inbox records into the project; this session had none, so other leads
-  and serve could not reach it). **Wave 3 of DD-consolidation merged** on main (unreleased): T-785 brief --fresh, restart
-  flags gone; T-786 derived identity, no OBOR_AGENT, allow_push roles; T-787 project inbox by slot, rename refuses old
-  plist; T-788 one task phase, held = verdict; T-789 setup migrate deleted (codex projects migrated by owner 11-04);
-  T-790 spec titles from `T-xx: title` (+ spec set refuses untitled). **Also merged**: T-791 (no-identity refusal + per-kind
-  tests; the opencode failure was kit skew: global opencode MCP runs ~/.obor/kit 0.24.2), T-792 (dispatch refuses a
-  merged task). Nothing in flight; the watches fired while this lead had no inbox. **Paused**: deepseek, crouton in obor-kit until v0.25 is installed
-  (clear both after the install). Config has `models.crouton` (owner trial at xhigh, after v0.25). **Researcher** (tab research)
-  writes docs/research/agent-cli-and-herdr-capabilities.md; then the agent-driver deep dive (Open, first line).
-  **Next**: obor review T-785..T-792, close; v0.25 notes (restart flags gone,
-  OBOR_AGENT gone, inbox per project: `rm -r ~/.obor/agents ~/.obor/inbox` + restart every role agent and lead,
-  setup migrate gone, titles); `make release`; owner `make ship`; tell axis leads. Until v0.25 is everywhere, a 0.24.2
-  `obor send obor-kit` may not reach this lead (it reads the global inbox). Owner feedback to act on after the review:
-  AGENTS.md rule "an empty derived value is an error", spec rule live smoke per agent kind for identity/mcp/launch,
-  S1 + test pruning as wave 4, CLI retry on closed serve socket.
-- 2026-11-04: **v0.24.2 shipped** (v0.24.0 and v0.24.1 tagged, never shipped on their own; notes carry all three). v0.24.0: consolidation waves 1-2 (T-772..T-780: one `obor resume`, task ids, move a task, monitor gone, no `agents` key, derived names, upgrade check in make release; RV-98/RV-99). v0.24.1: nightly is the lead's switch, `obor nightly on|off` (T-781/T-782, RV-100; owner: no "due" logic). v0.24.2: dispatch uses the lane's labelled pane (T-783/T-784, RV-101; axis-alies' report). Axis leads sent the v0.24 steps (axis-alies: setup migrate for its agents key; axis-maps: close axis-monitor). Next: confirm both serves on 0.24.2 and migrated; wave 3 of DD-consolidation (C3+C4, I3+I4, S5+S6, C7 wording, I6+I7); C8 (delete migrate code) in v0.25 after codex-image-tool/codex-img-viewer migrate.
-- 2026-11-03 evening: **v0.23.1 shipped** (T-770 strict MCP for Claude workers, T-771 serve restart; RV-97 closed); before it **v0.23.0 shipped** (axis leads sent the migrate steps; their serves refuse the old config until they migrate): config names models directly (T-765), Setup
-  page for it (T-766), project list keeps unloadable projects (T-767), roles always name a model (T-769 replaced
-  T-768 after two strikes). RV-95, RV-96 closed. After ship: obor send axis-alies/axis-maps the UPGRADE-v0.23 steps
-  (migrate needs every lane free); codex-image-tool / codex-img-viewer are dormant obor projects needing migrate.
-- 2026-11-03 midday: **v0.22.0 shipped** (leads told): obor web redesign (owner drive T-760, Svelte 5 + Vite, dist committed;
-  decision in docs/decisions.md), drive<->lead lines (T-761, T-764), drive commits (T-762), live mark (T-763). RV-94
-  closed. Nothing in flight.
-- 2026-11-03 morning: **v0.21.0 shipped** (leads told) (Setup page + editing T-750/T-752..T-754/T-756, obor drive/land
-  T-751/T-755/T-757/T-758, test flakes T-759 released UNREVIEWED with the owner's OK). RV-92, RV-93 closed (accepted
-  lines in Open). Owner will redesign the Setup page (DeepSeek's UI looked ugly: UI specs now
-  carry `Type: opus`); suggest `obor drive`. Reviewer stays terra:xhigh (owner: axis' Sol use drove Codex usage).
-  Nothing in flight.
-- 2026-11-03: **v0.20.1 shipped** (v0.20.0 never shipped on its own; v0.20.1 notes carry both; T-748/T-749 answer
-  delivery states, RV-91 closed). Ship told axis-alies and axis-maps; axis-maps' serve is on v0.20.1 and its stale
-  deep-dive brief is gone. Nothing in flight, no open owner decisions.
-- 2026-11-02 night: **v0.20.0 tagged** (lane pool, binaries followed by serve/monitor/web, reviews in the main checkout
-  with the merge hold, answer delivery to the live session). RV-86..RV-90 closed (accepted lines in Open). obor-kit
-  now runs untyped lanes L-01..L-04 (old O/S/C/D lanes and their worktrees removed; tab "lanes"). `max` caps worker
-  tasks only (owner). Medium/simple specs carry no `Type: sonnet` (owner: DeepSeek first; Claude quota shared with
-  axis). **Next:** owner runs `make ship`; then check axis-maps' stale deep-dive brief cleared on v0.20 (T-732) and
-  tell axis-alies their delivery fix is in v0.20.0, the rest in v0.20.1. No open owner decisions.
-- 2026-11-02 late (lead context 500k → fresh session): **v0.19.1 shipped** earlier; since then merged and reviewed
-  (RV-85 closed, `obor review close`'s first use): T-712 stop clears input, T-713 role agents on the web overview +
-  monitor config reload, T-714 agents' long-running processes, T-715 ship notifies leads, T-716 `obor review
-  verify|close` + brief reports real findings only, T-720 checks wait while load > 2×cores, T-725..T-727 RV-85 fixes.
-  Merged, not yet reviewed: T-717 (release log + flaky rerun). **Merged**: T-718 (merge hold while reviewer/deep dive work; both in the main checkout). **In flight**: T-728 on S-01 (bg label only for the call that started
-  it, RV-85 #3 remainder). **Queued**: T-719 (self re-exec of serve/monitor/web, Fable advice) after T-718; the lane
-  pool T-721 → T-722 → T-723 → T-724 (docs/research/untyped-lanes-advice-fable.md) after T-719. Watches carry the
-  next steps: T-718 done: review and deep-dive worktrees removed (their old files kept in docs/reviews/), ob-terra
-  and ob-deep-dive panes re-placed in the main checkout; release notes must tell other leads they may remove theirs; review T-717/T-718/T-719/T-728 together
-  (`obor review`, then `obor review verify`, `obor review close`; at most two rounds); after the pool: obor-kit lanes
-  become L-01..L-04 untyped (no pinned lane; Codex only for reviews), remove the 8 old lane worktrees after checking
-  each is clean and merged, then v0.20.0 (UPGRADE-v0.20 from T-724, releases/v0.20.0.md, `make release`, owner
-  `make ship`). Reviewer is `terra:xhigh` (Codex: review ~3 %, verify 2-4 % of the 5 h window). No open owner
-  decisions. Owner asked for simplification proposals any time; ideas logged: worker re-gate deadlock (Open).
-- **Reviewer type**: `opus:high` since 2026-11-02 (Codex usage limit, resets 2026-11-04 08:00). After the reset set
-  `roles.reviewer.type` to `terra:xhigh` (owner: wants to see how Terra's usage moves at xhigh) and report the Codex
-  rate_limits from the newest rollout before and after its first review.
-- 2026-11-02 evening: **v0.19.1 shipped** (8dd1eef7): obor stop/start, no agents at init/setup, init plugin in lanes,
-  opencode model via obor.js, researcher role, role write limits on shell+git (T-702..T-711; RV-83, RV-84 closed). Serves
-  restarted in obor-kit, axis-alies, axis-maps, codex-image-tool; their leads told. codex-img-viewer: the owner runs
-  `obor stop` there (their own session). Reviewer is terra:xhigh (Codex usage: review ~3 %, verify 2-4 % of the 5 h
-  window; the window is account-wide).
-- 2026-11-02 day: **v0.18.1 shipped** (Go 1.27.3, release notes; T-681..T-684). Since then merged and reviewed
-  (RV-79..RV-81 closed, d7e54704): T-685/T-686 (gate 158 → 115 s), T-687, T-688 (monitor bad flag), T-689 (spec
-  `Type:` line), T-695 (`type:effort` everywhere; `opus-high` type replaced by `opus:high`), T-696..T-698 (opencode
-  per-agent XDG_STATE_HOME, pinned model, no model guessing), T-690..T-694 + T-699/T-700 (internal/app split into
-  port/event/wire, needs-you owner, mtask attempt group, aliases gone). Research: Gemini review + Fable advice +
-  app-split deep dive in docs/research. **v0.19.0 shipped** (401a4b0d; T-701 fixed the affected test on the post-split graph). obor-kit and axis-alies serves
-  restarted on it, axis-alies lead told, monitors restarted. axis-maps: deepseek type pinned to `opencode-go/deepseek-v4.1-flash` (owner OK; its commit 65d818a), serve
-  restarted, lead told, monitor restarted. In flight:
-  T-702 (internal/app parallel-test flake sweep, S-01). Earlier next was: owner's call on v0.19.0 (write
-  docs/UPGRADE-v0.19.md + docs/releases/v0.19.0.md; projects need serve restart; lead/deep-dive role type is now
-  `opus:high`); open: herdr ~100 % CPU cause unknown; deep dive steps 6-7 not now.
-- 2026-11-02 early: **v0.18.0 tagged** (10a24b7c; monitoring release: `internal/view`, `obor web`, prompts table,
-  new monitor, watch --note, role agents stop when done, deduped job prompts). RV-75 and RV-76 closed. Codex smoke
-  T-679 passed. Nothing in flight, no watches; ob-int and ob-terra stopped by serve, ob-fable and ob-deep-dive by the
-  lead. `obor web` runs in pane `ob-web` (system tab, http://127.0.0.1:8787/).
-  **Shipped** 2026-11-02 07:05 (GitHub release v0.18.0, kit installed); all three serves restarted on it, both axis
-  monitors restarted on 0.18.0, both axis leads sent the summary (axis-maps: queued, its lead has no recorded
-  session; delivered once `obor restart axis-lead` or `obor lead` there).
-  Later (owner): `obor drive`/`obor land` (Later candidates). Owner ended the day after this release.
-  After the tag: nightly RED on govulncheck (five go1.27.1 net/http server vulns, reachable via `obor web`;
-  localhost plain HTTP, so no real risk) → T-681 `toolchain go1.27.3` in go.mod, merged f19aedc, nightly GREEN.
-  It ships in v0.18.1 or the next release (owner's call). T-682 merged c89eb04: releases get title + notes from
-  `docs/releases/v<x.y.z>.md` (the lead writes it with the UPGRADE guide; release/ship refuse without it). GitHub
-  releases v0.16.0..v0.18.0 backfilled by hand. T-681 + T-682 unreviewed since RV-76: review before v0.18.1.
-  RV-77 (T-681..T-683) closed 4ee67cfe. `make release V=0.18.1` failed twice: internal/app hangs under full-check
-  load (fix job waits for a stopped integrator; recovery cases with `stop.<int>` unsettled; likely T-672) → T-684
-  (O-01, hard). After it: short verify, then release (log to a file: a tail loses the failing test).
-- 2026-11-01 evening: **v0.17.5 released** (v0.17.3/v0.17.4 tagged, never published); all three serves on it;
-  `obor monitor` panes in each project's system tab. Lead on opus-high (config; applies at the next lead restart).
-  In flight: T-662 (running vs pending), T-663 (monitor fits rows), both RV-74 display fixes, unreviewed.
-  Planner/coordinator split deferred: cheap fixes in (T-649..T-652); measure what still reaches the lead's chat.
-  Plan + Fable advice: docs/research/planner-coordinator-*.md; the owner may add Gemini's read.
-- 2026-10-31 session 13, evening: **v0.17.0 released** (tag pushed, GitHub release published, `~/.obor/kit` at
-  v0.17.0). Merged today T-595..T-626; RV-64..66 closed; DD-v0.17 + verify approved (V2 → T-626, V1/V3 docs done).
-  axis-alies migrated (54543f08) and was told to follow UPGRADE-v0.17 (githooks, serve install, restarts). Nothing
-  in flight; all lanes free. Config since 10-31: simple = deepseek, sonnet; slots max 1, cpus 4. Lead rule: never
-  end a turn with work in flight unless the next task is `--after`-queued or the wave is under `obor watch`.
-  Next: owner picks the next milestone; candidates: `obor plugin restore` resumes a Codex worker (check first),
-  S5a done 21:18 (herdr restart: lead/int/deep-dive/Codex terra resumed; never-prompted sessions failed → T-627).
-- 2026-10-30 ~17:45, session 12 → 13 (ob-lead, pane w5:p1R in tab `lead`). **All limits near their end** (owner;
-  Codex weekly 10% left at 17:40): dispatches paused (`obor pause`, clear it first). Nothing in flight; all 8 lanes
-  free; ob-int, ob-sol, ob-fable idle in the `roles` tab; serve up in w5:p1F.
-- **Done this session:** rename verified (old tabs closed; role agents restarted with their `ob-*` env; lane labels
-  cleared). **v0.16.0 released**: P7-1 (T-590, T-591, RV-63 closed, #4 by rule: a pushed tag never moves); main
-  re-rooted onto a fresh public history (old history: local tag `pre-public`), pushed to `foksa/obor-kit`, release
-  published by the owner, `install.sh` checked in a clean HOME; README added; dev marketplace `obor-kit-dev`
-  (T-592, re-registered here); Codex smoke T-593 passed (after the tag, see `docs/agents/lead.md` Releases).
-- **How to work now:** push with `OBOR_ALLOW_PUSH=1 git push` (pre-push hook); main is public: every commit is
-  published, author email is the noreply. After the re-root, old `task/*` lane branches looked `done` (not reachable
-  from main): fixed by `git -C <lane> checkout -q -B <branch> main`. After a code merge serve runs `make build`
-  and restarts itself on the new build (T-652, `commands.after_merge.restart_serve`; serve runs under launchd since 10-31,
-  `obor.serve.obor-kit`; log `.obor/state/logs/serve.log`); a failed restart is a needs-you.
-- **Owner decisions pending:** none.
-- **Next (owner 10-31: start from the architectural review**, `~/Work/obor-kit-wt/review/docs/reviews/architectural-review.md`): (1) #1 labels/env/rename relabel (one fix task: `herdr/panes.go`,
-  `app/panes.go`, `setup/agent.go`, `setup/rename.go`); (2) #2 drop `.sid` (store only; restore reads the store) in
-  parallel with P7-3 (`obor serve install`); (3) #4 split `proj` in three hard, sequential, reviewed steps:
-  registry, outbox, folded vs live state (existing app tests are the oracle; two strikes = rethink); (4) #3 boundary
-  cleanup with whichever task touches `setup/agent.go`; #5 stays low. axis-alies migrates at its own handoff
-  (`~/.obor/kit` is installed on this machine since 10-31). Unreviewed merges: T-592, T-594 (review due).
-- Difficulty rule (`docs/agents/lead.md`): wide or risky-to-deploy is medium, not hard.
+Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
+- 2026-11-05 ~20:40 (lead → fresh session; the old Handoff history is in git: `git show d2f5d6b3:BACKLOG.md`).
+  **Shipped:** v0.28.0 (20:20; notes docs/releases/v0.28.0.md). axis-alies applied it (68efc07); axis-maps needed
+  nothing. **In flight:** T-911 (`obor lead` wakes a stopped project), L-01; nothing else; no open review (RV-122
+  closed; T-911 falls into the next one). Lanes 4 (6 only after measuring gate time and gates per merge).
+  **Next milestone (owner: start in the next session).** Rule: every task reports net production lines and is
+  net-negative or says why; no survey without naming the milestone it serves. Baseline at v0.28.0: prod 46,969 /
+  test 78,857 (cmd+internal+tests). Order:
+  1. Owner decision: a log snapshot at upgrade (Owner decisions pending), which unlocks deleting compat branches.
+  2. Re-dispatch the held tasks (specs stored; `--after` only on unmerged ones): T-880; T-891; T-893 `--after T-880`;
+     T-894; T-896 `--after T-891,T-893`; T-902; T-903; T-904 `--after T-903`; T-905 `--after T-902` (guard deny list
+     as config, owner-approved). Split by files across the 4 lanes.
+  3. Combined plan waves still open (docs/research/architecture-advice-fable.md): G (verify as a rule + `Fixes:` spec
+     line), H (needs-you repeat, merge watch as rules), I (review close via serve; T-895 did the format), J (one
+     decide-and-append lock).
+  4. Candidates: app split steps 6-7 (outbox, identity; docs/research/app-split-deep-dive.md); unreachable tests,
+     passes 2-3 (states nothing produces; redundant by scenario, opus, `internal/app` first); serve replay calls
+     `store.Admits` per session fact (RV-121: measure, then one incremental fold); `obor web` follows a new binary;
+     obor web's lanes raise runs `setup lane/pane`; the Go cache probe in serve's low-disk line (config or drop).
+  **Accepted, not fixed:** RV-119 #1 (a resumed worker whose wake herdr refuses stays idle; the stalled needs-you
+  catches it). **Owner side:** herdr 0.9.5 ~75% CPU idle in its own loop (sample + table in the 11-05 lead's
+  scratchpad, gone with it; re-sample with `sample <herdr pid> 3` if reporting); closing stale workspaces may help.
 
 ## Owner decisions pending
+- **Log snapshot at upgrade** (census 11-05: every store still holds old shapes; replay starts at record 1, so change
+  rule 5 never deletes a compat branch). Fold the log to current state at an upgrade, start a new log, archive the old
+  one; then branches older than the snapshot and their tests go (Fable advice item 6).
+- **S1(a)** serve owns drive's continuation after a take-over (drive stays for good).
 
 ## Later candidates
 - **Harden review → fix → verify in obor** (owner 11-04, after the lead closed RV-107..RV-111 right after dispatching
