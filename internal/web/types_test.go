@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/view"
 )
 
@@ -33,6 +32,7 @@ var goStructs = map[string]reflect.Type{
 	"Running":       reflect.TypeOf(view.Running{}),
 	"Serve":         reflect.TypeOf(view.Serve{}),
 	"Job":           reflect.TypeOf(view.Job{}),
+	"Task":          reflect.TypeOf(view.Task{}),
 	"Lane":          reflect.TypeOf(view.Lane{}),
 	"BriefStatus":   reflect.TypeOf(wire.BriefStatus{}),
 	"Role":          reflect.TypeOf(view.Role{}),
@@ -76,6 +76,10 @@ var goStructs = map[string]reflect.Type{
 // the record; a same-named Go struct wins, so it is compared (see TestTypesTSMatchesGoJSON).
 var tsOnly = map[string]bool{"HelpCommand": true, "HelpSection": true, "ProjectView": true, "ProjectsEntry": true}
 
+// goAliases are the interfaces whose Go name is an alias of another package's struct (view.Idle = wire.IdleStatus, T-883): the
+// struct's own name differs, its json names are the same.
+var goAliases = map[string]string{"Idle": "IdleStatus"}
+
 // TestTypesTSMatchesGoJSON: every interface of types.ts has exactly its Go struct's json names, no more and no fewer.
 func TestTypesTSMatchesGoJSON(t *testing.T) {
 	t.Parallel()
@@ -96,7 +100,7 @@ func TestTypesTSMatchesGoJSON(t *testing.T) {
 			}
 			continue
 		}
-		if typ.Name() != name {
+		if typ.Name() != name && goAliases[name] != typ.Name() {
 			t.Errorf("%s: goStructs compares %s, not %s", name, typ.Name(), name)
 		}
 		missing, extra := diffKeys(ts[name], typ)
@@ -141,27 +145,22 @@ func TestTypesTSCheckRefusesDrift(t *testing.T) {
 }
 
 // TestTSStringSetsMatchGo: the strings the page switches on are Go's constants, not retyped copies: the merge loop's
-// phases (stages.ts PHASE_STEP, wire.Phase*) and stages (Project.svelte's pipeline, wire.Stage*), and a lane's free
-// states (format.ts FREE, checks' lane states).
+// stages (Project.svelte's pipeline, wire.Stage*), and the stepper's steps (stages.ts TASK_STEPS, one per
+// wire.TaskStep*: T-883, the view places a task on one, the page no longer maps phases, lane states or free itself).
 func TestTSStringSetsMatchGo(t *testing.T) {
 	t.Parallel()
-	phases := []string{
-		wire.PhaseWaiting, wire.PhaseDispatching, wire.PhaseWorking, wire.PhaseDriving, wire.PhaseSubmitted,
-		wire.PhaseGating, wire.PhaseGatePending, wire.PhaseReview, wire.PhaseReviewing, wire.PhasePublish,
-		wire.PhaseMerging, wire.PhasePublishPending, wire.PhaseNeedsYou, wire.PhaseHeld, wire.PhaseMerged,
-		wire.PhaseRejected, wire.PhaseDropped, wire.PhaseDropping,
-	}
 	stages := []string{wire.StageSubmitted, wire.StageGating, wire.StageReview, wire.StagePublish, wire.StageHeld}
-	laneStates := []string{checks.LaneFree, checks.LaneDirtyFree, checks.LaneWorking, checks.LaneMissing, checks.LaneUnknown}
 
 	stagesTS := readTS(t, filepath.Join(tsLib, "stages.ts"))
-	placed, ok := tsConstObjectKeys(stagesTS, "export const PHASE_STEP")
-	if !ok || len(placed) == 0 {
-		t.Fatalf("stages.ts: no PHASE_STEP object keys (the parser broke)")
+	steps, ok := tsStringSet(stagesTS, "export const TASK_STEPS = [", "]")
+	if !ok || len(steps) != wire.TaskStepMerged+1 || steps[wire.TaskStepMerged] != "merged" ||
+		steps[wire.TaskStepGate] != "gate" {
+		t.Errorf("stages.ts: TASK_STEPS %v (parsed %v), want one name per wire.TaskStep*, gate at %d and merged last",
+			steps, ok, wire.TaskStepGate)
 	}
-	for _, p := range placed { // a phase the page places must be one Go sends; phases it leaves to the records need not
-		if !slices.Contains(phases, p) {
-			t.Errorf("stages.ts: PHASE_STEP has %q, not a wire.Phase*", p)
+	for _, retyped := range []string{"PHASE_STEP", "stageOf(l.column)"} {
+		if strings.Contains(stagesTS, retyped) {
+			t.Errorf("stages.ts retypes %s: the view ships the task's step (T-883)", retyped)
 		}
 	}
 
@@ -182,18 +181,12 @@ func TestTSStringSetsMatchGo(t *testing.T) {
 	}
 
 	format := readTS(t, filepath.Join(tsLib, "format.ts"))
-	free, ok := tsStringSet(format, "export const FREE = new Set([", "])")
-	if !ok || len(free) == 0 {
-		t.Fatalf("format.ts: no FREE set (the parser broke)")
+	if strings.Contains(format, "export const FREE") {
+		t.Errorf("format.ts retypes the free lane states: the view ships Lane.free (T-883)")
 	}
-	for _, s := range free {
-		if !slices.Contains(laneStates, s) {
-			t.Errorf("format.ts: FREE has %q, not a lane state in checks", s)
-		}
-	}
-	for _, s := range []string{checks.LaneFree, checks.LaneDirtyFree} {
-		if !slices.Contains(free, s) {
-			t.Errorf("format.ts: FREE lacks the free lane state %q", s)
+	for _, page := range []string{"Project.svelte", "Fleet.svelte"} {
+		if src := readTS(t, filepath.Join(tsPages, page)); strings.Contains(src, "stageOf(l.column)") {
+			t.Errorf("%s places a lane by its column: a lane git calls working is not the phase (T-883)", page)
 		}
 	}
 }
@@ -323,53 +316,6 @@ func jsonNames(t reflect.Type) map[string]bool {
 		}
 	}
 	return out
-}
-
-// tsConstObjectKeys is the keys of the object literal a line so declared begins ("export const PHASE_STEP = {"): every
-// entry's text before its first colon, quotes stripped.
-func tsConstObjectKeys(src, decl string) ([]string, bool) {
-	at := strings.Index(src, decl)
-	if at < 0 {
-		return nil, false
-	}
-	body, ok := braceBlock(src, at)
-	if !ok {
-		return nil, false
-	}
-	var keys []string
-	for _, e := range strings.Split(body, ",") {
-		k, _, ok := strings.Cut(e, ":")
-		if !ok {
-			continue
-		}
-		k = strings.Trim(strings.TrimSpace(k), `"'`)
-		if k != "" {
-			keys = append(keys, k)
-		}
-	}
-	return keys, true
-}
-
-// braceBlock is src's first {…} at or after from, its inside braces.
-func braceBlock(src string, from int) (string, bool) {
-	start := strings.IndexByte(src[from:], '{')
-	if start < 0 {
-		return "", false
-	}
-	start += from
-	depth := 0
-	for i := start; i < len(src); i++ {
-		switch src[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return src[start+1 : i], true
-			}
-		}
-	}
-	return "", false
 }
 
 // tsStringSet is the strings of a JS array literal opened by open and closed by close ("export const FREE = new

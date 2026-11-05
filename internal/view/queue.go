@@ -10,7 +10,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -28,19 +27,14 @@ type Queue struct {
 	Nightly *Nightly            `json:"nightly"`
 }
 
-// MergeItem is one task in the merge loop, in the merge loop's order: its spec's title, serve's state and phase (T-788),
-// the phase's stage (wire.PhaseStage: the pipeline's column), its open integrator job, and, when its next step needs
-// the scratch, what it waits for and why (T-669: copied from serve's scheduler, which names no task as next, T-673).
+// MergeItem is one task in the merge loop by id (Project.Tasks has its title, state, phase, lane and job, T-883), in
+// the merge loop's order: its stage (wire.PhaseStage: the pipeline's column) and, when its next step needs the
+// scratch, what it waits for and why (T-669: copied from serve's scheduler, which names no task as next, T-673).
 type MergeItem struct {
 	Task    string `json:"task"`
-	Title   string `json:"title,omitempty"`
-	Lane    string `json:"lane,omitempty"`
-	State   string `json:"state"`
-	Phase   string `json:"phase"`
 	Stage   string `json:"stage"`
 	WaitsOn string `json:"waits_on,omitempty"`
 	Why     string `json:"why,omitempty"`
-	Job     *Job   `json:"job,omitempty"`
 }
 
 // What a waiting dispatch waits on (WaitItem.WaitsOn).
@@ -50,9 +44,9 @@ const (
 	WaitsNever = "never dispatched" // a spec stored, never dispatched
 )
 
-// WaitItem is a dispatch that waits: for its --after tasks (After; Why: its last refused dispatch once they all
-// merged), for a lane of its level (Level, Types, Why), or a stored spec never dispatched (Rev, Since: the spec's set
-// time, Title).
+// WaitItem is a dispatch that waits, of a task by id (Project.Tasks has its title and spec rev, T-883): for its
+// --after tasks (After; Why: its last refused dispatch once they all merged), for a lane of its level (Level, Types,
+// Why), or a stored spec never dispatched (Since: the spec's set time).
 type WaitItem struct {
 	Task    string   `json:"task"`
 	WaitsOn string   `json:"waits_on"`
@@ -60,21 +54,14 @@ type WaitItem struct {
 	Why     string   `json:"why,omitempty"`
 	Level   string   `json:"level,omitempty"`
 	Types   []string `json:"types,omitempty"`
-	Rev     int      `json:"rev,omitempty"`
 	Since   int64    `json:"since,omitempty"`
-	Title   string   `json:"title,omitempty"`
 }
 
-// ReviewItem is the open review request: the tasks it waits to merge (After) and those not merged yet (Waiting), the
-// task it waits to close (Held), its note, who asked, since when, and its state: waiting (on Waiting or Held) or ready.
+// ReviewItem is the open review request as serve sends it (the tasks it waits to merge, those not merged yet, the task
+// it waits to close, its note, who asked, since when) and its state: waiting (on Waiting or Held) or ready.
 type ReviewItem struct {
-	After   []string `json:"after,omitempty"`
-	Waiting []string `json:"waiting,omitempty"`
-	Held    string   `json:"held,omitempty"`
-	Note    string   `json:"note,omitempty"`
-	By      string   `json:"by,omitempty"`
-	Since   int64    `json:"since"`
-	State   string   `json:"state"`
+	wire.ReviewRequestStatus
+	State string `json:"state"`
 }
 
 // The outbox's kinds (OutboxItem.Kind).
@@ -103,7 +90,7 @@ type Nightly struct {
 }
 
 // queue is v's queue at now: from serve's tasks (in its merge loop's order), its scheduler's state, review request,
-// lines and briefs (ps), the specs stored and the tasks
+// lines and briefs (ps), the specs stored (their set time) and the tasks
 // the store saw dispatched (a spec of neither is never dispatched), and merge.nightly_at.
 func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string]store.SpecRow,
 	dispatched map[string]bool, now time.Time) Queue {
@@ -114,7 +101,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		waits[w.Task] = w
 	}
 	known := map[string]bool{}
-	for _, t := range v.Tasks {
+	for _, t := range ps.Tasks {
 		known[t.Task] = true
 		if t.State == "waiting" {
 			w := WaitItem{Task: t.Task, WaitsOn: WaitsLane, Why: t.Why, Level: t.Level, Types: t.Types}
@@ -126,19 +113,14 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		}
 		if stage := t.Stage; stage != "" {
 			w := waits[t.Task]
-			m := MergeItem{Task: t.Task, Title: spec.Title(specs[t.Task].Text), Lane: t.Lane, State: t.State,
-				Phase: t.Phase, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why}
-			if stage == wire.StageReview && t.Job != "" {
-				m.Job = &Job{ID: t.Job, Delivered: t.Delivered}
-			}
-			q.Merge = append(q.Merge, m)
+			q.Merge = append(q.Merge, MergeItem{Task: t.Task, Stage: stage, WaitsOn: w.WaitsOn, Why: w.Why})
 		}
 	}
 	for task, s := range specs {
 		if known[task] || dispatched[task] {
 			continue
 		}
-		w := WaitItem{Task: task, WaitsOn: WaitsNever, Rev: s.Rev, Title: spec.Title(s.Text)}
+		w := WaitItem{Task: task, WaitsOn: WaitsNever}
 		if t, err := time.Parse(time.RFC3339, s.SetAt); err == nil {
 			w.Since = t.Unix()
 		}
@@ -150,8 +132,7 @@ func queue(v *Project, ps wire.ProjectStatus, nightlyAt string, specs map[string
 		if len(r.Waiting) > 0 || r.Held != "" {
 			state = "waiting"
 		}
-		q.Review = append(q.Review, ReviewItem{After: r.After, Waiting: r.Waiting, Held: r.Held, Note: r.Note, By: r.By,
-			Since: r.Since, State: state})
+		q.Review = append(q.Review, ReviewItem{ReviewRequestStatus: *r, State: state})
 	}
 	for _, m := range ps.Messages {
 		q.Outbox = append(q.Outbox, OutboxItem{Kind: OutLine, To: m.To, From: m.From, Line: m.Line,

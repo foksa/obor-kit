@@ -26,7 +26,7 @@
   onDestroy(() => live.stop());
 
   const t = $derived(live.data);
-  const stage = $derived(t ? stageOf(t.phase, t.records) : null);
+  const stage = $derived(t ? stageOf(t, t.records) : null);
   const timeline = $derived((t?.records || []).map((r) => ({ r, m: milestone(r) })).filter((x) => x.m));
   const tabs = $derived.by(() => {
     if (!t) return [];
@@ -112,7 +112,7 @@
           <h2 class="lbl">Where it runs</h2>
           <div class="kv"><span>Lane</span><span class="mono">{t.lane || "—"}</span></div>
           <div class="kv"><span>Agent</span>{#if t.agent}<AgentLink {project} agent={t.agent} />{:else}<span>—</span>{/if}</div>
-          <div class="kv"><span>State</span><span>{t.state || "—"}</span></div>
+          <div class="kv"><span>State</span><span>{t.task_state || "—"}</span></div>
           <div class="kv"><span>Attempt</span><span>{t.attempt || "—"}</span></div>
           <div class="kv"><span>Spec</span><span>{t.spec_rev ? "r" + t.spec_rev : "—"}</span></div>
         </section>

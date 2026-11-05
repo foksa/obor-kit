@@ -6,9 +6,9 @@
   import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
-  import { FREE, dur, now, roleName, splitTasks, unixOf } from "../lib/format";
+  import { dur, now, roleName, splitTasks, unixOf } from "../lib/format";
   import { idleText } from "../lib/idle";
-  import { stageOf } from "../lib/stages";
+  import { stageOf, taskOf } from "../lib/stages";
   import type { Lane, MergeItem, ProjectView, Role, WaitItem } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
   import Dot from "../ui/Dot.svelte";
@@ -31,8 +31,10 @@
 
   const v = $derived(live.data);
   const lanes = $derived(v?.lanes || []);
-  const busy = $derived(lanes.filter((l) => !FREE.has(l.state)));
-  const free = $derived(lanes.filter((l) => FREE.has(l.state)));
+  const busy = $derived(lanes.filter((l) => !l.free));
+  const free = $derived(lanes.filter((l) => l.free));
+  // task is the view's task of an id (T-883): its title, phase, lane and step read the same on every section.
+  const task = (id: string | null | undefined) => taskOf(v, id);
   const q = $derived(v?.queue);
   const merge = $derived(q?.merge || []);
   const waiting = $derived(q?.waiting || []);
@@ -73,10 +75,10 @@
     for (const n of v?.notes || []) w.push({ text: n, state: "pending" });
     return w;
   });
-  const laneStage = (l: Lane) => stageOf(l.column);
+  const laneStage = (l: Lane) => stageOf(task(l.task));
   const waitWhy = (w: WaitItem) => {
     if (w.waits_on === "after") return "after " + (w.after || []).join(", ") + (w.why ? " · " + w.why : "");
-    if (w.waits_on === "never dispatched") return "spec r" + (w.rev || 0) + " stored, never dispatched";
+    if (w.waits_on === "never dispatched") return "spec r" + (task(w.task).spec_rev || 0) + " stored, never dispatched";
     return "waits for a free " + (w.level ? w.level + " " : "") + "lane" +
       (w.types?.length ? " (" + w.types.join(", ") + ")" : "") + (w.why ? " · " + w.why : "");
   };
@@ -129,7 +131,7 @@
             <div class="need">
               <div class="need-head">
                 <Dot state="needs-you" /><TaskLink {project} task={n.task} chip />
-                {#if n.lane}<span class="mono small muted">{n.lane}</span>{/if}
+                {#if task(n.task).lane}<span class="mono small muted">{task(n.task).lane}</span>{/if}
                 <span class="muted small" style="margin-left: auto"><Rel at={n.since} /></span>
               </div>
               <p class="why"><Linked {project} text={n.reason} /></p>
@@ -185,20 +187,21 @@
       <div class="lanes">
         {#each busy as l (l.lane)}
           {@const st = laneStage(l)}
+          {@const tk = task(l.task)}
           <article class="card lane busy t-{st.tone}">
             <div class="lhead">
               <span class="mono lname">{l.lane}</span>
               <Pill state={l.column} />
-              <span class="mono small muted ell">{[l.type, l.spec_rev ? "spec r" + l.spec_rev : "", l.attempt && l.attempt > 1 ? "attempt " + l.attempt : "", l.effort ? "effort " + l.effort : ""].filter(Boolean).join(" · ")}</span>
+              <span class="mono small muted ell">{[l.type, tk.spec_rev ? "spec r" + tk.spec_rev : "", tk.attempt && tk.attempt > 1 ? "attempt " + tk.attempt : "", tk.effort ? "effort " + tk.effort : ""].filter(Boolean).join(" · ")}</span>
               <span class="mono elapsed"><Rel at={l.since} mode="for" /></span>
             </div>
             {#if l.task}
-              <div class="ltitle"><TaskLink {project} task={l.task} chip /><a class="title" href={href.task(project, l.task)}>{l.title || "no title"}</a></div>
+              <div class="ltitle"><TaskLink {project} task={l.task} chip /><a class="title" href={href.task(project, l.task)}>{tk.title || "no title"}</a></div>
             {:else}<p class="muted small">no task</p>{/if}
             <Stepper stage={st} compact />
             <div class="lfoot small">
               {#if l.agent}<span>agent <AgentLink {project} agent={l.agent} />{#if l.agent_status}<span class="muted"> · {l.agent_status}</span>{/if}</span>{/if}
-              {#if l.job}<span>job <a class="mono" href={href.job(project, l.job.id)}>{jobStep(l.job.id)}</a>{#if !l.job.delivered} <Pill state="not fetched" />{/if}</span>{/if}
+              {#if tk.job}<span>job <a class="mono" href={href.job(project, tk.job.id)}>{jobStep(tk.job.id)}</a>{#if !tk.job.delivered} <Pill state="not fetched" />{/if}</span>{/if}
               {#if l.branch}<span class="muted">branch <span class="mono">{l.branch}</span>{#if l.dirty}<span class="dirty"> · dirty</span>{/if}</span>{/if}
               {#if l.op}<span class="muted">{l.op}</span>{/if}
               {#if l.reason}<Pill state="fail" text={l.reason} />{/if}
@@ -248,7 +251,7 @@
               {#each waiting as w (w.task)}
                 <div class="qrow">
                   <Pill state={w.waits_on === "never dispatched" ? "idle" : "waiting"} text={w.waits_on} />
-                  <div class="qbody"><span><TaskLink {project} task={w.task} /> {w.title || ""}</span><span class="muted small"><Linked {project} text={waitWhy(w)} /></span></div>
+                  <div class="qbody"><span><TaskLink {project} task={w.task} /> {task(w.task).title || ""}</span><span class="muted small"><Linked {project} text={waitWhy(w)} /></span></div>
                   <span class="muted small"><Rel at={w.since} /></span>
                 </div>
               {/each}

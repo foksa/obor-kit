@@ -61,9 +61,6 @@ export function tone(state: string | undefined | null): Tone {
 
 export const roleName = (r: string | undefined) => String(r || "").replace(/_/g, " ");
 
-// FREE are a lane's states with no task on it (a free lane keeps its last branch's task).
-export const FREE = new Set(["free", "dirty-free"]);
-
 // splitTasks is a watch's task field ("T-1, T-2" or "T-1 T-2") as its task ids.
 export function splitTasks(field: string): string[] {
   return String(field || "").split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);

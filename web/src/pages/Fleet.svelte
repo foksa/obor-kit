@@ -6,7 +6,7 @@
   import Stale from "../ui/Stale.svelte";
   import { api } from "../lib/api";
   import { href } from "../lib/route";
-  import { FREE, dur, human, now, roleName, tone, unixOf } from "../lib/format";
+  import { dur, human, now, roleName, tone, unixOf } from "../lib/format";
   import { stageOf } from "../lib/stages";
   import type { LaneDot, ProjectsEntry } from "../lib/types";
   import Pill from "../ui/Pill.svelte";
@@ -29,7 +29,7 @@
   const busy = $derived(sum((p) => p.busy));
   const needs = $derived(sum((p) => p.needs_you));
   const queued = $derived(sum((p) => p.queue));
-  const busyLanes = (p: ProjectsEntry) => (p.lanes || []).filter((l) => !FREE.has(l.column) && !FREE.has(l.task_state || ""));
+  const busyLanes = (p: ProjectsEntry) => (p.lanes || []).filter((l) => !l.free);
   // running is every busy lane across the fleet, longest running first
   const running = $derived(ps.flatMap((p) => busyLanes(p).map((l) => ({ p: p.name, l })))
     .sort((a, b) => (a.l.since || Infinity) - (b.l.since || Infinity)));
@@ -38,7 +38,7 @@
   const events = $derived(ps.flatMap((p) => (p.events || []).map((e) => ({ ...e, project: p.name })))
     .sort((a, b) => unixOf(b.ts) - unixOf(a.ts)).slice(0, 30));
   let filter = $state("All");
-  const laneStage = (l: LaneDot) => stageOf(l.column);
+  const laneStage = (l: LaneDot) => stageOf(l); // the dot carries its task's step (T-883)
 </script>
 
 <div class="page">

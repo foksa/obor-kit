@@ -1,0 +1,231 @@
+{
+  "serve": {
+    "up": true,
+    "herdr": true,
+    "project": true,
+    "merging": true
+  },
+  "running": [],
+  "pending": [],
+  "lanes": [
+    {
+      "lane": "L-01",
+      "type": "",
+      "dir": "$BASE/proj-wt/L-01",
+      "branch": "task/T-01",
+      "task": "T-01",
+      "state": "working",
+      "reason": null,
+      "done_age": null,
+      "dirty": false,
+      "warning": null,
+      "agent": "pj-l-01",
+      "agent_status": "working",
+      "free": false,
+      "column": "working"
+    },
+    {
+      "lane": "L-02",
+      "type": "",
+      "dir": "$BASE/proj-wt/L-02",
+      "branch": "task/T-02",
+      "task": "T-02",
+      "state": "working",
+      "reason": null,
+      "done_age": 0,
+      "dirty": false,
+      "warning": null,
+      "agent": "pj-l-02",
+      "free": false,
+      "column": "publish",
+      "since": 0
+    },
+    {
+      "lane": "L-03",
+      "type": "",
+      "dir": "$BASE/proj-wt/L-03",
+      "branch": null,
+      "task": null,
+      "state": "free",
+      "reason": null,
+      "done_age": null,
+      "dirty": false,
+      "warning": null,
+      "free": true,
+      "column": "free"
+    }
+  ],
+  "tasks": {
+    "T-01": {
+      "task": "T-01",
+      "title": "the T-01 title",
+      "spec_rev": 1,
+      "lane": "L-01",
+      "agent": "pj-l-01",
+      "task_state": "dispatched",
+      "phase": "working",
+      "step": 1,
+      "attempt": 1,
+      "effort": "high",
+      "job": {
+        "id": "T-01/1/work",
+        "delivered": true
+      }
+    },
+    "T-02": {
+      "task": "T-02",
+      "title": "the T-02 title",
+      "spec_rev": 1,
+      "lane": "L-02",
+      "agent": "pj-l-02",
+      "task_state": "accepted",
+      "phase": "publish",
+      "step": 5,
+      "attempt": 2,
+      "job": {
+        "id": "T-02/2/review",
+        "delivered": false
+      }
+    },
+    "T-03": {
+      "task": "T-03",
+      "title": "the T-03 title",
+      "spec_rev": 1,
+      "task_state": "waiting",
+      "phase": "waiting",
+      "step": 0
+    },
+    "T-04": {
+      "task": "T-04",
+      "title": "the T-04 title",
+      "spec_rev": 1,
+      "task_state": "waiting",
+      "phase": "waiting",
+      "step": 0
+    },
+    "T-05": {
+      "task": "T-05",
+      "title": "the T-05 title",
+      "spec_rev": 1,
+      "lane": "L-09",
+      "task_state": "needs-you",
+      "phase": "needs-you",
+      "attempt": 1
+    },
+    "T-06": {
+      "task": "T-06",
+      "title": "the T-06 title",
+      "spec_rev": 1
+    }
+  },
+  "agents": [
+    {
+      "machine": "",
+      "workspace": "",
+      "pane": "w1:p1",
+      "name": "pj-l-01",
+      "agent": "claude",
+      "lane": "L-01",
+      "task": "T-01",
+      "status": "working",
+      "age": 0
+    }
+  ],
+  "roles": [
+    {
+      "role": "integrator",
+      "agent": "pj-int"
+    },
+    {
+      "role": "reviewer",
+      "agent": "pj-rev"
+    }
+  ],
+  "needs_you": [
+    {
+      "task": "T-05",
+      "reason": "asks: which file?",
+      "answer": "obor resume T-05 \"\u003canswer\u003e\""
+    }
+  ],
+  "full_check": null,
+  "paused": null,
+  "messages": [],
+  "idle": {
+    "since": 0,
+    "last": "T-00",
+    "acked": true,
+    "why": "done"
+  },
+  "queue": {
+    "scratch": null,
+    "merge": [
+      {
+        "task": "T-02",
+        "stage": "publish",
+        "waits_on": "T-01",
+        "why": "held"
+      }
+    ],
+    "waiting": [
+      {
+        "task": "T-03",
+        "waits_on": "lane",
+        "why": "waiting for a free lane",
+        "level": "medium",
+        "types": [
+          "opus"
+        ]
+      },
+      {
+        "task": "T-04",
+        "waits_on": "after",
+        "after": [
+          "T-02"
+        ]
+      },
+      {
+        "task": "T-06",
+        "waits_on": "never dispatched",
+        "since": 0
+      }
+    ],
+    "review": [
+      {
+        "after": [
+          "T-02"
+        ],
+        "waiting": [
+          "T-02"
+        ],
+        "note": "after",
+        "by": "pj-lead",
+        "since": 0,
+        "state": "waiting"
+      }
+    ],
+    "outbox": [],
+    "pause": null,
+    "nightly": null
+  },
+  "events": [
+    {
+      "seq": 3,
+      "ts": 0,
+      "task": "T-02",
+      "line": "submitted T-02"
+    },
+    {
+      "seq": 2,
+      "ts": 0,
+      "task": "T-02",
+      "line": "dispatched T-02 (L-02)"
+    },
+    {
+      "seq": 1,
+      "ts": 0,
+      "task": "T-01",
+      "line": "dispatched T-01 (L-01)"
+    }
+  ]
+}

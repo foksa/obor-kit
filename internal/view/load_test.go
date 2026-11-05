@@ -27,8 +27,8 @@ func TestLoadWithoutServe(t *testing.T) {
 	if len(v.Lanes) != 1 || v.Lanes[0].Lane != "L-01" || *v.Lanes[0].Task != "T-01" {
 		t.Fatalf("lanes %+v, want L-01 on T-01", v.Lanes)
 	}
-	if v.Lanes[0].SpecRev != 1 {
-		t.Errorf("lane spec rev %d, want the store's 1", v.Lanes[0].SpecRev)
+	if tk := v.Tasks["T-01"]; tk.SpecRev != 1 || tk.Lane != "L-01" {
+		t.Errorf("the lane's task %+v, want spec rev 1 (the store's) on L-01", tk)
 	}
 	if len(v.Events) == 0 || v.Events[len(v.Events)-1].Line == "" {
 		t.Errorf("events %+v, want the store's worded records", v.Events)

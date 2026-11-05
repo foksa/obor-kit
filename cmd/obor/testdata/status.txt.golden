@@ -1,0 +1,14 @@
+serve: up
+running: nothing
+L-01    -        task/T-01       working        -  (T-01)  serve: dispatched (attempt 1)  effort: high  agent: pj-l-01 (working)
+L-02    -        task/T-02       publish  age  (T-02)  serve: accepted (attempt 2)  agent: pj-l-02
+L-03    -        -               free           -  (-)
+task T-05 (L-09): needs-you (attempt 1)
+needs-you T-05 (L-09): asks: which file? → obor resume T-05 "<answer>"
+idle: done
+merge T-02 (L-02): publish (accepted), waits for T-01 (held)
+queued T-03: waiting for a free lane (medium: opus)
+queued T-04: waiting (after T-02)
+queued T-06: spec r1 stored 1h ago, never dispatched: the T-06 title
+nightly: off (obor nightly on HH:MM)
+full check: none yet

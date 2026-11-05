@@ -143,20 +143,22 @@ func laneSection(st view.Project, now time.Time) []string {
 	var b strings.Builder
 	shown := map[string]bool{}
 	for _, l := range st.Lanes {
-		fmt.Fprintln(&b, laneLine(l))
+		t := st.TaskOn(l)
+		fmt.Fprintln(&b, laneLine(l, t))
 		writeBackground(&b, l.Background)
-		if l.TaskState != "" {
-			shown[*l.Task] = true
+		if t.TaskState != "" {
+			shown[t.Task] = true
 		}
 	}
-	for _, t := range st.Tasks {
-		// dropped stays in serve's list for good (--json has it); a waiting one is the queue's
-		if !shown[t.Task] && t.State != "dropped" && t.State != "waiting" {
+	for _, id := range st.TaskIDs() {
+		t := st.Tasks[id]
+		// serve's tasks alone; dropped stays in serve's list for good (--json has it); a waiting one is the queue's
+		if !shown[id] && t.TaskState != "" && t.TaskState != "dropped" && t.TaskState != "waiting" {
 			state := "" // serve's state when it says more than the phase (T-788)
-			if t.State != t.Phase {
-				state = t.State + ", "
+			if t.TaskState != t.Phase {
+				state = t.TaskState + ", "
 			}
-			fmt.Fprintf(&b, "task %s (%s): %s (%sattempt %d)%s\n", t.Task, app.Dash(t.Lane), t.Phase, state, t.Attempt,
+			fmt.Fprintf(&b, "task %s (%s): %s (%sattempt %d)%s\n", id, app.Dash(t.Lane), t.Phase, state, t.Attempt,
 				running(t.Running))
 		}
 	}
@@ -182,9 +184,10 @@ func writeBackground(w io.Writer, bs []view.Background) {
 	}
 }
 
-// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column (T-657), the task's age and id, then serve's state of
-// the task, the effort its dispatch named (T-695), a dirty or warned worktree and the agent.
-func laneLine(l view.Lane) string {
+// laneLine is l's line: its lane, the model its dispatch runs ("-": none), branch, the state column (T-657), the task's
+// age and id, then serve's state of t (the task serve has on l, Project.TaskOn), the effort its dispatch named (T-695),
+// a dirty or warned worktree and the agent.
+func laneLine(l view.Lane, t view.Task) string {
 	ago := "-"
 	if l.DoneAge != nil {
 		ago = app.Age(time.Duration(*l.DoneAge) * time.Second)
@@ -195,11 +198,11 @@ func laneLine(l view.Lane) string {
 	}
 	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, model, orDash(l.Branch),
 		l.Column, ago, orDash(l.Task))
-	if l.TaskState != "" {
-		line += fmt.Sprintf("  serve: %s (attempt %d)%s", l.TaskState, l.Attempt, running(l.Running))
+	if t.TaskState != "" {
+		line += fmt.Sprintf("  serve: %s (attempt %d)%s", t.TaskState, t.Attempt, running(t.Running))
 	}
-	if l.Effort != "" {
-		line += "  effort: " + l.Effort
+	if t.Effort != "" {
+		line += "  effort: " + t.Effort
 	}
 	if l.Dirty && l.State != "dirty-free" {
 		line += "  dirty"
@@ -222,7 +225,7 @@ func laneLine(l view.Lane) string {
 // needsYouSection is one line per needs-you with the commands that answer it.
 func needsYouSection(st view.Project) []string {
 	var b strings.Builder
-	writeNeedsYou(&b, st.NeedsYou)
+	writeNeedsYou(&b, st)
 	return textLines(b.String())
 }
 
@@ -256,10 +259,10 @@ func queueSection(st view.Project, now time.Time) []string {
 		out = append(out, "scratch "+s.Task+": "+s.Why)
 	}
 	for _, m := range q.Merge {
-		out = append(out, mergeLine(m))
+		out = append(out, mergeLine(m, st.Tasks[m.Task]))
 	}
 	for _, w := range q.Waiting {
-		out = append(out, "queued "+w.Task+": "+waitLine(w, now))
+		out = append(out, "queued "+w.Task+": "+waitLine(w, st.Tasks[w.Task], now))
 	}
 	if st.Review != "" {
 		out = append(out, st.Review)
@@ -305,22 +308,22 @@ func queueSection(st view.Project, now time.Time) []string {
 	return out
 }
 
-// mergeLine is a merge-loop task's queue line: its lane, its phase (T-788: the lane line's; serve's state when it says
-// more), what it waits for and why (serve's scheduler, T-669; no task is named next, T-673), an integrator job out
-// and whether it was fetched.
-func mergeLine(m view.MergeItem) string {
+// mergeLine is a merge-loop task's queue line (t: its task): its lane, its phase (T-788: the lane line's; serve's
+// state when it says more), what it waits for and why (serve's scheduler, T-669; no task is named next, T-673), an
+// integrator job out (its review stage's) and whether it was fetched.
+func mergeLine(m view.MergeItem, t view.Task) string {
 	line := "merge " + m.Task
-	if m.Lane != "" {
-		line += " (" + m.Lane + ")"
+	if t.Lane != "" {
+		line += " (" + t.Lane + ")"
 	}
-	line += ": " + m.Phase
-	if m.State != m.Phase {
-		line += " (" + m.State + ")"
+	line += ": " + t.Phase
+	if t.TaskState != t.Phase {
+		line += " (" + t.TaskState + ")"
 	}
 	if m.WaitsOn != "" {
 		line += ", waits for " + m.WaitsOn + " (" + m.Why + ")"
 	}
-	if j := m.Job; j != nil {
+	if j := t.Job; j != nil && m.Stage == wire.StageReview {
 		fetched := "not fetched"
 		if j.Delivered {
 			fetched = "fetched"
@@ -332,19 +335,19 @@ func mergeLine(m view.MergeItem) string {
 
 // waitLine is a waiting dispatch's queue line after "queued <T-xx>: ": its --after tasks and its last refusal, the lane
 // it waits for (its level and models; the reason when it is not a free lane: "opus paused: …", T-765), or its spec
-// stored and never dispatched.
-func waitLine(w view.WaitItem, now time.Time) string {
+// stored and never dispatched (t: its task, with the spec's rev and title).
+func waitLine(w view.WaitItem, t view.Task, now time.Time) string {
 	switch w.WaitsOn {
 	case view.WaitsAfter:
 		return "waiting (after " + strings.Join(w.After, ", ") + ")" + why(w.Why)
 	case view.WaitsNever:
-		line := fmt.Sprintf("spec r%d stored", w.Rev)
+		line := fmt.Sprintf("spec r%d stored", t.SpecRev)
 		if w.Since != 0 {
 			line += " " + app.Age(max(now.Sub(time.Unix(w.Since, 0)), 0)) + " ago"
 		}
 		line += ", never dispatched"
-		if w.Title != "" {
-			line += ": " + w.Title
+		if t.Title != "" {
+			line += ": " + t.Title
 		}
 		return line
 	}
@@ -399,7 +402,7 @@ func writeStatusShort(w io.Writer, st view.Project, now time.Time) {
 	writeServe(w, st.Serve, now)
 	writeRunning(w, st, now)
 	writePending(w, st, now)
-	writeNeedsYou(w, st.NeedsYou)
+	writeNeedsYou(w, st)
 }
 
 // writeServe is serve's line at now: up (launchd, a pane, since when), down and why, and a broken event log under it.
@@ -514,12 +517,12 @@ func runningName(step string) string {
 	return step
 }
 
-// writeNeedsYou is one line per needs-you with the commands that answer it.
-func writeNeedsYou(w io.Writer, needs []view.NeedsYou) {
-	for _, n := range needs {
+// writeNeedsYou is one line per needs-you of st, its task's lane and the commands that answer it.
+func writeNeedsYou(w io.Writer, st view.Project) {
+	for _, n := range st.NeedsYou {
 		line := "needs-you " + n.Task
-		if n.Lane != "" {
-			line += " (" + n.Lane + ")"
+		if l := st.Tasks[n.Task].Lane; l != "" {
+			line += " (" + l + ")"
 		}
 		line += ": " + n.Reason
 		if n.Answer != "" {

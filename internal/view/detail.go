@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"obor/internal/app/event"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -20,19 +19,12 @@ type Detail struct {
 	Project Project
 }
 
-// TaskDetail is one task's page: where it is (a lane freed since — the task merged — : its newest dispatch's lane and
-// agent), its spec, the report it was last submitted with, its last gate, its
-// needs-you, its records newest first and the prompts of its jobs.
+// TaskDetail is one task's page: the view's Task (T-883; where it is: a lane freed since — the task merged — its
+// newest dispatch's lane and agent), its spec, the report it was last submitted with, its last gate, its needs-you,
+// its records newest first and the prompts of its jobs.
 type TaskDetail struct {
-	Task         string       `json:"task"`
-	Title        string       `json:"title,omitempty"` // the spec's title
-	Lane         string       `json:"lane,omitempty"`
-	Agent        string       `json:"agent,omitempty"`
-	State        string       `json:"state,omitempty"` // serve's state of the task
-	Phase        string       `json:"phase,omitempty"` // serve's phase of it (wire.Phase*, T-788)
-	Attempt      int          `json:"attempt,omitempty"`
+	Task
 	DispatchedAt int64        `json:"dispatched_at,omitempty"` // the lane row's dispatch (epoch seconds)
-	SpecRev      int          `json:"spec_rev,omitempty"`      // the store's current rev
 	Spec         string       `json:"spec,omitempty"`          // the current rev's text
 	GatedRev     int          `json:"gated_rev,omitempty"`     // the rev the last gate checked
 	Report       string       `json:"report,omitempty"`        // the last submission's report
@@ -111,21 +103,12 @@ const (
 
 // Task is task's page: ok false when the project knows no such task (no record, spec, lane row, needs-you or prompt).
 func (d Detail) Task(task string) (TaskDetail, bool) {
-	t := TaskDetail{Task: task, NeedsYou: []NeedsYou{}, Records: []TaskRecord{}, Jobs: []Prompt{}}
 	if task == "" {
 		return TaskDetail{}, false
 	}
-	found := false
-	for _, s := range d.Project.Tasks {
-		if s.Task == task {
-			t.State, t.Phase, t.Attempt, found = s.State, s.Phase, s.Attempt, true
-		}
-	}
-	for _, l := range d.Project.Lanes {
-		if l.Task != nil && *l.Task == task {
-			t.Lane, t.Agent, found = l.Lane, l.Agent, true
-		}
-	}
+	vt, found := d.Project.Tasks[task]
+	vt.Task = task
+	t := TaskDetail{Task: vt, NeedsYou: []NeedsYou{}, Records: []TaskRecord{}, Jobs: []Prompt{}}
 	for _, n := range d.Project.NeedsYou {
 		if n.Task == task {
 			t.NeedsYou, found = append(t.NeedsYou, n), true
@@ -137,7 +120,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 		return t, found
 	}
 	if row, ok, err := store.ReadSpec(db, task); err == nil && ok {
-		t.SpecRev, t.Spec, t.Title, found = row.Rev, row.Text, spec.Title(row.Text), true
+		t.Spec, found = row.Text, true
 	}
 	if rows, err := store.ReadLanes(db); err == nil {
 		for _, r := range rows {

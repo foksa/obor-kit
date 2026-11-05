@@ -178,6 +178,38 @@ func PhaseStage(phase string) string {
 	return ""
 }
 
+// The steps a task's page shows it through (PhaseStep's indexes; obor web's stepper: dispatched, working, submitted,
+// gate, review, merging, then merged: every step done).
+const (
+	TaskStepDispatched = iota
+	TaskStepWorking
+	TaskStepSubmitted
+	TaskStepGate
+	TaskStepReview
+	TaskStepMerging
+	TaskStepMerged
+)
+
+// PhaseStep is the step a task in phase is on, and whether phase places it (false: needs-you, held, merged or ended,
+// whose records say; or no phase). Publish is merging, never merged: merged is the merged fact alone.
+func PhaseStep(phase string) (int, bool) {
+	switch phase {
+	case PhaseWaiting, PhaseDispatching:
+		return TaskStepDispatched, true
+	case PhaseWorking, PhaseDriving:
+		return TaskStepWorking, true
+	case PhaseSubmitted:
+		return TaskStepSubmitted, true
+	case PhaseGating, PhaseGatePending:
+		return TaskStepGate, true
+	case PhaseReview, PhaseReviewing:
+		return TaskStepReview, true
+	case PhasePublish, PhaseMerging, PhasePublishPending:
+		return TaskStepMerging, true
+	}
+	return 0, false
+}
+
 // TaskStatus is one task of the merge loop that is not merged.
 type TaskStatus struct {
 	Task    string `json:"task"`

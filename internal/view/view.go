@@ -20,7 +20,6 @@ import (
 	"obor/internal/config"
 	"obor/internal/launch"
 	"obor/internal/project"
-	"obor/internal/spec"
 	"obor/internal/store"
 )
 
@@ -34,7 +33,7 @@ type Project struct {
 	Running   []Running          `json:"running"`
 	Pending   []wire.PendingStep `json:"pending"` // the open command steps whose effect does not run now
 	Lanes     []Lane             `json:"lanes"`
-	Tasks     []wire.TaskStatus  `json:"tasks"`          // serve's open tasks
+	Tasks     map[string]Task    `json:"tasks"`          // every task the view knows, by id (tasks, T-883)
 	Agents    []wire.AgentStatus `json:"agents"`         // the agents serve sees in the project
 	Roles     []Role             `json:"roles"`          // the role agents on no lane (integrator, reviewer, deep dive, advisor)
 	Lead      *Role              `json:"lead,omitempty"` // the lead's agent, when serve sees its pane (T-714: its background processes)
@@ -85,8 +84,8 @@ type Serve struct {
 }
 
 // Lane is one configured lane: its worktree as git and the store's row say (state free, dirty-free, working,
-// missing, unknown), serve's task on it with its phase and the agent serve sees there. Reason says why an unknown
-// lane's state is unknown (T-871).
+// missing, unknown), its task by id (Project.Tasks has the task's own fields, T-883), the agent serve sees there and
+// whether it is free. Reason says why an unknown lane's state is unknown (T-871).
 type Lane struct {
 	Lane        string  `json:"lane"`
 	Type        string  `json:"type"`
@@ -99,13 +98,11 @@ type Lane struct {
 	Dirty       bool    `json:"dirty"`
 	Warning     *string `json:"warning"`
 	Op          string  `json:"op,omitempty"`
-	TaskState   string  `json:"task_state,omitempty"` // serve's state of the task
-	Attempt     int     `json:"attempt,omitempty"`
-	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
-	Phase       string  `json:"phase,omitempty"`   // serve's phase of the task (wire.Phase*, T-788)
-	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
-	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
+	Agent       string  `json:"agent,omitempty"` // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
+	// Free: no task holds the lane: git says its branch merged (free, dirty-free) and serve has no phase of a task on
+	// it (a free lane keeps its last branch's task).
+	Free bool `json:"free"`
 	// Column is the state column of obor status (T-657): serve's phase of the task (T-788: computed once, by serve),
 	// else the lane's State (no task serve has: free, dirty-free, working, missing).
 	Column string `json:"column"`
@@ -113,11 +110,6 @@ type Lane struct {
 	// no task): the needs-you's fact, the gate or publish running on the task, the task_done's record (submitted), the
 	// lane row's dispatch (a task working). obor web's fleet page shows it (T-658).
 	Since *int64 `json:"since,omitempty"`
-	// SpecRev is the store's current rev of the task's spec (0: none stored), Title its title.
-	SpecRev int    `json:"spec_rev,omitempty"`
-	Title   string `json:"title,omitempty"`
-	// Job is the task's open job (nil: none).
-	Job *Job `json:"job,omitempty"`
 	// Background is the lane agent's long-running background processes (T-714; Input.Background).
 	Background []Background `json:"background,omitempty"`
 }
@@ -142,10 +134,10 @@ type Role struct {
 	Background []Background `json:"background,omitempty"`
 }
 
-// NeedsYou is one needs-you fact in force.
+// NeedsYou is one needs-you fact in force, of a task by id (its lane is the task's, T-883) or of the project (its loop
+// error, its lines).
 type NeedsYou struct {
 	Task   string `json:"task"`
-	Lane   string `json:"lane,omitempty"`
 	Reason string `json:"reason"`
 	Answer string `json:"answer,omitempty"` // the commands that answer it (serve's ProjectStatus.Answers)
 	Since  int64  `json:"since,omitempty"`  // when serve recorded the fact (epoch seconds)
@@ -166,14 +158,9 @@ type Pause struct {
 	By     string `json:"by,omitempty"`
 }
 
-// Idle is the project's idle state (T-803, wire.IdleStatus): since when the pipeline is empty, what ended it, and the
-// lead's acknowledgement.
-type Idle struct {
-	Since int64  `json:"since"`
-	Last  string `json:"last,omitempty"`
-	Acked bool   `json:"acked,omitempty"`
-	Why   string `json:"why,omitempty"`
-}
+// Idle is the project's idle state (T-803): since when the pipeline is empty, what ended it, and the lead's
+// acknowledgement, as serve sends it.
+type Idle = wire.IdleStatus
 
 // Input is what Build joins: serve's answer (Err: it gave none), the lane table, the store (nil: none yet), the
 // clock and how many worded events to keep.
@@ -210,7 +197,7 @@ const RoleStopped = "stopped"
 // agents and no roles (nothing stale), the lanes from git and the store alone.
 func Build(in Input) Project {
 	p := in.Lanes
-	v := Project{Lanes: []Lane{}, Tasks: []wire.TaskStatus{}, Agents: []wire.AgentStatus{}, Roles: []Role{},
+	v := Project{Lanes: []Lane{}, Agents: []wire.AgentStatus{}, Roles: []Role{},
 		NeedsYou: []NeedsYou{}, Messages: []wire.MessageStatus{}, Running: []Running{}, Pending: []wire.PendingStep{},
 		Events: []Event{}, Notes: in.Notes}
 	var ps wire.ProjectStatus
@@ -229,16 +216,14 @@ func Build(in Input) Project {
 		}
 		v.Pending = append(v.Pending, ps.Pending...)
 		v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError
-		v.Tasks, v.Agents = append(v.Tasks, ps.Tasks...), append(v.Agents, ps.Agents...)
+		v.Agents = append(v.Agents, ps.Agents...)
 		v.Messages = append(v.Messages, ps.Messages...)
 		v.Review, v.Watches = ps.Review, ps.Watches
-		if id := ps.Idle; id != nil {
-			v.Idle = &Idle{Since: id.Since, Last: id.Last, Acked: id.Acked, Why: id.Why}
-		}
+		v.Idle = ps.Idle
 		v.Facts = ps.Facts
 		for _, f := range ps.Facts {
 			if f.Step == event.StepNeedsYou {
-				n := NeedsYou{Task: f.Task, Lane: f.Fact().Lane, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
+				n := NeedsYou{Task: f.Task, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
 				if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
 					n.Since = t.Unix()
 				}
@@ -258,8 +243,11 @@ func Build(in Input) Project {
 		v.ModelPauses[m] = pauseOf(mp)
 	}
 	specs, starts := readSpecs(in.DB), lastStarts(in.DB)
-	for _, s := range p.States() {
-		l := lane(p, s, &v, ps, specs, starts)
+	states := p.States()
+	rows, _ := p.Rows()
+	v.Tasks = tasks(ps, states, rows, specs)
+	for _, s := range states {
+		l := lane(p, s, &v, ps, rows[s.Lane], starts)
 		if l.Agent != "" {
 			l.Background = in.Background[l.Agent]
 		}
@@ -271,38 +259,24 @@ func Build(in Input) Project {
 	return v
 }
 
-// lane is s's row of the view: the lane table's facts, serve's task and agent in it, its state column and since when,
-// its task's spec rev and open job. starts is when serve last tried to start a task's lane agent (lastStarts).
-func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, specs map[string]store.SpecRow,
+// lane is s's row of the view: the lane table's facts, its task's id, the agent in it, whether it is free, its state
+// column and since when (v.Tasks has its task). starts is when serve last tried to start a task's lane agent
+// (lastStarts).
+func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
-	rows, _ := p.Rows()
-	row := rows[s.Lane]
 	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
 		Reason: orNull(s.Reason), DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning),
-		Op: restartOp(p.Root, s.Lane), Agent: row.Agent}
-	if l.Warning == nil && s.State == "working" && pluginMissing(p, s, starts) {
+		Op: restartOp(p.Root, s.Lane)}
+	if l.Warning == nil && s.State == checks.LaneWorking && pluginMissing(p, s, starts) {
 		w := "no-plugin"
 		l.Warning = &w
 	}
-	for _, t := range ps.Tasks {
-		if t.Lane == s.Lane && t.Task == s.Task {
-			l.TaskState, l.Phase, l.Attempt, l.Running, l.Effort = t.State, t.Phase, t.Attempt, t.Running, t.Effort
-			if t.Job != "" {
-				l.Job = &Job{ID: t.Job, Delivered: t.Delivered}
-			}
-		}
-	}
-	for _, a := range ps.Agents {
-		if a.Lane == s.Lane {
-			l.Agent, l.AgentStatus = a.Name, a.Status
-		}
-	}
-	if s.Task != "" {
-		l.SpecRev, l.Title = specs[s.Task].Rev, spec.Title(specs[s.Task].Text)
-	}
+	l.Agent, l.AgentStatus = laneAgent(ps, row, s.Lane)
+	phase := v.TaskOn(l).Phase
+	l.Free = phase == "" && (l.State == checks.LaneFree || l.State == checks.LaneDirtyFree)
 	l.Column = l.State
-	if l.Phase != "" {
-		l.Column = l.Phase
+	if phase != "" {
+		l.Column = phase
 	}
 	l.Since = laneSince(l, v, p.Now, row.DispatchedAt)
 	return l
@@ -362,7 +336,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	case wire.PhaseNeedsYou, wire.PhaseHeld:
 		var best *int64
 		for _, n := range v.NeedsYou {
-			if n.Since == 0 || n.Lane != l.Lane && (l.Task == nil || n.Task != *l.Task) {
+			if n.Since == 0 || v.Tasks[n.Task].Lane != l.Lane && (l.Task == nil || n.Task != *l.Task) {
 				continue
 			}
 			if best == nil || n.Since > *best {
@@ -531,9 +505,4 @@ func pauseOf(ps *event.Pause) *Pause {
 		p.Until = &n
 	}
 	return p
-}
-
-// Free: no task holds l: git says its branch merged (free, dirty-free) and serve has no phase of a task on it.
-func (l Lane) Free() bool {
-	return l.Phase == "" && (l.State == "free" || l.State == "dirty-free")
 }
