@@ -127,7 +127,7 @@ func ReadMerges(root string) ([]Merge, error) {
 		return nil, err
 	}
 	defer db.Close()
-	recs, err := queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, StepMerged)
+	recs, err := Facts(db, StepMerged)
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -186,6 +187,56 @@ func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
 		return nil, nil
 	}
 	return queryRecords(db, recordQuery+" ORDER BY seq DESC LIMIT ?", limit)
+}
+
+// The view's other reads (T-893): each is one query of the events table, so no reader outside this package knows its
+// columns or a record's keys.
+
+// RecordsOf is task's newest limit records, newest first (a task's page).
+func RecordsOf(db *sql.DB, task string, limit int) ([]Record, error) {
+	return queryRecords(db, recordQuery+" WHERE task = ? ORDER BY seq DESC LIMIT ?", task, limit)
+}
+
+// MessagesTo is the newest limit lines posted to agent (message facts with that To), newest first (an agent's page).
+func MessagesTo(db *sql.DB, agent string, limit int) ([]Record, error) {
+	return queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? AND json_extract(data, '$.to') = ? ORDER BY seq DESC LIMIT ?",
+		KindFact, StepMessage, agent, limit)
+}
+
+// Since is the records newer than seq, at most limit, oldest first (the event cursor's long poll).
+func Since(db *sql.DB, seq int64, limit int) ([]Record, error) {
+	return queryRecords(db, recordQuery+" WHERE seq > ? ORDER BY seq LIMIT ?", seq, limit)
+}
+
+// Facts is every fact of step, in seq order (the setup page's dispatches; ReadMerges' merges).
+func Facts(db *sql.DB, step string) ([]Record, error) {
+	return queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, step)
+}
+
+// FactTasks is every task that has a fact of one of steps (the queue's dispatched tasks), without reading their data.
+func FactTasks(db *sql.DB, steps ...string) (map[string]bool, error) {
+	if len(steps) == 0 {
+		return map[string]bool{}, nil
+	}
+	args := []any{KindFact}
+	for _, s := range steps {
+		args = append(args, s)
+	}
+	rows, err := db.Query("SELECT DISTINCT task FROM events WHERE kind = ? AND step IN (?"+
+		strings.Repeat(", ?", len(steps)-1)+")", args...)
+	if err != nil {
+		return nil, fmt.Errorf("event log: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var task string
+		if err := rows.Scan(&task); err != nil {
+			return nil, fmt.Errorf("event log: %w", err)
+		}
+		out[task] = true
+	}
+	return out, rows.Err()
 }
 
 // recordQuery is every column of the events table, in Record's order: the prefix of a reader's query.

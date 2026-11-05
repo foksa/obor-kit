@@ -2,11 +2,13 @@ package view
 
 import (
 	"database/sql"
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 )
 
@@ -35,14 +37,16 @@ type TaskDetail struct {
 	Jobs         []Prompt     `json:"jobs"`    // the task's job prompts, newest first
 }
 
-// TaskRecord is one record of a task's timeline: its seq, time, step and kind, and the worded line when the view words
-// it (an intent or a result the event list does not show has none).
+// TaskRecord is one record of a task's timeline: its seq, time, step and kind, the worded line when the view words
+// it (an intent or a result the event list does not show has none), and a gate's outcome (green, red …; T-893: the
+// page reads it, never the line's wording).
 type TaskRecord struct {
-	Seq  int64  `json:"seq"`
-	TS   string `json:"ts"`
-	Step string `json:"step"`
-	Kind string `json:"kind"`
-	Line string `json:"line,omitempty"`
+	Seq     int64  `json:"seq"`
+	TS      string `json:"ts"`
+	Step    string `json:"step"`
+	Kind    string `json:"kind"`
+	Line    string `json:"line,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // Prompt is one row of the prompts table as a page shows it (T-665): what serve sent an agent, the job id (jobs only),
@@ -130,26 +134,29 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 			}
 		}
 	}
-	recs, err := taskRecords(db, task, detailRecords)
+	recs, err := event.RecordsOf(db, task, detailRecords)
 	if err != nil {
 		return t, found
 	}
-	for _, r := range recs {
-		t.Records, found = append(t.Records, r.TaskRecord), true
-	}
+	reached := -1
 	for _, r := range recs { // newest first: the last submission and gate win
+		d := app.Describe(r)
+		t.Records, found = append(t.Records, TaskRecord{Seq: r.Seq, TS: r.TS, Step: r.Step, Kind: r.Kind, Line: d.Line,
+			Outcome: d.Outcome}), true
+		reached = max(reached, recordStep(r, d))
 		base, _ := event.StepN(r.Step)
 		switch {
 		case r.Kind == event.KindFact && r.Step == event.StepSubmitted && t.Report == "":
-			t.Report = dataString(r.data, "report")
+			t.Report = d.Report
 		case r.Kind == event.KindResult && base == event.StepGate && t.GateLine == "":
-			t.GateLine = dataString(r.data, "line")
-			t.GatedRev = int(dataNumber(r.data, "spec_rev"))
-			t.GateLog = gateLog(task)
+			t.GateLine, t.GatedRev, t.GateLog = d.Text, d.SpecRev, gateLog(task)
 		case r.Kind == event.KindFact && r.Step == event.StepDispatched && t.Lane == "" && t.Agent == "":
 			// The lane was freed (the task merged, its row cleared): where its newest dispatch put it.
-			t.Lane, t.Agent = dataString(r.data, "lane"), dataString(r.data, "agent")
+			t.Lane, t.Agent = d.Lane, d.Agent
 		}
+	}
+	if t.Step == nil && reached >= 0 { // needs-you, held or ended: its phase places it on none, its records do
+		t.Step = &reached
 	}
 	if rows, err := store.ReadPrompts(db, store.PromptQuery{Task: task}, detailPrompts); err == nil {
 		for _, r := range rows {
@@ -238,55 +245,45 @@ func (d Detail) Job(job string) (Prompt, bool) {
 	return promptOf(rows[0]), true
 }
 
-// taskRecord is a task's record with the raw data the report and the gate read.
-type taskRecord struct {
-	TaskRecord
-	data json.RawMessage
+// recordStep is the step record r (described as d) shows its task reached (wire.TaskStep*; -1: none): the dispatch,
+// the job fetched or a sendback (working), the submission, a gate (red: the gate; green: the review), the review job,
+// an accept or a publish (merging). The merged fact is the page's own "every step done".
+func recordStep(r event.Record, d app.Described) int {
+	base, _ := event.StepN(r.Step)
+	method, _, _ := strings.Cut(r.Step, ".")
+	switch {
+	case r.Kind == event.KindFact && r.Step == event.StepDispatched:
+		return wire.TaskStepDispatched
+	case r.Kind == event.KindFact && (r.Step == event.StepDelivered || r.Step == event.StepSendback):
+		return wire.TaskStepWorking
+	case r.Kind == event.KindFact && r.Step == event.StepSubmitted:
+		return wire.TaskStepSubmitted
+	case r.Kind != event.KindResult:
+		return -1
+	case method == wire.MethodAccept || method == event.StepPublish:
+		return wire.TaskStepMerging
+	case base == event.StepGate && d.Outcome == "green":
+		return wire.TaskStepReview
+	case base == event.StepGate:
+		return wire.TaskStepGate
+	case method == event.StepReview:
+		return wire.TaskStepReview
+	}
+	return -1
 }
 
-// taskRecords is task's newest n records, newest first.
-func taskRecords(db *sql.DB, task string, n int) ([]taskRecord, error) {
-	rows, err := db.Query(`SELECT seq, ts, step, kind, data FROM events WHERE task = ? ORDER BY seq DESC LIMIT ?`,
-		task, n)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []taskRecord{}
-	for rows.Next() {
-		var r taskRecord
-		var data []byte
-		if err := rows.Scan(&r.Seq, &r.TS, &r.Step, &r.Kind, &data); err != nil {
-			return nil, err
-		}
-		if len(data) > 0 {
-			r.data = data
-		}
-		r.Line, _ = eventLine(event.Record{Task: task, Step: r.Step, Kind: r.Kind, Data: r.data})
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// agentLines is the newest n lines posted to agent (message facts with that To), newest first.
+// agentLines is the newest n lines posted to agent, newest first.
 func agentLines(db *sql.DB, agent string, n int) ([]AgentLine, error) {
-	rows, err := db.Query(`SELECT seq, ts, data FROM events WHERE kind = ? AND step = ?
-		AND json_extract(data, '$.to') = ? ORDER BY seq DESC LIMIT ?`, event.KindFact, event.StepMessage, agent, n)
+	recs, err := event.MessagesTo(db, agent, n)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []AgentLine{}
-	for rows.Next() {
-		var l AgentLine
-		var data []byte
-		if err := rows.Scan(&l.Seq, &l.TS, &data); err != nil {
-			return nil, err
-		}
-		l.From, l.Line = dataString(data, "from"), dataString(data, "line")
-		out = append(out, l)
+	for _, r := range recs {
+		d := app.Describe(r)
+		out = append(out, AgentLine{Seq: r.Seq, TS: r.TS, From: d.From, Line: d.Text})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // sessionOf is s as the agent page shows it, with its transcript's last write.
@@ -308,30 +305,4 @@ func promptOf(r store.PromptRow) Prompt {
 // gateLog is where a task's gate keeps the check command's full output.
 func gateLog(task string) string {
 	return filepath.Join(".obor", "state", "logs", task+"-check.log")
-}
-
-// dataString is key in a record's data as a string ("" when the data has none).
-func dataString(data json.RawMessage, key string) string {
-	var d map[string]json.RawMessage
-	if len(data) == 0 || json.Unmarshal(data, &d) != nil {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(d[key], &s) != nil {
-		return ""
-	}
-	return s
-}
-
-// dataNumber is key in a record's data as a number (0 when the data has none).
-func dataNumber(data json.RawMessage, key string) float64 {
-	var d map[string]json.RawMessage
-	if len(data) == 0 || json.Unmarshal(data, &d) != nil {
-		return 0
-	}
-	var n float64
-	if json.Unmarshal(d[key], &n) != nil {
-		return 0
-	}
-	return n
 }

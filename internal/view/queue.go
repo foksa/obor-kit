@@ -193,21 +193,12 @@ func readSpecs(db *sql.DB) map[string]store.SpecRow {
 // dispatchedTasks is every task the store's log saw dispatched, waiting or merged (a spec of none of them was never
 // dispatched).
 func dispatchedTasks(db *sql.DB) map[string]bool {
-	out := map[string]bool{}
 	if db == nil {
-		return out
+		return map[string]bool{}
 	}
-	rows, err := db.Query("SELECT DISTINCT task FROM events WHERE kind = ? AND step IN (?, ?, ?)", event.KindFact,
-		event.StepDispatched, event.StepWaiting, event.StepMerged)
+	out, err := event.FactTasks(db, event.StepDispatched, event.StepWaiting, event.StepMerged)
 	if err != nil {
-		return out
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var task string
-		if rows.Scan(&task) == nil {
-			out[task] = true
-		}
+		return map[string]bool{}
 	}
 	return out
 }

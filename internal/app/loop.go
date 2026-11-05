@@ -404,7 +404,10 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	ran, done := false, false
 	raw, err := p.log.Do(ctx, in, a.opt.Now, func(ctx context.Context) (any, error) {
 		if !logged {
-			a.mu.Lock() // before the effect: a verdict on a job the prompt just delivered finds it open
+			// before the effect: a verdict on a job the prompt just delivered finds it open; its time as the log wrote
+			// it (a start's try: folded.starts)
+			a.mu.Lock()
+			intent.TS = a.opt.Now().UTC().Format(time.RFC3339)
 			p.foldRecord(intent)
 			a.mu.Unlock()
 		}

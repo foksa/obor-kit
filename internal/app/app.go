@@ -213,6 +213,8 @@ type folded struct {
 	refusals map[string]string
 	loop     map[string]*mtask // the merge loop's tasks, by task
 	pause    *event.Pause      // the project's last pause fact (pause.go; nil: none or cleared)
+	// starts: each task's newest agent.start record time, intent or result (foldStart; wire.TaskStatus.Started).
+	starts map[string]time.Time
 	// models: each model's last pause fact (obor pause --model, T-765; a cleared one is gone).
 	models map[string]*event.Pause
 	// Jobs by fetch (fetch.go): delivered, the job id a fact delivered names and the fact's seq (0: not delivered).
@@ -246,7 +248,7 @@ type folded struct {
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
-		refusals: map[string]string{}, loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
+		refusals: map[string]string{}, loop: map[string]*mtask{}, starts: map[string]time.Time{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
 		briefEnds: map[string]idleEnd{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 

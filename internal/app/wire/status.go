@@ -236,6 +236,9 @@ type TaskStatus struct {
 	// Stopping is the worker the merge loop stops before the task's next step (a move, a take-over, a drop; T-852): ""
 	// once it is stopped or gone. Still set with Phase needs-you: the stop was refused (obor resume retries it).
 	Stopping string `json:"stopping,omitempty"`
+	// Started is when serve last tried to start the task's lane agent (Unix seconds; 0: no try recorded): its newest
+	// agent.start record, a dispatch's or a resume's retry under the step's next key (foldStart; T-783, T-893).
+	Started int64 `json:"started,omitempty"`
 }
 
 // AgentStatus is one observed agent: its address, lane and task (when its cwd is a lane) and status for Age seconds.

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -59,35 +60,17 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 		State: "working", Task: "T-1"}
 }
 
-// startEvent records task's agent.start intent secs seconds ago in root's store: the record serve writes when it
-// starts the lane's agent (a resume runs it again under its next key).
-func startEvent(t *testing.T, root, task string, secs int64) {
-	t.Helper()
-	db, err := store.OpenRW(store.File(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	at := time.Now().Add(-time.Duration(secs) * time.Second).UTC().Format(time.RFC3339)
-	if _, err := db.Exec(`INSERT INTO events (seq, ts, task, attempt, step, kind, class, data)
-		VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM events), ?, ?, 1, 'agent.start', 'intent', 'start', '[]')`,
-		at, task); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// T-783: obor status reads the start serve last tried (the log's agent.start records) into the warning: a lane whose
-// agent was restarted and resumed 30 s ago has no no-plugin warning yet, though its marker is a dispatch old; the same
-// lane ten minutes after that start, its hook still not run, is warned.
+// T-783: obor status reads the start serve last tried (T-893: serve's TaskStatus.Started, its fold of the agent.start
+// records) into the warning: a lane whose agent was restarted and resumed 30 s ago has no no-plugin warning yet, though
+// its marker is a dispatch old; the same lane ten minutes after that start, its hook still not run, is warned.
 func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 	for _, c := range []struct {
-		name   string
-		starts []int64 // ago, oldest record first
-		want   string
+		name    string
+		started int64 // serve's last start of the lane's agent, seconds ago
+		want    string
 	}{
-		{"the resumed start 30 s ago", []int64{30}, ""},
-		{"the start 10 min ago, no hook since", []int64{600}, "no-plugin"},
-		{"a stale start, then the resume 30 s ago", []int64{600, 30}, ""},
+		{"the resumed start 30 s ago", 30, ""},
+		{"the start 10 min ago, no hook since", 600, "no-plugin"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := testkit.New(t)
@@ -106,10 +89,13 @@ func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 			if err := os.WriteFile(marker, []byte(`{"kind":"opencode","at":`+at+"}\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			for _, ago := range c.starts {
-				startEvent(t, p.Root, "T-01", ago)
+			started := time.Now().Add(-time.Duration(c.started) * time.Second).Unix()
+			ask := func(context.Context, string) (wire.Status, error) {
+				return wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
+					Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "dispatched",
+						Phase: wire.PhaseWorking, Started: started}}}}, nil
 			}
-			v, err := Load(context.Background(), p.Root, time.Now(), 5)
+			v, err := reading{ask: ask}.load(context.Background(), p.Root, time.Now(), 5)
 			if err != nil {
 				t.Fatal(err)
 			}
