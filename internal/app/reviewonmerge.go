@@ -21,22 +21,15 @@ const ruleReviewOnMerge = "review.on.merge"
 // review's scope is every merge since the previous one) or a review started after the merge. A request recorded while
 // a review cycle is open waits for its close in reviewPass (review.go); the call path's "RV-n is open: close it first"
 // is the lead's refusal, which this rule does not go through. After a crash the request may be recorded twice: the
-// second replaces the first, harmless. A review needs-you in force after the merge also holds it (a failed start has
-// no open request and no review.started): the owner's next request or --rm clears it, as before, and this rule does not
-// retry it every pass.
+// second replaces the first, harmless. A request that ended after the merge (the lead's --rm, or a fire, reviewEnd)
+// also holds it: the lead can cancel the rule's request, and a failed start is not retried every pass.
 func reviewOnMergeRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 	a.mu.Lock()
-	last, open := p.folded.reviewed.seq, p.folded.review != nil
-	needs := int64(0)
-	for _, f := range p.folded.active[event.ReviewTask] {
-		if f.Step == event.StepNeedsYou && f.Seq > needs {
-			needs = f.Seq
-		}
-	}
+	last, open, ended := p.folded.reviewed.seq, p.folded.review != nil, p.folded.reviewEnd.seq
 	var merges []mergedTask
 	if !open {
 		for _, task := range p.loopTasks() {
-			if mt := p.folded.loop[task]; mt.state == stMerged && mt.mergedSeq > last && mt.mergedSeq > needs {
+			if mt := p.folded.loop[task]; mt.state == stMerged && mt.mergedSeq > last && mt.mergedSeq > ended {
 				merges = append(merges, mergedTask{task, mt.mergedSeq})
 			}
 		}

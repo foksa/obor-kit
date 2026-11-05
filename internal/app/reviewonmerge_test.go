@@ -12,8 +12,8 @@ import (
 // T-878: the Review: on merge rule, one table (condition → action). A task whose spec has the line and that merged
 // after the last review start gets one review request (no --after, the note naming the newest such task); an open
 // request (the lead's included) or a review started after the merge leaves nothing to do; a request recorded while a
-// cycle is open waits for its close; two line tasks merged before the pass are one request; a failed start's needs-you
-// holds the rule (no retry every pass).
+// cycle is open waits for its close; two line tasks merged before the pass are one request; a request that ended after
+// the merge (the lead's --rm, or a failed start's fire) holds the rule.
 func TestReviewOnMergeRule(t *testing.T) {
 	t.Parallel()
 	type step func(t *testing.T, r *reviewRig)
@@ -50,6 +50,16 @@ func TestReviewOnMergeRule(t *testing.T) {
 	}
 	started := func(t *testing.T, r *reviewRig) { r.started() }
 	pass := func(_ *testing.T, r *reviewRig) { r.pass() }
+	cancel := func(t *testing.T, r *reviewRig) { // the lead's obor review --rm ends the rule's request
+		t.Helper()
+		if r.p.folded.review == nil {
+			t.Fatal("precondition: no request to remove")
+		}
+		r.mustCall("rm1", nil, "", true)
+		if r.p.folded.review != nil {
+			t.Fatal("precondition: the request is still open")
+		}
+	}
 	failStart := func(t *testing.T, r *reviewRig) { // a pass fires the rule's request, then the start fails at the detach
 		t.Helper()
 		if r.p.folded.review == nil {
@@ -83,6 +93,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 			"Review: on merge (T-a)", "RV-5", false},
 		{"two line tasks merged: one request", []step{merge("T-a", true), merge("T-b", true), rule}, 1,
 			"Review: on merge (T-b)", "", false},
+		{"the lead's --rm: no new request", []step{merge("T-a", true), rule, cancel, rule, rule}, 1, "", "", false},
 		{"a failed start: no retry while its needs-you is in force",
 			[]step{merge("T-a", true), rule, failStart, rule, rule}, 1, "", "", true},
 	}
