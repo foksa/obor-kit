@@ -8,7 +8,7 @@ describe("a task's stage", () => {
   it("follows serve's phase", () => {
     const steps: Record<string, number> = {
       waiting: 0, dispatching: 0, working: 1, driving: 1, submitted: 2, gating: 3, "gate pending": 3, review: 4,
-      reviewing: 4, publish: 5, merging: 5, "publish pending": 5, "merge hold: reviewer": 5, "merge hold: deep_dive": 5,
+      reviewing: 4, publish: 5, merging: 5, "publish pending": 5,
     };
     for (const [phase, i] of Object.entries(steps)) {
       expect(stageOf(phase), phase).toMatchObject({ i, state: phase });
@@ -16,9 +16,6 @@ describe("a task's stage", () => {
   });
   it("is review for a green task, as the lanes row and the pipeline say", () => {
     expect(stageOf("review")).toMatchObject({ i: 4, tone: "info", state: "review" });
-  });
-  it("colors the merge hold as waiting, not as the review its role's name contains", () => {
-    expect(stageOf("merge hold: reviewer").tone).toBe("wait");
   });
   it("is merged on the merged fact alone", () => {
     expect(stageOf("publish", [rec("merged", "fact")])).toMatchObject({ i: 7, state: "merged" });

@@ -6,18 +6,12 @@ import type { TaskRecord } from "./types";
 
 export const TASK_STEPS = ["dispatched", "working", "submitted", "gate", "review", "merging", "merged"] as const;
 
-// PHASE_STEP is serve's phase of a task as the index of the step it is on. Publish and its hold are merging, never
-// merged: merged is the merged fact alone, every step done. needs-you, held and an ended task: their records say.
+// PHASE_STEP is serve's phase of a task as the index of the step it is on. Publish is merging, never merged: merged is
+// the merged fact alone, every step done. needs-you, held and an ended task: their records say.
 export const PHASE_STEP: Record<string, number> = {
   waiting: 0, dispatching: 0, working: 1, driving: 1, submitted: 2, gating: 3, "gate pending": 3, review: 4,
   reviewing: 4, publish: 5, merging: 5, "publish pending": 5,
 };
-
-// MERGE_HOLD is the phase of a task whose publish waits for a role: "merge hold: <role>" (T-718).
-export const MERGE_HOLD = "merge hold: ";
-
-const phaseStep = (ph: string): number | undefined =>
-  ph.startsWith(MERGE_HOLD) ? PHASE_STEP.publish : PHASE_STEP[ph];
 
 // recordStep is the step a record shows the task reached (-1: none).
 function recordStep(r: TaskRecord): number {
@@ -41,7 +35,7 @@ export function stageOf(phase: string | undefined, records: TaskRecord[] = []): 
     return { i: TASK_STEPS.length, tone: "done", state: "merged" };
   }
   const st = phase || "";
-  const at = phaseStep(st);
+  const at = PHASE_STEP[st];
   if (at !== undefined) return { i: at, tone: tone(st), state: st };
   // needs-you, held or ended: the furthest step its records reached, held there.
   const i = records.reduce((m, r) => Math.max(m, recordStep(r)), 0);

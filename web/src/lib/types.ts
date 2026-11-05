@@ -20,6 +20,7 @@ export interface Serve {
   since?: string;
   error?: string;
   herdr: boolean;
+  herdr_note?: string;
   project: boolean;
   merging: boolean;
   log_error?: string;
@@ -48,7 +49,6 @@ export interface Lane {
   phase?: string;
   attempt?: number;
   running?: string;
-  hold?: string;
   effort?: string;
   agent?: string;
   agent_status?: string;
@@ -112,8 +112,8 @@ export interface TaskStatus {
   attempt: number;
   state: string;
   phase: string;
+  stage?: string;
   running?: string;
-  hold?: string;
   after?: string[];
   why?: string;
   level?: string;
@@ -121,6 +121,7 @@ export interface TaskStatus {
   effort?: string;
   job?: string;
   delivered?: boolean;
+  stopping?: string;
 }
 
 export interface AgentStatus {
