@@ -85,7 +85,8 @@ type Serve struct {
 }
 
 // Lane is one configured lane: its worktree as git and the store's row say (state free, dirty-free, working,
-// missing), serve's task on it with its phase and the agent serve sees there.
+// missing, unknown), serve's task on it with its phase and the agent serve sees there. Reason says why an unknown
+// lane's state is unknown (T-871).
 type Lane struct {
 	Lane        string  `json:"lane"`
 	Type        string  `json:"type"`
@@ -93,6 +94,7 @@ type Lane struct {
 	Branch      *string `json:"branch"`
 	Task        *string `json:"task"`
 	State       string  `json:"state"`
+	Reason      *string `json:"reason"`
 	DoneAge     *int64  `json:"done_age"`
 	Dirty       bool    `json:"dirty"`
 	Warning     *string `json:"warning"`
@@ -273,9 +275,11 @@ func Build(in Input) Project {
 // its task's spec rev and open job. starts is when serve last tried to start a task's lane agent (lastStarts).
 func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, specs map[string]store.SpecRow,
 	starts map[string]int64) Lane {
-	row := p.Rows()[s.Lane]
+	rows, _ := p.Rows()
+	row := rows[s.Lane]
 	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
-		DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning), Op: restartOp(p.Root, s.Lane), Agent: row.Agent}
+		Reason: orNull(s.Reason), DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning),
+		Op: restartOp(p.Root, s.Lane), Agent: row.Agent}
 	if l.Warning == nil && s.State == "working" && pluginMissing(p, s, starts) {
 		w := "no-plugin"
 		l.Warning = &w
@@ -484,7 +488,8 @@ func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]i
 	if k, known := agents.Lookup(kind); !known || k.Caps().Hooks != agents.HooksPlugin {
 		return false
 	}
-	row, rowOK := p.Rows()[s.Lane]
+	rows, _ := p.Rows()
+	row, rowOK := rows[s.Lane]
 	task := s.Task
 	if task == "" {
 		task = row.Task

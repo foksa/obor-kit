@@ -566,6 +566,14 @@ func TestDispatchRefusals(t *testing.T) {
 		}, want: "lane L-01 is blocked"},
 		{name: "done", setup: func(r *loopRig) { r.setLane(func(l *port.Lane) { l.State, l.Task = "done", "T-9" }) },
 			want: "lane L-01 is done"},
+		// T-871: a lane whose git or store read failed is unknown: never picked, and the refusal names it and why.
+		{name: "unknown lane state", setup: func(r *loopRig) {
+			r.setLane(func(l *port.Lane) { l.State, l.Reason = "unknown", "git status: exit status 1" })
+		}, call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"sonnet"} },
+			want: "no free lane for the models sonnet; L-01 unknown: git status: exit status 1"},
+		{name: "named lane unknown", setup: func(r *loopRig) {
+			r.setLane(func(l *port.Lane) { l.State, l.Reason = "unknown", "store: no such table: lanes" })
+		}, want: "lane L-01 is unknown: store: no such table: lanes"},
 		// The CLI's shape: a task and its types, no lane (T-538); the branch's commits make only a redo legal (T-545).
 		{name: "task branch ahead", setup: func(r *loopRig) { r.disp.set(func(d *dispatchFakes) { d.ahead = true }) },
 			call: func(c *wire.Call) { c.Lane, c.Types = "", []string{"sonnet"} },

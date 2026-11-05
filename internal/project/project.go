@@ -122,11 +122,18 @@ func Physical(p string) string {
 	return abs
 }
 
-// Git runs git -C dir args… and returns its stdout (also on failure, as $(…) would capture it).
+// Git runs git -C dir args… and returns its stdout (also on failure, as $(…) would capture it); a failure's error
+// carries git's stderr, the reason a read failed (T-871).
 func Git(dir string, args ...string) (string, error) {
+	var stderr strings.Builder
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Stderr = nil
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return string(out), fmt.Errorf("%w: %s", err, msg)
+		}
+	}
 	return string(out), err
 }
 

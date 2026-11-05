@@ -203,6 +203,9 @@ func laneLine(l view.Lane) string {
 	if l.Dirty && l.State != "dirty-free" {
 		line += "  dirty"
 	}
+	if l.Reason != nil {
+		line += "  reason: " + *l.Reason
+	}
 	if l.Warning != nil {
 		line += "  warning: " + *l.Warning
 	}

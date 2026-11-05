@@ -1,6 +1,8 @@
 package checks
 
 import (
+	"errors"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +26,8 @@ func NewLaneTable(cfg *config.Config) *LaneTable {
 type LaneStatus struct {
 	Lane, Type, Dir string
 	Branch, Task    string // "" when detached / no task id in the branch
-	State           string // free, dirty-free, working, missing (live: also stalled, waiting-bg, blocked)
+	State           string // free, dirty-free, working, missing, unknown (Reason says why; live: also stalled, waiting-bg, blocked)
+	Reason          string // why State is unknown: a failed git or store read (T-871); "" otherwise
 	DoneAge         *int64 // seconds since the task's task_done was recorded; nil without one
 	Dirty           bool
 	Warning         string // a live warning (agent-blocked …), or ""
@@ -39,7 +42,8 @@ type LaneTable struct {
 	once     sync.Once
 	states   []LaneStatus
 	rowsOnce sync.Once
-	rows     map[string]store.LaneRow // the lanes table, by lane, read once (unreadable: none)
+	rows     map[string]store.LaneRow // the lanes table, by lane, read once
+	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows, T-871)
 }
 
 // States is every configured lane's row, in config order (computed once, lanes in parallel).
@@ -66,6 +70,7 @@ func (p *LaneTable) States() []LaneStatus {
 //	free        its HEAD is in the main checkout's HEAD (merged) and nothing is uncommitted
 //	dirty-free  merged, with uncommitted changes (never free, T-196)
 //	working     anything else (what serve does for its task is the task's phase, T-788: git facts only here)
+//	unknown     git or the store could not tell (Reason says why, T-871): never free
 //
 // A lane whose row holds its task at its current HEAD is not merged until the task has merge evidence.
 func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
@@ -74,8 +79,11 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 		return s
 	}
 	out, err := project.Git(l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
+	if err != nil {
+		return unknown(s, "git rev-parse: "+err.Error())
+	}
 	f := strings.Split(strings.TrimSpace(out), "\n")
-	if err != nil || len(f) != 3 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
+	if len(f) != 3 || (f[0] != l.Dir && f[0] != project.Physical(l.Dir)) {
 		return s
 	}
 	head := f[1]
@@ -87,14 +95,28 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 
 	var merged bool
 	var wg sync.WaitGroup
+	var mergedErr, statusErr error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		_, err := project.Git(p.Root, "merge-base", "--is-ancestor", head, "HEAD")
-		merged = err == nil && !(s.Task != "" && p.inFlight(l.Name, s.Task, head))
+		var exit *exec.ExitError
+		switch {
+		case err == nil:
+			merged = !(s.Task != "" && p.inFlight(l.Name, s.Task, head))
+		case errors.As(err, &exit) && exit.ExitCode() == 1: // not an ancestor: a reading, not a failed read
+		default:
+			mergedErr = err
+		}
 	}()
-	status, _ := project.Git(l.Dir, "status", "--porcelain")
+	status, statusErr := project.Git(l.Dir, "status", "--porcelain")
 	wg.Wait()
+	switch {
+	case mergedErr != nil:
+		return unknown(s, "git merge-base: "+mergedErr.Error())
+	case statusErr != nil:
+		return unknown(s, "git status: "+statusErr.Error())
+	}
 	for _, line := range strings.Split(status, "\n") {
 		if len(line) > 3 {
 			s.Dirty = true
@@ -105,6 +127,12 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	// no merge evidence (a task branch fast-forwarded to the base by hand, the work still uncommitted): in flight.
 	if merged && s.Dirty && s.Task != "" && !p.MergeEvidence(s.Task) {
 		merged = false
+	}
+	// A lane that holds a task or looks merged needs its row (in flight at this head, its task's model and agent):
+	// an unreadable store cannot tell, so it is unknown, never free (T-871). A fresh project has no store, not an
+	// unreadable one: store.ReadLanesAt says so with no rows and no error.
+	if _, err := p.Rows(); err != nil && (s.Task != "" || merged) {
+		return unknown(s, "store: "+err.Error())
 	}
 
 	if fin := p.finished(s.Task); fin != 0 {
@@ -124,13 +152,21 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	return s
 }
 
+// unknown is s as a lane whose read failed: state unknown, why a git or store error (T-871). Its branch and task, when
+// the git read that failed came after them, still say which task the lane holds.
+func unknown(s LaneStatus, why string) LaneStatus {
+	s.State, s.Reason = "unknown", why
+	return s
+}
+
 // taskType is the model lane l runs in state s (T-721, T-765): a working lane's is the model its row's
 // dispatch runs (the row holds its task; a configured lane's row always names one, T-865), any other lane's none.
 func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 	if s.State != "working" {
 		return ""
 	}
-	if row, ok := p.Rows()[l.Name]; ok && s.Task != "" && row.Task == s.Task {
+	rows, _ := p.Rows()
+	if row, ok := rows[l.Name]; ok && s.Task != "" && row.Task == s.Task {
 		typ, _ := config.ParseModelRef(row.Type)
 		return typ
 	}
@@ -138,7 +174,8 @@ func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 }
 
 // Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while its branch is not
-// merged; its agent is its row's (the lanes table, read-only).
+// merged; its agent is its row's (the lanes table, read-only). A lane whose git or store read failed is unknown, with
+// its reason (T-871): dispatch never picks it.
 type Lanes struct{}
 
 func (Lanes) Lanes(root string) ([]port.Lane, error) {
@@ -148,9 +185,10 @@ func (Lanes) Lanes(root string) ([]port.Lane, error) {
 	}
 	var out []port.Lane
 	lp := NewLaneTable(cfg)
+	rows, _ := lp.Rows() // an unknown lane carries its store error in Reason
 	for _, s := range lp.States() {
-		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State,
-			Agent: lp.Rows()[s.Lane].Agent}
+		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State, Reason: s.Reason,
+			Agent: rows[s.Lane].Agent}
 		if s.State == "working" {
 			l.Task = s.Task
 		}
@@ -159,20 +197,19 @@ func (Lanes) Lanes(root string) ([]port.Lane, error) {
 	return out, nil
 }
 
-// Rows is the store's lanes table by lane, read once (read-only; no database or an unreadable one: none).
-func (p *LaneTable) Rows() map[string]store.LaneRow {
+// Rows is the store's lanes table by lane, read once (read-only); an error when the database or its lanes table
+// cannot be read, with no rows. A project with no database yet has no rows and no error (T-871).
+func (p *LaneTable) Rows() (map[string]store.LaneRow, error) {
 	p.rowsOnce.Do(func() {
-		var err error
-		if p.rows, err = store.ReadLanesAt(p.Root); err != nil {
-			p.rows = map[string]store.LaneRow{}
-		}
+		p.rows, p.rowsErr = store.ReadLanesAt(p.Root)
 	})
-	return p.rows
+	return p.rows, p.rowsErr
 }
 
 // finished is when task's task_done was recorded (its lane row's finished; 0: none, or "" task).
 func (p *LaneTable) finished(task string) int64 {
-	for _, row := range p.Rows() {
+	rows, _ := p.Rows()
+	for _, row := range rows {
 		if task != "" && row.Task == task {
 			return row.Finished
 		}
@@ -183,7 +220,8 @@ func (p *LaneTable) finished(task string) int64 {
 // inFlight: the lane's row says it works on task — at head (the HEAD recorded at dispatch), or, without a recorded
 // head (a lane dispatched before heads were recorded), until the task has merge evidence.
 func (p *LaneTable) inFlight(lane, task, head string) bool {
-	row, ok := p.Rows()[lane]
+	rows, _ := p.Rows()
+	row, ok := rows[lane]
 	if !ok || row.Task != task {
 		return false
 	}
