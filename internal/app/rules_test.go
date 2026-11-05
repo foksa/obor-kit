@@ -204,9 +204,10 @@ func TestIdleRules(t *testing.T) {
 	}
 }
 
-// T-874: the worker start rule's condition, one table (condition → action). T-1 on L-01, its worker pj-l-01's pane
-// w1:p1 labelled, at its shell unless the case's worker runs: a worker job outstanding, no block, no claim and no
-// obor stop pause start pj-l-01 there without --fresh, with that job's wake, keyed by the dispatch fact.
+// T-874, T-908: the worker start rule's condition, one table (condition → action). T-1 on L-01, its worker pj-l-01's
+// pane w1:p1 labelled, at its shell unless the case's worker runs: a worker job outstanding, no block, no claim and no
+// project pause start pj-l-01 there without --fresh, with that job's wake, keyed by the dispatch fact; a model's pause
+// holds nothing.
 func TestWorkerStartRuleCondition(t *testing.T) {
 	t.Parallel()
 	working := func(mt *mtask) { mt.state, mt.work, mt.started = stWorking, "work", true }
@@ -238,9 +239,13 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 			working(mt)
 			p.folded.pause = &event.Pause{Why: wire.StopPause}
 		}},
-		{name: "another pause: started", edit: func(p *proj, mt *mtask) {
+		{name: "a project pause (the owner's reason): none", edit: func(p *proj, mt *mtask) {
 			working(mt)
 			p.folded.pause = &event.Pause{Why: "quota"}
+		}},
+		{name: "a model's pause (another model): started", edit: func(p *proj, mt *mtask) {
+			working(mt)
+			p.folded.models = map[string]*event.Pause{"opus": {Model: "opus", Why: "quota"}}
 		}, wake: "T-1/1/work"},
 	}
 	for _, c := range cases {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"obor/internal/app/wire"
 	"obor/internal/config"
 	"time"
 )
@@ -24,17 +23,18 @@ const workerStartSettle = 30 * time.Second
 // workerStartRule is the worker start rule. Condition: a task (the first by id) working, or dispatched with its lane
 // prepared and its worker started (a dispatch's own start is nextStart's), no block on it, with a worker job
 // outstanding (its work or fix job, or the fix job a sendback is still to send), whose worker runs no agent (its only
-// labelled pane is at its shell: labelledShell), no stop step or other claim pending for it (busy), and obor stop's
-// pause not in force. Action: the worker started in that pane as a restart without --fresh starts it — its recorded
-// session resumed where its kind resumes, else a new one — with that job's wake (launch carries the Prompt: typed into
-// a resumed session, a new one's first prompt). Keyed by the task's dispatch fact; done when the pane runs an agent.
+// labelled pane is at its shell: labelledShell), no stop step or other claim pending for it (busy), and the project's
+// pause not in force (any reason: T-908; a model's pause does not hold it). Action: the worker started in that pane as
+// a restart without --fresh starts it — its recorded session resumed where its kind resumes, else a new one — with
+// that job's wake (launch carries the Prompt: typed into a resumed session, a new one's first prompt). Keyed by the
+// task's dispatch fact; done when the pane runs an agent.
 func workerStartRule(_ context.Context, a *App, p *proj, fx *Loop, now time.Time) (int64, action, bool) {
 	if fx == nil || fx.Agents == nil {
 		return 0, action{}, false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if ps := p.paused(now); !p.dispatching || ps != nil && ps.Why == wire.StopPause {
+	if !p.dispatching || p.paused(now) != nil {
 		return 0, action{}, false
 	}
 	for _, task := range p.loopTasks() {
