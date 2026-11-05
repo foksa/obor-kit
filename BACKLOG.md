@@ -6,6 +6,25 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~late (lead → fresh session, context 502k). **Shipped today:** v0.27.0, v0.27.1. **Adopted:** DD-architecture +
+  Fable's combined plan + architecture-proposal-2026-11-05 + library-adoption-proposal (docs/decisions.md 11-05
+  entries; docs/design.md "Change rules": every spec carries Guarantee/Replaces/Adds; rule tier on
+  internal/app/rules.go). Merged since v0.27.1 (unreleased): T-861 flake causes, T-863, T-864, T-865, T-866 (pilot,
+  passed: net −10), T-867, T-868, T-869 (−247), T-870 (−45). Net since the plan: about −440 prod / −275 test.
+  **Open review RV-119** (T-864/865/867/869/870): fixes T-874 (working task's worker comes back after stop --force +
+  start, or a crash; rule) and T-875 (reviewer-stop failure count; foldRoles gone) are linked with `obor review fix`
+  — serve verifies them in ob-rev's session; close RV-119 after that verify.
+  **In flight / queued:** T-871 (lane read never free on a failed git/store read), T-872 (admission only for
+  main-checkout writers), T-873 after T-871 (one usage source, git runner with ctx), T-876 (synctest pilot, sonnet),
+  T-877 (MCP SDK trial, owner-approved dependency; adopt only if internal/mcp shrinks and live conformance x3 passes).
+  Watches: T-871..T-873 → review; T-876 and T-877 each → a review of that task ALONE right away (owner 11-05: risky
+  judgement/identity tasks get an immediate single-task review; the integrator missed the pruning losses).
+  **Next:** (1) a task for a spec line `Review: on merge` read by serve at dispatch → its own review request (Replaces:
+  the lead's hand-run `obor review --after`; must cope with serve's one-open-review-cycle rule: queue behind the open
+  cycle); (2) wave P (BACKLOG below: lane-scan coalescing, narrow web reads, session queries) after T-873; (3) waves
+  G (verify as a rule + `Fixes:` spec line), H (needs-you repeat, merge watch as rules), I (close via serve), J (one
+  decide-and-append lock); (4) release v0.28 when the wave settles (notes: BACKLOG ~afternoon items). **Owner
+  decisions open:** S1(a) serve owns drive's continuation after a take-over (drive stays for good).
 - 2026-11-05 ~evening: third input docs/research/architecture-proposal-2026-11-05.md merged into the plan: its lane-read
   bug → T-871; context propagation → T-873 (F); ordered commit path = J; rule conversions/Of field = D/G/H; review
   close via serve = I; drive continuation = S1(a), still the owner's call. **Wave P after T-873** (fix error
