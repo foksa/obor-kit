@@ -30,7 +30,7 @@ func resolvedGreen(y *sx, extra bool) (string, string, port.Candidate) {
 	}
 	y.Git(y.serve, "add", "-A")
 	y.Git(y.serve, "commit", "-qm", "resolved")
-	res, err := y.s.Resolved(ctx, "T-05", sha)
+	res, err := y.s.Resolved(ctx, "T-05", sha, nil)
 	if err != nil {
 		y.t.Fatal(err)
 	}

@@ -159,7 +159,7 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.block(block{cause: causeGate, why: "submit: " + d.Refused})
 			}
 		case event.StepGate:
-			mt.gates, mt.line, mt.green = n, g.Line, ""
+			mt.gates, mt.line, mt.green, mt.mismatch = n, g.Line, "", g.Mismatch
 			switch g.Outcome {
 			case outGreen:
 				if g.SpecRev != mt.gateRev {

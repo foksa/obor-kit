@@ -147,6 +147,7 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	var patch string
 	var open, dropped bool
 	var jobSt string // the state of the task's job out: its verdicts
+	var mismatch *port.Mismatch
 	var input string // a resolve job's: the conflicting gate's input, the submitted sha (T-403)
 	sendbacks := 0
 	merging := false
@@ -155,7 +156,7 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 		reply, stored = p.folded.calls[verdictStep(method, c.CallID)]
 		if mt := p.folded.loop[c.Task]; mt != nil {
 			key, patch, open, sendbacks, input = mt.jobKey(), mt.patch, mt.openJob(), mt.sendbacks, mt.input
-			jobSt = mt.jobState(true)
+			jobSt, mismatch = mt.jobState(true), mt.mismatch
 			dropped = mt.state == stDropped || mt.state == stDropping || p.ended[c.Task]
 		}
 	}
@@ -192,7 +193,7 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 	if method == wire.MethodResolved {
 		fx, err := a.loopOf(p)
 		if err == nil {
-			sha, err = a.resolvedCheck(ctx, p, fx, c.Task, input)
+			sha, err = a.resolvedCheck(ctx, p, fx, c.Task, input, mismatch)
 		}
 		if err != nil {
 			return "", fmt.Errorf("%s: %v", method, err)
@@ -226,14 +227,14 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 }
 
 // resolvedCheck is Scratch.Resolved holding p's scratch: never while a gate or a publish runs there.
-func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input string) (string, error) {
+func (a *App) resolvedCheck(ctx context.Context, p *proj, fx *Loop, task, input string, m *port.Mismatch) (string, error) {
 	select {
 	case p.scratch <- struct{}{}:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
 	defer func() { <-p.scratch }()
-	return fx.Scratch.Resolved(ctx, task, input)
+	return fx.Scratch.Resolved(ctx, task, input, m)
 }
 
 // hold records the integrator's hold of job j (under a.verdicts): one fact, needs-you{held: why}, which also stores

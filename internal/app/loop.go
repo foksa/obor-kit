@@ -187,6 +187,7 @@ type attemptVars struct {
 	gateRev        int                // the spec rev in cand's merge message (T-521; 0: none)
 	accepted       string             // the patch hash the integrator accepted in this attempt
 	line           string             // the last gate or publish line, or the integrator's note
+	mismatch       *port.Mismatch     // the last gate's replay mismatch (T-917; nil: none)
 	kind           string             // the attempt's last gate's kind: lane, resolved, moved
 	job            string             // the attempt's last integrator job's step (review, resolve.2 …; "": none yet)
 	patch          string             // the patch hash that job was prompted with (its intent's JobData)
@@ -242,6 +243,8 @@ type (
 		SpecRev   int            `json:"spec_rev,omitempty"` // a gate's: the spec rev in its merge's message (T-521)
 		// Kept: a moved gate's green that kept the result checked on this base, no command run (T-900; partial)
 		Kept string `json:"kept,omitempty"`
+		// Mismatch: a conflict whose replayed resolution lost edits of the checked one (T-917)
+		Mismatch *port.Mismatch `json:"mismatch,omitempty"`
 	}
 	noteData struct {
 		Note string `json:"note"`

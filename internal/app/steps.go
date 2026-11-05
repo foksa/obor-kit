@@ -301,6 +301,9 @@ func gateResult(task string, o port.GateOutcome) gateOut {
 	case port.OutcomeRed:
 		return gateOut{Outcome: outRed, Line: o.Line}
 	case port.OutcomeConflict:
+		if o.Mismatch != nil { // T-917: the reason and the checked resolution reach the resolve job
+			return gateOut{Outcome: outConflict, Line: o.Line, Mismatch: o.Mismatch}
+		}
 		return gateOut{Outcome: outConflict, Line: fmt.Sprintf("CONFLICT in %s: %s", o.Dir, strings.Join(o.Files, ", "))}
 	case port.OutcomeFail:
 		return gateOut{Outcome: outFail, Line: o.Line}

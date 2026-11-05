@@ -100,7 +100,7 @@ func (f *concScratch) wait(ctx context.Context) error {
 	}
 }
 
-func (f *concScratch) Resolved(ctx context.Context, task, _ string) (string, error) {
+func (f *concScratch) Resolved(ctx context.Context, task, _ string, _ *port.Mismatch) (string, error) {
 	f.enter()
 	defer f.leave()
 	if task == f.holdResolved {

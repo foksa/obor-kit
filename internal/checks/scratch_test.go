@@ -235,7 +235,7 @@ func TestScratchMovedGateConflict(t *testing.T) {
 	}
 	y.eq(strings.Join(o.Files, " "), "shared.txt", "the conflicting file")
 	res := y.resolveServe()
-	got, err := y.s.Resolved(ctx, "T-05", sha)
+	got, err := y.s.Resolved(ctx, "T-05", sha, nil)
 	if err != nil {
 		t.Fatalf("resolve of %s: %v", sha, err)
 	}
@@ -359,7 +359,7 @@ var cutSteps = []cutStep{
 		setup: func(y *sx) cutIn {
 			input := y.conflicted()
 			y.resolveServe()
-			sha, err := y.s.Resolved(ctx, "T-05", input)
+			sha, err := y.s.Resolved(ctx, "T-05", input, nil)
 			if err != nil {
 				y.t.Fatalf("precondition: resolved: %v", err)
 			}
@@ -432,7 +432,7 @@ var cutSteps = []cutStep{
 			return cutIn{sha: y.resolveServe(), c: port.Candidate{SHA: input}}
 		},
 		call: func(y *sx, in cutIn) (string, any, error) {
-			sha, err := y.s.Resolved(ctx, "T-05", in.c.SHA)
+			sha, err := y.s.Resolved(ctx, "T-05", in.c.SHA, nil)
 			if err != nil {
 				return "", nil, err
 			}
@@ -546,7 +546,7 @@ func TestScratchGateResolvedAfterRed(t *testing.T) {
 	y := newSx(t, cmd("check", `test -f "$TMP_DIR/green" && echo 1 pass || { echo 0 pass; exit 1; }`))
 	input := y.conflicted()
 	y.resolveServe()
-	sha, err := y.s.Resolved(ctx, "T-05", input)
+	sha, err := y.s.Resolved(ctx, "T-05", input, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,14 +810,14 @@ func TestResolvedPinsOwnMergeOnly(t *testing.T) {
 	if y.head(y.serve) != c.SHA {
 		t.Fatal("precondition: T-20's candidate in serve's worktree")
 	}
-	if _, err := y.s.Resolved(ctx, "T-05", input); !errors.As(err, new(port.Refused)) {
+	if _, err := y.s.Resolved(ctx, "T-05", input, nil); !errors.As(err, new(port.Refused)) {
 		t.Errorf("Resolved(T-05) on T-20's candidate: %v; want Refused", err)
 	}
 	y.eq(y.ref(resolvedRefs+"T-05"), "", "nothing pinned for T-05")
 
 	y.Git(y.serve, "reset", "-q", "--hard", sha2)
 	y.Git(y.serve, "merge", "-q", "--no-ff", "-X", "theirs", "-m", "Merge T-05 onto T-20's lane", input)
-	if _, err := y.s.Resolved(ctx, "T-05", input); !errors.As(err, new(port.Refused)) {
+	if _, err := y.s.Resolved(ctx, "T-05", input, nil); !errors.As(err, new(port.Refused)) {
 		t.Errorf("Resolved(T-05) on a merge of its input onto another lane: %v; want Refused", err)
 	}
 
@@ -826,7 +826,7 @@ func TestResolvedPinsOwnMergeOnly(t *testing.T) {
 	z.Write(filepath.Join(z.serve, "shared.txt"), "human resolution\n")
 	z.Git(z.serve, "add", "shared.txt")
 	z.Git(z.serve, "commit", "-qm", "Merge T-05: resolved")
-	sha, err := z.s.Resolved(ctx, "T-05", input)
+	sha, err := z.s.Resolved(ctx, "T-05", input, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
