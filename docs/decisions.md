@@ -4,6 +4,12 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **obor-kit workers test only their packages before `task_done`** (`docs/agents/worker.md`):
+  no `obor run check_affected` in a lane; the gate runs the class check once. Cause: a worker's class check (the full
+  suite when its change hits `merge.affected_full`) ran beside the gates and the gate ran it again (its receipt is
+  reused only on an unmoved target). Also seen: herdr 0.9.5 back at ~100% CPU 43 min after its restart, in its own
+  loop (`pending_agent_resume_candidates`, `next_headless_loop_deadline_with_git_refresh`), not obor's API calls:
+  a herdr report (sample in the lead's scratchpad), fewer stale workspaces may help.
 - 2026-11-05 (owner): **Milestone cut for v0.28**: the gate/flake fixes, RV-121's fix, the live MCP check and the
   pause gap close it; the data-model, encapsulation and kit-specific tasks move to the next milestone, where each task
   must be net-negative in production lines or say why; no new surveys until v0.28 ships. Cause: prod lines flat and
