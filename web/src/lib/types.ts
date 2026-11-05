@@ -336,6 +336,7 @@ export interface TaskDetail {
 }
 
 export interface AgentSession {
+  agent: string;
   id: string;
   kind?: string;
   transcript?: string;
