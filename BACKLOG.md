@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~17:55: **`obor pause` does not hold serve's worker-start rule** (T-874): it holds off only for `obor
+  stop`'s pause, so a force-stopped worker of a working task restarts within seconds under a plain pause (L-02 T-892,
+  twice). Spec: the rule honours any project pause (a pause = start nothing). Project stopped again (owner: herdr
+  integrations to repair: opencode needs repair v13, claude v10<v11, codex v8<v10 per `herdr integration status`).
+  After `obor start`: `obor resume T-883 --regate` (red on the T-907 flake), `obor pause --clear` once the owner says.
 - 2026-11-05 ~17:45 (lead, before the owner's herdr restart + update; `obor stop --force`). In flight at the stop: T-892
   working (L-02, comes back at `obor start` via the worker-start rule), T-900 gating (attempt 3), T-883 submitted
   (accepted shape (a): new `--json`), T-901 accepted/publish. **Open review RV-121**: fix T-906 linked (verify after it
