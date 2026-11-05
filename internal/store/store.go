@@ -22,8 +22,8 @@ import (
 
 const (
 	// SchemaVersion is the schema this binary knows. OpenRW refuses a newer one: the database is per project, and a
-	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819).
-	SchemaVersion = 10
+	// obor that wrote it may be newer than this binary. 7: prompts (T-665); 8: the prompts table's own key (T-670); 9: the lane row's type (T-721); 10: the spec row's note (T-819); 11: the read indexes (T-881).
+	SchemaVersion = 11
 	// upgradeFrom is the oldest schema OpenRW opens: a store from before v0.22 (schema 2–8) is refused, and upgrades
 	// through v0.24.0 first. A store this opens is migrated to SchemaVersion (initSchema: its tables are all created
 	// IF NOT EXISTS, so the version is what a migration updates).
@@ -142,7 +142,7 @@ func File(root string) string { return filepath.Join(root, ".obor", "state", "ob
 // schema is every table this binary knows. events is the event log (docs/state-model.md "The log"): one row per
 // record, seq its order, data the record's JSON (NULL: none). lanes is serve's lane projection (lanes.go); specs the
 // tasks' specs (specs.go); prompts the text of the prompts serve sent, by the seq of the fact it belongs to and its
-// own id (prompts.go). Every statement is IF NOT EXISTS: an older store gets the tables it lacks.
+// own id (prompts.go). Every statement is IF NOT EXISTS: an older store gets the tables and indexes it lacks.
 var schema = []string{
 	"CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 	`CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT NOT NULL,
@@ -155,12 +155,18 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER NOT NULL,
 		agent TEXT NOT NULL, kind TEXT NOT NULL, job TEXT NOT NULL, task TEXT NOT NULL, ts TEXT NOT NULL,
 		rev INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL)`,
+	// The read indexes (T-881): a task's timeline and session facts filter by task and order by seq, the blocked
+	// report reads one task's (and msg's); a job's prompt lookup filters by job and takes its newest first (id is the
+	// rowid, so the index's entries are ordered by it). A query plan on a copy of this project's store uses both;
+	// the other readers' columns (kind, step, a task's prompts) get one only when a plan shows it pays for its writes.
+	"CREATE INDEX IF NOT EXISTS events_task_seq ON events(task, seq)",
+	"CREATE INDEX IF NOT EXISTS prompts_job ON prompts(job)",
 }
 
 // initSchema checks an existing database's schema version before it changes anything (a refused database is left
 // exactly as it was: a version older than upgradeFrom or newer than SchemaVersion), then creates the tables and
-// records the version on a new database, all in one transaction. An accepted older database is migrated: the tables
-// it lacks are created and its version becomes SchemaVersion.
+// indexes and records the version on a new database, all in one transaction. An accepted older database is migrated:
+// what it lacks is created and its version becomes SchemaVersion.
 func initSchema(db *sql.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 	defer cancel()
@@ -220,7 +226,7 @@ func initSchema(db *sql.DB) error {
 			strconv.Itoa(SchemaVersion)); err != nil {
 			return fmt.Errorf("store: write schema version: %w", err)
 		}
-	case got < SchemaVersion: // migrated above: every table is there now
+	case got < SchemaVersion: // migrated above: every table and index is there now
 		if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = 'schema_version'",
 			strconv.Itoa(SchemaVersion)); err != nil {
 			return fmt.Errorf("store: write schema version: %w", err)

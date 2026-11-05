@@ -472,3 +472,63 @@ func TestOpenRWRefusesSchema8(t *testing.T) {
 		t.Errorf("ReadLanes on schema 8 = %+v, %v; want %+v", rows, err, wantRow)
 	}
 }
+
+// T-881: a schema-10 store (no read indexes) gets them on its next open, and the timeline, session-fact and prompt
+// queries plan with them instead of scanning.
+func TestOpenRWAddsTheReadIndexes(t *testing.T) {
+	t.Parallel()
+	path := newPath(t)
+	db, err := OpenRW(path)
+	if err != nil {
+		t.Fatalf("OpenRW: %v", err)
+	}
+	for _, q := range []string{
+		"DROP INDEX events_task_seq",
+		"DROP INDEX prompts_job",
+		"UPDATE meta SET value = '10' WHERE key = 'schema_version'",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("precondition: %s: %v", q, err)
+		}
+	}
+	db.Close()
+
+	db, err = OpenRW(path)
+	if err != nil {
+		t.Fatalf("OpenRW on schema 10: %v", err)
+	}
+	defer db.Close()
+	var version string
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil ||
+		version != strconv.Itoa(SchemaVersion) {
+		t.Errorf("schema_version = %q, %v; want %d after the migration", version, err, SchemaVersion)
+	}
+	for _, c := range []struct{ index, query string }{
+		{"events_task_seq",
+			"SELECT data FROM events WHERE task = 'session' AND kind = 'fact' AND step = 'session' ORDER BY seq"},
+		{"prompts_job",
+			"SELECT seq, agent, kind, job, task, ts, rev, text FROM prompts WHERE job = 'T-1/1/work' ORDER BY id DESC LIMIT 1"},
+	} {
+		rows, err := db.Query("EXPLAIN QUERY PLAN " + c.query)
+		if err != nil {
+			t.Fatalf("%s: %v", c.query, err)
+		}
+		used := false
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatalf("query plan of %s: %v", c.query, err)
+			}
+			if strings.Contains(detail, c.index) {
+				used = true
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("query plan of %s: %v", c.query, err)
+		}
+		if !used {
+			t.Errorf("%s is not the plan of: %s", c.index, c.query)
+		}
+	}
+}

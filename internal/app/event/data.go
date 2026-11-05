@@ -2,9 +2,9 @@ package event
 
 import (
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"time"
+
+	"obor/internal/store"
 )
 
 // Pause is a pause fact's data, and the pause in force in the status: why, until when (epoch seconds, 0: until
@@ -119,11 +119,17 @@ func MergeOf(r Record) (Merge, bool) {
 	return Merge{Task: r.Task, SHA: d.Head, At: RecordTime(r)}, true
 }
 
-// ReadMerges is root's merges, read-only in seq order (obor flakes); none when serve never made its store.
+// ReadMerges is root's merges, read-only in seq order (obor flakes); none when serve never made its store. The store
+// filters them (T-881): a reader does not decode the whole log for a handful of merges.
 func ReadMerges(root string) ([]Merge, error) {
-	recs, err := ReadLog(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+	db, err := store.OpenAt(root)
+	if err != nil || db == nil {
+		return nil, err
+	}
+	defer db.Close()
+	recs, err := queryRecords(db, recordQuery+" WHERE kind = ? AND step = ? ORDER BY seq", KindFact, StepMerged)
+	if err != nil {
+		return nil, err
 	}
 	var ms []Merge
 	for _, r := range recs {
@@ -131,5 +137,5 @@ func ReadMerges(root string) ([]Merge, error) {
 			ms = append(ms, m)
 		}
 	}
-	return ms, err
+	return ms, nil
 }
