@@ -31,9 +31,13 @@ func TestSessionStartOpencodeLaneReportsNoSid(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || c.Kind != "opencode" || c.Session != "sid-oc" ||
-		c.Transcript != "/data/opencode/opencode.db" || c.Lane != "L-01" || c.Root != p.Root {
-		t.Errorf("serve got %s %+v", serve.methods[0], c)
+	if c.Session == nil {
+		t.Fatalf("serve got %s %+v: no session", serve.methods[0], c)
+	}
+	s := *c.Session
+	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "opencode" ||
+		s.ID != "sid-oc" || s.Transcript != "/data/opencode/opencode.db" || s.Lane != "L-01" || c.Root != p.Root {
+		t.Errorf("serve got %s %+v (session %+v)", serve.methods[0], c, s)
 	}
 	if _, err := os.Stat(filepath.Join(state, "agents", "pj-l-01.sid")); err == nil {
 		t.Error("an OpenCode session wrote a .sid")
@@ -81,9 +85,13 @@ func TestSessionStartHookReports(t *testing.T) {
 		t.Fatalf("serve got %d requests, want one", len(calls))
 	}
 	c := calls[0]
-	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || c.Kind != "claude" || c.Session != "sid-77" ||
-		c.Transcript != "/claude/projects/x/sid-77.jsonl" || c.Pane != "w1:p3" || c.Lane != "L-01" || c.Root != p.Root ||
-		c.Started == 0 {
-		t.Errorf("serve got %s %+v", serve.methods[0], c)
+	if c.Session == nil {
+		t.Fatalf("serve got %s %+v: no session", serve.methods[0], c)
+	}
+	s := *c.Session
+	if serve.methods[0] != wire.MethodSession || c.Agent != "pj-l-01" || s.Agent != "pj-l-01" || s.Kind != "claude" ||
+		s.ID != "sid-77" || s.Transcript != "/claude/projects/x/sid-77.jsonl" || s.Pane != "w1:p3" || s.Lane != "L-01" ||
+		c.Root != p.Root || s.Started == 0 || s.Source != "SessionStart hook" {
+		t.Errorf("serve got %s %+v (session %+v)", serve.methods[0], c, s)
 	}
 }

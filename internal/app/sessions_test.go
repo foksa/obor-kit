@@ -1,14 +1,19 @@
 package app
 
 import (
+	"encoding/json"
+	"net"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"obor/internal/version"
 
 	"obor/internal/project"
 	"obor/internal/store"
@@ -17,8 +22,8 @@ import (
 // session reports agent's session id (transcript tr, started at) to h's serve as the SessionStart hook does.
 func (h *harness) session(agent, id, tr string, at int64) string {
 	h.t.Helper()
-	reply, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: agent, Kind: "claude", Session: id, Transcript: tr,
-		Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: at, Source: "SessionStart hook"})
+	reply, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: agent, Kind: "claude", ID: id, Transcript: tr,
+		Pane: "w1:p1", Lane: "L-01", Task: "T-1", Started: at, Source: "SessionStart hook"}))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -154,8 +159,8 @@ func TestSessionConfirmation(t *testing.T) {
 	// launch is serve's fact for the id obor chose (the launcher's session request before the start).
 	launch := func(h *harness, id string, at int64) {
 		h.t.Helper()
-		if _, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: "pj-l-01", Kind: "claude", Session: id,
-			Pane: "w1:p1", Lane: "L-01", Started: at, Source: "launch"}); err != nil {
+		if _, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: "pj-l-01", Kind: "claude", ID: id,
+			Pane: "w1:p1", Lane: "L-01", Started: at, Source: "launch"})); err != nil {
 			h.t.Fatal(err)
 		}
 	}
@@ -218,7 +223,8 @@ func has(t *testing.T, s, sub, what string) {
 // refused reports agent's session id to h's serve: the error ("" none).
 func (h *harness) refused(agent, id string, at int64) string {
 	h.t.Helper()
-	_, err := h.a.sessionCall(wire.Call{Root: h.root, Agent: agent, Kind: "codex", Session: id, Started: at, Source: "codex transcript"})
+	_, err := h.a.sessionCall(wire.SessionCall(h.root, store.Session{Agent: agent, Kind: "codex", ID: id, Started: at,
+		Source: "codex transcript"}))
 	if err == nil {
 		return ""
 	}
@@ -308,3 +314,82 @@ func TestSessionOneOwner(t *testing.T) {
 		eqs(t, h3.current("pj-d"), "", "the other does not")
 	})
 }
+
+// sessionFactGolden is a session fact's data as serve recorded it before T-887 (the flat session call): the stored
+// shape the one session type keeps, key for key.
+const sessionFactGolden = `{"agent":"pj-l-01","kind":"claude","id":"sid-1","transcript":"/t/sid-1.jsonl","pane":"w1:p1",` +
+	`"lane":"L-01","task":"T-1","started":1700000000,"source":"SessionStart hook"}`
+
+// T-887: a stored session fact from before folds the same, and a session recorded now is stored in that shape.
+func TestSessionFactGoldenFolds(t *testing.T) {
+	t.Parallel()
+	want := store.Session{Agent: "pj-l-01", Kind: "claude", ID: "sid-1", Transcript: "/t/sid-1.jsonl", Pane: "w1:p1",
+		Lane: "L-01", Task: "T-1", Started: 1700000000, Source: "SessionStart hook"}
+	p := &proj{}
+	p.foldSession(event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact,
+		Data: []byte(sessionFactGolden)})
+	if len(p.folded.sessions) != 1 || p.folded.sessions[0] != want {
+		t.Errorf("the golden fact folds to %+v, want [%+v]", p.folded.sessions, want)
+	}
+	h, _ := newIdentHarness(t)
+	h.connect()
+	h.session("pj-l-01", "sid-1", "/t/sid-1.jsonl", 1700000000)
+	var data string
+	for _, rec := range h.records() {
+		if rec.Task == store.SessionTask && rec.Step == store.StepSession && rec.Kind == event.KindFact {
+			data = string(rec.Data)
+		}
+	}
+	if data != sessionFactGolden {
+		t.Errorf("a session recorded now is stored as %s, want %s", data, sessionFactGolden)
+	}
+}
+
+// T-887: the session call's shape changed with its key (session_fact, not the flat session id): a hook older than
+// serve sends the flat fields, and serve refuses it naming both versions, recording nothing; a serve older than its
+// hook reads the new call as one without a session id (its refusal names both versions, as above), never as an
+// unreadable request.
+func TestSessionCallShapeSkewRefusedByVersion(t *testing.T) {
+	t.Parallel()
+	h, _ := newIdentHarness(t)
+	h.connect()
+	ln := newMemListener()
+	t.Cleanup(func() { ln.Close() })
+	go h.a.Listen(ln)
+	client, server := net.Pipe()
+	ln.conns <- server
+	old := `{"method":"session","call":{"root":` + strconv.Quote(h.root) + `,"agent":"pj-l-01","role":"","call_id":"",` +
+		`"task":"T-1","version":"v0.1.0","session":"sid-old","kind":"claude","transcript":"/t/old.jsonl","started":5}}`
+	go func() { _, _ = client.Write([]byte(old + "\n")) }()
+	ans := read(t, client)
+	client.Close()
+	want := "session: the agent and the session id are required (caller pj-l-01 runs obor v0.1.0, serve " +
+		version.Version + ")"
+	if ans.Error != want {
+		t.Errorf("an old hook's session call: error %q, want %q", ans.Error, want)
+	}
+	if got := h.sessions("pj-l-01"); len(got) != 0 {
+		t.Errorf("an old hook's refused call recorded %v", got)
+	}
+
+	b, err := json.Marshal(wire.Request{Method: wire.MethodSession, Call: ptr(wire.SessionCall(h.root,
+		store.Session{Agent: "pj-l-01", ID: "sid-new", Kind: "claude"}))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var older struct { // the call as an obor before T-887 decodes it
+		Call struct {
+			Agent   string `json:"agent"`
+			Session string `json:"session"`
+		} `json:"call"`
+	}
+	if err := json.Unmarshal(b, &older); err != nil {
+		t.Fatalf("an older serve cannot read the new session call %s: %v", b, err)
+	}
+	if older.Call.Agent != "pj-l-01" || older.Call.Session != "" {
+		t.Errorf("an older serve reads agent %q, session %q; want pj-l-01 and no session id (its refusal)",
+			older.Call.Agent, older.Call.Session)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

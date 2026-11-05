@@ -313,9 +313,9 @@ func turn(input []byte, env project.Env, ended bool) {
 // restart resumes the agent's last recorded session, else herdr's (T-607).
 func sessionBegan(b guard.Began, log io.Writer) {
 	ctx := context.Background() // the call's deadline is wire.Verdict's (8 s; T-659)
-	c := wire.Call{Root: b.Root, Agent: b.Agent, Kind: b.Kind, Session: b.ID, Transcript: b.Transcript, Pane: b.Pane,
-		Lane: b.Lane, Task: b.Task, Started: time.Now().Unix(), Source: "SessionStart hook"}
-	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.MethodSession, c); err != nil {
+	s := b.Session
+	s.Started = time.Now().Unix()
+	if _, err := wire.Verdict(ctx, wire.SocketPath(b.Root), wire.MethodSession, wire.SessionCall(b.Root, s)); err != nil {
 		fmt.Fprintf(log, "obor: session %s of %s not recorded: %v (a restart resumes %s's last recorded session; obor restart %s --fresh starts a new one)\n",
 			b.ID, b.Agent, err, b.Agent, b.Agent)
 	}

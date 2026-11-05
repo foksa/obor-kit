@@ -33,10 +33,11 @@ const refusedMark = "session already held by "
 // before its start, which fills in its transcript (T-813). One session id belongs to one agent (T-586): an id that is
 // another agent's current session is refused, nothing recorded, the two agents logged.
 func (a *App) sessionCall(c wire.Call) (string, error) {
-	if c.Agent == "" || c.Session == "" {
+	if c.Session == nil || c.Session.Agent == "" || c.Session.ID == "" {
 		return "", errors.New(wire.MethodSession + ": the agent and the session id are required")
 	}
-	reply := "SESSION " + c.Agent + " " + c.Session
+	s := *c.Session
+	reply := "SESSION " + s.Agent + " " + s.ID
 	a.sessions.Lock() // the check and its record are one step: two reports of one session record one fact
 	defer a.sessions.Unlock()
 	a.mu.Lock()
@@ -44,25 +45,23 @@ func (a *App) sessionCall(c wire.Call) (string, error) {
 	var recorded, holder string
 	var cur store.Session
 	if p != nil {
-		recorded = p.recordedTranscript(c.Agent, c.Session)
-		holder = p.holder(c.Agent, c.Session)
-		cur, _ = p.session(c.Agent)
+		recorded = p.recordedTranscript(s.Agent, s.ID)
+		holder = p.holder(s.Agent, s.ID)
+		cur, _ = p.session(s.Agent)
 	}
 	a.mu.Unlock()
 	// The session obor chose for the agent before its start (no transcript yet) is not what the session runs as: the
 	// reporting session's id wins, said once (T-813: a start Claude ran with another id than obor gave it).
-	replaced := p != nil && cur.Agent != "" && cur.ID != c.Session && cur.Transcript == ""
+	replaced := p != nil && cur.Agent != "" && cur.ID != s.ID && cur.Transcript == ""
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSession, c.Root)
 	case recorded != "":
 		return reply, nil
 	case holder != "":
-		a.logf("%s: %s's session %s refused: it is %s's current session", p.name, c.Agent, c.Session, holder)
-		return "", fmt.Errorf("%s: %s%s (%s's report refused)", wire.MethodSession, refusedMark, holder, c.Agent)
+		a.logf("%s: %s's session %s refused: it is %s's current session", p.name, s.Agent, s.ID, holder)
+		return "", fmt.Errorf("%s: %s%s (%s's report refused)", wire.MethodSession, refusedMark, holder, s.Agent)
 	}
-	s := store.Session{Agent: c.Agent, Kind: c.Kind, ID: c.Session, Transcript: c.Transcript, Pane: c.Pane,
-		Lane: c.Lane, Task: c.Task, Started: c.Started, Source: c.Source}
 	if s.Started == 0 {
 		s.Started = a.opt.Now().Unix()
 	}
@@ -70,8 +69,8 @@ func (a *App) sessionCall(c wire.Call) (string, error) {
 		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodSession, p.name)
 	}
 	if replaced {
-		a.logf("%s: %s runs session %s, not %s (the id obor chose): the reported session is recorded", p.name, c.Agent,
-			c.Session, cur.ID)
+		a.logf("%s: %s runs session %s, not %s (the id obor chose): the reported session is recorded", p.name, s.Agent,
+			s.ID, cur.ID)
 	}
 	return reply, nil
 }
