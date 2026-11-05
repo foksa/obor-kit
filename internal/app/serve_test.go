@@ -126,7 +126,7 @@ func (f *schedScratch) Gate(_ context.Context, in port.GateInput) (port.GateOutc
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: port.Candidate{Task: in.Task, Lane: in.Lane, SHA: "c-" + in.Task,
 		Target: "b", Patch: "p"}}, nil
 }
-func (f *schedScratch) Resolved(_ context.Context, _, input string) (string, error) {
+func (f *schedScratch) Resolved(_ context.Context, _, input string, _ *port.Mismatch) (string, error) {
 	f.resolved = append(f.resolved, input)
 	return "resolution", nil
 }
@@ -427,7 +427,7 @@ type blockScratch struct {
 	ended   atomic.Bool
 }
 
-func (f *blockScratch) Resolved(ctx context.Context, _, _ string) (string, error) {
+func (f *blockScratch) Resolved(ctx context.Context, _, _ string, _ *port.Mismatch) (string, error) {
 	f.entered <- ctx
 	<-ctx.Done()
 	time.Sleep(50 * time.Millisecond) // the process group's cleanup

@@ -78,7 +78,7 @@ func TestGateResolvedSpecInMessage(t *testing.T) {
 	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
 	y.Git(y.serve, "add", "shared.txt")
 	y.Git(y.serve, "commit", "-qm", "Merge T-05: resolved\n\nkept both sides")
-	res, err := y.s.Resolved(ctx, "T-05", input)
+	res, err := y.s.Resolved(ctx, "T-05", input, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestGateResolvedGitDefaultMessage(t *testing.T) {
 	y.Write(filepath.Join(y.serve, "shared.txt"), "both\n")
 	y.Git(y.serve, "add", "shared.txt")
 	y.Git(y.serve, "commit", "-q", "--no-edit")
-	res, err := y.s.Resolved(ctx, "T-05", input)
+	res, err := y.s.Resolved(ctx, "T-05", input, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

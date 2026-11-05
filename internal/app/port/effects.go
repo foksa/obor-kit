@@ -242,7 +242,9 @@ type Scratch interface {
 	// Resolved pins the merge the integrator resolved and committed in serve's worktree at refs/obor/resolved/<task>:
 	// its sha (the verdict's pin). It must be the merge of input (the conflicting gate's) onto the target; anything
 	// else (an open merge, HEAD in the target, another merge) is a Refused error.
-	Resolved(ctx context.Context, task, input string) (sha string, err error)
+	// A non-nil m (the last gate's Mismatch) is refused while the committed merge still lacks the checked resolution's
+	// edits in m.Files and is unchanged from the replay (T-917).
+	Resolved(ctx context.Context, task, input string, m *Mismatch) (sha string, err error)
 	// Publish fast-forwards the target to c.SHA when it is still c.Target, then deletes the task's pins.
 	Publish(ctx context.Context, c Candidate) (PublishOutcome, error)
 	// AfterMerge runs commands.after_merge for the published c: ran | skipped | WARN …. Its intent (G) is the once:
@@ -301,9 +303,21 @@ type GateOutcome struct {
 	Line      string
 	Files     []string
 	Dir       string
+	// Mismatch: a conflict that is no unmerged path but a replayed resolution lost edits of the checked one (T-917).
+	Mismatch *Mismatch
 	// Kept: a green moved gate that kept the result checked on this base (GateInput.Green, T-900): no command ran, its
 	// Candidate is partial (Full false) and its Checks read "kept <base7>".
 	Kept string
+}
+
+// Mismatch is a replayed resolution that differs from the checked one (T-915, T-917): the checked resolution's sha,
+// the files whose patch differs, the tree of the replayed merge in Dir (what "unchanged from the replay" is compared
+// with).
+type Mismatch struct {
+	Checked string   `json:"checked"`
+	Tree    string   `json:"tree"`
+	Files   []string `json:"files"`
+	Dir     string   `json:"dir"`
 }
 
 // Gate outcome kinds.

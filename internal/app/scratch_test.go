@@ -216,7 +216,7 @@ func (s *gitScratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutc
 		Patch: hex.EncodeToString(sum[:]), Checks: checks, Stat: stat, Full: s.full.Load()}}, nil
 }
 
-func (s *gitScratch) Resolved(ctx context.Context, task, input string) (string, error) {
+func (s *gitScratch) Resolved(ctx context.Context, task, input string, _ *port.Mismatch) (string, error) {
 	dir := s.dir()
 	if _, err := s.git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
 		return "", port.Refused{Line: "the merge in " + dir + " is not committed"}

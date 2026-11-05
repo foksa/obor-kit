@@ -182,9 +182,17 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 			if files, err := s.replayDiffers(dir, target, in.Resolved); err != nil {
 				return port.GateOutcome{}, err
 			} else if len(files) > 0 {
-				return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
+				o := port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
 					Line: fmt.Sprintf("CONFLICT in %s: %s (the replayed resolution differs from the checked one)", dir,
-						strings.Join(files, " "))}, nil
+						strings.Join(files, " "))}
+				if in.Resolved != "" { // T-917: the resolve job names the checked resolution and the files
+					tree, err := s.call(dir, "write-tree")
+					if err != nil {
+						return port.GateOutcome{}, err
+					}
+					o.Mismatch = &port.Mismatch{Checked: in.Resolved, Tree: tree, Files: files, Dir: dir}
+				}
+				return o, nil
 			}
 			reused = true
 		}
@@ -469,7 +477,7 @@ func (s Scratch) commit(dir, msg, target, input string) (string, error) {
 // refs/obor/resolved/<task>, only when it is the merge of input (the conflicting gate's: submit's sha, a lane or moved
 // gate alike, T-403) on top of the target: a merge whose second parent is input and whose first is in the target.
 // Refused: no worktree, a merge still open, another HEAD (another task's gate, say), or one the target holds.
-func (s Scratch) Resolved(ctx context.Context, task, input string) (string, error) {
+func (s Scratch) Resolved(ctx context.Context, task, input string, m *port.Mismatch) (string, error) {
 	s.gitCtx = ctx
 	dir := s.dir()
 	if _, err := os.Stat(dir); err != nil {
@@ -505,10 +513,45 @@ func (s Scratch) Resolved(ctx context.Context, task, input string) (string, erro
 	} else if !in {
 		return "", port.Refused{Line: fmt.Sprintf("FAIL HEAD of %s is not a merge onto %s", dir, target)}
 	}
+	if m != nil {
+		if lost, err := s.lostEdits(dir, head, m); err != nil {
+			return "", err
+		} else if len(lost) > 0 {
+			c, f := m.Checked[:min(7, len(m.Checked))], strings.Join(lost, " ")
+			return "", port.Refused{Line: fmt.Sprintf("FAIL the merge in %s still lacks edits of the checked resolution %s in %s "+
+				"(unchanged from the replay): compare with git diff %s -- %s, restore them and commit", dir, c, f, c, f)}
+		}
+	}
 	if _, err := s.call(s.Cfg.Root, "update-ref", resolvedRefs+task, head); err != nil {
 		return "", err
 	}
 	return head, nil
+}
+
+// lostEdits is the files of m whose patch in the committed merge head still differs from the checked resolution's and
+// whose content is the replay's (T-917): the integrator committed nothing new there.
+func (s Scratch) lostEdits(dir, head string, m *port.Mismatch) ([]string, error) {
+	out, err := s.call(dir, "diff", "--binary", "--no-renames", head+"^1", head)
+	if err != nil {
+		return nil, err
+	}
+	got := filePatches(out)
+	if out, err = s.call(dir, "diff", "--binary", "--no-renames", m.Checked+"^1", m.Checked); err != nil {
+		return nil, err
+	}
+	want := filePatches(out)
+	var lost []string
+	for _, f := range m.Files {
+		if got[f] == want[f] {
+			continue
+		}
+		now, _ := s.call(dir, "rev-parse", "-q", "--verify", head+":"+f) // "": absent
+		was, _ := s.call(dir, "rev-parse", "-q", "--verify", m.Tree+":"+f)
+		if now == was {
+			lost = append(lost, f)
+		}
+	}
+	return lost, nil
 }
 
 // Publish fast-forwards the target to c.SHA when it is still c.Target and deletes the task's pins. Already: the
