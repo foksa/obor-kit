@@ -3,8 +3,10 @@
 // The live tier's real-server case (T-898). The lab's kit runs stubmcp where a kit runs obor: that proves how each CLI
 // starts and wires an MCP server, not that obor's own `obor mcp` works with a real client. These cases point one start
 // per kind at the repository's own obor (built in the scratch dir; a kit's bin/obor shim in front of it), ask the agent
-// to call job_next once, and pass only when the server's rendered reply reaches the session's transcript. The lab's
-// project is the same scratch checkout with a stub serve on its app socket, so no real serve is needed.
+// to call job_next once, and pass only when the server's rendered reply reaches the session's transcript. The start is
+// the shipped launch's (launchOf: config.Model.LaunchArgs and StartEnv for a worker, T-910), so the case proves obor's
+// own launch reaches its tool, not a copy of the launch with the tool wired in by hand (RV-122 #1). The lab's project is
+// the same scratch checkout with a stub serve on its app socket, so no real serve is needed.
 package main
 
 import (
@@ -20,7 +22,9 @@ import (
 	"sync"
 	"time"
 
+	"obor/internal/agents"
 	"obor/internal/app/wire"
+	"obor/internal/config"
 )
 
 // The job the stub serve answers job_next with. The prompt names neither, so only the tool result can carry them.
@@ -77,6 +81,70 @@ func (l *lab) makeRealKit() error {
 	}
 	l.real = dir
 	return nil
+}
+
+// liveStart is one worker's start as internal/launch builds it: the model's launch args (config.Model.LaunchArgs: the
+// kind's base args, its model, kinds.<kind>.args, the settings, and a lane's strict flag) and the start's own env
+// (config.Model.StartEnv: OpenCode's model and generated config).
+type liveStart struct {
+	args []string
+	env  map[string]string
+}
+
+// launchOf builds a worker's start of model in the lab's project, the two calls internal/launch makes. Each kind's
+// real-server case starts from this, so it runs the shipped launch instead of a copy of its arguments that could drift
+// from it (RV-122 #1, T-910); model is a built-in model of the lab config's table (liveModel).
+func (l *lab) launchOf(kind, model, kit string, writeState func(string, []byte) (string, error)) (liveStart, error) {
+	cfg, err := config.Load(l.main)
+	if err != nil {
+		return liveStart{}, err
+	}
+	m, ok := cfg.Model(model)
+	if !ok {
+		return liveStart{}, fmt.Errorf("the lab project's config has no model %s", model)
+	}
+	if m.Kind != kind {
+		return liveStart{}, fmt.Errorf("model %s is %s's, not %s's", model, m.Kind, kind)
+	}
+	vars, err := m.StartEnv(agents.Start{Kit: kit, WriteState: writeState})
+	if err != nil {
+		return liveStart{}, err
+	}
+	return liveStart{args: m.LaunchArgs("worker", "", nil), env: vars}, nil
+}
+
+// liveModel is the model a kind's real-server case starts: the kind's first built-in model (config.BuiltinModels:
+// claude's opus, codex's terra, opencode's deepseek), so the suite copies no model name either.
+func liveModel(kind string) (string, bool) {
+	for _, b := range config.BuiltinModels {
+		if b.Kind == kind {
+			return b.Name, true
+		}
+	}
+	return "", false
+}
+
+// transcripts is the text of every session record matching glob (a kind's agents.Kind.Transcript pattern).
+func transcripts(glob string) string {
+	files, _ := filepath.Glob(glob)
+	var b strings.Builder
+	for _, f := range files {
+		if c, err := os.ReadFile(f); err == nil {
+			b.Write(c)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// envOf is the lab's clean environment, the one its panes inherit, as a lookup (a kind's transcript path reads HOME).
+func (l *lab) envOf(name string) string {
+	for _, kv := range l.env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // stubServe is the lab's stand-in for obor serve on the project's app socket: the real `obor mcp` asks it, and it

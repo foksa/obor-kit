@@ -339,18 +339,15 @@ func (l *lab) opencodeAuth(xdg map[string]string) {
 	}
 }
 
-// ocL6 (T-898): an opencode start whose generated config names the repository's own `obor mcp` (not the stub), and one
-// job_next call's rendered reply reaches the session's transcript — opencode's own store, the database its plugin
-// reports as transcript_path (opencode 2.x keeps a session's messages there, session_message). A client that cannot
+// ocL6 (T-898): opencode starts as a worker of the lab's project with its generated config naming the repository's own
+// `obor mcp` (not the stub), and one job_next call's rendered reply reaches the session's transcript — opencode's own
+// store, the database its plugin reports as transcript_path (opencode 2.x keeps a session's messages there,
+// session_message). The start is the shipped launch's (launchOf: its generated config and model env included), so a tool
+// the start does not wire is a FAIL, not a pass the case's own flags bought (RV-122 #1, T-910). A client that cannot
 // list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
 // environment again (ocTurn left the main checkout as a researcher).
 func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at("internal/agents/opencode/opencode.go", "func Config") + ", T-898"
-	model := os.Getenv("CONF_OPENCODE_MODEL")
-	if model == "" {
-		report("SKIP", "OC-L6", "TURN=1 needs CONF_OPENCODE_MODEL=<provider/model> (a model the copied opencode credentials can call)", where)
-		return
-	}
 	real, err := l.realKit()
 	if err != nil {
 		report("FAIL", "OC-L6", "the repository's own obor is not built: "+err.Error(), where)
@@ -361,28 +358,36 @@ func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
 		return
 	}
 	k := kindOf("opencode")
-	vars, err := k.StartEnv(agents.Start{Kit: real, Args: []string{"--model", model}, WriteState: func(name string, data []byte) (string, error) {
+	model, ok := liveModel("opencode")
+	if !ok {
+		report("FAIL", "OC-L6", "the config's built-in model table has no opencode model", at("internal/config/models.go", "var BuiltinModels")+", T-910")
+		return
+	}
+	start, err := l.launchOf("opencode", model, real, func(name string, data []byte) (string, error) {
 		path := filepath.Join(l.root, "state", "mcp-"+name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
 		return path, os.WriteFile(path, data, 0o644)
-	}})
-	if err != nil || vars[opencode.ConfigVar] == "" {
-		report("FAIL", "OC-L6", fmt.Sprintf("StartEnv names no generated config (%v, %v)", vars, err), at(opencodeGo, "func (k kind) StartEnv"))
+	})
+	if err != nil || start.env[opencode.ConfigVar] == "" {
+		report("FAIL", "OC-L6", fmt.Sprintf("the launch of %s names no generated config (%v, %v)", model, start.env, err),
+			at("internal/config/models.go", "func (m Model) LaunchArgs")+", T-910")
 		return
 	}
-	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01",
-		opencode.ConfigVar: vars[opencode.ConfigVar], opencode.ModelVar: vars[opencode.ModelVar]}
-	for k, v := range xdg {
-		paneEnv[k] = v
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01"}
+	for name, v := range start.env {
+		paneEnv[name] = v
+	}
+	for name, v := range xdg {
+		paneEnv[name] = v
 	}
 	l.stopAgent(pane)
 	if code, err := l.shell(pane, "cd "+shq(l.lane)+" && "+exports(paneEnv), 10*time.Second); err != nil || code != 0 {
 		report("FAIL", "OC-L6", fmt.Sprintf("the env line failed (status %d, %v)", code, err), at(launchGo, "func envLine"))
 		return
 	}
-	argv := k.Start(agents.Start{Args: []string{"--standalone", "--auto"}})
+	argv := k.Start(agents.Start{Args: start.args})
 	t0 := time.Now()
 	s := l.start("conf-opencode-mcp", "opencode", pane, argv, 30*time.Second)
 	reportStart("opencode real mcp", s, l.readyAfter(s, t0, "idle"))
