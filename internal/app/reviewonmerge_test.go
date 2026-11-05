@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
+	"obor/internal/app/wire"
 	"obor/internal/store"
 )
 
@@ -47,6 +49,38 @@ func TestReviewOnMergeRule(t *testing.T) {
 		if q := r.p.folded.review; q == nil || len(q.after) != 1 {
 			t.Fatalf("precondition: no waiting request: %+v", q)
 		}
+	}
+	// The --after task T-b ending unmerged, the request with the lead's line: pass folds the failure end.
+	ended := func(t *testing.T, r *reviewRig, line string) {
+		t.Helper()
+		r.pass()
+		r.pass()
+		if r.p.folded.review != nil {
+			t.Fatal("precondition: the request is still open")
+		}
+		if lines := r.leadLines(); len(lines) != 1 || lines[0] != line {
+			t.Fatalf("precondition: lead lines %q, want %q", lines, line)
+		}
+	}
+	droppedB := func(t *testing.T, r *reviewRig) {
+		r.dropped("T-b")
+		ended(t, r, "[obor] review request ended: T-b dropped")
+	}
+	// rejectedB walks T-b to the integrator's rejection of its review job (T-906: the same failure end).
+	rejectedB := func(t *testing.T, r *reviewRig) {
+		t.Helper()
+		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepGate, Kind: event.KindResult},
+			gateOut{Outcome: outGreen, Candidate: port.Candidate{SHA: "cand", Patch: "patch"}})
+		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: event.StepReview, Kind: event.KindIntent}, JobData{Patch: "patch"})
+		if mt := r.p.folded.loop["T-b"]; mt == nil || mt.state != stAwaiting {
+			t.Fatalf("precondition: T-b not awaiting its review: %+v", mt)
+		}
+		r.a.record(r.p, event.Record{Task: "T-b", Attempt: 1, Step: verdictStep(wire.MethodReject, "j1"), Kind: event.KindResult},
+			verdictResult{Job: JobID(event.Key{Task: "T-b", Attempt: 1, Step: event.StepReview}), Note: "not this"})
+		if mt := r.p.folded.loop["T-b"]; mt == nil || mt.state != stRejected {
+			t.Fatalf("precondition: T-b not rejected: %+v", mt)
+		}
+		ended(t, r, "[obor] review request ended: T-b rejected")
 	}
 	started := func(t *testing.T, r *reviewRig) { r.started() }
 	pass := func(_ *testing.T, r *reviewRig) { r.pass() }
@@ -94,6 +128,10 @@ func TestReviewOnMergeRule(t *testing.T) {
 		{"two line tasks merged: one request", []step{merge("T-a", true), merge("T-b", true), rule}, 1,
 			"Review: on merge (T-b)", "", false},
 		{"the lead's --rm: no new request", []step{merge("T-a", true), rule, cancel, rule, rule}, 1, "", "", false},
+		{"--after task dropped: the rule requests the merge",
+			[]step{waiting, merge("T-a", true), rule, droppedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
+		{"--after task rejected: the rule requests the merge",
+			[]step{waiting, merge("T-a", true), rule, rejectedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
 		{"a failed start: no retry while its needs-you is in force",
 			[]step{merge("T-a", true), rule, failStart, rule, rule}, 1, "", "", true},
 	}
@@ -116,7 +154,7 @@ func TestReviewOnMergeRule(t *testing.T) {
 			case c.note != "" && q.note != c.note:
 				t.Errorf("request note %q, want %q", q.note, c.note)
 			}
-			if c.note != "" {
+			if c.note != "" && q != nil {
 				if q.by != "obor" || len(q.after) != 0 {
 					t.Errorf("request by %q, after %q; want obor, no --after", q.by, q.after)
 				}
