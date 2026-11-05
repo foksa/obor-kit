@@ -452,10 +452,7 @@ const pluginSettle = 2 * time.Minute
 // No row: a marker at all is fresh, nothing to compare it against. A start the lane's agent has not had the time to
 // check in from yet (pluginSettle after the dispatch and after its last agent.start, starts) is no answer either.
 func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]int64) bool {
-	kind := agents.Default // a lane whose dispatch names no model runs the default kind, as its start does
-	if m, ok := p.Cfg.Model(s.Type); ok {
-		kind = m.Kind
-	}
+	kind := project.RunningKind(p.Cfg, config.AgentInfo{Type: s.Type})
 	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
 		return !config.PluginEnabledIn(s.Dir)
 	}

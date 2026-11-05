@@ -325,17 +325,14 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 
 // dispatchType puts the type a dispatch chose into t.info (T-722: a lane is a pool, the task's type picks the
 // kind): typ, the launch's (port.Launch.Type and Effort, its effort the launch's own; no CLI flag since T-785), else
-// the type a lane agent's row's dispatch runs with its effort (T-865: a configured lane's row always names its
-// dispatch's type, so there is no fallback to a lane type); neither: the configured type and effort stay.
+// the ref project.LaneModel answers for a lane agent (T-865: a configured lane's row always names its dispatch's
+// type, so there is no fallback to a lane type); neither: the configured type and effort stay.
 func (l *Launcher) dispatchType(t *target, typ string) {
 	effort := ""
 	if typ == "" && t.info.Lane != "" && l.Cfg != nil {
-		row, _, _ := store.ReadLaneAt(l.Cfg.Root, t.info.Lane)
-		if row.Task != "" {
-			typ, effort = config.ParseModelRef(row.Type)
-		}
-		if row.Type != "" {
-			l.say("model %s (lane %s's dispatch)", row.Type, t.info.Lane)
+		if ref, ok := project.LaneModel(l.Cfg, t.info.Lane); ok {
+			typ, effort = config.ParseModelRef(ref)
+			l.say("model %s (lane %s's dispatch)", ref, t.info.Lane)
 		}
 	}
 	if typ != "" {
