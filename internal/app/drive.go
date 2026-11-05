@@ -240,9 +240,13 @@ func (p *proj) foldOldDrive(r event.Record) {
 	}
 }
 
-// pickDriving is a driving task's step (under mu): the lead's line once a red gate, a sendback or a hold sent it back
-// (its why in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
+// pickDriving is a driving task's step (under mu): an old take-over's stop of the worker (pickStop; old logs only, goes
+// with the log snapshot, as foldOldDrive), the lead's line once a red gate, a sendback or a hold sent it back (its why
+// in line; message{drive: the attempt} marks it told), else nothing: the owner drives.
 func (a *App) pickDriving(p *proj, mt mtask) step {
+	if s := a.pickStop(p, mt); s != nil || mt.halt.pending() { // an old take-over's: the worker stopped first (T-852)
+		return s
+	}
 	lead := p.out.lead()
 	if mt.line == "" || mt.lined || lead == "" {
 		return nil
