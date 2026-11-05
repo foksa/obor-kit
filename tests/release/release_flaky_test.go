@@ -1,4 +1,4 @@
-package main
+package release
 
 import (
 	"os"
@@ -13,11 +13,12 @@ import (
 // redPackage is go test's output for one failed test in one package.
 const redPackage = "--- FAIL: TestRace (0.01s)\n    race_test.go:9: timing\nFAIL\nFAIL\tobor/internal/racy\t0.02s\nFAIL\n"
 
-// goTests is how many go tests the check and its rerun ran (the upgrade check's go test, T-772, is not one of them).
+// goTests is how many go tests the check and its rerun ran (the upgrade check's go test, T-772, and check-release's,
+// T-902, are not ones of them).
 func (f *releaseFixture) goTests() int {
 	n := 0
 	for _, l := range strings.Split(readFileOr(f.log), "\n") {
-		if strings.HasPrefix(l, "test ") && !strings.Contains(l, "./tests/upgrade") {
+		if strings.HasPrefix(l, "test ") && !strings.Contains(l, "./tests/upgrade") && !strings.Contains(l, "./tests/release") {
 			n++
 		}
 	}

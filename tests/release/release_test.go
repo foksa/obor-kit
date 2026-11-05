@@ -1,4 +1,4 @@
-package main
+package release
 
 import (
 	"encoding/json"
@@ -84,9 +84,11 @@ fi
 case $out in dist/obor-*) [ ! -f "`+filepath.Join(p.Base, "build-fail")+`" ] || exit 1 ;; esac
 # go-fail-once: the first go test fails with the file's text as its output and removes the file (a flaky package);
 # go-fail: every go test fails with the file's text (a red package); go-vet-fail: go vet fails; upgrade-fail: the upgrade
-# check's go test (./tests/upgrade, make upgrade-check) fails with the file's text.
+# check's go test (./tests/upgrade, make upgrade-check) fails with the file's text; check-release-fail: check-release's
+# go test (./tests/release) fails with it.
 if [ "$1" = test ]; then
   case "$*" in *./tests/upgrade*) [ ! -f "`+p.Base+`/upgrade-fail" ] || { cat "`+p.Base+`/upgrade-fail"; exit 1; } ;; esac
+  case "$*" in *./tests/release*) [ ! -f "`+p.Base+`/check-release-fail" ] || { cat "`+p.Base+`/check-release-fail"; exit 1; } ;; esac
   for m in go-fail-once go-fail; do
     if [ -f "`+p.Base+`/$m" ]; then
       cat "`+p.Base+`/$m"

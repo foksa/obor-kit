@@ -1,6 +1,7 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
-# `make check-affected` → its per-merge tier (commands.check_affected), `make check-readers` / `make check-web` → the two
-# non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901),
+# `make check-affected` → its per-merge tier (commands.check_affected), `make check-readers` / `make check-web` →
+# the two non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901), `make check-release` → the
+# kit's own release tooling (the Makefile, scripts/, install.sh; tests/release, T-902),
 # `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
@@ -28,7 +29,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected check-readers check-web deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-readers check-web check-release deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -97,7 +98,7 @@ check check-affected:
 #                    internal/config (validate_test.go: templates/config.example.json), internal/guard (session.go: the
 #                    role text a session shows), internal/setup (init.go, agent.go: what setup copies into a project)
 #   hooks/**         cmd/obor (plugin_wiring_test.go: hooks.json as the plugin registers it)
-#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go, install_test.go: the shim's commands)
+#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go: the shim's commands)
 #   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
 #                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
 #   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
@@ -107,9 +108,11 @@ check check-affected:
 # skill or template moves no package's API. Left as they are: docs/** is merge.neutral (guard only, unchanged) — the
 # reader list above leaves docs out, so docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app
 # (worktext_test.go), keeps today's hole; root README.md is read by cmd/obor (skills_test.go) but stays unmatched (the
-# full check, safe), and RELEASING.md, bin/obor, install.sh, githooks/**, scripts/**, tests/** and web/package.json match
-# no class and run the full check too. In .obor/config.json the web class must stay before go: internal/web/dist/** lies
-# under internal/**, and the first class whose glob matches owns the file.
+# full check, safe), and bin/obor, githooks/** and web/package.json match no class and run the full check too (the
+# release class owns Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json and
+# tests/release/**, T-902). In .obor/config.json the web class must stay before go (internal/web/dist/** lies under
+# internal/**) and the release class before readers (.claude-plugin/marketplace.json lies under readers'
+# .claude-plugin/**), since the first class whose glob matches owns the file.
 READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
 check-readers:
 	@$(GO_GATE); \
@@ -126,6 +129,18 @@ check-readers:
 check-web:
 	@$(GO_GATE); \
 	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
+
+# check-release: obor-kit's own release tooling (merge.classes "release", T-902), which used to run inside cmd/obor on
+# every product merge: the Makefile's check, release and publish targets, scripts/release, scripts/ship, scripts/publish
+# and install.sh, each against fixture repos in a temp dir (tests/release, beside tests/upgrade). A change to what they
+# test (merge.classes "release": Makefile, scripts/**, install.sh, RELEASING.md, .claude-plugin/marketplace.json,
+# tests/release/**) runs them; the full check's go test ./... still includes the package, and scripts/release runs this
+# target once more before the tag. No deadcode step: its fixture scripts are the tree's, not a package's API.
+check-release:
+	@$(GO_GATE); \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} ./tests/release 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
 	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
 	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
