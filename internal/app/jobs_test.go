@@ -105,11 +105,12 @@ func (r *loopRig) connectedAgain() {
 }
 
 // passes waits for two more passes of the merge loop: the second one started after the call, so it saw the clock and
-// the state the test set before it.
+// the state the test set before it. Only passes that ran connected to one herdr stream count (StreamPasses, T-861): the
+// rig's pushes end serve's stream, and a pass in the resubscribe's gap skips the project.
 func (r *loopRig) passes() {
 	r.t.Helper()
-	_, n := app.Counts(r.app)
-	r.waitFor("two more passes", func() bool { _, passes := app.Counts(r.app); return passes >= n+2 })
+	n := app.StreamPasses(r.app)
+	r.waitFor("two more passes", func() bool { return app.StreamPasses(r.app) >= n+2 })
 }
 
 // later moves the app's clock on by d, then waits for a few passes.

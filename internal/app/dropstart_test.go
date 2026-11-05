@@ -509,7 +509,7 @@ func TestDropWriteFailure(t *testing.T) {
 		mt := *p.folded.loop["T-3"]
 		r.app("pq").mu.Unlock()
 		if during.began = r.app("pq").begin(p, mt); during.began {
-			r.app("pq").release(p, "T-3")
+			r.app("pq").release(p, "T-3", mt.stepName())
 		}
 		return errors.New("disk full")
 	}
@@ -530,7 +530,7 @@ func TestDropWriteFailure(t *testing.T) {
 	if !r.app("pq").begin(p, mt) {
 		t.Error("a step does not start after the failed drop")
 	}
-	r.app("pq").release(p, "T-3")
+	r.app("pq").release(p, "T-3", mt.stepName())
 	p.log.Refuse = nil
 	if a := r.dropWithin("pq", "T-3", "d2"); a.err != nil || !isDropped(a.reply, "T-3") {
 		t.Errorf("a later drop: %q, %v", a.reply, a.err)

@@ -151,8 +151,11 @@ func retryKey(job event.Key) event.Key {
 }
 
 // sampleJob takes one sample of the ready integrator's activity (outside mu) for mt's delivered job: quiet with it for
-// Idle → one nudge (the quiet time counts again from it), then the owner.
+// Idle → one nudge (the quiet time counts again from it), then the owner. The read holds nothing (T-861): it runs on
+// most passes while the integrator idles with the job, so a hold of the task across it refused a verb given then
+// ("T-1 has review running"); the task is held again only to act, and not when a verb changed it meanwhile (heldAgain).
 func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *jobTimer, pane string) bool {
+	a.release(p, mt.task, mt.stepName())
 	e := a.evidence(ctx, pane)
 	now := a.opt.Now()
 	a.mu.Lock()
@@ -160,7 +163,7 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 	a.mu.Unlock()
 	nudge := event.Key{Task: mt.task, Attempt: mt.attempt, Step: stepNudge + mt.job}
 	switch {
-	case !due:
+	case !due, !a.heldAgain(p, mt):
 	case !p.log.Done(nudge):
 		if a.reprompt(ctx, p, fx, mt, nudge, "Reminder: this job is still open for "+mt.task+
 			"; answer it with one obor tool (hold, with a why, when the owner must decide).\n") {
@@ -173,6 +176,18 @@ func (a *App) sampleJob(ctx context.Context, p *proj, fx *Loop, mt mtask, t *job
 			p.integrator, JobID(mt.jobKey()), a.opt.Idle))
 	}
 	return false
+}
+
+// heldAgain holds mt's task again for its sample's act (begin), and only while the job sampled is still out with no
+// block (a hold, a resume, a verdict given during the read changed it: nothing to nudge or report).
+func (a *App) heldAgain(p *proj, mt mtask) bool {
+	if !a.begin(p, mt) {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	m := p.folded.loop[mt.task]
+	return m.state == mt.state && m.job == mt.job && m.delivered && !m.needs.held() && !m.needs.closed()
 }
 
 // reprompt sends the integrator mt's open job's wake once more under key (a retry or a nudge, P: the same job id),

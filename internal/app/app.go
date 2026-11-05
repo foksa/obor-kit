@@ -83,6 +83,7 @@ type App struct {
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
 	connected bool
+	streams   int    // herdr streams connected (connect): a pass that saw one end ran on no snapshot of it
 	herdrVer  string // the server serve is connected to (or was last): its snapshot's version and protocol
 	herdrProt int
 	herdrOwn  int               // obor's own protocol, as that snapshot said
@@ -94,6 +95,7 @@ type App struct {
 	checks    int               // full checks done (a tick's, a connect's), for the tests to wait on
 	follows   int               // the binary watch's ticks (Options.Follow, follow.go), for it and the tests
 	passes    int               // merge loop passes done, for the tests to wait on
+	onStream  int               // of those, the passes that ran connected to one herdr stream (mergeLoop), for the tests to wait on
 	scratched int               // scratch effects started in their own goroutine, for the tests to wait on
 
 	life      context.Context    // the daemon's lifetime: the socket requests' effects run under it
