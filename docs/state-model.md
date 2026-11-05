@@ -256,6 +256,13 @@ shows the step `running`, and one whose intent waits as `gate pending`/`publish 
   So the first quiet sample is a baseline, never also a verdict. Status age, the task's start and a pane's joining
   only reset the baseline, never count; a restart (replay) delays a stall by up to one period. A stall is followed
   by one nudge with the task (row 13); escalation counts from the stall.
+- **Unobserved lanes** (T-879): the watchdogs judge on the lane table as last scanned (`lanescan.go`), never on a
+  git read per pane event: the tick and a connect scan it before they decide; a pane event (and every effect obor
+  runs) marks it dirty, and the refresher scans it, one scan per pass (a burst of events shares it), before the
+  decision the event asked for. A lane whose read failed, a failed scan or a table older than twice the tick is no
+  observation: the task's facts and their notification retries stay (T-897), but every elapsed-time baseline drops
+  (`quietSince` and so the stall's escalation, blocked, lost; `seenWrite` stays) and the next good read starts new
+  ones, so no unobserved interval counts. Kernel steps (dispatch, drive, task_done) read git themselves.
 - Notifications are at least once: a notification shown whose result fails to persist (or a crash before it) is
   shown again, after the retry backoff or on replay. Better twice than never.
 

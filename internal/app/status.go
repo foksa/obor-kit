@@ -30,6 +30,7 @@ func (a *App) Status() wire.Status {
 		} else if p.folded.lr.err != nil {
 			ps.LogError = "lane rows: " + p.folded.lr.err.Error()
 		}
+		ps.Lanes = a.lanesNote(p, now)
 		for _, o := range a.obs {
 			if o.pane.Agent == "" || a.projectOf(o.pane) != p {
 				continue

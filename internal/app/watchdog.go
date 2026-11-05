@@ -7,16 +7,16 @@ import (
 	"encoding/json"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
-	"path/filepath"
 	"sort"
 	"time"
 
 	"obor/internal/agents"
 )
 
-// check is one decision over the project (full: a tick's or a connect's, counted for the tests; else an event's in
-// the project). It reads its lanes, asks herdr about the agents whose idle timers are due, records the facts due and
-// sends the notifications due. Only the steps that decide hold mu.
+// check is one decision over the project (full: a tick's or a connect's, counted for the tests, which scans its lanes
+// first; else the refresher's, on the table it just scanned for the pane events and own operations that marked it:
+// lanescan.go, T-879). It asks herdr about the agents whose idle timers are due, records the facts due and sends the
+// notifications due. Only the steps that decide hold mu.
 func (a *App) check(ctx context.Context, full bool) {
 	a.mu.Lock()
 	if !a.connected {
@@ -29,6 +29,9 @@ func (a *App) check(ctx context.Context, full bool) {
 	}
 	a.mu.Unlock()
 	if p != nil {
+		if full {
+			a.scan(ctx, p)
+		}
 		a.decideLanes(ctx, p)
 	}
 	a.notify(ctx)
@@ -40,29 +43,25 @@ func (a *App) check(ctx context.Context, full bool) {
 	a.wake()
 }
 
-// decideLanes reads p's lanes, asks herdr about the agents whose idle timers are due and records the facts due; lanes
-// that could not be read are not decided on.
+// decideLanes decides on p's lane table as last scanned: it asks herdr about the agents whose idle timers are due and
+// records the facts due. A table that is no observation (its scan failed, or it is older than lanesBound) is not
+// decided on, and every open task's elapsed-time baselines drop (forget): no time it did not observe counts.
 func (a *App) decideLanes(ctx context.Context, p *proj) {
-	ls, err := a.lanes.Lanes(ctx, p.root)
-	if p.merging {
-		a.loopStatus(ctx, p, &p.badLanes, err)
-	}
-	if err != nil {
-		a.logf("lanes of %s: %v", p.root, err)
+	now := a.opt.Now()
+	a.mu.Lock()
+	ls, ok := p.scan.observed(now, a.lanesBound())
+	if !ok {
+		for _, w := range p.tasks {
+			w.forget()
+		}
+		a.mu.Unlock()
 		return
 	}
-	a.mu.Lock()
 	if p.folded.lr.err != nil { // the last write of the lanes table failed: again
 		if err := p.syncLanes(); err != nil {
 			a.logf("lanes table of %s: %v", p.root, err)
 		}
 	}
-	a.mu.Unlock()
-	for i := range ls {
-		ls[i].Dir = filepath.Clean(ls[i].Dir)
-	}
-	now := a.opt.Now()
-	a.mu.Lock()
 	ask := a.plan(p, ls, now)
 	transcripts := map[string]string{}
 	for _, o := range ask {
@@ -92,17 +91,18 @@ func (p *proj) openTasks() []string {
 	return tasks
 }
 
-// plan installs the lanes just read and observes each open task's agent (a task on an unknown lane: none, T-897): another agent or pane, none, or a status
-// that is not ready resets the stall timer (see sample). It is the panes to sample: every ready agent with an open
-// task, at every check, and a stopped worker of a kind whose turns are read whatever its status (its next turn ends
-// the stop: turnStop).
+// plan installs the lanes read and observes each open task's agent (a task on an unknown lane: none, T-897, its
+// baselines dropped, T-879): another agent or pane, none, or a status that is not ready resets the stall timer (see
+// sample). It is the panes to sample: every ready agent with an open task, at every check, and a stopped worker of a
+// kind whose turns are read whatever its status (its next turn ends the stop: turnStop).
 func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 	var ask []port.Pane
 	p.setLanes(ls)
 	a.reconcile(p) // the lanes' agents are candidates
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
-		if w.unread() { // no observation: its timers stay as they were until a read succeeds (T-897)
+		if w.unread() { // no observation: its facts stay (T-897), no time counts until a read succeeds (T-879)
+			w.forget()
 			continue
 		}
 		at, _ := a.agentOf(p, w.lane)

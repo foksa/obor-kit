@@ -111,6 +111,8 @@ type App struct {
 	configMu  sync.Mutex         // one setup edit at a time (configset.go, T-753)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
+	rescan    chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
+	scanned   chan struct{}      // the refresher scanned: the run loop decides (buffered: coalesced)
 	effects   sync.WaitGroup     // the scratch effects running in their own goroutine (the merge loop's end waits)
 	admitted  int                // the verdict calls in progress, waiting for the verdict lock included (under mu)
 	follow    follow             // the watch of a new obor binary (follow.go, T-719; the merge loop's goroutine only)
@@ -129,6 +131,7 @@ type proj struct {
 	// may reset a live entry its record ends (resume and clear a task's retries, answered its stall timer, a dispatch
 	// or a wait its refused dispatch line).
 	lanes      []port.Lane          // as last read
+	scan       laneScan             // the lane table as last scanned: the watchdogs' cached observation (lanescan.go)
 	tasks      map[string]*watch    // the open tasks (a lane holds it, not in the merge loop), by task
 	retry      map[event.Key]retry  // a failed notification: when to try it again, and how often it failed
 	diskAt     time.Time            // when the free space was last read (disk.go)
@@ -263,6 +266,13 @@ type watch struct {
 // unread: w's lane could not be read at the last check (unknown, T-871): the watchdog keeps its task and facts and
 // observes nothing there until a read succeeds (T-897).
 func (w *watch) unread() bool { return w.lane.State == laneUnknown }
+
+// forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, blocked, lost):
+// an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval counts
+// (T-879). Its facts and their notification retries stay (T-897); seenWrite stays, a watermark, not a time counted.
+func (w *watch) forget() {
+	w.quietSince, w.blocked, w.lost = time.Time{}, time.Time{}, time.Time{}
+}
 
 // quietTimer is the stall timer's quiet time (docs/state-model.md "Timers"), the watchdogs' and the integrator jobs'.
 type quietTimer struct {

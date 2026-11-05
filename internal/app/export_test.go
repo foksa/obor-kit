@@ -2,6 +2,7 @@ package app
 
 import (
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"strings"
 	"time"
 
@@ -142,3 +143,19 @@ func WatchedPane(a *App, root, task string) string {
 
 // WorkerStartSettle is how long the worker start rule waits on a worker's pane at its shell (T-874).
 const WorkerStartSettle = workerStartSettle
+
+// CachedLane is lane name as a's lane table last scanned it in the project at root (T-879; ok false: not in it).
+func CachedLane(a *App, root, name string) (l port.Lane, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p := a.projAt(root)
+	if p == nil {
+		return port.Lane{}, false
+	}
+	for _, x := range p.scan.ls {
+		if x.Name == name {
+			return x, true
+		}
+	}
+	return port.Lane{}, false
+}

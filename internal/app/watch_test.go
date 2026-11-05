@@ -87,9 +87,16 @@ func (f *fakePanes) Notify(_ context.Context, title, body string) error {
 	return nil
 }
 
-type fakeLanes struct{ lanes []port.Lane }
+// fakeLanes is the lane table; err, when set, fails the whole read instead (T-879).
+type fakeLanes struct {
+	lanes []port.Lane
+	err   error
+}
 
 func (l *fakeLanes) Lanes(context.Context, string) ([]port.Lane, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
 	return append([]port.Lane(nil), l.lanes...), nil
 }
 
@@ -179,7 +186,7 @@ func (h *harness) tick(d time.Duration) {
 func (h *harness) status(id string, fn func(p *port.Pane)) {
 	p := h.pane(id)
 	fn(p)
-	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: id, Status: p.Status, Agent: p.Agent, New: *p})
+	eventNow(h.a, port.Event{Kind: port.EventStatus, Pane: id, Status: p.Status, Agent: p.Agent, New: *p})
 }
 
 // remove drops pane id from h.snap and sends kind (closed or exited).
@@ -191,7 +198,7 @@ func (h *harness) remove(id, kind string) {
 		}
 	}
 	h.snap.Panes = keep
-	h.a.event(context.Background(), port.Event{Kind: kind, Pane: id})
+	eventNow(h.a, port.Event{Kind: kind, Pane: id})
 }
 
 // log writes prior records to pj's log (a crash left them).
@@ -354,7 +361,7 @@ var rows = []row{
 		event: func(h *harness) {
 			p := h.pane("w1:p1")
 			p.Agent, p.Label, p.Status = "claude", "pj-l-01", "idle"
-			h.a.event(context.Background(), port.Event{Kind: port.EventCreated, Pane: p.ID, New: *p})
+			eventNow(h.a, port.Event{Kind: port.EventCreated, Pane: p.ID, New: *p})
 		},
 		then: tick(11 * minute), later: []string{"T-1 stalled{idle}"}},
 

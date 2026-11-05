@@ -128,7 +128,7 @@ func (h *harness) move(id, to string) {
 // add puts pane into h.snap and sends its created event.
 func (h *harness) add(pane port.Pane) {
 	h.snap.Panes = append(h.snap.Panes, pane)
-	h.a.event(context.Background(), port.Event{Kind: port.EventCreated, Pane: pane.ID, New: pane})
+	eventNow(h.a, port.Event{Kind: port.EventCreated, Pane: pane.ID, New: pane})
 }
 
 // twin is a second pane labelled pj-l-01 (w1:p3, terminal t3), no session.
@@ -351,7 +351,7 @@ func TestIdentNameDropped(t *testing.T) {
 	h.started("pj-l-01", "w1:p1", "t1", "s1")
 	h.connect()
 	before := h.where("pj-l-01")
-	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "codex"}) // no metadata
+	eventNow(h.a, port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "codex"}) // no metadata
 	eqs(t, h.where("pj-l-01"), before, "after herdr dropped the name")
 	h.brief("pj-l-01", "[obor pj-lead] verify")
 	l := &linerSpy{}
@@ -1227,11 +1227,11 @@ func TestIdentRelabelledPane(t *testing.T) {
 	eqs(t, h.where("pj-l-01"), "unavailable no proof", "before the relabel: the label is notes")
 	relabelled := *h.pane("w1:p1")
 	relabelled.Label = "pj-l-01"
-	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	eventNow(h.a, port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
 	eqs(t, h.where("pj-l-01"), "identified w1:p1 label", "after the relabel")
 	eqs(t, h.who("w1:p1"), "pj-l-01", "whoIs(w1:p1)")
 	// and a label cleared by the relabel is gone: the event's pane replaces what was known
 	relabelled.Label = ""
-	h.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
+	eventNow(h.a, port.Event{Kind: port.EventStatus, Pane: "w1:p1", Status: "idle", Agent: "claude", New: relabelled})
 	eqs(t, h.who("w1:p1"), "", "whoIs(w1:p1) after --clear")
 }

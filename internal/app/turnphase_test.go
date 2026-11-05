@@ -80,7 +80,7 @@ func newTurnRig(t *testing.T, kind string) *turnRig {
 func (r *turnRig) setKind() {
 	pane := r.a.obs["w:rev"].pane
 	pane.Agent = r.kind
-	r.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
+	eventNow(r.a, port.Event{Kind: port.EventStatus, Pane: pane.ID, Status: pane.Status, Agent: r.kind, New: pane})
 }
 
 // deliver is one delivery pass, the rollout's last turn r.turn (Codex).

@@ -382,7 +382,7 @@ func TestRoleStopReviewerRule(t *testing.T) {
 		return func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
 			pane := r.a.obs["w:rev"].pane
 			pane.Status, pane.Agent = status, agent
-			r.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w:rev", Status: status,
+			eventNow(r.a, port.Event{Kind: port.EventStatus, Pane: "w:rev", Status: status,
 				Agent: agent, New: pane})
 		}
 	}

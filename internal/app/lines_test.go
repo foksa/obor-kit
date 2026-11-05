@@ -90,7 +90,7 @@ func lineReload(t *testing.T, a *App, p *proj, now *time.Time) (*App, *proj) {
 func lineStatus(a *App, id, status string, _ time.Time) {
 	pane := a.obs[id].pane
 	pane.Status = status
-	a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: id, Status: status, Agent: pane.Agent, New: pane})
+	eventNow(a, port.Event{Kind: port.EventStatus, Pane: id, Status: status, Agent: pane.Agent, New: pane})
 }
 
 // lineKinds are the three kinds of line: an obor send line to the lead, an obor brief text to the reviewer, and the
@@ -677,7 +677,7 @@ func TestBriefWorkDurableAtOnce(t *testing.T) {
 	working := func(a *App, p *proj) {
 		pane := a.obs["w:rev"].pane
 		pane.Status = "working"
-		a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
+		eventNow(a, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	}
 	snapshot := func(a *App, p *proj) {
 		lead, rev := a.obs["w:lead"].pane, a.obs["w:rev"].pane
@@ -756,7 +756,7 @@ func TestFinishedLineAgeFromTyping(t *testing.T) {
 	now = now.Add(2 * time.Minute)
 	pane := a.obs["w:rev"].pane
 	pane.Status = "working"
-	a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
+	eventNow(a, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 	now = now.Add(time.Minute)
 	b, q := lineReload(t, a, p, &now) // idle on reconnect, 3 minutes after the typing
 	out := &linerSpy{}
@@ -810,7 +810,7 @@ func TestQueuedLeadLineAfterRename(t *testing.T) {
 			}
 			pane := b.obs["w:lead"].pane
 			pane.Label = "pj-lead" // the old lead's session still open and idle under its old name
-			b.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
+			eventNow(b, port.Event{Kind: port.EventStatus, Pane: pane.ID, New: pane})
 			if w := b.whereIs(q, "pj-lead"); w.State != Identified || !Ready(w.Pane.Status) {
 				t.Fatal("precondition: the old lead's pane is idle under its old name")
 			}
