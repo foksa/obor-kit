@@ -62,7 +62,9 @@ trim-go-cache:
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
-# suite. CHECK_CPUS (obor run and the gates export it: cores / slots.max) is go test -p. Every class check starts with
+# suite. A clean move (OBOR_MOVED=1, T-914: the gate kept a green result and the two sides share only affected
+# packages) skips go test and runs build, gofmt, vet and deadcode. CHECK_CPUS (obor run and the gates export it:
+# cores / slots.max) is go test -p. Every class check starts with
 # GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
 # vet; every failure prints a line fail_grep matches (^FAIL).
 GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
@@ -73,9 +75,11 @@ GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
 check check-affected:
 	@$(GO_GATE); \
-	pkgs=./...; \
+	pkgs=./...; skip=; \
 	if [ "$@" = check-affected ]; then \
-	  if a=$$(./dist/obor affected go); then \
+	  if [ -n "$$OBOR_MOVED" ]; then \
+	    skip=1; echo "go test: skipped (a clean move: compile steps only, OBOR_MOVED=1)"; \
+	  elif a=$$(./dist/obor affected go); then \
 	    case "$$a" in \
 	      "full: "*) echo "affected: full suite ($${a#full: })" ;; \
 	      "") pkgs= ;; \
@@ -83,10 +87,12 @@ check check-affected:
 	    esac; \
 	  else echo "affected: full suite (obor affected go failed)"; fi; \
 	fi; \
-	if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
-	  rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
-	  n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
-	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
+	if [ -z "$$skip" ]; then \
+	  if [ -z "$$pkgs" ]; then echo "go test: 0 pass, 0 fail (no affected Go packages, go test skipped)"; else \
+	    rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $$pkgs 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	    n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	    echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
+	  fi; \
 	fi; \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
 

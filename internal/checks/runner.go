@@ -29,9 +29,10 @@ type runner struct {
 	logName     string     // log file prefix: the task, nightly, milestone
 	changedFile string     // the OBOR_CHANGED_FILES file under state
 	slot        string
-	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_BASELINE, OBOR_GATE)
+	env         []string // extra command environment (OBOR_CHANGED_FILES, OBOR_MOVED, OBOR_BASELINE, OBOR_GATE)
 	loaded      string   // " (run under load <x>)" once a slot was claimed after the load wait ran out (T-720)
 	pre         string   // the target side of the merge
+	moved       bool     // a clean move kept green: the class's checks run without their tests (OBOR_MOVED=1, T-914)
 	class       Class
 	mode        string            // class.Mode() once classified
 	check       string            // the checks' counts
@@ -352,9 +353,12 @@ func (r *runner) changed(task, rev string) *halt {
 	if err != nil {
 		return &halt{err: fmt.Errorf("cannot list the changed files into %s", path)}
 	}
-	r.env = append(r.env, "OBOR_CHANGED_FILES="+path)
 	r.class = Classify(r.Cfg.Data.Merge, files, r.Env.Get("OBOR_FULL") == "1")
 	r.mode = r.class.Mode()
+	r.env = append(r.env, "OBOR_CHANGED_FILES="+path)
+	if r.moved && r.class.Partial {
+		r.env = append(r.env, "OBOR_MOVED=1") // a clean move's class checks may skip their tests (T-914)
+	}
 	return nil
 }
 

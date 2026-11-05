@@ -9,6 +9,7 @@ import (
 
 	"obor/internal/affected"
 	"obor/internal/app/port"
+	"obor/internal/testkit"
 )
 
 // goAffected is serve's port.Affected (cmd/obor wires the same): affected.Go.
@@ -22,11 +23,17 @@ func goAffected(root string, files, fullGlobs []string) ([]string, string, error
 // goA is package a's file: two functions far apart, so a change to each merges cleanly.
 const goA = "package a\n\nfunc A() int { return 1 }\n\n// one\n// two\n// three\n// four\n// five\n\nfunc A2() int { return 2 }\n"
 
-// newGoSx is the scratch fixture on a Go module (m: packages a, b, d alone; c imports a) whose check counts its runs
-// in $TMP_DIR/check-runs; lane L-01 on task/T-05 holds the module, nothing else changed.
-func newGoSx(t *testing.T) *sx {
+// newGoSx is the scratch fixture on a Go module (m: packages a, b, d alone; c imports a) whose partial Go class's
+// check counts its runs in $TMP_DIR/check-runs and records its OBOR_MOVED beside them; lane L-01 on task/T-05 holds the
+// module, nothing else changed.
+func newGoSx(t *testing.T, edits ...func(map[string]any)) *sx {
 	t.Helper()
-	y := newSx(t, cmd("check", `echo run >> "$TMP_DIR/check-runs"; echo 1 pass`))
+	y := newSx(t, append([]func(map[string]any){
+		cmd("check", `echo run >> "$TMP_DIR/check-runs"; printf '%s\n' "${OBOR_MOVED:-unset}" >> "$TMP_DIR/check-moved"; echo 1 pass`),
+		cmd("guard", "echo 1 pass"),
+		testkit.Set("merge.guard", "guard"),
+		testkit.Set("merge.classes", []any{map[string]any{"name": "go", "paths": []any{"**"}, "checks": []any{"check"}}}),
+	}, edits...)...)
 	for name, text := range map[string]string{
 		"go.mod":  "module m\n\ngo 1.22\n",
 		"a/a.go":  goA,
@@ -62,6 +69,18 @@ func (y *sx) runs() int {
 	return strings.Count(string(b), "run\n")
 }
 
+// movedVars is each check run's OBOR_MOVED, "unset" when the variable was not exported: one value per run.
+func (y *sx) movedVars() []string {
+	b, err := os.ReadFile(filepath.Join(y.Base, "check-moved"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	return strings.Fields(string(b))
+}
+
 // edit replaces old with new in file (under dir) and commits it there.
 func (y *sx) edit(dir, file, old, new string) {
 	y.t.Helper()
@@ -89,14 +108,14 @@ func TestMovedGateKeepsWhenNothingOverlaps(t *testing.T) {
 		name       string
 		lane, main [3]string                       // file, old, new
 		green      func(y *sx, base string) string // the moved gate's Green (nil: the green gate's base)
-		want       string                          // kept, gate, conflict
+		want       string                          // kept, moved, gate, conflict
 	}{
 		{name: "disjoint packages", lane: [3]string{"a/a.go", "return 1", "return 10"},
 			main: [3]string{"b/b.go", "return 1", "return 20"}, want: "kept"},
 		{name: "disjoint, a non-Go file under no package", lane: [3]string{"a/a.go", "return 1", "return 10"},
 			main: [3]string{"h/h.txt", "not go", "still not go"}, want: "kept"},
 		{name: "shared package (c imports a)", lane: [3]string{"a/a.go", "return 1", "return 10"},
-			main: [3]string{"c/c.go", "return a.A()", "return a.A() + 1"}, want: "gate"},
+			main: [3]string{"c/c.go", "return a.A()", "return a.A() + 1"}, want: "moved"},
 		{name: "same file, merged cleanly", lane: [3]string{"a/a.go", "return 1", "return 10"},
 			main: [3]string{"a/a.go", "return 2", "return 20"}, want: "gate"},
 		{name: "main's side full (go.mod)", lane: [3]string{"a/a.go", "return 1", "return 10"},
@@ -130,11 +149,16 @@ func TestMovedGateKeepsWhenNothingOverlaps(t *testing.T) {
 				green = c.green(y, old.Target)
 			}
 			o := y.gate(moved(sha, green))
-			got := map[bool]string{true: "kept", false: "gate"}[o.Kept != ""]
-			if o.Kind == port.OutcomeConflict {
+			got := "gate"
+			switch {
+			case o.Kind == port.OutcomeConflict:
 				got = "conflict"
-			} else if o.Kind != port.OutcomeGreen {
+			case o.Kind != port.OutcomeGreen:
 				t.Fatalf("moved gate: %s %q; want green or a conflict", o.Kind, o.Line)
+			case o.Kept != "":
+				got = "kept"
+			case strings.Contains(o.Candidate.Checks, "moved"):
+				got = "moved"
 			}
 			if got != c.want {
 				t.Fatalf("moved gate %s (%q); want %s", got, o.Line, c.want)
@@ -152,14 +176,56 @@ func TestMovedGateKeepsWhenNothingOverlaps(t *testing.T) {
 				y.eq(y.Git(y.Root, "rev-parse", o.Candidate.SHA+"^2"), sha, "kept: the merge's second parent is the submitted sha")
 				y.eq(y.pin("T-05"), o.Candidate.SHA, "kept: the candidate is pinned")
 				y.eq(o.Candidate.Patch, old.Patch, "kept: the patch is the green gate's")
+			case "moved":
+				y.eq(fmt.Sprint(y.runs()), "2", "moved: the class's check ran on the moved target")
+				y.eq(o.Kept, "", "moved: nothing kept whole")
+				if o.Candidate.Full {
+					t.Error("moved: the candidate is full; the merge is partial")
+				}
+				y.eq(o.Candidate.Target, target, "moved: the candidate merges onto the new target")
+				y.eq(strings.Join(y.movedVars(), " "), "unset 1", "moved: only the moved gate exported OBOR_MOVED=1")
+				if !strings.Contains(o.Line, ", moved") {
+					t.Errorf("moved: the result line names it: %q", o.Line)
+				}
 			case "gate":
 				y.eq(fmt.Sprint(y.runs()), "2", "gated: the check ran on the moved target")
 				y.eq(o.Kept, "", "gated: nothing kept")
+				y.eq(strings.Join(y.movedVars(), " "), "unset unset", "gated: a full re-gate exports no OBOR_MOVED")
 			case "conflict":
 				y.eq(fmt.Sprint(y.runs()), "1", "conflict: no check ran")
 				y.eq(strings.Join(o.Files, " "), "a/a.go", "conflict: the conflicting file (a resolve job)")
 			}
 		})
+	}
+}
+
+// T-914: a clean move that shares only affected packages keeps the green result but runs the class's checks with
+// OBOR_MOVED=1 — obor-kit's check_affected skips go test on it — so the merge is partial and the line says moved.
+func TestMovedGateRunsClassChecksLight(t *testing.T) {
+	t.Parallel()
+	y := newGoSx(t,
+		cmd("check", `echo run >> "$TMP_DIR/check-runs"; printf '%s\n' "${OBOR_MOVED:-unset}" >> "$TMP_DIR/check-moved"
+if [ -n "$OBOR_MOVED" ]; then echo skipped; else echo 3 pass; fi`),
+		cmd("guard", "echo guard ok"))
+	y.edit(y.lane, "a/a.go", "return 1", "return 10")
+	sha := y.submit()
+	old := y.green(lane(sha))
+	if !strings.Contains(old.Checks, "check 3 pass") {
+		t.Fatalf("precondition: the lane gate ran the check as it is: %q", old.Checks)
+	}
+	y.edit(y.Root, "c/c.go", "return a.A()", "return a.A() + 1") // c imports a: the affected sets share it
+	o := y.gate(moved(sha, old.Target))
+	if o.Kind != port.OutcomeGreen {
+		t.Fatalf("moved gate: %s %q; want green", o.Kind, o.Line)
+	}
+	y.eq(fmt.Sprint(y.runs()), "2", "the class's check ran on the moved target")
+	y.eq(strings.Join(y.movedVars(), " "), "unset 1", "only the moved gate exported OBOR_MOVED=1")
+	y.eq(o.Candidate.Checks, "guard rc=0, check rc=0, moved", "the checks ran light and the summary says moved")
+	if o.Candidate.Full {
+		t.Error("moved: the candidate is full; the merge is partial")
+	}
+	if !strings.Contains(o.Line, "partial:go") || !strings.Contains(o.Line, ", moved") {
+		t.Errorf("the result line names the partial merge and the move: %q", o.Line)
 	}
 }
 
