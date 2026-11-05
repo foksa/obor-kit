@@ -60,11 +60,10 @@ The owner:
    object) and a main containing that commit; the GitHub release is not a draft and has the four assets (a release
    missing some gets only those, via `scripts/publish --upload`; a draft stops with the `gh release edit` command); the
    installed `obor` is this version. Ship publishes main up to the release; later merges wait for the next release.
-   Its last step tells the leads: `obor projects --notify <notes>` (the lead can run it alone) sends `obor send
-   <project> "obor v<x.y.z> is installed. <docs/releases/v<x.y.z>.md at the tag>"` to each registered project's lead
-   but the kit's own, one line per project; a send that fails is reported, the rest go out, and ship then fails with the
-   repair command. No config advice is generated: a release whose projects need a config change says so in its
-   notes, and the lead sends that change to the project's lead before shipping.
+   Its last step tells the leads, one `obor send <project> "obor v<x.y.z> is installed. <docs/releases/v<x.y.z>.md at
+   the tag>"` per project of `obor projects` but the kit's own; a send that fails is reported, the rest go out, and ship
+   then fails with the repair command. No config advice is generated: a release whose projects need a config change
+   says so in its notes, and the lead sends that change to the project's lead before shipping.
 4. `obor serve restart` in each project (`make ship` names the ones launchd knows): a project picks the new kit up
    at restart.
 

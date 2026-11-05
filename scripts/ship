@@ -14,7 +14,7 @@
 #   install  done: `obor version` is v<version>     run: install.sh     fail: stop
 # A pushed tag never moves. The last line is the one follow-up: `obor serve restart` in the projects whose serve this
 # machine knows (obor projects, else launchd's labels; the generic line when it knows none), then the leads are told what
-# changed (obor projects --notify, T-715). POSIX sh.
+# changed (one `obor send` per other project, T-903). POSIX sh.
 set -eu
 
 usage() { echo "usage: ship <x.y.z>" >&2; exit 2; }
@@ -137,18 +137,24 @@ else
   say "installed the kit (install.sh): obor $tag"
 fi
 
-# --- notify the leads (T-715)
-# `obor projects --notify <notes>`: the release notes (docs/releases/v<version>.md at the tag) to each project's lead but
-# this kit's. A send that fails is reported and the rest go out; the failure ends ship after the reminder below, with the
-# repair command.
-notes=$(mktemp "${TMPDIR:-/tmp}/ship-notes.XXXXXX") || fail "cannot create a temp file"
-trap 'rm -f "$notes"' EXIT
-git show "$tag:docs/releases/$tag.md" > "$notes" 2> /dev/null || fail "no docs/releases/$tag.md at $tag"
-told=1
-obor projects --notify "$notes" && told=0
+# --- tell the leads (T-715, T-903)
+# The release notes (docs/releases/v<version>.md at the tag) to each project's lead but this kit's: `obor send
+# <project> "obor v<version> is installed. <the notes on one line>"`, one per project of `obor projects`. A send that
+# fails is reported and the rest go out; the failure ends ship after the reminder below, with the repair command.
+release_notes=$(git show "$tag:docs/releases/$tag.md" 2> /dev/null) || fail "no docs/releases/$tag.md at $tag"
+one=$(printf '%s\n' "$release_notes" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//')
+[ -n "$one" ] || fail "docs/releases/$tag.md at $tag is empty"
+text="obor $tag is installed. $one"
+this=$(pwd -P)
+projects=$(obor projects) || fail "obor projects failed: cannot tell the leads"
+names=$(printf '%s\n' "$projects" | awk -v own="$this" '$2 != own { print $1 }')
+told=0
+for name in $names; do
+  obor send "$name" "$text" || told=1
+done
 [ "$told" = 0 ] && say "told the leads of this machine's projects"
 
 # Nothing to restart (T-719): serve and web watch the kit's binary and exec the new one themselves.
 echo "serves and web follow the new binary within a minute"
 [ "$told" = 0 ] ||
-  fail "a lead was not told (above): obor projects --notify <the notes: git show $tag:docs/releases/$tag.md>"
+  fail "a lead was not told (above): obor send <project> \"obor $tag is installed. <the notes: git show $tag:docs/releases/$tag.md>\""
