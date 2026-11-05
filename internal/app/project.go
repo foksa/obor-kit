@@ -2,6 +2,7 @@
 package app
 
 import (
+	"cmp"
 	"encoding/json"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
@@ -214,13 +215,22 @@ func (p *proj) has(task, step, reason string) bool {
 
 // setLanes installs p's lanes as read now. A task a lane took since the last read starts with no timer running; a
 // task no lane holds open any more (submitted and in the merge loop, lane freed or moved on) has no watchdog in force
-// (nothing recorded).
+// (nothing recorded). An unknown lane (its read failed, T-871) is no observation: it keeps the task it held (keptTask)
+// and that task its facts (T-897); a lane read now that holds the task wins.
 func (p *proj) setLanes(ls []port.Lane) {
+	ls = append([]port.Lane(nil), ls...)
+	for i, l := range ls {
+		if l.State == laneUnknown && l.Task == "" {
+			ls[i] = p.keptTask(l)
+		}
+	}
 	p.lanes = ls
 	open := map[string]port.Lane{}
-	for _, l := range ls {
-		if l.Task != "" && !p.folded.loop[l.Task].inLoop() {
-			open[l.Task] = l
+	for _, unknown := range []bool{true, false} { // the lanes read last: one read now wins over an unknown one
+		for _, l := range ls {
+			if (l.State == laneUnknown) == unknown && l.Task != "" && !p.folded.loop[l.Task].inLoop() {
+				open[l.Task] = l
+			}
 		}
 	}
 	for task, w := range p.tasks {
@@ -240,6 +250,43 @@ func (p *proj) setLanes(ls []port.Lane) {
 			p.clear(task)
 		}
 	}
+}
+
+// laneUnknown is the state of a lane whose git or store read failed (T-871).
+const laneUnknown = "unknown"
+
+// keptTask is unknown lane l with the task it held before its read failed (T-897): its watch's (the watchdog's last
+// look, or a worker's stop since), else the last read's, else (a restart: none of those) the newest folded dispatch on
+// it whose attempt awaits its worker's task_done; none of these: l as read. Its agent, the store's row unread, is the
+// last read's.
+func (p *proj) keptTask(l port.Lane) port.Lane {
+	var prev port.Lane
+	for _, x := range p.lanes {
+		if x.Name == l.Name {
+			prev = x
+		}
+	}
+	l.Agent = cmp.Or(l.Agent, prev.Agent)
+	for _, task := range p.openTasks() {
+		if w := p.tasks[task]; w.lane.Name == l.Name {
+			l.Task, l.Agent = task, cmp.Or(l.Agent, w.lane.Agent)
+			return l
+		}
+	}
+	if prev.Task != "" {
+		l.Task = prev.Task
+		return l
+	}
+	var newest int64
+	for _, t := range p.loopTasks() {
+		if m := p.folded.loop[t]; m.lane == l.Name && m.awaitsTaskDone() && (l.Task == "" || m.dispSeq > newest) {
+			l.Task, newest = t, m.dispSeq
+		}
+	}
+	if l.Task != "" {
+		l.Agent = cmp.Or(l.Agent, p.folded.loop[l.Task].agent)
+	}
+	return l
 }
 
 // projectKey: task is a key of the project's own facts (the merge loop's, the nightly's, the lines', the disk's, the

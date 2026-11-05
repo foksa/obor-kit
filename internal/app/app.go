@@ -259,6 +259,10 @@ type watch struct {
 	blocked    time.Time // since when the agent is seen blocked for the task (zero: it is not)
 }
 
+// unread: w's lane could not be read at the last check (unknown, T-871): the watchdog keeps its task and facts and
+// observes nothing there until a read succeeds (T-897).
+func (w *watch) unread() bool { return w.lane.State == laneUnknown }
+
 // quietTimer is the stall timer's quiet time (docs/state-model.md "Timers"), the watchdogs' and the integrator jobs'.
 type quietTimer struct {
 	quietSince time.Time // the baseline: the first quiet sample of this quiet period (zero: none)

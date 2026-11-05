@@ -92,7 +92,7 @@ func (p *proj) openTasks() []string {
 	return tasks
 }
 
-// plan installs the lanes just read and observes each open task's agent: another agent or pane, none, or a status
+// plan installs the lanes just read and observes each open task's agent (a task on an unknown lane: none, T-897): another agent or pane, none, or a status
 // that is not ready resets the stall timer (see sample). It is the panes to sample: every ready agent with an open
 // task, at every check, and a stopped worker of a kind whose turns are read whatever its status (its next turn ends
 // the stop: turnStop).
@@ -102,6 +102,9 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 	a.reconcile(p) // the lanes' agents are candidates
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
+		if w.unread() { // no observation: its timers stay as they were until a read succeeds (T-897)
+			continue
+		}
 		at, _ := a.agentOf(p, w.lane)
 		if at.State != Identified {
 			w.quietSince, w.seenWrite, w.blocked = time.Time{}, time.Time{}, time.Time{}
@@ -139,6 +142,9 @@ func (a *App) plan(p *proj, ls []port.Lane, now time.Time) []port.Pane {
 func (a *App) decide(p *proj, ev map[string]*evidence, now time.Time) {
 	for _, task := range p.openTasks() {
 		w := p.tasks[task]
+		if w.unread() { // an unknown lane is never judged (T-897)
+			continue
+		}
 		if a.turnStop(p, task, w, ev) {
 			continue
 		}
