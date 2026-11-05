@@ -299,7 +299,7 @@ func (a *App) resumeLine(p *proj, c wire.Call, mt mtask, act string) (string, er
 // candidate and the needs-you and starts the next attempt; the merge loop sends the worker its fix job. K is the
 // integrator's bound, not the lead's.
 func (a *App) leadSendback(p *proj, c wire.Call, mt mtask) (string, error) {
-	defer a.release(p, c.Task)
+	defer a.release(p, c.Task, actSendback)
 	method := wire.MethodSendback
 	job := ""
 	reply := fmt.Sprintf("SENDBACK %s (attempt %d, %s)", c.Task, mt.attempt, mt.shown())

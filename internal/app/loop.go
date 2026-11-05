@@ -256,6 +256,9 @@ func (a *App) wake() {
 }
 
 // mergeLoop runs a pass (advance) at each kick until ctx ends; at its end it waits for the scratch effects still running (ctx cut them: their intents stay pending).
+// Every pass counts in a.passes; one that ran connected to one herdr stream from its start to its end also counts in
+// a.onStream (T-861): a pass in a resubscribe's gap (a refresh, herdr gone) skipped the project or read its agents as
+// "not connected", so it saw nothing a test set before it.
 func (a *App) mergeLoop(ctx context.Context) {
 	defer a.effects.Wait()
 	for {
@@ -264,10 +267,16 @@ func (a *App) mergeLoop(ctx context.Context) {
 			return
 		case <-a.kick:
 		}
+		a.mu.Lock()
+		up, stream := a.connected, a.streams
+		a.mu.Unlock()
 		a.advance(ctx)
 		a.notify(ctx)
 		a.mu.Lock()
 		a.passes++
+		if up && a.connected && a.streams == stream {
+			a.onStream++
+		}
 		a.mu.Unlock()
 	}
 }
@@ -564,9 +573,9 @@ type step func(ctx context.Context, fx *Loop) bool
 
 // next is mt's next step (under mu), nil when it waits. A selected step starts only after begin's atomic check (one
 // rule for every kind, RV-42 #1): its task/attempt is still current and not ended (dropped, or a drop of it decided:
-// p.ended); the same check holds the task (p.held) until the step returns, and a drop is refused meanwhile. Drop
-// decides under the same lock (App.drop), so no effect starts after DROPPED, and none is still starting when DROPPED
-// is returned.
+// p.ended); the same check holds the task (p.held) until the step returns (a job sample's read excepted: sampleJob),
+// and a drop is refused meanwhile. Drop decides under the same lock (App.drop), so no effect starts after DROPPED, and
+// none is still starting when DROPPED is returned.
 func (a *App) next(p *proj, m *mtask) step {
 	s := a.pick(p, m)
 	if s == nil {
@@ -577,7 +586,7 @@ func (a *App) next(p *proj, m *mtask) step {
 		if !a.begin(p, mt) {
 			return false
 		}
-		defer a.release(p, mt.task)
+		defer a.release(p, mt.task, mt.stepName())
 		return s(ctx, fx)
 	}
 }
@@ -601,10 +610,13 @@ func (a *App) begin(p *proj, mt mtask) bool {
 	return true
 }
 
-// release ends begin's hold of task.
-func (a *App) release(p *proj, task string) {
+// release ends the hold of task named name (begin's: the step's name; a lead's sendback's): a hold another claimed
+// since (a sample's read holds nothing, sampleJob) stays.
+func (a *App) release(p *proj, task, name string) {
 	a.mu.Lock()
-	delete(p.held, task)
+	if p.held[task] == name {
+		delete(p.held, task)
+	}
 	a.mu.Unlock()
 }
 

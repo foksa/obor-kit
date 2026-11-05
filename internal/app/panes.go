@@ -43,6 +43,7 @@ func (a *App) connect(ctx context.Context, snap port.Snapshot) {
 		}
 	}
 	a.connected = true
+	a.streams++
 	if snap.Protocol != 0 && (snap.Version != a.herdrVer || snap.Protocol != a.herdrProt) {
 		a.logf("herdr: %s protocol %d", snap.Version, snap.Protocol)
 	}

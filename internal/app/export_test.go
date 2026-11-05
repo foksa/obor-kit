@@ -61,6 +61,14 @@ func Counts(a *App) (checks, passes int) {
 	return a.checks, a.passes
 }
 
+// StreamPasses is how many merge loop passes a has done connected to one herdr stream from start to end (T-861):
+// the passes a test that moved the clock or changed herdr waits on.
+func StreamPasses(a *App) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.onStream
+}
+
 // Follows is how many binary-watch ticks a has counted (Options.Follow).
 func Follows(a *App) int {
 	a.mu.Lock()

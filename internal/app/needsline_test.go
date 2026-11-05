@@ -18,9 +18,9 @@ import (
 // advance moves the fake clock on by d (0: not at all), then waits for two more passes of serve's loop (wake).
 func (r *loopRig) advance(d time.Duration) {
 	r.t.Helper()
-	_, n := app.Counts(r.app)
+	n := app.StreamPasses(r.app) // T-861: passes in a resubscribe's gap skip the project
 	r.clock.Add(d)
-	r.waitFor("two more passes", func() bool { _, passes := app.Counts(r.app); return passes >= n+2 })
+	r.waitFor("two more passes", func() bool { return app.StreamPasses(r.app) >= n+2 })
 }
 
 // needsLineFacts is the message facts of the project's log that announce a needs-you.
