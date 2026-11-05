@@ -11,17 +11,13 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   **Merged since v0.28.0 (13):** T-880, T-891, T-893, T-894, T-902, T-903, T-904, T-905, T-911, T-912 (take-over
   gone), T-913 (rerere), T-914 (compile-only re-gate on a package-only move). **Lines since v0.28.0:** prod +123,
   test +795 (git count; T-880 +199, T-893 +116 grew; T-912 −115, T-903 −99 shrank). Not net-negative yet.
-  **Update ~23:30:** T-915/T-916 merged; verify found V1 (T-915's mismatch reaches the integrator as an unexplained
-  conflict): T-917 (L-01) linked as round 2; close RV-123 after its verify (then accept the rest per review-rounds).
-  **In flight earlier:** T-896 (L-02, deepseek), T-915 (L-01, opus: RV-123 #1, a rerere replay keeps no green unless it
-  equals the checked resolution), T-916 (L-03, sonnet: RV-123 #2, old take-over's pending stop retried). RV-123 is
-  open: T-915/T-916 linked with `obor review fix`; serve briefs the verify once both merge; close only after it
-  (review-rounds rule). deepseek paused until 23:40 (provider overloaded).
+  **Update ~00:00:** RV-123 closed (df0c779b) after three verifies: T-915..T-918 merged; #3 accepted. T-896 merged.
+  Nothing in flight; lanes free until the next wave's specs.
   **Decided today (docs/decisions.md):** drive is new work only; log snapshot parked (advisor: +90 net today);
   re-gate option C. Research committed: docs/research/log-snapshot.md, merge-without-regate.md.
-  **Next:** (1) RV-123 verify → close. (2) Spec the milestone's next wave around what each task deletes (waves G-J
+  **Next:** (1) Spec the milestone's next wave around what each task deletes (waves G-J
   in docs/research/architecture-advice-fable.md; candidates below), file overlap checked by grepping the files, not
-  the spec prose. (3) Measure re-gates again after T-913/T-914 (`obor serve dump`, gate intents kind=moved/resolved;
+  the spec prose. (2) Measure re-gates again after T-913/T-914 (`obor serve dump`, gate intents kind=moved/resolved;
   11-05 baseline: 41 moved + 12 resolved of 133 gates, ~173 of 489 min).
   **Candidates:** app split steps 6-7 (outbox, identity; docs/research/app-split-deep-dive.md); unreachable tests,
   passes 2-3; serve replay `store.Admits` per session fact (RV-121: measure first); `obor web` follows a new binary;
@@ -57,8 +53,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
 - (RV-123, accepted) RV-123 #3: scripts/ship parses obor projects' rows with awk; wrong for a spaced path or an empty registry; ship runs only in obor-kit; fix 5-15 shell lines if a second shipper appears
-- (RV-123, accepted) #3 `scripts/ship` parses `obor projects`' formatted rows with awk: a checkout path with spaces or an empty registry sends to the wrong name; ship runs only in obor-kit (always registered, no space in the path). Fix if a second shipper appears: compare names, skip the no-projects line (5-15 shell lines).
 - (RV-121, accepted) RV-121 verify V1 (P3, now fixed by T-909): after a failed --after request, idle's key/age reads the newest rm/fire end, so obor idle can say idle since before the request ended (minutes early). Fix: idle tracks its own last-end beside the on-merge suppression marker; next touch of idle.go.
 - (RV-120, accepted) RV-120 V1 (P2, low): an unknown lane keeps its quiet/blocked/lost timestamps, so the unobserved interval counts on recovery (false stall/blocked needs-you) — folded into T-879 (unknown or stale observation resets every elapsed-time baseline, case table).
 - (RV-119, accepted) RV-119 #1 rest (P2, low likelihood): a resumed worker whose job wake herdr refuses (blocked agent) stays idle; launch's warning goes to serve's io.Discard and the start rule counts it a success. Covered by the stalled-worker needs-you; fix only if seen (wake outcome back to the rule, 30-70 lines).
