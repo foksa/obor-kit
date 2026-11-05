@@ -21,7 +21,7 @@ var unknownReads = []struct{ name, reason string }{
 
 // unknownLane is lane l as a failed read reports it: unknown, with reason, no task (and, the store unread, no agent).
 func unknownLane(l port.Lane, reason string) port.Lane {
-	u := port.Lane{Name: l.Name, Dir: l.Dir, State: laneUnknown, Reason: reason, Agent: l.Agent}
+	u := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneUnknown, Reason: reason, Agent: l.Agent}
 	if strings.HasPrefix(reason, "store:") {
 		u.Agent = ""
 	}

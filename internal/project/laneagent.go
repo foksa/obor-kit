@@ -24,7 +24,15 @@ func AgentLookup(cfg *config.Config, agent, at string) (config.AgentInfo, bool) 
 // that task's model, as dispatchType and setup.start do. No row, no task or no type: "", false.
 func LaneModel(cfg *config.Config, lane string) (ref string, ok bool) {
 	row, ok, _ := store.ReadLaneAt(cfg.Root, lane)
-	if !ok || row.Task == "" || row.Type == "" {
+	if !ok {
+		return "", false
+	}
+	return RowModel(row)
+}
+
+// RowModel is LaneModel's rule on a lane row read already (the lane table reads them all at once).
+func RowModel(row store.LaneRow) (ref string, ok bool) {
+	if row.Task == "" || row.Type == "" {
 		return "", false
 	}
 	return row.Type, true

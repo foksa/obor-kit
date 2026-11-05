@@ -351,16 +351,29 @@ type LaneSetup interface {
 // base)).
 type Prepared struct{ Base, Head string }
 
-// FreeInput is one lane freed by a drop: the lane's worktree, the task branch and the base it goes back to.
-type FreeInput struct {
-	Lane, Dir, Branch, Target string
-	Discard                   bool
+// Dispatch is what a dispatch chose for the lane: the lane and its worktree, its worker agent, the task branch and the
+// target sha read when the dispatch fact was recorded (Redo: the branch is kept as it is). The app's dispatch fact
+// embeds it first, so its tags are that record's; the lane intents (PrepareInput, FreeInput) embed it too (T-891: an
+// intent from before stored these as Lane, Dir, …, which decode into it, encoding/json matching keys case-insensitively).
+type Dispatch struct {
+	Lane   string `json:"lane"`
+	Dir    string `json:"dir"`
+	Agent  string `json:"agent,omitempty"`
+	Branch string `json:"branch"`
+	Target string `json:"target"`
+	Redo   bool   `json:"redo,omitempty"`
 }
 
-// PrepareInput is one lane.prepare step: Target is the target branch's sha read when the dispatch fact was
-// recorded; Agent the lane's worker agent.
+// FreeInput is one lane freed by a drop: the lane's worktree, the task branch and the base it goes back to (Target:
+// read when the step runs; Agent and Redo unused).
+type FreeInput struct {
+	Dispatch
+	Discard bool
+}
+
+// PrepareInput is one lane.prepare step: the task's dispatch, and when its fact was recorded.
 type PrepareInput struct {
-	Task, Lane, Dir, Branch, Target, Agent string
-	Redo                                   bool
-	At                                     time.Time
+	Task string
+	Dispatch
+	At time.Time
 }

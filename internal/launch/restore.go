@@ -163,7 +163,7 @@ func (p *Restorer) freeLane(cfg *config.Config, info config.AgentInfo) string {
 			continue
 		}
 		switch p.LaneState(cfg, l) {
-		case "free", "dirty-free":
+		case port.LaneFree, port.LaneDirtyFree:
 			return l.Name
 		}
 	}

@@ -12,7 +12,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/checks"
+	"obor/internal/app/port"
 	"obor/internal/config"
 )
 
@@ -144,15 +144,15 @@ func configRev(root string) string {
 
 // setup is Setup for one config snapshot (cfg), the lane table's rows (lanes), the view's role rows and pauses (v), the
 // store (db) and the config.json revision the page read (rev).
-func setup(cfg *config.Config, lanes []checks.LaneStatus, v Project, db *sql.DB, rev string, now time.Time) Setup {
+func setup(cfg *config.Config, lanes []port.Lane, v Project, db *sql.DB, rev string, now time.Time) Setup {
 	s := Setup{Difficulty: []SetupLevel{}, Types: []SetupType{}, Models: []SetupModel{}, Kinds: []SetupKind{}, Lanes: []SetupLane{},
 		Roles: []SetupRole{}, Distribution: []DispatchCount{}, ConfigRev: rev}
 	for _, level := range []string{"hard", "medium", "simple"} {
 		s.Difficulty = append(s.Difficulty, SetupLevel{Level: level, Types: append([]string{}, cfg.DifficultyList(level)...)})
 	}
-	states := map[string]checks.LaneStatus{}
+	states := map[string]port.Lane{}
 	for _, l := range lanes {
-		states[l.Lane] = l
+		states[l.Name] = l
 	}
 	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
 		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: states[l.Name].Type, Agent: cfg.AgentName("worker", l.Name),

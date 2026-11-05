@@ -228,15 +228,15 @@ func (s *Server) projectsAPI(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			for _, l := range v.Lanes {
-				d := LaneDot{Lane: l.Lane, Column: l.Column, Type: l.Type, Free: l.Free}
-				if l.Task != nil {
-					d.Task.Task = *l.Task
+				d := LaneDot{Lane: l.Name, Column: l.Column, Type: l.Type, Free: l.Free}
+				if l.Task != "" {
+					d.Task.Task = l.Task
 				}
 				if l.Free { // a free lane keeps its last branch's task
 					e.Free++
 				} else {
-					if l.Task != nil {
-						d.Task = v.Tasks[*l.Task]
+					if l.Task != "" {
+						d.Task = v.Tasks[l.Task]
 					}
 					d.Agent, d.Since = l.Agent, l.Since
 					e.Busy++

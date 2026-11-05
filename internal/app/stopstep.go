@@ -215,7 +215,7 @@ func lineTail(line string) string {
 func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	d := mt.drop
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepFree, mt.frees+1)},
-		Class: event.ClassGit, Data: port.FreeInput{Lane: d.Lane, Discard: d.Discard}}
+		Class: event.ClassGit, Data: port.FreeInput{Dispatch: port.Dispatch{Lane: d.Lane}, Discard: d.Discard}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		if fx.Lane == nil || fx.Specs == nil {
 			return nil, fmt.Errorf("lane adapters off for %s", p.name)
@@ -228,8 +228,8 @@ func (a *App) freeStep(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 		if err != nil {
 			return nil, err
 		}
-		fin := port.FreeInput{Lane: d.Lane, Branch: strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", mt.task),
-			Target: target, Discard: d.Discard}
+		fin := in.Data.(port.FreeInput)
+		fin.Branch, fin.Target = strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", mt.task), target
 		for _, l := range cfg.Lanes() {
 			if l.Name == d.Lane {
 				fin.Dir = l.Dir

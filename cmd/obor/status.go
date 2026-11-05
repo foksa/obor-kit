@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 
 	"obor/internal/app"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -196,22 +198,22 @@ func laneLine(l view.Lane, t view.Task) string {
 	if model == "" {
 		model = "-"
 	}
-	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Lane, model, orDash(l.Branch),
-		l.Column, ago, orDash(l.Task))
+	line := fmt.Sprintf("%-6s  %-7s  %-14s  %-10s  %4s  (%s)", l.Name, model, cmp.Or(l.Branch, "-"),
+		l.Column, ago, cmp.Or(l.Task, "-"))
 	if t.TaskState != "" {
 		line += fmt.Sprintf("  serve: %s (attempt %d)%s", t.TaskState, t.Attempt, running(t.Running))
 	}
 	if t.Effort != "" {
 		line += "  effort: " + t.Effort
 	}
-	if l.Dirty && l.State != "dirty-free" {
+	if l.Dirty && l.State != port.LaneDirtyFree {
 		line += "  dirty"
 	}
-	if l.Reason != nil {
-		line += "  reason: " + *l.Reason
+	if l.Reason != "" {
+		line += "  reason: " + l.Reason
 	}
-	if l.Warning != nil {
-		line += "  warning: " + *l.Warning
+	if l.Warning != "" {
+		line += "  warning: " + l.Warning
 	}
 	if l.Agent != "" {
 		line += "  agent: " + l.Agent
@@ -547,13 +549,6 @@ func elapsed(d time.Duration) string {
 }
 
 // orDash is *s, "-" for nil.
-func orDash(s *string) string {
-	if s == nil {
-		return "-"
-	}
-	return *s
-}
-
 // why is a waiting task's last refused dispatch as the queue appends it ("": none).
 func why(line string) string {
 	if line == "" {

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -137,10 +138,10 @@ func storeAt(root string) (*sql.DB, func()) {
 
 // rowLanes is the store's lanes rows as lane statuses: what the lanes table alone says of a lane (no git), for a read
 // that needs a task's lane and agent, not a lane's state or dirty worktree.
-func rowLanes(rows map[string]store.LaneRow) []checks.LaneStatus {
-	out := make([]checks.LaneStatus, 0, len(rows))
+func rowLanes(rows map[string]store.LaneRow) []port.Lane {
+	out := make([]port.Lane, 0, len(rows))
 	for _, lane := range slices.Sorted(maps.Keys(rows)) {
-		out = append(out, checks.LaneStatus{Lane: lane, Task: rows[lane].Task})
+		out = append(out, port.Lane{Name: lane, Task: rows[lane].Task})
 	}
 	return out
 }

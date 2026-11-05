@@ -53,16 +53,11 @@ type Specs interface {
 // Records' data.
 type (
 	dispatchData struct {
-		Lane   string   `json:"lane"`
-		Dir    string   `json:"dir"`
-		Agent  string   `json:"agent,omitempty"`
-		Branch string   `json:"branch"`
-		Target string   `json:"target"`
-		Redo   bool     `json:"redo,omitempty"`
-		Force  bool     `json:"force,omitempty"`
-		Level  string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
-		Types  []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]` (T-695, T-765)
-		Effort string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default; T-695)
+		port.Dispatch          // first: the record's lane, dir, agent, branch, target, redo
+		Force         bool     `json:"force,omitempty"`
+		Level         string   `json:"level,omitempty"`  // the spec's difficulty level the models came from
+		Types         []string `json:"types,omitempty"`  // model refs, `<model>[:<effort>]` (T-695, T-765)
+		Effort        string   `json:"effort,omitempty"` // the effort the lane's agent starts with ("": its kind's default; T-695)
 		// Type is the model ref the dispatch chose, `<model>[:<effort>]` (T-721): the lane row's type. "": a record
 		// from before T-721 or a waiting one.
 		Type  string   `json:"type,omitempty"`
@@ -342,15 +337,15 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		return "", fmt.Errorf("dispatch %s: model %s's kind %s has no bridge (obor config validate)", c.Task, typ, kind)
 	}
 	note := pluginNote(cfg, l, typ)
-	redo := l.Task == c.Task && !finished && (l.State == "working" || l.State == "blocked")
+	redo := l.Task == c.Task && !finished && l.State == port.LaneWorking
 	switch {
 	case redo:
-	case l.State == "dirty-free" && !c.Force:
+	case l.State == port.LaneDirtyFree && !c.Force:
 		return "", fmt.Errorf("dispatch %s: lane %s is dirty-free (uncommitted changes; --force to dispatch anyway)",
 			c.Task, l.Name)
-	case l.State == "working" && l.Task != "":
+	case l.State == port.LaneWorking && l.Task != "":
 		return "", fmt.Errorf("dispatch %s: lane %s is working on %s", c.Task, l.Name, l.Task)
-	case l.State != "free" && l.State != "dirty-free":
+	case l.State != port.LaneFree && l.State != port.LaneDirtyFree:
 		return "", fmt.Errorf("dispatch %s: lane %s is %s", c.Task, l.Name, laneWhy(l))
 	}
 	target, ahead, err := fx.Specs.Target(ctx, c.Task)
@@ -434,12 +429,18 @@ func (a *App) held(p *proj, task string) (mtask, map[string]string) {
 	return mt, held
 }
 
-// idleNote is a dispatch reply's tail "; idle: <LANE>, …": the lanes of ls still free after it (not taken, not held
-// for another task's dispatch; dirty-free is not idle); "" when none (T-483).
+// freeFor: lane l can take a new dispatch: git says it is free (force: dirty-free too) and no other task's dispatch
+// holds it (held, a.held's).
+func freeFor(l port.Lane, held map[string]string, force bool) bool {
+	return held[l.Name] == "" && (l.State == port.LaneFree || force && l.State == port.LaneDirtyFree)
+}
+
+// idleNote is a dispatch reply's tail "; idle: <LANE>, …": the lanes of ls still free after it (not taken, freeFor
+// without force: dirty-free is not idle); "" when none (T-483).
 func idleNote(ls []port.Lane, taken string, held map[string]string) string {
 	var idle []string
 	for _, l := range ls {
-		if l.State == "free" && l.Name != taken && held[l.Name] == "" {
+		if l.Name != taken && freeFor(l, held, false) {
 			idle = append(idle, l.Name)
 		}
 	}
@@ -511,7 +512,7 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[st
 		return port.Lane{}, "", "unknown lane " + c.Lane + " (not in the config's lanes)"
 	}
 	for _, l := range ls {
-		if l.Task == c.Task && !finished && held[l.Name] == "" && (l.State == "working" || l.State == "blocked") {
+		if l.Task == c.Task && !finished && held[l.Name] == "" && l.State == port.LaneWorking {
 			l.Dir = filepath.Clean(l.Dir)
 			explicit := c.Level == "" && len(c.Types) > 0
 			ref := ran
@@ -527,7 +528,7 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[st
 	}
 	if first != "" {
 		for _, l := range ls {
-			if held[l.Name] == "" && (l.State == "free" || c.Force && l.State == "dirty-free") {
+			if freeFor(l, held, c.Force) {
 				l.Dir = filepath.Clean(l.Dir)
 				return l, first, ""
 			}
@@ -541,7 +542,7 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[st
 func unknownNote(ls []port.Lane) string {
 	var out []string
 	for _, l := range ls {
-		if l.State == "unknown" {
+		if l.State == port.LaneUnknown {
 			out = append(out, l.Name+" unknown: "+l.Reason)
 		}
 	}
@@ -553,7 +554,7 @@ func unknownNote(ls []port.Lane) string {
 
 // laneWhy is a lane's state for a refusal: its state, and for an unknown one why (T-871).
 func laneWhy(l port.Lane) string {
-	if l.State == "unknown" {
+	if l.State == port.LaneUnknown {
 		return "unknown: " + l.Reason
 	}
 	return Dash(l.State)
@@ -848,10 +849,8 @@ func (a *App) nextDispatch(p *proj, mt mtask) step {
 // prepare runs lane.prepare (row 3): the lane on the task branch at the fact's target (a redo keeps the branch),
 // lane_ready / lane_setup; its result is the lane's row (lanes.go). A refusal is final: needs-you{lane: why}.
 func (a *App) prepare(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
-	d := mt.disp
 	in := event.Intent{Key: event.Key{Task: mt.task, Attempt: mt.attempt, Step: nth(event.StepPrepare, mt.prepares+1)}, Class: event.ClassGit,
-		Data: port.PrepareInput{Task: mt.task, Lane: d.Lane, Dir: d.Dir, Branch: d.Branch, Target: d.Target, Agent: d.Agent,
-			Redo: d.Redo, At: mt.at}}
+		Data: port.PrepareInput{Task: mt.task, Dispatch: mt.disp.Dispatch, At: mt.at}}
 	if _, err := a.do(ctx, p, in, func(ctx context.Context) (any, error) {
 		out, err := fx.Lane.Prepare(ctx, in.Data.(port.PrepareInput))
 		var refused port.Refused

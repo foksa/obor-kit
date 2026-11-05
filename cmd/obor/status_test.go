@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -983,7 +984,7 @@ func TestStatusAndStopCustomRole(t *testing.T) {
 // T-871: obor status shows an unknown lane's reason on its line, beside the unknown state.
 func TestStatusShowsUnknownLaneReason(t *testing.T) {
 	why := "git status: exit status 1: fatal: index file smaller than expected"
-	line := laneLine(view.Lane{Lane: "L-01", State: "unknown", Column: "unknown", Dirty: false, Reason: &why}, view.Task{})
+	line := laneLine(view.Lane{Lane: port.Lane{Name: "L-01", State: "unknown", Reason: why}, Column: "unknown"}, view.Task{})
 	if !strings.Contains(line, "unknown") || !strings.Contains(line, "reason: "+why) {
 		t.Errorf("lane line %q; want its unknown state and its reason", line)
 	}

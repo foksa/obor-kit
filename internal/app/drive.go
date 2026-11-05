@@ -154,7 +154,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	_, held := a.held(p, "")
 	var l port.Lane
 	for _, x := range ls {
-		if x.State == "free" && held[x.Name] == "" {
+		if freeFor(x, held, false) {
 			l = x
 			break
 		}

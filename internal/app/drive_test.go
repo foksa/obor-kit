@@ -376,6 +376,8 @@ func TestDriveRedGateBackToDriving(t *testing.T) {
 	r.waitFor("T-1 driving", func() bool { return r.stateOf("T-1") == wire.TaskDriving })
 	for i, id := range []string{"l1", "l2", "l3"} { // past K: still the drive's
 		r.work("red.txt", "red "+id+"\n")
+		// The drive step's line can arrive before its step settles: a land then is refused ("retry when it settles").
+		r.waitFor("T-1 settled", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
 		if _, err := r.landDrive(id, "T-1", "try "+id); err != nil {
 			t.Fatalf("land %d: %v", i+1, err)
 		}

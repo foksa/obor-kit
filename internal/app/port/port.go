@@ -93,14 +93,37 @@ type Panes interface {
 	Notify(ctx context.Context, title, body string) error
 }
 
-// Lane is one lane of a project: its worktree, the task its branch holds open ("" for none), the lane's worker agent
-// and its status state (checks.LaneStatus: free, dirty-free, working, unknown, …), with why it is unknown ("" otherwise,
-// T-871). Every lane is pooled: the model it runs is its dispatch's (T-765).
+// Lane is one lane of a project, the lane table's row (checks.LaneTable; obor status --json's lane, which view.Lane
+// embeds): its worktree, branch and the task id in it ("": detached, no task id), its state (the Lane* constants;
+// Reason says why it is unknown, T-871), the model it runs (Type: the dispatch's while it works, T-765, else none),
+// how long ago its task's task_done was recorded (nil: none), uncommitted changes, a live warning ("": none) and its
+// agent (the lane row's; the view's: serve's agent in it, else the row's). Lanes, the app's read of it, holds Task
+// only while the lane works and Dir as the physical path a pane's cwd reports.
 type Lane struct {
-	Name, Dir, Task string
-	Agent, State    string
-	Reason          string
+	Name    string `json:"lane"`
+	Type    string `json:"type"`
+	Dir     string `json:"dir"`
+	Branch  string `json:"branch"`
+	Task    string `json:"task"`
+	State   string `json:"state"`
+	Reason  string `json:"reason"`
+	DoneAge *int64 `json:"done_age"`
+	Dirty   bool   `json:"dirty"`
+	Warning string `json:"warning"`
+	Agent   string `json:"agent,omitempty"`
 }
+
+// The lane states Lane.State holds (checks.LaneTable.LaneState's doc): a lane is free once its branch is merged and
+// its work committed, dirty-free when it is merged with uncommitted changes, working otherwise, missing when its dir is
+// no worktree, unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is the two free
+// ones, and internal/web's TestTSStringSetsMatchGo keeps it so (T-885).
+const (
+	LaneFree      = "free"
+	LaneDirtyFree = "dirty-free"
+	LaneWorking   = "working"
+	LaneMissing   = "missing"
+	LaneUnknown   = "unknown"
+)
 
 // Lanes reads a project's lanes (its git reads end with ctx, T-873).
 type Lanes interface {
