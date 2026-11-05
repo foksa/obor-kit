@@ -552,7 +552,8 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   moved target, the candidate is not gated again when the new commits change none of its files, their affected
   packages and the candidate's share none, neither side is `full`, and its last gate was green on an ancestor of the
   new target; the result reads `kept <base7>` and the merge is `partial`. The nightly full check covers what the
-  affected sets cannot see. obor-kit's own config maps its non-Go files to the checks that read them (T-901).
+  affected sets cannot see, including non-Go readers (`check-readers`, `check-web`, T-901): overlap is computed on Go
+  packages only (RV-122 design concern; owner's weaker contract). obor-kit's own config maps its non-Go files to the checks that read them (T-901).
 - **`CHECK_CPUS`** (`obor run` of a heavy command and the gates' commands): `slots.cpus` when set, else
   `max(1, cores / slots.max)`. The project maps it (obor-kit: `go test -p`).
 - **Go projects: `obor affected go`** (T-351; research §2, §5). `obor affected go [--changed <file>]` (default
