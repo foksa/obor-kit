@@ -229,8 +229,11 @@ func TestDropByTaskFreesItsLane(t *testing.T) {
 	if _, ok := rows["L-02"]; ok || err != nil {
 		t.Errorf("the lanes table still has L-02: %+v, %v", rows, err)
 	}
-	if reply, err := dropT2(r, "d1", true, false); err != nil || !strings.HasPrefix(reply, "DROPPING T-2") {
-		t.Errorf("the first call id again: %q, %v; want its stored reply", reply, err)
+	dropping := r.count("pj", "T-2", event.KindFact, event.StepDropping)
+	if reply, err := dropT2(r, "d1", true, false); err != nil || !strings.HasPrefix(reply, "DROPPING T-2") ||
+		r.count("pj", "T-2", event.KindFact, event.StepDropping) != dropping || dropping != 2 {
+		t.Errorf("the first call id again: %q, %v (dropping facts %d, was %d); want its stored reply, nothing recorded",
+			reply, err, r.count("pj", "T-2", event.KindFact, event.StepDropping), dropping)
 	}
 }
 

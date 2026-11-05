@@ -72,11 +72,24 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 	if row, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); row.Task != "T-1" || row.Type != "opus" {
 		t.Errorf("L-01's row %+v after the move; want T-1 as opus", row)
 	}
-	n := len(r.records())
-	if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || len(r.records()) != n {
-		t.Errorf("the same call id again: %q, %v (%d records, was %d); want the stored reply, nothing recorded", again,
-			err, len(r.records()), n)
+	// The loop records on its own meanwhile (the stop's lead line, its delivery: T-852), so the repeat is checked by
+	// what it alone could record: a dispatch fact.
+	n := r.dispatchFacts()
+	if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || r.dispatchFacts() != n {
+		t.Errorf("the same call id again: %q, %v (%d dispatch facts, was %d); want the stored reply, nothing recorded",
+			again, err, r.dispatchFacts(), n)
 	}
+}
+
+// dispatchFacts is how many dispatch facts the log has (a move's, any attempt).
+func (r *loopRig) dispatchFacts() int {
+	n := 0
+	for _, rec := range r.records() {
+		if rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+			n++
+		}
+	}
+	return n
 }
 
 // A move to the model the task runs is refused ("already on"); nothing is recorded or stopped.

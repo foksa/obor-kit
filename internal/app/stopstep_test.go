@@ -259,6 +259,10 @@ func TestTakeOverAnswersAtOnceThenStopsTheWorker(t *testing.T) {
 	if got := r.stopLines(); !slices.Equal(got, []string{"[obor] T-1: stopped pj-l-01"}) {
 		t.Errorf("the lead's lines %q; want one: stopped pj-l-01", got)
 	}
+	if again, err := r.drive("v1", "T-1"); err != nil || again != reply || r.count("1 fact drive") != 1 {
+		t.Errorf("the same call id again: %q, %v (%d drive facts); want the stored reply, nothing recorded", again, err,
+			r.count("1 fact drive"))
+	}
 }
 
 // A take-over whose stop fails: recorded (driving), its stop a needs-you{stop} (Stopping kept: obor drive starts no
