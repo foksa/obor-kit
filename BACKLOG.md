@@ -219,6 +219,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 - (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
   TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
   recurs on another task: a flake task (what the test waits on under load).
+  **Recurred 11-05 10:1x:** `TestJobRecovery/unblocked_refused` timed out (61 s, "waiting for the crash") in
+  `make release V=0.27.0`, in the full check and its rerun; passes alone and in the package at load 34. Third
+  different internal/app test in one day with the same ~60 s wait under load: a flake task after v0.27 (what the
+  rig waits on; a shared cause in the fake herdr/loop timing is likely).
+  Fourth the same day: `TestHoldAndResume` (release retry, FLAKY, passed on rerun).
 - (11-05) `obor drop T-851 --discard` failed halfway: `FAIL drop: git branch -D task/T-851: signal: terminated` left
   the lane freed but the task `working`; the same drop again finished it. A drop that fails after freeing the lane
   should say "retry the same obor drop" (or record the drop before the branch delete). Likely under load; fix small.

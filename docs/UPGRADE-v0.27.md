@@ -1,8 +1,12 @@
 # Upgrading an obor project from v0.26 to v0.27
 
 ## v0.27.0 (role worktrees, no merge hold, review fix rounds in serve, verbs that answer first)
-Upgrade from v0.26.x. Nothing to change in the project: re-run the installer, then `obor serve restart` in every
-project. Close an open review first (`obor review close`), or let it finish on the new serve.
+Upgrade from v0.26.x. Nothing to change in the project. Close an open review first (`obor review close`), or let it
+finish on the new serve. Re-run the installer, then in every project:
+
+```sh
+obor serve restart
+```
 
 What changes:
 - **The reviewer and the deep dive run in their own worktree**, `<lanes_dir>/reviewer` and `<lanes_dir>/deep_dive`,
