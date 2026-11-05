@@ -267,10 +267,20 @@ type GateInput struct {
 	Body                    string // the worker report's whole Summary section, the merge's body ("": Summary, T-807)
 	Spec                    string
 	SpecRev                 int
+	// Green, on an InputMoved gate, is the base the attempt's last checked green gate ran on, set only while the
+	// attempt's last gate result is green ("": none, the gate runs). The gate keeps that result, no command run, when
+	// the merge onto the new target is clean, Green is its ancestor and the commits since Green overlap none of the
+	// candidate's files and affected packages, neither side full (T-900; design "Test tiers and receipts").
+	Green string
 	// Command, when set, is told the name of each command the gate starts (commands.<name>: lane_setup, the guard,
 	// the class's checks, or check), for obor status' running line (T-669).
 	Command func(name string)
 }
+
+// Affected is `obor affected go` (internal/affected) as the entry hands it to the merge gate (T-900; adapters reach
+// each other only through core types): the Go packages the changed files (repo-relative) of the module at root
+// affect, or full's reason ("": not full) when the whole suite must run (fullGlobs: merge.affected_full).
+type Affected func(root string, files, fullGlobs []string) (pkgs []string, full string, err error)
 
 // Gate input kinds.
 const (
@@ -287,6 +297,9 @@ type GateOutcome struct {
 	Line      string
 	Files     []string
 	Dir       string
+	// Kept: a green moved gate that kept the result checked on this base (GateInput.Green, T-900): no command ran, its
+	// Candidate is partial (Full false) and its Checks read "kept <base7>".
+	Kept string
 }
 
 // Gate outcome kinds.

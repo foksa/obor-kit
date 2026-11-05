@@ -163,13 +163,18 @@ func (p *proj) foldLoop(r event.Record) {
 				mt.block(block{cause: causeGate, why: "submit: " + d.Refused})
 			}
 		case event.StepGate:
-			mt.gates, mt.line = n, g.Line
+			mt.gates, mt.line, mt.green = n, g.Line, ""
 			switch g.Outcome {
 			case outGreen:
 				if g.SpecRev != mt.gateRev {
 					mt.accepted = "" // the accept was of another spec rev: review again (RV-55 #1)
 				}
 				mt.cand, mt.gateRev, mt.state = g.Candidate, g.SpecRev, stGreen
+				// The base its checks ran on: a kept result's is the one it kept (T-900).
+				mt.green = g.Candidate.Target
+				if g.Kept != "" {
+					mt.green = g.Kept
+				}
 			case outRed:
 				mt.state = stRed
 			case outConflict:

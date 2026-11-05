@@ -158,7 +158,8 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		if err != nil {
 			return nil, err
 		}
-		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
+		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid(),
+			Affected: goAffected}
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		scratch := checks.Scratch{Options: o}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -162,16 +163,26 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 				Line: fmt.Sprintf("CONFLICT in %s: %s", dir, strings.Join(files, " "))}, nil
 		}
 	}
-	if o, err := gateHalt(&r, r.changed(in.Task, rev)); o != nil || err != nil {
-		return *o, err
+	kept := ""
+	if in.Kind == port.InputMoved && in.Green != "" {
+		if ok, err := s.keeps(dir, in.Green, target, in.Input); err != nil {
+			return port.GateOutcome{}, err
+		} else if ok {
+			kept = in.Green
+		}
 	}
-	if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
-		return *o, err
+	if kept == "" {
+		if o, err := gateHalt(&r, r.changed(in.Task, rev)); o != nil || err != nil {
+			return *o, err
+		}
+		if o, err := gateHalt(&r, r.laneSetup()); o != nil || err != nil {
+			return *o, err
+		}
+		if o, err := gateHalt(&r, r.runChecks(in.Kind != port.InputResolved)); o != nil || err != nil {
+			return *o, err
+		}
+		r.releaseSlot()
 	}
-	if o, err := gateHalt(&r, r.runChecks(in.Kind != port.InputResolved)); o != nil || err != nil {
-		return *o, err
-	}
-	r.releaseSlot()
 
 	if in.Kind != port.InputResolved {
 		moved := ""
@@ -198,9 +209,61 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	if c.Stat, err = s.call(s.Cfg.Root, "diff", "--stat", c.Target, c.SHA); err != nil {
 		return port.GateOutcome{}, err
 	}
+	if kept != "" {
+		c.Checks = "kept " + kept[:min(7, len(kept))] // partial: no check ran on this tree (Full false)
+		return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c, Kept: kept,
+			Line: fmt.Sprintf("GREEN %s (%s: the new commits overlap none of its files or packages)", in.Task, c.Checks)}, nil
+	}
 	c.Checks, c.Full = r.check+r.gate, !r.class.Partial
 	return port.GateOutcome{Kind: port.OutcomeGreen, Candidate: c,
 		Line: fmt.Sprintf("GREEN %s (%s, %s)%s", in.Task, c.Checks, r.mode, r.loaded)}, nil
+}
+
+// keeps decides whether a moved gate keeps the green result checked on base (T-900; design "Test tiers and
+// receipts"): yes when base is an ancestor of the new target, and the new commits (base..target) and the candidate
+// (target...input, the files its gate classifies) change no file in common, and `affected.Go` of each file set, run on
+// the clean merge in dir (a Go module at its root), is not full and shares no package with the other's. Its inputs
+// are shas and the merged tree, so a gate run again after a crash decides the same. No Affected, no Go module, or
+// `go list` failing: no (the gate runs, as affected's own failure is full).
+func (s Scratch) keeps(dir, base, target, input string) (bool, error) {
+	if s.Affected == nil {
+		return false, nil
+	}
+	if in, err := s.ancestor(dir, base, target); err != nil || !in {
+		return false, err
+	}
+	out, err := s.call(dir, "diff", "--no-renames", "--name-only", base, target)
+	if err != nil {
+		return false, err
+	}
+	news := lines(out)
+	if out, err = s.call(dir, "diff", "--no-renames", "--name-only", target+"..."+input); err != nil {
+		return false, err
+	}
+	cands := lines(out)
+	for _, f := range cands {
+		if slices.Contains(news, f) {
+			return false, nil
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+		return false, nil
+	}
+	globs := s.Cfg.Data.Merge.AffectedFull
+	a, full, err := s.Affected(dir, news, globs)
+	if err != nil || full != "" {
+		return false, nil
+	}
+	b, full, err := s.Affected(dir, cands, globs)
+	if err != nil || full != "" {
+		return false, nil
+	}
+	for _, p := range a {
+		if slices.Contains(b, p) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // specBody is the spec part of a merge's message (T-521): a blank line, "Spec rev N:", a blank line and in.Spec (the
