@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -133,9 +134,11 @@ func TestCounts(t *testing.T) {
 	}
 }
 
-// obor-kit's own config (bash classify.test.sh case_real_valid, case_real_docs): it loads and validates, docs-only
-// merges are partial neutral, Go-only merges are partial go and run check_affected (the same heavy gate on the
-// affected packages, T-347), and every other code path runs the full check.
+// T-901: obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
+// partial neutral (guard only); Go-only merges partial go and run check_affected (the same heavy gate on the affected
+// packages, T-347); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
+// check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; every other file still
+// runs the full check.
 func TestOborKitConfig(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
@@ -143,49 +146,128 @@ func TestOborKitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, fails := cfg.Validate(config.ValidateOptions{}); len(fails) > 0 {
-		t.Errorf("obor config validate: %v", fails)
-	}
-	check, ok := cfg.Command("check")
-	if check.Cmd != "make -s check" || !check.Heavy || !ok {
-		t.Errorf("commands.check: %+v (want make -s check, heavy)", check)
-	}
-	if c, ok := cfg.Command("check_affected"); c.Cmd != "make -s check-affected" || !c.Heavy || c.Timeout != check.Timeout || !ok {
-		t.Errorf("commands.check_affected: %+v (want make -s check-affected, heavy, check's timeout %d)", c, check.Timeout)
-	}
 	m := cfg.Data.Merge
-	if got := Classify(m, []string{"docs/tasks/T-75.md", "STATUS.md", "AGENTS.md"}, false).Mode(); got != "partial:neutral" {
+	if got := Classify(m, []string{"docs/tasks/T-75.md", "STATUS.md", "AGENTS.md", "BACKLOG.md"}, false).Mode(); got != "partial:neutral" {
 		t.Errorf("docs-only merge: %s", got)
 	}
-	for _, files := range [][]string{{"internal/app/loop.go", "internal/app/loop_test.go"},
-		{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"}} {
-		c := Classify(m, files, false)
-		if c.Mode() != "partial:go" {
-			t.Errorf("%v: %s (want partial:go)", files, c.Mode())
-			continue
-		}
-		if got, ok := classChecks(m, c.Name); !ok || strings.Join(got, " ") != "check_affected" {
-			t.Errorf("%v: class checks %v ok %v (want check_affected)", files, got, ok)
+	for _, c := range []struct {
+		class, checks string
+		files         [][]string
+	}{
+		{"go", "check_affected", [][]string{
+			{"internal/app/loop.go", "internal/app/loop_test.go"},
+			{"internal/app/loop.go", "cmd/obor/main.go", "internal/checks/merge.go", "docs/tasks/T-75.md"},
+		}},
+		{"readers", "check_readers", [][]string{
+			{"skills/lead/SKILL.md"}, {"templates/agents/worker.md"}, {"hooks/hooks.json"}, {"bin/go-commands"},
+			{".claude-plugin/plugin.json"},
+			{"skills/lead/SKILL.md", "templates/agents/worker.md", "bin/go-commands", "docs/tasks/T-75.md"},
+		}},
+		{"web", "check_web", [][]string{
+			{"web/src/lib/format.ts"}, {"internal/web/dist/index.html"},
+			{"web/src/pages/Project.svelte", "internal/web/dist/source.sha256"},
+		}},
+	} {
+		for _, files := range c.files {
+			got := Classify(m, files, false)
+			if got.Mode() != "partial:"+c.class {
+				t.Errorf("%v: %s (want partial:%s)", files, got.Mode(), c.class)
+				continue
+			}
+			if checks, ok := classChecks(m, got.Name); !ok || strings.Join(checks, " ") != c.checks {
+				t.Errorf("%v: class checks %v ok %v (want %s)", files, checks, ok, c.checks)
+			}
 		}
 	}
-	// Every other code path (alone or with Go files) runs the full heavy gate.
-	for _, f := range []string{"Makefile", "go.mod", "go.sum", "bin/obor", "hooks/hooks.json", "githooks/pre-commit",
-		"skills/lead/SKILL.md", "templates/agents/worker.md", "tests/go/socketprobe/main.go"} {
-		if c := Classify(m, []string{"internal/app/loop.go", f, "docs/tasks/T-75.md"}, false); c.Partial {
+	// Anything no class names still runs the full suite, alone and beside a class's file.
+	for _, f := range []string{"Makefile", "go.mod", "go.sum", "bin/obor", "install.sh", "githooks/pre-commit",
+		"web/package.json", "README.md", "tests/go/socketprobe/main.go"} {
+		if c := Classify(m, []string{f}, false); c.Partial {
 			t.Errorf("%s: %s (want a full merge)", f, c.Mode())
+		}
+		if c := Classify(m, []string{"internal/app/loop.go", f, "docs/tasks/T-75.md"}, false); c.Partial {
+			t.Errorf("%s beside Go files: %s (want a full merge)", f, c.Mode())
 		}
 	}
 	if got := Classify(m, []string{"internal/app/loop.go", "Makefile"}, false).Mode(); got != "full:unmatched Makefile" {
 		t.Errorf("Makefile with Go files: %s (want full:unmatched Makefile)", got)
 	}
-	// T-817: the kit's nightly commands, in order: the conformance tier, then the Go build cache trim.
-	if got := strings.Join(m.NightlyCommands, " "); got != "conformance trim_go_cache" {
-		t.Errorf("merge.nightly_commands: %q (want \"conformance trim_go_cache\")", got)
+	// A merge in two classes runs the full check: the machinery picks one class or none.
+	if got := Classify(m, []string{"internal/app/loop.go", "skills/lead/SKILL.md"}, false).Mode(); got != "full:mixed go/readers (skills/lead/SKILL.md)" {
+		t.Errorf("Go and a skill: %s (want full:mixed go/readers)", got)
 	}
-	trim, ok := cfg.Command("trim_go_cache")
-	if trim.Cmd != "make -s trim-go-cache" || trim.Timeout != 600 || !ok {
-		t.Errorf("commands.trim_go_cache: %+v (want make -s trim-go-cache, timeout 600)", trim)
+	if got := Classify(m, []string{"internal/app/loop.go", "web/src/lib/format.ts"}, false).Mode(); got != "full:mixed go/web (web/src/lib/format.ts)" {
+		t.Errorf("Go and the page: %s (want full:mixed go/web)", got)
 	}
+}
+
+// T-901: READER_PKGS in the Makefile is the survey of the packages whose Go files name a path the readers class maps to
+// check_readers (skills/, templates/, hooks/, bin/go-commands, .claude-plugin/): a package that starts reading one and is
+// missing there would run no test on a change to it. The survey is a grep, the same one the target's comment records;
+// this file is skipped, its tables name the paths without reading them.
+func TestOborKitReaders(t *testing.T) {
+	t.Parallel()
+	repo, _ := filepath.Abs("../..")
+	listed, err := readerPkgs(filepath.Join(repo, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) == 0 {
+		t.Fatal("precondition: no READER_PKGS line in the Makefile")
+	}
+	markers := []string{`"skills"`, `"skills/`, `"templates"`, `"templates/`, `"hooks"`, `"hooks/`, `"go-commands"`, `.claude-plugin`}
+	found := map[string]bool{}
+	for _, root := range []string{"cmd", "internal"} {
+		err := filepath.WalkDir(filepath.Join(repo, root), func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || d.Name() == "classify_test.go" {
+				return err
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			text := string(b)
+			for _, m := range markers {
+				if !strings.Contains(text, m) {
+					continue
+				}
+				rel, err := filepath.Rel(repo, filepath.Dir(p))
+				if err != nil {
+					return err
+				}
+				found["./"+filepath.ToSlash(rel)] = true
+				break
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for p := range found {
+		if !slices.Contains(listed, p) {
+			t.Errorf("%s names a readers path: add it to READER_PKGS, with its line in check-readers' comment", p)
+		}
+	}
+	for _, p := range listed {
+		if !found[p] {
+			t.Errorf("%s is in READER_PKGS but no Go file under it names a readers path: drop it", p)
+		}
+	}
+}
+
+// readerPkgs is the Makefile's READER_PKGS entries ("./dir" per package), nil when the line is absent.
+func readerPkgs(path string) ([]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if rest, ok := strings.CutPrefix(line, "READER_PKGS :="); ok {
+			return strings.Fields(rest), nil
+		}
+	}
+	return nil, nil
 }
 
 // T-817: commands.trim_go_cache runs make trim-go-cache, which deletes the Go build cache's entries unused for 48 h

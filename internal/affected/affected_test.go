@@ -3,15 +3,14 @@ package affected
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
 
 // fixture module fx: top → mid → leaf; tester imports leaf from its tests only; other stands alone (with an embedded
 // file); leaf has a testdata/ file.
-// fullGlobs are obor-kit's merge.affected_full.
-var fullGlobs = []string{"Makefile", "internal/testkit/**", "internal/herdrtest/**", "internal/herdr/herdrtest/**"}
+// fixtureFull is the fixture's merge.affected_full: a build file and the shared test-support packages.
+var fixtureFull = []string{"Makefile", "internal/testkit/**", "internal/herdrtest/**"}
 
 func fixture(t *testing.T) string {
 	t.Helper()
@@ -50,22 +49,22 @@ func TestGoFixture(t *testing.T) {
 		files, want, full string
 		globs             []string
 	}{
-		{"leaf/leaf.go", leafAndImporters, "", fullGlobs},           // a leaf: it plus its importers, direct, indirect and test-only
-		{"leaf/leaf_test.go", leafAndImporters, "", fullGlobs},      // a test file only: its package plus importers
-		{"leaf/testdata/in.txt", leafAndImporters, "", fullGlobs},   // testdata/: its package
-		{"top/top.go", "fx/top", "", fullGlobs},                     // nothing imports top
-		{"tester/tester_test.go", "fx/tester", "", fullGlobs},       // a test-only importer is not imported back
-		{"other/tmpl/x.txt", "fx/other", "", fullGlobs},             // a non-Go file in a package dir (embedded) selects it
-		{"top/top.go docs/a.md README.md", "fx/top", "", fullGlobs}, // files under no package select nothing
-		{"README.md docs/a.md", "", "", fullGlobs},                  // no Go files: empty
-		{"leaf/leaf.go go.mod", "", "changed go.mod", fullGlobs},
-		{"go.sum", "", "changed go.sum", fullGlobs},
-		{"Makefile", "", "changed Makefile", fullGlobs},
-		{"top/top.go internal/testkit/tk.go", "", "changed internal/testkit/tk.go", fullGlobs},
-		{"internal/herdrtest/h.go", "", "changed internal/herdrtest/h.go", fullGlobs},
-		{"internal/herdr/herdrtest/fake.go", "", "changed internal/herdr/herdrtest/fake.go", fullGlobs},
-		{"internal/other/x.go", "", "no package for internal/other/x.go", fullGlobs},
-		{"gone/gone.go", "", "no package for gone/gone.go", fullGlobs}, // a removed package
+		{"leaf/leaf.go", leafAndImporters, "", fixtureFull},           // a leaf: it plus its importers, direct, indirect and test-only
+		{"leaf/leaf_test.go", leafAndImporters, "", fixtureFull},      // a test file only: its package plus importers
+		{"leaf/testdata/in.txt", leafAndImporters, "", fixtureFull},   // testdata/: its package
+		{"top/top.go", "fx/top", "", fixtureFull},                     // nothing imports top
+		{"tester/tester_test.go", "fx/tester", "", fixtureFull},       // a test-only importer is not imported back
+		{"other/tmpl/x.txt", "fx/other", "", fixtureFull},             // a non-Go file in a package dir (embedded) selects it
+		{"top/top.go docs/a.md README.md", "fx/top", "", fixtureFull}, // files under no package select nothing
+		{"README.md docs/a.md", "", "", fixtureFull},                  // no Go files: empty
+		{"leaf/leaf.go go.mod", "", "changed go.mod", fixtureFull},
+		{"go.sum", "", "changed go.sum", fixtureFull},
+		{"Makefile", "", "changed Makefile", fixtureFull},
+		{"top/top.go internal/testkit/tk.go", "", "changed internal/testkit/tk.go", fixtureFull},
+		{"internal/herdrtest/h.go", "", "changed internal/herdrtest/h.go", fixtureFull},
+		{"internal/testkit/nested/tk.go", "", "changed internal/testkit/nested/tk.go", fixtureFull}, // a path under a full glob, no package lookup
+		{"internal/other/x.go", "", "no package for internal/other/x.go", fixtureFull},
+		{"gone/gone.go", "", "no package for gone/gone.go", fixtureFull}, // a removed package
 		// T-351: merge.affected_full is the project's list; with none configured a testkit change selects its own
 		// package, while go.mod stays full.
 		{"internal/testkit/tk.go", "fx/internal/testkit", "", nil},
@@ -87,45 +86,5 @@ func TestGoBrokenModule(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Go(root, []string{"a/a.go"}, nil); err == nil {
 		t.Error("no go.mod: want an error (the Makefile then runs the full suite)")
-	}
-}
-
-// This repo, read-only (T-347 spec): a guard change does not select app; an app change selects cmd/obor but not the
-// packages below app (spec, project) nor the ones the app split freed (T-690..T-692: setup, herdr, launch, checks, mcp,
-// view, web, guard, run, testkit no longer import app).
-func TestGoOborKit(t *testing.T) {
-	t.Parallel()
-	root, _ := filepath.Abs("../..")
-	for _, c := range []struct {
-		file      string
-		with, not []string
-	}{
-		{"internal/guard/guard.go", []string{"obor/internal/guard", "obor/cmd/obor"}, []string{"obor/internal/app"}},
-		{"internal/app/loop.go", []string{"obor/internal/app", "obor/cmd/obor"},
-			[]string{"obor/internal/spec", "obor/internal/project", "obor/internal/roles", "obor/internal/version",
-				"obor/internal/setup", "obor/internal/herdr", "obor/internal/launch", "obor/internal/checks",
-				"obor/internal/mcp", "obor/internal/view", "obor/internal/web", "obor/internal/guard",
-				"obor/internal/run", "obor/internal/testkit"}},
-		// T-690: herdr imports the ports leaf, not app: a port change selects it, an app change does not.
-		{"internal/app/port/effects.go", []string{"obor/internal/app/port", "obor/internal/app", "obor/internal/herdr"}, nil},
-		{"internal/app/wire/wire.go", []string{"obor/internal/app/wire", "obor/internal/mcp", "obor/internal/launch",
-			"obor/internal/checks", "obor/internal/view"}, nil},
-	} {
-		res, err := Go(root, []string{c.file}, fullGlobs)
-		if err != nil || res.Full != "" {
-			t.Fatalf("%s: full %q err %v", c.file, res.Full, err)
-		}
-		pkgs := res.Pkgs
-		for _, p := range c.with {
-			if !slices.Contains(pkgs, p) {
-				t.Errorf("%s: %s not selected (%v)", c.file, p, pkgs)
-			}
-		}
-		for _, p := range c.not {
-			if slices.Contains(pkgs, p) {
-				t.Errorf("%s: %s selected (%v)", c.file, p, pkgs)
-			}
-		}
-		t.Logf("%s: %s", c.file, strings.Join(pkgs, " "))
 	}
 }

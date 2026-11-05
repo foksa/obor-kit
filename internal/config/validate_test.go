@@ -395,45 +395,40 @@ func TestValidateLaneStateAgent(t *testing.T) {
 	}
 }
 
-// bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate; this kit's
-// own config too (bash classify.test.sh case_real_valid).
-func TestValidateTemplatesAndKitConfig(t *testing.T) {
+// bash config.test.sh case_validate_ok_template_and_fixture: the template plus the local example validate. The kit's own
+// .obor/config.json is not a product invariant: the kit's guard runs `bin/obor config validate` on it (T-901).
+func TestValidateTemplates(t *testing.T) {
 	kit, _ := filepath.Abs("../..")
-	for _, files := range [][2]string{
-		{"templates/config.example.json", "templates/local.example.json"},
-		{".obor/config.json", ""},
-	} {
-		p := testkit.New(t)
-		b, err := os.ReadFile(filepath.Join(kit, files[0]))
-		if err != nil {
-			t.Fatal(err)
+	p := testkit.New(t)
+	b, err := os.ReadFile(filepath.Join(kit, "templates/config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Write(".obor/config.json", string(b))
+	b, err = os.ReadFile(filepath.Join(kit, "templates/local.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Write(".obor/local.json", string(b))
+	c, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
+	if len(warns)+len(fails) != 0 {
+		t.Errorf("templates: %q %q", warns, fails)
+	}
+	// T-769: every role it lists names a model, the lead too
+	for _, role := range []string{"lead", "integrator", "reviewer"} {
+		if rc, ok := c.Role(role); !ok || rc.Type == "" {
+			t.Errorf("template role %s = %+v, %v; want a model", role, rc, ok)
 		}
-		p.Write(".obor/config.json", string(b))
-		if files[1] != "" {
-			b, _ := os.ReadFile(filepath.Join(kit, files[1]))
-			p.Write(".obor/local.json", string(b))
-		}
-		c, err := config.Load(p.Root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		warns, fails := c.Validate(config.ValidateOptions{Overlap: spec.Overlap})
-		if len(warns)+len(fails) != 0 {
-			t.Errorf("%s: %q %q", files[0], warns, fails)
-		}
-		if files[0] == "templates/config.example.json" { // T-769: every role it lists names a model, the lead too
-			for _, role := range []string{"lead", "integrator", "reviewer"} {
-				if rc, ok := c.Role(role); !ok || rc.Type == "" {
-					t.Errorf("template role %s = %+v, %v; want a model", role, rc, ok)
-				}
-			}
-			if rc, _ := c.Role("lead"); config.ModelRef(rc.Type, rc.Effort) != "opus:high" {
-				t.Errorf("template lead = %+v, want opus:high", rc)
-			}
-		}
-		if files[1] != "" && (c.Data.Lanes != 2 || c.DifficultyList("hard")[0] != "opus:xhigh") {
-			t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes, c.DifficultyList("hard"))
-		}
+	}
+	if rc, _ := c.Role("lead"); config.ModelRef(rc.Type, rc.Effort) != "opus:high" {
+		t.Errorf("template lead = %+v, want opus:high", rc)
+	}
+	if c.Data.Lanes != 2 || c.DifficultyList("hard")[0] != "opus:xhigh" {
+		t.Errorf("local example overrides the template: lanes %d, hard %q; want 2, opus:xhigh", c.Data.Lanes, c.DifficultyList("hard"))
 	}
 }
 

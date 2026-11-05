@@ -53,8 +53,8 @@ panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota
   models directly (built-in table in `internal/config/models.go`; `models.<name>` adds one); lanes are a count.
 
 ## Merge classes
-- Before committing `.obor/config.json` on main: `go test ./internal/checks -run TestOborKitConfig ./internal/config`
-  (it reads the real config; a direct merge-class commit once broke main), or send the change through a lane.
+- Before committing `.obor/config.json` on main: `./bin/obor config validate` (a merge's guard runs it too; a direct
+  merge-class commit once broke main), or send the change through a lane.
 - A spec that adds a script or test lists `.obor/config.json` in its files and adds its own merge-class entry + check
   (the classify audit fails otherwise; committing the class on main ahead of the merge names a test that doesn't
   exist yet and turns every other merge RED).
