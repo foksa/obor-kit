@@ -67,7 +67,7 @@
   "protected_files": [
     "docs/design.md"
   ],
-  "lanes": 4,
+  "lanes": 6,
   "roles": {
     "reviewer": "terra:xhigh",
     "lead": "opus:high",
