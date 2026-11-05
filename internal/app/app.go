@@ -268,7 +268,7 @@ type watch struct {
 
 // unread: w's lane could not be read at the last check (unknown, T-871): the watchdog keeps its task and facts and
 // observes nothing there until a read succeeds (T-897).
-func (w *watch) unread() bool { return w.lane.State == laneUnknown }
+func (w *watch) unread() bool { return w.lane.State == port.LaneUnknown }
 
 // forget drops w's elapsed-time baselines (the quiet time, the stall's escalation counting from it, blocked, lost):
 // an unknown or stale observation of its lane, so the next good read starts new ones and no unobserved interval counts

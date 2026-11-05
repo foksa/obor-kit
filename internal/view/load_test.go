@@ -24,7 +24,7 @@ func TestLoadWithoutServe(t *testing.T) {
 	if v.Serve.Up || v.Serve.Error == "" {
 		t.Errorf("serve: up %v, error %q; want down with its error", v.Serve.Up, v.Serve.Error)
 	}
-	if len(v.Lanes) != 1 || v.Lanes[0].Lane != "L-01" || *v.Lanes[0].Task != "T-01" {
+	if len(v.Lanes) != 1 || v.Lanes[0].Name != "L-01" || v.Lanes[0].Task != "T-01" {
 		t.Fatalf("lanes %+v, want L-01 on T-01", v.Lanes)
 	}
 	if tk := v.Tasks["T-01"]; tk.SpecRev != 1 || tk.Lane != "L-01" {

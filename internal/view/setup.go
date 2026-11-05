@@ -130,7 +130,7 @@ func (d Detail) Setup() (Setup, error) {
 	}
 	states := map[string]Lane{}
 	for _, l := range d.Project.Lanes {
-		states[l.Lane] = l
+		states[l.Name] = l
 	}
 	for _, l := range cfg.Lanes() { // a working lane's view type is its dispatch's model (T-721)
 		s.Lanes = append(s.Lanes, SetupLane{Lane: l.Name, Type: states[l.Name].Type, Agent: cfg.AgentName("worker", l.Name),

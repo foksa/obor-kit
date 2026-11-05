@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/spec"
@@ -93,7 +94,7 @@ func TestLaneStatesCanceled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := make(chan []LaneStatus, 1)
+	done := make(chan []port.Lane, 1)
 	go func() { done <- NewLaneTable(ctx, p.Cfg).States() }()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -106,7 +107,7 @@ func TestLaneStatesCanceled(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	var states []LaneStatus
+	var states []port.Lane
 	select {
 	case states = <-done:
 	case <-time.After(5 * time.Second):
@@ -148,7 +149,7 @@ func TestLaneStates(t *testing.T) {
 	type laneRow struct{ state, task, typ, warning string }
 	got := map[string]laneRow{}
 	for _, s := range p.States() {
-		got[s.Lane] = laneRow{s.State, s.Task, s.Type, s.Warning}
+		got[s.Name] = laneRow{s.State, s.Task, s.Type, s.Warning}
 	}
 	want := map[string]laneRow{
 		"L-01": {"free", "T-01", "", ""},
@@ -165,8 +166,8 @@ func TestLaneStates(t *testing.T) {
 	}
 	// T-788: no done state (the task's phase is serve's); a submitted lane keeps its task_done's age.
 	for _, s := range p.States() {
-		if submitted := s.DoneAge != nil; submitted != (s.Lane == "L-03" || s.Lane == "L-04") {
-			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04", s.Lane, s.DoneAge)
+		if submitted := s.DoneAge != nil; submitted != (s.Name == "L-03" || s.Name == "L-04") {
+			t.Errorf("%s: done age %v, want one only for the submitted L-03, L-04", s.Name, s.DoneAge)
 		}
 	}
 	if p.MergeEvidence("T-50") {
@@ -306,7 +307,7 @@ func TestLaneWithLegacySpecOnMainIsNotMerged(t *testing.T) {
 func TestMissingLane(t *testing.T) {
 	p := ltFixture(t, `,"lanes":1`, map[string]string{})
 	s := p.States()
-	if len(s) != 1 || s[0].Lane != "L-01" || s[0].State != "missing" || s[0].Branch != "" || s[0].Type != "" {
+	if len(s) != 1 || s[0].Name != "L-01" || s[0].State != "missing" || s[0].Branch != "" || s[0].Type != "" {
 		t.Errorf("States = %+v", s)
 	}
 }
@@ -410,13 +411,13 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 }
 
 // stateOf is lane's row of p's table (the zero row when it has none).
-func stateOf(p *LaneTable, lane string) LaneStatus {
+func stateOf(p *LaneTable, lane string) port.Lane {
 	for _, s := range p.States() {
-		if s.Lane == lane {
+		if s.Name == lane {
 			return s
 		}
 	}
-	return LaneStatus{}
+	return port.Lane{}
 }
 
 // A lead commit whose subject contains the id is no merge evidence; "Merge <id>:" is. T-802: a resolved merge, as the

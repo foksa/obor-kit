@@ -220,7 +220,7 @@ func (p *proj) has(task, step, reason string) bool {
 func (p *proj) setLanes(ls []port.Lane) {
 	ls = append([]port.Lane(nil), ls...)
 	for i, l := range ls {
-		if l.State == laneUnknown && l.Task == "" {
+		if l.State == port.LaneUnknown && l.Task == "" {
 			ls[i] = p.keptTask(l)
 		}
 	}
@@ -228,7 +228,7 @@ func (p *proj) setLanes(ls []port.Lane) {
 	open := map[string]port.Lane{}
 	for _, unknown := range []bool{true, false} { // the lanes read last: one read now wins over an unknown one
 		for _, l := range ls {
-			if (l.State == laneUnknown) == unknown && l.Task != "" && !p.folded.loop[l.Task].inLoop() {
+			if (l.State == port.LaneUnknown) == unknown && l.Task != "" && !p.folded.loop[l.Task].inLoop() {
 				open[l.Task] = l
 			}
 		}
@@ -251,9 +251,6 @@ func (p *proj) setLanes(ls []port.Lane) {
 		}
 	}
 }
-
-// laneUnknown is the state of a lane whose git or store read failed (T-871).
-const laneUnknown = "unknown"
 
 // keptTask is unknown lane l with the task it held before its read failed (T-897): its watch's (the watchdog's last
 // look, or a worker's stop since), else the last read's, else (a restart: none of those) the newest folded dispatch on

@@ -68,7 +68,7 @@ func TestBuildOneTaskPerTask(t *testing.T) {
 		t.Errorf("needs-you T-04: %+v, want lane L-09 and no step (its records place it)", tk)
 	}
 
-	if l := v.Lanes[0]; l.Task == nil || *l.Task != "T-03" || l.Column != wire.PhasePublish || l.Free {
+	if l := v.Lanes[0]; l.Task != "T-03" || l.Column != wire.PhasePublish || l.Free {
 		t.Errorf("lane %+v, want T-03 by id in phase publish, not free", l)
 	}
 	if m := v.Queue.Merge; len(m) != 1 || m[0].Task != "T-03" || m[0].Stage != wire.StagePublish {

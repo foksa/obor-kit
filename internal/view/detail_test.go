@@ -29,8 +29,8 @@ func TestMergedTaskKeepsItsLaneAndAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range v.Lanes {
-		if l.Task != nil && *l.Task == "T-01" {
-			t.Fatalf("precondition: the lane is freed, but %s still names T-01", l.Lane)
+		if l.Task == "T-01" {
+			t.Fatalf("precondition: the lane is freed, but %s still names T-01", l.Name)
 		}
 	}
 	d, ok := Detail{Root: p.Root, Project: v}.Task("T-01")

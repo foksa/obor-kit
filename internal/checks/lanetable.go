@@ -23,30 +23,6 @@ func NewLaneTable(ctx context.Context, cfg *config.Config) *LaneTable {
 	return &LaneTable{ctx: ctx, Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
 }
 
-// The lane states LaneStatus.State holds (LaneState's doc): a lane is free once its branch is merged and its work
-// committed, dirty-free when it is merged with uncommitted changes, working otherwise, missing when its dir is no
-// worktree, unknown when git or the store cannot say. The page's free set (web/src/lib/format.ts) is these two free
-// ones, and internal/web's TestTSStringSetsMatchGo keeps it so (T-885).
-const (
-	LaneFree      = "free"
-	LaneDirtyFree = "dirty-free"
-	LaneWorking   = "working"
-	LaneMissing   = "missing"
-	LaneUnknown   = "unknown"
-)
-
-// LaneStatus is one lane's row of the lane table. Type is the model it runs: the dispatch's while it holds a task
-// (taskType), else none.
-type LaneStatus struct {
-	Lane, Type, Dir string
-	Branch, Task    string // "" when detached / no task id in the branch
-	State           string // free, dirty-free, working, missing, unknown (Reason says why; live: also stalled, waiting-bg, blocked)
-	Reason          string // why State is unknown: a failed git or store read (T-871); "" otherwise
-	DoneAge         *int64 // seconds since the task's task_done was recorded; nil without one
-	Dirty           bool
-	Warning         string // a live warning (agent-blocked …), or ""
-}
-
 // LaneTable is the project's lanes as their worktrees, git and the store's lanes table say, computed once per command.
 type LaneTable struct {
 	ctx  context.Context // the git reads' (NewLaneTable)
@@ -55,17 +31,17 @@ type LaneTable struct {
 	Now  int64
 
 	once     sync.Once
-	states   []LaneStatus
+	states   []port.Lane
 	rowsOnce sync.Once
 	rows     map[string]store.LaneRow // the lanes table, by lane, read once
 	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows, T-871)
 }
 
 // States is every configured lane's row, in config order (computed once, lanes in parallel).
-func (p *LaneTable) States() []LaneStatus {
+func (p *LaneTable) States() []port.Lane {
 	p.once.Do(func() {
 		ls := p.Cfg.Lanes()
-		p.states = make([]LaneStatus, len(ls))
+		p.states = make([]port.Lane, len(ls))
 		var wg sync.WaitGroup
 		for i, l := range ls {
 			wg.Add(1)
@@ -88,8 +64,8 @@ func (p *LaneTable) States() []LaneStatus {
 //	unknown     git or the store could not tell (Reason says why, T-871): never free
 //
 // A lane whose row holds its task at its current HEAD is not merged until the task has merge evidence.
-func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
-	s := LaneStatus{Lane: l.Name, Dir: l.Dir, State: LaneMissing}
+func (p *LaneTable) LaneState(l config.Lane) port.Lane {
+	s := port.Lane{Name: l.Name, Dir: l.Dir, State: port.LaneMissing}
 	if !project.IsDir(l.Dir) {
 		return s
 	}
@@ -157,11 +133,11 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 
 	switch {
 	case merged && s.Dirty:
-		s.State = LaneDirtyFree
+		s.State = port.LaneDirtyFree
 	case merged:
-		s.State = LaneFree
+		s.State = port.LaneFree
 	default:
-		s.State = LaneWorking
+		s.State = port.LaneWorking
 	}
 	s.Type = p.taskType(l, s)
 	return s
@@ -169,23 +145,23 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 
 // unknown is s as a lane whose read failed: state unknown, why a git or store error (T-871). Its branch and task, when
 // the git read that failed came after them, still say which task the lane holds.
-func unknown(s LaneStatus, why string) LaneStatus {
-	s.State, s.Reason = LaneUnknown, why
+func unknown(s port.Lane, why string) port.Lane {
+	s.State, s.Reason = port.LaneUnknown, why
 	return s
 }
 
-// taskType is the model lane l runs in state s (T-721, T-765): a working lane's is the model its row's
-// dispatch runs (the row holds its task; a configured lane's row always names one, T-865), any other lane's none.
-func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
-	if s.State != LaneWorking {
+// taskType is the model lane l runs in state s (T-721, T-765), without its effort: project.RowModel's answer for
+// the lane's row, kept only while git says the lane works on the row's task (a free lane whose row keeps its last
+// task runs none).
+func (p *LaneTable) taskType(l config.Lane, s port.Lane) string {
+	rows, _ := p.Rows()
+	row := rows[l.Name]
+	if s.State != port.LaneWorking || s.Task == "" || row.Task != s.Task {
 		return ""
 	}
-	rows, _ := p.Rows()
-	if row, ok := rows[l.Name]; ok && s.Task != "" && row.Task == s.Task {
-		typ, _ := config.ParseModelRef(row.Type)
-		return typ
-	}
-	return ""
+	ref, _ := project.RowModel(row)
+	typ, _ := config.ParseModelRef(ref)
+	return typ
 }
 
 // Lanes is port.Lanes from today's lane table (obor serve's app.Lanes): a lane's task is open while its branch is not
@@ -198,16 +174,15 @@ func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []port.Lane
 	lp := NewLaneTable(ctx, cfg)
 	rows, _ := lp.Rows() // an unknown lane carries its store error in Reason
-	for _, s := range lp.States() {
-		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State, Reason: s.Reason,
-			Agent: rows[s.Lane].Agent}
-		if s.State == LaneWorking {
-			l.Task = s.Task
+	out := lp.States()   // this call's own table: its rows are changed in place
+	for i := range out {
+		l := &out[i]
+		l.Dir, l.Agent = project.Physical(l.Dir), rows[l.Name].Agent
+		if l.State != port.LaneWorking {
+			l.Task = ""
 		}
-		out = append(out, l)
 	}
 	return out, nil
 }

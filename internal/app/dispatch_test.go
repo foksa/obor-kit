@@ -414,7 +414,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 		r.start()
 		r.waitFor("T-1 dropped", func() bool { return r.taskState() == "dropped" })
 	}
-	for _, state := range []string{"working", "blocked"} {
+	for _, state := range []string{"working"} { // T-891: "blocked" is no lane state (T-788: git facts only)
 		t.Run("drop with the work kept, lane "+state+": the same lane, its branch kept", func(t *testing.T) {
 			t.Parallel()
 			r := newDispatchRig(t)
@@ -428,8 +428,7 @@ func TestDispatchRedoOntoTheTasksLane(t *testing.T) {
 			first := r.disp.inputs[0]
 			r.disp.mu.Unlock()
 			drop(t, r)
-			// The drop kept the work: L-01 still holds T-1 on its branch (no lane was freed); its worker may be
-			// blocked (a live lane state, T-545: the redo takes it too).
+			// The drop kept the work: L-01 still holds T-1 on its branch (no lane was freed).
 			r.setLane(func(l *port.Lane) { l.State = state })
 			r.lanes.mu.Lock()
 			l := r.lanes.lanes[0]

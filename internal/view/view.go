@@ -5,7 +5,9 @@
 package view
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +17,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -83,23 +86,13 @@ type Serve struct {
 	SinceTime time.Time `json:"-"` // Since, parsed (zero: unknown)
 }
 
-// Lane is one configured lane: its worktree as git and the store's row say (state free, dirty-free, working,
-// missing, unknown), its task by id (Project.Tasks has the task's own fields, T-883), the agent serve sees there and
-// whether it is free. Reason says why an unknown lane's state is unknown (T-871).
+// Lane is one configured lane: the lane table's row (port.Lane: its worktree as git and the store's row say, its task
+// by id, Project.Tasks has the task's own fields, T-883; its Agent is serve's agent in the lane, else the lane row's),
+// a restart in progress, the agent's status and whether it is free.
 type Lane struct {
-	Lane        string  `json:"lane"`
-	Type        string  `json:"type"`
-	Dir         string  `json:"dir"`
-	Branch      *string `json:"branch"`
-	Task        *string `json:"task"`
-	State       string  `json:"state"`
-	Reason      *string `json:"reason"`
-	DoneAge     *int64  `json:"done_age"`
-	Dirty       bool    `json:"dirty"`
-	Warning     *string `json:"warning"`
-	Op          string  `json:"op,omitempty"`
-	Agent       string  `json:"agent,omitempty"` // serve's agent in the lane, else the lane row's
-	AgentStatus string  `json:"agent_status,omitempty"`
+	port.Lane
+	Op          string `json:"op,omitempty"`
+	AgentStatus string `json:"agent_status,omitempty"`
 	// Free: no task holds the lane: git says its branch merged (free, dirty-free) and serve has no phase of a task on
 	// it (a free lane keeps its last branch's task).
 	Free bool `json:"free"`
@@ -112,6 +105,22 @@ type Lane struct {
 	Since *int64 `json:"since,omitempty"`
 	// Background is the lane agent's long-running background processes (T-714; Input.Background).
 	Background []Background `json:"background,omitempty"`
+}
+
+// MarshalJSON writes l flat, the lane table's fields first, with an empty branch, task, reason and warning as null
+// (obor status --json and types.ts: string | null).
+func (l Lane) MarshalJSON() ([]byte, error) {
+	type flat Lane // no MarshalJSON: encoding/json writes the fields
+	b, err := json.Marshal(flat(l))
+	if err != nil {
+		return nil, err
+	}
+	// These keys come before any nested object, and an unescaped `,"` never occurs inside a JSON string: the first
+	// match is the lane's own key.
+	for _, k := range []string{"branch", "task", "reason", "warning"} {
+		b = bytes.Replace(b, []byte(`,"`+k+`":""`), []byte(`,"`+k+`":null`), 1)
+	}
+	return b, nil
 }
 
 // Job is an open job: its id (<task>/<attempt>/<step>) and whether its agent's job_next fetched it.
@@ -250,7 +259,7 @@ func Build(in Input) Project {
 	rows, _ := p.Rows()
 	v.Tasks = tasks(ps, states, rows, specs)
 	for _, s := range states {
-		l := lane(p, s, &v, ps, rows[s.Lane], starts)
+		l := lane(p, s, &v, ps, rows[s.Name], starts)
 		if l.Agent != "" {
 			l.Background = in.Background[l.Agent]
 		}
@@ -265,18 +274,15 @@ func Build(in Input) Project {
 // lane is s's row of the view: the lane table's facts, its task's id, the agent in it, whether it is free, its state
 // column and since when (v.Tasks has its task). starts is when serve last tried to start a task's lane agent
 // (lastStarts).
-func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, row store.LaneRow,
+func lane(p *checks.LaneTable, s port.Lane, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
-	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
-		Reason: orNull(s.Reason), DoneAge: s.DoneAge, Dirty: s.Dirty, Warning: orNull(s.Warning),
-		Op: restartOp(p.Root, s.Lane)}
-	if l.Warning == nil && s.State == checks.LaneWorking && pluginMissing(p, s, starts) {
-		w := "no-plugin"
-		l.Warning = &w
+	l := Lane{Lane: s, Op: restartOp(p.Root, s.Name)}
+	if l.Warning == "" && s.State == port.LaneWorking && pluginMissing(p, s, starts) {
+		l.Warning = "no-plugin"
 	}
-	l.Agent, l.AgentStatus = laneAgent(ps, row, s.Lane)
+	l.Agent, l.AgentStatus = laneAgent(ps, row, s.Name)
 	phase := v.TaskOn(l).Phase
-	l.Free = phase == "" && (l.State == checks.LaneFree || l.State == checks.LaneDirtyFree)
+	l.Free = phase == "" && (l.State == port.LaneFree || l.State == port.LaneDirtyFree)
 	l.Column = l.State
 	if phase != "" {
 		l.Column = phase
@@ -339,7 +345,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	case wire.PhaseNeedsYou, wire.PhaseHeld:
 		var best *int64
 		for _, n := range v.NeedsYou {
-			if n.Since == 0 || v.Tasks[n.Task].Lane != l.Lane && (l.Task == nil || n.Task != *l.Task) {
+			if n.Since == 0 || v.Tasks[n.Task].Lane != l.Name && (l.Task == "" || n.Task != l.Task) {
 				continue
 			}
 			if best == nil || n.Since > *best {
@@ -349,13 +355,13 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 		return best
 	case wire.PhaseGating, wire.PhaseMerging:
 		for _, r := range v.Running {
-			if l.Task != nil && r.Task == *l.Task && r.Since != 0 {
+			if l.Task != "" && r.Task == l.Task && r.Since != 0 {
 				return at(r.Since)
 			}
 		}
 	case wire.PhaseGatePending, wire.PhasePublishPending:
 		for _, p := range v.Pending {
-			if l.Task == nil || p.Task != *l.Task {
+			if l.Task == "" || p.Task != l.Task {
 				continue
 			}
 			if p.FailedAt != 0 {
@@ -369,7 +375,7 @@ func laneSince(l Lane, v *Project, now, dispatched int64) *int64 {
 	if l.DoneAge != nil {
 		return at(now - *l.DoneAge)
 	}
-	if l.Task != nil && dispatched != 0 {
+	if l.Task != "" && dispatched != 0 {
 		return at(dispatched)
 	}
 	return nil
@@ -454,7 +460,7 @@ const pluginSettle = 2 * time.Minute
 // guard). None at all, or one older than the lane row's dispatched_at (a leftover from before this dispatch): missing.
 // No row: a marker at all is fresh, nothing to compare it against. A start the lane's agent has not had the time to
 // check in from yet (pluginSettle after the dispatch and after its last agent.start, starts) is no answer either.
-func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]int64) bool {
+func pluginMissing(p *checks.LaneTable, s port.Lane, starts map[string]int64) bool {
 	kind := project.RunningKind(p.Cfg, config.AgentInfo{Type: s.Type})
 	if k, known := agents.Lookup(kind); known && k.Caps().ProjectPlugin { // Claude loads the plugin from the worktree's own .claude/settings.json (T-705)
 		return !config.PluginEnabledIn(s.Dir)
@@ -463,7 +469,7 @@ func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]i
 		return false
 	}
 	rows, _ := p.Rows()
-	row, rowOK := rows[s.Lane]
+	row, rowOK := rows[s.Name]
 	task := s.Task
 	if task == "" {
 		task = row.Task
@@ -475,7 +481,7 @@ func pluginMissing(p *checks.LaneTable, s checks.LaneStatus, starts map[string]i
 	if started > 0 && p.Now-started < int64(pluginSettle/time.Second) {
 		return false
 	}
-	m, ok := project.PluginMarkerAt(p.Root, s.Lane)
+	m, ok := project.PluginMarkerAt(p.Root, s.Name)
 	if !ok {
 		return true
 	}
@@ -488,14 +494,6 @@ func restartOp(root, lane string) string {
 		return "restart"
 	}
 	return ""
-}
-
-// orNull is s, or JSON null when it is "".
-func orNull(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // pauseOf is serve's pause record as the view shows it: its reason, who paused and its end (nil: until cleared).

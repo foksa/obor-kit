@@ -2,8 +2,8 @@ package view
 
 import (
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
-	"obor/internal/checks"
 	"obor/internal/spec"
 	"obor/internal/store"
 )
@@ -34,7 +34,7 @@ type Task struct {
 // tasks is every task the view knows, by id, built once: the stored specs (rev and title), the lanes' branches (their
 // lane and agent), serve's tasks (state, phase, attempt, running step, effort, job and lane) and the needs-you facts in
 // force (their lane, when nothing else names one). A project's loop error and its lines are no task.
-func tasks(ps wire.ProjectStatus, lanes []checks.LaneStatus, rows map[string]store.LaneRow,
+func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneRow,
 	specs map[string]store.SpecRow) map[string]Task {
 	out := map[string]Task{}
 	get := func(id string) Task {
@@ -49,10 +49,10 @@ func tasks(ps wire.ProjectStatus, lanes []checks.LaneStatus, rows map[string]sto
 	}
 	agents := map[string]string{}
 	for _, s := range lanes {
-		agents[s.Lane], _ = laneAgent(ps, rows[s.Lane], s.Lane)
+		agents[s.Name], _ = laneAgent(ps, rows[s.Name], s.Name)
 		if s.Task != "" {
 			t := get(s.Task)
-			t.Lane = s.Lane
+			t.Lane = s.Name
 			out[s.Task] = t
 		}
 	}
@@ -100,10 +100,10 @@ func laneAgent(ps wire.ProjectStatus, row store.LaneRow, lane string) (string, s
 
 // TaskOn is the task serve has on l (zero: none): l's branch's task when serve puts it on l.
 func (p Project) TaskOn(l Lane) Task {
-	if l.Task == nil {
+	if l.Task == "" {
 		return Task{}
 	}
-	if t := p.Tasks[*l.Task]; t.TaskState != "" && t.Lane == l.Lane {
+	if t := p.Tasks[l.Task]; t.TaskState != "" && t.Lane == l.Name {
 		return t
 	}
 	return Task{}

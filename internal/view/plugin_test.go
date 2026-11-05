@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/checks"
 	"obor/internal/config"
 	"obor/internal/project"
@@ -20,7 +21,7 @@ import (
 // pluginRig is a project at a temp root whose store holds lane L-01's row on T-1 with type ds (a model of kind
 // opencode) dispatched at dispatchedAt, and whose plugin marker for the lane says at (0: none). The lane table's clock
 // is now, and the lane's row is s.
-func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.LaneTable, checks.LaneStatus) {
+func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.LaneTable, port.Lane) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".obor"), 0o755); err != nil {
@@ -55,7 +56,7 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 	}
 	lp := checks.NewLaneTable(context.Background(), cfg)
 	lp.Now = now.Unix()
-	return lp, checks.LaneStatus{Lane: "L-01", Type: "ds", Dir: filepath.Join(root, "..", "pj-wt", "L-01"),
+	return lp, port.Lane{Name: "L-01", Type: "ds", Dir: filepath.Join(root, "..", "pj-wt", "L-01"),
 		State: "working", Task: "T-1"}
 }
 
@@ -116,10 +117,7 @@ func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 			if len(v.Lanes) != 1 || v.Lanes[0].State != "working" {
 				t.Fatalf("precondition: lanes %+v, want L-01 working", v.Lanes)
 			}
-			got := ""
-			if v.Lanes[0].Warning != nil {
-				got = *v.Lanes[0].Warning
-			}
+			got := v.Lanes[0].Warning
 			if got != c.want {
 				t.Errorf("warning %q, want %q", got, c.want)
 			}

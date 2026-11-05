@@ -72,7 +72,7 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 	}
 	states := map[string]string{}
 	for _, s := range checks.NewLaneTable(context.Background(), cfg).States() {
-		states[s.Lane] = s.Type
+		states[s.Name] = s.Type
 	}
 	if states["L-01"] != "opus" || states["L-02"] != "" {
 		t.Errorf("status: lane models %+v, want L-01's row model opus and the free L-02's none", states)
