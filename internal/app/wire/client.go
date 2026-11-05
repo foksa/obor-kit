@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"obor/internal/app/port"
 	"obor/internal/version"
 )
 
@@ -46,7 +45,7 @@ func NewCallID() string {
 
 // Verdict sends the verdict call c (MethodAccept, …) to the app listening at path: its reply line, or the app's
 // refusal as the error. The call has its method's deadline (callDeadline) or ctx's, the earlier. A call its deadline
-// ends says serve may still be working on it: a stop inside the call can outlast the answer (T-825).
+// ends says serve may still be working on it (T-825).
 func Verdict(ctx context.Context, path, method string, c Call) (string, error) {
 	d := callDeadline(method)
 	if dl, ok := ctx.Deadline(); ok { // ctx's earlier deadline is the one that ends the call
@@ -75,10 +74,6 @@ const (
 	verdictDeadline     = 15 * time.Second // a CLI verdict, an MCP tool's call
 	turnDeadline        = 8 * time.Second  // a hook's turn and SessionStart (session) calls
 	stopFailureDeadline = 5 * time.Second  // the StopFailure hook's stopped call
-	// stopCallDeadline is a call whose serve side may stop an agent (T-825: a dispatch — a move is one — drop, or a
-	// drive's take-over): the stop's own bound (port.StopBound, which launch's Stop keeps to; T-829) plus the verdict
-	// margin for the rest of the call.
-	stopCallDeadline = port.StopBound + verdictDeadline
 )
 
 // callDeadline is method's deadline: OBOR_CALL_DEADLINE when it is set to a positive number of seconds, else the table
@@ -90,8 +85,6 @@ func callDeadline(method string) time.Duration {
 		}
 	}
 	switch method {
-	case MethodDispatch, MethodDrop, MethodDrive:
-		return stopCallDeadline
 	case MethodTurn, MethodSession:
 		return turnDeadline
 	case MethodStopped:
@@ -170,7 +163,7 @@ func askOnce(ctx context.Context, path string, req Request) (Answer, error) {
 	if req.Call != nil {
 		req.Call.Version = version.Version
 	}
-	// A caller with no deadline still has one; a caller's own (a verdict's table, a stop's bound) is its own.
+	// A caller with no deadline still has one; a caller's own (a verdict's table) is its own.
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, verdictDeadline)

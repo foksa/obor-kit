@@ -34,12 +34,20 @@ func (p *proj) foldLoop(r event.Record) {
 		}
 		return
 	}
+	// Fact dropping (T-852) is the drop's decision on a task holding a lane, whatever attempt it names (as dropped):
+	// its steps (the worker's stop, lane.free) run under the task's attempt, then fact dropped ends it.
+	if r.Kind == event.KindFact && r.Step == event.StepDropping {
+		if mt != nil && mt.state != stDropped {
+			mt.foldDropping(r)
+		}
+		return
+	}
 	if r.Kind == event.KindFact && r.Step == event.StepSubmitted {
 		var d submitData
 		_ = json.Unmarshal(r.Data, &d)
 		next := &mtask{task: r.Task, lane: d.Lane, agent: d.Agent, attempt: r.Attempt, state: stSubmitted,
 			report: d.Report}
-		if mt != nil && mt.state == stDropped {
+		if mt != nil && (mt.state == stDropped || mt.state == stDropping) {
 			return // ended: a submission decided before the drop
 		}
 		if mt != nil {
@@ -178,6 +186,10 @@ func (p *proj) foldLoop(r event.Record) {
 			} else if mt.drive && mt.is(stDispatched) && d.Base != "" {
 				mt.state = stDriving // a new drive: the lane is the owner's now (T-751)
 			}
+		case event.StepWorkerStop:
+			mt.foldStop(n, r.Data)
+		case event.StepFree:
+			mt.foldFree(n, r.Data)
 		case event.StepStartWork:
 			var d startOut
 			_ = json.Unmarshal(r.Data, &d)
@@ -261,7 +273,8 @@ func (mt *mtask) jobState(open bool) string {
 
 // resumed folds obor resume's d: the block ends, and the failure counts with it; the task goes to resumeTarget's phase
 // (reprompt: the job anew under its next key; retry: the paused phase's pending step again; regate: the gate or the
-// publish again). A dispatch's refused step runs again under its next key, an undelivered job is sent anew.
+// publish again). A dispatch's refused step runs again under its next key, as do a refused worker.stop and a dropping
+// task's refused lane.free; an undelivered job is sent anew.
 func (mt *mtask) resumed(d event.FactData) {
 	mt.unblock()
 	mt.fails, mt.lost = nil, 0
@@ -275,6 +288,12 @@ func (mt *mtask) resumed(d event.FactData) {
 	mt.state = mt.resumeTarget(d.Reason, d.Cause)
 	if mt.state == stSubmitted && d.Reason != wire.ResumeRetry {
 		mt.input = "" // the lane may have moved on: submit it again
+	}
+	if d.Cause == causeStop { // a refused worker.stop runs again under its next key (T-852)
+		mt.halt.refused = ""
+	}
+	if mt.state == stDropping { // a refused lane.free too
+		mt.refused = ""
 	}
 	if mt.state == stDispatched {
 		mt.refused = ""

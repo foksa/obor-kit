@@ -664,3 +664,33 @@ func TestStoppedProjectWithANewerConfig(t *testing.T) {
 		t.Errorf("init (stopped): exit %d\n%s", rc, stdout)
 	}
 }
+
+// T-852: a drop serve answers DROPPING runs as its merge loop's steps (the worker's stop, the lane's free), so obor
+// stop --force waits for each such task to be dropped before it stops any agent itself (never two stops of one
+// worker at once): dropped, or no longer listed, goes on; a task a needs-you holds (its stop or free refused) is an
+// error naming obor resume, nothing stopped.
+func TestStopWaitsForDroppingTasks(t *testing.T) {
+	t.Parallel()
+	_, s, _, _, f := sleepFx(t)
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "dropping"}}
+	asks := 0
+	s.Ask = func(ctx context.Context) (wire.Status, error) {
+		if asks++; asks == 3 {
+			f.tasks[0].State = "dropped"
+		}
+		return f.ask(ctx)
+	}
+	if err := s.waitDropped(context.Background(), []string{"T-02"}); err != nil || asks != 3 {
+		t.Errorf("dropping, then dropped: %v after %d asks; want nil once it is dropped (3 asks)", err, asks)
+	}
+	f.tasks[0].State = "needs-you"
+	err := s.waitDropped(context.Background(), []string{"T-02"})
+	if err == nil || !strings.Contains(err.Error(), "drop T-02: a needs-you holds it") ||
+		!strings.Contains(err.Error(), "obor resume T-02 retries") {
+		t.Errorf("a drop held by a needs-you: %v; want an error naming it and obor resume", err)
+	}
+	f.tasks = nil
+	if err := s.waitDropped(context.Background(), []string{"T-02"}); err != nil {
+		t.Errorf("the task no longer listed: %v; want nil", err)
+	}
+}

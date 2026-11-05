@@ -13,9 +13,9 @@ import (
 	"obor/internal/store"
 )
 
-// T-773: obor dispatch T-xx --model <ref> on a task its worker works on moves it: serve stops the worker by its
-// identity, keeps the lane, branch and spec, and records the redo dispatch of the next attempt with the new model,
-// whose agent.start launches that model with the new attempt's work job. The rig: newTakeOverRig (T-1 working on
+// T-773: obor dispatch T-xx --model <ref> on a task its worker works on moves it: serve keeps the lane, branch and
+// spec and records the redo dispatch of the next attempt with the new model; the merge loop stops the worker by its
+// identity (worker.stop, T-852: stopstep_test.go), then the redo's agent.start launches that model with the new attempt's work job. The rig: newTakeOverRig (T-1 working on
 // L-01 as sonnet, its worker pj-l-01 in w1:p1).
 
 // moveTo is the lead's obor dispatch T-1 --model types.
@@ -37,7 +37,7 @@ func (r *loopRig) workerLaunches() []port.Launch {
 	return out
 }
 
-// A working task moved to opus: the worker stopped at its pane, MOVED with both models and the next attempt, the
+// A working task moved to opus: MOVING with both models, the worker stopped at its pane, the
 // lane prepared again on the same branch as a redo, the new attempt's agent.start launching opus fresh with job
 // T-1/2/work, which the new agent fetches. The lane row names opus. A repeated call id gets the stored reply.
 func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
@@ -47,13 +47,13 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 		t.Fatalf("precondition: one sonnet start of attempt 1: %+v, attempt %d", ls, r.task("T-1").Attempt)
 	}
 	reply, err := r.moveTo("m1", "opus")
-	if want := "MOVED T-1 on L-01: sonnet → opus (attempt 2)"; err != nil || reply != want {
+	if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
 		t.Fatalf("move: %q, %v; want %q", reply, err, want)
 	}
+	r.waitJob("pj-l-01", "T-1/2/work")
 	if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") {
 		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
 	}
-	r.waitJob("pj-l-01", "T-1/2/work")
 	r.waitFor("T-1 working on attempt 2", func() bool {
 		ts := r.task("T-1")
 		return ts.State == "working" && ts.Attempt == 2
@@ -72,11 +72,24 @@ func TestMoveWorkingTaskToAnotherModel(t *testing.T) {
 	if row, _, _ := store.ReadLaneAt(r.p.Root, "L-01"); row.Task != "T-1" || row.Type != "opus" {
 		t.Errorf("L-01's row %+v after the move; want T-1 as opus", row)
 	}
-	n := len(r.records())
-	if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || len(r.records()) != n {
-		t.Errorf("the same call id again: %q, %v (%d records, was %d); want the stored reply, nothing recorded", again,
-			err, len(r.records()), n)
+	// The loop records on its own meanwhile (the stop's lead line, its delivery: T-852), so the repeat is checked by
+	// what it alone could record: a dispatch fact.
+	n := r.dispatchFacts()
+	if again, err := r.moveTo("m1", "opus"); err != nil || again != reply || r.dispatchFacts() != n {
+		t.Errorf("the same call id again: %q, %v (%d dispatch facts, was %d); want the stored reply, nothing recorded",
+			again, err, r.dispatchFacts(), n)
 	}
+}
+
+// dispatchFacts is how many dispatch facts the log has (a move's, any attempt).
+func (r *loopRig) dispatchFacts() int {
+	n := 0
+	for _, rec := range r.records() {
+		if rec.Kind == event.KindFact && rec.Step == event.StepDispatched {
+			n++
+		}
+	}
+	return n
 }
 
 // A move to the model the task runs is refused ("already on"); nothing is recorded or stopped.
@@ -93,20 +106,21 @@ func TestMoveToTheSameModelRefused(t *testing.T) {
 	}
 }
 
-// Serve restarted in the middle of a move (the move recorded, the new agent's start cut before it ran) replays the
-// move: the start runs again, with the new model and the new attempt's job.
+// Serve restarted in the middle of a move (the move recorded, the worker stopped, the new agent's start cut before it
+// ran) replays the move: no second stop (T-852), the start runs again, with the new model and the new attempt's job.
 func TestMoveReplayedToTheNewModel(t *testing.T) {
 	t.Parallel()
 	r := newTakeOverRig(t)
 	r.disp.set(func(d *dispatchFakes) { d.cut["start"] = "before" })
-	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVED T-1 on L-01: sonnet → opus") {
+	if reply, err := r.moveTo("m1", "opus"); err != nil || !strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
 		t.Fatalf("move: %q, %v", reply, err)
 	}
 	r.waitFor("the move's start cut", func() bool { r.disp.mu.Lock(); defer r.disp.mu.Unlock(); return r.disp.hit["start"] })
 	r.stop()
-	if !r.has("2 intent agent.start") || r.has("2 result agent.start") {
-		t.Fatalf("precondition: the move's start pending: %q", r.steps())
+	if !r.has("2 result worker.stop") || !r.has("2 intent agent.start") || r.has("2 result agent.start") {
+		t.Fatalf("precondition: the worker stopped, the move's start pending: %q", r.steps())
 	}
+	stops := r.workerStops()
 	before := len(r.workerLaunches())
 	r.disp.set(func(d *dispatchFakes) { delete(d.cut, "start") })
 	r.start()
@@ -117,6 +131,10 @@ func TestMoveReplayedToTheNewModel(t *testing.T) {
 	}
 	if ts := r.task("T-1"); ts.Attempt != 2 {
 		t.Errorf("T-1's attempt %d after the replay, want 2", ts.Attempt)
+	}
+	if got := r.workerStops(); !slices.Equal(got, stops) || len(got) != 1 || r.count("2 intent worker.stop") != 1 {
+		t.Errorf("stops %q after the replay (before %q), %d stop intents; want the one stop, no second",
+			got, stops, r.count("2 intent worker.stop"))
 	}
 }
 
@@ -168,7 +186,7 @@ func TestMoveAfterSendbackKeepsTheDispatch(t *testing.T) {
 			r.start()
 			r.connectedAgain()
 			reply, err := r.moveTo("m1", "opus")
-			if want := "MOVED T-1 on L-01: sonnet → opus (attempt 3)"; err != nil || reply != want {
+			if want := "MOVING T-1 on L-01: sonnet → opus (stopping pj-l-01)"; err != nil || reply != want {
 				t.Fatalf("move: %q, %v; want %q (the old model read from the kept dispatch)", reply, err, want)
 			}
 			job := r.waitJob("pj-l-01", "T-1/3/work")

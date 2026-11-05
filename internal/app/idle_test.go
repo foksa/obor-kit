@@ -406,6 +406,10 @@ func (r *loopRig) briefEndsIdle(agent, text string) {
 	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{Note: "still nothing"}); err != nil || reply != "NOT IDLE" {
 		r.t.Fatalf("the ack of an ended epoch: %q, %v; want NOT IDLE", reply, err)
 	}
+	// The brief delivered before the agent works on it (finishesBrief): work seen before its delivery is no work on it,
+	// and under load the delivering pass may come late (T-852's red gate).
+	r.waitFor("the brief posted", func() bool { return r.inbox.count(agent, "[obor pj-lead] "+text) == 1 })
+	r.waitBriefDelivered()
 }
 
 // finishesBrief makes the agent in pane work on its brief and finish it; done is the finished line the lead gets.

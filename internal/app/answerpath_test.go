@@ -122,10 +122,11 @@ func TestAnswerPathEveryCause(t *testing.T) {
 					continue
 				}
 				h, _, fact := answerSeed(t, row.cause, row.state, row.job, row.watch)
+				// a drop answers DROPPED, or DROPPING for a task holding a lane (T-852)
 				if reply, err := runAnswer(h, fact, cmd); err != nil {
 					t.Errorf("%s: refused: %v", cmd, err)
 				} else if want := map[bool]string{true: "SENDBACK", false: map[string]string{"resume": "RESUMED",
-					"drop": "DROPPED"}[strings.Fields(cmd)[1]]}[strings.Contains(cmd, "--sendback")]; !strings.Contains(reply, want) {
+					"drop": "DROPP"}[strings.Fields(cmd)[1]]}[strings.Contains(cmd, "--sendback")]; !strings.Contains(reply, want) {
 					t.Errorf("%s: %q", cmd, reply)
 				}
 			}

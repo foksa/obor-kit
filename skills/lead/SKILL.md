@@ -81,8 +81,8 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 - `obor drop <T-xx> "<why>" [--discard] [--force]` — abandon a task: serve stops its worker and frees its lane
   (`--discard` for a dirty lane or unmerged commits, `--force` only for a worker that ignores Escape); a task with no
   lane yet (a waiting dispatch) is just cancelled. Every task command takes the task id, never a lane.
-- `obor dispatch <T-xx> --model <model>` on a working task moves it to that model in one command (`MOVED …`; same
-  lane and branch, next attempt): no stop, drop and redispatch by hand (commands.md).
+- `obor dispatch <T-xx> --model <model>` on a working task moves it to that model in one command (`MOVING …`; same
+  lane and branch, next attempt; serve stops the old worker, then starts the new model): no stop, drop and redispatch by hand (commands.md).
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).
 
 ## Reviews

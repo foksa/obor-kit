@@ -157,7 +157,7 @@ func TestMoveAfterSpecSetStartsOnTheNewRev(t *testing.T) {
 		t.Fatalf("spec set: %q", got)
 	}
 	if reply, err := r.moveTo("m1", "opus"); err != nil ||
-		!strings.HasPrefix(reply, "MOVED T-1 on L-01: sonnet → opus") {
+		!strings.HasPrefix(reply, "MOVING T-1 on L-01: sonnet → opus") {
 		t.Fatalf("move: %q, %v", reply, err)
 	}
 	r.waitJob("pj-l-01", "T-1/2/work")

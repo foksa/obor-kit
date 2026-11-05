@@ -94,7 +94,7 @@ func closedOf(cause string) block {
 func TestStatesOneRowPerState(t *testing.T) {
 	t.Parallel()
 	want := []string{stSubmitted, stGreen, stAwaiting, stRed, stConflict, stResolving, stResolved, stAccepted,
-		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving}
+		stMoved, stPublished, stMerged, stRejected, stDropped, stWaiting, stDispatched, stWorking, stDriving, stDropping}
 	var got []string
 	for st := range states {
 		got = append(got, st)
@@ -102,7 +102,7 @@ func TestStatesOneRowPerState(t *testing.T) {
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
-		t.Fatalf("states %v, want the 17 of loop.go %v", got, want)
+		t.Fatalf("states %v, want the 18 of loop.go %v", got, want)
 	}
 }
 
@@ -208,6 +208,22 @@ func TestStateDroppedRow44(t *testing.T) {
 	t.Parallel()
 	checkRow(t, rowWant{verbs: 0, mt: mtask{state: stDropped}, waits: true, name: "a step (dropped)", refuse: "T-1 is dropped",
 		ended: true})
+}
+
+// T-852: a dropping task runs the drop's steps (its worker's stop, lane.free, then dropped): no task_done, blocked or
+// not; a drop again (--force, --discard) and obor resume (retry) take it; a needs-you of a step waits for those.
+func TestStateDroppingRowT852(t *testing.T) {
+	t.Parallel()
+	retry := resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
+	checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stDropping}, name: "the drop",
+		refuse: "T-1 is dropping with nothing to resume (no question, no needs-you)", resume: retry})
+	for _, cause := range []string{causeStop, causeLane} {
+		checkRow(t, rowWant{verbs: vResume | vDrop, mt: mtask{state: stDropping, needs: heldOf(cause)}, waits: true,
+			name: "a step (needs-you)", landed: true, cause: cause, resume: retry})
+	}
+	// a take-over's refused stop: driving, held, obor resume retries it
+	checkRow(t, rowWant{verbs: vResume | vDrop | vSubmit, mt: mtask{state: stDriving, drive: true, needs: heldOf(causeStop)},
+		waits: true, name: "a step (needs-you)", landed: true, cause: causeStop, resume: resumeRule{retry: true}})
 }
 
 func TestStateWaitingRow2a(t *testing.T) {

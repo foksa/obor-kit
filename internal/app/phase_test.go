@@ -18,6 +18,7 @@ var statePhase = map[string]string{
 	stResolved: wire.PhaseGating, stMoved: wire.PhaseGating, stGreen: wire.PhaseReview, stConflict: wire.PhaseReview,
 	stAwaiting: wire.PhaseReviewing, stResolving: wire.PhaseReviewing, stAccepted: wire.PhasePublish,
 	stPublished: wire.PhasePublish, stMerged: wire.PhaseMerged, stRejected: wire.PhaseRejected, stDropped: wire.PhaseDropped,
+	stDropping: wire.PhaseDropping,
 }
 
 // T-788 (S5): every state of the table, with and without each live overlay, has exactly one phase: a needs-you in
@@ -74,9 +75,9 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	if got := phase(other, overlays{}); got != wire.PhaseNeedsYou {
 		t.Errorf("a stalled job's needs-you: phase %q, want needs-you, not held", got)
 	}
-	// The pipeline's stage is the phase's: the merge loop's states have one, the worker's, the drive's and the ended none.
+	// The pipeline's stage is the phase's: the merge loop's states have one, the worker's, the drive's, a drop's and the ended none.
 	for st, ph := range statePhase {
-		inLoop := !strings.Contains(" waiting dispatched working driving merged rejected dropped ", " "+st+" ")
+		inLoop := !strings.Contains(" waiting dispatched working driving merged rejected dropped dropping ", " "+st+" ")
 		if (wire.PhaseStage(ph) != "") != inLoop {
 			t.Errorf("%s: phase %s, stage %q", st, ph, wire.PhaseStage(ph))
 		}

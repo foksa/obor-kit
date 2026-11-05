@@ -43,6 +43,8 @@ type concScratch struct {
 	ignoresEsc bool
 	// stopFails: a stop's error by force ("" : none): a quit timeout, a forced stop that fails (RV-98 #2).
 	stopFails func(force bool) string
+	// freeErrs: how many Free calls fail first, as a cut git does (T-852: retried, never a half-done drop).
+	freeErrs int
 }
 
 func newConcScratch(hold string) *concScratch {
@@ -156,6 +158,10 @@ func (f *concScratch) Free(_ context.Context, in port.FreeInput) (string, error)
 	defer f.mu.Unlock()
 	if f.refuse != "" {
 		return "", port.Refused{Line: f.refuse}
+	}
+	if f.freeErrs > 0 {
+		f.freeErrs--
+		return "", errors.New("git branch -D task/T-2: signal: terminated")
 	}
 	f.frees = append(f.frees, in)
 	return "discarded in " + in.Lane, nil

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,13 +107,15 @@ func TestDriveRequest(t *testing.T) {
 	}
 }
 
-// parseDrive reads serve's DRIVE reply, a take-over's tail ignored.
+// parseDrive reads serve's DRIVE reply and a take-over's DRIVING one (T-852), its tail ignored; the DRIVING reply of
+// a drive whose agent runs already is none.
 func TestParseDrive(t *testing.T) {
 	t.Parallel()
 	for reply, want := range map[string]drive{
-		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                            {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
-		"DRIVE T-1 → L-02 (pj-l-02-drive, -) taking over from pj-l-02; STOPPED pj-l-02":          {"T-1", "L-02", "pj-l-02-drive", "-"},
-		"DRIVE T-1 → L-02 (pj-l-02-drive, sonnet) taking over from pj-l-02; pj-l-02 not running": {"T-1", "L-02", "pj-l-02-drive", "sonnet"},
+		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high)":                                 {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
+		"DRIVE T-3 → L-01 (pj-l-01-drive, opus:high) again: its agent is not running": {"T-3", "L-01", "pj-l-01-drive", "opus:high"},
+		"DRIVING T-1 → L-02 (pj-l-02-drive, -) taking over (stopping pj-l-02)":        {"T-1", "L-02", "pj-l-02-drive", "-"},
+		"DRIVING T-1 → L-02 (pj-l-02-drive, sonnet) taking over (stopping pj-l-02)":   {"T-1", "L-02", "pj-l-02-drive", "sonnet"},
 	} {
 		if got, ok := parseDrive(reply); !ok || got != want {
 			t.Errorf("parseDrive(%q) = %+v, %v; want %+v", reply, got, ok, want)
@@ -120,6 +123,9 @@ func TestParseDrive(t *testing.T) {
 	}
 	if _, ok := parseDrive("DISPATCHED T-1 → L-01 (queued)"); ok {
 		t.Error("parseDrive read a dispatch's reply")
+	}
+	if _, ok := parseDrive("DRIVING T-07 → L-01: pj-l1-drive runs already (pane w1:p5)"); ok {
+		t.Error("parseDrive read a running drive's reply")
 	}
 }
 
@@ -136,6 +142,36 @@ func TestDriveAgentRunningStartsNothing(t *testing.T) {
 	if rc != 0 || !strings.Contains(stdout, "DRIVING T-07 → L-01: pj-l1-drive runs already") ||
 		!strings.Contains(stdout, "OK T-07 → L-01: pj-l1-drive runs already (pane w1:p5)") || strings.Contains(stdout, "FAIL") {
 		t.Errorf("drive while its agent runs: rc %d, %q; want the reply and OK, nothing started", rc, stdout)
+	}
+}
+
+// T-852: obor drive starts a take-over's drive agent only once serve's status shows its worker's stop done: no stop
+// pending (Stopping ""), or the task not listed, goes on; a stop serve refused (Stopping set, the task needs-you) is an
+// error naming obor resume, so nothing is started.
+func TestDriveWaitsForTheStop(t *testing.T) {
+	t.Parallel()
+	p := servedProject(t)
+	cfg, err := config.Load(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := drive{task: "T-07", lane: "L-01", agent: "pj-l1-drive", ref: "sonnet"}
+	status := func(ts ...wire.TaskStatus) {
+		startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{Connected: true,
+			Project: &wire.ProjectStatus{Root: p.Root, Merging: true, Tasks: ts}}, "", "")
+	}
+	status(wire.TaskStatus{Task: "T-07", Lane: "L-01", State: wire.TaskDriving, Phase: wire.PhaseNeedsYou, Stopping: "pj-l1"})
+	err = waitStopped(context.Background(), cfg, d)
+	if err == nil || !strings.Contains(err.Error(), "pj-l1 not stopped") || !strings.Contains(err.Error(), "obor resume T-07 retries") {
+		t.Errorf("a refused stop: %v; want an error naming the stop and obor resume", err)
+	}
+	status(wire.TaskStatus{Task: "T-07", Lane: "L-01", State: wire.TaskDriving, Phase: wire.PhaseDriving})
+	if err := waitStopped(context.Background(), cfg, d); err != nil {
+		t.Errorf("the stop done: %v; want nil", err)
+	}
+	status()
+	if err := waitStopped(context.Background(), cfg, d); err != nil {
+		t.Errorf("the task not listed: %v; want nil", err)
 	}
 }
 
