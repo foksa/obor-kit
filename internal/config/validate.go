@@ -166,11 +166,13 @@ func (v *validator) integrator() {
 	}
 }
 
-// optional checks the optional settings: handoff_tokens (T-175), guards.allow_push (T-105).
+// optional checks the optional settings: handoff_tokens (T-175), guards.allow_push (T-105), guards.deny_commands
+// (T-905).
 func (v *validator) optional() {
 	v.nonNegative(".handoff_tokens", v.d.HandoffTokens)
 	if g := v.d.Guards; g != nil {
 		v.allowPush(g.AllowPush)
+		v.denyCommands(g.DenyCommands)
 	}
 	if v.d.Merge.ReceiptMaxAge < 0 {
 		v.fail(".merge.receipt_max_age", fmt.Sprintf("must be a non-negative integer (seconds), got %d", v.d.Merge.ReceiptMaxAge))
@@ -212,6 +214,25 @@ func (v *validator) allowPush(entries []string) {
 			v.warns = append(v.warns, "WARN .guards.allow_push: "+Compact(e)+" is no role (nor a role's agent name): it allows no push")
 		case rc.Role.Custom:
 			v.fail(".guards.allow_push", Compact(e)+" is a custom role: it never pushes (remove it)")
+		}
+	}
+}
+
+// denyCommands: every guards.deny_commands entry has a match that compiles and the message the guard denies with
+// (T-905). An empty match is refused too: it would deny every command.
+func (v *validator) denyCommands(rules []DenyCommand) {
+	for i, r := range rules {
+		path := ".guards.deny_commands" + idx(i)
+		switch {
+		case r.Match == "":
+			v.fail(path+".match", "required: a regular expression on the resolved command line")
+		default:
+			if _, err := regexp.Compile(r.Match); err != nil {
+				v.fail(path+".match", "must be a regular expression: "+strings.TrimPrefix(err.Error(), "error parsing regexp: "))
+			}
+		}
+		if r.Message == "" {
+			v.fail(path+".message", "required: the text the guard denies with")
 		}
 	}
 }

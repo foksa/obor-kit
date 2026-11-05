@@ -75,18 +75,19 @@ func SessionStart(input []byte, env project.Env, out io.Writer) (Began, bool) {
 		fmt.Fprintf(out, "Protected files this task may edit: %s (from %s's spec, rev %d in obor serve's store).\n",
 			strings.Join(w.Protected, ", "), w.State.Task, w.Rev)
 	}
+	runs := loadRuns(len(cfg.DenyCommands()))
 	forms := strings.Join(headlessForms(), ", ")
 	switch w.Role.Role {
 	case "worker":
-		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") are denied; "+loadRuns+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
+		fmt.Fprintln(out, "Hooks: git writes and push are denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied unless your spec names them under Protected files this task may edit, headless agent runs ("+forms+") are denied; "+runs+"; you cannot stop before you call the obor task_done tool with your report (Summary/Self-check/…; once per stop: asking works); prompts not tagged [obor … are answered with a wrong-tab question first.")
 	case roles.Driver: // the owner's drive (T-751): no job pull, no report demand, no wrong-tab guard
-		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") are denied; "+loadRuns+". Commit your work on the lane's branch; the owner lands it with obor land.")
+		fmt.Fprintln(out, "Hooks: git push is denied, edits outside your lane (other lanes, the main checkout, other obor projects) are denied, protected files are denied, headless agent runs ("+forms+") are denied; "+runs+". Commit your work on the lane's branch; the owner lands it with obor land.")
 	case "lead":
-		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; "+loadRuns+".")
+		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; "+runs+".")
 	case "integrator":
-		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied, protected files are denied; "+loadRuns+".")
+		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied, protected files are denied; "+runs+".")
 	default:
-		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; protected files are denied for non-lead roles; "+loadRuns+".")
+		fmt.Fprintln(out, "Hooks: git push, pkill/killall by pattern and headless agent runs ("+forms+") are denied; protected files are denied for non-lead roles; "+runs+".")
 	}
 	if line := roleText(cfg, w.Role.Role, project.KitRoot(env), repo.Top); line != "" {
 		fmt.Fprintln(out, line)
@@ -207,8 +208,14 @@ func recordable(agent string) bool {
 	return agent != "" && !strings.Contains(agent, "/") && !strings.HasPrefix(agent, ".")
 }
 
-// loadRuns is the hooks-line clause of the load-run guards (T-543, every role).
-const loadRuns = "Go test load runs (`-count`>1, `-race`, two test commands at once) are denied"
+// loadRuns is the hooks-line clause of guards.deny_commands (T-905): how many rules this project's config denies
+// with (the count T-543's fixed sentence named by its rule forms).
+func loadRuns(n int) string {
+	if n == 1 {
+		return "1 deny rule from guards.deny_commands"
+	}
+	return fmt.Sprintf("%d deny rules from guards.deny_commands", n)
+}
 
 // headlessForms are the headless runs the guard denies, one per kind (agents.Kind.Headless): its first program with its
 // first subcommand, else its print flag.

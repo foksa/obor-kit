@@ -1,15 +1,16 @@
 // Package guard is obor's Claude Code hooks: the Stop, SessionStart and UserPromptSubmit hooks (stop.go, session.go,
 // prompt.go) and the PreToolUse hook (`obor hook pre-tool-use`, run through bin/obor): the event JSON in,
 // allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
-// mvdan.cc/sh/v3/syntax (shell.go); a load run of tests (-count > 1, -race, two test commands at once) is denied for
-// every role (T-543); writes — the editor tools and the Bash write targets alike (checkWrite, RV-83) — are checked
-// against protected_files and the role's write profile (config.Role: a reviewer or deep_dive writes only under the
-// main checkout's paths.reviews / paths.research, never in its own role worktree, T-853; a custom role — advisor,
-// researcher, triage, a project's own — only its write list, T-801; a role whose roles.<name> row was removed while
-// its agent runs writes nothing and reads git only, T-814; a final symlink at its destination too), and an editor
-// tool of a worker against its lane's boundary: no other worktree of this repo (the main checkout included), no other
-// obor project, no final symlink out of the lane. A GitReadOnly role (reviewer, deep_dive, every custom role) runs git
-// reads only (gitRead); the reviewer and the deep dive also check out a commit in their own role worktree (T-853).
+// mvdan.cc/sh/v3/syntax (shell.go); a command the project's guards.deny_commands matches is denied for every role
+// (T-905: obor-kit's config carries T-543's Go load-run rule); writes — the editor tools and the Bash write targets
+// alike (checkWrite, RV-83) — are checked against protected_files and the role's write profile (config.Role: a
+// reviewer or deep_dive writes only under the main checkout's paths.reviews / paths.research, never in its own role
+// worktree, T-853; a custom role — advisor, researcher, triage, a project's own — only its write list, T-801; a role
+// whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a final symlink at
+// its destination too), and an editor tool of a worker against its lane's boundary: no other worktree of this repo
+// (the main checkout included), no other obor project, no final symlink out of the lane. A GitReadOnly role (reviewer,
+// deep_dive, every custom role) runs git reads only (gitRead); the reviewer and the deep dive also check out a commit
+// in their own role worktree (T-853).
 // The main checkout's HEAD rows (T-841, T-848) are gone with T-853: the integrator, the reviewer and the deep dive
 // left it, and a custom role there reads git only, so no role but the lead moves HEAD there. Which files of its lane
 // a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run headless (codex exec,
@@ -31,6 +32,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -45,6 +47,30 @@ import (
 type denial struct{ reason string }
 
 func deny(reason string) { panic(denial{reason}) }
+
+// denyRule is one compiled guards.deny_commands entry (T-905).
+type denyRule struct {
+	re      *regexp.Regexp
+	alone   bool // deny a matching command run alone; without it only two matching commands at once are denied
+	message string
+}
+
+// denyRules compiles the project's guards.deny_commands. A pattern that does not compile is skipped: config validate
+// refuses it, and the guard fails open (only a matched rule denies).
+func denyRules(cfg *config.Config) []denyRule {
+	if cfg == nil {
+		return nil
+	}
+	var out []denyRule
+	for _, r := range cfg.DenyCommands() {
+		re, err := regexp.Compile(r.Match)
+		if err != nil {
+			continue
+		}
+		out = append(out, denyRule{re: re, alone: r.Alone, message: r.Message})
+	}
+	return out
+}
 
 // Run checks one hook call (the PreToolUse event JSON) in the environment env: 0 and "" to allow, 2 and the reason
 // line (without "obor: ") to deny.
@@ -94,6 +120,8 @@ type guard struct {
 	cfg                    *config.Config
 	broken                 error // the config does not load (cfg is config.Fallback): fail closed (DD-v0.13 A1)
 	root, top              string
+
+	rules []denyRule // guards.deny_commands, compiled once per call (T-905)
 
 	protected []string
 
@@ -179,6 +207,7 @@ func load(input []byte, env project.Env) *guard {
 	}
 	g.broken = err
 	g.repo, g.top, g.root, g.cfg = repo, repo.Top, repo.Root, cfg
+	g.rules = denyRules(cfg)
 	g.protected = cfg.Data.ProtectedFiles
 	g.detectRole()
 	return g

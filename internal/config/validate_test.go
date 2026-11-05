@@ -227,6 +227,17 @@ func TestValidate(t *testing.T) {
 		{name: "allow_push empty", edits: []edit{set("guards", `{"allow_push": []}`)}},
 		{name: "allow_push an empty name", edits: []edit{set("guards", `{"allow_push": [""]}`)},
 			want: []string{`FAIL .guards.allow_push: must be a list of roles (e.g. ["lead"])`}},
+		// T-905: guards.deny_commands entries have a match that compiles and the message the guard denies with.
+		{name: "deny_commands a rule", edits: []edit{set("guards",
+			`{"deny_commands": [{"match": "^bun test --coverage", "alone": true, "message": "a coverage run is a load run"}]}`)}},
+		{name: "deny_commands a pairs rule", edits: []edit{set("guards",
+			`{"deny_commands": [{"match": "^bun test", "message": "two bun test commands at once are a load run"}]}`)}},
+		{name: "deny_commands a bad regex", edits: []edit{set("guards", `{"deny_commands": [{"match": "[", "message": "no"}]}`)},
+			want: []string{"FAIL .guards.deny_commands[0].match: must be a regular expression: missing closing ]: `[`"}},
+		{name: "deny_commands no match", edits: []edit{set("guards", `{"deny_commands": [{"message": "no"}]}`)},
+			want: []string{"FAIL .guards.deny_commands[0].match: required: a regular expression on the resolved command line"}},
+		{name: "deny_commands no message", edits: []edit{set("guards", `{"deny_commands": [{"match": "^x"}]}`)},
+			want: []string{"FAIL .guards.deny_commands[0].message: required: the text the guard denies with"}},
 		// bash config.test.sh case_validate_neutral_overlap
 		{name: "default neutral disjoint", edits: []edit{set("merge", neutralBase)}},
 		{name: "*.md crosses /", edits: []edit{set("merge", neutralBase), set("merge.neutral", []any{"docs/**", "*.md"})},

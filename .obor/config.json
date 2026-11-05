@@ -171,6 +171,17 @@
   "guards": {
     "allow_push": [
       "lead"
+    ],
+    "deny_commands": [
+      {
+        "match": "^(go test|go -C [^ ]+ test|[^ ]*\\.test)( [^ ]+)* (-count[= ]([2-9]|[1-9][0-9]+)|-test\\.count[= ]([2-9]|[1-9][0-9]+)|-race(=(true|1))?|-test\\.race(=(true|1))?)( |$)",
+        "alone": true,
+        "message": "a load run of tests (`-count` > 1, `-race`) is denied — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+      },
+      {
+        "match": "^(go test|go -C [^ ]+ test|[^ ]*\\.test)( |$)",
+        "message": "two or more test commands at once (a background &, xargs -P, parallel) are a load run — one plain `go test <pkgs>` run; the gate and nightly run the rest"
+      }
     ]
   },
   "slots": {

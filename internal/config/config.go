@@ -71,8 +71,20 @@ type Data struct {
 }
 
 type Guards struct {
-	AllowPush []string `json:"allow_push,omitzero"`
+	AllowPush    []string      `json:"allow_push,omitzero"`
+	DenyCommands []DenyCommand `json:"deny_commands,omitzero"`
 }
+
+// DenyCommand is guards.deny_commands[i] (T-905): a command the agent guard denies for every role. Match is a regex
+// on the resolved command line (the program by its basename, its words one space apart, quotes removed); Alone denies
+// a matching command run alone (and so also two at once), without it only two matching commands run at once — a
+// sibling background unit pair, xargs -P, parallel — are denied. Message is the deny line.
+type DenyCommand struct {
+	Match   string `json:"match"`
+	Alone   bool   `json:"alone,omitempty"`
+	Message string `json:"message"`
+}
+
 type Limits struct {
 	MaxPanesPerTab *int `json:"max_panes_per_tab,omitempty"`
 }
@@ -765,6 +777,14 @@ func (c *Config) PushAllowed(role string) bool {
 		}
 	}
 	return false
+}
+
+// DenyCommands is guards.deny_commands: the commands the agent guard denies for every role (T-905); nil when unset.
+func (c *Config) DenyCommands() []DenyCommand {
+	if c.Data.Guards == nil {
+		return nil
+	}
+	return c.Data.Guards.DenyCommands
 }
 
 // pushSlot is the role an allow_push entry names: the role itself, else the role whose derived name it is ("": none).
