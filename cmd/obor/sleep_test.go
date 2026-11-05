@@ -31,15 +31,14 @@ type stopCall struct {
 }
 
 // sleepServe is serve as a sleeper sees it: up or down, its open tasks and its pause; each request recorded (method,
-// call) and answered as serve does (a pause sets or clears its pause; a drop's error is dropErr).
+// call) and answered as serve does (a pause sets or clears its pause).
 type sleepServe struct {
-	root    string
-	up      bool
-	tasks   []wire.TaskStatus
-	paused  *event.Pause
-	dropErr error
-	calls   []string // "<method> <task|lane|note|clear>"
-	asks    int
+	root   string
+	up     bool
+	tasks  []wire.TaskStatus
+	paused *event.Pause
+	calls  []string // "<method> <task|lane|note|clear>"
+	asks   int
 	// onExit is serve's graceful exit on the exit request (nil: it answers, nothing ends).
 	onExit func()
 }
@@ -74,15 +73,6 @@ func (f *sleepServe) call(_ context.Context, method string, c wire.Call) (string
 			f.onExit()
 		}
 		return "EXITING", nil
-	case method == wire.MethodDrop:
-		if c.CallID == "" || !c.Force || !strings.Contains(c.Note, "obor stop --force") {
-			return "", errors.New("bad drop call")
-		}
-		f.calls = append(f.calls, "drop "+c.Task+c.Lane)
-		if f.dropErr != nil {
-			return "", f.dropErr
-		}
-		return "DROPPED " + c.Task + c.Lane, nil
 	}
 	return "", errors.New("unexpected " + method)
 }
@@ -205,18 +195,21 @@ func TestStopRefusedWhileServeIsDown(t *testing.T) {
 	nothingDone(t, p, s, *stops, f)
 }
 
-// T-710: a waiting dispatch (no lane) refuses obor stop after its pause, which it clears; a merged task is not open.
+// T-710, T-867: a waiting dispatch (no lane) refuses obor stop after its pause, which it clears, and names that
+// --force keeps the task open; a merged task is not open.
 func TestStopRefusesATaskInProgress(t *testing.T) {
 	t.Parallel()
 	p, s, out, stops, f := sleepFx(t)
 	f.tasks = []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "merged"}, {Task: "T-03", State: "waiting"}}
 	if rc := s.stop(context.Background()); rc != 1 ||
-		!strings.Contains(out.String(), "FAIL tasks in progress: T-03 (no lane, waiting)") || strings.Contains(out.String(), "T-01") {
+		!strings.Contains(out.String(), "FAIL tasks in progress: T-03 (no lane, waiting)") ||
+		!strings.Contains(out.String(), "obor stop --force (stops the agents; the tasks stay open and continue at obor start)") ||
+		strings.Contains(out.String(), "T-01") {
 		t.Errorf("T-03 waiting (T-01 merged): exit %d\n%s", rc, out)
 	}
 	pausedThenCleared(t, f, out)
 	if len(f.calls) != 2 {
-		t.Errorf("calls %q: want only the pause and its clear (no drop without --force)", f.calls)
+		t.Errorf("calls %q: want only the pause and its clear (nothing stopped)", f.calls)
 	}
 	nothingDone(t, p, s, *stops, f)
 }
@@ -255,7 +248,7 @@ func TestStopReplacesATimedPause(t *testing.T) {
 }
 
 // T-711 (RV-84 #1): the caller's own herdr pane runs the agent of a busy lane (its label pj-l-01; its cwd the main
-// checkout, OBOR_ROLE unset: the owner's identity otherwise): obor stop --force refuses before any drop, clears its
+// checkout, OBOR_ROLE unset: the owner's identity otherwise): obor stop --force refuses before any agent stops, clears its
 // pause and does nothing; so it does when the pane's cwd is in the lane under a label of no agent.
 func TestStopRefusesTheCallersLane(t *testing.T) {
 	t.Parallel()
@@ -275,7 +268,7 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 	}
 	pausedThenCleared(t, f, out)
 	if len(f.calls) != 2 {
-		t.Errorf("calls %q: want only the pause and its clear (no drop)", f.calls)
+		t.Errorf("calls %q: want only the pause and its clear (nothing stopped)", f.calls)
 	}
 	nothingDone(t, p, s, *stops, f)
 
@@ -286,25 +279,7 @@ func TestStopRefusesTheCallersLane(t *testing.T) {
 		t.Errorf("cwd in the lane: exit %d\n%s", rc, out)
 	}
 	if len(f.calls) != 2 {
-		t.Errorf("cwd in the lane: calls %q: want only the pause and its clear (no drop)", f.calls)
-	}
-	nothingDone(t, p, s, *stops, f)
-}
-
-// T-710 (RV-84 #3): with --force a drop serve refuses refuses obor stop — no "not dropped" and go on — and clears the
-// pause; nothing after it runs (no agent stopped).
-func TestStopForceFailedDropRefuses(t *testing.T) {
-	t.Parallel()
-	p, s, out, stops, f := sleepFx(t)
-	s.Force = true
-	f.tasks = []wire.TaskStatus{{Task: "T-03", State: "waiting"}, {Task: "T-02", Lane: "L-01", State: "working"}}
-	f.dropErr = errors.New("drop: refused")
-	if rc := s.stop(context.Background()); rc != 1 || !strings.Contains(out.String(), "FAIL drop T-03 (no lane, waiting): drop: refused") {
-		t.Errorf("exit %d\n%s", rc, out)
-	}
-	pausedThenCleared(t, f, out)
-	if len(f.calls) != 3 || f.calls[1] != "drop T-03" {
-		t.Errorf("calls %q: want pause, the one drop, clear", f.calls)
+		t.Errorf("cwd in the lane: calls %q: want only the pause and its clear (nothing stopped)", f.calls)
 	}
 	nothingDone(t, p, s, *stops, f)
 }
@@ -436,9 +411,62 @@ esac
 	return log, state
 }
 
-// T-709, T-710: obor stop's transition against fakes: serve paused, the tasks in progress dropped with --force (a
-// lane by its lane, a waiting task by its id), herdr's panes (the worker and the integrator stopped; the caller's own
-// pane and agent, a pane at its shell, an unknown label and another project's agent not), launchd's serve booted out
+// T-867: obor stop --force with two working tasks drops nothing: serve gets the pause and the exit only, both agents
+// stop, STOPPED is said, the tasks stay open in the log, and obor start leaves both open (they continue at the start).
+func TestStopForceKeepsTasksOpen(t *testing.T) {
+	p, s, out, stops, f := sleepFx(t)
+	p.Lane("L-02", "task/T-03")
+	p.Config()
+	cfg, warn, err := config.LoadReader(p.Root)
+	if err != nil || warn != "" {
+		t.Fatal(err, warn)
+	}
+	s.Cfg = cfg
+	fk := p.Herdr()
+	fk.Agent("w1:p1", "pj-l-01", "working", p.LaneDir("L-01")).Label = "pj-l-01"
+	fk.Agent("w1:p2", "pj-l-02", "working", p.LaneDir("L-02")).Label = "pj-l-02"
+	paneServe(t, s, f, true)
+	s.Env = p.Env("PATH=" + os.Getenv("PATH"))
+	s.Force = true
+	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "working"},
+		{Task: "T-03", Lane: "L-02", State: "working"}}
+
+	if rc := s.stop(context.Background()); rc != 0 {
+		t.Fatalf("stop --force: exit %d\n%s", rc, out)
+	}
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "drop ") {
+			t.Errorf("a drop was sent: calls %q; --force drops nothing", f.calls)
+		}
+	}
+	if want := []string{"pause " + stopPause, "exit"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
+		t.Errorf("calls %q, want %q", f.calls, want)
+	}
+	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-l-02", "w1:p2", true}}
+	if len(*stops) != 2 || (*stops)[0] != want[0] || (*stops)[1] != want[1] {
+		t.Errorf("agents stopped %+v, want %+v", *stops, want)
+	}
+	if !strings.Contains(out.String(), "STOPPED proj") || !project.Stopped(p.Root) {
+		t.Errorf("no STOPPED line or marker:\n%s", out)
+	}
+	if got := openTasks(&wire.ProjectStatus{Tasks: f.tasks}); len(got) != 2 {
+		t.Errorf("tasks after --force: %+v; want both kept open", got)
+	}
+
+	out.Reset()
+	f.calls = nil
+	if rc := s.start(context.Background()); rc != 0 {
+		t.Fatalf("start: exit %d\n%s", rc, out)
+	}
+	ps, err := s.status(context.Background())
+	if err != nil || len(openTasks(ps)) != 2 || openTasks(ps)[0].Task != "T-02" || openTasks(ps)[1].Task != "T-03" {
+		t.Errorf("open tasks after start: %+v, %v; want T-02 and T-03", openTasks(ps), err)
+	}
+}
+
+// T-709, T-710, T-867: obor stop's transition against fakes: serve paused, the tasks in progress kept open with
+// --force (no drop), herdr's panes (the worker and the integrator stopped; the caller's own pane and agent, a pane at
+// its shell, an unknown label and another project's agent not), launchd's serve booted out
 // and confirmed down, the project out of the machine's list, the marker; a second stop says it is stopped already and
 // sends nothing. obor start reverses it: no marker, the agent installed again, the project in the list, the stop's
 // pause cleared.
@@ -468,12 +496,16 @@ func TestStopStepsAndStart(t *testing.T) {
 	if rc := s.stop(context.Background()); rc != 0 {
 		t.Fatalf("stop: exit %d\n%s", rc, out)
 	}
-	if want := []string{"pause " + stopPause, "drop T-02", "drop T-03"}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
-		t.Errorf("calls %q, want %q (the pause kept: serve is down)", f.calls, want)
+	if want := []string{"pause " + stopPause}; strings.Join(f.calls, "|") != strings.Join(want, "|") {
+		t.Errorf("calls %q, want %q (the pause kept: serve is down; --force drops nothing)", f.calls, want)
 	}
 	want := []stopCall{{"pj-l-01", "w1:p1", true}, {"pj-int", "w1:p2", true}}
 	if len(*stops) != 2 || (*stops)[0] != want[0] || (*stops)[1] != want[1] {
 		t.Errorf("agents stopped %+v, want %+v", *stops, want)
+	}
+	ps, err := s.status(context.Background())
+	if err != nil || len(openTasks(ps)) != 2 {
+		t.Errorf("open tasks after --force: %v, %v; want T-02 and T-03 kept open", openTasks(ps), err)
 	}
 	if !project.Stopped(p.Root) || !strings.Contains(p.Read(".obor/state/stopped"), "why: obor stop") {
 		t.Errorf("marker: %v", project.Stopped(p.Root))
@@ -486,7 +518,7 @@ func TestStopStepsAndStart(t *testing.T) {
 		!strings.Contains(out.String(), "serve: down (pid 4242: serve.flock and serve.sock released)") {
 		t.Errorf("launchd's serve not uninstalled and confirmed down: plist %v, calls\n%s\n%s", err, b, out)
 	}
-	for _, w := range []string{"DROPPED T-02", "DROPPED T-03", "pause: PAUSED until cleared"} {
+	for _, w := range []string{"pause: PAUSED until cleared"} {
 		if !strings.Contains(out.String(), w) {
 			t.Errorf("no %q line:\n%s", w, out)
 		}
@@ -522,6 +554,9 @@ func TestStopStepsAndStart(t *testing.T) {
 	}
 	if f.paused != nil || len(f.calls) != 1 || f.calls[0] != "pause --clear" || !strings.Contains(out.String(), "pause: PAUSE CLEARED") {
 		t.Errorf("start: calls %q, pause %+v: want the stop's pause cleared\n%s", f.calls, f.paused, out)
+	}
+	if ps, err = s.status(context.Background()); err != nil || len(openTasks(ps)) != 2 {
+		t.Errorf("open tasks after start: %v, %v; want T-02 and T-03 (the stop dropped nothing)", openTasks(ps), err)
 	}
 }
 
@@ -662,35 +697,5 @@ func TestStoppedProjectWithANewerConfig(t *testing.T) {
 	}
 	if rc, stdout, _ := run(t, p.Root, env, "init"); rc != 1 || !strings.Contains(stdout, "is stopped (obor stop): obor start wakes it") {
 		t.Errorf("init (stopped): exit %d\n%s", rc, stdout)
-	}
-}
-
-// T-852: a drop serve answers DROPPING runs as its merge loop's steps (the worker's stop, the lane's free), so obor
-// stop --force waits for each such task to be dropped before it stops any agent itself (never two stops of one
-// worker at once): dropped, or no longer listed, goes on; a task a needs-you holds (its stop or free refused) is an
-// error naming obor resume, nothing stopped.
-func TestStopWaitsForDroppingTasks(t *testing.T) {
-	t.Parallel()
-	_, s, _, _, f := sleepFx(t)
-	f.tasks = []wire.TaskStatus{{Task: "T-02", Lane: "L-01", State: "dropping"}}
-	asks := 0
-	s.Ask = func(ctx context.Context) (wire.Status, error) {
-		if asks++; asks == 3 {
-			f.tasks[0].State = "dropped"
-		}
-		return f.ask(ctx)
-	}
-	if err := s.waitDropped(context.Background(), []string{"T-02"}); err != nil || asks != 3 {
-		t.Errorf("dropping, then dropped: %v after %d asks; want nil once it is dropped (3 asks)", err, asks)
-	}
-	f.tasks[0].State = "needs-you"
-	err := s.waitDropped(context.Background(), []string{"T-02"})
-	if err == nil || !strings.Contains(err.Error(), "drop T-02: a needs-you holds it") ||
-		!strings.Contains(err.Error(), "obor resume T-02 retries") {
-		t.Errorf("a drop held by a needs-you: %v; want an error naming it and obor resume", err)
-	}
-	f.tasks = nil
-	if err := s.waitDropped(context.Background(), []string{"T-02"}); err != nil {
-		t.Errorf("the task no longer listed: %v; want nil", err)
 	}
 }

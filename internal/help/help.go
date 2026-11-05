@@ -57,7 +57,7 @@ var Commands = []Command{
 	{"pause", `obor pause [--model <name>] [--for <dur>] "<why>" | obor pause [--model <name>] --clear`,
 		"stop dispatching (quota, waiting on you), or stop using one model; --clear ends it", "project"},
 	{"stop", `obor stop ["<why>"] [--force]`,
-		"put the project to sleep: its agents and serve go, files and config stay", "project"},
+		"put the project to sleep: its agents and serve go, files and config stay; --force keeps open tasks open", "project"},
 	{"start", "obor start", "wake a stopped project", "project"},
 	{"projects", "obor projects | obor projects --notify <release notes file>",
 		"the obor projects this machine knows, with serve up or down", "project"},
