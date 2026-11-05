@@ -551,6 +551,14 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   new target; the result reads `kept <base7>` and the merge is `partial`. The nightly full check covers what the
   affected sets cannot see, including non-Go readers (`check-readers`, `check-web`, T-901): overlap is computed on Go
   packages only (RV-122 design concern; owner's weaker contract). obor-kit's own config maps its non-Go files to the checks that read them (T-901).
+- **A clean move with shared packages re-runs only what compiles** (owner 2026-11-05, T-914;
+  docs/research/merge-without-regate.md: 165 moved re-gates in 12 days, 0 real reds): when the move overlaps only in
+  affected packages (no file both sides changed, neither side `full`, last gate green on an ancestor of the new
+  target), the gate runs the class's checks with `OBOR_MOVED=1` in their environment; a project's check may skip its
+  tests on it (obor-kit's `check-affected` keeps build, gofmt, vet and deadcode). The result line says `moved`, the
+  merge is `partial`. A shared file or a `full` side: the full re-gate as before. A red in a package the candidate did
+  not change points at the last `partial` merges first; a post-merge check of main comes only after a first break
+  that slips through.
 - **`CHECK_CPUS`** (`obor run` of a heavy command and the gates' commands): `slots.cpus` when set, else
   `max(1, cores / slots.max)`. The project maps it (obor-kit: `go test -p`).
 - **Go projects: `obor affected go`** (T-351; research §2, §5). `obor affected go [--changed <file>]` (default

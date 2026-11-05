@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner, docs/research/merge-without-regate.md option C): **A clean move re-runs only the compile
+  steps**: no shared file and neither side `full` → build, gofmt, vet, deadcode with `OBOR_MOVED=1`, no `go test`;
+  merge `partial` (T-914). Cause: 11-05 had 41 moved re-gates (~140 of ~490 serial gate minutes); in 12 days 165
+  moved re-gates caught no real break, their 15 reds were load-timing tests. ~+15 prod lines, accepted against the
+  milestone rule for ~90 gate minutes a day. Option D (never re-gate + post-merge check of main) only after a slip.
 - 2026-11-05 (owner): **A drive is for new work only; the take-over goes** (`obor drive <T-xx>` on a worker's task,
   T-751/T-852): the owner drives to work interactively with an agent on something new, never to take over a running
   task. `obor drive <name>` and a drive's own retry stay; S1(a) (serve continues a take-over) is moot. T-912 deletes
