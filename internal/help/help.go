@@ -60,7 +60,7 @@ var Commands = []Command{
 	{"stop", `obor stop ["<why>"] [--force]`,
 		"put the project to sleep: its agents and serve go, files and config stay; --force keeps open tasks open", "project"},
 	{"start", "obor start", "wake a stopped project", "project"},
-	{"projects", "obor projects | obor projects --notify <release notes file>",
+	{"projects", "obor projects",
 		"the obor projects this machine knows, with serve up or down", "project"},
 	{"config", "obor config [get <path> | validate]", "print the effective config, one value, or check it", "project"},
 	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout (obor run <name> --help: its configured line, runs nothing)", "project"},
@@ -83,12 +83,11 @@ var Commands = []Command{
 }
 
 // Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in
-// Commands (obor review fix, the hidden --notify of obor projects). Commands and Steps are the one source of every
-// usage line the CLI prints (T-873): each command's usage error prints Usage of its name.
+// Commands (obor review fix). Commands and Steps are the one source of every usage line the CLI prints (T-873): each
+// command's usage error prints Usage of its name.
 var Steps = map[string]string{
-	"review close":      `obor review close "<summary>" [--accept "<line>"]… [--force]`,
-	"review fix":        `obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`,
-	"projects --notify": "obor projects --notify <release notes file>",
+	"review close": `obor review close "<summary>" [--accept "<line>"]… [--force]`,
+	"review fix":   `obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`,
 }
 
 // Usage is the usage line of name, "usage: " included: a command's (Commands) or a step's (Steps). It prints no line

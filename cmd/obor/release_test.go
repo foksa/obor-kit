@@ -656,12 +656,12 @@ func TestMakeReleasePlainMakeEnv(t *testing.T) {
 // logging outside the repo so the release's clean-tree check still holds.
 type shipFixture struct {
 	*releaseFixture
-	origin   string
-	ghlog    string
-	verfile  string
-	instlog  string
-	ghstate  string // the stub gh's release: release, assets, draft
-	notified string // the log of the stub's `obor projects --notify` calls (T-715)
+	origin  string
+	ghlog   string
+	verfile string
+	instlog string
+	ghstate string // the stub gh's release: release, assets, draft
+	sent    string // the log of the stub's `obor send` calls (T-903)
 }
 
 func newShipFixture(t *testing.T) *shipFixture {
@@ -709,12 +709,19 @@ case "$1 $2" in
 esac
 `)
 	writeFile(t, s.verfile, "v1.2.3\n")
-	// obor: its version line, and `obor projects --notify` (T-715).
-	s.notified = filepath.Join(f.Base, "notified")
+	// obor: its version line, `obor projects` (this kit and two others) and `obor send` of the release notes (T-903);
+	// axis-alies' send fails while send-broken exists.
+	s.sent = filepath.Join(f.Base, "sent")
 	writeExec(t, filepath.Join(f.Root, "stub", "obor"), `#!/bin/bash
-if [ "$1" = projects ] && [ "$2" = --notify ]; then
-  echo "projects --notify notes: $(cat "$3")" >> "`+s.notified+`"
-  [ ! -f "`+filepath.Join(f.Base, "notify-broken")+`" ] || { echo "FAIL axis-alies: send: serve down"; exit 1; }
+if [ "$1" = projects ]; then
+  printf '%s\n' "kit $(pwd -P) serve up" "axis-alies /nowhere/axis-alies serve down" "other /nowhere/other serve down"
+  exit 0
+fi
+if [ "$1" = send ]; then
+  echo "$2: $3" >> "`+s.sent+`"
+  [ "$2" != axis-alies ] || [ ! -f "`+filepath.Join(f.Base, "send-broken")+`" ] ||
+    { echo "FAIL axis-alies: send: serve down"; exit 1; }
+  echo "SENT to $2's lead"
   exit 0
 fi
 echo "obor $(cat "`+s.verfile+`")"
@@ -727,10 +734,11 @@ echo "obor $(cat "`+s.verfile+`")"
 	return s
 }
 
-// T-640, T-715, T-719: one ship run covers the family: a ship without a tag refuses; the ship after a release pushes
-// main and the tag, publishes and installs, and ends by telling the leads (`obor projects --notify <the tag's
-// docs/releases/v<version>.md>`); a notify that fails fails the ship after the follow line, naming the repair; a
-// second run skips push, publish and install and notifies again.
+// T-640, T-715, T-719, T-903: one ship run covers the family: a ship without a tag refuses; the ship after a release
+// pushes main and the tag, publishes and installs, and ends by telling the leads (one `obor send <project> "<the tag's
+// docs/releases/v<version>.md>"` per project of `obor projects` but the kit's own); a send that fails fails the ship
+// after the follow line, naming the repair, and the other projects are sent to anyway; a second run skips push,
+// publish and install and tells the leads again.
 func TestMakeShip(t *testing.T) {
 	t.Parallel()
 	f := newShipFixture(t)
@@ -738,6 +746,9 @@ func TestMakeShip(t *testing.T) {
 	out, failed := f.make(t, "ship")
 	if !failed || !strings.Contains(out, "no tag v1.2.3") {
 		t.Errorf("ship without a tag must refuse naming it (failed %v):\n%s", failed, out)
+	}
+	if f.Exists(f.sent) {
+		t.Errorf("the refused ship sent to a lead: %s", readFile(t, f.sent))
 	}
 
 	if out, failed := f.release(t, "V=1.2.4"); failed {
@@ -747,18 +758,23 @@ func TestMakeShip(t *testing.T) {
 	if strings.TrimSpace(notes) == "" {
 		t.Fatalf("precondition: the tag has release notes, got %q", notes)
 	}
-	writeFile(t, filepath.Join(f.Base, "notify-broken"), "")
+	writeFile(t, filepath.Join(f.Base, "send-broken"), "")
 	out, failed = f.make(t, "ship")
 	if !failed {
 		t.Errorf("a send that fails must fail the ship (T-715, T-719):\n%s", out)
 	}
-	// The ship did its work and then failed at the notify: its four lines are all there, then the repair.
+	// The ship did its work and then failed at the tell: its four lines are all there, then the repair.
 	for _, want := range []string{"pushed main up to " + f.headShort(t) + " (checksums: v1.2.4) and v1.2.4", "published v1.2.4",
 		"installed the kit", "serves and web follow the new binary within a minute", "FAIL axis-alies: send: serve down",
-		"obor projects --notify <the notes"} {
+		"obor send <project>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("a failing notify must leave %q after the reminder (failed %v):\n%s", want, failed, out)
 		}
+	}
+	// The failing send did not stop the others: axis-alies' send was attempted and other's went out; the kit is not told.
+	if got := readFile(t, f.sent); !strings.Contains(got, "axis-alies: obor v1.2.4 is installed. ") ||
+		!strings.Contains(got, "other: obor v1.2.4 is installed. ") || strings.Contains(got, "kit: ") {
+		t.Errorf("the failing ship's sends = %q, want axis-alies and other, not kit", got)
 	}
 	if got, want := f.Git(f.origin, "rev-parse", "refs/heads/main"), f.Git(f.Root, "rev-parse", "refs/heads/main"); got != want {
 		t.Errorf("origin main = %s, want the local %s", got, want)
@@ -775,7 +791,7 @@ func TestMakeShip(t *testing.T) {
 		t.Errorf("install.sh ran %d times, want once", n)
 	}
 
-	if err := os.Remove(filepath.Join(f.Base, "notify-broken")); err != nil {
+	if err := os.Remove(filepath.Join(f.Base, "send-broken")); err != nil {
 		t.Fatal(err)
 	}
 	out, failed = f.make(t, "ship")
@@ -808,12 +824,21 @@ func TestMakeShip(t *testing.T) {
 	if got := readFile(t, f.instlog); got != instBefore {
 		t.Errorf("the second ship installed again: %q", got)
 	}
-	log := readFile(t, f.notified)
-	if n := strings.Count(log, "projects --notify notes: "); n != 3 { // the two ships and the refused notify, each once
-		t.Errorf("notify ran %d times over three ships, want 3:\n%s", n, log)
+	log := readFile(t, f.sent)
+	// One send per other project per ship: two ships plus the failing one that got through, the kit never.
+	if n := strings.Count(log, ": obor v1.2.4 is installed. "); n != 6 {
+		t.Errorf("obor send ran %d times over three ships (two other projects each), want 6:\n%s", n, log)
+	}
+	for _, name := range []string{"axis-alies", "other"} {
+		if n := strings.Count(log, name+": "); n != 3 {
+			t.Errorf("%s was told %d times over three ships, want once each:\n%s", name, n, log)
+		}
+	}
+	if strings.Contains(log, "kit: ") {
+		t.Errorf("the kit told its own lead:\n%s", log)
 	}
 	if !strings.Contains(log, strings.Fields(notes)[0]) {
-		t.Errorf("notify was not given the tag's notes %q:\n%s", notes, log)
+		t.Errorf("the sends were not given the tag's notes %q:\n%s", notes, log)
 	}
 }
 
