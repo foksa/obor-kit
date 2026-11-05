@@ -6,6 +6,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 (after v0.28): `obor web` does not follow a new binary the way serve does (selfexec): after T-883 changed the view's JSON, the 17:48 web process served the old API to the new page (no titles) until restarted by hand. Either web re-execs on a binary change, or the v0.28 notes say to restart `obor web` after the upgrade (add that line to the notes now).
 - 2026-11-05 ~18:30 **Milestone cut (owner).** v0.28 = merged work + T-879, T-907, T-906 (RV-121 fix), T-898 (live
   MCP check, must pass), T-908 (pause holds the worker-start rule); release once they merge and RV-121 closes (notes:
   BACKLOG items "Next release notes (v0.28)" and 11-05 afternoon). T-889, T-890 were already running: they finish.
@@ -27,7 +28,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   main's). Concern: herdr server ~95% CPU (50 h CPU in 4d20h), load 50-58 at 4 lanes: watch it after the restart; if
   it climbs back, count obor's herdr calls per minute (researcher). Lanes 4 (6 after T-879/T-880 measured). After
   restart: `obor start`, `obor lead --resume` (or fresh), check `obor status`.
-- Next release notes (v0.28): `obor status --json` changed shape (T-883): `tasks` is a map of `view.Task` keyed by id; `lanes[]`, `needs_you[]`, `queue.merge[]`, `queue.waiting[]` reference it by id (task fields gone from them, `lanes[].free` added). Also: `obor projects --notify` gone (T-903), `guards.deny_commands` (T-905).
+- Next release notes (v0.28): `obor status --json` changed shape (T-883): `tasks` is a map of `view.Task` keyed by id; `lanes[]`, `needs_you[]`, `queue.merge[]`, `queue.waiting[]` reference it by id (task fields gone from them, `lanes[].free` added). Restart a running `obor web` after upgrading.
 - 2026-11-05 RV-121 design concern: serve replay still calls `store.Admits` per session fact (`internal/app/sessions.go:86`; rebuilds indexes each call, 921 facts in obor-kit's store) beside T-881's one-pass `Owned`: measure replay, then one incremental fold in serve and drop the app-side replacement scan.
 - 2026-11-05 (kit-specific survey #7, low): serve's low-disk needs-you probes `go env GOCACHE` in every project (`cmd/obor/serve.go:178-191`, `internal/app/disk.go:57`): make it a config hint or drop it; fold into the next disk task.
 - 2026-11-05 ~15:10 (lead): **At RV-120's close** (after T-897's verify): `obor review` of T-873 + T-876 (focus T-876:
