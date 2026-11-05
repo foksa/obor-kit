@@ -33,6 +33,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
 - (none; log snapshot and drive decided 11-05, docs/decisions.md)
 
 ## Later candidates
+- **Log snapshot at upgrade** (parked 11-05, docs/research/log-snapshot.md): build when compat branches pass ~300
+  prod lines or a record-shape change needs it.
 - **Harden review → fix → verify in obor** (owner 11-04, after the lead closed RV-107..RV-111 right after dispatching
   fixes, so each fix round was a fresh review without the findings' context). Options: `obor review close` refuses
   while a fix task it names is open or merged but unverified; or `obor review fix T-a,T-b` links fix tasks to the open
