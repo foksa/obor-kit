@@ -211,6 +211,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (11-05) The idle line fired at T-856's merge although `obor review fix` was about to brief the verify (ob-rev working
+  seconds later; `obor idle` then said NOT IDLE): idle should count linked fixes that all merged and a verify not yet
+  briefed. A false ping per fix round; fix small (idle.go reads the review-fix state).
 - (11-05) Load flakes in internal/app's role-brief tests, only on T-852's gates so far (load ~30): TestReviewerBriefEndsIdleAndANewEpochStarts,
   TestBriefEndsWhenItsAgentIsGone/not_identified (62 s wait); both pass alone and in the package at load 19. If one
   recurs on another task: a flake task (what the test waits on under load).
