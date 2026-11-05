@@ -60,7 +60,7 @@ type reviewGit struct {
 var _ app.ReviewGit = reviewGit{}
 
 func (g reviewGit) Last(ctx context.Context, branch string) (app.ReviewClose, error) {
-	out, err := g.git(ctx, "log", "-1", "-E", "--grep=^RV-[0-9]+ closed", "--format=%B", "--end-of-options", branch)
+	out, err := g.git(ctx, "log", "-1", "-E", "--grep="+app.CloseCommitGrep, "--format=%B", "--end-of-options", branch)
 	if err != nil {
 		return app.ReviewClose{}, err
 	}

@@ -8,7 +8,6 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -173,7 +172,7 @@ func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 		a.logf("review fix of %s: %v", p.name, err)
 		return
 	}
-	if n, _, _ := PreviousReview(last.Subject); "RV-"+strconv.Itoa(n) != id {
+	if n, _, _ := PreviousReview(last.Subject); reviewID(n) != id {
 		// The round's review closed under it (a forced close): nothing left to verify. Record the pending tasks
 		// dropped so the fold stops counting the round, once: pending() empties and later passes return early
 		// (T-858: a failed verify no longer keeps idle off after the close).

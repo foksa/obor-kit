@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -331,7 +330,7 @@ func OpenReview(ctx context.Context, g ReviewGit, root string, s ReviewSetup) (O
 	}
 	n, prev, prevSHA := PreviousReview(last.Subject)
 	from, _ := reviewScope(last)
-	c := OpenCycle{ID: "RV-" + strconv.Itoa(n), Prev: prev, PrevSHA: prevSHA, From: from}
+	c := OpenCycle{ID: reviewID(n), Prev: prev, PrevSHA: prevSHA, From: from}
 	c.File = filepath.Join(root, s.Reviews, c.ID+".md")
 	if _, err := os.Stat(c.File); err != nil {
 		return c, fmt.Errorf("no open review: no %s/%s.md in %s (%s is not written yet, or the last review is closed)",
@@ -457,7 +456,7 @@ func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, id
 	for _, task := range tasks {
 		sha := ""
 		for _, m := range merges { // oldest first: the last merge of the task wins
-			if h, subject, _ := strings.Cut(m, " "); strings.HasPrefix(subject, "Merge "+task+":") {
+			if h, subject, _ := strings.Cut(m, " "); parseMergeSubject(subject) == task {
 				sha = h[:min(len(h), 7)]
 			}
 		}

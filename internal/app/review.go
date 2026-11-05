@@ -388,7 +388,7 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 	}
 	k, prev, _ := PreviousReview(last.Subject)
 	from, covered := reviewScope(last)
-	if n, _ := strconv.Atoi(strings.TrimPrefix(started.id, "RV-")); n >= k && started.head != "" {
+	if n, ok := reviewNumber(started.id); ok && n >= k && started.head != "" {
 		prev, from, covered = started.id, started.head, nil // started, not closed yet: its findings are being fixed
 	}
 	head, err := g.Head(ctx, s.Branch)
@@ -408,8 +408,8 @@ func (a *App) reviewDueCount(ctx context.Context, p *proj, g ReviewGit, started 
 // reviewOpen is the id of started, the last review serve started, while no "RV-<n> closed" commit on branch closes it
 // or a later one ("": none open, or none started).
 func reviewOpen(ctx context.Context, g ReviewGit, branch string, started lastReview) (string, error) {
-	n, err := strconv.Atoi(strings.TrimPrefix(started.id, "RV-"))
-	if started.seq == 0 || err != nil {
+	n, ok := reviewNumber(started.id)
+	if started.seq == 0 || !ok {
 		return "", nil
 	}
 	last, err := g.Last(ctx, branch)
@@ -549,26 +549,55 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	}
 }
 
-// closedRE is a review's close commit subject: "RV-<n> closed · <reviewed sha> · …".
-var closedRE = regexp.MustCompile(`^RV-([0-9]+) closed(?: · ([0-9a-f]+))?`)
+// The close commit's format lives here only (T-895): CloseCommit writes it, parseCloseCommit reads it, CloseCommitGrep
+// finds it in git log, and reviewID/reviewNumber name a review's id.
 
-// PreviousReview is the next review's number, and the previous review's id and reviewed sha ("": none) by last, the
-// newest close commit's subject ("": none yet, the next is RV-1).
-func PreviousReview(last string) (next int, prev, sha string) {
-	m := closedRE.FindStringSubmatch(last)
-	if m == nil {
-		return 1, "", ""
+// reviewIDPattern is a review id at the start of a string: reviewID's shape.
+const reviewIDPattern = `RV-[0-9]+`
+
+// CloseCommitGrep is git log --grep's pattern for a close commit: the start of CloseCommit's subject.
+const CloseCommitGrep = "^" + reviewIDPattern + " closed"
+
+// closeRE is a close commit's subject: CloseCommit's. The reviewed sha and summary are absent on an old close commit
+// (before T-822).
+var closeRE = regexp.MustCompile(`^(` + reviewIDPattern + `) closed(?: · ([0-9a-f]+)(?: · approved(?: · (.*))?)?)?`)
+
+// reviewID is review n's id: "RV-<n>".
+func reviewID(n int) string { return "RV-" + strconv.Itoa(n) }
+
+// reviewNumber is id's number (ok false: id is not "RV-<n>").
+func reviewNumber(id string) (n int, ok bool) {
+	digits, found := strings.CutPrefix(id, "RV-")
+	if !found || digits == "" {
+		return 0, false
 	}
-	k, _ := strconv.Atoi(m[1])
-	return k + 1, "RV-" + m[1], m[2]
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(digits)
+	return n, err == nil
 }
 
-// mergeRE is an obor merge's subject: "Merge T-xx: …".
-var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
+// CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>" and the
+// body "Covered: <tasks>\nStart: <review start sha>" (T-822: the cycle's coverage, so the next review's scope takes the
+// merges it did not cover).
+func CloseCommit(id, sha, summary string, covered []string, start string) (subject, body string) {
+	subject = id + " closed · " + strings.TrimSpace(sha) + " · approved · " + summary
+	body = "Covered: " + strings.Join(covered, ", ") + "\nStart: " + start
+	return subject, body
+}
 
-// closeCovered reads a close commit's body (T-822): the tasks its cycle covered and the sha its review started at. Both
-// are empty on an old close commit (no "Covered:" line): its scope is the sha range, as before.
-func closeCovered(body string) (covered []string, start string) {
+// parseCloseCommit reads a close commit: the review id ("" when subject is no close commit), its reviewed sha and
+// summary, the tasks its cycle covered and its review start sha (both nil/"" on an old close commit, whose body has
+// neither line).
+func parseCloseCommit(subject, body string) (id, sha, summary string, covered []string, start string) {
+	m := closeRE.FindStringSubmatch(subject)
+	if m == nil {
+		return "", "", "", nil, ""
+	}
+	id, sha, summary = m[1], m[2], m[3]
 	for _, l := range strings.Split(body, "\n") {
 		k, v, _ := strings.Cut(strings.TrimSpace(l), ":")
 		switch k {
@@ -582,15 +611,36 @@ func closeCovered(body string) (covered []string, start string) {
 			start = strings.TrimSpace(v)
 		}
 	}
-	return covered, start
+	return id, sha, summary, covered, start
+}
+
+// PreviousReview is the next review's number, and the previous review's id and reviewed sha ("": none) by last, the
+// newest close commit's subject ("": none yet, the next is RV-1).
+func PreviousReview(last string) (next int, prev, sha string) {
+	id, sha, _, _, _ := parseCloseCommit(last, "")
+	if id == "" {
+		return 1, "", ""
+	}
+	n, _ := reviewNumber(id)
+	return n + 1, id, sha
+}
+
+// mergeRE is an obor merge's subject: "Merge T-xx: …".
+var mergeRE = regexp.MustCompile(`^Merge ([^ :]+):`)
+
+// parseMergeSubject is the task of an obor merge's subject ("Merge T-xx: …"): "" when subject is no merge.
+func parseMergeSubject(subject string) string {
+	if m := mergeRE.FindStringSubmatch(subject); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // reviewScope is where the next review's range starts, and the tasks a closed cycle already covered: the previous
 // close's review start sha and Covered list (T-822), else its reviewed sha and no task (an old close commit: the sha
 // range).
 func reviewScope(last ReviewClose) (from string, covered []string) {
-	_, _, sha := PreviousReview(last.Subject)
-	covered, start := closeCovered(last.Body)
+	_, sha, _, covered, start := parseCloseCommit(last.Subject, last.Body)
 	return cmp.Or(start, sha), covered
 }
 
@@ -602,7 +652,7 @@ func uncovered(merges, covered []string) []string {
 	var out []string
 	for _, m := range merges {
 		_, subject, _ := strings.Cut(m, " ")
-		if t := mergeRE.FindStringSubmatch(subject); t != nil && slices.Contains(covered, t[1]) {
+		if t := parseMergeSubject(subject); t != "" && slices.Contains(covered, t) {
 			continue
 		}
 		out = append(out, m)
@@ -622,7 +672,7 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	}
 	n, _, _ := PreviousReview(last.Subject)
 	from, covered := reviewScope(last)
-	id = "RV-" + strconv.Itoa(n)
+	id = reviewID(n)
 	if cfgErr != nil {
 		return id, "", nil, "", cfgErr
 	}
@@ -646,9 +696,9 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	for _, m := range merges {
 		sha, subject, _ := strings.Cut(m, " ")
 		sha = sha[:min(len(sha), 7)]
-		if t := mergeRE.FindStringSubmatch(subject); t != nil {
-			tasks = append(tasks, t[1])
-			scope = append(scope, t[1]+" ("+sha+")")
+		if t := parseMergeSubject(subject); t != "" {
+			tasks = append(tasks, t)
+			scope = append(scope, t+" ("+sha+")")
 		} else {
 			scope = append(scope, subject+" ("+sha+")")
 		}
