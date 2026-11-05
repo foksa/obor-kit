@@ -16,8 +16,9 @@ at the top of "Decisions on record". Phase plans: `docs/plan/`.
   numbers after T-899/T-900.
 - 2026-11-05 (lead, T-877): **The official MCP Go SDK is adopted on trial** (c9b9eae: internal/mcp −220 production
   lines; v1.8.0; binary +1.9 MB). The live conformance it passed runs a stub MCP server, so the real server against
-  real clients is proven by the next workers' `job_next`/`task_done` and the integrator's verdicts on main's binary,
-  and by T-898 (a live case against the real `obor mcp`). A failure there → revert c9b9eae as a task.
+  real clients is proven by T-898 (correction 11-05 evening: workers' and the integrator's MCP server is the installed
+  kit, `~/.obor/kit/bin/obor`, not main's binary, so no agent uses the SDK server before a release; T-898 must pass
+  before v0.28 ships) and by (a live case against the real `obor mcp`). A failure there → revert c9b9eae as a task.
 - 2026-11-05 (lead, from T-876's numbers; owner left it to them): **synctest stays at the pilot.** One test moved
   (`TestTurnFailsAtItsDeadline` 8.8 s → 0.25 s); the other target was already gone (T-872). The remaining slow waits
   (4.0 + 3.0 + 1.5 s) and the 11-05 load flakes (cmd/obor process and socket tests) need a live unix socket, where the
