@@ -160,10 +160,11 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 		o := checks.Options{Cfg: cfg, Env: env, Environ: os.Environ(), Out: flushWriter{}, PID: os.Getpid()}
 		agents := &launch.Launcher{Cfg: cfg, Env: env, H: herdrSocket(env), Out: io.Discard,
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
-		l := &app.Loop{Scratch: checks.Scratch{Options: o}, Agents: agents, Typer: panes, Nightly: nightly(o),
+		scratch := checks.Scratch{Options: o}
+		l := &app.Loop{Scratch: scratch, Agents: agents, Typer: panes, Nightly: nightly(o),
 			Disk: diskOf(repo.Root, &cache), Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
-		l.Review = reviewGit{root: repo.Root}
+		l.Review = reviewGit{root: repo.Root, locked: scratch.Locked}
 		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}
 		l.Restart = serveRestarter(cfg, env, end)
 		return l, nil

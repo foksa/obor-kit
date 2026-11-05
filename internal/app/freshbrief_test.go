@@ -226,15 +226,15 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 	}
 }
 
-// A brief --fresh to a role worktree agent while a publish runs past admitWait is refused, and the running deep dive is not
-// stopped: nothing is recorded, the delivery stops nothing, before or after the publish ends.
-func TestFreshBriefAdmissionTimeoutStopsNothing(t *testing.T) {
+// A brief --fresh to the idle deep dive whose worktree's move fails is refused, and the running deep dive is not
+// stopped: nothing is recorded, the delivery stops nothing.
+func TestFreshBriefMoveFailsStopsNothing(t *testing.T) {
 	t.Parallel()
-	r := newAdmitRig(t, true)
+	r := newAdmitRig(t, false)
 	h, ctx := r.h, context.Background()
 	s := &freshSpy{}
 	r.fx.Agents = s
-	r.publishing(ctx)
+	r.git.detachErr = errors.New("no worktree")
 	h.a.mu.Lock()
 	w := h.a.whereIs(h.a.p, "pj-deep-dive")
 	h.a.mu.Unlock()
@@ -243,11 +243,10 @@ func TestFreshBriefAdmissionTimeoutStopsNothing(t *testing.T) {
 	}
 	_, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive",
 		Note: "look at x", Fresh: true})
-	if err == nil || !strings.Contains(err.Error(), "still running") {
-		t.Fatalf("brief --fresh during the publish: %v, want the admission's refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
+		t.Fatalf("brief --fresh with the move failing: %v, want refused naming the worktree", err)
 	}
 	h.a.deliver(ctx, h.a.p, r.fx)
-	r.released(ctx)
 	same(t, recSeq(t, h, event.MsgTask, event.StepBriefed, event.KindFact), int64(0), "briefed facts")
 	for _, e := range s.events {
 		if strings.Contains(e, "pj-deep-dive") {

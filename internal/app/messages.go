@@ -1106,10 +1106,9 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 // briefCall answers the socket's brief request (the lead or the owner): Call.To, a role agent, is briefed; with a
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
-// reply. The lead hears once the agent has finished. A brief to a role worktree agent (the reviewer, the deep dive)
-// waits while a publish runs and is recorded admitted (roleworktree.go, T-730); a publish still running after
-// admitWait: refused. Admitted, an idle deep dive's worktree moves to the integration branch's head first (briefMove,
-// T-853); that git failing: refused, nothing recorded.
+// reply. The lead hears once the agent has finished. A brief to an idle deep dive moves its worktree to the
+// integration branch's head first (briefMove, T-853; a publish running does not hold it, T-872); that git failing:
+// refused, nothing recorded.
 // Call.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the first
 // prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
 func (a *App) briefCall(c wire.Call) (string, error) {
@@ -1143,18 +1142,11 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 	if !restartable {
 		return "", fmt.Errorf("brief: %s is no role agent serve starts fresh (not the integrator or a worker)", c.To)
 	}
-	if wtRole != "" { // the reviewer or the deep dive: admitted first (roleworktree.go, T-730)
-		wait, cancel := context.WithTimeout(context.Background(), admitWait)
-		release, err := a.admit(wait, p)
-		cancel()
-		if err != nil {
-			return "", fmt.Errorf("brief: %v", err)
-		}
-		defer release() // after the brief is recorded
-		p.vf.Lock()     // no verify's idle check, worktree move and brief record interleave with this brief (T-856)
+	if wtRole != "" { // the reviewer or the deep dive
+		p.vf.Lock() // no verify's idle check, worktree move and brief record interleave with this brief (T-856)
 		defer p.vf.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
-		err = a.briefMove(ctx, p, wtRole, c.To)
+		err := a.briefMove(ctx, p, wtRole, c.To)
 		cancel()
 		if err != nil {
 			return "", fmt.Errorf("brief: %s's worktree: %v", c.To, err)

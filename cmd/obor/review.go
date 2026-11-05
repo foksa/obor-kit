@@ -53,8 +53,12 @@ func reviewCmd(args []string) int {
 	})
 }
 
-// reviewGit is app.ReviewGit on the project's main checkout: git -C <root>.
-type reviewGit struct{ root string }
+// reviewGit is app.ReviewGit on the project's main checkout: git -C <root>. locked runs Detach's checkout as serve's
+// own git calls run (checks.Scratch.Locked: a lock another git holds is waited for, T-872); nil: Detach fails.
+type reviewGit struct {
+	root   string
+	locked func(ctx context.Context, dir string, args ...string) (string, error)
+}
 
 var _ app.ReviewGit = reviewGit{}
 
@@ -88,13 +92,16 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 
 // Detach puts the role worktree dir on sha, detached (T-853): added at it when dir is missing (project.AddWorktree),
 // else checked out there. A dir that is no worktree of this repo, or local changes in the way of the checkout: an
-// error, nothing forced.
+// error, nothing forced. The checkout waits for a lock another git holds (locked: a publish's ref update meanwhile).
 func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
+	if g.locked == nil {
+		return fmt.Errorf("the review git of %s has no locked git runner", g.root)
+	}
 	added, err := project.AddWorktree(ctx, g.root, dir, sha)
 	if err != nil || added {
 		return err
 	}
-	_, err = gitIn(ctx, dir, "checkout", "-q", "--detach", sha)
+	_, err = g.locked(ctx, dir, "checkout", "-q", "--detach", sha)
 	return err
 }
 

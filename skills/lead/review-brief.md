@@ -70,9 +70,9 @@ in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is 
 ## 4. Verification (same session — never `/new` the reviewer)
 Once every task linked by `obor review fix` merged, serve runs the verify itself (T-850; T-869: there is no verify by
 hand, `obor review fix` is the one way to ask for one); you get the reviewer's finished line as for any brief. Serve
-records the verify and, once the reviewer is idle (T-856: a working reviewer's worktree never moves under it) and no
-publish is in flight (T-730: no merge moves the head between its read and the brief), detaches the reviewer's worktree
-at the integration branch's head (T-853) and briefs the open review's reviewer in its same, still-running session
+records the verify and, once the reviewer is idle (T-856: a working reviewer's worktree never moves under it), reads
+the integration branch's head once and detaches the reviewer's worktree there (T-853; T-872: a publish in flight does
+not hold it, its merge falls into the next review's scope) and briefs the open review's reviewer in its same, still-running session
 (serve delivers it once the pane is idle and tells you when it has finished). One verify at a time. A linked task
 dropped or rejected: one line `[obor] <RV-xx> fix <T-x> ended unmerged: the verify waits for <the rest>`. A verify
 serve cannot run (git refusing, a task with no merge since the previous review started — the previous close commit's

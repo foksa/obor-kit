@@ -365,9 +365,10 @@ func (a *App) requestVerify(p *proj, d ReviewData) (int64, error) {
 }
 
 // admitVerify admits the verify requested at seq and briefs it. Not admitted, nil: no longer requested, the reviewer
-// not idle, a publish running (its end wakes the next pass) or another admission holding p.vf (the next pass looks
-// again). Admitted, a failure (verifyText, the move) records the verify failed, with the lead's line, and is the
-// error; a brief the log refuses is the error too, the verify still requested.
+// not idle or another admission holding p.vf (the next pass looks again); a publish running does not hold it (T-872:
+// verifyText reads the head once, roleworktree.go). Admitted, a failure (verifyText, the move) records the verify
+// failed, with the lead's line, and is the error; a brief the log refuses is the error too, the verify still
+// requested.
 func (a *App) admitVerify(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, seq int64) error {
 	// p.vf is held from the idle check through the brief's record.
 	if !p.vf.TryLock() {
@@ -377,15 +378,13 @@ func (a *App) admitVerify(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 	var v verifyRec
 	a.mu.Lock()
 	cur := p.folded.rv.verifies[seq]
-	if cur != nil && cur.state == verifyRequested && p.out.brief(s.Agent) == nil && a.roleIdle(p, s.Agent) && !p.publishing() {
+	if cur != nil && cur.state == verifyRequested && p.out.brief(s.Agent) == nil && a.roleIdle(p, s.Agent) {
 		v = *cur
-		p.admits++ // admitted (roleworktree.go): no publish starts until the brief is recorded
 	}
 	a.mu.Unlock()
 	if v.seq == 0 {
 		return nil
 	}
-	defer a.unadmit(p)
 	text, head, err := verifyText(ctx, g, p.root, s, v.id, v.tasks, v.note)
 	if err == nil {
 		err = g.Detach(ctx, s.Worktree, head) // T-853: the reviewer's worktree at the head it verifies
@@ -414,8 +413,7 @@ func (a *App) verifyFailed(p *proj, v *verifyRec, err error) {
 	}
 }
 
-// verifyPass admits p's oldest requested verify (admitVerify: a publish's end wakes the next pass); a failure tells
-// the lead.
+// verifyPass admits p's oldest requested verify (admitVerify); a failure tells the lead.
 func (a *App) verifyPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	v := p.folded.rv.requested()

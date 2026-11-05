@@ -3,6 +3,7 @@ package checks
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,13 @@ func (s Scratch) gitLocked(env []string, dir string, args ...string) (string, st
 			return out, errOut, err
 		}
 	}
+}
+
+// Locked runs git -C dir args… under ctx as serve's own git calls do (gitLocked, T-872: the review git's worktree
+// move): its stdout; an error names the call and git's last stderr line.
+func (s Scratch) Locked(ctx context.Context, dir string, args ...string) (string, error) {
+	s.gitCtx = ctx
+	return s.call(dir, args...)
 }
 
 // lockGone waits until lock is gone (true: try again): removed when stale (no git running, older than staleLock), at

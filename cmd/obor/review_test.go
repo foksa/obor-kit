@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/wire"
+	"obor/internal/checks"
 	"obor/internal/testkit"
 )
 
@@ -86,11 +90,12 @@ func TestReviewGit(t *testing.T) {
 }
 
 // T-853: reviewGit.Detach adds a missing role worktree detached at the sha, moves one that is there to another sha
-// (a commit the role checked out is left behind), and refuses a dir that is no worktree of the repo, nothing forced.
+// (a commit the role checked out is left behind; T-872: a lock another git holds is waited for), and refuses a dir
+// that is no worktree of the repo, nothing forced; with no locked runner it fails.
 func TestReviewGitDetach(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
-	g := reviewGit{root: p.Root}
+	g := reviewGit{root: p.Root, locked: checks.Scratch{Options: checks.Options{Environ: os.Environ()}}.Locked}
 	ctx := context.Background()
 	first := p.Git(p.Root, "rev-parse", "HEAD")
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "second")
@@ -109,7 +114,21 @@ func TestReviewGitDetach(t *testing.T) {
 		t.Errorf("added: at %s on %q, want %s detached", head, branch, first)
 	}
 	p.Git(wt, "checkout", "-q", "--detach", first+"^{}") // the role checked out a commit of its own
-	if err := g.Detach(ctx, wt, second); err != nil {
+	lock := filepath.Join(p.Git(wt, "rev-parse", "--absolute-git-dir"), "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil { // another git's index lock in the role worktree
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- g.Detach(ctx, wt, second) }()
+	select {
+	case err := <-done:
+		t.Fatalf("Detach answered (%v) while the lock was held, want it waiting", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	if head, branch := at(); head != second || branch != "HEAD" {
@@ -118,5 +137,12 @@ func TestReviewGitDetach(t *testing.T) {
 	p.Write(p.LaneDir("other")+"/x.txt", "x\n")
 	if err := g.Detach(ctx, p.LaneDir("other"), second); err == nil || !strings.Contains(err.Error(), "is not a worktree of") {
 		t.Errorf("a plain dir: %v, want refused", err)
+	}
+	if err := (reviewGit{root: p.Root}).Detach(ctx, wt, first); err == nil ||
+		!strings.Contains(err.Error(), "no locked git runner") {
+		t.Errorf("no locked runner: %v, want refused", err)
+	}
+	if head, _ := at(); head != second {
+		t.Errorf("refused, the worktree moved to %s, want it at %s", head, second)
 	}
 }
