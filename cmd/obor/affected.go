@@ -60,3 +60,10 @@ func affectedCmd(args []string) int {
 	}
 	return 0
 }
+
+// goAffected is affected.Go as the merge gate's port.Affected (T-900: a moved gate keeps a green result when the new
+// commits and the candidate affect no package in common).
+func goAffected(root string, files, fullGlobs []string) ([]string, string, error) {
+	res, err := affected.Go(root, files, fullGlobs)
+	return res.Pkgs, res.Full, err
+}
