@@ -2,13 +2,11 @@ package view
 
 import (
 	"database/sql"
-	"encoding/json"
 	"sort"
-	"strings"
 	"time"
 
+	"obor/internal/app"
 	"obor/internal/app/event"
-	"obor/internal/app/wire"
 )
 
 // Event is one record of the log as the view words it: its seq (a UI's cursor: "changed since seq X"; 0 for serve's
@@ -35,9 +33,8 @@ func events(db *sql.DB, n int, s Serve) []Event {
 	if db != nil {
 		recs, _ := event.RecentEvents(db, n*eventsRead)
 		for _, r := range recs {
-			if line, bad := eventLine(r); line != "" {
-				at, _ := time.Parse(time.RFC3339, r.TS)
-				out = append(out, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, Bad: bad, At: at})
+			if e, ok := eventOf(r); ok {
+				out = append(out, e)
 			}
 		}
 	}
@@ -62,119 +59,25 @@ func EventsSince(db *sql.DB, since int64, limit int) (EventsPage, error) {
 	if db == nil || limit <= 0 {
 		return page, nil
 	}
-	rows, err := db.Query(`SELECT seq, ts, task, kind, step, data FROM events WHERE seq > ? ORDER BY seq LIMIT ?`,
-		since, limit)
+	recs, err := event.Since(db, since, limit)
 	if err != nil {
 		return page, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var r event.Record
-		var data []byte
-		if err := rows.Scan(&r.Seq, &r.TS, &r.Task, &r.Kind, &r.Step, &data); err != nil {
-			return page, err
-		}
-		if len(data) > 0 {
-			r.Data = data
-		}
+	for _, r := range recs {
 		page.Seq = r.Seq
-		if line, bad := eventLine(r); line != "" {
-			at, _ := time.Parse(time.RFC3339, r.TS)
-			page.Events = append(page.Events, Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: line, Bad: bad, At: at})
+		if e, ok := eventOf(r); ok {
+			page.Events = append(page.Events, e)
 		}
 	}
-	return page, rows.Err()
+	return page, nil
 }
 
-// eventData is what the view reads of a record's data: each kind of record fills the fields it has.
-type eventData struct {
-	Lane    string   `json:"lane"`
-	Reason  string   `json:"reason"`
-	Cause   string   `json:"cause"`
-	Outcome string   `json:"outcome"`
-	Line    string   `json:"line"`
-	Note    string   `json:"note"`
-	Head    string   `json:"head"`
-	After   []string `json:"after"`
-	ID      string   `json:"id"`
-	To      string   `json:"to"`
-	Drive   bool     `json:"drive"` // a dispatch of the owner's drive (T-751)
-}
-
-// eventLine is r as the event list words it and whether that line is bad news ("" for a record the view does not list):
-// dispatched (or an owner's drive, new or taken over, T-751), submitted, a gate's pass or fail with its summary,
-// accepted, a sendback, a hold, a merge with its sha, a review's request and start, or a line posted to an agent. A gate
-// that is not green and a hold are the bad ones; a green gate is not, however its summary counts its checks (T-688).
-func eventLine(r event.Record) (string, bool) {
-	var d eventData
-	if len(r.Data) > 0 {
-		_ = json.Unmarshal(r.Data, &d)
+// eventOf is r as the event list shows it (app.Describe's line; false: a record the list does not word).
+func eventOf(r event.Record) (Event, bool) {
+	d := app.Describe(r)
+	if d.Line == "" {
+		return Event{}, false
 	}
-	if r.Kind == event.KindResult {
-		if base, _ := event.StepN(r.Step); base == event.StepGate {
-			if d.Outcome == "green" {
-				return "gate " + r.Task + " pass (" + d.Line + ")", false
-			}
-			return "gate " + r.Task + " fail (" + d.Line + ")", true
-		}
-		if method, _, _ := strings.Cut(r.Step, "."); method == wire.MethodAccept {
-			return "accepted " + r.Task, false
-		} else if method == wire.MethodSendback {
-			return "sendback " + r.Task + noteIn(d.Note), false
-		}
-		return "", false
-	}
-	if r.Kind != event.KindFact {
-		return "", false
-	}
-	switch r.Step {
-	case event.StepDispatched:
-		if d.Drive {
-			return "drive " + r.Task + laneIn(d.Lane), false
-		}
-		return "dispatched " + r.Task + laneIn(d.Lane), false
-	case event.StepDrive:
-		return "drive " + r.Task + laneIn(d.Lane) + ": taken over by the owner", false
-	case event.StepSubmitted:
-		return "submitted " + r.Task, false
-	case event.StepSendback:
-		return "sendback " + r.Task + noteIn(d.Note), false
-	case event.StepNeedsYou:
-		if d.Cause == event.CauseHeld {
-			return "held " + r.Task + noteIn(strings.TrimPrefix(d.Reason, "held: ")), true
-		}
-	case event.StepMerged:
-		if d.Head == "" {
-			return "merged " + r.Task + " (outside obor serve)", false
-		}
-		return "merged " + r.Task + " " + d.Head[:min(7, len(d.Head))], false
-	case event.StepReviewRequest:
-		if len(d.After) > 0 {
-			return "review requested (after " + strings.Join(d.After, ",") + ")", false
-		}
-		return "review requested", false
-	case event.StepReviewStarted:
-		return "review started " + d.ID, false
-	case event.StepReviewRm:
-		return "review request ended", false
-	case event.StepMessage:
-		return "line to " + d.To + ": " + d.Line, false
-	}
-	return "", false
-}
-
-// laneIn is " (O-01)" for a dispatch's lane, "" without one.
-func laneIn(lane string) string {
-	if lane == "" {
-		return ""
-	}
-	return " (" + lane + ")"
-}
-
-// noteIn is ": note" for a sendback's or hold's why, "" without one.
-func noteIn(note string) string {
-	if note == "" {
-		return ""
-	}
-	return ": " + note
+	at, _ := time.Parse(time.RFC3339, r.TS)
+	return Event{Seq: r.Seq, TS: r.TS, Task: r.Task, Line: d.Line, Bad: d.Bad, At: at}, true
 }

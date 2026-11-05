@@ -3,7 +3,6 @@ package view
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"obor/internal/agents"
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/checks"
 	"obor/internal/config"
@@ -234,36 +234,25 @@ func distribution(db *sql.DB, now time.Time) []DispatchCount {
 	if db == nil {
 		return []DispatchCount{}
 	}
-	rows, err := db.Query(`SELECT ts, data FROM events WHERE kind = ? AND step = ?`, event.KindFact, event.StepDispatched)
+	recs, err := event.Facts(db, event.StepDispatched)
 	if err != nil {
 		return []DispatchCount{}
 	}
-	defer rows.Close()
 	type cell struct{ level, typ string }
 	recent, all := map[cell]int{}, map[cell]int{}
 	cutoff := now.Add(-distributionWindow)
-	for rows.Next() {
-		var ts string
-		var data []byte
-		if rows.Scan(&ts, &data) != nil {
+	for _, r := range recs {
+		d := app.Describe(r)
+		if d.Lane == "" { // not a dispatch that placed a task on a lane (or unreadable)
 			continue
 		}
-		var d struct {
-			Lane  string   `json:"lane"`
-			Level string   `json:"level"`
-			Types []string `json:"types"`
-			Type  string   `json:"type"`
-		}
-		if json.Unmarshal(data, &d) != nil || d.Lane == "" { // not a dispatch that placed a task on a lane
-			continue
-		}
-		level, typ := d.Level, d.Type
+		level := d.Level
 		if level == "" && len(d.Types) > 0 {
 			level = OverrideLevel
 		}
-		c := cell{level, typ}
+		c := cell{level, d.Type}
 		all[c]++
-		if at, err := time.Parse(time.RFC3339, ts); err == nil && !at.Before(cutoff) {
+		if at := event.RecordTime(r); !at.IsZero() && !at.Before(cutoff) {
 			recent[c]++
 		}
 	}

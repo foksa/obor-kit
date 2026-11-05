@@ -203,7 +203,7 @@ func Build(in Input) Project {
 		NeedsYou: []NeedsYou{}, Messages: []wire.MessageStatus{}, Running: []Running{}, Pending: []wire.PendingStep{},
 		Events: []Event{}, Notes: in.Notes}
 	ps := serveOf(&v, in.Status, in.Err, p, in.Background)
-	specs, starts := readSpecs(in.DB), lastStarts(in.DB)
+	specs, starts := readSpecs(in.DB), startsOf(ps)
 	states := p.States()
 	rows, _ := p.Rows()
 	v.Tasks = tasks(ps, states, rows, specs)
@@ -287,7 +287,7 @@ func pausesOf(v *Project, ps wire.ProjectStatus) {
 
 // lane is s's row of the view: the lane table's facts, its task's id, the agent in it, whether it is free, its state
 // column and since when (v.Tasks has its task). starts is when serve last tried to start a task's lane agent
-// (lastStarts).
+// (startsOf).
 func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectStatus, row store.LaneRow,
 	starts map[string]int64) Lane {
 	l := Lane{Lane: s.Lane, Type: s.Type, Dir: s.Dir, Branch: orNull(s.Branch), Task: orNull(s.Task), State: s.State,
@@ -440,26 +440,14 @@ func readFullCheck(root string) *FullCheck {
 	return fc
 }
 
-// lastStarts is each task's last agent.start record time (epoch seconds, by task): when serve last tried to start the
-// lane's agent — a resume runs the failed step again under its next key, so the newest record is the current attempt's
-// (pluginMissing). Empty without a database or on a read error.
-func lastStarts(db *sql.DB) map[string]int64 {
+// startsOf is when serve last tried to start each task's lane agent (TaskStatus.Started, by task; T-893: serve's own
+// fold, not the view's guess from the log): a resume runs the failed step again under its next key, so it is the current
+// attempt's (pluginMissing). Serve down: none.
+func startsOf(ps wire.ProjectStatus) map[string]int64 {
 	out := map[string]int64{}
-	if db == nil {
-		return out
-	}
-	rows, err := db.Query(`SELECT task, ts FROM events WHERE step LIKE ? ORDER BY seq DESC`, event.StepStartWork+"%")
-	if err != nil {
-		return out
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var task, ts string
-		if rows.Scan(&task, &ts) != nil || out[task] != 0 {
-			continue
-		}
-		if at, err := time.Parse(time.RFC3339, ts); err == nil {
-			out[task] = at.Unix()
+	for _, t := range ps.Tasks {
+		if t.Started != 0 {
+			out[t.Task] = t.Started
 		}
 	}
 	return out

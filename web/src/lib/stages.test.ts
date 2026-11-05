@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { milestone, stageOf, taskOf } from "./stages";
 
-const rec = (step: string, kind: string, line = "") => ({ seq: 1, ts: "", step, kind, line });
+const rec = (step: string, kind: string, line = "", outcome = "") => ({ seq: 1, ts: "", step, kind, line, outcome });
 
 describe("a task's stage", () => {
   // T-883: the view places the task (Task.step, wire.PhaseStep of serve's phase, T-788); the stepper shows that step.
@@ -15,11 +15,12 @@ describe("a task's stage", () => {
   it("is merged on the merged fact alone", () => {
     expect(stageOf({ phase: "publish", step: 5 }, [rec("merged", "fact")])).toMatchObject({ i: 7, state: "merged" });
   });
-  it("holds at the furthest step its records reached otherwise", () => {
-    expect(stageOf({ phase: "needs-you" }, [rec("dispatch", "fact"), rec("submitted", "fact"), rec("gate.1", "result", "gate T-1 fail")]))
+  // T-893: the task page's step of a task its phase places on none is the view's (the furthest its records reached).
+  it("holds at the step the task page's view gives it otherwise", () => {
+    expect(stageOf({ phase: "needs-you", step: 3 }, [rec("dispatch", "fact"), rec("gate.1", "result", "gate T-1 fail", "red")]))
       .toMatchObject({ i: 3, tone: "bad", state: "needs-you" });
-    expect(stageOf({ phase: "held" }, [rec("dispatch", "fact"), rec("submitted", "fact")])).toMatchObject({ i: 2, tone: "bad" });
-    expect(stageOf({}, [rec("dispatch", "fact")]).state).toBe("ended");
+    expect(stageOf({ phase: "held", step: 2 }, [rec("dispatch", "fact"), rec("submitted", "fact")])).toMatchObject({ i: 2, tone: "bad" });
+    expect(stageOf({ step: 0 }, [rec("dispatch", "fact")])).toMatchObject({ i: 0, tone: "idle", state: "ended" });
   });
   it("places no step itself: a phase without the view's step is not placed", () => {
     expect(stageOf({ phase: "working" }).i).toBe(0); // a lane git calls working, serve down: no phase, no step
@@ -33,7 +34,8 @@ describe("a task's stage", () => {
   });
   it("words records for the timeline and skips bookkeeping", () => {
     expect(milestone(rec("delivered", "fact"))?.line).toBe("job fetched by its agent");
-    expect(milestone(rec("gate.2", "result", "gate T-1 pass (GREEN)"))?.tone).toBe("ok");
+    expect(milestone(rec("gate.2", "result", "gate T-1 pass (GREEN)", "green"))?.tone).toBe("ok");
+    expect(milestone(rec("gate.2", "result", "gate T-1 fail (passes 3 pass )", "red"))?.tone).toBe("bad"); // the outcome, never the wording
     expect(milestone(rec("work.1", "intent"))).toBeNull();
   });
 });

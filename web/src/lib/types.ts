@@ -130,6 +130,7 @@ export interface TaskStatus {
   job?: string;
   delivered?: boolean;
   stopping?: string;
+  started?: number; // when serve last tried to start its lane agent (epoch seconds, T-893)
 }
 
 export interface AgentStatus {
@@ -298,6 +299,7 @@ export interface TaskRecord {
   step: string;
   kind: string;
   line?: string;
+  outcome?: string; // a gate's: green, red, conflict, fail (T-893)
 }
 
 export interface Prompt {

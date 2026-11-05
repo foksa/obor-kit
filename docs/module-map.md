@@ -75,7 +75,8 @@ Adding a kind = one package + a config entry.
   `configset.go` (the owner's setup edit from obor web, through the `ConfigFile` port, T-753),
   `pause.go`, `exit.go` (the socket's exit request: serve ends gracefully, obor stop, T-711), `sessions.go` (the agents' recorded sessions, T-577),
   `resume.go`, `verdict.go`, `jobs.go`, `prompt.go`,
-  `effects.go` (`JobID`): one concern each.
+  `effects.go` (`JobID`), `describe.go` (`Describe`: a record as the readers word it, decoded with the types serve
+  writes it with; the view's one reader of record data, T-893): one concern each.
 - `app/port` (core, a leaf below `app`; T-690): the ports and the types they exchange, with no logic: herdr's `Pane`,
   `Snapshot`, `Event`, `Stream`, `Panes`; `Lane`, `Lanes`; and the effects (`Agents`, `Typer`, `PaneControl`, `Starter`,
   `Scratch`, `LaneSetup` and their inputs and outcomes). Adapters import it instead of `app`; `app` keeps type and const
@@ -83,7 +84,7 @@ Adding a kind = one package + a config entry.
 - `app/event` (core, a leaf below `app`; T-691): the event log's vocabulary and its store: `Record`, `Key`, `Intent`,
   `FactData`, the `Kind*`/`Class*` constants, every exported `Step*` and the task keys (`MsgTask` …), the fact data
   types readers decode (`Pause`, `Message`, `MergedData`), `Log` (`OpenLog`, `Append`, `Do` …), the readers (`ReadLog`,
-  `Dump`, `RecentEvents`, `DBFile`) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only. `app` keeps type, var and const
+  `Dump`, `RecentEvents`, `RecordsOf`, `MessagesTo`, `Since`, `Facts`, `FactTasks`, `DBFile`: the view's queries, T-893) and `Merge`/`ReadMerges`, and `StepN`. It imports `store` only. `app` keeps type, var and const
   aliases of it until a later task removes them (`app/events.go`).
 - `app/wire` (core, a leaf above `app/event`; T-692): the app socket's client half, what a caller can ask serve: every
   `Method*`, `Call`, `Request`/`Answer`, `Ask`, `Verdict` (with its retries and `OBOR_CALL_DEADLINE`), `SocketPath`,
