@@ -4,6 +4,9 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (lead, T-877 trial's pass mark): **The official MCP Go SDK is adopted.** internal/mcp −220 production
+  lines; live conformance against the real `obor mcp` on each kind's shipped launch (T-898, T-910; re-run by the lead
+  for RV-122): codex 10/0 (CX-L4 through its normal tool discovery), claude 14/0 (CC-L7), opencode 10/0/1 skip (OC-L6).
 - 2026-11-05 (owner): **obor-kit workers test only their packages before `task_done`** (`docs/agents/worker.md`):
   no `obor run check_affected` in a lane; the gate runs the class check once. Cause: a worker's class check (the full
   suite when its change hits `merge.affected_full`) ran beside the gates and the gate ran it again (its receipt is
