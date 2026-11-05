@@ -404,23 +404,19 @@ func TestRotateLog(t *testing.T) {
 	}
 }
 
-// fast shortens the launchctl timeouts for a test: callTimeout (the flat deadline every call once had) 300ms,
-// stopTimeout 3s, settle 500ms read every 50ms.
+// fast shortens the waits for a test: stopTimeout 3s, settle 500ms read every 50ms. callTimeout keeps its 10s: a
+// forked fake launchctl under a loaded suite (the merge gate) can outlast a short one and is SIGKILLed, failing a verb
+// for no reason of the test's (T-779, T-861).
 func fast(t *testing.T) {
-	c, st, se, p := callTimeout, stopTimeout, settle, pollEvery
-	callTimeout, stopTimeout, settle, pollEvery = 300*time.Millisecond, 3*time.Second, 500*time.Millisecond, 50*time.Millisecond
-	t.Cleanup(func() { callTimeout, stopTimeout, settle, pollEvery = c, st, se, p })
+	st, se, p := stopTimeout, settle, pollEvery
+	stopTimeout, settle, pollEvery = 3*time.Second, 500*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { stopTimeout, settle, pollEvery = st, se, p })
 }
 
-// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied. Its bootstrap and the print
-// checking it run with the default callTimeout, not fast's 300ms: starting the fake launchctl under a loaded suite (the
-// merge gate) can outlast that and the call is SIGKILLed, failing Install for no reason of the test's (T-779 gate).
+// installed is s installed in the fake launchd (loaded, pid 4242), its calls log emptied.
 func installed(t *testing.T, log string) Service {
 	t.Helper()
 	s := darwin(t)
-	c := callTimeout
-	callTimeout = 10 * time.Second
-	defer func() { callTimeout = c }()
 	if _, err := s.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -433,16 +429,17 @@ func installed(t *testing.T, log string) Service {
 	return s
 }
 
-// T-771: kickstart -k waits for the old serve to exit; one slower than the flat deadline launchctl once had
-// (callTimeout) but inside stopTimeout is a plain RESTARTED, no warning, kickstart called once.
+// T-771: kickstart -k waits for the old serve to exit; one slower than the flat deadline launchctl once had (300ms,
+// callTimeout no longer bounds a kickstart) but inside stopTimeout is a plain RESTARTED, no warning, kickstart called
+// once.
 func TestRestartSlowKickstart(t *testing.T) {
 	fast(t)
 	log, _ := fakeLaunchctl(t)
 	s := installed(t, log)
 	t.Setenv("FAKE_KICK_SLEEP", "1")
 	t.Setenv("FAKE_KICK_PID", "4243")
-	if time.Second <= callTimeout || time.Second >= stopTimeout {
-		t.Fatal("precondition: the kickstart outlasts callTimeout, not stopTimeout")
+	if time.Second >= stopTimeout {
+		t.Fatal("precondition: the kickstart is inside stopTimeout")
 	}
 	line, err := s.Restart(context.Background())
 	if err != nil || line != "RESTARTED obor.serve.pj" {
