@@ -1,15 +1,8 @@
 # Upgrading an obor project from v0.26 to v0.27
 
-<!-- Draft from T-853; the lead completes this guide at tag time (RELEASING.md step 1). -->
-
-## v0.27.0 (reviewer, deep dive and integrator out of the main checkout; no merge hold)
-Upgrade from v0.26.x. Nothing to run in the project before restarting serve:
-
-```sh
-# nothing to do
-```
-
-Then re-run the installer and `obor serve restart` in every project.
+## v0.27.0 (role worktrees, no merge hold, review fix rounds in serve, verbs that answer first)
+Upgrade from v0.26.x. Nothing to change in the project: re-run the installer, then `obor serve restart` in every
+project. Close an open review first (`obor review close`), or let it finish on the new serve.
 
 What changes:
 - **The reviewer and the deep dive run in their own worktree**, `<lanes_dir>/reviewer` and `<lanes_dir>/deep_dive`,
@@ -21,6 +14,15 @@ What changes:
   there. Its resolve jobs still work in the merge scratch (`merge.scratch_dir`), as before.
 - **Merges no longer wait for the reviewer or the deep dive**: the merge hold (`merge hold: <role>` in `obor status`
   and web, the lead's `merge of T-x went ahead` line) is gone.
+- **A review's fix round runs in serve**: after dispatching the fix tasks, `obor review fix T-a,T-b` links them to the
+  open review; once they merged, serve briefs the same reviewer session to verify. A verify counts only when the
+  reviewer finished it (an error stop or a superseded brief proves nothing), and `obor review close` is refused while a
+  linked fix is unverified (`--force`: the owner's word). `obor review verify` still works by hand.
+- **`obor dispatch T-xx --model`, `obor drop` and `obor drive T-xx` answer at once** (`MOVING …`, `DROPPING …`,
+  `DRIVING …`); serve stops the old agent as a step of its loop and posts `[obor] T-xx: stopped <agent>` (or a
+  needs-you when the stop fails). While that stop is pending, other verbs on the task answer "retry when it settles".
+- **Help:** `obor help` lists every command by group with its usage, and obor web has a Help page with the same table
+  and README's install and setup steps.
 - **The main checkout's HEAD rows are gone from the guard**: no role but the lead runs there any more (custom roles
   there read git only), so a non-lead's `git checkout` / `reset` / … in the main checkout is no longer refused by them.
 
