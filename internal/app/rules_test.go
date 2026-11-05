@@ -78,7 +78,7 @@ func TestRulePass(t *testing.T) {
 			h := ruleHarness(t)
 			p := h.proj()
 			calls, fail := 0, false
-			r := rule{name: "test", settle: c.settle, when: func(_ *App, _ *proj, _ time.Time) (int64, action, bool) {
+			r := rule{name: "test", settle: c.settle, when: func(_ context.Context, _ *App, _ *proj, _ *Loop, _ time.Time) (int64, action, bool) {
 				if !c.line && calls > 0 {
 					return 0, action{}, false // its effect shows: done
 				}
@@ -97,7 +97,7 @@ func TestRulePass(t *testing.T) {
 			sawNeeds := false
 			for _, ps := range c.passes {
 				h.now, fail = h.now.Add(ps.after), ps.fail
-				h.a.rulePass(context.Background(), []rule{r})
+				h.a.rulePass(context.Background(), []rule{r}, &Loop{})
 				sawNeeds = sawNeeds || p.has(event.RuleTask, event.StepNeedsYou, "rule test failed 3 passes in a row (serve's log names the errors)")
 			}
 			ofs, _ := ruleLines(t, h)
@@ -127,7 +127,7 @@ func TestIdleRules(t *testing.T) {
 	pass := func(d time.Duration) step {
 		return func(_ *testing.T, h *harness) {
 			h.now = h.now.Add(d)
-			h.a.rulePass(context.Background(), rules)
+			h.a.rulePass(context.Background(), rules, &Loop{})
 		}
 	}
 	merged := func(task string) step { // task submitted and merged outside the app: no after-merge step left

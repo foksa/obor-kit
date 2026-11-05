@@ -19,5 +19,6 @@ func (p *proj) foldStart(r event.Record) {
 	if json.Unmarshal(r.Data, &out) != nil || out.Refused != "" || out.Agent == "" || out.Pane == "" {
 		return
 	}
-	p.reg.recordStart(out.Agent, startRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session})
+	p.reg.recordStart(out.Agent, startRow{Pane: out.Pane, Terminal: out.Terminal, Kind: out.Kind, Session: out.Session,
+		Verdicts: p.folded.verdicts})
 }

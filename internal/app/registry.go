@@ -91,9 +91,11 @@ func (r *registry) start(agent string) (startRow, bool) {
 }
 
 // startRow is serve's own start of an agent (agent.start's or start.<job>'s result, foldStart): the pane it placed the
-// agent in, that pane's terminal id ("": a result from before T-504, until its pane is seen), the kind and session.
+// agent in, that pane's terminal id ("": a result from before T-504, until its pane is seen), the kind, the session,
+// and the verdicts folded at its start ("a verdict came since its start", rolestop.go T-870).
 type startRow struct {
 	Pane, Terminal, Kind, Session string
+	Verdicts                      int
 }
 
 // owner is the agent a terminal runs by the last reconcile, its proof and the pane id it was seen at.

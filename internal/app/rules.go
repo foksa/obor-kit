@@ -13,13 +13,14 @@ import (
 	"time"
 )
 
-// rule is a name and its condition: when, under mu on p's state at now, is the record the rule is keyed by and its
-// action (ok false: the condition does not hold). The action runs once the condition has held with the same key for
-// settle (counted from the first pass that saw it; a restart counts again), and never for a key whose line is recorded.
+// rule is a name and its condition: when, at now, is the record the rule is keyed by and its action (ok false: the
+// condition does not hold). when runs not under mu: it takes the lock for what it reads. The action runs once the
+// condition has held with the same key for settle (counted from the first pass that saw it; a restart counts again),
+// and never for a key whose line is recorded.
 type rule struct {
 	name   string
 	settle time.Duration
-	when   func(a *App, p *proj, now time.Time) (key int64, act action, ok bool)
+	when   func(ctx context.Context, a *App, p *proj, fx *Loop, now time.Time) (key int64, act action, ok bool)
 }
 
 // action is a rule's effect: call (nil: none), then the lead's line, recorded with Of{the rule's name, its key} ("":
@@ -44,12 +45,14 @@ const ruleFails = 3
 var rules = []rule{
 	{name: ruleIdle, settle: idleSettle, when: idleRule},
 	{name: ruleIdlePing, when: idlePingRule}, // its line went after the idle line's settle
+	{name: ruleIntegratorStop, when: integratorStopRule},
+	{name: ruleReviewerStop, when: reviewerStopRule},
 }
 
-// rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines): a rule whose
-// condition has held for its settle acts; a failed action counts, and ruleFails in a row put one needs-you naming the
-// first such rule in force (task key rule), ended once no rule fails that often.
-func (a *App) rulePass(ctx context.Context, rs []rule) {
+// rulePass runs each of rs on the project once (the merge loop's goroutine, after the pass's lines, on the pass's
+// adapters fx): a rule whose condition has held for its settle acts; a failed action counts, and ruleFails in a row put
+// one needs-you naming the first such rule in force (task key rule), ended once no rule fails that often.
+func (a *App) rulePass(ctx context.Context, rs []rule, fx *Loop) {
 	a.mu.Lock()
 	p := a.p
 	run := p != nil && p.merging
@@ -59,8 +62,8 @@ func (a *App) rulePass(ctx context.Context, rs []rule) {
 	}
 	failing, now := "", a.opt.Now()
 	for _, r := range rs {
+		key, act, ok := r.when(ctx, a, p, fx, now)
 		a.mu.Lock()
-		key, act, ok := r.when(a, p, now)
 		live, seen := p.rules[r.name]
 		if !seen || live.key != key {
 			live = ruleLive{key: key, since: now}

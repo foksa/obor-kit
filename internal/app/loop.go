@@ -275,9 +275,9 @@ func (a *App) mergeLoop(ctx context.Context) {
 		a.mu.Lock()
 		up, stream := a.connected, a.streams
 		a.mu.Unlock()
-		a.advance(ctx)
+		fx := a.advance(ctx)
 		a.notify(ctx)
-		a.rulePass(ctx, rules)
+		a.rulePass(ctx, rules, fx)
 		a.mu.Lock()
 		a.passes++
 		if up && a.connected && a.streams == stream {
@@ -289,16 +289,17 @@ func (a *App) mergeLoop(ctx context.Context) {
 
 // advance is one pass over the project when it merges: each task driven as far as it goes now, in passOrder (the
 // waiting ones last: a task they wait for may merge in the same pass). It needs a herdr snapshot (the integrator's pane).
-func (a *App) advance(ctx context.Context) {
+// It returns the pass's adapters (nil: the pass did not run, or its adapters or checkout failed), the rule pass's.
+func (a *App) advance(ctx context.Context) *Loop {
 	a.mu.Lock()
 	p := a.p
 	run := p != nil && p.merging && a.connected
 	a.mu.Unlock()
 	if p != nil && a.followBinary(ctx, p) { // a project with no merge loop follows a new binary too
-		return // serve ends now
+		return nil // serve ends now
 	}
 	if !run {
-		return
+		return nil
 	}
 	fx, err := a.opt.Loop(p.root)
 	if err == nil {
@@ -311,7 +312,7 @@ func (a *App) advance(ctx context.Context) {
 	a.loopStatus(ctx, p, &p.badLoop, err)
 	if err != nil {
 		a.logf("merge loop of %s: %v", p.name, err)
-		return
+		return nil
 	}
 	a.mu.Lock()
 	p.dispatching = fx.Lane != nil && fx.Specs != nil
@@ -320,7 +321,7 @@ func (a *App) advance(ctx context.Context) {
 	a.diskTick(p, fx)
 	for _, task := range tasks {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 		a.drive(ctx, p, fx, task)
 	}
@@ -329,7 +330,7 @@ func (a *App) advance(ctx context.Context) {
 	a.fixPass(ctx, p, fx)
 	a.verifyPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
-	a.stopRoles(ctx, p, fx)
+	return fx
 }
 
 // record appends the fact r with data and folds it; false when the log failed.

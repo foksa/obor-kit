@@ -173,8 +173,8 @@ type proj struct {
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
-	// roleFail: when a role agent's stop last failed, by agent; rvRead: the reviewer stop's last git read of an open
-	// review (rolestop.go, T-672). Under mu.
+	// roleFail: when a fresh brief's stop of a role agent last failed, by agent; rvRead: the reviewer stop rule's last
+	// git read of its review (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
 	rvRead   rvRead
 	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
@@ -200,7 +200,10 @@ type proj struct {
 type folded struct {
 	active map[string][]event.Record // task → its watchdog facts since the last resumed
 	woke   map[string]time.Time      // task → its stopped worker's first wake since the last resumed (stopwake.go)
-	calls  map[string]string         // answered verdict calls: the stored reply by <method>.<call id>
+	// calls: answered verdict calls: the stored reply by <method>.<call id>; verdicts: how many verdict results were
+	// folded (a start row holds the count at its start: "a verdict came since its start", rolestop.go T-870).
+	calls    map[string]string
+	verdicts int
 	// refusals: refused calls whose refusal is recorded, by <method>.<call id>: a task_done of an older spec rev
 	// (spec.seen, T-821), refused again on a retry.
 	refusals map[string]string
@@ -220,8 +223,6 @@ type folded struct {
 	rv reviewLog
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
-	// roles: serve's stops of role agents (rolestop.go, T-672).
-	roles roleStops
 	// did: the rules' lines by their key (rules.go, T-866: a lead line's Of) and when each was recorded.
 	did map[event.Of]time.Time
 	// idleAck: the lead's last acknowledgement of an idle state (idle.go, T-803, T-866; zero: none).

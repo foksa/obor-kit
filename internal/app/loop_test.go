@@ -554,18 +554,14 @@ func TestLoopHappyPath(t *testing.T) {
 	if r.mainMerges() != 1 || !r.p.Exists("feature.txt") {
 		t.Errorf("main: %d merges of T-1, feature.txt %v; want one merge with the feature", r.mainMerges(), r.p.Exists("feature.txt"))
 	}
-	var steps []string // the integrator's stop after its verdict (T-672) runs beside the publish, and the idle state's own records are not the merge's (T-803): each asserted on its own
+	var steps []string // the idle state's own records are not the merge's (T-803): each asserted on its own
 	for _, s := range r.steps() {
 		switch {
-		case strings.HasPrefix(s, "0 intent stop."), strings.HasPrefix(s, "0 result stop."):
 		case strings.HasSuffix(s, " fact idle"), strings.HasSuffix(s, " fact message"):
 		case strings.Contains(s, " intent deliver."), strings.Contains(s, " result deliver."):
 		default:
 			steps = append(steps, s)
 		}
-	}
-	if !r.has("0 intent stop.pj-int") || !r.has("0 result stop.pj-int") {
-		t.Errorf("no stop of pj-int after its verdict (T-672): %q", r.steps())
 	}
 	eq(t, steps, []string{"1 fact dispatch", "1 fact submitted", "1 intent submit", "1 result submit", "1 intent gate",
 		"1 result gate", "1 intent review", "1 intent start.review", "1 result start.review", "1 result review",

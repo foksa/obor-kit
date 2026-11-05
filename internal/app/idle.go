@@ -153,16 +153,20 @@ func (p *proj) idleOpen() (idle, bool) {
 }
 
 // idleRule is the idle line's rule: the line once per key while the state is open.
-func idleRule(_ *App, p *proj, _ time.Time) (int64, action, bool) {
+func idleRule(_ context.Context, a *App, p *proj, _ *Loop, _ time.Time) (int64, action, bool) {
+	a.mu.Lock()
 	n, ok := p.idleOpen()
+	a.mu.Unlock()
 	return n.end, action{line: idleLine(n.last)}, ok
 }
 
 // idlePingRule is the ping's rule: idlePingAfter after the key's line, still open, the owner's notification and the
 // line again.
-func idlePingRule(a *App, p *proj, now time.Time) (int64, action, bool) {
+func idlePingRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
+	a.mu.Lock()
 	n, ok := p.idleOpen()
 	lined, did := p.folded.did[event.Of{Kind: ruleIdle, Seq: n.end}]
+	a.mu.Unlock()
 	if !ok || !did || now.Sub(lined) < idlePingAfter {
 		return 0, action{}, false
 	}

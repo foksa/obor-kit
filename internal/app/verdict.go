@@ -113,6 +113,8 @@ func (p *proj) foldJob(r event.Record) {
 		p.folded.calls[method+"."+id] = v.Reply
 		if method == stepAnswer {
 			p.answered(r.Task)
+		} else {
+			p.folded.verdicts++ // a verdict came (rolestop.go, T-870)
 		}
 	}
 }
