@@ -202,7 +202,7 @@ func TestDropSelectedStep(t *testing.T) {
 					t.Fatalf("control: the selected step ran %q; want %s first", ran, c.effect)
 				case dropped && ran != "":
 					t.Errorf("after DROPPED the selected step ran %q", ran)
-				case dropped && r.state(c.proj, c.task) != stDropped:
+				case dropped && !dropGone(r.state(c.proj, c.task)):
 					t.Errorf("after DROPPED the task is %s", r.state(c.proj, c.task))
 				}
 			}
@@ -238,7 +238,7 @@ func TestDropAfterScratchStepStarted(t *testing.T) {
 			if r.count(c.proj, c.task, event.KindResult, c.effect) != 1 {
 				t.Errorf("the %s's result did not fold", c.effect)
 			}
-			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || r.state(c.proj, c.task) == stDropped {
+			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || dropGone(r.state(c.proj, c.task)) {
 				t.Error("a refused drop dropped the task")
 			}
 		})
@@ -309,7 +309,7 @@ func TestDropRefusedWhileStepHeld(t *testing.T) {
 					!strings.Contains(a.err.Error(), "pending; retry when it settles") {
 				t.Errorf("drop while the %s runs: %q, %v; want refused, naming the step", c.effect, a.reply, a.err)
 			}
-			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || r.state(c.proj, c.task) == stDropped ||
+			if r.count(c.proj, c.task, event.KindFact, event.StepDropped) != 0 || dropGone(r.state(c.proj, c.task)) ||
 				r.ended(c.proj, c.task) {
 				t.Errorf("a refused drop changed the task: state %s, ended mark %v", r.state(c.proj, c.task),
 					r.ended(c.proj, c.task))
@@ -369,7 +369,7 @@ func TestDropDuringEarlyFetch(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the start did not return")
 	}
-	if r.count("pj", "T-1", event.KindFact, event.StepDropped) != 0 || r.state("pj", "T-1") == stDropped {
+	if r.count("pj", "T-1", event.KindFact, event.StepDropped) != 0 || dropGone(r.state("pj", "T-1")) {
 		t.Error("a refused drop dropped the task")
 	}
 }

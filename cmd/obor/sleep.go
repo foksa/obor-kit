@@ -120,11 +120,12 @@ func (s *sleeper) name() string { return s.Cfg.ProjectName() }
 // answers for the project (else: start serve first); (2) serve paused by stop's own untimed pause, so nothing new is
 // dispatched (a pause in force already is replaced, and recorded); (3) the tasks in progress, asked of serve: refused,
 // or with --force each dropped through serve — never the lane whose agent runs in the caller's own pane
-// (HERDR_PANE_ID, T-711), and any drop failing refuses; (4) herdr's panes listed (an error refuses) and every agent
-// obor started in the project stopped but the caller's own; (5) serve ended (launchd's agent uninstalled; one in a
-// pane or run by hand asked to exit over its socket) and confirmed down (its socket and lock gone); (6) the project
-// unregistered and the marker written, with the replaced pause. A refusal after (2) restores the replaced pause while
-// it has not expired, else clears stop's. A stopped project's stop says so and does nothing.
+// (HERDR_PANE_ID, T-711), any drop failing refuses, and a drop serve runs as its loop's steps is waited for (T-852);
+// (4) herdr's panes listed (an error refuses) and every agent obor started in the project stopped but the caller's own;
+// (5) serve ended (launchd's agent uninstalled; one in a pane or run by hand asked to exit over its socket) and
+// confirmed down (its socket and lock gone); (6) the project unregistered and the marker written, with the replaced
+// pause. A refusal after (2) restores the replaced pause while it has not expired, else clears stop's. A stopped
+// project's stop says so and does nothing.
 func (s *sleeper) stop(ctx context.Context) int {
 	root := s.Cfg.Root
 	repo, _ := project.Find(s.Cwd)
@@ -183,6 +184,7 @@ func (s *sleeper) stop(ctx context.Context) int {
 		return refuse("lane %s's agent runs in this pane (%s): obor stop would stop its own caller: run it from the "+
 			"owner's or the lead's pane", own, s.Env.Get("HERDR_PANE_ID"))
 	}
+	var dropping []string // drops serve answered DROPPING: its merge loop stops the worker and frees the lane (T-852)
 	for _, b := range busy {
 		d := c // as obor drop calls it
 		d.CallID, d.Note, d.Force, d.Task = wire.NewCallID(), "obor stop --force: "+s.Why, true, b.Task
@@ -191,6 +193,12 @@ func (s *sleeper) stop(ctx context.Context) int {
 			return refuse("drop %s: %v (nothing stopped)", busyList([]busyTask{b}), err)
 		}
 		s.say("%s", reply)
+		if strings.HasPrefix(reply, "DROPPING ") {
+			dropping = append(dropping, b.Task)
+		}
+	}
+	if err := s.waitDropped(ctx, dropping); err != nil { // before stopAgents: never two stops of one worker at once
+		return refuse("%v", err)
 	}
 
 	if err := s.stopAgents(ctx); err != nil {
@@ -385,6 +393,46 @@ func (s *sleeper) status(ctx context.Context) (*wire.ProjectStatus, error) {
 	default:
 		return p, nil
 	}
+}
+
+// waitDropped waits until serve's status shows each of tasks dropped (or no longer lists it): a drop serve answered
+// DROPPING runs as its merge loop's steps (the worker's stop, the lane's free; T-852), each stop up to its bound. A
+// task left with a needs-you (a stop or a free refused) is an error naming it.
+func (s *sleeper) waitDropped(ctx context.Context, tasks []string) error {
+	deadline := time.Now().Add(time.Duration(len(tasks))*port.StopBound + 30*time.Second)
+	for len(tasks) > 0 {
+		p, err := s.status(ctx)
+		if err != nil {
+			return fmt.Errorf("the drops of %s: %v", strings.Join(tasks, ", "), err)
+		}
+		state := map[string]string{}
+		for _, t := range p.Tasks {
+			state[t.Task] = t.State
+		}
+		var left []string
+		for _, t := range tasks {
+			switch state[t] {
+			case "", "dropped":
+			case wire.PhaseNeedsYou:
+				return fmt.Errorf("drop %s: a needs-you holds it (obor status says why; obor resume %s retries): nothing "+
+					"stopped", t, t)
+			default:
+				left = append(left, t)
+			}
+		}
+		if tasks = left; len(tasks) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s not dropped yet (obor status says why): nothing stopped", strings.Join(tasks, ", "))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	return nil
 }
 
 // openTasks is serve's open tasks: every state but merged, rejected and dropped (working, gating, merging, waiting …).

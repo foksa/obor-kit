@@ -165,16 +165,20 @@ overrides both.
 - A second `obor dispatch` of a waiting task replaces its request (new `--model`, `--after`); its watches stay.
   `obor drop <T-xx> "<why>"` cancels it (`DROPPED T-xx`; a watch on it ends with `dropped: <why>`).
 - Move a working task to another model (T-773): `obor dispatch <T-xx> --model <model>[:<effort>]` on a task its worker
-  works on. Serve stops the worker (as `obor drive <T-xx>` does), keeps the lane, branch, worktree and spec, and starts
-  the new model's agent there with the task's next attempt: `MOVED T-xx on <LANE>: <old> → <new> (attempt n)`. One
-  command, nothing to stop, drop or redispatch by hand. Refused: the task gating, merging or under review; the model it
-  runs (`already on <model>`); a stop that fails (nothing recorded, the same command retries).
-- `obor drop <T-xx> "<why>" [--discard] [--force]` stops the task's worker as part of the drop (a working one is
-  interrupted with Escape and quits once idle), then frees its lane (serve knows it; the lane form is gone). `--force` is only for a worker that keeps working
-  after Escape (or has background tasks): without it that drop is refused, nothing dropped. A refused free (a dirty
-  lane without `--discard`) still stopped the worker; the refusal says so. Any other stop that fails (a quit
-  timeout, a forced stop failing, herdr unreachable, two panes claiming the worker) refuses the drop, nothing freed or
-  recorded: fix what it names, then the same `obor drop` retries. `obor restart <agent> --stop` stops the
+  works on. Serve records the move and answers at once: `MOVING T-xx on <LANE>: <old> → <new> (stopping <worker>)`
+  (T-852); its merge loop then stops the worker (as `obor drive <T-xx>` does), keeps the lane, branch, worktree and spec,
+  and starts the new model's agent there with the task's next attempt. One line follows: `[obor] T-xx: stopped
+  <worker>`, or `[obor] T-xx: <worker> not stopped: <why>` with a needs-you (`obor resume T-xx` retries the stop; nothing
+  starts before it). One command, nothing to stop, drop or redispatch by hand. Refused: the task gating, merging or
+  under review; the model it runs (`already on <model>`).
+- `obor drop <T-xx> "<why>" [--discard] [--force]` on a task holding a lane answers at once: `DROPPING T-xx from <LANE>
+  (<why>; stopping <worker>)` (T-852). Serve's merge loop then stops the task's worker (a working one is interrupted
+  with Escape and quits once idle; one line: `[obor] T-xx: stopped <worker>`), frees its lane (serve knows it; the lane
+  form is gone) and records it dropped. `--force` is only for a worker that keeps working after Escape (or has
+  background tasks): without it that stop is a needs-you naming `obor drop T-xx --force`, nothing freed. A refused free
+  (a dirty lane without `--discard`) is a needs-you naming `--discard`, the worker stopped already: `obor drop T-xx
+  --discard` frees it. Any other stop that fails (a quit timeout, a forced stop failing, herdr unreachable, two panes
+  claiming the worker) is a needs-you too, nothing freed: fix what it names, then `obor resume T-xx` retries. `obor restart <agent> --stop` stops the
   same way: no more "left running".
 - `obor restart <lane's worker>` while its lane has a task restarts it with the task's open job: a fresh session gets
   the job's wake as its first prompt, a resumed one has it typed (`job T-xx/n/work: its wake …`). It never leaves an
@@ -191,11 +195,12 @@ lane: serve sends it no jobs, its watchdog does not watch it, and a merge watch 
   (`<lane's worker>-drive`, role driver) in a pane split in the tab it runs in, its first prompt one line saying what it
   is. Replies: `DRIVE T-xx → <LANE> (<agent>, <model>)`, the start's lines, then `OK T-xx: <agent> drives in lane
   <LANE> on task/T-xx; obor land T-xx when done`. No free lane is a refusal naming the lanes' states, never a wait.
-- `obor drive <T-xx>` — takes over a task its worker works on: serve stops the worker (as `obor restart --stop` does),
-  keeps its lane, branch and spec, and the command starts the drive agent there: `DRIVE T-xx → <LANE> (<agent>,
-  <model>) taking over from <worker>; STOPPED <worker>`. A task gating, merging or under review is refused. The worker
-  is stopped before the take-over is recorded: a stop that fails refuses it with the error and records nothing (the task
-  stays the worker's; retry with `obor drive <T-xx>`).
+- `obor drive <T-xx>` — takes over a task its worker works on: serve records it and answers at once, `DRIVING T-xx →
+  <LANE> (<agent>, <model>) taking over (stopping <worker>)` (T-852); its merge loop stops the worker (as `obor restart
+  --stop` does), keeps its lane, branch and spec, and the command starts the drive agent there once the stop is done. A
+  task gating, merging or under review is refused. A stop that fails is a needs-you (one line to the lead, `[obor]
+  T-xx: <worker> not stopped: <why>`) and the command starts nothing: `obor resume T-xx` retries the stop, then `obor
+  drive T-xx` starts the drive agent.
 - Retry (T-755): `obor drive <T-xx>` or `obor drive <name>` on a drive already starts its agent again on its recorded
   lane and type when it is not running (a failed start's retry: `DRIVE … again: its agent is not running`, nothing
   recorded); running: `DRIVING T-xx → <LANE>: <agent> runs already (pane <id>)`, then `OK …`, nothing started.

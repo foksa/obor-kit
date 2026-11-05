@@ -67,6 +67,9 @@ func (a *App) Status() wire.Status {
 				if role := a.holdRole(p, mt); role != "" {
 					ts.Hold = wire.MergeHold(role)
 				}
+				if mt.halt.pending() {
+					ts.Stopping = mt.halt.agent
+				}
 				if mt.is(stWaiting) {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types

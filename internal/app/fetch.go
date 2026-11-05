@@ -392,7 +392,8 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	a.wake()
 	a.mu.Lock()
-	dropped := p.folded.loop[c.Task] != nil && p.folded.loop[c.Task].state == stDropped
+	m := p.folded.loop[c.Task]
+	dropped := m != nil && (m.state == stDropped || m.state == stDropping)
 	a.mu.Unlock()
 	if dropped { // dropped after the decision: the submitted fact changes nothing
 		return "", fmt.Errorf("task_done: superseded: %s was dropped", c.Task)

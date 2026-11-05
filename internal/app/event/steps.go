@@ -45,9 +45,20 @@ const (
 	StepPrepare    = "lane.prepare" // intent/result (G), lane.prepare.N after a refusal: PrepareInput → prepareOut
 	StepStartWork  = "agent.start"  // intent/result (S), agent.start.N after a refusal: startData → startOut
 	StepWork       = "work"         // prompt intent (P), work.N after obor resume: the worker's job
-	// StepDrive is fact drive: the owner takes over a task in progress (obor drive T-xx, T-751): its worker is stopped,
-	// the drive agent works in the lane (data: dispatchData, Drive set). A new drive is a fact dispatch with Drive set.
+	// StepDrive is fact drive: the owner takes over a task in progress (obor drive T-xx, T-751): its worker is stopped
+	// (StepWorkerStop), the drive agent works in the lane (data: dispatchData, Drive set). A new drive is a fact
+	// dispatch with Drive set.
 	StepDrive = "drive"
+	// StepWorkerStop is the merge loop's stop of a task's worker before the step that needs its lane (T-852): a move's
+	// (before the redo's lane.prepare), a take-over's (before the drive agent starts) or a drop's (before lane.free).
+	// intent/result (S), worker.stop.N after a refusal obor resume retries: stopData → stopOut.
+	StepWorkerStop = "worker.stop"
+)
+
+// A drop of a task that holds a lane (T-852): the decision, then its steps, then fact dropped.
+const (
+	StepDropping = "dropping"  // fact: obor drop decided on a task holding a lane (data: dropData): stop, free, dropped
+	StepFree     = "lane.free" // intent/result (G), lane.free.N after a refusal: a dropping task's lane given back → freeOut
 )
 
 const (

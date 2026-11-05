@@ -61,7 +61,7 @@ func (mt mtask) may(v verb) bool {
 	switch {
 	case mt.needs.due():
 		vs = vDrop
-	case mt.paused():
+	case mt.paused() && mt.state != stDropping: // a dropping task takes no task_done, blocked or not (T-852)
 		vs = vResume | vDrop | vSubmit | vs&vDrive
 	}
 	return vs&v != 0
@@ -152,7 +152,15 @@ func init() {
 		// T-751: the owner's drive agent works in the lane; obor land submits it. Its one step is the lead's line when a
 		// red gate, a sendback or a hold sent it back; no jobs, no watchdog; obor resume is a line to the drive agent
 		stDriving: {pick: (*App).pickDriving, name: func(mtask) string { return "the drive" }, verbs: vResume | vDrop | vLand,
-			phase: wire.PhaseDriving},
+			phase:  wire.PhaseDriving,
+			resume: func(_ mtask, cause string) resumeRule { return resumeRule{retry: cause == causeStop} }},
+		// T-852: obor drop decided on a task holding a lane: its worker's stop, lane.free, then dropped; a needs-you of
+		// one (a refused stop, a refused free) is retried, or the drop given again (--force, --discard)
+		stDropping: {pick: (*App).pickDropping, name: func(mtask) string { return "the drop" }, verbs: vResume | vDrop,
+			failed: true, phase: wire.PhaseDropping,
+			resume: func(mtask, string) resumeRule {
+				return resumeRule{to: wire.ResumeRetry, only: wire.ResumeRetry, retry: true}
+			}},
 	}
 }
 

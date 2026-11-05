@@ -315,6 +315,9 @@ func (p *proj) foldMsg(r event.Record) {
 		if m.Drive != 0 {
 			p.foldDriveLine(m)
 		}
+		if m.Stopped != "" {
+			p.foldStopLine(m)
+		}
 		if m.Review != 0 {
 			p.reviewEnded(m.Review)
 		}

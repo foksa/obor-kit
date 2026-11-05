@@ -149,6 +149,7 @@ const (
 	PhaseMerged         = "merged"          // the target holds it: its after-merge steps
 	PhaseRejected       = "rejected"        // ended: rejected
 	PhaseDropped        = "dropped"         // ended: dropped
+	PhaseDropping       = "dropping"        // obor drop decided: its worker's stop and its lane's free run, then dropped (T-852)
 )
 
 // MergeHold is the phase of a task whose publish waits for role (T-718).
@@ -203,6 +204,9 @@ type TaskStatus struct {
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`
 	Delivered bool   `json:"delivered,omitempty"`
+	// Stopping is the worker the merge loop stops before the task's next step (a move, a take-over, a drop; T-852): ""
+	// once it is stopped or gone. Still set with Phase needs-you: the stop was refused (obor resume retries it).
+	Stopping string `json:"stopping,omitempty"`
 }
 
 // AgentStatus is one observed agent: its address, lane and task (when its cwd is a lane) and status for Age seconds.

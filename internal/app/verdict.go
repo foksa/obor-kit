@@ -91,6 +91,12 @@ func (p *proj) foldJob(r event.Record) {
 		if d := r.Fact(); d.Call != "" {
 			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = dropReply(r.Task)
 		}
+	case r.Kind == event.KindFact && r.Step == event.StepDropping: // T-852: its DROPPING reply
+		var d dropData
+		_ = json.Unmarshal(r.Data, &d)
+		if d.Call != "" {
+			p.folded.calls[verdictStep(wire.MethodDrop, d.Call)] = d.Reply
+		}
 	case r.Kind == event.KindFact && (r.Step == event.StepNeedsYou || r.Step == event.StepUnblocked):
 		if d := r.Fact(); d.Call != "" && r.Step == event.StepNeedsYou {
 			p.folded.calls[verdictStep(wire.MethodHold, d.Call)] = holdReply(r.Task, d.Job)
@@ -148,7 +154,7 @@ func (a *App) verdict(ctx context.Context, method string, c wire.Call) (string, 
 		if mt := p.folded.loop[c.Task]; mt != nil {
 			key, patch, open, sendbacks, input = mt.jobKey(), mt.patch, mt.openJob(), mt.sendbacks, mt.input
 			jobSt = mt.jobState(true)
-			dropped = mt.state == stDropped || p.ended[c.Task]
+			dropped = mt.state == stDropped || mt.state == stDropping || p.ended[c.Task]
 		}
 	}
 	a.mu.Unlock()
@@ -264,56 +270,61 @@ func holdReply(task, job string) string {
 
 func dropReply(task string) string { return "DROPPED " + task }
 
-// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why): a repeated call id gets
-// the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the same mu section a
-// selected step's start check takes (begin), so no step starts after it. Then the task's lane is freed when its row
-// still holds the task (freeLane; serve knows the lane: a waiting task holds none) and one fact, dropped{why, by}: the
-// task leaves the loop and its lane row, its needs-you and timers end. A refused lane or a failed write clears the mark.
+// drop answers the lead's or the owner's drop of task c.Task (obor drop <T-xx>; c.Note: why) under a.verdicts: a
+// repeated call id gets the stored reply; else dropDecide's refusals, and the task is marked ended (p.ended) in the
+// same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
+// holds it (serve knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one
+// fact, dropping{lane, worker, why, force, discard}, answered DROPPING at once; the merge loop then stops its worker,
+// frees its lane and records dropped (stopstep.go). Any other: one fact, dropped{why, by}: the task leaves the loop and
+// its lane row, its needs-you and timers end. The mark ends with the record (a failed write: the drop is refused).
 func (a *App) drop(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("drop: a call id and a task are required")
 	}
-	a.verdicts.Lock() // one verdict at a time; held only for the decision and the write, never across a wait
+	a.verdicts.Lock() // one verdict at a time; never held across a wait: the stop and the free are the loop's
+	defer a.verdicts.Unlock()
 	a.mu.Lock()
 	p := a.projAt(c.Root)
 	mt, err := a.dropDecide(p, c)
-	c.Lane = ""
+	lane, stored := "", ""
+	if err == nil && mt.task == "" { // the call id's stored reply: DROPPED, or a dropping fact's DROPPING
+		stored = p.folded.calls[verdictStep(wire.MethodDrop, c.CallID)]
+	}
 	if mt.lane != "" && p.laneTask(mt.lane) == c.Task {
-		c.Lane = mt.lane
+		lane = mt.lane
 	}
 	a.mu.Unlock()
-	a.verdicts.Unlock()
 	if err != nil || mt.task == "" {
-		return dropReply(c.Task), err // mt.task "": a stored reply
+		return stored, err
 	}
-	if c.Lane != "" && !a.laneAdapters(p) { // no lane adapters (a loop observing): the task dropped, its lane as it was
-		c.Lane = ""
+	defer func() {
+		a.mu.Lock()
+		delete(p.ended, c.Task) // folded: the task is dropping or dropped; else the drop is refused
+		a.mu.Unlock()
+	}()
+	if lane != "" && !a.laneAdapters(p) { // no lane adapters (a loop observing): the task dropped, its lane as it was
+		lane = ""
 	}
-	var lines []string
-	if c.Lane != "" { // the lane is given back first; a refusal leaves the task as it was
-		if lines, err = a.freeLane(p, c, mt); err != nil {
-			a.mu.Lock()
-			delete(p.ended, c.Task)
-			a.mu.Unlock()
-			return "", err
+	if lane == "" {
+		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
+			event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID}) {
+			return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 		}
+		a.wake()
+		return dropReply(c.Task), nil
 	}
-	a.verdicts.Lock()
-	ok := a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropped, Kind: event.KindFact},
-		event.FactData{Lane: mt.lane, Machine: Machine, Agent: c.Agent, Reason: c.Note, Merge: true, Call: c.CallID})
-	a.verdicts.Unlock()
-	a.mu.Lock()
-	delete(p.ended, c.Task) // folded: the task is dropped; else the drop is refused
-	a.mu.Unlock()
-	if !ok {
+	worker, err := a.laneWorker(p, lane, mt)
+	if err != nil {
+		return "", fmt.Errorf("drop: %v", err)
+	}
+	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Note, Force: c.Force, Discard: c.Discard,
+		Call: c.CallID}
+	d.Reply = dropReplyOf(c.Task, d)
+	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropping, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("drop: the event log of %s refused it", p.name)
 	}
 	a.wake()
-	if c.Lane == "" {
-		return dropReply(c.Task), nil
-	}
-	return strings.Join(append(lines, fmt.Sprintf("%s from %s (%s)", dropReply(c.Task), c.Lane,
-		strings.ReplaceAll(c.Note, "\n", " "))), "\n"), nil
+	return d.Reply, nil
 }
 
 // laneAdapters: p's merge loop has the lane adapters a drop frees a lane with.
@@ -322,75 +333,24 @@ func (a *App) laneAdapters(p *proj) bool {
 	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
 }
 
-// freeLane gives the dropped task's lane back (obor drop, T-439; the task marked ended): first its worker is stopped
-// (T-773: it is that task's worker, nothing keeps it, stop_idle_workers or not; through serve's identity of it,
-// stopAgent: no agent there, no line). A working worker is interrupted with Escape and quits once idle; one still
-// working after Escape (or with background tasks: port.NeedsForce) is stopped only with c.Force (Escape, then the exit
-// as obor restart --stop --force does). Any stop that fails (that refusal without c.Force, a quit timeout, a forced
-// stop failing, two panes claiming it, serve not connected to herdr) refuses the drop unless identity proves the
-// worker gone (RV-98 #2: a live agent must not stay in a lane the next task gets): nothing freed or recorded, the
-// error and the retry named. Then the lane adapter's Free (refused for uncommitted changes or unmerged commits unless
-// c.Discard, the worker stopped already; else the lane detached at the target and the task branch deleted). Its lines
-// say what it did, the stop first.
-func (a *App) freeLane(p *proj, c wire.Call, mt mtask) ([]string, error) {
-	fx, err := a.loopOf(p)
-	if err != nil {
-		return nil, err
-	}
-	if fx.Lane == nil || fx.Specs == nil || fx.Agents == nil {
-		return nil, fmt.Errorf("drop: lane adapters off for %s", p.name)
-	}
+// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it, stop_idle_workers
+// or not): the lane row's agent while it is still one of the lane's names, else the lane's derived one, else the
+// task's ("": none known: nothing to stop).
+func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
 	cfg, err := config.LoadDaemon(p.root)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	var dir string
-	for _, l := range cfg.Lanes() {
-		if l.Name == c.Lane {
-			dir = l.Dir
-		}
-	}
-	ctx := a.life
-	target, _, err := fx.Specs.Target(ctx, c.Task)
-	if err != nil {
-		return nil, fmt.Errorf("drop: %v", err)
-	}
-	in := port.FreeInput{Lane: c.Lane, Dir: dir, Branch: strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", c.Task),
-		Target: target, Discard: c.Discard}
-	var lines []string
 	a.mu.Lock()
-	agent := rowAgent(cfg, c.Lane, p.laneAgent(c.Lane))
-	if row := rowAgent(cfg, c.Lane, p.folded.lr.rows[c.Lane].Agent); row != "" {
+	agent := rowAgent(cfg, lane, p.laneAgent(lane))
+	if row := rowAgent(cfg, lane, p.folded.lr.rows[lane].Agent); row != "" {
 		agent = row
 	}
 	a.mu.Unlock()
 	if agent == "" {
 		agent = mt.agent
 	}
-	if agent != "" {
-		line, gone, err := a.stopAgent(ctx, p, fx, agent, c.Force, false)
-		switch {
-		case err != nil && !c.Force && port.NeedsForce(err): // its error names --force
-			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped)", c.Lane, err)
-		case err != nil: // RV-98 #2: a live agent would stay in the lane the next task gets
-			return nil, fmt.Errorf("drop: worker of %s not stopped: %v (nothing dropped; obor drop %s retries)", c.Lane,
-				err, c.Task)
-		case !gone:
-			lines = append(lines, line)
-		}
-	}
-	line, err := fx.Lane.Free(ctx, in)
-	var refused port.Refused
-	if errors.As(err, &refused) { // the task stays open, its worker stopped: the stop's line says so
-		return nil, errors.New(strings.Join(append([]string{"drop: " + refused.Line}, lines...), "\n"))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("drop: %v", err)
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines, nil
+	return agent, nil
 }
 
 // dropDecide is drop's decision (under mu): the task to drop, marked ended; mt.task "" with no error: the call id's

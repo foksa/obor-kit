@@ -10,14 +10,11 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"obor/internal/app/port"
 )
 
-// T-685, T-825, T-829: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset
-// or no number, the table's own. A call whose serve side may stop an agent (a dispatch — a move is one — drop, a
-// drive's take-over) covers the stop's one total bound (port.StopBound: the idle wait, the quit wait and the terminate)
-// plus the verdict margin. The other methods keep theirs.
+// T-685, T-852: OBOR_CALL_DEADLINE, in seconds (fractions allowed), is every method's deadline when set; unset or no
+// number, the table's own. A dispatch (a move is one), a drop and a drive (a take-over) have the verdict deadline: serve
+// answers them at once and stops the worker in its merge loop (T-825's and T-829's stop bound is gone from the table).
 func TestCallDeadline(t *testing.T) {
 	for _, c := range []struct {
 		env, method string
@@ -28,9 +25,9 @@ func TestCallDeadline(t *testing.T) {
 		{"", MethodTurn, turnDeadline},
 		{"", MethodSession, turnDeadline},
 		{"", MethodStopped, stopFailureDeadline},
-		{"", MethodDispatch, port.StopBound + verdictDeadline},
-		{"", MethodDrop, port.StopBound + verdictDeadline},
-		{"", MethodDrive, port.StopBound + verdictDeadline},
+		{"", MethodDispatch, verdictDeadline},
+		{"", MethodDrop, verdictDeadline},
+		{"", MethodDrive, verdictDeadline},
 		{"0.2", MethodAccept, 200 * time.Millisecond},
 		{"0.2", MethodTurn, 200 * time.Millisecond},
 		{"0.2", MethodStopped, 200 * time.Millisecond},
@@ -44,9 +41,8 @@ func TestCallDeadline(t *testing.T) {
 	}
 }
 
-// T-825: a verdict its deadline ends says serve may still be working on it, naming the method and the deadline: a stop
-// inside the call can outlast the answer, and its transport failure ("use of closed network connection") is not a
-// thing a caller can act on.
+// T-825: a verdict its deadline ends says serve may still be working on it, naming the method and the deadline: its
+// transport failure ("use of closed network connection") is not a thing a caller can act on.
 func TestVerdictDeadlineLine(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wire") // a short dir: a unix socket path is limited
 	if err != nil {

@@ -21,8 +21,9 @@ const dispatchUsage = "usage: obor dispatch <T-xx> [--model <model[:effort]>,…
 // Model: line first; --model overrides them; each may name an effort (`opus:high`: its agent started at effort high,
 // T-695). It answers DISPATCHED … (queued); WAITING … (queued) while a task of --after is not merged or no lane is
 // free or every model is paused (T-538, T-765), either followed by "; idle: <LANE>, …" while lanes stay free (T-483);
-// or its refusal (exit 1: FAIL). --model on a task its worker works on moves it to that model (T-773): MOVED T-xx on
-// <LANE>: <old> → <new> (attempt n). Serve down: FAIL obor serve is not running.
+// or its refusal (exit 1: FAIL). --model on a task its worker works on moves it to that model (T-773): MOVING T-xx
+// on <LANE>: <old> → <new> (stopping <worker>), at once: serve's merge loop stops the worker, then starts the new model
+// (T-852). Serve down: FAIL obor serve is not running.
 func dispatchCmd(args []string) int {
 	return request(context.Background(), project.OSEnv, wire.MethodDispatch, func(cfg *config.Config, c *wire.Call) error {
 		return dispatchArgs(args, cfg, c)
@@ -65,10 +66,12 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 }
 
 // dropCmd is `obor drop <T-xx> "<why>" [--discard] [--force]`, the lead's or the owner's: a request to obor serve
-// (T-439, T-775: serve knows the task's lane), which stops the task's worker (a working one interrupted with Escape;
-// one that keeps working only with --force, T-773), frees its lane (refused when it is dirty or its branch has commits
-// not in the target, unless --discard), records the dropped fact and answers DROPPED <task> from <LANE> (<why>); a task
-// that holds no lane (a waiting one, T-462): DROPPED <task>. Its refusal: FAIL; serve down: FAIL, nothing touched.
+// (T-439, T-775: serve knows the task's lane). A task holding a lane: DROPPING <task> from <LANE> (<why>; stopping
+// <worker>) at once (T-852); serve's merge loop then stops the task's worker (a working one interrupted with Escape; one
+// that keeps working only with --force, T-773), frees its lane (refused when it is dirty or its branch has commits not
+// in the target, unless --discard) and records the dropped fact; a stop or a free refused is a needs-you naming the
+// retry. A task that holds no lane (a waiting one, T-462): DROPPED <task>. Its refusal: FAIL; serve down: FAIL, nothing
+// touched.
 func dropCmd(args []string) int {
 	var c wire.Call
 	usage := func() int {

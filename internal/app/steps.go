@@ -170,8 +170,8 @@ func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (stri
 	return line, err
 }
 
-// stopAgent is the one decision "is the worker gone, else stop it" (RV-93 #1): the post-merge stop (stopWorker), a
-// take-over's (driveCall) and drop's (freeLane). agent's pane is resolved now (whereIs; never an address recorded
+// stopAgent is the one decision "is the worker gone, else stop it" (RV-93 #1): the post-merge stop (stopWorker), and
+// worker.stop (stopStep: a move's, a take-over's and a drop's, T-852). agent's pane is resolved now (whereIs; never an address recorded
 // earlier, RV-53 #1, and never a label lookup of the stop's own, RV-93 #1):
 //   - Identified: stopped at that pane by ID (force as given); line is the stop's, else "stopped <agent>".
 //   - Ambiguous: an error naming the panes, nothing stopped.
@@ -180,7 +180,7 @@ func (a *App) stopWorker(ctx context.Context, p *proj, fx *Loop, mt mtask) (stri
 //
 // A stop that fails is resolved again (RV-53-verify V2): ambiguous now, an error naming the panes; not connected, the
 // stop's error; unavailable now, gone (line the stop's error). Still identified: the stop's error, unless lags and the
-// stop says not found (the snapshot lags: gone). A take-over and drop pass lags false (RV-93 #1: a pane identity
+// stop says not found (the snapshot lags: gone). worker.stop passes lags false (RV-93 #1: a pane identity
 // still finds is not taken as gone).
 func (a *App) stopAgent(ctx context.Context, p *proj, fx *Loop, agent string, force, lags bool) (line string, gone bool, err error) {
 	w := a.where(p, agent)
@@ -188,7 +188,7 @@ func (a *App) stopAgent(ctx context.Context, p *proj, fx *Loop, agent string, fo
 	case w.State == Ambiguous:
 		return "", false, errors.New(notIdentified(agent, w))
 	case w.State == Unavailable && w.Why == notConnected: // not "no agent": serve is cut off from herdr
-		return "", false, errors.New("serve is " + w.Why + " to herdr")
+		return "", false, errCutOff
 	case w.State == Unavailable:
 		return w.Why, true, nil
 	}
@@ -210,6 +210,9 @@ func (a *App) stopAgent(ctx context.Context, p *proj, fx *Loop, agent string, fo
 	}
 	return "", false, err
 }
+
+// errCutOff is stopAgent's error while serve is not connected to herdr: nothing is known of the agent.
+var errCutOff = errors.New("serve is " + notConnected + " to herdr")
 
 // where is whereIs taking mu.
 func (a *App) where(p *proj, agent string) Where {

@@ -209,6 +209,8 @@ func TestWaitingRefusals(t *testing.T) {
 		CallID: "x3", Task: "T-2", Note: "gone"}); err != nil {
 		t.Fatal(err)
 	}
+	// a task holding a lane is dropping until the merge loop stops its worker and frees its lane (T-852)
+	r.waitFor("T-2 dropped", func() bool { return r.task("T-2").State == "dropped" })
 	if _, err := r.waitAfter("d4", "T-2"); err == nil || err.Error() != "dispatch T-1: T-2 is dropped: it never merges" {
 		t.Errorf("after a dropped task: %v", err)
 	}

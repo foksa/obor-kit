@@ -223,8 +223,8 @@ func TestDriveModelHonoured(t *testing.T) {
 	}
 }
 
-// obor drive <T-xx> takes over a task its worker works on: fact drive, serve stops the worker (with force, as obor
-// restart --stop does), the lane, branch and prepare stay (no second lane.prepare), the lane row names the drive agent,
+// obor drive <T-xx> takes over a task its worker works on: fact drive, the merge loop stops the worker (worker.stop,
+// with force, T-852), the lane, branch and prepare stay (no second lane.prepare), the lane row names the drive agent,
 // and the task is driving.
 func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	t.Parallel()
@@ -237,9 +237,10 @@ func TestDriveTakeOverStopsTheWorkerKeepsTheBranch(t *testing.T) {
 	before, _, _ := store.ReadLaneAt(r.p.Root, "L-01")
 	r.connectedAgain()
 	reply, err := r.drive("v1", "T-1")
-	if err != nil || !strings.HasPrefix(reply, "DRIVE T-1 → L-01 (pj-l-01-drive, sonnet) taking over from pj-l-01; STOPPED pj-l-01") {
-		t.Fatalf("take-over: %q, %v", reply, err)
+	if want := "DRIVING T-1 → L-01 (pj-l-01-drive, sonnet) taking over (stopping pj-l-01)"; err != nil || reply != want {
+		t.Fatalf("take-over: %q, %v; want %q", reply, err, want)
 	}
+	r.waitFor("the worker stopped", func() bool { return r.task("T-1").Stopping == "" })
 	if !slices.Contains(r.workerStops(), "pj-l-01 w1:p1") { // by its pane, as serve identifies it (T-758)
 		t.Errorf("the worker was not stopped at its pane: %q", r.workerStops())
 	}
@@ -444,7 +445,8 @@ func TestDriveHeldReviewBackToDriving(t *testing.T) {
 	}
 }
 
-// obor drop works on a drive unchanged: by task id (T-775: serve knows the lane), the lane freed and the drive agent stopped; the task dropped.
+// obor drop works on a drive unchanged: by task id (T-775: serve knows the lane), DROPPING at once (T-852), then the
+// drive agent stopped and the lane freed; the task dropped.
 func TestDriveDrop(t *testing.T) {
 	t.Parallel()
 	r := newDriveRig(t)
@@ -455,7 +457,7 @@ func TestDriveDrop(t *testing.T) {
 	r.driveAgentUp()
 	reply, err := wire.Verdict(context.Background(), r.sock, wire.MethodDrop, wire.Call{Root: r.p.Root, Agent: "pj-lead",
 		Role: "lead", CallID: "x1", Task: "T-1", Note: "not needed"})
-	if err != nil || !strings.Contains(reply, "DROPPED T-1 from L-01") {
+	if want := "DROPPING T-1 from L-01 (not needed; stopping pj-l-01-drive)"; err != nil || reply != want {
 		t.Fatalf("drop: %q, %v", reply, err)
 	}
 	r.waitFor("dropped", func() bool { return r.stateOf("T-1") == "dropped" })

@@ -93,7 +93,7 @@ const (
 
 var resumeDefault = map[string]string{
 	event.CauseHeld: wire.ResumeReprompt, causeUndelivered: wire.ResumeReprompt, causeStalled: wire.ResumeReprompt,
-	causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate,
+	causeGate: wire.ResumeRegate, causePublish: wire.ResumeRegate, causeStop: wire.ResumeRetry,
 }
 
 // resumeDefaultOf is what obor resume does by default with a needs-you of cause ("": the owner says which).
@@ -130,6 +130,7 @@ const (
 	stDispatched = "dispatched"          // a dispatch's steps: lane.prepare, agent.start, the work job
 	stWorking    = "working"             // the work job delivered, or sent back: the fix job; then task_done
 	stDriving    = wire.TaskDriving      // the owner's drive agent works on it (T-751): no jobs, no watchdog; obor land submits it
+	stDropping   = wire.PhaseDropping    // obor drop decided (T-852): its worker stopped, its lane freed, then dropped
 )
 
 // mtask is one task in the merge loop, folded from its records.
@@ -161,6 +162,12 @@ type mtask struct {
 	// drive: the owner drives the task (obor drive, T-751): every attempt's, from its dispatch or its take-over on; a red
 	// gate, a sendback or a hold go back to driving, never to a worker.
 	drive bool
+	halt  halt // the stop of its worker a move, a take-over or a drop asked for (T-852, stopstep.go)
+	// A dropping task (T-852): obor drop's decision (dropData), lane.free's last N, its result in (freed) and its line.
+	drop     dropData
+	frees    int
+	freed    bool
+	freeLine string
 }
 
 // attemptVars are the fields of mtask a new attempt resets: next replaces them in one assignment.
@@ -210,6 +217,7 @@ type (
 	stopData struct {
 		Lane  string `json:"lane"`
 		Agent string `json:"agent,omitempty"`
+		Force bool   `json:"force,omitempty"` // worker.stop's: a working agent stopped too (T-852)
 	}
 	gateIn struct {
 		Kind  string `json:"kind"` // lane, resolved, moved
@@ -572,14 +580,16 @@ func (a *App) next(p *proj, m *mtask) step {
 	}
 }
 
-// begin checks that mt (as selected) is still p's current attempt, not dropped and not claimed (proj.claim), and holds it: false, the
-// step does not start. The lane rows are written first (RV-48 #1): a step whose record moved a row does not run on a
+// begin checks that mt (as selected) is still p's current attempt, not dropped, not dropping since its selection (a
+// drop's own steps are a dropping task's: T-852) and not claimed (proj.claim), and holds it: false, the step does not
+// start. The lane rows are written first (RV-48 #1): a step whose record moved a row does not run on a
 // missing or stale row, so a failing write holds every step until it is repaired.
 func (a *App) begin(p *proj, mt mtask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	m := p.folded.loop[mt.task]
-	if m == nil || m.attempt != mt.attempt || m.state == stDropped || p.claim(mt.task) != "" {
+	if m == nil || m.attempt != mt.attempt || m.state == stDropped || m.state == stDropping && mt.state != stDropping ||
+		p.claim(mt.task) != "" {
 		return false
 	}
 	if p.laneRowsErr() != nil {
