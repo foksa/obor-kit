@@ -6,6 +6,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~evening: third input docs/research/architecture-proposal-2026-11-05.md merged into the plan: its lane-read
+  bug → T-871; context propagation → T-873 (F); ordered commit path = J; rule conversions/Of field = D/G/H; review
+  close via serve = I; drive continuation = S1(a), still the owner's call. **Wave P after T-873** (fix error
+  semantics before caching): P1 coalesce lane Git scans off the pane-event path (bounded refresh; reuse preflight
+  stays authoritative; measure git calls per burst); P2 narrow view loaders for task/agent/setup reads (no git/ps
+  for a task page; one config snapshot per pass); P3 measure then fix session ownership fold (O(A×S²)) and add only
+  useful indexes (events(task,seq), prompts). P1/P2 should cut the machine load behind the 11-05 flakes.
 - 2026-11-05 afternoon: DD-architecture + Fable's combined plan adopted (decisions, design "Change rules"). Running:
   T-864 (config keys, flags, + M3 load re-run), T-865 (lane rows), T-866 pilot A (rule pass + idle), T-867 (stop
   --force drops nothing). Next release notes must say: `merge.timeout_grep`, `integrator_handoff_tokens`,
