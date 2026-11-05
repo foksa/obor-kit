@@ -343,8 +343,7 @@ full check and the pause.
   `driver`: a lane's write limits and push denial, commits on its branch, no job pull, Stop-hook demand or wrong-tab
   guard), then lands it through the same gate, integrator and merge. A drive is a task on a lane, so the dispatch's
   machinery does the work. `obor drive <name>` is a new task (spec `Owner drive: <name>`) dispatched as a drive onto
-  the first free lane; `obor drive <T-xx>` takes over a task its worker works on
-  (serve stops the worker; lane, branch and spec stay). After lane.prepare the task is **driving**: serve sends it no
+  the first free lane (owner 2026-11-05: a drive is for new work; no take-over of a worker's task, T-912). After lane.prepare the task is **driving**: serve sends it no
   jobs, no watchdog watches it (no idle or stall needs-you), a merge watch has no line for it; the CLI starts the drive
   agent in a pane split in the caller's tab. `obor land` (a clean worktree; it commits nothing) records the submission
   on the owner's behalf, the summary as its report; from there it is an ordinary submitted task, and after the merge

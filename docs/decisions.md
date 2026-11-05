@@ -4,6 +4,11 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **A drive is for new work only; the take-over goes** (`obor drive <T-xx>` on a worker's task,
+  T-751/T-852): the owner drives to work interactively with an agent on something new, never to take over a running
+  task. `obor drive <name>` and a drive's own retry stay; S1(a) (serve continues a take-over) is moot. T-912 deletes
+  it. **Log snapshot at upgrade adopted** (Fable advice item 6): an upgrade folds the log to current state, starts a
+  new log and archives the old one; replay readers of older shapes and their tests then go (a task each).
 - 2026-11-05 (owner): **The lead keeps `docs/observations.md`**: a curated list (under ~40 lines) of patterns about
   obor and how we work (circles, load, wrong premises, traps), read at session start and rewritten at each handoff,
   so a fresh session starts with the last one's experience. BACKLOG's Handoff is rewritten to one current entry.

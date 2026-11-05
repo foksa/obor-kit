@@ -30,10 +30,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   scratchpad, gone with it; re-sample with `sample <herdr pid> 3` if reporting); closing stale workspaces may help.
 
 ## Owner decisions pending
-- **Log snapshot at upgrade** (census 11-05: every store still holds old shapes; replay starts at record 1, so change
-  rule 5 never deletes a compat branch). Fold the log to current state at an upgrade, start a new log, archive the old
-  one; then branches older than the snapshot and their tests go (Fable advice item 6).
-- **S1(a)** serve owns drive's continuation after a take-over (drive stays for good).
+- (none; log snapshot and drive decided 11-05, docs/decisions.md)
 
 ## Later candidates
 - **Harden review → fix → verify in obor** (owner 11-04, after the lead closed RV-107..RV-111 right after dispatching
