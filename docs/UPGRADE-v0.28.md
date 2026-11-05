@@ -5,12 +5,12 @@ Upgrade from v0.27.x. Close an open review first (`obor review close`). Re-run t
 
 ```sh
 obor config validate      # names any removed key you still set: delete it
-obor stop --force "v0.28" # stops serve and every agent; open tasks stay open
-obor start                # serve on the new binary; workers of working tasks come back with their job
+obor serve restart
 ```
 
-Restart the agents too (the stop/start above does it): the session fact's wire shape changed (one `store.Session`),
-and an agent's MCP server is the binary it started with. Restart a running `obor web` as well: it does not follow a new
+Then restart the running agents: the session fact's wire shape changed (one `store.Session`), and an agent's MCP
+server is the binary it started with. The simplest way is `obor stop --force "v0.28"` and then `obor start`: open tasks
+stay open, and a working task's worker comes back with its job. Restart a running `obor web` as well: it does not follow a new
 binary the way serve does, and the page reads the new `--json` shape.
 
 What changes:
