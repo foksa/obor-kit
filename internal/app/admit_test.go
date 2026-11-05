@@ -10,14 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"obor/internal/store"
 )
 
-// T-730: a review's start, obor review verify and a brief to the deep dive pass one serve-owned admission point: they
+// T-730: a review's start, a fix round's verify and a brief to the deep dive pass one serve-owned admission point: they
 // wait while a publish runs (the head they read is the published one), and once admitted no publish starts until
 // their brief is recorded. T-853: there serve moves the role's worktree to the head it hands the role; the reviewer
 // or the deep dive working holds no merge (the merge hold of T-718 is gone).
@@ -79,70 +78,11 @@ func (h *harness) phase(task string) string {
 	return ""
 }
 
-// headGit is a ReviewGit whose head is where the last publish moved the integration branch (start: base1), the
-// merges the publishes made; onHead runs once, inside the next Head read. detached is every Detach as <dir>@<sha>.
-type headGit struct {
-	mu       sync.Mutex
-	head     string
-	merges   []string
-	marked   []string
-	detached []string
-	onHead   func()
-}
-
-func (g *headGit) Last(context.Context, string) (ReviewClose, error) {
-	return ReviewClose{Subject: "RV-4 closed · 1111111 · approved · T-9"}, nil
-}
-func (g *headGit) Head(context.Context, string) (string, error) {
-	g.mu.Lock()
-	hook := g.onHead
-	g.onHead = nil
-	g.mu.Unlock()
-	if hook != nil {
-		hook()
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.head, nil
-}
-func (g *headGit) Merges(context.Context, string, string) ([]string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return append([]string(nil), g.merges...), nil
-}
-func (g *headGit) Files(context.Context, string, string) ([]string, error) { return nil, nil }
-func (g *headGit) Mark(_ context.Context, sha string) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.marked = append(g.marked, sha)
-	return nil
-}
-func (g *headGit) Detach(_ context.Context, dir, sha string) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.detached = append(g.detached, filepath.Base(dir)+"@"+sha)
-	return nil
-}
-
-// markedHeads is every Mark's sha so far.
-func (g *headGit) markedHeads() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return strings.Join(g.marked, ",")
-}
-
-// detachedAt is every Detach so far, as <worktree base name>@<sha>.
-func (g *headGit) detachedAt() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return strings.Join(g.detached, ",")
-}
-
 // gatedScratch is schedScratch whose Publish reports its task on began, then waits for release (nil: no wait) before
 // it moves the head.
 type gatedScratch struct {
 	*schedScratch
-	git     *headGit
+	git     *reviewGitFake
 	began   chan string
 	release chan struct{}
 }
@@ -160,10 +100,10 @@ func (s *gatedScratch) Publish(_ context.Context, c port.Candidate) (port.Publis
 }
 
 // admitRig is seedRoles' project (T-1 accepted, candidate candidate1; reviewer pj-rev and deep dive pj-deep-dive idle)
-// with paths.reviews, RV-5 open (its file written in the main checkout), headGit and a gated publish.
+// with paths.reviews, RV-5 open (its file written in the main checkout), its review git (head base1) and a gated publish.
 type admitRig struct {
 	h      *harness
-	git    *headGit
+	git    *reviewGitFake
 	s      *gatedScratch
 	agents *agentsSpy
 	fx     *Loop
@@ -177,7 +117,7 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 		t.Fatal(err)
 	}
 	h.write(filepath.Join(h.root, "reviews", "RV-5.md"), "# RV-5\n")
-	r := &admitRig{h: h, git: &headGit{head: "base1"}, agents: &agentsSpy{}}
+	r := &admitRig{h: h, git: &reviewGitFake{head: "base1", last: "RV-4 closed · 1111111 · approved · T-9"}, agents: &agentsSpy{}}
 	r.s = &gatedScratch{schedScratch: f, git: r.git, began: make(chan string, 4)}
 	if gated {
 		r.s.release = make(chan struct{})
@@ -185,6 +125,16 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 	r.fx = &Loop{Scratch: r.s, Agents: r.agents, Typer: f, Review: r.git}
 	h.a.opt.Loop = func(string) (*Loop, error) { return r.fx, nil }
 	return r
+}
+
+// verify is a fix round's verify of tasks of RV-5 (requestVerify, as fixPass calls it; T-869: the only asker), then
+// one admission pass.
+func (r *admitRig) verify(tasks ...string) {
+	r.h.t.Helper()
+	if _, err := r.h.a.requestVerify(r.h.a.p, ReviewData{ID: "RV-5", Tasks: tasks, By: "obor"}); err != nil {
+		r.h.t.Fatal(err)
+	}
+	r.h.a.verifyPass(context.Background(), r.h.a.p, r.fx)
 }
 
 // publishing is one pass whose publish of T-1 has begun and waits for its release.
@@ -255,53 +205,36 @@ func TestAdmitReviewWaitsForPublish(t *testing.T) {
 				t.Fatal(err)
 			}
 			r.publishing(ctx) // the same pass's reviewPass ran with the publish in flight
-			if len(r.agents.launches) != 0 || r.git.markedHeads() != "" || r.git.detachedAt() != "" {
-				t.Fatalf("publish running: %d launches, marked %q, detached %q; want the review waiting",
-					len(r.agents.launches), r.git.markedHeads(), r.git.detachedAt())
+			if len(r.agents.launches) != 0 || r.git.detachedAt() != "" {
+				t.Fatalf("publish running: %d launches, detached %q; want the review waiting",
+					len(r.agents.launches), r.git.detachedAt())
 			}
 			r.released(ctx)
 			if got := h.state("T-1"); got != stMerged {
 				t.Fatalf("released: T-1 %s, want merged", got)
 			}
-			if len(r.agents.launches) != 1 || r.git.markedHeads() != "candidate1" || startedHead(t, h) != "candidate1" ||
-				r.git.detachedAt() != "reviewer@candidate1" {
-				t.Errorf("after the publish: %d launches, marked %q, started on %q, detached %q; want one start on"+
-					" candidate1, the reviewer's worktree there", len(r.agents.launches), r.git.markedHeads(),
-					startedHead(t, h), r.git.detachedAt())
+			if len(r.agents.launches) != 1 || startedHead(t, h) != "candidate1" || r.git.detachedAt() != "reviewer@candidate1" {
+				t.Errorf("after the publish: %d launches, started on %q, detached %q; want one start on candidate1, the"+
+					" reviewer's worktree there", len(r.agents.launches), startedHead(t, h), r.git.detachedAt())
 			}
 		})
 	}
 }
 
-// obor review verify of T-1 while T-1's publish runs: the call waits, then reads the published head (T-1's merge is
-// on it), marks it and moves the reviewer's worktree there; read before, T-1 would have no merge.
+// A verify of T-1 requested while T-1's publish runs: not admitted then; the pass after the publish reads the published
+// head (T-1's merge is on it) and moves the reviewer's worktree there; read before, T-1 would have no merge.
 func TestAdmitVerifyWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	r := newAdmitRig(t, true)
 	h, ctx := r.h, context.Background()
 	r.publishing(ctx)
-	type answer struct {
-		reply string
-		err   error
-	}
-	done := make(chan answer, 1)
-	go func() {
-		reply, err := h.a.verifyCall(wire.Call{Root: h.root, CallID: "v1", Role: "lead", Agent: "pj-lead", After: []string{"T-1"}})
-		done <- answer{reply, err}
-	}()
-	if !waiting(done) {
-		t.Fatal("verify answered while the publish ran")
-	}
-	if got, moved := r.git.markedHeads(), r.git.detachedAt(); got != "" || moved != "" {
-		t.Fatalf("verify marked %q, detached %q while the publish ran", got, moved)
+	r.verify("T-1")
+	if moved, b := r.git.detachedAt(), readBriefLine(t, h, "pj-rev"); moved != "" || b != "" {
+		t.Fatalf("verify detached %q, briefed %q while the publish ran", moved, b)
 	}
 	r.released(ctx)
-	a := <-done
-	if a.err != nil || !strings.HasPrefix(a.reply, "BRIEFED pj-rev") {
-		t.Fatalf("verify: %q, %v", a.reply, a.err)
-	}
-	if got, moved := r.git.markedHeads(), r.git.detachedAt(); got != "candidate1" || moved != "reviewer@candidate1" {
-		t.Errorf("marked %q, detached %q; want the published head candidate1, the reviewer's worktree there", got, moved)
+	if moved := r.git.detachedAt(); moved != "reviewer@candidate1" {
+		t.Errorf("detached %q; want the reviewer's worktree at the published head candidate1", moved)
 	}
 	h.a.mu.Lock()
 	b := h.a.p.out.brief("pj-rev")
@@ -397,7 +330,7 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 		t.Parallel()
 		r := newAdmitRig(t, false)
 		h := r.h
-		r.fx.Review = failDetach{r.git}
+		r.git.detachErr = errors.New("no worktree")
 		if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", To: "pj-deep-dive", Note: "look at x"}); err == nil ||
 			!strings.Contains(err.Error(), "pj-deep-dive's worktree: no worktree") {
 			t.Fatalf("brief: %v, want refused naming the worktree", err)
@@ -407,11 +340,6 @@ func TestBriefMovesAnIdleDeepDive(t *testing.T) {
 		}
 	})
 }
-
-// failDetach is headGit whose Detach fails.
-type failDetach struct{ *headGit }
-
-func (failDetach) Detach(context.Context, string, string) error { return errors.New("no worktree") }
 
 // T-853: the reviewer or the deep dive working — its pane working, a brief open to it — holds no merge: T-1 publishes
 // in the same pass, and obor status shows no hold phase.
@@ -430,7 +358,7 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 			}
 			if c.to != "" {
 				h.a.opt.Loop = func(string) (*Loop, error) {
-					return &Loop{Scratch: &schedScratch{h: h}, Agents: &agentsSpy{}, Review: &headGit{head: "base1"}}, nil
+					return &Loop{Scratch: &schedScratch{h: h}, Agents: &agentsSpy{}, Review: &reviewGitFake{head: "base1"}}, nil
 				}
 				if _, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", To: c.to, Note: "look", Role: "lead"}); err != nil {
 					t.Fatal(err)
@@ -478,9 +406,7 @@ func TestAdmitPublishWaitsForTheBrief(t *testing.T) {
 				began = len(r.s.began)
 			}
 			if which == "verify" {
-				if _, err := h.a.verifyCall(wire.Call{Root: h.root, CallID: "v1", Role: "lead", Agent: "pj-lead", After: []string{"T-0"}}); err != nil {
-					t.Fatal(err)
-				}
+				r.verify("T-0")
 			} else {
 				h.a.reviewPass(ctx, h.a.p, r.fx)
 				if len(r.agents.launches) != 1 {
@@ -616,9 +542,7 @@ func TestAdmissionDecidedAtPublishStart(t *testing.T) {
 		}},
 		{"verify", func(t *testing.T, r *admitRig) {
 			r.git.merges = []string{"aaaaaaa1 Merge T-0: x"}
-			if _, err := r.h.a.verifyCall(wire.Call{Root: r.h.root, CallID: "v1", Role: "lead", Agent: "pj-lead", After: []string{"T-0"}}); err != nil {
-				t.Fatal(err)
-			}
+			r.verify("T-0")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

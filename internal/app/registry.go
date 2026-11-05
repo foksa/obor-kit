@@ -207,12 +207,6 @@ func (a *App) reconcile(p *proj) {
 			mine = append(mine, o.pane)
 		}
 	}
-	for agent, row := range p.reg.starts { // a start from before T-504: its pane's terminal, once seen
-		if o := a.obs[row.Pane]; row.Terminal == "" && o != nil && o.pane.Terminal != "" && a.projectOf(o.pane) == p {
-			row.Terminal = o.pane.Terminal
-			p.reg.starts[agent] = row
-		}
-	}
 	logp := func(line string) { a.logf("%s: %s", p.name, line) }
 	names := namedAgents(p.root)
 	best := map[[2]string]claim{} // by agent and terminal: the strongest proof

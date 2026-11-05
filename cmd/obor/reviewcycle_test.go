@@ -15,14 +15,16 @@ import (
 	"obor/internal/testkit"
 )
 
-// reviewFixture is a project with a reviewer (pj-rev, in the main checkout: T-718), a closed RV-3, then T-5 merged on
-// main: the open review is RV-4 once its file is written in the main checkout.
+// reviewFixture is a project with a reviewer (pj-rev, in the main checkout: T-718), its state dir gitignored (the log's
+// database is not the close's to commit), a closed RV-3, then T-5 merged on main: the open review is RV-4 once its
+// file is written in the main checkout.
 func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	t.Helper()
 	p = testkit.New(t)
 	p.Config(testkit.Set("roles.reviewer", ""))
 	p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- old line\n\n## Concerns\n")
-	p.Git(p.Root, "add", "BACKLOG.md")
+	p.Write(".gitignore", ".obor/state/\n")
+	p.Git(p.Root, "add", "BACKLOG.md", ".gitignore")
 	p.Git(p.Root, "commit", "-q", "-m", "backlog")
 	base := p.Git(p.Root, "rev-parse", "HEAD")
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "RV-3 closed · "+base[:7]+" · approved · T-1")
@@ -35,49 +37,17 @@ func reviewFixture(t *testing.T) (p *testkit.Project, head string) {
 	return p, p.Git(p.Root, "rev-parse", "HEAD")
 }
 
-// T-716, T-730: obor review verify only asks serve (wire.MethodVerify: the fix tasks, the findings, the note) and
-// marks nothing itself: serve reads and marks the head at its admission point (internal/app). A usage error or a bad
-// finding number sends nothing.
-func TestReviewVerify(t *testing.T) {
-	t.Parallel()
-	p, _ := reviewFixture(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "BRIEFED pj-rev", "")
-	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	marked := func() string { return p.Git(p.Root, "for-each-ref", "--format=%(objectname)", app.ReviewedRef) }
-	for _, args := range [][]string{{"review", "verify"}, {"review", "verify", "T-5", "--findings"}, {"review", "verify", "--note", "x"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review verify") {
-			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
-		}
-	}
-	if rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5", "--findings", "0"); rc != 1 || !strings.HasPrefix(stdout, "FAIL --findings:") {
-		t.Errorf("finding 0: exit %d, %q", rc, stdout)
-	}
-	if _, n := serve.requests(); n != 0 {
-		t.Fatalf("a refused verify sent %d requests", n)
-	}
-	rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5,T-6", "--findings", "1,3", "--note", "#2 accepted")
-	if rc != 0 || stdout != "BRIEFED pj-rev\n" {
-		t.Fatalf("verify: exit %d, %q", rc, stdout)
-	}
-	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodVerify || strings.Join(calls[0].After, ",") != "T-5,T-6" ||
-		strings.Join(calls[0].Findings, ",") != "1,3" || calls[0].Note != "#2 accepted" || calls[0].CallID == "" {
-		t.Fatalf("the request: %q %+v", serve.methods, calls)
-	}
-	if at := marked(); at != "" {
-		t.Errorf("the CLI marked %s at %s: serve marks it", app.ReviewedRef, at)
-	}
-	home2, _ := startFakeServe(t, p.Root, wire.Status{}, "", "no open review: no docs/reviews/RV-4.md in "+p.Root)
-	env2 := []string{"OBOR_STATE_HOME=" + home2, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	if rc, stdout, _ := run(t, p.Root, env2, "review", "verify", "T-5"); rc != 1 || !strings.HasPrefix(stdout, "FAIL no open review: ") {
-		t.Errorf("serve refuses: exit %d, %q; want its FAIL", rc, stdout)
-	}
+// startedFact records RV-4's review start at head in the project's log (as serve's start leaves it).
+func startedFact(t *testing.T, p *testkit.Project, head string) {
+	t.Helper()
+	appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: head}))
 }
 
-// T-716: obor review close refuses a dirty main checkout or no reviewed sha (nothing changed); then it deletes the
-// review's files from the main checkout (T-718), appends each --accept to BACKLOG.md's Open section naming the RV,
-// commits "RV-n closed · <reviewed sha> · approved · <summary>" on main with BACKLOG.md, and stops the reviewer. The
-// reviewed sha is the marked one, not main's head: the lead's doc commit during the review is no part of it.
+// T-716: obor review close refuses a dirty main checkout or a review with no start in the log (T-869; nothing
+// changed); then it deletes the review's files from the main checkout (T-718), appends each --accept to BACKLOG.md's
+// Open section naming the RV and commits "RV-n closed · <reviewed sha> · approved · <summary>" on main with
+// BACKLOG.md; it stops nothing (T-869: serve stops the reviewer once it sees the close). The reviewed sha is the
+// start's, not main's head: the lead's doc commit during the review is no part of it.
 func TestReviewClose(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
@@ -96,10 +66,13 @@ func TestReviewClose(t *testing.T) {
 		}
 	}
 	rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)", "--accept", "rare case")
-	if rc != 1 || !strings.HasPrefix(stdout, "FAIL no reviewed sha (refs/obor/reviewed, ") {
-		t.Errorf("no reviewed sha: exit %d, %q", rc, stdout)
+	if rc != 1 || stdout != "FAIL no review start for RV-4 in the log: nothing changed\n" {
+		t.Errorf("no review start: exit %d, %q", rc, stdout)
 	}
-	p.Git(p.Root, "update-ref", app.ReviewedRef, head) // as the review's start (or verify) left it
+	if !p.Exists(review) || p.Git(p.Root, "rev-parse", "HEAD") != head {
+		t.Fatalf("a close with no review start changed something")
+	}
+	startedFact(t, p, head)
 	p.Write("stray.txt", "x\n")
 	rc, stdout, _ = run(t, p.Root, env, "review", "close", "T-5 (fix)", "--accept", "rare case")
 	if rc != 1 || stdout != "FAIL the main checkout is dirty outside BACKLOG.md and RV-4's files (?? stray.txt): nothing changed\n" {
@@ -116,8 +89,7 @@ func TestReviewClose(t *testing.T) {
 	docs := p.Git(p.Root, "rev-parse", "HEAD")
 	rc, stdout, _ = run(t, p.Root, env, "review", "close", "T-5 (fix)", "--accept", "rare case", "--accept", "other  one")
 	subject := "RV-4 closed · " + head[:7] + " · approved · T-5 (fix)"
-	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if rc != 0 || lines[0] != "CLOSED "+subject || lines[len(lines)-1] != "STOPPED pj-rev (pane w1:p3, already at a shell)" {
+	if rc != 0 || stdout != "CLOSED "+subject+"\n" { // no STOPPED line: the CLI stops nothing (T-869, DD D1-A)
 		t.Fatalf("close: exit %d\n%s", rc, stdout)
 	}
 	if got := p.Git(p.Root, "log", "-1", "--format=%s"); got != subject {
@@ -151,7 +123,7 @@ func TestReviewCloseDirtyBacklog(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			p, head := reviewFixture(t)
-			p.Git(p.Root, "update-ref", app.ReviewedRef, head) // as the review's start left it (T-718)
+			startedFact(t, p, head)
 			f := p.Herdr()
 			f.Shell("w1:p3", "pj-rev", p.Root)
 			srv := herdrtest.Serve(t, f)
@@ -202,33 +174,13 @@ func TestReviewCloseDirtyBacklog(t *testing.T) {
 func TestReviewCloseCovered(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
-	p.Write(".gitignore", ".obor/state/\n") // the log's database is not the close's to commit
-	p.Git(p.Root, "add", ".gitignore")
-	p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
-	p.Git(p.Root, "update-ref", app.ReviewedRef, head)
-	start := app.ReviewData{ID: "RV-4", Head: head, Tasks: []string{"T-2", "T-3"}}
-	verify := app.ReviewData{Tasks: []string{"T-2", "T-4"}} // T-2 again: the set is a set
-	db, err := store.OpenRW(event.DBFile(p.Root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	log, _, err := event.OpenLog(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range []struct {
-		step string
-		d    app.ReviewData
-	}{{event.StepReviewStarted, start}, {event.StepReviewVerify, verify}} {
-		b, err := json.Marshal(r.d)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := log.Append(event.Record{Task: event.ReviewTask, Step: r.step, Kind: event.KindFact, Data: b}, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	db.Close()
+	seqs := appendFacts(t, p.Root,
+		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: head, Tasks: []string{"T-2", "T-3"}}),
+		// a done verify: T-2 again (the set is a set) and T-4
+		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-2", "T-4"}, By: "obor"}))
+	appendFacts(t, p.Root,
+		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", VerifyOf: seqs[1], Reviewed: head}),
+		logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished"}))
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)
 	srv := herdrtest.Serve(t, f)
@@ -248,27 +200,20 @@ func TestReviewCloseCovered(t *testing.T) {
 	}
 }
 
-// T-822: no review.started fact in the log (a review started by an older obor): the close keeps the old format, and the
-// next review's scope is the sha range.
+// T-869 (DD R2): only another review's start in the log (RV-3's), none of the open RV-4: the close is refused, nothing
+// changed (refs/obor/reviewed and the old-format close are gone: every review has a start fact).
 func TestReviewCloseNoStartFact(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
-	p.Git(p.Root, "update-ref", app.ReviewedRef, head)
-	f := p.Herdr()
-	f.Shell("w1:p3", "pj-rev", p.Root)
-	srv := herdrtest.Serve(t, f)
-	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
-		"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
-		"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+	appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-3", Head: head}))
+	env := []string{"HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state"}
 	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
-	if rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)"); rc != 0 {
-		t.Fatalf("close: exit %d, %q", rc, stdout)
+	if rc, stdout, _ := run(t, p.Root, env, "review", "close", "T-5 (fix)"); rc != 1 ||
+		stdout != "FAIL no review start for RV-4 in the log: nothing changed\n" {
+		t.Fatalf("close: exit %d, %q; want the refusal", rc, stdout)
 	}
-	if got := p.Git(p.Root, "log", "-1", "--format=%b"); got != "" {
-		t.Errorf("the body %q, want none (the old format)", got)
-	}
-	if app.ReadReviewCycle(p.Root, "RV-4").Started {
-		t.Error("ReadReviewCycle found a start in a log without one")
+	if !p.Exists(p.Path("docs/reviews/RV-4.md")) || p.Git(p.Root, "rev-parse", "HEAD") != head {
+		t.Error("a refused close changed something")
 	}
 }
 
@@ -282,6 +227,11 @@ func TestReviewFix(t *testing.T) {
 		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review fix") {
 			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
 		}
+	}
+	// T-869 (DD R1): no verify by hand: obor review verify is a usage error of obor review, which names no verify.
+	if rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5"); rc != 1 ||
+		!strings.HasPrefix(stdout, "FAIL usage: obor review [") || strings.Contains(stdout, "verify") {
+		t.Errorf("obor review verify: exit %d, %q; want obor review's usage, no verify in it", rc, stdout)
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a usage error sent %d requests", n)
@@ -334,16 +284,12 @@ func logFact(t *testing.T, task, step string, d any) event.Record {
 // dropped, or a verify is requested or briefed and not done, naming them, nothing changed: a verify of T-5 briefed and
 // not finished still refuses, and so does one its reviewer's error stop ended (T-857: failed, not done); once the
 // reviewer finished a verify of T-5 (its finished line) and the lead was told T-6 dropped, it closes, naming the head
-// that verify's brief handed the reviewer (the log's, not a stale ref). --force closes with a fix pending.
+// that verify's brief handed the reviewer. --force closes with a fix pending.
 func TestReviewCloseFixPending(t *testing.T) {
 	t.Parallel()
 	for _, force := range []bool{false, true} {
 		p, head := reviewFixture(t)
-		p.Write(".gitignore", ".obor/state/\n")
-		p.Git(p.Root, "add", ".gitignore")
-		p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
 		older := p.Git(p.Root, "rev-parse", head+"~1")
-		p.Git(p.Root, "update-ref", app.ReviewedRef, older) // the review start's mark; the verify's mark failed
 		appendFacts(t, p.Root,
 			logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older}),
 			logFact(t, event.ReviewTask, event.StepReviewFix, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5", "T-6"}}))
@@ -377,7 +323,7 @@ func TestReviewCloseFixPending(t *testing.T) {
 			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
 		appendFacts(t, p.Root,
 			logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify",
-				Verify: []string{"T-5"}, VerifyOf: seqs[0], Reviewed: head}),
+				VerifyOf: seqs[0], Reviewed: head}),
 			logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] RV-4 fix T-6 ended unmerged", FixDrop: []string{"T-6"}}))
 		refused("T-5's verify briefed, its line not delivered", "T-5")
 		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepStopped, struct {
@@ -390,7 +336,7 @@ func TestReviewCloseFixPending(t *testing.T) {
 		seqs = appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewVerifyRequest,
 			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
 		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev",
-			Line: "[obor obor] verify", Verify: []string{"T-5"}, VerifyOf: seqs[0], Reviewed: head}))
+			Line: "[obor obor] verify", VerifyOf: seqs[0], Reviewed: head}))
 		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepMessage,
 			event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished (briefed 2m ago)"}))
 		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
@@ -400,23 +346,18 @@ func TestReviewCloseFixPending(t *testing.T) {
 	}
 }
 
-// T-857 (RV-113 #4a): a verify by hand of T-5 (no fix round) briefed at the head, then an ordinary brief to the
-// reviewer before it finished: close is allowed and names the review start's head, not the superseded verify's (nor
-// the ref its brief marked), and covers nothing of it.
+// T-857 (RV-113 #4a): a verify of T-5 briefed at the head, then an ordinary brief to the reviewer before it finished:
+// close is allowed and names the review start's head, not the superseded verify's, and covers nothing of it.
 func TestReviewCloseSupersededVerify(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
-	p.Write(".gitignore", ".obor/state/\n")
-	p.Git(p.Root, "add", ".gitignore")
-	p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
 	older := p.Git(p.Root, "rev-parse", head+"~1")
-	p.Git(p.Root, "update-ref", app.ReviewedRef, head) // the verify's brief marked its head
 	seqs := appendFacts(t, p.Root,
 		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older, Tasks: []string{"T-1"}}),
-		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "pj-lead"}))
+		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
 	appendFacts(t, p.Root,
 		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] verify",
-			Verify: []string{"T-5"}, VerifyOf: seqs[1], Reviewed: head}),
+			VerifyOf: seqs[1], Reviewed: head}),
 		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] look at the flaky test"}))
 	if c := app.ReadReviewCycle(p.Root, "RV-4"); len(c.Pending) != 0 || c.Reviewed != older {
 		t.Fatalf("the verify superseded: cycle %+v; want nothing pending, the start's head %s", c, older)

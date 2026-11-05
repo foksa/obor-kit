@@ -508,19 +508,6 @@ func (r *loopRig) merged(attempt int) {
 	r.waitStep(string(rune('0'+attempt)) + " result agent.stop")
 }
 
-// rigReviewGit is a rig's review git (loopRig.review): no review closed, the head "h1", nothing marked or moved (an
-// idle deep dive's brief moves its role worktree through it, T-853).
-type rigReviewGit struct{}
-
-func (rigReviewGit) Last(context.Context, string) (app.ReviewClose, error) {
-	return app.ReviewClose{}, nil
-}
-func (rigReviewGit) Head(context.Context, string) (string, error)             { return "h1", nil }
-func (rigReviewGit) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
-func (rigReviewGit) Files(context.Context, string, string) ([]string, error)  { return nil, nil }
-func (rigReviewGit) Mark(context.Context, string) error                       { return nil }
-func (rigReviewGit) Detach(context.Context, string, string) error             { return nil }
-
 // noLead: the lead's chat got nothing: every prompt went to the integrator or the worker.
 func (r *loopRig) noLead() {
 	r.t.Helper()

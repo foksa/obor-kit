@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"obor/internal/app/wire"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,49 +22,67 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark, detachErr the detach. marked is every Mark's
-// sha, detached every Detach as <dir>@<sha>. last is the newest close commit's subject and lastBody its body (T-822:
-// the Covered and Start lines). head is the integration branch's head ("": headSHA).
+// reviewGitFake is the tests' one ReviewGit (T-869, DD D4): last is the newest close commit's subject and lastBody its
+// body (T-822: the Covered and Start lines); head the integration branch's head ("": headSHA), which a gated publish
+// moves (admit_test.go); merges and files the fixed answers; detachErr fails the detach. from is every Merges call's
+// from, detached every Detach as <dir>@<sha>. onHead runs once, inside the next Head read. mu guards every field a
+// method touches (a publish runs beside the admission tests' calls).
 type reviewGitFake struct {
+	mu        sync.Mutex
 	head      string
 	last      string
 	lastBody  string
 	merges    []string
-	from      []string // every Merges call's from
+	from      []string
 	files     []string
-	markErr   error
-	marked    []string
 	detachErr error
 	detached  []string
+	onHead    func()
 }
 
 func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
 }
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
-	if g.head != "" {
-		return g.head, nil
+	g.mu.Lock()
+	hook := g.onHead
+	g.onHead = nil
+	g.mu.Unlock()
+	if hook != nil {
+		hook()
 	}
-	return "abcdef0123456789abcdef0123456789abcdef01", nil
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return cmp.Or(g.head, "abcdef0123456789abcdef0123456789abcdef01"), nil
 }
 func (g *reviewGitFake) Merges(_ context.Context, from, _ string) ([]string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.from = append(g.from, from)
-	return g.merges, nil
+	return slices.Clone(g.merges), nil
 }
 func (g *reviewGitFake) Files(context.Context, string, string) ([]string, error) { return g.files, nil }
-func (g *reviewGitFake) Mark(_ context.Context, sha string) error {
-	if g.markErr != nil {
-		return g.markErr
-	}
-	g.marked = append(g.marked, sha)
-	return nil
-}
 func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.detachErr != nil {
 		return g.detachErr
 	}
 	g.detached = append(g.detached, dir+"@"+sha)
 	return nil
+}
+
+// detachedAt is every Detach so far, as <worktree base name>@<sha>.
+func (g *reviewGitFake) detachedAt() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []string
+	for _, d := range g.detached {
+		out = append(out, filepath.Base(d))
+	}
+	return strings.Join(out, ",")
 }
 
 // agentsSpy is an Agents that records every Launch and starts nothing.
@@ -236,15 +257,15 @@ func TestReviewRequest(t *testing.T) {
 				// T-716: real findings only; constructed ones a one-line list without a fix.
 				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
 				!strings.Contains(l.Prompt, `goes in a short "Not reported (constructed)" list instead: one line each, no fix proposal.`) ||
+				// T-869: design.md "Change rules" rule 6.
+				!strings.Contains(l.Prompt, " What did this make redundant? Name it or confirm it is gone. On rule-tier steps a"+
+					" crash or interleaving finding counts only when a kernel guarantee breaks. ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
 					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
 				t.Errorf("launch %+v", l)
 			}
-			if len(r.git.marked) != 1 || r.git.marked[0] != "abcdef0123456789abcdef0123456789abcdef01" {
-				t.Errorf("marked %q, want the head", r.git.marked)
-			}
-			// T-853: the reviewer's role worktree is moved to the marked head before its start.
+			// T-853: the reviewer's role worktree is moved to the head before its start.
 			if wt := filepath.Join(filepath.Dir(r.p.root), filepath.Base(r.p.root)+"-wt", "reviewer"); len(r.git.detached) != 1 ||
 
 				r.git.detached[0] != wt+"@abcdef0123456789abcdef0123456789abcdef01" {
@@ -486,12 +507,12 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launches %+v", r.agents.launches)
 			}
 		}},
-		{"a failing move is a needs-you, no restart, the ref not moved", func(t *testing.T, r *reviewRig) {
+		{"a failing move is a needs-you, no restart", func(t *testing.T, r *reviewRig) {
 			r.git.detachErr = errors.New("git checkout: local changes")
 			r.mustCall("r1", nil, "", false)
 			r.pass()
-			if len(r.agents.launches) != 0 || len(r.git.marked) != 0 {
-				t.Errorf("launched %+v, marked %q; want neither (T-856: the ref only once briefed)", r.agents.launches, r.git.marked)
+			if len(r.agents.launches) != 0 {
+				t.Errorf("launched %+v; want none", r.agents.launches)
 			}
 			if n := r.needs(); len(n) != 1 || n[0] != "RV-5: git checkout: local changes" {
 				t.Errorf("needs-you %q", n)
@@ -503,18 +524,6 @@ func TestReviewRequest(t *testing.T) {
 			r.mustCall("r2", nil, "", false)
 			if n := r.needs(); len(n) != 0 {
 				t.Errorf("needs-you %q after a new request, want ended", n)
-			}
-		}},
-		{"a failing mark after the brief is logged: the start stands, close reads the log's head", func(t *testing.T, r *reviewRig) {
-			r.git.markErr = errors.New("git update-ref: cannot lock ref")
-			r.mustCall("r1", nil, "", false)
-			r.pass()
-			if len(r.agents.launches) != 1 || r.facts(event.StepReviewStarted) != 1 || len(r.needs()) != 0 {
-				t.Fatalf("launches %d, started %d, needs-you %q; want one start, no needs-you", len(r.agents.launches),
-					r.facts(event.StepReviewStarted), r.needs())
-			}
-			if c := ReadReviewCycle(r.p.root, "RV-5"); c.Reviewed != "abcdef0123456789abcdef0123456789abcdef01" {
-				t.Errorf("close's sha %q, want the started head from the log", c.Reviewed)
 			}
 		}},
 		{"status says review due at 4 unreviewed merges, not at 3", func(t *testing.T, r *reviewRig) {
@@ -663,24 +672,7 @@ func TestReviewDueCountsUncovered(t *testing.T) {
 	}
 }
 
-// T-822: the close commit's Covered set is the review's in-scope tasks plus each verify's.
-func TestReviewCoveredAddsVerifyTasks(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	if ReadReviewCycle(r.p.root, "RV-5").Started {
-		t.Fatal("precondition: a start is recorded before any review ran")
-	}
-	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{ID: "RV-5", Head: "abcdef0123456789", Tasks: []string{"T-a", "T-b"}})
-	r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewVerify, Kind: event.KindFact},
-		ReviewData{Tasks: []string{"T-d"}})
-	c := ReadReviewCycle(r.p.root, "RV-5")
-	if !c.Started || c.Start != "abcdef0123456789" || strings.Join(c.Covered, ",") != "T-a,T-b,T-d" {
-		t.Errorf("covered %q, start %q, started %t; want T-a,T-b,T-d at the start's head", c.Covered, c.Start, c.Started)
-	}
-}
-
-// T-822: obor review verify of a task merged since the previous close's review start (here: during the previous verify,
+// T-822: a verify of a task merged since the previous close's review start (here: during the previous verify,
 // so not after the sha its close names) is allowed: the verify's range is the next review's scope.
 func TestReviewVerifyOutsideScope(t *testing.T) {
 	t.Parallel()
@@ -698,11 +690,13 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.p.root, s.Reviews, "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, nil, "")
+	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, "")
 	if err != nil {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}
-	if !strings.Contains(text, "fixed in T-c (ccccccc)") {
+	if !strings.Contains(text, "fixed in T-c (ccccccc)") || !strings.Contains(text, " every finding ") ||
+		!strings.Contains(text, " "+redundantLine+" ") { // T-869: design.md "Change rules" rule 6
+
 		t.Errorf("the brief: %q", text)
 	}
 }

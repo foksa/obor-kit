@@ -123,16 +123,16 @@ finished; a brief to a stopped role agent starts it fresh, its first prompt the 
 is no line to you (T-650): `obor status` shows the review.
 - Dispatch the fixes, then `obor review fix <T-x,…> [--note "<what to check>"]` (T-850) — `FIX LINKED to RV-xx:
   <tasks> …`; a second call adds tasks. Refused: no open review, a task not dispatched. Once every linked task
-  merged, serve runs the verify (below) itself; a linked task dropped: one line to you, the verify waits for the rest.
-  Close only after that verify.
-- A verify by hand (T-716): `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]` marks the head
-  reviewed (`refs/obor/reviewed`), detaches the reviewer's role worktree there (T-853) and briefs the reviewer's same session to re-run its probes (the `obor brief` reply).
-
+  merged, serve runs the verify itself: it detaches the reviewer's role worktree at the integration branch's head
+  (T-853) and briefs the reviewer's same session to re-run its probes. A linked task dropped: one line to you, the
+  verify waits for the rest. A verify that failed is asked again with another `obor review fix <its tasks>` (T-869:
+  there is no verify by hand). Close only after that verify.
 - When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, adds each
-  accepted line to `BACKLOG.md`'s Open section naming the RV, commits `RV-xx closed · <sha> · approved · <summary>`
-  (`CLOSED <subject>`) and stops the reviewer (its `STOPPED …` line last). Refused, nothing changed: no open review,
-  a main checkout dirty outside `BACKLOG.md`, a linked fix task neither verified nor dropped (named; `--force`, the
-  owner's word, closes anyway). Steps and texts: review-brief.md §3–5.
+  accepted line to `BACKLOG.md`'s Open section naming the RV and commits `RV-xx closed · <sha> · approved · <summary>`
+  (`CLOSED <subject>`); serve stops the reviewer once it sees the close commit (T-869: the command stops nothing).
+  Refused, nothing changed: no open review, no review start for it in serve's log, a main checkout dirty outside
+  `BACKLOG.md`, a linked fix task neither verified nor dropped (named; `--force`, the owner's word, closes anyway).
+  Steps and texts: review-brief.md §3–5.
 
 ## An agent stopped by an API error (T-532)
 A Claude agent whose turn ends on an API error (a usage limit `rate_limit`, `overloaded`, `billing_error`, …) did not

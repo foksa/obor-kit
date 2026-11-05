@@ -13,7 +13,7 @@ import (
 )
 
 const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
-	` | obor review fix … | obor review verify … | obor review close …`
+	` | obor review fix … | obor review close …`
 
 // reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
 // to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
@@ -21,9 +21,6 @@ const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note 
 // since <age> …), else a request to start now. Serve starts the review once every --after task merged and the
 // reviewer is idle, and tells the lead. FAIL: serve down, its refusal or a usage error (exit 1).
 func reviewCmd(args []string) int {
-	if len(args) > 0 && args[0] == "verify" {
-		return reviewVerifyCmd(args[1:])
-	}
 	if len(args) > 0 && args[0] == "close" {
 		return reviewCloseCmd(args[1:])
 	}
@@ -87,11 +84,6 @@ func (g reviewGit) Files(ctx context.Context, from, to string) ([]string, error)
 	}
 	out, err := g.git(ctx, "diff", "--name-only", "--end-of-options", from, to)
 	return lines(out), err
-}
-
-func (g reviewGit) Mark(ctx context.Context, sha string) error {
-	_, err := g.git(ctx, "update-ref", app.ReviewedRef, sha)
-	return err
 }
 
 // Detach puts the role worktree dir on sha, detached (T-853): added at it when dir is missing (project.AddWorktree),

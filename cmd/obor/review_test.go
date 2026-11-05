@@ -50,8 +50,7 @@ func TestReviewRequest(t *testing.T) {
 	}
 }
 
-// T-638: reviewGit on a fixture repo: the newest RV close, the head, the first-parent merges and files since a sha,
-// and the reviewed head marked (T-718: a ref, no worktree).
+// T-638: reviewGit on a fixture repo: the newest RV close, the head, the first-parent merges and files since a sha.
 func TestReviewGit(t *testing.T) {
 	t.Parallel()
 	p := testkit.New(t)
@@ -83,15 +82,6 @@ func TestReviewGit(t *testing.T) {
 	}
 	if f, err := g.Files(ctx, base[:7], head); err != nil || strings.Join(f, ",") != "a.txt" {
 		t.Errorf("files %q, %v", f, err)
-	}
-	if err := g.Mark(ctx, head); err != nil {
-		t.Fatal(err)
-	}
-	if at := p.Git(p.Root, "rev-parse", app.ReviewedRef); at != head {
-		t.Errorf("%s at %s, want %s", app.ReviewedRef, at, head)
-	}
-	if err := g.Mark(ctx, "nope"); err == nil || !strings.Contains(err.Error(), "git update-ref") {
-		t.Errorf("a bad sha: %v", err)
 	}
 }
 

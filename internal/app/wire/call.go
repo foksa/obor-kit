@@ -22,20 +22,19 @@ const (
 
 // The other methods of the app socket; the server's handler for each is in internal/app.
 const (
-	MethodDispatch = "dispatch"      // Call.Task onto Call.Lane, or the first free lane of Call.Types
-	MethodWatch    = "watch"         // Call.Task the task or comma list watched (""; the open watches listed), Call.Clear ends its watch
-	MethodPause    = "pause"         // Call.Note the why, Call.Until its end (0: until cleared); Call.Clear ends the pause in force
-	MethodReview   = "review"        // Call.After the tasks it waits for, Call.Note the lead's note, Call.Clear ends the open request
-	MethodVerify   = "review_verify" // obor review verify: Call.After the fix tasks, Call.Findings the findings to re-run, Call.Note the lead's note
-	MethodFix      = "review_fix"    // obor review fix (T-850): Call.After the fix tasks linked to the open review, Call.Note what to check
-	MethodSession  = "session"       // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
-	MethodSpecSet  = "spec_set"      // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (T-824), or "UNCHANGED <task> rev <n>"
-	MethodConfig   = "config_set"    // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main
-	MethodBackup   = "backup"        // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
-	MethodSend     = "send"          // Call.Root the target project, Call.From the sender project, Call.Note the text
-	MethodBrief    = "brief"         // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
-	MethodStopped  = "stopped"       // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
-	MethodTurn     = "turn"          // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
+	MethodDispatch = "dispatch"   // Call.Task onto Call.Lane, or the first free lane of Call.Types
+	MethodWatch    = "watch"      // Call.Task the task or comma list watched (""; the open watches listed), Call.Clear ends its watch
+	MethodPause    = "pause"      // Call.Note the why, Call.Until its end (0: until cleared); Call.Clear ends the pause in force
+	MethodReview   = "review"     // Call.After the tasks it waits for, Call.Note the lead's note, Call.Clear ends the open request
+	MethodFix      = "review_fix" // obor review fix (T-850): Call.After the fix tasks linked to the open review, Call.Note what to check
+	MethodSession  = "session"    // Call.Agent's session Call.Session began (Call.Kind, Call.Transcript, Call.Started, Call.Source; where: Call.Pane, Call.Lane, Call.Task)
+	MethodSpecSet  = "spec_set"   // Call.Spec stored as Call.Task's spec, Call.Note what changed (T-819); the reply "SET <task> rev <n>" (T-824), or "UNCHANGED <task> rev <n>"
+	MethodConfig   = "config_set" // the owner's setup edits (obor web, T-753, T-760): Call.Changes in .obor/config.json, one commit on main
+	MethodBackup   = "backup"     // serve takes a backup of Call.Root's database (obor nightly, T-435): serve is its one writer
+	MethodSend     = "send"       // Call.Root the target project, Call.From the sender project, Call.Note the text
+	MethodBrief    = "brief"      // Call.To the role agent, Call.Note the brief ("": the restart's first prompt carried it)
+	MethodStopped  = "stopped"    // Call.Agent the agent, Call.Role its role, Call.Lane a worker's lane, Call.Error, Call.Details
+	MethodTurn     = "turn"       // an agent's next turn began or ended (its UserPromptSubmit or Stop hook): Call.Agent, Call.Lane
 	// MethodExit (the owner's or the lead's; obor stop, T-711): serve ends gracefully, as a signal ends it and as its
 	// self-restart does (T-652, T-656): Call.Root its project, Call.Note why. The reply is EXITING; the caller confirms
 	// serve down by its serve.flock and socket.
@@ -100,8 +99,6 @@ type Call struct {
 	Force bool     `json:"force,omitempty"`
 	After []string `json:"after,omitempty"` // the tasks it waits for (obor dispatch --after)
 	Level string   `json:"level,omitempty"` // set with Types by a waiting task's re-dispatch: the spec's level they came from
-	// review_verify's: the finding numbers to re-run (none: every finding); After is its fix tasks.
-	Findings []string `json:"findings,omitempty"`
 	// A drop's (T-439): discard the task's lane's uncommitted changes and unmerged commits.
 	Discard bool `json:"discard,omitempty"`
 	// The MCP job tools': the caller's herdr pane; task_done's report.
