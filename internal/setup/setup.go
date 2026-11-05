@@ -22,8 +22,10 @@
 //	        (limits.max_panes_per_tab, default 4). A failed start with a trust dialog or a Codex self-update in the
 //	        pane (or herdr's agent_not_ready) → FAIL agent not ready: <hint>. A running agent → OK, no-op.
 //	role <role> [same placement] [--start]  the same (no agent unless --start, T-708) for a role of the roles table (not worker): agent and type from
-//	        roles.<role>, env OBOR_ROLE (the role's env value, triage too: T-796), cwd the root (the reviewer
-//	        and the deep dive too, T-718: no worktree of their own). triage also copies
+//	        roles.<role>, env OBOR_ROLE (the role's env value, triage too: T-796), cwd the role's (config.RoleDir,
+//	        T-853): the reviewer, the deep dive and the integrator their role worktree <lanes_dir>/<role>, added
+//	        detached at the main checkout's branch when missing; every other role the root. triage also copies
+
 //	        templates/BUGS.md to docs/BUGS.md if missing; the reviewer and the deep dive also add paths.reviews (default
 //	        docs/reviews) to the main checkout's .gitignore, once (T-731).
 //	githooks [--remove]  core.hooksPath (repo-local config, shared by all worktrees) = <kit>/githooks (pre-commit,
@@ -243,25 +245,21 @@ func (s *Setup) load() error {
 
 // ensureWorktree makes dir a detached worktree at the root's current branch, unless it already is one of this repo.
 func (s *Setup) ensureWorktree(dir string) error {
-	if _, err := os.Stat(dir); err == nil {
-		repo, err := project.Find(dir)
-		if err != nil || repo.Root != s.root || repo.Top != project.Physical(dir) {
-			return project.Failf("%s exists and is not a worktree of %s", dir, s.root)
+	branch := ""
+	if _, err := os.Stat(dir); err != nil {
+		out, _ := project.Git(s.root, "branch", "--show-current")
+		if branch = strings.TrimSpace(out); branch == "" {
+			return project.Failf("the main checkout %s is not on a branch", s.root)
 		}
+	}
+	added, err := project.AddWorktree(context.Background(), s.root, dir, branch)
+	switch {
+	case err != nil:
+		return project.Failf("%v", err)
+	case !added:
 		s.say("skip worktree %s (exists)", dir)
-		return nil
+	default:
+		s.say("worktree %s (detached at %s)", dir, branch)
 	}
-	out, _ := project.Git(s.root, "branch", "--show-current")
-	branch := strings.TrimSpace(out)
-	if branch == "" {
-		return project.Failf("the main checkout %s is not on a branch", s.root)
-	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return project.Failf("cannot create %s", filepath.Dir(dir))
-	}
-	if _, err := project.Git(s.root, "worktree", "add", "-q", "--detach", dir, branch); err != nil {
-		return project.Failf("git worktree add --detach %s %s", dir, branch)
-	}
-	s.say("worktree %s (detached at %s)", dir, branch)
 	return nil
 }

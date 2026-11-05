@@ -473,11 +473,11 @@ func TestRestartWho(t *testing.T) {
 		out:   "lane L-01 (pane w1:p3 cwd)",
 	}, {
 		// bash restart.test.sh case_role_agent_gets_role_env_and_type
-		name: "role agent: role env, its type, cwd the main checkout, OBOR_LANE unset",
+		name: "role agent: role env, its type, cwd its role worktree (T-853), OBOR_LANE unset",
 		prep: func(x *fx) { x.sid("pj-int", "sid-i"); x.shell("w1:p5", "pj-int", "").Session = "sid-i" },
 		req:  launch.Request{Agent: "pj-int"},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.Root) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator"
+			return "pane.send_input keys=[Enter] pane_id=w1:p5 text=cd " + q(x.p.LaneDir("integrator")) + " && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator"
 		},
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --resume sid-i] kind=claude name=pj-int pane_id=w1:p5",
 		line:  "RESTARTED pj-int (pane w1:p5, session sid-i)",
@@ -516,16 +516,17 @@ func TestRestartWho(t *testing.T) {
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-triage pane_id=w1:p6",
 		line:  "RESTARTED pj-triage (pane w1:p6, session new)",
 	}, {
-		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-718: the main checkout, no worktree
-		name: "deep_dive role (T-179, T-718): its type, cwd the root, OBOR_ROLE=deep_dive",
+		// bash restart.test.sh case_deep_dive_gets_role_env_and_its_worktree; T-853: its role worktree again
+		name: "deep_dive role (T-179, T-853): its type, cwd its role worktree, OBOR_ROLE=deep_dive",
 		edit: []func(map[string]any){
 			testkit.Set("roles", `{"lead":"opus","deep_dive":"opus"}`),
 		},
 		prep: func(x *fx) { x.shell("w1:p6", "", "") },
 		req:  launch.Request{Agent: "pj-deep-dive", Pane: "w1:p6", Fresh: true},
 		env: func(x *fx) string {
-			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.Root) +
+			return "pane.send_input keys=[Enter] pane_id=w1:p6 text=cd " + q(x.p.LaneDir("deep_dive")) +
 				" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=deep_dive"
+
 		},
 		start: "agent.start args=[--permission-mode auto --model opus " + settings + " --session-id <new>] kind=claude name=pj-deep-dive pane_id=w1:p6",
 		line:  "RESTARTED pj-deep-dive (pane w1:p6, session new)",
@@ -564,6 +565,14 @@ func TestRestartWho(t *testing.T) {
 				t.Fatalf("the env line ends without its success and failure marks: %q", runs[0])
 			}
 			eq(t, runs[0][:len(runs[0])-len(m[0])], c.env(x), "env line (cwd, OBOR_ROLE, OBOR_LANE, a stale OBOR_AGENT unset)")
+			// T-853: a role worktree the env line cds into was added for the start (none was there).
+			for _, role := range []string{"integrator", "deep_dive"} {
+				if wt := x.p.LaneDir(role); strings.Contains(c.env(x), "cd "+q(wt)+" ") {
+					if top := strings.TrimSpace(x.p.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
+						t.Errorf("%s's worktree %s not added for the start (toplevel %q)", role, wt, top)
+					}
+				}
+			}
 			eq(t, x.named(x.startCall()), c.start, "agent start (kind, pane, type args, resume)")
 			if c.out != "" {
 				contains(t, out, c.out, "output")
@@ -1446,7 +1455,13 @@ func TestRestartStopsTheRunningAgent(t *testing.T) {
 		out, ok := x.restart(launch.Request{Agent: "pj-rev"})
 		eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session cx-9)", "result")
 		contains(t, strings.Join(x.calls("pane.send_input"), "\n"), "pane.send_input keys=[Enter] pane_id=w1:p7 text=/quit", "Codex quits with /quit")
-		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
+		// T-853: the reviewer's Codex start writes the main checkout's reviews dir too (made for it).
+		reviews := filepath.Join(x.p.Root, "docs", "reviews")
+		eq(t, x.startCall(), "agent.start args=[resume cx-9 -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" "+codexUpdate+" "+codexMCP+"] kind=codex name=pj-rev pane_id=w1:p7", "codex resume <id>")
+		if !x.p.Exists(reviews) {
+			t.Errorf("no %s made for the start", reviews)
+		}
+
 		contains(t, out, "resuming cx-9 (from herdr)", "source")
 		_ = ok
 	})

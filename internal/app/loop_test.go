@@ -57,6 +57,7 @@ type loopRig struct {
 	// before start
 	nightOf func() *app.Nightly
 	config  app.ConfigFile // the loop's config_set writer (nil: none); set before start
+	review  app.ReviewGit  // the loop's review git (nil: none: no review starts); set before start
 	disk    *app.Disk      // the loop's Disk (nil: none); set before start
 	// restart is the loop's Restart, serve's self-restart (nil: none, T-652); set before start
 	restart func(ctx context.Context) error
@@ -255,7 +256,7 @@ func (r *loopRig) launch() {
 				night = r.nightOf()
 			}
 			fx := &app.Loop{Scratch: r.scratch, Agents: r, Typer: panes, Nightly: night, Disk: r.disk,
-				Inbox: r.inbox, Restart: r.restart, Config: r.config,
+				Inbox: r.inbox, Restart: r.restart, Config: r.config, Review: r.review,
 				Checkout: func(context.Context) error {
 					r.mu.Lock()
 					defer r.mu.Unlock()
@@ -507,23 +508,18 @@ func (r *loopRig) merged(attempt int) {
 	r.waitStep(string(rune('0'+attempt)) + " result agent.stop")
 }
 
-// waitHold waits until task's publish waits on the merge hold (T-718): the hold's cap clock has started by then, so a
-// clock jump after this is measured from the pass that first held the publish.
-func (r *loopRig) waitHold(task string) {
-	r.t.Helper()
-	r.waitFor("the merge hold of "+task, func() bool {
-		st := r.app.Status()
-		if st.Project == nil {
-			return false
-		}
-		for _, t := range st.Project.Tasks {
-			if t.Task == task {
-				return t.Hold != ""
-			}
-		}
-		return false
-	})
+// rigReviewGit is a rig's review git (loopRig.review): no review closed, the head "h1", nothing marked or moved (an
+// idle deep dive's brief moves its role worktree through it, T-853).
+type rigReviewGit struct{}
+
+func (rigReviewGit) Last(context.Context, string) (app.ReviewClose, error) {
+	return app.ReviewClose{}, nil
 }
+func (rigReviewGit) Head(context.Context, string) (string, error)             { return "h1", nil }
+func (rigReviewGit) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
+func (rigReviewGit) Files(context.Context, string, string) ([]string, error)  { return nil, nil }
+func (rigReviewGit) Mark(context.Context, string) error                       { return nil }
+func (rigReviewGit) Detach(context.Context, string, string) error             { return nil }
 
 // noLead: the lead's chat got nothing: every prompt went to the integrator or the worker.
 func (r *loopRig) noLead() {

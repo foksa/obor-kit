@@ -39,10 +39,10 @@ func TestRoleTableDefaultsAndProfiles(t *testing.T) {
 		optional     bool
 	}{
 		{"lead", "lead", "pj-lead", CwdProject, WriteAll, false, false, false},
-		{"integrator", "integrator", "pj-int", CwdProject, WriteNone, false, false, false},
+		{"integrator", "integrator", "pj-int", CwdRoleWorktree, WriteNone, false, false, false}, // T-853
 		{"worker", "worker", "pj-l-01", CwdLane, WriteSpec, true, true, false},
-		{"reviewer", "reviewer", "pj-rev", CwdProject, WriteReviewsOnly, false, false, false},
-		{"deep_dive", "deep_dive", "pj-deep-dive", CwdProject, WriteReviewsOnly, false, false, true},
+		{"reviewer", "reviewer", "pj-rev", CwdRoleWorktree, WriteReviewsOnly, false, false, false}, // T-853
+		{"deep_dive", "deep_dive", "pj-deep-dive", CwdRoleWorktree, WriteReviewsOnly, false, false, true},
 		// Optional table roles count only when configured (T-751): the driver is never configured, obor drive starts it.
 		{"driver", "driver", "pj-drive", CwdLane, WriteSpec, false, false, true},
 	}

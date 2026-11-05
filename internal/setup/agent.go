@@ -122,7 +122,14 @@ func (s *Setup) role(ctx context.Context, args []string) error {
 	if rc.Type == "" {
 		return project.Failf("roles.%s is not set (a model ref, e.g. \"opus:high\")", role.Name)
 	}
-	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.root, role: role, noStart: !startNow}
+	a := agent{name: s.cfg.AgentName(role.Name, ""), typ: rc.Type, effort: rc.Effort, cwd: s.cfg.RoleDir(role), role: role,
+		noStart: !startNow}
+	if a.cwd != s.cfg.Root { // its role worktree (T-853)
+		if err := s.ensureWorktree(a.cwd); err != nil {
+			return err
+		}
+	}
+
 	for _, rel := range slices.Sorted(maps.Keys(role.Seeds)) { // a custom role's seeded files (triage's docs/BUGS.md)
 		if err := s.copyFile(filepath.Join(s.Kit, "templates", role.Seeds[rel]), rel); err != nil {
 			return err
@@ -272,7 +279,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	}
 
 	s.placed = pane
-	args := lt.LaunchArgs(a.role.Name, a.effort)
+	args := lt.LaunchArgs(a.role.Name, a.effort, s.cfg.RoleWriteDirs(a.role))
+	for _, d := range s.cfg.RoleWriteDirs(a.role) { // a dir the start lets the agent write must be there (T-853)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return project.Failf("cannot create %s", d)
+		}
+	}
 	l := s.Starter(s.cfg)
 	if w.pane != "" { // a reused pane: its shell may hold the env of the agent that ran there before
 		if err := l.SetEnv(ctx, pane, port.AgentEnv{Agent: a.name, Role: a.role.Name, Lane: a.lane, Cwd: a.cwd, Vars: vars}); err != nil {

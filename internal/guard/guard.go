@@ -3,15 +3,17 @@
 // allow (exit 0, no output) or deny (exit 2, one line "obor: …" on stderr). Bash commands are parsed with
 // mvdan.cc/sh/v3/syntax (shell.go); a load run of tests (-count > 1, -race, two test commands at once) is denied for
 // every role (T-543); writes — the editor tools and the Bash write targets alike (checkWrite, RV-83) — are checked
-// against protected_files and the role's write profile (config.Role: a reviewer or deep_dive writes only under
-// paths.reviews / paths.research, a custom role — advisor, researcher, triage, a project's own — only its write list,
-// T-801; a role whose roles.<name> row was removed while its agent runs writes nothing and reads git only, T-814; a
-// final symlink at its destination too), and an editor tool of a worker against its lane's boundary: no other
-// worktree of this repo (the main checkout included), no other obor project, no final symlink out of the lane. A
-// GitReadOnly role (reviewer, deep_dive, every custom role) runs git reads only (gitRead). Every role but the lead runs
-// no git verb that moves HEAD or changes the tree or index wholesale in the main checkout (T-841: serve publishes to
-// main from there). Which files of its lane a worker edits is not checked (T-496: placement is checked at accept). An
-// agent CLI run headless (codex exec, claude -p, opencode run) is denied for every role: agents run in herdr panes.
+// against protected_files and the role's write profile (config.Role: a reviewer or deep_dive writes only under the
+// main checkout's paths.reviews / paths.research, never in its own role worktree, T-853; a custom role — advisor,
+// researcher, triage, a project's own — only its write list, T-801; a role whose roles.<name> row was removed while
+// its agent runs writes nothing and reads git only, T-814; a final symlink at its destination too), and an editor
+// tool of a worker against its lane's boundary: no other worktree of this repo (the main checkout included), no other
+// obor project, no final symlink out of the lane. A GitReadOnly role (reviewer, deep_dive, every custom role) runs git
+// reads only (gitRead); the reviewer and the deep dive also check out a commit in their own role worktree (T-853).
+// The main checkout's HEAD rows (T-841, T-848) are gone with T-853: the integrator, the reviewer and the deep dive
+// left it, and a custom role there reads git only, so no role but the lead moves HEAD there. Which files of its lane
+// a worker edits is not checked (T-496: placement is checked at accept). An agent CLI run headless (codex exec,
+// claude -p, opencode run) is denied for every role: agents run in herdr panes.
 //
 // It is an accident guard: it does not try to stop a crafted bypass (an interpreter, a script file, an alias, a
 // variable set by an earlier call). The git pre-push hook is the backstop for pushes. Writes by an interpreter or a
@@ -427,8 +429,9 @@ func (g *guard) checkWrite(p string) {
 }
 
 // profileDenial is the deny reason of the write profile wp for the physical path p, "" when allowed. Inside this repo's
-// worktrees a reviewer / deep_dive writes only under paths.reviews (default docs/reviews) and paths.research, a custom
-// role (advisor, researcher, triage …) only its write list (T-801). Outside the repo (scratch, /tmp) is not limited.
+// worktrees a reviewer / deep_dive writes only under the main checkout's paths.reviews (default docs/reviews) and
+// paths.research (T-853: it runs in its role worktree, its files go to the main checkout), a custom role (advisor,
+// researcher, triage …) only its write list (T-801). Outside the repo (/tmp) is not limited.
 func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 	wt := g.wtOf(p)
 	if wt == "" {
@@ -442,30 +445,17 @@ func (g *guard) profileDenial(wp roles.WriteProfile, p string) string {
 		role, _ := g.sessionRole()
 		return listDenial(g.role, role.WritePaths, r)
 	}
-	paths := g.cfg.Paths()
-	research := strings.Trim(paths.Get("research"), "/")
-	var dirs []string
-	instead := "report the change as a finding instead"
-	switch wp {
-	case roles.WriteReviewsOnly:
-		reviews := strings.Trim(paths.Reviews, "/")
-		if reviews == "" {
-			reviews = "docs/reviews"
-		}
-		dirs = append(dirs, reviews)
-		if research != "" {
-			dirs = append(dirs, research)
-		}
-	default:
+	if wp != roles.WriteReviewsOnly {
 		return ""
 	}
+	dirs, instead := g.cfg.ReviewWriteDirs(), "report the change as a finding instead"
 	for _, d := range dirs {
-		if strings.HasPrefix(r, d+"/") {
+		if strings.HasPrefix(r, d+"/") && wt == g.root { // the main checkout's (T-853: not its own role worktree's)
 			return ""
 		}
 	}
 	return r + " is outside the " + g.role + " write profile — a " + g.role + " writes only under " +
-		strings.Join(dirs, ", ") + "; " + instead
+		strings.Join(dirs, ", ") + " in the main checkout " + g.root + "; " + instead
 }
 
 // listDenial is the deny reason of a custom role's write list for r (a path relative to its worktree), "" when the list

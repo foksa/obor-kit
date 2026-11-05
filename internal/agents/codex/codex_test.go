@@ -247,3 +247,22 @@ func TestStartEffort(t *testing.T) {
 		t.Errorf("no effort: args as given: %q", got)
 	}
 }
+
+// T-853: a start with WriteDirs (a reviewer's or deep dive's reviews dir in the main checkout) adds one --add-dir per
+// dir after the args, on a resume too; none: no --add-dir.
+func TestStartWriteDirs(t *testing.T) {
+	k, _ := agents.Lookup("codex")
+	args := []string{"-s", "workspace-write", "-m", "terra"}
+	dirs := []string{"/p/docs/reviews", "/p/docs/research"}
+	want := []string{"-s", "workspace-write", "-m", "terra", "--add-dir", "/p/docs/reviews", "--add-dir", "/p/docs/research",
+		"-c", "check_for_update_on_startup=false"}
+	if got := k.Start(agents.Start{Args: args, WriteDirs: dirs}); !slices.Equal(got, want) {
+		t.Errorf("Start = %q, want %q", got, want)
+	}
+	if got := k.Start(agents.Start{Args: args, WriteDirs: dirs, Resume: "sid"}); !slices.Equal(got, append([]string{"resume", "sid"}, want...)) {
+		t.Errorf("resume: %q", got)
+	}
+	if got := k.Start(agents.Start{Args: args}); slices.Contains(got, "--add-dir") {
+		t.Errorf("no write dirs: %q", got)
+	}
+}

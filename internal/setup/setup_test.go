@@ -838,52 +838,72 @@ func TestPaneRefusesUnknownLaneAndAmbiguousPlacement(t *testing.T) {
 
 // --- role -------------------------------------------------------------------------------------------------------------
 
-// The reviewer and the deep dive run in the main checkout (T-718; before it, T-179: a detached worktree each): setup
-// role makes no worktree and removes none (T-777: role worktrees are gone, so no old one is named any more, but a
-// leftover is left alone).
-func TestReviewerAndDeepDiveRunInTheRoot(t *testing.T) {
+// T-853: the reviewer and the deep dive run in their role worktree <lanes_dir>/<role> (T-718 had them in the main
+// checkout): setup role adds it detached when missing, keeps one that is there, refuses a dir that is no worktree of
+// the repo, and leaves a leftover of the old names (review, deep-dive) alone. No lane is added.
+func TestReviewerAndDeepDiveRunInTheirRoleWorktree(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		role, wt, agent, line, env string
-		old                        bool // a leftover worktree of the old name is there
-		edit                       func(map[string]any)
+		role, old, agent, line, env string
+		there                       bool // the role worktree is there before setup role
+		edit                        func(map[string]any)
 	}{
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
 			false, testkit.Set("roles", `{"reviewer": "luna"}`)},
 		{"reviewer", "review", "pj-rev", "OK reviewer: pj-rev in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=reviewer,OPENCODE_CONFIG=}",
 			true, testkit.Set("roles", `{"reviewer": "luna"}`)},
 		{"deep_dive", "deep-dive", "pj-deep-dive", "OK deep_dive: pj-deep-dive in pane w1:n1", "{OBOR_AGENT=,OBOR_LANE=,OBOR_OPENCODE_MODEL=,OBOR_ROLE=deep_dive,OPENCODE_CONFIG=}",
-			true, testkit.Set("roles", `{"deep_dive": "luna"}`)},
+			false, testkit.Set("roles", `{"deep_dive": "luna"}`)},
 	} {
 		x := newFx(t, c.edit)
-		wt := x.LaneDir(c.wt)
-		if c.old {
+		wt, old := x.LaneDir(c.role), x.LaneDir(c.old)
+		x.Git(x.Root, "worktree", "add", "-q", "--detach", old, "main") // a leftover of before T-718
+		if c.there {
 			x.Git(x.Root, "worktree", "add", "-q", "--detach", wt, "main")
 		}
-		if x.Exists(wt) != c.old {
-			t.Fatalf("precondition: %s worktree there = %v, want %v", c.wt, x.Exists(wt), c.old)
+		if x.Exists(wt) != c.there {
+			t.Fatalf("precondition: %s there = %v, want %v", wt, x.Exists(wt), c.there)
 		}
 		out := x.ok(t, "role", c.role, "--tab", "w1:t1", "--start")
 		if last(out) != c.line {
 			t.Errorf("%s: last line %q", c.role, last(out))
 		}
-		if x.Exists(wt) != c.old {
-			t.Errorf("%s: worktree %s there = %v after setup role, want %v (made or removed)", c.role, c.wt, x.Exists(wt), c.old)
+		if top := strings.TrimSpace(x.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
+			t.Errorf("%s: %s is no worktree after setup role (toplevel %q)", c.role, wt, top)
 		}
-		if strings.Contains(out, "git worktree remove") {
-			t.Errorf("%s: a removal hint is no part of setup role any more:\n%s", c.role, out)
+		if b := strings.TrimSpace(x.Git(wt, "rev-parse", "--abbrev-ref", "HEAD")); b != "HEAD" {
+			t.Errorf("%s: its worktree is on %q, want detached", c.role, b)
 		}
-		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+x.Root+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
-		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna ", c.role+" start")
+		if !x.Exists(old) {
+			t.Errorf("%s: the leftover %s was removed", c.role, old)
+		}
+		has(t, strings.Join(x.reqs(), "\n"), "pane.split cwd="+wt+" direction=right env="+c.env+" target_pane_id=w1:p1", c.role)
+		// Codex writes its cwd only: the start adds the main checkout's reviews dir, made when missing.
+		reviews := filepath.Join(x.Root, "docs", "reviews")
+		has(t, strings.Join(x.reqs(), "\n"), "agent.start args=[-s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir "+reviews+" ", c.role+" start")
 		has(t, strings.Join(x.reqs(), "\n"), "kind=codex name="+c.agent+" pane_id=w1:n1", c.role+" start: the agent")
+		if !x.Exists(reviews) {
+			t.Errorf("%s: no %s made for its start", c.role, reviews)
+		}
 		if cfg, _ := config.Load(x.Root); cfg.Data.Lanes != 0 {
 			t.Errorf("%s: added to the lanes", c.role)
 		}
 	}
+	// Another role's Codex start adds no dir.
+	y := newFx(t, testkit.Set("roles", `{"integrator": "luna"}`))
+	y.ok(t, "role", "integrator", "--tab", "w1:t1", "--start")
+	if calls := strings.Join(y.reqs(), "\n"); !strings.Contains(calls, "agent.start args=[-s workspace-write") || strings.Contains(calls, "--add-dir") {
+		t.Errorf("the integrator's codex start:\n%s", calls)
+	}
+
+	x := newFx(t, testkit.Set("roles", `{"reviewer": "luna"}`))
+	x.Write(x.LaneDir("reviewer")+"/notes.txt", "not a worktree\n")
+	x.failing(t, "FAIL "+x.LaneDir("reviewer")+" exists and is not a worktree of "+x.Root, "role", "reviewer", "--tab", "w1:t1", "--start")
 }
 
-// bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type
-func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
+// bash setup.test.sh case_role_integrator_starts_in_the_root_and_needs_a_type; T-853: in its role worktree
+// <lanes_dir>/integrator (not the merge scratch, where gates run), added detached when missing.
+func TestRoleIntegratorStartsInItsWorktreeAndNeedsAType(t *testing.T) {
 	t.Parallel()
 	x := newFx(t)
 	x.h.Tab("w1:t1", 200, 50, "w1:p3")
@@ -907,6 +927,17 @@ func TestRoleIntegratorStartsInTheRootAndNeedsAType(t *testing.T) {
 	if named(strings.Join(got, "\n")) != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s", strings.Join(got, "\n"))
 	}
+	wt := x.LaneDir("integrator")
+	if top := strings.TrimSpace(x.Git(wt, "rev-parse", "--show-toplevel")); project.Physical(top) != project.Physical(wt) {
+		t.Errorf("the integrator's worktree %s is no worktree after setup role (toplevel %q)", wt, top)
+	}
+	if lines := x.envLines(); len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+wt+" && ") {
+		t.Errorf("typed %q, want the env line to cd the integrator's worktree", lines)
+	}
+	if x.Exists(x.LaneDir("merge")) {
+		t.Errorf("setup role made the merge scratch: it is serve's")
+	}
+
 }
 
 // envLines is the text typed at a shell since reset (pane.send_input), one per line.
@@ -929,8 +960,9 @@ func TestSetupPaneTypesTheEnvAtAReusedPane(t *testing.T) {
 	x.reset()
 	x.ok(t, "role", "integrator", "--pane", "w1:p1", "--start")
 	lines := x.envLines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.Root+" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator && echo obor-env-") {
-		t.Fatalf("typed %q, want one env line: cd the root, unset every registry var it does not set (a stale OBOR_AGENT, OBOR_LANE, another kind's), export integrator, then the marks", lines)
+	// T-853: the integrator's cwd is its role worktree.
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "cd "+x.LaneDir("integrator")+" && unset OBOR_AGENT OBOR_LANE OBOR_OPENCODE_MODEL OPENCODE_CONFIG && export OBOR_ROLE=integrator && echo obor-env-") {
+		t.Fatalf("typed %q, want one env line: cd its role worktree, unset every registry var it does not set (a stale OBOR_AGENT, OBOR_LANE, another kind's), export integrator, then the marks", lines)
 	}
 	calls := strings.Join(x.reqs(), "\n")
 	if strings.Index(calls, "pane.send_input") > strings.Index(calls, "agent.start") || !strings.Contains(calls, "agent.start") {

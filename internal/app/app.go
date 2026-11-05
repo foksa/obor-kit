@@ -176,14 +176,12 @@ type proj struct {
 	reg   registry
 	out   outbox
 	night nightlyState
-	// holders: the configured reviewer and deep dive as the config last loaded names them (holdAgentsNow), whose work
-	// holds the merge loop's publish; holds: the tasks whose
-	// publish waits for one of them, by task (mergehold.go, T-718). Under mu.
-	holders []holdAgent
-	holds   map[string]mergeHold
-	// admits: the admissions in force (a review start, a verify or a hold agent's brief, from its wait for the running
-	// publish to its brief recorded: no publish starts meanwhile); published: closed when the running publish ends
-	// (nil: none runs). Under mu (mergehold.go, T-730).
+	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role
+	// agents whose role worktree serve moves (roleworktree.go, T-853). Under mu.
+	wtAgents []wtAgent
+	// admits: the admissions in force (a review start, a verify or a role worktree agent's brief, from its wait for the
+	// running publish to its brief recorded: no publish starts meanwhile); published: closed when the running publish
+	// ends (nil: none runs). Under mu (roleworktree.go, T-730).
 	admits    int
 	published chan struct{}
 }

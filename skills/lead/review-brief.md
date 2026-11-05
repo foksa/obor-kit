@@ -6,8 +6,8 @@ A review, from its request to its close: `obor review` builds and sends the brie
 
 ## 1. What serve collects
 `obor review` (§2) gathers these facts itself when the review starts; they are listed so you can read them back:
-- **Reviews dir**: `obor config get .paths.reviews`, in the main checkout (T-718: the reviewer runs there, no
-  worktree of its own) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
+- **Reviews dir**: `obor config get .paths.reviews`, in the main checkout (the reviewer writes there from its role
+  worktree `<lanes_dir>/reviewer`, T-853) and gitignored: review files never enter the integration branch (owner 2026-10-30). The **previous review** is the newest `RV-xx closed · <sha>` commit
   (`git log --grep='^RV-[0-9]* closed' -1 --format=%s`); `<prev-sha>` is the sha it names, and, since T-822, its body
   names the tasks its cycle **Covered** and the sha its review **Start**ed at.
 - **Next id**: the previous id + 1 (e.g. `RV-55.md`; none yet: `RV-1`).
@@ -24,8 +24,9 @@ A review, from its request to its close: `obor review` builds and sends the brie
 ## 2. Start it: `obor review`
 `obor review [--after T-a,T-b] [--note "<out of scope: …; contracts: …>"]` (one open request; a second call replaces
 it, `obor review` lists it, `obor review --rm` ends it). Serve starts the review once every `--after` task has merged
-(none given: now) and the reviewer (a role pane, `obor setup role reviewer`, in the main checkout; never a worker lane,
-never `obor dispatch` a review) is idle: it marks the head reviewed (`refs/obor/reviewed`), starts a fresh reviewer
+(none given: now) and the reviewer (a role pane, `obor setup role reviewer`, in its role worktree; never a worker lane,
+never `obor dispatch` a review) is idle: it marks the head reviewed (`refs/obor/reviewed`), detaches the reviewer's
+worktree at it (adding the worktree when missing), starts a fresh reviewer
 session with the brief below as its first prompt (your own fresh start is `obor brief <reviewer> --fresh "<text>"`: it
 stops a running reviewer, and serve starts it clean on the text), records the brief, and posts no line
 to you (T-650; `obor status` shows the review). A `--after` task dropped or rejected ends the request
@@ -37,11 +38,8 @@ to close`): a fresh start would replace the session §4 needs. While serve is st
 `obor review` and `--rm` are refused (try again once it is done). A fact serve fails to record after the reviewer
 started is a needs-you (`review: RV-xx: started but not recorded: <error>`).
 
-The main checkout stays put while the reviewer works (T-718): serve holds each merge's publish while the reviewer (or
-the deep dive) has a brief open or its pane is not idle; gates, jobs and dispatch go on, `obor status` shows
-`merge hold: reviewer` on the waiting task, and after 30 min the merge goes ahead with one line to you
-(`[obor] merge of T-x went ahead: reviewer still working after 30m`). Your own doc commits during a review are fine:
-they touch no code. The brief serve sends:
+Merges go on while the reviewer works (T-853: no merge hold): its worktree stays at the reviewed head until the next
+verify moves it, whatever lands on the integration branch meanwhile. The brief serve sends:
 ```
 Review <RV-xx>. <branch> is at <sha>. In scope: <T-a (<merge sha>), T-b (…)>; files: <list>.
 Previous review: <RV-prev> (its close commit: <subject>; its accepted findings are the BACKLOG lines that name
@@ -49,7 +47,8 @@ Previous review: <RV-prev> (its close commit: <subject>; its accepted findings a
 likelihood (the real config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in
 added code, and an Extent line: every other entry point / branch that shares the root cause, each marked checked
 or unchecked. A finding only a constructed case hits goes in a short "Not reported (constructed)" list instead:
-one line each, no fix proposal. Write only <reviews>/<RV-xx>.md (in the main checkout). Do not commit.
+one line each, no fix proposal. Your worktree is at <sha> (check out any commit there); write only
+<reviews>/<RV-xx>.md in the main checkout <root>. Do not commit.
 Lead's note: <your --note>
 ```
 Serve posts `[obor] <reviewer agent> finished (briefed <age> ago)` to your session once the reviewer has worked and is
@@ -76,15 +75,16 @@ verify of … failed: <error>`; run it by hand.
 By hand (a verify of tasks you did not link, or after that failure): `obor review verify <T-x,…> [--findings 1,3]
 [--note "<text>"]`. It asks serve, which waits
 for a publish in flight (T-730: no merge moves the head between its read and the brief), then marks the integration
-branch's head reviewed (`refs/obor/reviewed`; nothing to detach: the reviewer reads the main checkout, held still
-while it works) and briefs the open review's reviewer in its same, still-running session (`obor brief`: serve delivers
+branch's head reviewed (`refs/obor/reviewed`), detaches the reviewer's worktree at it (T-853) and briefs the open
+review's reviewer in its same, still-running session (`obor brief`: serve delivers
 it once the pane is idle and tells you when it has finished). The open review is the next RV by git whose
 `<reviews>/<RV-xx>.md` is in the main checkout; none, or a task with no merge since the previous review started (the
 previous close commit's `Start:` sha — a task merged after the review started, which it does not cover, is allowed
 and joins the cycle's covered set): refused, nothing sent. The brief (`--findings` default: every finding):
 ```
-The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha>. Re-run your probes for #<n>, … and report
-fixed / incomplete / regressed per finding. Write <reviews>/<RV-xx>-verify.md. Do not commit.
+The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha> (your worktree too). Re-run your probes for
+#<n>, … and report fixed / incomplete / regressed per finding. Write <reviews>/<RV-xx>-verify.md in the main checkout
+<root>. Do not commit.
 Lead's note: <your --note>
 ```
 Read the verify file there. Incomplete or regressed → a new fix task; second finding in the same function or

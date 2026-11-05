@@ -15,9 +15,11 @@ section. The lead turns findings into tasks.
 
 ## Rules
 - Read-only on source; probes in a scratch dir. Fewer, verified findings beat many guesses. No subagents.
-- Runs in its own role pane in the main checkout (`obor setup role deep_dive`, `OBOR_ROLE=deep_dive`), never a worker
-  lane: obor never stops it as idle and `obor dispatch` refuses it. Serve holds merges while it works (30 min at most),
-  so the code does not move under it. The lead briefs it with `obor brief <agent> "…"`: a brief to the stopped agent
+- Runs in its own role pane in its own worktree `<lanes_dir>/deep_dive` (`obor setup role deep_dive`,
+  `OBOR_ROLE=deep_dive`), never a worker lane: obor never stops it as idle and `obor dispatch` refuses it. A brief while
+  it is idle moves that worktree to the integration branch's head; while it works nothing moves under it, and merges
+  go on. It may check out any commit there; its file goes to the main checkout's `<reviews dir>` (the guard holds it
+  there). The lead briefs it with `obor brief <agent> "…"`: a brief to the stopped agent
   starts it fresh; `obor brief <agent> --fresh "…"` stops a running one first and starts it clean on the brief.
   Follow-ups go to the same session the same way.
 

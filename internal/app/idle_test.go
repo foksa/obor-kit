@@ -140,7 +140,7 @@ func TestIdleNotWhileAnotherTaskRuns(t *testing.T) {
 	r.waitFor("the idle line after the drop", func() bool { return r.inbox.count("pj-lead", dropped) == 1 })
 }
 
-// T-803: a waiting dispatch, a needs-you and a hold agent's open brief each keep the pipeline from being idle.
+// T-803: a waiting dispatch, a needs-you and a reviewer's open brief each keep the pipeline from being idle.
 func TestIdleBlockers(t *testing.T) {
 	t.Parallel()
 	t.Run("a waiting dispatch", func(t *testing.T) {
@@ -193,11 +193,7 @@ func TestIdleBlockers(t *testing.T) {
 		r.work("feature.txt", "feature\n")
 		r.submit()
 		r.accept("c1", r.patch(r.waitJob("pj-int", "T-1/1/review")))
-		// The brief holds the merge (T-718) until its cap: past it the publish goes ahead, and the reviewer still holds
-		// its brief, so the pipeline is not idle. Wait for the hold itself (not just a pass) before the clock jump, so
-		// its cap is measured from the pass that held the publish, not from a pass after the jump.
-		r.waitHold("T-1")
-		r.later(31 * time.Minute)
+		// The brief holds no merge (T-853), but the reviewer still holds its brief, so the pipeline is not idle.
 		r.merged(1)
 		r.passes()
 		r.passes()
@@ -378,7 +374,7 @@ func TestDispatchEndsIdle(t *testing.T) {
 	}
 }
 
-// T-815 (RV-104 #2): idle is an epoch. A hold agent's brief ends the epoch — obor status shows no idle state and
+// T-815 (RV-104 #2): idle is an epoch. A reviewer's or deep dive's brief ends the epoch — obor status shows no idle state and
 // obor idle "…" is refused — and the brief's end starts a new one: one line, unacknowledged. A custom role's brief
 // ends nothing.
 
@@ -439,7 +435,7 @@ func (r *loopRig) newIdleEpoch(line string) {
 	}
 }
 
-// T-815: a hold role's brief (a reviewer's, a deep dive's) ends the acknowledged idle epoch, and the brief's end starts
+// T-815: a role worktree agent's brief (a reviewer's, a deep dive's) ends the acknowledged idle epoch, and the brief's end starts
 // a new one.
 func TestReviewerBriefEndsIdleAndANewEpochStarts(t *testing.T) {
 	t.Parallel()
@@ -450,6 +446,7 @@ func TestReviewerBriefEndsIdleAndANewEpochStarts(t *testing.T) {
 		t.Run(c.role, func(t *testing.T) {
 			t.Parallel()
 			r := newLoopRig(t, "echo 1 pass", testkit.Set("roles."+c.role, ""))
+			r.review = rigReviewGit{} // an idle deep dive's brief moves its worktree (T-853)
 			a := r.f.Agent(c.pane, c.agent, "idle", r.p.Root)
 			a.Workspace, a.Label = "w1", c.agent
 			line := r.idleAcked()
@@ -460,7 +457,7 @@ func TestReviewerBriefEndsIdleAndANewEpochStarts(t *testing.T) {
 	}
 }
 
-// T-815: a brief of a role that does not hold the merge keeps the idle epoch in force: its acknowledgement stands.
+// T-815: a brief of a role with no role worktree keeps the idle epoch in force: its acknowledgement stands.
 func TestCustomRoleBriefKeepsIdle(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.researcher", "sonnet"))

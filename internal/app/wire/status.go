@@ -1,8 +1,6 @@
 package wire
 
 import (
-	"strings"
-
 	"obor/internal/app/event"
 )
 
@@ -128,8 +126,8 @@ type IdleStatus struct {
 const TaskDriving = "driving"
 
 // A task's phase (TaskStatus.Phase, T-788): what serve does for it now, computed once by serve from its state's row
-// (internal/app/states.go) and the live overlays (needs-you in force, a step running or pending, the merge hold); obor
-// status, the view and obor web show it as it is.
+// (internal/app/states.go) and the live overlays (needs-you in force, a step running or pending); obor status, the
+// view and obor web show it as it is.
 const (
 	PhaseWaiting        = "waiting"         // waits for its --after tasks or a free lane
 	PhaseDispatching    = "dispatching"     // its dispatch's steps (lane, agent, the work job)
@@ -143,16 +141,12 @@ const (
 	PhasePublish        = "publish"         // accepted: its publish is next
 	PhaseMerging        = "merging"         // its publish runs
 	PhasePublishPending = "publish pending" // its publish's intent waits (T-662)
-	PhaseMergeHold      = "merge hold: "    // + the role: its publish waits for the reviewer or the deep dive (T-718)
 	PhaseNeedsYou       = "needs-you"       // a needs-you is in force for it (or its lane): the owner decides
 	PhaseHeld           = "held"            // the integrator's hold verdict: the owner decides (C7: held means this alone)
 	PhaseMerged         = "merged"          // the target holds it: its after-merge steps
 	PhaseRejected       = "rejected"        // ended: rejected
 	PhaseDropped        = "dropped"         // ended: dropped
 )
-
-// MergeHold is the phase of a task whose publish waits for role (T-718).
-func MergeHold(role string) string { return PhaseMergeHold + role }
 
 // The merge loop's stages (PhaseStage): the pipeline's columns, in the order a task goes through them.
 const (
@@ -178,27 +172,24 @@ func PhaseStage(phase string) string {
 	case PhaseNeedsYou, PhaseHeld:
 		return StageHeld
 	}
-	if strings.HasPrefix(phase, PhaseMergeHold) {
-		return StagePublish
-	}
 	return ""
 }
 
 // TaskStatus is one task of the merge loop that is not merged.
 type TaskStatus struct {
-	Task    string   `json:"task"`
-	Lane    string   `json:"lane"`
-	Attempt int      `json:"attempt"`
-	State   string   `json:"state"`
-	Phase   string   `json:"phase"`             // what serve does for it now (Phase*, T-788)
-	Stage   string   `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
-	Running string   `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
-	Hold    string   `json:"hold,omitempty"`    // accepted: "merge hold: <role>" while its publish waits (T-718)
-	After   []string `json:"after,omitempty"`   // waiting: the tasks it waits for
-	Why     string   `json:"why,omitempty"`     // waiting, all it waits for merged: its dispatch's last refusal
-	Level   string   `json:"level,omitempty"`   // waiting: the difficulty level its models came from
-	Types   []string `json:"types,omitempty"`   // waiting: the models it takes (model refs, T-695, T-765)
-	Effort  string   `json:"effort,omitempty"`  // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
+	Task    string `json:"task"`
+	Lane    string `json:"lane"`
+	Attempt int    `json:"attempt"`
+	State   string `json:"state"`
+	Phase   string `json:"phase"`             // what serve does for it now (Phase*, T-788)
+	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
+	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)
+
+	After  []string `json:"after,omitempty"`  // waiting: the tasks it waits for
+	Why    string   `json:"why,omitempty"`    // waiting, all it waits for merged: its dispatch's last refusal
+	Level  string   `json:"level,omitempty"`  // waiting: the difficulty level its models came from
+	Types  []string `json:"types,omitempty"`  // waiting: the models it takes (model refs, T-695, T-765)
+	Effort string   `json:"effort,omitempty"` // dispatched: the effort its lane's agent starts with ("": the kind's; T-695)
 	// Job is its open job (a worker's work or fix job, the integrator's review or resolve job: <task>/<attempt>/<step>)
 	// and Delivered whether its agent's job_next fetched it (T-664; "": no job open).
 	Job       string `json:"job,omitempty"`

@@ -2,16 +2,18 @@
 
 ## Purpose
 Reviews a batch of merged tasks and finds correctness bugs the integrator's diff check missed; later verifies the fixes
-in the same session. A role pane in the main checkout (`obor setup role reviewer`), never a worker lane; runs in the
-background, never on the critical path.
+in the same session. A role pane in its own worktree `<lanes_dir>/reviewer` (`obor setup role reviewer`), never a worker
+lane; runs in the background, never on the critical path.
 
 ## Inputs
 A brief from the lead (the lead skill's `review-brief.md` builds it), the previous review, the design docs. The brief
-names the commit to review: the main checkout is at it, and serve holds merges while you work (a turn, or a brief
-waiting for you; 30 min at most), so the code does not move under you. The lead's doc commits may land meanwhile.
+names the commit to review: serve detached your worktree at it when it started the review (and again at each verify),
+so the code does not move under you while merges go on. You may check out any other commit there (`git checkout
+<sha>`; a Codex reviewer reads one with `git show <sha>:<path>` instead); serve moves it back at the next verify.
 
 ## Outputs
-`<reviews dir>/RV-xx.md` in the main checkout (gitignored; never committed):
+`<reviews dir>/RV-xx.md` in the main checkout (the brief names its path; gitignored; never committed), not in your
+worktree:
 - Result line: `approved` / `changes requested`, commit reviewed, scope.
 - Part 1 — verification of the previous review's findings (finding · status · evidence).
 - Findings: **#n · severity · file:line · what's wrong · probe/evidence · suggested fix · Extent** (other entry

@@ -40,7 +40,7 @@ func fixture(t *testing.T, cfg string) (root, wt string) {
 	os.WriteFile(filepath.Join(root, ".obor", "config.json"), []byte(cfg), 0o644)
 	run(t, base, "git", "-c", "init.defaultBranch=main", "init", "-q", root)
 	run(t, root, "git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "--allow-empty", "-m", "init")
-	for _, l := range []string{"L-01", "review", "merge"} {
+	for _, l := range []string{"L-01", "review", "merge", "reviewer", "deep_dive", "integrator"} {
 		run(t, root, "git", "worktree", "add", "-q", "--detach", filepath.Join(wt, l), "main")
 	}
 	return root, wt
@@ -326,6 +326,20 @@ func TestDetectRoleCwdEnvAndLanes(t *testing.T) {
 	if got := role(t, filepath.Join(wt, "merge")); got != (Role{"none", "", "none"}) {
 		t.Errorf("merge scratch: %+v", got)
 	}
+	// T-853: the reviewer's, the deep dive's and the integrator's role worktrees are no lanes: their env role stands
+	// there.
+	for _, r := range []string{"reviewer", "deep_dive", "integrator"} {
+
+		if got := role(t, filepath.Join(wt, r)); got != (Role{"none", "", "none"}) {
+			t.Errorf("%s's role worktree, no env: %+v, want no lane", r, got)
+		}
+		t.Setenv("OBOR_ROLE", r)
+		if got := role(t, filepath.Join(wt, r)); got != (Role{r, "", "env"}) {
+			t.Errorf("%s in its role worktree: %+v", r, got)
+		}
+		t.Setenv("OBOR_ROLE", "")
+	}
+
 	if got := role(t, root); got != (Role{"none", "", "none"}) {
 		t.Errorf("main checkout: %+v", got)
 	}

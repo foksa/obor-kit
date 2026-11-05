@@ -648,6 +648,9 @@ func (l *Launcher) setEnv(ctx context.Context, t *target) error {
 		}
 		return project.Failf("%s runs another program (%s)", t.pane, prog)
 	}
+	if err := l.roleWorktree(ctx, t); err != nil {
+		return err
+	}
 	// The line echoes one of two words (T-601): the success word only when the whole line (its cd, its exports)
 	// succeeded — a `; echo` after a cd that failed still printed it, and the agent started in the shell's old cwd with
 	// the old env (RV-64 #3) — and its failure word when it failed, so a visible failure ends the wait at once instead
@@ -686,6 +689,20 @@ func (l *Launcher) envOrOS() project.Env {
 		return project.OSEnv
 	}
 	return l.Env
+}
+
+// roleWorktree adds the role worktree a role agent's cwd is when it is missing (T-853: the reviewer's, the deep
+// dive's, the integrator's <lanes_dir>/<role>), detached at branches.main, so the env line's cd finds it: serve's
+// starts and obor restart of a project set up before T-853. Any other cwd: nothing.
+func (l *Launcher) roleWorktree(ctx context.Context, t *target) error {
+	r, ok := roles.Lookup(t.info.Role)
+	if !ok || r.Cwd != roles.CwdRoleWorktree || l.Cfg == nil || t.info.Cwd != l.Cfg.RoleWorktree(r.Name) {
+		return nil
+	}
+	if _, err := project.AddWorktree(ctx, l.Cfg.Root, t.info.Cwd, l.Cfg.Data.Branches.Main); err != nil {
+		return project.Failf("%s: its worktree: %v", t.agent, err)
+	}
+	return nil
 }
 
 // envLine is the shell line that sets the agent's env (and cwd) as obor setup does, built by the one builder
@@ -787,7 +804,14 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 		return nil, project.Failf("%s: %v", t.agent, err)
 	}
 	t.env = vars
-	return lt.LaunchArgs(t.info.Role, effort), nil
+	rc, _ := l.Cfg.Role(t.info.Role)
+	dirs := l.Cfg.RoleWriteDirs(rc.Role)
+	for _, d := range dirs { // a dir a start lets the agent write (Codex's --add-dir) must be there (T-853)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, project.Failf("%s: %v", t.agent, err)
+		}
+	}
+	return lt.LaunchArgs(t.info.Role, effort, dirs), nil
 }
 
 // holds: pane holds agent's herdr name.

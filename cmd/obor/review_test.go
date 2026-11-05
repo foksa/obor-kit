@@ -94,3 +94,39 @@ func TestReviewGit(t *testing.T) {
 		t.Errorf("a bad sha: %v", err)
 	}
 }
+
+// T-853: reviewGit.Detach adds a missing role worktree detached at the sha, moves one that is there to another sha
+// (a commit the role checked out is left behind), and refuses a dir that is no worktree of the repo, nothing forced.
+func TestReviewGitDetach(t *testing.T) {
+	t.Parallel()
+	p := testkit.New(t)
+	g := reviewGit{root: p.Root}
+	ctx := context.Background()
+	first := p.Git(p.Root, "rev-parse", "HEAD")
+	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "second")
+	second := p.Git(p.Root, "rev-parse", "HEAD")
+	wt := p.LaneDir("reviewer")
+	if p.Exists(wt) {
+		t.Fatalf("precondition: %s there", wt)
+	}
+	at := func() (head, branch string) {
+		return p.Git(wt, "rev-parse", "HEAD"), p.Git(wt, "rev-parse", "--abbrev-ref", "HEAD")
+	}
+	if err := g.Detach(ctx, wt, first); err != nil {
+		t.Fatal(err)
+	}
+	if head, branch := at(); head != first || branch != "HEAD" {
+		t.Errorf("added: at %s on %q, want %s detached", head, branch, first)
+	}
+	p.Git(wt, "checkout", "-q", "--detach", first+"^{}") // the role checked out a commit of its own
+	if err := g.Detach(ctx, wt, second); err != nil {
+		t.Fatal(err)
+	}
+	if head, branch := at(); head != second || branch != "HEAD" {
+		t.Errorf("moved: at %s on %q, want %s detached", head, branch, second)
+	}
+	p.Write(p.LaneDir("other")+"/x.txt", "x\n")
+	if err := g.Detach(ctx, p.LaneDir("other"), second); err == nil || !strings.Contains(err.Error(), "is not a worktree of") {
+		t.Errorf("a plain dir: %v, want refused", err)
+	}
+}

@@ -210,14 +210,19 @@ func DetectRole(r *Repo, cfg *config.Config, env Env) Role {
 }
 
 // LaneOf is the lane whose worktree r is: a linked worktree directly under lanes_dir (compared physically), not the
-// merge scratch. "" when none (T-777: a lane is any L-NN worktree; no role has a worktree of its own).
+// merge scratch and not a role worktree (T-853: the reviewer's, the deep dive's). "" when none (T-777: a lane is any
+// other worktree there).
 func LaneOf(r *Repo, cfg *config.Config) string {
 	if r == nil || cfg == nil || !r.Linked() {
 		return ""
 	}
-	scratch := cfg.Data.Merge.ScratchDir
-	if filepath.Dir(r.Top) != Physical(cfg.LanesDir()) || r.Top == Physical(config.AbsUnder(cfg.Root, scratch)) {
+	if filepath.Dir(r.Top) != Physical(cfg.LanesDir()) || r.Top == Physical(cfg.ScratchDir()) {
 		return ""
+	}
+	for _, d := range cfg.RoleWorktrees() {
+		if r.Top == Physical(d) {
+			return ""
+		}
 	}
 	return filepath.Base(r.Top)
 }

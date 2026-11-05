@@ -67,9 +67,12 @@ panes per tab. No per-model caps (owner 2026-11-03, T-765): a model out of quota
 
 ## Reviews
 Review files are in the main checkout's `docs/reviews/` (gitignored: never committed, owner 2026-10-30); the reviewer
-and the deep dive run in the main checkout since T-718 (serve holds merges while they work). `obor review close`
-deletes the cycle's files by name. The old worktrees `~/Work/obor-kit-wt/review` and `~/Work/obor-kit-wt/deep-dive`
-are unused: remove them with `git worktree remove` once nothing runs there.
+and the deep dive run in their role worktrees `~/Work/obor-kit-wt/reviewer` and `~/Work/obor-kit-wt/deep_dive` since
+T-853 (serve moves each to the head it hands the role; merges never wait), the integrator in
+`~/Work/obor-kit-wt/integrator` (its resolves in the merge scratch). `obor review close` deletes the cycle's files by
+name. The old worktrees
+`~/Work/obor-kit-wt/review` and `~/Work/obor-kit-wt/deep-dive` are unused: remove them with `git worktree remove`
+once nothing runs there.
 
 ## Releases (owner 2026-10-30, v0.16)
 - Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace

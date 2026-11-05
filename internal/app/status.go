@@ -64,9 +64,6 @@ func (a *App) Status() wire.Status {
 				if p.running.Task == mt.task {
 					ts.Running = p.running.Step
 				}
-				if role := a.holdRole(p, mt); role != "" {
-					ts.Hold = wire.MergeHold(role)
-				}
 				if mt.is(stWaiting) {
 					ts.After, ts.Why = mt.disp.After, p.waitLine[mt.task].line
 					ts.Level, ts.Types = mt.disp.Level, mt.disp.Types

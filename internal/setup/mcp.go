@@ -274,7 +274,8 @@ func (s *Setup) mcpLane(name string) error {
 	}
 	m := k.Install(s.Kit, s.Env.Get).MCP
 	// a lane's start: a lane never is the lead, the settings default applies, and a lane's agent starts strict (T-770)
-	how, registered, static := m.Lane(lt.LaunchArgs("worker", ""), os.ReadFile)
+	how, registered, static := m.Lane(lt.LaunchArgs("worker", "", nil), os.ReadFile)
+
 	switch {
 	case !static && registered:
 		s.say("mcp model %s (%s): registered per start (%s)", name, lt.Kind, how)

@@ -30,9 +30,12 @@ the app tells the owner what needs them.
   2. The candidate's `diff --stat`: the files the task's goal needs (no per-file list is enforced, T-496), each where
      `docs/module-map.md` puts it. Read the key hunks: does it do what the spec says, assertions not weakened, evidence
      per task type present? New files and packages: check their placement against `docs/module-map.md`.
-     Never check out a commit to read it — serve publishes to main from the main checkout and a moved HEAD stops it.
-     Read the candidate with `git show <sha>:<path>` or the `git diff` the job gives; the gate's run and the worker's
+     Your pane runs in your own worktree `<lanes_dir>/integrator` (T-853): check the candidate out there to read it
+     (`git checkout -q --detach <sha>`), or read it with `git show <sha>:<path>` / the `git diff` the job gives. Never
+     check out in the merge scratch (`merge.scratch_dir`): serve's gates run there. The gate's run and the worker's
      reported numbers are the test evidence.
+
+
 
   Then one verb:
   - `accept {patch, note}`: the app publishes it. Your `decided:` lines and a worker's

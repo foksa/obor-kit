@@ -93,6 +93,10 @@ type Start struct {
 	// WriteState writes a file the start reads (OpenCode's generated config, T-809) as name in the project's state
 	// dir, replacing the last start's, and returns its path: the adapter's I/O; nil: the start writes none.
 	WriteState func(name string, data []byte) (path string, err error)
+	// WriteDirs are dirs outside its cwd the agent writes (config.RoleWriteDirs, T-853: a reviewer's or deep dive's
+	// files go to the main checkout's reviews dir from its role worktree): a kind that sandboxes its writes to the cwd
+	// lets it write there too (codex: --add-dir); a kind with no such sandbox ignores them.
+	WriteDirs []string
 }
 
 // ReadFile reads a file for a kind (os.ReadFile): the adapter's I/O, handed to a pure function.

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"obor/internal/app/port"
-	"obor/internal/config"
 	"obor/internal/project"
 )
 
@@ -534,7 +533,7 @@ func (s Scratch) dropFlatPin(task string) error {
 
 // dir is serve's worktree, merge.scratch_dir.
 func (s Scratch) dir() string {
-	return config.AbsUnder(s.Cfg.Root, s.Cfg.Data.Merge.ScratchDir)
+	return s.Cfg.ScratchDir()
 }
 
 // worktree makes sure dir is a worktree of the project, added detached at target when missing (-f: a worktree whose

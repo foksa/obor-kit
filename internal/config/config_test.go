@@ -264,9 +264,9 @@ func TestAgentLookupPrecedence(t *testing.T) {
 		"bob":          {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
 		"pj-l-01":      {Role: "worker", Lane: "L-01", Cwd: wt + "/L-01"},
 		"pj-l-02":      {Role: "worker", Lane: "L-02", Cwd: wt + "/L-02"},
-		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: root},
+		"pj-int":       {Role: "integrator", Type: "sonnet", Cwd: wt + "/integrator"}, // T-853: its role worktree
 		"pj-lead":      {Role: "lead", Type: "opus", Effort: "high", Cwd: root},
-		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: root}, // T-718: no worktree of its own
+		"pj-deep-dive": {Role: "deep_dive", Type: "opus", Cwd: wt + "/deep_dive"}, // T-853: its role worktree
 		"pj-triage":    {Role: "triage", Cwd: root},
 	} {
 		if got, ok := c.AgentLookup(name, "", state); !ok || got != want {
@@ -314,7 +314,7 @@ func TestLaunchArgs(t *testing.T) {
 		{"codex worker: its kind's start, strict means nothing to it", luna, "worker",
 			"-s workspace-write -a never --no-daemon -m gpt-6-luna -c check_for_update_on_startup=false"},
 	} {
-		if got := strings.Join(tc.m.LaunchArgs(tc.role, ""), " "); got != tc.want {
+		if got := strings.Join(tc.m.LaunchArgs(tc.role, "", nil), " "); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}

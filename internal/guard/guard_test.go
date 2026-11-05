@@ -461,77 +461,83 @@ func TestWorkerGitWritesDeniedReadsAllowed(t *testing.T) {
 		bash("worker", P, "git commit -m x", "leave changes uncommitted"),
 		bash("integrator", L, "git commit -m x", "workers don't run git commit"),
 		bash("integrator", P, "git commit -m x", ""),
-		bash("integrator", P, "git merge --no-ff task/T-01", "serve publishes to main from this checkout"),
+		bash("integrator", P, "git merge --no-ff task/T-01", ""), // T-853: the main checkout's HEAD rows went
 	)
 	check(t, f.Project, cases)
 }
 
-// bash case_main_checkout_head (T-841): only the lead moves HEAD or changes the tree or index in the main checkout;
-// serve publishes to main from there, so every other role reads a candidate with git show / git diff. Lanes, the merge
-// scratch and git reads are unchanged; a checkout of paths keeps the checkWrite rule.
-func TestMainCheckoutHeadWritesDeniedForEveryNonLead(t *testing.T) {
+// T-853 (was T-841 / T-848's case_main_checkout_head): the main checkout's HEAD rows went — the integrator, the
+// reviewer and the deep dive run in their role worktrees, so no role but the lead (and the custom roles, which read git
+// only) runs in the main checkout. What stays: a GitReadOnly role runs git reads only, except that the reviewer and the
+// deep dive check out any commit in their own role worktree (never a branch they create, never a path, never another
+// worktree); a non-lead in a lane or role worktree may check out (the integrator a candidate in its own).
+func TestRoleCheckoutRows(t *testing.T) {
 	t.Parallel()
 	f := fixture(t)
 	P := f.P
 	scratch := f.LaneDir("merge")
-	f.Git(P, "worktree", "add", "-q", "--detach", scratch, "main")
-	const why = "serve publishes to main from this checkout"
+	rev, deep, integ := f.LaneDir("reviewer"), f.LaneDir("deep_dive"), f.LaneDir("integrator")
+	for _, d := range []string{scratch, rev, deep, integ} {
+		f.Git(P, "worktree", "add", "-q", "--detach", d, "main")
+	}
+	sha := strings.TrimSpace(f.Git(P, "rev-parse", "main"))
+	const readOnly = "it runs git reads only"
 	verbs := []string{"checkout main", "switch main", "reset --hard", "rebase main", "merge main", "stash",
 		"cherry-pick abc", "revert HEAD", "am x.patch", "apply x.patch", "clean -fd"}
 	var cases []tc
+	// The rows that went: a non-lead that is not read-only no longer meets a main-checkout HEAD row, here or with
+	// -C / --git-dir / --work-tree / GIT_DIR from the scratch, --detach (T-848) included.
+	for _, v := range verbs {
+		cases = append(cases,
+			bash("integrator", P, "git "+v, ""),
+			bash("integrator", scratch, "git -C "+P+" "+v, ""),
+			bash("integrator", scratch, "git "+v, ""),
+			bash("lead", P, "git "+v, ""))
+	}
+	cases = append(cases,
+		bash("integrator", scratch, "git --git-dir="+P+"/.git reset --hard", ""),
+		bash("integrator", scratch, "git --work-tree="+P+" switch main", ""),
+		bash("integrator", scratch, "GIT_DIR="+P+"/.git git checkout --detach", ""),
+		bash("integrator", P, "git checkout --detach", ""),
+		bash("integrator", P, "git checkout -b wip", ""),
+		// The rows that stay: a path checkout keeps the checkWrite rule; a worker runs no git write.
+		bash("integrator", P, "git checkout -- src/core/types.ts", "src/core/types.ts is a protected file"),
+		bash("integrator", P, "git checkout main -- src/a/x.ts", ""),
+		bash("worker", f.L, "git checkout main", "workers don't run git checkout"),
+		// A non-lead in a lane may check out: the owner's drive agent; the integrator a candidate in its role worktree.
+		bash("driver pj-l-01-drive", f.L, "git checkout -q main", ""),
+		bash("integrator", integ, "git checkout -q --detach "+sha, ""),
+		bash("integrator", integ, "git checkout "+sha, ""),
+		// The reviewer and the deep dive check out any commit in their own role worktree.
+		bash("reviewer", rev, "git checkout "+sha, ""),
+		bash("reviewer", rev, "git checkout --detach main", ""),
+		bash("reviewer", rev, "git checkout -q -d "+sha, ""),
+		bash("reviewer", rev, "git switch --detach main", ""),
+		bash("reviewer", rev+"/src", "git -C "+rev+" checkout "+sha, ""),
+		bash("reviewer", P, "git -C "+rev+" checkout "+sha, ""),
+		bash("deep_dive", deep, "git checkout "+sha, ""),
+		// … but no branch of their own, no path, no other git write, and not in another worktree.
+		bash("reviewer", rev, "git checkout -b wip", readOnly),
+		bash("reviewer", rev, "git switch -c wip", readOnly),
+		bash("reviewer", rev, "git checkout --orphan=wip", readOnly),
+		bash("reviewer", rev, "git checkout -- .gitignore", readOnly),
+		bash("reviewer", rev, "git checkout main -- .gitignore", readOnly),
+		bash("reviewer", rev, "git reset --hard", readOnly),
+		bash("reviewer", rev, "git -C "+P+" checkout main", readOnly),
+		bash("reviewer", P, "git checkout main", readOnly),
+		bash("reviewer", deep, "git checkout "+sha, readOnly),
+		bash("deep_dive", rev, "git checkout "+sha, readOnly),
+		bash("advisor", P, "git checkout main", readOnly),
+		bash("advisor", rev, "git checkout "+sha, readOnly),
+	)
+	// Reads stay allowed everywhere.
 	for _, who := range []string{"integrator", "reviewer", "advisor"} {
-		for _, v := range verbs {
-			cases = append(cases,
-				bash(who, P, "git "+v, why),
-				bash(who, P, "git -C "+P+" "+v, why))
-		}
-		// Reads stay allowed everywhere, the main checkout and the merge scratch included.
-		for _, dir := range []string{P, scratch} {
+		for _, dir := range []string{P, scratch, rev} {
 			cases = append(cases,
 				bash(who, dir, "git show HEAD:.gitignore", ""),
-				bash(who, dir, "git diff main", ""),
 				bash(who, dir, "git log --oneline -3", ""))
 		}
 	}
-	// The integrator may still move HEAD in the merge scratch (a resolve job's merge --abort and commit).
-	for _, v := range verbs {
-		cases = append(cases, bash("integrator", scratch, "git "+v, ""))
-	}
-	for _, v := range verbs {
-		cases = append(cases, bash("lead", P, "git "+v, ""))
-	}
-	cases = append(cases,
-		// --git-dir / --work-tree / GIT_DIR name the main checkout from elsewhere.
-		bash("integrator", scratch, "git --git-dir="+P+"/.git reset --hard", why),
-		bash("integrator", scratch, "git --work-tree="+P+" switch main", why),
-		bash("integrator", scratch, "GIT_DIR="+P+"/.git git clean -fd", why),
-		bash("integrator", scratch, "git -C "+P+" checkout main", why),
-		// A checkout that creates and switches to a branch moves HEAD too.
-		bash("integrator", P, "git checkout -b wip", why),
-		bash("integrator", P, "git checkout --orphan=wip", why),
-		bash("integrator", P, "git switch -c wip", why),
-		// T-848: --detach / -d detach HEAD with no operand too, so they are a HEAD move like any other checkout of a ref.
-		bash("integrator", P, "git checkout --detach", why),
-		bash("integrator", P, "git checkout -d", why),
-		bash("integrator", P, "git checkout --detach main", why),
-		bash("integrator", P, "git -C "+P+" checkout --detach", why),
-		bash("integrator", P, "git -C "+P+" checkout -d", why),
-		bash("integrator", scratch, "git --git-dir="+P+"/.git checkout --detach", why),
-		bash("integrator", scratch, "git --work-tree="+P+" checkout -d", why),
-		bash("integrator", scratch, "GIT_DIR="+P+"/.git git checkout --detach", why),
-		bash("lead", P, "git checkout --detach", ""),
-		bash("lead", P, "git checkout -d", ""),
-		bash("integrator", scratch, "git checkout --detach", ""),
-		bash("integrator", scratch, "git checkout -d", ""),
-		// A path checkout keeps today's checkWrite outcome.
-		bash("integrator", P, "git checkout -- src/a/x.ts", ""),
-		bash("integrator", P, "git checkout -- src/core/types.ts", "src/core/types.ts is a protected file"),
-		bash("integrator", P, "git checkout main -- src/core/types.ts", "src/core/types.ts is a protected file"),
-		bash("integrator", P, "git checkout main -- src/a/x.ts", ""),
-		bash("integrator", P, "git restore --source main src/core/types.ts", "src/core/types.ts is a protected file"),
-		// The owner (no role) in the main checkout keeps its rules, as the lead.
-		bash("-", P, "git checkout main", ""),
-	)
 	check(t, f.Project, cases)
 }
 
@@ -1187,10 +1193,22 @@ func TestReviewsWriteProfile(t *testing.T) {
 			edit(rv, P, "Write", P+"/docs/research/probe.md", ""),
 			edit(rv, P, "Write", P+"/.task-done.md", ".task-done.md is outside the "+rv+" write profile"),
 			edit(rv, P, "Write", f.Base+"/outside/scratch.txt", ""),
-			edit(rv, P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the "+rv+" write profile — a "+rv+" writes only under docs/reviews, docs/research; report the change as a finding instead"),
+			edit(rv, P, "Edit", P+"/src/a/x.ts", "src/a/x.ts is outside the "+rv+" write profile — a "+rv+" writes only under docs/reviews, docs/research in the main checkout "+P+"; report the change as a finding instead"),
 			edit(rv, P, "Write", P+"/docs/reviews-old/x.md", "outside the "+rv+" write profile"),
 			edit(rv, P, "Write", S+"/.task-done.md", "outside the "+rv+" write profile"),
 			edit(rv, P, "Edit", P+"/src/core/types.ts", "src/core/types.ts is a protected file"))
+	}
+	// T-853: from its role worktree a reviewer or deep dive writes its files into the main checkout's reviews dir, never
+	// into its worktree's own.
+	for _, rv := range []string{"reviewer", "deep_dive"} {
+		wt := f.LaneDir(rv)
+		f.Git(P, "worktree", "add", "-q", "--detach", wt, "main")
+		cases = append(cases,
+			edit(rv, wt, "Write", P+"/docs/reviews/R-01.md", ""),
+			bash(rv, wt, "echo x > "+P+"/docs/reviews/R-01.md", ""),
+			edit(rv, wt, "Write", wt+"/docs/reviews/R-01.md", "writes only under docs/reviews, docs/research in the main checkout "+P),
+			bash(rv, wt, "echo x > docs/reviews/R-01.md", "in the main checkout "+P),
+			edit(rv, wt, "Edit", wt+"/src/a/x.ts", "outside the "+rv+" write profile"))
 	}
 	check(t, f.Project, append(cases,
 		bash("reviewer", P, "echo x > src/a/x.ts", "src/a/x.ts is outside the reviewer write profile"), // RV-83 #1
@@ -1359,7 +1377,7 @@ func TestOldBashBypassesDenied(t *testing.T) {
 		bash("-", P, `X='git push'; echo "$X"`, ""),
 		bash("-", P, `find . -name '*.go' -exec grep push {} \;`, ""),
 		bash("-", P, "echo a | xargs echo git push", ""),
-		bash("integrator", P, "git checkout main", "serve publishes to main from this checkout"),
+		bash("integrator", P, "git checkout main", ""), // T-853: the main checkout's HEAD rows went
 		bash("integrator", P, "git --git-dir="+L+"/.git commit -am x", ""),
 		bash("-", L, "bash tests/a.test.sh", ""),
 	}, "OBOR_TEST_GIT_SUB=push")
@@ -1594,7 +1612,7 @@ func TestRV83WriteProfileOnEveryRoute(t *testing.T) {
 			bash(rl, P, "git config --local x y", "doesn't run git config"),
 			bash(rl, P, "git config --unset x", "doesn't run git config"),
 			bash(rl, P, "git -C "+P+" tag v1", "doesn't run git tag"),
-			bash(rl, P, "git stash", "serve publishes to main from this checkout"),
+			bash(rl, P, "git stash", "doesn't run git stash"),
 			bash(rl, P, "git fetch", "doesn't run git fetch"),
 			bash(rl, P, "git diff --output=internal/a.go", "doesn't run git diff"),
 		)
@@ -1681,7 +1699,7 @@ func TestTriageRoleGuard(t *testing.T) {
 	check(t, f.Project, []tc{
 		bash("triage", P, "git commit -m x", "a triage doesn't run git commit"),
 		bash("triage", P, "git add docs/BUGS.md", "a triage doesn't run git add"),
-		bash("triage", P, "git stash", "serve publishes to main from this checkout"),
+		bash("triage", P, "git stash", "a triage doesn't run git stash"),
 		bash("triage", P, "git log --oneline -30", ""),
 		bash("triage", P, "git status --short", ""),
 		edit("triage", P, "Write", P+"/src/core/types.ts", "src/core/types.ts is a protected file"),
