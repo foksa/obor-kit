@@ -23,7 +23,10 @@ type ProjectStatus struct {
 	Tasks    []TaskStatus   `json:"tasks"`
 	Facts    []event.Record `json:"facts"`
 	LogError string         `json:"log_error,omitempty"`
-	Paused   *event.Pause   `json:"paused,omitempty"` // the pause in force (pause.go)
+	// Lanes is the line on serve's lane table when it is older than the tick: its age, and its last scan's error
+	// (T-879; "": fresh).
+	Lanes  string       `json:"lanes,omitempty"`
+	Paused *event.Pause `json:"paused,omitempty"` // the pause in force (pause.go)
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page).
 	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor status lists them (T-658).

@@ -112,7 +112,8 @@ func (a *App) rereadPanes(ctx context.Context) ([]port.Pane, error) {
 }
 
 // event applies one herdr event; when the pane was or is in the project, it reconciles the project's identity table,
-// notes the work the pane shows for its agent's brief, then decides for the project.
+// notes the work the pane shows for its agent's brief and marks the lane table dirty: the decision for the project
+// follows the refresher's scan (lanescan.go, T-879), never a git read on the stream's path.
 func (a *App) event(ctx context.Context, ev port.Event) {
 	a.mu.Lock()
 	var p *proj // the project, when the pane was or is in it
@@ -151,9 +152,9 @@ func (a *App) event(ctx context.Context, ev port.Event) {
 	if o := a.obs[ev.Pane]; o != nil && a.projectOf(o.pane) == p {
 		a.sawWork(p, o.pane)
 	}
+	a.markLanes(p)
 	a.mu.Unlock()
 	a.logWorked(p) // a brief's work this event showed is in the log at once (RV-50 #3)
-	a.check(ctx, false)
 }
 
 // projectOf is the served project whose workspace holds pane (nil: none, the pane is ignored).

@@ -184,7 +184,7 @@ func TestRereadUpdatesOnlyThePanesCwd(t *testing.T) {
 	h, fx, _, _ := promptRig(t, false, noPane)
 	other := port.Pane{ID: "w1:p3", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-l-03", Status: "idle"}
 	h.snap.Panes = append(h.snap.Panes, other)
-	h.a.event(context.Background(), port.Event{Kind: port.EventCreated, Pane: "w1:p3", New: other})
+	eventNow(h.a, port.Event{Kind: port.EventCreated, Pane: "w1:p3", New: other})
 	if h.step(t, fx) {
 		t.Fatal("precondition: the pass that finds no pane waits")
 	}

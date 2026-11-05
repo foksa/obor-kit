@@ -426,6 +426,9 @@ func (a *App) do(ctx context.Context, p *proj, in event.Intent, effect func(cont
 	})
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if ran { // obor's own operation: a worktree may have changed (T-879)
+		a.markLanes(p)
+	}
 	if !ran && err == nil && !logged { // the stored result
 		p.foldRecord(intent)
 	}

@@ -52,7 +52,7 @@ type Project struct {
 	Events []Event        `json:"events"` // the newest worded records, newest first
 	Facts  []event.Record `json:"-"`      // serve's facts in force (obor status --facts)
 	// Notes are the project's own lines above serve's (T-709): a config key this binary does not know, a stopped
-	// project (Notes builds them).
+	// project (Notes builds them); then serve's line on a lane table older than its tick (T-879).
 	Notes []string `json:"notes,omitempty"`
 }
 
@@ -216,6 +216,9 @@ func Build(in Input) Project {
 		}
 		v.Pending = append(v.Pending, ps.Pending...)
 		v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError
+		if ps.Lanes != "" { // serve's lane table is older than its tick (T-879): obor status and the page show its age
+			v.Notes = append(slices.Clip(v.Notes), ps.Lanes)
+		}
 		v.Agents = append(v.Agents, ps.Agents...)
 		v.Messages = append(v.Messages, ps.Messages...)
 		v.Review, v.Watches = ps.Review, ps.Watches

@@ -42,7 +42,8 @@ func New(opt Options, panes port.Panes, lanes port.Lanes) *App {
 		opt.Refresh = func(error) bool { return false }
 	}
 	a := &App{opt: opt, panes: panes, lanes: lanes,
-		spaces: map[string]string{}, obs: map[string]*seen{}, kick: make(chan struct{}, 1), loaded: make(chan struct{})}
+		spaces: map[string]string{}, obs: map[string]*seen{}, kick: make(chan struct{}, 1), rescan: make(chan struct{}, 1),
+		scanned: make(chan struct{}, 1), loaded: make(chan struct{})}
 	a.life, a.stop = context.WithCancel(context.Background())
 	a.since = opt.Now()
 	return a
@@ -64,14 +65,19 @@ func (a *App) Serve(ctx context.Context) error {
 	defer a.shutdown()
 	tick := time.NewTicker(a.opt.Tick)
 	defer tick.Stop()
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		a.refresher(ctx)
+	}()
 	if a.opt.Loop != nil {
-		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			a.mergeLoop(ctx)
 		}()
-		defer wg.Wait()
 		if a.opt.Binary != nil {
 			wg.Add(1)
 			go func() {
@@ -152,8 +158,9 @@ func (a *App) closeLog() {
 	}
 }
 
-// run handles one stream's events and the ticks until the stream or ctx ends. The stream's snapshot is applied
-// before: an event is never older than the snapshot it follows.
+// run handles one stream's events, the ticks and the refresher's scans (a decision on the table it read, T-879) until
+// the stream or ctx ends. The stream's snapshot is applied before: an event is never older than the snapshot it
+// follows.
 func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
 	for {
 		select {
@@ -167,6 +174,8 @@ func (a *App) run(ctx context.Context, st *port.Stream, tick <-chan time.Time) {
 		case <-tick:
 			a.loadProject()
 			a.check(ctx, true)
+		case <-a.scanned:
+			a.check(ctx, false)
 		}
 	}
 }
