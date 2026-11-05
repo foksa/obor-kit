@@ -233,6 +233,18 @@ func (l *reviewLog) retried(v *verifyRec) bool {
 	return slices.ContainsFunc(v.tasks, func(t string) bool { return slices.Contains(pending, t) })
 }
 
+// waiting is a verify the pipeline still owes (T-858): one requested or admitted (admission is live, the fold still has
+// it requested) whose brief has not been recorded, or a failed one its fix round requests again (retried). A done or
+// superseded verify waits for nothing.
+func (l *reviewLog) waiting() bool {
+	for _, v := range l.verifies {
+		if v.state == verifyRequested || (v.state == verifyFailed && l.retried(v)) {
+			return true
+		}
+	}
+	return false
+}
+
 // verifyStopLine is the lead's line on agent's stop (said: "<agent> stopped: <error> (<details>)") that ends the brief
 // of a verify (T-857): the verify failed, retried by a fix round or by hand; "": agent's open brief is no verify's.
 func (l *reviewLog) verifyStopLine(agent, said string) string {
