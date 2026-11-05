@@ -19,7 +19,7 @@ import (
 // scratchStep starts effect, mt's gate or publish (key step), in its own goroutine holding p's scratch (docs/state-model.md
 // "Concurrency"): every other step of p goes on meanwhile; the task waits until the
 // effect's records are folded, then the goroutine wakes the loop. A resolved verdict's check holding the scratch: the
-// next pass. A publish starts only when, under the same lock that sets p.running, no start is admitted (T-733);
+// next pass. A publish starts only when, under the same lock that sets p.running, no call is admitted (T-733);
 // admitted, it waits for the next pass. False: the task waits.
 func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, effect func(context.Context)) bool {
 	select {
@@ -29,8 +29,8 @@ func (a *App) scratchStep(ctx context.Context, p *proj, mt mtask, step string, e
 	}
 	base, _ := event.StepN(step)
 	a.mu.Lock()
-	// The publish's start decides, with p.running below (T-733): not pickAccepted's filter. A start handing a role a
-	// head was admitted first (T-730): the next pass picks it again.
+	// The publish's start decides, with p.running below (T-733): not pickAccepted's filter. A config_set admitted
+	// first (roleworktree.go, T-730): the next pass picks it again.
 	if base == event.StepPublish && p.admits > 0 {
 		a.mu.Unlock()
 		<-p.scratch

@@ -435,9 +435,9 @@ func (a *App) reviewOpenNow(p *proj, branch string, started lastReview) (string,
 
 // reviewPass fires p's open review request when it is due, or ends it when a task of its --after ended unmerged. Due:
 // every --after task merged, no review open in git (reviewOpen; one open: the request waits, held) and the reviewer
-// idle; a publish running, it waits for the next pass, and a start claimed is admitted (roleworktree.go, T-730) until
-// fireReview returned. A pass claims the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until
-// the start returned; an ended line, its fold does.
+// idle; a publish running does not hold it (T-872: the start reads the head once, roleworktree.go). A pass claims
+// the request (reviewClaim) before it records: fired, its fact ends it and the claim holds until the start returned;
+// an ended line, its fold does.
 func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	q, started := p.folded.review, p.folded.reviewed
@@ -473,10 +473,8 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	switch {
 	case end != "":
 		p.rv.what = "ending"
-	case due && p.publishing(): // the head it reads is the published one: the publish's end wakes the next pass (T-730)
 	case due:
 		p.rv.what = "starting"
-		p.admits++ // admitted (roleworktree.go): no publish starts until the reviewer's brief is recorded
 	}
 	claimed, hook := p.rv.what != "", p.rv.claimed
 	a.mu.Unlock()
@@ -494,9 +492,6 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 		a.fireReview(ctx, p, fx, q, setup, cfgErr)
 	}
 	a.mu.Lock()
-	if p.rv.what == "starting" {
-		p.admits--
-	}
 	p.rv.what = ""
 	a.mu.Unlock()
 	a.wake()

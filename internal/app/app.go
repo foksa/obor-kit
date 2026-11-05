@@ -185,9 +185,9 @@ type proj struct {
 	// wtAgents: the configured reviewer and deep dive as the config last loaded names them (wtAgentsNow): the role
 	// agents whose role worktree serve moves (roleworktree.go, T-853). Under mu.
 	wtAgents []wtAgent
-	// admits: the admissions in force (a review start, a verify or a role worktree agent's brief, from its wait for the
-	// running publish to its brief recorded: no publish starts meanwhile); published: closed when the running publish
-	// ends (nil: none runs). Under mu (roleworktree.go, T-730).
+	// admits: the admissions in force (a config_set, from its wait for the running publish to its commit in: no
+	// publish starts meanwhile); published: closed when the running publish ends (nil: none runs). Under mu
+	// (roleworktree.go, T-730, T-872).
 	admits    int
 	published chan struct{}
 }

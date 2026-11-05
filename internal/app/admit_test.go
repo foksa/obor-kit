@@ -16,10 +16,9 @@ import (
 	"obor/internal/store"
 )
 
-// T-730: a review's start, a fix round's verify and a brief to the deep dive pass one serve-owned admission point: they
-// wait while a publish runs (the head they read is the published one), and once admitted no publish starts until
-// their brief is recorded. T-853: there serve moves the role's worktree to the head it hands the role; the reviewer
-// or the deep dive working holds no merge (the merge hold of T-718 is gone).
+// T-853: serve moves the reviewer's and the deep dive's role worktree to the head it hands the role; the reviewer or
+// the deep dive working holds no merge (the merge hold of T-718 is gone). T-872: a role's start is not admitted (it
+// reads the head once); the publish admission (T-730) is config_set's only.
 
 // admitCfg is seedRoles' config with paths.reviews.
 const admitCfg = `{"name":"pj","prefix":"pj","roles":{"integrator":"","reviewer":"","deep_dive":""},"paths":{"reviews":"reviews"}}`
@@ -127,16 +126,6 @@ func newAdmitRig(t *testing.T, gated bool) *admitRig {
 	return r
 }
 
-// verify is a fix round's verify of tasks of RV-5 (requestVerify, as fixPass calls it; T-869: the only asker), then
-// one admission pass.
-func (r *admitRig) verify(tasks ...string) {
-	r.h.t.Helper()
-	if _, err := r.h.a.requestVerify(r.h.a.p, ReviewData{ID: "RV-5", Tasks: tasks, By: "obor"}); err != nil {
-		r.h.t.Fatal(err)
-	}
-	r.h.a.verifyPass(context.Background(), r.h.a.p, r.fx)
-}
-
 // publishing is one pass whose publish of T-1 has begun and waits for its release.
 func (r *admitRig) publishing(ctx context.Context) {
 	r.h.t.Helper()
@@ -192,63 +181,6 @@ func startedHead(t *testing.T, h *harness) string {
 	return ""
 }
 
-// A review request, now or after T-1, while T-1's publish runs: the review waits, then starts on the published head,
-// the reviewer's worktree moved to it first.
-func TestAdmitReviewWaitsForPublish(t *testing.T) {
-	t.Parallel()
-	for _, after := range [][]string{nil, {"T-1"}} {
-		t.Run(map[bool]string{true: "now", false: "after T-1"}[after == nil], func(t *testing.T) {
-			t.Parallel()
-			r := newAdmitRig(t, true)
-			h, ctx := r.h, context.Background()
-			if _, err := h.a.reviewCall(wire.Call{Root: h.root, CallID: "r1", Role: "lead", Agent: "pj-lead", After: after}); err != nil {
-				t.Fatal(err)
-			}
-			r.publishing(ctx) // the same pass's reviewPass ran with the publish in flight
-			if len(r.agents.launches) != 0 || r.git.detachedAt() != "" {
-				t.Fatalf("publish running: %d launches, detached %q; want the review waiting",
-					len(r.agents.launches), r.git.detachedAt())
-			}
-			r.released(ctx)
-			if got := h.state("T-1"); got != stMerged {
-				t.Fatalf("released: T-1 %s, want merged", got)
-			}
-			if len(r.agents.launches) != 1 || startedHead(t, h) != "candidate1" || r.git.detachedAt() != "reviewer@candidate1" {
-				t.Errorf("after the publish: %d launches, started on %q, detached %q; want one start on candidate1, the"+
-					" reviewer's worktree there", len(r.agents.launches), startedHead(t, h), r.git.detachedAt())
-			}
-		})
-	}
-}
-
-// A verify of T-1 requested while T-1's publish runs: not admitted then; the pass after the publish reads the published
-// head (T-1's merge is on it) and moves the reviewer's worktree there; read before, T-1 would have no merge.
-func TestAdmitVerifyWaitsForPublish(t *testing.T) {
-	t.Parallel()
-	r := newAdmitRig(t, true)
-	h, ctx := r.h, context.Background()
-	r.publishing(ctx)
-	r.verify("T-1")
-	if moved, b := r.git.detachedAt(), readBriefLine(t, h, "pj-rev"); moved != "" || b != "" {
-		t.Fatalf("verify detached %q, briefed %q while the publish ran", moved, b)
-	}
-	r.released(ctx)
-	if moved := r.git.detachedAt(); moved != "reviewer@candidate1" {
-		t.Errorf("detached %q; want the reviewer's worktree at the published head candidate1", moved)
-	}
-	h.a.mu.Lock()
-	b := h.a.p.out.brief("pj-rev")
-	h.a.mu.Unlock()
-	if b == nil {
-		t.Fatal("no brief open to the reviewer")
-	}
-	brief := readBriefLine(t, h, "pj-rev")
-	if !strings.Contains(brief, "fixed in T-1 (candida); main is at candida (your worktree too).") ||
-		!strings.Contains(brief, "Write reviews/RV-5-verify.md in the main checkout "+h.root+".") {
-		t.Errorf("the verify brief: %q", brief)
-	}
-}
-
 // readBriefLine is the line of the last brief to agent in the log.
 func readBriefLine(t *testing.T, h *harness, agent string) string {
 	t.Helper()
@@ -260,35 +192,6 @@ func readBriefLine(t *testing.T, h *harness, agent string) string {
 		}
 	}
 	return line
-}
-
-// A brief to the deep dive while T-1's publish runs is recorded only after the publish's result, its idle deep dive's
-// worktree moved to the published head first.
-func TestAdmitDeepDiveBriefWaitsForPublish(t *testing.T) {
-	t.Parallel()
-	r := newAdmitRig(t, true)
-	h, ctx := r.h, context.Background()
-	r.publishing(ctx)
-	done := make(chan error, 1)
-	go func() {
-		_, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive", Note: "look at x"})
-		done <- err
-	}()
-	if !waiting(done) || r.git.detachedAt() != "" {
-		t.Fatalf("the deep dive's brief answered or its worktree moved (%q) while the publish ran", r.git.detachedAt())
-	}
-	r.released(ctx)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	pub := recSeq(t, h, "T-1", event.StepPublish, event.KindResult)
-	brief := recSeq(t, h, event.MsgTask, event.StepBriefed, event.KindFact)
-	if pub == 0 || brief == 0 || brief < pub {
-		t.Errorf("publish result seq %d, brief seq %d; want the brief after the publish", pub, brief)
-	}
-	if got := r.git.detachedAt(); got != "deep_dive@candidate1" {
-		t.Errorf("detached %q, want the deep dive's worktree at the published head", got)
-	}
 }
 
 // T-853: a brief moves only an idle deep dive's worktree: a working one (its pane working, or a brief open) keeps its
@@ -384,47 +287,6 @@ func TestMergeDuringAReviewPublishesAtOnce(t *testing.T) {
 	}
 }
 
-// A publish the loop picks between the head's read and the brief's record (a verify's, a review start's) waits: it
-// does not begin while admitted; once the brief is recorded it publishes at once (T-853: no hold after).
-func TestAdmitPublishWaitsForTheBrief(t *testing.T) {
-	t.Parallel()
-	for _, which := range []string{"verify", "review start"} {
-		t.Run(which, func(t *testing.T) {
-			t.Parallel()
-			r := newAdmitRig(t, false)
-			h, ctx := r.h, context.Background()
-			r.git.merges = []string{"aaaaaaa1 Merge T-0: x"}
-			if which == "review start" {
-				if _, err := h.a.reviewCall(wire.Call{Root: h.root, CallID: "r1", Role: "lead", Agent: "pj-lead"}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			began := -1
-			r.git.onHead = func() { // the loop's pass inside the admission, between the head's read and the brief
-				h.a.advance(ctx)
-				h.a.effects.Wait()
-				began = len(r.s.began)
-			}
-			if which == "verify" {
-				r.verify("T-0")
-			} else {
-				h.a.reviewPass(ctx, h.a.p, r.fx)
-				if len(r.agents.launches) != 1 {
-					t.Fatalf("precondition: the review did not start: %+v", r.agents.launches)
-				}
-			}
-			if began != 0 {
-				t.Fatalf("publishes begun inside the admission: %d (-1: the head was never read)", began)
-			}
-			h.pass(ctx)
-			if got := h.state("T-1"); got != stMerged || len(r.s.began) != 1 {
-				t.Errorf("after the brief: T-1 %s, %d publishes; want merged at once, the reviewer's brief open", got,
-					len(r.s.began))
-			}
-		})
-	}
-}
-
 // The role worktree agents are the current config's: a deep dive added or a role removed while serve runs counts at
 // the next check; a config that does not load keeps the last good set.
 func TestWorktreeAgentsFollowTheConfig(t *testing.T) {
@@ -460,40 +322,8 @@ func TestWorktreeAgentsFollowTheConfig(t *testing.T) {
 	}
 }
 
-// One interleaving across the loop, a review start and a brief: T-1's publish runs while a review request is due and
-// a brief to the deep dive comes in. Neither starts on the old head: the publish's result comes first, the review
-// starts on candidate1, and the brief is recorded after the publish.
-func TestAdmitInterleaving(t *testing.T) {
-	t.Parallel()
-	r := newAdmitRig(t, true)
-	h, ctx := r.h, context.Background()
-	if _, err := h.a.reviewCall(wire.Call{Root: h.root, CallID: "r1", Role: "lead", Agent: "pj-lead"}); err != nil {
-		t.Fatal(err)
-	}
-	r.publishing(ctx)
-	done := make(chan error, 1)
-	go func() {
-		_, err := h.a.briefCall(wire.Call{Root: h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive", Note: "look at x"})
-		done <- err
-	}()
-	if !waiting(done) || len(r.agents.launches) != 0 {
-		t.Fatalf("publish running: brief answered or %d review starts", len(r.agents.launches))
-	}
-	r.released(ctx)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	pub := recSeq(t, h, "T-1", event.StepPublish, event.KindResult)
-	started := recSeq(t, h, event.ReviewTask, event.StepReviewStarted, event.KindFact)
-	brief := recSeq(t, h, event.MsgTask, event.StepBriefed, event.KindFact)
-	if pub == 0 || started < pub || brief < pub || startedHead(t, h) != "candidate1" {
-		t.Errorf("seqs: publish %d, review started %d (on %q), brief %d; want both after the publish, on candidate1",
-			pub, started, startedHead(t, h), brief)
-	}
-}
-
 // selectPublish is the loop's step for T-1 (accepted, its publish due), selected under mu as drive does; it is run
-// later, after the caller's interleaving.
+// later, after the caller's admission.
 func (r *admitRig) selectPublish() step {
 	r.h.t.Helper()
 	a := r.h.a
@@ -506,63 +336,61 @@ func (r *admitRig) selectPublish() step {
 	return s
 }
 
-// T-733: an admission in force between the publish's selection and its execution refuses the publish's start
-// (scratchStep decides at the start, not pickAccepted at the selection); released, the next pass publishes. A brief
-// recorded and released in the gap holds nothing (T-853).
+// T-733: an admission in force (config_set's, T-872: the only one) between the publish's selection and its execution
+// refuses the publish's start (scratchStep decides at the start, not pickAccepted at the selection); released, the
+// next pass publishes.
 func TestAdmissionDecidedAtPublishStart(t *testing.T) {
 	t.Parallel()
-	t.Run("admitted", func(t *testing.T) {
-		t.Parallel()
-		r := newAdmitRig(t, false)
-		h, ctx := r.h, context.Background()
-		s := r.selectPublish()
-		release, err := h.a.admit(ctx, h.a.p)
-		if err != nil {
-			t.Fatal(err)
+	r := newAdmitRig(t, false)
+	h, ctx := r.h, context.Background()
+	s := r.selectPublish()
+	release, err := h.a.admit(ctx, h.a.p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s(ctx, r.fx)
+	h.a.effects.Wait()
+	if n := len(r.s.began); n != 0 || countStep(t, h, nth(event.StepPublish, 1)) != 0 || h.state("T-1") != stAccepted {
+		t.Fatalf("publish T-1 started while admitted: %d publishes, T-1 %s", n, h.state("T-1"))
+	}
+	release()
+	h.pass(ctx)
+	if got := h.state("T-1"); got != stMerged {
+		t.Errorf("released: T-1 %s, want merged", got)
+	}
+}
+
+// T-872: a publish runs during a review's start and both complete. The start reads the head (base1) and goes on with
+// it while T-1's publish runs: the review starts on base1, the reviewer's worktree there, before the publish ends;
+// released, T-1 merges, and its merge falls into the next review's scope.
+func TestPublishDuringAReviewStart(t *testing.T) {
+	t.Parallel()
+	r := newAdmitRig(t, true)
+	h, ctx := r.h, context.Background()
+	if _, err := h.a.reviewCall(wire.Call{Root: h.root, CallID: "r1", Role: "lead", Agent: "pj-lead"}); err != nil {
+		t.Fatal(err)
+	}
+	began := ""
+	r.git.onHead = func() { // inside the review's start, at its head read: a pass begins T-1's publish
+		h.a.advance(ctx)
+		select {
+		case began = <-r.s.began:
+		case <-time.After(5 * time.Second):
 		}
-		s(ctx, r.fx)
-		h.a.effects.Wait()
-		if n := len(r.s.began); n != 0 || countStep(t, h, nth(event.StepPublish, 1)) != 0 || h.state("T-1") != stAccepted {
-			t.Fatalf("publish T-1 started while admitted: %d publishes, T-1 %s", n, h.state("T-1"))
-		}
-		release()
-		h.pass(ctx)
-		if got := h.state("T-1"); got != stMerged {
-			t.Errorf("released: T-1 %s, want merged", got)
-		}
-	})
-	for _, c := range []struct {
-		name string
-		gap  func(t *testing.T, r *admitRig)
-	}{
-		{"deep dive brief", func(t *testing.T, r *admitRig) {
-			if _, err := r.h.a.briefCall(wire.Call{Root: r.h.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-deep-dive", Note: "look at x"}); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"verify", func(t *testing.T, r *admitRig) {
-			r.git.merges = []string{"aaaaaaa1 Merge T-0: x"}
-			r.verify("T-0")
-		}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			r := newAdmitRig(t, false)
-			h, ctx := r.h, context.Background()
-			s := r.selectPublish()
-			c.gap(t, r)
-			h.a.mu.Lock()
-			admits, briefs := h.a.p.admits, len(h.a.p.out.briefs)
-			h.a.mu.Unlock()
-			if admits != 0 || briefs == 0 {
-				t.Fatalf("precondition: admits %d, %d briefs open; want the admission released, a brief open", admits, briefs)
-			}
-			s(ctx, r.fx)
-			h.a.effects.Wait()
-			h.pass(ctx)
-			if n := len(r.s.began); n != 1 || h.state("T-1") != stMerged {
-				t.Errorf("%s in the gap: %d publishes, T-1 %s; want the selected publish run, merged", c.name, n, h.state("T-1"))
-			}
-		})
+	}
+	h.a.reviewPass(ctx, h.a.p, r.fx)
+	if began != "T-1" {
+		t.Fatalf("the publish of %q began during the review's start, want T-1's", began)
+	}
+	if got := h.state("T-1"); got == stMerged {
+		t.Fatalf("precondition: T-1 merged before its publish was released")
+	}
+	if len(r.agents.launches) != 1 || startedHead(t, h) != "base1" || r.git.detachedAt() != "reviewer@base1" {
+		t.Errorf("publish running: %d launches, started on %q, detached %q; want the review started on base1, the"+
+			" reviewer's worktree there", len(r.agents.launches), startedHead(t, h), r.git.detachedAt())
+	}
+	r.released(ctx)
+	if got := h.state("T-1"); got != stMerged {
+		t.Errorf("released: T-1 %s, want merged", got)
 	}
 }

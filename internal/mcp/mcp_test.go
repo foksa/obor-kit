@@ -563,9 +563,11 @@ func TestMalformedLineAndUnknownMethod(t *testing.T) {
 func TestToolErrorsAreResults(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running at once, not
-	// at the deadline table's 15 s (T-685). The answers after it need no serve.
-	down, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// The server's ctx is the tool calls': a short deadline ends the call to a serve that is not running soon, not at
+	// the deadline table's 15 s (T-685). The answers after it need no serve. It counts from here, before the server
+	// starts, and the call retries until it less askMargin (200 ms): 2 s leaves the call time to begin under a loaded
+	// suite (at 200 ms it began past the deadline once and answered "did not answer in 0s", T-872).
+	down, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	c := startCtx(t, down, f.worker(), f.lane)
 	if got := c.tool(1, "job_next", nil); !got.IsError || !strings.Contains(got.Content[0].Text, "obor serve is not running") {

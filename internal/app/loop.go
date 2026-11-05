@@ -723,10 +723,10 @@ func (a *App) pickDue(p *proj, mt mtask) step {
 	}
 }
 
-// pickAccepted publishes the candidate (row 33) once the scratch is free and no start handing a role a head is
-// admitted (T-730); the reviewer and the deep dive working hold nothing (T-853: they read their own worktree). This is
-// a cheap filter at selection: scratchStep decides the admissions again at the publish's actual start, under the same
-// lock that sets p.running (T-733).
+// pickAccepted publishes the candidate (row 33) once the scratch is free and no config_set is admitted (T-730); a
+// role's start and the reviewer or the deep dive working hold nothing (T-853, T-872: they read their own worktree).
+// This is a cheap filter at selection: scratchStep decides the admissions again at the publish's actual start, under
+// the same lock that sets p.running (T-733).
 func (a *App) pickAccepted(p *proj, mt mtask) step {
 	if holder, _ := p.scratchWait(mt); holder != "" || p.admits > 0 {
 		return nil

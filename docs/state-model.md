@@ -344,9 +344,10 @@ Rule 1 is row 2a, rules 3 and 4 are rows 18–33; rule 2 (tier lists) and rule 5
    the integrator, not a needs-you; needs-you only after that job fails or is rejected.
 4. **Gate before accept; moved target**: nothing is accepted before its gate is green. Before publish and on a
    refused ff, re-gate; a byte-identical patch keeps the accept, a different one goes back to awaiting-accept. The
-   publish waits only for an admission in force (a review's start, a verify, a brief to the reviewer or the deep dive,
-   from its head read to its brief recorded, T-730); the reviewer or the deep dive working holds nothing (T-853: they
-   read their own role worktree, which serve moves to the head it hands them). Nothing is recorded for the wait.
+   publish waits only for an admission in force (a `config_set`, from its wait to its commit in, T-730); a role's start
+   (a review's, a verify, a brief to the reviewer or the deep dive) and the reviewer or the deep dive working hold
+   nothing (T-853, T-872: a start reads the head once and uses that sha; they read their own role worktree, which
+   serve moves to it). Nothing is recorded for the wait.
 5. **Integrator slot**: the integrator counts toward the project cap. While any task is submitted (its gate pending),
    green, awaiting-accept, conflict, resolving or resolved, dispatch leaves one slot for it. With no such task it may
    be stopped to free the slot (no cap yet: row 36).
@@ -403,6 +404,6 @@ only reset a live entry the record ends (`waitLine`, the stall timer, `retry`). 
   its failures in a row; a restart starts it again), a
   waiting task's last refusal (`waitLine`), a lane without a pane (`nopane`), the outbox's `lining` claim, a fresh
   brief's last failed stop (`roleFail`) and the reviewer stop rule's last git read (`rvRead`, T-672; rules since
-  T-870), and the admissions in force (`admits`, T-730; `roleworktree.go`: a replay starts with none).
+  T-870), and the admissions in force (`admits`, T-730: `config_set`'s; `roleworktree.go`: a replay starts with none).
 
 
