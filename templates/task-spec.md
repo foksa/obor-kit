@@ -5,7 +5,9 @@ Difficulty: <hard | medium | simple>
 hard: state machines, crash/replay, concurrency, cross-package redesign. medium: a specified feature or fix in one or
 two packages. simple: mechanical with a full oracle. Optional: a line `Model: <model>[, <model>…]` directly under
 Difficulty (e.g. `Model: opus`) tries those models first, then the level's. Any model may name an effort,
-`<model>:<effort>` (`Model: opus:high`, `sonnet:low`): the agent starts at that effort. Delete this comment. -->
+`<model>:<effort>` (`Model: opus:high`, `sonnet:low`): the agent starts at that effort. Optional: the line
+`Review: on merge` under the `Model:` line (or under Difficulty when there is none) makes serve request a review as
+soon as the task merges — for identity, MCP, launch and judgement-heavy changes. Delete this comment. -->
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>
 
