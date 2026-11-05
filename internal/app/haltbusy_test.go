@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"obor/internal/app"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"slices"
@@ -140,6 +141,9 @@ func TestTakeOverStopFailedThenDrop(t *testing.T) {
 		t.Fatalf("take-over: %q, %v", reply, err)
 	}
 	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
+	// the refused stop records its needs-you inside its step, which holds T-1 ("the drive") until it returns: a drop
+	// in that instant is refused busy (T-907's sendback)
+	r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
 	r.failStops(false)
 	r.dropFrees("x1", "pj-l-01")
 	r.oldWorkerStoppedFirst(1)
@@ -258,6 +262,9 @@ func TestMoveStopFailedThenDrop(t *testing.T) {
 		t.Fatalf("move: %q, %v", reply, err)
 	}
 	r.waitFor("the stop's needs-you", func() bool { return r.task("T-1").Phase == wire.PhaseNeedsYou })
+	// the refused stop records its needs-you inside its step, which holds T-1 ("the drive") until it returns: a drop
+	// in that instant is refused busy (T-907's sendback)
+	r.waitFor("the refused stop's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
 	r.failStops(false)
 	r.dropFrees("x1", "pj-l-01")
 	r.oldWorkerStoppedFirst(2)

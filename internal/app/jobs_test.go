@@ -36,16 +36,16 @@ func (r *loopRig) integratorIs(status string) {
 // integratorStops ends pj-int's turn after a verdict that left it no job, and waits for serve's stop of it (T-672,
 // T-870): its idle is gone again once the next pass stops it, so a wait on obor status's "idle" can miss it (T-684);
 // the stop is a rule now and is done when the pane is at its shell.
+//
+// One refresh, then no push while it waits (T-907): the rule stops pj-int only on a pass that stays on one herdr stream
+// from its start to the rule (whereIs is "not connected" in a resubscribe's gap), and a push ends the stream. Pushed
+// on every poll, the streams were shorter than a pass under load, so the stop waited a minute and more; serve's tick
+// runs the passes, and the stop's own refreshes (the rig's Stop) end once serve sees pj-int gone.
 func (r *loopRig) integratorStops() {
 	r.t.Helper()
 	r.f.Set("w1:p9", func(p *herdrtest.Pane) { p.Status = "idle" })
-	r.waitFor("the stop of pj-int", func() bool {
-		if slices.Contains(r.app.Status().Project.Stopped, "pj-int") {
-			return true
-		}
-		r.push()
-		return false
-	})
+	r.connectedAgain() // serve reads the idle from a snapshot taken after the Set
+	r.waitFor("the stop of pj-int", func() bool { return slices.Contains(r.app.Status().Project.Stopped, "pj-int") })
 }
 
 // integratorGone makes pj-int's agent exit and waits until the merge loop has seen it gone for T-1's open job, job
