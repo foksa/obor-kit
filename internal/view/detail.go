@@ -72,18 +72,11 @@ type AgentDetail struct {
 	Background []Background `json:"background,omitempty"`
 }
 
-// AgentSession is one recorded session of an agent (store.Session) and when its transcript was last written (LastWrite,
-// epoch seconds; 0: no transcript, or it cannot be read).
+// AgentSession is one recorded session of an agent (store.Session, the one session shape) and when its transcript was
+// last written (LastWrite, epoch seconds; 0: no transcript, or it cannot be read).
 type AgentSession struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	LastWrite  int64  `json:"last_write,omitempty"`
-	Pane       string `json:"pane,omitempty"`
-	Lane       string `json:"lane,omitempty"`
-	Task       string `json:"task,omitempty"`
-	Started    int64  `json:"started"`
-	Source     string `json:"source,omitempty"`
+	store.Session
+	LastWrite int64 `json:"last_write,omitempty"`
 }
 
 // AgentLine is one line posted to an agent (a message fact): its seq, time, who sent it and the line.
@@ -310,8 +303,7 @@ func agentLines(db *sql.DB, agent string, n int) ([]AgentLine, error) {
 
 // sessionOf is s as the agent page shows it, with its transcript's last write.
 func sessionOf(s store.Session) AgentSession {
-	a := AgentSession{ID: s.ID, Kind: s.Kind, Transcript: s.Transcript, Pane: s.Pane, Lane: s.Lane, Task: s.Task,
-		Started: s.Started, Source: s.Source}
+	a := AgentSession{Session: s}
 	if s.Transcript != "" {
 		if fi, err := os.Stat(s.Transcript); err == nil {
 			a.LastWrite = fi.ModTime().Unix()

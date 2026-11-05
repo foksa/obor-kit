@@ -2,6 +2,7 @@ package wire
 
 import (
 	"obor/internal/app/event"
+	"obor/internal/store"
 )
 
 // Status is the answer to the app socket's one request, status.
@@ -250,6 +251,11 @@ type AgentStatus struct {
 	Session    string `json:"session,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
 	Started    int64  `json:"started,omitempty"`
+}
+
+// SetSession fills a's recorded session fields (sessions.go, T-577) from s, the one session shape they mirror (T-889).
+func (a *AgentStatus) SetSession(s store.Session) {
+	a.Session, a.Transcript, a.Started = s.ID, s.Transcript, s.Started
 }
 
 // The scratch reasons are the merge loop's states where they are one (internal/app/loop.go takes them from here).

@@ -41,7 +41,7 @@ func (a *App) Status() wire.Status {
 			}
 			if agent, ok := p.reg.whoIs(o.pane); ok {
 				if s, ok := p.session(agent); ok {
-					as.Session, as.Transcript, as.Started = s.ID, s.Transcript, s.Started
+					as.SetSession(s)
 				}
 			}
 			ps.Agents = append(ps.Agents, as)
