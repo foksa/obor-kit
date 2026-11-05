@@ -36,6 +36,13 @@ const (
 	resolvedRefs  = "refs/obor/resolved/"
 )
 
+// rerere is git's options for the scratch's merge (T-913): recording and replay of conflict resolutions, for that call
+// only (-c, never the repo's config). The preimage lands in the repository's common rr-cache, which serve's worktree
+// shares with the main checkout; the integrator's resolve commit records the resolution there (git turns rerere on by
+// itself once that directory exists), and a later merge of the same sha onto a moved target replays it, autoupdate
+// staging the resolved paths.
+var rerere = []string{"-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true"}
+
 // Submit commits the lane's uncommitted work ("<task>: <summary>") and pins the lane's HEAD at
 // refs/obor/submitted/<task>/<id>. A pin there is this submit's result already: it is returned, nothing touched (a
 // later worker commit stays out). A cut between the commit and the pin reads HEAD again (a residual race). The commit
@@ -103,6 +110,11 @@ func (s Scratch) Submit(ctx context.Context, task, id, lane, summary, worker str
 // sha, never the old candidate, T-403) is merged onto the target (merge --no-ff --no-commit; a conflict stays open), a
 // resolved one is checked as committed. Green: the merge committed and pinned at refs/obor/candidate/<task>. The merge
 // commit's date is its newer parent's, so a repeat makes the same commit.
+//
+// T-913: the merge runs with git's rerere, so a hunk the integrator resolved once is replayed by the next merge of the
+// same sha onto a moved target instead of being asked for again. A merge that stopped with MERGE_HEAD but has no
+// unmerged path left after the replay is clean: its checks run as for any merge, and its message says the resolution
+// was reused.
 func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome, error) {
 	s.gitCtx = ctx
 	if s.Out == nil {
@@ -137,6 +149,7 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 	defer r.releaseSlot()
 	c := port.Candidate{Task: in.Task, Lane: in.Lane, SHA: in.Input}
 	rev := ""
+	reused := false // the merge got its conflicting hunks from a recorded resolution: clean, not a conflict
 	if in.Kind == port.InputResolved {
 		if r.pre, err = s.call(dir, "merge-base", target, in.Input); err != nil {
 			return port.GateOutcome{}, err
@@ -150,7 +163,9 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		rev = r.pre + ".." + c.SHA
 	} else {
 		r.pre, c.Target, rev = target, target, target+"..."+in.Input
-		if _, err := s.call(dir, "merge", "-q", "--no-commit", "--no-ff", in.Input); err != nil {
+		args := append(slices.Clone(rerere), "merge", "-q", "--no-commit", "--no-ff", in.Input)
+		if _, errOut, mergeErr := s.gitLocked(nil, dir, args...); mergeErr != nil {
+			err := gitError(dir, []string{"merge"}, errOut, mergeErr) // named the subcommand, not a -c option
 			if open, verr := s.exists(dir, "MERGE_HEAD"); verr != nil || !open {
 				return port.GateOutcome{}, err
 			}
@@ -158,9 +173,11 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 			if err != nil {
 				return port.GateOutcome{}, err
 			}
-			files := lines(out)
-			return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
-				Line: fmt.Sprintf("CONFLICT in %s: %s", dir, strings.Join(files, " "))}, nil
+			if files := lines(out); len(files) > 0 {
+				return port.GateOutcome{Kind: port.OutcomeConflict, Files: files, Dir: dir,
+					Line: fmt.Sprintf("CONFLICT in %s: %s", dir, strings.Join(files, " "))}, nil
+			}
+			reused = true // every hunk came from the recorded resolution (no unmerged path left): the merge is clean
 		}
 	}
 	kept := ""
@@ -189,6 +206,9 @@ func (s Scratch) Gate(ctx context.Context, in port.GateInput) (port.GateOutcome,
 		if in.Kind == port.InputMoved {
 			// T-360: a moved target keeps the task's subject rule; where the merge went is in the body.
 			moved = "Merged onto the moved " + branch + " at " + target
+		}
+		if reused {
+			moved = strings.TrimSpace(moved + "\n\n(conflict resolution reused)")
 		}
 		msg := mergeMessage(in, moved, "") + s.trailer()
 		if c.SHA, err = s.commit(dir, msg, target, in.Input); err != nil {
