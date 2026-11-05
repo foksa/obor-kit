@@ -6,6 +6,12 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 afternoon: DD-architecture + Fable's combined plan adopted (decisions, design "Change rules"). Running:
+  T-864 (config keys, flags, + M3 load re-run), T-865 (lane rows), T-866 pilot A (rule pass + idle), T-867 (stop
+  --force drops nothing). Next release notes must say: `merge.timeout_grep`, `integrator_handoff_tokens`,
+  `stop_idle_workers`, `merge.max_load`/`load_wait`/`window_wait`, `slots.merge_block_max` removed (WARN two minors);
+  `obor status --all` gone; `obor review verify` by hand gone (when C lands); `obor stop --force` keeps tasks open.
+  After T-864 merges: docs/design.md "Machine load" drops the load-aware retry paragraph (lead's file).
 - 2026-11-04 ~23:45 (end of day). **v0.26.0 tagged** (f1084988 on main; notes docs/releases/v0.26.0.md, guide
   docs/UPGRADE-v0.26.md). **Owner: `make ship`** (then each project: `obor config validate`, delete the keys it names,
   `obor serve restart`). Today: T-825..T-849 (CLI deadlines, P4 version on calls, S2 needs-you block, test pruning
