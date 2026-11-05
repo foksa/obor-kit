@@ -13,31 +13,46 @@ import (
 // LaneRow is one lane's row: the task its last prepared dispatch put there (lane.prepare's branch, agent, base: the
 // target sha, head: merge-base(HEAD, target)) and when it was dispatched (unix seconds). Finished is when the attempt's
 // task_done was recorded (unix seconds; 0: the task awaits it). Type is the model ref its dispatch chose,
-// `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721).
+// `<model>[:<effort>]` (T-721; "": a dispatch recorded before T-721). Blocked is serve's answer whether the task's
+// worker has a question in force (its Blocked: report; T-894: the fold's, not a hook's own reading of the log).
 type LaneRow struct {
 	Lane, Task, Branch, Agent string
 	Base, Head                string
 	DispatchedAt, Finished    int64
 	Type                      string
+	Blocked                   bool
 }
 
 // laneCols is the select list of a lane row in db: a lanes table from before schema 9 (a serve not restarted since
-// T-721, read by a newer CLI) has no type column, its rows read none.
+// T-721) has no type column, and one from before schema 12 (T-894) no blocked one; its rows read none and false.
 func laneCols(db *sql.DB) (string, error) {
+	typ, err := laneCol(db, "type", "''")
+	if err != nil {
+		return "", err
+	}
+	blocked, err := laneCol(db, "blocked", "0")
+	if err != nil {
+		return "", err
+	}
+	return "lane, task, branch, agent, base, head, dispatched_at, finished, " + typ + ", " + blocked, nil
+}
+
+// laneCol is col, or missing when the lanes table does not have it.
+func laneCol(db *sql.DB, col, missing string) (string, error) {
 	var n int
-	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('lanes') WHERE name = 'type'").Scan(&n); err != nil {
+	if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('lanes') WHERE name = ?", col).Scan(&n); err != nil {
 		return "", fmt.Errorf("lanes: %w", err)
 	}
-	typ := "type"
 	if n == 0 {
-		typ = "''"
+		return missing, nil
 	}
-	return "lane, task, branch, agent, base, head, dispatched_at, finished, " + typ, nil
+	return col, nil
 }
 
 // scanLane reads one row of laneCols' select list into r.
 func scanLane(scan func(...any) error, r *LaneRow) error {
-	return scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt, &r.Finished, &r.Type)
+	return scan(&r.Lane, &r.Task, &r.Branch, &r.Agent, &r.Base, &r.Head, &r.DispatchedAt, &r.Finished, &r.Type,
+		&r.Blocked)
 }
 
 // ReadLanes is db's lane rows, by lane.
@@ -73,9 +88,9 @@ func WriteLanes(db *sql.DB, rows []LaneRow) error {
 		return fmt.Errorf("lanes: %w", err)
 	}
 	for _, r := range rows {
-		if _, err := tx.Exec(`INSERT INTO lanes (lane, task, branch, agent, base, head, dispatched_at, finished, type)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base, r.Head, r.DispatchedAt,
-			r.Finished, r.Type); err != nil {
+		if _, err := tx.Exec(`INSERT INTO lanes (lane, task, branch, agent, base, head, dispatched_at, finished, type,
+			blocked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Lane, r.Task, r.Branch, r.Agent, r.Base, r.Head,
+			r.DispatchedAt, r.Finished, r.Type, r.Blocked); err != nil {
 			return fmt.Errorf("lanes: row %s: %w", r.Lane, err)
 		}
 	}
@@ -131,34 +146,4 @@ func ReadLaneAt(root, lane string) (LaneRow, bool, error) {
 		return LaneRow{}, false, fmt.Errorf("lanes: %w", err)
 	}
 	return r, true, nil
-}
-
-// HasBlockedReportAt reports whether task's latest worker Blocked: report is still awaiting the owner's answer.
-// A blocked task_done is recorded as a needs-you fact rather than a submitted fact, so it does not set lanes.finished.
-// The report lives one attempt (docs/state-model.md rows 12, 16, 16a): obor resume (an answered fact) and an unblocked
-// fact end it, as do the lifecycle facts that begin another attempt — a task_done submission, a drop, a dispatch and
-// its lane.prepare result, and a sendback. A resumed fact does not: ordinary worker activity is not an answer (T-511).
-func HasBlockedReportAt(root, task string) (bool, error) {
-	db, err := openROAt(root)
-	if err != nil {
-		return false, err
-	}
-	if db == nil {
-		return false, nil
-	}
-	defer db.Close()
-	var asked, ended int64
-	err = db.QueryRow(`SELECT
-		COALESCE(MAX(CASE WHEN task = ? AND kind = 'fact' AND step = 'needs-you' AND
-			json_extract(data, '$.reason') LIKE 'asks:%' THEN seq END), 0),
-		COALESCE(MAX(CASE WHEN
-			(task = ? AND kind = 'fact' AND step IN ('unblocked', 'submitted', 'dropped', 'dispatch', 'sendback'))
-			OR (task = ? AND kind = 'result' AND (step = 'lane.prepare' OR step LIKE 'lane.prepare.%'))
-			OR (task = 'msg' AND kind = 'fact' AND step = 'answered' AND json_extract(data, '$.task') = ?)
-			THEN seq END), 0)
-		FROM events WHERE task = ? OR task = 'msg'`, task, task, task, task, task).Scan(&asked, &ended)
-	if err != nil {
-		return false, fmt.Errorf("blocked report: %w", err)
-	}
-	return asked > ended, nil
 }

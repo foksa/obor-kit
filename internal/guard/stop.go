@@ -109,7 +109,8 @@ func handoffLimit(cfg *config.Config, role string) int64 {
 
 // workerDone: block while the lane's task awaits its task_done (its row's finished, read-only: serve may be down),
 // once per stop loop: a stop within an active loop (stop_hook_active) is allowed, so a worker that asks instead
-// can stop. Nothing is written. Running background tasks allow the stop unless they look stale (T-167).
+// can stop. A row whose blocked is set (the worker's Blocked: report, as serve's fold sees it) allows the stop.
+// Nothing is written. Running background tasks allow the stop unless they look stale (T-167).
 func (h *stopHook) workerDone() (string, error) {
 	lane := h.role.Lane
 	if lane == "" || h.ev.StopHookActive == true {
@@ -119,12 +120,8 @@ func (h *stopHook) workerDone() (string, error) {
 	if err != nil || !ok || row.Task == "" {
 		return "", err // no row, or submitted
 	}
-	if row.Finished != 0 {
-		return "", nil
-	}
-	blockedReport, err := store.HasBlockedReportAt(h.cfg.Root, row.Task)
-	if err != nil || blockedReport {
-		return "", err // task_done's Blocked: report is recorded until the owner resumes it
+	if row.Finished != 0 || row.Blocked {
+		return "", nil // submitted, or the task's Blocked: report awaits the owner's answer
 	}
 
 	// Background tasks running: the worker may wait on them, unless they look stale (T-167) — nothing in the lane changed
