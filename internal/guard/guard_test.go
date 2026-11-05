@@ -336,8 +336,10 @@ func TestDenyCommands(t *testing.T) {
 	const many = "two or more test commands at once"
 
 	// goCases is the case_load_test_runs table, now config-driven: the same commands are denied with the same message.
-	// A regex sees the resolved words (quotes removed, no Go flag grammar), so a quoted value that spells a load flag
-	// (go test -run '-race') is denied too and is not asserted as allowed here.
+	// Known over-denials (a regex sees the resolved words: quotes removed, no Go flag grammar, no last-value-wins): a
+	// quoted value that spells a load flag (go test -run '-race', -bench '-count=3', -timeout '-race',
+	// -args -race -count=3, ./app.test -test.run '-test.race'), and a later flag that turns one off
+	// (go test -race -race=false, go test -count=3 -count=1). They are not asserted here.
 	goCases := func(P, L string) []tc {
 		cases := []tc{}
 		for _, who := range []string{"lead", "integrator", "worker", "reviewer", "-"} {
@@ -356,7 +358,20 @@ func TestDenyCommands(t *testing.T) {
 				bash(who, cwd, "go test -race=true ./...", one),
 				bash(who, cwd, "go test -race -count=2 ./...", one),
 				bash(who, cwd, "go test -test.count=5 ./...", one),
+				// Go's flag package takes --name too, raceOn denied any value but false/0, and goSub skipped leading flags.
+				bash(who, cwd, "go test --count=3 ./...", one),
+				bash(who, cwd, "go test --count 3 ./...", one),
+				bash(who, cwd, "go test --race ./...", one),
+				bash(who, cwd, "go test -race=t ./...", one),
+				bash(who, cwd, "go test -race=T ./...", one),
+				bash(who, cwd, "go test -race=TRUE ./...", one),
+				bash(who, cwd, "go test -race=1 ./...", one),
+				bash(who, cwd, "go test --test.count=5 ./...", one),
+				bash(who, cwd, "go test --test.race ./...", one),
+				bash(who, cwd, "go test -test.race=t ./...", one),
 				bash(who, cwd, "go -C internal test -count=3 ./...", one),
+				bash(who, cwd, "go -C=internal test -count=3 ./...", one),
+				bash(who, cwd, "go -v test -race ./...", one),
 				bash(who, cwd, "cd internal && go test -count=3 ./...", one),
 				bash(who, cwd, "go build ./... && go test -count=3 ./...", one),
 				bash(who, cwd, "true; go test -race ./pkg", one),
@@ -374,6 +389,8 @@ func TestDenyCommands(t *testing.T) {
 				bash(who, cwd, "./pkg/app.test -test.v -test.count 5 -test.timeout=1m", one),
 				bash(who, cwd, "env FOO=1 ./pkg/app.test -test.count=3", one),
 				bash(who, cwd, "bash -c './app.test -test.race'", one),
+				bash(who, cwd, "./app.test --test.count=3", one),
+				bash(who, cwd, "./app.test -test.race=t", one),
 				// two or more test commands at once.
 				bash(who, cwd, "go test ./a & go test ./b &", many),
 				bash(who, cwd, "go test ./a & ./app.test &", many),
@@ -393,10 +410,15 @@ func TestDenyCommands(t *testing.T) {
 			bash("-", P, "go test -run X ./pkg", ""),
 			bash("-", P, "go test -count=1 -run X -timeout 10m ./...", ""),
 			bash("-", P, "go test -race=false ./...", ""),
+			bash("-", P, "go test -race=0 ./...", ""),
+			bash("-", P, "go test --count=1 ./...", ""),
+			bash("-", P, "go -C internal test ./...", ""),
+			bash("-", P, "go -v test ./...", ""),
 			bash("-", P, "go test -count=0 ./...", ""),
 			bash("-", P, "go test -tags race ./...", ""),
 			bash("-", P, "go test ./a; go test ./b", ""), // the rule is the background / parallel forms only
 			bash("-", P, "go test ./a & go test ./b", ""),
+			bash("-", P, "go test ./a & git status && go test ./b", ""),
 			bash("-", P, "go test ./a; go test ./b & wait", ""),
 			bash("-", P, "(go test ./a && go test ./b) & wait", ""),
 			bash("-", P, "go test ./a & wait; go test ./b & wait", ""),
