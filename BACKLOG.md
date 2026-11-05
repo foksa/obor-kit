@@ -6,6 +6,14 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~17:45 (lead, before the owner's herdr restart + update; `obor stop --force`). In flight at the stop: T-892
+  working (L-02, comes back at `obor start` via the worker-start rule), T-900 gating (attempt 3), T-883 submitted
+  (accepted shape (a): new `--json`), T-901 accepted/publish. **Open review RV-121**: fix T-906 linked (verify after it
+  merges), then close. Queue front: T-879 (lane cache + RV-120 V1), T-906, T-907 (flaky TestWorkerStartRule, opus),
+  then T-890/T-894/T-898/T-903. **T-898 must pass before v0.28** (agents run the installed kit's MCP server, not
+  main's). Concern: herdr server ~95% CPU (50 h CPU in 4d20h), load 50-58 at 4 lanes: watch it after the restart; if
+  it climbs back, count obor's herdr calls per minute (researcher). Lanes 4 (6 after T-879/T-880 measured). After
+  restart: `obor start`, `obor lead --resume` (or fresh), check `obor status`.
 - Next release notes (v0.28): `obor status --json` changed shape (T-883): `tasks` is a map of `view.Task` keyed by id; `lanes[]`, `needs_you[]`, `queue.merge[]`, `queue.waiting[]` reference it by id (task fields gone from them, `lanes[].free` added). Also: `obor projects --notify` gone (T-903), `guards.deny_commands` (T-905).
 - 2026-11-05 RV-121 design concern: serve replay still calls `store.Admits` per session fact (`internal/app/sessions.go:86`; rebuilds indexes each call, 921 facts in obor-kit's store) beside T-881's one-pass `Owned`: measure replay, then one incremental fold in serve and drop the app-side replacement scan.
 - 2026-11-05 (kit-specific survey #7, low): serve's low-disk needs-you probes `go env GOCACHE` in every project (`cmd/obor/serve.go:178-191`, `internal/app/disk.go:57`): make it a config hint or drop it; fold into the next disk task.
