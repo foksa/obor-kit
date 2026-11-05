@@ -227,7 +227,7 @@ func TestBuildBackground(t *testing.T) {
 		{Name: lead, Pane: "p3", Status: "working"}}}}
 	bg := map[string][]Background{"w1": {{PID: 1, Command: "a", Age: 40}}, integ: {{PID: 2, Command: "b", Age: 50}},
 		lead: {{PID: 3, Command: "c", Background: true, Label: "l", Age: 60}}}
-	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Background: bg})
+	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Background: bg})
 	if len(v.Lanes) != 1 || len(v.Lanes[0].Background) != 1 || v.Lanes[0].Background[0].PID != 1 {
 		t.Errorf("lane: %+v, want w1's process", v.Lanes)
 	}

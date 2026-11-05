@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -16,9 +17,10 @@ import (
 // The lane table (T-470, from package lanes): each configured lane's worktree as git and the store's lanes table
 // (read-only) say; obor status and obor serve's app.Lanes read it.
 
-// NewLaneTable is the lane table of a loaded config.
-func NewLaneTable(cfg *config.Config) *LaneTable {
-	return &LaneTable{Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
+// NewLaneTable is the lane table of a loaded config: its git reads run under ctx (T-873: a canceled request or serve
+// pass ends them).
+func NewLaneTable(ctx context.Context, cfg *config.Config) *LaneTable {
+	return &LaneTable{ctx: ctx, Cfg: cfg, Root: cfg.Root, Now: time.Now().Unix()}
 }
 
 // LaneStatus is one lane's row of the lane table. Type is the model it runs: the dispatch's while it holds a task
@@ -35,6 +37,7 @@ type LaneStatus struct {
 
 // LaneTable is the project's lanes as their worktrees, git and the store's lanes table say, computed once per command.
 type LaneTable struct {
+	ctx  context.Context // the git reads' (NewLaneTable)
 	Cfg  *config.Config
 	Root string
 	Now  int64
@@ -78,7 +81,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	if !project.IsDir(l.Dir) {
 		return s
 	}
-	out, err := project.Git(l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
+	out, err := project.GitCtx(p.ctx, l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
 	if err != nil {
 		return unknown(s, "git rev-parse: "+err.Error())
 	}
@@ -99,7 +102,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := project.Git(p.Root, "merge-base", "--is-ancestor", head, "HEAD")
+		_, err := project.GitCtx(p.ctx, p.Root, "merge-base", "--is-ancestor", head, "HEAD")
 		var exit *exec.ExitError
 		switch {
 		case err == nil:
@@ -109,7 +112,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 			mergedErr = err
 		}
 	}()
-	status, statusErr := project.Git(l.Dir, "status", "--porcelain")
+	status, statusErr := project.GitCtx(p.ctx, l.Dir, "status", "--porcelain")
 	wg.Wait()
 	switch {
 	case mergedErr != nil:
@@ -178,13 +181,13 @@ func (p *LaneTable) taskType(l config.Lane, s LaneStatus) string {
 // its reason (T-871): dispatch never picks it.
 type Lanes struct{}
 
-func (Lanes) Lanes(root string) ([]port.Lane, error) {
+func (Lanes) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
 	cfg, err := config.LoadDaemon(root)
 	if err != nil {
 		return nil, err
 	}
 	var out []port.Lane
-	lp := NewLaneTable(cfg)
+	lp := NewLaneTable(ctx, cfg)
 	rows, _ := lp.Rows() // an unknown lane carries its store error in Reason
 	for _, s := range lp.States() {
 		l := port.Lane{Name: s.Lane, Dir: project.Physical(s.Dir), State: s.State, Reason: s.Reason,
@@ -237,7 +240,7 @@ func (p *LaneTable) inFlight(lane, task, head string) bool {
 // kept while adopters' history still holds specs there, T-521 stopped writing them). One log with file names reads
 // both rules. Task branches are not looked at. A log git cannot read is no evidence.
 func (p *LaneTable) MergeEvidence(id string) bool {
-	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return project.Git(p.Root, args...) })
+	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return project.GitCtx(p.ctx, p.Root, args...) })
 	return ok
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
@@ -45,7 +46,7 @@ func TestPluginBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"plugin"}, {"plugin", "start"}, {"plugin", "kick"}, {"plugin", "restore", "--later"}} {
-		if rc, _, stderr := run(t, plugin, env, args...); rc != 2 || !strings.Contains(stderr, pluginUsage) {
+		if rc, _, stderr := run(t, plugin, env, args...); rc != 2 || !strings.Contains(stderr, help.Usage("plugin")) {
 			t.Errorf("obor %q: exit %d, %q; want 2, usage", args, rc, stderr)
 		}
 	}

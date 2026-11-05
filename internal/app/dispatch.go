@@ -315,7 +315,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 		}
 	}
-	ls, err := a.lanes.Lanes(p.root)
+	ls, err := a.lanes.Lanes(ctx, p.root)
 	if err != nil {
 		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}

@@ -1,10 +1,10 @@
 package run
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -98,9 +98,9 @@ func FindReceipt(state, tree string, c config.Command, maxAge time.Duration, now
 }
 
 // Tree is the content tree of the work in dir (a worktree): HEAD plus every tracked and untracked change, as serve's
-// submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index, so dir's index and
-// history are not touched.
-func Tree(dir string, environ []string) (string, error) {
+// submit commits a lane (add -A), the run marker excluded. It is computed with a temporary index (its own git, under
+// the caller's ctx: a canceled run's Tree ends with it, T-873), so dir's index and history are not touched.
+func Tree(ctx context.Context, dir string, environ []string) (string, error) {
 	tmp, err := os.MkdirTemp("", "obor-tree-")
 	if err != nil {
 		return "", err
@@ -111,10 +111,8 @@ func Tree(dir string, environ []string) (string, error) {
 	}
 	env := append(append([]string(nil), environ...), "GIT_INDEX_FILE="+filepath.Join(tmp, "index"))
 	git := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = env
-		out, err := cmd.Output()
-		return strings.TrimSpace(string(out)), err
+		out, err := project.GitCtxEnv(ctx, dir, env, args...)
+		return strings.TrimSpace(out), err
 	}
 	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A"},
 		{"reset", "-q", "--", MarkerName}} {

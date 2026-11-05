@@ -11,6 +11,7 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/herdr"
 	"obor/internal/mcp"
 	"obor/internal/project"
@@ -18,10 +19,6 @@ import (
 	"obor/internal/spec"
 	"obor/internal/store"
 )
-
-const driveUsage = "usage: obor drive <name> [--model <model[:effort]>] | obor drive <T-xx>"
-
-const landUsage = `usage: obor land <T-xx|name> ["<summary>"]`
 
 // driveTitle is a drive's spec title before its name (internal/app's "Owner drive: ").
 const driveTitle = "Owner drive: "
@@ -50,14 +47,14 @@ func driveCmd(args []string) int {
 			i++
 			ref = args[i]
 		case a == "" || a[0] == '-' || name != "":
-			fmt.Fprintln(out, "FAIL "+driveUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("drive"))
 			return 1
 		default:
 			name = a
 		}
 	}
 	if name == "" {
-		fmt.Fprintln(out, "FAIL "+driveUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("drive"))
 		return 1
 	}
 	_, cfg, rc := load()
@@ -237,7 +234,7 @@ func waitStopped(ctx context.Context, cfg *config.Config, d drive) error {
 // refusal.
 func landCmd(args []string) int {
 	if len(args) < 1 || len(args) > 2 || args[0] == "" || args[0][0] == '-' {
-		fmt.Fprintln(out, "FAIL "+landUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("land"))
 		return 1
 	}
 	ctx := context.Background()
@@ -318,8 +315,6 @@ func dirtyPaths(dir string) []string {
 	return paths
 }
 
-const tellLeadUsage = `usage: obor tell-lead "<text>"`
-
 // tellLeadCmd is `obor tell-lead "<text>"` (T-761; obor lead starts the lead, so the drive's way to it has this name):
 // run in a drive agent's pane (role driver, its lane from its cwd), a request to obor serve that posts
 // "[obor <T-xx> drive] <text> (reply: obor resume <T-xx> "…")" to this project's lead as a lead line; the lead's obor
@@ -328,7 +323,7 @@ const tellLeadUsage = `usage: obor tell-lead "<text>"`
 // landed, not driving).
 func tellLeadCmd(args []string) int {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		fmt.Fprintln(out, "FAIL "+tellLeadUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("tell-lead"))
 		return 1
 	}
 	env := project.OSEnv

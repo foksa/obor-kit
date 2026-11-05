@@ -9,12 +9,11 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
 
 const noConfig = "FAIL no usable .obor/config.json (obor config validate)"
-
-const dispatchUsage = "usage: obor dispatch <T-xx> [--model <model[:effort]>,…] [--after <T-yy,T-zz>] [--force]"
 
 // dispatchCmd is `obor dispatch <T-xx> [--model a,b] [--after …] [--force]`: a socket request to obor serve, the only
 // dispatcher (T-408). The models come from the level of the spec's Difficulty line (config difficulty), the spec's
@@ -32,7 +31,7 @@ func dispatchCmd(args []string) int {
 
 // dispatchArgs is obor dispatch's arguments as the request's fields.
 func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
-	usage := errors.New(dispatchUsage)
+	usage := errors.New(help.Usage("dispatch"))
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -75,7 +74,7 @@ func dispatchArgs(args []string, cfg *config.Config, c *wire.Call) error {
 func dropCmd(args []string) int {
 	var c wire.Call
 	usage := func() int {
-		fmt.Fprintln(out, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`)
+		fmt.Fprintln(out, "FAIL "+help.Usage("drop"))
 		return 1
 	}
 	for _, a := range args {

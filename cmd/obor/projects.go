@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"obor/internal/app"
+	"obor/internal/help"
 	"obor/internal/project"
 )
 
@@ -18,7 +19,7 @@ func projectsCmd(args []string) int {
 		return projectsNotify(args)
 	}
 	if len(args) != 0 {
-		fmt.Fprintln(out, "FAIL usage: obor projects")
+		fmt.Fprintln(out, "FAIL "+help.Usage("projects"))
 		return 1
 	}
 	ps := project.Projects(project.OSEnv)

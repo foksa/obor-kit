@@ -37,7 +37,7 @@ func (l Lane) Prepare(ctx context.Context, in port.PrepareInput) (port.Prepared,
 			return port.Prepared{}, fmt.Errorf("checkout -B %s %s in %s: %w", in.Branch, in.Target, in.Dir, err)
 		}
 	}
-	if err := LaneSetup(l.Cfg, in.Lane, in.Dir, l.Out); err != nil {
+	if err := LaneSetup(ctx, l.Cfg, in.Lane, in.Dir, l.Out); err != nil {
 		return port.Prepared{}, port.Refused{Line: err.Error()}
 	}
 	head, err := l.git(ctx, in.Dir, "merge-base", "HEAD", in.Target)
@@ -105,31 +105,32 @@ func (l Lane) git(ctx context.Context, dir string, args ...string) (string, erro
 		bin = "git"
 	}
 	cmd := exec.CommandContext(ctx, bin, append([]string{"-C", dir}, args...)...)
-	cleanup := herdrun.Group(cmd)
+	cleanup := project.Group(cmd)
 	defer cleanup()
 	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }
 
 // LaneSetup (T-122): a lane that fails commands.lane_ready gets commands.lane_setup, and must pass lane_ready after.
-// No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare).
-func LaneSetup(cfg *config.Config, lane, dir string, w io.Writer) error {
+// No lane_ready: nothing runs. Its errors are final (port.Refused in Lane.Prepare). Every command runs under ctx
+// (T-873): a canceled prepare ends it with its process group.
+func LaneSetup(ctx context.Context, cfg *config.Config, lane, dir string, w io.Writer) error {
 	ready, ok := herdrun.Command(cfg, "lane_ready")
 	if !ok {
 		return nil
 	}
-	if rc, _ := runIn(dir, ready); rc == 0 {
+	if rc, _ := runIn(ctx, dir, ready); rc == 0 {
 		return nil
 	}
 	setup, ok := herdrun.Command(cfg, "lane_setup")
 	if !ok {
 		return project.Failf("lane_setup in %s: commands.lane_ready fails and commands.lane_setup is not set", lane)
 	}
-	if rc, text := runIn(dir, setup); rc != 0 {
+	if rc, text := runIn(ctx, dir, setup); rc != 0 {
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 		return project.Failf("lane_setup in %s: rc %d: %s", lane, rc, strings.Join(lines[max(0, len(lines)-3):], " "))
 	}
-	if rc, _ := runIn(dir, ready); rc != 0 {
+	if rc, _ := runIn(ctx, dir, ready); rc != 0 {
 		return project.Failf("lane_setup in %s: ran, but commands.lane_ready still fails (rc %d)", lane, rc)
 	}
 	if w == nil {
@@ -139,11 +140,12 @@ func LaneSetup(cfg *config.Config, lane, dir string, w io.Writer) error {
 	return nil
 }
 
-// runIn runs a configured command in dir (run.Execute: bash, the whole process group killed when it returns or after
-// its timeout, rc 124; herdrun.Command sets the default timeout): its exit code and combined output.
-func runIn(dir string, c config.Command) (int, string) {
+// runIn runs a configured command in dir under ctx (run.Execute: bash, the whole process group killed when it returns,
+// the ctx ends or its timeout passes, rc 124; herdrun.Command sets the default timeout): its exit code and combined
+// output.
+func runIn(ctx context.Context, dir string, c config.Command) (int, string) {
 	var out bytes.Buffer
-	rc, timedOut := herdrun.Execute(context.Background(), c, dir, nil, nil, &out, &out)
+	rc, timedOut := herdrun.Execute(ctx, c, dir, nil, nil, &out, &out)
 	if timedOut {
 		return 124, out.String()
 	}

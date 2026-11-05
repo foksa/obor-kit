@@ -89,7 +89,7 @@ func (f *fakePanes) Notify(_ context.Context, title, body string) error {
 
 type fakeLanes struct{ lanes []port.Lane }
 
-func (l *fakeLanes) Lanes(string) ([]port.Lane, error) {
+func (l *fakeLanes) Lanes(context.Context, string) ([]port.Lane, error) {
 	return append([]port.Lane(nil), l.lanes...), nil
 }
 

@@ -43,7 +43,7 @@ func (a *App) check(ctx context.Context, full bool) {
 // decideLanes reads p's lanes, asks herdr about the agents whose idle timers are due and records the facts due; lanes
 // that could not be read are not decided on.
 func (a *App) decideLanes(ctx context.Context, p *proj) {
-	ls, err := a.lanes.Lanes(p.root)
+	ls, err := a.lanes.Lanes(ctx, p.root)
 	if p.merging {
 		a.loopStatus(ctx, p, &p.badLanes, err)
 	}

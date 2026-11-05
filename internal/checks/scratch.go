@@ -498,7 +498,7 @@ func (s Scratch) Landed(ctx context.Context, task string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return NewLaneTable(s.Cfg).MergeEvidenceBy(task, func(args ...string) (string, error) {
+	return NewLaneTable(ctx, s.Cfg).MergeEvidenceBy(task, func(args ...string) (string, error) {
 		if n := len(args); n > 0 && args[n-1] == "HEAD" {
 			args = append(args[:n-1:n-1], "refs/heads/"+branch)
 		}

@@ -21,6 +21,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
@@ -46,7 +47,7 @@ func serve(ctx context.Context, args []string, env project.Env, cwd string) int 
 	case len(args) == 1 && (args[0] == "install" || args[0] == "uninstall" || args[0] == "restart"):
 		return serveService(args[0], cwd, env)
 	case len(args) != 0:
-		errf("usage: obor serve [install | uninstall | restart | dump]")
+		errf("%s", help.Usage("serve"))
 		return 2
 	}
 	repo, err := project.Find(cwd)

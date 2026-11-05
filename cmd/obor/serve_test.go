@@ -210,7 +210,7 @@ func TestLaneTable(t *testing.T) {
 		{"dispatched anew", "working", func() { p.Dispatched("L-01") }},
 	} {
 		c.prep()
-		ls, err := checks.Lanes{}.Lanes(p.Root)
+		ls, err := checks.Lanes{}.Lanes(context.Background(), p.Root)
 		if err != nil || len(ls) != 1 {
 			t.Fatalf("%s: lanes %+v, %v", c.name, ls, err)
 		}

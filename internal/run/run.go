@@ -15,15 +15,11 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"obor/internal/config"
 	"obor/internal/project"
 )
-
-// Usage is the usage line.
-const Usage = "usage: obor run <command-name> [args…]  (obor run <command-name> --help: its configured line, runs nothing)"
 
 // MarkerName is the lane-root run marker: the pid of a live `obor run`.
 const MarkerName = ".task-run"
@@ -130,7 +126,7 @@ func Run(o Options) int {
 		// The command runs under this slot: a slot-aware runner inside reuses it (T-121).
 		environ = append(append([]string(nil), environ...), "CHECK_SLOT_HELD="+path, CPUsEnv(o.Cfg, o.Env))
 		if lane != "" {
-			receipt = o.beforeLaneRun(top, lane, &environ)
+			receipt = o.beforeLaneRun(ctx, top, lane, &environ)
 		}
 	}
 
@@ -146,7 +142,7 @@ func Run(o Options) int {
 		fmt.Fprintf(o.Stderr, "obor run: %s exited %d%s\n", c.Name, rc, UnderLoad(loaded))
 	}
 	if rc == 0 && receipt != nil && len(o.Args) == 0 {
-		o.writeReceipt(receipt, c, time.Since(t0))
+		o.writeReceipt(ctx, receipt, c, time.Since(t0))
 	}
 	return rc
 }
@@ -159,8 +155,8 @@ type laneRun struct {
 // beforeLaneRun exports OBOR_CHANGED_FILES, the lane's changes against the merge base with the target (the main
 // checkout's branch) in .obor/state/run-changed-<lane>, as the gate does for its own run. Without a tree or a base the
 // command gets no list (its selector then runs everything) and no receipt is written.
-func (o Options) beforeLaneRun(top, lane string, environ *[]string) *laneRun {
-	tree, err := Tree(top, o.Environ)
+func (o Options) beforeLaneRun(ctx context.Context, top, lane string, environ *[]string) *laneRun {
+	tree, err := Tree(ctx, top, o.Environ)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "note: cannot compute the lane's tree (%v): no changed-file list, no receipt\n", err)
 		return nil
@@ -196,8 +192,8 @@ func (o Options) changedFiles(top, tree string) ([]string, error) {
 }
 
 // writeReceipt records the green run, unless the lane's tree changed while it ran (then it proves nothing).
-func (o Options) writeReceipt(l *laneRun, c config.Command, took time.Duration) {
-	after, err := Tree(l.top, o.Environ)
+func (o Options) writeReceipt(ctx context.Context, l *laneRun, c config.Command, took time.Duration) {
+	after, err := Tree(ctx, l.top, o.Environ)
 	if err != nil || after != l.tree {
 		return
 	}
@@ -207,9 +203,9 @@ func (o Options) writeReceipt(l *laneRun, c config.Command, took time.Duration) 
 	}
 }
 
-// Execute runs the command with bash in its own process group (Group: TERM on a timeout or a signal, KILL after
-// Grace, and nothing of the group outlives the return): its exit code, and whether it timed out. obor run and
-// internal/checks use it.
+// Execute runs the command with bash in its own process group (project.Group: TERM on a timeout or a signal, KILL
+// after project.Grace, and nothing of the group outlives the return): its exit code, and whether it timed out. obor run
+// and internal/checks use it.
 func Execute(ctx context.Context, c config.Command, dir string, args, environ []string, stdout, stderr io.Writer) (int, bool) {
 	tctx, cancel := context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)
 	defer cancel()
@@ -219,7 +215,7 @@ func Execute(ctx context.Context, c config.Command, dir string, args, environ []
 	}
 	cmd := exec.CommandContext(tctx, "bash", append([]string{"-c", script, "obor-run-" + c.Name}, args...)...)
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, environ, stdout, stderr
-	cleanup := Group(cmd)
+	cleanup := project.Group(cmd)
 	err := cmd.Run()
 	cleanup()
 	timedOut := errors.Is(tctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
@@ -232,29 +228,6 @@ func Execute(ctx context.Context, c config.Command, dir string, args, environ []
 		return 127, timedOut
 	}
 	return 0, timedOut
-}
-
-// Grace is how long a process group has between TERM and KILL.
-const Grace = 2 * time.Second
-
-// Group makes cmd (from exec.CommandContext, not started) the leader of its own process group: when its context ends
-// the group gets TERM, then KILL after Grace; Wait gives up on pipes a descendant still holds a second later. Call the
-// returned cleanup after Wait (Run, Output) returns: it KILLs what is left of the group, so a TERM-ignoring child or
-// a descendant of a parent that exited normally doesn't outlive the command (RV-26 #2).
-func Group(cmd *exec.Cmd) (cleanup func()) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		pgid := cmd.Process.Pid
-		syscall.Kill(-pgid, syscall.SIGTERM)
-		time.AfterFunc(Grace, func() { syscall.Kill(-pgid, syscall.SIGKILL) })
-		return nil
-	}
-	cmd.WaitDelay = Grace + time.Second
-	return func() {
-		if cmd.Process != nil {
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-	}
 }
 
 // laneOf is the name of the configured lane whose worktree is top, else "".

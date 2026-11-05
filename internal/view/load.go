@@ -26,6 +26,6 @@ func Load(ctx context.Context, root string, now time.Time, events int) (Project,
 	if db != nil {
 		defer db.Close()
 	}
-	return Build(Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: events,
+	return Build(Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(ctx, cfg), DB: db, Now: now, Events: events,
 		Notes: Notes(cfg.Root, warn), Background: ScanBackground(ctx, cfg.Root, ss, err, project.OSEnv)}), nil
 }

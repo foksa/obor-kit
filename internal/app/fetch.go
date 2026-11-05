@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -323,7 +324,9 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	if why := reportRefusal(report, cfg.Data.DoneFileSections); why != "" && !blocked {
 		return "", fmt.Errorf("task_done: %s", why)
 	}
-	ls, err := a.lanes.Lanes(p.root)
+	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
+	ls, err := a.lanes.Lanes(ctx, p.root)
+	cancel()
 	if err != nil {
 		return "", fmt.Errorf("task_done: lanes of %s: %v", p.name, err)
 	}

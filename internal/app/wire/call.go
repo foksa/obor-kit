@@ -150,9 +150,6 @@ const (
 	ResumeSendback = "sendback"
 )
 
-// ResumeUsage is obor resume's usage.
-const ResumeUsage = `usage: obor resume <T-xx> ["<text>"] [--regate|--sendback] (only those two are flags: any other argument, one starting with - too, is the text; -- ends the flags)`
-
 // ResumeArgs is obor resume's arguments, <T-xx> ["<text>"] [--regate|--sendback], as a call's Task, Note and To: the
 // flag anywhere after the task, at most one, and at most one nonblank text (obor resume T-xx "yes", RV-54 #4). An
 // argument is a flag only if it is exactly --regate or --sendback (RV-99 #5): anything else is the text, one starting

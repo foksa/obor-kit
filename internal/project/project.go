@@ -3,6 +3,7 @@
 package project
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"obor/internal/config"
@@ -122,12 +124,31 @@ func Physical(p string) string {
 	return abs
 }
 
-// Git runs git -C dir args… and returns its stdout (also on failure, as $(…) would capture it); a failure's error
-// carries git's stderr, the reason a read failed (T-871).
+// Git runs git -C dir args… with no ctx (GitCtx): its stdout (also on failure, as $(…) would capture it); a failure's
+// error carries git's stderr, the reason a read failed (T-871).
 func Git(dir string, args ...string) (string, error) {
+	return GitCtx(context.Background(), dir, args...)
+}
+
+// GitCtx is Git under ctx: git is the leader of its own process group (Group), so a canceled ctx kills it and whatever
+// it started (T-873), not just the git process.
+func GitCtx(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitRun(ctx, dir, nil, args...)
+}
+
+// GitCtxEnv is GitCtx with env as the command's whole environment (nil: this process's), for a caller that runs git on
+// a file of its own: Tree's temporary GIT_INDEX_FILE.
+func GitCtxEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+	return gitRun(ctx, dir, env, args...)
+}
+
+func gitRun(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	var stderr strings.Builder
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = env
 	cmd.Stderr = &stderr
+	cleanup := Group(cmd)
+	defer cleanup()
 	out, err := cmd.Output()
 	if err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
@@ -135,6 +156,30 @@ func Git(dir string, args ...string) (string, error) {
 		}
 	}
 	return string(out), err
+}
+
+// Grace is how long a process group has between TERM and KILL.
+const Grace = 2 * time.Second
+
+// Group makes cmd (from exec.CommandContext, not started) the leader of its own process group: when its context ends
+// the group gets TERM, then KILL after Grace; Wait gives up on pipes a descendant still holds a second later. Call the
+// returned cleanup after Wait (Run, Output) returns: it KILLs what is left of the group, so a TERM-ignoring child or
+// a descendant of a parent that exited normally doesn't outlive the command (RV-26 #2). One owner for every process
+// group obor starts (T-873: internal/run's twin moved here, so GitCtx and obor run's commands share it).
+func Group(cmd *exec.Cmd) (cleanup func()) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		pgid := cmd.Process.Pid
+		syscall.Kill(-pgid, syscall.SIGTERM)
+		time.AfterFunc(Grace, func() { syscall.Kill(-pgid, syscall.SIGKILL) })
+		return nil
+	}
+	cmd.WaitDelay = Grace + time.Second
+	return func() {
+		if cmd.Process != nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}
 }
 
 // StateDir is <root>/.obor/state (not created: readers never write).

@@ -58,11 +58,11 @@ type laneTable struct {
 	real  port.Lanes // serve's own adapter in place of lanes (nil: lanes; T-738)
 }
 
-func (l *laneTable) Lanes(root string) ([]port.Lane, error) {
+func (l *laneTable) Lanes(ctx context.Context, root string) ([]port.Lane, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.real != nil {
-		return l.real.Lanes(root)
+		return l.real.Lanes(ctx, root)
 	}
 	return append([]port.Lane(nil), l.lanes...), nil
 }

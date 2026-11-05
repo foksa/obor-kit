@@ -8,18 +8,17 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/spec"
 	"obor/internal/store"
 )
 
-const specUsage = "FAIL usage: obor spec set <T-xx> <path> [--note \"<what changed>\"] | obor spec show <T-xx> | obor spec list"
-
 // specCmd is `obor spec set|show|list` (T-440): the tasks' specs live in obor serve's store. set is a request to
 // serve (the lead role only); show and list read the store read-only, serve up or down.
 func specCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(out, specUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("spec"))
 		return 1
 	}
 	switch {
@@ -32,7 +31,7 @@ func specCmd(args []string) int {
 	case args[0] == "list" && len(args) == 1:
 		return specList()
 	}
-	fmt.Fprintln(out, specUsage)
+	fmt.Fprintln(out, "FAIL "+help.Usage("spec"))
 	return 1
 }
 

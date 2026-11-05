@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"obor/internal/checks"
+	"obor/internal/help"
 	"obor/internal/testkit"
 )
 
@@ -66,10 +67,10 @@ func TestFlakesCommand(t *testing.T) {
 	if rc, stdout, stderr := run(t, q.Root, nil, "flakes"); rc != 0 || stdout != "no flaky tests (7d)\n" || stderr != "" {
 		t.Errorf("no log: exit %d, %q, %q; want 0, no flaky tests (7d)", rc, stdout, stderr)
 	}
-	if rc, stdout, _ := run(t, p.Root, nil, "flakes", "-h"); rc != 0 || stdout != flakesUsage+"\n" {
+	if rc, stdout, _ := run(t, p.Root, nil, "flakes", "-h"); rc != 0 || stdout != help.Usage("flakes")+"\n" {
 		t.Errorf("flakes -h: exit %d, %q", rc, stdout)
 	}
-	if rc, _, stderr := run(t, p.Root, nil, "flakes", "x"); rc != 2 || !strings.Contains(stderr, flakesUsage) {
+	if rc, _, stderr := run(t, p.Root, nil, "flakes", "x"); rc != 2 || !strings.Contains(stderr, help.Usage("flakes")) {
 		t.Errorf("flakes x: exit %d, %q; want 2, the usage", rc, stderr)
 	}
 }

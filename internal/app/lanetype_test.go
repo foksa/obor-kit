@@ -69,7 +69,7 @@ func redoRig(t *testing.T) *loopRig {
 		row, ok, _ := store.ReadLaneAt(r.p.Root, "L-01")
 		return ok && row.Task == "T-1" && row.Type == "opus:high"
 	})
-	ls, err := checks.Lanes{}.Lanes(r.p.Root)
+	ls, err := checks.Lanes{}.Lanes(context.Background(), r.p.Root)
 	if err != nil || len(ls) == 0 || ls[0].Name != "L-01" || ls[0].State != "working" || ls[0].Task != "T-1" {
 		t.Fatalf("precondition: serve's lane table %+v, %v; want L-01 working on T-1", ls, err)
 	}
@@ -77,7 +77,7 @@ func redoRig(t *testing.T) *loopRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := checks.NewLaneTable(cfg).States(); st[0].Type != "opus" {
+	if st := checks.NewLaneTable(context.Background(), cfg).States(); st[0].Type != "opus" {
 		t.Fatalf("precondition: obor status's type of L-01 %q, want its dispatch's opus", st[0].Type)
 	}
 	r.specOf("T-1", "# T-1 — Redone\n\nDifficulty: medium\n")

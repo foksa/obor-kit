@@ -5,18 +5,17 @@ import (
 	"time"
 
 	"obor/internal/checks"
+	"obor/internal/help"
 )
-
-const flakesUsage = "usage: obor flakes"
 
 // flakesCmd is `obor flakes`: one line per flaky test (7 days, .obor/state/flakes.jsonl), read-only.
 func flakesCmd(args []string) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(out, flakesUsage)
+		fmt.Fprintln(out, help.Usage("flakes"))
 		return 0
 	}
 	if len(args) != 0 {
-		errf("%s", flakesUsage)
+		errf("%s", help.Usage("flakes"))
 		return 2
 	}
 	_, cfg, rc := load()

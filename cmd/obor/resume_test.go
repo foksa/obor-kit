@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"obor/internal/app/wire"
+	"obor/internal/help"
 	"obor/internal/testkit"
 )
 
@@ -23,7 +24,7 @@ func TestResumeRequest(t *testing.T) {
 	}
 	for _, args := range [][]string{{"resume"}, {"resume", "T-01", ""}, {"resume", "T-01", "a", "b"},
 		{"resume", "T-01", "--regate", "--sendback"}, {"resume", "T-01", "--reprompt", "yes"}, {"resume", "--regate", "T-01"}} {
-		if rc, stdout, _ := run(t, p.Root, env("lead"), args...); rc != 1 || !strings.Contains(stdout, "FAIL "+wire.ResumeUsage) {
+		if rc, stdout, _ := run(t, p.Root, env("lead"), args...); rc != 1 || !strings.Contains(stdout, "FAIL "+help.Usage("resume")) {
 			t.Errorf("obor %q: exit %d, %q; want the usage", args, rc, stdout)
 		}
 	}

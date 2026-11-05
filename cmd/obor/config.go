@@ -5,6 +5,7 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/guard"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/spec"
 )
@@ -17,7 +18,7 @@ func configCmd(args []string) int {
 	if rc != 0 {
 		return rc
 	}
-	bad := func() int { errf("usage: obor config [get <path> | validate]"); return 2 }
+	bad := func() int { errf("%s", help.Usage("config")); return 2 }
 	switch {
 	case len(args) == 0:
 		s, _ := cfg.Raw(".")
@@ -60,7 +61,7 @@ func whoami(args []string) int {
 	case len(args) == 1 && args[0] == "--can-push": // hidden: the pre-push hook's question (T-793)
 		canPush = true
 	default:
-		errf("usage: obor whoami [--json]")
+		errf("%s", help.Usage("whoami"))
 		return 2
 	}
 	repo, cfg, rc := load()

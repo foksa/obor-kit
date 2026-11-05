@@ -22,14 +22,13 @@ import (
 	"obor/internal/app/port"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/service"
 )
 
 const (
-	stopUsage  = `usage: obor stop ["<why>"] [--force]`
-	startUsage = "usage: obor start"
 	// stopPause is the why of the pause obor stop sets: obor start ends a pause in force with this why only.
 	stopPause = wire.StopPause
 )
@@ -69,7 +68,7 @@ func stopCmd(args []string) int {
 		case a == "--force":
 			s.Force = true
 		case strings.HasPrefix(a, "-") || why != "":
-			fmt.Fprintln(out, "FAIL "+stopUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("stop"))
 			return 1
 		default:
 			why = a
@@ -88,7 +87,7 @@ func stopCmd(args []string) int {
 // startCmd is `obor start` in a project: its steps, then STARTED <name> (or FAIL, exit 1).
 func startCmd(args []string) int {
 	if len(args) != 0 {
-		fmt.Fprintln(out, "FAIL "+startUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("start"))
 		return 1
 	}
 	s := &sleeper{Env: project.OSEnv, Out: out}

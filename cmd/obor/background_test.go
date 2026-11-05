@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func backgroundView(t *testing.T) (view.Project, string, string) {
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Merging: true,
 		Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"},
 			{Pane: "w1:p2", Name: integ, Status: "idle", Age: 60}, {Pane: "w1:p3", Name: lead, Status: "working", Age: 60}}}}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(),
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(),
 		Background: map[string][]view.Background{
 			"pj-l1": {{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}},
 			integ:   {{PID: 43, Command: "make -s check", Age: 95}},

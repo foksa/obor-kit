@@ -7,6 +7,7 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
 
@@ -18,7 +19,7 @@ import (
 func resumeCmd(args []string) int {
 	c, ok := wire.ResumeArgs(args)
 	if !ok {
-		fmt.Fprintln(out, "FAIL "+wire.ResumeUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("resume"))
 		return 1
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodResume, func(cfg *config.Config, id *wire.Call) error {

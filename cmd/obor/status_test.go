@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -33,7 +34,7 @@ func statusOf(t *testing.T, p *testkit.Project, ss wire.Status, err error, now t
 	if db != nil {
 		defer db.Close()
 	}
-	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now,
+	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now,
 		Events: statusEvents})
 	var b bytes.Buffer
 	writeStatus(&b, st, now)

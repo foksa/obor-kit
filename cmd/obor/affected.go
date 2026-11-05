@@ -6,16 +6,15 @@ import (
 	"strings"
 
 	"obor/internal/affected"
+	"obor/internal/help"
 )
-
-const affectedUsage = "usage: obor affected go [--changed <file>]"
 
 // affectedCmd is `obor affected go [--changed <file>]`: the Go packages the changed files (one repo-relative path per
 // line; default $OBOR_CHANGED_FILES) can break, one import path per line (none: nothing affected), or one line
 // "full: <why>" when the whole suite must run. Run from the module root; merge.affected_full globs force full.
 func affectedCmd(args []string) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(out, affectedUsage)
+		fmt.Fprintln(out, help.Usage("affected"))
 		return 0
 	}
 	var changed string
@@ -25,7 +24,7 @@ func affectedCmd(args []string) int {
 	case len(args) == 3 && args[0] == "go" && args[1] == "--changed":
 		changed = args[2]
 	default:
-		errf("%s", affectedUsage)
+		errf("%s", help.Usage("affected"))
 		return 2
 	}
 	_, cfg, rc := load()

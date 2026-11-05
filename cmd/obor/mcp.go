@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"obor/internal/help"
 	"obor/internal/mcp"
 	"obor/internal/project"
 )
@@ -30,6 +31,6 @@ func mcpCmd(args []string) int {
 		fmt.Fprintln(out, line)
 		return 0
 	}
-	errf("usage: obor mcp [--check]")
+	errf("%s", help.Usage("mcp"))
 	return 2
 }

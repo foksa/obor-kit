@@ -7,10 +7,9 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
-
-const watchUsage = `FAIL usage: obor watch [<T-xx>[,<T-yy>…] …] [--note "<text>"] | obor watch --rm <T-xx>[,<T-yy>…]`
 
 // watchCmd is `obor watch [<set> …] [--note "<text>"] | --rm <set>`, the lead's or the owner's (T-523, T-528,
 // T-666): a set is a task or a comma list of them (as dispatch's --after), one watch; one request to obor serve per
@@ -31,20 +30,20 @@ func watchCmd(args []string) int {
 		switch a := args[i]; {
 		case a == "--note":
 			if rm || i+1 == len(args) {
-				fmt.Fprintln(out, watchUsage)
+				fmt.Fprintln(out, "FAIL "+help.Usage("watch"))
 				return 1
 			}
 			i++
 			note = args[i]
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintln(out, watchUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("watch"))
 			return 1
 		default:
 			sets = append(sets, a)
 		}
 	}
 	if rm && len(sets) != 1 || note != "" && len(sets) == 0 {
-		fmt.Fprintln(out, watchUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("watch"))
 		return 1
 	}
 	if len(sets) == 0 {

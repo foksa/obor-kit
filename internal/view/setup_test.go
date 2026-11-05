@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"slices"
@@ -70,7 +71,7 @@ func TestSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})
+	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
 	if len(v.Lanes) != 2 || len(v.Roles) == 0 || v.Paused == nil {
 		t.Fatalf("precondition: two lanes, the roles and the pause: %+v", v)
 	}
@@ -183,7 +184,7 @@ func TestSetupWithoutStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Detail{Root: p.Root, Project: Build(Input{Lanes: checks.NewLaneTable(cfg), Now: time.Now()})}.Setup()
+	s, err := Detail{Root: p.Root, Project: Build(Input{Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now()})}.Setup()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +239,7 @@ func TestCustomRolesListed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: now})
+		v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: now})
 		s, err := Detail{Root: p.Root, Project: v}.Setup()
 		if err != nil {
 			t.Fatal(err)

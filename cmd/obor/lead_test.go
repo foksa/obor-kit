@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
 	"obor/internal/testkit"
@@ -238,7 +239,7 @@ func TestLeadUsage(t *testing.T) {
 	t.Parallel()
 	x := newLeadFx(t)
 	for _, args := range [][]string{{"--fres"}, {"lead"}, {"--fresh"}, {"--fresh2"}, {"--resume", "--nope"}, {""}} {
-		if out, rc := x.run(t, args...); rc != 1 || lastLine(out) != "FAIL "+leadUsage {
+		if out, rc := x.run(t, args...); rc != 1 || lastLine(out) != "FAIL "+help.Usage("lead") {
 			t.Errorf("obor lead %q: exit %d\n%s", args, rc, out)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
 )
@@ -263,17 +264,17 @@ func TestRestartCommand(t *testing.T) {
 		rc   int
 		last string
 	}{
-		{[]string{"restart"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "a", "b"}, 1, "FAIL " + restartUsage},
+		{[]string{"restart"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "a", "b"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "pj-l-01", "--stop", "--fresh"}, 1, "FAIL --stop takes no --fresh"},
 		// T-466: --keep-inbox went with the inbox: an unknown flag.
-		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + restartUsage},
+		{[]string{"restart", "pj-l-01", "--fresh", "--keep-inbox"}, 1, "FAIL " + help.Usage("restart")},
 		// T-864: the flags restart gave up are unknown flags now (T-785's one-minor notice is gone): the usage.
-		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + restartUsage},
-		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + restartUsage},
+		{[]string{"restart", "pj-l-01", "--prompt", "go"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--type", "luna"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--effort", "high"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--sid", "sid-9"}, 1, "FAIL " + help.Usage("restart")},
+		{[]string{"restart", "pj-l-01", "--type=luna"}, 1, "FAIL " + help.Usage("restart")},
 		{[]string{"restart", "nobody"}, 1, "FAIL unknown agent nobody (no lane, role, agents entry or recorded session)"},
 		{[]string{"restart", "pj-int", "--stop"}, 0, "STOPPED pj-int (pane w1:p2, already at a shell)"},
 	} {
@@ -357,11 +358,11 @@ func TestLaneCommands(t *testing.T) {
 		rc   int
 		last string
 	}{
-		{nil, []string{"dispatch"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"dispatch", "L-01", "T-05"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"dispatch", "T-05", "x"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"dispatch", "T-05", "--agent"}, 1, "FAIL " + dispatchUsage},
-		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + dispatchUsage},
+		{nil, []string{"dispatch"}, 1, "FAIL " + help.Usage("dispatch")},
+		{nil, []string{"dispatch", "L-01", "T-05"}, 1, "FAIL " + help.Usage("dispatch")},
+		{nil, []string{"dispatch", "T-05", "x"}, 1, "FAIL " + help.Usage("dispatch")},
+		{nil, []string{"dispatch", "T-05", "--agent"}, 1, "FAIL " + help.Usage("dispatch")},
+		{nil, []string{"dispatch", "T-05", "--bogus"}, 1, "FAIL " + help.Usage("dispatch")},
 		{nil, []string{"drop", "T-01"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
 		{nil, []string{"drop", "T-01", "why", "--bogus"}, 1, `FAIL usage: obor drop <T-xx> "<why>" [--discard] [--force]`},
 		{nil, []string{"drop", "L-01", "why"}, 1, "FAIL L-01 is no task id (task_id_pattern T-[0-9]+[a-z]?)"}, // the lane form is gone (T-775)
