@@ -348,12 +348,16 @@ func TestLookupCollectionDefaults(t *testing.T) {
 	}
 }
 
-// TaskIDOK and TaskFromBranch (T-470: from package lanes) follow task_id_pattern and branches.task.
+// TaskIDOK and TaskFromBranch (T-470: from package lanes) follow task_id_pattern and branches.task; TaskBranch is
+// TaskFromBranch's inverse (T-896).
 func TestTaskFromBranch(t *testing.T) {
 	c := load(t, `{"prefix":"pj","task_id_pattern":"TK[0-9]+","branches":{"task":"wip/{id}-lane"}}`, "")
 	if c.TaskFromBranch("wip/TK12-lane") != "TK12" || c.TaskFromBranch("wip/T-12-lane") != "" ||
 		c.TaskFromBranch("task/TK12") != "" {
 		t.Error("TaskFromBranch")
+	}
+	if got := c.TaskBranch("TK12"); got != "wip/TK12-lane" || c.TaskFromBranch(got) != "TK12" {
+		t.Errorf("TaskBranch(TK12) = %q, want the template's branch and back (T-896)", got)
 	}
 	if !c.TaskIDOK("TK1") || c.TaskIDOK("TK1x") || c.TaskIDOK("xTK1") || c.TaskIDOK("TK1\n") {
 		t.Error("TaskIDOK matches a whole id only")

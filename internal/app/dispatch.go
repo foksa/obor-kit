@@ -352,7 +352,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	if err != nil {
 		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
 	}
-	branch := strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", c.Task)
+	branch := cfg.TaskBranch(c.Task)
 	if ahead && !redo {
 		return "", fmt.Errorf("dispatch %s: %s exists with commits not in the target (merge or delete it first)", c.Task,
 			branch)
@@ -1121,9 +1121,7 @@ func (a *App) sendWork(ctx context.Context, p *proj, fx *Loop, mt mtask, step st
 	if !a.sendWorkJob(ctx, p, fx, mt, key, key, fmt.Sprintf("work job %s not sent to %s", JobID(key), mt.agent)) {
 		return false
 	}
-	a.mu.Lock()
-	p.timers[mt.task] = &jobTimer{job: JobID(key), sent: at}
-	a.mu.Unlock()
+	a.jobSent(p, mt.task, JobID(key), at)
 	return true
 }
 

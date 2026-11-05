@@ -41,6 +41,7 @@ export interface Task {
   lane?: string;
   agent?: string;
   task_state?: string;
+  open?: boolean;
   phase?: string;
   step?: number;
   attempt?: number;
@@ -119,6 +120,7 @@ export interface TaskStatus {
   lane: string;
   attempt: number;
   state: string;
+  open?: boolean;
   phase: string;
   stage?: string;
   running?: string;
@@ -267,6 +269,7 @@ export interface LaneDot {
   spec_rev?: number;
   agent?: string;
   task_state?: string;
+  open?: boolean;
   phase?: string;
   step?: number;
   attempt?: number;
@@ -320,6 +323,7 @@ export interface TaskDetail {
   lane?: string;
   agent?: string;
   task_state?: string;
+  open?: boolean;
   phase?: string;
   step?: number;
   attempt?: number;
@@ -405,6 +409,7 @@ export interface SetupLane {
   type: string;
   agent: string;
   state: string;
+  locked?: boolean;
 }
 
 export interface SetupRole {

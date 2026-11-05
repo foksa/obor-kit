@@ -52,7 +52,7 @@ func (s specs) Target(ctx context.Context, task string) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %s: %w", base, err)
 	}
-	branch := strings.ReplaceAll(s.cfg.Data.Branches.Task, "{id}", task)
+	branch := s.cfg.TaskBranch(task)
 	if _, err := project.GitCtx(ctx, s.cfg.Root, "show-ref", "--verify", "-q", "refs/heads/"+branch); err != nil {
 		return strings.TrimSpace(sha), false, nil // no such branch (show-ref's exit 1)
 	}

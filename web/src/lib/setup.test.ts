@@ -19,7 +19,7 @@ const s: Setup = {
   kinds: [{ name: "claude", args: [], prompt_extra: false }],
   lanes: [
     { lane: "L-01", type: "", agent: "pj-l-01", state: "free" },
-    { lane: "L-02", type: "opus:high", agent: "pj-l-02", state: "working" },
+    { lane: "L-02", type: "opus:high", agent: "pj-l-02", state: "working", locked: true },
     { lane: "L-03", type: "", agent: "pj-l-03", state: "free" },
   ],
   roles: [{ role: "reviewer", agent: "pj-rev", type: "terra:xhigh", status: "" }, { role: "lead", agent: "pj-lead", type: "", status: "" }],

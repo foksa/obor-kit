@@ -147,10 +147,11 @@ func (p *proj) resume(task string) {
 	}
 }
 
-// closed: task is merged, dropped or rejected (its merge loop ended; a new dispatch reopens it).
+// closed: task ended (its merge loop ended: merged, dropped or rejected; a new dispatch reopens it): the state
+// table's ended column.
 func (p *proj) closed(task string) bool {
 	mt := p.folded.loop[task]
-	return mt != nil && (mt.state == stMerged || mt.state == stDropped || mt.state == stRejected)
+	return mt != nil && states[mt.state].ended
 }
 
 // clear drops task's watchdog facts in force and the retries of their failed notifications.

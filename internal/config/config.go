@@ -904,6 +904,12 @@ func (c *Config) TaskIDOK(id string) bool {
 	return err == nil && !strings.Contains(id, "\n") && re.MatchString(id)
 }
 
+// TaskBranch is the branch the branches.task template names for task id: its {id} replaced, the inverse of
+// TaskFromBranch.
+func (c *Config) TaskBranch(id string) string {
+	return strings.ReplaceAll(c.Data.Branches.Task, "{id}", id)
+}
+
 // TaskFromBranch is the task id in a branch named by the branches.task template ("" when none).
 func (c *Config) TaskFromBranch(branch string) string {
 	pre, suf, ok := strings.Cut(c.Data.Branches.Task, "{id}")

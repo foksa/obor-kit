@@ -3,11 +3,63 @@ package app
 import (
 	"encoding/json"
 	"obor/internal/app/event"
+	"obor/internal/app/port"
 	"obor/internal/app/wire"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// T-896: serve ships whether a task is still open: the state table's ended column, not a list of state names its
+// readers keep. A dispatched task is open; a dropped one is not, and stays in the list (obor status --json shows it).
+func TestStatusOpenIsTheStateTablesEnded(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.connect()
+	for _, task := range []string{"T-1", "T-2"} {
+		addRecord(t, h, task, event.StepDispatched, event.KindFact, dispatchData{Lane: "L-01", Dir: h.lane("L-01"),
+			Agent: "pj-l-01", Branch: "task/" + task, Target: "b1"})
+	}
+	addRecord(t, h, "T-2", event.StepDropped, event.KindFact, event.FactData{Reason: "why"})
+	open := map[string]bool{}
+	for _, ts := range h.a.Status().Project.Tasks {
+		open[ts.Task] = ts.Open
+	}
+	if got, ok := open["T-1"]; !ok || !got {
+		t.Errorf("T-1: open %v (listed %v), want open: dispatched", got, ok)
+	}
+	if got, ok := open["T-2"]; !ok || got {
+		t.Errorf("T-2: open %v (listed %v), want not open: dropped, and still in the list", got, ok)
+	}
+}
+
+// T-896: serve ships the lanes its config-change rule would refuse to drop (laneHolds), so obor web's setup page
+// warns without a list of lane states: a lane whose task is open is locked, a free one is not, and an ended task
+// locks nothing.
+func TestStatusLockedLanesFollowLaneHolds(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
+	h.lanes.lanes = []port.Lane{{Name: "L-01", Dir: h.lane("L-01")}, {Name: "L-02", Dir: h.lane("L-02")}}
+	h.connect()
+	if ps := h.a.Status().Project; ps == nil {
+		t.Fatal("precondition: serve has no project")
+	}
+	addRecord(t, h, "T-2", event.StepDispatched, event.KindFact, dispatchData{Lane: "L-02", Dir: h.lane("L-02"),
+		Agent: "pj-l-02", Branch: "task/T-2", Target: "b1"})
+	h.a.mu.Lock()
+	h.a.p.lanes = []port.Lane{{Name: "L-01", State: port.LaneFree}, {Name: "L-02", State: port.LaneWorking}}
+	h.a.mu.Unlock()
+	if locked := h.a.Status().Project.Locked; len(locked) != 1 || locked[0] != "L-02" {
+		t.Errorf("locked %v, want L-02 alone: its task T-2 is open, L-01 is free", locked)
+	}
+	addRecord(t, h, "T-2", event.StepDropped, event.KindFact, event.FactData{Reason: "why"})
+	if locked := h.a.Status().Project.Locked; len(locked) != 0 {
+		t.Errorf("locked %v, want none: T-2 ended", locked)
+	}
+}
 
 // RV-49 #4: a waiting task has no lane, so the drop its needs-you advertises names the task (obor drop <T-xx>, T-462),
 // whichever dependency ended the wait.

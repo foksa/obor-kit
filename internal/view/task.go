@@ -21,6 +21,7 @@ type Task struct {
 	Lane      string `json:"lane,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	TaskState string `json:"task_state,omitempty"` // serve's state of it ("": serve has no such task)
+	Open      bool   `json:"open,omitempty"`       // serve still has it in its merge loop (not ended; T-896)
 	Phase     string `json:"phase,omitempty"`      // serve's phase of it (wire.Phase*, T-788)
 	// Step is the step its phase places it on (wire.PhaseStep; nil: needs-you, held, ended or no phase, which its
 	// records place).
@@ -59,6 +60,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 	for _, st := range ps.Tasks {
 		t := get(st.Task)
 		t.TaskState, t.Phase, t.Attempt, t.Running, t.Effort = st.State, st.Phase, st.Attempt, st.Running, st.Effort
+		t.Open = st.Open
 		if st.Lane != "" {
 			t.Lane = st.Lane
 		}

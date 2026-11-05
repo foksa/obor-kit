@@ -51,7 +51,7 @@ func TestNarrowReadsSpawnNoProcesses(t *testing.T) {
 	ss := wire.Status{Since: now.Add(-time.Hour).UTC().Format(time.RFC3339), Connected: true,
 		Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
 			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l-01", Lane: "L-01", Status: "working"}},
-			Tasks:  []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "working"}},
+			Tasks:  []wire.TaskStatus{{Task: "T-01", Lane: "L-01", State: "working", Open: true}},
 			Facts: []event.Record{{Seq: 1, Task: "T-01", Step: event.StepNeedsYou, Kind: event.KindFact,
 				Data: []byte(`{"lane":"L-01","reason":"asks: may I edit x.go?"}`)}},
 			Answers: map[int64]string{1: `obor resume T-01 "<answer>"`}}}

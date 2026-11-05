@@ -379,10 +379,10 @@ func (s *sleeper) status(ctx context.Context) (*wire.ProjectStatus, error) {
 	}
 }
 
-// openTasks is serve's open tasks: every state but merged, rejected and dropped (working, gating, merging, waiting …).
+// openTasks is serve's open tasks: every task it still has in its merge loop (working, gating, merging, waiting …).
 func openTasks(p *wire.ProjectStatus) (out []busyTask) {
 	for _, t := range p.Tasks {
-		if t.State != "merged" && t.State != "rejected" && t.State != "dropped" {
+		if t.Open {
 			out = append(out, busyTask{Task: t.Task, Lane: t.Lane, State: t.State})
 		}
 	}

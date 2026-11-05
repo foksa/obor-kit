@@ -170,7 +170,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if err != nil {
 		return "", fmt.Errorf("drive %s: %v", name, err)
 	}
-	branch := strings.ReplaceAll(cfg.Data.Branches.Task, "{id}", task)
+	branch := cfg.TaskBranch(task)
 	if ahead {
 		return "", fmt.Errorf("drive %s: %s exists with commits not in the target (merge or delete it first)", name, branch)
 	}
@@ -272,7 +272,7 @@ func (a *App) driveAgain(p *proj, cfg *config.Config, task string) (string, erro
 // branch, spec and attempt stay; its worker's stop is asked for (halt).
 func (p *proj) foldDrive(r event.Record) {
 	mt := p.folded.loop[r.Task]
-	if mt == nil || mt.state == stDropped || states[mt.state].ended {
+	if mt == nil || states[mt.state].ended {
 		return
 	}
 	var d dispatchData

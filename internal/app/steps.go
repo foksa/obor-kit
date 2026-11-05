@@ -361,9 +361,7 @@ func (a *App) fix(ctx context.Context, p *proj, fx *Loop, mt mtask, key event.Ke
 	if !a.sendFix(ctx, p, fx, mt, key, key) {
 		return false
 	}
-	a.mu.Lock()
-	p.timers[mt.task] = &jobTimer{job: JobID(key), sent: at}
-	a.mu.Unlock()
+	a.jobSent(p, mt.task, JobID(key), at)
 	return true
 }
 

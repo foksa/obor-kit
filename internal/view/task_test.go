@@ -29,10 +29,10 @@ func TestBuildOneTaskPerTask(t *testing.T) {
 	}
 	nf, _ := json.Marshal(event.FactData{Lane: "L-09", Reason: "asks"})
 	ps := &wire.ProjectStatus{Name: "pj", Root: p.Root, Tasks: []wire.TaskStatus{
-		{Task: "T-01", State: "waiting", Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"opus"}},
-		{Task: "T-02", State: "waiting", Phase: wire.PhaseWaiting, After: []string{"T-03"}},
-		{Task: "T-03", Lane: "L-01", Attempt: 1, State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
-		{Task: "T-04", Lane: "L-09", Attempt: 1, State: "needs-you", Phase: wire.PhaseNeedsYou},
+		{Task: "T-01", State: "waiting", Open: true, Phase: wire.PhaseWaiting, Level: "medium", Types: []string{"opus"}},
+		{Task: "T-02", State: "waiting", Open: true, Phase: wire.PhaseWaiting, After: []string{"T-03"}},
+		{Task: "T-03", Lane: "L-01", Attempt: 1, State: "accepted", Open: true, Phase: wire.PhasePublish, Stage: wire.StagePublish},
+		{Task: "T-04", Lane: "L-09", Attempt: 1, State: "needs-you", Open: true, Phase: wire.PhaseNeedsYou},
 	}, Facts: []event.Record{{Seq: 1, Task: "T-04", Step: event.StepNeedsYou, Kind: event.KindFact, Data: nf},
 		{Seq: 2, Task: event.LoopTask, Step: event.StepNeedsYou, Kind: event.KindFact, Data: nf}}}
 	cfg, err := config.Load(p.Root)

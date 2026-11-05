@@ -93,7 +93,7 @@ func TestBuildNoPluginWaitsForTheLastStart(t *testing.T) {
 			started := time.Now().Add(-time.Duration(c.started) * time.Second).Unix()
 			ask := func(context.Context, string) (wire.Status, error) {
 				return wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root,
-					Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "dispatched",
+					Tasks: []wire.TaskStatus{{Task: "T-01", Lane: "L-01", Attempt: 1, State: "dispatched", Open: true,
 						Phase: wire.PhaseWorking, Started: started}}}}, nil
 			}
 			v, err := reading{ask: ask}.load(context.Background(), p.Root, time.Now(), 5)
