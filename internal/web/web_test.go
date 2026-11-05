@@ -69,7 +69,7 @@ func fixture(t *testing.T) (*testkit.Project, view.Project, *Server) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	want := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})
+	want := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
 	if !want.Serve.Up || len(want.NeedsYou) != 1 || len(want.Lanes) != 1 {
 		t.Fatalf("precondition: serve up, one needs-you, one lane: %+v", want)
 	}
@@ -341,7 +341,7 @@ func TestAgentPageOfRoles(t *testing.T) {
 			Agents: []wire.AgentStatus{{Pane: "w1:p1", Name: "pj-l1", Agent: "claude", Lane: "L-01", Task: "T-01",
 				Status: "working"}},
 			Stopped: []string{"pj-rev", "pj-advisor"}}}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), DB: db, Now: now, Events: 20})
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
 	roles := map[string]view.Role{}
 	for _, r := range v.Roles {
 		roles[r.Agent] = r
@@ -591,7 +591,7 @@ func TestOverviewShowsWorkingRoles(t *testing.T) {
 			Agents:  []wire.AgentStatus{{Pane: "w1:p1", Name: deep, Agent: "claude", Status: "working", Age: 540}},
 			Stopped: []string{rev},
 			Briefs:  []wire.BriefStatus{{To: adv}}}}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: now, Events: 20})
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: now, Events: 20})
 	if len(v.Roles) < 3 {
 		t.Fatalf("precondition: the view lists the three roles: %+v", v.Roles)
 	}
@@ -636,7 +636,7 @@ func TestBackgroundOnOverviewAndAgentPage(t *testing.T) {
 	ss := wire.Status{Connected: true, Project: &wire.ProjectStatus{Name: "pj", Root: p.Root, Agents: []wire.AgentStatus{
 		{Pane: "w1:p1", Name: "pj-l1", Lane: "L-01", Status: "working"}, {Pane: "w1:p2", Name: lead, Status: "idle"}}}}
 	conv := view.Background{PID: 42, Command: "python convert.py", Background: true, Label: "convert maps", Age: 900}
-	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(cfg), Now: time.Now(), Events: 20,
+	v := view.Build(view.Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now(), Events: 20,
 		Background: map[string][]view.Background{"pj-l1": {conv}, lead: {{PID: 7, Command: "sleep 600", Background: true, Age: 45},
 			{PID: 8, Command: "go test ./...", Age: 300}}}})
 	s := &Server{Projects: func() []project.Project { return []project.Project{{Name: "pj", Root: p.Root}} },

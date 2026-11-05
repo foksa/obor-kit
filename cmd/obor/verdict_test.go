@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"obor/internal/app/wire"
+	"obor/internal/help"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/testkit"
@@ -48,7 +48,7 @@ func TestResumeAndNoVerdictVerbs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"resume", "T-01", " "}, "FAIL " + wire.ResumeUsage},            // a blank text
+		{[]string{"resume", "T-01", " "}, "FAIL " + help.Usage("resume")},        // a blank text
 		{[]string{"resume", "T-01", "yes"}, "FAIL obor serve is not running"},    // a one-word text (RV-54 #4)
 		{[]string{"resume", "T-01", "regate"}, "FAIL obor serve is not running"}, // no keyword any more: a text (T-775)
 		{[]string{"resume", "T-01", "--regate", " "}, "FAIL usage: obor resume"},

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"obor/internal/config"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -318,7 +319,7 @@ until [ -s pid ]; do sleep 0.05; done; wait`
 	if !gone(pid) {
 		t.Errorf("the TERM-ignoring child %d survived the timeout", pid)
 	}
-	if d := time.Since(start); d > 3*time.Second+Grace+2*time.Second {
+	if d := time.Since(start); d > 3*time.Second+project.Grace+2*time.Second {
 		t.Errorf("KILL after the grace, took %v", d)
 	}
 

@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/web"
 )
@@ -31,14 +32,14 @@ func webCmd(args []string) int {
 		switch {
 		case a == "--listen":
 			if i+1 >= len(args) {
-				errf("usage: obor web [--listen 127.0.0.1:<port>]")
+				errf("%s", help.Usage("web"))
 				return 2
 			}
 			i, listen = i+1, args[i+1]
 		case strings.HasPrefix(a, "--listen="):
 			listen = strings.TrimPrefix(a, "--listen=")
 		default:
-			errf("usage: obor web [--listen 127.0.0.1:<port>]")
+			errf("%s", help.Usage("web"))
 			return 2
 		}
 	}

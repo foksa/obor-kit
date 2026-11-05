@@ -167,6 +167,44 @@ func TestLanePrepareRepeats(t *testing.T) {
 	}
 }
 
+// TestLanePrepareCanceledEndsSetup (T-873): a canceled prepare ends the configured setup check's process: the check
+// gets no output after the cancel (its sleep and its marker never happen) and Prepare returns at once with a refusal.
+func TestLanePrepareCanceledEndsSetup(t *testing.T) {
+	p, lane, target := laneFx(t, testkit.Set("commands.lane_ready", "touch ready-started; sleep 30; touch ready-done"))
+	l := laneAdapter(t, p, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := l.Prepare(ctx, laneInput(lane, target))
+		done <- err
+	}()
+	started := filepath.Join(lane, "ready-started")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("lane_ready never started: the fixture's command did not run")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		var refused port.Refused
+		if !errors.As(err, &refused) {
+			t.Fatalf("prepare: %v; want the final refusal of a red lane_ready", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Prepare outlived the canceled ctx: the setup check's process was not killed")
+	}
+	if _, err := os.Stat(filepath.Join(lane, "ready-done")); err == nil {
+		t.Fatal("the setup check outlived the cancel: it wrote its marker after the cancel")
+	}
+}
+
 // TestLaneFree (obor drop, T-439): a dirty lane and a branch with commits not in the target are refused, nothing
 // changed; --discard drops both; then the lane is detached at the target and the branch deleted, and freeing again
 // converges.

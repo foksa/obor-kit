@@ -8,10 +8,9 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
-
-const pauseUsage = `FAIL usage: obor pause [--model <name>] [--for <dur>] "<why>" | obor pause [--model <name>] --clear`
 
 // pauseCmd is `obor pause [--model <name>] [--for <dur>] "<why>" | [--model <name>] --clear`, the lead's or the
 // owner's: a request to obor serve that records the project's pause (wire.MethodPause): while it holds, dispatches are
@@ -23,7 +22,7 @@ func pauseCmd(args []string) int {
 	if len(args) >= 2 && args[0] == "--model" {
 		c.Model, args = args[1], args[2:]
 		if c.Model == "" || strings.HasPrefix(c.Model, "-") {
-			fmt.Fprintln(out, pauseUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("pause"))
 			return 1
 		}
 	}
@@ -33,18 +32,18 @@ func pauseCmd(args []string) int {
 	case len(args) == 3 && args[0] == "--for":
 		d, err := time.ParseDuration(args[1])
 		if err != nil || d <= 0 {
-			fmt.Fprintf(out, "FAIL usage: obor pause: bad duration: %s\n", args[1])
+			fmt.Fprintln(out, "FAIL bad duration: "+args[1]+" ("+help.Usage("pause")+")")
 			return 1
 		}
 		c.Until, c.Note = time.Now().Add(d).Unix(), args[2]
 	case len(args) == 1:
 		c.Note = args[0]
 	default:
-		fmt.Fprintln(out, pauseUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("pause"))
 		return 1
 	}
 	if !c.Clear && (c.Note == "" || strings.HasPrefix(c.Note, "--")) { // a mistyped flag (--stat), not a reason
-		fmt.Fprintln(out, pauseUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("pause"))
 		return 1
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodPause, func(_ *config.Config, call *wire.Call) error {

@@ -15,11 +15,10 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/version"
 )
-
-const notifyUsage = "usage: obor projects --notify <release notes file>"
 
 // notifier is one `obor projects --notify`; Send is its outside system (tests fake it).
 type notifier struct {
@@ -34,7 +33,7 @@ type notifier struct {
 // projectsNotify is `obor projects --notify <file>`.
 func projectsNotify(args []string) int {
 	if len(args) != 2 || args[0] != "--notify" {
-		fmt.Fprintln(out, "FAIL "+notifyUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("projects --notify"))
 		return 1
 	}
 	b, err := os.ReadFile(args[1])

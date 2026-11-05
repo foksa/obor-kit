@@ -38,7 +38,9 @@ func newRfx(t *testing.T) *rfx {
 	f.h = f.p.Herdr()
 	f.srv = herdrtest.Serve(t, f.h)
 	f.pl = &launch.Restorer{Env: f.p.Env(), H: f.srv.Client(), Now: func() time.Time { return time.Unix(0, 0) },
-		LaneState: func(cfg *config.Config, l config.Lane) string { return checks.NewLaneTable(cfg).LaneState(l).State }}
+		LaneState: func(cfg *config.Config, l config.Lane) string {
+			return checks.NewLaneTable(context.Background(), cfg).LaneState(l).State
+		}}
 	f.pl.Restart = func(_ context.Context, cfg *config.Config, req launch.Request, w io.Writer) (string, error) {
 		c := cfg.Root + " restart " + req.Agent + " --pane " + req.Pane
 		if req.Fresh {

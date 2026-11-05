@@ -132,7 +132,7 @@ func main() {
 		exit(startCmd(args))
 	case "version":
 		if len(args) != 0 {
-			errf("usage: obor version")
+			errf("%s", help.Usage("version"))
 			exit(2)
 		}
 		fmt.Fprintln(out, version.CurrentLine())
@@ -272,7 +272,7 @@ func hook(args []string) int {
 		}
 		return 0
 	}
-	errf("usage: obor hook noop|pre-tool-use|stop|stop-failure|session-start|user-prompt-submit")
+	errf("%s", help.Usage("hook"))
 	return 2
 }
 

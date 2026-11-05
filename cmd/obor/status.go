@@ -16,6 +16,7 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 	"obor/internal/store"
 	"obor/internal/view"
@@ -35,7 +36,7 @@ func status(args []string) int {
 		case "--short":
 			short = true
 		default:
-			errf("usage: obor status [--facts] [--json] [--short]")
+			errf("%s", help.Usage("status"))
 			return 2
 		}
 	}
@@ -54,7 +55,7 @@ func status(args []string) int {
 	if db != nil {
 		defer db.Close()
 	}
-	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(cfg), DB: db, Now: time.Now(),
+	st := view.Build(view.Input{Status: ss, Err: err, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: time.Now(),
 		Events: statusEvents, Notes: view.Notes(cfg.Root, warn),
 		Background: view.ScanBackground(ctx, cfg.Root, ss, err, project.OSEnv)})
 	st.Serve.PID, st.Serve.Launchd = serveProcess(ctx, cfg, st.Serve.Up)

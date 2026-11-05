@@ -14,6 +14,7 @@ import (
 	"obor/internal/agents"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
 
@@ -25,7 +26,7 @@ import (
 // name, not an obor project, serve down or its refusal (exit 1).
 func sendCmd(args []string) int {
 	if len(args) != 2 || args[0] == "" || strings.TrimSpace(args[1]) == "" {
-		fmt.Fprintln(out, `FAIL usage: obor send <project> "<text>"`)
+		fmt.Fprintln(out, "FAIL "+help.Usage("send"))
 		return 1
 	}
 	ctx, env := context.Background(), project.OSEnv
@@ -78,9 +79,6 @@ func unknownProject(name string, env project.Env) error {
 	return fmt.Errorf("no obor project named %s (known: %s)", name, strings.Join(known, ", "))
 }
 
-// briefUsage is obor brief's usage line.
-const briefUsage = `usage: obor brief <role-agent> [--fresh] "<text>"`
-
 // briefCmd is `obor brief <role-agent> [--fresh] "<text>"`, the lead's or the owner's: the one way to brief a role
 // agent (T-785). A request to obor serve (wire.MethodBrief) that its pane or session reads "[obor <caller>] <text>"
 // once the agent is idle; once that agent has worked on it and is idle again, serve posts
@@ -99,7 +97,7 @@ func briefCmd(args []string) int {
 		rest = append(rest, a)
 	}
 	if len(rest) != 2 || rest[0] == "" || strings.TrimSpace(rest[1]) == "" {
-		fmt.Fprintln(out, "FAIL "+briefUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("brief"))
 		return 1
 	}
 	agent, text := rest[0], rest[1]

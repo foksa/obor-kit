@@ -12,6 +12,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
 
@@ -19,11 +20,6 @@ import (
 // tasks, whose verify serve briefs the reviewer once they merged; obor review close records the close commit (serve
 // stops the reviewer once it sees it, rolestop.go). The open review is the next review by git (the newest "RV-<n> closed" commit + 1) whose file
 // <reviews>/RV-<n>.md is in the main checkout (the reviewer writes it there from its role worktree, T-853).
-
-const (
-	reviewCloseUsage = `FAIL usage: obor review close "<summary>" [--accept "<line>"]… [--force]`
-	reviewFixUsage   = `FAIL usage: obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`
-)
 
 // reviewGitWait bounds a review command's git.
 const reviewGitWait = 60 * time.Second
@@ -65,12 +61,12 @@ func reviewFixCmd(args []string) int {
 		case tasks == nil && a != "" && !strings.HasPrefix(a, "-"):
 			tasks = strings.Split(a, ",")
 		default:
-			fmt.Fprintln(out, reviewFixUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("review fix"))
 			return 1
 		}
 	}
 	if tasks == nil {
-		fmt.Fprintln(out, reviewFixUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("review fix"))
 		return 1
 	}
 	return request(context.Background(), project.OSEnv, wire.MethodFix, func(cfg *config.Config, call *wire.Call) error {
@@ -106,12 +102,12 @@ func reviewCloseCmd(args []string) int {
 		case summary == "" && strings.TrimSpace(a) != "" && !strings.HasPrefix(a, "-"):
 			summary = strings.Join(strings.Fields(a), " ")
 		default:
-			fmt.Fprintln(out, reviewCloseUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
 			return 1
 		}
 	}
 	if summary == "" {
-		fmt.Fprintln(out, reviewCloseUsage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
 		return 1
 	}
 	_, cfg, rc := load()
@@ -147,7 +143,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 			" requested or briefed; --force closes anyway): nothing changed", c.id, strings.Join(cycle.Pending, ", "))
 	}
 	root := cfg.Root
-	if on, err := gitIn(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.s.Branch {
+	if on, err := project.GitCtx(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.s.Branch {
 		return "", fmt.Errorf("the main checkout %s is not on %s: nothing changed", root, c.s.Branch)
 	}
 	files := []string{c.file}
@@ -159,7 +155,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		rel, _ := filepath.Rel(root, f)
 		own[filepath.ToSlash(rel)] = true
 	}
-	st, err := gitIn(ctx, root, "status", "--porcelain", "--untracked-files=all")
+	st, err := project.GitCtx(ctx, root, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return "", err
 	}
@@ -184,7 +180,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		}
 	}
 	// the head the reviewer last finished (its start's or a done verify's, T-857)
-	sha, err := gitIn(ctx, root, "rev-parse", "--short=7", "--verify", "-q", cycle.Reviewed+"^{commit}")
+	sha, err := project.GitCtx(ctx, root, "rev-parse", "--short=7", "--verify", "-q", cycle.Reviewed+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("no reviewed sha (%s, the head the reviewer last finished, is no commit): nothing changed",
 			cycle.Reviewed)
@@ -201,7 +197,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		backlogDirty = true
 	}
 	if backlogDirty {
-		if _, err := gitIn(ctx, root, "add", "--", "BACKLOG.md"); err != nil {
+		if _, err := project.GitCtx(ctx, root, "add", "--", "BACKLOG.md"); err != nil {
 			return "", err
 		}
 	}
@@ -209,7 +205,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 	// T-822: the body lists the cycle's covered tasks and where its review started, so the next review's scope takes
 	// the merges this cycle did not cover.
 	body := "Covered: " + strings.Join(cycle.Covered, ", ") + "\nStart: " + cycle.Start
-	if _, err := gitIn(ctx, root, "commit", "-q", "--allow-empty", "-m", subject, "-m", body); err != nil {
+	if _, err := project.GitCtx(ctx, root, "commit", "-q", "--allow-empty", "-m", subject, "-m", body); err != nil {
 		return "", err
 	}
 	return "CLOSED " + subject, nil

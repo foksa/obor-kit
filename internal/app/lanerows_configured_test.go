@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"obor/internal/app"
 	"obor/internal/app/event"
@@ -70,7 +71,7 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	states := map[string]string{}
-	for _, s := range checks.NewLaneTable(cfg).States() {
+	for _, s := range checks.NewLaneTable(context.Background(), cfg).States() {
 		states[s.Lane] = s.Type
 	}
 	if states["L-01"] != "opus" || states["L-02"] != "" {
@@ -82,7 +83,7 @@ func TestLaneRowsHoldConfiguredLanesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ro.Close()
-	setup, err := view.Detail{Root: r.p.Root, Project: view.Build(view.Input{Lanes: checks.NewLaneTable(cfg), DB: ro,
+	setup, err := view.Detail{Root: r.p.Root, Project: view.Build(view.Input{Lanes: checks.NewLaneTable(context.Background(), cfg), DB: ro,
 		Now: time.Now(), Events: 20})}.Setup()
 	if err != nil {
 		t.Fatal(err)

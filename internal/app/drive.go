@@ -147,7 +147,7 @@ func (a *App) newDrive(ctx context.Context, p *proj, fx *Loop, c wire.Call) (str
 	if kind := unbridged(cfg, typ); kind != "" {
 		return "", fmt.Errorf("drive %s: model %s's kind %s has no bridge (obor config validate)", name, typ, kind)
 	}
-	ls, err := a.lanes.Lanes(p.root)
+	ls, err := a.lanes.Lanes(ctx, p.root)
 	if err != nil {
 		return "", fmt.Errorf("drive: lanes of %s: %v", p.name, err)
 	}

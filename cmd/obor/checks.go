@@ -12,10 +12,9 @@ import (
 	"obor/internal/app/wire"
 	"obor/internal/checks"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
-
-const nightlyUsage = "FAIL usage: obor nightly [on HH:MM | off]"
 
 // nightlyCmd is `obor nightly` (NIGHTLY: one run now), or `obor nightly on HH:MM | off` (nightlySwitch).
 func nightlyCmd(args []string) int {
@@ -25,7 +24,7 @@ func nightlyCmd(args []string) int {
 	case len(args) == 2 && args[0] == "on", len(args) == 1 && args[0] == "off":
 		return nightlySwitch(args)
 	}
-	fmt.Fprintln(out, nightlyUsage)
+	fmt.Fprintln(out, "FAIL "+help.Usage("nightly"))
 	return 1
 }
 

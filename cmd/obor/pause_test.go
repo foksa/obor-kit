@@ -28,7 +28,7 @@ func TestPauseRequest(t *testing.T) {
 	}
 	for _, d := range []string{"tomorrow", "2days", "0s", "-1h"} {
 		if rc, stdout, _ := run(t, p.Root, env("lead"), "pause", "--for", d, "later"); rc != 1 ||
-			stdout != "FAIL usage: obor pause: bad duration: "+d+"\n" {
+			stdout != "FAIL bad duration: "+d+" (usage: obor pause [--model <name>] [--for <dur>] \"<why>\" | obor pause [--model <name>] --clear)\n" {
 			t.Errorf("--for %s: exit %d, %q; want 1, bad duration", d, rc, stdout)
 		}
 	}

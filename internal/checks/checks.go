@@ -54,7 +54,7 @@ type Options struct {
 	// GitAlive reports whether a git process runs in dir's repository (a lock it holds is not stale); nil: the
 	// system's (ps, the processes' cwd). Serve's git calls only (gitLocked).
 	GitAlive func(dir string) bool
-	// gitCtx ends the git calls: one running is killed with its process group (run.Group), a later one fails (nil:
+	// gitCtx ends the git calls: one running is killed with its process group (project.Group), a later one fails (nil:
 	// never). A session sets its own, Scratch the one each method is given.
 	gitCtx context.Context
 	// callCtx ends the run's socket calls, the nightly's backup (nil: the run's own). A test shortens a nightly with no
@@ -153,7 +153,7 @@ func (o *Options) gitEnv(env []string, dir string, args ...string) (string, stri
 	cmd.Env = append(append(append([]string(nil), o.Environ...), "OBOR_MERGE=1"), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	cleanup := run.Group(cmd)
+	cleanup := project.Group(cmd)
 	err := cmd.Run()
 	cleanup()
 	return strings.TrimRight(stdout.String(), "\n"), strings.TrimRight(stderr.String(), "\n"), err

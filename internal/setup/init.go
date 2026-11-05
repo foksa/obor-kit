@@ -14,7 +14,6 @@ import (
 
 	"obor/internal/config"
 	"obor/internal/project"
-	"obor/internal/run"
 )
 
 // initArgs parses [--name N] [--prefix P].
@@ -359,7 +358,7 @@ func (s *Setup) initCommit(auto bool) (committed []string, err error) {
 	cmd := exec.CommandContext(context.Background(), "git", args...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
-	cleanup := run.Group(cmd)
+	cleanup := project.Group(cmd)
 	defer cleanup()
 	if err := cmd.Run(); err != nil {
 		return nil, project.Failf("git commit -m obor init: %s", lastLine(out.String(), err))

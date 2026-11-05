@@ -1,6 +1,7 @@
 package run
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,7 @@ func TestRunWritesReceipts(t *testing.T) {
 		"edits": {"cmd": "echo more > during.txt", "heavy": true}, "wait": {"cmd": "sleep 5", "heavy": true}}`)
 	f.p.Write(filepath.Join(f.lane, "feature.txt"), "feature\n")
 	state := project.StateDir(f.p.Root)
-	tree, err := Tree(f.lane, nil)
+	tree, err := Tree(context.Background(), f.lane, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

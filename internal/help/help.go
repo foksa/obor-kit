@@ -31,7 +31,7 @@ var Commands = []Command{
 	{"watch", `obor watch [<T-xx>[,<T-yy>…] …] [--note "<text>"] | obor watch --rm <T-xx>[,<T-yy>…]`,
 		"one line to the lead when the tasks merge (or one is dropped); no argument lists the watches", "tasks"},
 	{"resume", `obor resume <T-xx> ["<text>"] [--regate|--sendback]`,
-		"act on a task's needs-you: answer its question, nudge a stalled worker, send it back, decide", "tasks"},
+		"act on a task's needs-you: answer its question, nudge a stalled worker, send it back, decide (only --regate and --sendback are flags: any other argument is the text, -- too, and -- ends the flags)", "tasks"},
 	{"drop", `obor drop <T-xx> "<why>" [--discard] [--force]`,
 		"stop a task's worker and free its lane (--discard: its unmerged work too)", "tasks"},
 	{"drive", "obor drive <name> [--model <model[:effort]>] | obor drive <T-xx>",
@@ -40,7 +40,8 @@ var Commands = []Command{
 		"submit a drive's branch: the gate, the integrator and the merge as for any task", "tasks"},
 	{"idle", `obor idle ["<why nothing is in flight>"]`,
 		"show the idle state, or acknowledge it with why nothing is in flight", "tasks"},
-	{"review", `obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | --rm | fix <T-a>[,<T-b>…] | close "<summary>"`,
+	{"review", `obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
+		` | obor review fix … | obor review close …`,
 		"request a code review now or after tasks merge, end the request; fix and close are the review's own steps", "reviews"},
 	{"lead", "obor lead [--resume]", "start the project's lead in its own tab (--resume continues its last session)", "agents"},
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
@@ -62,7 +63,7 @@ var Commands = []Command{
 	{"projects", "obor projects | obor projects --notify <release notes file>",
 		"the obor projects this machine knows, with serve up or down", "project"},
 	{"config", "obor config [get <path> | validate]", "print the effective config, one value, or check it", "project"},
-	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout", "project"},
+	{"run", "obor run <command-name> [args…]", "run a configured command (commands.<name>) under its timeout (obor run <name> --help: its configured line, runs nothing)", "project"},
 	{"flakes", "obor flakes", "the flaky tests of the last 7 days", "project"},
 	{"nightly", "obor nightly [on HH:MM | off]", "run the nightly checks now, or schedule or unschedule them", "project"},
 	{"version", "obor version", "this binary's version and where it came from", "project"},
@@ -79,6 +80,29 @@ var Commands = []Command{
 	{"plugin", "obor plugin restore [--now]", "the herdr plugin's restore command (herdr runs it)", "internals"},
 	{"has", "obor has <subcommand> [<sub-subcommand>]", "exit 0 when this binary implements it (the shim asks)", "internals"},
 	{"affected", "obor affected go [--changed <file>]", "the Go packages the changed files can break (the gate's tier)", "internals"},
+}
+
+// Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in
+// Commands (obor review fix, the hidden --notify of obor projects). Commands and Steps are the one source of every
+// usage line the CLI prints (T-873): each command's usage error prints Usage of its name.
+var Steps = map[string]string{
+	"review close":      `obor review close "<summary>" [--accept "<line>"]… [--force]`,
+	"review fix":        `obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`,
+	"projects --notify": "obor projects --notify <release notes file>",
+}
+
+// Usage is the usage line of name, "usage: " included: a command's (Commands) or a step's (Steps). It prints no line
+// for a name neither has: that is a caller's bug, not a user's.
+func Usage(name string) string {
+	for _, c := range Commands {
+		if c.Name == name {
+			return "usage: " + c.Usage
+		}
+	}
+	if line, ok := Steps[name]; ok {
+		return "usage: " + line
+	}
+	panic("help: no usage line for " + name)
 }
 
 // Write is `obor help`: the usage line, then each group's commands, each its usage line and description.

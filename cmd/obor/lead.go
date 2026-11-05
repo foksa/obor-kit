@@ -8,14 +8,13 @@ import (
 	"strings"
 
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/herdr"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/roles"
 	"obor/internal/setup"
 )
-
-const leadUsage = "usage: obor lead [--resume]"
 
 // leadRun is one `obor lead` in dir (tests: a fake herdr, tune sets the launcher's hooks).
 type leadRun struct {
@@ -47,7 +46,7 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 		case "--resume":
 			fresh = false
 		default:
-			return fail("%s", leadUsage)
+			return fail("%s", help.Usage("lead"))
 		}
 	}
 	repo, err := project.Find(r.dir)

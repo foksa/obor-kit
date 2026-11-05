@@ -89,7 +89,7 @@ type Lane struct {
 	Reason          string
 }
 
-// Lanes reads a project's lanes.
+// Lanes reads a project's lanes (its git reads end with ctx, T-873).
 type Lanes interface {
-	Lanes(root string) ([]Lane, error)
+	Lanes(ctx context.Context, root string) ([]Lane, error)
 }

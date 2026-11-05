@@ -20,14 +20,14 @@ var _ app.ConfigFile = configFile{}
 const configPath = ".obor/config.json"
 
 func (f configFile) Read(ctx context.Context) ([]byte, string, error) {
-	st, err := gitIn(ctx, f.root, "status", "--porcelain", "--", configPath)
+	st, err := project.GitCtx(ctx, f.root, "status", "--porcelain", "--", configPath)
 	if err != nil {
 		return nil, "", err
 	}
 	if strings.TrimSpace(st) != "" {
 		return nil, configPath + " has uncommitted changes in " + f.root + ": commit or discard them first", nil
 	}
-	b, err := gitIn(ctx, f.root, "branch", "--show-current")
+	b, err := project.GitCtx(ctx, f.root, "branch", "--show-current")
 	if err != nil {
 		return nil, "", err
 	}
@@ -50,11 +50,11 @@ func (f configFile) Commit(ctx context.Context, doc []byte, msg string) (string,
 	if err := project.WriteAtomic(path, doc); err != nil {
 		return "", err
 	}
-	if _, err := gitIn(ctx, f.root, "commit", "-q", "--only", "-m", msg, "--", configPath); err != nil {
+	if _, err := project.GitCtx(ctx, f.root, "commit", "-q", "--only", "-m", msg, "--", configPath); err != nil {
 		_ = project.WriteAtomic(path, old) // the file is as it was: nothing half done
 		return "", err
 	}
-	sha, err := gitIn(ctx, f.root, "rev-parse", "HEAD")
+	sha, err := project.GitCtx(ctx, f.root, "rev-parse", "HEAD")
 	return strings.TrimSpace(sha), err
 }
 

@@ -12,20 +12,18 @@ import (
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/launch"
 	"obor/internal/project"
 	"obor/internal/store"
 )
-
-const restartUsage = "usage: obor restart <agent> [--pane <id>] [--fresh] [--force] | " +
-	"obor restart <agent> --stop [--pane <id>] [--force]"
 
 // restart is `obor restart` (internal/launch): progress lines, then the result line last, RESTARTED / STOPPED,
 // SCHEDULED (the caller's own pane: a detached run does it once the agent is idle) or FAIL (exit 1).
 // A first prompt, a model and an effort are serve's (a brief, a dispatch), never a flag here (T-785); the flags restart
 // gave up are unknown, so they get the usage (T-864: their one-minor notice is gone).
 func restart(args []string) int {
-	usage := func() int { fmt.Fprintln(out, "FAIL "+restartUsage); return 1 }
+	usage := func() int { fmt.Fprintln(out, "FAIL "+help.Usage("restart")); return 1 }
 	// --stop is restart's own flag, not a Request field: take it out, then let launch.ParseRequest own every flag
 	// that maps to one (T-303: its write side is Request.Args, so the two cannot drift).
 	stopIt, rest := false, make([]string, 0, len(args))

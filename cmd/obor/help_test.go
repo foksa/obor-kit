@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,6 +76,56 @@ func TestHelpTableMatchesDispatch(t *testing.T) {
 		if !rows[name] {
 			t.Errorf("main.go dispatches %q, which help.Commands does not list", name)
 		}
+	}
+}
+
+// T-873: one usage source. Every command row and step resolves through help.Usage to a line that names it, and no
+// cmd/obor file spells a usage line out: a new one would drift from the table obor help prints.
+func TestUsageLinesComeFromHelp(t *testing.T) {
+	t.Parallel()
+	for _, c := range help.Commands {
+		got := help.Usage(c.Name)
+		if got != "usage: "+c.Usage || !strings.HasPrefix(got, "usage: obor "+c.Name) {
+			t.Errorf("%s: help.Usage = %q, want usage: %s", c.Name, got, c.Usage)
+		}
+	}
+	for name := range help.Steps {
+		cmd, _, _ := strings.Cut(name, " ")
+		if !slices.ContainsFunc(help.Commands, func(c help.Command) bool { return c.Name == cmd }) {
+			t.Errorf("help.Steps names %q, whose command is not in help.Commands", name)
+		}
+		if got := help.Usage(name); !strings.HasPrefix(got, "usage: obor "+name) {
+			t.Errorf("%s: help.Usage = %q", name, got)
+		}
+	}
+	ents, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, e := range ents {
+		if n := e.Name(); strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+			files = append(files, n)
+		}
+	}
+	if len(files) < 10 {
+		t.Fatalf("precondition: %d cmd/obor files scanned, want its source files", len(files))
+	}
+	for _, name := range files {
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			if s, err := strconv.Unquote(lit.Value); err == nil && strings.Contains(s, "usage: obor") {
+				t.Errorf("%s: a usage line is typed here, not help.Usage: %q", name, s)
+			}
+			return true
+		})
 	}
 }
 

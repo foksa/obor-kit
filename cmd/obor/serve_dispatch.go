@@ -48,15 +48,15 @@ func (s specs) Target(ctx context.Context, task string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	sha, err := s.git(ctx, "rev-parse", "--verify", "--end-of-options", base+"^{commit}")
+	sha, err := project.GitCtx(ctx, s.cfg.Root, "rev-parse", "--verify", "--end-of-options", base+"^{commit}")
 	if err != nil {
 		return "", false, fmt.Errorf("cannot resolve %s: %w", base, err)
 	}
 	branch := strings.ReplaceAll(s.cfg.Data.Branches.Task, "{id}", task)
-	if _, err := s.git(ctx, "show-ref", "--verify", "-q", "refs/heads/"+branch); err != nil {
+	if _, err := project.GitCtx(ctx, s.cfg.Root, "show-ref", "--verify", "-q", "refs/heads/"+branch); err != nil {
 		return strings.TrimSpace(sha), false, nil // no such branch (show-ref's exit 1)
 	}
-	_, err = s.git(ctx, "merge-base", "--is-ancestor", "refs/heads/"+branch, base)
+	_, err = project.GitCtx(ctx, s.cfg.Root, "merge-base", "--is-ancestor", "refs/heads/"+branch, base)
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
@@ -74,7 +74,7 @@ func (s specs) target(context.Context) (string, error) {
 
 // checkout is nil while the main checkout is on branches.main, else why the merge loop pauses (app.Loop.Checkout).
 func (s specs) checkout(ctx context.Context) error {
-	b, err := s.git(ctx, "branch", "--show-current")
+	b, err := project.GitCtx(ctx, s.cfg.Root, "branch", "--show-current")
 	if err != nil {
 		return fmt.Errorf("the branch of the main checkout %s: %w", s.cfg.Root, err)
 	}
@@ -86,10 +86,4 @@ func (s specs) checkout(ctx context.Context) error {
 		b = "a detached HEAD"
 	}
 	return fmt.Errorf("main checkout is on %s, not %s", b, main)
-}
-
-// git runs git -C <main checkout> args…: its stdout.
-func (s specs) git(ctx context.Context, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", s.cfg.Root}, args...)...).Output()
-	return string(out), err
 }

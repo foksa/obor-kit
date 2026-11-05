@@ -591,7 +591,7 @@ func claudeCall(ctx context.Context, claude, dir string, env project.Env, args .
 	cmd.Env = append(os.Environ(), "PATH="+env.Get("PATH"))
 	var discard bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &discard, &discard
-	cleanup := run.Group(cmd)
+	cleanup := project.Group(cmd)
 	defer cleanup()
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {

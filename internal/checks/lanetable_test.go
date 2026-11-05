@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -52,7 +53,7 @@ func ltFixture(t *testing.T, extra string, lanes map[string]string) *LaneTable {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewLaneTable(c)
+	return NewLaneTable(context.Background(), c)
 }
 
 // submit puts task on lane's row and, done, its task_done age ago, as obor serve projects its log (T-439); the row's
@@ -75,6 +76,46 @@ func ltSubmit(t *testing.T, root, lane, task string, done bool, age time.Duratio
 	rows = append(slices.DeleteFunc(rows, func(r store.LaneRow) bool { return r.Lane == lane }), row)
 	if err := store.WriteLanes(db, rows); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestLaneStatesCanceled (T-873): a canceled ctx ends the lane table's git reads: a git that hangs is killed, States
+// returns at once, and the lane is unknown (never free), with the cancellation as its reason.
+func TestLaneStatesCanceled(t *testing.T) {
+	p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+	bin := t.TempDir()
+	started := filepath.Join(bin, "started")
+	script := "#!/bin/sh\ntouch " + strconv.Quote(started) + "\nsleep 30\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan []LaneStatus, 1)
+	go func() { done <- NewLaneTable(ctx, p.Cfg).States() }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the lane table never started git: the fixture's shim was not used")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	var states []LaneStatus
+	select {
+	case states = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("States outlived the canceled ctx: its git was not killed")
+	}
+	if len(states) != 1 || states[0].State != "unknown" ||
+		!slices.ContainsFunc([]string{"context canceled", "signal: terminated", "signal: killed"},
+			func(why string) bool { return strings.Contains(states[0].Reason, why) }) {
+		t.Errorf("states %+v, want the one lane unknown with the cancellation as its reason", states)
 	}
 }
 
@@ -343,7 +384,7 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 			if c.want != "store:" && !strings.Contains(s.Reason, "fatal:") {
 				t.Errorf("reason %q does not carry git's stderr", s.Reason)
 			}
-			ls, err := (Lanes{}).Lanes(p.Root)
+			ls, err := (Lanes{}).Lanes(context.Background(), p.Root)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -361,7 +402,7 @@ func TestLaneUnknownOnFailedRead(t *testing.T) {
 		if s.State != "free" || s.Reason != "" {
 			t.Fatalf("lane state %q, reason %q; want free and no reason", s.State, s.Reason)
 		}
-		ls, err := (Lanes{}).Lanes(p.Root)
+		ls, err := (Lanes{}).Lanes(context.Background(), p.Root)
 		if err != nil || len(ls) != 1 || ls[0].State != "free" || ls[0].Reason != "" {
 			t.Errorf("dispatch's lanes %+v, %v; want L-01 free with no reason", ls, err)
 		}
@@ -384,21 +425,21 @@ func stateOf(p *LaneTable, lane string) LaneStatus {
 func TestMergeEvidenceSubjects(t *testing.T) {
 	p := ltFixture(t, "", nil)
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "T-05 widened (lead: spec)")
-	if NewLaneTable(p.Cfg).MergeEvidence("T-05") {
+	if NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-05") {
 		t.Fatal("a lead commit mentioning T-05 counts as merged")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m", "Merge T-05: work")
-	if !NewLaneTable(p.Cfg).MergeEvidence("T-05") {
+	if !NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-05") {
 		t.Error("Merge T-05: commit → merged")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
 		"Merge commit 'abc' into HEAD\n\n# Conflicts:\n#\tshared.txt")
-	if NewLaneTable(p.Cfg).MergeEvidence("T-07") {
+	if NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-07") {
 		t.Fatal("precondition: git's default merge subject counts as T-07's evidence")
 	}
 	ltGit(t, p.Root, "commit", "-q", "--allow-empty", "-m",
 		"Merge T-07: Resolved title\n\nSpec rev 1:\n\n# T-07 — Resolved title\n\nSummary: did it")
-	if !NewLaneTable(p.Cfg).MergeEvidence("T-07") {
+	if !NewLaneTable(context.Background(), p.Cfg).MergeEvidence("T-07") {
 		t.Error("the resolved merge's subject is not evidence")
 	}
 }

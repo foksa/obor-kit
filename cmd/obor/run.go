@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 	herdrun "obor/internal/run"
 )
@@ -15,11 +16,11 @@ import (
 // command's configured line, nothing run; anything else (also after --) goes to the command.
 func runCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(out, "FAIL "+herdrun.Usage)
+		fmt.Fprintln(out, "FAIL "+help.Usage("run"))
 		return 2
 	}
 	if args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(out, herdrun.Usage)
+		fmt.Fprintln(out, help.Usage("run"))
 		return 0
 	}
 	cwd, _ := os.Getwd()
@@ -34,7 +35,7 @@ func runCmd(args []string) int {
 	}
 	c, ok := herdrun.Command(cfg, args[0])
 	if ok && len(args) > 1 && (args[1] == "-h" || args[1] == "--help") {
-		fmt.Fprintln(out, herdrun.Usage)
+		fmt.Fprintln(out, help.Usage("run"))
 		fmt.Fprintln(out, herdrun.Line(c))
 		return 0
 	}

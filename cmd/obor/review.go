@@ -3,17 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"obor/internal/app"
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/project"
 )
-
-const reviewUsage = `FAIL usage: obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
-	` | obor review fix … | obor review close …`
 
 // reviewCmd is `obor review [--after T-a,T-b] [--note "<text>"] | --rm`, the lead's or the owner's (T-638): one request
 // to obor serve (wire.MethodReview). Serve's reply: REVIEW REQUESTED (now | after T-a,T-b)[ (replaces the request of
@@ -40,7 +37,7 @@ func reviewCmd(args []string) int {
 				c.Note = args[i]
 			}
 		default:
-			fmt.Fprintln(out, reviewUsage)
+			fmt.Fprintln(out, "FAIL "+help.Usage("review"))
 			return 1
 		}
 	}
@@ -106,8 +103,7 @@ func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
 }
 
 func (g reviewGit) git(ctx context.Context, args ...string) (string, error) {
-
-	return gitIn(ctx, g.root, args...)
+	return project.GitCtx(ctx, g.root, args...)
 }
 
 // span is git's range from..to (from "": all of to).
@@ -116,21 +112,6 @@ func span(from, to string) string {
 		return to
 	}
 	return from + ".." + to
-}
-
-// gitIn runs git -C dir args…: its stdout; an error carries git's stderr.
-func gitIn(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", fmt.Errorf("git %s: %s", args[0], msg)
-		}
-		return "", fmt.Errorf("git %s: %w", args[0], err)
-	}
-	return string(out), nil
 }
 
 // lines is out's non-empty lines.

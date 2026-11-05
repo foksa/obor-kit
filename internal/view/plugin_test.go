@@ -53,7 +53,7 @@ func pluginRig(t *testing.T, dispatchedAt, at int64, now time.Time) (*checks.Lan
 	if err != nil {
 		t.Fatal(err)
 	}
-	lp := checks.NewLaneTable(cfg)
+	lp := checks.NewLaneTable(context.Background(), cfg)
 	lp.Now = now.Unix()
 	return lp, checks.LaneStatus{Lane: "L-01", Type: "ds", Dir: filepath.Join(root, "..", "pj-wt", "L-01"),
 		State: "working", Task: "T-1"}

@@ -32,7 +32,8 @@ func TestProjectsListsKnownProjects(t *testing.T) {
 		}
 	}
 	r.Config(testkit.Set("name", "another")) // the root is there, its project is not the "gone" the list names
-	if rc, stdout, _ := run(t, p.Root, env, "projects", "extra"); rc != 1 || stdout != "FAIL usage: obor projects\n" {
+	if rc, stdout, _ := run(t, p.Root, env, "projects", "extra"); rc != 1 ||
+		stdout != "FAIL usage: obor projects | obor projects --notify <release notes file>\n" {
 		t.Errorf("obor projects with an argument: exit %d, %q", rc, stdout)
 	}
 

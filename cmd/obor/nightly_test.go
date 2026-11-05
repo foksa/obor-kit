@@ -8,6 +8,7 @@ import (
 
 	"obor/internal/app/wire"
 	"obor/internal/config"
+	"obor/internal/help"
 	"obor/internal/herdr"
 	"obor/internal/testkit"
 )
@@ -24,7 +25,7 @@ func TestNightlySwitch(t *testing.T) {
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
 	for _, args := range [][]string{{"nightly", "on"}, {"nightly", "on", "03:00", "x"}, {"nightly", "off", "03:00"},
 		{"nightly", "now"}, {"nightly", "03:00"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || stdout != "FAIL usage: obor nightly [on HH:MM | off]\n" {
+		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || stdout != "FAIL "+help.Usage("nightly")+"\n" {
 			t.Errorf("obor %q: exit %d, %q; want 1, FAIL usage", args, rc, stdout)
 		}
 	}
