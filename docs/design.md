@@ -371,12 +371,10 @@ full check and the pause.
 
 ## Machine load (v2.1, 2026-10-08 — requests from the axis-alies lead)
 Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies share it) turn timing-based tests RED.
-- **Merge window:** serve's gate runs the checks (`docs/state-model.md`, rows 18–33). Worker prompts/skills say: full
-  checks and e2e only via `obor run`, focused tests while iterating, the class check once before `task_done`.
-- **Load-aware retry:** after a RED, if **every** failing line matches `merge.timeout_grep` (e.g. `timed out|Timeout|
-  exceeded`) and the 1-min load average > `merge.max_load` (default: number of CPUs), serve's gate waits until load
-  < `merge.max_load` (max `merge.load_wait`, default 600 s), re-runs the failed command once, and reports
-  `MERGED … (retried after load <x>)` or the second RED. Never more than one retry.
+- **Merge window:** serve's gate runs the checks (`docs/state-model.md`, rows 18–33). Worker prompts/skills say: focused
+  tests while iterating; before `task_done` the tests the project's worker doc names (obor-kit: its packages only,
+  2026-11-05); the gate runs the class check. The load-aware retry and its keys are gone (T-864); a gate that skips
+  re-runs on a non-overlapping move (T-900) is the load measure now.
 - **Watchdogs:** a stalled or blocked worker and a pane that exits are serve's facts (`needs-you`), recorded and
   notified by the merge loop (`docs/state-model.md` "Timers").
 - **Dispatch:** refuses a lane with uncommitted leftovers (`dirty-free` → FAIL unless `--force`).
