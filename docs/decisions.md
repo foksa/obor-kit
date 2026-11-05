@@ -5,8 +5,8 @@ at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
 - 2026-11-05 (owner): **Flow simplifications first, all four at once**: T-850 serve runs a review's fix round
-  (`obor review fix`, close refused until verified); T-851 `merge.review` off as experiment E1 (green merges without
-  the integrator's review; open questions held for the lead); T-852 move/drop/take-over answer first, the stop is a loop
+  (`obor review fix`, close refused until verified); T-851 (E1, no integrator review) **dropped the same morning**: the
+  integrator's reviews sent back ~39 of ~487 merges since 10-25 with real findings and it resolves every conflict; T-852 move/drop/take-over answer first, the stop is a loop
   step (E3); T-853 reviewer, deep dive and integrator out of the main checkout, merge hold deleted (E2, partly reverses
   T-718; a serve-owned worktree at the reviewed head answers T-718's staleness).
 - 2026-11-04 (owner): **The store opens schema 9 and newer** (`upgradeFrom` 9; T-840): an older store upgrades through

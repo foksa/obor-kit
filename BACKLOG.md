@@ -20,7 +20,8 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   needs-you block), but each fix closes its gap by adding a mechanism. Experiments the lead proposed (one wave each,
   measured): **E1** no integrator review: merge on a green gate, batched terra review only; compare findings with
   today's waves (the integrator accepted every pruning task terra later found holes in) — if no worse, the role, its
-  job type, held verdicts and part of the merge loop go (lead's pick to try first). **E2** reviewer and integrator in
+  job type, held verdicts and part of the merge loop go (lead's pick to try first). **11-05: dropped** — the lead's
+  premise was wrong: the integrator sent back T-831/T-834/T-838 itself and ~8% of merges since 10-25. **E2** reviewer and integrator in
   their own read-only worktree: if nothing breaks, the main-checkout deny rows (T-841, T-848) go. **E3** move, drop and
   take-over answer at once, the stop is a later line: then the deadline code (T-825, T-829, RV-108 #1) goes. **E4** a
   feature freeze for v0.27: each task names what it removes, no new config keys.
@@ -210,6 +211,9 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (11-05) `obor drop T-851 --discard` failed halfway: `FAIL drop: git branch -D task/T-851: signal: terminated` left
+  the lane freed but the task `working`; the same drop again finished it. A drop that fails after freeing the lane
+  should say "retry the same obor drop" (or record the drop before the branch delete). Likely under load; fix small.
 - (RV-112, accepted) (RV-112, constructed) guard skips combined short (git checkout -qd) and abbreviated long (--det) detach spellings in the main checkout; no workflow uses them; fix in internal/guard/shell.go:830 if one shows up
 - (RV-110, accepted) (RV-110, accepted) #1 T-840's schema-8 refusal test reads old rows only through ReadLanes; ReadLaneAt/ReadLanesAt (guard, Stop hook, whoami) are not exercised on schema 8; needs a pre-v0.22 serve during an upgrade (no project runs one); fix 10-15 test lines in internal/store/store_test.go if it ever matters
 - (RV-108, accepted) (RV-108, accepted) #1 the stop bound (T-829) does not bound the herdr calls inside Launcher.Stop: a forced stop with a slow herdr can outlast the CLI's 75 s (drop) or be cut by drive/move's 60 s request context; second review round on T-825/T-829, low likelihood; fix: one derived deadline through every herdr call of Stop (20-40 prod + 40-70 test lines)
