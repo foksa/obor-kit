@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
@@ -167,8 +168,9 @@ func TestRoleStopIntegratorRule(t *testing.T) {
 	}
 }
 
-// T-870: an older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): the rule
-// still stops an integrator whose job was answered, and status never reads a record for "stopped" (the pane says).
+// T-870, T-875: an older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): no
+// fold reads it (T-875 removed the no-op foldRoles), and the rule still stops an integrator whose job was answered;
+// status never reads a record for "stopped" (the pane says).
 func TestRoleStopOldRecordsFoldToNothing(t *testing.T) {
 	t.Parallel()
 	h, s := stopRig(t)
@@ -334,14 +336,18 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	same(t, len(s.stops), 0, "serve's stops of the custom role")
 }
 
-// reviewStopSpy is agentsSpy that records every Stop.
+// reviewStopSpy is agentsSpy that records every Stop; err, when set, is the error every stop fails with.
 type reviewStopSpy struct {
 	agentsSpy
 	stops []string
+	err   error
 }
 
 func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) (string, error) {
 	s.stops = append(s.stops, fmt.Sprintf("%s %s force=%t", agent, pane, force))
+	if s.err != nil {
+		return "", s.err
+	}
 	return "STOPPED " + agent, nil
 }
 
@@ -425,6 +431,31 @@ func TestRoleStopReviewerRule(t *testing.T) {
 				t.Errorf("stops %q, want %q", s.stops, c.stops)
 			}
 		})
+	}
+}
+
+// T-875: a reviewer stop that keeps failing is a needs-you after ruleFails passes in a row, though every pass falls
+// inside the git poll's reviewDueEvery: a review read closed stays eligible on every pass until the stop's effect
+// shows, not only on the pass that read it (before, the second pass had no condition, so rulePass dropped the live
+// count and three failures never happened).
+func TestRoleStopReviewerFailuresAccumulate(t *testing.T) {
+	t.Parallel()
+	r, s := reviewStopRig(t)
+	r.started()
+	r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
+	s.err = errors.New("herdr refused the stop")
+	reason := fmt.Sprintf("rule %s failed %d passes in a row (serve's log names the errors)", ruleReviewerStop, ruleFails)
+	for i := 1; i <= ruleFails; i++ {
+		r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
+		if len(s.stops) != i {
+			t.Fatalf("after pass %d: %d stop attempts, want %d (the closed review was not eligible again)", i, len(s.stops), i)
+		}
+		if inForce := r.p.has(event.RuleTask, event.StepNeedsYou, reason); inForce != (i == ruleFails) {
+			t.Errorf("after pass %d: the rule's needs-you in force %v, want %v", i, inForce, i == ruleFails)
+		}
+	}
+	if n := len(r.p.folded.active[event.RuleTask]); n != 1 {
+		t.Errorf("%d needs-you facts in force, want one", n)
 	}
 }
 
