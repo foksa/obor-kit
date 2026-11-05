@@ -35,6 +35,16 @@
       "timeout": 1200,
       "heavy": true
     },
+    "check_readers": {
+      "cmd": "make -s check-readers",
+      "timeout": 1200,
+      "heavy": true
+    },
+    "check_web": {
+      "cmd": "make -s check-web",
+      "timeout": 1200,
+      "heavy": true
+    },
     "guard": {
       "cmd": "set -e; n=0; while IFS= read -r f; do case \"$f\" in *.sh|bin/obor|githooks/*) if [ -f \"$f\" ]; then /bin/bash -n \"$f\"; n=$((n + 1)); fi ;; esac; done < \"$OBOR_CHANGED_FILES\"; /bin/bash bin/obor config validate; jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null; echo \"guard OK: bash -n on $n changed script(s), obor config validate, plugin JSON\"",
       "timeout": 120
@@ -86,6 +96,16 @@
     ],
     "classes": [
       {
+        "name": "web",
+        "paths": [
+          "web/src/**",
+          "internal/web/dist/**"
+        ],
+        "checks": [
+          "check_web"
+        ]
+      },
+      {
         "name": "go",
         "paths": [
           "cmd/**",
@@ -94,12 +114,26 @@
         "checks": [
           "check_affected"
         ]
+      },
+      {
+        "name": "readers",
+        "paths": [
+          "skills/**",
+          "templates/**",
+          "hooks/**",
+          "bin/go-commands",
+          ".claude-plugin/**"
+        ],
+        "checks": [
+          "check_readers"
+        ]
       }
     ],
     "neutral": [
       "docs/**",
       "ADOPTION-*.md",
       "AGENTS.md",
+      "BACKLOG.md",
       "BRIEF.md",
       "CLAUDE.md",
       "QUESTIONS.md",

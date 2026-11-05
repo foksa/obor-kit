@@ -1,5 +1,6 @@
 # obor (Go). `make build` → dist/obor, `make test` → go test ./..., `make check` → the merge gate (commands.check),
-# `make check-affected` → its per-merge tier (commands.check_affected),
+# `make check-affected` → its per-merge tier (commands.check_affected), `make check-readers` / `make check-web` → the two
+# non-Go classes' checks (skills/templates/hooks and the page's Go side, T-901),
 # `make trim-go-cache` → the Go build cache's entries unused for 48 h (commands.trim_go_cache, nightly, T-817),
 # `make deadcode` → its dead-code check, `make deps` → a warm module cache for an offline machine, `make upgrade-check`
 # → the previous release upgraded to this build (tests/upgrade),
@@ -27,7 +28,7 @@ endif
 GOOS_LIST := darwin linux
 GOARCH_LIST := arm64 amd64
 
-.PHONY: build test conformance trim-go-cache check check-affected deadcode deps upgrade-check release ship publish clean web web-dev web-test
+.PHONY: build test conformance trim-go-cache check check-affected check-readers check-web deadcode deps upgrade-check release ship publish clean web web-dev web-test
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X obor/internal/version.Version=$(BUILD_VERSION)" -o dist/obor ./cmd/obor
@@ -60,15 +61,17 @@ trim-go-cache:
 
 # The merge gate (check: the full suite) and its per-merge tier (check-affected, commands.check_affected, T-347): the
 # same steps, but go test only on the packages $OBOR_CHANGED_FILES affects (obor affected go); any doubt runs the full
-# suite. CHECK_CPUS (obor run and the gates export it: cores / slots.max) is go test -p. GOCACHE falls back to $TMPDIR
-# when the default is not writable (a Codex sandbox, T-206); every failure prints a line fail_grep matches (^FAIL).
-check check-affected:
-	@c=$$($(GO) env GOCACHE 2>/dev/null); \
+# suite. CHECK_CPUS (obor run and the gates export it: cores / slots.max) is go test -p. Every class check starts with
+# GO_GATE: GOCACHE falls back to $TMPDIR when the default is not writable (a Codex sandbox, T-206), then build, gofmt and
+# vet; every failure prints a line fail_grep matches (^FAIL).
+GO_GATE = c=$$($(GO) env GOCACHE 2>/dev/null); \
 	{ mkdir -p "$$c" && : > "$$c/.obor-probe" && rm -f "$$c/.obor-probe"; } 2>/dev/null || \
 	  { GOCACHE="$${TMPDIR:-/tmp}/obor-go-build"; export GOCACHE; }; \
 	$(MAKE) -s build || { echo "FAIL make build"; exit 1; }; \
 	f=$$(gofmt -l cmd internal); test -z "$$f" || { echo "FAIL gofmt: $$(printf '%s\n' "$$f" | tr '\n' ' ')"; exit 1; }; \
-	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }; \
+	$(GO) vet ./... || { echo "FAIL go vet"; exit 1; }
+check check-affected:
+	@$(GO_GATE); \
 	pkgs=./...; \
 	if [ "$@" = check-affected ]; then \
 	  if a=$$(./dist/obor affected go); then \
@@ -85,6 +88,46 @@ check check-affected:
 	  echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"; \
 	fi; \
 	$(MAKE) -s deadcode || { echo "FAIL deadcode"; exit 1; }
+
+# check-readers: the packages that read the non-Go files outside a Go rule (merge.classes "readers", T-901). The survey
+# greps the .go files under cmd/ and internal/ for each path, package by package; TestOborKitReaders fails when a package
+# starts reading one and READER_PKGS lacks it, and when a listed package stopped:
+#   skills/**        cmd/obor (skills_test.go: the skill texts, their frontmatter and the files they point to)
+#   templates/**     cmd/obor (skills_test.go), internal/app (fetch.go, dispatch.go: the role texts and the job prompt),
+#                    internal/config (validate_test.go: templates/config.example.json), internal/guard (session.go: the
+#                    role text a session shows), internal/setup (init.go, agent.go: what setup copies into a project)
+#   hooks/**         cmd/obor (plugin_wiring_test.go: hooks.json as the plugin registers it)
+#   bin/go-commands  cmd/obor (skills_test.go, shim_test.go, install_test.go: the shim's commands)
+#   .claude-plugin/  cmd/obor (plugin_wiring_test.go, shim_test.go), internal/agents/claude (claude.go: the manifest's
+#                    mcpServers entry), internal/setup (plugin.go, oborinit.go: install's registration)
+#   internal/checks  matches only through the classification table and a fixture that name paths without reading them:
+#                    listed so the survey needs no per-file exception; its tests run beside cmd/obor's and internal/app's,
+#                    so the extra package costs little wall time.
+# tests/conformance reads hooks/hooks.json too, but that suite is `make conformance`, nightly. No deadcode step: a changed
+# skill or template moves no package's API. Left as they are: docs/** is merge.neutral (guard only, unchanged) — the
+# reader list above leaves docs out, so docs/agents/*.md, read by cmd/obor (skills_test.go) and internal/app
+# (worktext_test.go), keeps today's hole; root README.md is read by cmd/obor (skills_test.go) but stays unmatched (the
+# full check, safe), and RELEASING.md, bin/obor, install.sh, githooks/**, scripts/**, tests/** and web/package.json match
+# no class and run the full check too. In .obor/config.json the web class must stay before go: internal/web/dist/** lies
+# under internal/**, and the first class whose glob matches owns the file.
+READER_PKGS := ./cmd/obor ./internal/agents/claude ./internal/app ./internal/checks ./internal/config ./internal/guard ./internal/setup
+check-readers:
+	@$(GO_GATE); \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} $(READER_PKGS) 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
+
+# check-web: the Go side of the page (merge.classes "web", T-901), on the same prologue. `go test ./internal/web` is
+# TestDistFresh (the committed internal/web/dist was built from web/ as it is now), types_test (web/src/lib/types.ts
+# against the JSON the page reads) and TestPageIsEmbedded (the embedded build). The page's own suite — make web-test:
+# svelte-check and Vitest — needs web/node_modules, which only `make web` (npm ci, network) creates and no gate worktree
+# has: a lane that touches web/ runs `make web` (that suite runs there, and dist is rebuilt) and the gate proves dist is
+# the build of web/ as committed.
+check-web:
+	@$(GO_GATE); \
+	rc=0; out=$$($(GO) test -count=1 $${CHECK_CPUS:+-p $$CHECK_CPUS} ./internal/web 2>&1) || rc=$$?; printf '%s\n' "$$out" >&2; \
+	n=$$(printf '%s\n' "$$out" | grep -c '^ok' || true); f=$$(printf '%s\n' "$$out" | grep -c '^FAIL[[:space:]]' || true); \
+	echo "go test: $$n pass, $$f fail"; test "$$rc" = 0 || exit "$$rc"
 
 # Pinned; the module cache comes before the proxy, so a warm cache needs no network (a Codex sandbox has none).
 # Test support (herdrtest, testkit) is excepted. The prompts table's path readers stay for the hooks and CLIs of T-665
