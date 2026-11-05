@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/project"
 	"obor/internal/testkit"
@@ -35,10 +39,14 @@ func TestServeServiceVerbs(t *testing.T) {
 	if rc, stdout, stderr := run(t, p.Root, env, "status"); rc != 0 || !strings.HasPrefix(stdout, "serve: down (obor serve install)\n") {
 		t.Fatalf("status before install: %d %q %q", rc, stdout, stderr)
 	}
+	// Install and restart wait for the agent's serve to answer (T-862): the fake launchd's new serve is this project's
+	// socket, there before install's preamble asks and stopped before status reads serve as down.
+	serve := startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "", "")
 	rc, stdout, stderr := run(t, p.Root, env, "serve", "install")
-	if rc != 0 || !strings.HasPrefix(stdout, "INSTALLED obor.serve.") {
+	if rc != 0 || !strings.HasPrefix(stdout, "INSTALLED obor.serve.") || !strings.HasSuffix(stdout, "\nserve ready\n") {
 		t.Fatalf("install: %d %q %q", rc, stdout, stderr)
 	}
+	serve.stop()
 	plists, _ := filepath.Glob(filepath.Join(home, "Library", "LaunchAgents", "obor.serve.*.plist"))
 	if len(plists) != 1 {
 		t.Fatalf("plists: %q", plists)
@@ -57,9 +65,12 @@ func TestServeServiceVerbs(t *testing.T) {
 		strings.HasPrefix(stdout, "serve: down (obor serve install)") {
 		t.Errorf("status with the agent installed, serve down: %d %q %q", rc, stdout, stderr)
 	}
-	if rc, stdout, stderr := run(t, p.Root, env, "serve", "restart"); rc != 0 || !strings.HasPrefix(stdout, "RESTARTED obor.serve.") {
+	serve = startFakeServeAt(t, wire.SocketPath(p.Root), wire.Status{}, "", "")
+	if rc, stdout, stderr := run(t, p.Root, env, "serve", "restart"); rc != 0 ||
+		!strings.HasPrefix(stdout, "RESTARTED obor.serve.") || !strings.HasSuffix(stdout, "\nserve ready\n") {
 		t.Errorf("restart: %d %q %q", rc, stdout, stderr)
 	}
+	serve.stop()
 	if rc, stdout, stderr := run(t, p.Root, env, "serve", "uninstall"); rc != 0 || !strings.HasPrefix(stdout, "UNINSTALLED obor.serve.") {
 		t.Errorf("uninstall: %d %q %q", rc, stdout, stderr)
 	}
@@ -71,6 +82,116 @@ func TestServeServiceVerbs(t *testing.T) {
 		if !strings.Contains(string(calls), verb) {
 			t.Errorf("launchctl never got %q:\n%s", verb, calls)
 		}
+	}
+}
+
+// restartStub is servedProject with its serve LaunchAgent installed as far as launchd is concerned: a plist naming the
+// project's root under home, and a fake launchctl that reports the label loaded and accepts kickstart (recording its
+// argv in log).
+func restartStub(t *testing.T, p *testkit.Project) (home, bin, log string) {
+	t.Helper()
+	home, bin = t.TempDir(), t.TempDir()
+	log = filepath.Join(bin, "calls")
+	plist := filepath.Join(home, "Library", "LaunchAgents", "obor.serve.proj.plist")
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("<key>WorkingDirectory</key><string>"+p.Root+"</string>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\ncase \"$1\" in print) printf '\\tpid = 999999\\n' ;; esac\n"
+	if err := os.WriteFile(filepath.Join(bin, "launchctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home, bin, log
+}
+
+// serveStatusAfter binds root's app socket after d and answers one status request, then leaves: the serve of a restart,
+// which replays its log before it binds (T-659).
+func serveStatusAfter(t *testing.T, root string, d time.Duration) {
+	t.Helper()
+	sock := wire.SocketPath(root)
+	lnc := make(chan net.Listener, 1)
+	go func() {
+		time.Sleep(d)
+		if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
+			t.Error(err)
+			lnc <- nil
+			return
+		}
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Error(err)
+			lnc <- nil
+			return
+		}
+		lnc <- ln
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_, _ = bufio.NewReader(c).ReadBytes('\n')
+		_, _ = c.Write([]byte("{\"status\":{}}\n"))
+	}()
+	t.Cleanup(func() {
+		if ln := <-lnc; ln != nil {
+			_ = ln.Close()
+		}
+	})
+}
+
+// T-862: restart returns once the new serve answers, not when launchd has started it: a big replay binds its socket
+// after that (T-659). Here the old socket is gone and the new one answers 1.5 s in.
+func TestServeRestartWaitsForServe(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd: darwin only")
+	}
+	p := servedProject(t)
+	home, bin, log := restartStub(t, p)
+	env := []string{"HOME=" + home, "PATH=" + bin + ":" + os.Getenv("PATH"), "OBOR_STATE_HOME=" + t.TempDir(),
+		"HERDR_SOCKET_PATH="}
+	sock := wire.SocketPath(p.Root)
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Fatalf("socket before the restart: %v", err)
+	}
+	serveStatusAfter(t, p.Root, 1500*time.Millisecond)
+	start := time.Now()
+	rc, stdout, stderr := run(t, p.Root, env, "serve", "restart")
+	elapsed := time.Since(start)
+	if rc != 0 || stdout != "RESTARTED obor.serve.proj\nserve ready\n" {
+		t.Fatalf("restart: %d %q %q; want its line and serve ready", rc, stdout, stderr)
+	}
+	if elapsed < time.Second {
+		t.Errorf("restart returned in %s, before the socket answered (1.5 s in): it did not wait", elapsed)
+	}
+	if calls, _ := os.ReadFile(log); !strings.Contains(string(calls), "kickstart -k gui/") {
+		t.Errorf("launchctl never got the kickstart:\n%s", calls)
+	}
+}
+
+// T-862: a serve that never answers fails after the wait (shortened here), naming the deadline and where to look, and
+// prints no line as if the restart had succeeded.
+func TestServeRestartServeNeverAnswers(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd: darwin only")
+	}
+	p := servedProject(t)
+	home, bin, _ := restartStub(t, p)
+	env := []string{"HOME=" + home, "PATH=" + bin + ":" + os.Getenv("PATH"), "OBOR_STATE_HOME=" + t.TempDir(),
+		"HERDR_SOCKET_PATH=", "OBOR_SERVE_READY_WAIT=0.3"}
+	if _, err := os.Stat(wire.SocketPath(p.Root)); !os.IsNotExist(err) {
+		t.Fatalf("socket before the restart: %v", err)
+	}
+	start := time.Now()
+	rc, stdout, stderr := run(t, p.Root, env, "serve", "restart")
+	elapsed := time.Since(start)
+	want := "FAIL obor serve restart: launchd restarted it but serve did not answer in 300ms (obor status; its log: "
+	if rc != 1 || stdout != "" || !strings.HasPrefix(stderr, want) || !strings.HasSuffix(stderr, "serve.log)\n") {
+		t.Fatalf("restart: %d %q %q; want the FAIL line after %q … serve.log)", rc, stdout, stderr, want)
+	}
+	if elapsed < 300*time.Millisecond {
+		t.Errorf("restart failed in %s, before the 300ms deadline: it did not wait", elapsed)
 	}
 }
 

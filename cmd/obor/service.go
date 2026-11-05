@@ -68,11 +68,74 @@ func serveService(verb, cwd string, env project.Env) int {
 		errf("FAIL obor serve %s: %v", verb, err)
 		return 1
 	}
+	// launchd's restart returns when it has started the new serve; that one replays its log before it binds its
+	// socket (T-659), so a caller that asks it at once finds no serve. Wait for its answer (T-862). A serve in a pane
+	// is not waited for: install's launchd one waits on the pane's flock, nothing new answers yet.
+	ready := false
+	if s.Supported() && pane == 0 && (verb == "install" || verb == "restart") {
+		d := serveWait(env)
+		if dl, ok := ctx.Deadline(); ok {
+			d = min(d, time.Until(dl)) // service.Deadline is the whole verb's
+		}
+		if err := waitServe(ctx, cfg.Root, d); err != nil {
+			errf("FAIL obor serve %s: launchd restarted it but serve did not answer in %s (obor status; its log: %s)",
+				verb, d.Round(time.Millisecond), s.LogPath())
+			return 1
+		}
+		ready = true
+	}
 	fmt.Fprintln(out, line)
+	if ready {
+		fmt.Fprintln(out, "serve ready")
+	}
 	if pane != 0 {
 		fmt.Fprintf(out, "obor serve runs in a pane (pid %d): stop it there; launchd's serve takes over once it is gone\n", pane)
 	}
 	return 0
+}
+
+// serveWaitDefault is how long install and restart wait for the new serve's answer: a big project's replay is long.
+// It stays inside service.Deadline. OBOR_SERVE_READY_WAIT, in seconds (fractions allowed: 0.3), shortens it for tests.
+const serveWaitDefault = 60 * time.Second
+
+// The wait's timing: one ask's bound (a socket that accepts but never answers is tried again) and the pause between
+// asks.
+const (
+	serveAsk  = 2 * time.Second
+	servePoll = 250 * time.Millisecond
+)
+
+// serveWait is serveWaitDefault, or OBOR_SERVE_READY_WAIT seconds when that is set to a positive number.
+func serveWait(env project.Env) time.Duration {
+	if s := env.Get("OBOR_SERVE_READY_WAIT"); s != "" {
+		if secs, err := strconv.ParseFloat(s, 64); err == nil && secs > 0 {
+			return time.Duration(secs * float64(time.Second))
+		}
+	}
+	return serveWaitDefault
+}
+
+// waitServe asks the app socket of root's project until serve answers, every servePoll, nil then. d (and ctx) end the
+// wait; the last ask's error is the error.
+func waitServe(ctx context.Context, root string, d time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
+	for {
+		ask, stop := context.WithTimeout(ctx, serveAsk)
+		_, err := wire.Ask(ask, wire.SocketPath(root))
+		stop()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(servePoll):
+		}
+	}
 }
 
 // servePID is the pid serve wrote into root's serve.flock (0: none). Read it only while serve answers: the file
