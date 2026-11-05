@@ -360,7 +360,9 @@ full check and the pause.
   A review's close commit names its reviewed sha, its covered tasks (`Covered:`) and its start sha (`Start:`, T-822);
   the scope, `review due` and the release check read those. `obor review fix <T-a,T-b>` (T-850) links fix tasks to the
   open review: once all merged, serve runs the verify in the same reviewer session; `obor review close` is refused
-  until then (`--force`: the owner's word).
+  until then (`--force`: the owner's word). A spec line `Review: on merge` (T-878, rule tier) makes serve record a
+  review request once that task merged and no request is open or review started since; it waits for an open cycle's
+  close like any request.
 
 ## Machine load (v2.1, 2026-10-08 — requests from the axis-alies lead)
 Many lanes on one machine (load 20–50 on 10 cores; obor-kit and axis-alies share it) turn timing-based tests RED.
