@@ -26,6 +26,7 @@ import (
 // dispatch next, or obor idle \"<why nothing>\""), after a watch line firing for the same merge (notify records the
 // watch lines first). The line waits until the pipeline has stayed idle for idleSettle (T-859): a verify the merge
 // loop requests seconds after the last merge, or a review request made just then, is work, not an empty pipeline.
+// An acknowledgement made inside that window holds as one made after the line: no line, no ping (T-860).
 // Unacknowledged after idlePingAfter, one more line and a herdr notification reach the owner; after that only obor
 // status and obor web show the state.
 
@@ -162,8 +163,9 @@ func (p *proj) idleEpoch(n idle) *idleState {
 
 // idleLines announces the idle state once and pings an unacknowledged one after idlePingAfter: the lead's line (and
 // later the ping's, with the owner's notification). A pass records the watch lines before this one, so a watch line
-// firing for the same merge comes first. The line waits out idleSettle from the first idle check (T-859); the ping
-// counts from the idle fact as before. Nothing is recorded when the log refuses it: the next pass tries again.
+// firing for the same merge comes first. The line waits out idleSettle from the first idle check (T-859); an
+// acknowledgement recorded inside the window suppresses the line and the ping, as one after the line does (T-860). The
+// ping counts from the idle fact as before. Nothing is recorded when the log refuses it: the next pass tries again.
 func (a *App) idleLines(ctx context.Context) {
 	a.mu.Lock()
 	p := a.p
@@ -183,7 +185,7 @@ func (a *App) idleLines(ctx context.Context) {
 	case p.idleSince.IsZero(): // a restart starts the window again (T-859: the state is live)
 		p.idleSince = now
 	default:
-		first = !st.lined && now.Sub(p.idleSince) >= idleSettle
+		first = !st.lined && !st.ack && now.Sub(p.idleSince) >= idleSettle
 		ping = !st.ack && st.lined && !st.pinged && now.Sub(st.at) >= idlePingAfter
 	}
 	if cur.ok {
