@@ -113,7 +113,9 @@ type WatchStatus struct {
 }
 
 // IdleStatus is the project's idle state (T-803): since when the pipeline is empty (Unix seconds, the time of the
-// merged or dropped fact that emptied it, T-866), what ended it ("T-xx merged <sha7>", "T-xx dropped: <why>"), and the lead's acknowledgement: Acked and its Why.
+// newest record that ended what it waited on: a merge, a drop, a finished brief, a verify's end, the last after-merge
+// step, a review request's end; T-868), what ended it ("T-xx merged <sha7>", "T-xx dropped: <why>"), and the lead's
+// acknowledgement: Acked and its Why.
 type IdleStatus struct {
 	Since int64  `json:"since"`
 	Last  string `json:"last,omitempty"`

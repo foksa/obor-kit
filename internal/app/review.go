@@ -143,9 +143,11 @@ func (p *proj) foldReview(r event.Record) {
 		p.clear(event.ReviewTask)
 	case event.StepReviewRm:
 		p.folded.review = nil
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
 		p.clear(event.ReviewTask)
 	case event.StepReviewFire:
 		p.reviewEnded(d.Request)
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
 	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
 	case event.StepReviewFix, event.StepReviewVerifyRequest: // their records are reviewLog's (reviewverify.go): only the call here

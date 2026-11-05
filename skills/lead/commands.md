@@ -58,10 +58,11 @@ review request that follows the last merge is work, not idle), it posts one line
 
 (also `last: T-xx dropped: <why>`). A watch on the same merge comes first, then this line.
 
-- The state belongs to the merge or drop that emptied the pipeline: one line per such record. A dispatch or a review
-  request ends it; work that ends without a new merge or drop (a review, a verify) returns to the same state, with no
-  new line.
-- `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that merge or drop
+- The state belongs to the newest record that ended work the pipeline waited on — a merge, a drop, a finished review
+  or deep-dive brief, a verify's end, the last after-merge step, a review request's end: one line per such record, and
+  the minute and the age count from it. A dispatch or a review request ends it; a long verify or brief after a merge is
+  its own state, so the merge's acknowledgement does not cover it (T-868). `last:` still names the last merge or drop.
+- `obor idle "<why nothing>"` — acknowledges (the lead's or the owner's): serve records the why for that end record
   and stops the ping; `obor status` then shows `idle: <why>`. Made inside the minute, no line goes at all.
 - `obor idle` — the state: `IDLE, not acknowledged since <time> (last: …)` or `IDLE: <why>`; `NOT IDLE`.
 - Unacknowledged 30 minutes after the line: one more line to you and a herdr notification to the owner; after that

@@ -212,6 +212,9 @@ func (p *proj) foldLoop(r event.Record) {
 		default:
 			if i := slices.Index(afterSteps, r.Step); i >= 0 {
 				mt.after = max(mt.after, i+1)
+				if r.Seq > mt.afterSeq { // the last after-merge step (T-868: the idle key once it is the newest end)
+					mt.afterSeq, mt.afterAt = r.Seq, event.RecordTime(r)
+				}
 			}
 		}
 	}

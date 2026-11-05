@@ -12,13 +12,15 @@ import (
 	"time"
 )
 
-// Idle (T-803, T-815, T-866): serve says when the pipeline empties, and the lead answers. Two rules (rules.go) carry
-// it, keyed by the merged or dropped record that emptied the pipeline (idleNow's end): once nothing has been in flight
+// Idle (T-803, T-815, T-866, T-868): serve says when the pipeline empties, and the lead answers. Two rules (rules.go)
+// carry it, keyed by the newest record that ended work the pipeline waited on (idleNow's end: a merge, a drop, a
+// finished brief, a verify's end, the last after-merge step, a review request's end): once nothing has been in flight
 // for idleSettle, the lead's line ("[obor] idle: nothing in flight (last: T-xx merged <sha7>) — dispatch next, or obor
 // idle \"<why nothing>\""); idlePingAfter after that line, the ping (the line again) and the owner's herdr
 // notification. Each goes once per key, neither once the lead acknowledged the key: obor idle "<why>" records fact
 // idle.ack{key, why}. Work in the settle window (a verify the merge loop requests seconds after the last merge, a review
-// request made just then, T-859) restarts it; a new emptying is a new key, with its own line.
+// request made just then, T-859) restarts it; a new end is a new key, with its own line (T-868: a long verify's or
+// brief's end after the merge is one, so an acknowledgement of the merge before it does not cover it).
 
 // idlePingAfter is how long after its line an unacknowledged idle state waits before the ping.
 const idlePingAfter = 30 * time.Minute
@@ -32,7 +34,7 @@ const (
 	ruleIdlePing = "idle.ping"
 )
 
-// idleAck is fact idle.ack's data (obor idle "<why>"): the merged or dropped record's seq whose emptying it answers,
+// idleAck is fact idle.ack's data (obor idle "<why>"): the end record's seq whose emptying it answers,
 // the why, who said it, and the call with its reply.
 type idleAck struct {
 	Key   int64  `json:"key,omitempty"`
@@ -42,9 +44,25 @@ type idleAck struct {
 	Reply string `json:"reply,omitempty"`
 }
 
-// idle is idleNow's answer: what ended the pipeline last ("T-xx merged <sha7>", "T-xx dropped: <why>"), that fact's
-// seq and time, and whether nothing is in flight — the pipeline is empty, no needs-you is in force, no review request
-// is pending, no verify waits for its brief and no role worktree agent (the reviewer, the deep dive) holds one.
+// idleEnd is one record that ended work the pipeline waited on (T-868): its seq (the idle key) and its time (the age's
+// start).
+type idleEnd struct {
+	seq int64
+	at  time.Time
+}
+
+// newer is the newer of e and o (by seq).
+func (e idleEnd) newer(o idleEnd) idleEnd {
+	if o.seq > e.seq {
+		return o
+	}
+	return e
+}
+
+// idle is idleNow's answer: the last merge or drop as the line names it ("T-xx merged <sha7>", "T-xx dropped: <why>"),
+// the newest end record's seq (the idle key) and time, and whether nothing is in flight — the pipeline is empty, no
+// needs-you is in force, no review request is pending, no verify waits for its brief and no role worktree agent (the
+// reviewer, the deep dive) holds one.
 type idle struct {
 	last string
 	end  int64
@@ -71,14 +89,16 @@ func (p *proj) foldIdle(r event.Record) {
 	}
 }
 
-// idleNow is the pipeline's state now (under mu): idle with the last end's line and fact seq when nothing is in
-// flight, no needs-you is in force, no review request or verify is pending and no reviewer or deep dive holds a brief.
-// A task merged but still on its after-merge steps is in flight; a rejected one is no cause of idle (its needs-you ends
-// it).
+// idleNow is the pipeline's state now (under mu): idle with the last merge or drop's line, the newest end record's seq
+// (the idle key) and time when nothing is in flight, no needs-you is in force, no review request or verify is pending
+// and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
+// one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on
+// (T-868): a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a verify's
+// end, a review request's end.
 func (p *proj) idleNow() idle {
 	var last string
-	var end int64
-	var at time.Time
+	var merge idleEnd // the newest merge or drop: what the line names
+	var end idleEnd   // the newest record that ended what the pipeline waited on
 	for _, task := range p.loopTasks() {
 		mt := p.folded.loop[task]
 		switch mt.state {
@@ -86,12 +106,13 @@ func (p *proj) idleNow() idle {
 			if mt.after < len(afterSteps) && !mt.needs.held() {
 				return idle{}
 			}
-			if mt.mergedSeq > end {
-				end, last, at = mt.mergedSeq, idleMerged(mt), mt.endedAt
+			if e := (idleEnd{mt.mergedSeq, mt.endedAt}); e.seq > merge.seq {
+				merge, last = e, idleMerged(mt)
 			}
+			end = end.newer(idleEnd{mt.afterSeq, mt.afterAt})
 		case stDropped:
-			if mt.droppedSeq > end {
-				end, last, at = mt.droppedSeq, task+" dropped: "+oneLine(mt.dropped), mt.endedAt
+			if e := (idleEnd{mt.droppedSeq, mt.endedAt}); e.seq > merge.seq {
+				merge, last = e, task+" dropped: "+oneLine(mt.dropped)
 			}
 		case stRejected:
 			// ended without a merge: the owner's (its needs-you or its drop), never an idle cause
@@ -111,15 +132,17 @@ func (p *proj) idleNow() idle {
 		return idle{}
 	}
 	// A rule's needs-you (rules.go) is serve's failure, not work: it would end the idle state its rule acts on.
-	if end == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
+	if merge.seq == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
 		return idle{}
 	}
+	end = end.newer(merge).newer(p.folded.verifyEnd).newer(p.folded.reviewEnd)
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.briefs[w.agent] != nil {
 			return idle{}
 		}
+		end = end.newer(p.folded.briefEnds[w.agent])
 	}
-	return idle{last: last, end: end, at: at, ok: true}
+	return idle{last: last, end: end.seq, at: end.at, ok: true}
 }
 
 // idleOpen is the idle state the lead has not acknowledged (under mu): idleNow's answer, ok when nothing is in flight,
