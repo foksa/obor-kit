@@ -332,9 +332,9 @@ func logFact(t *testing.T, task, step string, d any) event.Record {
 
 // T-850, T-856: obor review close is refused while a fix task linked by obor review fix is neither verified nor
 // dropped, or a verify is requested or briefed and not done, naming them, nothing changed: a verify of T-5 briefed and
-// not finished still refuses; once the reviewer finished it (the line that ends its brief) and the lead was told T-6
-// dropped, it closes, naming the head that verify's brief handed the reviewer (the log's, not a stale ref). --force
-// closes with a fix pending.
+// not finished still refuses, and so does one its reviewer's error stop ended (T-857: failed, not done); once the
+// reviewer finished a verify of T-5 (its finished line) and the lead was told T-6 dropped, it closes, naming the head
+// that verify's brief handed the reviewer (the log's, not a stale ref). --force closes with a fix pending.
 func TestReviewCloseFixPending(t *testing.T) {
 	t.Parallel()
 	for _, force := range []bool{false, true} {
@@ -380,11 +380,59 @@ func TestReviewCloseFixPending(t *testing.T) {
 				Verify: []string{"T-5"}, VerifyOf: seqs[0], Reviewed: head}),
 			logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] RV-4 fix T-6 ended unmerged", FixDrop: []string{"T-6"}}))
 		refused("T-5's verify briefed, its line not delivered", "T-5")
+		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepStopped, struct {
+			Agent string `json:"agent"`
+			Error string `json:"error"`
+			event.Message
+		}{"pj-rev", "overloaded", event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev",
+			Line: "[obor] RV-4 verify failed: pj-rev stopped: overloaded; serve retries when the reviewer is idle"}}))
+		refused("T-5's verify ended by the reviewer's overloaded stop", "T-5")
+		seqs = appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewVerifyRequest,
+			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
+		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev",
+			Line: "[obor obor] verify", Verify: []string{"T-5"}, VerifyOf: seqs[0], Reviewed: head}))
 		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepMessage,
 			event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished (briefed 2m ago)"}))
 		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
 		if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · "+head[:7]+" · ") {
 			t.Errorf("T-5 verified, T-6 dropped: exit %d, %q; want CLOSED at the verify's head %s", rc, stdout, head[:7])
 		}
+	}
+}
+
+// T-857 (RV-113 #4a): a verify by hand of T-5 (no fix round) briefed at the head, then an ordinary brief to the
+// reviewer before it finished: close is allowed and names the review start's head, not the superseded verify's (nor
+// the ref its brief marked), and covers nothing of it.
+func TestReviewCloseSupersededVerify(t *testing.T) {
+	t.Parallel()
+	p, head := reviewFixture(t)
+	p.Write(".gitignore", ".obor/state/\n")
+	p.Git(p.Root, "add", ".gitignore")
+	p.Git(p.Root, "commit", "-q", "-m", "gitignore: the state dir")
+	older := p.Git(p.Root, "rev-parse", head+"~1")
+	p.Git(p.Root, "update-ref", app.ReviewedRef, head) // the verify's brief marked its head
+	seqs := appendFacts(t, p.Root,
+		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older, Tasks: []string{"T-1"}}),
+		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "pj-lead"}))
+	appendFacts(t, p.Root,
+		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] verify",
+			Verify: []string{"T-5"}, VerifyOf: seqs[1], Reviewed: head}),
+		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] look at the flaky test"}))
+	if c := app.ReadReviewCycle(p.Root, "RV-4"); len(c.Pending) != 0 || c.Reviewed != older {
+		t.Fatalf("the verify superseded: cycle %+v; want nothing pending, the start's head %s", c, older)
+	}
+	f := p.Herdr()
+	f.Shell("w1:p3", "pj-rev", p.Root)
+	srv := herdrtest.Serve(t, f)
+	env := []string{"HERDR_SOCKET_PATH=" + srv.Path, "HOME=" + p.Base + "/home", "OBOR_STATE_HOME=" + p.Base + "/state",
+		"GIT_AUTHOR_NAME=lead", "GIT_AUTHOR_EMAIL=lead@example.invalid",
+		"GIT_COMMITTER_NAME=lead", "GIT_COMMITTER_EMAIL=lead@example.invalid"}
+	p.Write("docs/reviews/RV-4.md", "# RV-4\n")
+	rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
+	if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · "+older[:7]+" · ") {
+		t.Fatalf("the verify superseded: exit %d, %q; want CLOSED at the start's head %s", rc, stdout, older[:7])
+	}
+	if body := p.Git(p.Root, "log", "-1", "--format=%b"); !strings.Contains(body, "Covered: T-1\n") {
+		t.Errorf("the close's body %q; want only the start's T-1 covered", body)
 	}
 }

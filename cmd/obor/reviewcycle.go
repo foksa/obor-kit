@@ -232,7 +232,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 	}
 	reviewed := app.ReviewedRef // a review an older obor started: the ref (T-718)
 	if cycle.Reviewed != "" {
-		reviewed = cycle.Reviewed // the head the last brief handed the reviewer (its start's or a verify's)
+		reviewed = cycle.Reviewed // the head the reviewer last finished (its start's or a done verify's, T-857)
 	}
 	sha, err := gitIn(ctx, root, "rev-parse", "--short=7", "--verify", "-q", reviewed+"^{commit}")
 	if err != nil {

@@ -44,11 +44,14 @@ func verifyBriefs(t *testing.T, root string) []event.Message {
 	return out
 }
 
-// startedReview records the open review's start fact (RV-5 covers T-start at 1234567…; the verifies add to it).
+// startHead is the head the open review started at (startedReview).
+const startHead = "1234567890abcdef"
+
+// startedReview records the open review's start fact (RV-5 covers T-start at startHead; the verifies add to it).
 func startedReview(t *testing.T, r *reviewRig) {
 	t.Helper()
 	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewStarted, Kind: event.KindFact},
-		ReviewData{ID: "RV-5", Head: "1234567890abcdef", Tasks: []string{"T-start"}}) {
+		ReviewData{ID: "RV-5", Head: startHead, Tasks: []string{"T-start"}}) {
 		t.Fatal("the log refused the review start")
 	}
 }
@@ -134,6 +137,9 @@ func TestVerifyReviewerIdle(t *testing.T) {
 	}
 	if got := r.pending(); got != "T-a,T-b" {
 		t.Fatalf("briefed, not finished: pending %q, want T-a,T-b", got)
+	}
+	if got := ReadReviewCycle(r.p.root, "RV-5").Reviewed; got != startHead { // T-857: a head counts once done
+		t.Fatalf("briefed, not finished: close's head %q, want the start's %s", got, startHead)
 	}
 	r.finish()
 	c := ReadReviewCycle(r.p.root, "RV-5")
@@ -459,5 +465,193 @@ func TestReviewCoveredOldVerifyBriefs(t *testing.T) {
 		ReviewData{Tasks: []string{"T-f"}})
 	if got := covered(); got != "T-a,T-b,T-d,T-f" {
 		t.Errorf("an old review.verify fact: %q covered, want the briefs' T-a,T-b,T-d then T-f", got)
+	}
+}
+
+// stop is the reviewer's StopFailure hook (call id call) on errText (details).
+func (r *reviewRig) stop(call, errText, details string) {
+	r.t.Helper()
+	if _, err := r.a.stoppedCall(wire.Call{Root: r.p.root, CallID: call, Agent: "pj-rev", Role: "reviewer", Error: errText,
+		Details: details}); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// linesWith is the lead's lines that contain part.
+func (r *reviewRig) linesWith(part string) []string {
+	var out []string
+	for _, l := range r.leadLines() {
+		if strings.Contains(l, part) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// briefedVerify is the auto verify of T-a, T-b of the open, started RV-5 delivered and taken by the reviewer (its pane
+// working): the verify, briefed.
+func briefedVerify(t *testing.T) (*reviewRig, *verifyRec) {
+	t.Helper()
+	r := fixRig(t)
+	startedReview(t, r)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.fixPass()
+	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
+	r.working(true)
+	v := r.lastVerify()
+	if v.state != verifyBriefed || r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
+		t.Fatalf("precondition: verify %s, brief open %t, pending %q; want briefed and open, T-a,T-b pending", v.state,
+			r.p.out.brief("pj-rev") != nil, r.pending())
+	}
+	return r, v
+}
+
+// T-857 (RV-113 #2a): a delivered verify, the reviewer stops on overloaded: the verify failed, nothing verified,
+// covered or reviewed (close refused: its tasks pending; its head the start's), the lead gets the one failure line;
+// after a restart the same; a new verify is requested, briefed only once the reviewer is idle, done once finished.
+func TestVerifyErrorStopFails(t *testing.T) {
+	t.Parallel()
+	r, first := briefedVerify(t)
+	seq := first.seq
+	r.stop("s1", "overloaded", "API overloaded")
+	failedState := func(what string) {
+		t.Helper()
+		c := ReadReviewCycle(r.p.root, "RV-5")
+		if st := r.p.folded.rv.verifies[seq].state; st != verifyFailed {
+			t.Fatalf("%s: the verify %s, want failed", what, st)
+		}
+		if strings.Join(c.Pending, ",") != "T-a,T-b" || strings.Join(c.Covered, ",") != "T-start" || c.Reviewed != startHead {
+			t.Errorf("%s: cycle %+v; want T-a,T-b pending (close refused), only T-start covered, the start's head", what, c)
+		}
+		want := "[obor] RV-5 verify failed: pj-rev stopped: overloaded (API overloaded); serve retries when the reviewer is idle"
+		if got := r.linesWith("stopped: overloaded"); len(got) != 1 || got[0] != want {
+			t.Errorf("%s: the lead's stop lines %q, want the one line %q", what, got, want)
+		}
+	}
+	failedState("stopped")
+	if r.p.out.brief("pj-rev") != nil {
+		t.Fatal("the error stop left the reviewer's brief open")
+	}
+
+	r.fixPass() // the reviewer still working: a new verify requested, not briefed
+	second := r.lastVerify()
+	if second.seq == seq || second.state != verifyRequested || len(verifyBriefs(t, r.p.root)) != 1 {
+		t.Fatalf("the reviewer working: the new verify %s (seq %d, the failed one %d), %d verify briefs; want a new one"+
+			" requested, not briefed", second.state, second.seq, seq, len(verifyBriefs(t, r.p.root)))
+	}
+	r.reload()
+	r.working(true)
+	failedState("replayed")
+	r.fixPass()
+	if st := r.p.folded.rv.verifies[second.seq].state; st != verifyRequested || r.facts(event.StepReviewVerifyRequest) != 2 {
+		t.Fatalf("replayed, the reviewer working: the new verify %s, %d requests; want requested, two", st,
+			r.facts(event.StepReviewVerifyRequest))
+	}
+
+	r.working(false)
+	r.fixPass()
+	if st := r.lastVerify().state; st != verifyBriefed || len(verifyBriefs(t, r.p.root)) != 2 ||
+		r.facts(event.StepReviewVerifyRequest) != 2 {
+		t.Fatalf("the reviewer idle: the new verify %s, %d briefs, %d requests; want briefed, two of each", st,
+			len(verifyBriefs(t, r.p.root)), r.facts(event.StepReviewVerifyRequest))
+	}
+	r.finish()
+	c := ReadReviewCycle(r.p.root, "RV-5")
+	if r.lastVerify().state != verifyDone || len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" ||
+		c.Reviewed != headSHA {
+		t.Errorf("the new verify finished: %s, cycle %+v; want done, nothing pending, T-a,T-b covered, its head",
+			r.lastVerify().state, c)
+	}
+}
+
+// T-857: a verify of tasks no fix round links, its reviewer stopped on billing_error: failed, its line says to verify
+// again by hand (no round retries it), nothing covered, close's head the start's.
+func TestVerifyByHandErrorStop(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	openReviewFile(t, r.p.root)
+	startedReview(t, r)
+	if reply, err := r.verifyCall("v1", "T-a"); err != nil || !strings.HasPrefix(reply, "BRIEFED pj-rev") {
+		t.Fatalf("precondition: verify with the reviewer idle: %q, %v; want BRIEFED", reply, err)
+	}
+	r.stop("s1", "billing_error", "")
+	c := ReadReviewCycle(r.p.root, "RV-5")
+	if r.lastVerify().state != verifyFailed || strings.Join(c.Covered, ",") != "T-start" || c.Reviewed != startHead {
+		t.Errorf("state %s, cycle %+v; want failed, only T-start covered, the start's head", r.lastVerify().state, c)
+	}
+	want := "[obor] RV-5 verify failed: pj-rev stopped: billing_error; obor review verify T-a to verify again"
+	if got := r.linesWith("stopped: billing_error"); len(got) != 1 || got[0] != want {
+		t.Errorf("the lead's stop lines %q, want %q", got, want)
+	}
+}
+
+// T-857: a usage limit stops the verify's brief, which stays open (as before): the verify briefed, its tasks pending,
+// no new verify, the lead's line the plain stop line.
+func TestVerifyUsageLimitKeepsBrief(t *testing.T) {
+	t.Parallel()
+	r, v := briefedVerify(t)
+	r.stop("s1", "usage_limit_exceeded", "You've hit your usage limit. Try again at 6:30 PM.")
+	r.fixPass()
+	b := r.p.out.brief("pj-rev")
+	if v.state != verifyBriefed || b == nil || b.stop == nil || r.pending() != "T-a,T-b" ||
+		r.facts(event.StepReviewVerifyRequest) != 1 {
+		t.Errorf("state %s, brief %+v, pending %q, %d requests; want briefed, its brief open and stopped, T-a,T-b"+
+			" pending, one request", v.state, b, r.pending(), r.facts(event.StepReviewVerifyRequest))
+	}
+	if got := r.linesWith("stopped: usage_limit_exceeded"); len(got) != 1 || !strings.HasPrefix(got[0], "[obor] pj-rev stopped: ") {
+		t.Errorf("the lead's stop lines %q, want the plain stop line", got)
+	}
+}
+
+// T-857 (RV-113 #4a): a verify by hand (no linked tasks) superseded by an ordinary brief before its line is delivered
+// leaves close's head where it was: the start's, then, after a done verify, that verify's; the same after a restart.
+func TestVerifySupersededKeepsDoneHead(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	openReviewFile(t, r.p.root)
+	startedReview(t, r)
+	const head1, head2, head3 = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222",
+		"3333333333333333333333333333333333333333"
+	cycle := func() ReviewCycle { return ReadReviewCycle(r.p.root, "RV-5") }
+	supersede := func(call, task, head, brief string) {
+		t.Helper()
+		r.git.head = head
+		if reply, err := r.verifyCall(call, task); err != nil || !strings.HasPrefix(reply, "BRIEFED pj-rev") {
+			t.Fatalf("verify %s: %q, %v; want BRIEFED", task, reply, err)
+		}
+		if v := r.lastVerify(); v.state != verifyBriefed || v.head != head {
+			t.Fatalf("precondition: the verify %s at %s, want briefed at %s", v.state, v.head, head)
+		}
+		if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: brief, Role: "lead", Agent: "pj-lead", To: "pj-rev",
+			Note: "look at the flaky test"}); err != nil {
+			t.Fatal(err)
+		}
+		if v := r.lastVerify(); v.state != verifySuperseded {
+			t.Fatalf("precondition: after the ordinary brief the verify %s, want superseded", v.state)
+		}
+	}
+
+	supersede("v1", "T-a", head1, "b1")
+	if c := cycle(); len(c.Pending) != 0 || c.Reviewed != startHead || strings.Join(c.Covered, ",") != "T-start" {
+		t.Errorf("superseded, no verify done: cycle %+v; want nothing pending (close allowed) at the start's head", c)
+	}
+	r.finish() // the ordinary brief
+	r.git.head = head2
+	if _, err := r.verifyCall("v2", "T-b"); err != nil {
+		t.Fatal(err)
+	}
+	r.finish()
+	if c := cycle(); c.Reviewed != head2 || strings.Join(c.Covered, ",") != "T-start,T-b" {
+		t.Fatalf("precondition: a verify done at %s: cycle %+v", head2, c)
+	}
+	supersede("v3", "T-a", head3, "b2")
+	for _, what := range []string{"superseded", "replayed"} {
+		if c := cycle(); len(c.Pending) != 0 || c.Reviewed != head2 || strings.Join(c.Covered, ",") != "T-start,T-b" ||
+			r.p.folded.rv.reviewed != head2 {
+			t.Errorf("%s after a done verify: cycle %+v, serve's fold at %s; want nothing pending at the done verify's"+
+				" head %s, T-start,T-b covered", what, c, r.p.folded.rv.reviewed, head2)
+		}
+		r.reload()
 	}
 }
