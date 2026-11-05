@@ -6,6 +6,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- Next release notes (v0.28): `obor status --json` changed shape (T-883): `tasks` is a map of `view.Task` keyed by id; `lanes[]`, `needs_you[]`, `queue.merge[]`, `queue.waiting[]` reference it by id (task fields gone from them, `lanes[].free` added). Also: `obor projects --notify` gone (T-903), `guards.deny_commands` (T-905).
 - 2026-11-05 RV-121 design concern: serve replay still calls `store.Admits` per session fact (`internal/app/sessions.go:86`; rebuilds indexes each call, 921 facts in obor-kit's store) beside T-881's one-pass `Owned`: measure replay, then one incremental fold in serve and drop the app-side replacement scan.
 - 2026-11-05 (kit-specific survey #7, low): serve's low-disk needs-you probes `go env GOCACHE` in every project (`cmd/obor/serve.go:178-191`, `internal/app/disk.go:57`): make it a config hint or drop it; fold into the next disk task.
 - 2026-11-05 ~15:10 (lead): **At RV-120's close** (after T-897's verify): `obor review` of T-873 + T-876 (focus T-876:
