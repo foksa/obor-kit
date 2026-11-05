@@ -3,12 +3,17 @@ package release
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
 
 // Tests for T-902: `make release` runs `make check-release` (tests/release) before the tag; a red check stops the
 // release with nothing tagged, and the re-run (green) starts at that check.
+
+// checkReleaseTest is check-release's go test line: the target adds CHECK_CPUS (-p, the gate exports it) and nothing
+// else, so a fixture run inherits it.
+var checkReleaseTest = regexp.MustCompile(`^test -count=1 (-p [0-9]+ )?\./tests/release$`)
 
 // releaseCheckRun is the fake go's log line of check-release's go test ("" when it did not run).
 func (f *releaseFixture) releaseCheckRun(t *testing.T) string {
@@ -33,7 +38,7 @@ func TestMakeReleaseRunsCheckReleaseBeforeTag(t *testing.T) {
 		t.Errorf("the release does not say it ran check-release:\n%s", out)
 	}
 	run := f.releaseCheckRun(t)
-	if run != "test -count=1 ./tests/release" {
+	if !checkReleaseTest.MatchString(run) {
 		t.Fatalf("check-release's go test = %q, want ./tests/release once:\n%s", run, readFileOr(f.log))
 	}
 	log := readFileOr(f.log)
