@@ -25,6 +25,31 @@ read in place from the kit (T-204; projects keep only short `docs/agents/<role>.
   a backstop, not a sandbox.
 - No `git push`, ever, from any obor script (agents: only leads listed in `guards.allow_push`, T-105).
 
+## Change rules (owner 2026-11-05; docs/research/architecture-advice-fable.md, docs/reviews/DD-architecture.md)
+1. **Nothing depends on an agent remembering.** Every step of a procedure has one guarantee:
+   - **kernel**: exactly once, crash-safe (intent and result, replay, crash cuts): placing a task, submit, gate,
+     publish, verdicts, drop and lane free, spec revs, job delivery, needs-you and its first notification, stops whose
+     order against the lane's next use matters. A step is kernel when its order against another step is the
+     guarantee, or a repeated or late run destroys work or moves main.
+   - **rule**: serve recomputes the condition from current state on every pass and acts (a line, a brief, a stop, a
+     prompt: one idempotent call); done when the action's effect shows in state; only a line records `did{key}`. No
+     intent, crash class, replay case, claim or fold of its own. Its written failure mode: after a crash an action may
+     run twice or one pass late.
+   - **refusal**: the verb every path to "done" goes through refuses until the step is done, naming the command;
+     always paired with a rule or the kernel, never alone.
+   - A step that needs judgment is a **standing obligation** (shown, lined, repeated, escalated) until the verb that
+     carries it arrives; never a line sent once.
+2. **A replacement deletes what it replaced**, in the same task, or the spec says why both stay and until which
+   release.
+3. **A spec names what it adds**: each state, step, verb, fact, `Message` field and config key, or none.
+4. **No by-hand twin of an automated path**, unless a store shows it used within one release.
+5. **A compat fold branch names its release**; at each release a census of every registered store deletes the
+   branches with no records. A command that changes state is a serve call; a CLI does no multi-step work.
+6. **Reviews** ask "what did this make redundant? name it or confirm it is gone". On rule-tier steps a crash or
+   interleaving finding counts only when a kernel guarantee breaks, and its fix goes to the integrator, not a reviewer
+   round. No coverage-ratchet findings; a rule's test is one table (condition → action); deleting a mechanism is how
+   tests are pruned.
+
 ## Layout (plugin root)
 ```
 .claude-plugin/plugin.json      manifest (name: obor)

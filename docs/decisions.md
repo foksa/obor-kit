@@ -4,6 +4,15 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner, after DD-architecture + Fable's combined plan): **Change rules adopted** (docs/design.md "Change
+  rules"): three guarantees (kernel / rule / refusal; judgments are standing obligations) with the rule tier's
+  written failure mode (an action may run twice or a pass late after a crash); every spec carries `Guarantee:`,
+  `Replaces:`, `Adds:`; no by-hand twins; compat branches expire by store census; reviews ask what was made
+  redundant. **Go stays; no rewrite.** Plan waves A..J in docs/research/architecture-advice-fable.md "Combined plan",
+  pilot A first (idle on a generic rule pass, net negative in one review round, else the rule-tier waves stop).
+  **Drive/land stays for good** (out of the census). **`obor stop --force` drops nothing** (open tasks continue at
+  `obor start`). **Idle ping and `obor idle` stay**, rebuilt as rules. `obor review verify` by hand goes (rule 4).
+  Open: S1(a) serve starts the drive agent after the stop (changes where the drive pane opens).
 - 2026-11-05 (owner): **The merge hold stays deleted** (T-853 removed it; replaces the 11-02 T-718 decision "merges
   wait while the reviewer or deep dive works"): the reviewer reads its own pinned worktree, so merges go on during a
   review and fall into the next review's scope. The lead had folded the deletion into E2's spec without asking; asked

@@ -9,6 +9,10 @@ Difficulty (e.g. `Model: opus`) tries those models first, then the level's. Any 
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>
 
+Guarantee: <per step: kernel | rule | refusal — docs/design.md "Change rules">
+Replaces: <the mechanism this makes redundant, deleted in this task; or why it stays and until which release; or none>
+Adds: <each new state, step, verb, fact, Message field, config key; or none>
+
 ## Do (<files/area>)
 - <concrete change 1>
 - <concrete change 2>
