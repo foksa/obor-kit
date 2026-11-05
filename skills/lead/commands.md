@@ -120,7 +120,9 @@ finished; a brief to a stopped role agent starts it fresh, its first prompt the 
 
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
-is no line to you (T-650): `obor status` shows the review.
+is no line to you (T-650): `obor status` shows the review. A task whose spec says `Review: on merge` needs no watch
+and no call here: serve records the request itself when it merges, and `obor review` stays for the every-~3-merges
+reviews.
 - Dispatch the fixes, then `obor review fix <T-x,…> [--note "<what to check>"]` (T-850) — `FIX LINKED to RV-xx:
   <tasks> …`; a second call adds tasks. Refused: no open review, a task not dispatched. Once every linked task
   merged, serve runs the verify itself: it detaches the reviewer's role worktree at the integration branch's head

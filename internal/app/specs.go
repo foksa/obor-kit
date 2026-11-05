@@ -51,6 +51,9 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	if spec.OldTypeLine(c.Spec) {
 		return "", fmt.Errorf("spec set %s: the \"Type:\" line is now \"Model: <model>[:<effort>], …\" (T-765): rename it", c.Task)
 	}
+	if v, ok := spec.ReviewValue(c.Spec); ok && v != spec.ReviewOnMergeValue {
+		return "", fmt.Errorf("spec set %s: the \"Review:\" line takes one value: %q", c.Task, spec.ReviewOnMergeValue)
+	}
 	if refs := spec.Models(c.Spec); len(refs) > 0 {
 		cfg, err := config.LoadDaemon(p.root)
 		if err != nil {

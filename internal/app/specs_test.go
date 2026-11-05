@@ -73,6 +73,25 @@ func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 	}
 }
 
+// T-878: obor spec set accepts the one "Review:" value and refuses any other, naming it; a refusal stores nothing.
+func TestSpecSetReviewOnMerge(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	good := "# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n"
+	if got := r.setSpec("r1", good); got != "SET T-1 rev 1" {
+		t.Fatalf("spec set with \"Review: on merge\": %q, want SET T-1 rev 1", got)
+	}
+	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
+		Agent: "lead", CallID: "r2", Task: "T-1", Spec: "# T-1 — B\n\nDifficulty: medium\nReview: now\n"})
+	if err == nil || !strings.Contains(err.Error(), `the "Review:" line takes one value: "on merge"`) {
+		t.Errorf("spec set with \"Review: now\": %v; want the refusal naming the one value", err)
+	}
+	if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 1 || row.Text != good {
+		t.Errorf("stored spec %+v, %v, %v; want the accepted text at rev 1", row, ok, err)
+	}
+}
+
 // T-440: a dispatch reads the stored spec for Specs.Check (which refuses "": no stored spec, cmd/obor TestSpecs):
 // before the set the request is refused with nothing recorded, after it the same request dispatches.
 func TestDispatchNeedsStoredSpec(t *testing.T) {

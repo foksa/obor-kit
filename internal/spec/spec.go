@@ -215,6 +215,36 @@ func OldTypeLine(text string) bool {
 	return ok
 }
 
+// ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
+const ReviewOnMergeValue = "on merge"
+
+// ReviewOnMerge reports whether the spec has the line `Review: on merge` between its title and its first "## " heading
+// (T-878): serve requests a review once the task merges.
+func ReviewOnMerge(text string) bool {
+	v, ok := ReviewValue(text)
+	return ok && v == ReviewOnMergeValue
+}
+
+// ReviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line
+// there (T-878). ok is false when there is no such line; a `Review:` below a "## " heading is ignored. obor spec set
+// refuses a value other than ReviewOnMergeValue.
+func ReviewValue(text string) (value string, ok bool) {
+	in := false
+	for _, l := range strings.Split(text, "\n") {
+		if !in {
+			in = strings.HasPrefix(l, "# ")
+			continue
+		}
+		if strings.HasPrefix(l, "## ") {
+			break
+		}
+		if v, cut := strings.CutPrefix(l, "Review:"); cut {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
+}
+
 // lineAfterDifficulty is the rest of the first non-blank line after the `Difficulty:` line when it starts with
 // prefix; ok false otherwise.
 func lineAfterDifficulty(text, prefix string) (string, bool) {

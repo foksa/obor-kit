@@ -88,7 +88,10 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 ## Reviews
 Before a release, `obor review` and close it; `make release` refuses otherwise; `UNREVIEWED` only on the owner's word.
 Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
-"<out of scope, contracts>"]`, serve starts it (`review-brief.md`). Reviewer and deep dive are role panes in their own
+"<out of scope, contracts>"]`, serve starts it (`review-brief.md`). A spec's `Review: on merge` line (identity, MCP,
+launch and judgement-heavy tasks) replaces your watch and hand-run `obor review`: serve requests that review itself
+once the task merges, and `obor review` stays for the every-~3-merges reviews.
+Reviewer and deep dive are role panes in their own
 role worktree (`<lanes_dir>/reviewer`, `<lanes_dir>/deep_dive`; T-853), never lanes: serve moves it to the head it hands
 them (a review's start, a verify, a brief to an idle deep dive), so merges never wait; their files go to the main
 checkout's reviews dir;

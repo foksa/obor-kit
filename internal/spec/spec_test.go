@@ -163,3 +163,28 @@ func TestModels(t *testing.T) {
 		}
 	}
 }
+
+// T-878: the Review line is the spec's first "Review:" line between its title and its first "## " heading; only the
+// value "on merge" turns the rule on, and a line below a section (or before the title) is ignored.
+func TestReview(t *testing.T) {
+	for _, c := range []struct {
+		text, value string
+		ok          bool
+	}{
+		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n", "on merge", true},
+		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", "", false},
+		{"# T-1 — A\n\nDifficulty: medium\nReview: now\n", "now", true},
+		{"# T-1 — A\n\nDifficulty: medium\nReview:   on merge  \n", "on merge", true},
+		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nReview: on merge\n", "", false},
+		{"Review: on merge\n", "", false},
+		{"", "", false},
+	} {
+		value, ok := ReviewValue(c.text)
+		if value != c.value || ok != c.ok {
+			t.Errorf("ReviewValue(%q) = %q, %v; want %q, %v", c.text, value, ok, c.value, c.ok)
+		}
+		if got, want := ReviewOnMerge(c.text), c.ok && c.value == ReviewOnMergeValue; got != want {
+			t.Errorf("ReviewOnMerge(%q) = %v, want %v", c.text, got, want)
+		}
+	}
+}
