@@ -24,7 +24,7 @@ import (
 // failed: …}. A GREEN full check run by hand (obor nightly: last-full-check) ends a RED one's needs-you too.
 
 // nightlyRetry is how long after a failed nightly run its next try waits (a transient cause: a git lock, a worktree
-// another process holds, merge.window_wait).
+// another process holds, the nightly lock).
 const nightlyRetry = 10 * time.Minute
 
 // redPrefix starts the reason of a RED nightly's needs-you.

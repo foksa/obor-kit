@@ -153,7 +153,7 @@ next pass writes the result it had; after a restart its crash class settles it.
 | `publish[.N]` | G | The target holds `Candidate.SHA` → `Already` (no second publish); target moved → `Moved`; dirty merged paths → `Hold` before any write; else ff, then the pins go. |
 | `after_merge` | G | `commands.after_merge`; its result → not run again, a pending intent runs it again (idempotent by contract, T-525). `ran` with `commands.after_merge.restart_serve`: then serve restarts itself (T-652; a graceful exit, T-656), its result already in the log: the new serve does not run it again. |
 | `unpin` | G | Deletes the pins again (an absent one is not an error). |
-| `agent.stop` | S | Only while the lane holds the task. No agent in the submitted pane (snapshot) → `stopped`; else stop it (force). `stop_idle_workers: false` → kept. |
+| `agent.stop` | S | Only while the lane holds the task. No agent in the submitted pane (snapshot) → `stopped`; else stop it (force). |
 | `worker.stop[.N]` | S | Run again under its key when pending: the agent's pane resolved again (identity, row 48); gone → `gone`; a result is never run again (no second stop after a replay). A decision recorded with no intent yet (the move's dispatch, the take-over's drive, the drop's dropping fact) runs it once at the replay's first pass. |
 | `lane.free[.N]` | G | `LaneSetup.Free` again: a lane already detached at the target with its branch gone frees as nothing to do. |
 | `lane.prepare[.N]` | G | Prepare again with the recorded input: `checkout -B` to the same target sha (a redo skips it), lane_ready green, the same base and head. |

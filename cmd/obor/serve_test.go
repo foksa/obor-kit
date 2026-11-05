@@ -91,10 +91,15 @@ func TestServeBinary(t *testing.T) {
 		!strings.Contains(string(b), `"proj": "`+p.Root+`"`) {
 		t.Errorf("the machine's project list: %v, %q; want proj at the served root", err, b)
 	}
-	// obor status --facts: --all is a no-op for one release (T-522)
-	if rc, stdout, stderr := run(t, p.Root, env, "status", "--all", "--facts"); rc != 0 ||
+	// T-864: obor status --all is gone (T-522: a serve holds one project): a usage error.
+	if rc, _, stderr := run(t, p.Root, env, "status", "--all", "--facts"); rc != 2 ||
+		!strings.Contains(stderr, "usage: obor status") {
+		t.Errorf("obor status --all --facts: exit %d, %q; want 2 and the usage", rc, stderr)
+	}
+	// obor status --facts: the running agent
+	if rc, stdout, stderr := run(t, p.Root, env, "status", "--facts"); rc != 0 ||
 		!strings.Contains(stdout, "agent: pj-l-01 (working)") {
-		t.Errorf("obor status --all --facts: exit %d, %q, %q; want the project's status", rc, stdout, stderr)
+		t.Errorf("obor status --facts: exit %d, %q, %q; want the project's status", rc, stdout, stderr)
 	}
 	// T-774: obor serve status is gone; obor status --facts replaces it
 	if rc, _, stderr := run(t, p.Root, env, "serve", "status"); rc != 2 || !strings.Contains(stderr, "usage: obor serve") {

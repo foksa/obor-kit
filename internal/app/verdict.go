@@ -338,8 +338,8 @@ func (a *App) laneAdapters(p *proj) bool {
 	return err == nil && fx.Lane != nil && fx.Specs != nil && fx.Agents != nil
 }
 
-// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it, stop_idle_workers
-// or not): the lane row's agent while it is still one of the lane's names, else the lane's derived one, else the
+// laneWorker is the agent a drop of mt stops in lane (T-773: that task's worker, nothing keeps it): the lane row's
+// agent while it is still one of the lane's names, else the lane's derived one, else the
 // task's ("": none known: nothing to stop).
 func (a *App) laneWorker(p *proj, lane string, mt mtask) (string, error) {
 	cfg, err := config.LoadDaemon(p.root)

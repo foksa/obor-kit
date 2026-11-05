@@ -22,7 +22,7 @@ import (
 // commands.<name>, non-gating — one report line, never RED; a nonzero exit a WARN line). Writes
 // .obor/state/last-full-check
 // "<sha> <epoch> GREEN|RED <summary>" (LastFullCheck reads it for serve's nightly; obor status reads it too). A live nightly run of the project is waited for (max
-// merge.window_wait s).
+// DefaultWindowWait).
 func Nightly(o Options) Result {
 	s, r := open(context.Background(), o, "nightly")
 	if r != nil {

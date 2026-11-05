@@ -43,10 +43,12 @@ type Options struct {
 	PID         int         // this process (lock, slot and op record holder)
 	Interrupted <-chan int  // a signal's exit code (130, 143, 129)
 	Slots       *run.Slots  // nil: run.SlotsFor(Cfg, Env)
-	// Load is the 1-min load average (ok false: unreadable); nil reads the system's. LoadPoll is the wait between
-	// readings while waiting for it to drop (default 10 s).
-	Load     func() (float64, bool)
-	LoadPoll time.Duration
+	// Load is the 1-min load average (ok false: unreadable); nil reads the system's. It goes with a red run into the
+	// flake log.
+	Load func() (float64, bool)
+	// WindowWait is how long the nightly waits for another nightly's lock before it FAILs (default
+	// DefaultWindowWait); a test shortens it.
+	WindowWait time.Duration
 	// Git is the git binary ("": git on PATH); a test puts a shim here that fails a chosen call.
 	Git string
 	// GitAlive reports whether a git process runs in dir's repository (a lock it holds is not stale); nil: the
@@ -173,12 +175,14 @@ func nonEmpty(ss ...string) []string {
 	return out
 }
 
-// lock takes the nightly lock (nightly.flock) until close. A live holder: a line every 30 s, FAIL after
-// merge.window_wait s (default 900).
+// DefaultWindowWait is how long a nightly waits for another nightly's lock (merge.window_wait's old default, T-864).
+const DefaultWindowWait = 900 * time.Second
+
+// lock takes the nightly lock (nightly.flock) until close. A live holder: a line every 30 s, FAIL after WindowWait.
 func (s *session) lock(who string) *Result {
-	max := 900
-	if w := s.Cfg.Data.Merge.WindowWait; w != nil {
-		max = *w
+	wait := s.WindowWait
+	if wait <= 0 {
+		wait = DefaultWindowWait
 	}
 	if err := os.MkdirAll(s.state, 0o755); err != nil {
 		return result(Fail, "FAIL cannot take %s", s.window.Path)
@@ -196,11 +200,11 @@ func (s *session) lock(who string) *Result {
 		}
 		info := "pid " + s.window.Holder()
 		waited := time.Since(t0)
-		if next > 0 && waited >= time.Duration(max)*time.Second {
+		if next > 0 && waited >= wait {
 			return result(Fail, "FAIL %s still held after %ds (%s)", s.window.Path, int(waited.Seconds()), info)
 		}
 		if waited >= next {
-			fmt.Fprintf(s.Out, "%s: waiting for %s (%s), %ds of max %ds\n", who, s.window.Path, info, int(waited.Seconds()), max)
+			fmt.Fprintf(s.Out, "%s: waiting for %s (%s), %ds of max %ds\n", who, s.window.Path, info, int(waited.Seconds()), int(wait.Seconds()))
 			next += 30 * time.Second
 		}
 		select {

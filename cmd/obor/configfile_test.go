@@ -28,7 +28,7 @@ func TestConfigFileCommitsOnlyTheConfig(t *testing.T) {
 	p.Write("other.txt", "staged\n")
 	p.Git(p.Root, "add", "other.txt")
 	next := strings.Replace(string(doc), `"prefix": "pj"`, `"prefix": "pj",
-  "stop_idle_workers": false`, 1)
+  "handoff_tokens": 400000`, 1)
 	sha, err := f.Commit(ctx, []byte(next), "config: x → y (owner, web)")
 	if err != nil {
 		t.Fatalf("Commit: %v", err)

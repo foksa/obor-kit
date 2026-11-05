@@ -16,7 +16,8 @@ import (
 	"obor/internal/store"
 )
 
-// A Flake is one .obor/state/flakes.jsonl line: a check run's failing test, or one a load retry saved.
+// A Flake is one .obor/state/flakes.jsonl line: a check run's failing test. Retried and PassedOnRetry are written by
+// scripts/release's own rerun (T-717); the checks have had no rerun since T-864.
 type Flake struct {
 	Time          int64    `json:"time"`            // epoch seconds
 	Test          string   `json:"test"`            // a fail_grep name: the test, else the package
@@ -24,8 +25,8 @@ type Flake struct {
 	Task          string   `json:"task"`            // the run's task (nightly, milestone for those)
 	SHA           string   `json:"sha"`             // the commit the checks ran on
 	Load          *float64 `json:"load"`            // 1-min load average (null: unreadable)
-	Retried       bool     `json:"retried"`         // the load retry ran
-	PassedOnRetry bool     `json:"passed_on_retry"` // it ran and the test passed
+	Retried       bool     `json:"retried"`         // the run was rerun (scripts/release's)
+	PassedOnRetry bool     `json:"passed_on_retry"` // and the test passed then
 }
 
 // flakeWindow is how far back obor flakes looks.
@@ -63,25 +64,21 @@ func (opt *Options) failingNames(outs ...output) []string {
 	return names
 }
 
-// logFlakes appends the failing tests of outs (one logical record: a red run, or a red run and its load retry) to the
-// project's flake log; a write error is a warning line, never the check's result. retried: the load retry ran for this
-// check; passed: it ran and the test passed.
-func (r *runner) logFlakes(name string, retried, passed bool, outs ...output) {
+// logFlakes appends the failing tests of outs (one logical record: a red run) to the project's flake log; a write error
+// is a warning line, never the check's result.
+func (r *runner) logFlakes(name string, outs ...output) {
 	names := r.failingNames(outs...)
 	if len(names) == 0 {
 		return
 	}
-	load := r.redLoad
-	if load == nil {
-		if v, ok := r.load(); ok {
-			load = &v
-		}
+	var load *float64
+	if v, ok := r.load(); ok {
+		load = &v
 	}
 	at, sha := time.Now().Unix(), r.sha()
 	entries := make([]Flake, 0, len(names))
 	for _, test := range names {
-		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha,
-			Load: load, Retried: retried, PassedOnRetry: passed})
+		entries = append(entries, Flake{Time: at, Test: test, Check: name, Task: r.logName, SHA: sha, Load: load})
 	}
 	if err := appendFlakes(r.state, entries); err != nil {
 		fmt.Fprintf(r.Out, "warning: flake log: %v\n", err)

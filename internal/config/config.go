@@ -51,17 +51,20 @@ type Data struct {
 	Models Ordered[ModelEntry] `json:"models,omitzero"`
 	// HandoffTokens is the lead's automatic handoff threshold (T-175); absent: the guard's default.
 	HandoffTokens *int64 `json:"handoff_tokens,omitempty"`
-	// IntegratorHandoffTokens is the integrator's (T-215): default 150000; 0 = off.
-	IntegratorHandoffTokens *int64  `json:"integrator_handoff_tokens,omitempty"`
-	StopIdleWorkers         *bool   `json:"stop_idle_workers,omitempty"`
-	Roles                   Roles   `json:"roles"`
-	Setup                   Setup   `json:"setup,omitzero"`
-	Merge                   Merge   `json:"merge"`
-	MCP                     MCP     `json:"mcp"`
-	Slots                   *Slots  `json:"slots,omitempty"`
-	Checks                  *Checks `json:"checks,omitempty"`
-	Limits                  *Limits `json:"limits,omitempty"`
-	Cache                   Cache   `json:"cache"`
+	// IntegratorHandoffTokens and StopIdleWorkers are removed keys (v0.28, T-864): the integrator's threshold is a
+	// constant (it starts fresh per job, T-602) and a merged lane's worker is always stopped. They WARN for two minors.
+	IntegratorHandoffTokens any   `json:"integrator_handoff_tokens,omitempty"`
+	StopIdleWorkers         any   `json:"stop_idle_workers,omitempty"`
+	Roles                   Roles `json:"roles"`
+	Setup                   Setup `json:"setup,omitzero"`
+	Merge                   Merge `json:"merge"`
+	// MCP and Cache are removed sections (v0.28, T-864): they hold no key, yet a config that sets one (even {})
+	// WARNs for two minors; a member inside one is an unknown key, as it is under an absent section.
+	MCP    *struct{} `json:"mcp,omitempty"`
+	Slots  *Slots    `json:"slots,omitempty"`
+	Checks *Checks   `json:"checks,omitempty"`
+	Limits *Limits   `json:"limits,omitempty"`
+	Cache  *struct{} `json:"cache,omitempty"`
 	// Difficulty maps a level (hard, medium, simple) to its model refs in dispatch order; a level it omits has the
 	// built-in default (DifficultyDefault).
 	Difficulty map[string][]string `json:"difficulty,omitempty"`
@@ -202,20 +205,20 @@ func (c *Config) SetupConfirmed() bool {
 	return c.Data.Setup.Confirmed != nil && *c.Data.Setup.Confirmed
 }
 
-// MCP is the mcp section: it holds no live key (jobs, its one switch, went with T-437), so mcp.jobs is an unknown key.
-type MCP struct{}
-
 type Merge struct {
-	ScratchDir   string           `json:"scratch_dir"`
-	Trailer      string           `json:"trailer,omitempty"`
-	SummaryRegex string           `json:"summary_regex,omitempty"`
-	FailGrep     string           `json:"fail_grep,omitempty"`
-	TimeoutGrep  string           `json:"timeout_grep,omitempty"`
-	MaxLoad      *float64         `json:"max_load,omitempty"`
-	LoadWait     *int             `json:"load_wait,omitempty"`
-	WindowWait   *int             `json:"window_wait,omitempty"`
-	Classes      List[MergeClass] `json:"classes,omitzero"`
-	Neutral      []string         `json:"neutral,omitzero"`
+	ScratchDir   string `json:"scratch_dir"`
+	Trailer      string `json:"trailer,omitempty"`
+	SummaryRegex string `json:"summary_regex,omitempty"`
+	FailGrep     string `json:"fail_grep,omitempty"`
+	// TimeoutGrep is a removed key (v0.28, T-864): the red-under-load re-run is gone. It WARNs for two minors.
+	TimeoutGrep any `json:"timeout_grep,omitempty"`
+	// MaxLoad, LoadWait and WindowWait are removed keys (v0.28, T-864): the nightly lock's default is a constant
+	// (900 s). They WARN for two minors.
+	MaxLoad    any              `json:"max_load,omitempty"`
+	LoadWait   any              `json:"load_wait,omitempty"`
+	WindowWait any              `json:"window_wait,omitempty"`
+	Classes    List[MergeClass] `json:"classes,omitzero"`
+	Neutral    []string         `json:"neutral,omitzero"`
 	// AffectedFull are globs of files whose change makes `obor affected go` answer "full" (build and test support).
 	AffectedFull []string `json:"affected_full,omitzero"`
 	Guard        string   `json:"guard,omitempty"`
@@ -238,10 +241,12 @@ type MergeClass struct {
 }
 
 type Slots struct {
-	Dir           string `json:"dir,omitempty"`
-	Max           *int   `json:"max,omitempty"`
-	MergeBlockMax *int   `json:"merge_block_max,omitempty"`
-	CPUs          *int   `json:"cpus,omitempty"` // CHECK_CPUS: the CPUs one check may use (default cores / max, at least 1)
+	Dir  string `json:"dir,omitempty"`
+	Max  *int   `json:"max,omitempty"`
+	CPUs *int   `json:"cpus,omitempty"` // CHECK_CPUS: the CPUs one check may use (default cores / max, at least 1)
+	// MergeBlockMax is a removed key (v0.28, T-864): the merge marker's cap is the constant 900 s. It WARNs for two
+	// minors.
+	MergeBlockMax any `json:"merge_block_max,omitempty"`
 }
 
 // Checks holds the settings of every check run (obor run's heavy commands, the gates).
@@ -251,10 +256,6 @@ type Checks struct {
 	// Env CHECK_LOAD_LIMIT overrides it.
 	LoadLimit *float64 `json:"load_limit,omitempty"`
 }
-
-// Cache is the cache section: it holds no live key (prompt-cache awareness went with obor status --herdr, T-463), so
-// cache.warn_tokens is an unknown key.
-type Cache struct{}
 
 // Defaults is a fresh copy each call: decoding reuses a slice's backing array. A null in the files leaves a default.
 func Defaults() Data {
@@ -895,15 +896,6 @@ func Unique(values ...string) []string {
 		}
 	}
 	return out
-}
-
-// IntegratorHandoffTokens is integrator_handoff_tokens (T-215): the integrator's automatic handoff threshold, default
-// 150000; 0 = off.
-func (c *Config) IntegratorHandoffTokens() int64 {
-	if n := c.Data.IntegratorHandoffTokens; n != nil {
-		return *n
-	}
-	return 150000
 }
 
 // TaskIDOK: id matches task_id_pattern (Go RE2 syntax) as a whole; a pattern that does not compile matches nothing.

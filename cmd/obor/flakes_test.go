@@ -35,7 +35,7 @@ func TestFlakesCommand(t *testing.T) {
 		flakeLine(t, now-2*day, "TestTwo", "T-02", false),  // (the older one, so T-01 is the newest)
 		flakeLine(t, now-day, "TestOnce", "T-01", false),   // one task, no retry → not flaky
 		flakeLine(t, now-8*day, "TestOld", "T-01", false),  // older than 7 days → not flaky
-		flakeLine(t, now-day, "TestRetried", "T-03", true), // passed on the load retry → flaky
+		flakeLine(t, now-day, "TestRetried", "T-03", true), // passed on a rerun (release's) → flaky
 	}, "\n")+"\n")
 
 	rc, stdout, stderr := run(t, p.Root, nil, "flakes")

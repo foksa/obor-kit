@@ -93,6 +93,18 @@ func TestValidate(t *testing.T) {
 		// (TestShapeErrorsFailTheLoad), the rest warn (TestRemovedKeysWithinTwoVersions).
 		{name: "removed keys warn", edits: []edit{set("paths.research", "docs/research"), set("paths.questions", "QUESTIONS.md")},
 			want: []string{"WARN paths.research: no longer used, remove it", "WARN paths.questions: no longer used, remove it"}},
+		// T-864: keys no project sets, and the two empty sections; each WARNs for two minors, never fails.
+		{name: "keys no project sets are removed", edits: []edit{
+			set("integrator_handoff_tokens", 0), set("stop_idle_workers", false),
+			set("merge.timeout_grep", "timed out"), set("merge.max_load", 10), set("merge.load_wait", 5),
+			set("merge.window_wait", 60),
+			set("slots.merge_block_max", 60), set("mcp", map[string]any{}), set("cache", map[string]any{})},
+			want: []string{"WARN integrator_handoff_tokens: no longer used, remove it",
+				"WARN stop_idle_workers: no longer used, remove it",
+				"WARN merge.timeout_grep: no longer used, remove it", "WARN merge.max_load: no longer used, remove it",
+				"WARN merge.load_wait: no longer used, remove it", "WARN merge.window_wait: no longer used, remove it",
+				"WARN slots.merge_block_max: no longer used, remove it", "WARN mcp: no longer used, remove it",
+				"WARN cache: no longer used, remove it"}},
 		// T-830: paths.status, paths.queue and paths.tasks are map entries, not keys with a field: past their window they
 		// load with no WARN (paths is free-form). paths.tasks is still read: internal/checks/legacySpecDir names the
 		// pre-T-521 spec dir for legacy merge evidence, so only status and queue are dead (T-842).
@@ -203,17 +215,11 @@ func TestValidate(t *testing.T) {
 		{name: "roles.deep_dive", edits: []edit{set("roles.deep_dive", "opus:high")}},
 		{name: "deep_dive model unknown", edits: []edit{set("roles.deep_dive", "ghost")},
 			want: []string{`FAIL .roles.deep_dive: "ghost" is not a model (models: opus, sonnet, haiku, fable, deepseek, terra, sol, luna)`}},
-		// bash config.test.sh case_validate_stop_idle_workers
-		{name: "stop_idle_workers false", edits: []edit{set("stop_idle_workers", false)}},
-		{name: "stop_idle_workers true", edits: []edit{set("stop_idle_workers", true)}},
 		// bash config.test.sh case_validate_handoff_tokens
 		{name: "handoff_tokens 500000", edits: []edit{set("handoff_tokens", 500000)}},
 		{name: "handoff_tokens 0", edits: []edit{set("handoff_tokens", 0)}},
 		{name: "handoff_tokens negative", edits: []edit{set("handoff_tokens", -1)},
 			want: []string{"FAIL .handoff_tokens: must be a non-negative integer, got -1"}},
-		{name: "integrator handoff_tokens 0", edits: []edit{set("integrator_handoff_tokens", 0)}},
-		{name: "integrator handoff_tokens negative", edits: []edit{set("integrator_handoff_tokens", -5)},
-			want: []string{"FAIL .integrator_handoff_tokens: must be a non-negative integer, got -5"}},
 		// bash config.test.sh case_validate_allow_push
 		{name: "allow_push a role and a derived name", edits: []edit{set("guards", `{"allow_push": ["lead", "pj-lead"]}`)}},
 		{name: "allow_push no role", edits: []edit{set("guards", `{"allow_push": ["lead-mp"]}`)},
@@ -260,7 +266,6 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 		{set("roles.integrator", 5), "integrator"},
 		{set("roles", 5), "roles: must be an object"},
 		{set("merge.classes", []any{map[string]any{"name": "a", "paths": "x"}}), "paths"},
-		{set("stop_idle_workers", "no"), "stop_idle_workers"},
 		{set("handoff_tokens", 1.5), "handoff_tokens"},
 		{set("guards", `{"allow_push": "pj-lead"}`), "allow_push"},
 		{set("merge.clases", []any{}), `unknown field "clases"`},
@@ -342,6 +347,16 @@ func TestRemovedKeysWithinTwoVersions(t *testing.T) {
 	}{
 		{"paths.research", set("paths.research", `"docs/research"`), 0, 0},
 		{"paths.questions", set("paths.questions", `"QUESTIONS.md"`), 0, 0},
+		// T-864: v0.28 dropped the keys no project sets, and the two empty sections.
+		{"integrator_handoff_tokens", set("integrator_handoff_tokens", 0), 28, 30},
+		{"stop_idle_workers", set("stop_idle_workers", false), 28, 30},
+		{"merge.timeout_grep", set("merge.timeout_grep", "timed out"), 28, 30},
+		{"merge.max_load", set("merge.max_load", 10), 28, 30},
+		{"merge.load_wait", set("merge.load_wait", 5), 28, 30},
+		{"merge.window_wait", set("merge.window_wait", 60), 28, 30},
+		{"slots.merge_block_max", set("slots.merge_block_max", 60), 28, 30},
+		{"mcp", set("mcp", map[string]any{}), 28, 30},
+		{"cache", set("cache", map[string]any{}), 28, 30},
 	} {
 		if r.removed > 0 {
 			if r.keepUntil != r.removed+2 {
