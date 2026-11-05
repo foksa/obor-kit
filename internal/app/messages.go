@@ -796,7 +796,7 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 		a.mu.Unlock()
 	}()
 	if post == freshStart && !closing { // T-794: the running agent stopped first (serve's role stop), then started
-		if err := a.freshStop(ctx, p, fx, q, target, key); err != nil {
+		if err := a.freshStop(ctx, p, fx, q, key); err != nil {
 			return false
 		}
 		post = startRoute
@@ -833,15 +833,22 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	return err == nil && !closing
 }
 
-// freshStop stops q's agent in pane before its fresh brief's start (deliverLine, T-794; q claimed): serve's role stop
-// (stopRoleNow), the agent interrupted if it works. A failed stop: fact failed for the line (key: its delivery), so the
-// brief stays queued, its needs-you raised (msgNeedsYou) and the stop tried again (freshRoute); nothing is started.
-func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q queued, pane string, key event.Key) error {
-	w := Where{State: Identified, Pane: port.Pane{ID: pane}} // the pane route identified as the agent's
-	err := a.stopRoleNow(ctx, p, fx, q.msg.To, "brief", 0, w)
-	switch {
-	case err == nil:
+// freshStop stops q's agent before its fresh brief's start (deliverLine, T-794; q claimed): serve's one stop decision
+// (stopAgent; the pane resolved now, the agent interrupted if it works). A failed stop starts the agent's retry clock
+// (roleFail, freshRoute) and records fact failed for the line (key: its delivery), so the brief stays queued, its
+// needs-you raised (msgNeedsYou) and the stop tried again; nothing is started.
+func (a *App) freshStop(ctx context.Context, p *proj, fx *Loop, q queued, key event.Key) error {
+	line, _, err := a.stopAgent(ctx, p, fx, q.msg.To, false, true)
+	if err == nil {
+		a.logf("%s: %s stopped for its fresh brief: %s", p.name, q.msg.To, line)
 		return nil
+	}
+	if !cutByServe(ctx, err) {
+		a.mu.Lock()
+		p.roleFail[q.msg.To] = a.opt.Now()
+		a.mu.Unlock()
+	}
+	switch {
 	case cutByServe(ctx, err):
 		a.shutDown(event.MsgTask + " " + event.StepFailed + "{" + key.Step + ": " + err.Error() + "}")
 	default:

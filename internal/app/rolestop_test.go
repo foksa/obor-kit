@@ -14,8 +14,9 @@ import (
 	"time"
 )
 
-// T-672: serve stops the integrator once a verdict leaves no job for it, and the reviewer once its review closes; a
-// brief to a stopped role agent starts it fresh on the brief.
+// T-672, T-870: serve stops the integrator once a verdict leaves no job for it, and the reviewer once its review
+// closes: two rules on the rule pass (rules.go, rolestop.go), whose action runs on an idle pane and is done when the
+// pane is at its shell. A brief to a stopped role agent starts it fresh on the brief.
 
 // stopSpy is startJobFakes that also records every Stop ("<agent> <pane> force=<force>").
 type stopSpy struct {
@@ -68,79 +69,133 @@ func atAgent(r *concRig) {
 	r.a.mu.Unlock()
 }
 
-func TestRoleStopIntegratorAfterVerdict(t *testing.T) {
-	t.Parallel()
-	r := newConcRig(t)
-	p := r.proj("pj")
-	s := newStopSpy(r)
-	ctx := context.Background()
-	greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-	if !runJob(r, p, "T-1", s) {
-		t.Fatal("precondition: T-1's review job not started")
+// stopRig is a rule harness (a merging project pj with the lead pj-lead) whose snapshot has the integrator's pane
+// w1:int, running and idle, and a stop spy for the rule pass.
+func stopRig(t *testing.T) (*harness, *reviewStopSpy) {
+	t.Helper()
+	h := ruleHarness(t)
+	h.snap = port.Snapshot{Workspaces: map[string]string{"w1": "pj"}, Panes: []port.Pane{
+		{ID: "w1:lead", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-lead", Status: "idle"},
+		{ID: "w1:int", Workspace: "w1", Cwd: h.root, Agent: "claude", Label: "pj-int", Status: "idle"},
+	}}
+	h.a.connect(context.Background(), h.snap)
+	p := h.proj()
+	h.a.mu.Lock()
+	w := h.a.whereIs(p, p.integrator)
+	h.a.mu.Unlock()
+	if p.integrator != "pj-int" || w.State != Identified || !Ready(w.Pane.Status) {
+		t.Fatalf("precondition: the integrator %q at %+v, want pj-int in w1:int idle", p.integrator, w)
 	}
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 0, "stops while T-1's job is open")
-
-	acceptJob(r, p, "T-1", "p1", "a1")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	if want := []string{"pj-int w1:p9 force=false"}; !slices.Equal(s.stops, want) {
-		t.Fatalf("stops %q after the verdict, no other job: want %q", s.stops, want)
-	}
-	same(t, done(p, event.Key{Task: event.RoleTask, Step: stepRoleStop + "pj-int"}), true, "the stop's result recorded")
-	atShell(r)
-	if got := r.a.Status().Project.Stopped; !slices.Equal(got, []string{"pj-int"}) {
-		t.Errorf("status stopped %q, want [pj-int]", got)
-	}
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
-	same(t, len(s.stops), 1, "stops after a second pass (the stop is done)")
+	return h, &reviewStopSpy{}
 }
 
-// The integrator is stopped only when no job is left and it is idle: another queued job's verdict comes first, and one
-// still ending its turn after the verdict (working) is never cut off.
-func TestRoleStopIntegratorWaitsForQueuedJobAndIdle(t *testing.T) {
+// T-870: the integrator's stop rule, one table (condition → action). Its pane runs it and is idle, no task has an
+// integrator job open or queued, and a verdict came since its start: only then does it stop it, and only once the
+// pane is at its shell is the action done.
+func TestRoleStopIntegratorRule(t *testing.T) {
 	t.Parallel()
-	t.Run("another job queued", func(t *testing.T) {
-		t.Parallel()
-		r := newConcRig(t)
-		p := r.proj("pj")
-		s := newStopSpy(r)
-		ctx := context.Background()
-		greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-		greenTask(r, "T-5", port.Candidate{Task: "T-5", SHA: "c5", Target: "b", Patch: "p5"})
-		if !runJob(r, p, "T-1", s) {
-			t.Fatal("precondition: T-1's review job not started")
+	type step func(t *testing.T, h *harness, s *reviewStopSpy)
+	pass := func(t *testing.T, h *harness, s *reviewStopSpy) {
+		h.a.rulePass(context.Background(), rules, &Loop{Agents: s})
+	}
+	submitted := func(t *testing.T, h *harness, _ *reviewStopSpy) { // its task done, no integrator job yet
+		addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+	}
+	green := func(t *testing.T, h *harness, s *reviewStopSpy) {
+		submitted(t, h, s)
+		addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen,
+			Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"}})
+	}
+	jobOut := func(t *testing.T, h *harness, s *reviewStopSpy) { // the review job is out
+		green(t, h, s)
+		addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	}
+	answered := func(t *testing.T, h *harness, s *reviewStopSpy) { // the job's verdict is in
+		jobOut(t, h, s)
+		addRecord(t, h, "T-1", "accept.c1", event.KindResult, verdictResult{Job: "T-1/1/review", Patch: "p1"})
+	}
+	started := func(t *testing.T, h *harness, s *reviewStopSpy) { // serve starts it again: the verdict is not its start's
+		answered(t, h, s)
+		addRecord(t, h, "T-1", stepStart+event.StepReview, event.KindResult, startOut{Line: "STARTED pj-int",
+			Agent: "pj-int", Pane: "w1:int", Kind: "claude"})
+	}
+	status := func(id, status, agent string) step {
+		return func(t *testing.T, h *harness, _ *reviewStopSpy) {
+			h.status(id, func(p *port.Pane) { p.Status, p.Agent = status, agent })
 		}
-		acceptJob(r, p, "T-1", "p1", "a1")
-		r.a.stopRoles(ctx, p, &Loop{Agents: s})
-		same(t, len(s.stops), 0, "stops with T-5's job queued")
+	}
+	secondPane := func(t *testing.T, h *harness, _ *reviewStopSpy) {
+		h.snap.Panes = append(h.snap.Panes, port.Pane{ID: "w1:int2", Workspace: "w1", Cwd: h.root,
+			Agent: "claude", Label: "pj-int", Status: "idle"})
+		h.a.connect(context.Background(), h.snap)
+		h.a.mu.Lock()
+		w := h.a.whereIs(h.proj(), "pj-int")
+		h.a.mu.Unlock()
+		if w.State != Ambiguous {
+			t.Fatalf("precondition: pj-int %+v, want ambiguous", w)
+		}
+	}
+	cases := []struct {
+		name  string
+		steps []step
+		stops []string // the stops, "agent pane force"
+	}{
+		{name: "no verdict since its start: none", steps: []step{submitted, pass}},
+		{name: "its last verdict is before its start: none", steps: []step{started, pass}},
+		{name: "its job is out: none", steps: []step{jobOut, pass}},
+		{name: "its job is queued (green, no accept): none", steps: []step{green, pass}},
+		{name: "it still works after the verdict: none, then idle: stopped",
+			steps: []step{answered, status("w1:int", "working", "claude"), pass, status("w1:int", "idle", "claude"), pass},
+			stops: []string{"pj-int w1:int force=false"}},
+		{name: "it is at its shell: none", steps: []step{answered, status("w1:int", "", ""), pass}},
+		{name: "two panes claim it: none", steps: []step{answered, secondPane, pass}},
+		{name: "the pane at its shell after the stop: no second stop",
+			steps: []step{answered, pass, status("w1:int", "", ""), pass},
+			stops: []string{"pj-int w1:int force=false"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, s := stopRig(t)
+			for _, st := range c.steps {
+				st(t, h, s)
+			}
+			if !slices.Equal(s.stops, c.stops) {
+				t.Errorf("stops %q, want %q", s.stops, c.stops)
+			}
+		})
+	}
+}
 
-		if !runJob(r, p, "T-5", s) {
-			t.Fatal("T-5's review job not started")
+// T-870: an older log's role stop (stop.<agent>[.N], task key roles) folds to nothing (compat until v0.28): the rule
+// still stops an integrator whose job was answered, and status never reads a record for "stopped" (the pane says).
+func TestRoleStopOldRecordsFoldToNothing(t *testing.T) {
+	t.Parallel()
+	h, s := stopRig(t)
+	addRecord(t, h, "T-1", event.StepSubmitted, event.KindFact, submitData{Lane: "L-01"})
+	addRecord(t, h, "T-1", event.StepGate, event.KindResult, gateOut{Outcome: outGreen,
+		Candidate: port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"}})
+	addRecord(t, h, "T-1", event.StepReview, event.KindIntent, promptData{Agent: "pj-int", Job: "T-1/1/review", Patch: "p1"})
+	addRecord(t, h, "T-1", "accept.c1", event.KindResult, verdictResult{Job: "T-1/1/review", Patch: "p1"})
+	addRecord(t, h, event.RoleTask, stepRoleStop+"pj-int", event.KindIntent, stopData{Agent: "pj-int"})
+	addRecord(t, h, event.RoleTask, stepRoleStop+"pj-int", event.KindResult,
+		map[string]string{"agent": "pj-int", "role": "integrator", "line": "STOPPED pj-int"})
+	old := 0
+	for _, rec := range readLog(t, h.root) {
+		if rec.Task == event.RoleTask {
+			old++
 		}
-		r.a.stopRoles(ctx, p, &Loop{Agents: s})
-		same(t, len(s.stops), 0, "stops while T-5's job is open")
-		acceptJob(r, p, "T-5", "p5", "a5")
-		r.a.stopRoles(ctx, p, &Loop{Agents: s})
-		same(t, strings.Join(s.stops, ","), "pj-int w1:p9 force=false", "stops after T-5's verdict")
-	})
-	t.Run("still working", func(t *testing.T) {
-		t.Parallel()
-		r := newConcRig(t)
-		p := r.proj("pj")
-		s := newStopSpy(r)
-		ctx := context.Background()
-		greenTask(r, "T-1", port.Candidate{Task: "T-1", SHA: "c1", Target: "b", Patch: "p1"})
-		if !runJob(r, p, "T-1", s) {
-			t.Fatal("precondition: T-1's review job not started")
-		}
-		acceptJob(r, p, "T-1", "p1", "a1")
-		setStatus(r, "working")
-		r.a.stopRoles(ctx, p, &Loop{Agents: s})
-		same(t, len(s.stops), 0, "stops while it works")
-		setStatus(r, "idle")
-		r.a.stopRoles(ctx, p, &Loop{Agents: s})
-		same(t, len(s.stops), 1, "stops once idle")
-	})
+	}
+	if old != 2 {
+		t.Fatalf("precondition: %d old role stop records in the log, want 2", old)
+	}
+	h.a.rulePass(context.Background(), rules, &Loop{Agents: s})
+	if want := []string{"pj-int w1:int force=false"}; !slices.Equal(s.stops, want) {
+		t.Errorf("stops %q with the old record and its verdict in, want %q", s.stops, want)
+	}
+	if got := h.a.Status().Project.Stopped; len(got) != 0 {
+		t.Errorf("status stopped %q with the record in and pj-int running, want none", got)
+	}
 }
 
 // The next job after a stop starts the integrator fresh: no job.lost, no needs-you, and status no longer shows it
@@ -156,7 +211,7 @@ func TestRoleStopNextJobStartsFresh(t *testing.T) {
 		t.Fatal("precondition: T-1's review job not started")
 	}
 	acceptJob(r, p, "T-1", "p1", "a1")
-	r.a.stopRoles(ctx, p, &Loop{Agents: s})
+	r.a.rulePass(ctx, rules, &Loop{Agents: s})
 	atShell(r)
 	if len(s.stops) != 1 || r.a.whereIs(p, "pj-int").State != Unavailable {
 		t.Fatalf("precondition: pj-int not stopped: %q", s.stops)
@@ -275,7 +330,7 @@ func TestBriefReachesCustomRole(t *testing.T) {
 	}
 	s := &reviewStopSpy{}
 	now = now.Add(time.Hour)
-	a.stopRoles(context.Background(), p, &Loop{Agents: s, Review: &reviewGitFake{}})
+	a.rulePass(context.Background(), rules, &Loop{Agents: s, Review: &reviewGitFake{}})
 	same(t, len(s.stops), 0, "serve's stops of the custom role")
 }
 
@@ -290,61 +345,86 @@ func (s *reviewStopSpy) Stop(_ context.Context, agent, pane string, force bool) 
 	return "STOPPED " + agent, nil
 }
 
-// The reviewer runs on after its review's brief is finished (its verify goes to the same session) until the
-// review's "RV-<n> closed" commit, then it is stopped once; the advisor is never stopped by serve.
-func TestRoleStopReviewerOnClose(t *testing.T) {
-	t.Parallel()
+// reviewStopRig is a review rig (RV-4 closed in git, the reviewer pj-rev idle in w:rev) with a stop spy.
+func reviewStopRig(t *testing.T) (*reviewRig, *reviewStopSpy) {
+	t.Helper()
 	r := newReviewRig(t)
-	r.started()
 	s := &reviewStopSpy{}
-	ctx := context.Background()
-	fx := &Loop{Review: r.git, Agents: s}
-	r.a.stopRoles(ctx, r.p, fx)
-	same(t, len(s.stops), 0, "stops while RV-5 is open (finished, not closed)")
-
-	r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
-	r.now = r.now.Add(reviewDueEvery) // the open review is read again
-	r.a.stopRoles(ctx, r.p, fx)
-	if want := []string{"pj-rev w:rev force=false"}; !slices.Equal(s.stops, want) {
-		t.Fatalf("stops %q after RV-5 closed, want %q", s.stops, want)
+	r.a.mu.Lock()
+	w := r.a.whereIs(r.p, "pj-rev")
+	r.a.mu.Unlock()
+	if w.State != Identified || !Ready(w.Pane.Status) {
+		t.Fatalf("precondition: the reviewer %+v, want identified and idle", w)
 	}
-	r.now = r.now.Add(reviewDueEvery)
-	r.a.stopRoles(ctx, r.p, fx)
-	same(t, len(s.stops), 1, "stops after a second pass")
-	r.reload()
-	r.a.stopRoles(ctx, r.p, &Loop{Review: r.git, Agents: s})
-	same(t, len(s.stops), 1, "stops after a replay")
+	return r, s
 }
 
-// An advisor that finished its brief keeps running: serve stops it never (the lead does).
-func TestRoleStopAdvisorKeptRunning(t *testing.T) {
+// T-870: the reviewer's stop rule, one table (condition → action). The last review serve started is closed in git
+// (read at most every reviewDueEvery), the reviewer has no open brief and its pane runs it and is idle: only then does
+// it stop it, and only once the pane is at its shell is the action done.
+func TestRoleStopReviewerRule(t *testing.T) {
 	t.Parallel()
-	root := lineRoot(t)
-	cfg := `{"name":"proj","prefix":"pj","roles":{"integrator":"","advisor":""}}`
-	if err := os.WriteFile(filepath.Join(root, ".obor/config.json"), []byte(cfg), 0o644); err != nil {
-		t.Fatal(err)
+	type step func(t *testing.T, r *reviewRig, s *reviewStopSpy)
+	pass := func(t *testing.T, r *reviewRig, s *reviewStopSpy) {
+		r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: s})
 	}
-	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	a, p := lineApp(t, root, &now)
-	a.connect(context.Background(), port.Snapshot{Workspaces: map[string]string{"w": "proj"}, Panes: []port.Pane{
-		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
-		{ID: "w:adv", Workspace: "w", Cwd: root, Agent: "codex", Label: "pj-advisor", Status: "idle"},
-	}})
-	if _, err := a.briefCall(wire.Call{Root: p.root, CallID: "b1", To: "pj-advisor", Role: "lead"}); err != nil {
-		t.Fatal(err)
+	started := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) { r.started() }
+	closed := func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+		r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
 	}
-	lineStatus(a, "w:adv", "working", now)
-	lineStatus(a, "w:adv", "idle", now)
-	a.deliver(context.Background(), p, &Loop{Inbox: &inboxSpy{}})
-	if p.out.brief("pj-advisor") != nil {
-		t.Fatal("precondition: the advisor's brief is not finished")
+	status := func(status, agent string) step {
+		return func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+			pane := r.a.obs["w:rev"].pane
+			pane.Status, pane.Agent = status, agent
+			r.a.event(context.Background(), port.Event{Kind: port.EventStatus, Pane: "w:rev", Status: status,
+				Agent: agent, New: pane})
+		}
 	}
-	s := &reviewStopSpy{}
-	now = now.Add(time.Hour)
-	a.stopRoles(context.Background(), p, &Loop{Agents: s, Review: &reviewGitFake{}})
-	same(t, len(s.stops), 0, "stops of the finished advisor")
-	if w := a.whereIs(p, "pj-advisor"); w.State != Identified {
-		t.Errorf("pj-advisor %+v, want still running", w)
+	later := func(d time.Duration) step {
+		return func(_ *testing.T, r *reviewRig, _ *reviewStopSpy) { r.now = r.now.Add(d) }
+	}
+	cases := []struct {
+		name  string
+		steps []step
+		stops []string
+	}{
+		{name: "no review started: none", steps: []step{pass}},
+		{name: "its review is open: none", steps: []step{started, pass}},
+		{name: "closed: stopped", steps: []step{started, closed, pass},
+			stops: []string{"pj-rev w:rev force=false"}},
+		{name: "closed with its brief open: none", steps: []step{started, closed,
+			func(t *testing.T, r *reviewRig, _ *reviewStopSpy) {
+				if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: "b2", To: "pj-rev", Note: "check X",
+					Role: "lead", Agent: "pj-lead"}); err != nil {
+					t.Fatal(err)
+				}
+				if r.p.out.brief("pj-rev") == nil {
+					t.Fatal("precondition: the reviewer has no open brief")
+				}
+			}, pass}},
+		{name: "closed but it works: none, then idle: stopped",
+			steps: []step{started, closed, status("working", "codex"), pass, status("idle", "codex"), pass},
+			stops: []string{"pj-rev w:rev force=false"}},
+		{name: "closed but it is at its shell: none",
+			steps: []step{started, closed, status("", ""), pass}},
+		{name: "closed and the pane at its shell after the stop: no second stop",
+			steps: []step{started, closed, pass, status("", ""), later(reviewDueEvery), pass},
+			stops: []string{"pj-rev w:rev force=false"}},
+		{name: "its open review was read less than reviewDueEvery ago: none, then stopped",
+			steps: []step{started, pass, closed, pass, later(reviewDueEvery), pass},
+			stops: []string{"pj-rev w:rev force=false"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r, s := reviewStopRig(t)
+			for _, st := range c.steps {
+				st(t, r, s)
+			}
+			if !slices.Equal(s.stops, c.stops) {
+				t.Errorf("stops %q, want %q", s.stops, c.stops)
+			}
+		})
 	}
 }
 

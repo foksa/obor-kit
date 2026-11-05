@@ -44,7 +44,13 @@ func TestRoleStopIntegratorAcrossRestart(t *testing.T) {
 	if n := r.starts.Load(); n != starts {
 		t.Errorf("integrator starts %d after the restart, want %d (no job: nothing starts it)", n, starts)
 	}
-	if n := r.count("0 intent stop.pj-int") + r.count("0 intent stop.pj-int.2"); n != 1 {
-		t.Errorf("stops of pj-int %d, want 1 (the replay stops it no second time): %q", n, r.steps())
+	ints := 0
+	for _, s := range r.stopped() {
+		if strings.HasPrefix(s, "pj-int ") {
+			ints++
+		}
+	}
+	if ints != 1 {
+		t.Errorf("stops of pj-int %d, want 1 (the replay stops it no second time): %q", ints, r.stopped())
 	}
 }

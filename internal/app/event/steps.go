@@ -27,7 +27,8 @@ const (
 	MsgTask = "msg"
 	// ServeTask is the task key of a failed self-restart's needs-you (T-652): the project's serve, not a task's.
 	ServeTask = "serve"
-	// RoleTask is the task key of serve's stops of role agents.
+	// RoleTask is the task key of serve's stops of role agents: compat until v0.28, an older log's stop.<agent>[.N]
+	// (T-672; the stops are rules since T-870), folded to nothing.
 	RoleTask = "roles"
 	// ConfigTask is the task key of the owner's setup edits (obor web, T-753).
 	ConfigTask = "config"

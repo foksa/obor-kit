@@ -22,7 +22,9 @@ func (r *reviewRig) afterStepsDone(task string) {
 }
 
 // idlePass is the merge loop's rule pass after its advance.
-func (r *reviewRig) idlePass() { r.a.rulePass(context.Background(), rules) }
+func (r *reviewRig) idlePass() {
+	r.a.rulePass(context.Background(), rules, &Loop{Review: r.git, Agents: r.agents})
+}
 
 // idleSettled lets the idle window pass at the rig's clock: the first check starts (or keeps) it, the clock moves past
 // idleSettle, and the next check posts the line.
