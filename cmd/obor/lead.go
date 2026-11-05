@@ -23,15 +23,19 @@ type leadRun struct {
 	h        *herdr.Socket
 	out      io.Writer
 	tune     func(*launch.Launcher)
+	// wake is obor start in a stopped project, its outside systems as this project's (nil: the real ones; tests fake
+	// them).
+	wake *sleeper
 }
 
 // lead is `obor lead [--resume]` (T-479, T-553): (re)start the project's lead (roles.lead) in a fresh session;
-// --resume continues its last one. Its agent already running → OK, nothing
-// touched; an agent of that name running outside the project → FAIL
-// (RV-51 #5). A pane labelled with its agent (the session ended, or Claude was quit to update it) → obor restart's
-// start in that pane; from that pane itself the start runs once this command has exited (herdr starts an agent only
-// at the shell prompt). No such pane → obor setup role lead's start in a new tab, fresh; only this needs
-// roles.lead.type (RV-51 #4: a running or labelled untyped lead is restarted as any other).
+// --resume continues its last one. A stopped project (T-911) is woken first: obor start's steps run, its STARTED said,
+// and only then the lead starts; a start that fails ends obor lead with its error and starts no lead. Its agent already
+// running → OK, nothing touched; an agent of that name running outside the project → FAIL (RV-51 #5). A pane labelled
+// with its agent (the session ended, or Claude was quit to update it) → obor restart's start in that pane; from that
+// pane itself the start runs once this command has exited (herdr starts an agent only at the shell prompt). No such
+// pane → obor setup role lead's start in a new tab, fresh; only this needs roles.lead.type (RV-51 #4: a running or
+// labelled untyped lead is restarted as any other).
 func lead(args []string) int {
 	cwd, _ := os.Getwd()
 	r := leadRun{dir: cwd, kit: project.KitRoot(project.OSEnv), env: project.OSEnv, h: herdrSocket(project.OSEnv), out: out}
@@ -56,6 +60,15 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	cfg, err := config.Load(repo.Root)
 	if err != nil {
 		return fail("the config does not load (obor config validate)")
+	}
+	if project.Stopped(cfg.Root) { // T-911: no lead starts in a stopped project: obor start's steps go first
+		s := r.wake
+		if s == nil {
+			s = &sleeper{Cfg: cfg, Env: r.env, Cwd: r.dir, Out: r.out, H: r.h}
+		}
+		if rc := s.start(ctx); rc != 0 {
+			return rc
+		}
 	}
 	agent := cfg.AgentName("lead", "")
 

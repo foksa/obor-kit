@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/herdr/herdrtest"
 	"obor/internal/launch"
+	"obor/internal/project"
 	"obor/internal/testkit"
 )
 
@@ -50,6 +53,24 @@ func (x *leadFx) run(t *testing.T, args ...string) (string, int) {
 	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), h: x.srv.Client(), out: &out, tune: x.launcher}
 	rc := r.run(context.Background(), args)
 	return out.String(), rc
+}
+
+// runWakes is run with obor start's outside systems faked: serve up or down, its agents nothing to stop (T-911's wake
+// needs no herdr). Its output carries the start's lines and the lead's, its serve the requests start made.
+func (x *leadFx) runWakes(t *testing.T, up bool, args ...string) (string, int, *sleepServe) {
+	t.Helper()
+	cfg, err := config.Load(x.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	serve := &sleepServe{root: x.p.Root, up: up}
+	wake := &sleeper{Cfg: cfg, Env: x.p.Env(x.env...), Cwd: x.p.Root, Out: &out, Wait: 300 * time.Millisecond,
+		Ask: serve.ask, Call: serve.call}
+	r := leadRun{dir: x.p.Root, kit: x.p.Base, env: x.p.Env(x.env...), h: x.srv.Client(), out: &out,
+		tune: x.launcher, wake: wake}
+	rc := r.run(context.Background(), args)
+	return out.String(), rc, serve
 }
 
 // calls is what herdr was asked: the socket requests (method and params, as sent).
@@ -267,4 +288,61 @@ func TestLeadPromptOnlyForAFreshClaudeLead(t *testing.T) {
 	if c := x.calls(); !strings.Contains(c, "agent.start") || strings.Contains(c, "/obor:lead") {
 		t.Errorf("codex lead, new tab: started with no /obor:lead:\n%s", c)
 	}
+}
+
+// T-911: a stopped project is woken before its lead: obor start's steps run first (its STARTED line, the marker gone,
+// the project registered), then the lead starts; a start that fails ends obor lead with its error at once and starts
+// no lead; a running project runs no start at all.
+func TestLeadWakesAStoppedProjectFirst(t *testing.T) {
+	t.Run("stopped", func(t *testing.T) {
+		fakeLaunchctl(t) // the start installs serve (darwin); no t.Parallel: it sets PATH
+		x := newLeadFx(t)
+		if err := project.WriteStopMarker(x.p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
+			t.Fatal(err)
+		}
+		out, rc, serve := x.runWakes(t, true)
+		if rc != 0 || !strings.HasSuffix(out, "OK lead: pj-lead in pane wn1:n2\n") || serve.asks == 0 {
+			t.Fatalf("stopped: exit %d\n%s", rc, out)
+		}
+		started, lead := strings.Index(out, "STARTED proj (agents start on first use)"), strings.Index(out, "OK lead:")
+		if started < 0 || started > lead {
+			t.Errorf("start's STARTED not printed before the lead starts:\n%s", out)
+		}
+		if project.Stopped(x.p.Root) {
+			t.Error("the marker survives: the project was not woken")
+		}
+		if _, ok := project.RootOf("proj", x.p.Env()); !ok {
+			t.Error("the woken project is not in the machine's list")
+		}
+		if c := x.calls(); !strings.Contains(c, "tab.create") || !strings.Contains(c, "agent.start") {
+			t.Errorf("the lead did not launch after the start:\n%s", c)
+		}
+	})
+	t.Run("stopped, start fails", func(t *testing.T) {
+		fakeLaunchctl(t)
+		x := newLeadFx(t)
+		if err := project.WriteStopMarker(x.p.Root, project.StopMarker{At: time.Now(), Why: "test"}); err != nil {
+			t.Fatal(err)
+		}
+		out, rc, _ := x.runWakes(t, false)
+		if rc != 1 || !strings.Contains(out, "FAIL obor serve does not answer for ") || strings.Contains(out, "OK lead") {
+			t.Fatalf("start fails: exit %d\n%s", rc, out)
+		}
+		if c := x.calls(); c != "" {
+			t.Errorf("start failed, yet herdr was asked (a lead started?):\n%s", c)
+		}
+		if _, err := os.Stat(project.StartingFile(x.p.Root)); err != nil {
+			t.Errorf("no starting file for obor start's rerun: %v", err)
+		}
+	})
+	t.Run("running", func(t *testing.T) {
+		x := newLeadFx(t)
+		out, rc, serve := x.runWakes(t, true)
+		if rc != 0 || !strings.HasSuffix(out, "OK lead: pj-lead in pane wn1:n2\n") || strings.Contains(out, "STARTED") {
+			t.Fatalf("running: exit %d\n%s", rc, out)
+		}
+		if serve.asks != 0 {
+			t.Errorf("a running project: start asked serve %d times", serve.asks)
+		}
+	})
 }
