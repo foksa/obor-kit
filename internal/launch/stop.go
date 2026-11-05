@@ -49,7 +49,7 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 	if l.ownPane(t) && !waited {
 		return l.schedule(t, Request{Force: force}, true)
 	}
-	running := t.entry.Kind != "" && !l.atShell(ctx, t.pane)
+	running := t.entry.Agent != "" && !l.atShell(ctx, t.pane)
 	if err := l.stop(ctx, t, force, true, ""); err != nil {
 		return "", err
 	}
@@ -63,7 +63,7 @@ func (l *Launcher) Stop(ctx context.Context, agent, pane string, force bool) (st
 // Escape and quits it once idle, still working after the wait → FAIL unless force; else (a restart) FAIL unless force
 // (hint: what that refusal says to do). force: Escape, and the exit after the wait even when it is still working.
 func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint string) error {
-	running := t.entry.Kind
+	running := t.entry.Agent
 	if running == "" || l.atShell(ctx, t.pane) {
 		return nil
 	}
@@ -76,7 +76,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 	left := func() time.Duration { return max(time.Until(deadline)-kill, 0) }
 	recipe := recipeOf(running)
 	restored := false // AfterEscape ran: the interrupted prompt is already cleared
-	if status := t.entry.Status; status == "working" || status == "blocked" {
+	if status := t.entry.Status; t.entry.Busy() {
 		if !force && !escape {
 			return project.Failf("%s is %s (%s)", t.agent, status, hint)
 		}
@@ -84,7 +84,7 @@ func (l *Launcher) stop(ctx context.Context, t *target, force, escape bool, hint
 		idle := min(l.idle(), left())
 		if !l.until(ctx, idle, func() bool {
 			a, err := l.H.Agent(ctx, t.pane)
-			return err != nil || (a.Status != "working" && a.Status != "blocked")
+			return err != nil || !a.Busy()
 		}) {
 			if !force {
 				return needsForce("%s still %s %s after Escape (--force stops it)", t.agent, status, idle)

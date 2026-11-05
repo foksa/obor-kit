@@ -99,8 +99,8 @@ func TestPanesSubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/L-01", Agent: "claude", Status: "idle",
-		Label: "pj-l-01", Session: "5e1d0c2b-aaaa"}
+	want := port.Pane{ID: "w1:p1", Workspace: "w1", Cwd: "/proj-wt/L-01", Agent: "claude", Name: "pj-l-01", Status: "idle",
+		Label: "pj-l-01", Session: "5e1d0c2b-aaaa", Seq: 1}
 	if st.Snapshot.Workspaces["w1"] != "pj" || len(st.Snapshot.Panes) != 3 || st.Snapshot.Panes[0] != want {
 		t.Fatalf("snapshot = %+v\nwant first pane %+v", st.Snapshot, want)
 	}

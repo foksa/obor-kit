@@ -268,8 +268,8 @@ type Snapshot struct {
 	Version    string
 	Protocol   int
 	Workspaces []Workspace
-	Panes      []Pane
-	Agents     []Agent
+	Panes      []port.Pane
+	Agents     []port.Pane
 }
 
 // Workspace is one herdr workspace: its id and the label it shows.
@@ -306,62 +306,62 @@ func (s *Socket) Snapshot(ctx context.Context) (Snapshot, error) {
 		snap.Panes = append(snap.Panes, w.pane())
 	}
 	for _, w := range r.Snapshot.Agents {
-		snap.Agents = append(snap.Agents, w.agent())
+		snap.Agents = append(snap.Agents, w.pane())
 	}
 	return snap, nil
 }
 
 // Agents is agent.list.
-func (s *Socket) Agents(ctx context.Context) ([]Agent, error) {
+func (s *Socket) Agents(ctx context.Context) ([]port.Pane, error) {
 	var r struct {
 		Agents []wire `json:"agents"`
 	}
 	if err := s.call(ctx, 0, &r, "agent.list", nil); err != nil {
 		return nil, err
 	}
-	out := make([]Agent, 0, len(r.Agents))
+	out := make([]port.Pane, 0, len(r.Agents))
 	for _, w := range r.Agents {
-		out = append(out, w.agent())
+		out = append(out, w.pane())
 	}
 	return out, nil
 }
 
 // agentResult is the answer of agent.get, agent.prompt and agent.start: the agent as herdr sees it after the call.
-func (s *Socket) agentResult(ctx context.Context, timeout time.Duration, method string, params any) (Agent, error) {
+func (s *Socket) agentResult(ctx context.Context, timeout time.Duration, method string, params any) (port.Pane, error) {
 	var r struct {
 		Agent *wire `json:"agent"`
 	}
 	if err := s.call(ctx, timeout, &r, method, params); err != nil {
-		return Agent{}, err
+		return port.Pane{}, err
 	}
 	if r.Agent == nil {
-		return Agent{}, &Error{Kind: BadAnswer, Op: method, Msg: "no agent in the answer", reached: true}
+		return port.Pane{}, &Error{Kind: BadAnswer, Op: method, Msg: "no agent in the answer", reached: true}
 	}
-	return r.Agent.agent(), nil
+	return r.Agent.pane(), nil
 }
 
 // Agent is agent.get (target: an agent name or the pane id hosting it).
-func (s *Socket) Agent(ctx context.Context, target string) (Agent, error) {
+func (s *Socket) Agent(ctx context.Context, target string) (port.Pane, error) {
 	return s.agentResult(ctx, 0, "agent.get", map[string]any{"target": target})
 }
 
 // Pane is pane.get.
-func (s *Socket) Pane(ctx context.Context, id string) (Pane, error) {
+func (s *Socket) Pane(ctx context.Context, id string) (port.Pane, error) {
 	var r struct {
 		Pane *wire `json:"pane"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.get", map[string]any{"pane_id": id}); err != nil {
-		return Pane{}, err
+		return port.Pane{}, err
 	}
 	if r.Pane == nil {
-		return Pane{}, &Error{Kind: BadAnswer, Op: "pane.get", Msg: "no pane in the answer"}
+		return port.Pane{}, &Error{Kind: BadAnswer, Op: "pane.get", Msg: "no pane in the answer"}
 	}
 	return r.Pane.pane(), nil
 }
 
 // Prompt is agent.prompt without a wait: the agent right after herdr typed the text. A blocked agent is refused before
 // any input (*Error, Code agent_blocked); a working one queues it.
-func (s *Socket) Prompt(ctx context.Context, target, text string) (Agent, error) {
+func (s *Socket) Prompt(ctx context.Context, target, text string) (port.Pane, error) {
 	return s.agentResult(ctx, 0, "agent.prompt", map[string]any{"target": target, "text": text})
 }
 
@@ -426,7 +426,7 @@ func orNil(s string) any {
 // shell. herdr answers at once, before the agent runs (launch_pending, live T-544): the answer is no proof the agent
 // came up, the caller polls for it (launch.started). Sent once, never retried: a request that timed out may have
 // been typed (Reached).
-func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...string) (Agent, error) {
+func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	p := map[string]any{"name": name, "kind": kind, "pane_id": pane}
 	if len(args) > 0 {
 		p["args"] = args
@@ -435,14 +435,14 @@ func (s *Socket) Start(ctx context.Context, name, kind, pane string, args ...str
 }
 
 // Panes is pane.list.
-func (s *Socket) Panes(ctx context.Context) ([]Pane, error) {
+func (s *Socket) Panes(ctx context.Context) ([]port.Pane, error) {
 	var r struct {
 		Panes []wire `json:"panes"`
 	}
 	if err := s.call(ctx, 0, &r, "pane.list", nil); err != nil {
 		return nil, err
 	}
-	out := make([]Pane, 0, len(r.Panes))
+	out := make([]port.Pane, 0, len(r.Panes))
 	for _, w := range r.Panes {
 		out = append(out, w.pane())
 	}
@@ -611,15 +611,15 @@ const (
 type Event struct {
 	Kind   string // one of the Event* kinds
 	Pane   string
-	Status string // EventStatus: the new status (Now's)
-	Agent  string // EventStatus: the agent kind (claude, codex…), "" when none (Now's)
-	Line   string // EventOutput: the matching line
-	Text   string // EventOutput: the pane's text it matched in
-	Watch  Watch  // EventOutput: the watch that matched
-	New    Pane   // EventCreated: the new pane, its agent fields as Now has them
+	Status string    // EventStatus: the new status (Now's)
+	Agent  string    // EventStatus: the agent kind (claude, codex…), "" when none (Now's)
+	Line   string    // EventOutput: the matching line
+	Text   string    // EventOutput: the pane's text it matched in
+	Watch  Watch     // EventOutput: the watch that matched
+	New    port.Pane // EventCreated: the new pane, its agent fields as Now has them
 	// Now is the pane as herdr reported it when it was read again after the event (EventStatus, EventCreated): its
-	// agent entry (Name, Kind, Status, Cwd, Session, Workspace, Transcript), or the pane's fields when no agent runs.
-	Now Agent
+	// agent entry (Name, Agent, Status, Cwd, Session, Workspace, Transcript), or the pane's fields when no agent runs.
+	Now port.Pane
 }
 
 // Watch asks for an EventOutput each time pane's text from Source starts to match Match. herdr samples the screen: it
@@ -664,7 +664,7 @@ type Stream struct {
 	subscribed map[string]bool // panes with a status subscription
 	err        error
 
-	seen map[string]Agent // pump's: each live pane as the Snapshot or C last said
+	seen map[string]port.Pane // pump's: each live pane as the Snapshot or C last said
 }
 
 type subLine struct {
@@ -732,7 +732,7 @@ func (st *Stream) Watch(watches ...Watch) error {
 }
 
 // missing is the ids of panes without a status subscription.
-func (st *Stream) missing(panes []Pane) []string {
+func (st *Stream) missing(panes []port.Pane) []string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	var ids []string
@@ -870,7 +870,7 @@ func (st *Stream) pump() {
 
 // event decodes one event line, with what its payload says about the pane (hint; nil: nothing); false for a line
 // that is no event obor uses.
-func (st *Stream) event(sl subLine) (Event, *Agent, bool) {
+func (st *Stream) event(sl subLine) (Event, *port.Pane, bool) {
 	var d struct {
 		Pane   string  `json:"pane_id"`
 		Status string  `json:"agent_status"`
@@ -885,10 +885,10 @@ func (st *Stream) event(sl subLine) (Event, *Agent, bool) {
 		return Event{}, nil, false
 	}
 	ev := Event{Kind: eventName(sl.l.Event), Pane: d.Pane}
-	var hint *Agent
+	var hint *port.Pane
 	switch ev.Kind {
 	case EventStatus:
-		hint = &Agent{Pane: d.Pane, Status: d.Status, Kind: str(d.Agent)}
+		hint = &port.Pane{ID: d.Pane, Status: d.Status, Agent: str(d.Agent)}
 	case EventOutput:
 		ev.Line, ev.Text = d.Line, d.Read.Text
 		if sl.watch != nil {
@@ -909,7 +909,7 @@ func (st *Stream) event(sl subLine) (Event, *Agent, bool) {
 
 // settle is what C gets for ev, false for nothing (see Stream). hint is what ev's payload says about the pane: when
 // it matches what C last said, nothing changed that obor watches, and the pane is not read again.
-func (st *Stream) settle(ev Event, hint *Agent) (Event, bool, error) {
+func (st *Stream) settle(ev Event, hint *port.Pane) (Event, bool, error) {
 	last, known := st.seen[ev.Pane]
 	switch ev.Kind {
 	case EventCreated:
@@ -917,7 +917,7 @@ func (st *Stream) settle(ev Event, hint *Agent) (Event, bool, error) {
 			return ev, false, nil
 		}
 		// Subscribed first, then read: a change in between is in the read, a later one arrives as an event.
-		if err := st.subscribePanes(st.missing([]Pane{ev.New})); err != nil {
+		if err := st.subscribePanes(st.missing([]port.Pane{ev.New})); err != nil {
 			return ev, false, gone(err)
 		}
 		now, err := st.reread(ev.Pane)
@@ -925,7 +925,7 @@ func (st *Stream) settle(ev Event, hint *Agent) (Event, bool, error) {
 			return ev, false, gone(err)
 		}
 		st.seen[ev.Pane] = now
-		ev.New.Cwd, ev.New.Kind, ev.New.Status, ev.New.Session = now.Cwd, now.Kind, now.Status, now.Session
+		ev.New.Cwd, ev.New.Agent, ev.New.Status, ev.New.Session = now.Cwd, now.Agent, now.Status, now.Session
 		ev.New.Workspace, ev.New.Transcript, ev.Now = now.Workspace, now.Transcript, now
 		return ev, true, nil
 	case EventStatus, eventUpdated, eventDetected:
@@ -940,7 +940,7 @@ func (st *Stream) settle(ev Event, hint *Agent) (Event, bool, error) {
 			return ev, false, gone(err)
 		}
 		st.seen[ev.Pane] = now
-		return Event{Kind: EventStatus, Pane: ev.Pane, Status: now.Status, Agent: now.Kind, Now: now}, true, nil
+		return Event{Kind: EventStatus, Pane: ev.Pane, Status: now.Status, Agent: now.Agent, Now: now}, true, nil
 	case EventClosed, EventExited:
 		delete(st.seen, ev.Pane)
 		return ev, known, nil
@@ -960,14 +960,14 @@ func gone(err error) error {
 }
 
 // merge is last with what a status event's hint says: its status and agent kind.
-func merge(hint, last Agent) Agent {
-	last.Status, last.Kind = hint.Status, hint.Kind
+func merge(hint, last port.Pane) port.Pane {
+	last.Status, last.Agent = hint.Status, hint.Agent
 	return last
 }
 
 // reread is pane as herdr reports it now: its agent entry, or the pane when no agent runs there, with the pane's
 // label (an agent entry has none; pane.rename emits no event, so a reread is where a relabel is seen).
-func (st *Stream) reread(pane string) (Agent, error) {
+func (st *Stream) reread(pane string) (port.Pane, error) {
 	a, err := st.s.Agent(st.ctx, pane)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return a, err
@@ -985,12 +985,12 @@ func (st *Stream) reread(pane string) (Agent, error) {
 
 // observed is each pane of snap as herdr reports it: its agent entry when one runs there (the pane's workspace and
 // cwd where the entry has none), else the pane.
-func observed(snap Snapshot) map[string]Agent {
-	agents := map[string]Agent{}
+func observed(snap Snapshot) map[string]port.Pane {
+	agents := map[string]port.Pane{}
 	for _, a := range snap.Agents {
-		agents[a.Pane] = a
+		agents[a.ID] = a
 	}
-	out := map[string]Agent{}
+	out := map[string]port.Pane{}
 	for _, p := range snap.Panes {
 		a, ok := agents[p.ID]
 		if !ok {
@@ -1002,13 +1002,13 @@ func observed(snap Snapshot) map[string]Agent {
 	return out
 }
 
-func paneAgent(p Pane) Agent {
-	return Agent{Pane: p.ID, Status: p.Status, Cwd: p.Cwd, Kind: p.Kind, Session: p.Session, Workspace: p.Workspace,
+func paneAgent(p port.Pane) port.Pane {
+	return port.Pane{ID: p.ID, Status: p.Status, Cwd: p.Cwd, Agent: p.Agent, Session: p.Session, Workspace: p.Workspace,
 		Transcript: p.Transcript, Label: p.Label}
 }
 
 // same: a and b differ in nothing obor watches (Seq grows with every change, even one undone since).
-func same(a, b Agent) bool {
+func same(a, b port.Pane) bool {
 	a.Seq, b.Seq = 0, 0
 	return a == b
 }
@@ -1041,13 +1041,6 @@ func (st *Stream) Err() error {
 func (st *Stream) Close() {
 	st.end(&Error{Kind: Unavailable, Op: "events.subscribe", Msg: "closed"})
 }
-
-// Agent and Pane are what agent.list/agent.get and pane.list/pane.get answer: the core's types, so a *Socket is an
-// port.PaneControl.
-type (
-	Agent = port.AgentInfo
-	Pane  = port.PaneInfo
-)
 
 // Process and ProcessInfo are pane.process_info: the shell and the processes of the pane's foreground process group.
 type (
@@ -1100,14 +1093,11 @@ func (w wire) transcript() string {
 	return w.session()
 }
 
-func (w wire) agent() Agent {
-	return Agent{Name: str(w.Name), Pane: w.Pane, Status: str(w.Status), Cwd: trimSlash(str(w.Cwd)), Kind: str(w.Kind),
-		Session: w.session(), Seq: w.Seq, Workspace: w.Space, Transcript: w.transcript()}
-}
-
-func (w wire) pane() Pane {
-	return Pane{ID: w.Pane, Tab: w.Tab, Terminal: w.Term, Label: str(w.Label), Cwd: trimSlash(str(w.Cwd)), Kind: str(w.Kind), Status: str(w.Status),
-		Session: w.session(), Workspace: w.Space, Transcript: w.transcript()}
+// pane is a herdr pane as the core's Pane: herdr's pane and agent answers share this wire.
+func (w wire) pane() port.Pane {
+	return port.Pane{ID: w.Pane, Tab: w.Tab, Terminal: w.Term, Workspace: w.Space, Cwd: trimSlash(str(w.Cwd)),
+		Label: str(w.Label), Agent: str(w.Kind), Name: str(w.Name), Status: str(w.Status), Transcript: w.transcript(),
+		Session: w.session(), Seq: w.Seq}
 }
 
 func trimSlash(p string) string {

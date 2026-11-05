@@ -11,21 +11,34 @@ import (
 	"obor/internal/agents"
 )
 
-// Pane is one herdr pane as the app sees it.
+// Pane is one herdr pane as the app sees it: the pane's own fields and those of the agent that runs in it (none: the
+// agent fields are empty). It is the one shape herdr's agent and pane answers, its snapshot and its stream's events
+// use (T-888).
 type Pane struct {
-	ID, Workspace string // Workspace: herdr's workspace id
-	Cwd           string
-	Agent         string // the agent's kind ("" when none runs); herdr's agent name is never read (registry.go)
-	Label         string // the pane's label (obor's agent name, set by its launch); kept when an event has none
-	Status        string // idle, working, blocked, done, unknown
-	Transcript    string // the agent's transcript file when herdr reports one, else ""
+	ID, Tab   string
+	Workspace string // herdr's workspace id
+	Cwd       string
+	Label     string // the pane's label (obor's agent name, set by its launch); kept when an event has none
+	Agent     string // the agent's kind ("" when none runs)
+	// Name is herdr's agent name, "" when it has none (it exited, or a restore dropped it); the app never
+	// identifies a pane by it (registry.go).
+	Name       string
+	Status     string // idle, working, blocked, done, unknown
+	Transcript string // the agent's transcript file when herdr reports one, else ""
 	// Session is herdr's raw agent session (agent_session: an id, or a path), "" when herdr reports none: the
 	// session's identity, independent of whether its transcript file is found.
 	Session string
 	// Terminal is herdr's terminal_id of the pane: kept across pane.move, the identity table's key (registry.go); ""
 	// when herdr reports none. Kept when an event has none.
 	Terminal string
+	Seq      int64 // state_change_seq: grows with each status change
 }
+
+// Ready: the pane's agent is idle: it takes a prompt now (done is idle with an unviewed reply).
+func (p Pane) Ready() bool { return p.Status == "idle" || p.Status == "done" }
+
+// Busy: the pane's agent works or waits on a person (working, blocked).
+func (p Pane) Busy() bool { return p.Status == "working" || p.Status == "blocked" }
 
 // Snapshot is herdr's session at one moment: the workspace labels by id and every pane.
 type Snapshot struct {

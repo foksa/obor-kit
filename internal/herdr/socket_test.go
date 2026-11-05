@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"obor/internal/app/port"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
 )
@@ -116,12 +117,12 @@ func TestSocketSnapshotAndAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
+	if snap.Protocol != herdr.Protocol || len(snap.Panes) != 3 || snap.Panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
 		t.Errorf("Snapshot = %+v", snap)
 	}
-	want := []herdr.Agent{
-		{Name: "pj-l-01", Pane: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Kind: "claude", Session: "5e1d0c2b-aaaa", Seq: 1},
-		{Pane: "w1:p3", Status: "working", Cwd: "/elsewhere", Kind: "claude", Seq: 1},
+	want := []port.Pane{
+		{Name: "pj-l-01", ID: "w1:p1", Status: "idle", Cwd: "/proj-wt/L-01", Agent: "claude", Session: "5e1d0c2b-aaaa", Seq: 1},
+		{ID: "w1:p3", Status: "working", Cwd: "/elsewhere", Agent: "claude", Seq: 1},
 	}
 	if !reflect.DeepEqual(snap.Agents, want) {
 		t.Errorf("Snapshot agents = %+v\nwant %+v", snap.Agents, want)
@@ -178,7 +179,7 @@ func TestSocketRequestParams(t *testing.T) {
 	srv.Reply("notification.show", map[string]any{"type": "notification_show", "shown": true, "reason": "shown"})
 
 	a, err := c.Prompt(ctx, "pj-l-01", "hello")
-	if err != nil || a.Status != "working" || a.Pane != "w1:p1" {
+	if err != nil || a.Status != "working" || a.ID != "w1:p1" {
 		t.Errorf("Prompt = %+v, %v", a, err)
 	}
 	if a, err := c.Start(ctx, "pj-l-04", "claude", "w1:p2", "--model", "haiku"); err != nil || a.Name != "pj-l-01" {
@@ -361,7 +362,7 @@ func TestSubscribeEvents(t *testing.T) {
 	// a new pane (underscored, as herdr sends lifecycle events) gets its own status subscription
 	f.Shell("w1:p4", "new", "/tmp")
 	srv.Push("pane_created", map[string]any{"type": "pane_created", "pane": map[string]any{"pane_id": "w1:p4", "label": "new", "cwd": "/tmp"}})
-	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New != (herdr.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
+	if ev := next(t, st); ev.Kind != herdr.EventCreated || ev.Pane != "w1:p4" || ev.New != (port.Pane{ID: "w1:p4", Label: "new", Cwd: "/tmp"}) {
 		t.Errorf("created event = %+v", ev)
 	}
 	srv.WaitSubscribed(t, "pane.agent_status_changed", "w1:p4")
@@ -543,13 +544,13 @@ func pushLive(srv *herdrtest.Server, typ, pane, event string, data map[string]an
 	return 0
 }
 
-func agentOf(snap herdr.Snapshot, pane string) herdr.Agent {
+func agentOf(snap herdr.Snapshot, pane string) port.Pane {
 	for _, a := range snap.Agents {
-		if a.Pane == pane {
+		if a.ID == pane {
 			return a
 		}
 	}
-	return herdr.Agent{}
+	return port.Pane{}
 }
 
 // RV-36 #2: a status event queued before the final snapshot never overrides it, on every Subscribe (the first
@@ -715,7 +716,7 @@ func TestStreamNewPaneReadAfterSubscribe(t *testing.T) {
 		if !raced {
 			t.Fatalf("%s %s: precondition: the agent did not start before the subscription", tc.round, tc.status)
 		}
-		if ev.Kind != herdr.EventCreated || ev.Pane != id || ev.New.Kind != "claude" || ev.New.Status != tc.status || ev.Now.Name != "pj-"+id[3:] {
+		if ev.Kind != herdr.EventCreated || ev.Pane != id || ev.New.Agent != "claude" || ev.New.Status != tc.status || ev.Now.Name != "pj-"+id[3:] {
 			t.Errorf("%s, agent %s in the gap: created event = %+v, want its agent and status as read after subscribing", tc.round, tc.status, ev)
 		}
 		srv.WaitSubscribed(t, herdr.EventStatus, id)
@@ -742,23 +743,23 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 		set   func(*herdrtest.Pane)
 		event string
 		data  map[string]any
-		want  func(herdr.Agent) bool // nil: no event
+		want  func(port.Pane) bool // nil: no event
 	}{
 		{"late agent detection", "w1:p2", late, "pane_agent_detected",
 			map[string]any{"type": "pane_agent_detected", "pane_id": "w1:p2", "workspace_id": "w1", "agent": "claude"},
-			func(a herdr.Agent) bool { return a.Name == "pj-l-02" && a.Kind == "claude" && a.Session == "abcd-1234" }},
+			func(a port.Pane) bool { return a.Name == "pj-l-02" && a.Agent == "claude" && a.Session == "abcd-1234" }},
 		{"a status event brings a new agent", "w1:p2", late, herdr.EventStatus,
 			map[string]any{"pane_id": "w1:p2", "workspace_id": "w1", "agent_status": "idle", "agent": "claude"},
-			func(a herdr.Agent) bool { return a.Name == "pj-l-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
+			func(a port.Pane) bool { return a.Name == "pj-l-02" && a.Session == "abcd-1234" && a.Status == "idle" }},
 		{"cwd change", "w1:p1", func(p *herdrtest.Pane) { p.Cwd = "/proj-wt/L-09" }, "pane_updated",
 			update("/proj-wt/L-09", byID),
-			func(a herdr.Agent) bool { return a.Cwd == "/proj-wt/L-09" && a.Name == "pj-l-01" }},
+			func(a port.Pane) bool { return a.Cwd == "/proj-wt/L-09" && a.Name == "pj-l-01" }},
 		{"session path replacement", "w1:p1", func(p *herdrtest.Pane) { p.Transcript = "/t/new.jsonl" }, "pane_updated",
 			update("/proj-wt/L-01", map[string]any{"agent": "claude", "kind": "path", "value": "/t/new.jsonl"}),
-			func(a herdr.Agent) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-l-01" }},
+			func(a port.Pane) bool { return a.Transcript == "/t/new.jsonl" && a.Name == "pj-l-01" }},
 		{"RV-36 #11: a name change alone (the pane payload has no name)", "w1:p1",
 			func(p *herdrtest.Pane) { p.Name = "renamed-agent" }, "pane_updated", update("/proj-wt/L-01", byID),
-			func(a herdr.Agent) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/L-01" }},
+			func(a port.Pane) bool { return a.Name == "renamed-agent" && a.Cwd == "/proj-wt/L-01" }},
 		{"an update that changes nothing obor watches", "w1:p1", func(*herdrtest.Pane) {}, "pane_updated",
 			update("/proj-wt/L-01", byID), nil},
 	} {
@@ -782,7 +783,7 @@ func TestStreamRefreshesPaneMetadata(t *testing.T) {
 			if ev != (herdr.Event{Kind: herdr.EventExited, Pane: "w1:p2"}) {
 				t.Errorf("%s: event = %+v, want none before w1:p2 exited", tc.name, ev)
 			}
-		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Kind || !tc.want(ev.Now) {
+		} else if ev.Kind != herdr.EventStatus || ev.Pane != tc.pane || ev.Agent != ev.Now.Agent || !tc.want(ev.Now) {
 			t.Errorf("%s: event = %+v", tc.name, ev)
 		}
 		st.Close()
@@ -863,7 +864,7 @@ func TestSocketPanesLayoutTabs(t *testing.T) {
 	c := srv.Client()
 
 	panes, err := c.Panes(ctx)
-	if err != nil || len(panes) != 5 || panes[1] != (herdr.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
+	if err != nil || len(panes) != 5 || panes[1] != (port.Pane{ID: "w1:p2", Label: "pj-l-02", Cwd: "/proj-wt/L-02"}) {
 		t.Errorf("Panes = %+v, %v", panes, err)
 	}
 	if lastParams(t, srv, "pane.list") != "{}" {

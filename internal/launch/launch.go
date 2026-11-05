@@ -231,8 +231,8 @@ type target struct {
 	// T-813); "" when the record names none (a start obor named, before its hook ran).
 	transcript string
 	pane       string
-	entry      port.PaneInfo // the pane as pane list shows it
-	panes      []port.PaneInfo
+	entry      port.Pane // the pane as pane list shows it
+	panes      []port.Pane
 	kind       string
 	env        map[string]string // the start's own env (agents.Kind.StartEnv; "" unsets the variable), set by the env line
 }
@@ -302,7 +302,7 @@ func (l *Launcher) resolve(ctx context.Context, agent, pane, typ string) (*targe
 		t.kind = lt.Kind
 	}
 	if t.kind == "" {
-		t.kind = t.entry.Kind
+		t.kind = t.entry.Agent
 	}
 	if t.kind == "" {
 		t.kind = agents.Default
@@ -445,9 +445,9 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 	defer end()
 
 	// Another pane holds the herdr name: herdr would refuse the start. No moves: FAIL before anything is stopped.
-	if a, err := l.H.Agent(ctx, t.agent); err == nil && a.Pane != "" && a.Pane != t.pane {
+	if a, err := l.H.Agent(ctx, t.agent); err == nil && a.ID != "" && a.ID != t.pane {
 		return port.Started{}, project.Failf("pane %s holds the name %s: restart it there (obor restart %s)",
-			a.Pane, t.agent, t.agent)
+			a.ID, t.agent, t.agent)
 	}
 
 	// The session, checked before anything is stopped (T-124): none and no --fresh → FAIL.
@@ -481,7 +481,7 @@ func (l *Launcher) Launch(ctx context.Context, req Request) (port.Started, error
 		fresh := false
 		// A dispatch's type of another kind than the session's (T-722: the lane's last task ran another kind): that
 		// session is not this kind's to resume, so a new one.
-		if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Kind}[src]; sid != "" && t.dispatched &&
+		if was := map[string]string{"record": t.sidKind, "herdr": t.entry.Agent}[src]; sid != "" && t.dispatched &&
 			was != "" && was != t.kind {
 			l.say("session %s is %s's, the type %s is %s's: new session", sid, was, t.info.Type, t.kind)
 			sid, fresh = "", true
@@ -827,7 +827,7 @@ func (l *Launcher) args(t *target, effort string) ([]string, error) {
 
 // holds: pane holds agent's herdr name.
 func (l *Launcher) holds(ctx context.Context, agent, pane string) bool {
-	if a, err := l.H.Agent(ctx, agent); err == nil && a.Pane == pane {
+	if a, err := l.H.Agent(ctx, agent); err == nil && a.ID == pane {
 		return true
 	}
 	a, err := l.H.Agent(ctx, pane)

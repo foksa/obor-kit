@@ -66,10 +66,10 @@ func (r leadRun) run(ctx context.Context, args []string) int {
 	for _, a := range running {
 		if a.Name == agent && !leadOurs(cfg, agent, a.Cwd) {
 			return fail("%s runs in pane %s with cwd %s, outside %s (another project's agent of that name? the "+
-				"config's prefix names every agent: obor setup rename changes it)", agent, a.Pane, a.Cwd, cfg.Root)
+				"config's prefix names every agent: obor setup rename changes it)", agent, a.ID, a.Cwd, cfg.Root)
 		}
 		if a.Name == agent {
-			fmt.Fprintf(r.out, "OK %s runs (pane %s)\n", agent, a.Pane)
+			fmt.Fprintf(r.out, "OK %s runs (pane %s)\n", agent, a.ID)
 			return 0
 		}
 	}

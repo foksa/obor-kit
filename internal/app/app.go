@@ -23,8 +23,9 @@ import (
 // Machine is the machine part of an agent's address (machine, workspace, pane); only the local one for now.
 const Machine = "local"
 
-// Ready: an agent with this status is idle: it takes a prompt now (done is idle with an unviewed reply).
-func Ready(status string) bool { return status == "idle" || status == "done" }
+// Ready: an agent with this status is idle: it takes a prompt now (done is idle with an unviewed reply). It is
+// port.Pane.Ready, for the callers that hold a status.
+func Ready(status string) bool { return (port.Pane{Status: status}).Ready() }
 
 // Options are the app's bounds and clock; zero fields take the defaults.
 type Options struct {
