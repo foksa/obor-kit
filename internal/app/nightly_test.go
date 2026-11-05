@@ -191,6 +191,9 @@ func TestNightlyOffSettlesAResult(t *testing.T) {
 	r.start()
 	const fact = "0 fact needs-you{full-check RED abc1234}"
 	r.waitStep(fact)
+	// record appends to the log, then folds it into the view (loop.go recordSeq): wait for the view, not only the log —
+	// a loaded machine can read Status in between the two (T-889).
+	r.waitFor("the nightly fact in the view", func() bool { return len(nightlyFacts(r)) == 1 })
 	if fs := nightlyFacts(r); len(fs) != 1 || r.answerOf(fs[0]) != "" {
 		t.Errorf("nightly facts: %+v", fs)
 	}
