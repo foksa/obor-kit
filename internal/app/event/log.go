@@ -185,17 +185,18 @@ func RecentEvents(db *sql.DB, limit int) ([]Record, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	rows, err := db.Query("SELECT seq, ts, task, attempt, step, kind, class, data FROM events ORDER BY seq DESC LIMIT ?", limit)
-	if err != nil {
-		return nil, fmt.Errorf("event log: %w", err)
-	}
-	defer rows.Close()
-	return scanRecords(rows)
+	return queryRecords(db, recordQuery+" ORDER BY seq DESC LIMIT ?", limit)
 }
 
+// recordQuery is every column of the events table, in Record's order: the prefix of a reader's query.
+const recordQuery = "SELECT seq, ts, task, attempt, step, kind, class, data FROM events"
+
 // records is every row of db's events table in seq order.
-func records(db *sql.DB) ([]Record, error) {
-	rows, err := db.Query("SELECT seq, ts, task, attempt, step, kind, class, data FROM events ORDER BY seq")
+func records(db *sql.DB) ([]Record, error) { return queryRecords(db, recordQuery+" ORDER BY seq") }
+
+// queryRecords is the events rows q selects (in q's order), decoded.
+func queryRecords(db *sql.DB, q string, args ...any) ([]Record, error) {
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("event log: %w", err)
 	}

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"obor/internal/store"
 )
@@ -65,4 +67,43 @@ func openLog(t *testing.T, root string) (*Log, []Record) {
 		t.Fatal(err)
 	}
 	return l, recs
+}
+
+// T-881: ReadMerges takes the merge facts only (the store filters them before decoding), in seq order: a merge
+// recorded outside the app (no head) is none, and other records' steps are not read. No store: no merges.
+func TestReadMerges(t *testing.T) {
+	t.Parallel()
+	root := logRoot(t)
+	if ms, err := ReadMerges(root); err != nil || len(ms) != 0 {
+		t.Errorf("no database: %+v, %v; want none", ms, err)
+	}
+	l, _ := openLog(t, root)
+	at := func(min string) time.Time {
+		ts, err := time.Parse(time.RFC3339, "2026-11-05T10:"+min+":00Z")
+		if err != nil {
+			t.Fatalf("time %s: %v", min, err)
+		}
+		return ts
+	}
+	if err := insert(l.db,
+		Record{Seq: 1, TS: "2026-11-05T10:00:00Z", Task: "T-1", Attempt: 1, Step: StepMerged, Kind: KindIntent,
+			Data: json.RawMessage(`{"head":"ab"}`)}, // an intent that names a head: no fact
+		Record{Seq: 2, TS: "2026-11-05T10:01:00Z", Task: "T-1", Attempt: 1, Step: StepMerged, Kind: KindFact,
+			Data: json.RawMessage(`{"head":"cd"}`)},
+		Record{Seq: 3, TS: "2026-11-05T10:02:00Z", Task: "T-2", Attempt: 1, Step: StepMerged, Kind: KindFact,
+			Data: json.RawMessage(`{"outside":true}`)}, // a merge outside the app: no sha
+		Record{Seq: 4, TS: "2026-11-05T10:03:00Z", Task: "T-2", Attempt: 1, Step: StepMerged, Kind: KindFact,
+			Data: json.RawMessage(`{"head":"ef"}`)},
+		Record{Seq: 5, TS: "2026-11-05T10:04:00Z", Task: "T-2", Attempt: 1, Step: StepResumed, Kind: KindFact},
+	); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	ms, err := ReadMerges(root)
+	if err != nil {
+		t.Fatalf("ReadMerges: %v", err)
+	}
+	want := []Merge{{Task: "T-1", SHA: "cd", At: at("01")}, {Task: "T-2", SHA: "ef", At: at("03")}}
+	if !slices.Equal(ms, want) {
+		t.Errorf("merges %+v, want %+v", ms, want)
+	}
 }
