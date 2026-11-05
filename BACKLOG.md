@@ -11,7 +11,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   **Merged since v0.28.0 (13):** T-880, T-891, T-893, T-894, T-902, T-903, T-904, T-905, T-911, T-912 (take-over
   gone), T-913 (rerere), T-914 (compile-only re-gate on a package-only move). **Lines since v0.28.0:** prod +123,
   test +795 (git count; T-880 +199, T-893 +116 grew; T-912 −115, T-903 −99 shrank). Not net-negative yet.
-  **In flight:** T-896 (L-02, deepseek), T-915 (L-01, opus: RV-123 #1, a rerere replay keeps no green unless it
+  **Update ~23:30:** T-915/T-916 merged; verify found V1 (T-915's mismatch reaches the integrator as an unexplained
+  conflict): T-917 (L-01) linked as round 2; close RV-123 after its verify (then accept the rest per review-rounds).
+  **In flight earlier:** T-896 (L-02, deepseek), T-915 (L-01, opus: RV-123 #1, a rerere replay keeps no green unless it
   equals the checked resolution), T-916 (L-03, sonnet: RV-123 #2, old take-over's pending stop retried). RV-123 is
   open: T-915/T-916 linked with `obor review fix`; serve briefs the verify once both merge; close only after it
   (review-rounds rule). deepseek paused until 23:40 (provider overloaded).
