@@ -36,8 +36,9 @@ import (
 //     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
 //   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads (RV-83 #2), and a reviewer or deep
 //     dive also a checkout or switch to a commit in its own role worktree (headCheckout, T-853).
-//   - load runs of tests (T-543, every role): `go test` with -count > 1 or -race, a *.test binary with -test.count > 1
-//     or -test.race, sibling backgrounded test commands, or a literal fan-out above one under xargs / parallel.
+//   - commands the project's guards.deny_commands matches (T-905): the rule's regex runs on the resolved command line
+//     (the program by its basename, its words one space apart); a rule with Alone denies at once, one without denies
+//     two matching commands at once (sibling background units, a literal fan-out above one under xargs / parallel).
 //
 // Known bypasses (accidents, not an adversary): aliases and functions from the user's shell or git config (also
 // git -c alias.<x>=…); scripts run from a file (they are not read: test scripts contain git commits of their
@@ -57,7 +58,7 @@ type shell struct {
 	ctx    []string // the words of the commands a nested string came from (sh -c, eval, find -exec)
 	bg     bool     // this scope runs in the background (an & of an enclosing statement; T-543)
 	par    bool     // this command runs under a parallel fan-out (xargs -P, parallel; T-543)
-	bgUnit *bool    // whether this background sibling contains a test command
+	bgUnit *[]bool  // per guards.deny_commands rule: this background sibling matched the rule
 }
 
 // script checks every statement of src in a new shell scope (a child process: its cd and variables stay inside).
@@ -106,23 +107,26 @@ func (s *shell) clone() *shell {
 }
 
 func (s *shell) stmts(list []*syntax.Stmt) {
-	bgSiblings := 0
+	count := make([]int, len(s.g.rules))
 	for _, st := range list {
 		if st.Background {
-			unit := false
+			hits := make([]bool, len(s.g.rules))
 			c := s.clone()
-			c.bgUnit = &unit
+			c.bgUnit = &hits
 			c.stmt(st)
-			if unit {
-				bgSiblings++
-				if bgSiblings >= 2 {
-					deny(manyTestsDeny)
+			for i, hit := range hits {
+				if !hit {
+					continue
+				}
+				count[i]++
+				if count[i] >= 2 {
+					deny(s.g.rules[i].message)
 				}
 			}
 			continue
 		}
 		if isWait(st, s) {
-			bgSiblings = 0
+			clear(count)
 		}
 		s.stmt(st)
 	}
@@ -533,144 +537,31 @@ func positionals(args, valueOpts []string) []string {
 	return out
 }
 
-// ---- load runs of tests (T-543) -------------------------------------------------------------------------------------
+// ---- guards.deny_commands (T-905) ------------------------------------------------------------------------------------
 
-// Two load-run rules for every role (in specs, a prose rule did not hold): a go test / test binary that runs the tests
-// many times or with the race detector, and two or more test commands at once. Each deny line names the rule and the
-// allowed form.
-const (
-	loadRunDeny = "a load run of tests (`-count` > 1, `-race`) is denied — one plain `go test <pkgs>` run; the gate and " +
-		"nightly run the rest"
-	manyTestsDeny = "two or more test commands at once (a background &, xargs -P, parallel) are a load run — one plain " +
-		"`go test <pkgs>` run; the gate and nightly run the rest"
-)
-
-// goTest checks a `go` command: `go test` with -count > 1 or -race is a load run (T-543). -test.count / -test.race are
-// checked too: go test passes them to the test binary, so they run it many times just the same.
-func (s *shell) goTest(W []string, k int) {
-	args := W[k+1:]
-	i := goSub(args)
-	if i < 0 || args[i] != "test" {
+// denyCommands denies command W[k:] when a guards.deny_commands rule matches its resolved line: the program by its
+// basename, its words one space apart (quotes removed, known variables substituted). A rule with Alone denies at once;
+// one without denies only when two matching commands run at once — s.par is a literal fan-out, and stmts counts the
+// background units it marked (the generic form of T-543's two-at-once rule).
+func (s *shell) denyCommands(W []string, k int) {
+	if len(s.g.rules) == 0 {
 		return
 	}
-	f := args[i+1:]
-	f = testFlags(f)
-	if overCount(f, "count") || overCount(f, "test.count") || raceOn(f, "race") || raceOn(f, "test.race") {
-		deny(loadRunDeny)
+	line := base(W[k])
+	if k+1 < len(W) {
+		line += " " + strings.Join(W[k+1:], " ")
 	}
-	s.testRun()
-}
-
-// testBinary checks a compiled test binary (`go test -c`): -test.count > 1 or -test.race is a load run (T-543).
-func (s *shell) testBinary(args []string) {
-	args = testFlags(args)
-	if overCount(args, "test.count") || raceOn(args, "test.race") {
-		deny(loadRunDeny)
-	}
-	s.testRun()
-}
-
-// testRun denies test commands under a literal multi-worker fan-out; stmts handles sibling background statements.
-func (s *shell) testRun() {
-	if s.par {
-		deny(manyTestsDeny)
-	}
-	if s.bgUnit != nil {
-		*s.bgUnit = true
-	}
-}
-
-// testFlags keeps test flag values from being mistaken for flags and stops at the test binary's argument boundary.
-func testFlags(args []string) []string {
-	valueFlags := map[string]bool{"-run": true, "-bench": true, "-benchtime": true, "-timeout": true,
-		"-cpu": true, "-parallel": true, "-coverpkg": true, "-coverprofile": true, "-outputdir": true,
-		"-exec": true, "-vet": true, "-tags": true, "-overlay": true, "-mod": true, "-modfile": true,
-		"-fuzz": true, "-fuzztime": true, "-fuzzminimizetime": true, "-list": true, "-skip": true,
-		"-asmflags": true, "-buildmode": true, "-compiler": true, "-gccgoflags": true, "-gcflags": true,
-		"-installsuffix": true, "-ldflags": true, "-o": true, "-p": true, "-pkgdir": true}
-	var flags []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "-args" {
-			break
-		}
-		flags = append(flags, a)
-		option := strings.TrimPrefix(a, "-test.")
-		if valueFlags[a] || valueFlags["-"+option] && strings.HasPrefix(a, "-test.") {
-			if !strings.Contains(a, "=") && i+1 < len(args) {
-				i++
-			}
-		}
-	}
-	return flags
-}
-
-// goSub is the index of a go command's subcommand in args (the first word that is not an option; -C takes a value), or
-// -1 when there is none.
-func goSub(args []string) int {
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "-C":
-			i++
-		case strings.HasPrefix(a, "-"):
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-// overCount: args has -name=N or -name N (--name too) with N > 1.
-func overCount(args []string, name string) bool {
-	n, found, ok := flagInt(args, name)
-	return found && ok && n > 1
-}
-
-// flagInt is the value of the last -name / --name in args (-name=V or -name V; Go's flag package keeps the last): found
-// false when there is none, ok false when the value is not a plain integer (an expansion the guard cannot read).
-func flagInt(args []string, name string) (n int, found, ok bool) {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		var v string
-		switch {
-		case strings.HasPrefix(a, "--"+name+"="):
-			v = a[len(name)+3:]
-		case strings.HasPrefix(a, "-"+name+"="):
-			v = a[len(name)+2:]
-		case a == "--"+name || a == "-"+name:
-			if i+1 >= len(args) {
-				continue
-			}
-			i++
-			v = args[i]
-		default:
+	for i, r := range s.g.rules {
+		if !r.re.MatchString(line) {
 			continue
 		}
-		val, err := strconv.Atoi(v)
-		n, found, ok = val, true, err == nil
-	}
-	return n, found, ok
-}
-
-// raceOn: args switches the race detector on (-name, or -name=true / -name=1); a later -name=false / -name=0 wins.
-func raceOn(args []string, name string) bool {
-	on := false
-	for _, a := range args {
-		var v string
-		switch {
-		case a == "-"+name || a == "--"+name:
-			on = true
-			continue
-		case strings.HasPrefix(a, "--"+name+"="):
-			v = a[len(name)+3:]
-		case strings.HasPrefix(a, "-"+name+"="):
-			v = a[len(name)+2:]
-		default:
-			continue
+		if r.alone || s.par {
+			deny(r.message)
 		}
-		on = v != "false" && v != "0"
+		if s.bgUnit != nil {
+			(*s.bgUnit)[i] = true
+		}
 	}
-	return on
 }
 
 // segment checks one simple command's words W, run in s.cwd. env holds its literal prefix assignments.
@@ -707,6 +598,7 @@ loop:
 		return
 	}
 	s.resolved(W, k)
+	s.denyCommands(W, k)
 	g := s.g
 	switch name := W[k][strings.LastIndexByte(W[k], '/')+1:]; name {
 	case "git":
@@ -746,8 +638,6 @@ loop:
 			s.run(strings.Join(W[k+1:], " "))
 			s.depth, s.ctx = s.depth-1, saved
 		}
-	case "go":
-		s.goTest(W, k)
 	case "find":
 		for i := k + 1; i < n; i++ {
 			if !oneOf(W[i], "-exec", "-execdir", "-ok", "-okdir") {
@@ -784,9 +674,6 @@ loop:
 	case "sed":
 		s.sed(W, k)
 	default:
-		if strings.HasSuffix(name, ".test") {
-			s.testBinary(W[k+1:])
-		}
 		if kind, ok := agents.ByProgram(name); ok {
 			headless(kind.Headless(), name, W[k+1:])
 		}

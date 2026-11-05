@@ -105,7 +105,7 @@ func TestSessionWorkerRows(t *testing.T) {
 			[]string{"obor: role worker, lane L-01, task T-05 (cwd)",
 				"Protected files this task may edit: docs/design.md (from T-05's spec, rev 1 in obor serve's store).",
 				"edits outside your lane (other lanes, the main checkout, other obor projects) are denied", "task_done", "[obor",
-				"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied"},
+				"0 deny rules from guards.deny_commands"},
 			[]string{"No lane row", "you may edit only", "allowed files"}},
 		{"a lane whose task has no stored spec", true, `{"lane":"L-01","task":"T-09","branch":"task/T-09","base":"main"}`,
 			[]string{"obor: role worker, lane L-01, task T-09 (cwd)", "edits outside your lane"},
@@ -133,8 +133,27 @@ func TestSessionLeadAndIntegratorHookLines(t *testing.T) {
 	for _, role := range []string{"lead", "integrator"} {
 		out := f.session(t, f.Root, "", "OBOR_ROLE="+role)
 		contains(t, out, role, "obor: role "+role, "Hooks: git push, pkill/killall by pattern and headless agent runs (claude -p, codex exec, opencode run, x-agent -p) are denied",
-			"Go test load runs (`-count`>1, `-race`, two test commands at once) are denied")
+			"0 deny rules from guards.deny_commands")
 		lacks(t, out, role, "[obor", "cannot stop", "Stop hook", "heartbeat", "obor ack")
+	}
+}
+
+// T-905: the hooks line names how many guards.deny_commands rules the project's config carries.
+func TestSessionDenyCommandCount(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, rules, want string
+	}{
+		{"one rule", `[{"match": "^bun test --coverage", "alone": true, "message": "no coverage"}]`, "1 deny rule from guards.deny_commands"},
+		{"two rules", `[{"match": "^bun test --coverage", "alone": true, "message": "no coverage"},
+			{"match": "^bun test", "message": "two bun test runs at once"}]`, "2 deny rules from guards.deny_commands"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f, _ := sessionFx(t, true)
+			f.Config(testkit.Set("guards.deny_commands", c.rules))
+			contains(t, f.session(t, f.Root, "", "OBOR_ROLE=lead"), c.name, c.want)
+		})
 	}
 }
 

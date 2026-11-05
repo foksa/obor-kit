@@ -315,102 +315,174 @@ func TestHeadlessByArgvStructure(t *testing.T) {
 	})
 }
 
-// bash case_load_test_runs (T-543): a load run of tests is denied for every role — `go test` with -count > 1 or -race, a
-// *.test binary with -test.count > 1 or -test.race, and two or more test commands at once (one in the background, or
-// under xargs -P / parallel); one plain run is allowed.
-func TestLoadTestRunsDenied(t *testing.T) {
+// kitDenyCommands is obor-kit's guards.deny_commands (testdata/deny-commands.json, the two entries its
+// .obor/config.json carries): T-543's Go load-run rule now in config — the flag forms that run the tests many times
+// (alone) and two test commands at once.
+func kitDenyCommands(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("testdata/deny-commands.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// T-905: guards.deny_commands carries what T-543's Go load-run rule hard-coded. obor-kit's two rules deny the commands
+// the old rule denied, with the same messages; a config that sets a rule of its own (a bun project's) denies it there,
+// a config with no rules denies nothing, and a rule without Alone denies only two matching commands at once.
+func TestDenyCommands(t *testing.T) {
 	t.Parallel()
-	f := fixture(t)
-	P, L := f.P, f.L
 	const one = "one plain `go test <pkgs>` run"
 	const many = "two or more test commands at once"
-	cases := []tc{}
-	for _, who := range []string{"lead", "integrator", "worker", "reviewer", "-"} {
-		cwd := P
-		if who == "worker" {
-			cwd = L
+
+	// goCases is the case_load_test_runs table, now config-driven: the same commands are denied with the same message.
+	// Known over-denials (a regex sees the resolved words: quotes removed, no Go flag grammar, no last-value-wins): a
+	// quoted value that spells a load flag (go test -run '-race', -bench '-count=3', -timeout '-race',
+	// -args -race -count=3, ./app.test -test.run '-test.race'), and a later flag that turns one off
+	// (go test -race -race=false, go test -count=3 -count=1). They are not asserted here.
+	goCases := func(P, L string) []tc {
+		cases := []tc{}
+		for _, who := range []string{"lead", "integrator", "worker", "reviewer", "-"} {
+			cwd := P
+			if who == "worker" {
+				cwd = L
+			}
+			cases = append(cases,
+				// a load flag on go test, alone and in every shell form the guard walks.
+				bash(who, cwd, "go test -count=3 ./...", one),
+				bash(who, cwd, "go test -count 3 ./...", one),
+				bash(who, cwd, "go test ./internal/app -count=2", one),
+				bash(who, cwd, "go test -count=20 -run X ./pkg", one),
+				bash(who, cwd, "go test -count=1 -count=3 ./...", one),
+				bash(who, cwd, "go test -race ./...", one),
+				bash(who, cwd, "go test -race=true ./...", one),
+				bash(who, cwd, "go test -race -count=2 ./...", one),
+				bash(who, cwd, "go test -test.count=5 ./...", one),
+				// Go's flag package takes --name too, raceOn denied any value but false/0, and goSub skipped leading flags.
+				bash(who, cwd, "go test --count=3 ./...", one),
+				bash(who, cwd, "go test --count 3 ./...", one),
+				bash(who, cwd, "go test --race ./...", one),
+				bash(who, cwd, "go test -race=t ./...", one),
+				bash(who, cwd, "go test -race=T ./...", one),
+				bash(who, cwd, "go test -race=TRUE ./...", one),
+				bash(who, cwd, "go test -race=1 ./...", one),
+				bash(who, cwd, "go test --test.count=5 ./...", one),
+				bash(who, cwd, "go test --test.race ./...", one),
+				bash(who, cwd, "go test -test.race=t ./...", one),
+				bash(who, cwd, "go -C internal test -count=3 ./...", one),
+				bash(who, cwd, "go -C=internal test -count=3 ./...", one),
+				bash(who, cwd, "go -v test -race ./...", one),
+				bash(who, cwd, "cd internal && go test -count=3 ./...", one),
+				bash(who, cwd, "go build ./... && go test -count=3 ./...", one),
+				bash(who, cwd, "true; go test -race ./pkg", one),
+				bash(who, cwd, "echo x | go test -count=2 ./pkg", one),
+				bash(who, cwd, "(go test -count=3 ./pkg)", one),
+				bash(who, cwd, `echo "$(go test -race ./pkg)"`, one),
+				bash(who, cwd, "bash -c 'go test -count=3 ./pkg'", one),
+				bash(who, cwd, `sh -c "cd x && go test -race ./pkg"`, one),
+				bash(who, cwd, "timeout 600 go test -count=5 ./pkg", one),
+				bash(who, cwd, "sudo go test -race ./pkg", one),
+				// a compiled test binary.
+				bash(who, cwd, "./app.test -test.count=3", one),
+				bash(who, cwd, "go test -c -o app.test ./pkg && ./app.test -test.count=20", one),
+				bash(who, cwd, "./pkg/app.test -test.race", one),
+				bash(who, cwd, "./pkg/app.test -test.v -test.count 5 -test.timeout=1m", one),
+				bash(who, cwd, "env FOO=1 ./pkg/app.test -test.count=3", one),
+				bash(who, cwd, "bash -c './app.test -test.race'", one),
+				bash(who, cwd, "./app.test --test.count=3", one),
+				bash(who, cwd, "./app.test -test.race=t", one),
+				// two or more test commands at once.
+				bash(who, cwd, "go test ./a & go test ./b &", many),
+				bash(who, cwd, "go test ./a & ./app.test &", many),
+				bash(who, cwd, "bash -c 'go test ./a & go test ./b &'", many),
+				bash(who, cwd, "(go test ./a & go test ./b &)", many),
+				bash(who, cwd, `printf '%s\n' ./a ./b | xargs -P 4 -I{} go test {}`, many),
+				bash(who, cwd, "ls pkgs | xargs -P4 go test", many),
+				bash(who, cwd, "xargs --max-procs=4 go test", many),
+				bash(who, cwd, "xargs --max-procs 4 go test", many),
+				bash(who, cwd, "parallel -j 4 go test ::: ./a ./b", many),
+			)
 		}
-		cases = append(cases,
-			// go test, alone and in every shell form the guard walks.
-			bash(who, cwd, "go test -count=3 ./...", one),
-			bash(who, cwd, "go test -count 3 ./...", one),
-			bash(who, cwd, "go test ./internal/app -count=2", one),
-			bash(who, cwd, "go test -count=20 -run X ./pkg", one),
-			bash(who, cwd, "go test -count=1 -count=3 ./...", one), // the last -count wins, as in Go's flag package
-			bash(who, cwd, "go test -race ./...", one),
-			bash(who, cwd, "go test -race -count=2 ./...", one),
-			bash(who, cwd, "go test -test.count=5 ./...", one), // go test passes it to the test binary
-			bash(who, cwd, "cd internal && go test -count=3 ./...", one),
-			bash(who, cwd, "go build ./... && go test -count=3 ./...", one),
-			bash(who, cwd, "true; go test -race ./pkg", one),
-			bash(who, cwd, "echo x | go test -count=2 ./pkg", one),
-			bash(who, cwd, "(go test -count=3 ./pkg)", one),
-			bash(who, cwd, `echo "$(go test -race ./pkg)"`, one),
-			bash(who, cwd, "bash -c 'go test -count=3 ./pkg'", one),
-			bash(who, cwd, `sh -c "cd x && go test -race ./pkg"`, one),
-			bash(who, cwd, "timeout 600 go test -count=5 ./pkg", one),
-			bash(who, cwd, "sudo go test -race ./pkg", one),
-			// a compiled test binary.
-			bash(who, cwd, "./app.test -test.count=3", one),
-			bash(who, cwd, "go test -c -o app.test ./pkg && ./app.test -test.count=20", one),
-			bash(who, cwd, "./pkg/app.test -test.race", one),
-			bash(who, cwd, "./pkg/app.test -test.v -test.count 5 -test.timeout=1m", one),
-			bash(who, cwd, "env FOO=1 ./pkg/app.test -test.count=3", one),
-			bash(who, cwd, "bash -c './app.test -test.race'", one),
-			// two or more test commands at once.
-			bash(who, cwd, "go test ./a & go test ./b &", many),
-			bash(who, cwd, "go test ./a & ./app.test &", many),
-			bash(who, cwd, "bash -c 'go test ./a & go test ./b &'", many),
-			bash(who, cwd, "(go test ./a & go test ./b &)", many),
-			bash(who, cwd, "go test ./a & git status && go test ./b", ""),
-			bash(who, cwd, `printf '%s\n' ./a ./b | xargs -P 4 -I{} go test {}`, many),
-			bash(who, cwd, "ls pkgs | xargs -P4 go test", many),
-			bash(who, cwd, "xargs --max-procs=4 go test", many),
-			bash(who, cwd, "xargs --max-procs 4 go test", many),
-			bash(who, cwd, "parallel -j 4 go test ::: ./a ./b", many),
+		return append(cases,
+			// allowed: one plain run, -count=1 (cache off), and the one-at-a-time forms.
+			bash("-", P, "go test ./...", ""),
+			bash("-", P, "go test -count=1 ./internal/app", ""),
+			bash("-", P, "go test -run X ./pkg", ""),
+			bash("-", P, "go test -count=1 -run X -timeout 10m ./...", ""),
+			bash("-", P, "go test -race=false ./...", ""),
+			bash("-", P, "go test -race=0 ./...", ""),
+			bash("-", P, "go test --count=1 ./...", ""),
+			bash("-", P, "go -C internal test ./...", ""),
+			bash("-", P, "go -v test ./...", ""),
+			bash("-", P, "go test -count=0 ./...", ""),
+			bash("-", P, "go test -tags race ./...", ""),
+			bash("-", P, "go test ./a; go test ./b", ""), // the rule is the background / parallel forms only
+			bash("-", P, "go test ./a & go test ./b", ""),
+			bash("-", P, "go test ./a & git status && go test ./b", ""),
+			bash("-", P, "go test ./a; go test ./b & wait", ""),
+			bash("-", P, "(go test ./a && go test ./b) & wait", ""),
+			bash("-", P, "go test ./a & wait; go test ./b & wait", ""),
+			bash("-", P, "if true; then go test ./a & else go test ./b & fi", ""),
+			bash("-", P, "go test ./... &", ""), // a single run is not two or more
+			bash("-", P, "go build ./... &", ""),
+			bash("-", P, "go build ./... & go build ./... & wait", ""),
+			bash("-", P, "./app.test -test.count=1", ""),
+			bash("-", P, "./app.test -test.v", ""),
+			bash("-", P, "xargs -P 4 go build", ""),
+			bash("-", P, "xargs go test ./...", ""), // no -P: one at a time
+			bash("-", P, "xargs -P1 go test ./...", ""),
+			bash("-", P, "xargs -P 1 go test ./...", ""),
+			bash("-", P, "xargs --max-procs=1 go test ./...", ""),
+			bash("-", P, "parallel -j 1 go test ./...", ""),
+			bash("-", P, "parallel -j1 go test ./...", ""),
+			bash("-", P, "parallel --jobs=1 go test ./...", ""),
+			bash("-", P, "parallel go test ./...", ""),
+			bash("-", P, "parallel -j 4 go build ::: ./a ./b", ""),
+			bash("-", P, "go vet -race ./...", ""),
+			bash("-", P, "echo 'go test -count=3 ./...'", ""),
+			bash("-", P, "grep -r 'go test -race' docs", ""),
+			bash("-", P, "cat > notes.md <<'EOF'\ngo test -count=3\ngo test ./a & go test ./b\nEOF", ""),
 		)
 	}
-	cases = append(cases,
-		// allowed: one plain run, -count=1 (cache off), a single backgrounded build.
-		bash("-", P, "go test ./...", ""),
-		bash("-", P, "go test -count=1 ./internal/app", ""),
-		bash("-", P, "go test -run X ./pkg", ""),
-		bash("-", P, "go test -count=1 -run X -timeout 10m ./...", ""),
-		bash("-", P, "go test -race=false ./...", ""),
-		bash("-", P, "go test -count=0 ./...", ""),
-		bash("-", P, "go test -tags race ./...", ""),
-		bash("-", P, "go test ./a; go test ./b", ""), // the rule is the background / parallel forms only
-		bash("-", P, "go test ./a & go test ./b", ""),
-		bash("-", P, "go test ./a; go test ./b & wait", ""),
-		bash("-", P, "(go test ./a && go test ./b) & wait", ""),
-		bash("-", P, "go test ./a & wait; go test ./b & wait", ""),
-		bash("-", P, "if true; then go test ./a & else go test ./b & fi", ""),
-		bash("-", P, "go test ./... &", ""), // a single run is not two or more
-		bash("-", P, "go build ./... &", ""),
-		bash("-", P, "go build ./... & go build ./... & wait", ""),
-		bash("-", P, "./app.test -test.count=1", ""),
-		bash("-", P, "./app.test -test.v", ""),
-		bash("-", P, "xargs -P 4 go build", ""),
-		bash("-", P, "xargs go test ./...", ""), // no -P: one at a time
-		bash("-", P, "xargs -P1 go test ./...", ""),
-		bash("-", P, "xargs -P 1 go test ./...", ""),
-		bash("-", P, "xargs --max-procs=1 go test ./...", ""),
-		bash("-", P, "parallel -j 1 go test ./...", ""),
-		bash("-", P, "parallel -j1 go test ./...", ""),
-		bash("-", P, "parallel --jobs=1 go test ./...", ""),
-		bash("-", P, "parallel go test ./...", ""),
-		bash("-", P, "go test -run '-race' ./pkg", ""),
-		bash("-", P, "go test -bench '-count=3' ./pkg", ""),
-		bash("-", P, "go test -timeout '-race' ./pkg", ""),
-		bash("-", P, "go test -args -race -count=3 ./pkg", ""),
-		bash("-", P, "./app.test -test.run '-test.race'", ""),
-		bash("-", P, "parallel -j 4 go build ::: ./a ./b", ""),
-		bash("-", P, "go vet -race ./...", ""),
-		bash("-", P, "echo 'go test -count=3 ./...'", ""),
-		bash("-", P, "grep -r 'go test -race' docs", ""),
-		bash("-", P, "cat > notes.md <<'EOF'\ngo test -count=3\ngo test ./a & go test ./b\nEOF", ""),
-	)
-	check(t, f.Project, cases)
+
+	bunRule := `[{"match": "^bun test --coverage", "alone": true, "message": "a coverage run is a load run — one plain bun test run"}]`
+	pairsRule := `[{"match": "^bun test", "message": "two bun test commands at once are a load run"}]`
+	for _, c := range []struct {
+		name  string
+		rules string
+		cases func(P, L string) []tc
+	}{
+		{"obor-kit's Go rules", kitDenyCommands(t), goCases},
+		{"a bun project's rule", bunRule, func(P, _ string) []tc {
+			return []tc{
+				bash("-", P, "bun test --coverage", "a coverage run is a load run"),
+				bash("-", P, "bun test", ""),
+				bash("-", P, "bun build", ""),
+			}
+		}},
+		{"a rule without alone denies only two at once", pairsRule, func(P, _ string) []tc {
+			return []tc{
+				bash("-", P, "bun test", ""),
+				bash("-", P, "bun test ./a; bun test ./b", ""),
+				bash("-", P, "bun test ./a & bun test ./b &", "two bun test commands at once"),
+				bash("-", P, "ls pkgs | xargs -P4 bun test", "two bun test commands at once"),
+			}
+		}},
+		{"no rules deny nothing", `[]`, func(P, _ string) []tc {
+			return []tc{
+				bash("-", P, "go test -count=3 ./...", ""),
+				bash("-", P, "./app.test -test.race", ""),
+				bash("-", P, "go test ./a & go test ./b &", ""),
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			f := fixture(t)
+			f.Config(testkit.Set("guards.deny_commands", c.rules))
+			check(t, f.Project, c.cases(f.P, f.L))
+		})
+	}
 }
 
 // bash case_commit_all_in_main_vs_lane
