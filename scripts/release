@@ -1,7 +1,7 @@
 #!/bin/sh
 # release <x.y.z> [--dry-run]: the lead's one command for a release (RELEASING.md). On main, with a clean tree,
 # docs/UPGRADE-v<x.y>.md holding a v<version> heading and docs/releases/v<version>.md holding the release notes, it runs
-# six steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
+# seven steps. Each step first looks for its done evidence (present: the step is skipped, so a re-run resumes where the
 # last run stopped), and a step that fails runs its undo, so the next run starts from a clean tree (T-643):
 #   review guard  done: no code merged since main's first-parent "RV-<n> closed" commit, or UNREVIEWED="<why>" (the
 #                 owner's call; it goes into the tag message)         fail: refuse, nothing changed
@@ -11,6 +11,9 @@
 #   upgrade check `make upgrade-check` (T-772), run only while the tag is not made: the previous release (the catalog's
 #                 newest below <version>) upgraded to this build; SKIP_UPGRADE_CHECK="<why>" skips it (the owner's call,
 #                 like UNREVIEWED; it goes into the tag message)   fail: refuse, nothing tagged (the bump stays committed)
+#   release check `make check-release` (T-902), run only while the tag is not made: tests/release (the Makefile,
+#                 scripts/ and install.sh against fixture repos), also part of the check above   fail: refuse, nothing
+#                 tagged (the bump stays committed)
 #   tag           done: a local tag v<version> whose commit changes only the catalog and marketplace name on top of its
 #                 source parent, which differs from HEAD in docs and bin/checksums.txt only (scripts/release-lib.sh)
 #                 make: a scratch worktree detached at HEAD under this repo's git dir, marketplace name obor-kit,
@@ -396,6 +399,20 @@ else
   say "running make upgrade-check (the previous release upgraded to this build)"
   plain_make upgrade-check ||
     fail "make upgrade-check failed (its step and output above): nothing is tagged; fix it and re-run, or SKIP_UPGRADE_CHECK=\"<why>\" make release V=$v (the owner's call only)"
+fi
+
+# --- release tooling check (T-902): before the tag, `make check-release` runs tests/release (the Makefile's check,
+# release and publish targets, scripts/release, scripts/ship, scripts/publish and install.sh). The full `make check`
+# above runs the same package (go test ./...); naming it here keeps the release depending on it even when the check
+# step is skipped (the bump already committed), and a red one tags nothing. An existing tag is past it.
+if git rev-parse -q --verify "refs/tags/$tag" > /dev/null 2>&1; then
+  :
+elif [ "$dry" = 1 ]; then
+  say "would: make check-release (the kit's release tooling tests: the Makefile, scripts/ and install.sh; a failure stops the release before the tag)"
+else
+  say "running make check-release (the kit's release tooling tests: the Makefile, scripts/ and install.sh)"
+  plain_make check-release ||
+    fail "make check-release failed (above): nothing is tagged; fix it and re-run"
 fi
 
 # --- tag

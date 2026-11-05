@@ -1,6 +1,7 @@
-package main
+package release
 
 import (
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,26 @@ import (
 // Tests for T-645: the release's marketplace flip renames only the marketplace (top-level name obor-kit-dev →
 // obor-kit), never the owner or the plugin entry; release and publish refuse a tag whose marketplace differs from main's
 // in anything else. The good tag's shape is asserted in TestMakeReleaseFullRun; publish's refusals in TestMakePublish.
+
+// T-592, moved here from cmd/obor's plugin_wiring_test.go (T-902): main is the dev checkout, so the kit's marketplace
+// is obor-kit-dev (a release tag renames it to obor-kit, which the flip above does); it lists the plugin obor at ./.
+// cmd/obor keeps the manifest invariants it can check without the release's name.
+func TestTreeMarketplaceIsDev(t *testing.T) {
+	t.Parallel()
+	var market struct {
+		Name    string
+		Plugins []struct{ Name, Source string }
+	}
+	if err := json.Unmarshal(treeFile(t, ".claude-plugin/marketplace.json"), &market); err != nil {
+		t.Fatalf("marketplace.json does not parse: %v", err)
+	}
+	if market.Name != "obor-kit-dev" {
+		t.Errorf("main's marketplace name is %q, want obor-kit-dev (a release tag renames it to obor-kit)", market.Name)
+	}
+	if len(market.Plugins) != 1 || market.Plugins[0].Name != "obor" || market.Plugins[0].Source != "./" {
+		t.Errorf("marketplace.json lists %+v, want the one plugin obor at ./", market.Plugins)
+	}
+}
 
 // publishCheck runs `sh scripts/publish <v> --check` in the fixture (the tag checks ship runs before it pushes).
 func (f *releaseFixture) publishCheck(t *testing.T, v string) (string, bool) {

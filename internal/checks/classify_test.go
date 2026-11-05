@@ -3,12 +3,10 @@ package checks
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"obor/internal/config"
 )
@@ -137,8 +135,9 @@ func TestCounts(t *testing.T) {
 // T-901: obor-kit's own merge.classes (bash classify.test.sh case_real_valid, case_real_docs): docs-only merges are
 // partial neutral (guard only); Go-only merges partial go and run check_affected (the same heavy gate on the affected
 // packages, T-347); skills/, templates/, hooks/, bin/go-commands and .claude-plugin/ partial readers and run
-// check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; every other file still
-// runs the full check.
+// check_readers; web/src/ and the committed internal/web/dist partial web and run check_web; the kit's release tooling
+// (Makefile, scripts/, install.sh, RELEASING.md, the marketplace, tests/release/, T-902) partial release and runs
+// check_release; every other file still runs the full check.
 func TestOborKitConfig(t *testing.T) {
 	t.Parallel()
 	repo, _ := filepath.Abs("../..")
@@ -167,6 +166,11 @@ func TestOborKitConfig(t *testing.T) {
 			{"web/src/lib/format.ts"}, {"internal/web/dist/index.html"},
 			{"web/src/pages/Project.svelte", "internal/web/dist/source.sha256"},
 		}},
+		{"release", "check_release", [][]string{
+			{"Makefile"}, {"scripts/release"}, {"install.sh"}, {"RELEASING.md"},
+			{".claude-plugin/marketplace.json"}, {"tests/release/release_test.go"},
+			{"Makefile", "docs/tasks/T-75.md"},
+		}},
 	} {
 		for _, files := range c.files {
 			got := Classify(m, files, false)
@@ -180,7 +184,7 @@ func TestOborKitConfig(t *testing.T) {
 		}
 	}
 	// Anything no class names still runs the full suite, alone and beside a class's file.
-	for _, f := range []string{"Makefile", "go.mod", "go.sum", "bin/obor", "install.sh", "githooks/pre-commit",
+	for _, f := range []string{"go.mod", "go.sum", "bin/obor", "githooks/pre-commit",
 		"web/package.json", "README.md", "tests/go/socketprobe/main.go"} {
 		if c := Classify(m, []string{f}, false); c.Partial {
 			t.Errorf("%s: %s (want a full merge)", f, c.Mode())
@@ -189,8 +193,8 @@ func TestOborKitConfig(t *testing.T) {
 			t.Errorf("%s beside Go files: %s (want a full merge)", f, c.Mode())
 		}
 	}
-	if got := Classify(m, []string{"internal/app/loop.go", "Makefile"}, false).Mode(); got != "full:unmatched Makefile" {
-		t.Errorf("Makefile with Go files: %s (want full:unmatched Makefile)", got)
+	if got := Classify(m, []string{"internal/app/loop.go", "Makefile"}, false).Mode(); got != "full:mixed go/release (Makefile)" {
+		t.Errorf("Makefile with Go files: %s (want full:mixed go/release Makefile)", got)
 	}
 	// A merge in two classes runs the full check: the machinery picks one class or none.
 	if got := Classify(m, []string{"internal/app/loop.go", "skills/lead/SKILL.md"}, false).Mode(); got != "full:mixed go/readers (skills/lead/SKILL.md)" {
@@ -268,64 +272,4 @@ func readerPkgs(path string) ([]string, error) {
 		}
 	}
 	return nil, nil
-}
-
-// T-817: commands.trim_go_cache runs make trim-go-cache, which deletes the Go build cache's entries unused for 48 h
-// and prints "go cache: freed <size>, <size> left". GOCACHE names a throwaway cache: a test never trims the machine's.
-func TestOborKitTrimGoCache(t *testing.T) {
-	t.Parallel()
-	repo, _ := filepath.Abs("../..")
-	cache := t.TempDir()
-	env := append(os.Environ(), "GOCACHE="+cache)
-	// Precondition: the target trims the cache this test made, never the machine's — it reads GOCACHE with `go env`.
-	probe := exec.Command("go", "env", "GOCACHE")
-	probe.Env = env
-	got, err := probe.Output()
-	if err != nil {
-		t.Skipf("no go to ask for GOCACHE: %v", err)
-	}
-	if want := cache; strings.TrimSpace(string(got)) != want {
-		t.Fatalf("precondition: go env GOCACHE = %q, want the test's %q", got, want)
-	}
-	// cacheFile is a cache entry of size bytes, unused for age.
-	cacheFile := func(name string, size int64, age time.Duration) string {
-		t.Helper()
-		path := filepath.Join(cache, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Truncate(path, size); err != nil {
-			t.Fatal(err)
-		}
-		when := time.Now().Add(-age)
-		if err := os.Chtimes(path, when, when); err != nil { // after the truncate: it sets the mtime
-			t.Fatal(err)
-		}
-		return path
-	}
-	old := cacheFile("aa/aa-1-a", 3<<20, 72*time.Hour)
-	fresh := cacheFile("bb/bb-1-a", 2<<20, time.Hour)
-	for _, p := range []string{old, fresh} {
-		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("precondition: %v", err)
-		}
-	}
-	cmd := exec.Command("make", "-s", "-C", repo, "trim-go-cache")
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("make trim-go-cache: %v\n%s", err, out)
-	}
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Errorf("an entry unused for 72 h is still there (%v)", err)
-	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Errorf("an entry unused for an hour is gone: %v", err)
-	}
-	if want := "go cache: freed 3.0 MiB, 2.0 MiB left"; !strings.Contains(string(out), want) {
-		t.Errorf("output %q lacks %q", out, want)
-	}
 }

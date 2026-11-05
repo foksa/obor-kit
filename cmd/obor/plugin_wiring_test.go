@@ -99,7 +99,6 @@ func TestPluginManifests(t *testing.T) {
 	root := checkoutRoot(t)
 	var plugin struct{ Name, Version string }
 	var market struct {
-		Name    string
 		Plugins []struct{ Name, Source string }
 	}
 	readJSON(t, filepath.Join(root, ".claude-plugin/plugin.json"), &plugin)
@@ -113,10 +112,10 @@ func TestPluginManifests(t *testing.T) {
 	if v := strings.TrimSpace(string(want)); v == "" || plugin.Name != "obor" || plugin.Version != v {
 		t.Errorf("plugin.json: name %q version %q; want obor and VERSION %q", plugin.Name, plugin.Version, v)
 	}
-	// T-592: main is the dev checkout, so its marketplace is obor-kit-dev; a release tag renames it to obor-kit.
-	if market.Name != "obor-kit-dev" || len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" ||
-		market.Plugins[0].Source != "./" {
-		t.Errorf("marketplace.json: %+v; want obor-kit-dev listing obor with source ./", market)
+	// T-592: what the marketplace lists is a manifest invariant; its dev/release name is the release's own concern,
+	// tested in tests/release (T-902).
+	if len(market.Plugins) == 0 || market.Plugins[0].Name != "obor" || market.Plugins[0].Source != "./" {
+		t.Errorf("marketplace.json: %+v; want it listing obor with source ./", market)
 	}
 }
 

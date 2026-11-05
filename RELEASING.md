@@ -38,7 +38,10 @@ The lead, in a clean checkout on main:
    and `obor setup show` load, each lead (its SessionStart hook under its current name) get its held line, the dispatch
    still wait with its model first, and `obor send` work both ways. A failure prints the step and its output and tags
    nothing (the version commit stays: the re-run starts at the upgrade check). `SKIP_UPGRADE_CHECK="<why>"` skips it,
-   the owner's call only, like `UNREVIEWED`, and puts the reason in the tag message. In a scratch
+   the owner's call only, like `UNREVIEWED`, and puts the reason in the tag message. Then `make check-release`
+   (`tests/release`: the Makefile's check, release and publish targets, `scripts/release`, `scripts/ship`,
+   `scripts/publish` and `install.sh`, against fixture repos in a temp dir; the full `make check` runs the same package
+   too) — a red one tags nothing and the re-run starts here. In a scratch
    worktree at that commit it sets the marketplace `name` to `obor-kit`, builds the four binaries and `bin/checksums.txt`,
    commits and tags `v<x.y.z>`. It copies the four files and the catalog back to main, commits them, and removes the
    worktree. Each step has its done evidence and its undo (`scripts/release`'s header lists them): a re-run skips a step
