@@ -140,10 +140,12 @@ running > 30 s through its shells, helpers left out), labelled from the PreToolU
 (`project.AppendBackground` / `BackgroundCalls`, `.obor/state/background.jsonl`).
 `view.Detail` is the drill-down the API serves and nothing else: a task's state, spec, report, gate line and log,
 needs-you, records and jobs; an agent's sessions (a transcript path and last write, never contents), briefs, lines and
-jobs; a job's text (a `prompts` row). `EventsSince` pages the log by seq for the page's long poll. It may import base,
-core and the adapters; only entry packages import it. **Every reader of project state goes through `view.Build`**:
+jobs; a job's text (a `prompts` row). The pages read narrow (T-880): `view.LoadTask`, `view.LoadAgent` and
+`view.LoadSetup` build only their page's facts (a task or agent page runs no git and no ps; setup reads the lane
+states). `EventsSince` pages the log by seq for the page's long poll. It may import base,
+core and the adapters; only entry packages import it. **Every reader of project state goes through `view`**:
 `obor status` (`--json` prints `view.Project` as is) and `obor web` render the same struct, so a field added for one
-appears in both; no second builder.
+appears in both; the narrow page reads share its mapping helpers, and there is no second Project builder.
 
 **test helpers** — `testkit` (fixture projects, the store helpers tests use) and `herdr/herdrtest` (the fake herdr
 socket: scripted panes and plugins, and every request a test's client sent).

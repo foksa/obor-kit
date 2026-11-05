@@ -1,5 +1,6 @@
 // Package web is `obor web` (T-667): a localhost page for every obor project on the machine. It serves the read model's
-// JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), and the drill-down pages of
+// JSON — each project's view as view.Build builds it for `obor status --json` (view.Load), the pages' narrow reads
+// (view.LoadTask, LoadAgent, LoadSetup; T-880) and the drill-down pages of
 // view.Detail — plus the page itself (T-760): a Svelte app whose source is web/ at the repo's root, built by `make web`
 // into dist/ here, committed and embedded (the Go build needs no Node; TestDistFresh fails when dist/ is older than
 // web/'s sources). Its own
@@ -51,14 +52,19 @@ const (
 	defaultView = 20 // worded events in a project's view (obor status --json carries 20 too)
 )
 
-// Server is obor web's handlers over the machine's projects. The zero value is the real thing: project.Projects and
-// view.Load; a test injects Projects and Build.
+// Server is obor web's handlers over the machine's projects. The zero value is the real thing: project.Projects,
+// view.Load for the overview, and view.LoadTask / LoadAgent / LoadSetup for the pages; a test injects them.
 type Server struct {
 	Projects func() []project.Project                            // the machine's projects (default: project.Projects)
 	Build    func(context.Context, string) (view.Project, error) // one project's view by root (default: view.Load)
-	Events   int                                                 // worded events in a view (0: 20)
-	Wait     time.Duration                                       // how long /api/events holds a poll (0: 20s)
-	Poll     time.Duration                                       // how often it asks the store (0: 300ms)
+	// Task, Agent and Setup are the drill-down pages' narrow reads (defaults: view.LoadTask, view.LoadAgent,
+	// view.LoadSetup, T-880): a page never builds the overview.
+	Task   func(context.Context, string) (view.Detail, error)
+	Agent  func(context.Context, string) (view.Detail, error)
+	Setup  func(context.Context, string) (view.Setup, error)
+	Events int           // worded events in a view (0: 20)
+	Wait   time.Duration // how long /api/events holds a poll (0: 20s)
+	Poll   time.Duration // how often it asks the store (0: 300ms)
 	// Listen is the address it serves on: a POST's Host must name it ("": DefaultListen).
 	Listen string
 	// Call is a request to the serve of the project at root (default: wire.Verdict on its socket; no socket:
@@ -259,8 +265,8 @@ func (s *Server) viewAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// setupAPI is /api/setup?project=<name>: the project's setup read model (T-750), built from the view it already asks
-// serve for and the project's config and store.
+// setupAPI is /api/setup?project=<name>: the project's setup read model (T-750), read narrow (T-880): its config, the
+// lane states, serve's role rows and the store's dispatch records, never the whole overview.
 func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.project(w, r)
 	if !ok {
@@ -268,12 +274,7 @@ func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 	defer cancel()
-	v, err := s.build(ctx, p.Root)
-	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	setup, err := view.Detail{Root: p.Root, Project: v}.Setup()
+	setup, err := s.setupRead(ctx, p.Root)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, err.Error())
 		return
@@ -281,9 +282,9 @@ func (s *Server) setupAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, setup)
 }
 
-// taskAPI is /api/task?project=<name>&task=<id>: the task's page.
+// taskAPI is /api/task?project=<name>&task=<id>: the task's page, from the narrow task read (T-880).
 func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
-	d, id, ok := s.detail(w, r, "task")
+	d, id, ok := s.detail(w, r, "task", s.taskRead)
 	if !ok {
 		return
 	}
@@ -295,9 +296,9 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
-// agentAPI is /api/agent?project=<name>&agent=<name>: the agent's page.
+// agentAPI is /api/agent?project=<name>&agent=<name>: the agent's page, from the narrow agent read (T-880).
 func (s *Server) agentAPI(w http.ResponseWriter, r *http.Request) {
-	d, name, ok := s.detail(w, r, "agent")
+	d, name, ok := s.detail(w, r, "agent", s.agentRead)
 	if !ok {
 		return
 	}
@@ -484,9 +485,10 @@ func serveCall(ctx context.Context, root, method string, c wire.Call) (string, e
 	return wire.Verdict(ctx, sock, method, c)
 }
 
-// detail is the request's project's Detail and the value of param: ok false when the response is already written (an
-// unknown project, a missing param or a view that cannot be built).
-func (s *Server) detail(w http.ResponseWriter, r *http.Request, param string) (view.Detail, string, bool) {
+// detail is the request's project's Detail as read returns it and the value of param: ok false when the response is
+// already written (an unknown project, a missing param or a read that fails).
+func (s *Server) detail(w http.ResponseWriter, r *http.Request, param string,
+	read func(context.Context, string) (view.Detail, error)) (view.Detail, string, bool) {
 	p, ok := s.project(w, r)
 	if !ok {
 		return view.Detail{}, "", false
@@ -498,12 +500,37 @@ func (s *Server) detail(w http.ResponseWriter, r *http.Request, param string) (v
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 	defer cancel()
-	v, err := s.build(ctx, p.Root)
+	d, err := read(ctx, p.Root)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, err.Error())
 		return view.Detail{}, "", false
 	}
-	return view.Detail{Root: p.Root, Project: v}, id, true
+	d.Root = p.Root
+	return d, id, true
+}
+
+// taskRead is the task page's read (default: view.LoadTask).
+func (s *Server) taskRead(ctx context.Context, root string) (view.Detail, error) {
+	if s.Task != nil {
+		return s.Task(ctx, root)
+	}
+	return view.LoadTask(ctx, root)
+}
+
+// agentRead is the agent page's read (default: view.LoadAgent).
+func (s *Server) agentRead(ctx context.Context, root string) (view.Detail, error) {
+	if s.Agent != nil {
+		return s.Agent(ctx, root)
+	}
+	return view.LoadAgent(ctx, root)
+}
+
+// setupRead is the setup page's read (default: view.LoadSetup).
+func (s *Server) setupRead(ctx context.Context, root string) (view.Setup, error) {
+	if s.Setup != nil {
+		return s.Setup(ctx, root)
+	}
+	return view.LoadSetup(ctx, root)
 }
 
 // eventsAPI is /api/events?project=<name>&since=<seq>: a long poll on the store's seq. It answers at once when a record

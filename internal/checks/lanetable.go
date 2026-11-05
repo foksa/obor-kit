@@ -53,12 +53,22 @@ type LaneTable struct {
 	Cfg  *config.Config
 	Root string
 	Now  int64
+	// Git is the git command the table's reads run (nil: project.GitCtx): a test counts them (T-880).
+	Git func(ctx context.Context, dir string, args ...string) (string, error)
 
 	once     sync.Once
 	states   []LaneStatus
 	rowsOnce sync.Once
 	rows     map[string]store.LaneRow // the lanes table, by lane, read once
 	rowsErr  error                    // why it cannot be read (no database yet: nil, no rows, T-871)
+}
+
+// git is the table's git: project.GitCtx unless a test injected Git.
+func (p *LaneTable) git(dir string, args ...string) (string, error) {
+	if p.Git != nil {
+		return p.Git(p.ctx, dir, args...)
+	}
+	return project.GitCtx(p.ctx, dir, args...)
 }
 
 // States is every configured lane's row, in config order (computed once, lanes in parallel).
@@ -93,7 +103,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	if !project.IsDir(l.Dir) {
 		return s
 	}
-	out, err := project.GitCtx(p.ctx, l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
+	out, err := p.git(l.Dir, "rev-parse", "--show-toplevel", "HEAD", "--symbolic-full-name", "HEAD")
 	if err != nil {
 		return unknown(s, "git rev-parse: "+err.Error())
 	}
@@ -114,7 +124,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := project.GitCtx(p.ctx, p.Root, "merge-base", "--is-ancestor", head, "HEAD")
+		_, err := p.git(p.Root, "merge-base", "--is-ancestor", head, "HEAD")
 		var exit *exec.ExitError
 		switch {
 		case err == nil:
@@ -124,7 +134,7 @@ func (p *LaneTable) LaneState(l config.Lane) LaneStatus {
 			mergedErr = err
 		}
 	}()
-	status, statusErr := project.GitCtx(p.ctx, l.Dir, "status", "--porcelain")
+	status, statusErr := p.git(l.Dir, "status", "--porcelain")
 	wg.Wait()
 	switch {
 	case mergedErr != nil:
@@ -252,7 +262,7 @@ func (p *LaneTable) inFlight(lane, task, head string) bool {
 // kept while adopters' history still holds specs there, T-521 stopped writing them). One log with file names reads
 // both rules. Task branches are not looked at. A log git cannot read is no evidence.
 func (p *LaneTable) MergeEvidence(id string) bool {
-	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return project.GitCtx(p.ctx, p.Root, args...) })
+	ok, _ := p.MergeEvidenceBy(id, func(args ...string) (string, error) { return p.git(p.Root, args...) })
 	return ok
 }
 

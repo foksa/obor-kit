@@ -1,7 +1,9 @@
 // Package view is the project's read model (T-664): one function, Build, joins obor serve's status answer (none when
-// serve is down), the git lane table and the store (read-only) into one Project. Every reader of project state goes
-// through it: `obor status` prints it as JSON or renders it as text, and the web UI serves it. app never imports view;
-// only entry packages do (internal/checks/boundary_test.go).
+// serve is down), the git lane table and the store (read-only) into one Project, and Load is that build for a project at
+// a root. Every reader of project state goes through this package: `obor status` prints the Project as JSON or renders it
+// as text, and the web UI serves it. The drill-down pages read narrow (T-880): LoadTask, LoadAgent and LoadSetup build
+// only what their page needs — no git and no ps for a task or an agent page. app never imports view; only entry packages
+// do (internal/checks/boundary_test.go).
 package view
 
 import (
@@ -200,51 +202,7 @@ func Build(in Input) Project {
 	v := Project{Lanes: []Lane{}, Agents: []wire.AgentStatus{}, Roles: []Role{},
 		NeedsYou: []NeedsYou{}, Messages: []wire.MessageStatus{}, Running: []Running{}, Pending: []wire.PendingStep{},
 		Events: []Event{}, Notes: in.Notes}
-	var ps wire.ProjectStatus
-	if in.Err != nil {
-		v.Serve.Error = in.Err.Error()
-	} else {
-		ss := in.Status
-		v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote = true, ss.Since, ss.Connected, ss.HerdrNote
-		v.Serve.SinceTime, _ = time.Parse(time.RFC3339, ss.Since)
-		if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
-			ps, v.Serve.Project = *x, true
-		}
-		for _, r := range ps.Running {
-			v.Running = append(v.Running, Running{Step: r.Step, Task: r.Task, Command: runningCommand(p, r),
-				Since: r.Since})
-		}
-		v.Pending = append(v.Pending, ps.Pending...)
-		v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError
-		if ps.Lanes != "" { // serve's lane table is older than its tick (T-879): obor status and the page show its age
-			v.Notes = append(slices.Clip(v.Notes), ps.Lanes)
-		}
-		v.Agents = append(v.Agents, ps.Agents...)
-		v.Messages = append(v.Messages, ps.Messages...)
-		v.Review, v.Watches = ps.Review, ps.Watches
-		v.Idle = ps.Idle
-		v.Facts = ps.Facts
-		for _, f := range ps.Facts {
-			if f.Step == event.StepNeedsYou {
-				n := NeedsYou{Task: f.Task, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
-				if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
-					n.Since = t.Unix()
-				}
-				v.NeedsYou = append(v.NeedsYou, n)
-			}
-		}
-		v.Roles = roles(p, ps, in.Background)
-		v.Lead = lead(p, ps, in.Background)
-	}
-	if ps.Paused != nil {
-		v.Paused = pauseOf(ps.Paused)
-	}
-	for m, mp := range ps.ModelPauses {
-		if v.ModelPauses == nil {
-			v.ModelPauses = map[string]*Pause{}
-		}
-		v.ModelPauses[m] = pauseOf(mp)
-	}
+	ps := serveOf(&v, in.Status, in.Err, p, in.Background)
 	specs, starts := readSpecs(in.DB), lastStarts(in.DB)
 	states := p.States()
 	rows, _ := p.Rows()
@@ -260,6 +218,71 @@ func Build(in Input) Project {
 	v.Queue = queue(&v, ps, p.Cfg.Data.Merge.NightlyAt, specs, dispatchedTasks(in.DB), in.Now)
 	v.Events = events(in.DB, in.Events, v.Serve)
 	return v
+}
+
+// serveOf is Build's mapping of serve's answer into v (up or down, running, pending, agents, the role rows and the
+// lead, messages, review, watches, idle, facts, needs-you, the pauses and the notes it carries) and the status it read.
+// p is the project's lane table: the configured command a running step runs is p's, and a serve of another project
+// answers none of it. bg is each agent's background processes (nil: none read).
+func serveOf(v *Project, ss wire.Status, err error, p *checks.LaneTable, bg map[string][]Background) wire.ProjectStatus {
+	var ps wire.ProjectStatus
+	if err != nil {
+		v.Serve.Error = err.Error()
+		v.NeedsYou = needsYou(ps)
+		return ps
+	}
+	v.Serve.Up, v.Serve.Since, v.Serve.Herdr, v.Serve.HerdrNote = true, ss.Since, ss.Connected, ss.HerdrNote
+	v.Serve.SinceTime, _ = time.Parse(time.RFC3339, ss.Since)
+	if x := ss.Project; x != nil && filepath.Clean(x.Root) == filepath.Clean(p.Root) {
+		ps, v.Serve.Project = *x, true
+	}
+	for _, r := range ps.Running {
+		v.Running = append(v.Running, Running{Step: r.Step, Task: r.Task, Command: runningCommand(p, r),
+			Since: r.Since})
+	}
+	v.Pending = append(v.Pending, ps.Pending...)
+	v.Serve.Merging, v.Serve.LogError = ps.Merging, ps.LogError
+	if ps.Lanes != "" { // serve's lane table is older than its tick (T-879): obor status and the page show its age
+		v.Notes = append(slices.Clip(v.Notes), ps.Lanes)
+	}
+	v.Agents = append(v.Agents, ps.Agents...)
+	v.Messages = append(v.Messages, ps.Messages...)
+	v.Review, v.Watches = ps.Review, ps.Watches
+	v.Idle = ps.Idle
+	v.Facts = ps.Facts
+	v.NeedsYou = needsYou(ps)
+	v.Roles, v.Lead = roles(p.Cfg, ps, bg), lead(p.Cfg, ps, bg)
+	pausesOf(v, ps)
+	return ps
+}
+
+// needsYou is serve's needs-you facts in force with the commands that answer each.
+func needsYou(ps wire.ProjectStatus) []NeedsYou {
+	out := []NeedsYou{}
+	for _, f := range ps.Facts {
+		if f.Step != event.StepNeedsYou {
+			continue
+		}
+		n := NeedsYou{Task: f.Task, Reason: f.Fact().Reason, Answer: ps.Answers[f.Seq]}
+		if t, err := time.Parse(time.RFC3339, f.TS); err == nil {
+			n.Since = t.Unix()
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// pausesOf is serve's pause and model pauses as the view shows them (T-765, T-766).
+func pausesOf(v *Project, ps wire.ProjectStatus) {
+	if ps.Paused != nil {
+		v.Paused = pauseOf(ps.Paused)
+	}
+	for m, mp := range ps.ModelPauses {
+		if v.ModelPauses == nil {
+			v.ModelPauses = map[string]*Pause{}
+		}
+		v.ModelPauses[m] = pauseOf(mp)
+	}
 }
 
 // lane is s's row of the view: the lane table's facts, its task's id, the agent in it, whether it is free, its state
@@ -288,9 +311,9 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 // roles is one row per role agent on no lane that the config names (config.RoleAgents: an optional role, a custom one
 // too, only when configured; the worker's are the lanes, the lead is the reader), with its pane's status and session as
 // serve sees it and its open brief.
-func roles(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background) []Role {
+func roles(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background) []Role {
 	out := []Role{}
-	for _, rc := range p.Cfg.RoleAgents() {
+	for _, rc := range cfg.RoleAgents() {
 		name, agent := rc.Role.Name, rc.Agent
 		if name == "lead" || agent == "" {
 			continue
@@ -317,8 +340,8 @@ func roles(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Backgroun
 
 // lead is the lead's row (its status and session as serve sees its pane, its background processes); nil when the
 // config names no lead agent or serve sees no pane of it.
-func lead(p *checks.LaneTable, ps wire.ProjectStatus, bg map[string][]Background) *Role {
-	agent := p.Cfg.AgentName("lead", "")
+func lead(cfg *config.Config, ps wire.ProjectStatus, bg map[string][]Background) *Role {
+	agent := cfg.AgentName("lead", "")
 	if agent == "" {
 		return nil
 	}

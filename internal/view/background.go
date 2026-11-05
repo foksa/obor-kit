@@ -373,16 +373,32 @@ func (v Project) BackgroundCount() int {
 // with one ps and herdr's process info per agent pane over its socket (env's). Any failure is no processes: the
 // readers show the rest.
 func ScanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env) map[string][]Background {
+	return scanBackground(ctx, root, ss, err, env, ReadProcs)
+}
+
+// background is ScanBackground with ps read by r.procs (ReadProcs when nil): the agents' long-running processes of
+// serve's answer for root (none: serve down or another project's).
+func (r reading) background(ctx context.Context, root string, ss wire.Status, err error) map[string][]Background {
+	procs := r.procs
+	if procs == nil {
+		procs = ReadProcs
+	}
+	return scanBackground(ctx, root, ss, err, project.OSEnv, procs)
+}
+
+// scanBackground is ScanBackground with ps read by procs (a read's own, T-880): any failure is no processes.
+func scanBackground(ctx context.Context, root string, ss wire.Status, err error, env project.Env,
+	procs func(ctx context.Context) ([]Proc, error)) map[string][]Background {
 	if err != nil || ss.Project == nil || filepath.Clean(ss.Project.Root) != filepath.Clean(root) ||
 		len(ss.Project.Agents) == 0 {
 		return nil
 	}
-	procs, perr := ReadProcs(ctx)
+	ps, perr := procs(ctx)
 	if perr != nil {
 		return nil
 	}
 	h := &herdr.Socket{Path: herdr.SocketPath(env), Timeout: 2 * time.Second}
-	return BackgroundOf(ctx, root, ss.Project.Agents, procs, func(ctx context.Context, pane string) (port.ProcessInfo, error) {
+	return BackgroundOf(ctx, root, ss.Project.Agents, ps, func(ctx context.Context, pane string) (port.ProcessInfo, error) {
 		return h.ProcessInfo(ctx, pane)
 	})
 }

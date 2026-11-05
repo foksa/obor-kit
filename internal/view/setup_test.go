@@ -66,16 +66,11 @@ func TestSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.OpenRO(store.File(p.Root))
-	if err != nil {
-		t.Fatal(err)
+	if len(cfg.Lanes()) != 2 || ss.Project == nil || ss.Project.Paused == nil {
+		t.Fatalf("precondition: two lanes and the pause: %+v", cfg.Lanes())
 	}
-	defer db.Close()
-	v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), DB: db, Now: now, Events: 20})
-	if len(v.Lanes) != 2 || len(v.Roles) == 0 || v.Paused == nil {
-		t.Fatalf("precondition: two lanes, the roles and the pause: %+v", v)
-	}
-	s, err := Detail{Root: p.Root, Project: v}.Setup()
+	s, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil }}.
+		setup(context.Background(), p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,11 +175,7 @@ func TestSetup(t *testing.T) {
 func TestSetupWithoutStore(t *testing.T) {
 	p := testkit.New(t)
 	p.Config()
-	cfg, err := config.Load(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := Detail{Root: p.Root, Project: Build(Input{Lanes: checks.NewLaneTable(context.Background(), cfg), Now: time.Now()})}.Setup()
+	s, err := reading{}.setup(context.Background(), p.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +231,8 @@ func TestCustomRolesListed(t *testing.T) {
 			t.Fatal(err)
 		}
 		v := Build(Input{Status: ss, Lanes: checks.NewLaneTable(context.Background(), cfg), Now: now})
-		s, err := Detail{Root: p.Root, Project: v}.Setup()
+		s, err := reading{ask: func(context.Context, string) (wire.Status, error) { return ss, nil }}.
+			setup(context.Background(), p.Root)
 		if err != nil {
 			t.Fatal(err)
 		}

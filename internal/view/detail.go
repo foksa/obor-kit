@@ -107,7 +107,7 @@ func (d Detail) Task(task string) (TaskDetail, bool) {
 			t.NeedsYou, found = append(t.NeedsYou, n), true
 		}
 	}
-	db, close := d.open()
+	db, close := storeAt(d.Root)
 	defer close()
 	if db == nil {
 		return t, found
@@ -199,7 +199,7 @@ func (d Detail) Agent(agent string) (AgentDetail, bool) {
 			}
 		}
 	}
-	db, close := d.open()
+	db, close := storeAt(d.Root)
 	defer close()
 	if db == nil {
 		return a, found
@@ -226,7 +226,7 @@ func (d Detail) Job(job string) (Prompt, bool) {
 	if job == "" {
 		return Prompt{}, false
 	}
-	db, close := d.open()
+	db, close := storeAt(d.Root)
 	defer close()
 	if db == nil {
 		return Prompt{}, false
@@ -236,18 +236,6 @@ func (d Detail) Job(job string) (Prompt, bool) {
 		return Prompt{}, false
 	}
 	return promptOf(rows[0]), true
-}
-
-// open is the project's store, read-only, and the func that closes it: nil when the project has none (or Root is "").
-func (d Detail) open() (*sql.DB, func()) {
-	if d.Root == "" {
-		return nil, func() {}
-	}
-	db, _ := store.OpenAt(d.Root)
-	if db == nil {
-		return nil, func() {}
-	}
-	return db, func() { db.Close() }
 }
 
 // taskRecord is a task's record with the raw data the report and the gate read.
