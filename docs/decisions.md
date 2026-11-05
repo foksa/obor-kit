@@ -4,6 +4,10 @@ Owner decisions on record, newest sections first. Folded from STATUS.md on 2026-
 at the top of "Decisions on record". Phase plans: `docs/plan/`.
 
 ## Decisions on record
+- 2026-11-05 (owner): **Gates: re-gate a moved candidate only on overlap** (T-900; ~38 gates for ~10 merges today,
+  most of the load behind the flaky reds); non-Go files select the packages that read them instead of the full suite
+  (T-899). **Go's test cache stays off** in gates for now (its inputs miss herdr, CLIs and sockets); revisit with
+  numbers after T-899/T-900.
 - 2026-11-05 (lead, T-877): **The official MCP Go SDK is adopted on trial** (c9b9eae: internal/mcp −220 production
   lines; v1.8.0; binary +1.9 MB). The live conformance it passed runs a stub MCP server, so the real server against
   real clients is proven by the next workers' `job_next`/`task_done` and the integrator's verdicts on main's binary,

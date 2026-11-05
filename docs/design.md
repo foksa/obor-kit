@@ -548,6 +548,11 @@ merge checks: fixing what they find later is cheaper than waiting on every merge
   (s, default 86400; 0: never) is not run again; its place in the result and `Candidate.Checks` reads `reused <lane>
   <tree7>`. The merge tree equals the lane's only when the lane is based on the current target; a moved target, a
   changed command or a later edit runs the check as before. A merge that reused a check is `partial` (fact `merged` without `full`, T-525).
+- **A moved target keeps a green result when nothing overlaps** (owner 2026-11-05, T-900): after a clean rebase onto a
+  moved target, the candidate is not gated again when the new commits change none of its files, their affected
+  packages and the candidate's share none, neither side is `full`, and its last gate was green on an ancestor of the
+  new target; the result reads `kept <base7>` and the merge is `partial`. The nightly full check covers what the
+  affected sets cannot see. Non-Go files select the packages whose sources name them (T-899).
 - **`CHECK_CPUS`** (`obor run` of a heavy command and the gates' commands): `slots.cpus` when set, else
   `max(1, cores / slots.max)`. The project maps it (obor-kit: `go test -p`).
 - **Go projects: `obor affected go`** (T-351; research §2, §5). `obor affected go [--changed <file>]` (default
