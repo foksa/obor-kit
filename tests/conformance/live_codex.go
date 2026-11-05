@@ -110,6 +110,73 @@ func codexLive(l *lab, turn bool) {
 			out.note("codex: after /quit these processes still ran on the scratch CODEX_HOME (a daemon?): " + strings.Join(ps, ", "))
 		}
 	}
+
+	// 3: the repository's own server (T-898), last: CX-L3 reads the first turn's rollout.
+	cxL4(l, pane, codexHome, turn)
+}
+
+// cxL4 (T-898): codex starts with the repository's own `obor mcp` (not the stub) and one job_next call's rendered
+// reply reaches the session's rollout. A client that cannot list the server's tools, or cannot call one, leaves no
+// such result.
+func cxL4(l *lab, pane, codexHome string, turn bool) {
+	where := at("internal/mcp/mcp.go", "func Serve") + ", F1.1, CAP §3.2, T-898"
+	if !turn {
+		report("SKIP", "CX-L4", "needs TURN=1 (a model call that uses the tool)", where)
+		return
+	}
+	real, err := l.realKit()
+	if err != nil {
+		report("FAIL", "CX-L4", "the repository's own obor is not built: "+err.Error(), where)
+		return
+	}
+	if err := l.startStubServe(); err != nil {
+		report("FAIL", "CX-L4", err.Error(), where)
+		return
+	}
+	k := kindOf("codex")
+	// obor's base args (-s workspace-write -a never --no-daemon) and a direct tool surface: codex 0.166 defers every
+	// MCP tool behind tool_search when the model supports search (all of this account's models, code_mode_only), and
+	// code mode only exposes deferred tools that way (openai/codex#32101). omit_tools_from=deferred is codex's own
+	// supported way to keep this server's tools in the model's tool list.
+	argv := k.Start(agents.Start{Kit: real, Args: []string{"--strict-config", "-s", "workspace-write", "-a", "never",
+		"--no-daemon", "-c", `mcp_servers.obor.omit_tools_from=["deferred"]`}})
+	l.fresh()
+	t0 := time.Now()
+	s := l.start("conf-codex-mcp", "codex", pane, argv, 30*time.Second)
+	reportStart("codex real mcp", s, l.readyAfter(s, t0, "idle", "blocked"))
+	if l.atShell(pane) {
+		report("FAIL", "CX-L4", "codex did not start for the real server: "+answer(s)+"; "+tail(l.screen(pane), 4), where)
+		return
+	}
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
+		report("FAIL", "CX-L4", "agent.prompt: "+err.Error(), where)
+		l.stopAgent(pane)
+		return
+	}
+	text, ok := waitTranscript(180*time.Second, func() string { return rollouts(codexHome) }, mcpJobHead, mcpMarker)
+	st := k.Stop()
+	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
+	fact := l.mcpFact("the real `obor mcp`'s job_next result reached a rollout under "+codexHome, text, ok)
+	if ok {
+		report("PASS", "CX-L4", fact, where)
+	} else {
+		report("FAIL", "CX-L4", fact, where)
+	}
+}
+
+// rollouts is the text of every session rollout under the scratch CODEX_HOME: a turn's tool results are its lines.
+func rollouts(dir string) string {
+	files, _ := filepath.Glob(filepath.Join(dir, "sessions", "*", "*", "*", "rollout-*.jsonl"))
+	var b strings.Builder
+	for _, f := range files {
+		if c, err := os.ReadFile(f); err == nil {
+			b.Write(c)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // codexUp starts codex in pane with the driver's argv for args (H-L1 per start): the screen once it is up;
