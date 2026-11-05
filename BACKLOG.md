@@ -6,6 +6,11 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 compat census (change rule 5, first run): **nothing deletable**. Every store still holds old shapes:
+  obor-kit idle facts 19 / role stop.* 558 / untyped dispatches 379; axis-alies 1 / 150 / 63 + 14 answer.<call>;
+  axis-maps 0 / 60 / 18 (some written today). Replay starts at record 1, so rule 5 never fires as written. **Owner
+  decision for the next milestone:** a log snapshot at upgrade (Fable advice item 6: fold to current state, new log,
+  old archived), after which branches older than the snapshot and their tests go.
 - Tests of unreachable scenarios (owner asked 11-05). **At v0.28's release:** the compat census (docs/design.md change
   rule 5, never run yet): per old-shape fold branch, count matching records in every registered store (obor-kit,
   axis-alies, axis-maps); none → delete the branch and its tests (37 tests named Old/Legacy/Compat/Upgrade, 25 files
