@@ -201,10 +201,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 			return "", err
 		}
 	}
-	subject := c.id + " closed · " + strings.TrimSpace(sha) + " · approved · " + summary
-	// T-822: the body lists the cycle's covered tasks and where its review started, so the next review's scope takes
-	// the merges this cycle did not cover.
-	body := "Covered: " + strings.Join(cycle.Covered, ", ") + "\nStart: " + cycle.Start
+	subject, body := app.CloseCommit(c.id, sha, summary, cycle.Covered, cycle.Start)
 	if _, err := project.GitCtx(ctx, root, "commit", "-q", "--allow-empty", "-m", subject, "-m", body); err != nil {
 		return "", err
 	}

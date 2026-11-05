@@ -573,15 +573,42 @@ func TestReviewRequest(t *testing.T) {
 	}
 }
 
-// T-802: the review count's subject reader (mergeRE) finds a resolved merge by its "Merge T-xx: <title>" subject, and
-// not git's default one.
+// T-802, T-895: the merge subject's reader (parseMergeSubject) finds a resolved merge by its "Merge T-xx: <title>"
+// subject, and not git's default one.
 func TestMergeSubjectResolved(t *testing.T) {
 	t.Parallel()
-	if m := mergeRE.FindStringSubmatch("Merge commit 'c73bfccc' into HEAD"); m != nil {
-		t.Fatalf("precondition: git's default subject matches mergeRE: %q", m)
+	if got := parseMergeSubject("Merge commit 'c73bfccc' into HEAD"); got != "" {
+		t.Fatalf("precondition: git's default subject is no merge of a task: %q", got)
 	}
-	if m := mergeRE.FindStringSubmatch("Merge T-1470: Resolved title"); m == nil || m[1] != "T-1470" {
-		t.Errorf("mergeRE on a resolved merge's subject: %q, want T-1470", m)
+	if got := parseMergeSubject("Merge T-1470: Resolved title"); got != "T-1470" {
+		t.Errorf("parseMergeSubject on a resolved merge's subject: %q, want T-1470", got)
+	}
+}
+
+// T-895: the close commit's writer and parser agree, for its current subject and body and for an old close commit,
+// whose body has neither a Covered nor a Start line.
+func TestCloseCommitRoundTrip(t *testing.T) {
+	t.Parallel()
+	subject, body := CloseCommit("RV-7", "abcdef0", "T-1, T-2 (fix)", []string{"T-1", "T-2"}, "1234567")
+	if want := "RV-7 closed · abcdef0 · approved · T-1, T-2 (fix)"; subject != want {
+		t.Errorf("subject %q, want %q", subject, want)
+	}
+	if want := "Covered: T-1, T-2\nStart: 1234567"; body != want {
+		t.Errorf("body %q, want %q", body, want)
+	}
+	id, sha, summary, covered, start := parseCloseCommit(subject, body)
+	if id != "RV-7" || sha != "abcdef0" || summary != "T-1, T-2 (fix)" ||
+		!slices.Equal(covered, []string{"T-1", "T-2"}) || start != "1234567" {
+		t.Errorf("parseCloseCommit(%q, %q) = %q %q %q %v %q", subject, body, id, sha, summary, covered, start)
+	}
+	if next, prev, gotSHA := PreviousReview(subject); next != 8 || prev != "RV-7" || gotSHA != "abcdef0" {
+		t.Errorf("PreviousReview(%q) = %d %q %q", subject, next, prev, gotSHA)
+	}
+
+	// an old close commit: no Covered line, so its scope stays the reviewed sha's range
+	id, sha, summary, covered, start = parseCloseCommit("RV-6 closed · 1111111 · approved · T-9", "")
+	if id != "RV-6" || sha != "1111111" || summary != "T-9" || len(covered) != 0 || start != "" {
+		t.Errorf("old close commit: %q %q %q %v %q", id, sha, summary, covered, start)
 	}
 }
 
