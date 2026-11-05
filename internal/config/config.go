@@ -792,6 +792,65 @@ func (c *Config) RoleAgents() []RoleConfig {
 	return out
 }
 
+// RoleDir is where a role agent of role r runs (T-853), by its cwd rule: its role worktree <lanes_dir>/<role> (the
+// reviewer, the deep dive, the integrator), else the main checkout. A lane-bound role runs in its lane (Lanes), not
+// here: the main checkout.
+func (c *Config) RoleDir(r roles.Role) string {
+	if r.Cwd == roles.CwdRoleWorktree {
+		return c.RoleWorktree(r.Name)
+	}
+	return c.Root
+}
+
+// RoleWorktree is the worktree serve owns for role (T-853): <lanes_dir>/<role>, never a lane.
+func (c *Config) RoleWorktree(role string) string { return filepath.Join(c.LanesDir(), role) }
+
+// RoleWorktrees is the worktree of every table role whose cwd rule is a role worktree, configured or not: a linked
+// worktree there is no lane (project.LaneOf).
+func (c *Config) RoleWorktrees() []string {
+	var out []string
+	for _, r := range roles.All() {
+		if r.Cwd == roles.CwdRoleWorktree {
+			out = append(out, c.RoleWorktree(r.Name))
+		}
+	}
+	return out
+}
+
+// ReviewWriteDirs are the dirs a WriteReviewsOnly role (the reviewer, the deep dive) writes in the main checkout,
+// relative to the root: paths.reviews (default docs/reviews), then paths.research when set. The guard's write profile
+// and the start's writable dirs (RoleWriteDirs) are both these.
+func (c *Config) ReviewWriteDirs() []string {
+	paths := c.Paths()
+	reviews := strings.Trim(paths.Reviews, "/")
+	if reviews == "" {
+		reviews = "docs/reviews"
+	}
+	dirs := []string{reviews}
+	if research := strings.Trim(paths.Get("research"), "/"); research != "" {
+		dirs = append(dirs, research)
+	}
+	return dirs
+}
+
+// RoleWriteDirs are the dirs outside its cwd an agent of role r writes, absolute (T-853): the reviewer and the deep
+// dive (WriteReviewsOnly, in their role worktree) write their files into the main checkout's ReviewWriteDirs; every
+// other role none. A sandboxed kind's start lets it write there (agents.Start.WriteDirs: Codex's --add-dir).
+func (c *Config) RoleWriteDirs(r roles.Role) []string {
+	if r.Cwd != roles.CwdRoleWorktree || r.Write != roles.WriteReviewsOnly {
+		return nil
+	}
+
+	var out []string
+	for _, d := range c.ReviewWriteDirs() {
+		out = append(out, filepath.Join(c.Root, d))
+	}
+	return out
+}
+
+// ScratchDir is the merge scratch, merge.scratch_dir, absolute.
+func (c *Config) ScratchDir() string { return AbsUnder(c.Root, c.Data.Merge.ScratchDir) }
+
 // LaneAgentAliases returns the names that identify this lane's worker; stateAgent is the agent its lane row names
 // ("" none: config reads no store; callers pass project.LaneAgent).
 func (c *Config) LaneAgentAliases(lane, stateAgent string) []string {
@@ -814,7 +873,7 @@ func (c *Config) AgentLookup(agent, at string, stateAgent func(lane string) stri
 	}
 	for _, rc := range c.RoleAgents() {
 		if rc.Agent != "" && rc.Agent == agent {
-			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: c.Root}, true
+			return AgentInfo{Role: rc.Role.Name, Type: rc.Type, Effort: rc.Effort, Cwd: c.RoleDir(rc.Role)}, true
 		}
 	}
 	for _, lane := range c.Lanes() {

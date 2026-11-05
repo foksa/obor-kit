@@ -36,6 +36,9 @@ func (kind) Start(in agents.Start) []string {
 		out = append(out, "resume", in.Resume)
 	}
 	out = append(out, withEffort(in.Args, in.Effort)...)
+	for _, d := range in.WriteDirs { // workspace-write writes the cwd only (T-853)
+		out = append(out, "--add-dir", d)
+	}
 	if in.Kit != "" {
 		out = append(out,
 			"-c", `mcp_servers.obor.command="`+filepath.Join(in.Kit, "bin", "obor")+`"`,

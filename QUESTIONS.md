@@ -11,3 +11,11 @@
 - T-841: a non-lead may no longer move HEAD or change the tree/index in the main checkout (`checkout`/`switch` of a ref,
   `reset`, `rebase`, `merge`, `stash`, `cherry-pick`, `revert`, `am`, `apply`, `clean`); `docs/design.md` §Hooks
   (`:255`, lead-owned) lists the guard's git rules without it. No answer needed, just a doc line when you next touch it.
+- T-853 (E2): the reviewer and the deep dive run in serve's role worktrees `<lanes_dir>/reviewer` / `<lanes_dir>/deep_dive`
+  (moved to the head serve hands them at a review's start, each verify and a brief to an idle deep dive), the integrator
+  in `<lanes_dir>/integrator` (resolves stay in the scratch); the merge hold is deleted and so are the main checkout's
+  HEAD rows (T-841, T-848). Lead-owned
+  `docs/design.md` still describes the old shape: §merge hold (`:328`, the whole bullet), §Setup (`:200`, "no worktree
+  of their own since T-718"), §Roles (`:169`, "no merge hold"), §Hooks (`:255`–`:268`, the main-checkout HEAD rule if
+  you added it for T-841) and §Briefs (`:568`, "the hold roles … holds publishes … 30 minutes"). No answer needed, just
+  doc lines when you next touch it.

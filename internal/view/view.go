@@ -101,7 +101,6 @@ type Lane struct {
 	Attempt     int     `json:"attempt,omitempty"`
 	Running     string  `json:"running,omitempty"` // the task's step running now (its gate, its publish …)
 	Phase       string  `json:"phase,omitempty"`   // serve's phase of the task (wire.Phase*, T-788)
-	Hold        string  `json:"hold,omitempty"`    // "merge hold: <role>" while its publish waits (T-718)
 	Effort      string  `json:"effort,omitempty"`  // the effort the task's dispatch started its agent with (T-695)
 	Agent       string  `json:"agent,omitempty"`   // serve's agent in the lane, else the lane row's
 	AgentStatus string  `json:"agent_status,omitempty"`
@@ -283,8 +282,7 @@ func lane(p *checks.LaneTable, s checks.LaneStatus, v *Project, ps wire.ProjectS
 	}
 	for _, t := range ps.Tasks {
 		if t.Lane == s.Lane && t.Task == s.Task {
-			l.TaskState, l.Phase, l.Attempt, l.Running, l.Effort, l.Hold = t.State, t.Phase, t.Attempt, t.Running, t.Effort,
-				t.Hold
+			l.TaskState, l.Phase, l.Attempt, l.Running, l.Effort = t.State, t.Phase, t.Attempt, t.Running, t.Effort
 			if t.Job != "" {
 				l.Job = &Job{ID: t.Job, Delivered: t.Delivered}
 			}

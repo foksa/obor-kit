@@ -158,30 +158,29 @@ func init() {
 
 // phaseOf is mt's phase now (under mu; T-788), the one place obor status, the view and web get it from: phase of its
 // live overlays — a watchdog's needs-you on its task or its lane (blocked), its gate or publish running or pending
-// (steps: stepPhases), the role holding its merge.
+// (steps: stepPhases).
 func (a *App) phaseOf(p *proj, mt *mtask, steps map[string]string) string {
-	return phase(mt, overlays{blocked: p.blocked(mt), step: steps[mt.task], hold: a.holdRole(p, mt)})
+	return phase(mt, overlays{blocked: p.blocked(mt), step: steps[mt.task]})
 }
 
-// stageOf is mt's merge-loop stage ("": not in the merge loop), from its state, its steps and the merge hold, and the
+// stageOf is mt's merge-loop stage ("": not in the merge loop), from its state and its steps, and the
 // merge loop's needs-you (a block on a merge-loop state: held, red past K); a watchdog's needs-you on a working or dispatching task is not the merge loop's (T-797).
 func (a *App) stageOf(p *proj, mt *mtask, steps map[string]string) string {
 	if mt.paused() && (mt.state == stWaiting || mt.state == stDispatched || mt.state == stWorking) {
 		return "" // a needs-you its dispatch or worker left (redoable): the worker's, never the merge loop's
 	}
-	return wire.PhaseStage(phase(mt, overlays{step: steps[mt.task], hold: a.holdRole(p, mt)}))
+	return wire.PhaseStage(phase(mt, overlays{step: steps[mt.task]}))
 }
 
 // overlays are the live facts on a task its state does not say: a watchdog's needs-you in force (blocked), the phase
-// its gate or publish running or pending gives it (step: gating, merging, gate pending, publish pending; "": none),
-// the role holding its merge (hold, T-718; "": none).
+// its gate or publish running or pending gives it (step: gating, merging, gate pending, publish pending; "": none).
 type overlays struct {
-	blocked    bool
-	step, hold string
+	blocked bool
+	step    string
 }
 
 // phase is mt's phase with the overlays o: a needs-you first — the merge loop's block (held: the integrator's hold
-// verdict alone, C7) or a watchdog's — then its step running or pending, then the merge hold, else its state's row.
+// verdict alone, C7) or a watchdog's — then its step running or pending, else its state's row.
 func phase(mt *mtask, o overlays) string {
 	switch {
 	case mt.onHold() && mt.needs.fact.Fact().Cause == event.CauseHeld:
@@ -190,8 +189,6 @@ func phase(mt *mtask, o overlays) string {
 		return wire.PhaseNeedsYou
 	case o.step != "":
 		return o.step
-	case o.hold != "":
-		return wire.MergeHold(o.hold)
 	}
 	return states[mt.state].phase
 }

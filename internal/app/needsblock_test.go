@@ -216,7 +216,7 @@ func blockProjAt(t *testing.T, root string) (*App, *proj) {
 		replies: map[string]string{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
 		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{}, reg: newRegistry(),
-		folded: newFolded(), holds: map[string]mergeHold{}}
+		folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)
 	}

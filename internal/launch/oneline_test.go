@@ -1,6 +1,7 @@
 package launch_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,7 +27,8 @@ func TestStartPromptIsOneLine(t *testing.T) {
 		prompt, want    string // the first prompt given, and what reaches the start
 	}{
 		{"claude", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", prompt, one},
-		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna " + codexUpdate + " " + codexMCP + " ", prompt, one},
+		// T-853: a Codex reviewer writes the main checkout's reviews dir (<reviews>) from its role worktree.
+		{"codex", "luna", "codex", "-- -s workspace-write -a never --no-daemon -m gpt-6-luna --add-dir <reviews> " + codexUpdate + " " + codexMCP + " ", prompt, one},
 		{"opencode", "oc", "opencode", "-- --auto --standalone --prompt ", prompt, one},
 		{"no line break: unchanged", "opus", "claude", "-- --permission-mode auto --model opus" + settings + " --session-id <new> ", plain, plain},
 	} {
@@ -39,7 +41,7 @@ func TestStartPromptIsOneLine(t *testing.T) {
 				t.Fatalf("the first prompt failed the start: %s", out)
 			}
 			eq(t, last(out), "RESTARTED pj-rev (pane w1:p7, session new)", "result")
-			args := strings.TrimPrefix(c.head, "-- ")
+			args := strings.ReplaceAll(strings.TrimPrefix(c.head, "-- "), "<reviews>", filepath.Join(x.p.Root, "docs", "reviews"))
 			eq(t, x.named(x.startCall()), "agent.start args=["+args+c.want+"] kind="+c.kind+" name=pj-rev pane_id=w1:p7", "agent start: the prompt")
 			contains(t, x.startCall(), c.want, "the prompt's text")
 			eq(t, x.f.Pane("w1:p7").Name, "pj-rev", "herdr ran the agent")

@@ -39,7 +39,7 @@ func TestQueueMerge(t *testing.T) {
 		{Task: "T-4", State: "working", Phase: wire.PhaseNeedsYou}, // a watchdog's needs-you: no stage (T-797)
 		{Task: "T-5", State: "dispatched", Phase: wire.PhaseNeedsYou},
 		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
-		{Task: "T-8", State: "accepted", Phase: wire.MergeHold("reviewer"), Stage: wire.StagePublish},
+		{Task: "T-8", State: "accepted", Phase: wire.PhasePublish, Stage: wire.StagePublish},
 		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted}}
 	ps := wire.ProjectStatus{Scratch: &wire.ScratchStatus{Task: "T-7", Why: wire.ScratchHeld},
 		ScratchQueue: []wire.ScratchWait{{Task: "T-10", WaitsOn: "T-7", Why: wire.ScratchHeld}, {Task: "T-8"},
@@ -49,7 +49,8 @@ func TestQueueMerge(t *testing.T) {
 		{Task: "T-10", State: "submitted", Phase: wire.PhaseGating, Stage: wire.StageGating, WaitsOn: "T-7",
 			Why: wire.ScratchHeld},
 		{Task: "T-7", State: "needs-you", Phase: wire.PhaseHeld, Stage: wire.StageHeld},
-		{Task: "T-8", State: "accepted", Phase: "merge hold: reviewer", Stage: wire.StagePublish},
+		{Task: "T-8", State: "accepted", Phase: "publish", Stage: wire.StagePublish},
+
 		{Task: "T-9", State: "submitted", Phase: wire.PhaseSubmitted, Stage: wire.StageSubmitted, WaitsOn: "T-7",
 			Why: wire.ScratchHeld}}
 	if !slices.Equal(q.Merge, want) {

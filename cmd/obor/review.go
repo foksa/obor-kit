@@ -94,7 +94,20 @@ func (g reviewGit) Mark(ctx context.Context, sha string) error {
 	return err
 }
 
+// Detach puts the role worktree dir on sha, detached (T-853): added at it when dir is missing (project.AddWorktree),
+// else checked out there. A dir that is no worktree of this repo, or local changes in the way of the checkout: an
+// error, nothing forced.
+func (g reviewGit) Detach(ctx context.Context, dir, sha string) error {
+	added, err := project.AddWorktree(ctx, g.root, dir, sha)
+	if err != nil || added {
+		return err
+	}
+	_, err = gitIn(ctx, dir, "checkout", "-q", "--detach", sha)
+	return err
+}
+
 func (g reviewGit) git(ctx context.Context, args ...string) (string, error) {
+
 	return gitIn(ctx, g.root, args...)
 }
 

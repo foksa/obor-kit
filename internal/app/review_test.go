@@ -19,16 +19,19 @@ import (
 // T-638: obor review records a request; a merge-loop pass starts the review once its --after tasks merged and the
 // reviewer is idle.
 
-// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark. marked is every Mark's sha. last is the
-// newest close commit's subject and lastBody its body (T-822: the Covered and Start lines).
+// reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark, detachErr the detach. marked is every Mark's
+// sha, detached every Detach as <dir>@<sha>. last is the newest close commit's subject and lastBody its body (T-822:
+// the Covered and Start lines).
 type reviewGitFake struct {
-	last     string
-	lastBody string
-	merges   []string
-	from     []string // every Merges call's from
-	files    []string
-	markErr  error
-	marked   []string
+	last      string
+	lastBody  string
+	merges    []string
+	from      []string // every Merges call's from
+	files     []string
+	markErr   error
+	marked    []string
+	detachErr error
+	detached  []string
 }
 
 func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
@@ -47,6 +50,13 @@ func (g *reviewGitFake) Mark(_ context.Context, sha string) error {
 		return g.markErr
 	}
 	g.marked = append(g.marked, sha)
+	return nil
+}
+func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
+	if g.detachErr != nil {
+		return g.detachErr
+	}
+	g.detached = append(g.detached, dir+"@"+sha)
 	return nil
 }
 
@@ -218,7 +228,7 @@ func TestReviewRequest(t *testing.T) {
 			}
 			l := r.agents.launches[0]
 			if l.Agent != "pj-rev" || !l.Fresh || !strings.HasPrefix(l.Prompt, "Review RV-5. main is at abcdef0. In scope: T-a (aaaaaaa), T-b (bbbbbbb); files: internal/app/x.go, docs/y.md.") ||
-				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "Write only reviews/RV-5.md") ||
+				!strings.Contains(l.Prompt, "Previous review: RV-4 (") || !strings.Contains(l.Prompt, "write only reviews/RV-5.md") ||
 				// T-716: real findings only; constructed ones a one-line list without a fix.
 				!strings.Contains(l.Prompt, " Report only findings a real config or workflow hits; ") ||
 				!strings.Contains(l.Prompt, `goes in a short "Not reported (constructed)" list instead: one line each, no fix proposal.`) ||
@@ -228,11 +238,19 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launch %+v", l)
 			}
 			if len(r.git.marked) != 1 || r.git.marked[0] != "abcdef0123456789abcdef0123456789abcdef01" {
-				t.Errorf("marked %q, want the head (T-718: no review worktree)", r.git.marked)
+				t.Errorf("marked %q, want the head", r.git.marked)
 			}
-			if !strings.Contains(l.Prompt, "Write only reviews/RV-5.md (in the main checkout). Do not commit.") {
-				t.Errorf("the brief does not name the main checkout: %q", l.Prompt)
+			// T-853: the reviewer's role worktree is moved to the marked head before its start.
+			if wt := filepath.Join(filepath.Dir(r.p.root), filepath.Base(r.p.root)+"-wt", "reviewer"); len(r.git.detached) != 1 ||
+
+				r.git.detached[0] != wt+"@abcdef0123456789abcdef0123456789abcdef01" {
+				t.Errorf("detached %q, want the reviewer's worktree %s at the head", r.git.detached, wt)
 			}
+			if !strings.Contains(l.Prompt, "Your worktree is at abcdef0 (check out any commit there); write only"+
+				" reviews/RV-5.md in the main checkout "+r.p.root+". Do not commit.") {
+				t.Errorf("the brief does not name the worktree and the main checkout: %q", l.Prompt)
+			}
+
 			if lines := r.leadLines(); len(lines) != 0 {
 				t.Errorf("lead lines %q, want none on a start (T-650)", lines)
 			}

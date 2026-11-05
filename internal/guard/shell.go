@@ -11,6 +11,7 @@ import (
 
 	"obor/internal/agents"
 	"obor/internal/project"
+	"obor/internal/roles"
 )
 
 // Bash commands are parsed with mvdan.cc/sh/v3/syntax and walked statement by statement, in source order:
@@ -28,13 +29,13 @@ import (
 //     (incl. the commands a nested string came from) is a git write verb (gitWrites) or pkill/killall, or the word is
 //     a pattern that can be pkill/killall; words inside a substitution don't count (they are walked on their own).
 //     Nothing is evaluated (no environment reads beyond the above).
-//   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo for the main-checkout rules: a
-//     non-lead runs no verb there that moves HEAD or changes the tree or index wholesale (T-841); a checkout of paths
-//     and restore keep the checkWrite rule.
+//   - git -C / --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= name the repo a rule is about: git commit -a in
+//     the main checkout; a reviewer's or deep dive's checkout of a commit in its own role worktree (T-853).
 //   - writers: > >> &> >| <> targets, tee, rm, mv and cp targets (incl. <dir>/<source basename>), sed -i, git
 //     checkout/restore paths (non-workers; workers can't run them at all): each goes through checkWrite, the same
 //     path policy as the editor tools (protected files, the role's write profile, a final symlink at its target).
-//   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads (RV-83 #2).
+//   - a GitReadOnly role runs only the git subcommands gitRead classifies as reads (RV-83 #2), and a reviewer or deep
+//     dive also a checkout or switch to a commit in its own role worktree (headCheckout, T-853).
 //   - load runs of tests (T-543, every role): `go test` with -count > 1 or -race, a *.test binary with -test.count > 1
 //     or -test.race, sibling backgrounded test commands, or a literal fan-out above one under xargs / parallel.
 //
@@ -796,21 +797,26 @@ loop:
 var gitWrites = []string{"commit", "merge", "rebase", "reset", "checkout", "switch", "restore", "stash", "cherry-pick",
 	"revert", "push", "tag", "worktree", "clean", "am", "apply"}
 
-// mainHeadWrites are the git verbs that move HEAD or change the tree or index wholesale: in the main checkout only the
-// lead runs one (T-841), because serve publishes to main from there. checkout and switch are checked by movesHead
-// (a checkout of paths keeps the checkWrite rule); restore writes paths only and is not here.
-var mainHeadWrites = []string{"reset", "rebase", "merge", "stash", "cherry-pick", "revert", "am", "apply", "clean"}
-
-// movesHead reports a git subcommand that moves HEAD or changes the tree or index wholesale in dir: switch, a checkout
-// of a ref, or one of mainHeadWrites.
-func (s *shell) movesHead(sub string, args []string, dir string) bool {
+// headCheckout reports a git checkout or switch that only moves HEAD to a commit (T-853): a checkout of a ref
+// (checkoutRef) or a switch, neither creating a branch (-b, -B, --orphan; -c, -C, --create, --force-create). A
+// GitReadOnly role with a role worktree (the reviewer, the deep dive) runs one there: it may check out any commit.
+func (s *shell) headCheckout(sub string, args []string, dir string) bool {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "--orphan") || strings.HasPrefix(a, "--create") || strings.HasPrefix(a, "--force-create") ||
+			len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsAny(a[1:], "bBcC") {
+			return false
+		}
+	}
 	switch sub {
 	case "switch":
 		return true
 	case "checkout":
 		return s.checkoutRef(args, dir)
 	}
-	return oneOf(sub, mainHeadWrites...)
+	return false
 }
 
 // checkoutRef reports a `git checkout` of a ref (it moves HEAD) rather than of paths. A `--` makes what follows paths,
@@ -848,12 +854,6 @@ func (s *shell) checkoutRef(args []string, dir string) bool {
 	}
 	_, err := os.Lstat(p)
 	return err != nil
-}
-
-// headDeny is the reason a non-lead may not move HEAD or change the tree or index in the main checkout (T-841).
-func headDeny(sub string) string {
-	return "git " + sub + " in the main checkout moves HEAD or changes the tree or index, and serve publishes to main " +
-		"from this checkout — only the lead runs it here; read a commit with `git show <sha>:<path>` or `git diff`"
 }
 
 // workerIndexWrites: git verbs that write the index; denied for workers only. Not in gitWrites: add, rm and mv are
@@ -1267,12 +1267,11 @@ sub:
 	if g.broken != nil && g.restricted && (oneOf(sub, gitWrites...) || oneOf(sub, workerIndexWrites...)) {
 		deny(unreadable(g.broken))
 	}
-	// Only the lead moves HEAD or changes the tree or index in the main checkout: serve publishes to main from there
-	// (T-841). A path checkout keeps the checkWrite rule below. A worker never runs one anywhere (the rule below), and
-	// the role-less owner in the main checkout is the lead's own session.
-	if g.role != "lead" && g.role != "none" && g.role != "worker" &&
-		s.movesHead(sub, W[i+1:], dir) && g.isMain(dir, gitDir, workTree) {
-		deny(headDeny(sub))
+	// A reviewer or deep dive moves HEAD in its own role worktree (T-853: it may check out any commit there; serve moves
+	// it to the next head it hands the role). A checkout of paths stays a write: the read-only rule below.
+	if r, ok := g.sessionRole(); ok && r.GitReadOnly && r.Cwd == roles.CwdRoleWorktree && g.gone() == "" &&
+		s.headCheckout(sub, W[i+1:], dir) && g.gitTop(dir, gitDir, workTree) == project.Physical(g.cfg.RoleWorktree(r.Name)) {
+		return
 	}
 	if r, ok := g.sessionRole(); ok && r.GitReadOnly && !gitRead(sub, W[i+1:]) {
 		if why := g.gone(); why != "" {
@@ -1406,22 +1405,32 @@ func configRead(args []string) bool {
 // isMain: the git command run in dir (with --git-dir / --work-tree, or GIT_DIR / GIT_WORK_TREE) works on the main
 // checkout.
 func (g *guard) isMain(dir, gitDir, workTree string) bool {
+	return g.gitTop(dir, gitDir, workTree) == g.root
+}
+
+// gitTop is the worktree the git command run in dir (with --git-dir / --work-tree, or GIT_DIR / GIT_WORK_TREE) works
+// on, physical: a --git-dir of the common dir is the main checkout; "" when it cannot be told.
+func (g *guard) gitTop(dir, gitDir, workTree string) string {
 	if gitDir != "" {
-		p, ok := g.phys(gitDir, dir)
-		return ok && p == g.repo.Common
+		if p, ok := g.phys(gitDir, dir); ok && p == g.repo.Common {
+			return g.root
+		}
+		return ""
 	}
 	if workTree != "" {
 		p, ok := g.phys(workTree, dir)
 		if !ok {
-			return false
+			return ""
 		}
 		dir = p
 	}
 	if !project.IsDir(dir) {
-		return false
+		return ""
 	}
-	r, err := project.Find(dir)
-	return err == nil && r.Top == g.root
+	if r, err := project.Find(dir); err == nil {
+		return r.Top
+	}
+	return ""
 }
 
 // checkPush: a push is allowed only for a non-worker whose role is in guards.allow_push (config.PushAllowed, T-786:

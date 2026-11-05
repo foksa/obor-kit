@@ -21,8 +21,8 @@ var statePhase = map[string]string{
 }
 
 // T-788 (S5): every state of the table, with and without each live overlay, has exactly one phase: a needs-you in
-// force wins (held only for the integrator's hold verdict, C7), then the gate or publish running or pending, then the
-// merge hold, else the state's row. A green task is in review. T-827: the merge loop's needs-you is a block on any
+// force wins (held only for the integrator's hold verdict, C7), then the gate or publish running or pending, else the
+// state's row. A green task is in review. T-827: the merge loop's needs-you is a block on any
 // state (due or held), and wins over every overlay but on an ended state (merged, rejected), whose row it leaves.
 func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	t.Parallel()
@@ -48,8 +48,6 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 			{"its gate pending", overlays{step: wire.PhaseGatePending}, wire.PhaseGatePending},
 			{"its publish running", overlays{step: wire.PhaseMerging}, wire.PhaseMerging},
 			{"its publish pending", overlays{step: wire.PhasePublishPending}, wire.PhasePublishPending},
-			{"the merge hold", overlays{hold: "reviewer"}, "merge hold: reviewer"},
-			{"a step and the hold", overlays{step: wire.PhaseMerging, hold: "reviewer"}, wire.PhaseMerging},
 			{"a needs-you and a step", overlays{blocked: true, step: wire.PhaseGating}, wire.PhaseNeedsYou},
 		} {
 			if got := phase(mt, c.o); got != c.want {
@@ -69,7 +67,7 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 	}
 	// held is the integrator's hold verdict alone (C7): another cause of the loop's needs-you is needs-you.
 	held := &mtask{task: "T-1", state: stAwaiting, needs: heldOf(event.CauseHeld)}
-	if got := phase(held, overlays{step: wire.PhaseGating, hold: "reviewer"}); got != wire.PhaseHeld {
+	if got := phase(held, overlays{step: wire.PhaseGating}); got != wire.PhaseHeld {
 		t.Errorf("the integrator's hold: phase %q, want held", got)
 	}
 	other := &mtask{task: "T-1", state: stAwaiting, needs: heldOf(causeStalled)}
@@ -82,9 +80,6 @@ func TestPhaseOfEveryStateAndOverlay(t *testing.T) {
 		if (wire.PhaseStage(ph) != "") != inLoop {
 			t.Errorf("%s: phase %s, stage %q", st, ph, wire.PhaseStage(ph))
 		}
-	}
-	if wire.PhaseStage(wire.MergeHold("deep_dive")) != wire.StagePublish {
-		t.Errorf("merge hold stage %q, want publish", wire.PhaseStage(wire.MergeHold("deep_dive")))
 	}
 }
 

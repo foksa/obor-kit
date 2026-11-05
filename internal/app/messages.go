@@ -1116,8 +1116,10 @@ func (a *App) sendCall(c wire.Call) (string, error) {
 // briefCall answers the socket's brief request (the lead or the owner): Call.To, a role agent, is briefed; with a
 // text, its line is delivered to that agent when its pane is idle (posted or typed as its kind takes it, deliver).
 // The new brief ends the agent's undelivered brief lines (T-575; its fact's supersedes, T-580) and says so in its
-// reply. The lead hears once the agent has finished. A brief to a hold agent (the reviewer, the deep dive) waits while
-// a publish runs and is recorded admitted (mergehold.go, T-730); a publish still running after admitWait: refused.
+// reply. The lead hears once the agent has finished. A brief to a role worktree agent (the reviewer, the deep dive)
+// waits while a publish runs and is recorded admitted (roleworktree.go, T-730); a publish still running after
+// admitWait: refused. Admitted, an idle deep dive's worktree moves to the integration branch's head first (briefMove,
+// T-853); that git failing: refused, nothing recorded.
 // Call.Fresh (obor brief --fresh, T-794): the brief, once recorded, starts the agent fresh with its line as the first
 // prompt, stopping it first when it runs (routeOf, deliverLine); a refused call stops nothing.
 func (a *App) briefCall(c wire.Call) (string, error) {
@@ -1146,20 +1148,27 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 		from = "owner"
 	}
 	a.mu.Lock()
-	hold, restartable := p.holdAgent(c.To), !c.Fresh || p.roleAgentOf(c.To)
+	wtRole, restartable := p.wtRole(c.To), !c.Fresh || p.roleAgentOf(c.To)
 	a.mu.Unlock()
 	if !restartable {
 		return "", fmt.Errorf("brief: %s is no role agent serve starts fresh (not the integrator or a worker)", c.To)
 	}
-	if hold { // a reviewer or deep dive reads the main checkout: admitted first (mergehold.go, T-730)
+	if wtRole != "" { // the reviewer or the deep dive: admitted first (roleworktree.go, T-730)
 		wait, cancel := context.WithTimeout(context.Background(), admitWait)
 		release, err := a.admit(wait, p)
 		cancel()
 		if err != nil {
 			return "", fmt.Errorf("brief: %v", err)
 		}
-		defer release() // after the brief is recorded: its open brief holds the merge from then on
+		defer release() // after the brief is recorded
+		ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
+		err = a.briefMove(ctx, p, wtRole, c.To)
+		cancel()
+		if err != nil {
+			return "", fmt.Errorf("brief: %s's worktree: %v", c.To, err)
+		}
 	}
+
 	reply, ok := a.recordBrief(p, c.To, from, c.Note, c.CallID, c.Prompt, c.Fresh, nil)
 	if !ok {
 		return "", fmt.Errorf("brief: the event log of %s refused it", p.name)

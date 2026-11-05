@@ -20,7 +20,7 @@ import (
 // The two steps of a review cycle after its start (T-716; skills/lead/review-brief.md §4–5): obor review verify asks serve to brief
 // the open review's reviewer to re-run its probes on the fixes, obor review close records the close commit and stops
 // the reviewer. The open review is the next review by git (the newest "RV-<n> closed" commit + 1) whose file
-// <reviews>/RV-<n>.md is in the main checkout (T-718: the reviewer runs there; serve holds merges while it works).
+// <reviews>/RV-<n>.md is in the main checkout (the reviewer writes it there from its role worktree, T-853).
 
 const (
 	reviewVerifyUsage = `FAIL usage: obor review verify <T-a>[,<T-b>…] [--findings <n>[,<m>…]] [--note "<text>"]`

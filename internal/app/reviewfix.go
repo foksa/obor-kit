@@ -241,7 +241,7 @@ func (a *App) fixPass(ctx context.Context, p *proj, fx *Loop) {
 	a.mu.Lock()
 	busy := p.publishing() || a.verifyPendingLocked(p, s.Agent)
 	if !busy {
-		p.admits++ // admitted (mergehold.go): no publish starts until the brief is recorded
+		p.admits++ // admitted (roleworktree.go): no publish starts until the brief is recorded
 	}
 	a.mu.Unlock()
 	if busy {

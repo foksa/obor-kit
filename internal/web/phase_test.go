@@ -32,7 +32,7 @@ func TestPhaseAgreesAcrossLanesPipelineAndWeb(t *testing.T) {
 		{"driving", wire.PhaseDriving}, {"submitted", wire.PhaseSubmitted}, {"submitted", wire.PhaseGating},
 		{"submitted", wire.PhaseGatePending}, {"green", wire.PhaseReview}, {"awaiting-accept", wire.PhaseReviewing},
 		{"accepted", wire.PhasePublish}, {"accepted", wire.PhaseMerging}, {"accepted", wire.PhasePublishPending},
-		{"accepted", wire.MergeHold("reviewer")}, {"working", wire.PhaseNeedsYou}, {"needs-you", wire.PhaseHeld},
+		{"working", wire.PhaseNeedsYou}, {"needs-you", wire.PhaseHeld},
 		{"rejected", wire.PhaseRejected},
 	} {
 		stage := wire.PhaseStage(c.phase)

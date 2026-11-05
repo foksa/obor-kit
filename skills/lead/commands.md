@@ -8,7 +8,7 @@ the last one (`session <sid>`). An already running lead: `OK <agent> runs (pane 
 Read the line under serve's to see what runs without an agent: `running: gate T-656 (make -s check, 2m14s) · after_merge
 T-655 (make build, 12s)` (else `running: nothing`); a lane's state column is its task's phase, the same word the queue's
 `merge` line and web show (T-788): `dispatching`, `working`, `submitted`, `gating`, `gate pending`, `review`, `reviewing`,
-`publish`, `merging`, `publish pending`, `merge hold: <role>`, `needs-you`, or `held` (the integrator's hold alone);
+`publish`, `merging`, `publish pending`, `needs-you`, or `held` (the integrator's hold alone);
 an undelivered line names why: `undelivered: <why>`. `obor status --short` is just that line, serve's and needs-you (a status bar).
 An empty pipeline shows `idle: <why>` once you acknowledged it, else `idle, not acknowledged since <time>` (T-803).
 
@@ -122,7 +122,8 @@ is no line to you (T-650): `obor status` shows the review.
   merged, serve runs the verify (below) itself; a linked task dropped: one line to you, the verify waits for the rest.
   Close only after that verify.
 - A verify by hand (T-716): `obor review verify <T-x,…> [--findings 1,3] [--note "<text>"]` marks the head
-  reviewed (`refs/obor/reviewed`; T-718: no review worktree) and briefs the reviewer's same session to re-run its probes (the `obor brief` reply).
+  reviewed (`refs/obor/reviewed`), detaches the reviewer's role worktree there (T-853) and briefs the reviewer's same session to re-run its probes (the `obor brief` reply).
+
 - When a verify approves: `obor review close "<summary>" [--accept "<line>"]… [--force]` deletes the review's files, adds each
   accepted line to `BACKLOG.md`'s Open section naming the RV, commits `RV-xx closed · <sha> · approved · <summary>`
   (`CLOSED <subject>`) and stops the reviewer (its `STOPPED …` line last). Refused, nothing changed: no open review,

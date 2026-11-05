@@ -14,8 +14,9 @@ import (
 )
 
 // obor review verify (T-716; skills/lead/review-brief.md §4) is a request to serve (T-730): serve reads the
-// integration branch's head and marks it reviewed at its admission point (mergehold.go), so a publish in flight never
-// moves the main checkout under the verify and none starts before its brief is recorded. The CLI only asks.
+// integration branch's head, marks it reviewed and moves the reviewer's role worktree to it (T-853) at its admission
+// point (roleworktree.go), so a publish in flight never changes the head under the verify and none starts before its
+// brief is recorded. The CLI only asks.
 
 // verifyGitWait bounds a verify's git once admitted.
 const verifyGitWait = 30 * time.Second
@@ -90,7 +91,7 @@ func (a *App) verifyCall(c wire.Call) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("review verify: %v", err)
 	}
-	defer release() // after the brief is recorded: its open brief holds the merge from then on
+	defer release() // after the brief is recorded
 	ctx, cancel := context.WithTimeout(context.Background(), verifyGitWait)
 	defer cancel()
 	return a.briefVerify(ctx, p, fx.Review, s, c.After, c.Findings, c.Note, cmp.Or(c.Agent, "owner"), c.CallID)
@@ -158,7 +159,11 @@ func verifyText(ctx context.Context, g ReviewGit, root string, s ReviewSetup, ta
 	if err := g.Mark(ctx, head); err != nil {
 		return "", err
 	}
+	if err := g.Detach(ctx, s.Worktree, head); err != nil { // T-853: the reviewer's worktree at the verified head
+		return "", err
+	}
 	return verifyBrief(c.ID, s, head[:min(len(head), 7)], fixed, findings, note), nil
+
 }
 
 // verifyBrief is review-brief.md §4's text: the fixes, the head, the findings to re-run (none: every finding), the
@@ -168,9 +173,10 @@ func verifyBrief(id string, s ReviewSetup, short string, fixed, findings []strin
 	if len(findings) > 0 {
 		which = "#" + strings.Join(findings, ", #")
 	}
-	text := fmt.Sprintf("The %s findings were fixed in %s; %s is at %s. Re-run your probes for %s and report fixed /"+
-		" incomplete / regressed per finding. Write %s/%s-verify.md. Do not commit.",
-		id, strings.Join(fixed, ", "), s.Branch, short, which, s.Reviews, id)
+	text := fmt.Sprintf("The %s findings were fixed in %s; %s is at %s (your worktree too). Re-run your probes for %s"+
+		" and report fixed / incomplete / regressed per finding. Write %s/%s-verify.md in the main checkout %s. Do not"+
+		" commit.", id, strings.Join(fixed, ", "), s.Branch, short, which, s.Reviews, id, s.Root)
+
 	if note = strings.TrimSpace(note); note != "" {
 		text += "\nLead's note: " + note
 	}

@@ -88,7 +88,7 @@ type session struct {
 // its context.
 func open(ctx context.Context, o Options, logName string) (*session, *Result) {
 	s := &session{Options: o, start: time.Now()}
-	s.scratch = config.AbsUnder(o.Cfg.Root, o.Cfg.Data.Merge.ScratchDir) + "-nightly"
+	s.scratch = o.Cfg.ScratchDir() + "-nightly"
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.Options.gitCtx = ctx // a signal kills a running git too
 	s.runner = newRunner(ctx, &s.Options, s.scratch, logName, "flakes-changed-files")

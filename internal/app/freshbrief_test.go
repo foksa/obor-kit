@@ -64,6 +64,8 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 		{ID: "w:lead", Workspace: "w", Cwd: root, Agent: "claude", Label: p.out.lead(), Status: "idle"},
 		{ID: "w:role", Workspace: "w", Cwd: root, Agent: kind, Label: agent, Status: status},
 	}})
+	// An idle deep dive's brief moves its role worktree first (T-853).
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Review: &headGit{head: "base1"}}, nil }
 	return a, p
 }
 
@@ -224,7 +226,7 @@ func TestFreshBriefRefusedStopsNothing(t *testing.T) {
 	}
 }
 
-// A brief --fresh to a hold agent while a publish runs past admitWait is refused, and the running deep dive is not
+// A brief --fresh to a role worktree agent while a publish runs past admitWait is refused, and the running deep dive is not
 // stopped: nothing is recorded, the delivery stops nothing, before or after the publish ends.
 func TestFreshBriefAdmissionTimeoutStopsNothing(t *testing.T) {
 	t.Parallel()

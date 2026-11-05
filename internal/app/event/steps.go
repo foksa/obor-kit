@@ -113,7 +113,7 @@ const (
 	StepSuperseded = "superseded" // fact (older logs; now briefed's supersedes): a brief ends a line (data: supersededData)
 )
 
-// The project's idle state (T-803): no task in flight, no needs-you and no hold agent's brief.
+// The project's idle state (T-803): no task in flight, no needs-you and no brief open to the reviewer or the deep dive.
 const (
 	StepIdle    = "idle"     // fact: the pipeline emptied (data: idleData, Last and End)
 	StepIdleAck = "idle.ack" // fact: the lead or the owner acknowledged it with a why (data: idleData, Why)

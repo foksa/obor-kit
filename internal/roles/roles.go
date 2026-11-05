@@ -13,8 +13,11 @@ type CwdRule string
 type WriteProfile string
 
 const (
-	CwdProject       CwdRule      = "project"
-	CwdLane          CwdRule      = "lane"
+	CwdProject CwdRule = "project"
+	CwdLane    CwdRule = "lane"
+	// CwdRoleWorktree is a worktree serve owns, <lanes_dir>/<role> (T-853: the reviewer, the deep dive, the integrator),
+	// detached; never a lane. Serve moves the reviewer's and the deep dive's to the head it hands them.
+	CwdRoleWorktree  CwdRule      = "role-worktree"
 	WriteNone        WriteProfile = "none"
 	WriteAll         WriteProfile = "all"
 	WriteSpec        WriteProfile = "spec"
@@ -36,7 +39,7 @@ type Role struct {
 	Optional     bool   // counts (known agents, collisions) only when roles.<name> is configured
 	GitReadOnly  bool   // runs git reads only (the guard's read list); the lead commits its files (RV-83 #2)
 	// Custom is a role a config row defines (T-801), a kit default row or the project's own: main checkout, git
-	// read-only, never lane-bound or dispatchable, no push, no merge hold, writes only WritePaths.
+	// read-only, never lane-bound or dispatchable, no push, writes only WritePaths.
 	Custom bool
 	// WritePaths are a custom role's writes, relative to the root: "dir/" a directory, anything else one file.
 	WritePaths []string
@@ -47,11 +50,17 @@ type Role struct {
 
 var table = []Role{
 	{Name: "lead", EnvValue: "lead", AgentSuffix: "lead", Cwd: CwdProject, Write: WriteAll, Prompt: "/obor:lead"},
-	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdProject, Write: WriteNone},
+	// The integrator runs in its own worktree (T-853), not the merge scratch, where gates run: a review job may check
+	// out the candidate there; its resolve jobs still work in the scratch the job names. Serve adds it (the launcher,
+	// obor setup role) but never moves it.
+
+	{Name: "integrator", EnvValue: "integrator", AgentSuffix: "int", Cwd: CwdRoleWorktree, Write: WriteNone},
 	{Name: "worker", EnvValue: "worker", AgentSuffix: "<lane>", Cwd: CwdLane, Write: WriteSpec, Stoppable: true, Dispatchable: true},
-	// The reviewer and the deep dive read the main checkout (T-718): serve holds its merges while they work.
-	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdProject, Write: WriteReviewsOnly, GitReadOnly: true},
-	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdProject, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
+	// The reviewer and the deep dive read their own worktree (T-853; T-718 had them in the main checkout behind a merge
+	// hold): serve moves it to the head it hands them, so merges never wait. Their files go to the main checkout's
+	// paths.reviews (the guard's WriteReviewsOnly).
+	{Name: "reviewer", EnvValue: "reviewer", AgentSuffix: "rev", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, GitReadOnly: true},
+	{Name: "deep_dive", EnvValue: "deep_dive", AgentSuffix: "deep-dive", Cwd: CwdRoleWorktree, Write: WriteReviewsOnly, Optional: true, GitReadOnly: true},
 	// The owner's drive agent (T-751, obor drive): in a lane, with the worker's write limits and push denial, but it
 	// commits on its branch, pulls no jobs, has no Stop-hook report demand and no wrong-tab guard. Never configured
 	// (no roles.driver): obor drive starts it, named Drive's way.
