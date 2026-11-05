@@ -126,6 +126,9 @@ func TestTakeOverDropWhileStopPending(t *testing.T) {
 	}
 	settle()
 	r.waitFor("the stop settled", func() bool { return r.task("T-1").Stopping == "" })
+	// The take-over's step folds its result before it releases T-1: a drop in that instant is refused busy ("the drive
+	// running", as T-907's sendback found for a refused stop). Wait for the step to end: nothing new holds T-1 then.
+	r.waitFor("the take-over's step ended", func() bool { return app.Settled(r.app, r.p.Root, "T-1") })
 	settled := r.workerStops()
 	r.dropFrees("x2", "pj-l-01-drive")
 	r.stopsNothingNew(settled)

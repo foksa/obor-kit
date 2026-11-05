@@ -245,6 +245,77 @@ func TestScratchMovedGateConflict(t *testing.T) {
 	y.eq(y.tree(c.SHA), y.tree(res), "the candidate is the resolution's tree (T-802: its message amended)")
 }
 
+// T-913: a conflict the integrator resolved is not resolved again when the target moves. The gate's merge records the
+// conflict (rerere), the integrator's plain resolve commit records the resolution in the repository's common rr-cache
+// (serve's worktree shares it), and the next merge of the same sha onto a moved target replays it: a clean merge that
+// runs its checks and says so. A target move that changes the conflicted hunk differently is another preimage: a
+// conflict as today.
+func TestScratchRerereReplaysResolvedConflict(t *testing.T) {
+	t.Parallel()
+	y := newSx(t, cmd("check", "echo 1 pass"))
+	sha := y.conflicted()
+
+	// The cache is the main checkout's own (its common git dir), not a per-worktree one: the two replay each other's
+	// resolutions.
+	cache := func(dir string) string {
+		p := y.Git(dir, "rev-parse", "--git-path", "rr-cache")
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		return p
+	}
+	here, shared := cache(y.serve), cache(y.Root)
+	a, err := os.Stat(here)
+	if err != nil {
+		t.Fatalf("precondition: no rr-cache at %s: %v", here, err)
+	}
+	b, err := os.Stat(shared)
+	if err != nil {
+		t.Fatalf("precondition: no rr-cache at %s: %v", shared, err)
+	}
+	if !os.SameFile(a, b) {
+		t.Errorf("the scratch's rr-cache %s is not the main checkout's %s: the resolution would not be shared", here, shared)
+	}
+	if pre, _ := filepath.Glob(filepath.Join(here, "*", "preimage")); len(pre) == 0 {
+		t.Fatalf("precondition: the conflicting gate recorded no preimage in %s", here)
+	}
+
+	y.resolveServe() // the integrator's own commit: no obor flag, git turns rerere on once rr-cache exists
+	if post, _ := filepath.Glob(filepath.Join(here, "*", "postimage")); len(post) == 0 {
+		t.Fatalf("precondition: the resolve commit recorded no resolution in %s", here)
+	}
+
+	y.Write("other.txt", "other\n")
+	y.Git(y.Root, "add", "other.txt")
+	y.Git(y.Root, "commit", "-qm", "unrelated move")
+	moved := y.head(y.Root)
+	o := y.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	if o.Kind != port.OutcomeGreen {
+		t.Fatalf("the moved gate: %s %q; want green (the recorded resolution replayed)\noutput:\n%s", o.Kind, o.Line, y.out.String())
+	}
+	c := o.Candidate
+	y.eq(c.Target, moved, "merged onto the moved target")
+	y.eq(y.Git(y.Root, "rev-parse", c.SHA+"^2"), sha, "the merge of the submitted sha (T-403)")
+	y.eq(y.Git(y.Root, "show", c.SHA+":shared.txt"), "both", "the candidate holds the recorded resolution")
+	y.contains(y.Git(y.Root, "log", "-1", "--format=%B", c.SHA), "(conflict resolution reused)", "the merge's message")
+	y.eq(c.Checks, "1 pass", "the checks ran on the replayed merge")
+	if !c.Full {
+		t.Error("the replayed merge's checks are not full")
+	}
+	y.clean("the replayed merge")
+
+	z := newSx(t, cmd("check", "echo 1 pass"))
+	sha = z.conflicted()
+	z.resolveServe()
+	z.Write("shared.txt", "other main\n")
+	z.Git(z.Root, "commit", "-qam", "a different main edit")
+	o = z.gate(port.GateInput{Task: "T-05", Lane: "L-01", Kind: port.InputMoved, Input: sha, Summary: "feature"})
+	if o.Kind != port.OutcomeConflict {
+		t.Fatalf("a move touching the same hunk differently: %s %q; want a conflict", o.Kind, o.Line)
+	}
+	z.eq(strings.Join(o.Files, " "), "shared.txt", "the path still unmerged")
+}
+
 var cutSteps = []cutStep{
 	{
 		name:  "submit",
