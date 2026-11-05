@@ -5,7 +5,8 @@
 // session works in a scratch dir holding a main checkout with a minimal .obor/config.json, a lane worktree and a
 // scratch kit whose bin/obor is the stub (stubmcp): each driver's real start argv runs it where it would run obor. No
 // herdr plugin is linked. Agents start interactively in the session's panes (agent.start), never headless. Model calls
-// only with TURN=1.
+// only with TURN=1. The stub proves the wiring; live_mcp.go's case per kind runs the repository's own `obor mcp`
+// against the same client (T-898).
 package main
 
 import (
@@ -37,9 +38,9 @@ var liveKinds = map[string]func(l *lab, turn bool){"herdr": herdrLive, "claude":
 // liveIDs are each kind's live rows, for the SKIP lines when the kind cannot run.
 var liveIDs = map[string][]string{
 	"herdr":    {"H-L1", "H-L2", "H-L3", "H-L4", "H-L5", "H-L6", "H-L7", "H-L8"},
-	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6"},
-	"codex":    {"CX-L1", "CX-L2", "CX-L3"},
-	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5"},
+	"claude":   {"CC-L1", "CC-L2", "CC-L3", "CC-L4", "CC-L5", "CC-L6", "CC-L7"},
+	"codex":    {"CX-L1", "CX-L2", "CX-L3", "CX-L4"},
+	"opencode": {"OC-L1", "OC-L2", "OC-L3", "OC-L4", "OC-L5", "OC-L6"},
 }
 
 func live(kinds []string, turn bool) {
@@ -98,12 +99,15 @@ func skipAll(kind, why string) {
 // lab is one kind's throwaway herdr session and its scratch dir.
 type lab struct {
 	kind      string
-	herdr     string // the herdr binary
-	root      string // the scratch dir (symlinks resolved)
-	kit       string // root/kit: bin/obor (the stub's wrapper), bin/obor-stub, opencode/obor.js, out/
-	main      string // root/proj: the main checkout, .obor/config.json committed
-	lane      string // root/proj-wt/L-01: a lane worktree on task/T-1
-	session   string // obor-conf-<kind>
+	herdr     string     // the herdr binary
+	root      string     // the scratch dir (symlinks resolved)
+	kit       string     // root/kit: bin/obor (the stub's wrapper), bin/obor-stub, opencode/obor.js, out/
+	main      string     // root/proj: the main checkout, .obor/config.json committed
+	lane      string     // root/proj-wt/L-01: a lane worktree on task/T-1
+	real      string     // root/real: a kit whose bin/obor is the repository's own obor (realKit, T-898)
+	realErr   error      // why realKit failed (nil until it is asked)
+	app       *stubServe // the app socket's stub serve (startStubServe, T-898)
+	session   string     // obor-conf-<kind>
 	sock      string
 	env       []string  // the server's clean environment
 	server    *exec.Cmd // the running server
@@ -114,9 +118,23 @@ type lab struct {
 	cancel    context.CancelFunc
 }
 
+// labTemp is the base dir a lab's scratch dir is made in: os.TempDir(), or /tmp when TMPDIR is too long for the
+// project's app socket path (<base>/obc-<kind>-XXXXXXXXXX/proj/.obor/state/serve.sock, T-898). A unix socket path is
+// 104 bytes on macOS including the NUL, and macOS's TMPDIR is already 57 bytes past its /private symlink.
+func labTemp(kind string) string {
+	base := os.TempDir()
+	if p, err := filepath.EvalSymlinks(base); err == nil {
+		base = p
+	}
+	if len(filepath.Join(base, "obc-"+kind+"-0123456789", "proj", ".obor", "state", "serve.sock")) > 103 {
+		return "/tmp"
+	}
+	return base
+}
+
 // newLab makes the scratch dir and starts the session. A lab it returns with an error is closed by the caller.
 func newLab(kind, herdrBin string) (*lab, error) {
-	dir, err := os.MkdirTemp("", "obor-conf-"+kind+"-")
+	dir, err := os.MkdirTemp(labTemp(kind), "obc-"+kind+"-")
 	if err != nil {
 		return nil, err
 	}

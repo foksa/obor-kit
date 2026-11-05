@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,8 +14,11 @@ import (
 	"strings"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"obor/internal/agents"
 	"obor/internal/agents/opencode"
+	"obor/internal/store"
 )
 
 // opencodeLive: on scratch XDG dirs holding nothing of obor's (T-809: `obor setup agents` installs nothing global; an
@@ -90,9 +94,12 @@ func opencodeLive(l *lab, turn bool) {
 	if !turn {
 		report("SKIP", "OC-L2", "needs TURN=1: obor.js runs a hook only for a session's events, which need a turn", "F1.3, P5")
 		report("SKIP", "OC-L5", "session.execution.* reaching the plugin and OBOR_OPENCODE_MODEL's switch need TURN=1", at(opencodeGo, "const ModelVar"))
+		report("SKIP", "OC-L6", "needs TURN=1 (a model call that uses the tool)", at("internal/mcp/mcp.go", "func Serve")+", T-898")
 		return
 	}
+	l.opencodeAuth(xdg)
 	ocTurn(l, pane, argv, xdg, st)
+	ocL6(l, pane, xdg, st)
 }
 
 // ocL3: the start's generated config's mcp.servers.obor is the one obor server that runs (its `obor mcp`, no label).
@@ -253,17 +260,6 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 		report("SKIP", "OC-L5", "TURN=1 needs CONF_OPENCODE_MODEL=<provider/model>", where5)
 		return
 	}
-	data := os.Getenv("XDG_DATA_HOME")
-	if data == "" {
-		home, _ := os.UserHomeDir()
-		data = filepath.Join(home, ".local", "share")
-	}
-	if b, err := os.ReadFile(filepath.Join(data, "opencode", "auth.json")); err == nil {
-		dst := filepath.Join(xdg["XDG_DATA_HOME"], "opencode", "auth.json")
-		_ = os.MkdirAll(filepath.Dir(dst), 0o700)
-		l.cleanups = append(l.cleanups, func() { _ = os.Remove(dst) })
-		_ = os.WriteFile(dst, b, 0o600)
-	}
 	l.fresh()
 	line := "cd " + shq(l.main) + " && unset OBOR_LANE && export OBOR_ROLE=researcher " + opencode.ModelVar + "=" + shq(model)
 	if _, err := l.shell(pane, line, 10*time.Second); err != nil || !l.opencodeStart(pane, argv, "role agent, main checkout") {
@@ -297,6 +293,167 @@ func ocTurn(l *lab, pane string, argv []string, xdg map[string]string, st agents
 	if _, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil {
 		l.stopAgent(pane)
 	}
+}
+
+// opencodeAuth copies the user's opencode credentials into the scratch XDG_DATA_HOME's store (a turn needs one; none to
+// copy: the turn fails on its own). opencode 2.2 keeps them in its database's credential table, not auth.json.
+func (l *lab) opencodeAuth(xdg map[string]string) {
+	data := os.Getenv("XDG_DATA_HOME")
+	if data == "" {
+		home, _ := os.UserHomeDir()
+		data = filepath.Join(home, ".local", "share")
+	}
+	src := filepath.Join(data, "opencode", "opencode.db")
+	dst := filepath.Join(xdg["XDG_DATA_HOME"], "opencode", "opencode.db")
+	if _, err := os.Stat(src); err != nil {
+		return
+	}
+	if _, err := os.Stat(dst); err != nil {
+		return // the scratch store exists once the first start wrote it
+	}
+	from, err := store.OpenRO(src)
+	if err != nil {
+		return
+	}
+	defer from.Close()
+	rows, err := from.Query("SELECT id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated FROM credential")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	to, err := sql.Open("sqlite", "file:"+dst)
+	if err != nil {
+		return
+	}
+	defer to.Close()
+	for rows.Next() {
+		var id, integration, label, value string
+		var connector, method sql.NullString
+		var active sql.NullInt64
+		var created, updated int64
+		if rows.Scan(&id, &integration, &label, &value, &connector, &method, &active, &created, &updated) != nil {
+			continue
+		}
+		_, _ = to.Exec("INSERT OR REPLACE INTO credential (id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated) VALUES (?,?,?,?,?,?,?,?,?)",
+			id, integration, label, value, connector, method, active, created, updated)
+	}
+}
+
+// ocL6 (T-898): an opencode start whose generated config names the repository's own `obor mcp` (not the stub), and one
+// job_next call's rendered reply reaches the session's transcript — opencode's own store, the database its plugin
+// reports as transcript_path (opencode 2.x keeps a session's messages there, session_message). A client that cannot
+// list the server's tools, or cannot call one, leaves no such result. Runs after ocTurn, so it sets the lane worker's
+// environment again (ocTurn left the main checkout as a researcher).
+func ocL6(l *lab, pane string, xdg map[string]string, st agents.Stop) {
+	where := at("internal/mcp/mcp.go", "func Serve") + ", " + at("internal/agents/opencode/opencode.go", "func Config") + ", T-898"
+	model := os.Getenv("CONF_OPENCODE_MODEL")
+	if model == "" {
+		report("SKIP", "OC-L6", "TURN=1 needs CONF_OPENCODE_MODEL=<provider/model> (a model the copied opencode credentials can call)", where)
+		return
+	}
+	real, err := l.realKit()
+	if err != nil {
+		report("FAIL", "OC-L6", "the repository's own obor is not built: "+err.Error(), where)
+		return
+	}
+	if err := l.startStubServe(); err != nil {
+		report("FAIL", "OC-L6", err.Error(), where)
+		return
+	}
+	k := kindOf("opencode")
+	vars, err := k.StartEnv(agents.Start{Kit: real, Args: []string{"--model", model}, WriteState: func(name string, data []byte) (string, error) {
+		path := filepath.Join(l.root, "state", "mcp-"+name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", err
+		}
+		return path, os.WriteFile(path, data, 0o644)
+	}})
+	if err != nil || vars[opencode.ConfigVar] == "" {
+		report("FAIL", "OC-L6", fmt.Sprintf("StartEnv names no generated config (%v, %v)", vars, err), at(opencodeGo, "func (k kind) StartEnv"))
+		return
+	}
+	paneEnv := map[string]string{"OBOR_ROLE": "worker", "OBOR_LANE": "L-01",
+		opencode.ConfigVar: vars[opencode.ConfigVar], opencode.ModelVar: vars[opencode.ModelVar]}
+	for k, v := range xdg {
+		paneEnv[k] = v
+	}
+	l.stopAgent(pane)
+	if code, err := l.shell(pane, "cd "+shq(l.lane)+" && "+exports(paneEnv), 10*time.Second); err != nil || code != 0 {
+		report("FAIL", "OC-L6", fmt.Sprintf("the env line failed (status %d, %v)", code, err), at(launchGo, "func envLine"))
+		return
+	}
+	argv := k.Start(agents.Start{Args: []string{"--standalone", "--auto"}})
+	t0 := time.Now()
+	s := l.start("conf-opencode-mcp", "opencode", pane, argv, 30*time.Second)
+	reportStart("opencode real mcp", s, l.readyAfter(s, t0, "idle"))
+	if l.atShell(pane) {
+		report("FAIL", "OC-L6", "opencode did not start for the real server: "+tail(l.screen(pane), 6), where)
+		return
+	}
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
+		report("FAIL", "OC-L6", "agent.prompt: "+err.Error(), where)
+		l.stopAgent(pane)
+		return
+	}
+	dir := filepath.Join(xdg["XDG_DATA_HOME"], "opencode")
+	var readErr error
+	text, ok := waitTranscript(180*time.Second, func() string {
+		var s string
+		s, readErr = opencodeParts(dir)
+		return s
+	}, mcpJobHead, mcpMarker)
+	poll(60*time.Second, func() bool { a, err := l.agent(pane); return err == nil && a.Status == "idle" })
+	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
+	fact := l.mcpFact("the real `obor mcp`'s job_next result reached opencode's session database", text, ok)
+	if !ok && readErr != nil {
+		fact += "; the store could not be read: " + readErr.Error()
+	}
+	if ok {
+		report("PASS", "OC-L6", fact, where)
+	} else {
+		report("FAIL", "OC-L6", fact, where)
+	}
+}
+
+// opencodeParts is every stored message of the session databases under dir (opencode 2.x: session_message, one JSON
+// value per message whose content holds the assistant's tool parts; the plugin reports that database as the session's
+// transcript_path), and why none could be read when the store could not be.
+func opencodeParts(dir string) (string, error) {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.db"))
+	if len(files) == 0 {
+		return "", fmt.Errorf("no database under %s", dir)
+	}
+	var b strings.Builder
+	var firstErr error
+	for _, f := range files {
+		db, err := store.OpenRO(f)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		rows, err := db.Query("SELECT data FROM session_message")
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			db.Close()
+			continue
+		}
+		for rows.Next() {
+			var data string
+			if rows.Scan(&data) == nil {
+				b.WriteString(data)
+				b.WriteString("\n")
+			}
+		}
+		rows.Close()
+		db.Close()
+	}
+	return b.String(), firstErr
 }
 
 // opencodeLog is the scratch XDG_DATA_HOME's opencode log.

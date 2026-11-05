@@ -142,7 +142,73 @@ func claudeLive(l *lab, turn bool) {
 	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
 		l.stopAgent(pane)
 	}
+	ccL7(l, pane, turn)
 	out.note("claude: ~/.claude.json keeps a trust entry for " + link + " (" + l.lane + "); Claude's trust dialog writes it (known leftover, deep dive §6)")
+}
+
+// ccL7 (T-898): a lane's strict start names the repository's own `obor mcp` (not the stub), and one job_next call's
+// rendered reply reaches the session's transcript. The lab's stub serve answers the call, so no serve is needed; the
+// SessionStart hook (the stub, as before) names the transcript. A client that cannot list the server's tools, or
+// cannot call one, leaves no such result.
+func ccL7(l *lab, pane string, turn bool) {
+	where := at("internal/mcp/mcp.go", "func Serve") + ", F1.1, CAP §2.2, T-898"
+	if !turn {
+		report("SKIP", "CC-L7", "needs TURN=1 (a model call that uses the tool)", where)
+		return
+	}
+	real, err := l.realKit()
+	if err != nil {
+		report("FAIL", "CC-L7", "the repository's own obor is not built: "+err.Error(), where)
+		return
+	}
+	if err := l.startStubServe(); err != nil {
+		report("FAIL", "CC-L7", err.Error(), where)
+		return
+	}
+	k := kindOf("claude")
+	settings := map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{map[string]any{"hooks": []any{l.hookCmd("SessionStart")}}},
+	}}
+	argv := k.Start(agents.Start{Kit: real, StrictMCP: true, Session: uuid(), Settings: settings,
+		Args: []string{"--model", "haiku", "--permission-mode", "auto", "--allowedTools", "mcp__obor__job_next"}})
+	l.fresh()
+	t0 := time.Now()
+	s := l.start("conf-claude-mcp", "claude", pane, argv, 30*time.Second)
+	ready := l.readyAfter(s, t0, "idle")
+	if ready == 0 {
+		report("FAIL", "CC-L7", "claude did not come up for the real server: "+tail(l.visible(pane), 6), where)
+		l.stopAgent(pane)
+		return
+	}
+	hooks := l.waitRecords("hook", "SessionStart", 20*time.Second)
+	path := ""
+	if len(hooks) > 0 {
+		path = hooks[0].payload().TranscriptPath
+	}
+	if path == "" {
+		report("FAIL", "CC-L7", "the SessionStart hook named no transcript to read the tool result from", where)
+		l.stopAgent(pane)
+		return
+	}
+	if _, err := l.call("agent.prompt", map[string]any{"target": pane, "text": mcpPrompt}, 15*time.Second); err != nil {
+		report("FAIL", "CC-L7", "agent.prompt: "+err.Error(), where)
+		l.stopAgent(pane)
+		return
+	}
+	text, ok := waitTranscript(180*time.Second, func() string {
+		b, _ := os.ReadFile(path)
+		return string(b)
+	}, mcpJobHead, mcpMarker)
+	st := k.Stop()
+	if code, err := l.quit(pane, st.Quit, st.SecondEnter); err != nil || code != 0 {
+		l.stopAgent(pane)
+	}
+	fact := l.mcpFact("the real `obor mcp`'s job_next result reached "+path, text, ok)
+	if ok {
+		report("PASS", "CC-L7", fact, where)
+	} else {
+		report("FAIL", "CC-L7", fact, where)
+	}
 }
 
 // manifestPlugin is a plugin dir for --plugin-dir whose manifest declares a second MCP server: the stub as
