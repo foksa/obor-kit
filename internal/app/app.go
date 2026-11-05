@@ -174,7 +174,7 @@ type proj struct {
 	held  map[string]string
 	ended map[string]bool
 	// roleFail: when a fresh brief's stop of a role agent last failed, by agent; rvRead: the reviewer stop rule's last
-	// git read of its review (rolestop.go, T-672, T-870). Under mu.
+	// git read of its review and whether it found it closed (rolestop.go, T-672, T-870, T-875). Under mu.
 	roleFail map[string]time.Time
 	rvRead   rvRead
 	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
