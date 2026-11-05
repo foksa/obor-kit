@@ -6,6 +6,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- Next milestone candidates (owner asked 11-05 about splitting `internal/app`): docs/research/app-split-deep-dive.md steps 6 (outbox state+fold, `messages.go` 1,293 lines, own package) and 7 (identity `registry` rules, own package, table tests without the harness); the merge-loop core stays one package (deep dive §6). Measure `go test ./internal/app` time and harness-test count before/after; net-negative prod lines.
 - 2026-11-05 (after v0.28): `obor web` does not follow a new binary the way serve does (selfexec): after T-883 changed the view's JSON, the 17:48 web process served the old API to the new page (no titles) until restarted by hand. Either web re-execs on a binary change, or the v0.28 notes say to restart `obor web` after the upgrade (add that line to the notes now).
 - 2026-11-05 ~18:30 **Milestone cut (owner).** v0.28 = merged work + T-879, T-907, T-906 (RV-121 fix), T-898 (live
   MCP check, must pass), T-908 (pause holds the worker-start rule); release once they merge and RV-121 closes (notes:
