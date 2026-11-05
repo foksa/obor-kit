@@ -275,7 +275,8 @@ func dropReply(task string) string { return "DROPPED " + task }
 // same mu section a selected step's start check takes (begin), so no step starts after it. A task whose lane row still
 // holds it (serve knows the lane: a waiting task holds none) in a loop with the lane adapters is dropping (T-852): one
 // fact, dropping{lane, worker, why, force, discard}, answered DROPPING at once; the merge loop then stops its worker,
-// frees its lane and records dropped (stopstep.go). Any other: one fact, dropped{why, by}: the task leaves the loop and
+// frees its lane and records dropped (stopstep.go). The worker is a refused stop's recorded agent (a move's or a
+// take-over's old worker, with its force; T-855), else laneWorker's. Any other: one fact, dropped{why, by}: the task leaves the loop and
 // its lane row, its needs-you and timers end. The mark ends with the record (a failed write: the drop is refused).
 func (a *App) drop(c wire.Call) (string, error) {
 	if c.CallID == "" || c.Task == "" {
@@ -317,7 +318,11 @@ func (a *App) drop(c wire.Call) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("drop: %v", err)
 	}
-	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Note, Force: c.Force, Discard: c.Discard,
+	force := c.Force
+	if h := mt.halt; h.pending() { // a refused stop (busy refuses a running one): its recorded agent, never the lane row's (T-855)
+		worker, force = h.agent, force || h.force
+	}
+	d := dropData{Lane: lane, Worker: worker, Agent: c.Agent, Reason: c.Note, Force: force, Discard: c.Discard,
 		Call: c.CallID}
 	d.Reply = dropReplyOf(c.Task, d)
 	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepDropping, Kind: event.KindFact}, d) {

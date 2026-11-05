@@ -239,8 +239,9 @@ func (p *proj) stepPhases(open []event.Record) map[string]string {
 
 // busy is why no task verb may act on task now ("": one may): the one reader of the live claims on it. A drop of it is
 // being recorded (p.ended), a step or a decision holds it (p.held: claim), its scratch step runs (p.running), or its
-// attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step). Each verb refuses with "<verb> <T>: <busy>;
-// retry when it settles" (busyErr).
+// attempt's next gate or publish intent is open (a step a restart replays; not a needs-you's, which runs no step), or
+// a move's, take-over's or drop's stop of its worker is pending (T-855: recorded, not settled; a refused stop, its
+// needs-you, is settled). Each verb refuses with "<verb> <T>: <busy>; retry when it settles" (busyErr).
 func (p *proj) busy(task string) string {
 	if why := p.claim(task); why != "" {
 		return why
@@ -251,6 +252,9 @@ func (p *proj) busy(task string) string {
 	var mt mtask
 	if m := p.folded.loop[task]; m != nil {
 		mt = *m
+	}
+	if h := mt.halt; h.pending() && h.refused == "" {
+		return fmt.Sprintf("%s has %s of %s pending", task, nth(event.StepWorkerStop, h.n+1), h.agent)
 	}
 	if mt.onHold() { // it runs no step: an open intent is the failed step's, which obor resume retries
 		return ""
