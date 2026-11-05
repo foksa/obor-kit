@@ -6,6 +6,13 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 (`git show 449b79e:BACKLOG.md`).
 
 ## Handoff (lead; rewrite at each handoff)
+- 2026-11-05 ~20:00 **v0.28.0 tagged** (31269c68 checksums on main; notes docs/releases/v0.28.0.md, guide
+  docs/UPGRADE-v0.28.md). **Owner: `make ship`.** axis-alies is stopped (serve down), so its lead could not get the
+  config line: when it runs again, `obor send axis-alies` "delete merge.timeout_grep (v0.28 WARNs); after the install
+  obor serve restart, restart agents (stop --force + start), restart obor web". axis-maps needs no config change.
+  Codex smoke before the tag replaced by the lead's live conformance x3 (CX-L4 real server, normal discovery).
+  **Next milestone:** re-dispatch the held tasks (list above), the log-snapshot decision (census), app split steps
+  6-7, unreachable-test passes 2-3; each task net-negative in prod lines.
 - 2026-11-05 compat census (change rule 5, first run): **nothing deletable**. Every store still holds old shapes:
   obor-kit idle facts 19 / role stop.* 558 / untyped dispatches 379; axis-alies 1 / 150 / 63 + 14 answer.<call>;
   axis-maps 0 / 60 / 18 (some written today). Replay starts at record 1, so rule 5 never fires as written. **Owner
