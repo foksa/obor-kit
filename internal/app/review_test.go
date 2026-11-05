@@ -260,6 +260,8 @@ func TestReviewRequest(t *testing.T) {
 				// T-869: design.md "Change rules" rule 6.
 				!strings.Contains(l.Prompt, " What did this make redundant? Name it or confirm it is gone. On rule-tier steps a"+
 					" crash or interleaving finding counts only when a kernel guarantee breaks. ") ||
+				// T-884: rule 6's second question, about copied data.
+				!strings.Contains(l.Prompt, " "+copiedLine+" ") ||
 				!strings.HasSuffix(l.Prompt, "\nLead's note: skip docs") ||
 				!strings.Contains(l.Prompt, " Previous review: RV-4 (its close commit: RV-4 closed · 1111111 · approved · T-9; its accepted"+
 					" findings are the BACKLOG lines that name RV-4) — don't repeat them. ") || strings.Contains(l.Prompt, ".md, or the file") {
@@ -695,7 +697,8 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}
 	if !strings.Contains(text, "fixed in T-c (ccccccc)") || !strings.Contains(text, " every finding ") ||
-		!strings.Contains(text, " "+redundantLine+" ") { // T-869: design.md "Change rules" rule 6
+		!strings.Contains(text, " "+redundantLine+" ") || // T-869: design.md "Change rules" rule 6
+		!strings.Contains(text, " "+copiedLine+" ") { // T-884: rule 6's second question, about copied data
 
 		t.Errorf("the brief: %q", text)
 	}

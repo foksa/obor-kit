@@ -656,9 +656,15 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	return id, reviewBrief(id, s, short, from, last.Subject, scope, files, q.note), tasks, head, nil
 }
 
-// redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869).
+// copiedLine is rule 6's second question (T-884): data another type already owns, copied instead of named, and a
+// client deciding from a state string serve knows.
+const copiedLine = "Does it add a field or type that copies data another type already holds? Name the owner type." +
+	" Does a client decide something from a state string that serve knows? Then serve ships the predicate."
+
+// redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869): what the change
+// made redundant, then (T-884) whether it copied data another type owns.
 const redundantLine = "What did this make redundant? Name it or confirm it is gone. On rule-tier steps a crash or" +
-	" interleaving finding counts only when a kernel guarantee breaks."
+	" interleaving finding counts only when a kernel guarantee breaks. " + copiedLine
 
 // reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
 // redundancy question (redundantLine) and the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
