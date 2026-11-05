@@ -57,6 +57,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-123, accepted) #3 `scripts/ship` parses `obor projects`' formatted rows with awk: a checkout path with spaces or an empty registry sends to the wrong name; ship runs only in obor-kit (always registered, no space in the path). Fix if a second shipper appears: compare names, skip the no-projects line (5-15 shell lines).
 - (RV-121, accepted) RV-121 verify V1 (P3, now fixed by T-909): after a failed --after request, idle's key/age reads the newest rm/fire end, so obor idle can say idle since before the request ended (minutes early). Fix: idle tracks its own last-end beside the on-merge suppression marker; next touch of idle.go.
 - (RV-120, accepted) RV-120 V1 (P2, low): an unknown lane keeps its quiet/blocked/lost timestamps, so the unobserved interval counts on recovery (false stall/blocked needs-you) — folded into T-879 (unknown or stale observation resets every elapsed-time baseline, case table).
 - (RV-119, accepted) RV-119 #1 rest (P2, low likelihood): a resumed worker whose job wake herdr refuses (blocked agent) stays idle; launch's warning goes to serve's io.Discard and the start rule counts it a success. Covered by the stalled-worker needs-you; fix only if seen (wake outcome back to the rule, 30-70 lines).
