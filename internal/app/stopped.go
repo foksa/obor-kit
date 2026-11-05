@@ -17,7 +17,9 @@ import (
 // instead of Stop, and its hook (`obor hook stop-failure`) sends serve the agent, the error (rate_limit, overloaded,
 // billing_error, … unknown: any value, no mapping) and its details. Serve records fact stopped{agent, error, details}:
 //   - a role agent (the reviewer, the deep dive, the advisor, the integrator, …): the fact carries the lead's line
-//     "[obor] <agent> stopped: <error> (<details>)" and ends the agent's open brief, so no finished line follows for it;
+//     "[obor] <agent> stopped: <error> (<details>)" and ends the agent's open brief, so no finished line follows for it
+//     (T-857: a verify's brief ends failed, the line "[obor] <RV-n> verify failed: <agent> stopped: …; serve retries
+//     when the reviewer is idle", reviewverify.go);
 //   - a worker with an open task: the fact carries the task and the watchdog's needs-you{<agent> stopped: <error>
 //     (<details>)} of it (cause stopped), folded from the fact itself, live and on replay (T-540: one record, no second
 //     append to lose); its needs-you line "[obor] needs-you <T-xx> (<LANE>): …" to the lead as any other's.
@@ -157,7 +159,8 @@ func (a *App) workerStop(p *proj, d *stoppedData, said, task string, w *watch, p
 
 // roleStop makes d the stop of role agent d.Agent (not the lead), its kind kind ("": the default), the reset its
 // transcript read turn (zero: none): the lead's line; with a brief open, a usage limit stops the brief (Brief, Reset:
-// it stays open, its agent woken after the reset), any other error ends it (no finished line for it). Under mu.
+// it stays open, its agent woken after the reset), any other error ends it (no finished line for it; a verify's brief:
+// the verify failed, the line says so, verifyStopLine). Under mu.
 func (a *App) roleStop(p *proj, d *stoppedData, said, kind string, turn time.Time) {
 	d.To, d.Line = p.out.lead(), "[obor] "+said
 	d.Reply = "STOPPED " + d.Agent + " (the lead is told)"
@@ -168,6 +171,9 @@ func (a *App) roleStop(p *proj, d *stoppedData, said, kind string, turn time.Tim
 	limit, reset := limitOf(kind, d.Error, d.Details, turn, a.opt.Now())
 	if !limit {
 		d.Ends = d.Agent // the brief is over: this line, not a finished line
+		if line := p.folded.rv.verifyStopLine(d.Agent, said); line != "" {
+			d.Line = line // T-857: a verify's brief: the verify failed (reviewverify.go)
+		}
 		return
 	}
 	d.Brief, d.Reset = b.seq, reset

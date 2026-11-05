@@ -66,8 +66,9 @@ type Message struct {
 	Fresh bool `json:"fresh,omitempty"`
 	// Verify: a verify brief's (T-823): the fix tasks it verifies; VerifyOf, the seq of its verify's request (T-856:
 	// the brief is the verify record's briefed step, none in a log from before T-856), and Reviewed, the head it handed
-	// the reviewer (its worktree moved there first; obor review close's sha). The tasks count as verified and covered
-	// once the reviewer finished this brief (its Ends line), never when another brief replaced it first (reviewverify.go).
+	// the reviewer (its worktree moved there first; obor review close's sha once the verify is done). The tasks count as
+	// verified and covered, and the head as reviewed, once the reviewer finished this brief (its finished line, Ends;
+	// T-857: never a stop's Ends), never when another brief replaced it first (reviewverify.go).
 	Verify   []string `json:"verify,omitempty"`
 	VerifyOf int64    `json:"verify_of,omitempty"`
 	Reviewed string   `json:"reviewed,omitempty"`

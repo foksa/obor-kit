@@ -21,8 +21,9 @@ import (
 
 // reviewGitFake is a ReviewGit with fixed answers; markErr fails the mark, detachErr the detach. marked is every Mark's
 // sha, detached every Detach as <dir>@<sha>. last is the newest close commit's subject and lastBody its body (T-822:
-// the Covered and Start lines).
+// the Covered and Start lines). head is the integration branch's head ("": headSHA).
 type reviewGitFake struct {
+	head      string
 	last      string
 	lastBody  string
 	merges    []string
@@ -38,6 +39,9 @@ func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
 	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
 }
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
+	if g.head != "" {
+		return g.head, nil
+	}
 	return "abcdef0123456789abcdef0123456789abcdef01", nil
 }
 func (g *reviewGitFake) Merges(_ context.Context, from, _ string) ([]string, error) {

@@ -73,7 +73,10 @@ linked task dropped or rejected: one line `[obor] <RV-xx> fix <T-x> ended unmerg
 A verify serve cannot run (git refusing, a task with no merge in the review's scope, the reviewer's worktree not
 movable): one line `[obor] <RV-xx> fix verify of … failed: <error>`; run it by hand. The tasks count as verified only
 once the reviewer finished that verify's brief (T-856); a brief of yours to the reviewer before then replaces the
-verify, and serve verifies again once the reviewer is idle.
+verify, and serve verifies again once the reviewer is idle. The reviewer stopping on an API error that is not a usage
+limit (overloaded, billing_error, …) fails the verify (T-857): one line `[obor] <RV-xx> verify failed: <reviewer>
+stopped: <error>; serve retries when the reviewer is idle` (a verify by hand of tasks you did not link: the line says
+to run it again). A usage limit keeps the brief open, as for any brief.
 By hand (a verify of tasks you did not link, or after that failure): `obor review verify <T-x,…> [--findings 1,3]
 [--note "<text>"]`. It asks serve, which records the verify and, once the reviewer is idle (T-856: a working
 reviewer's worktree never moves under it; the reply says `VERIFY WAITS` and serve briefs it later) and no publish is in
@@ -98,8 +101,9 @@ When a verify approves (or the review found nothing): `obor review close "<summa
 [--force]`. It
 deletes `<RV-xx>.md` and `<RV-xx>-verify.md` from the main checkout, adds each `--accept` line to `BACKLOG.md`'s Open
 section as `- (<RV-xx>, accepted) <line>`, commits `RV-xx closed · <reviewed sha> · approved · <summary>` on the
-integration branch in the main checkout (with `BACKLOG.md`; the reviewed sha is the head serve's log last handed the
-reviewer: the last verify's, else the review's, not your doc commits since; `refs/obor/reviewed` mirrors it) and stops the reviewer (`obor restart <reviewer>
+integration branch in the main checkout (with `BACKLOG.md`; the reviewed sha is the head serve's log says the reviewer
+last finished: the last done verify's (T-857: never one replaced or failed), else the review's, not your doc commits
+since; `refs/obor/reviewed` is where the last verify's brief moved the reviewer) and stops the reviewer (`obor restart <reviewer>
 --stop`). Since T-822 the commit's body records the tasks the cycle covered (its in-scope tasks and each verify's)
 and the sha its review started at:
 

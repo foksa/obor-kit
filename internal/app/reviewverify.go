@@ -23,7 +23,7 @@ import (
 // seq). Its lifecycle, folded by reviewLog (serve's fold and obor review close's log read alike: nothing else keeps
 // a verify's state):
 //
-//	requested → admitted → briefed → done | superseded
+//	requested → admitted → briefed → done | superseded | failed
 //	requested → failed
 //
 //   - admitted: the request's own call, or a merge-loop pass (verifyPass), finds the reviewer idle (roleIdle: no open
@@ -33,16 +33,22 @@ import (
 //     record hold proj.vf, which a brief to the reviewer holds too, so no brief comes between them. Admission is live,
 //     no fact: a restart finds the request requested and admits it again (the move is idempotent).
 //   - briefed: fact briefed{verify: the tasks, verify_of: the request's seq, reviewed: the head}, then the head marked
-//     reviewed (ReviewedRef, a mirror of the records: obor review close reads the briefed head from the log, so a
-//     failed mark or a crash before it changes nothing). A brief the log refuses leaves the request requested.
-//   - done: the reviewer finished that brief (the line that ends it: finished, or a stop that is not a usage limit;
-//     Message.Ends). Only now its tasks are verified (the fix round's) and covered (the close commit's Covered list).
+//     (ReviewedRef: the head the reviewer's worktree is at; obor review close reads the head of the last done verify
+//     from the log, so a failed mark or a crash before it changes nothing). A brief the log refuses leaves the request
+//     requested.
+//   - done: the reviewer finished that brief (T-857: only its finished line, a message fact with Message.Ends). Only
+//     now its tasks are verified (the fix round's) and covered (the close commit's Covered list), and its head is the
+//     one obor review close names.
 //   - superseded: another brief to the reviewer recorded while the verify's brief is open (its line delivered or
 //     not): its tasks are pending again; a fix round's next pass requests a new verify.
-//   - failed: the admitted verify's git failing (no open review of its id, a task with no merge in the review's
-//     scope, the worktree's move): fact message{verify_fail: the request's seq}, the lead's line on it unless the call
-//     that asked got the error itself. The ref is unchanged and the tasks pending; a fix round's waits for a verify by
-//     hand or another obor review fix.
+//   - failed, briefed (T-857): the reviewer's stop that is not a usage limit ends the brief (fact stopped with Ends,
+//     stopped.go; overloaded, billing_error, …): nothing verified or covered, no head. The stop's line tells the lead
+//     the verify failed (verifyStopLine); a fix round's tasks stay pending and its next pass requests a new verify,
+//     admitted once the reviewer is idle; a verify by hand of tasks no round links is the lead's to ask again.
+//   - failed, requested: the admitted verify's git failing (no open review of its id, a task with no merge in the
+//     review's scope, the worktree's move): fact message{verify_fail: the request's seq}, the lead's line on it unless
+//     the call that asked got the error itself. The ref is unchanged and the tasks pending; a fix round's waits for a
+//     verify by hand or another obor review fix.
 //
 // While a verify of the open review is requested or briefed, no second one is requested: obor review verify is
 // refused, a fix round waits (proj.vf orders the check and the request's record). obor review close refuses while one
@@ -89,8 +95,8 @@ func (v *verifyRec) live() bool { return v.state == verifyRequested || v.state =
 func (v *verifyRec) of(id string) bool { return v.id == "" || v.id == id }
 
 // reviewLog is the review cycle's records folded (T-856, one fold): the last review started (its fact's seq, id and head),
-// the tasks the cycle covered so far (its in-scope tasks, then each done verify's), the head the reviewer was last
-// handed (the start's, then each verify brief's), the fix round (reviewfix.go), the verifies by seq, and per agent the
+// the tasks the cycle covered so far (its in-scope tasks, then each done verify's), the head the reviewer last finished
+// (the start's, then each done verify's: T-857, never a superseded or failed one's), the fix round (reviewfix.go), the verifies by seq, and per agent the
 // verify whose brief is that agent's open brief.
 type reviewLog struct {
 	start     int64
@@ -104,8 +110,9 @@ type reviewLog struct {
 }
 
 // fold folds r: a review start, an older store's review.verify fact (T-822: its coverage), a fix fact, a verify's
-// request; a brief (a verify's briefed step; any brief supersedes the verify whose brief its agent had open); a line
-// that ends a brief (done), a fix round's drop or failure line, a verify's failure.
+// request; a brief (a verify's briefed step; any brief supersedes the verify whose brief its agent had open); the
+// finished line that ends a brief (done), a fix round's drop or failure line, a verify's failure; a stop that ends a
+// brief (failed).
 func (l *reviewLog) fold(r event.Record) {
 	if r.Kind != event.KindFact || r.Task != event.ReviewTask && r.Task != event.MsgTask {
 		return
@@ -152,15 +159,14 @@ func (l *reviewLog) fold(r event.Record) {
 		if v != nil && v.state == verifyRequested {
 			v.state, v.head = verifyBriefed, m.Reviewed
 			l.open[m.To] = v.seq
-			l.reviewed = cmp.Or(m.Reviewed, l.reviewed)
 		}
 	case event.StepMessage:
 		var m event.Message
 		if json.Unmarshal(r.Data, &m) != nil {
 			return
 		}
-		if m.Ends != "" {
-			l.ended(m.Ends)
+		if m.Ends != "" { // the finished line
+			l.ended(m.Ends, true)
 		}
 		if f := l.fix; f != nil {
 			for _, t := range m.FixDrop {
@@ -178,28 +184,67 @@ func (l *reviewLog) fold(r event.Record) {
 		}
 	case event.StepStopped:
 		var d stoppedData
-		if json.Unmarshal(r.Data, &d) == nil && d.Ends != "" {
-			l.ended(d.Ends)
+		if json.Unmarshal(r.Data, &d) == nil && d.Ends != "" { // an error stop: no finished line follows
+			l.ended(d.Ends, false)
 		}
 	}
 }
 
-// ended folds the end of agent's open brief: the verify it briefed is done, its tasks verified and covered.
-func (l *reviewLog) ended(agent string) {
+// ended folds the end of agent's open brief, finished (its finished line) or not (an error stop): the verify it briefed
+// is done, its tasks verified and covered and its head reviewed, or failed, nothing of it counted (T-857).
+func (l *reviewLog) ended(agent string, finished bool) {
 	v := l.verifies[l.open[agent]]
 	delete(l.open, agent)
 	if v == nil || v.state != verifyBriefed {
 		return
 	}
+	if !finished {
+		v.state = verifyFailed
+		return
+	}
 	v.state = verifyDone
 	if l.start != 0 && v.seq > l.start {
 		l.covered = append(l.covered, v.tasks...)
+		l.reviewed = cmp.Or(v.head, l.reviewed)
 	}
 	if f := l.fix; f != nil && v.of(f.id) {
 		for _, t := range v.tasks {
 			f.verified[t] = true
 		}
 	}
+}
+
+// briefedTo is the verify whose brief is agent's open brief (nil: none).
+func (l *reviewLog) briefedTo(agent string) *verifyRec {
+	if v := l.verifies[l.open[agent]]; v != nil && v.state == verifyBriefed {
+		return v
+	}
+	return nil
+}
+
+// retried: a fix round's next pass requests a verify again once v failed (fixPass): v verifies the round's review, a
+// task of v is linked and pending, and the round's verify did not fail its git.
+func (l *reviewLog) retried(v *verifyRec) bool {
+	f := l.fix
+	if f == nil || !v.of(f.id) || f.failed == f.seq {
+		return false
+	}
+	pending := f.pending()
+	return slices.ContainsFunc(v.tasks, func(t string) bool { return slices.Contains(pending, t) })
+}
+
+// verifyStopLine is the lead's line on agent's stop (said: "<agent> stopped: <error> (<details>)") that ends the brief
+// of a verify (T-857): the verify failed, retried by a fix round or by hand; "": agent's open brief is no verify's.
+func (l *reviewLog) verifyStopLine(agent, said string) string {
+	v := l.briefedTo(agent)
+	if v == nil {
+		return ""
+	}
+	retry := "obor review verify " + strings.Join(v.tasks, ",") + " to verify again"
+	if l.retried(v) {
+		retry = "serve retries when the reviewer is idle"
+	}
+	return "[obor] " + cmp.Or(v.id, "the review's") + " verify failed: " + said + "; " + retry
 }
 
 // sorted is the verifies in log order.
@@ -247,8 +292,9 @@ func (l *reviewLog) pending(id string) []string {
 // ReviewCycle is review id's state from the project's event log (T-856: reviewLog, the fold serve keeps). Started: the
 // log has a review start (none: a review started by an older obor, whose close keeps the old format and names the
 // ref's sha). Covered: the last start's in-scope tasks plus each done verify's since (an older store's review.verify
-// facts likewise, T-822), once each. Start: the head that review started at. Reviewed: the head the reviewer was last
-// handed when the last start is id's (its start's, else its last verify brief's; "": not known). Pending: id's linked
+// facts likewise, T-822), once each. Start: the head that review started at. Reviewed: the head the reviewer last
+// finished when the last start is id's (its last done verify's, else its start's; T-857: never the head of a verify
+// superseded or failed; "": not known). Pending: id's linked
 // fix tasks neither verified nor dropped and the tasks of its verify requested or briefed (obor review close's
 // refusal). An unreadable log is the zero state.
 type ReviewCycle struct {

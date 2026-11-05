@@ -18,8 +18,9 @@ import (
 // merged, a merge-loop pass requests a verify of them (fact review.verify.request{round: the round's seq}; T-856:
 // reviewverify.go admits it once the reviewer is idle and briefs it with review-brief.md §4's text), unless a verify of
 // the review is requested or briefed already: one at a time. The tasks are verified once the reviewer finished that
-// verify's brief; one superseded or failed leaves them pending, and the next pass requests again (a failed one: the
-// round waits for a verify by hand or another obor review fix, the lead told once). A linked task dropped or rejected
+// verify's brief; one superseded or failed leaves them pending, and the next pass requests again (T-857: one the
+// reviewer's error stop failed too; one whose git failed: the round waits for a verify by hand or another obor review
+// fix, the lead told once). A linked task dropped or rejected
 // before its merge: the lead gets one line (its fact's Message.FixDrop marks it told) and the verify waits for the
 // rest. A round whose review is closed is not run. obor review close refuses while a linked task is neither verified
 // nor dropped (ReviewCycle.Pending), --force closes anyway.
