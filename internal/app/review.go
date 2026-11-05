@@ -65,8 +65,9 @@ type ReviewData struct {
 }
 
 // ReviewClose is the newest close commit on the integration branch: its subject ("RV-<n> closed · <sha> · approved ·
-// <summary>") and its body ("": a close commit from before T-822, which records neither the tasks its cycle covered
-// nor the sha its review started at).
+// <summary>", or "accepted <n>" in place of "approved" when the close carried accepted findings, T-909) and its body
+// ("" when a close commit from before T-822, which records neither the tasks its cycle covered nor the sha its review
+// started at).
 type ReviewClose struct {
 	Subject, Body string
 }
@@ -139,11 +140,13 @@ func (p *proj) foldReview(r event.Record) {
 		p.clear(event.ReviewTask)
 	case event.StepReviewRm:
 		p.folded.review = nil
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // T-868: the request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-909: idle's own end
 		p.clear(event.ReviewTask)
 	case event.StepReviewFire:
 		p.reviewEnded(d.Request)
-		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
+		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)}     // T-868: the request's end
+		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-909: idle's own end
 	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
 	case event.StepReviewFix: // its record is reviewLog's (reviewverify.go): only the call here
@@ -559,8 +562,9 @@ const reviewIDPattern = `RV-[0-9]+`
 const CloseCommitGrep = "^" + reviewIDPattern + " closed"
 
 // closeRE is a close commit's subject: CloseCommit's. The reviewed sha and summary are absent on an old close commit
-// (before T-822).
-var closeRE = regexp.MustCompile(`^(` + reviewIDPattern + `) closed(?: · ([0-9a-f]+)(?: · approved(?: · (.*))?)?)?`)
+// (before T-822). The verdict is "approved", or "accepted <n>" when the close carried --accept lines (T-909): an old
+// subject's "approved" still reads.
+var closeRE = regexp.MustCompile(`^(` + reviewIDPattern + `) closed(?: · ([0-9a-f]+)(?: · (?:approved|accepted [0-9]+)(?: · (.*))?)?)?`)
 
 // reviewID is review n's id: "RV-<n>".
 func reviewID(n int) string { return "RV-" + strconv.Itoa(n) }
@@ -580,11 +584,16 @@ func reviewNumber(id string) (n int, ok bool) {
 	return n, err == nil
 }
 
-// CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>" and the
-// body "Covered: <tasks>\nStart: <review start sha>" (T-822: the cycle's coverage, so the next review's scope takes the
-// merges it did not cover).
-func CloseCommit(id, sha, summary string, covered []string, start string) (subject, body string) {
-	subject = id + " closed · " + strings.TrimSpace(sha) + " · approved · " + summary
+// CloseCommit is review id's close commit: the subject "RV-<n> closed · <reviewed sha> · approved · <summary>", or
+// "accepted <n>" in place of "approved" when the close carried accepted findings (T-909: the verify requested changes
+// and the close carries them, so the subject does not say the review approved), and the body "Covered: <tasks>\nStart:
+// <review start sha>" (T-822: the cycle's coverage, so the next review's scope takes the merges it did not cover).
+func CloseCommit(id, sha, summary string, covered []string, start string, accepted int) (subject, body string) {
+	verdict := "approved"
+	if accepted > 0 {
+		verdict = "accepted " + strconv.Itoa(accepted)
+	}
+	subject = id + " closed · " + strings.TrimSpace(sha) + " · " + verdict + " · " + summary
 	body = "Covered: " + strings.Join(covered, ", ") + "\nStart: " + start
 	return subject, body
 }

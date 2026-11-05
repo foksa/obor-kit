@@ -80,7 +80,8 @@ func reviewFixCmd(args []string) int {
 
 // reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: the open review's files deleted from the
 // main checkout, each accepted finding a line in BACKLOG.md's Open section naming the review, the commit "RV-<n> closed
-// · <reviewed sha> · approved · <summary>" on the integration branch in the main checkout (BACKLOG.md with it). Serve
+// · <reviewed sha> · approved · <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the
+// integration branch in the main checkout (BACKLOG.md with it). Serve
 // stops the reviewer once its pass sees the close commit (rolestop.go; T-869: the CLI stops nothing). The reviewed
 // sha, the body and the refusal read serve's log (app.ReadReviewCycle, T-856): the sha is the head the last brief
 // handed the reviewer (its last done verify's, else the review start's); the body lists the cycle's covered tasks and
@@ -201,7 +202,7 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 			return "", err
 		}
 	}
-	subject, body := app.CloseCommit(c.id, sha, summary, cycle.Covered, cycle.Start)
+	subject, body := app.CloseCommit(c.id, sha, summary, cycle.Covered, cycle.Start, len(accepts))
 	if _, err := project.GitCtx(ctx, root, "commit", "-q", "--allow-empty", "-m", subject, "-m", body); err != nil {
 		return "", err
 	}

@@ -94,7 +94,7 @@ func (p *proj) foldIdle(r event.Record) {
 // and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
 // one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on
 // (T-868): a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a verify's
-// end, a review request's end by a --rm or a firing (T-906: a failed --after end is no such end).
+// end, a review request's end (every end: a failed --after end, a --rm or a firing, T-909).
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
@@ -135,7 +135,7 @@ func (p *proj) idleNow() idle {
 	if merge.seq == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
 		return idle{}
 	}
-	end = end.newer(merge).newer(p.folded.verifyEnd).newer(p.folded.reviewEnd)
+	end = end.newer(merge).newer(p.folded.verifyEnd).newer(p.folded.reviewIdleEnd)
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.briefs[w.agent] != nil {
 			return idle{}

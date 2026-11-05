@@ -233,11 +233,14 @@ type folded struct {
 	idleAck idleAck
 	// ends: the records that ended work idleNow waits on besides a task's merge or drop (T-868), so the idle key and
 	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
-	// stop that ended it); verifyEnd, the last verify that failed before its brief; reviewEnd, the last review
-	// request's end that suppresses the on-merge rule (a --rm or a firing, not a failed --after end, T-906).
-	briefEnds map[string]idleEnd
-	verifyEnd idleEnd
-	reviewEnd idleEnd
+	// stop that ended it); verifyEnd, the last verify that failed before its brief; reviewIdleEnd, the last review
+	// request's end (a failed --after end, a --rm or a firing, T-909: every end, so idle does not read the marker
+	// below); reviewEnd, the last end that suppresses the on-merge rule (a --rm or a firing, not a failed --after
+	// end, T-906).
+	briefEnds     map[string]idleEnd
+	verifyEnd     idleEnd
+	reviewIdleEnd idleEnd
+	reviewEnd     idleEnd
 }
 
 // newFolded is the folded state before the log's first record.

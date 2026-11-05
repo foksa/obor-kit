@@ -45,9 +45,10 @@ func startedFact(t *testing.T, p *testkit.Project, head string) {
 
 // T-716: obor review close refuses a dirty main checkout or a review with no start in the log (T-869; nothing
 // changed); then it deletes the review's files from the main checkout (T-718), appends each --accept to BACKLOG.md's
-// Open section naming the RV and commits "RV-n closed · <reviewed sha> · approved · <summary>" on main with
-// BACKLOG.md; it stops nothing (T-869: serve stops the reviewer once it sees the close). The reviewed sha is the
-// start's, not main's head: the lead's doc commit during the review is no part of it.
+// Open section naming the RV and commits "RV-n closed · <reviewed sha> · accepted <n> · <summary>" on main with
+// BACKLOG.md (T-909: two accepted findings, so the subject says accepted 2, not approved); it stops nothing (T-869:
+// serve stops the reviewer once it sees the close). The reviewed sha is the start's, not main's head: the lead's doc
+// commit during the review is no part of it.
 func TestReviewClose(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
@@ -88,7 +89,7 @@ func TestReviewClose(t *testing.T) {
 	p.Git(p.Root, "commit", "-q", "--allow-empty", "-m", "decisions: a lead doc commit during the review")
 	docs := p.Git(p.Root, "rev-parse", "HEAD")
 	rc, stdout, _ = run(t, p.Root, env, "review", "close", "T-5 (fix)", "--accept", "rare case", "--accept", "other  one")
-	subject := "RV-4 closed · " + head[:7] + " · approved · T-5 (fix)"
+	subject := "RV-4 closed · " + head[:7] + " · accepted 2 · T-5 (fix)"
 	if rc != 0 || stdout != "CLOSED "+subject+"\n" { // no STOPPED line: the CLI stops nothing (T-869, DD D1-A)
 		t.Fatalf("close: exit %d\n%s", rc, stdout)
 	}
@@ -161,6 +162,10 @@ func TestReviewCloseDirtyBacklog(t *testing.T) {
 			backlog := p.Git(p.Root, "show", "HEAD:BACKLOG.md")
 			if !strings.Contains(backlog, "## Open\n- (RV-4, accepted) rare case\n- lead's line\n- old line\n") {
 				t.Errorf("BACKLOG.md committed without the %s edit:\n%s", name, backlog)
+			}
+			if got, want := p.Git(p.Root, "log", "-1", "--format=%s"),
+				"RV-4 closed · "+head[:7]+" · accepted 1 · T-5 (fix)"; got != want { // T-909: one accepted finding
+				t.Errorf("the close subject %q, want %q", got, want)
 			}
 			if st := p.Git(p.Root, "status", "--porcelain"); st != "" {
 				t.Errorf("the main checkout is dirty after the close: %q", st)
