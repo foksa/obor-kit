@@ -287,6 +287,87 @@ func TestSpecMatchGlobs(t *testing.T) {
 	}
 }
 
+// T-871: a lane whose git or store read failed is never free: its state is unknown, with the reason (git's stderr or
+// the store's error), and dispatch's lane list (Lanes, what obor serve's lane choice reads) carries both. A project with
+// no database yet is not a failed read: it has no rows and no error, and its lanes read as git says.
+func TestLaneUnknownOnFailedRead(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		breakIt func(t *testing.T, p *LaneTable, dir string)
+		want    string // the reason's prefix
+	}{
+		{name: "status fails", want: "git status:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
+			out, err := project.Git(dir, "rev-parse", "--absolute-git-dir")
+			if err != nil {
+				t.Fatalf("precondition: the lane's git dir: %v", err)
+			}
+			os.WriteFile(filepath.Join(strings.TrimSpace(out), "index"), []byte("not an index"), 0o644)
+		}},
+		{name: "ancestry fails", want: "git merge-base:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
+			bin, err := exec.LookPath("git")
+			if err != nil {
+				t.Skip("no git on PATH")
+			}
+			stub := t.TempDir()
+			script := "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = merge-base ]; then\n" +
+				"    echo 'fatal: unable to read tree' >&2\n    exit 128\n  fi\ndone\nexec " + bin + " \"$@\"\n"
+			if err := os.WriteFile(filepath.Join(stub, "git"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}},
+		{name: "rev-parse fails", want: "git rev-parse:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("not a gitdir file"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "store unreadable", want: "store:", breakIt: func(t *testing.T, p *LaneTable, dir string) {
+			os.MkdirAll(filepath.Dir(store.File(p.Root)), 0o755)
+			if err := os.WriteFile(store.File(p.Root), []byte("not a database"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ReadLanesAt(p.Root); err == nil {
+				t.Fatal("precondition: the store reads")
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+			dir := filepath.Join(filepath.Dir(p.Root), "proj-wt", "L-01")
+			c.breakIt(t, p, dir)
+			s := stateOf(p, "L-01")
+			if s.State != "unknown" || !strings.HasPrefix(s.Reason, c.want) || len(s.Reason) == len(c.want) {
+				t.Fatalf("lane state %q, reason %q; want unknown and a %q reason with git's or the store's words",
+					s.State, s.Reason, c.want)
+			}
+			if c.want != "store:" && !strings.Contains(s.Reason, "fatal:") {
+				t.Errorf("reason %q does not carry git's stderr", s.Reason)
+			}
+			ls, err := (Lanes{}).Lanes(p.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ls) != 1 || ls[0].State != "unknown" || ls[0].Reason != s.Reason {
+				t.Errorf("dispatch's lanes %+v; want L-01 unknown with the same reason", ls)
+			}
+		})
+	}
+	t.Run("no store yet", func(t *testing.T) {
+		p := ltFixture(t, `,"lanes_dir":"../proj-wt"`, map[string]string{"L-01": "T-01"})
+		if _, err := store.ReadLanesAt(p.Root); err != nil {
+			t.Fatal(err) // precondition: a fresh project has no store, not an unreadable one
+		}
+		s := stateOf(p, "L-01")
+		if s.State != "free" || s.Reason != "" {
+			t.Fatalf("lane state %q, reason %q; want free and no reason", s.State, s.Reason)
+		}
+		ls, err := (Lanes{}).Lanes(p.Root)
+		if err != nil || len(ls) != 1 || ls[0].State != "free" || ls[0].Reason != "" {
+			t.Errorf("dispatch's lanes %+v, %v; want L-01 free with no reason", ls, err)
+		}
+	})
+}
+
 // stateOf is lane's row of p's table (the zero row when it has none).
 func stateOf(p *LaneTable, lane string) LaneStatus {
 	for _, s := range p.States() {

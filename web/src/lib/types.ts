@@ -39,6 +39,7 @@ export interface Lane {
   branch: string | null;
   task: string | null;
   state: string;
+  reason: string | null;
   done_age: number | null;
   dirty: boolean;
   warning: string | null;

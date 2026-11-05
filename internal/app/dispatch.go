@@ -350,7 +350,7 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	case l.State == "working" && l.Task != "":
 		return "", fmt.Errorf("dispatch %s: lane %s is working on %s", c.Task, l.Name, l.Task)
 	case l.State != "free" && l.State != "dirty-free":
-		return "", fmt.Errorf("dispatch %s: lane %s is %s", c.Task, l.Name, Dash(l.State))
+		return "", fmt.Errorf("dispatch %s: lane %s is %s", c.Task, l.Name, laneWhy(l))
 	}
 	target, ahead, err := fx.Specs.Target(ctx, c.Task)
 	if err != nil {
@@ -532,7 +532,30 @@ func pickLane(ls []port.Lane, c wire.Call, held map[string]string, paused map[st
 			}
 		}
 	}
-	return port.Lane{}, "", noLane(paused, c.Types)
+	return port.Lane{}, "", noLane(paused, c.Types) + unknownNote(ls)
+}
+
+// unknownNote is a lane refusal's tail naming the lanes whose state is unknown (T-871): dispatch never picks one, and
+// its reply says which lane and why. "" when none.
+func unknownNote(ls []port.Lane) string {
+	var out []string
+	for _, l := range ls {
+		if l.State == "unknown" {
+			out = append(out, l.Name+" unknown: "+l.Reason)
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(out, "; ")
+}
+
+// laneWhy is a lane's state for a refusal: its state, and for an unknown one why (T-871).
+func laneWhy(l port.Lane) string {
+	if l.State == "unknown" {
+		return "unknown: " + l.Reason
+	}
+	return Dash(l.State)
 }
 
 // noLane is pickLane's refusal when none of types gets a lane: the models, and those paused.

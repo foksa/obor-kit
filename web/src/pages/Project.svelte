@@ -202,6 +202,7 @@
               {#if l.branch}<span class="muted">branch <span class="mono">{l.branch}</span>{#if l.dirty}<span class="dirty"> · dirty</span>{/if}</span>{/if}
               {#if l.op}<span class="muted">{l.op}</span>{/if}
               {#if l.hold}<Pill state="merge hold" text={l.hold} />{/if}
+              {#if l.reason}<Pill state="fail" text={l.reason} />{/if}
               {#if l.warning}<Pill state="fail" text={l.warning} />{/if}
             </div>
             <Background list={l.background} />

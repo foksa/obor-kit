@@ -51,7 +51,7 @@ export type Tone = "ok" | "wait" | "bad" | "idle" | "info" | "done" | "accent";
 export function tone(state: string | undefined | null): Tone {
   const s = String(state || "").toLowerCase();
   if (/^merge hold/.test(s)) return "wait"; // its publish waits for the reviewer or the deep dive (T-718)
-  if (/held|needs-you|needs you|fail|red|blocked|conflict|down|missing|dropped/.test(s)) return "bad";
+  if (/held|needs-you|needs you|fail|red|blocked|conflict|down|missing|dropped|unknown/.test(s)) return "bad";
   if (/^driving/.test(s)) return "accent";
   if (/merged|published/.test(s)) return "done";
   if (/pending|waiting|queued|not fetched|stuck|review requested|ready|paused|dirty|^done/.test(s)) return "wait";
