@@ -252,13 +252,6 @@ type workedData struct {
 	Brief int64  `json:"brief"`
 }
 
-// supersededData is fact superseded's data: the seq of the undelivered brief line it ends, and the seq of the newer
-// brief that replaced it.
-type supersededData struct {
-	Seq int64 `json:"seq"`
-	By  int64 `json:"by"`
-}
-
 // lineData is a delivery intent's data: the line's agent (the post's target), and the seqs of the lines its post
 // carries (T-654; none: its own line alone, as before T-654 and for a single line).
 type lineData struct {
@@ -376,11 +369,6 @@ func (p *proj) foldMsg(r event.Record) {
 		if b := p.out.briefs[d.To]; b != nil && b.seq == d.Brief { // an older brief's work does not arm a newer one
 			b.worked, b.logged = true, true
 		}
-	case r.Kind == event.KindFact && r.Step == event.StepSuperseded: // an older log's: a newer brief ends an undelivered brief
-		// line, as briefed's supersedes does now
-		var d supersededData
-		_ = json.Unmarshal(r.Data, &d)
-		delete(p.out.msgs, d.Seq)
 	case r.Kind == event.KindFact && r.Step == event.StepFailed: // refused before a byte: its reason kept (T-748)
 		d := r.Fact()
 		seq, _ := strconv.ParseInt(strings.TrimPrefix(d.Step, stepDeliver), 10, 64)
@@ -1181,12 +1169,10 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 	return reply, nil
 }
 
-// verifyOf is a verify's part of its brief's fact (T-856): its request's seq, the tasks it verifies and the head it
-// hands the reviewer.
+// verifyOf is a verify's part of its brief's fact (T-856): its request's seq and the head it hands the reviewer.
 type verifyOf struct {
-	seq   int64
-	tasks []string
-	head  string
+	seq  int64
+	head string
 }
 
 // recordBrief records fact briefed of the role agent to from from (note "": the restart's or a review's fresh start
@@ -1213,7 +1199,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "",
 		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
 	if v != nil {
-		m.Verify, m.VerifyOf, m.Reviewed = v.tasks, v.seq, v.head
+		m.VerifyOf, m.Reviewed = v.seq, v.head
 	}
 	if note != "" {
 		m.Line = "[obor " + from + "] " + note

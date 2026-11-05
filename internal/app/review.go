@@ -28,8 +28,7 @@ import (
 // the reviewer's role worktree detached at the head (ReviewGit.Detach, T-853: merges never wait for the reviewer), and
 // the reviewer's fresh start with the brief as its first prompt (the same path as obor brief's fresh start, its brief
 // recorded the same way: briefed with no line). Then fact review.started{id, head, tasks}: no line to the lead (T-650;
-// obor status counts from its head), and the brief; once it is recorded the head is marked reviewed (ReviewGit.Mark,
-// T-856: a mirror of the records, a failed mark is logged). Any step
+// obor status counts from its head), and the brief. Any step
 // failing: no start, needs-you{RV-xx: <error>} on the key review (a new request ends it). The first --after task
 // dropped or rejected ends the request with the lead's line "[obor] review request ended: T-b dropped" (fact message
 // {review: the request's seq}, whose fold ends it).
@@ -50,20 +49,19 @@ const reviewDue = 3
 const maxBriefFiles = 100
 
 // ReviewData is a review fact's data: the request's tasks and note, who asked, the request a firing or start is of,
-// the review's id, head and tasks once started, a verify request's findings and fix round (T-856), and the call that
-// recorded it with its reply.
+// the review's id, head and tasks once started, a verify request's fix round (T-856), and the call that recorded it
+// with its reply.
 type ReviewData struct {
-	After    []string `json:"after,omitempty"`
-	Note     string   `json:"note,omitempty"`
-	By       string   `json:"by,omitempty"`
-	Request  int64    `json:"request,omitempty"`
-	ID       string   `json:"id,omitempty"`
-	Head     string   `json:"head,omitempty"`
-	Tasks    []string `json:"tasks,omitempty"`
-	Findings []string `json:"findings,omitempty"`
-	Round    int64    `json:"round,omitempty"`
-	Call     string   `json:"call,omitempty"`
-	Reply    string   `json:"reply,omitempty"`
+	After   []string `json:"after,omitempty"`
+	Note    string   `json:"note,omitempty"`
+	By      string   `json:"by,omitempty"`
+	Request int64    `json:"request,omitempty"`
+	ID      string   `json:"id,omitempty"`
+	Head    string   `json:"head,omitempty"`
+	Tasks   []string `json:"tasks,omitempty"`
+	Round   int64    `json:"round,omitempty"`
+	Call    string   `json:"call,omitempty"`
+	Reply   string   `json:"reply,omitempty"`
 }
 
 // ReviewClose is the newest close commit on the integration branch: its subject ("RV-<n> closed · <sha> · approved ·
@@ -83,8 +81,6 @@ type ReviewGit interface {
 	Merges(ctx context.Context, from, to string) ([]string, error)
 	// Files is the files changed from from to to (from "": every file of to).
 	Files(ctx context.Context, from, to string) ([]string, error)
-	// Mark records sha as the open review's reviewed head (git ref ReviewedRef): obor review close names it.
-	Mark(ctx context.Context, sha string) error
 	// Detach puts the role worktree at dir on sha, detached, adding it when it is missing (T-853).
 	Detach(ctx context.Context, dir, sha string) error
 }
@@ -150,13 +146,9 @@ func (p *proj) foldReview(r event.Record) {
 		p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
 	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
-	case event.StepReviewFix, event.StepReviewVerifyRequest: // their records are reviewLog's (reviewverify.go): only the call here
+	case event.StepReviewFix: // its record is reviewLog's (reviewverify.go): only the call here
 		if d.Call != "" {
-			method := wire.MethodFix
-			if r.Step == event.StepReviewVerifyRequest {
-				method = wire.MethodVerify
-			}
-			p.folded.calls[verdictStep(method, d.Call)] = d.Reply
+			p.folded.calls[verdictStep(wire.MethodFix, d.Call)] = d.Reply
 		}
 		return
 	default:
@@ -204,12 +196,6 @@ type ReviewSetup struct {
 	Agent, Worktree, Root, Reviews, Branch string
 }
 
-// ReviewedRef is the git ref of the open review's reviewed head (T-718: it was the review worktree's HEAD): written
-// once a review's start or a verify is briefed, after the reviewer's worktree moved there (T-856). It mirrors the log:
-// obor review close reads the briefed head from the log (ReviewCycle.Reviewed) and this ref only for a review an older
-// obor started. The cycle's covered tasks are not here (T-822): the close commit's body lists them (ReviewCycle).
-const ReviewedRef = "refs/obor/reviewed"
-
 // reviewConfig is ReviewConfig of the project at root.
 func reviewConfig(root string) (ReviewSetup, error) {
 	cfg, err := config.LoadDaemon(root)
@@ -219,7 +205,7 @@ func reviewConfig(root string) (ReviewSetup, error) {
 	return ReviewConfig(cfg)
 }
 
-// ReviewConfig is cfg's review setup (serve's review start; obor review verify and close, T-716); an error names what
+// ReviewConfig is cfg's review setup (serve's review start; obor review fix and close, T-716); an error names what
 // is missing.
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")
@@ -532,8 +518,7 @@ func (a *App) roleIdle(p *proj, agent string) bool {
 	return true
 }
 
-// fireReview starts the review of the fired request q: the facts, the reviewed head marked, the reviewer's fresh start
-// on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
+// fireReview starts the review of the fired request q: the facts, the reviewer's fresh start on the brief, its brief recorded, fact review.started; a step failing records needs-you {<id>: <error>} instead and
 // starts nothing. A fact after the launch the log refuses is logged and a needs-you {<id>: started but not recorded:
 // <error>} (RV-69 #2: the review runs, serve does not know it). The lead gets no line (T-650): obor status counts the
 // merges since the review's head.
@@ -561,8 +546,6 @@ func (a *App) fireReview(ctx context.Context, p *proj, fx *Loop, q *reviewReq, s
 	}
 	if _, ok := a.recordBrief(p, s.Agent, "obor", "", "", brief, false, nil); !ok {
 		lost = cmp.Or(lost, p.log.Err(), errors.New("the event log refused the brief"))
-	} else if err := fx.Review.Mark(ctx, head); err != nil { // T-856: once briefed; a mirror, close reads the log
-		a.logf("review of %s: %s not moved to %s: %v", p.name, ReviewedRef, head, err)
 	}
 	if lost != nil {
 		reason := id + ": started but not recorded: " + lost.Error()
@@ -634,7 +617,7 @@ func uncovered(merges, covered []string) []string {
 
 // prepareReview collects a review's facts in order (the next id, the head, the merges since the previous review's
 // review start sha that no closed cycle covered and the files of that range) and detaches the reviewer's role worktree at
-// the head (ReviewGit.Detach, T-853; fireReview marks it reviewed once the brief is recorded): the id, the brief, the in-scope tasks and
+// the head (ReviewGit.Detach, T-853): the id, the brief, the in-scope tasks and
 // the head; an error from the first step that fails (id "" when the id is not known yet).
 func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s ReviewSetup, cfgErr error) (id,
 	brief string, tasks []string, head string, err error) {
@@ -678,8 +661,12 @@ func (a *App) prepareReview(ctx context.Context, g ReviewGit, q *reviewReq, s Re
 	return id, reviewBrief(id, s, short, from, last.Subject, scope, files, q.note), tasks, head, nil
 }
 
-// reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in and
-// the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
+// redundantLine is docs/design.md "Change rules" rule 6, in every review and verify brief (T-869).
+const redundantLine = "What did this make redundant? Name it or confirm it is gone. On rule-tier steps a crash or" +
+	" interleaving finding counts only when a kernel guarantee breaks."
+
+// reviewBrief is the reviewer's first prompt: skills/lead/review-brief.md §2's template with the facts filled in, the
+// redundancy question (redundantLine) and the lead's note appended (its out of scope and contracts). last is the previous review's close commit subject (""
 // none): its file is deleted at close (RV-69 #4), so the brief names what is kept, the close commit and BACKLOG. from
 // is where the brief's range starts ("": the first commit).
 func reviewBrief(id string, s ReviewSetup, short, from, last string, scope, files []string, note string) string {
@@ -715,7 +702,7 @@ func reviewBrief(id string, s ReviewSetup, short, from, last string, scope, file
 		" config or workflow that hits it), file:line, probe/evidence, suggested fix and its cost in added code, and an"+
 		" Extent line: every other entry point / branch that shares the root cause, each marked checked or unchecked."+
 		" A finding only a constructed case hits goes in a short \"Not reported (constructed)\" list instead: one line"+
-		" each, no fix proposal. Your worktree is at %s (check out any commit there); write only %s/%s.md in the main"+
+		" each, no fix proposal. "+redundantLine+" Your worktree is at %s (check out any commit there); write only %s/%s.md in the main"+
 		" checkout %s. Do not commit.", short, s.Reviews, id, s.Root)
 	if note = strings.TrimSpace(note); note != "" {
 		b.WriteString("\nLead's note: " + note)

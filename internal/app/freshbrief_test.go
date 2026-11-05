@@ -65,7 +65,7 @@ func freshApp(t *testing.T, now *time.Time, agent, kind, status string) (*App, *
 		{ID: "w:role", Workspace: "w", Cwd: root, Agent: kind, Label: agent, Status: status},
 	}})
 	// An idle deep dive's brief moves its role worktree first (T-853).
-	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Review: &headGit{head: "base1"}}, nil }
+	a.opt.Loop = func(string) (*Loop, error) { return &Loop{Review: &reviewGitFake{head: "base1"}}, nil }
 	return a, p
 }
 

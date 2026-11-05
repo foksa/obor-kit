@@ -113,21 +113,15 @@ const (
 	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
 	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
 	StepReviewFix     = "review.fix"     // fact: fix tasks linked to the open review (data: ReviewData, ID, Tasks, Note; T-850)
-	// StepReviewVerify is a verify of tasks the open review now covers, from a store before T-823: its fix tasks (data:
-	// ReviewData, Tasks; T-822: obor review close lists the cycle's Covered set from here, so a task merged during the
-	// review counts as reviewed). A new verify carries its tasks in its brief's fact (Message.Verify): read, never written.
-	StepReviewVerify = "review.verify"
-	// StepReviewVerifyRequest is a verify requested (T-856: obor review verify, or a fix round once its tasks merged;
-	// data: ReviewData, ID the review, Tasks, Findings, Note, By, Round the fix round's seq, 0 by hand): its seq keys the
-	// verify record, which a merge-loop pass admits once the reviewer is idle (reviewverify.go).
+	// StepReviewVerifyRequest is a verify requested (T-856: a fix round once its tasks merged; data: ReviewData, ID the
+	// review, Tasks, Note, By, Round the fix round's seq): its seq keys the verify record, which a merge-loop pass admits once the reviewer is idle (reviewverify.go).
 	StepReviewVerifyRequest = "review.verify.request"
 )
 
 const (
-	StepMessage    = "message"    // fact: a line to type (data: Message)
-	StepBriefed    = "briefed"    // fact: a role agent was briefed (data: Message; Line "" when its start carried it)
-	StepWorked     = "worked"     // fact: a briefed agent's pane worked since its brief (data: workedData)
-	StepSuperseded = "superseded" // fact (older logs; now briefed's supersedes): a brief ends a line (data: supersededData)
+	StepMessage = "message" // fact: a line to type (data: Message)
+	StepBriefed = "briefed" // fact: a role agent was briefed (data: Message; Line "" when its start carried it)
+	StepWorked  = "worked"  // fact: a briefed agent's pane worked since its brief (data: workedData)
 )
 
 // The project's idle state (T-803, T-866): no task in flight, no needs-you and no brief open to the reviewer or the

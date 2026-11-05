@@ -14,7 +14,7 @@ import (
 // (the integrator has one too, which serve does not move: a review job checks out its candidate there itself).
 // Serve moves a role worktree (ReviewGit.Detach, which adds it when it is missing) at the admission point of the start
 // that hands the role a head: the reviewer's at a review's start and at each verify once it is idle (T-856: never
-// under its turn), to the head it marks reviewed (ReviewedRef); the deep dive's at a brief while it is idle, to the
+// under its turn), to the head it reviews; the deep dive's at a brief while it is idle, to the
 // integration branch's head. A brief to a working deep dive leaves its worktree where it is (the code does not move
 // under its turn), and a plain brief to the reviewer never moves it (its head is the reviewed one). The role may check out any commit there (the guard); its files go to
 // the main checkout's paths.reviews.
@@ -84,7 +84,7 @@ func (a *App) briefMove(ctx context.Context, p *proj, role, agent string) error 
 	return fx.Review.Detach(ctx, cfg.RoleWorktree(role), head)
 }
 
-// Admission (T-730): a start that hands a role a head (a review's start, obor review verify, a brief to a role worktree
+// Admission (T-730): a start that hands a role a head (a review's start, a fix round's verify, a brief to a role worktree
 // agent) passes one serve-owned point first. It waits while a publish runs (the head it reads is the published one),
 // and once admitted no publish starts (scratchStep refuses one) until its brief is recorded and released. The
 // admission and a publish's start are decided together under App.mu at the publish's actual start (scratchStep,

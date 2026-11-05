@@ -64,21 +64,19 @@ type Message struct {
 	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
 	// running agent stopped first
 	Fresh bool `json:"fresh,omitempty"`
-	// Verify: a verify brief's (T-823): the fix tasks it verifies; VerifyOf, the seq of its verify's request (T-856:
-	// the brief is the verify record's briefed step, none in a log from before T-856), and Reviewed, the head it handed
-	// the reviewer (its worktree moved there first; obor review close's sha once the verify is done). The tasks count as
-	// verified and covered, and the head as reviewed, once the reviewer finished this brief (its finished line, Ends;
-	// T-857: never a stop's Ends), never when another brief replaced it first (reviewverify.go).
-	Verify   []string `json:"verify,omitempty"`
-	VerifyOf int64    `json:"verify_of,omitempty"`
-	Reviewed string   `json:"reviewed,omitempty"`
+	// VerifyOf: a verify brief's (T-856), the seq of its verify's request (the brief is the verify record's briefed
+	// step), and Reviewed, the head it handed the reviewer (its worktree moved there first; obor review close's sha once
+	// the verify is done). The request's tasks count as verified and covered, and the head as reviewed, once the
+	// reviewer finished this brief (its finished line, Ends; T-857: never a stop's Ends), never when another brief
+	// replaced it first (reviewverify.go).
+	VerifyOf int64  `json:"verify_of,omitempty"`
+	Reviewed string `json:"reviewed,omitempty"`
 	// VerifyFail: the seq of the verify request that failed before its brief (its git, its worktree's move), the lead
 	// told (a line) unless the call that asked got the error itself (no line).
 	VerifyFail int64 `json:"verify_fail,omitempty"`
 	// FixDrop: a lead line's (T-850, reviewfix.go): the review's linked fix tasks that ended unmerged, the lead told
-	// once; FixFail: the seq of the fix round whose verify failed, the lead told once.
+	// once.
 	FixDrop []string `json:"fix_drop,omitempty"`
-	FixFail int64    `json:"fix_fail,omitempty"`
 	// Of is a lead line's back-reference (T-866, DD M1): what the line reports. A rule's line carries its did key
 	// (rules.go): Kind the rule's name, Seq the record it is keyed by.
 	Of Of `json:"of,omitzero"`

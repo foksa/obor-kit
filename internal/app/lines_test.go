@@ -398,7 +398,7 @@ func TestBriefKeepsAStartedDelivery(t *testing.T) {
 	for _, rec := range recs {
 		var m event.Message
 		_ = json.Unmarshal(rec.Data, &m)
-		if rec.Task == event.MsgTask && (rec.Step == event.StepSuperseded || rec.Step == event.StepBriefed && len(m.Supersedes) > 0) {
+		if rec.Task == event.MsgTask && rec.Step == event.StepBriefed && len(m.Supersedes) > 0 {
 			t.Errorf("a brief superseded the in-flight line: %+v", rec)
 		}
 	}
@@ -621,34 +621,12 @@ func TestBriefSupersedesSeveralLines(t *testing.T) {
 				t.Errorf("briefed %+v supersedes %v, want both lines", rec, m.Supersedes)
 			}
 		}
-		if rec.Step == event.StepSuperseded {
-			t.Errorf("a separate superseded fact was recorded: %+v", rec)
-		}
 	}
 	if facts != 1 {
 		t.Errorf("briefed facts that supersede: %d, want the one", facts)
 	}
 	_, q := lineReload(t, a, p, &now)
 	check("replay", q)
-}
-
-// TestOlderSupersededFactReplays (T-580): an older log's fact superseded{seq, by} still retires its line on replay.
-func TestOlderSupersededFactReplays(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	a, p := lineApp(t, lineRoot(t), &now)
-	lineStatus(a, "w:rev", "working", now)
-	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, event.Message{To: "pj-rev", Line: "[obor owner] first"})
-	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, event.Message{To: "pj-rev", Line: "[obor owner] second"})
-	q := p.queuedLines()
-	if len(q) != 2 {
-		t.Fatalf("precondition: an older log's two brief lines queued, got %d", len(q))
-	}
-	a.record(p, event.Record{Task: event.MsgTask, Step: event.StepSuperseded, Kind: event.KindFact}, supersededData{Seq: q[0].seq, By: q[1].seq})
-	_, r := lineReload(t, a, p, &now)
-	if got := r.queuedLines(); len(got) != 1 || got[0].msg.Line != "[obor owner] second" {
-		t.Errorf("replayed queue %+v, want the second brief alone", got)
-	}
 }
 
 // TestLinesBehindCheckout: a main checkout off the target branch holds dispatch, not the lines: each kind of
