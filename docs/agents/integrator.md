@@ -6,3 +6,4 @@ Role text: `templates/agents/integrator.md` in the obor kit (the session start n
   `../obor-kit-wt/merge` (`merge.scratch_dir`). Merge checks: the merge classes in `.obor/config.json` (the gate picks
   them).
 - A job that does not arrive: `obor setup mcp` shows whether the server is registered per agent kind.
+- The layout doc is `docs/module-map.md`.

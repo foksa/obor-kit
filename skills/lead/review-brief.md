@@ -111,7 +111,7 @@ Start: <the review start sha>
 ```
 
 so the next review's scope takes the merges this cycle did not cover (a task merged while your verify ran stays
-unreviewed until a cycle covers it; `obor status`' `review due` and `make release` count it). A close commit from an
+unreviewed until a cycle covers it; `obor status`' `review due` counts it). A close commit from an
 older obor has no such body: the next review falls back to the sha range. Refused before any change: no open review,
 no review start for it in serve's log (T-869), the main checkout not on the integration branch or dirty outside
 `BACKLOG.md` and the review's files, or a task linked by `obor review fix` neither verified nor dropped (named;

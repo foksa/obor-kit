@@ -86,7 +86,7 @@ one line once all merged (or the first dropped). `obor watch` lists them with th
 - `obor pause [--for 3h] "<why>"` / `--clear` — refuse dispatches (quota, waiting on an answer).
 
 ## Reviews
-Before a release, `obor review` and close it; `make release` refuses otherwise; `UNREVIEWED` only on the owner's word.
+Before a release, `obor review` and close it; the project's release check refuses otherwise (`review due`); `UNREVIEWED` only on the owner's word.
 Every ~3 merges (never > ~5 unreviewed; `obor status` says `review due`): `obor review [--after T-a,T-b] [--note
 "<out of scope, contracts>"]`, serve starts it (`review-brief.md`). A spec's `Review: on merge` line (identity, MCP,
 launch and judgement-heavy tasks) replaces your watch and hand-run `obor review`: serve requests that review itself
