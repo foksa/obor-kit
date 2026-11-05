@@ -313,6 +313,10 @@ func (p *proj) foldMsg(r event.Record) {
 		}
 		if m.Review != 0 {
 			p.reviewEnded(m.Review)
+			p.folded.reviewEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the request's end
+		}
+		if m.VerifyFail != 0 {
+			p.folded.verifyEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-868: a verify's end before its brief
 		}
 		if m.Stop != 0 {
 			p.roleAlarmed(m.Stop)
@@ -329,6 +333,7 @@ func (p *proj) foldMsg(r event.Record) {
 		}
 		if m.Ends != "" {
 			delete(p.out.briefs, m.Ends)
+			p.folded.briefEnds[m.Ends] = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the brief's end
 		}
 	case r.Kind == event.KindFact && r.Step == event.StepStopped: // a role agent's: the lead's line, ending its brief; a worker's:
 		// its task's needs-you (stopped.go)
@@ -341,6 +346,7 @@ func (p *proj) foldMsg(r event.Record) {
 		}
 		if d.Ends != "" {
 			delete(p.out.briefs, d.Ends)
+			p.folded.briefEnds[d.Ends] = idleEnd{r.Seq, event.RecordTime(r)} // T-868: the stop that ended the brief
 		}
 		if b := p.out.briefs[d.Agent]; b != nil && d.Brief != 0 && b.seq == d.Brief { // a usage limit: the brief stays
 			// open, stopped; the work before the stop is not its finish

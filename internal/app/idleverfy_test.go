@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // T-858: idle counts a verify the pipeline still owes — requested or admitted (before its brief) and a failed one its
@@ -261,5 +262,116 @@ func TestIdleFailedVerifyByHandIsNotInFlight(t *testing.T) {
 	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 {
 		t.Errorf("idle lines %q after the failed verify, want one", lines)
+	}
+}
+
+// lastFinished is the log's newest finished line (a message fact with Ends), its seq and time.
+func lastFinished(t *testing.T, root string) (seq int64, at time.Time) {
+	t.Helper()
+	for _, rec := range readLog(t, root) {
+		var m event.Message
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && m.Ends != "" {
+			seq, at = rec.Seq, event.RecordTime(rec)
+		}
+	}
+	if seq == 0 {
+		t.Fatal("no finished line in the log")
+	}
+	return seq, at
+}
+
+// T-868: a merge, then an hour-long verify: the idle state is keyed by the verify's finished line, not the merge, so
+// its age counts from the verify's end and the acknowledgement of the merge's state does not cover it.
+func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	startedReview(t, r)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.afterStepsDone("T-a")
+	r.afterStepsDone("T-b")
+	if !r.idleOK() {
+		t.Fatal("precondition: the merged fixes with nothing in flight are idle")
+	}
+	// The lead acknowledges the state the merges left, before the verify is in flight.
+	if got, err := r.a.idleCall(wire.Call{Root: r.p.root, CallID: "i1", Role: "lead", Agent: "pj-lead",
+		Note: "the fixes are in"}); err != nil || got != "ACKED idle: the fixes are in" {
+		t.Fatalf("obor idle: %q, %v", got, err)
+	}
+	r.working(true) // the reviewer works: the fix round's verify is requested, not briefed
+	r.fixPass()
+	if v := r.lastVerify(); v.state != verifyRequested || r.idleOK() {
+		t.Fatalf("precondition: the verify %s (idle %t), want requested and in flight", v.state, r.idleOK())
+	}
+	r.now = r.now.Add(time.Hour) // the verify runs an hour
+	r.working(false)
+	r.fixPass()
+	if v := r.lastVerify(); v.state != verifyBriefed {
+		t.Fatalf("precondition: the verify %s, want briefed", v.state)
+	}
+	r.now = r.now.Add(time.Hour)
+	r.finish()
+	if v := r.lastVerify(); v.state != verifyDone || !r.idleOK() {
+		t.Fatalf("precondition: the verify %s (idle %t), want done with nothing in flight", v.state, r.idleOK())
+	}
+	finished, at := lastFinished(t, r.p.root)
+	r.idleSettled()
+	if lines := r.idlePosts(); len(lines) != 1 || !strings.HasPrefix(lines[0], "[obor] idle: nothing in flight") {
+		t.Fatalf("idle lines %q after the verify, want one: the merge's acknowledgement does not cover its end", lines)
+	}
+	if _, did := r.p.folded.did[event.Of{Kind: ruleIdle, Seq: finished}]; !did {
+		t.Errorf("the idle line is not keyed by the finished record %d", finished)
+	}
+	if st := r.a.Status().Project.Idle; st == nil || st.Since != at.Unix() || st.Acked {
+		t.Errorf("status idle %+v, want since the finished record (%d) and not acknowledged", st, at.Unix())
+	}
+}
+
+// T-868: with no work after it, the state is keyed as before: the merge (or the drop), and a merge's last after-merge
+// step once that is newer. `last` names the last merge or drop.
+func TestIdleKeyIsTheNewestEnd(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		last string
+		// setup records the ends and returns the newest one's seq and time.
+		setup func(r *reviewRig) (int64, time.Time)
+	}{
+		{name: "a merge with nothing after: the merge", last: "T-a merged (outside obor serve)",
+			setup: func(r *reviewRig) (int64, time.Time) {
+				r.submitted("T-a")
+				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact},
+					event.MergedData{Outside: true})
+				return seq, r.now
+			}},
+		{name: "a drop: the drop", last: "T-a dropped: superseded",
+			setup: func(r *reviewRig) (int64, time.Time) {
+				r.submitted("T-a")
+				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
+					event.FactData{Reason: "superseded"})
+				return seq, r.now
+			}},
+		{name: "a merge's last after-merge step: that step", last: "T-a merged ccccccc",
+			setup: func(r *reviewRig) (int64, time.Time) {
+				r.submitted("T-a")
+				r.merged("T-a")
+				r.now = r.now.Add(time.Minute)
+				r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepAfterMerge, Kind: event.KindResult}, nil)
+				r.now = r.now.Add(time.Minute)
+				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepStop, Kind: event.KindResult}, nil)
+				return seq, r.now
+			}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReviewRig(t)
+			want, at := c.setup(r)
+			r.a.mu.Lock()
+			n := r.p.idleNow()
+			r.a.mu.Unlock()
+			if !n.ok || n.end != want || !n.at.Equal(at) || n.last != c.last {
+				t.Errorf("idle %+v, want key %d at %v with last %q", n, want, at, c.last)
+			}
+		})
 	}
 }

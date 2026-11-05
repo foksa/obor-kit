@@ -226,13 +226,20 @@ type folded struct {
 	did map[event.Of]time.Time
 	// idleAck: the lead's last acknowledgement of an idle state (idle.go, T-803, T-866; zero: none).
 	idleAck idleAck
+	// ends: the records that ended work idleNow waits on besides a task's merge or drop (T-868), so the idle key and
+	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
+	// stop that ended it); verifyEnd, the last verify that failed before its brief; reviewEnd, the last review
+	// request's end.
+	briefEnds map[string]idleEnd
+	verifyEnd idleEnd
+	reviewEnd idleEnd
 }
 
 // newFolded is the folded state before the log's first record.
 func newFolded() folded {
 	return folded{active: map[string][]event.Record{}, woke: map[string]time.Time{}, calls: map[string]string{},
 		refusals: map[string]string{}, loop: map[string]*mtask{}, delivered: map[string]int64{}, watches: map[string]*mergeWatch{}, did: map[event.Of]time.Time{},
-		lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
+		briefEnds: map[string]idleEnd{}, lr: laneRows{rows: map[string]store.LaneRow{}, submitted: map[string]int64{}}}
 }
 
 // retry is one failed notification's next try; tries counts the failures so far (the wait doubles from notifyRetry).
