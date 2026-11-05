@@ -61,7 +61,7 @@ type idleAfter struct {
 	got *int
 }
 
-func (w idleAfter) Agent(ctx context.Context, target string) (port.AgentInfo, error) {
+func (w idleAfter) Agent(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		if *w.got++; *w.got > w.n {
 			w.p.Status = "idle"
@@ -202,11 +202,11 @@ type polled struct {
 	atExit *[]string
 }
 
-func (w polled) Agent(ctx context.Context, target string) (port.AgentInfo, error) {
+func (w polled) Agent(ctx context.Context, target string) (port.Pane, error) {
 	if target == w.p.ID {
 		*w.got++
 		if err := w.hook(*w.got); err != nil {
-			return port.AgentInfo{}, err
+			return port.Pane{}, err
 		}
 	}
 	return w.PaneControl.Agent(ctx, target)

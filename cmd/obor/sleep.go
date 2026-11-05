@@ -414,7 +414,7 @@ func (s *sleeper) stopAgents(ctx context.Context) error {
 	ownPane, ownAgent := s.Env.Get("HERDR_PANE_ID"), project.Self(repo, s.Cfg, s.Env) // derived (T-786)
 	stopped := 0
 	for _, p := range panes {
-		if p.Label == "" || p.Kind == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
+		if p.Label == "" || p.Agent == "" || p.ID == ownPane || ownAgent != "" && p.Label == ownAgent {
 			continue
 		}
 		info, ok := project.AgentLookup(s.Cfg, p.Label, "")

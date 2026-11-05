@@ -109,10 +109,10 @@ func (p *Restorer) Restore(ctx context.Context) {
 	}
 }
 
-func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port.PaneInfo, limit time.Duration, w io.Writer) {
+func (p *Restorer) restoreOne(ctx context.Context, cfg *config.Config, pane port.Pane, limit time.Duration, w io.Writer) {
 	now, agent := p.stamp(), pane.Label
-	if pane.Kind != "" {
-		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, agent, pane.ID, pane.Kind)
+	if pane.Agent != "" {
+		fmt.Fprintf(w, "%s skip %s (pane %s): runs %s\n", now, agent, pane.ID, pane.Agent)
 		return
 	}
 	info, _ := project.AgentLookup(cfg, agent, "")

@@ -194,12 +194,12 @@ func (s *Setup) start(ctx context.Context, a agent, w where) error {
 	s.placed, s.running, s.started, s.idle = "", false, false, false
 	for _, r := range running {
 		if a.role.Name == roles.Driver && r.Name != a.name && r.Cwd == a.cwd { // T-751: one agent in a lane
-			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", r.Name, a.lane, r.Pane,
+			return project.Failf("%s still runs in lane %s (pane %s): obor restart %s --stop first", r.Name, a.lane, r.ID,
 				r.Name)
 		}
 		if r.Name == a.name || (a.lane != "" && r.Cwd == a.cwd) {
-			s.placed, s.running = r.Pane, true
-			s.say("skip agent start: %s already running (pane %s)", r.Name, r.Pane)
+			s.placed, s.running = r.ID, true
+			s.say("skip agent start: %s already running (pane %s)", r.Name, r.ID)
 			s.say("OK %s: %s already running", what, r.Name)
 			return nil
 		}
@@ -389,7 +389,7 @@ func (s *Setup) shellWait() time.Duration {
 // the one with most project panes, the first of equals in herdr's order. Placement follows it, never the caller's
 // workspace when that is another project's (T-628, live: obor init from obor-kit's lead pane put axis-maps' panes in
 // obor-kit's w5).
-func (s *Setup) projectWorkspace(panes []port.PaneInfo) string {
+func (s *Setup) projectWorkspace(panes []port.Pane) string {
 	count, foreign := map[string]int{}, map[string]bool{}
 	for _, p := range panes {
 		switch {
@@ -411,11 +411,11 @@ func (s *Setup) projectWorkspace(panes []port.PaneInfo) string {
 
 // splittable: a split of a named tab (--tab) may use p. Its cwd is unknown, or in this project: never another
 // project's pane (T-628).
-func (s *Setup) splittable(p port.PaneInfo) bool { return p.Cwd == "" || s.inProject(p.Cwd) }
+func (s *Setup) splittable(p port.Pane) bool { return p.Cwd == "" || s.inProject(p.Cwd) }
 
 // projectTab: every pane of tab has a known cwd in this project, so placement may pick it on its own (T-632). A pane
 // with an unknown cwd may be another project's.
-func (s *Setup) projectTab(panes []port.PaneInfo, tab string) bool {
+func (s *Setup) projectTab(panes []port.Pane, tab string) bool {
 	n := 0
 	for _, p := range panes {
 		if p.Tab != tab {
@@ -432,7 +432,7 @@ func (s *Setup) projectTab(panes []port.PaneInfo, tab string) bool {
 // workspace is where this run's new tabs go: the project's workspace; none (no herdr workspace holds a pane of the
 // project) → a new workspace named after the project, its first pane a shell in the root, made once a run (T-632).
 // The caller's or herdr's active workspace is never a fallback: it may be another project's.
-func (s *Setup) workspace(ctx context.Context, panes []port.PaneInfo) (string, error) {
+func (s *Setup) workspace(ctx context.Context, panes []port.Pane) (string, error) {
 	if ws := s.projectWorkspace(panes); ws != "" {
 		return ws, nil
 	}
@@ -454,7 +454,7 @@ func (s *Setup) workspace(ctx context.Context, panes []port.PaneInfo) (string, e
 
 // newTab makes a tab labelled label in the project's workspace (made first when there is none), its pane in cwd with
 // env; the pane's id.
-func (s *Setup) newTab(ctx context.Context, panes []port.PaneInfo, label, cwd string, env []string) (string, error) {
+func (s *Setup) newTab(ctx context.Context, panes []port.Pane, label, cwd string, env []string) (string, error) {
 	ws, err := s.workspace(ctx, panes)
 	if err != nil {
 		return "", err
@@ -469,7 +469,7 @@ func (s *Setup) newTab(ctx context.Context, panes []port.PaneInfo, label, cwd st
 
 // defaultTab is the tab a split without --tab goes to: the caller's when it is a project tab in the project's
 // workspace, else that workspace's project tab with most panes; "" when none (a new tab then, T-632).
-func (s *Setup) defaultTab(panes []port.PaneInfo) string {
+func (s *Setup) defaultTab(panes []port.Pane) string {
 	proj := s.projectWorkspace(panes)
 	if proj == "" {
 		return ""
@@ -485,7 +485,7 @@ func (s *Setup) defaultTab(panes []port.PaneInfo) string {
 }
 
 // busiestTab is the project tab of ws with the most panes ("" when none).
-func (s *Setup) busiestTab(panes []port.PaneInfo, ws string) string {
+func (s *Setup) busiestTab(panes []port.Pane, ws string) string {
 	count := map[string]int{}
 	for _, p := range panes {
 		if p.Workspace == ws {
@@ -503,7 +503,7 @@ func (s *Setup) busiestTab(panes []port.PaneInfo, ws string) string {
 
 // split splits the largest pane of tab a split may use for a new pane with cwd and env: to the right when it is wider
 // than tall on screen (a cell is about twice as tall as wide), else down. Another project's pane is never split.
-func (s *Setup) split(ctx context.Context, panes []port.PaneInfo, tab, cwd string, env []string) (string, error) {
+func (s *Setup) split(ctx context.Context, panes []port.Pane, tab, cwd string, env []string) (string, error) {
 	var in []string
 	n := 0
 	for _, p := range panes {

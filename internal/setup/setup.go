@@ -75,7 +75,7 @@ import (
 // client is it.
 type Herdr interface {
 	port.PaneControl
-	Agents(ctx context.Context) ([]port.AgentInfo, error)
+	Agents(ctx context.Context) ([]port.Pane, error)
 	Layout(ctx context.Context, pane string) ([]port.Rect, error)
 	Split(ctx context.Context, pane, dir, cwd string, env ...string) (string, error)
 	NewTab(ctx context.Context, workspace, label, cwd string, env ...string) (string, error)

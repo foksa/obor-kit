@@ -54,8 +54,8 @@ type Typer interface {
 // PaneControl is the pane operations launch needs: find agents and panes, look at a pane, type into it, start an
 // agent CLI in it. A "not found" error matches NotFound; ErrorCode reads the adapter's error code.
 type PaneControl interface {
-	Agent(ctx context.Context, target string) (AgentInfo, error)
-	Panes(ctx context.Context) ([]PaneInfo, error)
+	Agent(ctx context.Context, target string) (Pane, error)
+	Panes(ctx context.Context) ([]Pane, error)
 	ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error)
 	// Screen is the pane's visible text, its last lines.
 	Screen(ctx context.Context, pane string, lines int) (string, error)
@@ -68,9 +68,9 @@ type PaneControl interface {
 	Wake(ctx context.Context, pane, text string) error
 	SendKeys(ctx context.Context, pane string, keys ...string) error
 	// Start starts agent CLI kind in pane under name, returning once the agent runs there and is named: the agent as
-	// the multiplexer answered, or as it shows it in the pane when the answer came later (its Pane "" when neither
+	// the multiplexer answered, or as it shows it in the pane when the answer came later (its ID "" when neither
 	// named one).
-	Start(ctx context.Context, name, kind, pane string, args ...string) (AgentInfo, error)
+	Start(ctx context.Context, name, kind, pane string, args ...string) (Pane, error)
 }
 
 // NotFound: err says the pane or agent asked about does not exist (an error in the chain with NotFound() true).
@@ -167,39 +167,6 @@ func ErrorCode(err error) string {
 		return e.ErrorCode()
 	}
 	return ""
-}
-
-// AgentInfo is one agent the multiplexer recognises in a pane.
-type AgentInfo struct {
-	Name    string // "" when herdr has no name for it (it exited, or a restore dropped it)
-	Pane    string
-	Status  string // idle, working, blocked, done, unknown
-	Cwd     string // no trailing /
-	Kind    string // claude, codex, …
-	Session string // the agent's session id, when herdr knows it
-	Seq     int64  // state_change_seq: grows with each status change
-	// Workspace is the herdr workspace id; Transcript is Session when herdr reports it as a path (agent_session kind
-	// path: the agent's transcript file), else "".
-	Workspace, Transcript string
-	// Label is the pane's label: not in herdr's agent entry, so only a Stream's reread and the snapshot fill it
-	// (a relabel emits no herdr event; the stream sees it on the next reread of the pane).
-	Label string
-}
-
-// PaneInfo is one pane; the agent fields are empty when it runs none.
-type PaneInfo struct {
-	ID  string
-	Tab string
-	// Terminal is herdr's terminal_id: kept when the pane moves (pane.move gives it a new ID), "" when herdr reports none.
-	Terminal string
-	Label    string
-	Cwd      string
-	Kind     string
-	Status   string
-	Session  string
-	// Workspace is the herdr workspace id; Transcript is Session when herdr reports it as a path (agent_session kind
-	// path: the agent's transcript file), else "".
-	Workspace, Transcript string
 }
 
 // Process is one foreground process of a pane.

@@ -80,11 +80,12 @@ func (p Panes) appEvent(ev Event) port.Event {
 	return port.Event{Kind: port.EventExited, Pane: ev.Pane}
 }
 
-// appPane is a pane as herdr reports it (its agent entry, or the pane's fields when no agent runs). An agent entry has
-// no label of its own: Label is the pane's, set by a Stream's reread and the snapshot.
-func (p Panes) appPane(a Agent) port.Pane {
-	return port.Pane{ID: a.Pane, Workspace: a.Workspace, Cwd: a.Cwd, Agent: a.Kind, Status: a.Status,
-		Transcript: p.transcript(a), Session: a.Session, Label: a.Label}
+// appPane is a pane as herdr reports it (its agent entry, or the pane's fields when no agent runs), with obor's
+// reading of its session as the transcript. An agent entry has no label of its own: Label is the pane's, set by a
+// Stream's reread and the snapshot.
+func (p Panes) appPane(a port.Pane) port.Pane {
+	a.Transcript = p.transcript(a)
+	return a
 }
 
 func (p Panes) appSnapshot(s Snapshot) port.Snapshot {
@@ -141,7 +142,7 @@ func (p Panes) Turn(ctx context.Context, pane, transcript string) (agents.Turn, 
 	if err != nil {
 		return agents.Turn{}, false
 	}
-	k, ok := agents.Lookup(a.Kind)
+	k, ok := agents.Lookup(a.Agent)
 	if !ok || !k.Caps().Turns {
 		return agents.Turn{}, false
 	}
@@ -195,11 +196,11 @@ func lastTurn(k agents.Kind, path string) (agents.Turn, bool) {
 // transcript is a's transcript file: the path herdr reports, else the file its session id names under the home
 // (agents.Kind.Transcript: .claude/projects/*/<id>.jsonl, .codex/sessions/YYYY/MM/DD/rollout-*-<id>.jsonl; the newest
 // if several); "" when none is found.
-func (p Panes) transcript(a Agent) string {
+func (p Panes) transcript(a port.Pane) string {
 	if a.Transcript != "" {
 		return a.Transcript
 	}
-	k, ok := agents.Lookup(a.Kind)
+	k, ok := agents.Lookup(a.Agent)
 	if a.Session == "" || strings.ContainsAny(a.Session, "/*?[\\") || !ok || !k.Caps().Transcript {
 		return ""
 	}

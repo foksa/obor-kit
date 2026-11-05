@@ -171,7 +171,7 @@ func (l *Launcher) whenIdle(ctx context.Context, t *target, word string) error {
 			return false
 		}
 		status, last = a.Status, nil
-		return status != "working" && status != "blocked"
+		return !a.Busy()
 	}) {
 		return nil
 	}

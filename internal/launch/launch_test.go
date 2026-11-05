@@ -1318,7 +1318,7 @@ type startEnds struct {
 	ended chan struct{}
 }
 
-func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
+func (s startEnds) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	defer close(s.ended)
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
 }
@@ -2295,7 +2295,7 @@ func (s lockSpy) Type(ctx context.Context, pane, text string) error {
 	return s.PaneControl.Type(ctx, pane, text)
 }
 
-func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
+func (s lockSpy) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	s.note("start")
 	return s.PaneControl.Start(ctx, name, kind, pane, args...)
 }
@@ -3336,7 +3336,7 @@ type startProbe struct {
 	atStart func()
 }
 
-func (p startProbe) Start(ctx context.Context, name, kind, pane string, args ...string) (port.AgentInfo, error) {
+func (p startProbe) Start(ctx context.Context, name, kind, pane string, args ...string) (port.Pane, error) {
 	p.atStart()
 	return p.PaneControl.Start(ctx, name, kind, pane, args...)
 }
