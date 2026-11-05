@@ -1,5 +1,15 @@
 # Upgrading an obor project from v0.26 to v0.27
 
+## v0.27.1 (idle line after an ack, serve restart waits for serve)
+Re-run the installer, then in every project:
+
+```sh
+obor serve restart
+```
+
+It now returns once the new serve answers (`serve ready`), so the next command no longer meets a missing socket.
+An idle state you acknowledge with `obor idle` inside its one-minute settle window gets no line.
+
 ## v0.27.0 (role worktrees, no merge hold, review fix rounds in serve, verbs that answer first)
 Upgrade from v0.26.x. Nothing to change in the project. Close an open review first (`obor review close`), or let it
 finish on the new serve. Re-run the installer, then in every project:
