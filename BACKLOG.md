@@ -211,6 +211,7 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-113, accepted) (RV-113, accepted) 4b: an open review started by an obor older than the review.started fact closes at an unfinished manual verify's head (refs/obor/reviewed moves at brief time, reviewverify.go:519; reviewcycle.go:233 falls back to it); needs such an old open review + an unlinked manual verify that fails or is superseded; none exists; fix 25-55 lines (move the fallback ref only on a finished verify)
 - (11-05) The idle line fired at T-856's merge although `obor review fix` was about to brief the verify (ob-rev working
   seconds later; `obor idle` then said NOT IDLE): idle should count linked fixes that all merged and a verify not yet
   briefed. A false ping per fix round; fix small (idle.go reads the review-fix state).
