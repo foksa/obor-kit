@@ -412,7 +412,8 @@ esac
 }
 
 // T-867: obor stop --force with two working tasks drops nothing: serve gets the pause and the exit only, both agents
-// stop, STOPPED is said, the tasks stay open in the log, and obor start leaves both open (they continue at the start).
+// stop, STOPPED is said. That the tasks continue at obor start is serve's (T-874: the worker start rule,
+// internal/app TestWorkerStartAfterStopForce), not this fake's.
 func TestStopForceKeepsTasksOpen(t *testing.T) {
 	p, s, out, stops, f := sleepFx(t)
 	p.Lane("L-02", "task/T-03")
@@ -448,19 +449,6 @@ func TestStopForceKeepsTasksOpen(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "STOPPED proj") || !project.Stopped(p.Root) {
 		t.Errorf("no STOPPED line or marker:\n%s", out)
-	}
-	if got := openTasks(&wire.ProjectStatus{Tasks: f.tasks}); len(got) != 2 {
-		t.Errorf("tasks after --force: %+v; want both kept open", got)
-	}
-
-	out.Reset()
-	f.calls = nil
-	if rc := s.start(context.Background()); rc != 0 {
-		t.Fatalf("start: exit %d\n%s", rc, out)
-	}
-	ps, err := s.status(context.Background())
-	if err != nil || len(openTasks(ps)) != 2 || openTasks(ps)[0].Task != "T-02" || openTasks(ps)[1].Task != "T-03" {
-		t.Errorf("open tasks after start: %+v, %v; want T-02 and T-03", openTasks(ps), err)
 	}
 }
 

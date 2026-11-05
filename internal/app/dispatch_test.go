@@ -35,6 +35,7 @@ type dispatchFakes struct {
 	ahead  bool
 	// What the LaneSetup and the worker's starts applied (a call cut before it applies counts in calls only).
 	prepares, starts int
+	resumes          int // the starts without --fresh applied (the worker start rule's, T-874)
 	calls            map[string]int
 	inputs           []port.PrepareInput
 	frees            []port.FreeInput
@@ -147,12 +148,13 @@ func (d *dispatchFakes) Free(ctx context.Context, in port.FreeInput) (string, er
 	return "", nil
 }
 
-// startWorker is pj-l-01's fresh start in its pane: a new session (unless keepSession), idle, seen by the app.
+// startWorker is pj-l-01's start in its pane: a fresh one a new session (unless keepSession), one without --fresh
+// (the worker start rule's, T-874) the session resumed; idle, seen by the app.
 func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.Started, error) {
 	if err := d.enter("start"); err != nil {
 		return port.Started{}, err
 	}
-	if !req.Fresh || req.Pane != "w1:p1" {
+	if req.Pane != "w1:p1" {
 		return port.Started{}, errors.New("unexpected start of pj-l-01: " + req.Pane)
 	}
 	if err := d.hold(ctx, "start", "before"); err != nil {
@@ -160,7 +162,9 @@ func (d *dispatchFakes) startWorker(ctx context.Context, req port.Launch) (port.
 	}
 	d.mu.Lock()
 	d.starts++
-	if !d.keepSession {
+	if !req.Fresh {
+		d.resumes++
+	} else if !d.keepSession {
 		d.session++
 	}
 	transcript := "/s/" + string(rune('0'+d.session)) + ".jsonl"
