@@ -686,3 +686,77 @@ func TestIdleRestartStartsTheWindowAgain(t *testing.T) {
 		t.Errorf("%d idle lines, want the one", n)
 	}
 }
+
+// idleAck is the lead's acknowledgement of the idle state in force, with why.
+func (r *loopRig) idleAck(callID, why string) {
+	r.t.Helper()
+	if reply, err := r.line(wire.MethodIdle, callID, wire.Call{Note: why}); err != nil ||
+		reply != "ACKED idle: "+why {
+		r.t.Fatalf("idle ack: %q, %v", reply, err)
+	}
+}
+
+// T-860: an acknowledgement made inside the settle window holds as one made after the line: no line, no reminder. A
+// new epoch after work resumes and ends posts its one line as usual.
+func TestIdleAckInsideTheSettleWindowPostsNothing(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass", testkit.Set("roles.reviewer", ""))
+	r.start()
+	r.mergedTask()
+	line := idleLineFor(r, "T-1")
+	r.passes() // the idle check that starts the window
+	r.later(25 * time.Second)
+	r.idleAck("i1", "nothing to dispatch")
+	r.later(idleSettle) // past the window: the ack holds
+	r.passes()
+	if got := r.idlePosts(); len(got) != 0 {
+		t.Fatalf("%d idle lines after an ack inside the window, want none: %q", len(got), got)
+	}
+	r.later(31 * time.Minute) // past the reminder's deadline
+	r.passes()
+	if got := r.idlePosts(); len(got) != 0 {
+		t.Errorf("%d idle lines after the reminder's deadline, want none: %q", len(got), got)
+	}
+	if n := countReq(r.srv, "notification.show"); n != 0 {
+		t.Errorf("%d notifications, want none", n)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+		t.Errorf("obor idle (the state): %q, %v; want the acknowledgement's why", reply, err)
+	}
+	// Work resumes (a review request, T-818) and ends: a new epoch posts its own one line.
+	r.requestReview("r1", nil, "REVIEW REQUESTED (now)")
+	if reply, err := r.line(wire.MethodReview, "r2", wire.Call{Clear: true}); err != nil || reply != "REVIEW REQUEST ENDED" {
+		t.Fatalf("review --rm: %q, %v", reply, err)
+	}
+	r.settleIdle()
+	r.waitFor("the new epoch's idle line", func() bool { return r.inbox.count("pj-lead", line) == 1 })
+	r.passes()
+	if got := r.idlePosts(); len(got) != 1 || got[0] != line {
+		t.Errorf("idle lines %q, want the new epoch's one %q", got, line)
+	}
+}
+
+// T-860: a restart with the acknowledgement recorded inside the window replays it: no line, and the state stays
+// acknowledged.
+func TestIdleAckInsideTheSettleWindowSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	r := newLoopRig(t, "echo 1 pass")
+	r.start()
+	r.mergedTask()
+	r.passes() // the idle check that starts the window
+	r.later(25 * time.Second)
+	r.idleAck("i1", "nothing to dispatch")
+	r.stop()
+	r.start()
+	r.later(2 * idleSettle) // the replayed window and well past it
+	r.passes()
+	if got := r.idlePosts(); len(got) != 0 {
+		t.Errorf("%d idle lines after the restart, want none: %q", len(got), got)
+	}
+	if n := countReq(r.srv, "notification.show"); n != 0 {
+		t.Errorf("%d notifications after the restart, want none", n)
+	}
+	if reply, err := r.line(wire.MethodIdle, "i2", wire.Call{}); err != nil || reply != "IDLE: nothing to dispatch" {
+		t.Errorf("obor idle (the state) after the restart: %q, %v", reply, err)
+	}
+}
