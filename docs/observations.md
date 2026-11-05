@@ -22,8 +22,16 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
   11-05. Fixing them one by one does not keep up. Sources found: every merge re-gated every waiting candidate (T-900),
   non-Go files ran the full suite (T-901), workers ran the class check beside the gates (worker doc 11-05), herdr
   0.9.5 burns ~75% of a core idle in its own loop (not obor's calls; sample 11-05).
+- Re-gates after main moves were ~35% of serial gate time on 11-05 (41 moved + 12 resolved of 133 gates) and caught
+  no real break in 12 days (docs/research/merge-without-regate.md); T-913/T-914 address it: re-measure.
 - More lanes made it worse: 6 lanes → 5 of 6 sat finished, waiting for one serial gate. Gates are the throughput
   limit; measure gate time and gates per merge before raising lanes.
+
+- **Split by files means grepping the files.** 11-05 evening: T-880, T-891, T-893 all edited
+  `internal/view/setup.go`; the specs' prose did not say so. T-891 resolved the same conflict three times (each main
+  move re-merged the submitted sha; T-913 now reuses the resolution).
+- **A spec lists what it adds, so the task adds.** Pre-milestone specs (T-880 +199, T-893 +116) grew despite the
+  net-negative Report line added at dispatch; the integrator does not judge size. Name the deletions in the spec.
 
 ## Premises to check before proposing
 - The lead's premise was wrong twice on 11-05: E1 (integrator review "adds nothing": it sent back ~8% of merges) and

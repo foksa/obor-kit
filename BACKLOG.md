@@ -7,27 +7,25 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-05 ~20:40 (lead → fresh session; the old Handoff history is in git: `git show d2f5d6b3:BACKLOG.md`).
-  **Shipped:** v0.28.0 (20:20; notes docs/releases/v0.28.0.md). axis-alies applied it (68efc07); axis-maps needed
-  nothing. **In flight:** T-911 (`obor lead` wakes a stopped project), L-01; nothing else; no open review (RV-122
-  closed; T-911 falls into the next one). Lanes 4 (6 only after measuring gate time and gates per merge).
-  **Next milestone (owner: start in the next session).** Rule: every task reports net production lines and is
-  net-negative or says why; no survey without naming the milestone it serves. Baseline at v0.28.0: prod 46,969 /
-  test 78,857 (cmd+internal+tests). Order:
-  1. Owner decision: a log snapshot at upgrade (Owner decisions pending), which unlocks deleting compat branches.
-  2. Re-dispatch the held tasks (specs stored; `--after` only on unmerged ones): T-880; T-891; T-893 `--after T-880`;
-     T-894; T-896 `--after T-891,T-893`; T-902; T-903; T-904 `--after T-903`; T-905 `--after T-902` (guard deny list
-     as config, owner-approved). Split by files across the 4 lanes.
-  3. Combined plan waves still open (docs/research/architecture-advice-fable.md): G (verify as a rule + `Fixes:` spec
-     line), H (needs-you repeat, merge watch as rules), I (review close via serve; T-895 did the format), J (one
-     decide-and-append lock).
-  4. Candidates: app split steps 6-7 (outbox, identity; docs/research/app-split-deep-dive.md); unreachable tests,
-     passes 2-3 (states nothing produces; redundant by scenario, opus, `internal/app` first); serve replay calls
-     `store.Admits` per session fact (RV-121: measure, then one incremental fold); `obor web` follows a new binary;
-     obor web's lanes raise runs `setup lane/pane`; the Go cache probe in serve's low-disk line (config or drop).
-  **Accepted, not fixed:** RV-119 #1 (a resumed worker whose wake herdr refuses stays idle; the stalled needs-you
-  catches it). **Owner side:** herdr 0.9.5 ~75% CPU idle in its own loop (sample + table in the 11-05 lead's
-  scratchpad, gone with it; re-sample with `sample <herdr pid> 3` if reporting); closing stale workspaces may help.
+- 2026-11-05 ~23:00 (lead; owner: continue tomorrow; previous Handoff: `git show c8166734:BACKLOG.md`).
+  **Merged since v0.28.0 (13):** T-880, T-891, T-893, T-894, T-902, T-903, T-904, T-905, T-911, T-912 (take-over
+  gone), T-913 (rerere), T-914 (compile-only re-gate on a package-only move). **Lines since v0.28.0:** prod +123,
+  test +795 (git count; T-880 +199, T-893 +116 grew; T-912 −115, T-903 −99 shrank). Not net-negative yet.
+  **In flight:** T-896 (L-02, deepseek), T-915 (L-01, opus: RV-123 #1, a rerere replay keeps no green unless it
+  equals the checked resolution), T-916 (L-03, sonnet: RV-123 #2, old take-over's pending stop retried). RV-123 is
+  open: T-915/T-916 linked with `obor review fix`; serve briefs the verify once both merge; close only after it
+  (review-rounds rule). deepseek paused until 23:40 (provider overloaded).
+  **Decided today (docs/decisions.md):** drive is new work only; log snapshot parked (advisor: +90 net today);
+  re-gate option C. Research committed: docs/research/log-snapshot.md, merge-without-regate.md.
+  **Next:** (1) RV-123 verify → close. (2) Spec the milestone's next wave around what each task deletes (waves G-J
+  in docs/research/architecture-advice-fable.md; candidates below), file overlap checked by grepping the files, not
+  the spec prose. (3) Measure re-gates again after T-913/T-914 (`obor serve dump`, gate intents kind=moved/resolved;
+  11-05 baseline: 41 moved + 12 resolved of 133 gates, ~173 of 489 min).
+  **Candidates:** app split steps 6-7 (outbox, identity; docs/research/app-split-deep-dive.md); unreachable tests,
+  passes 2-3; serve replay `store.Admits` per session fact (RV-121: measure first); `obor web` follows a new binary;
+  obor web's lanes raise runs `setup lane/pane`; the Go cache probe in serve's low-disk line (config or drop).
+  **Owner side:** obor web is on the tailnet via `tailscale serve --bg 8787` (https://djordjes-mac-mini.tail7ae3ed.ts.net/;
+  off: `tailscale serve --https=443 off`); herdr 0.9.5 idle CPU (re-sample with `sample <herdr pid> 3` if reporting).
 
 ## Owner decisions pending
 - (none; log snapshot and drive decided 11-05, docs/decisions.md)
