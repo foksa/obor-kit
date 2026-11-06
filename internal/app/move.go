@@ -32,20 +32,15 @@ func moveReply(task, lane, from, to, worker string) string {
 	return fmt.Sprintf("MOVING %s on %s: %s → %s (stopping %s)", task, lane, Dash(from), to, worker)
 }
 
-// moveTask decides and records the move of c.Task (the config read first, then one mu section): a task its worker works
-// on (working, or dispatched with its lane prepared; never a drive), no step of it running or pending, the merge loop
-// on and not paused, to c's first unpaused model, a model ref of the config whose kind has a bridge and that is not the
+// moveTask decides and records the move of c.Task (under a.verdicts and a.submitMu): a task its worker works on
+// (working, or dispatched with its lane prepared; never a drive), no step of it running or pending, the merge loop on
+// and not paused, to c's first unpaused model, a model ref of the config whose kind has a bridge and that is not the
 // one it runs ("already on"). Recorded: fact dispatch{redo, stop: its worker} of the next attempt on the task's lane,
 // branch and target with the new model, with the moved attempt's outstanding fix (a sendback's or red gate's text,
 // T-778). Refused, nothing recorded: gating, merging, under review or any other state of the merge loop (submitted
 // meanwhile included).
 func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
-	cfg, cfgErr := config.LoadDaemon(p.root)
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if reply, ok := p.folded.calls[verdictStep(wire.MethodDispatch, c.CallID)]; ok { // the same call recorded meanwhile
-		return reply, nil
-	}
 	var mt mtask
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
@@ -53,6 +48,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 	merging, pause := p.merging, p.paused(a.opt.Now())
 	busy := p.busy(c.Task)
 	dir := p.laneDir(mt)
+	a.mu.Unlock()
 	switch {
 	case !merging:
 		return "", mergeOff(p)
@@ -68,8 +64,9 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 	case busy != "":
 		return "", busyErr("dispatch", c.Task, busy)
 	}
-	if cfgErr != nil {
-		return "", cfgErr
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return "", err
 	}
 	for _, t := range c.Types {
 		if err := cfg.CheckModelRef(t); err != nil {
@@ -107,7 +104,7 @@ func (a *App) moveTask(p *proj, fx *Loop, c wire.Call) (string, error) {
 	} else { // the dispatched attempt itself: a fix a move gave it is still outstanding
 		d.Fix, d.Answer = mt.disp.Fix, mt.disp.Answer
 	}
-	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepDispatched, Kind: event.KindFact}, d) {
+	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()

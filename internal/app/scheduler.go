@@ -95,7 +95,7 @@ func (p *proj) scratchQueue() (*wire.ScratchStatus, []wire.ScratchWait) {
 	var out []wire.ScratchWait
 	for _, task := range p.passOrder() {
 		mt := p.folded.loop[task]
-		if states[mt.state].uses == "" || mt.paused() || task == p.running.Task {
+		if states[mt.state].uses == "" || mt.paused() || task == p.running.Task || p.ended[task] {
 			continue
 		}
 		w := wire.ScratchWait{Task: task}

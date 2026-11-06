@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// T-775: a busy claim on a task refuses every task verb whose state takes it, with busy's why: a step holding it
-// (p.held), its scratch step running (p.running), its next gate intent open. Each verb on a working T-1 (resume of its
-// stalled worker, drop, move) and land on a driving one; never submit, since the step holding a working task is the
-// one that sent the worker its job (TestEarlyTaskDone), and a drop decides and records in one mu section.
+// T-775: a busy claim on a task refuses every task verb whose state takes it, with busy's why: a drop being recorded
+// (p.ended), a step holding it (p.held), its scratch step running (p.running), its next gate intent open. Each verb on
+// a working T-1 (resume of its stalled worker, drop, move, submit) and land on a driving one; submit only by a
+// drop, since the step holding a working task is the one that sent the worker its job.
 func TestBusyRefusesEveryVerb(t *testing.T) {
 	t.Parallel()
 	claims := []struct {
@@ -19,6 +19,7 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 		set  func(h *harness, p *proj)
 		why  string
 	}{
+		{"a drop being recorded", func(h *harness, p *proj) { p.ended["T-1"] = true }, "T-1 has a drop being recorded"},
 		{"a step holding it", func(h *harness, p *proj) { p.held["T-1"] = "the fix" }, "T-1 has the fix running"},
 		{"its scratch step running", func(h *harness, p *proj) {
 			p.running = event.Key{Task: "T-1", Attempt: 1, Step: event.StepGate}
@@ -43,6 +44,11 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 				Types: []string{"sonnet"}})
 			return err
 		},
+		"submit": func(h *harness) error {
+			_, err := h.a.taskDone(wire.Call{Root: h.root, Role: "worker", Agent: "pj-l-01", Lane: "L-01", CallID: "s1",
+				Task: "T-1", Report: "Summary: x\nSelf-check: x\nSkipped: x\nOpen questions: none."})
+			return err
+		},
 		"land": func(h *harness) error {
 			_, err := h.a.landCall(wire.Call{Root: h.root, Role: "lead", CallID: "l1", Task: "T-1", Report: "done"})
 			return err
@@ -50,6 +56,9 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 	}
 	for _, c := range claims {
 		for name, call := range verbs {
+			if name == "submit" && c.why != "T-1 has a drop being recorded" {
+				continue // a working task's step is the one that sent its job: an early task_done (TestEarlyTaskDone)
+			}
 			t.Run(c.name+"/"+name, func(t *testing.T) {
 				t.Parallel()
 				h, p, _ := answerSeed(t, reasonStalled, "", "", true)
@@ -59,7 +68,7 @@ func TestBusyRefusesEveryVerb(t *testing.T) {
 					mt.state, mt.drive = stDriving, true
 				}
 				if st := mt.state; st != stWorking && st != stDispatched && st != stDriving || !mt.may(map[string]verb{
-					"resume": vResume, "drop": vDrop, "move": vMove, "land": vLand}[name]) {
+					"resume": vResume, "drop": vDrop, "move": vMove, "submit": vSubmit, "land": vLand}[name]) {
 					h.a.mu.Unlock()
 					t.Fatalf("precondition: T-1 is %s, which does not take %s", st, name)
 				}

@@ -139,7 +139,7 @@ func TestFailedScanKeepsFactsAndRetries(t *testing.T) {
 	t.Parallel()
 	h, p := askSeed(t)
 	h.panes.notifyFn = func() error { return errors.New("herdr away") }
-	if err := h.ask(p, "T-1", h.lanes.lanes[0], "may I edit x?"); err != nil {
+	if _, err := h.a.ask(p, "T-1", h.lanes.lanes[0], "may I edit x?"); err != nil {
 		t.Fatal(err)
 	}
 	h.tick(time.Minute)

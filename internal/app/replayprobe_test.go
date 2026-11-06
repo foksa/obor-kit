@@ -32,7 +32,7 @@ func replayState(recs []event.Record, lead string) string {
 	p := &proj{root: "/replay", name: "replay", tasks: map[string]*watch{}, retry: map[event.Key]retry{},
 		out: newOutbox(lead, "claude"), timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
-		exec: map[event.Key]time.Time{}, held: map[string]string{},
+		exec: map[event.Key]time.Time{}, held: map[string]string{}, ended: map[string]bool{},
 		roleFail: map[string]time.Time{}, reg: newRegistry(), folded: newFolded()}
 	for _, r := range recs {
 		p.foldRecord(r)

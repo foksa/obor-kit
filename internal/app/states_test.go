@@ -61,7 +61,7 @@ func checkRow(t *testing.T, w rowWant) {
 	same(t, mt.landed(), w.landed, mt.state+": drive checks a merge outside")
 	same(t, row.ended, w.ended, mt.state+": ended")
 	if w.verbs&vDrop == 0 {
-		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, held: map[string]string{}}
+		p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}}, ended: map[string]bool{}, held: map[string]string{}}
 		_, err := (&App{}).dropDecide(p, wire.Call{Task: "T-1", Note: "why", CallID: "d"})
 		if err == nil || !strings.Contains(err.Error(), "is "+mt.state+" already") {
 			t.Errorf("%s: drop %v, want refused as ended", mt.state, err)
@@ -262,9 +262,10 @@ func TestStateWaitingRow2a(t *testing.T) {
 	// drop: a waiting task is open, obor drop <T> takes it
 	mt := mtask{task: "T-1", attempt: 1, state: stWaiting}
 	p := &proj{merging: true, folded: folded{loop: map[string]*mtask{"T-1": &mt}, calls: map[string]string{}},
-		held: map[string]string{}, log: &event.Log{}}
-	if got, err := (&App{}).dropDecide(p, wire.Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" {
-		t.Errorf("drop of a waiting task: %+v, %v; want T-1 to drop", got, err)
+		ended: map[string]bool{}, held: map[string]string{}, log: &event.Log{}}
+	if got, err := (&App{}).dropDecide(p, wire.Call{Task: "T-1", Note: "why", CallID: "d"}); err != nil || got.task != "T-1" ||
+		!p.ended["T-1"] {
+		t.Errorf("drop of a waiting task: %+v, %v; want T-1 marked ended", got, err)
 	}
 	// dispatchable: waiting, or a needs-you its wait left, takes a new request; its attempt is the wait's own
 	for _, c := range []struct {

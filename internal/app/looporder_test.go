@@ -18,7 +18,7 @@ func twoInLane() *proj {
 	mk := func(task string, seq int64) *mtask {
 		return &mtask{task: task, lane: "L1", agent: "w1", attempt: 1, state: stDispatched, attemptVars: attemptVars{work: event.StepWork}, dispSeq: seq}
 	}
-	return &proj{merging: true, log: &event.Log{}, held: map[string]string{},
+	return &proj{merging: true, log: &event.Log{}, ended: map[string]bool{}, held: map[string]string{},
 		folded: folded{loop: map[string]*mtask{"T-2": mk("T-2", 7), "T-1": mk("T-1", 3)}, calls: map[string]string{}}}
 }
 
