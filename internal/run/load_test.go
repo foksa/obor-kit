@@ -146,17 +146,26 @@ func TestAcquireWaitsForLoad(t *testing.T) {
 	})
 }
 
-// ctlLoad is a load reader the test sets while Acquire runs.
+// ctlLoad is a load reader the test sets while Acquire runs; it counts its reads.
 type ctlLoad struct {
-	mu sync.Mutex
-	v  float64
+	mu    sync.Mutex
+	v     float64
+	reads int
 }
 
 func (c *ctlLoad) set(v float64) { c.mu.Lock(); c.v = v; c.mu.Unlock() }
 func (c *ctlLoad) read() (float64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.reads++
 	return c.v, true
+}
+
+// count: how many times read ran.
+func (c *ctlLoad) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads
 }
 
 // acquireResult is one Acquire's outcome and when it returned.
@@ -209,9 +218,17 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 			t.Fatalf("precondition: wait lines %q, want slot waits only", got)
 		}
 		load.set(50)
-		// a few polls (5ms) before the slot frees: a poll that read the load before the raise and finds the slot free
-		// after it would take the slot at the old load (the race of T-734, T-741, T-775)
-		time.Sleep(25 * time.Millisecond)
+		// two polls must read the raised load before the slot frees (bounded: a loaded machine polls late): a poll that
+		// read the load below the limit and then found the slot free would take it at the old load (the race of T-734,
+		// T-741, T-775)
+		want := load.count() + 2
+		deadline := time.Now().Add(5 * time.Second)
+		for load.count() < want {
+			if time.Now().After(deadline) {
+				t.Fatalf("precondition: %d load reads, want %d (two polls after the raise)", load.count(), want)
+			}
+			time.Sleep(time.Millisecond)
+		}
 		if err := os.Remove(busy); err != nil {
 			t.Fatal(err)
 		}
