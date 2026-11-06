@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"obor/internal/config"
 	"obor/internal/store"
@@ -55,13 +56,16 @@ const configJSON = `{
 `
 
 // fakeConfig is a ConfigFile on the harness's config.json: Read answers refused, Commit writes the file and records
-// the message (failCommit: refused, the file left as it was).
+// the message (failCommit: refused, the file left as it was). commitGate, when set, holds Commit until it is closed
+// and commitBegan gets a value when a Commit reaches it: a call in flight inside configMu (T-930).
 type fakeConfig struct {
-	mu         sync.Mutex
-	path       string
-	refused    string
-	failCommit error
-	commits    []string
+	mu          sync.Mutex
+	path        string
+	refused     string
+	failCommit  error
+	commitGate  chan struct{}
+	commitBegan chan struct{}
+	commits     []string
 }
 
 func (f *fakeConfig) Read(context.Context) ([]byte, string, error) {
@@ -74,7 +78,20 @@ func (f *fakeConfig) Read(context.Context) ([]byte, string, error) {
 	return b, "", err
 }
 
-func (f *fakeConfig) Commit(_ context.Context, doc []byte, msg string) (string, error) {
+func (f *fakeConfig) Commit(ctx context.Context, doc []byte, msg string) (string, error) {
+	f.mu.Lock()
+	gate, began := f.commitGate, f.commitBegan
+	f.mu.Unlock()
+	if gate != nil {
+		if began != nil {
+			began <- struct{}{}
+		}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failCommit != nil {
@@ -318,6 +335,51 @@ func TestConfigSetWaitsForPublish(t *testing.T) {
 	}
 	if got := f.messages(); len(got) != 1 || !strings.HasPrefix(got[0], "config: difficulty.hard") {
 		t.Errorf("commits %q, want the change's", got)
+	}
+}
+
+// callReply is a call's answer, for a call run in its own goroutine.
+type callReply struct {
+	reply string
+	err   error
+}
+
+// T-930: a repeated call id waits for the call in flight (configMu is taken before the stored-reply lookup): the second
+// gets the first's reply and nothing is written or committed again.
+func TestConfigSetSameCallWhileInFlight(t *testing.T) {
+	t.Parallel()
+	h, f := configRig(t)
+	gate, began := make(chan struct{}), make(chan struct{}, 1)
+	f.commitGate, f.commitBegan = gate, began
+	var once sync.Once
+	release := func() { once.Do(func() { close(gate) }) }
+	defer release()
+	first := make(chan callReply, 1)
+	go func() {
+		reply, err := h.set("c1", "lanes", `3`)
+		first <- callReply{reply, err}
+	}()
+	select {
+	case <-began: // the first is in its commit, holding configMu
+	case <-time.After(5 * time.Second):
+		t.Fatal("precondition: the first call never reached its commit")
+	}
+	second := make(chan callReply, 1)
+	go func() {
+		reply, err := h.set("c1", "lanes", `4`)
+		second <- callReply{reply, err}
+	}()
+	if !waiting(second) {
+		t.Error("the repeated call answered while the first held configMu, want it to wait")
+	}
+	release()
+	a, b := <-first, <-second
+	if a.err != nil || b.err != nil || a.reply != `SET lanes 2 → 3` || b.reply != a.reply {
+		t.Fatalf("calls: %q, %v and %q, %v; want both the first's reply", a.reply, a.err, b.reply, b.err)
+	}
+	if got := f.messages(); len(got) != 1 || len(configFacts(t, h)) != 1 {
+		t.Errorf("commits %q, %d facts; want one commit and one fact (the repeated call id did nothing)", got,
+			len(configFacts(t, h)))
 	}
 }
 

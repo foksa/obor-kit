@@ -42,7 +42,8 @@ func (a *App) followTicks(ctx context.Context) {
 }
 
 // followBinary restarts serve on a new obor binary (Options.Binary) once per tick that sees it: at once when serve is
-// idle (no scratch effect or other effect running, no nightly, no verdict call admitted), else after followWait.
+// idle (no scratch effect or other effect running, no nightly, no verdict call admitted, no main-checkout writer
+// admitted: a config_set's or a review close's commit, T-930), else after followWait.
 // While it waits, p.restarting shows it in obor status. A failed restart is a needs-you
 // "serve restart on the new obor binary failed: <err>" (key serve), ended by the next serve's start. True: serve is
 // ending for the restart (the pass stops here). A serve already ending (ctx done: a restart canceled it, and a tick and
@@ -66,7 +67,7 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	}
 	now := a.opt.Now()
 	a.mu.Lock()
-	idle := p.running.Task == "" && len(p.exec) == 0 && !p.night.running && a.admitted == 0
+	idle := p.running.Task == "" && len(p.exec) == 0 && !p.night.running && a.admitted == 0 && p.admits == 0
 	if a.follow.since.IsZero() {
 		a.follow.since, p.restarting = now, now
 	}

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"obor/internal/app/event"
 	"obor/internal/app/port"
 	"strings"
@@ -75,6 +77,18 @@ func Follows(a *App) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.follows
+}
+
+// Admit is one admission in force on a's project at root, as a config_set's or a review close's call holds it until
+// its commit is in; release ends it. The project must be served and no publish running (T-930).
+func Admit(a *App, root string) (release func(), err error) {
+	a.mu.Lock()
+	p := a.projAt(root)
+	a.mu.Unlock()
+	if p == nil {
+		return nil, errors.New("no served project at " + root)
+	}
+	return a.admit(context.Background(), p)
 }
 
 // WriteLog appends recs (stamped now) to the event log of root, whose serve is stopped (a crash left them).

@@ -26,22 +26,25 @@ import (
 // body (T-822: the Covered and Start lines); head the integration branch's head ("": headSHA), which a gated publish
 // moves (admit_test.go); merges and files the fixed answers; detachErr fails the detach. from is every Merges call's
 // from, detached every Detach as <dir>@<sha>. onHead runs once, inside the next Head read. lasts counts the Last reads;
-// closes is every close committed (T-926: it becomes the newest close commit), closeErr refuses one. mu guards every
+// closes is every close committed (T-926: it becomes the newest close commit), closeErr refuses one; closeGate, when
+// set, holds a close until it is closed and closeBegan gets a value when one reaches it (T-930). mu guards every
 // field a method touches (a publish runs beside the admission tests' calls).
 type reviewGitFake struct {
-	mu        sync.Mutex
-	head      string
-	last      string
-	lastBody  string
-	merges    []string
-	from      []string
-	files     []string
-	detachErr error
-	detached  []string
-	onHead    func()
-	lasts     int
-	closes    []ReviewCommit
-	closeErr  error
+	mu         sync.Mutex
+	head       string
+	last       string
+	lastBody   string
+	merges     []string
+	from       []string
+	files      []string
+	detachErr  error
+	detached   []string
+	onHead     func()
+	lasts      int
+	closes     []ReviewCommit
+	closeErr   error
+	closeGate  chan struct{}
+	closeBegan chan struct{}
 }
 
 func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
@@ -79,7 +82,20 @@ func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
 	return nil
 }
 
-func (g *reviewGitFake) Close(_ context.Context, c ReviewCommit) error {
+func (g *reviewGitFake) Close(ctx context.Context, c ReviewCommit) error {
+	g.mu.Lock()
+	gate, began := g.closeGate, g.closeBegan
+	g.mu.Unlock()
+	if gate != nil { // a close in flight inside configMu (T-930)
+		if began != nil {
+			began <- struct{}{}
+		}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closeErr != nil {
