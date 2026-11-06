@@ -9,19 +9,14 @@ import (
 	"obor/internal/app"
 )
 
-// diskFake is a Loop's Disk: the free bytes scripted, the cache asked for counted.
+// diskFake is a Loop's Disk: the free bytes scripted.
 type diskFake struct {
-	free   atomic.Uint64
-	caches atomic.Int32
+	free atomic.Uint64
 }
 
 func (f *diskFake) disk() *app.Disk {
 	return &app.Disk{Volume: "/vol/proj",
-		Free: func() (uint64, error) { return f.free.Load(), nil },
-		Cache: func() string {
-			f.caches.Add(1)
-			return "/cache/go-build"
-		}}
+		Free: func() (uint64, error) { return f.free.Load(), nil }}
 }
 
 // diskFacts is the low-disk needs-you in force in r's status.
@@ -35,7 +30,7 @@ func diskFacts(r *loopRig) []event.Record {
 	return out
 }
 
-// T-564: free space below the bound is the project's needs-you naming the volume and the cache, above it ends it;
+// T-564: free space below the bound is the project's needs-you naming the volume, above it ends it;
 // one record per transition, none per tick. A gate waits while it is low and runs after.
 func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
 	t.Parallel()
@@ -51,7 +46,7 @@ func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
 	r.waitStep("1 intent submit")
 	r.waitStep("1 result submit")
 
-	want := "disk low: 2.0 GiB free on /vol/proj; Go build cache /cache/go-build (go clean -cache)"
+	want := "disk low: 2.0 GiB free on /vol/proj"
 	r.waitFor("the disk needs-you", func() bool { return len(diskFacts(r)) == 1 })
 	if fs := diskFacts(r); fs[0].Step != event.StepNeedsYou || fs[0].Fact().Reason != want {
 		t.Fatalf("disk facts %+v, want needs-you %q", fs, want)
@@ -64,9 +59,6 @@ func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
 	}
 	if n := r.count("0 fact needs-you{" + want + "}"); n != 1 {
 		t.Errorf("needs-you records = %d, want 1 (none per tick): %q", n, r.steps())
-	}
-	if n := f.caches.Load(); n != 1 {
-		t.Errorf("cache asked %d times, want 1", n)
 	}
 
 	f.free.Store(40 * gib)
@@ -82,7 +74,7 @@ func TestDiskLowIsANeedsYouAndHoldsTheGate(t *testing.T) {
 	f.free.Store(1 * gib)
 	r.later(app.DiskEvery)
 	r.waitFor("low again", func() bool { return len(diskFacts(r)) == 1 })
-	if n := r.count("0 fact needs-you{disk low: 1.0 GiB free on /vol/proj; Go build cache /cache/go-build (go clean -cache)}"); n != 1 {
+	if n := r.count("0 fact needs-you{disk low: 1.0 GiB free on /vol/proj}"); n != 1 {
 		t.Errorf("second low: needs-you records = %d, want 1: %q", n, strings.Join(r.steps(), "\n"))
 	}
 }

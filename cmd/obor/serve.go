@@ -8,10 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -148,7 +145,6 @@ type serveEnd struct {
 // kind with an inbox (T-485, T-499), and dispatch as state (dispatchLoop: obor serve is the only dispatcher, T-408).
 // end ends serve for its self-restart (T-656, T-719).
 func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root string) (*app.Loop, error) {
-	var cache cacheDir // asked once: the Loop is built on every pass
 	return func(root string) (*app.Loop, error) {
 		repo, err := project.Find(root)
 		if err != nil {
@@ -164,7 +160,7 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 			Background: func(search func()) { go search() }, Log: flushWriter{}}
 		scratch := checks.Scratch{Options: o}
 		l := &app.Loop{Scratch: scratch, Agents: agents, Typer: panes, Nightly: nightly(o),
-			Disk: diskOf(repo.Root, &cache), Inbox: poster{repo.Root}}
+			Disk: diskOf(repo.Root), Inbox: poster{repo.Root}}
 		dispatchLoop(l, env, cfg)
 		l.Review = reviewGit{root: repo.Root, locked: scratch.Locked}
 		l.Config = configFile{root: repo.Root, main: cfg.Data.Branches.Main}
@@ -176,25 +172,9 @@ func mergeLoop(env project.Env, panes herdr.Panes, end *serveEnd) func(root stri
 // herdrSocket is the herdr socket client every runtime caller shares: herdr's socket for env (herdr.SocketPath).
 func herdrSocket(env project.Env) *herdr.Socket { return &herdr.Socket{Path: herdr.SocketPath(env)} }
 
-// cacheDir is the Go build cache dir (`go env GOCACHE`), read on first use.
-type cacheDir struct {
-	once sync.Once
-	dir  string
-}
-
-func (c *cacheDir) get() string {
-	c.once.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		out, _ := exec.CommandContext(ctx, "go", "env", "GOCACHE").Output()
-		c.dir = strings.TrimSpace(string(out))
-	})
-	return c.dir
-}
-
 // diskOf is the merge loop's low-disk watch (T-564) of the volume root is on.
-func diskOf(root string, cache *cacheDir) *app.Disk {
-	return &app.Disk{Volume: root, Cache: cache.get,
+func diskOf(root string) *app.Disk {
+	return &app.Disk{Volume: root,
 		Free: func() (uint64, error) {
 			var st syscall.Statfs_t
 			if err := syscall.Statfs(root, &st); err != nil {
