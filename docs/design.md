@@ -369,8 +369,8 @@ full check and the pause.
   reviewer's worktree to the integration head and briefs the verify in the same session. A verify that fails (the
   reviewer stopped, a newer brief replaced it, its git failed) leaves the condition true and the next pass briefs again
   (one line to the lead per failure). Only the reviewer's finished line ends a verify and covers its tasks. `obor
-  review close` is refused while a linked task is open or merged and not covered (`--force`: the owner's word). A spec line `Review: on merge` (T-878, rule tier) makes serve record a
-  review request once that task merged and no request is open or review started since; it waits for an open cycle's
+  review close` is refused while a linked task is open or merged and not covered (`--force`: the owner's word). A spec line `Review: on merge` (T-878, rule tier), or the spec's `Difficulty: hard` (T-932), makes serve
+  record a review request once that task merged (never for a spec with `Fixes:`: its verify is its review) and no request is open or review started since; it waits for an open cycle's
   close like any request.
 
 ## Machine load (v2.1, 2026-10-08 — requests from the axis-alies lead)
