@@ -20,7 +20,6 @@ const diskEvery = 3 * time.Minute
 type Disk struct {
 	Volume string                 // the volume's name in the needs-you (the project root)
 	Free   func() (uint64, error) // free bytes available to the project
-	Cache  func() string          // the Go build cache dir, `go env GOCACHE` ("": unknown); asked when the disk turns low
 }
 
 // diskTick reads the free space once diskEvery has passed since the last read.
@@ -54,11 +53,6 @@ func (a *App) diskIsLow(p *proj, fx *Loop) bool {
 	case free < diskLow:
 		if !held { // one record per transition: a refused append is tried again on the next read
 			reason := fmt.Sprintf("disk low: %.1f GiB free on %s", float64(free)/(1<<30), d.Volume)
-			if d.Cache != nil {
-				if c := d.Cache(); c != "" {
-					reason += "; Go build cache " + c + " (go clean -cache)"
-				}
-			}
 			a.settleNeeds(p, event.DiskTask, reason)
 		}
 		held = true // the reading decides; keeping the record is best effort
