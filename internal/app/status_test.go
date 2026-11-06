@@ -11,9 +11,10 @@ import (
 	"time"
 )
 
-// T-896: serve ships whether a task is still open: the state table's ended column, not a list of state names its
-// readers keep. A dispatched task is open; a dropped one is not, and stays in the list (obor status --json shows it).
-func TestStatusOpenIsTheStateTablesEnded(t *testing.T) {
+// T-896, T-921: serve ships whether a task ended: the state table's ended column, not a list of state names its
+// readers keep. A dispatched task has not ended; a dropped one has, and stays in the list (obor status --json shows
+// it).
+func TestStatusEndedIsTheStateTablesEnded(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
@@ -23,22 +24,22 @@ func TestStatusOpenIsTheStateTablesEnded(t *testing.T) {
 			Agent: "pj-l-01", Branch: "task/" + task, Target: "b1"})
 	}
 	addRecord(t, h, "T-2", event.StepDropped, event.KindFact, event.FactData{Reason: "why"})
-	open := map[string]bool{}
+	ended := map[string]bool{}
 	for _, ts := range h.a.Status().Project.Tasks {
-		open[ts.Task] = ts.Open
+		ended[ts.Task] = ts.Ended
 	}
-	if got, ok := open["T-1"]; !ok || !got {
-		t.Errorf("T-1: open %v (listed %v), want open: dispatched", got, ok)
+	if got, ok := ended["T-1"]; !ok || got {
+		t.Errorf("T-1: ended %v (listed %v), want not ended: dispatched", got, ok)
 	}
-	if got, ok := open["T-2"]; !ok || got {
-		t.Errorf("T-2: open %v (listed %v), want not open: dropped, and still in the list", got, ok)
+	if got, ok := ended["T-2"]; !ok || !got {
+		t.Errorf("T-2: ended %v (listed %v), want ended: dropped, and still in the list", got, ok)
 	}
 }
 
-// T-896: serve ships the lanes its config-change rule would refuse to drop (laneHolds), so obor web's setup page
-// warns without a list of lane states: a lane whose task is open is locked, a free one is not, and an ended task
-// locks nothing.
-func TestStatusLockedLanesFollowLaneHolds(t *testing.T) {
+// T-896, T-921: serve ships the lanes its config-change rule would not refuse to drop (laneHolds), so obor web's
+// setup page warns without a list of lane states: a lane holding a task is not free, a free one is, and an ended task
+// frees its lane.
+func TestStatusFreeLanesFollowLaneHolds(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.write(filepath.Join(h.root, ".obor", "config.json"), `{"name":"pj","prefix":"pj"}`)
@@ -52,12 +53,12 @@ func TestStatusLockedLanesFollowLaneHolds(t *testing.T) {
 	h.a.mu.Lock()
 	h.a.p.lanes = []port.Lane{{Name: "L-01", State: port.LaneFree}, {Name: "L-02", State: port.LaneWorking}}
 	h.a.mu.Unlock()
-	if locked := h.a.Status().Project.Locked; len(locked) != 1 || locked[0] != "L-02" {
-		t.Errorf("locked %v, want L-02 alone: its task T-2 is open, L-01 is free", locked)
+	if free := h.a.Status().Project.Free; len(free) != 1 || free[0] != "L-01" {
+		t.Errorf("free %v, want L-01 alone: L-02 holds T-2, L-01 holds nothing", free)
 	}
 	addRecord(t, h, "T-2", event.StepDropped, event.KindFact, event.FactData{Reason: "why"})
-	if locked := h.a.Status().Project.Locked; len(locked) != 0 {
-		t.Errorf("locked %v, want none: T-2 ended", locked)
+	if free := h.a.Status().Project.Free; len(free) != 2 || free[0] != "L-01" || free[1] != "L-02" {
+		t.Errorf("free %v, want both: T-2 ended", free)
 	}
 }
 

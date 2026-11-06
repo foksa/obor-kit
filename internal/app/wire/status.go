@@ -6,6 +6,9 @@ import (
 )
 
 // Status is the answer to the app socket's one request, status.
+//
+// A predicate serve ships is named so that a missing field (an older serve's answer, during an upgrade) reads as the
+// safe answer: a task is open unless it says it ended, a lane is locked unless it says it is free (T-921).
 type Status struct {
 	Since     string         `json:"since,omitempty"`      // when this serve started (RFC 3339)
 	Connected bool           `json:"connected"`            // the herdr subscription is live
@@ -30,9 +33,10 @@ type ProjectStatus struct {
 	Paused *event.Pause `json:"paused,omitempty"` // the pause in force (pause.go)
 	// ModelPauses is the model pauses in force (obor pause --model, T-765), by model name (T-766: the Setup page).
 	ModelPauses map[string]*event.Pause `json:"model_pauses,omitempty"`
-	// Locked is the configured lanes that hold a task now, by configset's own rule (laneHolds): obor web's setup page
-	// warns before a lanes-count edit drops one, and serve refuses it while it does (T-896).
-	Locked []string `json:"locked,omitempty"`
+	// Free is the configured lanes that hold no task now, by configset's own rule (laneHolds): obor web's setup page
+	// warns before a lanes-count edit drops one not in it, and serve refuses that edit while a lane holds a task
+	// (T-896). Absent (an older serve): no lane free, so every dropped lane warns (T-921).
+	Free []string `json:"free"`
 	// Watches is the lead's open watches (mergewatch.go), oldest first: obor status lists them (T-658).
 	Watches []WatchStatus `json:"watches,omitempty"`
 	// Idle is the project's idle state (T-803): the pipeline is empty and the lead was told; nil when it has work.
@@ -223,9 +227,10 @@ type TaskStatus struct {
 	Lane    string `json:"lane"`
 	Attempt int    `json:"attempt"`
 	State   string `json:"state"`
-	// Open is whether serve still has the task in its merge loop: its state is not one the state table ends (not
-	// rejected or dropped; a merged one is no TaskStatus at all). Readers that asked the state strings ask this (T-896).
-	Open    bool   `json:"open,omitempty"`
+	// Ended is whether the state table ends the task (rejected or dropped; a merged one is no TaskStatus at all).
+	// Readers show a task as open unless this is set, so an older serve's answer, without it, keeps the task open
+	// (T-896, T-921).
+	Ended   bool   `json:"ended,omitempty"`
 	Phase   string `json:"phase"`             // what serve does for it now (Phase*, T-788)
 	Stage   string `json:"stage,omitempty"`   // its merge-loop stage (Stage*; "": not in the merge loop; T-797)
 	Running string `json:"running,omitempty"` // the step whose effect runs now in its own goroutine (gate, publish)

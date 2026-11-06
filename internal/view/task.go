@@ -60,7 +60,7 @@ func tasks(ps wire.ProjectStatus, lanes []port.Lane, rows map[string]store.LaneR
 	for _, st := range ps.Tasks {
 		t := get(st.Task)
 		t.TaskState, t.Phase, t.Attempt, t.Running, t.Effort = st.State, st.Phase, st.Attempt, st.Running, st.Effort
-		t.Open = st.Open
+		t.Open = !st.Ended
 		if st.Lane != "" {
 			t.Lane = st.Lane
 		}
