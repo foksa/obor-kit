@@ -81,6 +81,7 @@ once nothing runs there.
 - Public repo `foksa/obor-kit`; users install with `install.sh` into `~/.obor/kit` (the newest tag), marketplace
   `obor-kit`. This checkout is marketplace `obor-kit-dev` (`obor@obor-kit-dev` here), so both live on this machine.
   axis-alies runs `~/.obor/kit` since 10-31 (migrated, 54543f08).
+- obor-kit's `scripts/release` refuses while a review is due; `UNREVIEWED="<why>"` overrides it, only on the owner's word.
 - Tag only after the merges since the last tag are reviewed and verified, and `make check` is green. Steps
   (`RELEASING.md`, T-640): on main write `docs/UPGRADE-v<x.y>.md` (with the `v<x.y.z>` heading) and
   `docs/releases/v<x.y.z>.md` (the GitHub notes: a summary line, `- **Name:**` bullets, no task ids) and commit both;
