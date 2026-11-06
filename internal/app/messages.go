@@ -83,11 +83,10 @@ const (
 
 // outbox is one project's lines to its agents (proj.out; T-610): leadAgent, the lead's agent (config.AgentName), and
 // leadKind, its kind as configured (its role's type, else agents.Default): its lines' inbox; msgs, the lines not
-// delivered yet by their fact's seq; lined, the needs-you facts (by seq) whose lines to the lead are recorded, and how
-// many; lining, those whose line a pass is recording now (needsLines' claim, not folded); delivered, when the latest
-// delivered line of a needs-you was delivered (T-624: the repeat's clock, folded from the delivery's result); briefs, the open briefs by role
-// agent. Its fields are under App.mu like the rest of proj; only this file names its maps (the other files read it
-// through lead, brief and allBriefs).
+// delivered yet by their fact's seq; delivered, when each needs-you line was delivered, by its did key (T-624: the
+// repeat's clock, folded from the delivery's result); briefs, the open briefs by role agent. Its fields are under
+// App.mu like the rest of proj; only this file names its maps (the other files read it through lead, brief and
+// allBriefs).
 //
 // claim makes a line's delivery claim (deliverLine: its state sending) and a brief's supersede of the agent's undelivered
 // brief lines (briefCall: the choice to the append) exclude each other (RV-61 #3). Lock order: claim, then App.mu;
@@ -97,18 +96,15 @@ type outbox struct {
 	leadAgent string
 	leadKind  string
 	msgs      map[int64]*queued
-	lined     map[int64]int
-	lining    map[int64]bool
-	delivered map[int64]time.Time
+	delivered map[event.Of]time.Time
 	briefs    map[string]*brief
 	posts     map[int64][]int64 // a delivery intent's members by its key's seq, its result not folded yet (T-654)
 }
 
 // newOutbox is an empty outbox of the lead agent lead, its configured kind leadKind.
 func newOutbox(lead, leadKind string) outbox {
-	return outbox{leadAgent: lead, leadKind: leadKind, msgs: map[int64]*queued{}, lined: map[int64]int{},
-		lining: map[int64]bool{}, delivered: map[int64]time.Time{}, briefs: map[string]*brief{},
-		posts: map[int64][]int64{}}
+	return outbox{leadAgent: lead, leadKind: leadKind, msgs: map[int64]*queued{}, delivered: map[event.Of]time.Time{},
+		briefs: map[string]*brief{}, posts: map[int64][]int64{}}
 }
 
 // lead is the project's lead agent ("": none configured).
@@ -279,6 +275,9 @@ func (p *proj) foldMsg(r event.Record) {
 	case r.Kind == event.KindFact && (r.Step == event.StepMessage || r.Step == event.StepBriefed):
 		var m event.Message
 		_ = json.Unmarshal(r.Data, &m)
+		if m.Of.Kind == "" && r.Step == event.StepMessage {
+			m.Of = p.oldLineOf(r.Data)
+		}
 		if m.Of.Kind != "" { // a rule's line: its did key (rules.go, T-866)
 			p.folded.did[m.Of] = event.RecordTime(r)
 		}
@@ -291,12 +290,6 @@ func (p *proj) foldMsg(r event.Record) {
 				method = wire.MethodTellLead
 			}
 			p.folded.calls[verdictStep(method, m.Call)] = m.Reply
-		}
-		if m.Needs != 0 {
-			p.out.lined[m.Needs]++
-		}
-		if m.Watch != 0 {
-			p.watchEnded(m.Task, m.Watch)
 		}
 		if m.Drive != 0 {
 			p.foldDriveLine(m)
@@ -441,8 +434,8 @@ func (p *proj) settleLine(q *queued, r event.Record) {
 		p.move(q, lineClosed)
 		return
 	}
-	if q.msg.Needs != 0 { // a needs-you line delivered: its next repeat counts from now (T-624)
-		p.out.delivered[q.msg.Needs] = event.RecordTime(r)
+	if q.msg.Of.Kind == ruleNeeds { // a needs-you's line delivered: its next repeat counts from now (T-624)
+		p.out.delivered[q.msg.Of] = event.RecordTime(r)
 	}
 	if b := p.out.briefs[q.msg.To]; b != nil && b.seq == q.seq { // the brief's line delivered: its age starts
 		b.at = event.RecordTime(r)
@@ -699,10 +692,10 @@ func (a *App) freshRoute(p *proj, fx *Loop, q queued, w Where) (post, target, he
 // as a stopped one is (startRoute).
 const freshStart = "fresh"
 
-// needsLineWaits: a line announcing needs-you fact seq is queued, not delivered yet (under mu).
-func (p *proj) needsLineWaits(seq int64) bool {
+// lineWaits: the rule's line with did key of is queued, not delivered yet (under mu).
+func (p *proj) lineWaits(of event.Of) bool {
 	for _, q := range p.out.msgs {
-		if q.msg.Needs == seq {
+		if q.msg.Of == of {
 			return true
 		}
 	}
@@ -972,87 +965,103 @@ func (a *App) msgNeedsYou(p *proj, now time.Time) {
 	a.settleNeeds(p, event.MsgTask, reason)
 }
 
-// needsLines queues a line to p's lead for each needs-you fact in force naming it and the commands that answer it
-// (T-497: the herdr notification reaches the owner, the lead is the one who acts), and posts the same line again while
-// the needs-you stays in force and unanswered (T-621): 30 min after the first line's delivery, then every 60, the line ending in
-// " (again, <its age>)". A pass claims each fact under mu before it records (the loop's notify and the watchdog's run at
-// once). The message fact carries the needs-you's seq, so a replay finds the lines recorded and queues none again. The
-// repeat counts from the last line's delivery (T-624: 30 min after the first line's, 60 after a repeat's; outbox.
-// delivered, folded) and waits while a line of that needs-you is undelivered. The needs-you of
-// the project's own lines gets none (a lead line waiting would only queue another one).
-func (a *App) needsLines() {
-	a.mu.Lock()
-	type todo struct {
-		r     event.Record
-		ans   string // the commands that answer it, in its task's state now
-		n     int    // the lines already recorded when the pass claimed it
-		again bool   // a repeat: the line ends in " (again, <age>)"
-		age   time.Duration
+// ruleNeeds is the needs-you line's rule in the rule pass (rules.go, T-927).
+const ruleNeeds = "needs"
+
+// needsSpan: a needs-you line's did key is its needs-you's seq times needsSpan plus the line's number (0 the first,
+// then repeat n), decimal so a log reads both (needs-you 412, repeat 3: 412000003).
+const needsSpan = 1_000_000
+
+// needsKey is the did key of line n of needs-you fact seq.
+func needsKey(seq int64, n int) int64 { return seq*needsSpan + int64(n) }
+
+// needsLined is how many lines of needs-you fact seq are recorded (under mu).
+func (p *proj) needsLined(seq int64) int {
+	n := 0
+	for {
+		if _, did := p.folded.did[event.Of{Kind: ruleNeeds, Seq: needsKey(seq, n)}]; !did {
+			return n
+		}
+		n++
 	}
-	var out []todo
-	p := a.p
-	now := a.opt.Now()
-	if p != nil && p.merging && p.out.leadAgent != "" {
-		for _, r := range p.needsYou() {
-			if r.Task == event.MsgTask || p.out.lining[r.Seq] {
+}
+
+// needsRule lines p's lead about each needs-you fact in force, naming the commands that answer it (T-497: the herdr
+// notification reaches the owner, the lead is the one who acts), and lines it again while it stays in force (T-621):
+// 30 min after the first line's delivery, then 60 after each repeat's (T-624: the delivery's result, folded; never
+// while its last line waits undelivered), the line ending in " (again, <its age>)". The needs-you of the project's
+// own lines gets none (a lead line waiting would only queue another one), nor a closed task's watchdog fact (T-635:
+// one older than its end's clear). Key: needsKey(the needs-you's seq, the line's number); the oldest needs-you due
+// goes first, the next one in the next pass (the line's record wakes it).
+func needsRule(_ context.Context, a *App, p *proj, _ *Loop, now time.Time) (int64, action, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if p.out.lead() == "" {
+		return 0, action{}, false
+	}
+	fs := p.needsYou()
+	sort.Slice(fs, func(i, j int) bool { return fs[i].Seq < fs[j].Seq })
+	for _, r := range fs {
+		if r.Task == event.MsgTask || p.closed(r.Task) && !r.Fact().Merge {
+			continue
+		}
+		n := p.needsLined(r.Seq)
+		if n > 0 {
+			last := event.Of{Kind: ruleNeeds, Seq: needsKey(r.Seq, n-1)}
+			if p.lineWaits(last) {
 				continue
 			}
-			if p.closed(r.Task) && !r.Fact().Merge { // T-635: a watchdog fact of a closed task (one older than its end's clear)
-				continue
-			}
-			n := p.out.lined[r.Seq]
-			if n == 0 { // the first line, right away
-				p.out.lining[r.Seq] = true
-				out = append(out, todo{r: r, ans: p.answerPath(r), n: n})
-				continue
-			}
-			if p.needsLineWaits(r.Seq) { // T-624: the last line is not delivered yet: no repeat piles up behind it
-				continue
-			}
-			base, ok := p.out.delivered[r.Seq]
-			if !ok { // no delivery recorded (an older log): the needs-you fact's time
+			base, ok := p.out.delivered[last]
+			if !ok { // no delivery recorded: the needs-you fact's time
 				base = event.RecordTime(r)
 			}
-			next := base.Add(needsAgain)
+			wait := needsAgain
 			if n > 1 {
-				next = base.Add(needsAgainEvery)
+				wait = needsAgainEvery
 			}
-			if now.Before(next) {
+			if now.Sub(base) < wait {
 				continue
 			}
-			p.out.lining[r.Seq] = true
-			out = append(out, todo{r: r, ans: p.answerPath(r), n: n, again: true, age: now.Sub(event.RecordTime(r))})
 		}
+		return needsKey(r.Seq, n), action{line: p.needsLine(r, n, now)}, true
 	}
-	a.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].r.Seq < out[j].r.Seq })
-	queued := false
-	for _, t := range out {
-		d := t.r.Fact()
-		line := "[obor] needs-you " + t.r.Task
-		if d.Lane != "" {
-			line += " (" + d.Lane + ")"
-		}
-		line += ": " + strings.Join(strings.Fields(d.Reason), " ")
-		if t.ans != "" {
-			line += " → " + t.ans
-		}
-		if t.again {
-			line += " (again, " + Age(t.age) + ")"
-		}
-		m := event.Message{To: p.out.leadAgent, From: "obor", Line: line, Needs: t.r.Seq}
-		if a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact}, m) {
-			queued = true
-		}
-		// The claim ends either way: an appended line is in lined (its fold), even when record is false for the lanes
-		// table only (RV-52-verify V1); a refused append leaves it out, so a later pass tries again.
-		a.mu.Lock()
-		delete(p.out.lining, t.r.Seq)
-		a.mu.Unlock()
+	return 0, action{}, false
+}
+
+// needsLine is line n of needs-you fact r at now (under mu): "[obor] needs-you T-xx (<lane>): <reason> → <the
+// commands that answer it, in its task's state now>", a repeat adding " (again, <its age>)".
+func (p *proj) needsLine(r event.Record, n int, now time.Time) string {
+	d := r.Fact()
+	line := "[obor] needs-you " + r.Task
+	if d.Lane != "" {
+		line += " (" + d.Lane + ")"
 	}
-	if queued {
-		a.wake()
+	line += ": " + oneLine(d.Reason)
+	if ans := p.answerPath(r); ans != "" {
+		line += " → " + ans
 	}
+	if n > 0 {
+		line += " (again, " + Age(now.Sub(event.RecordTime(r))) + ")"
+	}
+	return line
+}
+
+// oldLineOf is the did key of a needs-you's or a watch's line recorded before T-927 (its own field, no Of; under
+// mu): needs, the needs-you's seq and the lines of it folded so far; watch, the watch's seq. Compat until v0.29
+// (change rule 5).
+func (p *proj) oldLineOf(data json.RawMessage) event.Of {
+	var old struct {
+		Needs int64 `json:"needs"`
+		Watch int64 `json:"watch"`
+	}
+	_ = json.Unmarshal(data, &old)
+	switch {
+	case old.Needs != 0:
+		return event.Of{Kind: ruleNeeds, Seq: needsKey(old.Needs, p.needsLined(old.Needs))}
+	case old.Watch != 0:
+		return event.Of{Kind: ruleWatch, Seq: old.Watch}
+	}
+	return event.Of{}
 }
 
 // Age is d as obor status writes ages: 42s, 5m, 3h, 2d.

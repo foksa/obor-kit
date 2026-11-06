@@ -94,9 +94,6 @@ func WriteLog(root string, now time.Time, recs ...event.Record) error {
 	return err
 }
 
-// NeedsLines is needsLines for the external tests.
-var NeedsLines = (*App).needsLines
-
 // DiskEvery is how often the free space is read on a pass (disk.go).
 const DiskEvery = diskEvery
 
@@ -155,4 +152,12 @@ func CachedLane(a *App, root, name string) (l port.Lane, ok bool) {
 		}
 	}
 	return port.Lane{}, false
+}
+
+// NeedsSeq is the needs-you seq a needs rule line's did key names (0: another line).
+func NeedsSeq(of event.Of) int64 {
+	if of.Kind != ruleNeeds {
+		return 0
+	}
+	return of.Seq / needsSpan
 }

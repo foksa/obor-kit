@@ -63,7 +63,7 @@ func TestClosedTaskWatchdogFactsEnd(t *testing.T) {
 			lines := 0
 			for _, rec := range r.needsLineFacts() {
 				var m event.Message
-				if json.Unmarshal(rec.Data, &m) == nil && m.Needs == seq {
+				if json.Unmarshal(rec.Data, &m) == nil && app.NeedsSeq(m.Of) == seq {
 					lines++
 				}
 			}

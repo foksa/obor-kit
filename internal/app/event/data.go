@@ -46,9 +46,7 @@ type Message struct {
 	Line   string `json:"line,omitempty"`
 	From   string `json:"from,omitempty"`
 	Ends   string `json:"ends,omitempty"`
-	Needs  int64  `json:"needs,omitempty"`  // the seq of the needs-you fact this line announces
-	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a watch's line: the task or comma list watched; a verify's brief: the tasks it verifies
-	Watch  int64  `json:"watch,omitempty"`  // the seq of the watch fact this line ends (mergewatch.go)
+	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a verify's brief: the tasks it verifies
 	Review int64  `json:"review,omitempty"` // the seq of the review request this line ends (review.go)
 	Stop   int64  `json:"stop,omitempty"`   // the seq of the role agent's stop this alarm line is for (stopwake.go)
 	Drive  int    `json:"drive,omitempty"`  // the attempt of the drive Task whose come-back this line tells the lead (T-751)

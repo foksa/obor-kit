@@ -13,14 +13,13 @@ func notifyKey(r event.Record) event.Key {
 	return event.Key{Task: r.Task, Step: "notify." + strconv.FormatInt(r.Seq, 10)}
 }
 
-// notify first queues the lead's line of each such fact (needsLines), then shows the owner each needs-you fact in force that has no notification recorded: just recorded, replayed
+// notify shows the owner each needs-you fact in force that has no notification recorded (its lead line is the needs
+// rule's, messages.go): just recorded, replayed
 // without one (a crash before it), or failed (again after a backoff: 1, 2, 4 … minutes, at most 30). It sends one at
 // a time, the oldest due first, and picks each under mu just before its send: a fact cleared
 // while an earlier one was sent is not sent. A recorded result is never sent again; a send whose result failed to
 // persist, or whose fact cleared while it was in flight, is (at least once, docs/state-model.md).
 func (a *App) notify(ctx context.Context) {
-	a.needsLines()
-	a.watchLines()
 	if !a.notifying.TryLock() { // the pass running picks each next fact afresh; one it missed goes at the next check
 		return
 	}

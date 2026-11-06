@@ -43,6 +43,8 @@ const ruleFails = 3
 
 // rules are serve's rules, in the order a pass runs them.
 var rules = []rule{
+	{name: ruleNeeds, when: needsRule},
+	{name: ruleWatch, when: watchRule},
 	{name: ruleReviewOnMerge, when: reviewOnMergeRule}, // before idle: the request it records is work in flight
 	{name: ruleVerify, when: verifyRule},               // before idle: the brief it records is work in flight
 	{name: ruleIdle, settle: idleSettle, when: idleRule},
