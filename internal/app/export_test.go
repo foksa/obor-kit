@@ -79,6 +79,13 @@ func Follows(a *App) int {
 	return a.follows
 }
 
+// Admits is the admissions in force on a's project at root (p.admits, T-934).
+func Admits(a *App, root string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.projAt(root).admits
+}
+
 // Admit is one admission in force on a's project at root, as a config_set's or a review close's call holds it until
 // its commit is in; release ends it. The project must be served and no publish running (T-930).
 func Admit(a *App, root string) (release func(), err error) {

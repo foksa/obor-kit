@@ -42,12 +42,14 @@ func (a *App) followTicks(ctx context.Context) {
 }
 
 // followBinary restarts serve on a new obor binary (Options.Binary) once per tick that sees it: at once when serve is
-// idle (no scratch effect or other effect running, no nightly, no verdict call admitted, no main-checkout writer
-// admitted: a config_set's or a review close's commit, T-930), else after followWait.
+// idle (no scratch effect or other effect running, no nightly, no verdict call admitted), else after followWait; never
+// while a main-checkout writer is admitted (p.admits: a config_set's or a review close's commit, T-930, T-934),
+// whatever followWait says (a writer is bounded by its own request timeout). One a.mu section decides and claims the
+// restart (p.restartClaim): admit refuses while it is claimed, so no writer starts under the restart's cancel.
 // While it waits, p.restarting shows it in obor status. A failed restart is a needs-you
-// "serve restart on the new obor binary failed: <err>" (key serve), ended by the next serve's start. True: serve is
-// ending for the restart (the pass stops here). A serve already ending (ctx done: a restart canceled it, and a tick and
-// a kick were pending) restarts nothing again.
+// "serve restart on the new obor binary failed: <err>" (key serve), ended by the next serve's start; the claim clears
+// with p.restarting. True: serve is ending for the restart (the pass stops here). A serve already ending (ctx done: a
+// restart canceled it, and a tick and a kick were pending) restarts nothing again.
 func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	if ctx.Err() != nil {
 		return true
@@ -67,13 +69,15 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	}
 	now := a.opt.Now()
 	a.mu.Lock()
-	idle := p.running.Task == "" && len(p.exec) == 0 && !p.night.running && a.admitted == 0 && p.admits == 0
 	if a.follow.since.IsZero() {
 		a.follow.since, p.restarting = now, now
 	}
 	since := a.follow.since
+	idle := p.running.Task == "" && len(p.exec) == 0 && !p.night.running && a.admitted == 0
+	claim := p.admits == 0 && (idle || now.Sub(since) >= followWait)
+	p.restartClaim = claim
 	a.mu.Unlock()
-	if !idle && now.Sub(since) < followWait {
+	if !claim {
 		if since.Equal(now) {
 			a.logf("%s: a new obor binary: restarting serve on it once nothing runs (at the latest in %s)", p.name, followWait)
 		}
@@ -81,6 +85,9 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	}
 	fx, err := a.opt.Loop(p.root)
 	if err == nil && fx.Restart == nil {
+		a.mu.Lock()
+		p.restartClaim = false
+		a.mu.Unlock()
 		return false // no restart wired: nothing to do but show it
 	}
 	a.logf("%s: restarting serve on the new obor binary", p.name)
@@ -92,7 +99,7 @@ func (a *App) followBinary(ctx context.Context, p *proj) bool {
 	}
 	a.follow.failed = true
 	a.mu.Lock()
-	p.restarting = time.Time{}
+	p.restarting, p.restartClaim = time.Time{}, false
 	a.mu.Unlock()
 	a.settleNeeds(p, event.ServeTask, "serve restart on the new obor binary failed: "+err.Error())
 	return false

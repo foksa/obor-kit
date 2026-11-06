@@ -21,6 +21,8 @@ type followRig struct {
 	*loopRig
 	isNew, calls atomic.Int32
 	err          error
+	// in, hold: when hold is set, Restart sends on in once called and waits for hold to close before it acts (T-934).
+	in, hold chan struct{}
 }
 
 func newFollowRig(t *testing.T, err error) *followRig {
@@ -29,6 +31,10 @@ func newFollowRig(t *testing.T, err error) *followRig {
 	r.binary = func() bool { return r.isNew.Load() != 0 }
 	r.restart = func(context.Context) error {
 		r.calls.Add(1)
+		if r.hold != nil {
+			r.in <- struct{}{}
+			<-r.hold
+		}
 		if r.err != nil {
 			return r.err
 		}
@@ -172,6 +178,83 @@ func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {
 	}
 }
 
+// T-934 (RV-128 #1): a writer admitted while a gate runs holds the restart past followWait: no restart until it is
+// unadmitted, then the next pass restarts (the gate cut, as after followWait).
+func TestFollowBinaryWriterPastFollowWait(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	release := make(chan struct{})
+	defer close(release)
+	r.scratch.arm("Gate", func(ctx context.Context) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return ctx.Err()
+	})
+	r.start()
+	r.submit()
+	r.waitFor("the gate to run", func() bool { return r.scratch.gates.Load() == 1 })
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("precondition: serve restarted with the gate running")
+	}
+	unadmit, err := app.Admit(r.app, r.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	defer once.Do(unadmit)
+	r.clock.Add(followWait + time.Minute)
+	r.ticks(3)
+	if r.calls.Load() != 0 || !r.restartingShown() {
+		t.Fatalf("a writer admitted past followWait: restarts %d, restarting shown %v; want 0, shown", r.calls.Load(),
+			r.restartingShown())
+	}
+	once.Do(unadmit)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 || r.has("1 result gate") {
+		t.Errorf("unadmitted: restarts %d, gate result %v; want 1 with the gate cut", r.calls.Load(), r.has("1 result gate"))
+	}
+}
+
+// T-934: the restart claimed (Restart called), an admit is refused with the message and nothing admitted; the restart
+// runs on.
+func TestFollowBinaryClaimRefusesAdmit(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	r.in, r.hold = make(chan struct{}, 1), make(chan struct{})
+	r.start()
+	r.isNew.Store(1)
+	select {
+	case <-r.in:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the restart was never called")
+	}
+	if n := app.Admits(r.app, r.p.Root); n != 0 {
+		t.Fatalf("precondition: %d admissions in force", n)
+	}
+	release, err := app.Admit(r.app, r.p.Root)
+	const want = "serve is restarting on a new obor binary: try again in a moment"
+	if err == nil || err.Error() != want {
+		if release != nil {
+			release()
+		}
+		t.Errorf("admit under a claimed restart: err %v, want %q", err, want)
+	}
+	if n := app.Admits(r.app, r.p.Root); n != 0 {
+		t.Errorf("admissions after the refused admit: %d, want 0", n)
+	}
+	close(r.hold)
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 {
+		t.Errorf("restarts %d, want 1", r.calls.Load())
+	}
+}
+
 // Never idle: after 10 minutes the restart goes anyway (the gate is cut, as at any restart), whether herdr is up or
 // down (T-737).
 func TestFollowBinaryAfterTenMinutes(t *testing.T) {
@@ -241,6 +324,15 @@ func TestFollowBinaryRestartFails(t *testing.T) {
 	if n := strings.Count(strings.Join(r.steps(), "\n"), "needs-you{"+want+"}"); n != 1 {
 		t.Errorf("needs-you recorded %d times, want 1: %q", n, r.steps())
 	}
+	// T-934: the claim cleared with the failure: an admit works again.
+	release, err := app.Admit(r.app, r.p.Root)
+	if err != nil {
+		t.Fatalf("admit after the failed restart: %v, want admitted", err)
+	}
+	if n := app.Admits(r.app, r.p.Root); n != 1 {
+		t.Errorf("admissions after the admit: %d, want 1", n)
+	}
+	release()
 }
 
 // T-737 (RV-87 #1): the binary watch runs on its own timer, not on the watchdogs' tick, which counts only while herdr
