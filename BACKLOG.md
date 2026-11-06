@@ -48,6 +48,7 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (lead 11-06) Empty `index.lock` files appeared in all four lane worktrees (`.git/worktrees/L-0x/index.lock`) at 12:31, with no git running; every dispatch then failed `lane.prepare … checkout -B … exit status 128`. Serve had not restarted (up since 12:15); the deep dive (12:22) and the RV-127 verify (Codex sandbox) were the only other agents. Removed by hand. If it recurs: find who runs git in the lanes and dies; `lane.prepare` could name the lock in its FAIL.
 - (RV-126, accepted) #2 rest: a process crash inside the close's commit window leaves an --accept line staged (a retry commits it twice) or the review file orphaned (post-commit crash; gitignored here); a removal error after the commit keeps the fold open until serve restarts. Crash-only; a durable close transaction is 60-120 prod lines
 - (RV-126, accepted) #3 a lost reply's same-id retry after a recovered close says 'no open review' although the close committed (one commit, one fact); needs a crash between commit and fact plus a retry; fix 30-70 lines
 - (lead 11-06) A model pause (`obor pause --model`) shows in neither `obor status` nor `obor setup show`: the owner had to ask why medium tasks went to sonnet, and a new lead session cannot see it. Small, adds lines: one status line per paused model with its end and why.
