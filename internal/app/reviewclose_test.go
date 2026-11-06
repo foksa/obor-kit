@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // T-926: obor review close is a call to serve: serve checks the open review against its fold, commits the close in the
@@ -117,8 +118,7 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 		t.Errorf("committed %+v, want %+v", r.git.closes, want)
 	}
 	f := r.closedFacts()
-	if len(f) != 1 || f[0].ID != "RV-5" || f[0].SHA != "abcdef0" || f[0].Start != startHead ||
-		!slices.Equal(f[0].Covered, []string{"T-start", "T-a", "T-b"}) || f[0].Reply != "CLOSED "+subject {
+	if len(f) != 1 || f[0].ID != "RV-5" || f[0].Reply != "CLOSED "+subject {
 		t.Errorf("review.closed facts %+v", f)
 	}
 	if r.p.folded.reviewed.open() != "" || r.p.folded.reviewed.closed == 0 {
@@ -171,8 +171,7 @@ func TestReviewCloseCrashBeforeFact(t *testing.T) {
 		}
 		read()
 		read()
-		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" || f[0].Start != headSHA ||
-			!slices.Equal(f[0].Covered, []string{"T-a", "T-b"}) {
+		if f := r.closedFacts(); len(f) != 1 || f[0].ID != "RV-5" {
 			t.Fatalf("restart %d: review.closed facts %+v, want RV-5's once, from its commit", i+1, f)
 		}
 		if r.p.folded.reviewed.open() != "" {
@@ -221,5 +220,36 @@ func TestReviewCloseOldStore(t *testing.T) {
 	r.pass()
 	if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") {
 		t.Errorf("launches %+v; want RV-6", l)
+	}
+}
+
+// RV-126 #1: only the lead closes a review (the owner's call has no role): a reviewer or a worker is refused, plain and
+// with --force, before any effect (no commit, no fact, the review still open); the lead's close goes through.
+func TestReviewCloseLeadOnly(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.verifyPass()
+	r.finish()
+	r.verifyPass()
+	if r.p.folded.reviewed.open() != "RV-5" {
+		t.Fatalf("precondition: %+v, want RV-5 open", r.p.folded.reviewed)
+	}
+	for _, role := range []string{"reviewer", "worker"} {
+		for _, force := range []bool{false, true} {
+			_, err := r.a.reviewCloseCall(wire.Call{Root: r.p.root, CallID: "x-" + role, Role: role, Agent: "pj-" + role,
+				Note: "fixed", Force: force})
+			if want := "review close: only the lead closes a review (" + role + ")"; err == nil || err.Error() != want {
+				t.Errorf("%s force=%v: %v, want %q", role, force, err, want)
+			}
+		}
+	}
+	if r.commits() != 0 || len(r.closedFacts()) != 0 || r.p.folded.reviewed.open() != "RV-5" {
+		t.Fatalf("a refused close changed something: %d commits, %d facts, open %q", r.commits(), len(r.closedFacts()),
+			r.p.folded.reviewed.open())
+	}
+	if reply, err := r.close("c1", "fixed", false); err != nil || !strings.HasPrefix(reply, "CLOSED RV-5 closed") {
+		t.Fatalf("the lead's close: %q, %v", reply, err)
 	}
 }

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/wire"
@@ -230,5 +232,76 @@ func TestReviewFixGone(t *testing.T) {
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a usage error sent %d requests", n)
+	}
+}
+
+// RV-126 #2: a close whose commit fails (a rejecting pre-commit hook, a cancelled context) leaves the review's files and
+// BACKLOG.md (content and index) as they were before the call, and returns the error; a close that succeeds removes
+// the files only after the commit.
+func TestReviewGitCloseCommitFails(t *testing.T) {
+	t.Parallel()
+	for _, hook := range []string{"reject", "cancel"} {
+		for _, backlog := range []string{"clean", "unstaged", "staged"} {
+			t.Run(hook+"/"+backlog, func(t *testing.T) {
+				t.Parallel()
+				p, head := reviewFixture(t)
+				g := reviewGit{root: p.Root}
+				review, verify := p.Path("docs/reviews/RV-4.md"), p.Path("docs/reviews/RV-4-verify.md")
+				p.Write(review, "# RV-4\n")
+				p.Write(verify, "# RV-4 verify\n")
+				switch backlog {
+				case "unstaged", "staged":
+					p.Write("BACKLOG.md", "# Backlog\n\n## Open\n- lead's line\n- old line\n\n## Concerns\n")
+				}
+				if backlog == "staged" {
+					p.Git(p.Root, "add", "BACKLOG.md")
+				}
+				marker := filepath.Join(t.TempDir(), "hook-ran")
+				script := "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nexit 1\n"
+				if hook == "cancel" {
+					script = "#!/bin/sh\nexec >/dev/null 2>&1\ntouch " + marker + "\nsleep 3\n"
+				}
+				hookPath := filepath.Join(p.Root, strings.TrimSpace(p.Git(p.Root, "rev-parse", "--git-path", "hooks")), "pre-commit")
+				if err := os.WriteFile(hookPath, []byte(script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				content, status := p.Read("BACKLOG.md"), p.Git(p.Root, "status", "--porcelain", "--untracked-files=all")
+				staged := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md")
+				if (backlog == "staged") != (staged != "") {
+					t.Fatalf("precondition: BACKLOG.md %s, staged diff %q", backlog, staged)
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if hook == "cancel" {
+					go func() {
+						for !fileThere(marker) {
+							time.Sleep(5 * time.Millisecond)
+						}
+						cancel()
+					}()
+				}
+				if err := g.Close(ctx, closeOf(p, head, "rare case")); err == nil {
+					t.Fatal("the close returned no error although its commit failed")
+				}
+				if !fileThere(marker) {
+					t.Fatal("the commit never ran its hook: the failure is not the commit's")
+				}
+				if !p.Exists(review) || !p.Exists(verify) {
+					t.Errorf("a failed commit removed the review's files")
+				}
+				if p.Git(p.Root, "rev-parse", "HEAD") != head {
+					t.Errorf("a failed commit moved HEAD")
+				}
+				if got := p.Read("BACKLOG.md"); got != content {
+					t.Errorf("BACKLOG.md after the failed close:\n%s\nwant:\n%s", got, content)
+				}
+				if got := p.Git(p.Root, "status", "--porcelain", "--untracked-files=all"); got != status {
+					t.Errorf("status after the failed close %q, want %q", got, status)
+				}
+				if got := p.Git(p.Root, "diff", "--cached", "--", "BACKLOG.md"); got != staged {
+					t.Errorf("BACKLOG.md's index entry after the failed close:\n%s\nwant:\n%s", got, staged)
+				}
+			})
+		}
 	}
 }
