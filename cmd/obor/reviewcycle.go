@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"obor/internal/app"
 	"obor/internal/app/wire"
@@ -101,24 +102,65 @@ func (g reviewGit) Close(ctx context.Context, c app.ReviewCommit) error {
 		return fmt.Errorf("no reviewed sha (%s, the head the reviewer last finished, is no commit): nothing changed",
 			c.Reviewed)
 	}
-	for _, f := range files {
-		if err := os.Remove(f); err != nil {
-			return err
+	if backlogDirty || backlog != "" {
+		return g.commitBacklog(ctx, c, backlog, files)
+	}
+	if _, err = g.git(ctx, "commit", "-q", "--allow-empty", "-m", c.Subject, "-m", c.Body); err != nil {
+		return err
+	}
+	return removeFiles(files)
+}
+
+// commitBacklog stages BACKLOG.md (with backlog's accepted lines when not ""), commits, and only then removes files:
+// a failed commit (a hook, git, a cancelled ctx) restores BACKLOG.md's content and its index entry as they were and
+// returns the error, the review files untouched (they are gitignored: the only copy of the findings). A crash after
+// the commit leaves the files: inert (the next review is RV-<n+1>; the gitignored files are no dirt), serve's
+// recovery (reviewCloseRead) records the close and removes nothing.
+func (g reviewGit) commitBacklog(ctx context.Context, c app.ReviewCommit, backlog string, files []string) error {
+	path := filepath.Join(g.root, "BACKLOG.md")
+	was, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	entry, err := g.git(ctx, "ls-files", "--stage", "--", "BACKLOG.md") // "<mode> <blob> <stage>\tBACKLOG.md", "" untracked
+	if err != nil {
+		return err
+	}
+	restore := func() {
+		// not ctx: a cancelled one is what may have failed the commit
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_ = os.WriteFile(path, was, 0o644)
+		if f := strings.Fields(entry); len(f) >= 2 {
+			_, _ = g.git(rctx, "update-index", "--cacheinfo", f[0]+","+f[1]+",BACKLOG.md")
+		} else {
+			_, _ = g.git(rctx, "reset", "-q", "--", "BACKLOG.md")
 		}
 	}
 	if backlog != "" {
-		if err := os.WriteFile(filepath.Join(root, "BACKLOG.md"), []byte(backlog), 0o644); err != nil {
-			return err
-		}
-		backlogDirty = true
-	}
-	if backlogDirty {
-		if _, err := g.git(ctx, "add", "--", "BACKLOG.md"); err != nil {
+		if err := os.WriteFile(path, []byte(backlog), 0o644); err != nil {
 			return err
 		}
 	}
-	_, err = g.git(ctx, "commit", "-q", "--allow-empty", "-m", c.Subject, "-m", c.Body)
-	return err
+	if _, err := g.git(ctx, "add", "--", "BACKLOG.md"); err != nil {
+		restore()
+		return err
+	}
+	if _, err := g.git(ctx, "commit", "-q", "--allow-empty", "-m", c.Subject, "-m", c.Body); err != nil {
+		restore()
+		return err
+	}
+	return removeFiles(files)
+}
+
+// removeFiles removes the review's files after its close commit is in (a file already gone is fine).
+func removeFiles(files []string) error {
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // porcelainLines is git status --porcelain's entry lines, untrimmed (T-725): the two status columns stay, so each

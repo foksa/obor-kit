@@ -49,8 +49,8 @@ const reviewDue = 3
 const maxBriefFiles = 100
 
 // ReviewData is a review fact's data: the request's tasks and note, who asked, the request a firing or start is of,
-// the review's id, head and tasks once started, a close's reviewed sha, covered tasks and review start sha (T-926: its
-// commit's), and the call that recorded it with its reply.
+// the review's id, head and tasks once started (a close's sha, covered tasks and start are its commit's, T-926), and the
+// call that recorded it with its reply.
 type ReviewData struct {
 	After   []string `json:"after,omitempty"`
 	Note    string   `json:"note,omitempty"`
@@ -59,9 +59,6 @@ type ReviewData struct {
 	ID      string   `json:"id,omitempty"`
 	Head    string   `json:"head,omitempty"`
 	Tasks   []string `json:"tasks,omitempty"`
-	SHA     string   `json:"sha,omitempty"`
-	Covered []string `json:"covered,omitempty"`
-	Start   string   `json:"start,omitempty"`
 	Call    string   `json:"call,omitempty"`
 	Reply   string   `json:"reply,omitempty"`
 }

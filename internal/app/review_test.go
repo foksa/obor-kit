@@ -177,9 +177,9 @@ func (r *reviewRig) closedBy(subject string) {
 	r.git.mu.Lock()
 	r.git.last = subject
 	r.git.mu.Unlock()
-	id, sha, _, covered, start := parseCloseCommit(subject, "")
+	id, _, _, _, _ := parseCloseCommit(subject, "")
 	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact},
-		ReviewData{ID: id, SHA: sha, Covered: covered, Start: start}) {
+		ReviewData{ID: id}) {
 		r.t.Fatal("the log refused the close")
 	}
 }

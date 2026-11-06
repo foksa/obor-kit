@@ -8,7 +8,7 @@ Difficulty (e.g. `Model: opus`) tries those models first, then the level's. Any 
 `<model>:<effort>` (`Model: opus:high`, `sonnet:low`): the agent starts at that effort. Optional: the line
 `Review: on merge` under the `Model:` line (or under Difficulty when there is none) makes serve request a review as
 soon as the task merges — for identity, MCP, launch and judgement-heavy changes. A fix of a review's findings: the
-line `Fixes: RV-<n>[ <what to check>]` beside it (T-924) links the task to that open review (obor dispatch refuses
+line `Fixes: RV-<n>[ <what to check>]` in its place, no `Review: on merge` (its verify is the review; T-924, T-928), links the task to that open review (obor dispatch refuses
 another review); serve verifies once the linked tasks merged, the free text the reviewer's note. Delete this comment. -->
 
 <1–3 sentences: why, and the source of truth — design doc section, review finding R-xx #n, file:line.>

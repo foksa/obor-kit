@@ -63,6 +63,9 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	if c.CallID == "" || summary == "" {
 		return "", errors.New(wire.MethodReviewClose + ": a call id and a summary are required")
 	}
+	if c.Role != "" && c.Role != "lead" {
+		return "", fmt.Errorf("review close: only the lead closes a review (%s)", c.Role)
+	}
 	p, reply, stored := a.callProj(wire.MethodReviewClose, c)
 	switch {
 	case p == nil:
@@ -99,7 +102,7 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 
 // reviewClose checks the open review (admitted): its file in the main checkout (openReview), its start in the log, its
 // linked fixes verified (--force: closes anyway); then the main checkout commits it (ReviewGit.Close: its own
-// refusals) and fact review.closed{id, sha, covered, start} is recorded, the reviewer's stop rule woken at once. Any
+// refusals) and fact review.closed{id} is recorded, the reviewer's stop rule woken at once. Any
 // refusal changes nothing.
 func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSetup, c wire.Call, summary string) (string,
 	error) {
@@ -125,7 +128,7 @@ func (a *App) reviewClose(ctx context.Context, p *proj, g ReviewGit, s ReviewSet
 		return "", err
 	}
 	reply := "CLOSED " + subject
-	d := ReviewData{ID: o.ID, SHA: sha, Covered: cycle.covered, Start: cycle.start, Call: c.CallID, Reply: reply}
+	d := ReviewData{ID: o.ID, Call: c.CallID, Reply: reply}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		a.mu.Lock()
 		p.closeRead = false // the next pass records it from the commit (reviewCloseRead)
@@ -182,7 +185,7 @@ func (a *App) readClose(ctx context.Context, p *proj, g ReviewGit, started lastR
 	if err != nil {
 		return err
 	}
-	id, sha, _, covered, start := parseCloseCommit(last.Subject, last.Body)
+	id, _, _, _, _ := parseCloseCommit(last.Subject, last.Body)
 	if k, ok := reviewNumber(id); !ok || k < n {
 		return nil // open: no close commit for it
 	}
@@ -192,7 +195,7 @@ func (a *App) readClose(ctx context.Context, p *proj, g ReviewGit, started lastR
 	if !same {
 		return nil
 	}
-	d := ReviewData{ID: id, SHA: sha, Covered: covered, Start: start}
+	d := ReviewData{ID: id}
 	if !a.record(p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact}, d) {
 		return errors.New("the event log refused fact " + event.StepReviewClosed)
 	}
