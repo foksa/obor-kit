@@ -55,7 +55,7 @@
       "timeout": 120
     },
     "check_milestone": {
-      "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...",
+      "cmd": "go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...",
       "timeout": 600
     },
     "conformance": {
