@@ -49,6 +49,9 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-125, accepted) #1 upgrade with a released fix round open loses its links and verify: covered by docs/UPGRADE-v0.29.md (close the round first or add Fixes: lines); a legacy fold would be 70-140 prod lines of compat for one upgrade moment
+- (RV-125, accepted) #2 a closed review's fixes stay in obor status until the next review starts (stale line, every cycle): goes with T-926 (close through serve: the review.closed fact clears the fix snapshot)
+- (RV-125, accepted) design: a fix spec that also carries Review: on merge queues a fresh review its verify already covers; lead rule: a Fixes: spec carries no Review: on merge
 - (RV-124, accepted) verify #1 reverse direction: a client built between T-896 and T-921 (open/locked fields) misreads a new serve's ended/free; no release ever shipped open/locked (v0.28.0 clients read state strings, which serve still ships) and the running obor web predates T-896; dev-only window, no legacy fields (they would be compat code for an unreleased shape)
 - (RV-124, accepted) design concern: queue.go:109 and cmd/obor/status.go:158 classify waiting from the displayed state string; a waiting task whose dependency dropped shows as needs-you instead (waiting_test.go:232), pre-existing; serve ships a waiting predicate on the next touch of these lines
 - (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
