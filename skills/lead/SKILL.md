@@ -95,7 +95,8 @@ Reviewer and deep dive are role panes in their own
 role worktree (`<lanes_dir>/reviewer`, `<lanes_dir>/deep_dive`; T-853), never lanes: serve moves it to the head it hands
 them (a review's start, a verify, a brief to an idle deep dive), so merges never wait; their files go to the main
 checkout's reviews dir;
-verifies: `obor brief <reviewer> "<text>"` in the same session. At most two review rounds per feature; then accept the rest in `BACKLOG.md`
+a review's fix specs carry `Fixes: RV-<n>[ <what to check>]` (T-924; `obor review fix` is gone): dispatching them
+links them, and serve briefs the verify in the reviewer's same session once they merged. At most two review rounds per feature; then accept the rest in `BACKLOG.md`
 (`review-brief.md` §3). Serve stops the reviewer once the review is closed
 (`RV-<n> closed`) and the integrator after its last verdict (T-672). A deep dive whose verify approves:
 `obor restart <deep-dive> --stop`; the next one starts clean on its brief (`obor brief <deep-dive> "<text>"`, and
@@ -118,7 +119,8 @@ reversible calls. Decisions → `docs/decisions.md`; concerns and open items →
 `docs/agents/<name>.md` (what it does, what it writes) and `roles.<name>` in config, commit, `obor setup role <name>`,
 then `obor brief`. The second finding in
 one function or invariant (two strikes) ends probe-sized fixes: spec a whole-function rewrite with a case → test
-table. Fix specs list every entry point of the finding's Extent line, one test each. Models: the strongest for
+table. Fix specs list every entry point of the finding's Extent line, one test each, and a review's carry its
+`Fixes:` line. Models: the strongest for
 anything non-trivial, a mid model for small well-specified tasks, the cheapest for mechanical bulk with an oracle.
 Speak up unprompted about anything systemic (complexity, fragile dependencies, your own mistakes).
 

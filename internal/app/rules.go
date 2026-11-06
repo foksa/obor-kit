@@ -44,6 +44,7 @@ const ruleFails = 3
 // rules are serve's rules, in the order a pass runs them.
 var rules = []rule{
 	{name: ruleReviewOnMerge, when: reviewOnMergeRule}, // before idle: the request it records is work in flight
+	{name: ruleVerify, when: verifyRule},               // before idle: the brief it records is work in flight
 	{name: ruleIdle, settle: idleSettle, when: idleRule},
 	{name: ruleIdlePing, when: idlePingRule}, // its line went after the idle line's settle
 	{name: ruleIntegratorStop, when: integratorStopRule},
@@ -113,11 +114,24 @@ func (a *App) act(ctx context.Context, p *proj, lead string, of event.Of, act ac
 	if act.line == "" {
 		return nil
 	}
+	return a.lineTo(p, lead, of, act.line)
+}
+
+// lineLead is a rule's line to p's lead, recorded with the back-reference of (a rule's did key).
+func (a *App) lineLead(p *proj, of event.Of, line string) error {
+	a.mu.Lock()
+	lead := p.out.lead()
+	a.mu.Unlock()
+	return a.lineTo(p, lead, of, line)
+}
+
+// lineTo records line to lead with the back-reference of and wakes the loop, which delivers it.
+func (a *App) lineTo(p *proj, lead string, of event.Of, line string) error {
 	if lead == "" {
 		return errors.New("no lead to line")
 	}
 	if !a.record(p, event.Record{Task: event.MsgTask, Step: event.StepMessage, Kind: event.KindFact},
-		event.Message{To: lead, From: "obor", Line: act.line, Of: of}) {
+		event.Message{To: lead, From: "obor", Line: line, Of: of}) {
 		return errors.New("the event log refused the line")
 	}
 	a.wake() // the next pass delivers it

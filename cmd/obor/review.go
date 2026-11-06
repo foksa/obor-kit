@@ -21,9 +21,6 @@ func reviewCmd(args []string) int {
 	if len(args) > 0 && args[0] == "close" {
 		return reviewCloseCmd(args[1:])
 	}
-	if len(args) > 0 && args[0] == "fix" {
-		return reviewFixCmd(args[1:])
-	}
 	var c wire.Call
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {

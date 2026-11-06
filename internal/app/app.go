@@ -137,10 +137,15 @@ type proj struct {
 	diskAt     time.Time            // when the free space was last read (disk.go)
 	due        reviewDueLine        // obor status' "review due" line, counted in git on a pass (review.go)
 	rv         reviewClaim          // a pass's claim of the open review request (review.go)
-	vf         sync.Mutex           // a verify's request and admission, and a role brief's record (reviewverify.go, T-856)
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
+	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); fixClosed: the
+	// review start whose review a verify pass found closed (no git read again); verifyDue: a verify is owed, which idle
+	// waits for (reviewverify.go, T-924).
+	fixes     fixState
+	fixClosed int64
+	verifyDue bool
 	// replies: the stored replies of the calls no fact records (job_next, spec set), by <method>.<call id>; a restart
 	// forgets them (folded.calls holds the recorded calls').
 	replies map[string]string
@@ -225,7 +230,7 @@ type folded struct {
 	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview
-	// rv: the review cycle's verify records and fix round, one fold (reviewverify.go, T-856).
+	// rv: the review cycle's starts and verify briefs, one fold (reviewverify.go, T-856, T-924).
 	rv reviewLog
 	// sessions: the agents' recorded sessions in log order (sessions.go, T-577).
 	sessions []store.Session
@@ -235,12 +240,11 @@ type folded struct {
 	idleAck idleAck
 	// ends: the records that ended work idleNow waits on besides a task's merge or drop (T-868), so the idle key and
 	// its age are the newest of them: briefEnds, each role worktree agent's last brief end (its finished line, or the
-	// stop that ended it); verifyEnd, the last verify that failed before its brief; reviewIdleEnd, the last review
+	// stop that ended it); reviewIdleEnd, the last review
 	// request's end (a failed --after end, a --rm or a firing, T-909: every end, so idle does not read the marker
 	// below); reviewEnd, the last end that suppresses the on-merge rule (a --rm or a firing, not a failed --after
 	// end, T-906).
 	briefEnds     map[string]idleEnd
-	verifyEnd     idleEnd
 	reviewIdleEnd idleEnd
 	reviewEnd     idleEnd
 }

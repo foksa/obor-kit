@@ -179,12 +179,10 @@ func TestReviewCloseDirtyBacklog(t *testing.T) {
 func TestReviewCloseCovered(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
-	seqs := appendFacts(t, p.Root,
-		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: head, Tasks: []string{"T-2", "T-3"}}),
-		// a done verify: T-2 again (the set is a set) and T-4
-		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-2", "T-4"}, By: "obor"}))
 	appendFacts(t, p.Root,
-		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", VerifyOf: seqs[1], Reviewed: head}),
+		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: head, Tasks: []string{"T-2", "T-3"}}),
+		// a finished verify: T-2 again (the set is a set) and T-4
+		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", Task: "T-2,T-4", Reviewed: head}),
 		logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished"}))
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)
@@ -222,34 +220,38 @@ func TestReviewCloseNoStartFact(t *testing.T) {
 	}
 }
 
-// T-850: obor review fix only asks serve (wire.MethodFix: the fix tasks and the note); a usage error sends nothing.
-func TestReviewFix(t *testing.T) {
+// T-924: obor review fix is gone (a fix task's spec line Fixes: RV-<n> links it), and T-869: there is no verify by
+// hand: each is a usage error of obor review, which names neither; nothing is sent.
+func TestReviewFixGone(t *testing.T) {
 	t.Parallel()
 	p, _ := reviewFixture(t)
-	home, serve := startFakeServe(t, p.Root, wire.Status{}, "FIX LINKED to RV-4: T-5,T-6", "")
+	home, serve := startFakeServe(t, p.Root, wire.Status{}, "REVIEW REQUESTED (now)", "")
 	env := []string{"OBOR_STATE_HOME=" + home, "OBOR_ROLE=lead", "OBOR_AGENT=pj-lead"}
-	for _, args := range [][]string{{"review", "fix"}, {"review", "fix", "T-5", "--note"}, {"review", "fix", "--note", "x"}, {"review", "fix", "T-5", "T-6"}} {
-		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review fix") {
-			t.Errorf("obor %q: exit %d, %q; want FAIL usage", args, rc, stdout)
+	for _, args := range [][]string{{"review", "fix", "T-5,T-6"}, {"review", "verify", "T-5"}} {
+		if rc, stdout, _ := run(t, p.Root, env, args...); rc != 1 || !strings.HasPrefix(stdout, "FAIL usage: obor review [") ||
+			strings.Contains(stdout, "verify") || strings.Contains(stdout, "fix") {
+			t.Errorf("obor %q: exit %d, %q; want obor review's usage, naming neither", args, rc, stdout)
 		}
-	}
-	// T-869 (DD R1): no verify by hand: obor review verify is a usage error of obor review, which names no verify.
-	if rc, stdout, _ := run(t, p.Root, env, "review", "verify", "T-5"); rc != 1 ||
-		!strings.HasPrefix(stdout, "FAIL usage: obor review [") || strings.Contains(stdout, "verify") {
-		t.Errorf("obor review verify: exit %d, %q; want obor review's usage, no verify in it", rc, stdout)
 	}
 	if _, n := serve.requests(); n != 0 {
 		t.Fatalf("a usage error sent %d requests", n)
 	}
-	rc, stdout, _ := run(t, p.Root, env, "review", "fix", "T-5,T-6", "--note", "check #2")
-	if rc != 0 || stdout != "FIX LINKED to RV-4: T-5,T-6\n" {
-		t.Fatalf("fix: exit %d, %q", rc, stdout)
+}
+
+// fixSpec stores task's spec with the line Fixes: <review> in the project's store and records its dispatch.
+func fixSpec(t *testing.T, root, task, review string) {
+	t.Helper()
+	db, err := store.OpenRW(event.DBFile(root))
+	if err != nil {
+		t.Fatal(err)
 	}
-	calls, _ := serve.requests()
-	if len(calls) != 1 || serve.methods[0] != wire.MethodFix || strings.Join(calls[0].After, ",") != "T-5,T-6" ||
-		calls[0].Note != "check #2" || calls[0].CallID == "" {
-		t.Fatalf("the request: %q %+v", serve.methods, calls)
+	defer db.Close()
+	text := "# " + task + " — fix\n\nDifficulty: medium\nFixes: " + review + "\n\n## Do\nfix it\n"
+	if _, _, err := store.SetSpec(db, task, text, "", "pj-lead", time.Now()); err != nil {
+		t.Fatal(err)
 	}
+	appendFacts(t, root, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact,
+		Data: json.RawMessage(`{}`)})
 }
 
 // appendFacts appends facts to the project's event log (no serve runs: the test is its one writer): their seqs.
@@ -285,19 +287,20 @@ func logFact(t *testing.T, task, step string, d any) event.Record {
 	return event.Record{Task: task, Step: step, Kind: event.KindFact, Data: b}
 }
 
-// T-850, T-856: obor review close is refused while a fix task linked by obor review fix is neither verified nor
-// dropped, or a verify is requested or briefed and not done, naming them, nothing changed: a verify of T-5 briefed and
-// not finished still refuses, and so does one its reviewer's error stop ended (T-857: failed, not done); once the
-// reviewer finished a verify of T-5 (its finished line) and the lead was told T-6 dropped, it closes, naming the head
-// that verify's brief handed the reviewer. --force closes with a fix pending.
+// T-924: obor review close is refused while a task linked by its spec's Fixes: RV-4 line is open, or merged and no
+// finished verify covers it, naming them, nothing changed: open; merged and not briefed; briefed and not finished; ended
+// by the reviewer's overloaded stop (T-857: not finished). A linked task dropped and a task fixing another review are
+// not counted. Once the reviewer finished a verify of T-5 it closes, naming that verify's head and covering T-5.
+// --force closes with a fix pending.
 func TestReviewCloseFixPending(t *testing.T) {
 	t.Parallel()
 	for _, force := range []bool{false, true} {
 		p, head := reviewFixture(t)
 		older := p.Git(p.Root, "rev-parse", head+"~1")
-		appendFacts(t, p.Root,
-			logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older}),
-			logFact(t, event.ReviewTask, event.StepReviewFix, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5", "T-6"}}))
+		appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older}))
+		fixSpec(t, p.Root, "T-5", "RV-4")
+		fixSpec(t, p.Root, "T-6", "RV-4 #2")
+		fixSpec(t, p.Root, "T-7", "RV-3")
 		f := p.Herdr()
 		f.Shell("w1:p3", "pj-rev", p.Root)
 		srv := herdrtest.Serve(t, f)
@@ -323,49 +326,47 @@ func TestReviewCloseFixPending(t *testing.T) {
 				t.Fatalf("%s: a refused close changed something", what)
 			}
 		}
-		refused("nothing verified", "T-5, T-6")
-		seqs := appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewVerifyRequest,
-			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
+		refused("both open", "T-5, T-6")
 		appendFacts(t, p.Root,
-			logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify",
-				VerifyOf: seqs[0], Reviewed: head}),
-			logFact(t, event.MsgTask, event.StepMessage, event.Message{To: "pj-lead", Line: "[obor] RV-4 fix T-6 ended unmerged", FixDrop: []string{"T-6"}}))
+			event.Record{Task: "T-5", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact, Data: json.RawMessage(`{"head":"` + head + `"}`)},
+			event.Record{Task: "T-6", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact, Data: json.RawMessage(`{"reason":"superseded"}`)})
+		refused("T-5 merged, no verify; T-6 dropped", "T-5")
+		verify := logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify",
+			Task: "T-5", Reviewed: head})
+		appendFacts(t, p.Root, verify)
 		refused("T-5's verify briefed, its line not delivered", "T-5")
 		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepStopped, struct {
 			Agent string `json:"agent"`
 			Error string `json:"error"`
 			event.Message
-		}{"pj-rev", "overloaded", event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev",
-			Line: "[obor] RV-4 verify failed: pj-rev stopped: overloaded; serve retries when the reviewer is idle"}}))
+		}{"pj-rev", "overloaded", event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev stopped: overloaded"}}))
 		refused("T-5's verify ended by the reviewer's overloaded stop", "T-5")
-		seqs = appendFacts(t, p.Root, logFact(t, event.ReviewTask, event.StepReviewVerifyRequest,
-			app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
-		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev",
-			Line: "[obor obor] verify", VerifyOf: seqs[0], Reviewed: head}))
-		appendFacts(t, p.Root, logFact(t, event.MsgTask, event.StepMessage,
+		appendFacts(t, p.Root, verify, logFact(t, event.MsgTask, event.StepMessage,
 			event.Message{To: "pj-lead", From: "obor", Ends: "pj-rev", Line: "[obor] pj-rev finished (briefed 2m ago)"}))
 		rc, stdout, _ := run(t, p.Root, env, "review", "close", "fixed")
 		if rc != 0 || !strings.HasPrefix(stdout, "CLOSED RV-4 closed · "+head[:7]+" · ") {
 			t.Errorf("T-5 verified, T-6 dropped: exit %d, %q; want CLOSED at the verify's head %s", rc, stdout, head[:7])
 		}
+		if body := p.Git(p.Root, "log", "-1", "--format=%b"); !strings.HasPrefix(body, "Covered: T-5\n") {
+			t.Errorf("the close's body %q; want T-5 covered", body)
+		}
 	}
 }
 
 // T-857 (RV-113 #4a): a verify of T-5 briefed at the head, then an ordinary brief to the reviewer before it finished:
-// close is allowed and names the review start's head, not the superseded verify's, and covers nothing of it.
+// close is allowed (T-5 is linked by no spec) and names the review start's head, not the superseded verify's, and
+// covers nothing of it.
 func TestReviewCloseSupersededVerify(t *testing.T) {
 	t.Parallel()
 	p, head := reviewFixture(t)
 	older := p.Git(p.Root, "rev-parse", head+"~1")
-	seqs := appendFacts(t, p.Root,
-		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older, Tasks: []string{"T-1"}}),
-		logFact(t, event.ReviewTask, event.StepReviewVerifyRequest, app.ReviewData{ID: "RV-4", Tasks: []string{"T-5"}, By: "obor"}))
 	appendFacts(t, p.Root,
-		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] verify",
-			VerifyOf: seqs[1], Reviewed: head}),
+		logFact(t, event.ReviewTask, event.StepReviewStarted, app.ReviewData{ID: "RV-4", Head: older, Tasks: []string{"T-1"}}),
+		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor obor] verify", Task: "T-5",
+			Reviewed: head}),
 		logFact(t, event.MsgTask, event.StepBriefed, event.Message{To: "pj-rev", Line: "[obor pj-lead] look at the flaky test"}))
-	if c := app.ReadReviewCycle(p.Root, "RV-4"); len(c.Pending) != 0 || c.Reviewed != older {
-		t.Fatalf("the verify superseded: cycle %+v; want nothing pending, the start's head %s", c, older)
+	if c, err := app.ReadReviewCycle(p.Root, "RV-4"); err != nil || len(c.Pending) != 0 || c.Reviewed != older {
+		t.Fatalf("the verify superseded: cycle %+v (%v); want nothing pending, the start's head %s", c, err, older)
 	}
 	f := p.Herdr()
 	f.Shell("w1:p3", "pj-rev", p.Root)

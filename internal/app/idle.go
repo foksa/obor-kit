@@ -93,8 +93,8 @@ func (p *proj) foldIdle(r event.Record) {
 // (the idle key) and time when nothing is in flight, no needs-you is in force, no review request or verify is pending
 // and no reviewer or deep dive holds a brief. A task merged but still on its after-merge steps is in flight; a rejected
 // one is no cause of idle (its needs-you ends it). The end is the newest of the records that ended what it waited on
-// (T-868): a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a verify's
-// end, a review request's end (every end: a failed --after end, a --rm or a firing, T-909).
+// (T-868): a merge, a drop, the last after-merge step, a role worktree agent's finished or stopped brief, a
+// review request's end (every end: a failed --after end, a --rm or a firing, T-909).
 func (p *proj) idleNow() idle {
 	var last string
 	var merge idleEnd // the newest merge or drop: what the line names
@@ -126,16 +126,15 @@ func (p *proj) idleNow() idle {
 	if p.folded.review != nil || p.rv.what != "" {
 		return idle{}
 	}
-	// A verify requested (or admitted: the fold still has it requested, T-856) is in flight until its brief, and so is
-	// a failed one its fix round requests again (T-858): its tasks are not verified until it is done.
-	if p.folded.rv.waiting() {
+	// A verify owed (the verify rule's condition, T-924) is in flight until its brief: its tasks are not verified yet.
+	if p.verifyDue {
 		return idle{}
 	}
 	// A rule's needs-you (rules.go) is serve's failure, not work: it would end the idle state its rule acts on.
 	if merge.seq == 0 || slices.ContainsFunc(p.needsYou(), func(r event.Record) bool { return r.Task != event.RuleTask }) {
 		return idle{}
 	}
-	end = end.newer(merge).newer(p.folded.verifyEnd).newer(p.folded.reviewIdleEnd)
+	end = end.newer(merge).newer(p.folded.reviewIdleEnd)
 	for _, w := range p.wtAgentsNow() { // an open brief to the reviewer or the deep dive is work in flight
 		if p.out.briefs[w.agent] != nil {
 			return idle{}

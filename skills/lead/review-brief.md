@@ -61,35 +61,39 @@ Read `<reviews>/<RV-xx>.md` in the main checkout; do not copy or commit it. Tria
 one test each, and carries what it needs from the finding: the file is not on the branch). Unlikely and the fix adds
 complexity → no fix: accept it in `BACKLOG.md` with one line why, or remove the case instead (refuse the config) when
 that makes the code smaller. A probe that proves a constructed case is not by itself a reason to add code.
-Dispatch the fix tasks, then link them to the open review at once: `obor review fix <T-x,…> [--note "<what to
-check>"]` (T-850; a second call adds tasks). Refused: no open review, a task not dispatched. Do not close the review
-now: its verify (§4) needs the reviewer's session and the findings' context.
+Each fix spec carries the line `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading, beside
+`Review: on merge` (T-924; `obor review fix` is gone): dispatching it links it to the open review, nothing else to run.
+`obor dispatch` refuses a `Fixes:` that names another review (`FAIL T-xx: Fixes: RV-9 is not the open review (RV-12 is
+open | none is open)`); `obor spec set` does not check it. The free text is your note to the reviewer for that task
+(e.g. `Fixes: RV-12 #1, #3 — re-run with an old status JSON`). Do not close the review now: its verify (§4) needs the
+reviewer's session and the findings' context.
 At most two review rounds per feature (owner 2026-11-02): after the second verify, what is still open is accepted
 in `BACKLOG.md` (one line each, with its likelihood and fix cost), unless it is likely and its fix is small.
 
 ## 4. Verification (same session — never `/new` the reviewer)
-Once every task linked by `obor review fix` merged, serve runs the verify itself (T-850; T-869: there is no verify by
-hand, `obor review fix` is the one way to ask for one); you get the reviewer's finished line as for any brief. Serve
-records the verify and, once the reviewer is idle (T-856: a working reviewer's worktree never moves under it), reads
-the integration branch's head once and detaches the reviewer's worktree there (T-853; T-872: a publish in flight does
-not hold it, its merge falls into the next review's scope) and briefs the open review's reviewer in its same, still-running session
-(serve delivers it once the pane is idle and tells you when it has finished). One verify at a time. A linked task
-dropped or rejected: one line `[obor] <RV-xx> fix <T-x> ended unmerged: the verify waits for <the rest>`. A verify
-serve cannot run (git refusing, a task with no merge since the previous review started — the previous close commit's
-`Start:` sha; a task merged after the review started, which it does not cover, is allowed and joins the cycle's covered
-set — or the reviewer's worktree not movable): one line `[obor] <RV-xx> fix verify of … failed: <error> (obor review
-fix <tasks> asks again)`; fix the cause, then run that `obor review fix`. The tasks count as verified only once the
-reviewer finished that verify's brief (T-856); a brief of yours to the reviewer before then replaces the verify, and
-serve verifies again once the reviewer is idle. The reviewer stopping on an API error that is not a usage limit
-(overloaded, billing_error, …) fails the verify (T-857): one line `[obor] <RV-xx> verify failed: <reviewer> stopped:
-<error>; serve retries when the reviewer is idle`. A usage limit keeps the brief open, as for any brief. The brief
-(the notes of your `obor review fix` calls as the lead's note):
+The verify is a rule (T-924; T-869: there is no verify by hand): while the review is open, every task linked by its
+spec's `Fixes:` line has merged (or ended unmerged, at least one merged), a finished verify does not cover the merged
+ones, and the reviewer has no open brief and is idle (T-856: a working reviewer's worktree never moves under it), serve
+reads the integration branch's head once, detaches the reviewer's worktree there (T-853; T-872: a publish in flight
+does not hold it, its merge falls into the next review's scope) and briefs the open review's reviewer in its same,
+still-running session (serve delivers it once the pane is idle and tells you when it has finished); you get the
+reviewer's finished line as for any brief. A linked task dropped or rejected: one line `[obor] <RV-xx> fix <T-x>
+ended unmerged (dropped): not counted, …`; it does not hold the verify or the close. The tasks count as verified only
+once the reviewer finished that verify's brief (T-856). A verify that does not finish leaves the condition true and a
+later pass briefs it again, one line to you per failure: a brief of yours to the reviewer before then replaces it, the
+reviewer stopping on an API error that is not a usage limit (overloaded, billing_error, …; T-857) ends it (`[obor]
+<RV-xx> verify of <tasks> did not finish (<why>): serve briefs it again once the reviewer is idle`), and its git
+failing (a task with no merge since the previous review started — the previous close commit's `Start:` sha; a task
+merged after the review started, which it does not cover, is allowed and joins the cycle's covered set — or the
+reviewer's worktree not movable) is `[obor] <RV-xx> verify of <tasks> failed: <error> (serve tries again on its next
+pass)`; fix the cause. A usage limit keeps the brief open, as for any brief. After a crash a verify may be briefed
+twice, or one pass late. The brief (each task's `Fixes:` free text as one line of the lead's note):
 ```
 The <RV-xx> findings were fixed in <T-x (<sha>), …>; <branch> is at <sha> (your worktree too). Re-run your probes for
 every finding and report fixed / incomplete / regressed per finding. What did this make redundant? Name it or confirm
 it is gone. On rule-tier steps a crash or interleaving finding counts only when a kernel guarantee breaks. Does it add a field or type that copies data another type already holds? Name the owner type. Does a client decide something from a state string that serve knows? Then serve ships the predicate. Write
 <reviews>/<RV-xx>-verify.md in the main checkout <root>. Do not commit.
-Lead's note: <your --note>
+Lead's note: <T-x>: <its Fixes: text>
 ```
 Read the verify file there. Incomplete or regressed → a new fix task; second finding in the same function or
 invariant → the two-strike rule in the lead skill.
@@ -114,6 +118,6 @@ so the next review's scope takes the merges this cycle did not cover (a task mer
 unreviewed until a cycle covers it; `obor status`' `review due` counts it). A close commit from an
 older obor has no such body: the next review falls back to the sha range. Refused before any change: no open review,
 no review start for it in serve's log (T-869), the main checkout not on the integration branch or dirty outside
-`BACKLOG.md` and the review's files, or a task linked by `obor review fix` neither verified nor dropped (named;
+`BACKLOG.md` and the review's files, or a task linked by its `Fixes:` line open, or merged and not covered (named;
 `--force`, the owner's word, closes anyway). Nothing else of the review
 is kept; the reviewer's evidence lives only in its session.

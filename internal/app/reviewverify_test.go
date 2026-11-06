@@ -6,18 +6,22 @@ import (
 	"errors"
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
+	"obor/internal/store"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// T-823, T-856: a verify is one record (requested → admitted → briefed → done | superseded, or failed), admitted only
-// while the reviewer is idle, its tasks verified and covered once the reviewer finished its brief.
+// T-924: a fix task links itself to the open review with its spec's Fixes: line (derived, no record); the verify is a
+// rule: once every linked task merged (or ended unmerged) and the reviewer is idle, serve detaches the reviewer's
+// worktree at the integration head and briefs the verify in the same session; only the finished line covers the tasks.
 
 // headSHA is the rig's integration branch head (reviewGitFake.Head).
 const headSHA = "abcdef0123456789abcdef0123456789abcdef01"
+
+// startHead is the head the open review started at (startedReview).
+const startHead = "1234567890abcdef"
 
 // openReviewFile writes the open review's file (RV-5) in the rig's main checkout.
 func openReviewFile(t *testing.T, root string) {
@@ -30,23 +34,6 @@ func openReviewFile(t *testing.T, root string) {
 	}
 }
 
-// verifyBriefs are the log's verify briefs of the reviewer, in order.
-func verifyBriefs(t *testing.T, root string) []event.Message {
-	t.Helper()
-	var out []event.Message
-	for _, r := range readLog(t, root) {
-		var m event.Message
-		if r.Task == event.MsgTask && r.Step == event.StepBriefed && json.Unmarshal(r.Data, &m) == nil &&
-			m.To == "pj-rev" && m.VerifyOf != 0 {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// startHead is the head the open review started at (startedReview).
-const startHead = "1234567890abcdef"
-
 // startedReview records the open review's start fact (RV-5 covers T-start at startHead; the verifies add to it).
 func startedReview(t *testing.T, r *reviewRig) {
 	t.Helper()
@@ -56,38 +43,76 @@ func startedReview(t *testing.T, r *reviewRig) {
 	}
 }
 
-// briefFact records a brief fact and is its seq (the test fails when the log refuses it).
-func briefFact(t *testing.T, r *reviewRig, m event.Message) int64 {
+// fixTask stores task's spec with line between its title and its first heading, then dispatches and submits it.
+func (r *reviewRig) fixTask(task, line string) {
+	r.t.Helper()
+	text := "# " + task + " — fix\n\nDifficulty: medium\n" + line + "\n\n## Do\nfix it\n"
+	if _, _, err := store.SetSpec(r.p.log.DB(), task, text, "", "pj-lead", r.now); err != nil {
+		r.t.Fatal(err)
+	}
+	if !r.a.record(r.p, event.Record{Task: task, Attempt: 1, Step: event.StepDispatched, Kind: event.KindFact},
+		dispatchData{}) {
+		r.t.Fatal("the log refused the dispatch")
+	}
+	r.submitted(task)
+}
+
+// fixRig is a rig with the open review RV-5 (its file written, RV-4 closed) started, and T-a, T-b dispatched with
+// Fixes: RV-5 lines (T-a's with a note).
+func fixRig(t *testing.T) *reviewRig {
 	t.Helper()
-	seq, ok := r.a.recordSeq(r.p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m)
-	if !ok {
-		t.Fatal("the log refused the brief fact")
-	}
-	return seq
+	r := newReviewRig(t)
+	openReviewFile(t, r.p.root)
+	startedReview(t, r)
+	r.fixTask("T-a", "Fixes: RV-5 #1, #3 — re-run with an old status JSON")
+	r.fixTask("T-b", "Fixes: RV-5")
+	return r
 }
 
-// deliverFact records fact seq's delivery result: a line is delivered unless its result is retiredResult.
-func deliverFact(t *testing.T, r *reviewRig, seq int64, res string) {
-	t.Helper()
-	if !r.a.record(r.p, event.Record{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(seq, 10),
-		Kind: event.KindResult}, res) {
-		t.Fatal("the log refused the delivery result")
-	}
-}
-
-// verify is a fix round's verify of tasks of RV-5 (T-869: the only asker; requestVerify, as fixPass calls it), then
-// one admission pass: the request's error.
-func (r *reviewRig) verify(tasks ...string) error {
-	if _, err := r.a.requestVerify(r.p, ReviewData{ID: "RV-5", Tasks: tasks, By: "obor"}); err != nil {
-		return err
-	}
-	r.verifyPass()
-	return nil
-}
-
-// verifyPass is one verify admission pass.
+// verifyPass is one rule pass of the verify rule alone.
 func (r *reviewRig) verifyPass() {
-	r.a.verifyPass(context.Background(), r.p, &Loop{Review: r.git, Agents: r.agents})
+	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Review: r.git, Agents: r.agents})
+}
+
+// cycle is RV-5's cycle as obor review close reads it (the test fails on an error).
+func (r *reviewRig) cycle() ReviewCycle {
+	r.t.Helper()
+	c, err := ReadReviewCycle(r.p.root, "RV-5")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return c
+}
+
+// pending is close's pending set for RV-5, comma-joined.
+func (r *reviewRig) pending() string { return strings.Join(r.cycle().Pending, ",") }
+
+// verifyBriefs are the log's verify briefs of the reviewer (a brief naming tasks and a head), in order.
+func verifyBriefs(t *testing.T, root string) []event.Message {
+	t.Helper()
+	var out []event.Message
+	for _, r := range readLog(t, root) {
+		var m event.Message
+		if r.Task == event.MsgTask && r.Step == event.StepBriefed && json.Unmarshal(r.Data, &m) == nil &&
+			m.To == "pj-rev" && m.Task != "" && m.Reviewed != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// verifyLines are the log's lead lines of the verify rule (its own and its git failure's), in order.
+func (r *reviewRig) verifyLines() []string {
+	r.t.Helper()
+	var out []string
+	for _, rec := range readLog(r.t, r.p.root) {
+		var m event.Message
+		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil &&
+			(m.Of.Kind == ruleVerify || m.Of.Kind == ruleVerifyGit) {
+			out = append(out, m.Line)
+		}
+	}
+	return out
 }
 
 // working sets the reviewer's pane working (true) or idle.
@@ -115,275 +140,12 @@ func (r *reviewRig) finish() {
 	}
 }
 
-// lastVerify is the newest verify record (the test fails when there is none).
-func (r *reviewRig) lastVerify() *verifyRec {
+// leadBrief is the lead's brief to the reviewer (call id id).
+func (r *reviewRig) leadBrief(id string) {
 	r.t.Helper()
-	vs := r.p.folded.rv.sorted()
-	if len(vs) == 0 {
-		r.t.Fatal("no verify recorded")
-	}
-	return vs[len(vs)-1]
-}
-
-// T-856: fixes merge while the reviewer is idle: one verify, its worktree moved to the head and briefed; the tasks are verified only when the reviewer finished that brief.
-func TestVerifyReviewerIdle(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	startedReview(t, r)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.fixPass()
-	v := r.lastVerify()
-	if v.state != verifyBriefed || len(r.git.detached) != 1 || !strings.HasSuffix(r.git.detached[0], "@"+headSHA) ||
-		v.head != headSHA || len(verifyBriefs(t, r.p.root)) != 1 {
-		t.Fatalf("state %s at %s, detached %q, %d briefs; want briefed once at the head, moved there",
-			v.state, v.head, r.git.detached, len(verifyBriefs(t, r.p.root)))
-	}
-	if got := r.pending(); got != "T-a,T-b" {
-		t.Fatalf("briefed, not finished: pending %q, want T-a,T-b", got)
-	}
-	if got := ReadReviewCycle(r.p.root, "RV-5").Reviewed; got != startHead { // T-857: a head counts once done
-		t.Fatalf("briefed, not finished: close's head %q, want the start's %s", got, startHead)
-	}
-	r.finish()
-	c := ReadReviewCycle(r.p.root, "RV-5")
-	if r.lastVerify().state != verifyDone || len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" ||
-		c.Reviewed != headSHA {
-		t.Errorf("state %s, cycle %+v; want done, nothing pending, T-a,T-b covered, the verify's head reviewed",
-			r.lastVerify().state, c)
-	}
-}
-
-// T-856: fixes merge while the reviewer works: the verify is requested and waits; the reviewer's worktree is not moved
-// and nothing is briefed until it is idle.
-func TestVerifyWaitsWhileReviewerWorks(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	r.working(true)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.fixPass()
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyRequested || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Fatalf("state %s, %d requests; want one requested", v.state, r.facts(event.StepReviewVerifyRequest))
-	}
-	if len(r.git.detached) != 0 || len(verifyBriefs(t, r.p.root)) != 0 {
-		t.Fatalf("while the reviewer works: detached %q, %d briefs; want none", r.git.detached, len(verifyBriefs(t, r.p.root)))
-	}
-	r.working(false)
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyBriefed || len(r.git.detached) != 1 || len(verifyBriefs(t, r.p.root)) != 1 {
-		t.Errorf("idle: state %s, detached %q, %d briefs; want briefed, moved once", v.state, r.git.detached,
-			len(verifyBriefs(t, r.p.root)))
-	}
-}
-
-// T-856: an auto verify's brief queued, then an ordinary brief to the reviewer supersedes it: the tasks are pending
-// again (close refused), no new verify while the ordinary brief is open, a new one once the reviewer finished it.
-func TestVerifySupersededByBrief(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.fixPass()
-	first := r.lastVerify()
-	if first.state != verifyBriefed {
-		t.Fatalf("precondition: the auto verify %s, want briefed (its line queued)", first.state)
-	}
-	if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: "b1", Role: "lead", Agent: "pj-lead", To: "pj-rev",
+	if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", To: "pj-rev",
 		Note: "look at the flaky test"}); err != nil {
-		t.Fatal(err)
-	}
-	if first.state != verifySuperseded {
-		t.Fatalf("after the ordinary brief: the verify %s, want superseded", first.state)
-	}
-	if got := r.pending(); got != "T-a,T-b" {
-		t.Errorf("superseded: close's pending %q, want T-a,T-b", got)
-	}
-	r.fixPass()
-	second := r.lastVerify()
-	if second == first || second.state != verifyRequested || len(verifyBriefs(t, r.p.root)) != 1 {
-		t.Fatalf("the ordinary brief open: a new verify %s, %d verify briefs; want a new one requested, not briefed",
-			second.state, len(verifyBriefs(t, r.p.root)))
-	}
-	r.finish() // the reviewer works on the ordinary brief and finishes it
-	r.fixPass()
-	if second.state != verifyBriefed || len(verifyBriefs(t, r.p.root)) != 2 || r.facts(event.StepReviewVerifyRequest) != 2 {
-		t.Errorf("the reviewer idle again: the new verify %s, %d verify briefs, %d requests; want it briefed, two of each",
-			second.state, len(verifyBriefs(t, r.p.root)), r.facts(event.StepReviewVerifyRequest))
-	}
-}
-
-// T-856: close before the verify's brief is delivered (or finished) is refused: the tasks are pending.
-func TestVerifyCloseBeforeDone(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	openReviewFile(t, r.p.root)
-	startedReview(t, r)
-	if err := r.verify("T-a"); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.pending(); got != "T-a" {
-		t.Errorf("a verify queued: pending %q, want T-a", got)
-	}
-	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-	if got := r.pending(); got != "T-a" {
-		t.Errorf("delivered, not finished: pending %q, want T-a", got)
-	}
-	r.finish()
-	if got := r.pending(); got != "" {
-		t.Errorf("finished: pending %q, want none", got)
-	}
-}
-
-// T-856: the reviewer's worktree move fails (local changes, an occupied dir): the verify failed, nothing briefed, the
-// tasks pending, close's sha still the review start's; the lead told once.
-func TestVerifyMoveFails(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	startedReview(t, r)
-	r.git.detachErr = errors.New("git worktree add: '/x/reviewer' already exists")
-	r.merged("T-a")
-	r.merged("T-b")
-	r.fixPass()
-	c := ReadReviewCycle(r.p.root, "RV-5")
-	if v := r.lastVerify(); v.state != verifyFailed || len(verifyBriefs(t, r.p.root)) != 0 {
-		t.Fatalf("state %s, %d briefs; want failed, nothing briefed", v.state, len(verifyBriefs(t, r.p.root)))
-	}
-	if strings.Join(c.Pending, ",") != "T-a,T-b" || c.Reviewed != "1234567890abcdef" ||
-		strings.Join(c.Covered, ",") != "T-start" {
-		t.Errorf("cycle %+v; want T-a,T-b pending, the start's head reviewed, only T-start covered", c)
-	}
-	if l := r.leadLines(); len(l) != 1 || !strings.HasSuffix(l[0], "(obor review fix T-a,T-b asks again)") {
-		t.Errorf("lead lines %q, want the one failure line naming obor review fix", l)
-	}
-}
-
-// T-856: a restart at each arrow of the lifecycle replays the same state: no second verify, no lost one.
-func TestVerifyRestartEachArrow(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	startedReview(t, r)
-	r.working(true)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.fixPass()
-	seq := r.lastVerify().seq
-	state := func() verifyState { return r.p.folded.rv.verifies[seq].state }
-
-	r.reload() // requested →
-	if state() != verifyRequested {
-		t.Fatalf("requested, replayed: %s", state())
-	}
-	r.working(true)
-	r.fixPass()
-	if state() != verifyRequested || r.facts(event.StepReviewVerifyRequest) != 1 || len(r.git.detached) != 0 {
-		t.Fatalf("requested, the reviewer working: %s, %d requests, detached %q", state(),
-			r.facts(event.StepReviewVerifyRequest), r.git.detached)
-	}
-
-	r.working(false)
-	r.refuseStep(event.StepBriefed) // admitted: moved, its brief not recorded (a crash before the append)
-	r.fixPass()
-	if state() != verifyRequested || len(r.git.detached) != 1 || len(verifyBriefs(t, r.p.root)) != 0 {
-		t.Fatalf("admitted, the brief refused: %s, detached %q, %d briefs; want requested, moved, nothing briefed",
-			state(), r.git.detached, len(verifyBriefs(t, r.p.root)))
-	}
-	r.reload()
-	if state() != verifyRequested {
-		t.Fatalf("admitted, replayed: %s, want requested", state())
-	}
-	r.fixPass() // → briefed
-	if state() != verifyBriefed || len(verifyBriefs(t, r.p.root)) != 1 {
-		t.Fatalf("briefed: %s, %d briefs", state(), len(verifyBriefs(t, r.p.root)))
-	}
-
-	r.reload()
-	r.fixPass()
-	if state() != verifyBriefed || len(verifyBriefs(t, r.p.root)) != 1 || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Fatalf("briefed, replayed: %s, %d briefs, %d requests; want briefed, one of each", state(),
-			len(verifyBriefs(t, r.p.root)), r.facts(event.StepReviewVerifyRequest))
-	}
-
-	r.finish() // → done
-	r.reload()
-	r.fixPass()
-	if state() != verifyDone || r.pending() != "" || len(verifyBriefs(t, r.p.root)) != 1 ||
-		r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Errorf("done, replayed: %s, pending %q, %d briefs, %d requests; want done, none pending, one of each", state(),
-			r.pending(), len(verifyBriefs(t, r.p.root)), r.facts(event.StepReviewVerifyRequest))
-	}
-}
-
-// T-823, T-856: a second verify's request is refused while the first is briefed (delivered or not); once the
-// reviewer finished it a second is accepted, and each covers its tasks once its own brief is done.
-func TestReviewVerifyPendingAndCoverage(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	openReviewFile(t, r.p.root)
-	startedReview(t, r)
-	covered := func() string { return strings.Join(ReadReviewCycle(r.p.root, "RV-5").Covered, ",") }
-	if err := r.verify("T-a"); err != nil {
-		t.Fatal(err)
-	}
-	if got := covered(); got != "T-start" {
-		t.Fatalf("precondition: %q covered while the verify brief is still queued, want the start's T-start", got)
-	}
-	for _, delivered := range []bool{false, true} {
-		if delivered {
-			r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
-		}
-		err := r.verify("T-b")
-		if err == nil || !strings.Contains(err.Error(), "a verify is pending (T-a, briefed)") {
-			t.Fatalf("a second verify, the first briefed (delivered %t): %v, want the pending refusal", delivered, err)
-		}
-	}
-	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Errorf("after the refused verifies: %d briefs, %d requests; want one of each", n,
-			r.facts(event.StepReviewVerifyRequest))
-	}
-	if got := covered(); got != "T-start" {
-		t.Errorf("delivered, not finished: %q covered, want T-start", got)
-	}
-
-	r.finish()
-	if err := r.verify("T-b"); err != nil {
-		t.Fatalf("a second verify after the first is done: %v", err)
-	}
-	if got := covered(); got != "T-start,T-a" {
-		t.Errorf("covered %q; want the start's T-start and the done first verify's T-a", got)
-	}
-	r.finish()
-	if got := covered(); got != "T-start,T-a,T-b" {
-		t.Errorf("covered %q; want the start's T-start and both done verifies' T-a,T-b", got)
-	}
-}
-
-// T-823, T-856: a refused brief append leaves the verify requested with nothing covered; after a restart a pass briefs
-// it once.
-func TestReviewVerifyBriefRefused(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	openReviewFile(t, r.p.root)
-	startedReview(t, r)
-	r.refuseStep(event.StepBriefed)
-	if err := r.verify("T-a"); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(verifyBriefs(t, r.p.root)); n != 0 || r.lastVerify().state != verifyRequested {
-		t.Fatalf("precondition: %d briefs, state %s after the refused append; want none, requested",
-			n, r.lastVerify().state)
-	}
-
-	r.reload() // a restart: the refusal is not carried
-	r.verifyPass()
-	r.verifyPass()
-	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Fatalf("%d briefs, %d requests after the restart's passes, want one of each", n, r.facts(event.StepReviewVerifyRequest))
-	}
-	r.finish()
-	if c := ReadReviewCycle(r.p.root, "RV-5"); strings.Join(c.Covered, ",") != "T-start,T-a" {
-		t.Errorf("covered %q; want the start's T-start and the done brief's T-a", c.Covered)
+		r.t.Fatal(err)
 	}
 }
 
@@ -396,160 +158,333 @@ func (r *reviewRig) stop(call, errText, details string) {
 	}
 }
 
-// linesWith is the lead's lines that contain part.
-func (r *reviewRig) linesWith(part string) []string {
-	var out []string
-	for _, l := range r.leadLines() {
-		if strings.Contains(l, part) {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-// briefedVerify is the auto verify of T-a, T-b of the open, started RV-5 delivered and taken by the reviewer (its pane
-// working): the verify, briefed.
-func briefedVerify(t *testing.T) (*reviewRig, *verifyRec) {
+// briefedVerify is fixRig's verify of T-a, T-b briefed, delivered and taken by the reviewer (its pane working).
+func briefedVerify(t *testing.T) *reviewRig {
 	t.Helper()
 	r := fixRig(t)
-	startedReview(t, r)
 	r.merged("T-a")
 	r.merged("T-b")
-	r.fixPass()
+	r.verifyPass()
 	r.a.deliver(context.Background(), r.p, &Loop{Typer: &linerSpy{}})
 	r.working(true)
-	v := r.lastVerify()
-	if v.state != verifyBriefed || r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
-		t.Fatalf("precondition: verify %s, brief open %t, pending %q; want briefed and open, T-a,T-b pending", v.state,
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.p.out.brief("pj-rev") == nil || r.pending() != "T-a,T-b" {
+		t.Fatalf("precondition: %d verify briefs, brief open %t, pending %q; want one open, T-a,T-b pending", n,
 			r.p.out.brief("pj-rev") != nil, r.pending())
 	}
-	return r, v
+	return r
 }
 
-// T-857 (RV-113 #2a): a delivered verify, the reviewer stops on overloaded: the verify failed, nothing verified,
-// covered or reviewed (close refused: its tasks pending; its head the start's), the lead gets the one failure line;
-// after a restart the same; a new verify is requested, briefed only once the reviewer is idle, done once finished.
-func TestVerifyErrorStopFails(t *testing.T) {
+// The rule's table (docs/design.md "Change rules" 6: condition → action).
+func TestVerifyRule(t *testing.T) {
 	t.Parallel()
-	r, first := briefedVerify(t)
-	seq := first.seq
-	r.stop("s1", "overloaded", "API overloaded")
-	failedState := func(what string) {
-		t.Helper()
-		c := ReadReviewCycle(r.p.root, "RV-5")
-		if st := r.p.folded.rv.verifies[seq].state; st != verifyFailed {
-			t.Fatalf("%s: the verify %s, want failed", what, st)
-		}
-		if strings.Join(c.Pending, ",") != "T-a,T-b" || strings.Join(c.Covered, ",") != "T-start" || c.Reviewed != startHead {
-			t.Errorf("%s: cycle %+v; want T-a,T-b pending (close refused), only T-start covered, the start's head", what, c)
-		}
-		want := "[obor] RV-5 verify failed: pj-rev stopped: overloaded (API overloaded); serve retries when the reviewer is idle"
-		if got := r.linesWith("stopped: overloaded"); len(got) != 1 || got[0] != want {
-			t.Errorf("%s: the lead's stop lines %q, want the one line %q", what, got, want)
-		}
+	for _, c := range []struct {
+		name  string
+		setup func(r *reviewRig)
+		want  string // "": no action; "brief": the verify's brief; else the line's prefix
+	}{
+		{name: "no linked task", setup: func(r *reviewRig) { r.fixTask("T-c", "Review: on merge") }},
+		{name: "a spec naming another review", setup: func(r *reviewRig) { r.fixTask("T-c", "Fixes: RV-4") }},
+		{name: "a linked task open", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.fixTask("T-b", "Fixes: RV-5")
+			r.merged("T-a")
+		}},
+		{name: "all merged, the reviewer idle", want: "brief", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.merged("T-a")
+		}},
+		{name: "all merged, the reviewer working", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.merged("T-a")
+			r.working(true)
+		}},
+		{name: "all merged, the reviewer holding a brief", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.merged("T-a")
+			r.leadBrief("b1")
+		}},
+		{name: "all merged and covered by a finished verify", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.merged("T-a")
+			r.verifyPass()
+			r.finish()
+		}},
+		{name: "a linked task dropped", want: "[obor] RV-5 fix T-b ended unmerged (dropped): not counted, the verify waits for T-a",
+			setup: func(r *reviewRig) {
+				r.fixTask("T-a", "Fixes: RV-5")
+				r.fixTask("T-b", "Fixes: RV-5")
+				r.dropped("T-b")
+			}},
+		{name: "a verify brief replaced", want: "[obor] RV-5 verify of T-a did not finish (a newer brief replaced it)",
+			setup: func(r *reviewRig) {
+				r.fixTask("T-a", "Fixes: RV-5")
+				r.merged("T-a")
+				r.verifyPass()
+				r.leadBrief("b1")
+			}},
+		{name: "the review closed (a forced close)", setup: func(r *reviewRig) {
+			r.fixTask("T-a", "Fixes: RV-5")
+			r.merged("T-a")
+			r.git.last = "RV-5 closed · 2222222 · approved · forced"
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReviewRig(t)
+			openReviewFile(t, r.p.root)
+			startedReview(t, r)
+			c.setup(r)
+			key, act, ok := verifyRule(context.Background(), r.a, r.p, &Loop{Review: r.git, Agents: r.agents}, r.now)
+			switch {
+			case c.want == "":
+				if ok {
+					t.Errorf("an action (key %d, line %q, call %t), want none", key, act.line, act.call != nil)
+				}
+			case c.want == "brief":
+				if !ok || act.call == nil || act.line != "" || key == 0 {
+					t.Errorf("ok %t, key %d, line %q, call %t; want the brief, no line", ok, key, act.line, act.call != nil)
+				}
+			default:
+				if !ok || act.call != nil || !strings.HasPrefix(act.line, c.want) {
+					t.Errorf("ok %t, line %q, call %t; want the line %q", ok, act.line, act.call != nil, c.want)
+				}
+			}
+		})
 	}
-	failedState("stopped")
-	if r.p.out.brief("pj-rev") != nil {
-		t.Fatal("the error stop left the reviewer's brief open")
-	}
+}
 
-	r.fixPass() // the reviewer still working: a new verify requested, not briefed
-	second := r.lastVerify()
-	if second.seq == seq || second.state != verifyRequested || len(verifyBriefs(t, r.p.root)) != 1 {
-		t.Fatalf("the reviewer working: the new verify %s (seq %d, the failed one %d), %d verify briefs; want a new one"+
-			" requested, not briefed", second.state, second.seq, seq, len(verifyBriefs(t, r.p.root)))
+// A spec with Fixes: RV-5 dispatched while RV-5 is open is linked: obor status shows it, close is refused while it is
+// open (and once merged, until a verify covers it).
+func TestFixLinkedBySpec(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.fixTask("T-c", "Fixes: RV-4") // dispatch refuses it; a link of another review is no link of RV-5
+	if got := r.pending(); got != "T-a,T-b" {
+		t.Fatalf("pending %q, want T-a,T-b (T-c fixes another review)", got)
+	}
+	r.verifyPass()
+	if got := r.a.Status().Project.Review; got != "RV-5 fixes: T-a open · T-b open" {
+		t.Errorf("status' review line %q, want the two open links", got)
+	}
+	r.merged("T-a")
+	r.working(true)
+	r.verifyPass()
+	if got, pending := r.a.Status().Project.Review, r.pending(); got != "RV-5 fixes: T-a merged · T-b open" ||
+		pending != "T-a,T-b" {
+		t.Errorf("T-a merged: status %q, pending %q; want T-a merged, both pending", got, pending)
+	}
+}
+
+// All linked tasks merged, the reviewer idle: one detach and one brief at the integration head, naming each task's
+// merge and each task's Fixes: note; further passes brief nothing more.
+func TestVerifyBriefsOnceAtTheHead(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.verifyPass()
+	r.verifyPass()
+	briefs := verifyBriefs(t, r.p.root)
+	if len(briefs) != 1 || len(r.git.detached) != 1 || !strings.HasSuffix(r.git.detached[0], "@"+headSHA) {
+		t.Fatalf("%d verify briefs, detached %q; want one brief, one move to %s", len(briefs), r.git.detached, headSHA)
+	}
+	b := briefs[0]
+	if b.Task != "T-a,T-b" || b.Reviewed != headSHA || !strings.HasPrefix(b.Line, "[obor obor] The RV-5 findings were"+
+		" fixed in T-a (aaaaaaa), T-b (bbbbbbb); main is at abcdef0") ||
+		!strings.HasSuffix(b.Line, "Do not commit.\nLead's note: T-a: #1, #3 — re-run with an old status JSON") {
+		t.Errorf("the verify brief %+v", b)
+	}
+	if got := r.pending(); got != "T-a,T-b" { // briefed, not finished
+		t.Errorf("briefed, not finished: pending %q, want T-a,T-b", got)
+	}
+	if l := r.verifyLines(); len(l) != 0 {
+		t.Errorf("verify lines %q, want none", l)
+	}
+}
+
+// The reviewer working, or holding the lead's brief: no verify brief; once idle with no open brief: briefed.
+func TestVerifyWaitsForTheReviewer(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.working(true)
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 0 || len(r.git.detached) != 0 {
+		t.Fatalf("the reviewer working: %d briefs, detached %q; want none", n, r.git.detached)
+	}
+	r.working(false)
+	r.leadBrief("b1")
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 0 || len(r.git.detached) != 0 {
+		t.Fatalf("the reviewer holding a brief: %d briefs, detached %q; want none", n, r.git.detached)
+	}
+	r.finish()
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 || len(r.git.detached) != 1 {
+		t.Errorf("the reviewer idle: %d briefs, detached %q; want one of each", n, r.git.detached)
+	}
+}
+
+// A lead's brief replaces the verify's open brief: one line, no brief while the lead's is open, the verify briefed again
+// on the next idle pass; nothing covered and close's head the start's until the second one finishes.
+func TestVerifyAgainAfterANewerBrief(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.verifyPass()
+	r.leadBrief("b1")
+	r.verifyPass()
+	r.verifyPass()
+	if n, c := len(verifyBriefs(t, r.p.root)), r.cycle(); n != 1 || c.Reviewed != startHead ||
+		strings.Join(c.Pending, ",") != "T-a,T-b" {
+		t.Fatalf("replaced: %d verify briefs, cycle %+v; want one, T-a,T-b pending at the start's head", n, c)
+	}
+	r.finish() // the lead's brief
+	r.verifyPass()
+	r.verifyPass()
+	want := "[obor] RV-5 verify of T-a,T-b did not finish (a newer brief replaced it): serve briefs it again once the" +
+		" reviewer is idle"
+	if n, l := len(verifyBriefs(t, r.p.root)), r.verifyLines(); n != 2 || len(l) != 1 || l[0] != want {
+		t.Fatalf("the reviewer idle again: %d verify briefs, lines %q; want two, the one line %q", n, l, want)
+	}
+	r.finish()
+	if c := r.cycle(); len(c.Pending) != 0 || c.Reviewed != headSHA || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" {
+		t.Errorf("the second verify finished: cycle %+v; want nothing pending, its head, T-a,T-b covered", c)
+	}
+}
+
+// The reviewer stops on an error that is not a usage limit: the verify did not finish (one line), the next idle pass
+// briefs it again; after a restart nothing is lined or briefed twice.
+func TestVerifyAgainAfterAStop(t *testing.T) {
+	t.Parallel()
+	r := briefedVerify(t)
+	r.stop("s1", "overloaded", "API overloaded")
+	if r.p.out.brief("pj-rev") != nil {
+		t.Fatal("precondition: the error stop left the reviewer's brief open")
+	}
+	r.verifyPass() // the line
+	r.reload()
+	r.working(false)
+	r.verifyPass() // the brief
+	r.verifyPass()
+	want := "[obor] RV-5 verify of T-a,T-b did not finish (the reviewer stopped: overloaded): serve briefs it again once" +
+		" the reviewer is idle"
+	if n, l := len(verifyBriefs(t, r.p.root)), r.verifyLines(); n != 2 || len(l) != 1 || l[0] != want {
+		t.Errorf("after the stop: %d verify briefs, lines %q; want two, the one line %q", n, l, want)
+	}
+}
+
+// A usage limit keeps the verify's brief open (as for any brief): no line, no second brief.
+func TestVerifyUsageLimitKeepsTheBrief(t *testing.T) {
+	t.Parallel()
+	r := briefedVerify(t)
+	r.stop("s1", "usage_limit_exceeded", "You've hit your usage limit. Try again at 6:30 PM.")
+	r.working(false)
+	r.verifyPass()
+	r.verifyPass()
+	if b := r.p.out.brief("pj-rev"); b == nil || b.stop == nil {
+		t.Fatalf("the reviewer's brief %+v, want it open and stopped", b)
+	}
+	if n, l := len(verifyBriefs(t, r.p.root)), r.verifyLines(); n != 1 || len(l) != 0 || r.pending() != "T-a,T-b" {
+		t.Errorf("%d verify briefs, lines %q, pending %q; want one, none, T-a,T-b", n, l, r.pending())
+	}
+}
+
+// The reviewer's worktree move fails: one line, retried on the next pass (no second line for the same failure), briefed
+// once it moves.
+func TestVerifyGitFailsRetried(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.git.detachErr = errors.New("checkout: your local changes would be overwritten")
+	r.merged("T-a")
+	r.merged("T-b")
+	r.verifyPass()
+	r.verifyPass()
+	want := "[obor] RV-5 verify of T-a,T-b failed: checkout: your local changes would be overwritten (serve tries again" +
+		" on its next pass)"
+	if l, tries := r.verifyLines(), len(r.git.from); len(l) != 1 || l[0] != want || tries != 2 {
+		t.Fatalf("lines %q after %d tries; want the one line %q, two tries", l, tries, want)
+	}
+	if n := len(verifyBriefs(t, r.p.root)); n != 0 || r.pending() != "T-a,T-b" {
+		t.Fatalf("%d verify briefs, pending %q; want none, T-a,T-b", n, r.pending())
+	}
+	r.git.detachErr = nil
+	r.verifyPass()
+	if n, l := len(verifyBriefs(t, r.p.root)), r.verifyLines(); n != 1 || len(l) != 1 {
+		t.Errorf("the move works: %d verify briefs, lines %q; want one brief, still one line", n, l)
+	}
+}
+
+// A linked task dropped: one line (not again on later passes or after a restart), not pending; the rest merged, the
+// verify names only it; close is not refused by the dropped one.
+func TestVerifyLinkDropped(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.dropped("T-b")
+	r.verifyPass()
+	r.verifyPass()
+	r.reload()
+	r.verifyPass()
+	want := "[obor] RV-5 fix T-b ended unmerged (dropped): not counted, the verify waits for T-a"
+	if l := r.verifyLines(); len(l) != 1 || l[0] != want {
+		t.Fatalf("lines %q, want the one line %q", l, want)
+	}
+	if got := r.pending(); got != "T-a" {
+		t.Fatalf("pending %q, want T-a (T-b dropped)", got)
+	}
+	r.merged("T-a")
+	r.verifyPass()
+	if b := verifyBriefs(t, r.p.root); len(b) != 1 || b[0].Task != "T-a" {
+		t.Fatalf("verify briefs %+v, want one naming T-a", b)
+	}
+	r.finish()
+	if c := r.cycle(); len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a" {
+		t.Errorf("cycle %+v; want nothing pending, T-a covered", c)
+	}
+}
+
+// The reviewer's finished line covers the verify's tasks: close's pending set empties, its head is the verify's, and no
+// verify is briefed again.
+func TestVerifyFinishedCovers(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.verifyPass()
+	r.finish()
+	r.verifyPass()
+	c := r.cycle()
+	if len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" || c.Reviewed != headSHA ||
+		c.Start != startHead {
+		t.Errorf("cycle %+v; want nothing pending, T-a,T-b covered, the verify's head, the start's start", c)
+	}
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+		t.Errorf("%d verify briefs after the finished verify, want one", n)
+	}
+	r.verifyPass()
+	if got := r.a.Status().Project.Review; got != "RV-5 fixes: T-a verified · T-b verified" {
+		t.Errorf("status' review line %q, want both verified", got)
+	}
+}
+
+// A crash between the detach and the brief's record (the append refused): after a restart the verify is briefed once
+// (the rule's failure mode: a doubled brief is allowed, a lost one is not; the move is idempotent).
+func TestVerifyCrashBetweenDetachAndBrief(t *testing.T) {
+	t.Parallel()
+	r := fixRig(t)
+	r.merged("T-a")
+	r.merged("T-b")
+	r.refuseStep(event.StepBriefed)
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 0 || len(r.git.detached) != 1 {
+		t.Fatalf("precondition: %d verify briefs, detached %q; want moved, nothing briefed", n, r.git.detached)
 	}
 	r.reload()
-	r.working(true)
-	failedState("replayed")
-	r.fixPass()
-	if st := r.p.folded.rv.verifies[second.seq].state; st != verifyRequested || r.facts(event.StepReviewVerifyRequest) != 2 {
-		t.Fatalf("replayed, the reviewer working: the new verify %s, %d requests; want requested, two", st,
-			r.facts(event.StepReviewVerifyRequest))
-	}
-
-	r.working(false)
-	r.fixPass()
-	if st := r.lastVerify().state; st != verifyBriefed || len(verifyBriefs(t, r.p.root)) != 2 ||
-		r.facts(event.StepReviewVerifyRequest) != 2 {
-		t.Fatalf("the reviewer idle: the new verify %s, %d briefs, %d requests; want briefed, two of each", st,
-			len(verifyBriefs(t, r.p.root)), r.facts(event.StepReviewVerifyRequest))
-	}
-	r.finish()
-	c := ReadReviewCycle(r.p.root, "RV-5")
-	if r.lastVerify().state != verifyDone || len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" ||
-		c.Reviewed != headSHA {
-		t.Errorf("the new verify finished: %s, cycle %+v; want done, nothing pending, T-a,T-b covered, its head",
-			r.lastVerify().state, c)
-	}
-}
-
-// T-857: a usage limit stops the verify's brief, which stays open (as before): the verify briefed, its tasks pending,
-// no new verify, the lead's line the plain stop line.
-func TestVerifyUsageLimitKeepsBrief(t *testing.T) {
-	t.Parallel()
-	r, v := briefedVerify(t)
-	r.stop("s1", "usage_limit_exceeded", "You've hit your usage limit. Try again at 6:30 PM.")
-	r.fixPass()
-	b := r.p.out.brief("pj-rev")
-	if v.state != verifyBriefed || b == nil || b.stop == nil || r.pending() != "T-a,T-b" ||
-		r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Errorf("state %s, brief %+v, pending %q, %d requests; want briefed, its brief open and stopped, T-a,T-b"+
-			" pending, one request", v.state, b, r.pending(), r.facts(event.StepReviewVerifyRequest))
-	}
-	if got := r.linesWith("stopped: usage_limit_exceeded"); len(got) != 1 || !strings.HasPrefix(got[0], "[obor] pj-rev stopped: ") {
-		t.Errorf("the lead's stop lines %q, want the plain stop line", got)
-	}
-}
-
-// T-857 (RV-113 #4a): a verify superseded by an ordinary brief before its line is delivered
-// leaves close's head where it was: the start's, then, after a done verify, that verify's; the same after a restart.
-func TestVerifySupersededKeepsDoneHead(t *testing.T) {
-	t.Parallel()
-	r := newReviewRig(t)
-	openReviewFile(t, r.p.root)
-	startedReview(t, r)
-	const head1, head2, head3 = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222",
-		"3333333333333333333333333333333333333333"
-	cycle := func() ReviewCycle { return ReadReviewCycle(r.p.root, "RV-5") }
-	supersede := func(task, head, brief string) {
-		t.Helper()
-		r.git.head = head
-		if err := r.verify(task); err != nil {
-			t.Fatalf("verify %s: %v", task, err)
-		}
-		if v := r.lastVerify(); v.state != verifyBriefed || v.head != head {
-			t.Fatalf("precondition: the verify %s at %s, want briefed at %s", v.state, v.head, head)
-		}
-		if _, err := r.a.briefCall(wire.Call{Root: r.p.root, CallID: brief, Role: "lead", Agent: "pj-lead", To: "pj-rev",
-			Note: "look at the flaky test"}); err != nil {
-			t.Fatal(err)
-		}
-		if v := r.lastVerify(); v.state != verifySuperseded {
-			t.Fatalf("precondition: after the ordinary brief the verify %s, want superseded", v.state)
-		}
-	}
-
-	supersede("T-a", head1, "b1")
-	if c := cycle(); len(c.Pending) != 0 || c.Reviewed != startHead || strings.Join(c.Covered, ",") != "T-start" {
-		t.Errorf("superseded, no verify done: cycle %+v; want nothing pending (close allowed) at the start's head", c)
-	}
-	r.finish() // the ordinary brief
-	r.git.head = head2
-	if err := r.verify("T-b"); err != nil {
-		t.Fatal(err)
-	}
-	r.finish()
-	if c := cycle(); c.Reviewed != head2 || strings.Join(c.Covered, ",") != "T-start,T-b" {
-		t.Fatalf("precondition: a verify done at %s: cycle %+v", head2, c)
-	}
-	supersede("T-a", head3, "b2")
-	for _, what := range []string{"superseded", "replayed"} {
-		if c := cycle(); len(c.Pending) != 0 || c.Reviewed != head2 || strings.Join(c.Covered, ",") != "T-start,T-b" ||
-			r.p.folded.rv.reviewed != head2 {
-			t.Errorf("%s after a done verify: cycle %+v, serve's fold at %s; want nothing pending at the done verify's"+
-				" head %s, T-start,T-b covered", what, c, r.p.folded.rv.reviewed, head2)
-		}
-		r.reload()
+	r.verifyPass()
+	r.verifyPass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 || len(r.git.detached) != 2 {
+		t.Errorf("after the restart: %d verify briefs, detached %q; want one brief, moved again", n, r.git.detached)
 	}
 }
