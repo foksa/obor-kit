@@ -25,8 +25,9 @@ import (
 // reviewGitFake is the tests' one ReviewGit (T-869, DD D4): last is the newest close commit's subject and lastBody its
 // body (T-822: the Covered and Start lines); head the integration branch's head ("": headSHA), which a gated publish
 // moves (admit_test.go); merges and files the fixed answers; detachErr fails the detach. from is every Merges call's
-// from, detached every Detach as <dir>@<sha>. onHead runs once, inside the next Head read. mu guards every field a
-// method touches (a publish runs beside the admission tests' calls).
+// from, detached every Detach as <dir>@<sha>. onHead runs once, inside the next Head read. lasts counts the Last reads;
+// closes is every close committed (T-926: it becomes the newest close commit), closeErr refuses one. mu guards every
+// field a method touches (a publish runs beside the admission tests' calls).
 type reviewGitFake struct {
 	mu        sync.Mutex
 	head      string
@@ -38,11 +39,15 @@ type reviewGitFake struct {
 	detachErr error
 	detached  []string
 	onHead    func()
+	lasts     int
+	closes    []ReviewCommit
+	closeErr  error
 }
 
 func (g *reviewGitFake) Last(context.Context, string) (ReviewClose, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.lasts++
 	return ReviewClose{Subject: g.last, Body: g.lastBody}, nil
 }
 func (g *reviewGitFake) Head(context.Context, string) (string, error) {
@@ -72,6 +77,24 @@ func (g *reviewGitFake) Detach(_ context.Context, dir, sha string) error {
 	}
 	g.detached = append(g.detached, dir+"@"+sha)
 	return nil
+}
+
+func (g *reviewGitFake) Close(_ context.Context, c ReviewCommit) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closeErr != nil {
+		return g.closeErr
+	}
+	g.closes = append(g.closes, c)
+	g.last, g.lastBody = c.Subject, c.Body
+	return nil
+}
+
+// reads is how many times Last was read.
+func (g *reviewGitFake) reads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.lasts
 }
 
 // detachedAt is every Detach so far, as <worktree base name>@<sha>.
@@ -145,6 +168,26 @@ func (r *reviewRig) started() {
 	if r.p.out.brief("pj-rev") != nil {
 		r.t.Fatal("precondition: the reviewer's brief is still open")
 	}
+}
+
+// closedBy is a close as serve's close leaves it (T-926): subject the newest close commit in git and fact review.closed
+// recorded from it.
+func (r *reviewRig) closedBy(subject string) {
+	r.t.Helper()
+	r.git.mu.Lock()
+	r.git.last = subject
+	r.git.mu.Unlock()
+	id, sha, _, covered, start := parseCloseCommit(subject, "")
+	if !r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewClosed, Kind: event.KindFact},
+		ReviewData{ID: id, SHA: sha, Covered: covered, Start: start}) {
+		r.t.Fatal("the log refused the close")
+	}
+}
+
+// close is obor review close's call from the lead (call id id, the summary, its accepted lines, --force).
+func (r *reviewRig) close(id, summary string, force bool, accepts ...string) (string, error) {
+	return r.a.reviewCloseCall(wire.Call{Root: r.p.root, CallID: id, Role: "lead", Agent: "pj-lead", Note: summary,
+		Accept: accepts, Force: force})
 }
 
 // refuseStep makes the event log refuse every fact of step (nil: none refused).
@@ -374,7 +417,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("launches %+v, request %v", r.agents.launches, r.p.folded.review)
 			}
 		}},
-		{"a request while a started RV has no close commit is refused", func(t *testing.T, r *reviewRig) {
+		{"a request while a started RV has no close fact is refused (T-926: a close commit alone does not close it)", func(t *testing.T, r *reviewRig) {
 			r.started()
 			if _, err := r.call("r2", nil, "again", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
 				t.Errorf("request with RV-5 open: %v", err)
@@ -385,7 +428,11 @@ func TestReviewRequest(t *testing.T) {
 			if r.facts(event.StepReviewRequest) != 1 || r.p.folded.review != nil {
 				t.Errorf("request facts %d, request %v; want only r1, none open", r.facts(event.StepReviewRequest), r.p.folded.review)
 			}
-			r.git.last = "RV-5 closed · abcdef0 · approved"
+			r.git.last = "RV-5 closed · abcdef0 · approved" // a commit, no fact: still open, git is not read
+			if _, err := r.call("r5", nil, "", false); err == nil || err.Error() != "RV-5 is open (not closed): close it first" {
+				t.Errorf("request with a close commit and no close fact: %v", err)
+			}
+			r.closedBy("RV-5 closed · abcdef0 · approved")
 			if got := r.mustCall("r4", nil, "", false); got != "REVIEW REQUESTED (now)" {
 				t.Errorf("after RV-5 closed: %q", got)
 			}
@@ -400,7 +447,7 @@ func TestReviewRequest(t *testing.T) {
 				t.Errorf("request after a replay with RV-5 open: %v", err)
 			}
 		}},
-		{"a queued request waits while RV-5 is open, then fires after its close commit", func(t *testing.T, r *reviewRig) {
+		{"a queued request waits while RV-5 is open, then fires after its close fact", func(t *testing.T, r *reviewRig) {
 			r.started()
 			// A request already in the log (one obor review recorded before RV-5's start, or an older serve's).
 			r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: event.StepReviewRequest, Kind: event.KindFact}, ReviewData{By: "pj-lead", Note: "next"})
@@ -418,7 +465,7 @@ func TestReviewRequest(t *testing.T) {
 				q.Since == 0 || len(q.After) != 0 { // T-664: the request as data
 				t.Errorf("status review_request %+v; want held by RV-5, note next, by pj-lead, its time", q)
 			}
-			r.git.last = "RV-5 closed · abcdef0 · approved · T-7"
+			r.closedBy("RV-5 closed · abcdef0 · approved · T-7")
 			r.pass()
 			if len(r.agents.launches) != 2 || !strings.HasPrefix(r.agents.launches[1].Prompt, "Review RV-6. ") ||
 				!strings.HasSuffix(r.agents.launches[1].Prompt, "\nLead's note: next") {
@@ -559,7 +606,7 @@ func TestReviewRequest(t *testing.T) {
 			if got := r.a.Status().Project.Review; got != "review due: 4 merges since RV-5" {
 				t.Errorf("4 merges after RV-5: %q", got)
 			}
-			r.git.last = "RV-5 closed · 2222222 · approved"
+			r.closedBy("RV-5 closed · 2222222 · approved")
 			merge("T-5", 1) // RV-5 closed: counted from its reviewed sha
 			if got, from := r.a.Status().Project.Review, r.git.from[len(r.git.from)-1]; got != "" || from != "2222222" {
 				t.Errorf("after RV-5 closed: %q (counted from %q)", got, from)

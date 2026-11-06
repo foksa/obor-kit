@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"obor/internal/app/event"
@@ -84,6 +85,27 @@ func TestReviewOnMergeRule(t *testing.T) {
 	}
 	started := func(t *testing.T, r *reviewRig) { r.started() }
 	pass := func(_ *testing.T, r *reviewRig) { r.pass() }
+	closeCommit := func(t *testing.T, r *reviewRig) { // a close commit alone: the request still waits (no git read)
+		t.Helper()
+		r.git.mu.Lock()
+		r.git.last = "RV-5 closed · abcdef0 · approved · T-a"
+		r.git.mu.Unlock()
+	}
+	closeFact := func(t *testing.T, r *reviewRig) {
+		t.Helper()
+		if q := r.p.folded.review; q == nil || q.held != "RV-5" || len(r.agents.launches) != 1 {
+			t.Fatalf("precondition: the rule's request is not waiting on RV-5 after its close commit: %+v, %d launches",
+				q, len(r.agents.launches))
+		}
+		r.closedBy("RV-5 closed · abcdef0 · approved · T-a")
+	}
+	startsRV6 := func(t *testing.T, r *reviewRig) {
+		t.Helper()
+		if l := r.agents.launches; len(l) != 2 || !strings.HasPrefix(l[1].Prompt, "Review RV-6. ") ||
+			!strings.HasSuffix(l[1].Prompt, "\nLead's note: Review: on merge (T-a)") {
+			t.Errorf("launches %+v; want RV-6 started on the rule's request", l)
+		}
+	}
 	cancel := func(t *testing.T, r *reviewRig) { // the lead's obor review --rm ends the rule's request
 		t.Helper()
 		if r.p.folded.review == nil {
@@ -125,6 +147,8 @@ func TestReviewOnMergeRule(t *testing.T) {
 		{"a review started after the merge: nothing", []step{merge("T-a", true), started, rule}, 1, "", "", false},
 		{"a cycle still open: the request waits", []step{started, merge("T-a", true), rule, pass}, 2,
 			"Review: on merge (T-a)", "RV-5", false},
+		{"a cycle still open: the request starts after the close fact (T-926)",
+			[]step{started, merge("T-a", true), rule, pass, closeCommit, pass, closeFact, pass, startsRV6}, 2, "", "", false},
 		{"two line tasks merged: one request", []step{merge("T-a", true), merge("T-b", true), rule}, 1,
 			"Review: on merge (T-b)", "", false},
 		{"the lead's --rm: no new request", []step{merge("T-a", true), rule, cancel, rule, rule}, 1, "", "", false},

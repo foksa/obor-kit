@@ -7,55 +7,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"obor/internal/app"
+	"obor/internal/app/wire"
 	"obor/internal/config"
 	"obor/internal/help"
 	"obor/internal/project"
 )
 
-// The review cycle's close (T-716; skills/lead/review-brief.md §5; T-924: a fix task links itself with its spec's
-// Fixes: line, serve's verify rule briefs the reviewer once the linked tasks merged): obor review close records the
-// close commit (serve stops the reviewer once it sees it, rolestop.go). The open review is the next review by git (the newest "RV-<n> closed" commit + 1) whose file
-// <reviews>/RV-<n>.md is in the main checkout (the reviewer writes it there from its role worktree, T-853).
+// The review cycle's close (T-716; skills/lead/review-brief.md §5; T-926: a call to serve). obor review close sends
+// serve the summary, the accepted lines and --force; serve checks the open review against its log, commits the close
+// in the main checkout (reviewGit.Close, below) and records fact review.closed, which stops the reviewer
+// (internal/app/reviewclose.go).
 
-// reviewGitWait bounds a review command's git.
-const reviewGitWait = 60 * time.Second
-
-// openCycle is the open review of cfg (app.OpenReview): its setup, git on the main checkout, its id, the previous
-// review's id and reviewed sha ("": none) and the path of its review file. No review file in the main checkout: no
-// open review.
-type openCycle struct {
-	s       app.ReviewSetup
-	g       reviewGit
-	id      string
-	prev    string // the previous review's id ("": none)
-	prevSHA string
-	file    string
-}
-
-func openReview(ctx context.Context, cfg *config.Config) (openCycle, error) {
-	s, err := app.ReviewConfig(cfg)
-	if err != nil {
-		return openCycle{}, err
-	}
-	g := reviewGit{root: cfg.Root}
-	o, err := app.OpenReview(ctx, g, cfg.Root, s)
-	return openCycle{s: s, g: g, id: o.ID, prev: o.Prev, prevSHA: o.PrevSHA, file: o.File}, err
-}
-
-// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: the open review's files deleted from the
-// main checkout, each accepted finding a line in BACKLOG.md's Open section naming the review, the commit "RV-<n> closed
-// · <reviewed sha> · approved · <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the
-// integration branch in the main checkout (BACKLOG.md with it). Serve
-// stops the reviewer once its pass sees the close commit (rolestop.go; T-869: the CLI stops nothing). The reviewed
-// sha, the body and the refusal read serve's log (app.ReadReviewCycle, T-856): the sha is the head the last brief
-// handed the reviewer (its last done verify's, else the review start's); the body lists the cycle's covered tasks and
-// its review start sha (T-822), so the next review's scope takes the merges it did not cover. Refused before any
-// change: no open review, no review start for it in the log (T-869), the main checkout not on the integration branch or dirty outside BACKLOG.md
-// and the review's files, or a task linked by its spec's Fixes: line open, or merged and no finished verify covering it
-// (T-924; --force, the owner's word, closes anyway).
+// reviewCloseCmd is `obor review close "<summary>" [--accept "<line>"]… [--force]`: one request to obor serve
+// (wire.MethodReviewClose). Serve's reply: CLOSED <subject>, the commit "RV-<n> closed · <reviewed sha> · approved ·
+// <summary>" (with --accept lines: "accepted <n>" in place of "approved", T-909) on the integration branch. FAIL:
+// serve down, its refusal (no open review, no review start for it in the log, the main checkout not on the
+// integration branch or dirty outside BACKLOG.md and the review's files, a linked fix not verified without --force) or
+// a usage error (exit 1).
 func reviewCloseCmd(args []string) int {
 	var summary string
 	var accepts []string
@@ -78,47 +48,24 @@ func reviewCloseCmd(args []string) int {
 		fmt.Fprintln(out, "FAIL "+help.Usage("review close"))
 		return 1
 	}
-	_, cfg, rc := load()
-	if rc != 0 {
-		fmt.Fprintln(out, noConfig)
-		return 1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), reviewGitWait)
-	defer cancel()
-	line, err := closeReview(ctx, cfg, summary, accepts, force)
-	if err != nil {
-		fmt.Fprintf(out, "FAIL %v\n", err)
-		return 1
-	}
-	fmt.Fprintln(out, line)
-	return 0
+	return request(context.Background(), project.OSEnv, wire.MethodReviewClose, func(_ *config.Config, c *wire.Call) error {
+		c.Note, c.Accept, c.Force = summary, accepts, force
+		return nil
+	})
 }
 
-// closeReview checks, then deletes the open review's files, appends the accepted lines and commits the close: the
-// line CLOSED <subject>.
-func closeReview(ctx context.Context, cfg *config.Config, summary string, accepts []string, force bool) (string, error) {
-	c, err := openReview(ctx, cfg)
-	if err != nil {
-		return "", err
+// Close is app.ReviewGit's close on the main checkout (serve calls it admitted, T-926): refused before any change when
+// the checkout is not on c.Branch, dirty outside BACKLOG.md and c's files, BACKLOG.md has no Open section for
+// c.Accepts, or c.Reviewed is no commit; then c's files deleted (its review file and, when there, its verify file),
+// each accepted line at the top of BACKLOG.md's Open section naming the review, and the commit c.Subject / c.Body with
+// BACKLOG.md.
+func (g reviewGit) Close(ctx context.Context, c app.ReviewCommit) error {
+	root := g.root
+	if on, err := g.git(ctx, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.Branch {
+		return fmt.Errorf("the main checkout %s is not on %s: nothing changed", root, c.Branch)
 	}
-	cycle, err := app.ReadReviewCycle(cfg.Root, c.id) // T-856, T-924: serve's log and the linked specs
-	if err != nil {
-		return "", fmt.Errorf("%s's fixes: %v: nothing changed", c.id, err)
-	}
-	// T-869: every review has a start fact; refs/obor/reviewed and the close's fallback to it are gone.
-	if cycle.Reviewed == "" {
-		return "", fmt.Errorf("no review start for %s in the log: nothing changed", c.id)
-	}
-	if len(cycle.Pending) > 0 && !force {
-		return "", fmt.Errorf("%s's fixes are not verified: %s (open, or merged and its verify not finished; --force"+
-			" closes anyway): nothing changed", c.id, strings.Join(cycle.Pending, ", "))
-	}
-	root := cfg.Root
-	if on, err := project.GitCtx(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil || strings.TrimSpace(on) != c.s.Branch {
-		return "", fmt.Errorf("the main checkout %s is not on %s: nothing changed", root, c.s.Branch)
-	}
-	files := []string{c.file}
-	if verify := filepath.Join(root, c.s.Reviews, c.id+"-verify.md"); fileThere(verify) {
+	files := []string{c.File}
+	if verify := filepath.Join(filepath.Dir(c.File), c.ID+"-verify.md"); fileThere(verify) {
 		files = append(files, verify)
 	}
 	own := map[string]bool{} // the review's files: untracked when paths.reviews is not gitignored
@@ -126,9 +73,9 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 		rel, _ := filepath.Rel(root, f)
 		own[filepath.ToSlash(rel)] = true
 	}
-	st, err := project.GitCtx(ctx, root, "status", "--porcelain", "--untracked-files=all")
+	st, err := g.git(ctx, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
-		return "", err
+		return err
 	}
 	backlogDirty := false
 	for _, l := range porcelainLines(st) {
@@ -137,46 +84,41 @@ func closeReview(ctx context.Context, cfg *config.Config, summary string, accept
 			backlogDirty = true
 		case strings.HasPrefix(l, "?? ") && own[l[3:]]:
 		default:
-			return "", fmt.Errorf("the main checkout is dirty outside BACKLOG.md and %s's files (%s): nothing changed", c.id, l)
+			return fmt.Errorf("the main checkout is dirty outside BACKLOG.md and %s's files (%s): nothing changed", c.ID, l)
 		}
 	}
 	backlog := ""
-	if len(accepts) > 0 {
+	if len(c.Accepts) > 0 {
 		b, err := os.ReadFile(filepath.Join(root, "BACKLOG.md"))
 		if err != nil {
-			return "", fmt.Errorf("--accept: %v", err)
+			return fmt.Errorf("--accept: %v", err)
 		}
-		if backlog, err = acceptLines(string(b), c.id, accepts); err != nil {
-			return "", err
+		if backlog, err = acceptLines(string(b), c.ID, c.Accepts); err != nil {
+			return err
 		}
 	}
-	// the head the reviewer last finished (its start's or a done verify's, T-857)
-	sha, err := project.GitCtx(ctx, root, "rev-parse", "--short=7", "--verify", "-q", cycle.Reviewed+"^{commit}")
-	if err != nil {
-		return "", fmt.Errorf("no reviewed sha (%s, the head the reviewer last finished, is no commit): nothing changed",
-			cycle.Reviewed)
+	if _, err := g.git(ctx, "rev-parse", "--verify", "-q", c.Reviewed+"^{commit}"); err != nil {
+		return fmt.Errorf("no reviewed sha (%s, the head the reviewer last finished, is no commit): nothing changed",
+			c.Reviewed)
 	}
 	for _, f := range files {
 		if err := os.Remove(f); err != nil {
-			return "", err
+			return err
 		}
 	}
 	if backlog != "" {
 		if err := os.WriteFile(filepath.Join(root, "BACKLOG.md"), []byte(backlog), 0o644); err != nil {
-			return "", err
+			return err
 		}
 		backlogDirty = true
 	}
 	if backlogDirty {
-		if _, err := project.GitCtx(ctx, root, "add", "--", "BACKLOG.md"); err != nil {
-			return "", err
+		if _, err := g.git(ctx, "add", "--", "BACKLOG.md"); err != nil {
+			return err
 		}
 	}
-	subject, body := app.CloseCommit(c.id, sha, summary, cycle.Covered, cycle.Start, len(accepts))
-	if _, err := project.GitCtx(ctx, root, "commit", "-q", "--allow-empty", "-m", subject, "-m", body); err != nil {
-		return "", err
-	}
-	return "CLOSED " + subject, nil
+	_, err = g.git(ctx, "commit", "-q", "--allow-empty", "-m", c.Subject, "-m", c.Body)
+	return err
 }
 
 // porcelainLines is git status --porcelain's entry lines, untrimmed (T-725): the two status columns stay, so each

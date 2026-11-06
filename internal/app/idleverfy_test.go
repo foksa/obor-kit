@@ -104,8 +104,8 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	}
 }
 
-// T-858, T-924: the review force-closed under a verify that did not finish: the pass finds it closed, owes no verify,
-// lines nothing of it, and the one idle line comes out; later passes add none.
+// T-858, T-924, T-926: the review force-closed under a verify that did not finish: the pass finds it closed (its
+// review.closed fact), owes no verify, lines nothing of it, and the one idle line comes out; later passes add none.
 func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	t.Parallel()
 	r := briefedVerify(t)
@@ -113,7 +113,19 @@ func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	r.afterStepsDone("T-b")
 	r.stop("s1", "overloaded", "API overloaded")
 	r.working(false)
-	r.git.last = "RV-5 closed · 2222222 · approved · forced"
+	owed := func() bool { // the verify rule's condition read, its action not run
+		verifyRule(context.Background(), r.a, r.p, &Loop{Review: r.git, Agents: r.agents}, r.now)
+		r.a.mu.Lock()
+		defer r.a.mu.Unlock()
+		return r.p.verifyDue
+	}
+	if !owed() {
+		t.Fatal("precondition: the verify that did not finish is not owed")
+	}
+	r.closedBy("RV-5 closed · 2222222 · approved · forced")
+	if owed() {
+		t.Error("a closed review owes a verify")
+	}
 	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 {
 		t.Fatalf("idle lines %q after the closed round, want one", lines)

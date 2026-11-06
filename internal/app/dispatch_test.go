@@ -1023,6 +1023,7 @@ func (lastClose) Head(context.Context, string) (string, error)             { ret
 func (lastClose) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
 func (lastClose) Files(context.Context, string, string) ([]string, error)  { return nil, nil }
 func (lastClose) Detach(context.Context, string, string) error             { return nil }
+func (lastClose) Close(context.Context, app.ReviewCommit) error            { return nil }
 
 // T-924: a spec's Fixes: line must name the open review (RV-5 once its file is written), or obor dispatch refuses it
 // with nothing recorded; naming it, the dispatch goes on.
@@ -1061,5 +1062,19 @@ func TestDispatchFixesLine(t *testing.T) {
 				t.Errorf("a refused dispatch recorded %q", r.steps())
 			}
 		})
+	}
+}
+
+// T-926: obor review close reaches serve through the socket (wire.MethodReviewClose): with RV-4 closed and no
+// docs/reviews/RV-5.md written, serve refuses it as no open review, nothing committed.
+func TestReviewCloseOnTheSocket(t *testing.T) {
+	t.Parallel()
+	r := newDispatchRig(t, testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews"))
+	r.review = lastClose{}
+	r.start()
+	_, err := wire.Verdict(context.Background(), r.sock, wire.MethodReviewClose, wire.Call{Root: r.p.Root,
+		Agent: "pj-lead", Role: "lead", CallID: "c1", Note: "fixed"})
+	if err == nil || !strings.HasPrefix(err.Error(), "no open review: no docs/reviews/RV-5.md in ") {
+		t.Errorf("review_close: %v; want serve's no-open-review refusal", err)
 	}
 }

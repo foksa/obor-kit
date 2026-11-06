@@ -74,10 +74,10 @@ func (r *reviewRig) verifyPass() {
 	r.a.rulePass(context.Background(), []rule{{name: ruleVerify, when: verifyRule}}, &Loop{Review: r.git, Agents: r.agents})
 }
 
-// cycle is RV-5's cycle as obor review close reads it (the test fails on an error).
-func (r *reviewRig) cycle() ReviewCycle {
+// cycle is RV-5's cycle as serve's close reads it (the test fails on an error).
+func (r *reviewRig) cycle() reviewCycle {
 	r.t.Helper()
-	c, err := ReadReviewCycle(r.p.root, "RV-5")
+	c, err := r.a.reviewCycle(r.p, "RV-5")
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func (r *reviewRig) cycle() ReviewCycle {
 }
 
 // pending is close's pending set for RV-5, comma-joined.
-func (r *reviewRig) pending() string { return strings.Join(r.cycle().Pending, ",") }
+func (r *reviewRig) pending() string { return strings.Join(r.cycle().pending, ",") }
 
 // verifyBriefs are the log's verify briefs of the reviewer (a brief naming tasks and a head), in order.
 func verifyBriefs(t *testing.T, root string) []event.Message {
@@ -225,7 +225,7 @@ func TestVerifyRule(t *testing.T) {
 		{name: "the review closed (a forced close)", setup: func(r *reviewRig) {
 			r.fixTask("T-a", "Fixes: RV-5")
 			r.merged("T-a")
-			r.git.last = "RV-5 closed · 2222222 · approved · forced"
+			r.closedBy("RV-5 closed · 2222222 · approved · forced")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -337,8 +337,8 @@ func TestVerifyAgainAfterANewerBrief(t *testing.T) {
 	r.leadBrief("b1")
 	r.verifyPass()
 	r.verifyPass()
-	if n, c := len(verifyBriefs(t, r.p.root)), r.cycle(); n != 1 || c.Reviewed != startHead ||
-		strings.Join(c.Pending, ",") != "T-a,T-b" {
+	if n, c := len(verifyBriefs(t, r.p.root)), r.cycle(); n != 1 || c.reviewed != startHead ||
+		strings.Join(c.pending, ",") != "T-a,T-b" {
 		t.Fatalf("replaced: %d verify briefs, cycle %+v; want one, T-a,T-b pending at the start's head", n, c)
 	}
 	r.finish() // the lead's brief
@@ -350,7 +350,7 @@ func TestVerifyAgainAfterANewerBrief(t *testing.T) {
 		t.Fatalf("the reviewer idle again: %d verify briefs, lines %q; want two, the one line %q", n, l, want)
 	}
 	r.finish()
-	if c := r.cycle(); len(c.Pending) != 0 || c.Reviewed != headSHA || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" {
+	if c := r.cycle(); len(c.pending) != 0 || c.reviewed != headSHA || strings.Join(c.covered, ",") != "T-start,T-a,T-b" {
 		t.Errorf("the second verify finished: cycle %+v; want nothing pending, its head, T-a,T-b covered", c)
 	}
 }
@@ -440,7 +440,7 @@ func TestVerifyLinkDropped(t *testing.T) {
 		t.Fatalf("verify briefs %+v, want one naming T-a", b)
 	}
 	r.finish()
-	if c := r.cycle(); len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a" {
+	if c := r.cycle(); len(c.pending) != 0 || strings.Join(c.covered, ",") != "T-start,T-a" {
 		t.Errorf("cycle %+v; want nothing pending, T-a covered", c)
 	}
 }
@@ -456,8 +456,8 @@ func TestVerifyFinishedCovers(t *testing.T) {
 	r.finish()
 	r.verifyPass()
 	c := r.cycle()
-	if len(c.Pending) != 0 || strings.Join(c.Covered, ",") != "T-start,T-a,T-b" || c.Reviewed != headSHA ||
-		c.Start != startHead {
+	if len(c.pending) != 0 || strings.Join(c.covered, ",") != "T-start,T-a,T-b" || c.reviewed != headSHA ||
+		c.start != startHead {
 		t.Errorf("cycle %+v; want nothing pending, T-a,T-b covered, the verify's head, the start's start", c)
 	}
 	if n := len(verifyBriefs(t, r.p.root)); n != 1 {

@@ -108,7 +108,7 @@ type App struct {
 	loopMu    sync.Mutex         // loopStatus's decision and its record are one step (the merge loop and the check both call it)
 	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
 	sessions  sync.Mutex         // a session report's check and its record are one step (sessions.go)
-	configMu  sync.Mutex         // one setup edit at a time (configset.go, T-753)
+	configMu  sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
 	rescan    chan struct{}      // wakes the lane table's refresher (buffered: kicks while it scans coalesce; lanescan.go)
@@ -140,12 +140,12 @@ type proj struct {
 	integrator string               // the project's integrator agent: the one caller of the verdicts
 	merging    bool                 // the merge loop runs for it (Options.Loop and an integrator role)
 	timers     map[string]*jobTimer // the work jobs' delivery timers, the integrator's jobs' timers, by task
-	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); fixClosed: the
-	// review start whose review a verify pass found closed (no git read again); verifyDue: a verify is owed, which idle
-	// waits for (reviewverify.go, T-924).
+	// fixes: the open review's fix round as the verify rule last read it (obor status' review line); verifyDue: a
+	// verify is owed, which idle waits for (reviewverify.go, T-924); closeRead: this process read git once for a close
+	// commit the log does not record (reviewclose.go, T-926).
 	fixes     fixState
-	fixClosed int64
 	verifyDue bool
+	closeRead bool
 	// replies: the stored replies of the calls no fact records (job_next, spec set), by <method>.<call id>; a restart
 	// forgets them (folded.calls holds the recorded calls').
 	replies map[string]string
@@ -182,10 +182,8 @@ type proj struct {
 	// step's name; ended: the tasks whose drop is decided and being recorded (App.drop). Both under mu.
 	held  map[string]string
 	ended map[string]bool
-	// roleFail: when a fresh brief's stop of a role agent last failed, by agent; rvRead: the reviewer stop rule's last
-	// git read of its review and whether it found it closed (rolestop.go, T-672, T-870, T-875). Under mu.
+	// roleFail: when a fresh brief's stop of a role agent last failed, by agent (rolestop.go, T-672, T-870). Under mu.
 	roleFail map[string]time.Time
-	rvRead   rvRead
 	// reg, out, night: the identity table (registry.go), the lines to the project's agents (messages.go, T-466, T-610)
 	// and the nightly full check (nightly.go): each folds its records itself and keeps live state beside them.
 	reg   registry
