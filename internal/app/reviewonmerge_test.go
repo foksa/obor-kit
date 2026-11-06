@@ -12,21 +12,25 @@ import (
 	"obor/internal/store"
 )
 
-// T-878: the Review: on merge rule, one table (condition → action). A task whose spec has the line and that merged
-// after the last review start gets one review request (no --after, the note naming the newest such task); an open
-// request (the lead's included) or a review started after the merge leaves nothing to do; a request recorded while a
-// cycle is open waits for its close; two line tasks merged before the pass are one request; a request that ended after
-// the merge (the lead's --rm, or a failed start's fire) holds the rule.
+// T-878, T-932: the Review: on merge rule, one table (condition → action). A task whose spec asks for a review and
+// merged after the last review start gets one review request (no --after, the note naming the newest such task); the
+// spec asks for it with the line `Review: on merge` or with `Difficulty: hard`, and never when it has a `Fixes:` line;
+// an open request (the lead's included) or a review started after the merge leaves nothing to do; a request recorded
+// while a cycle is open waits for its close; two line tasks merged before the pass are one request; a request that
+// ended after the merge (the lead's --rm, or a failed start's fire) holds the rule.
 func TestReviewOnMergeRule(t *testing.T) {
 	t.Parallel()
+	const (
+		medium     = "Difficulty: medium\n"
+		mediumLine = "Difficulty: medium\nReview: on merge\n"
+		hard       = "Difficulty: hard\n"
+		hardFix    = "Difficulty: hard\nFixes: RV-12\n"
+	)
 	type step func(t *testing.T, r *reviewRig)
-	merge := func(task string, onMerge bool) step {
+	merge := func(task, head string) step {
 		return func(t *testing.T, r *reviewRig) {
 			t.Helper()
-			text := "# " + task + " — A\n\nDifficulty: medium\n\n## Do\n"
-			if onMerge {
-				text = "# " + task + " — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n"
-			}
+			text := "# " + task + " — A\n\n" + head + "\n## Do\n"
 			if _, _, err := store.SetSpec(r.p.log.DB(), task, text, "", "lead", r.now); err != nil {
 				t.Fatal(err)
 			}
@@ -140,24 +144,28 @@ func TestReviewOnMergeRule(t *testing.T) {
 		held     string // the open request's held review ("" when none)
 		needs    bool   // a review needs-you is in force
 	}{
-		{"no line: nothing", []step{merge("T-a", false), rule, rule}, 0, "", "", false},
-		{"line, merged, no request: the request", []step{merge("T-a", true), rule, rule}, 1,
+		{"medium, no line: nothing", []step{merge("T-a", medium), rule, rule}, 0, "", "", false},
+		{"medium, line, merged, no request: the request", []step{merge("T-a", mediumLine), rule, rule}, 1,
 			"Review: on merge (T-a)", "", false},
-		{"a request already open: nothing", []step{waiting, merge("T-a", true), rule}, 1, "", "", false},
-		{"a review started after the merge: nothing", []step{merge("T-a", true), started, rule}, 1, "", "", false},
-		{"a cycle still open: the request waits", []step{started, merge("T-a", true), rule, pass}, 2,
+		{"hard, no line: the request (T-932)", []step{merge("T-a", hard), rule, rule}, 1,
+			"Review: on merge (T-a)", "", false},
+		{"hard with Fixes: nothing (T-932)", []step{merge("T-a", hardFix), rule, rule}, 0, "", "", false},
+		{"a request already open: nothing", []step{waiting, merge("T-a", mediumLine), rule}, 1, "", "", false},
+		{"a review started after the merge: nothing", []step{merge("T-a", mediumLine), started, rule}, 1, "", "", false},
+		{"a cycle still open: the request waits", []step{started, merge("T-a", mediumLine), rule, pass}, 2,
 			"Review: on merge (T-a)", "RV-5", false},
 		{"a cycle still open: the request starts after the close fact (T-926)",
-			[]step{started, merge("T-a", true), rule, pass, closeCommit, pass, closeFact, pass, startsRV6}, 2, "", "", false},
-		{"two line tasks merged: one request", []step{merge("T-a", true), merge("T-b", true), rule}, 1,
+			[]step{started, merge("T-a", mediumLine), rule, pass, closeCommit, pass, closeFact, pass, startsRV6}, 2, "", "", false},
+		{"two line tasks merged: one request",
+			[]step{merge("T-a", mediumLine), merge("T-b", mediumLine), rule}, 1,
 			"Review: on merge (T-b)", "", false},
-		{"the lead's --rm: no new request", []step{merge("T-a", true), rule, cancel, rule, rule}, 1, "", "", false},
+		{"the lead's --rm: no new request", []step{merge("T-a", mediumLine), rule, cancel, rule, rule}, 1, "", "", false},
 		{"--after task dropped: the rule requests the merge",
-			[]step{waiting, merge("T-a", true), rule, droppedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
+			[]step{waiting, merge("T-a", mediumLine), rule, droppedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
 		{"--after task rejected: the rule requests the merge",
-			[]step{waiting, merge("T-a", true), rule, rejectedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
+			[]step{waiting, merge("T-a", mediumLine), rule, rejectedB, rule, rule}, 2, "Review: on merge (T-a)", "", false},
 		{"a failed start: no retry while its needs-you is in force",
-			[]step{merge("T-a", true), rule, failStart, rule, rule}, 1, "", "", true},
+			[]step{merge("T-a", mediumLine), rule, failStart, rule, rule}, 1, "", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

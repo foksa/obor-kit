@@ -54,6 +54,12 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	if v, ok := spec.ReviewValue(c.Spec); ok && v != spec.ReviewOnMergeValue {
 		return "", fmt.Errorf("spec set %s: the \"Review:\" line takes one value: %q", c.Task, spec.ReviewOnMergeValue)
 	}
+	// T-932: a fix is reviewed by its review's verify; a Review: on merge line would queue a second review.
+	if _, _, fixes := spec.Fixes(c.Spec); fixes {
+		if v, ok := spec.ReviewValue(c.Spec); ok && v == spec.ReviewOnMergeValue {
+			return "", fmt.Errorf("spec set %s: a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line", c.Task)
+		}
+	}
 	if refs := spec.Models(c.Spec); len(refs) > 0 {
 		cfg, err := config.LoadDaemon(p.root)
 		if err != nil {

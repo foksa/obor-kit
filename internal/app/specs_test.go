@@ -73,7 +73,8 @@ func TestSpecSetRefusesASpecWithoutATitle(t *testing.T) {
 	}
 }
 
-// T-878: obor spec set accepts the one "Review:" value and refuses any other, naming it; a refusal stores nothing.
+// T-878, T-932: obor spec set accepts the one "Review:" value and refuses any other, naming it; and it refuses a spec
+// that has both `Fixes:` and `Review: on merge` (the fix's verify is its review). A refusal stores nothing.
 func TestSpecSetReviewOnMerge(t *testing.T) {
 	t.Parallel()
 	r := newLoopRig(t, "echo 1 pass")
@@ -87,8 +88,20 @@ func TestSpecSetReviewOnMerge(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `the "Review:" line takes one value: "on merge"`) {
 		t.Errorf("spec set with \"Review: now\": %v; want the refusal naming the one value", err)
 	}
+	// T-932: a fix spec carries Fixes: in the Review line's place; both is refused, and nothing is stored.
+	_, err = wire.Verdict(context.Background(), r.sock, wire.MethodSpecSet, wire.Call{Root: r.p.Root, Role: "lead",
+		Agent: "lead", CallID: "r3", Task: "T-1",
+		Spec: "# T-1 — C\n\nDifficulty: hard\nFixes: RV-12\nReview: on merge\n"})
+	if err == nil || !strings.Contains(err.Error(), "a fix (Fixes:) is reviewed by its verify; drop the Review: on merge line") {
+		t.Errorf("spec set with \"Fixes:\" and \"Review: on merge\": %v; want the refusal naming the pair", err)
+	}
 	if row, ok, err := store.ReadSpecAt(r.p.Root, "T-1"); err != nil || !ok || row.Rev != 1 || row.Text != good {
 		t.Errorf("stored spec %+v, %v, %v; want the accepted text at rev 1", row, ok, err)
+	}
+	// A fix spec alone (no Review line) is accepted, whatever its difficulty (T-932).
+	fix := "# T-1 — D\n\nDifficulty: hard\nFixes: RV-12\n\n## Do\n"
+	if got := r.setSpec("r4", fix); got != "SET T-1 rev 2" {
+		t.Errorf("spec set of a fix spec: %q, want SET T-1 rev 2", got)
 	}
 }
 

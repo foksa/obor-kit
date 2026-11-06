@@ -62,7 +62,8 @@ one test each, and carries what it needs from the finding: the file is not on th
 complexity → no fix: accept it in `BACKLOG.md` with one line why, or remove the case instead (refuse the config) when
 that makes the code smaller. A probe that proves a constructed case is not by itself a reason to add code.
 Each fix spec carries the line `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading, where
-`Review: on merge` would go, and no `Review: on merge` (its verify is the review; T-924, T-928; `obor review fix` is gone): dispatching it links it to the open review, nothing else to run.
+the `Review: on merge` line would go, and never `Review: on merge` (its verify is the review; T-924, T-928; `obor
+spec set` refuses the pair, T-932; `obor review fix` is gone): dispatching it links it to the open review, nothing else to run.
 `obor dispatch` refuses a `Fixes:` that names another review (`FAIL T-xx: Fixes: RV-9 is not the open review (RV-12 is
 open | none is open)`); `obor spec set` does not check it. The free text is your note to the reviewer for that task
 (e.g. `Fixes: RV-12 #1, #3 — re-run with an old status JSON`). Do not close the review now: its verify (§4) needs the
