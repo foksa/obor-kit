@@ -39,7 +39,7 @@ func (a *App) load(root string) (*proj, error) {
 		merging: a.opt.Loop != nil && rc.Configured, timers: map[string]*jobTimer{}, replies: map[string]string{},
 		rules: map[string]ruleLive{}, nopane: map[string]time.Time{}, waitLine: map[string]waitRefusal{},
 		unwritten: map[event.Key]json.RawMessage{}, exec: map[event.Key]time.Time{}, scratch: make(chan struct{}, 1),
-		held: map[string]string{}, ended: map[string]bool{}, roleFail: map[string]time.Time{},
+		held: map[string]string{}, roleFail: map[string]time.Time{},
 		reg: newRegistry(), folded: newFolded(), wtAgents: wtAgents(cfg)} // wtAgents: the last good set (wtAgentsNow)
 	for _, r := range recs {
 		p.foldRecord(r)

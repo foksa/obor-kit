@@ -109,26 +109,27 @@ type (
 // dispatchCall answers the socket's dispatch request: a call id is required and a repeated one gets the stored reply,
 // as does a dispatch of a waiting task (whatever its call id). --model on a task its worker works on moves it (T-773,
 // move.go): the move is recorded at once, and the merge loop stops the worker before the new model's start (T-852).
-// It decides and records under a.verdicts, a move under a.submitMu too (lock order a.verdicts, then a.submitMu:
-// task_done's lock).
+// It reads (dispatchReads) with no lock, then decides and records in one mu section (App.mu).
 func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
-	a.verdicts.Lock()
-	defer a.verdicts.Unlock()
 	if c.CallID == "" || c.Task == "" {
 		return "", errors.New("dispatch: a call id and a task are required")
+	}
+	stored := func(p *proj) (string, bool) {
+		reply, ok := p.folded.calls[verdictStep(wire.MethodDispatch, c.CallID)]
+		return reply, ok
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
 	var reply string
-	var stored bool
+	var done bool
 	if p != nil {
-		reply, stored = p.folded.calls[verdictStep(wire.MethodDispatch, c.CallID)]
+		reply, done = stored(p)
 	}
 	a.mu.Unlock()
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("dispatch: no served project at %s", c.Root)
-	case stored:
+	case done:
 		return reply, nil
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("dispatch: the lead or the owner dispatches, not %s (role %s)", Dash(c.Agent), c.Role)
@@ -138,14 +139,21 @@ func (a *App) dispatchCall(ctx context.Context, c wire.Call) (string, error) {
 		return "", err
 	}
 	if a.moving(p, c) {
-		a.submitMu.Lock()
-		defer a.submitMu.Unlock()
 		return a.moveTask(p, fx, c)
 	}
-	reply, err = a.dispatchTask(ctx, p, fx, c)
+	rd, err := a.dispatchReads(ctx, p, fx, c)
+	if err != nil {
+		return "", err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if reply, done := stored(p); done { // the same call recorded meanwhile
+		return reply, nil
+	}
+	reply, err = a.dispatchTask(p, rd)
 	var nl noLaneError
 	if errors.As(err, &nl) {
-		reply, err = a.waitLane(p, c, nl)
+		reply, err = a.waitLane(p, rd.c, nl)
 	}
 	return reply, err
 }
@@ -234,10 +242,10 @@ func specFirst(cfg *config.Config, text string, refs []string) []string {
 	return out
 }
 
-// waitLane records fact waiting for c.Task's request (under a.verdicts) when none of its level's models gets a lane
-// (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces a waiting
-// fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause ends
-// (waiting tasks oldest first, passOrder).
+// waitLane records fact waiting for c.Task's request (under mu, dispatchCall's section) when none of its level's models
+// gets a lane (nl): the reply WAITING <task> (queued): <why> (<level>: <models>) and the lanes still idle. It replaces
+// a waiting fact of the task (a new request: models, after). The merge loop dispatches it when a lane frees or a pause
+// ends (waiting tasks oldest first, passOrder).
 func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	mt, held := a.held(p, c.Task)
 	if !mt.dispatchable() {
@@ -246,7 +254,7 @@ func (a *App) waitLane(p *proj, c wire.Call, nl noLaneError) (string, error) {
 	}
 	d := dispatchData{Force: c.Force, Level: nl.level, Types: nl.types, Caller: callerOf(c),
 		Call: c.CallID, Reply: fmt.Sprintf("WAITING %s (queued): %s", c.Task, nl.laneWait()) + levelNote(nl.level, nl.types) + idleNote(nl.ls, "", held)}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
+	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -261,22 +269,82 @@ func callerOf(c wire.Call) string {
 	return c.Agent
 }
 
-// dispatchTask passes c's refusals (under a.verdicts) and records fact dispatch for
-// it: the reply DISPATCHED <task> → <lane> (queued) and the lanes still idle (idleNote). With c.After not all merged
-// it records fact waiting instead (waitTask). A refusal records nothing.
-func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) (string, error) {
+// dispatchRead is what a dispatch read with no lock (dispatchReads), for its decision under mu (dispatchTask): the
+// call with its spec's level and models (resolveLevel), the config, the lanes, which of c.After have a stored spec, the
+// task branch's target and whether it has commits the target lacks.
+type dispatchRead struct {
+	c      wire.Call
+	fx     *Loop
+	cfg    *config.Config
+	ls     []port.Lane
+	specs  map[string]bool
+	target string
+	ahead  bool
+	err    error // Specs.Target's, a refusal in its place in the decision (after the lane's)
+}
+
+// dispatchReads is a dispatch's reads, with no lock: the refusals dispatchOpen gives first (taken again under mu), then
+// the spec (stored, Specs.Check, a fix's link: fixesCheck), the level's models (the config's: a ref naming no model of
+// it, or an effort its kind does not take, is refused, T-695), the lanes, c.After's specs and the target (Specs.Target:
+// the task's alone, read before a lane is picked).
+func (a *App) dispatchReads(ctx context.Context, p *proj, fx *Loop, c wire.Call) (dispatchRead, error) {
 	a.mu.Lock()
-	merging, pause := p.merging, p.paused(a.opt.Now())
+	err := a.dispatchOpen(p, fx, c)
 	a.mu.Unlock()
-	switch {
-	case !merging:
-		return "", mergeOff(p)
-	case pause != nil:
-		return "", pausedErr(c.Task, pause)
-	case fx.Lane == nil || fx.Specs == nil:
-		return "", fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
+	if err != nil {
+		return dispatchRead{}, err
 	}
-	// A merged task takes no new attempt, whatever flags the request has (T-792); a rejected or dropped one may.
+	row, _, err := specOf(p, c.Task)
+	if err != nil {
+		return dispatchRead{}, fmt.Errorf("dispatch %s: %v", c.Task, err)
+	}
+	if why, err := fx.Specs.Check(ctx, c.Task, row.Text); err != nil || why != "" {
+		if err != nil {
+			why = err.Error()
+		}
+		return dispatchRead{}, fmt.Errorf("dispatch %s: %s", c.Task, why)
+	}
+	if err := fixesCheck(ctx, fx, p.root, c.Task, row.Text); err != nil { // T-924: a fix links to the open review only
+		return dispatchRead{}, err
+	}
+	cfg, err := config.LoadDaemon(p.root)
+	if err != nil {
+		return dispatchRead{}, err
+	}
+	if err := resolveLevel(cfg, &c, row.Text); err != nil {
+		return dispatchRead{}, fmt.Errorf("dispatch %s: %v", c.Task, err)
+	}
+	for _, t := range c.Types {
+		if err := cfg.CheckModelRef(t); err != nil {
+			return dispatchRead{}, fmt.Errorf("dispatch %s: %v", c.Task, err)
+		}
+	}
+	ls, err := a.lanes.Lanes(ctx, p.root)
+	if err != nil {
+		return dispatchRead{}, fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
+	}
+	specs := map[string]bool{}
+	for _, dep := range c.After {
+		if _, specs[dep], err = specOf(p, dep); err != nil {
+			return dispatchRead{}, fmt.Errorf("dispatch %s: %v", c.Task, err)
+		}
+	}
+	target, ahead, err := fx.Specs.Target(ctx, c.Task)
+	return dispatchRead{c: c, fx: fx, cfg: cfg, ls: ls, specs: specs, target: target, ahead: ahead, err: err}, nil
+}
+
+// dispatchOpen is a dispatch's refusal on the folded state and the adapters (under mu; nil: none): the merge loop off,
+// a pause in force, no dispatch adapters, the task merged (a merged task takes no new attempt, whatever flags the
+// request has, T-792; a rejected or dropped one may).
+func (a *App) dispatchOpen(p *proj, fx *Loop, c wire.Call) error {
+	switch pause := p.paused(a.opt.Now()); {
+	case !p.merging:
+		return mergeOff(p)
+	case pause != nil:
+		return pausedErr(c.Task, pause)
+	case fx.Lane == nil || fx.Specs == nil:
+		return fmt.Errorf("dispatch off for %s (no lane adapter)", p.name)
+	}
 	if mt, _ := a.held(p, c.Task); mt.state == stMerged {
 		sha := mt.head
 		if len(sha) > 7 {
@@ -285,48 +353,26 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		if sha == "" {
 			sha = "outside obor"
 		}
-		return "", fmt.Errorf("%s merged %s: a new attempt needs a new task id", c.Task, sha)
+		return fmt.Errorf("%s merged %s: a new attempt needs a new task id", c.Task, sha)
 	}
-	row, _, err := specOf(p, c.Task)
-	if err != nil {
-		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
-	}
-	if why, err := fx.Specs.Check(ctx, c.Task, row.Text); err != nil || why != "" {
-		if err != nil {
-			why = err.Error()
-		}
-		return "", fmt.Errorf("dispatch %s: %s", c.Task, why)
-	}
-	if err := fixesCheck(ctx, fx, p.root, c.Task, row.Text); err != nil { // T-924: a fix links to the open review only
+	return nil
+}
+
+// dispatchTask decides rd's dispatch (under mu, the caller's section): dispatchOpen's refusals again, then it records
+// fact dispatch: the reply DISPATCHED <task> → <lane> (queued) and the lanes still idle (idleNote). With c.After not
+// all merged it records fact waiting instead (waitTask). A refusal records nothing.
+func (a *App) dispatchTask(p *proj, rd dispatchRead) (string, error) {
+	c, cfg, ls := rd.c, rd.cfg, rd.ls
+	if err := a.dispatchOpen(p, rd.fx, c); err != nil {
 		return "", err
-	}
-	cfg, err := config.LoadDaemon(p.root)
-	if err != nil {
-		return "", err
-	}
-	if err := resolveLevel(cfg, &c, row.Text); err != nil {
-		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
-	}
-	// Refused before a lane is picked (nothing recorded): a model ref naming no model of this config, or an effort
-	// its kind does not take (T-695).
-	for _, t := range c.Types {
-		if err := cfg.CheckModelRef(t); err != nil {
-			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
-		}
-	}
-	ls, err := a.lanes.Lanes(ctx, p.root)
-	if err != nil {
-		return "", fmt.Errorf("dispatch: lanes of %s: %v", p.name, err)
 	}
 	if len(c.After) > 0 {
-		if reply, err := a.waitTask(p, c, ls); err != nil || reply != "" {
+		if reply, err := a.waitTask(p, c, ls, rd.specs); err != nil || reply != "" {
 			return reply, err
 		}
 	}
 	mt, held := a.held(p, c.Task)
-	a.mu.Lock()
 	finished := p.finishedIn(c.Task)
-	a.mu.Unlock()
 	paused := a.pausedModels(p, c.Types)
 	l, ref, why := pickLane(ls, c, held, paused, mt.disp.Type, finished)
 	if why != "" && c.Level != "" && c.Lane == "" {
@@ -351,12 +397,11 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 	case l.State != port.LaneFree && l.State != port.LaneDirtyFree:
 		return "", fmt.Errorf("dispatch %s: lane %s is %s", c.Task, l.Name, laneWhy(l))
 	}
-	target, ahead, err := fx.Specs.Target(ctx, c.Task)
-	if err != nil {
-		return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
+	if rd.err != nil {
+		return "", fmt.Errorf("dispatch %s: %v", c.Task, rd.err)
 	}
 	branch := cfg.TaskBranch(c.Task)
-	if ahead && !redo {
+	if rd.ahead && !redo {
 		return "", fmt.Errorf("dispatch %s: %s exists with commits not in the target (merge or delete it first)", c.Task,
 			branch)
 	}
@@ -364,18 +409,16 @@ func (a *App) dispatchTask(ctx context.Context, p *proj, fx *Loop, c wire.Call) 
 		return "", fmt.Errorf("dispatch %s: %s is open in obor serve (%s): obor resume or obor drop it first", c.Task,
 			c.Task, mt.shown())
 	}
-	a.mu.Lock()
 	l.Agent = rowAgent(cfg, l.Name, l.Agent)
 	names := cfg.LaneAgentAliases(l.Name, "")
 	a.placement(p, l.Dir, append([]string{l.Agent}, names...)...)
-	a.mu.Unlock()
 	agent := laneAgent(l, cfg.AgentName("worker", l.Name))
 	caller := callerOf(c)
-	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: target, Redo: redo, Force: c.Force,
+	d := dispatchData{Lane: l.Name, Dir: l.Dir, Agent: agent, Branch: branch, Target: rd.target, Redo: redo, Force: c.Force,
 		Level: c.Level, Types: c.Types, Effort: effort, Type: ref, Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("DISPATCHED %s → %s (queued)", c.Task, l.Name) + typeNote(typ) + effortNote(effort) +
 			idleNote(ls, l.Name, held) + note}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
+	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepDispatched, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -415,10 +458,8 @@ func laneAgent(l port.Lane, derived string) string {
 	return derived
 }
 
-// held is task's loop record (zero: none) and the lanes other tasks' open dispatches hold (lane → task).
+// held is task's loop record (zero: none) and the lanes other tasks' open dispatches hold (lane → task; under mu).
 func (a *App) held(p *proj, task string) (mtask, map[string]string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	held := map[string]string{}
 	var mt mtask
 	newest := map[string]int64{} // a lane two dispatches name: the newest dispatch's task holds it (T-615)
@@ -462,10 +503,8 @@ func typeNote(typ string) string {
 }
 
 // pausedModels is the models of types (model refs) that obor pause --model holds now (T-765), each with its reason
-// "<model> paused: <why> (until HH:MM|cleared)": dispatch skips them, a level's next model is used.
+// "<model> paused: <why> (until HH:MM|cleared)": dispatch skips them, a level's next model is used (under mu).
 func (a *App) pausedModels(p *proj, types []string) map[string]string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	out := map[string]string{}
 	for _, t := range types {
 		typ, _ := config.ParseModelRef(t)
@@ -614,28 +653,21 @@ func (p *proj) foldDispatch(r event.Record) {
 	delete(p.waitLine, r.Task) // the wait ended: a later wait's refusals start afresh
 }
 
-// waitTask records fact waiting for c (under a.verdicts) when a task of c.After is not merged in the loop: the reply
-// WAITING <task> after <tasks> (queued) and every idle lane (idleNote: it takes none); "" with no error when all are
-// merged (a plain dispatch). Refused: a task it names is itself, unknown (no spec and no loop record), dropped or
-// rejected, or waiting (itself or through the tasks it waits for) for this one (a cycle); an unknown lane; the task
-// open in the loop (as a dispatch).
-func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
+// waitTask records fact waiting for c (under mu, dispatchTask's section) when a task of c.After is not merged in the
+// loop: the reply WAITING <task> after <tasks> (queued) and every idle lane (idleNote: it takes none); "" with no error
+// when all are merged (a plain dispatch). Refused: a task it names is itself, unknown (no spec and no loop record),
+// dropped or rejected, or waiting (itself or through the tasks it waits for) for this one (a cycle); an unknown lane;
+// the task open in the loop (as a dispatch).
+func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane, specs map[string]bool) (string, error) {
 	var open []string
 	for _, dep := range c.After {
-		_, spec, err := specOf(p, dep)
-		if err != nil {
-			return "", fmt.Errorf("dispatch %s: %v", c.Task, err)
-		}
-		a.mu.Lock()
 		m := p.folded.loop[dep]
-		cycle := p.waitsOn(dep, c.Task, map[string]bool{})
-		a.mu.Unlock()
 		switch {
 		case dep == c.Task:
 			return "", fmt.Errorf("dispatch %s: it cannot wait for itself", c.Task)
-		case cycle:
+		case p.waitsOn(dep, c.Task, map[string]bool{}):
 			return "", fmt.Errorf("dispatch %s: %s waits for %s itself: a cycle never dispatches", c.Task, dep, c.Task)
-		case m == nil && !spec:
+		case m == nil && !specs[dep]:
 			return "", fmt.Errorf("dispatch %s: %s is no task (no spec in obor serve's store)", c.Task, dep)
 		case m != nil && states[m.state].failed:
 			return "", fmt.Errorf("dispatch %s: %s is %s: it never merges", c.Task, dep, m.state)
@@ -657,7 +689,7 @@ func (a *App) waitTask(p *proj, c wire.Call, ls []port.Lane) (string, error) {
 	caller := callerOf(c)
 	d := dispatchData{Lane: c.Lane, Force: c.Force, Level: c.Level, Types: c.Types, After: c.After, Caller: caller, Call: c.CallID,
 		Reply: fmt.Sprintf("WAITING %s after %s (queued)", c.Task, strings.Join(open, ", ")) + idleNote(ls, "", held)}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
+	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.nextAttempt(), Step: event.StepWaiting, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("dispatch: the event log of %s refused it", p.name)
 	}
 	a.wake()
@@ -709,9 +741,9 @@ func (a *App) pickWaiting(p *proj, mt mtask) step {
 			why := fmt.Sprintf("after: %s waits for %s, which is %s: obor drop %s, or dispatch it again without it",
 				mt.task, dep, m.state, mt.task)
 			return func(context.Context, *Loop) bool {
-				a.verdicts.Lock()
-				defer a.verdicts.Unlock()
-				return a.waitCurrent(p, mt) && a.needsYou(p, &mt, causeAfter, why)
+				a.mu.Lock()
+				defer a.mu.Unlock()
+				return a.waitCurrent(p, mt) && a.needsYouLocked(p, &mt, causeAfter, why)
 			}
 		case m == nil:
 			unheld = append(unheld, dep)
@@ -750,25 +782,32 @@ type waitRefusal struct {
 // waitDispatch dispatches the waiting mt as its request said (lane or types, force; the caller and call id kept): true
 // once fact dispatch is in. A refusal (no free lane, the lane busy …) keeps it waiting, logged when it changes and
 // shown in obor status (TaskStatus.Why); the same refusal for waitHeld is needs-you{after: …} (obor resume: it waits
-// again, its hour from the start). Nothing when mt's request was replaced (waitCurrent); the bookkeeping holds
-// a.verdicts too, so a replacement cannot come between the refusal and its needs-you.
+// again, its hour from the start). Nothing when mt's request was replaced (waitCurrent): the dispatch's reads come
+// first, with no lock, then the check, the decision and the bookkeeping are one mu section, so a replacement cannot
+// come between the refusal and its needs-you.
 func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) bool {
 	d := mt.disp
-	a.verdicts.Lock()
-	defer a.verdicts.Unlock()
+	a.mu.Lock()
+	current := a.waitCurrent(p, mt)
+	a.mu.Unlock()
+	if !current {
+		return false
+	}
+	rd, err := a.dispatchReads(ctx, p, fx, wire.Call{Root: p.root, Agent: d.Caller, CallID: d.Call, Task: mt.task,
+		Lane: d.Lane, Level: d.Level, Types: d.Types, Force: d.Force})
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if !a.waitCurrent(p, mt) {
 		return false
 	}
-	_, err := a.dispatchTask(ctx, p, fx, wire.Call{Root: p.root, Agent: d.Caller, CallID: d.Call, Task: mt.task,
-		Lane: d.Lane, Level: d.Level, Types: d.Types, Force: d.Force})
 	if err == nil {
-		a.mu.Lock()
+		_, err = a.dispatchTask(p, rd)
+	}
+	if err == nil {
 		delete(p.waitLine, mt.task)
-		a.mu.Unlock()
 		return true
 	}
 	now := a.opt.Now()
-	a.mu.Lock()
 	w, ok := p.waitLine[mt.task]
 	line := err.Error()
 	var nl noLaneError
@@ -776,32 +815,23 @@ func (a *App) waitDispatch(ctx context.Context, p *proj, fx *Loop, mt mtask) boo
 	if laneWait {
 		line = nl.laneWait() // the status line reads it after the level (T-723)
 	}
-	changed := !ok || w.line != line
-	if changed {
+	if !ok || w.line != line {
 		w = waitRefusal{line: line, since: now}
 		p.waitLine[mt.task] = w
-	}
-	held := now.Sub(w.since) >= waitHeld && !laneWait // waiting for a busy lane is the wait itself
-	if held {                                         // told: after a resume the refusal's hour starts again
-		delete(p.waitLine, mt.task)
-	}
-	a.mu.Unlock()
-	if changed {
 		a.logf("%s %s waiting: %s", p.name, mt.task, w.line)
 	}
-	if held {
-		a.needsYou(p, &mt, causeAfter, fmt.Sprintf("after: %s is not dispatched for %s since what it waits for merged: %s",
+	if now.Sub(w.since) >= waitHeld && !laneWait { // waiting for a busy lane is the wait itself
+		delete(p.waitLine, mt.task) // told: after a resume the refusal's hour starts again
+		a.needsYouLocked(p, &mt, causeAfter, fmt.Sprintf("after: %s is not dispatched for %s since what it waits for merged: %s",
 			mt.task, Age(waitHeld), w.line))
 	}
 	return false
 }
 
-// waitCurrent: the waiting request mt was selected for is still the one in force (under a.verdicts, which an obor
-// dispatch replacing it takes): its call id and attempt (a replacement keeps the attempt; RV-56 #1). A stale step
-// records nothing: the next pass picks the request in force.
+// waitCurrent: the waiting request mt was selected for is still the one in force (under mu; an obor dispatch
+// replacing it records in its own mu section): its call id and attempt (a replacement keeps the attempt; RV-56 #1). A
+// stale step records nothing: the next pass picks the request in force.
 func (a *App) waitCurrent(p *proj, mt mtask) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	m := p.folded.loop[mt.task]
 	return m != nil && m.is(stWaiting) && m.attempt == mt.attempt && m.disp.Call == mt.disp.Call
 }

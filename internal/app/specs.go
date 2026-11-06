@@ -79,22 +79,22 @@ func (a *App) specSet(c wire.Call) (string, error) {
 	default:
 		by = "lead"
 	}
-	// task_done's submission decides under a.submitMu: one order of "the spec changed" and "the work against it was
-	// submitted" (T-819).
-	a.submitMu.Lock()
+	// The write and its stored reply are one mu section, task_done's decision's: one order of "the spec changed" and
+	// "the work against it was submitted" (T-819).
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if reply, stored := p.replies[key]; stored { // the same call answered meanwhile
+		return reply, nil
+	}
 	rev, changed, err := store.SetSpec(p.log.DB(), c.Task, c.Spec, c.Note, by, a.opt.Now())
 	if err != nil {
-		a.submitMu.Unlock()
 		return "", err
 	}
 	reply = fmt.Sprintf("SET %s rev %d", c.Task, rev)
 	if !changed {
 		reply = fmt.Sprintf("UNCHANGED %s rev %d", c.Task, rev)
 	}
-	a.submitMu.Unlock()
-	a.mu.Lock()
 	p.replies[key] = reply
-	a.mu.Unlock()
 	if changed {
 		a.wake()
 	}

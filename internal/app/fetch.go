@@ -58,33 +58,61 @@ func (mt *mtask) integratorJob() (event.Key, bool) { return mt.jobKey(), mt.open
 // older job id. The caller is the job's agent: the integrator for its jobs, the lane's worker for a work or fix job
 // (OBOR_LANE, when set, its lane; its pane, when herdr shows it, in the lane). The first fetch of a job is fact
 // delivered{job, via: mcp}; a repeat records nothing, and a repeated call id gets the stored reply. Every fetch keeps
-// its text in the prompts table: a refetch whose text changed adds a row (T-670).
+// its text in the prompts table: a refetch whose text changed adds a row (T-670). The text is read with no lock; the
+// decision and the delivery are one mu section (jobAnswer), so two fetches never both record a delivery.
 func (a *App) jobNext(c wire.Call) (string, error) {
-	a.verdicts.Lock() // two fetches never both record a delivery
-	defer a.verdicts.Unlock()
 	if c.CallID == "" {
 		return "", errors.New("job_next: a call id is required")
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	var reply string
-	var stored bool
-	if p != nil {
-		reply, stored = p.replies[verdictStep(wire.MethodJobNext, c.CallID)]
-	}
 	a.mu.Unlock()
-	switch {
-	case p == nil:
+	if p == nil {
 		return "", fmt.Errorf("job_next: no served project at %s", c.Root)
-	case stored:
-		return reply, nil
 	}
+	for range jobTries {
+		a.mu.Lock()
+		reply, stored := p.replies[verdictStep(wire.MethodJobNext, c.CallID)]
+		mt, key, ok, err := a.callerJob(p, c)
+		a.mu.Unlock()
+		switch {
+		case stored:
+			return reply, nil
+		case err != nil:
+			return "", err
+		}
+		var text string
+		var rev int
+		if ok && (c.Job == "" || c.Job == JobID(key)) {
+			if text, rev, err = a.fetchText(p, mt, key); err != nil {
+				return "", fmt.Errorf("job_next: %s: %v", JobID(key), err)
+			}
+		}
+		if reply, done, err := a.jobAnswer(p, c, key, ok, text, rev); done {
+			return reply, err
+		}
+	}
+	return "", fmt.Errorf("job_next: the job changed %d times while its text was read: call again", jobTries)
+}
+
+// jobTries bounds jobNext's text reads when the caller's job changes meanwhile.
+const jobTries = 3
+
+// jobAnswer is jobNext's decision and record in one mu section for the caller's job as read (key; ok: one is open)
+// and its text: the stored reply of the call id, else the reply; done false when the caller's job is no longer the one
+// read (nothing recorded: read again). A job's first fetch records fact delivered; every fetch keeps the text (prompt).
+func (a *App) jobAnswer(p *proj, c wire.Call, read event.Key, open bool, text string, rev int) (string, bool, error) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	if reply, stored := p.replies[verdictStep(wire.MethodJobNext, c.CallID)]; stored {
+		return reply, true, nil
+	}
 	mt, key, ok, err := a.callerJob(p, c)
-	delivered := p.folded.delivered[JobID(key)]
-	a.mu.Unlock()
-	if err != nil {
-		return "", err
+	switch {
+	case err != nil:
+		return "", true, err
+	case ok != open || ok && key != read:
+		return "", false, nil
 	}
 	r := wire.JobReply{State: "none"}
 	switch {
@@ -92,10 +120,6 @@ func (a *App) jobNext(c wire.Call) (string, error) {
 	case c.Job != "" && c.Job != JobID(key):
 		r = wire.JobReply{State: "superseded", Current: JobID(key)}
 	default:
-		text, rev, err := a.fetchText(p, mt, key)
-		if err != nil {
-			return "", fmt.Errorf("job_next: %s: %v", JobID(key), err)
-		}
 		r = wire.JobReply{State: "job", Job: JobID(key), Task: key.Task, Attempt: key.Attempt, Step: key.Step, Text: text}
 		agent := mt.agent
 		if base, _ := event.StepN(key.Step); base == event.StepReview || base == event.StepResolve {
@@ -104,24 +128,22 @@ func (a *App) jobNext(c wire.Call) (string, error) {
 		// The first fetch records the delivery; every fetch after it records nothing (the job is delivered) but keeps
 		// the text: a refetch whose text changed since the newest row (a new spec rev, a restart) gets its own row
 		// (T-670), an identical one none.
-		seq := delivered
+		seq := p.folded.delivered[JobID(key)]
 		if seq == 0 {
 			var ok bool
-			seq, ok = a.recordSeq(p, event.Record{Task: key.Task, Attempt: key.Attempt, Step: event.StepDelivered, Kind: event.KindFact},
+			seq, ok = a.recordIn(p, event.Record{Task: key.Task, Attempt: key.Attempt, Step: event.StepDelivered, Kind: event.KindFact},
 				event.FactData{Lane: mt.lane, Machine: Machine, Pane: c.Pane, Agent: agent, Job: JobID(key), Merge: true,
-					Via: viaMCP, Call: c.CallID, Rev: rev})
+					Via: viaMCP, Call: c.CallID, Rev: rev}, true)
 			if !ok {
-				return "", fmt.Errorf("job_next: the event log of %s refused it", p.name)
+				return "", true, fmt.Errorf("job_next: the event log of %s refused it", p.name)
 			}
 		}
 		a.prompt(p, seq, store.PromptJob, agent, JobID(key), key.Task, text, rev)
 		a.wake()
 	}
 	b, _ := json.Marshal(r) // strings and an int: cannot fail
-	a.mu.Lock()
 	p.replies[verdictStep(wire.MethodJobNext, c.CallID)] = string(b)
-	a.mu.Unlock()
-	return string(b), nil
+	return string(b), true, nil
 }
 
 // callerJob is c's open job in p (under mu): its task and key, false when it has none; an error when the caller may not fetch it.
@@ -281,29 +303,30 @@ func (p *proj) laneDir(mt mtask) string {
 // refusal records spec.seen and names the rev and the set's note, so the next task_done submits). A Blocked: report
 // submits nothing: it records the watchdog fact needs-you{asks: <what it needs>} (row 16a; the task stays working, the
 // owner is notified) and is never refused for the rev. A repeated call id gets the stored reply, or the stored
-// refusal of an older rev (T-821).
+// refusal of an older rev (T-821). The config and the lanes are read with no lock; the decision (the stored spec rev
+// included: one order with obor spec set, T-819) and its record are one mu section (App.mu).
 func (a *App) taskDone(c wire.Call) (string, error) {
-	a.hook(hookTaskDoneWaits)
-	a.submitMu.Lock() // one submission decision at a time
-	defer a.submitMu.Unlock()
 	if c.CallID == "" || c.Task == "" && c.Lane == "" {
 		return "", errors.New("task_done: a call id and a task or the caller's lane are required")
 	}
 	a.mu.Lock()
 	p := a.projAt(c.Root)
-	var reply, refusal string
-	var stored, refused bool
-	if p != nil {
-		reply, stored = p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
-		refusal, refused = p.folded.refusals[verdictStep(wire.MethodTaskDone, c.CallID)]
-		if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
-			c.Task = p.laneTask(c.Lane)
-		}
-	}
 	a.mu.Unlock()
-	switch {
-	case p == nil:
+	if p == nil {
 		return "", fmt.Errorf("task_done: no served project at %s", c.Root)
+	}
+	cfg, cfgErr := config.LoadDaemon(p.root)
+	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
+	ls, lsErr := a.lanes.Lanes(ctx, p.root)
+	cancel()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	reply, stored := p.folded.calls[verdictStep(wire.MethodTaskDone, c.CallID)]
+	refusal, refused := p.folded.refusals[verdictStep(wire.MethodTaskDone, c.CallID)]
+	if c.Task == "" { // obor mcp names the caller's lane (OBOR_LANE): its row's task (T-439)
+		c.Task = p.laneTask(c.Lane)
+	}
+	switch {
 	case refused: // a stale rev's refusal (T-821): a retry of its lost reply, or a replay, gets it again
 		return "", errors.New(refusal)
 	case stored:
@@ -314,37 +337,25 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 		return "", mergeOff(p)
 	case c.Role != "worker":
 		return "", fmt.Errorf("task_done: a worker submits its task, not %s (role %s)", Dash(c.Agent), Dash(c.Role))
-	}
-	cfg, err := config.LoadDaemon(p.root)
-	if err != nil {
-		return "", fmt.Errorf("task_done: %v", err)
+	case cfgErr != nil:
+		return "", fmt.Errorf("task_done: %v", cfgErr)
 	}
 	report := strings.TrimSpace(c.Report)
 	asks, blocked := blockedAsk(report)
 	if why := reportRefusal(report, cfg.Data.DoneFileSections); why != "" && !blocked {
 		return "", fmt.Errorf("task_done: %s", why)
 	}
-	ctx, cancel := context.WithTimeout(a.life, requestTimeout)
-	ls, err := a.lanes.Lanes(ctx, p.root)
-	cancel()
-	if err != nil {
-		return "", fmt.Errorf("task_done: lanes of %s: %v", p.name, err)
+	if lsErr != nil {
+		return "", fmt.Errorf("task_done: lanes of %s: %v", p.name, lsErr)
 	}
-	a.mu.Lock()
 	var mt mtask
 	if m := p.folded.loop[c.Task]; m != nil {
 		mt = *m
 	}
-	busy := p.busy(c.Task)
-	if !p.ended[c.Task] { // a step holding a working task is the one that sent this job: its task_done is early, not busy
-		busy = ""
-	}
-	dispatching := p.dispatching
 	var pane string
 	if w, _ := a.agentOf(p, port.Lane{Dir: p.laneDir(mt), Agent: mt.agent}); w.State == Identified {
 		pane = w.Pane.ID
 	}
-	a.mu.Unlock()
 	var l port.Lane
 	for _, x := range ls {
 		if x.Name == mt.lane {
@@ -357,10 +368,8 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	case c.Agent == "" || c.Agent != mt.agent && c.Agent != l.Agent || c.Lane != "" && c.Lane != mt.lane:
 		return "", fmt.Errorf("task_done: not your task (%s is %s's in lane %s, not %s's)", c.Task, mt.agent, mt.lane,
 			Dash(c.Agent))
-	case !mt.may(vSubmit) || mt.is(stDispatched) && mt.base == "" && dispatching: // no dispatch adapters: no prepare runs
+	case !mt.may(vSubmit) || mt.is(stDispatched) && mt.base == "" && p.dispatching: // no dispatch adapters: no prepare runs
 		return "", fmt.Errorf("task_done: %s is %s, not open for a submission", c.Task, mt.shown())
-	case busy != "":
-		return "", busyErr("task_done", c.Task, busy)
 	case l.Name == "":
 		return "", fmt.Errorf("task_done: lane %s is not in the lane table", mt.lane)
 	case l.Task != c.Task:
@@ -378,29 +387,21 @@ func (a *App) taskDone(c wire.Call) (string, error) {
 	}
 	if hasSpec && mt.specRev > 0 && row.Rev > mt.specRev {
 		refusal := "task_done: " + specRevLine(c.Task, row.Rev, row.Note)
-		if !a.record(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSpecSeen, Kind: event.KindFact},
+		if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: mt.attempt, Step: event.StepSpecSeen, Kind: event.KindFact},
 			event.FactData{Rev: row.Rev, Call: c.CallID, Reason: refusal}) {
 			return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 		}
 		return "", errors.New(refusal)
 	}
-	a.hook(hookTaskDoneCheck)
 	attempt := mt.attempt
 	if mt.paused() { // a needs-you's task_done is the next attempt
 		attempt++
 	}
-	if !a.record(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepSubmitted, Kind: event.KindFact},
+	if !a.recordLocked(p, event.Record{Task: c.Task, Attempt: attempt, Step: event.StepSubmitted, Kind: event.KindFact},
 		submitData{Lane: l.Name, Agent: mt.agent, Pane: pane, Call: c.CallID, Report: report}) {
 		return "", fmt.Errorf("task_done: the event log of %s refused it", p.name)
 	}
 	a.wake()
-	a.mu.Lock()
-	m := p.folded.loop[c.Task]
-	dropped := m != nil && (m.state == stDropped || m.state == stDropping)
-	a.mu.Unlock()
-	if dropped { // dropped after the decision: the submitted fact changes nothing
-		return "", fmt.Errorf("task_done: superseded: %s was dropped", c.Task)
-	}
 	return taskDoneReply, nil
 }
 
@@ -410,12 +411,11 @@ const taskDoneReply = "submitted"
 // askedReply is task_done's answer to a Blocked: report.
 const askedReply = "not submitted: the owner is told what you need; stop and wait for the answer"
 
-// ask records the watchdog fact needs-you{asks: what} for task in lane l (row 16a), once while one is in force: the
-// owner is notified. Its worker's activity does not end it (T-511: the Stop hook's turn after the report is no
-// answer); obor resume, the task's submission (its lane no longer holds it open) or a drop does.
+// ask records the watchdog fact needs-you{asks: what} for task in lane l (row 16a; under mu, task_done's section),
+// once while one is in force: the owner is notified. Its worker's activity does not end it (T-511: the Stop hook's
+// turn after the report is no answer); obor resume, the task's submission (its lane no longer holds it open) or a
+// drop does.
 func (a *App) ask(p *proj, task string, l port.Lane, what string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	v := verdict{step: event.StepNeedsYou, reason: reasonAsks + what}
 	if w, _ := a.agentOf(p, l); w.State == Identified {
 		v.pane = w.Pane

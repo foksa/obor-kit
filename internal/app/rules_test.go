@@ -230,8 +230,6 @@ func TestWorkerStartRuleCondition(t *testing.T) {
 		{name: "its worker runs: none", runs: true, edit: func(_ *proj, mt *mtask) { working(mt) }},
 		{name: "a stop of its worker pending (busy): none",
 			edit: func(_ *proj, mt *mtask) { working(mt); mt.halt = halt{agent: "pj-l-01"} }},
-		{name: "a drop being recorded (busy): none",
-			edit: func(p *proj, mt *mtask) { working(mt); p.ended["T-1"] = true }},
 		{name: "a needs-you holds it: none",
 			edit: func(_ *proj, mt *mtask) { working(mt); mt.needs = block{fact: event.Record{Seq: 9}} }},
 		{name: "submitted: none", edit: func(_ *proj, mt *mtask) { working(mt); mt.state = stSubmitted }},

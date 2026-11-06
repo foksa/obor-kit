@@ -288,15 +288,15 @@ func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 		{name: "a merge with nothing after: the merge", last: "T-a merged (outside obor serve)",
 			setup: func(r *reviewRig) (int64, time.Time) {
 				r.submitted("T-a")
-				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact},
-					event.MergedData{Outside: true})
+				seq, _ := r.a.recordIn(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepMerged, Kind: event.KindFact},
+					event.MergedData{Outside: true}, false)
 				return seq, r.now
 			}},
 		{name: "a drop: the drop", last: "T-a dropped: superseded",
 			setup: func(r *reviewRig) (int64, time.Time) {
 				r.submitted("T-a")
-				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
-					event.FactData{Reason: "superseded"})
+				seq, _ := r.a.recordIn(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepDropped, Kind: event.KindFact},
+					event.FactData{Reason: "superseded"}, false)
 				return seq, r.now
 			}},
 		{name: "a merge's last after-merge step: that step", last: "T-a merged ccccccc",
@@ -304,9 +304,9 @@ func TestIdleKeyIsTheNewestEnd(t *testing.T) {
 				r.submitted("T-a")
 				r.merged("T-a")
 				r.now = r.now.Add(time.Minute)
-				r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepAfterMerge, Kind: event.KindResult}, nil)
+				r.a.recordIn(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepAfterMerge, Kind: event.KindResult}, nil, false)
 				r.now = r.now.Add(time.Minute)
-				seq, _ := r.a.recordSeq(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepStop, Kind: event.KindResult}, nil)
+				seq, _ := r.a.recordIn(r.p, event.Record{Task: "T-a", Attempt: 1, Step: event.StepStop, Kind: event.KindResult}, nil, false)
 				return seq, r.now
 			}},
 	} {
