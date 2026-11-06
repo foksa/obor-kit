@@ -7,23 +7,24 @@ files, bash, keep_warm, multi-lead) were closed by their deletion and removed; h
 
 ## Handoff (lead; rewrite at each handoff)
 Read `docs/observations.md` first (patterns from past sessions: where we went in circles, the load tax, traps).
-- 2026-11-05 ~23:00 (lead; owner: continue tomorrow; previous Handoff: `git show c8166734:BACKLOG.md`).
-  **Merged since v0.28.0 (13):** T-880, T-891, T-893, T-894, T-902, T-903, T-904, T-905, T-911, T-912 (take-over
-  gone), T-913 (rerere), T-914 (compile-only re-gate on a package-only move). **Lines since v0.28.0:** prod +123,
-  test +795 (git count; T-880 +199, T-893 +116 grew; T-912 −115, T-903 −99 shrank). Not net-negative yet.
-  **Update ~00:00:** RV-123 closed (df0c779b) after three verifies: T-915..T-918 merged; #3 accepted. T-896 merged.
-  Nothing in flight; lanes free until the next wave's specs.
-  **Decided today (docs/decisions.md):** drive is new work only; log snapshot parked (advisor: +90 net today);
-  re-gate option C. Research committed: docs/research/log-snapshot.md, merge-without-regate.md.
-  **Next:** (1) Spec the milestone's next wave around what each task deletes (waves G-J
-  in docs/research/architecture-advice-fable.md; candidates below), file overlap checked by grepping the files, not
-  the spec prose. (2) Measure re-gates again after T-913/T-914 (`obor serve dump`, gate intents kind=moved/resolved;
-  11-05 baseline: 41 moved + 12 resolved of 133 gates, ~173 of 489 min).
-  **Candidates:** app split steps 6-7 (outbox, identity; docs/research/app-split-deep-dive.md); unreachable tests,
-  passes 2-3; serve replay `store.Admits` per session fact (RV-121: measure first); `obor web` follows a new binary;
-  obor web's lanes raise runs `setup lane/pane`; the Go cache probe in serve's low-disk line (config or drop).
-  **Owner side:** obor web is on the tailnet via `tailscale serve --bg 8787` (https://djordjes-mac-mini.tail7ae3ed.ts.net/;
-  off: `tailscale serve --https=443 off`); herdr 0.9.5 idle CPU (re-sample with `sample <herdr pid> 3` if reporting).
+- 2026-11-06 ~14:00 (lead; owner: near the weekly limit, done for today; previous Handoff: `git show 0869e040:BACKLOG.md`).
+  **Release v0.29.0 in progress:** notes and guide committed (0869e040, `docs/releases/v0.29.0.md`,
+  `docs/UPGRADE-v0.29.md`). `make release V=0.29.0` failed its full check on `TestMakeReleaseKeepsItsFullLog`: the
+  outer release's `OBOR_RELEASE_LOGGED` leaks into the test's nested release (first release with tests/release in the
+  full check). T-937 strips it (watch set). After T-937 merges: `make release V=0.29.0` again, then the owner runs
+  `! make ship`. Check `git tag -l v0.29.0` first: if it exists, the release finished.
+  **Done today:** RV-124..RV-129 all closed. Waves G (verify as a rule + `Fixes:` line, T-924), H (needs-you/watch
+  rules, T-927), I (close through serve, T-926/T-928), J1a (four locks → one `mu` section, T-931); J1b (T-933)
+  reverted by T-936 after two regressions (the dispatch-class locks order verbs across git reads: they stay); J2
+  dropped (DD-wave-j: +130). Also T-930/T-934 (restart never cuts a main-checkout writer), T-935 (restart_serve gone),
+  T-932 (hard tasks reviewed on merge, `Fixes:` never), T-925 (Go cache probe gone). Net since c82ae3a: prod −152,
+  tests +424.
+  **Next:** (1) finish the release. (2) Compat census (docs/design.md change rule 5, never run): count old record
+  shapes per registered store, delete branches with none; T-924/T-927 added two marked "until v0.29". (3) Model pause
+  in `obor status` (Open below). (4) Re-measure re-gates on a busy day (11-06 sample too small: 4 moves in 12
+  publishes; no compile-only re-gate seen yet). Owner prefers tasks that remove a step or a mechanism over refactors
+  (observations).
+  **Owner side:** obor web on the tailnet (`tailscale serve --bg 8787`); herdr 0.9.5 idle CPU.
 
 ## Owner decisions pending
 - (none; log snapshot and drive decided 11-05, docs/decisions.md)
