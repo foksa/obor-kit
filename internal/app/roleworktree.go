@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"obor/internal/app/event"
 	"time"
@@ -104,10 +105,15 @@ func (p *proj) publishing() bool {
 }
 
 // admit waits until no publish runs, then admits one call: no publish starts until release, called once its commit is
-// in (or it failed). ctx ending the wait: an error naming the publish, nothing admitted.
+// in (or it failed). ctx ending the wait: an error naming the publish, nothing admitted. A restart on a new obor binary
+// claimed (p.restartClaim, T-934): refused, nothing admitted (the restart would cancel the commit).
 func (a *App) admit(ctx context.Context, p *proj) (release func(), err error) {
 	for {
 		a.mu.Lock()
+		if p.restartClaim {
+			a.mu.Unlock()
+			return nil, errors.New("serve is restarting on a new obor binary: try again in a moment")
+		}
 		if !p.publishing() {
 			p.admits++
 			a.mu.Unlock()
