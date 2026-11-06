@@ -730,7 +730,7 @@ func TestReviewVerifyOutsideScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.p.root, s.Reviews, "RV-5.md"), []byte("# RV-5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, "")
+	text, _, err := verifyText(context.Background(), r.git, r.p.root, s, "RV-5", []string{"T-c"}, nil)
 	if err != nil {
 		t.Fatalf("verify of T-c, merged since the previous review started: %v", err)
 	}

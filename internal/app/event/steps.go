@@ -113,10 +113,6 @@ const (
 	StepReviewRm      = "review.rm"      // fact: obor review --rm ended it (data: ReviewData)
 	StepReviewFire    = "review.fire"    // fact: a pass fires the request (data: ReviewData, Request its seq)
 	StepReviewStarted = "review.started" // fact: the reviewer started on the brief (data: ReviewData)
-	StepReviewFix     = "review.fix"     // fact: fix tasks linked to the open review (data: ReviewData, ID, Tasks, Note; T-850)
-	// StepReviewVerifyRequest is a verify requested (T-856: a fix round once its tasks merged; data: ReviewData, ID the
-	// review, Tasks, Note, By, Round the fix round's seq): its seq keys the verify record, which a merge-loop pass admits once the reviewer is idle (reviewverify.go).
-	StepReviewVerifyRequest = "review.verify.request"
 )
 
 const (

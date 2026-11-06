@@ -47,7 +47,7 @@ type Message struct {
 	From   string `json:"from,omitempty"`
 	Ends   string `json:"ends,omitempty"`
 	Needs  int64  `json:"needs,omitempty"`  // the seq of the needs-you fact this line announces
-	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a watch's line: the task or comma list watched
+	Task   string `json:"task,omitempty"`   // answered: the task whose question it answers; a watch's line: the task or comma list watched; a verify's brief: the tasks it verifies
 	Watch  int64  `json:"watch,omitempty"`  // the seq of the watch fact this line ends (mergewatch.go)
 	Review int64  `json:"review,omitempty"` // the seq of the review request this line ends (review.go)
 	Stop   int64  `json:"stop,omitempty"`   // the seq of the role agent's stop this alarm line is for (stopwake.go)
@@ -64,19 +64,11 @@ type Message struct {
 	// Fresh: briefed's (obor brief --fresh, T-794): its line is the first prompt of the agent's fresh start, the
 	// running agent stopped first
 	Fresh bool `json:"fresh,omitempty"`
-	// VerifyOf: a verify brief's (T-856), the seq of its verify's request (the brief is the verify record's briefed
-	// step), and Reviewed, the head it handed the reviewer (its worktree moved there first; obor review close's sha once
-	// the verify is done). The request's tasks count as verified and covered, and the head as reviewed, once the
-	// reviewer finished this brief (its finished line, Ends; T-857: never a stop's Ends), never when another brief
-	// replaced it first (reviewverify.go).
-	VerifyOf int64  `json:"verify_of,omitempty"`
+	// Reviewed: a verify brief's (T-856, T-924; with Task, the tasks it verifies), the head it handed the reviewer (its
+	// worktree moved there first; obor review close's sha once the verify is done). Its tasks count as covered, and the
+	// head as reviewed, once the reviewer finished this brief (its finished line, Ends; T-857: never a stop's Ends),
+	// never when another brief replaced it first (reviewverify.go).
 	Reviewed string `json:"reviewed,omitempty"`
-	// VerifyFail: the seq of the verify request that failed before its brief (its git, its worktree's move), the lead
-	// told (a line) unless the call that asked got the error itself (no line).
-	VerifyFail int64 `json:"verify_fail,omitempty"`
-	// FixDrop: a lead line's (T-850, reviewfix.go): the review's linked fix tasks that ended unmerged, the lead told
-	// once.
-	FixDrop []string `json:"fix_drop,omitempty"`
 	// Of is a lead line's back-reference (T-866, DD M1): what the line reports. A rule's line carries its did key
 	// (rules.go): Kind the rule's name, Seq the record it is keyed by.
 	Of Of `json:"of,omitzero"`

@@ -111,6 +111,9 @@ func (a *App) Status() wire.Status {
 		} else {
 			ps.Review = s
 		}
+		if f := p.fixes.line(); f != "" { // T-924: the open review's fix tasks, linked by their specs' Fixes: lines
+			ps.Review = strings.TrimPrefix(ps.Review+" · "+f, " · ")
+		}
 		if q := p.folded.review; q != nil {
 			ps.ReviewRequest = &wire.ReviewRequestStatus{After: q.after, Waiting: p.reviewWaits(q.after), Held: q.held,
 				Note: q.note, By: q.by, Since: q.at.Unix()}
@@ -341,14 +344,14 @@ func (a *App) Listen(ln net.Listener) {
 				st := a.Status()
 				ans.Status = &st
 			case req.Method == wire.MethodSpecSet || req.Method == wire.MethodPause || req.Method == wire.MethodSend || req.Method == wire.MethodBrief ||
-				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodFix || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession ||
+				req.Method == wire.MethodWatch || req.Method == wire.MethodReview || req.Method == wire.MethodStopped || req.Method == wire.MethodTurn || req.Method == wire.MethodSession ||
 				req.Method == wire.MethodExit || req.Method == wire.MethodConfig || req.Method == wire.MethodTellLead || req.Method == wire.MethodIdle:
 				if req.Call == nil {
 					ans.Error = req.Method + ": no call"
 					break
 				}
 				do := map[string]func(wire.Call) (string, error){wire.MethodSpecSet: a.specSet, wire.MethodPause: a.pauseCall,
-					wire.MethodSend: a.sendCall, wire.MethodBrief: a.briefCall, wire.MethodWatch: a.watchCall, wire.MethodReview: a.reviewCall, wire.MethodFix: a.fixCall,
+					wire.MethodSend: a.sendCall, wire.MethodBrief: a.briefCall, wire.MethodWatch: a.watchCall, wire.MethodReview: a.reviewCall,
 					wire.MethodStopped: a.stoppedCall, wire.MethodTurn: a.turnCall, wire.MethodSession: a.sessionCall,
 					wire.MethodExit: a.exitCall, wire.MethodConfig: a.configCall, wire.MethodTellLead: a.tellLeadCall,
 					wire.MethodIdle: a.idleCall}[req.Method]

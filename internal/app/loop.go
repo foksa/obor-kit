@@ -334,8 +334,6 @@ func (a *App) advance(ctx context.Context) *Loop {
 	}
 	a.nightly(ctx, p, fx)
 	a.reviewPass(ctx, p, fx)
-	a.fixPass(ctx, p, fx)
-	a.verifyPass(ctx, p, fx)
 	a.reviewDueTick(ctx, p, fx)
 	return fx
 }

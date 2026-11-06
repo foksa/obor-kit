@@ -59,7 +59,6 @@ type ReviewData struct {
 	ID      string   `json:"id,omitempty"`
 	Head    string   `json:"head,omitempty"`
 	Tasks   []string `json:"tasks,omitempty"`
-	Round   int64    `json:"round,omitempty"`
 	Call    string   `json:"call,omitempty"`
 	Reply   string   `json:"reply,omitempty"`
 }
@@ -149,11 +148,6 @@ func (p *proj) foldReview(r event.Record) {
 		p.folded.reviewIdleEnd = idleEnd{r.Seq, event.RecordTime(r)} // T-909: idle's own end
 	case event.StepReviewStarted:
 		p.folded.reviewed = lastReview{seq: r.Seq, id: d.ID, head: d.Head}
-	case event.StepReviewFix: // its record is reviewLog's (reviewverify.go): only the call here
-		if d.Call != "" {
-			p.folded.calls[verdictStep(wire.MethodFix, d.Call)] = d.Reply
-		}
-		return
 	default:
 		return
 	}
@@ -208,7 +202,7 @@ func reviewConfig(root string) (ReviewSetup, error) {
 	return ReviewConfig(cfg)
 }
 
-// ReviewConfig is cfg's review setup (serve's review start; obor review fix and close, T-716); an error names what
+// ReviewConfig is cfg's review setup (serve's review start and verify; obor review close, T-716); an error names what
 // is missing.
 func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 	rc, _ := cfg.Role("reviewer")

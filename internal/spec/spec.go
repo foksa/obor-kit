@@ -228,7 +228,23 @@ func ReviewOnMerge(text string) bool {
 // ReviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line
 // there (T-878). ok is false when there is no such line; a `Review:` below a "## " heading is ignored. obor spec set
 // refuses a value other than ReviewOnMergeValue.
-func ReviewValue(text string) (value string, ok bool) {
+func ReviewValue(text string) (value string, ok bool) { return headValue(text, "Review:") }
+
+// Fixes is the spec's first `Fixes: RV-<n>[ <free text>]` line between its title and its first "## " heading (T-924):
+// the review it fixes (its first word, as written) and the free text after it, the note the verify brief carries for
+// this task. ok is false when there is no such line. obor dispatch refuses a review that is not the open one.
+func Fixes(text string) (review, note string, ok bool) {
+	v, ok := headValue(text, "Fixes:")
+	if !ok {
+		return "", "", false
+	}
+	review, note, _ = strings.Cut(v, " ")
+	return review, strings.TrimSpace(note), true
+}
+
+// headValue is the trimmed rest of the first line starting with key between the spec's title and its first "## "
+// heading; ok false when there is none.
+func headValue(text, key string) (string, bool) {
 	in := false
 	for _, l := range strings.Split(text, "\n") {
 		if !in {
@@ -238,7 +254,7 @@ func ReviewValue(text string) (value string, ok bool) {
 		if strings.HasPrefix(l, "## ") {
 			break
 		}
-		if v, cut := strings.CutPrefix(l, "Review:"); cut {
+		if v, cut := strings.CutPrefix(l, key); cut {
 			return strings.TrimSpace(v), true
 		}
 	}

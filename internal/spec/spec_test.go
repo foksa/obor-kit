@@ -188,3 +188,25 @@ func TestReview(t *testing.T) {
 		}
 	}
 }
+
+// T-924: the Fixes: line between the title and the first "## " heading: the review (its first word) and the free text.
+func TestFixes(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		text, review, note string
+		ok                 bool
+	}{
+		{"# T-1 — A\n\nDifficulty: medium\nFixes: RV-12\n\n## Do\n", "RV-12", "", true},
+		{"# T-1 — A\n\nFixes: RV-12 #1, #3 — re-run with an old status JSON\nReview: on merge\n", "RV-12",
+			"#1, #3 — re-run with an old status JSON", true},
+		{"# T-1 — A\n\nFixes:   RV-3    two  spaces \n", "RV-3", "two  spaces", true},
+		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nFixes: RV-12\n", "", "", false},
+		{"Fixes: RV-12\n", "", "", false},
+		{"", "", "", false},
+	} {
+		review, note, ok := Fixes(c.text)
+		if review != c.review || note != c.note || ok != c.ok {
+			t.Errorf("Fixes(%q) = %q, %q, %v; want %q, %q, %v", c.text, review, note, ok, c.review, c.note, c.ok)
+		}
+	}
+}

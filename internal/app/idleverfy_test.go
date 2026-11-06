@@ -11,9 +11,9 @@ import (
 	"obor/internal/app/wire"
 )
 
-// T-858: idle counts a verify the pipeline still owes — requested or admitted (before its brief) — so no idle line
-// fires between a fix round's last merge and the verify's brief (T-869: a failed one its round requests again within the
-// pass, inside the settle window, T-859).
+// T-858, T-924: idle counts a verify the pipeline still owes (the verify rule's condition, before its brief), so no
+// idle line fires between a fix round's last merge and the verify's brief; the verify rule runs before idle's in the
+// one rule pass (T-859's race between them is gone).
 
 // afterStepsDone records task's after-merge steps as done: its merge alone is no work in flight.
 func (r *reviewRig) afterStepsDone(task string) {
@@ -57,42 +57,35 @@ func (r *reviewRig) idlePosts() []string {
 	return out
 }
 
-// T-858: the last linked fix merged, the verify requested but not briefed: no idle line. Briefed, the reviewer
-// working: still none. Finished, nothing else in flight: one idle line.
+// T-858, T-924: the last linked fix merged, the verify owed but not briefed (the reviewer working): no idle line.
+// Briefed, the reviewer working: still none. Finished, nothing else in flight: one idle line.
 func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
-	startedReview(t, r)
-	r.working(true) // the reviewer works: the verify is requested, not briefed
+	r.working(true) // the reviewer works: the verify is owed, not briefed
 	r.merged("T-a")
 	r.merged("T-b")
 	r.afterStepsDone("T-a")
 	r.afterStepsDone("T-b")
 	if !r.idleOK() {
-		t.Fatal("precondition: the merged fixes with no verify yet are idle")
+		t.Fatal("precondition: the merged fixes before a verify pass are idle")
 	}
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyRequested {
-		t.Fatalf("precondition: the verify %s, want requested", v.state)
-	}
-	// T-859 keeps this input: a requested verify can outlast the settle window (the reviewer working), so no idle line
-	// may go out before its brief. The first pass starts the window; the one past it would post the line without it.
+	// The first pass starts the window; the one past it would post the line without the owed verify.
 	r.idlePass()
-	if lines := r.idlePosts(); len(lines) != 0 {
-		t.Fatalf("idle lines %q on the first idle check, want none", lines)
+	if lines := r.idlePosts(); len(lines) != 0 || r.idleOK() {
+		t.Fatalf("idle lines %q on the first pass (idle %t), want none, the verify owed", lines, r.idleOK())
 	}
 	r.now = r.now.Add(2 * idleSettle)
 	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
-		t.Errorf("idle lines %q while the verify is requested, want none", lines)
+		t.Errorf("idle lines %q while the verify is owed, want none", lines)
 	}
 
 	r.working(false)
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyBriefed || r.idleOK() {
-		t.Fatalf("precondition: the verify %s (idle %t), want briefed and in flight", v.state, r.idleOK())
-	}
 	r.idlePass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 || r.idleOK() {
+		t.Fatalf("precondition: %d verify briefs (idle %t), want one, in flight", n, r.idleOK())
+	}
 	r.now = r.now.Add(2 * idleSettle)
 	r.idlePass()
 	if lines := r.idlePosts(); len(lines) != 0 {
@@ -100,13 +93,10 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	}
 
 	r.finish()
-	if v := r.lastVerify(); v.state != verifyDone || !r.idleOK() {
-		t.Fatalf("precondition: the verify %s (idle %t), want done with nothing in flight", v.state, r.idleOK())
-	}
 	r.idleSettled()
 	lines := r.idlePosts()
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "[obor] idle: nothing in flight") {
-		t.Errorf("idle lines %q after the verify is done, want one", lines)
+		t.Errorf("idle lines %q after the verify finished, want one", lines)
 	}
 	r.idlePass()
 	if n := len(r.idlePosts()); n != 1 {
@@ -114,86 +104,24 @@ func TestIdleWaitsForTheVerifyBrief(t *testing.T) {
 	}
 }
 
-// T-859: the last linked fix merges and a connection check's idle pass runs before the merge loop's fix pass: the
-// check only starts the window, the fix pass requests and briefs the verify within it, and no idle line goes out.
-func TestIdleSettleCoversTheVerifyRace(t *testing.T) {
-	t.Parallel()
-	r := fixRig(t)
-	startedReview(t, r)
-	r.merged("T-a")
-	r.merged("T-b")
-	r.afterStepsDone("T-a")
-	r.afterStepsDone("T-b")
-	if !r.idleOK() {
-		t.Fatal("precondition: the merged fixes with no verify yet are idle")
-	}
-	r.idlePass() // the connection check: the pipeline looks empty, the window starts
-	if lines := r.idlePosts(); len(lines) != 0 {
-		t.Fatalf("idle lines %q on the first idle check, want none", lines)
-	}
-	r.now = r.now.Add(5 * time.Second) // the merge loop's fix pass, seconds later
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyBriefed {
-		t.Fatalf("precondition: the verify %s, want briefed within the window", v.state)
-	}
-	r.now = r.now.Add(2 * idleSettle) // past the window: the verify is still work
-	r.idlePass()
-	if lines := r.idlePosts(); len(lines) != 0 {
-		t.Errorf("idle lines %q while the verify is briefed, want none", lines)
-	}
-	r.finish()
-	r.idleSettled()
-	if lines := r.idlePosts(); len(lines) != 1 {
-		t.Errorf("idle lines %q after the verify is done, want one", lines)
-	}
-}
-
-// dropRecords are the log's message facts that drop fix tasks (FixDrop).
-func (r *reviewRig) dropRecords() int {
-	r.t.Helper()
-	n := 0
-	for _, rec := range readLog(r.t, r.p.root) {
-		var m event.Message
-		if rec.Task == event.MsgTask && rec.Step == event.StepMessage && json.Unmarshal(rec.Data, &m) == nil && len(m.FixDrop) > 0 {
-			n++
-		}
-	}
-	return n
-}
-
-// T-858: the round's review force-closed under a failed verify: the next pass records its pending tasks dropped (once),
-// requests no verify again, and the one idle line comes out; later passes add none. T-869 (DD U2): the failed verify
-// is not in flight by itself (its round asks again within the pass, inside the settle window).
+// T-858, T-924: the review force-closed under a verify that did not finish: the pass finds it closed, owes no verify,
+// lines nothing of it, and the one idle line comes out; later passes add none.
 func TestIdleClosedRoundStopsCounting(t *testing.T) {
 	t.Parallel()
-	r, _ := briefedVerify(t)
+	r := briefedVerify(t)
 	r.afterStepsDone("T-a")
 	r.afterStepsDone("T-b")
 	r.stop("s1", "overloaded", "API overloaded")
-	if !r.idleOK() || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Fatalf("precondition: idle %t, %d verify requests; want the failed verify not in flight, one request",
-			r.idleOK(), r.facts(event.StepReviewVerifyRequest))
-	}
+	r.working(false)
 	r.git.last = "RV-5 closed · 2222222 · approved · forced"
-	r.fixPass()
-	if got := r.pending(); got != "" {
-		t.Fatalf("after the closed pass: pending %q, want nothing", got)
-	}
-	if !r.idleOK() || r.facts(event.StepReviewVerifyRequest) != 1 {
-		t.Fatalf("the closed round: idle %t, %d verify requests; want idle, no new request", r.idleOK(),
-			r.facts(event.StepReviewVerifyRequest))
-	}
-	r.fixPass() // pending is empty: the drop is not recorded again
-	if n := r.dropRecords(); n != 1 {
-		t.Fatalf("%d drop records for the closed round, want one", n)
-	}
 	r.idleSettled()
 	if lines := r.idlePosts(); len(lines) != 1 {
 		t.Fatalf("idle lines %q after the closed round, want one", lines)
 	}
 	r.idlePass()
-	if n := len(r.idlePosts()); n != 1 {
-		t.Errorf("%d idle lines after another pass, want the one", n)
+	if n, l := len(r.idlePosts()), r.verifyLines(); n != 1 || len(l) != 0 || len(verifyBriefs(t, r.p.root)) != 1 {
+		t.Errorf("%d idle lines, verify lines %q, %d verify briefs after another pass; want the one, none, the first",
+			n, l, len(verifyBriefs(t, r.p.root)))
 	}
 }
 
@@ -217,34 +145,35 @@ func lastFinished(t *testing.T, root string) (seq int64, at time.Time) {
 func TestIdleKeyIsTheVerifyEnd(t *testing.T) {
 	t.Parallel()
 	r := fixRig(t)
-	startedReview(t, r)
 	r.merged("T-a")
 	r.merged("T-b")
 	r.afterStepsDone("T-a")
 	r.afterStepsDone("T-b")
 	if !r.idleOK() {
-		t.Fatal("precondition: the merged fixes with nothing in flight are idle")
+		t.Fatal("precondition: the merged fixes before a verify pass are idle")
 	}
 	// The lead acknowledges the state the merges left, before the verify is in flight.
 	if got, err := r.a.idleCall(wire.Call{Root: r.p.root, CallID: "i1", Role: "lead", Agent: "pj-lead",
 		Note: "the fixes are in"}); err != nil || got != "ACKED idle: the fixes are in" {
 		t.Fatalf("obor idle: %q, %v", got, err)
 	}
-	r.working(true) // the reviewer works: the fix round's verify is requested, not briefed
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyRequested || r.idleOK() {
-		t.Fatalf("precondition: the verify %s (idle %t), want requested and in flight", v.state, r.idleOK())
+	r.working(true) // the reviewer works: the verify is owed, not briefed
+	r.idlePass()
+	if r.idleOK() || len(verifyBriefs(t, r.p.root)) != 0 {
+		t.Fatalf("precondition: idle %t, %d verify briefs; want the verify owed, not briefed", r.idleOK(),
+			len(verifyBriefs(t, r.p.root)))
 	}
 	r.now = r.now.Add(time.Hour) // the verify runs an hour
 	r.working(false)
-	r.fixPass()
-	if v := r.lastVerify(); v.state != verifyBriefed {
-		t.Fatalf("precondition: the verify %s, want briefed", v.state)
+	r.idlePass()
+	if n := len(verifyBriefs(t, r.p.root)); n != 1 {
+		t.Fatalf("precondition: %d verify briefs, want one", n)
 	}
 	r.now = r.now.Add(time.Hour)
 	r.finish()
-	if v := r.lastVerify(); v.state != verifyDone || !r.idleOK() {
-		t.Fatalf("precondition: the verify %s (idle %t), want done with nothing in flight", v.state, r.idleOK())
+	r.idlePass() // the verify rule's pass reads the finished verify: nothing owed (the idle window starts)
+	if !r.idleOK() {
+		t.Fatal("precondition: the verify finished, nothing in flight, not idle")
 	}
 	finished, at := lastFinished(t, r.p.root)
 	r.idleSettled()

@@ -184,8 +184,9 @@ func firstDiff(want, got string) string {
 	return fmt.Sprintf("%s (%d lines differ)", first, n)
 }
 
-// The probe's own oracle: the same records fold to the same text, and a record that changes a fold changes it
-// (a verify's request: a new verify record in the review fold).
+// The probe's own oracle: the same records fold to the same text, a record that changes a fold changes it (a verify's
+// brief: an open verify brief in the review fold), and the verify records of an older obor (T-924: review.fix,
+// review.verify.request) fold as nothing.
 func TestReplayStateText(t *testing.T) {
 	t.Parallel()
 	r := newReviewRig(t)
@@ -198,14 +199,26 @@ func TestReplayStateText(t *testing.T) {
 	if again := replayState(recs, "pj-lead"); again != before {
 		t.Fatalf("the same records folded twice differ: %s", firstDiff(before, again))
 	}
-	if !strings.Contains(before, "p.folded.rv.startID = RV-5\n") || !strings.Contains(before, "p.folded.rv.verifies = map[0]\n") {
+	if !strings.Contains(before, "p.folded.rv.startID = RV-5\n") || !strings.Contains(before, "p.folded.rv.open = map[0]\n") {
 		t.Fatalf("the review start is not in the state:\n%s", before)
 	}
-	if _, err := r.a.requestVerify(r.p, ReviewData{ID: "RV-5", Tasks: []string{"T-a"}, By: "obor"}); err != nil {
-		t.Fatal(err)
+	for _, step := range []string{"review.fix", "review.verify.request"} {
+		r.a.record(r.p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact},
+			ReviewData{ID: "RV-5", Tasks: []string{"T-a"}, Note: "check #2", By: "obor", Call: "f1", Reply: "FIX LINKED"})
+	}
+	old := readLog(t, r.p.root)
+	if len(old) != len(recs)+2 {
+		t.Fatalf("precondition: %d records after the old ones, want %d", len(old), len(recs)+2)
+	}
+	if d := firstDiff(before, replayState(old, "pj-lead")); d != "" {
+		t.Errorf("an older obor's review.fix and review.verify.request changed the state: %s", d)
+	}
+	if _, ok := r.a.recordBrief(r.p, "pj-rev", "obor", "verify", "", "", false,
+		&verifyBrief{tasks: []string{"T-a"}, head: headSHA}); !ok {
+		t.Fatal("the verify brief was not recorded")
 	}
 	after := replayState(readLog(t, r.p.root), "pj-lead")
-	if d := firstDiff(before, after); d == "" || !strings.Contains(after, "p.folded.rv.verifies = map[1]\n") {
-		t.Errorf("a verify's request left the state as it was (diff %q)", d)
+	if d := firstDiff(before, after); d == "" || !strings.Contains(after, "p.folded.rv.open = map[1]\n") {
+		t.Errorf("a verify's brief left the state as it was (diff %q)", d)
 	}
 }

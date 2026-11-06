@@ -41,8 +41,8 @@ var Commands = []Command{
 	{"idle", `obor idle ["<why nothing is in flight>"]`,
 		"show the idle state, or acknowledge it with why nothing is in flight", "tasks"},
 	{"review", `obor review [--after <T-a>[,<T-b>…]] [--note "<text>"] | obor review --rm` +
-		` | obor review fix … | obor review close …`,
-		"request a code review now or after tasks merge, end the request; fix and close are the review's own steps", "reviews"},
+		` | obor review close …`,
+		"request a code review now or after tasks merge, end the request; close is the review's own step", "reviews"},
 	{"lead", "obor lead [--resume]", "start the project's lead in its own tab (--resume continues its last session)", "agents"},
 	{"restart", "obor restart <agent> [--pane <id>] [--fresh] [--force] | obor restart <agent> --stop [--pane <id>] [--force]",
 		"restart an agent in its pane (--fresh: a new session), or stop it", "agents"},
@@ -83,11 +83,10 @@ var Commands = []Command{
 }
 
 // Steps are the usage lines of a command's own steps: a subcommand with arguments of its own but no row of its own in
-// Commands (obor review fix). Commands and Steps are the one source of every usage line the CLI prints (T-873): each
+// Commands (obor review close). Commands and Steps are the one source of every usage line the CLI prints (T-873): each
 // command's usage error prints Usage of its name.
 var Steps = map[string]string{
 	"review close": `obor review close "<summary>" [--accept "<line>"]… [--force]`,
-	"review fix":   `obor review fix <T-a>[,<T-b>…] [--note "<what to check>"]`,
 }
 
 // Usage is the usage line of name, "usage: " included: a command's (Commands) or a step's (Steps). It prints no line

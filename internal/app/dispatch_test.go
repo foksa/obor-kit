@@ -17,6 +17,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/herdr"
 	"obor/internal/herdr/herdrtest"
+	"obor/internal/testkit"
 )
 
 // Dispatch as state (docs/state-model.md rows 2–9): the dispatch request over the socket, its fact, and the steps the
@@ -1010,4 +1011,55 @@ func TestDispatchOfAnEndedTask(t *testing.T) {
 			t.Fatalf("dispatch of a dropped task: %q, %v", reply, err)
 		}
 	})
+}
+
+// lastClose is a review git whose newest close commit is RV-4's (the next review RV-5); the rest is unused.
+type lastClose struct{}
+
+func (lastClose) Last(context.Context, string) (app.ReviewClose, error) {
+	return app.ReviewClose{Subject: "RV-4 closed · 1111111 · approved · T-9"}, nil
+}
+func (lastClose) Head(context.Context, string) (string, error)             { return "head1", nil }
+func (lastClose) Merges(context.Context, string, string) ([]string, error) { return nil, nil }
+func (lastClose) Files(context.Context, string, string) ([]string, error)  { return nil, nil }
+func (lastClose) Detach(context.Context, string, string) error             { return nil }
+
+// T-924: a spec's Fixes: line must name the open review (RV-5 once its file is written), or obor dispatch refuses it
+// with nothing recorded; naming it, the dispatch goes on.
+func TestDispatchFixesLine(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, line string
+		open       bool
+		want       string // "": dispatched
+	}{
+		{name: "none open", line: "Fixes: RV-5", want: "T-1: Fixes: RV-5 is not the open review (none is open)"},
+		{name: "another open", line: "Fixes: RV-4 #2", open: true,
+			want: "T-1: Fixes: RV-4 is not the open review (RV-5 is open)"},
+		{name: "the open one", line: "Fixes: RV-5 #1, #3 — re-run the probe", open: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newDispatchRig(t, testkit.Set("roles.reviewer", ""), testkit.Set("paths.reviews", "docs/reviews"))
+			r.review = lastClose{}
+			if c.open {
+				r.p.Write("docs/reviews/RV-5.md", "# RV-5\n")
+			}
+			r.start()
+			r.setSpec("s1", "# T-1 — Fix\n\nDifficulty: medium\n"+c.line+"\n\n## Do\nfix it\n")
+			reply, err := r.dispatch("d1", "L-01", "sonnet")
+			if c.want == "" {
+				if err != nil || !strings.HasPrefix(reply, "DISPATCHED T-1 → L-01") {
+					t.Fatalf("dispatch: %q, %v; want dispatched", reply, err)
+				}
+				return
+			}
+			if err == nil || err.Error() != c.want || reply != "" {
+				t.Fatalf("dispatch: %q, %v; want the refusal %q", reply, err, c.want)
+			}
+			if n := len(r.records()); n != 0 {
+				t.Errorf("a refused dispatch recorded %q", r.steps())
+			}
+		})
+	}
 }

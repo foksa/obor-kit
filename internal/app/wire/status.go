@@ -44,7 +44,7 @@ type ProjectStatus struct {
 	// Messages is the lines not delivered yet (messages.go): obor send's, obor brief's, a brief's finished line.
 	Messages []MessageStatus `json:"messages,omitempty"`
 	// Review is the open review request, else "review due: …" when more than 3 tasks merged since the last review
-	// (review.go; "": neither).
+	// (review.go; "": neither); then the open review's fix tasks, "RV-n fixes: T-a merged · T-b open" (T-924).
 	Review string `json:"review,omitempty"`
 	// ReviewRequest is the open review request as data (T-664: the view's queue; nil: none): Review is its line.
 	ReviewRequest *ReviewRequestStatus `json:"review_request,omitempty"`
