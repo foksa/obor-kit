@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"obor/internal/app/event"
+	"obor/internal/app/wire"
 )
 
 // lineStep is a step of a line rule's table: a record, a rule pass, a delivery, a restart.
@@ -252,5 +253,44 @@ func TestWatchRule(t *testing.T) {
 				t.Errorf("watch open %v (open watches %v), want %v", open, p.openWatches(), c.open)
 			}
 		})
+	}
+}
+
+// T-929 (RV-127 #1): a watch's note belongs to its watch, not to the task: the open watch's line carries it, and a
+// later watch of the same task (a new call id) gets the outcome alone, before a restart and after one (a replay
+// keeps the watch closed).
+func TestWatchNoteEndsWithItsLine(t *testing.T) {
+	t.Parallel()
+	h := ruleHarness(t)
+	watchR := rule{name: ruleWatch, when: watchRule}
+	pass := passOf(watchR, 0)
+	const sha = "1111111aaaa"
+	watchAgain := func(callID string) string {
+		t.Helper()
+		reply, err := h.a.watchCall(wire.Call{Root: h.root, Role: "lead", Agent: "pj-lead", CallID: callID, Task: "T-1"})
+		if err != nil {
+			t.Fatalf("watch %s: %v", callID, err)
+		}
+		return reply
+	}
+	addRecord(t, h, event.WatchTask, event.StepWatch, event.KindFact, WatchData{Task: "T-1", By: "pj-lead",
+		Note: "release v1"})
+	if w := h.proj().openWatch("T-1"); w == nil || w.note != "release v1" {
+		t.Fatalf("precondition: open watch %+v, want T-1 with its note", w)
+	}
+	taskMerged("T-1", sha)(t, h)
+	pass(t, h)
+	pass(t, h)
+	const line = "[obor] T-1 merged 1111111 — release v1"
+	if _, lines := ruleLines(t, h); !slices.Equal(lines, []string{line}) {
+		t.Fatalf("lines %q, want the open watch's line %q with its note", lines, line)
+	}
+	const alone = "T-1 merged 1111111"
+	if reply := watchAgain("w2"); reply != alone {
+		t.Errorf("a watch after the line: %q, want %q (its note was already acted on)", reply, alone)
+	}
+	restartRig(t, h)
+	if reply := watchAgain("w3"); reply != alone {
+		t.Errorf("a watch after a replay: %q, want %q", reply, alone)
 	}
 }

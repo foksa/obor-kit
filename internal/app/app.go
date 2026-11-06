@@ -223,7 +223,7 @@ type folded struct {
 	delivered map[string]int64
 	// lr: the lanes table's projection (lanerows.go, T-439; its write state is live).
 	lr      laneRows
-	watches map[string]*mergeWatch // each set's last watch of its merges by set (mergewatch.go; open until its line)
+	watches map[string]*mergeWatch // each set's last watch, open or closed (mergewatch.go; current state: openWatch)
 	// review: the open review request (review.go; nil: none; held is live); reviewed: the last review started.
 	review   *reviewReq
 	reviewed lastReview
