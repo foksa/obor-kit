@@ -53,6 +53,8 @@ Read `docs/observations.md` first (patterns from past sessions: where we went in
   hooks follow per pane restart; a breaking release needs an opt-in pin or code that handles old state.
 
 ## Open
+- (RV-124, accepted) verify #1 reverse direction: a client built between T-896 and T-921 (open/locked fields) misreads a new serve's ended/free; no release ever shipped open/locked (v0.28.0 clients read state strings, which serve still ships) and the running obor web predates T-896; dev-only window, no legacy fields (they would be compat code for an unreleased shape)
+- (RV-124, accepted) design concern: queue.go:109 and cmd/obor/status.go:158 classify waiting from the displayed state string; a waiting task whose dependency dropped shows as needs-you instead (waiting_test.go:232), pre-existing; serve ships a waiting predicate on the next touch of these lines
 - (lead 11-05) An empty untracked `.obor/obor.db` (0 bytes, 21:54) appeared in the main checkout and blocked `obor review close` (dirty); moved to the lead's scratchpad. Not `obor serve dump`. Something opened the store at `.obor/` instead of `.obor/state/` (an empty derived dir?): find the caller if it recurs (AGENTS.md: empty derived value fails closed).
 - (RV-123, accepted) RV-123 #3: scripts/ship parses obor projects' rows with awk; wrong for a spaced path or an empty registry; ship runs only in obor-kit; fix 5-15 shell lines if a second shipper appears
 - (RV-121, accepted) RV-121 verify V1 (P3, now fixed by T-909): after a failed --after request, idle's key/age reads the newest rm/fire end, so obor idle can say idle since before the request ended (minutes early). Fix: idle tracks its own last-end beside the on-merge suppression marker; next touch of idle.go.
