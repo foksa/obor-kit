@@ -145,13 +145,13 @@ func servePID(root string) int {
 	return pid
 }
 
-// serveRestarter is serve's self-restart (app.Loop.Restart): after a green after_merge (T-652, T-656) and on a new
-// obor binary (T-719). It ends serve the way a signal does — end.stop cancels the daemon's context, running gates end
-// their process groups, serve returns — and then: launchd's serve exits 0 and launchd's KeepAlive starts the shim,
-// which runs the new build; any other serve (in a pane, on Linux, launchd's agent not installed) execs the kit's shim
-// itself, same pid, same pane (serve, after its end). Not `launchctl kickstart -k` on itself: that signal is not known
-// to be a TERM (a SIGKILL would orphan a gate's process groups), while a graceful exit is the path launchd restarts
-// anyway. A kit without its shim is an error, nothing ended: restart it by hand then.
+// serveRestarter is serve's self-restart (app.Loop.Restart) on a new obor binary (T-719). It ends serve the way a
+// signal does — end.stop cancels the daemon's context, running gates end their process groups, serve returns — and
+// then: launchd's serve exits 0 and launchd's KeepAlive starts the shim, which runs the new build; any other serve
+// (in a pane, on Linux, launchd's agent not installed) execs the kit's shim itself, same pid, same pane (serve, after
+// its end). Not `launchctl kickstart -k` on itself: that signal is not known to be a TERM (a SIGKILL would orphan a
+// gate's process groups), while a graceful exit is the path launchd restarts anyway. A kit without its shim is an
+// error, nothing ended: restart it by hand then.
 func serveRestarter(cfg *config.Config, env project.Env, end *serveEnd) func(context.Context) error {
 	return func(ctx context.Context) error {
 		if s := serviceOf(cfg, env); s.Supported() {

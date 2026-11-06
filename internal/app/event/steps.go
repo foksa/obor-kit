@@ -25,7 +25,7 @@ const (
 	ReviewTask = "review"
 	// MsgTask is the task key of a project's lines: their facts, deliveries and needs-you.
 	MsgTask = "msg"
-	// ServeTask is the task key of a failed self-restart's needs-you (T-652): the project's serve, not a task's.
+	// ServeTask is the task key of a failed self-restart's needs-you (T-719): the project's serve, not a task's.
 	ServeTask = "serve"
 	// RoleTask is the task key of serve's stops of role agents: compat until v0.28, an older log's stop.<agent>[.N]
 	// (T-672; the stops are rules since T-870), folded to nothing.

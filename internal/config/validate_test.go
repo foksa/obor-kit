@@ -269,6 +269,8 @@ func TestShapeErrorsFailTheLoad(t *testing.T) {
 	}{
 		{set("commands.lane_ready", 5), "lane_ready"},
 		{set("commands.after_merge", map[string]any{"cmd": "make build", "when": "cmd/**"}), "when"},
+		// T-935: after_merge's restart_serve is gone: binary following is serve's one automatic restart.
+		{set("commands.after_merge", map[string]any{"cmd": "make build", "restart_serve": true}), `unknown field "restart_serve"`},
 		{set("lanes", map[string]any{}), "lanes"},
 		{set("models", []any{}), "models"},
 		{set("kinds.claude.args", "x"), "args"},

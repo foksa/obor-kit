@@ -59,7 +59,7 @@ type loopRig struct {
 	config  app.ConfigFile // the loop's config_set writer (nil: none); set before start
 	review  app.ReviewGit  // the loop's review git (nil: none: no review starts); set before start
 	disk    *app.Disk      // the loop's Disk (nil: none); set before start
-	// restart is the loop's Restart, serve's self-restart (nil: none, T-652); set before start
+	// restart is the loop's Restart, serve's self-restart (nil: none, T-719); set before start
 	restart func(ctx context.Context) error
 	// binary is Options.Binary, a new obor binary there (nil: not watched, T-719); set before start
 	binary func() bool

@@ -6,3 +6,6 @@
   fix tasks dispatched or merged but not verified when you upgrade, either let its verify finish and close it first,
   or after the upgrade add `Fixes: RV-<n>` to each of those specs (`obor spec set`); a task already verified before
   the upgrade is then verified once more.
+- **`commands.after_merge.restart_serve` is gone (T-935).** A config that still sets it is refused naming the key
+  (`unknown field "restart_serve"`): remove it. Binary following restarts serve on the new build a `make build`
+  leaves behind, within a minute.
