@@ -164,27 +164,33 @@ func TestModels(t *testing.T) {
 	}
 }
 
-// T-878: the Review line is the spec's first "Review:" line between its title and its first "## " heading; only the
-// value "on merge" turns the rule on, and a line below a section (or before the title) is ignored.
+// T-878, T-932: the Review line is the spec's first "Review:" line between its title and its first "## " heading; only
+// the value "on merge" turns the line on, and a line below a section (or before the title) is ignored. A review is
+// asked for by that line or by `Difficulty: hard` (T-932), and never beside a `Fixes:` line (its verify is its review).
 func TestReview(t *testing.T) {
 	for _, c := range []struct {
 		text, value string
-		ok          bool
+		ok, merge   bool
 	}{
-		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n", "on merge", true},
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", "", false},
-		{"# T-1 — A\n\nDifficulty: medium\nReview: now\n", "now", true},
-		{"# T-1 — A\n\nDifficulty: medium\nReview:   on merge  \n", "on merge", true},
-		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nReview: on merge\n", "", false},
-		{"Review: on merge\n", "", false},
-		{"", "", false},
+		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\n\n## Do\n", "on merge", true, true},
+		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\n", "", false, false},
+		{"# T-1 — A\n\nDifficulty: medium\nReview: now\n", "now", true, false},
+		{"# T-1 — A\n\nDifficulty: medium\nReview:   on merge  \n", "on merge", true, true},
+		{"# T-1 — A\n\nDifficulty: medium\n\n## Do\nReview: on merge\n", "", false, false},
+		{"Review: on merge\n", "", false, false},
+		{"", "", false, false},
+		{"# T-1 — A\n\nDifficulty: hard\n\n## Do\n", "", false, true},
+		{"# T-1 — A\n\nDifficulty: hard\nFixes: RV-12\n\n## Do\n", "", false, false},
+		{"# T-1 — A\n\nDifficulty: simple\n\n## Do\n", "", false, false},
+		{"# T-1 — A\n\nDifficulty: hard\nReview: on merge\nFixes: RV-12\n", "on merge", true, false},
+		{"# T-1 — A\n\nDifficulty: medium\nReview: on merge\nFixes: RV-12\n", "on merge", true, false},
 	} {
 		value, ok := ReviewValue(c.text)
 		if value != c.value || ok != c.ok {
 			t.Errorf("ReviewValue(%q) = %q, %v; want %q, %v", c.text, value, ok, c.value, c.ok)
 		}
-		if got, want := ReviewOnMerge(c.text), c.ok && c.value == ReviewOnMergeValue; got != want {
-			t.Errorf("ReviewOnMerge(%q) = %v, want %v", c.text, got, want)
+		if got := ReviewOnMerge(c.text); got != c.merge {
+			t.Errorf("ReviewOnMerge(%q) = %v, want %v", c.text, got, c.merge)
 		}
 	}
 }

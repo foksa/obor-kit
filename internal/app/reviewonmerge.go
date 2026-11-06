@@ -1,5 +1,6 @@
-// reviewonmerge.go: the Review: on merge rule (T-878): a risky task's spec asks serve for a review as soon as it
-// merges. It replaces the lead's per-task watch and hand-run obor review for these tasks (skills/lead/SKILL.md).
+// reviewonmerge.go: the Review: on merge rule (T-878, T-932): a hard or risky task's spec asks serve for a review as
+// soon as it merges. It replaces the lead's per-task watch and hand-run obor review for these tasks
+// (skills/lead/SKILL.md).
 package app
 
 import (
@@ -15,9 +16,10 @@ import (
 // ruleReviewOnMerge is the rule's name in the rule pass (rules.go).
 const ruleReviewOnMerge = "review.on.merge"
 
-// reviewOnMergeRule requests a review for the newest task merged after the last review start whose current spec has
-// the line `Review: on merge`, while no review request is open (T-878): fact review.request{note: "Review: on merge
-// (T-xx)", by: obor}, no --after. Key: that merge's seq. Done when a request is open (the lead's covers it too: a
+// reviewOnMergeRule requests a review for the newest task merged after the last review start whose current spec asks
+// for one, while no review request is open (T-878, T-932): the line `Review: on merge` or `Difficulty: hard`, and no
+// `Fixes:` line (a fix is covered by its review's verify). Fact review.request{note: "Review: on merge (T-xx)", by:
+// obor}, no --after. Key: that merge's seq. Done when a request is open (the lead's covers it too: a
 // review's scope is every merge since the previous one) or a review started after the merge. A request recorded while
 // a review cycle is open waits for its close in reviewPass (review.go); the call path's "RV-n is open: close it first"
 // is the lead's refusal, which this rule does not go through. After a crash the request may be recorded twice: the

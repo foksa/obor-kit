@@ -218,11 +218,18 @@ func OldTypeLine(text string) bool {
 // ReviewOnMergeValue is the one value of the spec's optional `Review:` line (T-878).
 const ReviewOnMergeValue = "on merge"
 
-// ReviewOnMerge reports whether the spec has the line `Review: on merge` between its title and its first "## " heading
-// (T-878): serve requests a review once the task merges.
+// ReviewOnMerge reports whether the spec asks for a review once the task merges (T-878, T-932): the line
+// `Review: on merge` between its title and its first "## " heading, or `Difficulty: hard`; never for a spec with a
+// `Fixes:` line (its verify is its review).
 func ReviewOnMerge(text string) bool {
-	v, ok := ReviewValue(text)
-	return ok && v == ReviewOnMergeValue
+	if _, _, ok := Fixes(text); ok {
+		return false
+	}
+	if v, ok := ReviewValue(text); ok && v == ReviewOnMergeValue {
+		return true
+	}
+	level, ok := Difficulty(text)
+	return ok && level == "hard"
 }
 
 // ReviewValue is the value of the spec's first `Review:` line between its title and its first "## " heading: one line

@@ -120,9 +120,9 @@ finished; a brief to a stopped role agent starts it fresh, its first prompt the 
 
 ## obor review (T-638)
 `obor review [--after T-a,T-b] [--note "<text>"]` (`--rm` ends it) — `REVIEW REQUESTED (now | after T-a,T-b)`. A start
-is no line to you (T-650): `obor status` shows the review. A task whose spec says `Review: on merge` needs no watch
-and no call here: serve records the request itself when it merges, and `obor review` stays for the every-~3-merges
-reviews.
+is no line to you (T-650): `obor status` shows the review. A `Difficulty: hard` task (T-932), or one whose spec says
+`Review: on merge` (a medium/simple judgement-heavy one), needs no watch and no call here: serve records the request
+itself when it merges, and `obor review` stays for the every-~3-merges reviews.
 - A fix task's spec carries `Fixes: RV-xx[ <what to check>]` between its title and its first `## ` heading (T-924;
   `obor review fix` is gone): dispatching it links it to the open review (`FAIL T-xx: Fixes: RV-9 is not the open
   review (RV-12 is open | none is open)` otherwise); `obor status`' review line shows `RV-xx fixes: T-a merged · T-b
