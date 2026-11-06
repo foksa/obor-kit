@@ -109,7 +109,7 @@ fi
 
 func (f *releaseFixture) env() []string {
 	var env []string
-	for _, kv := range os.Environ() {
+	for _, kv := range plainMakeEnv() {
 		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "TMPDIR=") || strings.HasPrefix(kv, "HOME=") ||
 			strings.HasPrefix(kv, "UNREVIEWED=") || strings.HasPrefix(kv, "SKIP_UPGRADE_CHECK=") {
 			continue

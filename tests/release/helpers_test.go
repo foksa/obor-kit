@@ -55,12 +55,13 @@ func readFile(t *testing.T, p string) string {
 
 // plainMakeEnv is the test process's environment without the make variables an enclosing make exports into every
 // recipe: the gate run as `MAKEFLAGS=' V=0.17.2' make check` (or a test inside `make release V=…`) would otherwise put
-// a test's own `make release` on the V= path (T-641).
+// a test's own `make release` on the V= path (T-641). OBOR_RELEASE_LOGGED is the enclosing release's marker too: left in,
+// a fixture's `make release` thinks it is already the logged inner run and writes no log (T-937).
 func plainMakeEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		switch name, _, _ := strings.Cut(kv, "="); name {
-		case "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "V", "DRY":
+		case "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "V", "DRY", "OBOR_RELEASE_LOGGED":
 			continue
 		}
 		env = append(env, kv)
