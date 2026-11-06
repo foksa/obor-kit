@@ -427,9 +427,8 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   checked there (the agent guard covers `commit -a`).
 - obor has no rule of its own in `post-merge` / `post-commit` (serve dispatches the waiting tasks, `--after`, and runs
   `commands.after_merge` in the main checkout after a merge); a project's own still run through the chain.
-- Self-restart after a code merge (T-652; graceful exit T-656): `commands.after_merge.restart_serve: true` (default
-  false; obor-kit sets it) makes serve restart itself once `after_merge` ran green: its result is in the log first, then
-  serve ends itself the way a signal does — it cancels its context, running gates end their process groups as at any
+- Self-restart (T-652; graceful exit T-656; since T-935 only on a new binary, below: `commands.after_merge.restart_serve`
+  is gone, a build in `after_merge` reaches serve through binary following): serve ends itself the way a signal does — it cancels its context, running gates end their process groups as at any
   shutdown, and it exits 0 — and launchd's `KeepAlive` starts the new build, which replays a done step (no second merge
   or command; work in flight folds as at any restart). No `launchctl kickstart -k` on itself: that signal is not known
   to be a TERM, and a SIGKILL would orphan a gate's process groups; `obor serve restart` keeps kickstart for a restart
@@ -442,10 +441,7 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   once, a longer one fails it at its deadline with nothing left waiting to be applied. A call already admitted (a
   verdict waiting for the scratch or the verdict lock) runs under serve's 60 s context, not the caller's: its timeout
   is an ambiguous outcome; check `obor status` before retrying by hand (RV-73, accepted). `obor status` does not retry (`serve is not
-  running` during a restart). A failed restart is a needs-you `serve restart after T-xx failed: <err>` (key `serve`);
-  the next serve start ends it. Two windows lose only the restart, never a result (accepted): serve dies
-  between the step's result and the restart, or the result was written late (an effect whose log write failed): serve
-  keeps the old binary until `obor serve restart` by hand.
+  running` during a restart). 
 - Following a new obor binary (T-719; `internal/selfexec`): serve and `obor web` each watch the binary
   the kit's shim would run now (`<kit>/dist/obor` when executable, else `~/.obor/bin/obor-<VERSION>-<os>-<arch>`; kit
   root `project.KitRoot`). It counts as new when it is another file (dev/inode) than the running one, executable, at
@@ -455,11 +451,11 @@ A second layer that doesn't depend on agent hooks (also covers Codex/opencode la
   names a missing file: no trigger until it is there. Serve asks on its own 30 s timer, herdr connected or not (T-737:
   the watchdogs' tick counts only while it is), and takes the self-restart above: at
   once when idle (no effect running, no nightly, no verdict call admitted), else once it is, at the latest after
-  10 minutes; `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
+  10 minutes, but never while a main-checkout writer (`config_set`, `review close`) is admitted, and none is admitted
+  once the restart is decided (T-934); `obor status` shows `restarting serve` meanwhile, and a failed restart is a needs-you
   `serve restart on the new obor binary failed: <err>` (key `serve`), not tried again by that serve. A serve launchd
   does not run execs `<kit>/bin/obor serve` after it has ended: same pid, same pane; Go's files are close-on-exec, so
-  the flock goes with the exec, and the new serve takes it and removes a leftover socket (this also makes
-  `restart_serve` work off launchd). Web asks every 30 s and execs `obor web --listen <the address it bound>`, so its
+  the flock goes with the exec, and the new serve takes it and removes a leftover socket. Web asks every 30 s and execs `obor web --listen <the address it bound>`, so its
   URL stays and the page's long poll reconnects. `scripts/ship` restarts nothing: its last line says they follow within a minute. A
   candidate speaking another herdr protocol restarts into today's warning.
 
