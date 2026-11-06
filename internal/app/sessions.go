@@ -38,34 +38,27 @@ func (a *App) sessionCall(c wire.Call) (string, error) {
 	}
 	s := *c.Session
 	reply := "SESSION " + s.Agent + " " + s.ID
-	a.sessions.Lock() // the check and its record are one step: two reports of one session record one fact
-	defer a.sessions.Unlock()
-	a.mu.Lock()
+	a.mu.Lock() // the check and its record are one section: two reports of one session record one fact
+	defer a.mu.Unlock()
 	p := a.projAt(c.Root)
-	var recorded, holder string
-	var cur store.Session
-	if p != nil {
-		recorded = p.recordedTranscript(s.Agent, s.ID)
-		holder = p.holder(s.Agent, s.ID)
-		cur, _ = p.session(s.Agent)
-	}
-	a.mu.Unlock()
-	// The session obor chose for the agent before its start (no transcript yet) is not what the session runs as: the
-	// reporting session's id wins, said once (T-813: a start Claude ran with another id than obor gave it).
-	replaced := p != nil && cur.Agent != "" && cur.ID != s.ID && cur.Transcript == ""
-	switch {
-	case p == nil:
+	if p == nil {
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodSession, c.Root)
-	case recorded != "":
+	}
+	if p.recordedTranscript(s.Agent, s.ID) != "" {
 		return reply, nil
-	case holder != "":
+	}
+	if holder := p.holder(s.Agent, s.ID); holder != "" {
 		a.logf("%s: %s's session %s refused: it is %s's current session", p.name, s.Agent, s.ID, holder)
 		return "", fmt.Errorf("%s: %s%s (%s's report refused)", wire.MethodSession, refusedMark, holder, s.Agent)
 	}
+	// The session obor chose for the agent before its start (no transcript yet) is not what the session runs as: the
+	// reporting session's id wins, said once (T-813: a start Claude ran with another id than obor gave it).
+	cur, _ := p.session(s.Agent)
+	replaced := cur.Agent != "" && cur.ID != s.ID && cur.Transcript == ""
 	if s.Started == 0 {
 		s.Started = a.opt.Now().Unix()
 	}
-	if !a.record(p, event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact}, s) {
+	if !a.recordLocked(p, event.Record{Task: store.SessionTask, Step: store.StepSession, Kind: event.KindFact}, s) {
 		return "", fmt.Errorf("%s: the event log of %s refused it", wire.MethodSession, p.name)
 	}
 	if replaced {

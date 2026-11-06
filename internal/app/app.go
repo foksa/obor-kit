@@ -80,7 +80,10 @@ type App struct {
 	lanes port.Lanes
 
 	// mu guards the state below. Serve's goroutine changes it; it decides under mu and asks herdr, git and the lane
-	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held).
+	// table outside it (Busy, Activity, Lanes and Notify are never called while mu is held). The rule for a verb (J1):
+	// it reads (git, config, lanes, the spec store) with no lock, then checks, appends, folds and replies in one mu
+	// section (recordLocked); only an effect in flight is a claim (held, running, rv.what, a line's sending). The
+	// event log's lock is taken inside mu, never the other way round.
 	mu        sync.Mutex
 	since     time.Time // when New made it: obor status's "serve: up since"
 	connected bool
@@ -105,9 +108,7 @@ type App struct {
 	loaded    chan struct{}      // closed at the project's first load: serve binds its socket then (Loaded, T-659)
 	loadOnce  sync.Once          // closes loaded once
 	verdicts  sync.Mutex         // the integrator's verdicts are answered one at a time
-	loopMu    sync.Mutex         // loopStatus's decision and its record are one step (the merge loop and the check both call it)
 	submitMu  sync.Mutex         // a submission's decision and its record are one step (task_done)
-	sessions  sync.Mutex         // a session report's check and its record are one step (sessions.go)
 	configMu  sync.Mutex         // one main-checkout writer at a time: a setup edit, a review's close (T-753, T-926)
 	notifying sync.Mutex         // one notify pass at a time (the watchdogs' and the merge loop's; a second one skips)
 	kick      chan struct{}      // wakes the merge loop (buffered: kicks while it runs coalesce)
