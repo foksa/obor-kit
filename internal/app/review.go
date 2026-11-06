@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"obor/internal/config"
@@ -111,11 +110,10 @@ type reviewReq struct {
 
 // reviewClaim is a pass's claim of the open review request (live). what is "starting" from the claim until the
 // reviewer's start returned (its fire fact appended and folded first), "ending" until its ended line is ("": no
-// claim; under App.mu). mu orders a claim against obor review's changes: reviewCall holds it from its check through
-// its fact's append and fold, reviewPass while it claims, so a change is either folded before a claim or refused
-// during one. claimed is a test hook: it runs once a pass claimed, before the claim's first append (nil: none).
+// claim; under App.mu). reviewCall checks it and records in one App.mu section, so a change is either folded before
+// a claim or refused during one. claimed is a test hook: it runs once a pass claimed, before the claim's first append
+// (nil: none).
 type reviewClaim struct {
-	mu      sync.Mutex
 	what    string
 	claimed func()
 }
@@ -253,10 +251,11 @@ func ReviewConfig(cfg *config.Config) (ReviewSetup, error) {
 
 // reviewCall answers the socket's review request (the lead or the owner): a call id is required and a repeated one
 // gets the stored reply. --rm: REVIEW REQUEST ENDED (fact review.rm), or NO REVIEW REQUEST. No --after, no note and a
-// request open: it is listed (reviewList). Else a request (fact review.request): REVIEW REQUESTED (now | after
-// T-a,T-b), " (replaces the request of <age> ago)" when one was open; a task neither dispatched nor specified, a task
-// of --after dropped or rejected already, no reviewer configured, or a review open (lastReview.open): refused, nothing
-// recorded. A pass's claim held (reviewClaim): --rm and a request are refused.
+// request open: it is listed, REVIEW REQUEST since <age> (now | after T-a,T-b[, waiting T-b])[, note: <note>]. Else a
+// request (fact review.request): REVIEW REQUESTED (now | after T-a,T-b), " (replaces the request of <age> ago)" when
+// one was open; a task neither dispatched nor specified, a task of --after dropped or rejected already, no reviewer
+// configured, or a review open (lastReview.open): refused, nothing recorded. A pass's claim held (reviewClaim): --rm
+// and a request are refused.
 func (a *App) reviewCall(c wire.Call) (string, error) {
 	if c.CallID == "" {
 		return "", errors.New(wire.MethodReview + ": a call id is required")
@@ -272,33 +271,34 @@ func (a *App) reviewCall(c wire.Call) (string, error) {
 	case c.Role != "" && c.Role != "lead":
 		return "", fmt.Errorf("review: the lead or the owner requests a review, not %s (role %s)", Dash(c.Agent), c.Role)
 	}
-	p.rv.mu.Lock() // no pass claims the request from this check to this call's fact's fold
-	defer p.rv.mu.Unlock()
-	a.mu.Lock()
-	open, claim, started := p.folded.review, p.rv.what, p.folded.reviewed
-	var since time.Duration
-	if open != nil {
-		since = a.opt.Now().Sub(open.at)
-	}
-	end := p.reviewOutcome(c.After)
-	var unknown []string
-	for _, task := range c.After {
-		if p.folded.loop[task] == nil {
-			unknown = append(unknown, task)
+	// The reads, with no lock: the review config and the --after tasks' specs (consulted for the tasks the log does not
+	// know). Then one a.mu section: a pass's claim is either made before the check (refused) or sees the fold.
+	var cfgErr error
+	specs := map[string]error{}
+	if !c.Clear {
+		_, cfgErr = reviewConfig(p.root)
+		for _, task := range c.After {
+			_, ok, err := specOf(p, task)
+			if err == nil && !ok {
+				err = fmt.Errorf("unknown task %s (no dispatch or spec in %s)", task, p.name)
+			}
+			specs[task] = err
 		}
 	}
-	a.mu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	open, claim := p.folded.review, p.rv.what
 	by := c.Agent
 	if by == "" {
 		by = "owner"
 	}
 	d := ReviewData{By: by, Call: c.CallID}
 	step := event.StepReviewRequest
-	switch {
+	switch end := p.reviewOutcome(c.After); {
 	case c.Clear && open == nil:
 		return "NO REVIEW REQUEST", nil
 	case len(c.After) == 0 && c.Note == "" && open != nil && !c.Clear:
-		return a.reviewList(p), nil
+		return "REVIEW REQUEST " + p.reviewStatus(a.opt.Now()), nil
 	case claim != "":
 		return "", fmt.Errorf("review: obor serve is %s the review request now: nothing changed (try again once it is done)", claim)
 	case c.Clear:
@@ -306,19 +306,15 @@ func (a *App) reviewCall(c wire.Call) (string, error) {
 	case end != "":
 		return "", fmt.Errorf("review: %s already", end)
 	default:
-		if _, err := reviewConfig(p.root); err != nil {
-			return "", fmt.Errorf("review: %v", err)
+		if cfgErr != nil {
+			return "", fmt.Errorf("review: %v", cfgErr)
 		}
-		if id := started.open(); id != "" {
+		if id := p.folded.reviewed.open(); id != "" {
 			return "", fmt.Errorf("%s is open (not closed): close it first", id)
 		}
-		for _, task := range unknown {
-			_, ok, err := specOf(p, task)
-			if err != nil {
+		for _, task := range c.After {
+			if err := specs[task]; p.folded.loop[task] == nil && err != nil {
 				return "", fmt.Errorf("review: %v", err)
-			}
-			if !ok {
-				return "", fmt.Errorf("review: unknown task %s (no dispatch or spec in %s)", task, p.name)
 			}
 		}
 		d.After, d.Note, d.Reply = c.After, c.Note, "REVIEW REQUESTED (now)"
@@ -326,22 +322,14 @@ func (a *App) reviewCall(c wire.Call) (string, error) {
 			d.Reply = "REVIEW REQUESTED (after " + strings.Join(c.After, ",") + ")"
 		}
 		if open != nil {
-			d.Reply += " (replaces the request of " + Age(since) + " ago)"
+			d.Reply += " (replaces the request of " + Age(a.opt.Now().Sub(open.at)) + " ago)"
 		}
 	}
-	if !a.record(p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact}, d) {
+	if !a.recordLocked(p, event.Record{Task: event.ReviewTask, Step: step, Kind: event.KindFact}, d) {
 		return "", fmt.Errorf("review: the event log of %s refused it", p.name)
 	}
 	a.wake()
 	return d.Reply, nil
-}
-
-// reviewList is p's open request as obor review lists it: REVIEW REQUEST since <age> (now | after T-a,T-b[, waiting
-// T-b])[, note: <note>].
-func (a *App) reviewList(p *proj) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return "REVIEW REQUEST " + p.reviewStatus(a.opt.Now())
 }
 
 // reviewStatus is the open request as obor status and obor review show it, else the "review due" line the last pass
@@ -450,11 +438,9 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	if checked {
 		open = started.open()
 	}
-	p.rv.mu.Lock()
 	a.mu.Lock()
 	if q != p.folded.review || p.rv.what != "" || p.folded.reviewed != started {
 		a.mu.Unlock()
-		p.rv.mu.Unlock()
 		return
 	}
 	end := p.reviewOutcome(q.after)
@@ -472,7 +458,6 @@ func (a *App) reviewPass(ctx context.Context, p *proj, fx *Loop) {
 	}
 	claimed, hook := p.rv.what != "", p.rv.claimed
 	a.mu.Unlock()
-	p.rv.mu.Unlock()
 	if !claimed {
 		return
 	}

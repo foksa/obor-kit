@@ -339,7 +339,8 @@ func (a *App) advance(ctx context.Context) *Loop {
 	return fx
 }
 
-// record appends the fact r with data and folds it; false when the log failed.
+// record appends the fact r with data and folds it; false when the log failed. It takes a.mu for the fold; a verb that
+// decides on folded state records with recordLocked in its one a.mu section instead (the rule at App.mu).
 func (a *App) record(p *proj, r event.Record, data any) bool {
 	_, ok := a.recordSeq(p, r, data)
 	return ok
@@ -347,19 +348,32 @@ func (a *App) record(p *proj, r event.Record, data any) bool {
 
 // recordSeq is record, also returning the record's seq (0 when the log failed).
 func (a *App) recordSeq(p *proj, r event.Record, data any) (int64, bool) {
+	return a.recordIn(p, r, data, false)
+}
+
+// recordLocked is record with a.mu held by the caller: the append and the fold in its section.
+func (a *App) recordLocked(p *proj, r event.Record, data any) bool {
+	_, ok := a.recordIn(p, r, data, true)
+	return ok
+}
+
+// recordIn appends r with data and folds it, a.mu held by the caller (held) or taken for the fold.
+func (a *App) recordIn(p *proj, r event.Record, data any, held bool) (int64, bool) {
 	r.Data, _ = json.Marshal(data) // plain structs: cannot fail
 	r, err := p.log.Append(r, a.opt.Now())
 	if err != nil {
 		a.logf("FAIL event log of %s: %v", p.name, err)
 		return 0, false
 	}
-	a.mu.Lock()
+	if !held {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+	}
 	p.foldRecord(r)
 	if r.Kind == event.KindFact && (r.Step == event.StepMerged || r.Step == event.StepDropped) {
 		a.settleEnded(p, r.Task) // the task ended: its pending intents never run
 	}
 	err = p.laneRowsErr()
-	a.mu.Unlock()
 	a.logf("%s %s %s (attempt %d)", p.name, r.Task, r, r.Attempt)
 	if err != nil {
 		a.logf("FAIL lane rows of %s: %v", p.name, err)
@@ -510,20 +524,17 @@ func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 		a.shutDown("loop " + event.StepNeedsYou + "{loop: " + err.Error() + "}")
 		return
 	}
-	a.loopMu.Lock()
-	defer a.loopMu.Unlock()
-	reason := ""
-	a.mu.Lock()
+	a.mu.Lock() // the source's mark, the check and the record are one section: two sources settle one needs-you
+	defer a.mu.Unlock()
 	*src = err != nil
+	if err == nil && (p.badLoop || p.badLanes) { // another source still holds the loop: nothing to end yet
+		return
+	}
+	reason := ""
 	if err != nil {
 		reason = "loop: " + err.Error()
 	}
-	ok := !p.badLoop && !p.badLanes
-	a.mu.Unlock()
-	if err == nil && !ok { // another source still holds the loop: nothing to end yet
-		return
-	}
-	a.settleNeeds(p, event.LoopTask, reason)
+	a.settleNeedsLocked(p, event.LoopTask, reason)
 }
 
 // settleNeeds makes reason the one needs-you in force for task on p: "" ends the one in force (resumed); the same
@@ -531,15 +542,20 @@ func (a *App) loopStatus(ctx context.Context, p *proj, src *bool, err error) {
 // log took it (or there was nothing to record), false when a record was refused (the caller may try again).
 func (a *App) settleNeeds(p *proj, task, reason string) bool {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.settleNeedsLocked(p, task, reason)
+}
+
+// settleNeedsLocked is settleNeeds with a.mu held: the check and its records in the caller's section.
+func (a *App) settleNeedsLocked(p *proj, task, reason string) bool {
 	held, same := len(p.folded.active[task]) > 0, reason != "" && p.has(task, event.StepNeedsYou, reason)
-	a.mu.Unlock()
 	switch {
 	case same, reason == "" && !held:
 		return true
-	case held && !a.record(p, event.Record{Task: task, Step: event.StepResumed, Kind: event.KindFact}, event.FactData{Machine: Machine}):
+	case held && !a.recordLocked(p, event.Record{Task: task, Step: event.StepResumed, Kind: event.KindFact}, event.FactData{Machine: Machine}):
 		return false
 	case reason != "":
-		return a.record(p, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
+		return a.recordLocked(p, event.Record{Task: task, Step: event.StepNeedsYou, Kind: event.KindFact}, event.FactData{Machine: Machine, Reason: reason})
 	}
 	return true
 }

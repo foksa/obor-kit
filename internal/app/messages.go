@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"obor/internal/agents"
@@ -86,13 +85,9 @@ const (
 // delivered yet by their fact's seq; delivered, when each needs-you line was delivered, by its did key (T-624: the
 // repeat's clock, folded from the delivery's result); briefs, the open briefs by role agent. Its fields are under
 // App.mu like the rest of proj; only this file names its maps (the other files read it through lead, brief and
-// allBriefs).
-//
-// claim makes a line's delivery claim (deliverLine: its state sending) and a brief's supersede of the agent's undelivered
-// brief lines (briefCall: the choice to the append) exclude each other (RV-61 #3). Lock order: claim, then App.mu;
-// never claim while holding mu (briefCall's append takes mu inside it).
+// allBriefs). A line's delivery claim (deliverLine: its state sending) and a brief's supersede of the agent's
+// undelivered brief lines (recordBrief: the choice and the append in one App.mu section) exclude each other (RV-61 #3).
 type outbox struct {
-	claim     sync.Mutex
 	leadAgent string
 	leadKind  string
 	msgs      map[int64]*queued
@@ -759,7 +754,6 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 	key := event.Key{Task: event.MsgTask, Step: stepDeliver + strconv.FormatInt(q.seq, 10)}
 	// The claim (RV-61 #3): a brief recorded since route superseded the line: nothing is sent; else its claim (sending)
 	// keeps any brief from superseding it from here on (the line may reach the pane).
-	p.out.claim.Lock()
 	a.mu.Lock()
 	m := p.out.msgs[q.seq]
 	closing := false
@@ -772,7 +766,6 @@ func (a *App) deliverLine(ctx context.Context, p *proj, fx *Loop, q queued, post
 		m.sending = true
 	}
 	a.mu.Unlock()
-	p.out.claim.Unlock()
 	if m == nil {
 		return false
 	}
@@ -907,8 +900,6 @@ func (a *App) deliverLead(ctx context.Context, p *proj, fx *Loop, qs []queued, p
 // of a line of qs (its key's seq, its members still queued), else every line of qs not delivered yet under the
 // oldest's seq. recovered: the open post's result is kept unwritten (App.do writes it, nothing is transmitted).
 func (a *App) leadPost(p *proj, qs []queued, key func(int64) event.Key) (head int64, lines []queued, recovered bool) {
-	p.out.claim.Lock()
-	defer p.out.claim.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, q := range qs {
@@ -1181,17 +1172,15 @@ func (a *App) briefCall(c wire.Call) (string, error) {
 // The text sent is a row of the project's prompts table (T-665): the line for a brief, the start's prompt for a start.
 // fresh: its line starts the agent fresh, the running agent stopped first (T-794). v: a verify's brief (nil: none; T-924,
 // reviewverify.go): its tasks and head in the fact (Task, Reviewed), and not recorded (false) while the agent has an
-// open brief, decided under the outbox's claim that every brief's record holds.
+// open brief, decided in the a.mu section that records it.
 func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bool, v *verifyBrief) (string, bool) {
 	// A newer brief makes an older undelivered brief obsolete (T-575): the agent's undelivered brief lines are named
 	// in the new brief's fact, whose fold retires them (T-580: one append, so a crash or a refused append cannot
 	// bring one back). A line whose delivery is claimed (sending: it may have landed) stays; a lead line is
-	// never superseded. The outbox's claim from the choice to the append: no delivery claims a chosen line meanwhile.
-	p.out.claim.Lock()
+	// never superseded. The choice and the append are one a.mu section: no delivery claims a chosen line meanwhile.
 	a.mu.Lock()
 	if v != nil && p.out.brief(to) != nil { // a brief recorded since the verify's check: the next pass looks again
 		a.mu.Unlock()
-		p.out.claim.Unlock()
 		return "", false
 	}
 	var old []int64
@@ -1200,9 +1189,8 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 			old = append(old, q.seq)
 		}
 	}
-	a.mu.Unlock()
 	m := event.Message{To: to, From: from, Call: call, Supersedes: old, Fresh: fresh && note != "",
-		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamed(p, to, "the lead hears when it finishes") + ")"}
+		Reply: "BRIEF RECORDED for " + to + " (" + a.unnamedIn(p, to, "the lead hears when it finishes") + ")"}
 	if v != nil {
 		m.Task, m.Reviewed = strings.Join(v.tasks, ","), v.head
 	}
@@ -1212,7 +1200,7 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		if m.Fresh {
 			how = "serve stops it and starts it fresh with this brief; the lead hears when it finishes"
 		}
-		m.Reply = "BRIEFED " + to + " (" + a.unnamed(p, to, how) + ")"
+		m.Reply = "BRIEFED " + to + " (" + a.unnamedIn(p, to, how) + ")"
 	}
 	if len(old) > 0 {
 		briefs := "briefs"
@@ -1221,8 +1209,8 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 		}
 		m.Reply += fmt.Sprintf(" (replaces %d undelivered %s)", len(old), briefs)
 	}
-	seq, ok := a.recordSeq(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m)
-	p.out.claim.Unlock()
+	seq, ok := a.recordIn(p, event.Record{Task: event.MsgTask, Step: event.StepBriefed, Kind: event.KindFact}, m, true)
+	a.mu.Unlock()
 	if !ok {
 		return "", false
 	}
@@ -1247,6 +1235,11 @@ func (a *App) recordBrief(p *proj, to, from, note, call, prompt string, fresh bo
 func (a *App) unnamed(p *proj, agent, note string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.unnamedIn(p, agent, note)
+}
+
+// unnamedIn is unnamed under mu.
+func (a *App) unnamedIn(p *proj, agent, note string) string {
 	switch w := a.whereIs(p, agent); {
 	case w.State == Ambiguous:
 		return "queued: " + notIdentified(agent, w)
