@@ -6,7 +6,9 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"obor/internal/app/event"
 	"obor/internal/app/wire"
@@ -139,6 +141,46 @@ func TestReviewCloseCommitsAndRecords(t *testing.T) {
 	}
 	if got := r.a.Status().Project.Review; strings.Contains(got, "fixes") {
 		t.Errorf("status %q after the close, want no fix line (RV-125 #2)", got)
+	}
+}
+
+// T-930: a repeated close call id waits for the close in flight (configMu is taken before the stored-reply lookup): the
+// second gets the first's CLOSED reply and commits nothing again.
+func TestReviewCloseSameCallWhileInFlight(t *testing.T) {
+	t.Parallel()
+	r := newReviewRig(t)
+	r.started()
+	openReviewFile(t, r.p.root)
+	gate, began := make(chan struct{}), make(chan struct{}, 1)
+	r.git.closeGate, r.git.closeBegan = gate, began
+	var once sync.Once
+	release := func() { once.Do(func() { close(gate) }) }
+	defer release()
+	first := make(chan callReply, 1)
+	go func() {
+		reply, err := r.close("c1", "fixed", false)
+		first <- callReply{reply, err}
+	}()
+	select {
+	case <-began: // the first is in its commit, holding configMu
+	case <-time.After(5 * time.Second):
+		t.Fatal("precondition: the first close never reached its commit")
+	}
+	second := make(chan callReply, 1)
+	go func() {
+		reply, err := r.close("c1", "again", false)
+		second <- callReply{reply, err}
+	}()
+	if !waiting(second) {
+		t.Error("the repeated close answered while the first held configMu, want it to wait")
+	}
+	release()
+	a, b := <-first, <-second
+	if a.err != nil || b.err != nil || !strings.HasPrefix(a.reply, "CLOSED RV-5 closed") || b.reply != a.reply {
+		t.Fatalf("closes: %q, %v and %q, %v; want both the first's reply", a.reply, a.err, b.reply, b.err)
+	}
+	if n, f := r.commits(), r.closedFacts(); n != 1 || len(f) != 1 {
+		t.Errorf("%d commits, %d close facts; want one of each (the repeated call id did nothing)", n, len(f))
 	}
 }
 

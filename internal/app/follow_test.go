@@ -6,6 +6,7 @@ import (
 	"obor/internal/app"
 	"obor/internal/app/event"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -138,6 +139,36 @@ func TestFollowBinaryWaitsForIdle(t *testing.T) {
 	if r.calls.Load() != 1 || !r.has("1 result gate") {
 		t.Errorf("restarts %d, gate result %v; want 1 after the gate's result: %q", r.calls.Load(), r.has("1 result gate"),
 			r.steps())
+	}
+}
+
+// T-930: an admitted main-checkout writer (a config_set's or a review close's commit, p.admits) holds the restart as a
+// running gate does: shown waiting meanwhile, no restart, and once it is unadmitted the next pass restarts.
+func TestFollowBinaryWaitsForAdmittedWriter(t *testing.T) {
+	t.Parallel()
+	r := newFollowRig(t, nil)
+	r.start()
+	release, err := app.Admit(r.app, r.p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	unadmit := func() { once.Do(release) }
+	defer unadmit()
+	r.isNew.Store(1)
+	r.waitFor("the pending restart shown", func() bool { return r.restartingShown() || r.calls.Load() != 0 })
+	if r.calls.Load() != 0 {
+		t.Fatal("serve restarted with a main-checkout writer admitted, want it to wait")
+	}
+	r.ticks(3)
+	if r.calls.Load() != 0 || !r.restartingShown() {
+		t.Fatalf("an admitted writer: restarts %d, restarting shown %v; want 0, shown", r.calls.Load(), r.restartingShown())
+	}
+	unadmit()
+	r.waitFor("the restart to end serve", r.ended)
+	r.cancel = nil
+	if r.calls.Load() != 1 {
+		t.Errorf("unadmitted: restarts %d, want the next pass's 1", r.calls.Load())
 	}
 }
 

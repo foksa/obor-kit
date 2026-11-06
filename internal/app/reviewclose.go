@@ -56,8 +56,9 @@ func (a *App) reviewCycle(p *proj, id string) (reviewCycle, error) {
 }
 
 // reviewCloseCall answers the socket's review_close request (obor review close): a call id and a summary are
-// required, a repeated call id gets the stored reply. The call is admitted (admit, as config_set) before its first
-// check, and the reply is CLOSED <the close commit's subject>.
+// required, a repeated call id waits for the close in flight and gets its stored reply. The call takes configMu (one
+// main-checkout writer at a time) before its stored-reply lookup, and is admitted (admit, as config_set) before its
+// first check; the reply is CLOSED <the close commit's subject>.
 func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	summary := strings.Join(strings.Fields(c.Note), " ")
 	if c.CallID == "" || summary == "" {
@@ -66,6 +67,9 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	if c.Role != "" && c.Role != "lead" {
 		return "", fmt.Errorf("review close: only the lead closes a review (%s)", c.Role)
 	}
+	a.configMu.Lock() // one main-checkout writer at a time; a repeated call id waits for the close in flight before its
+	// stored-reply lookup (T-930)
+	defer a.configMu.Unlock()
 	p, reply, stored := a.callProj(wire.MethodReviewClose, c)
 	switch {
 	case p == nil:
@@ -86,8 +90,6 @@ func (a *App) reviewCloseCall(c wire.Call) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("review close: %v", err)
 	}
-	a.configMu.Lock() // one main-checkout writer at a time
-	defer a.configMu.Unlock()
 	wait, cancel := context.WithTimeout(a.life, admitWait)
 	release, err := a.admit(wait, p) // a publish running ends first; none starts until the commit is in
 	cancel()

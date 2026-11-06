@@ -33,8 +33,9 @@ type ConfigFile interface {
 }
 
 // configCall answers the socket's config_set request (the owner's, or the lead's): a call id and at least one change
-// are required, a repeated call id gets the stored reply. The reply is "SET <key> <old> → <new>" per change, joined
-// by "; ", a role's with "(at its next start)".
+// are required, a repeated call id waits for the call in flight and gets its stored reply. The call takes configMu (one
+// main-checkout writer at a time) before its stored-reply lookup. The reply is "SET <key> <old> → <new>" per change,
+// joined by "; ", a role's with "(at its next start)".
 func (a *App) configCall(c wire.Call) (string, error) {
 	if c.CallID == "" || len(c.Changes) == 0 {
 		return "", errors.New(wire.MethodConfig + ": a call id and a change are required")
@@ -44,13 +45,10 @@ func (a *App) configCall(c wire.Call) (string, error) {
 			return "", errors.New(wire.MethodConfig + ": a change without a key")
 		}
 	}
-	a.mu.Lock()
-	p := a.projAt(c.Root)
-	reply, stored := "", false
-	if p != nil {
-		reply, stored = p.folded.calls[verdictStep(wire.MethodConfig, c.CallID)]
-	}
-	a.mu.Unlock()
+	a.configMu.Lock() // one main-checkout writer at a time: each reads the file the last one wrote, and a repeated call
+	// id waits for the call in flight before its stored-reply lookup (T-930)
+	defer a.configMu.Unlock()
+	p, reply, stored := a.callProj(wire.MethodConfig, c)
 	switch {
 	case p == nil:
 		return "", fmt.Errorf("%s: no served project at %s", wire.MethodConfig, c.Root)
@@ -66,8 +64,6 @@ func (a *App) configCall(c wire.Call) (string, error) {
 	if fx.Config == nil {
 		return "", fmt.Errorf("config: no config writer for %s", p.name)
 	}
-	a.configMu.Lock() // one setup edit at a time: each reads the file the last one wrote
-	defer a.configMu.Unlock()
 	wait, cancel := context.WithTimeout(a.life, admitWait)
 	release, err := a.admit(wait, p) // a publish running ends first; none starts until the commit is in
 	cancel()
