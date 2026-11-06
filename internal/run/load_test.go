@@ -146,26 +146,17 @@ func TestAcquireWaitsForLoad(t *testing.T) {
 	})
 }
 
-// ctlLoad is a load reader the test sets while Acquire runs; it counts its reads.
+// ctlLoad is a load reader the test sets while Acquire runs.
 type ctlLoad struct {
-	mu    sync.Mutex
-	v     float64
-	reads int
+	mu sync.Mutex
+	v  float64
 }
 
 func (c *ctlLoad) set(v float64) { c.mu.Lock(); c.v = v; c.mu.Unlock() }
 func (c *ctlLoad) read() (float64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.reads++
 	return c.v, true
-}
-
-// count: how many times read ran.
-func (c *ctlLoad) count() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.reads
 }
 
 // acquireResult is one Acquire's outcome and when it returned.
@@ -174,6 +165,28 @@ type acquireResult struct {
 	loaded float64
 	err    error
 	at     time.Time
+}
+
+// fakeClock is Acquire's clock in the tests: each poll advances it by one poll and then runs script with the poll's
+// number and the new time, so the script and not wall time decides the outcome (T-736, T-922).
+type fakeClock struct {
+	clock  time.Time
+	polls  int
+	script func(polls int, now time.Time)
+}
+
+func newFakeClock(s *Slots, start time.Time, script func(polls int, now time.Time)) *fakeClock {
+	c := &fakeClock{clock: start, script: script}
+	s.Now = func() time.Time { return c.clock }
+	s.After = func(d time.Duration) <-chan time.Time {
+		c.polls++
+		c.clock = c.clock.Add(d)
+		c.script(c.polls, c.clock)
+		ch := make(chan time.Time, 1)
+		ch <- c.clock
+		return ch
+	}
+	return c
 }
 
 // T-726 (RV-85 #2): LoadCap bounds the time spent waiting on the load, summed over its stretches; time queued for a
@@ -208,36 +221,50 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 	}
 	t.Run("queued past the cap at low load, the load rises as the slot frees: waits for the load", func(t *testing.T) {
 		t.Parallel()
+		// Fake clock (T-922): queued for three caps at low load, then the load rises and the slot frees with the cap's
+		// rest to spare; no sleep and no poll counter, so a delayed goroutine cannot let the cap run out.
+		const loadCap = 200 * time.Millisecond
+		const poll = 50 * time.Millisecond
 		load := &ctlLoad{v: 10}
-		s, busy := setup(t, load, 200*time.Millisecond)
+		s, busy := setup(t, load, loadCap)
+		s.Poll = poll
+		t0 := time.Unix(2000, 0)
+		var raised time.Time
 		var w lockedBuffer
-		done := start(context.Background(), s, &w)
-		time.Sleep(400 * time.Millisecond) // queued for twice the cap
-		pending(t, done, "slot busy")
-		if got := w.String(); !strings.Contains(got, "waiting for a check slot (1 running)\n") || strings.Contains(got, "machine load") {
-			t.Fatalf("precondition: wait lines %q, want slot waits only", got)
-		}
-		load.set(50)
-		// two polls must read the raised load before the slot frees (bounded: a loaded machine polls late): a poll that
-		// read the load below the limit and then found the slot free would take it at the old load (the race of T-734,
-		// T-741, T-775)
-		want := load.count() + 2
-		deadline := time.Now().Add(5 * time.Second)
-		for load.count() < want {
-			if time.Now().After(deadline) {
-				t.Fatalf("precondition: %d load reads, want %d (two polls after the raise)", load.count(), want)
+		c := newFakeClock(&s, t0, func(polls int, now time.Time) {
+			switch {
+			case polls == 6: // queued for three caps: slot waits only, no load wait counted
+				if got := w.String(); !strings.Contains(got, "waiting for a check slot (1 running)\n") || strings.Contains(got, "machine load") {
+					t.Errorf("precondition: wait lines %q, want slot waits only", got)
+				}
+				load.set(50)
+				if err := os.Remove(busy); err != nil {
+					t.Error(err)
+				}
+				raised = now
+			case polls == 7 || polls == 8: // load high, slot free, well inside the cap: must not claim
+				if _, err := os.Stat(busy); err == nil {
+					t.Errorf("claimed the freed slot %v into the load wait, under load 50", now.Sub(raised))
+				}
+			case polls == 9: // the load drops before the cap runs out: three polls of load wait, 150 ms of the 200
+				if took := now.Sub(raised); took >= loadCap {
+					t.Errorf("the load waited %v before dropping; want under the %v cap", took, loadCap)
+				}
+				load.set(10)
 			}
-			time.Sleep(time.Millisecond)
-		}
-		if err := os.Remove(busy); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(60 * time.Millisecond) // well inside the cap
-		pending(t, done, "load 50 after the slot freed")
-		load.set(10)
-		r := <-done
+		})
+		r := <-start(context.Background(), s, &w)
 		if r.err != nil || r.path != busy {
 			t.Fatalf("acquire: %+v, want %s", r, busy)
+		}
+		if raised.IsZero() {
+			t.Fatal("precondition: the script never raised the load")
+		}
+		if queued := raised.Sub(t0); queued <= loadCap {
+			t.Errorf("precondition: queued %v at low load, want more than the %v cap", queued, loadCap)
+		}
+		if c.clock.Sub(raised) >= loadCap {
+			t.Errorf("claimed %v after the raise; want inside the %v cap", c.clock.Sub(raised), loadCap)
 		}
 		if r.loaded != 0 {
 			t.Errorf("claimed under load %v; want after the load dropped", r.loaded)
@@ -254,13 +281,8 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 		load := &ctlLoad{v: 50}
 		s, busy := setup(t, load, loadCap)
 		s.Poll = poll
-		clock := time.Unix(1000, 0)
-		polls := 0
 		var third time.Time
-		s.Now = func() time.Time { return clock }
-		s.After = func(d time.Duration) <-chan time.Time {
-			polls++
-			clock = clock.Add(d)
+		c := newFakeClock(&s, time.Unix(1000, 0), func(polls int, now time.Time) {
 			switch polls {
 			case 2: // stretch 2: slot busy, then load low (queued, not counted); the other order would let it claim the free slot
 				if err := os.WriteFile(busy, []byte("0 0\n"), 0o644); err != nil {
@@ -272,12 +294,9 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 				if err := os.Remove(busy); err != nil {
 					t.Error(err)
 				}
-				third = clock
+				third = now
 			}
-			ch := make(chan time.Time, 1)
-			ch <- clock
-			return ch
-		}
+		})
 		if err := os.Remove(busy); err != nil { // stretch 1: load high, slot free (two polls: half the cap)
 			t.Fatal(err)
 		}
@@ -290,7 +309,7 @@ func TestAcquireLoadCapCountsOnlyLoadWaits(t *testing.T) {
 			t.Fatal("precondition: the script never reached the third stretch")
 		}
 		// the rest of the cap is loadCap/2: not at once (the queue counted), not a whole cap (the first stretch forgotten)
-		if took := clock.Sub(third); took < loadCap/4 || took >= loadCap*9/10 {
+		if took := c.clock.Sub(third); took < loadCap/4 || took >= loadCap*9/10 {
 			t.Errorf("claimed %v into the third stretch; want about %v (the cap's rest)", took, loadCap/2)
 		}
 		got := w.String()
