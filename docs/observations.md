@@ -14,6 +14,10 @@ live in `docs/decisions.md`, open work in `BACKLOG.md`, the lead's own working r
 - **Size does not fall by itself.** v0.27.1 → v0.28.0: prod lines flat (+~100), tests +~2k. Coverage-based pruning
   lost scenarios (11-04: 4 restore rounds). What works: deleting a mechanism with its tests (T-866, T-870, T-877 −220).
   Ask every task for net prod lines; next milestone requires net-negative.
+- **Replacing a mechanism grows; deleting one shrinks** (11-06, waves G-J): G (a lead step gone) −205, T-935
+  (restart_serve gone) −50; I (close into serve) +103, H ~0, J1b (locks → one section) +46 with two regressions and a
+  revert. Even the deep dive's measured estimate missed: the lock ordered verbs across git reads. Prefer tasks that
+  remove a step or a mechanism outright; price a "replace X with simpler Y" at its crash and race paths, not its idea.
 - **Old record shapes never go.** Replay starts at record 1 and every store still holds old shapes (census 11-05), so
   change rule 5 cannot delete a compat branch or its tests without a log snapshot (owner decision pending).
 
